@@ -3,12 +3,17 @@
   "version": "0.0.1",
   "description": "A CLI for the Foundry project",
   "bin": {
-    "foundry": "./src/consumers/cli/index.ts"
+    "foundry": "./dist/cli.js"
   },
-  "main": "index.ts",
+  "main": "dist/index.js",
   "module": "index.ts",
   "type": "module",
   "scripts": {
+    "build": "bun build:lib && bun build:cli && bun build:a2a && bun build:mcp",
+    "build:mcp": "bun build ./src/consumers/mcp/index.ts --outfile ./dist/mcp.js --target bun",
+    "build:a2a": "bun build ./src/consumers/a2a/index.ts --outfile ./dist/a2a.js --target bun",
+    "build:cli": "bun build ./src/consumers/cli/index.ts --outfile ./dist/cli.js --target bun",
+    "build:lib": "bun build ./src/index.ts --outfile ./dist/index.js --target bun",
     "test": "bun test tests/**/*.test.ts",
     "test:watch": "bun test --watch tests/**/*.test.ts"
   },
