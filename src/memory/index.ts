@@ -1,11 +1,17 @@
 // memory/index.ts
-
+import fs from 'node:fs';
 import { Database } from 'bun:sqlite';
 import { cosineSimilarity } from 'ai';
 import crypto from 'crypto';
 import { embed as localEmbed } from './embeddings';
 
-export const queries = {
+// Define embedding dimension constant
+const EMBEDDING_DIMENSION = 512;
+
+/**
+ * SQL queries used by the memory manager
+ */
+const queries = {
   // 1) On-demand import depths
   deps: `
     WITH RECURSIVE
@@ -13,7 +19,7 @@ export const queries = {
         -- base: direct imports (depth = 1)
         SELECT parent_id, child_id, 1
           FROM deps
-         WHERE parent_id = :rootId
+         WHERE parent_id = ?
 
         UNION ALL
 
@@ -27,12 +33,14 @@ export const queries = {
          WHERE w.depth < 50  -- guard against cycles
       )
     SELECT
-      child   AS file_id,
-      MIN(depth) AS depth
-      FROM walk
-     GROUP BY child
+      w.child   AS file_id,
+      f.path    AS path,
+      MIN(w.depth) AS depth
+      FROM walk w
+      JOIN files f ON w.child = f.id
+     GROUP BY w.child, f.path
      ORDER BY depth;
-  `,
+  `.trim(),
 
   // 2) Closure-table lookup (precomputed)
   closure: `
@@ -42,7 +50,7 @@ export const queries = {
     FROM file_closure
     WHERE ancestor_id = :rootId
     ORDER BY depth;
-  `,
+  `.trim(),
 
   // 3) Materialized-path filter
   path: `
@@ -52,7 +60,7 @@ export const queries = {
       matpath
     FROM files
     WHERE matpath LIKE :pathPattern;
-  `,
+  `.trim(),
 
   // 4) JSON-adjacency expansion
   jsonDeps: `
@@ -62,7 +70,7 @@ export const queries = {
     FROM files f,
          json_each(f.deps_json) AS j
     WHERE j.value = :depPath;
-  `,
+  `.trim(),
 
   // 5) Combined: path + JSON deps + vector threshold
   combined: `
@@ -80,12 +88,12 @@ export const queries = {
     SELECT
       fd.id,
       fd.path,
-      cosine_sim(fd.embedding_json, @emb) AS score
+      cosine_sim(fd.embedding_json, @emb) AS score -- Note: cosine_sim likely needs JS implementation
     FROM filtered_deps AS fd
     WHERE score > @minScore
     ORDER BY score DESC
     LIMIT @limit;
-  `,
+  `.trim(),
 
   // Add query for retrieving chunks by file path
   chunksByFile: `
@@ -98,7 +106,7 @@ export const queries = {
     FROM chunk_cache
     WHERE file_path = ?
     ORDER BY start_line;
-  `,
+  `.trim(),
 
   // Add query for retrieving chunks by line range
   chunksByRange: `
@@ -112,16 +120,54 @@ export const queries = {
     WHERE file_path = ?
       AND NOT (end_line < ? OR start_line > ?)
     ORDER BY start_line;
-  `,
+  `.trim(),
 };
 
-type QueryParams = {
-  pathPattern: string;
-  depPath: string;
-  queryEmb: number[];
-  minScore: number;
-  limit: number;
-};
+/**
+ * Initialize database schema and settings
+ */
+function initializeDatabase(db: Database): void {
+  db.exec(
+    `
+    PRAGMA journal_mode = WAL;
+    PRAGMA synchronous = NORMAL;
+    PRAGMA foreign_keys = ON;
+    PRAGMA busy_timeout = 5000;
+  `.trim()
+  );
+
+  db.exec(
+    `
+    CREATE TABLE IF NOT EXISTS files (
+      id INTEGER PRIMARY KEY,
+      path TEXT NOT NULL UNIQUE,
+      content TEXT,
+      deps_json TEXT,
+      embedding_json TEXT,
+      matpath TEXT
+    );
+    
+    CREATE TABLE IF NOT EXISTS deps (
+      parent_id INTEGER,
+      child_id INTEGER,
+      PRIMARY KEY (parent_id, child_id),
+      FOREIGN KEY (parent_id) REFERENCES files(id),
+      FOREIGN KEY (child_id) REFERENCES files(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS chunk_cache (
+      file_path    TEXT    NOT NULL,
+      start_line   INTEGER NOT NULL,
+      end_line     INTEGER NOT NULL,
+      chunk_hash   TEXT    PRIMARY KEY,
+      embedding_json TEXT   NOT NULL,
+      created_at    INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_chunk_file_path ON chunk_cache(file_path);
+    CREATE INDEX IF NOT EXISTS idx_chunk_lines ON chunk_cache(file_path, start_line, end_line);
+  `.trim()
+  );
+}
 
 /**
  * Represents a chunk of a file
@@ -141,45 +187,6 @@ export interface CachedChunk {
   endLine: number;
   hash: string;
   embedding: number[];
-}
-
-/**
- * Create a table to store the embedding vectors if it doesn't exist
- */
-function initializeDatabase(db: Database): void {
-  // Create tables if they don't exist
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS files (
-      id INTEGER PRIMARY KEY,
-      path TEXT NOT NULL UNIQUE,
-      content TEXT,
-      deps_json TEXT,  -- JSON array of dependency paths
-      embedding_json TEXT, -- JSON string of embedding vector
-      matpath TEXT     -- materialized path for hierarchical queries
-    );
-    
-    CREATE TABLE IF NOT EXISTS deps (
-      parent_id INTEGER,
-      child_id INTEGER,
-      PRIMARY KEY (parent_id, child_id),
-      FOREIGN KEY (parent_id) REFERENCES files(id),
-      FOREIGN KEY (child_id) REFERENCES files(id)
-    );
-  `);
-
-  // 1) Write-Ahead Logging for concurrency
-  //    Allows readers and writers to operate without blocking each other.
-  db.exec('PRAGMA journal_mode = WAL');
-
-  // 2) Reasonable fsync behavior
-  //    NORMAL is safe in WAL mode and skips some fsyncs for better perf.
-  db.exec('PRAGMA synchronous = NORMAL');
-
-  // 3) Enforce foreign-key constraints (off by default)
-  db.exec('PRAGMA foreign_keys = ON');
-
-  // 4) Avoid "database is busy" errors under load
-  db.exec('PRAGMA busy_timeout = 5000'); // wait up to 5s before throwing
 }
 
 /**
@@ -277,422 +284,89 @@ export interface MemoryManager {
   close(): void;
 }
 
-/**
- * Create a new memory manager instance
- */
-export async function createMemoryManager(
-  dbPath: string = 'memory.db'
-): Promise<MemoryManager> {
-  const db = new Database(dbPath, { create: true });
+// --- Start Specialized Query Functions ---
 
-  // Initialize the database schema and settings
-  initializeDatabase(db);
+type DbRow = Record<string, any>;
 
-  // Create chunk cache table - split into separate statements
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS chunk_cache (
-      file_path    TEXT    NOT NULL,
-      start_line   INTEGER NOT NULL,
-      end_line     INTEGER NOT NULL,
-      chunk_hash   TEXT    PRIMARY KEY,
-      embedding_json TEXT   NOT NULL,
-      created_at    INTEGER NOT NULL DEFAULT (strftime('%s','now'))
-    );
-  `);
-
-  // Create indices in separate statements
-  db.exec(
-    `CREATE INDEX IF NOT EXISTS idx_chunk_file_path ON chunk_cache(file_path);`
+async function queryDeps(
+  db: Database,
+  rootId: number
+): Promise<Array<{ id: number; path: string; depth: number }>> {
+  console.log(
+    `[queryDeps] Querying with rootId: ${rootId} (type: ${typeof rootId})`
   );
-  db.exec(
-    `CREATE INDEX IF NOT EXISTS idx_chunk_lines ON chunk_cache(file_path, start_line, end_line);`
+  const results = db.query(queries.deps).all(rootId) as DbRow[];
+  console.log(
+    `[queryDeps] Found ${results.length} related files for rootId: ${rootId}`
   );
-
-  // Instead of trying to create a SQL function, we'll implement cosine similarity in JavaScript
-  // SQLite in Bun may not support custom functions the way we were trying to use them
-
-  // Implement the memory manager
-  const manager: MemoryManager = {
-    /**
-     * Find files related to a specific file by dependencies
-     */
-    async findRelatedFiles(filePath: string, depth: number = 3) {
-      // First, get the file ID
-      const fileQuery = db
-        .query(`SELECT id FROM files WHERE path = ?`)
-        .get(filePath);
-
-      if (!fileQuery) {
-        return [];
-      }
-
-      const fileId = (fileQuery as any).id;
-
-      // Then, get related files using the deps query
-      const result = db.query(queries.deps).all({ rootId: fileId });
-
-      return result
-        .map((row: any) => ({
-          id: row.file_id,
-          path: db
-            .query(`SELECT path FROM files WHERE id = ?`)
-            .get(row.file_id) as any,
-          depth: row.depth,
-        }))
-        .filter((item: any) => item.depth <= depth);
-    },
-
-    /**
-     * Find files similar to the query text using vector similarity
-     */
-    async findSimilarFiles({
-      query,
-      pathPattern = '%',
-      minScore = 0.7,
-      limit = 20,
-    }) {
-      // Generate embedding for the query using local model
-      const [embedding = new Array(1536).fill(0)] = await localEmbed([query]);
-
-      // Get candidates matching path pattern
-      const candidates = db
-        .query(
-          `
-        SELECT id, path, embedding_json 
-        FROM files 
-        WHERE path LIKE ?
-      `
-        )
-        .all(pathPattern);
-
-      // Calculate similarity in JavaScript
-      const results = candidates
-        .map((row: any) => {
-          const fileEmbedding = JSON.parse(row.embedding_json || '[]');
-          const score = cosineSimilarity(embedding, fileEmbedding);
-          return {
-            id: row.id,
-            path: row.path,
-            score,
-          };
-        })
-        .filter(item => item.score > minScore)
-        .sort((a, b) => b.score - a.score)
-        .slice(0, limit);
-
-      return results;
-    },
-
-    /**
-     * Add or update a file in the memory database
-     */
-    async addFile({ path, content, dependencies }) {
-      // First, generate embedding for the file content using local model
-      const embeddings = await localEmbed([content]);
-      // Use the first embedding or a fallback
-      const embedding = embeddings?.[0] || new Array(1536).fill(0);
-
-      // Check if file already exists
-      const existing = db
-        .query(`SELECT id FROM files WHERE path = ?`)
-        .get(path);
-
-      if (existing) {
-        // Update existing file
-        const fileId = (existing as any).id;
-
-        db.query(
-          `
-          UPDATE files 
-          SET content = ?, deps_json = ?, embedding_json = ? 
-          WHERE id = ?
-        `
-        ).run(
-          content,
-          JSON.stringify(dependencies),
-          JSON.stringify(embedding),
-          fileId
-        );
-
-        // Update dependencies
-        db.query(`DELETE FROM deps WHERE parent_id = ?`).run(fileId);
-
-        // Add new dependency relationships
-        for (const depPath of dependencies) {
-          const depFile = db
-            .query(`SELECT id FROM files WHERE path = ?`)
-            .get(depPath);
-
-          if (depFile) {
-            const depId = (depFile as any).id;
-            db.query(
-              `INSERT OR IGNORE INTO deps (parent_id, child_id) VALUES (?, ?)`
-            ).run(fileId, depId);
-          }
-        }
-
-        return fileId;
-      } else {
-        // Insert new file
-        const result = db
-          .query(
-            `
-          INSERT INTO files (path, content, deps_json, embedding_json, matpath) 
-          VALUES (?, ?, ?, ?, ?)
-        `
-          )
-          .run(
-            path,
-            content,
-            JSON.stringify(dependencies),
-            JSON.stringify(embedding),
-            path.replace(/\//g, '.') // Simple materialized path
-          );
-
-        const fileId = (result as any).lastInsertRowId;
-
-        // Add dependency relationships if deps exist
-        for (const depPath of dependencies) {
-          const depFile = db
-            .query(`SELECT id FROM files WHERE path = ?`)
-            .get(depPath);
-
-          if (depFile) {
-            const depId = (depFile as any).id;
-            db.query(
-              `INSERT OR IGNORE INTO deps (parent_id, child_id) VALUES (?, ?)`
-            ).run(fileId, depId);
-          }
-        }
-
-        return fileId;
-      }
-    },
-
-    /**
-     * Get file metadata by path
-     */
-    async getFile(path) {
-      const result = db
-        .query(
-          `
-        SELECT id, path, content, deps_json 
-        FROM files 
-        WHERE path = ?
-      `
-        )
-        .get(path);
-
-      if (!result) {
-        return null;
-      }
-
-      return {
-        id: (result as any).id,
-        path: (result as any).path,
-        content: (result as any).content,
-        dependencies: JSON.parse((result as any).deps_json || '[]'),
-      };
-    },
-
-    /**
-     * Process a file into chunks and generate embeddings
-     */
-    async processFileChunks(filePath: string, content: string, options = {}) {
-      const maxLines = options.maxLines ?? 50;
-      const overlap = options.overlap ?? 5;
-
-      // Split the file into chunks
-      const chunks = chunkByLines(content, maxLines, overlap);
-
-      // Prepare data for embedding
-      const pendingChunks: Array<{
-        file_path: string;
-        start: number;
-        end: number;
-        hash: string;
-        text: string;
-      }> = [];
-
-      // Check which chunks need embedding
-      const insertStmt = db.prepare(`
-        INSERT INTO chunk_cache
-          (file_path, start_line, end_line, chunk_hash, embedding_json)
-        VALUES
-          (?, ?, ?, ?, ?)
-      `);
-
-      for (const { text, startLine, endLine } of chunks) {
-        const hash = hashChunk(filePath, text, startLine, endLine);
-
-        // Check if chunk already exists in cache
-        const exists = db
-          .query(
-            `
-          SELECT 1 FROM chunk_cache 
-          WHERE chunk_hash = ?
-        `
-          )
-          .get(hash);
-
-        if (!exists) {
-          pendingChunks.push({
-            file_path: filePath,
-            start: startLine,
-            end: endLine,
-            hash,
-            text,
-          });
-        }
-      }
-
-      // If no new chunks, return existing ones
-      if (pendingChunks.length === 0) {
-        return this.getFileChunks(filePath);
-      }
-
-      // Generate embeddings for new chunks using our local model
-      const chunkTexts = pendingChunks.map(chunk => chunk.text);
-      const embeddings = await localEmbed(chunkTexts);
-
-      // Store chunks with embeddings in the database
-      db.transaction(() => {
-        for (let i = 0; i < pendingChunks.length; i++) {
-          const chunk = pendingChunks[i];
-          // Ensure we have a valid embedding for this chunk
-          const embedding = embeddings?.[i];
-
-          if (chunk && embedding) {
-            insertStmt.run(
-              chunk.file_path,
-              chunk.start,
-              chunk.end,
-              chunk.hash,
-              JSON.stringify(embedding)
-            );
-          }
-        }
-      })();
-
-      // Return all chunks for the file
-      return this.getFileChunks(filePath);
-    },
-
-    /**
-     * Get all cached chunks for a file
-     */
-    async getFileChunks(filePath: string): Promise<CachedChunk[]> {
-      const chunks = db.query(queries.chunksByFile).all(filePath);
-
-      return chunks.map((row: any) => ({
-        filePath: row.file_path,
-        startLine: row.start_line,
-        endLine: row.end_line,
-        hash: row.chunk_hash,
-        embedding: JSON.parse(row.embedding_json),
-      }));
-    },
-
-    /**
-     * Invalidate chunks for a file
-     */
-    async invalidateFile(filePath: string): Promise<void> {
-      db.query(
-        `
-        DELETE FROM chunk_cache 
-        WHERE file_path = ?
-      `
-      ).run(filePath);
-    },
-
-    /**
-     * Invalidate chunks for a specific line range in a file
-     */
-    async invalidateRange(
-      filePath: string,
-      startLine: number,
-      endLine: number
-    ): Promise<void> {
-      db.query(
-        `
-        DELETE FROM chunk_cache 
-        WHERE file_path = ?
-          AND NOT (end_line < ? OR start_line > ?)
-      `
-      ).run(filePath, startLine, endLine);
-    },
-
-    /**
-     * Find similar chunks based on semantic search
-     */
-    async findSimilarChunks(
-      query: string,
-      options = {}
-    ): Promise<Array<{ chunk: CachedChunk; score: number }>> {
-      const { filePath, limit = 10, minScore = 0.7 } = options;
-
-      // Generate embedding for query using local model
-      const queryEmbeddings = await localEmbed([query]);
-      // Ensure we have a valid embedding, using an empty array as fallback
-      const queryEmbedding = queryEmbeddings?.[0] || new Array(1536).fill(0);
-
-      // Get chunks to compare against
-      let chunks;
-      if (filePath) {
-        chunks = db
-          .query(
-            `
-          SELECT file_path, start_line, end_line, chunk_hash, embedding_json
-          FROM chunk_cache
-          WHERE file_path = ?
-        `
-          )
-          .all(filePath);
-      } else {
-        chunks = db
-          .query(
-            `
-          SELECT file_path, start_line, end_line, chunk_hash, embedding_json
-          FROM chunk_cache
-        `
-          )
-          .all();
-      }
-
-      // Calculate similarity scores using cosine similarity
-      const results = chunks
-        .map((row: any) => {
-          const chunkEmbedding = JSON.parse(row.embedding_json);
-          const score = cosineSimilarity(queryEmbedding, chunkEmbedding);
-
-          return {
-            chunk: {
-              filePath: row.file_path,
-              startLine: row.start_line,
-              endLine: row.end_line,
-              hash: row.chunk_hash,
-              embedding: chunkEmbedding,
-            },
-            score,
-          };
-        })
-        .filter(item => item.score >= minScore)
-        .sort((a, b) => b.score - a.score)
-        .slice(0, limit);
-
-      return results;
-    },
-
-    /**
-     * Close the database connection
-     */
-    close() {
-      db.close();
-    },
-  };
-
-  return manager;
+  return results.map(row => ({
+    id: Number(row.file_id), // Ensure Number type
+    path: String(row.path),
+    depth: Number(row.depth), // Ensure Number type
+  }));
 }
+
+async function queryChunksByFile(
+  db: Database,
+  filePath: string
+): Promise<CachedChunk[]> {
+  const chunks = db.query(queries.chunksByFile).all(filePath) as DbRow[];
+  return chunks.map(row => ({
+    filePath: String(row.file_path),
+    startLine: Number(row.start_line), // Cast BigInt to Number
+    endLine: Number(row.end_line), // Cast BigInt to Number
+    hash: String(row.chunk_hash),
+    embedding: JSON.parse(String(row.embedding_json)),
+  }));
+}
+
+async function queryAllChunks(db: Database): Promise<CachedChunk[]> {
+  const chunks = db
+    .query(
+      `SELECT file_path, start_line, end_line, chunk_hash, embedding_json FROM chunk_cache`
+    )
+    .all() as DbRow[];
+  return chunks.map(row => ({
+    filePath: String(row.file_path),
+    startLine: Number(row.start_line),
+    endLine: Number(row.end_line),
+    hash: String(row.chunk_hash),
+    embedding: JSON.parse(String(row.embedding_json)),
+  }));
+}
+
+function prepareInsertChunk(db: Database) {
+  return db.prepare(`
+    INSERT INTO chunk_cache
+      (file_path, start_line, end_line, chunk_hash, embedding_json)
+    VALUES
+      (?, ?, ?, ?, ?)
+  `);
+}
+
+function prepareCheckChunkExists(db: Database) {
+  return db.prepare(`SELECT 1 FROM chunk_cache WHERE chunk_hash = ?`);
+}
+
+async function deleteChunksByFile(
+  db: Database,
+  filePath: string
+): Promise<void> {
+  db.query(`DELETE FROM chunk_cache WHERE file_path = ?`).run(filePath);
+}
+
+async function deleteChunksByRange(
+  db: Database,
+  filePath: string,
+  startLine: number,
+  endLine: number
+): Promise<void> {
+  db.query(
+    `DELETE FROM chunk_cache WHERE file_path = ? AND NOT (end_line < ? OR start_line > ?)`
+  ).run(filePath, startLine, endLine);
+}
+
+// --- End Specialized Query Functions ---
 
 /**
  * Calculate a hash for a chunk of code based on content and location
@@ -727,65 +401,311 @@ function chunkByLines(text: string, maxLines = 50, overlap = 5): FileChunk[] {
   return chunks;
 }
 
-// // Example usage with chunking
-// async function main() {
-//   const memory = await createMemoryManager();
+/**
+ * Create a new memory manager instance
+ */
+export async function createMemoryManager(
+  dbPath: string = ':memory:'
+): Promise<MemoryManager> {
+  const db = new Database(dbPath, {
+    create: true,
+    readwrite: true,
+    safeIntegers: true, // Keep this for now, handle casting in query functions
+  });
 
-//   // Add files using chunking
-//   const fileContent = `
-// // Example file with multiple lines
-// export function readFile(path: string) {
-//   return Bun.file(path).text();
-// }
+  // Initialize the database schema and settings
+  initializeDatabase(db);
 
-// export function writeFile(path: string, content: string) {
-//   return Bun.write(path, content);
-// }
+  // Prepare statements once
+  const insertChunkStmt = prepareInsertChunk(db);
+  const checkChunkExistsStmt = prepareCheckChunkExists(db);
 
-// // Some more content to create multiple chunks
-// export function appendFile(path: string, content: string) {
-//   const file = Bun.file(path);
-//   const existing = await file.text();
-//   return Bun.write(path, existing + content);
-// }
-//   `.trim();
+  // Implement the memory manager
+  const manager: MemoryManager = {
+    /**
+     * Find files related to a specific file by dependencies
+     */
+    async findRelatedFiles(filePath: string, depth: number = 3) {
+      const fileQuery = db
+        .query(`SELECT id FROM files WHERE path = ?`)
+        .get(filePath) as { id: number | bigint } | null; // Explicit type
 
-//   // Process file with chunking strategy
-//   const chunks = await memory.processFileChunks(
-//     '/src/utils/io.ts',
-//     fileContent
-//   );
-//   console.log(`File processed into ${chunks.length} chunks`);
+      // Check if fileQuery exists and has a valid id
+      if (
+        !fileQuery ||
+        (typeof fileQuery.id !== 'number' && typeof fileQuery.id !== 'bigint')
+      ) {
+        console.warn(
+          `[findRelatedFiles] File not found or invalid ID for path: ${filePath}`
+        );
+        return [];
+      }
+      const fileId = Number(fileQuery.id); // Convert bigint/number to number
 
-//   // Find chunks similar to a query
-//   const similarChunks = await memory.findSimilarChunks(
-//     'append content to a file'
-//   );
-//   console.log(
-//     'Similar chunks:',
-//     similarChunks.map(r => ({
-//       filePath: r.chunk.filePath,
-//       lines: `${r.chunk.startLine}-${r.chunk.endLine}`,
-//       score: r.score,
-//     }))
-//   );
+      // Use the specialized query function
+      const relatedFiles = await queryDeps(db, fileId);
 
-//   // Invalidate part of a file
-//   await memory.invalidateRange('/src/utils/io.ts', 10, 15);
-//   console.log('Invalidated lines 10-15');
+      return relatedFiles.filter((item: any) => item.depth <= depth);
+    },
 
-//   // Reprocess after changes
-//   const updatedContent = fileContent + '\n\n// Added new functions\n';
-//   const updatedChunks = await memory.processFileChunks(
-//     '/src/utils/io.ts',
-//     updatedContent
-//   );
-//   console.log(`File reprocessed into ${updatedChunks.length} chunks`);
+    /**
+     * Find files similar to the query text using vector similarity
+     */
+    async findSimilarFiles({
+      query,
+      pathPattern = '%',
+      minScore = 0.7,
+      limit = 20,
+    }) {
+      const [embedding = new Array(EMBEDDING_DIMENSION).fill(0)] =
+        await localEmbed([query]);
+      const candidates = db
+        .query(`SELECT id, path, embedding_json FROM files WHERE path LIKE ?`)
+        .all(pathPattern) as DbRow[];
 
-//   memory.close();
-// }
+      const results = candidates
+        .map((row: any) => {
+          const fileEmbedding = JSON.parse(row.embedding_json || '[]');
+          const score = cosineSimilarity(embedding, fileEmbedding);
+          return {
+            id: Number(row.id),
+            path: String(row.path),
+            score,
+          };
+        })
+        .filter(item => item.score > minScore)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, limit);
+      return results;
+    },
 
-// // Only run if executed directly
-// if (import.meta.path === Bun.main) {
-//   main().catch(console.error);
-// }
+    /**
+     * Add or update a file in the memory database
+     */
+    async addFile({ path, content, dependencies }) {
+      const embeddings = await localEmbed([content]);
+      const embedding =
+        embeddings?.[0] || new Array(EMBEDDING_DIMENSION).fill(0);
+      const existing = db
+        .query(`SELECT id FROM files WHERE path = ?`)
+        .get(path) as DbRow | null;
+
+      let fileId: number;
+
+      if (existing && existing.id) {
+        fileId = Number(existing.id);
+        db.query(
+          `UPDATE files SET content = ?, deps_json = ?, embedding_json = ? WHERE id = ?`
+        ).run(
+          content,
+          JSON.stringify(dependencies),
+          JSON.stringify(embedding),
+          fileId
+        );
+        db.query(`DELETE FROM deps WHERE parent_id = ?`).run(fileId);
+      } else {
+        const result = db
+          .query(
+            `INSERT INTO files (path, content, deps_json, embedding_json, matpath) VALUES (?, ?, ?, ?, ?)`
+          )
+          .run(
+            path,
+            content,
+            JSON.stringify(dependencies),
+            JSON.stringify(embedding),
+            path.replace(/\//g, '.')
+          );
+        fileId = Number((result as any).lastInsertRowid); // Use Number() and correct property
+      }
+
+      if (isNaN(fileId)) {
+        console.error(`[addFile] Failed to get valid fileId for path: ${path}`);
+        // Decide on error handling: throw error or return a specific value?
+        // For now, let's throw to make failures obvious in tests
+        throw new Error(
+          `[addFile] Failed to get valid fileId for path: ${path}`
+        );
+      }
+
+      for (const depPath of dependencies) {
+        const depFile = db
+          .query(`SELECT id FROM files WHERE path = ?`)
+          .get(depPath) as DbRow | null;
+        if (depFile && depFile.id) {
+          const depId = Number(depFile.id);
+          console.log(
+            `[addFile] Adding dependency: parent=${fileId} (type: ${typeof fileId}), child=${depId} (type: ${typeof depId})`
+          );
+          db.query(
+            `INSERT OR IGNORE INTO deps (parent_id, child_id) VALUES (?, ?)`
+          ).run(fileId, depId);
+        } else {
+          console.warn(
+            `[addFile] Dependency file not found: ${depPath} for parent ${path}`
+          );
+        }
+      }
+      return fileId;
+    },
+
+    /**
+     * Get file metadata by path
+     */
+    async getFile(path) {
+      const result = db
+        .query(`SELECT id, path, content, deps_json FROM files WHERE path = ?`)
+        .get(path) as DbRow | null;
+      if (!result) return null;
+      return {
+        id: Number(result.id),
+        path: String(result.path),
+        content: String(result.content),
+        dependencies: JSON.parse(String(result.deps_json || '[]')),
+      };
+    },
+
+    /**
+     * Process a file into chunks and generate embeddings
+     */
+    async processFileChunks(filePath: string, content: string, options = {}) {
+      const maxLines = options.maxLines ?? 50;
+      const overlap = options.overlap ?? 5;
+      const fileChunks = chunkByLines(content, maxLines, overlap);
+      const pendingChunks: Array<{
+        file_path: string;
+        start: number;
+        end: number;
+        hash: string;
+        text: string;
+      }> = [];
+
+      for (const { text, startLine, endLine } of fileChunks) {
+        const hash = hashChunk(filePath, text, startLine, endLine);
+        const exists = checkChunkExistsStmt.get(hash);
+        if (!exists) {
+          pendingChunks.push({
+            file_path: filePath,
+            start: startLine,
+            end: endLine,
+            hash,
+            text,
+          });
+        }
+      }
+
+      if (pendingChunks.length === 0) {
+        return this.getFileChunks(filePath);
+      }
+
+      const chunkTexts = pendingChunks.map(chunk => chunk.text);
+      const embeddings = await localEmbed(chunkTexts);
+
+      db.transaction(
+        (
+          chunksToInsert: typeof pendingChunks,
+          embeddingsToInsert: number[][]
+        ) => {
+          for (let i = 0; i < chunksToInsert.length; i++) {
+            const chunk = chunksToInsert[i];
+            const embedding = embeddingsToInsert?.[i];
+            if (chunk && embedding) {
+              insertChunkStmt.run(
+                chunk.file_path,
+                chunk.start,
+                chunk.end,
+                chunk.hash,
+                JSON.stringify(embedding)
+              );
+            }
+          }
+        }
+      )(pendingChunks, embeddings);
+
+      return this.getFileChunks(filePath);
+    },
+
+    /**
+     * Get all cached chunks for a file
+     */
+    async getFileChunks(filePath: string): Promise<CachedChunk[]> {
+      // Use the specialized query function
+      return queryChunksByFile(db, filePath);
+    },
+
+    /**
+     * Invalidate chunks for a file
+     */
+    async invalidateFile(filePath: string): Promise<void> {
+      // Use the specialized delete function
+      await deleteChunksByFile(db, filePath);
+    },
+
+    /**
+     * Invalidate chunks for a specific line range in a file
+     */
+    async invalidateRange(
+      filePath: string,
+      startLine: number,
+      endLine: number
+    ): Promise<void> {
+      // Use the specialized delete function
+      await deleteChunksByRange(db, filePath, startLine, endLine);
+    },
+
+    /**
+     * Find similar chunks based on semantic search
+     */
+    async findSimilarChunks(
+      query: string,
+      options = {}
+    ): Promise<Array<{ chunk: CachedChunk; score: number }>> {
+      const { filePath, limit = 10, minScore = 0.7 } = options;
+      const [queryEmbedding = new Array(EMBEDDING_DIMENSION).fill(0)] =
+        await localEmbed([query]);
+      console.log(`[findSimilarChunks] Query: "${query}"`);
+      console.log(
+        `[findSimilarChunks] Query Embedding Length: ${queryEmbedding?.length}`
+      );
+      // console.log(`[findSimilarChunks] Query Embedding (first 5): ${queryEmbedding?.slice(0, 5)}`); // Optional: log partial embedding
+
+      // 2. Get candidate chunks
+      let chunks: CachedChunk[];
+      if (filePath) {
+        chunks = await queryChunksByFile(db, filePath);
+      } else {
+        chunks = await queryAllChunks(db);
+      }
+
+      // 3. Calculate scores and filter
+      const scoredResults = chunks.map((chunk: CachedChunk) => {
+        const score = cosineSimilarity(queryEmbedding, chunk.embedding);
+        // Log individual chunk scores before filtering
+        console.log(
+          `[findSimilarChunks] Chunk (${chunk.filePath}:${chunk.startLine}-${
+            chunk.endLine
+          }) Score: ${score.toFixed(4)}`
+        );
+        return { chunk, score };
+      });
+
+      const results = scoredResults
+        .filter(item => item.score >= minScore) // Filter by minScore (0.7)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, limit); // Limit results
+
+      return results;
+    },
+
+    /**
+     * Close the database connection
+     */
+    async close() {
+      // Dispose prepared statements before closing db
+      insertChunkStmt.finalize();
+      checkChunkExistsStmt.finalize();
+      db.close(); // db.close() is synchronous in bun:sqlite
+    },
+  };
+
+  return manager;
+}

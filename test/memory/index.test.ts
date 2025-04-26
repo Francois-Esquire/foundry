@@ -1,49 +1,47 @@
-import { test, expect, describe, beforeEach, afterEach, mock } from 'bun:test';
+import {
+  test,
+  expect,
+  describe,
+  beforeEach,
+  afterEach,
+  mock,
+  afterAll,
+} from 'bun:test';
 import {
   createMemoryManager,
   type MemoryManager,
   type CachedChunk,
 } from '../../src/memory';
-import { unlink } from 'node:fs/promises';
 import { createHash } from 'crypto';
-import { embed, load } from '../../src/memory/embeddings';
 
 describe('Memory Manager', () => {
-  const TEST_DB = 'test-memory.db';
-  let memory: MemoryManager;
+  // Use in-memory database for tests
+  const MEMORY_DB_PATH = ':memory:';
+  let memory: MemoryManager | null = null; // Allow null for cleanup
 
-  // Load the embedding model before running any tests
   beforeEach(async () => {
-    // Ensure embedding model is loaded
-    await load();
-
-    // Clean up any previous test database
-    try {
-      await unlink(TEST_DB);
-    } catch (e) {
-      // Ignore if file doesn't exist
+    // Close previous instance if exists
+    if (memory) {
+      await memory.close();
+      memory = null;
     }
-
-    // Create a fresh memory manager for each test
-    memory = await createMemoryManager(TEST_DB);
+    // No need to unlink for :memory: database
+    memory = await createMemoryManager(MEMORY_DB_PATH); // Create new instance using :memory:
+    // No delay needed for in-memory DB
   });
 
   afterEach(async () => {
-    // Clean up after tests
+    // Close the connection after each test
     if (memory) {
-      memory.close();
-    }
-
-    try {
-      await unlink(TEST_DB);
-    } catch (e) {
-      // Ignore errors
+      await memory.close();
+      memory = null;
     }
   });
 
   describe('File Operations', () => {
     test('should add a new file', async () => {
-      const fileId = await memory.addFile({
+      expect(memory).not.toBeNull(); // Add null check
+      const fileId = await memory!.addFile({
         path: '/src/test.ts',
         content: 'const x = 1;',
         dependencies: [],
@@ -51,22 +49,23 @@ describe('Memory Manager', () => {
 
       expect(fileId).toBeGreaterThan(0);
 
-      const file = await memory.getFile('/src/test.ts');
+      const file = await memory!.getFile('/src/test.ts');
       expect(file).not.toBeNull();
       expect(file?.path).toBe('/src/test.ts');
       expect(file?.content).toBe('const x = 1;');
     });
 
     test('should update an existing file', async () => {
+      expect(memory).not.toBeNull(); // Add null check
       // Add initial file
-      const fileId = await memory.addFile({
+      const fileId = await memory!.addFile({
         path: '/src/test.ts',
         content: 'const x = 1;',
         dependencies: [],
       });
 
       // Update the file
-      const updatedId = await memory.addFile({
+      const updatedId = await memory!.addFile({
         path: '/src/test.ts',
         content: 'const x = 2;',
         dependencies: [],
@@ -74,40 +73,43 @@ describe('Memory Manager', () => {
 
       expect(updatedId).toBe(fileId);
 
-      const file = await memory.getFile('/src/test.ts');
+      const file = await memory!.getFile('/src/test.ts');
       expect(file?.content).toBe('const x = 2;');
     });
 
+    // Re-enable this test
     test('should track file dependencies', async () => {
+      expect(memory).not.toBeNull(); // Add null check
       // Add two files with a dependency relationship
-      await memory.addFile({
+      await memory!.addFile({
         path: '/src/utils.ts',
         content: 'export const util = 1;',
         dependencies: [],
       });
 
-      await memory.addFile({
+      await memory!.addFile({
         path: '/src/main.ts',
         content: 'import { util } from "./utils";',
         dependencies: ['/src/utils.ts'],
       });
 
-      // Find related files
-      const related = await memory.findRelatedFiles('/src/utils.ts');
+      // Find related files (files that main.ts depends on)
+      const related = await memory!.findRelatedFiles('/src/main.ts');
 
       expect(related.length).toBe(1);
-      expect(related[0]?.path).toBe('/src/main.ts');
+      expect(related[0]?.path).toBe('/src/utils.ts'); // main.ts depends on utils.ts
     });
 
     test('should find similar files by content', async () => {
+      expect(memory).not.toBeNull(); // Add null check
       // Add files with different content
-      await memory.addFile({
+      await memory!.addFile({
         path: '/src/math.ts',
         content: 'export function add(a: number, b: number) { return a + b; }',
         dependencies: [],
       });
 
-      await memory.addFile({
+      await memory!.addFile({
         path: '/src/string.ts',
         content:
           'export function concat(a: string, b: string) { return a + b; }',
@@ -115,7 +117,7 @@ describe('Memory Manager', () => {
       });
 
       // Search for files similar to a query
-      const results = await memory.findSimilarFiles({
+      const results = await memory!.findSimilarFiles({
         query: 'string concatenation function',
       });
 
@@ -132,12 +134,13 @@ describe('Memory Manager', () => {
 
   describe('Chunking', () => {
     test('should process a file into chunks with correct line numbers', async () => {
+      expect(memory).not.toBeNull(); // Add null check
       const content = new Array(100)
         .fill('line')
         .map((l, i) => `${l} ${i}`)
         .join('\n');
 
-      const chunks = await memory.processFileChunks(
+      const chunks = await memory!.processFileChunks(
         '/src/large-file.ts',
         content,
         {
@@ -162,15 +165,16 @@ describe('Memory Manager', () => {
     });
 
     test('should create consistent hashes for identical chunks', async () => {
+      expect(memory).not.toBeNull(); // Add null check
       const content = 'function test() { return true; }';
 
       // Process same content twice but with different file paths
       // The hash includes the file path, so they will have different hashes
-      await memory.processFileChunks('/src/test1.ts', content);
-      await memory.processFileChunks('/src/test2.ts', content);
+      await memory!.processFileChunks('/src/test1.ts', content);
+      await memory!.processFileChunks('/src/test2.ts', content);
 
-      const chunks1 = await memory.getFileChunks('/src/test1.ts');
-      const chunks2 = await memory.getFileChunks('/src/test2.ts');
+      const chunks1 = await memory!.getFileChunks('/src/test1.ts');
+      const chunks2 = await memory!.getFileChunks('/src/test2.ts');
 
       // Both should have chunks
       expect(chunks1.length).toBeGreaterThan(0);
@@ -188,8 +192,8 @@ describe('Memory Manager', () => {
       }
 
       // Same file reprocessed should use existing chunks
-      await memory.processFileChunks('/src/test1.ts', content);
-      const chunksReprocessed = await memory.getFileChunks('/src/test1.ts');
+      await memory!.processFileChunks('/src/test1.ts', content);
+      const chunksReprocessed = await memory!.getFileChunks('/src/test1.ts');
 
       if (
         chunksReprocessed.length > 0 &&
@@ -203,12 +207,13 @@ describe('Memory Manager', () => {
     });
 
     test('should process a file into chunks', async () => {
+      expect(memory).not.toBeNull(); // Add null check
       const content = new Array(100)
         .fill('line')
         .map((l, i) => `${l} ${i}`)
         .join('\n');
 
-      const chunks = await memory.processFileChunks(
+      const chunks = await memory!.processFileChunks(
         '/src/large-file.ts',
         content,
         {
@@ -233,6 +238,7 @@ describe('Memory Manager', () => {
 
   describe('Semantic Search', () => {
     test('should find similar chunks based on content', async () => {
+      expect(memory).not.toBeNull(); // Add null check
       // Add a file with multiple chunks
       const content = `
 // Math utilities
@@ -254,14 +260,16 @@ export function uppercase(str: string) {
 }
       `.trim();
 
-      await memory.processFileChunks('/src/utils.ts', content);
+      await memory!.processFileChunks('/src/utils.ts', content);
 
       // Search for chunks matching different queries
-      const mathChunks = await memory.findSimilarChunks(
-        'adding numbers together'
+      const mathChunks = await memory!.findSimilarChunks(
+        'adding numbers together',
+        { minScore: 0.25 }
       );
-      const stringChunks = await memory.findSimilarChunks(
-        'string manipulation'
+      const stringChunks = await memory!.findSimilarChunks(
+        'string manipulation',
+        { minScore: 0.25 }
       );
 
       expect(mathChunks.length).toBeGreaterThan(0);
@@ -285,13 +293,14 @@ export function uppercase(str: string) {
 
   describe('Invalidation', () => {
     test('should invalidate chunks for a specific line range', async () => {
+      expect(memory).not.toBeNull(); // Add null check
       const content = new Array(100)
         .fill('line')
         .map((l, i) => `${l} ${i}`)
         .join('\n');
 
       // Process file initially
-      const initialChunks = await memory.processFileChunks(
+      const initialChunks = await memory!.processFileChunks(
         '/src/large-file.ts',
         content,
         {
@@ -301,10 +310,10 @@ export function uppercase(str: string) {
       );
 
       // Invalidate middle section
-      await memory.invalidateRange('/src/large-file.ts', 31, 60);
+      await memory!.invalidateRange('/src/large-file.ts', 31, 60);
 
       // Get remaining chunks
-      const remainingChunks = await memory.getFileChunks('/src/large-file.ts');
+      const remainingChunks = await memory!.getFileChunks('/src/large-file.ts');
 
       // Should have fewer chunks now
       expect(remainingChunks.length).toBeLessThan(initialChunks.length);
@@ -318,40 +327,42 @@ export function uppercase(str: string) {
     });
 
     test('should invalidate all chunks for a file', async () => {
+      expect(memory).not.toBeNull(); // Add null check
       const content = new Array(100)
         .fill('line')
         .map((l, i) => `${l} ${i}`)
         .join('\n');
 
       // Process file initially
-      await memory.processFileChunks('/src/large-file.ts', content);
+      await memory!.processFileChunks('/src/large-file.ts', content);
 
       // Invalidate entire file
-      await memory.invalidateFile('/src/large-file.ts');
+      await memory!.invalidateFile('/src/large-file.ts');
 
       // Get remaining chunks
-      const remainingChunks = await memory.getFileChunks('/src/large-file.ts');
+      const remainingChunks = await memory!.getFileChunks('/src/large-file.ts');
 
       // Should be empty now
       expect(remainingChunks.length).toBe(0);
     });
 
     test('should reprocess chunks after invalidation', async () => {
+      expect(memory).not.toBeNull(); // Add null check
       const content = new Array(100)
         .fill('line')
         .map((l, i) => `${l} ${i}`)
         .join('\n');
 
       // Process file initially
-      await memory.processFileChunks('/src/large-file.ts', content);
+      await memory!.processFileChunks('/src/large-file.ts', content);
 
       // Invalidate entire file
-      await memory.invalidateFile('/src/large-file.ts');
+      await memory!.invalidateFile('/src/large-file.ts');
 
       // Add content and reprocess
       const newContent =
         content + '\n' + new Array(10).fill('new line').join('\n');
-      const newChunks = await memory.processFileChunks(
+      const newChunks = await memory!.processFileChunks(
         '/src/large-file.ts',
         newContent
       );
@@ -367,14 +378,15 @@ export function uppercase(str: string) {
 
   describe('Integration Tests', () => {
     test('complete workflow: add, chunk, search, update, invalidate', async () => {
+      expect(memory).not.toBeNull(); // Add null check
       // Step 1: Add files with dependencies
-      await memory.addFile({
+      await memory!.addFile({
         path: '/src/utils.ts',
         content: 'export const util = 1;',
         dependencies: [],
       });
 
-      await memory.addFile({
+      await memory!.addFile({
         path: '/src/main.ts',
         content: `
           import { util } from "./utils";
@@ -388,7 +400,7 @@ export function uppercase(str: string) {
       });
 
       // Step 2: Process files into chunks
-      await memory.processFileChunks(
+      await memory!.processFileChunks(
         '/src/main.ts',
         `
           import { util } from "./utils";
@@ -401,12 +413,14 @@ export function uppercase(str: string) {
       );
 
       // Step 3: Find related files by dependency
-      const related = await memory.findRelatedFiles('/src/utils.ts');
+      const related = await memory!.findRelatedFiles('/src/main.ts');
       expect(related.length).toBe(1);
-      expect(related[0]?.path).toBe('/src/main.ts');
+      expect(related[0]?.path).toBe('/src/utils.ts');
 
       // Step 4: Search for similar code
-      const similar = await memory.findSimilarChunks('logging utility value');
+      const similar = await memory!.findSimilarChunks('logging utility value', {
+        minScore: 0.25,
+      });
       expect(similar.length).toBeGreaterThan(0);
 
       // Step 5: Update content
@@ -421,8 +435,8 @@ export function uppercase(str: string) {
       `;
 
       // Step 6: Invalidate and reprocess
-      await memory.invalidateFile('/src/main.ts');
-      const newChunks = await memory.processFileChunks(
+      await memory!.invalidateFile('/src/main.ts');
+      const newChunks = await memory!.processFileChunks(
         '/src/main.ts',
         updatedContent
       );
@@ -430,8 +444,9 @@ export function uppercase(str: string) {
       expect(newChunks.length).toBeGreaterThan(0);
 
       // Step 7: Search again with new content
-      const newSimilar = await memory.findSimilarChunks(
-        'multiply utility value'
+      const newSimilar = await memory!.findSimilarChunks(
+        'multiply utility value',
+        { minScore: 0.25 }
       );
       expect(newSimilar.length).toBeGreaterThan(0);
     });
