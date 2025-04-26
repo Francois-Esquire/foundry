@@ -1,7 +1,8 @@
 import { v4 as uuidv4 } from 'uuid';
 import type { Task, TaskInput, TaskStatus } from '../core/task-manager';
 import { formatTaskContent } from './task-formatters';
-
+import type { LanguageModel } from 'ai';
+import { generateText } from 'ai';
 /**
  * Creates a new task from task input
  *
@@ -9,10 +10,11 @@ import { formatTaskContent } from './task-formatters';
  * @param defaultStatus Default status to use if not provided
  * @returns The created task object and its markdown content
  */
-export function createTask(
+export async function createTask(
+  agent: LanguageModel,
   taskInput: TaskInput,
   defaultStatus: TaskStatus
-): { task: Task; content: string } {
+): Promise<{ task: Task; content: string }> {
   // Generate task ID
   const id = uuidv4();
 
@@ -32,9 +34,12 @@ export function createTask(
   };
 
   // Convert task to markdown content
-  const content = formatTaskContent(task);
+  const content = await generateText({
+    model: agent,
+    prompt: formatTaskContent(task),
+  });
 
-  return { task, content };
+  return { task, content: content.text };
 }
 
 /**
@@ -44,10 +49,11 @@ export function createTask(
  * @param updates Task update data
  * @returns The updated task object and its markdown content
  */
-export function updateTask(
+export async function updateTask(
+  agent: LanguageModel,
   task: Task,
   updates: Partial<TaskInput>
-): { task: Task; content: string } {
+): Promise<{ task: Task; content: string }> {
   // Update task fields
   if (updates.title !== undefined) task.title = updates.title;
   if (updates.description !== undefined) task.description = updates.description;
@@ -63,9 +69,12 @@ export function updateTask(
   task.updatedAt = new Date();
 
   // Convert task to markdown content
-  const content = formatTaskContent(task);
+  const content = await generateText({
+    model: agent,
+    prompt: formatTaskContent(task),
+  });
 
-  return { task, content };
+  return { task, content: content.text };
 }
 
 /**
@@ -75,9 +84,20 @@ export function updateTask(
  * @param status New status to set
  * @returns The updated task object and its markdown content
  */
-export function setTaskStatus(
+export async function setTaskStatus(
+  agent: LanguageModel,
   task: Task,
   status: TaskStatus
-): { task: Task; content: string } {
-  return updateTask(task, { status });
+): Promise<{ task: Task; content: string }> {
+  // Update task status
+  task.status = status;
+  task.updatedAt = new Date();
+
+  // Convert task to markdown content
+  const content = await generateText({
+    model: agent,
+    prompt: formatTaskContent(task),
+  });
+
+  return { task, content: content.text };
 }

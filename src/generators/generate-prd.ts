@@ -1,13 +1,9 @@
 import { v4 as uuidv4 } from 'uuid';
 import { DocumentType } from './generator';
+import type { LanguageModel } from 'ai';
+import { generateText } from 'ai';
 
-// Generator agent interface (minimal definition)
-export interface GeneratorAgent {
-  generate(
-    prompt: string,
-    options: { maxTokens?: number; temperature?: number }
-  ): Promise<string>;
-}
+// PRD generation options
 
 // PRD generation options
 export interface PRDOptions {
@@ -39,7 +35,7 @@ export interface PRDDocument {
  * @returns The generated PRD document (not yet saved)
  */
 export async function generatePRD(
-  agent: GeneratorAgent,
+  agent: LanguageModel,
   concept: string,
   options?: PRDOptions
 ): Promise<PRDDocument> {
@@ -47,7 +43,9 @@ export async function generatePRD(
   const prompt = preparePRDPrompt(concept, options);
 
   // Generate the PRD content
-  const content = await agent.generate(prompt, {
+  const content = await generateText({
+    model: agent,
+    prompt,
     maxTokens: options?.maxTokens || 4000,
     temperature: options?.temperature || 0.7,
   });
@@ -57,7 +55,7 @@ export async function generatePRD(
     id: uuidv4(),
     type: DocumentType.PRD,
     title: options?.title || `Product Requirements Document: ${concept}`,
-    content,
+    content: content.text,
     createdAt: new Date(),
     updatedAt: new Date(),
     metadata: {

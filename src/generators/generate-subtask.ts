@@ -1,6 +1,8 @@
 import { v4 as uuidv4 } from 'uuid';
 import type { Subtask, SubtaskInput, TaskStatus } from '../core/task-manager';
 import { formatSubtaskContent } from './task-formatters';
+import type { LanguageModel } from 'ai';
+import { generateText } from 'ai';
 
 /**
  * Creates a new subtask
@@ -10,11 +12,12 @@ import { formatSubtaskContent } from './task-formatters';
  * @param defaultStatus Default status to use if not provided
  * @returns The created subtask object and its markdown content
  */
-export function createSubtask(
+export async function createSubtask(
+  agent: LanguageModel,
   taskId: string,
   subtaskInput: SubtaskInput,
   defaultStatus: TaskStatus
-): { subtask: Subtask; content: string } {
+): Promise<{ subtask: Subtask; content: string }> {
   // Generate subtask ID
   const subtaskId = uuidv4();
 
@@ -32,9 +35,12 @@ export function createSubtask(
   };
 
   // Convert subtask to markdown content
-  const content = formatSubtaskContent(subtask);
+  const content = await generateText({
+    model: agent,
+    prompt: formatSubtaskContent(subtask),
+  });
 
-  return { subtask, content };
+  return { subtask, content: content.text };
 }
 
 /**
@@ -44,10 +50,11 @@ export function createSubtask(
  * @param updates Subtask update data
  * @returns The updated subtask object and its markdown content
  */
-export function updateSubtask(
+export async function updateSubtask(
+  agent: LanguageModel,
   subtask: Subtask,
   updates: Partial<SubtaskInput>
-): { subtask: Subtask; content: string } {
+): Promise<{ subtask: Subtask; content: string }> {
   // Update subtask fields
   if (updates.title !== undefined) subtask.title = updates.title;
   if (updates.description !== undefined)
@@ -61,9 +68,12 @@ export function updateSubtask(
   subtask.updatedAt = new Date();
 
   // Convert subtask to markdown content
-  const content = formatSubtaskContent(subtask);
+  const content = await generateText({
+    model: agent,
+    prompt: formatSubtaskContent(subtask),
+  });
 
-  return { subtask, content };
+  return { subtask, content: content.text };
 }
 
 /**
@@ -73,9 +83,20 @@ export function updateSubtask(
  * @param status New status to set
  * @returns The updated subtask object and its markdown content
  */
-export function setSubtaskStatus(
+export async function setSubtaskStatus(
+  agent: LanguageModel,
   subtask: Subtask,
   status: TaskStatus
-): { subtask: Subtask; content: string } {
-  return updateSubtask(subtask, { status });
+): Promise<{ subtask: Subtask; content: string }> {
+  // Update subtask status
+  subtask.status = status;
+  subtask.updatedAt = new Date();
+
+  // Convert subtask to markdown content
+  const content = await generateText({
+    model: agent,
+    prompt: formatSubtaskContent(subtask),
+  });
+
+  return { subtask, content: content.text };
 }

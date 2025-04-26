@@ -1,14 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { DocumentType } from './generator';
-
-// Generator agent interface (minimal definition)
-export interface GeneratorAgent {
-  generate(
-    prompt: string,
-    options: { maxTokens?: number; temperature?: number }
-  ): Promise<string>;
-}
-
+import type { LanguageModel } from 'ai';
+import { generateText } from 'ai';
 // User Journey generation options
 export interface UserJourneyOptions {
   title?: string;
@@ -40,7 +33,7 @@ export interface UserJourneyDocument {
  * @returns The generated User Journey document (not yet saved)
  */
 export async function generateUserJourney(
-  agent: GeneratorAgent,
+  agent: LanguageModel,
   persona: string,
   scenario: string,
   options?: UserJourneyOptions
@@ -49,7 +42,9 @@ export async function generateUserJourney(
   const prompt = prepareUserJourneyPrompt(persona, scenario, options);
 
   // Generate the user journey content
-  const content = await agent.generate(prompt, {
+  const content = await generateText({
+    model: agent,
+    prompt,
     maxTokens: options?.maxTokens || 3000,
     temperature: options?.temperature || 0.7,
   });
@@ -59,7 +54,7 @@ export async function generateUserJourney(
     id: uuidv4(),
     type: DocumentType.USER_JOURNEY,
     title: options?.title || `User Journey: ${persona} - ${scenario}`,
-    content,
+    content: content.text,
     createdAt: new Date(),
     updatedAt: new Date(),
     metadata: {

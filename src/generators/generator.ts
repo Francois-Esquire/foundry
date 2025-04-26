@@ -3,7 +3,7 @@ import { generatePRD } from './generate-prd';
 import { generateUserJourney } from './generate-user-journey';
 import { generateTechSpec } from './generate-tech-spec';
 import { formatDocumentContent, parseDocumentContent } from './formatters';
-
+import type { LanguageModel } from 'ai';
 // Document type enum
 export enum DocumentType {
   CONCEPT = 'concept',
@@ -32,6 +32,7 @@ export interface DocumentSummary {
   title: string;
   createdAt: Date;
   updatedAt: Date;
+  model?: string;
 }
 
 // PRD generation options
@@ -39,6 +40,7 @@ export interface PRDOptions {
   title?: string;
   maxTokens?: number;
   temperature?: number;
+  model?: string;
   includeUserJourneys?: boolean;
   includeTechnicalConsiderations?: boolean;
   includeTimeline?: boolean;
@@ -52,6 +54,7 @@ export interface TechSpecOptions {
   includeArchitecture?: boolean;
   includeAPISpec?: boolean;
   includeSecurityConsiderations?: boolean;
+  model?: string;
 }
 
 // Document generator interface
@@ -81,9 +84,9 @@ export class DocumentGeneratorImpl implements DocumentGenerator {
   async generatePRD(concept: string, options?: PRDOptions): Promise<Document> {
     // Get the generator agent
     const agent = this.serviceRegistry.getAgent('generator');
-
+    const model = agent.languageModel(options?.model || 'gpt-4o');
     // Use the functional generator
-    const document = await generatePRD(agent, concept, options);
+    const document = await generatePRD(model, concept, options);
 
     // Save the document
     return this.saveDocument(document as Document);
@@ -91,13 +94,15 @@ export class DocumentGeneratorImpl implements DocumentGenerator {
 
   async generateUserJourney(
     persona: string,
-    scenario: string
+    scenario: string,
+    options?: { model?: string }
   ): Promise<Document> {
     // Get the generator agent
     const agent = this.serviceRegistry.getAgent('generator');
+    const model = agent.languageModel(options?.model || 'gpt-4o');
 
     // Use the functional generator
-    const document = await generateUserJourney(agent, persona, scenario);
+    const document = await generateUserJourney(model, persona, scenario);
 
     // Save the document
     return this.saveDocument(document as Document);
@@ -109,9 +114,10 @@ export class DocumentGeneratorImpl implements DocumentGenerator {
   ): Promise<Document> {
     // Get the generator agent
     const agent = this.serviceRegistry.getAgent('generator');
+    const model = agent.languageModel(options?.model || 'gpt-4o');
 
     // Use the functional generator
-    const document = await generateTechSpec(agent, requirements, options);
+    const document = await generateTechSpec(model, requirements, options);
 
     // Save the document
     return this.saveDocument(document as Document);

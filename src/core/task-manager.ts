@@ -235,11 +235,19 @@ export class TaskManagerImpl implements TaskManager {
     return task;
   }
 
-  async createTask(taskInput: TaskInput): Promise<Task> {
+  async createTask(
+    taskInput: TaskInput,
+    options?: { model?: string }
+  ): Promise<Task> {
     const adapter = this.serviceRegistry.getAdapter('default');
-
+    const agent = this.serviceRegistry.getAgent('generator');
+    const model = agent.languageModel(options?.model || 'gpt-4o');
     // Generate task using the content generator
-    const { task, content } = createTask(taskInput, TaskStatus.PENDING);
+    const { task, content } = await createTask(
+      model,
+      taskInput,
+      TaskStatus.PENDING
+    );
 
     // Create tasks directory if it doesn't exist
     if (!(await adapter.exists('tasks'))) {
@@ -252,8 +260,14 @@ export class TaskManagerImpl implements TaskManager {
     return task;
   }
 
-  async updateTask(id: string, updates: Partial<TaskInput>): Promise<Task> {
+  async updateTask(
+    id: string,
+    updates: Partial<TaskInput>,
+    options?: { model?: string }
+  ): Promise<Task> {
     const adapter = this.serviceRegistry.getAdapter('default');
+    const agent = this.serviceRegistry.getAgent('generator');
+    const model = agent.languageModel(options?.model || 'gpt-4o');
 
     // Get existing task
     const task = await this.getTask(id);
@@ -262,7 +276,11 @@ export class TaskManagerImpl implements TaskManager {
     }
 
     // Update task using the content generator
-    const { task: updatedTask, content } = updateTask(task, updates);
+    const { task: updatedTask, content } = await updateTask(
+      model,
+      task,
+      updates
+    );
 
     // Write updated task file
     await adapter.write(`tasks/${id}.md`, content, 'text/markdown');
@@ -315,17 +333,21 @@ export class TaskManagerImpl implements TaskManager {
 
   async addSubtask(
     taskId: string,
-    subtaskInput: SubtaskInput
+    subtaskInput: SubtaskInput,
+    options?: { model?: string }
   ): Promise<Subtask> {
     const adapter = this.serviceRegistry.getAdapter('default');
-
-    // Check if parent task exists
-    if (!(await adapter.exists(`tasks/${taskId}.md`))) {
+    const agent = this.serviceRegistry.getAgent('generator');
+    const model = agent.languageModel(options?.model || 'gpt-4o');
+    // Get parent task
+    const parentTask = await this.getTask(taskId);
+    if (!parentTask) {
       throw new Error(`Parent task not found: ${taskId}`);
     }
 
     // Generate subtask using the content generator
-    const { subtask, content } = createSubtask(
+    const { subtask, content } = await createSubtask(
+      model,
       taskId,
       subtaskInput,
       TaskStatus.PENDING
@@ -350,9 +372,12 @@ export class TaskManagerImpl implements TaskManager {
   async updateSubtask(
     taskId: string,
     subtaskId: string,
-    updates: Partial<SubtaskInput>
+    updates: Partial<SubtaskInput>,
+    options?: { model?: string }
   ): Promise<Subtask> {
     const adapter = this.serviceRegistry.getAdapter('default');
+    const agent = this.serviceRegistry.getAgent('generator');
+    const model = agent.languageModel(options?.model || 'gpt-4o');
 
     // Get existing subtasks
     const subtasks = await this.getSubtasks(taskId);
@@ -363,7 +388,8 @@ export class TaskManagerImpl implements TaskManager {
     }
 
     // Update subtask using the content generator
-    const { subtask: updatedSubtask, content } = updateSubtask(
+    const { subtask: updatedSubtask, content } = await updateSubtask(
+      model,
       subtask,
       updates
     );
@@ -379,8 +405,14 @@ export class TaskManagerImpl implements TaskManager {
     return updatedSubtask;
   }
 
-  async setTaskStatus(id: string, status: TaskStatus): Promise<Task> {
+  async setTaskStatus(
+    id: string,
+    status: TaskStatus,
+    options?: { model?: string }
+  ): Promise<Task> {
     const adapter = this.serviceRegistry.getAdapter('default');
+    const agent = this.serviceRegistry.getAgent('generator');
+    const model = agent.languageModel(options?.model || 'gpt-4o');
 
     // Get existing task
     const task = await this.getTask(id);
@@ -389,7 +421,11 @@ export class TaskManagerImpl implements TaskManager {
     }
 
     // Update task status using the content generator
-    const { task: updatedTask, content } = setTaskStatus(task, status);
+    const { task: updatedTask, content } = await setTaskStatus(
+      model,
+      task,
+      status
+    );
 
     // Write updated task file
     await adapter.write(`tasks/${id}.md`, content, 'text/markdown');
@@ -400,9 +436,12 @@ export class TaskManagerImpl implements TaskManager {
   async setSubtaskStatus(
     taskId: string,
     subtaskId: string,
-    status: TaskStatus
+    status: TaskStatus,
+    options?: { model?: string }
   ): Promise<Subtask> {
     const adapter = this.serviceRegistry.getAdapter('default');
+    const agent = this.serviceRegistry.getAgent('generator');
+    const model = agent.languageModel(options?.model || 'gpt-4o');
 
     // Get existing subtasks
     const subtasks = await this.getSubtasks(taskId);
@@ -413,7 +452,8 @@ export class TaskManagerImpl implements TaskManager {
     }
 
     // Update subtask status using the content generator
-    const { subtask: updatedSubtask, content } = setSubtaskStatus(
+    const { subtask: updatedSubtask, content } = await setSubtaskStatus(
+      model,
       subtask,
       status
     );
@@ -432,7 +472,8 @@ export class TaskManagerImpl implements TaskManager {
   async linkTasks(
     sourceId: string,
     targetId: string,
-    relationship: TaskRelationship
+    relationship: TaskRelationship,
+    options?: { model?: string }
   ): Promise<boolean> {
     // Get source and target tasks
     const sourceTask = await this.getTask(sourceId);
@@ -443,6 +484,8 @@ export class TaskManagerImpl implements TaskManager {
     }
 
     const adapter = this.serviceRegistry.getAdapter('default');
+    const agent = this.serviceRegistry.getAgent('generator');
+    const model = agent.languageModel(options?.model || 'gpt-4o');
 
     switch (relationship) {
       case TaskRelationship.DEPENDS_ON:
@@ -451,7 +494,7 @@ export class TaskManagerImpl implements TaskManager {
           sourceTask.dependencies.push(targetId);
 
           // Update source task using the content generator
-          const { content } = updateTask(sourceTask, {
+          const { content } = await updateTask(model, sourceTask, {
             dependencies: sourceTask.dependencies,
           });
 

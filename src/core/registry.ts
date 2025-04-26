@@ -1,4 +1,5 @@
-import type { Agent } from '../agents/agent';
+import type { Provider } from 'ai';
+
 import type { Adapter } from '../adapters/types';
 
 export interface HealthStatus {
@@ -7,16 +8,19 @@ export interface HealthStatus {
 }
 
 export interface ServiceRegistry {
+  // Lock the registry for further modifications to internal components
+  lock(): void;
+
   // Component Registration
   registerAdapter(name: string, adapter: Adapter): void;
-  registerAgent(name: string, agent: Agent): void;
+  registerAgent(name: string, agent: Provider): void;
 
   // Service Registration
   registerService<T>(name: string, service: T): void;
 
   // Service Retrieval
   getAdapter(name: string): Adapter;
-  getAgent(name: string): Agent;
+  getAgent(name: string): Provider;
   getService<T>(name: string): T;
 
   // Health Checks
@@ -24,19 +28,42 @@ export interface ServiceRegistry {
 }
 
 export class ServiceRegistryImpl implements ServiceRegistry {
+  private internalKeys: Set<string> = new Set();
+  private locked: boolean = false;
+
   private adapters: Map<string, Adapter> = new Map();
-  private agents: Map<string, Agent> = new Map();
+  private agents: Map<string, Provider> = new Map();
   private services: Map<string, any> = new Map();
 
+  lock(): void {
+    [
+      ['adapters', ...this.adapters.keys()],
+      ['agents', ...this.agents.keys()],
+      ['services', ...this.services.keys()],
+    ].forEach(([key, value]) => {
+      this.internalKeys.add(`${key}:${value}`);
+    });
+    this.locked = true;
+  }
+
   registerAdapter(name: string, adapter: Adapter): void {
+    if (this.locked && this.internalKeys.has(`adapters:${name}`)) {
+      throw new Error('Adapter already registered');
+    }
     this.adapters.set(name, adapter);
   }
 
-  registerAgent(name: string, agent: Agent): void {
+  registerAgent(name: string, agent: Provider): void {
+    if (this.locked && this.internalKeys.has(`agents:${name}`)) {
+      throw new Error('Agent already registered');
+    }
     this.agents.set(name, agent);
   }
 
   registerService<T>(name: string, service: T): void {
+    if (this.locked && this.internalKeys.has(`services:${name}`)) {
+      throw new Error('Service already registered');
+    }
     this.services.set(name, service);
   }
 
@@ -48,7 +75,7 @@ export class ServiceRegistryImpl implements ServiceRegistry {
     return adapter;
   }
 
-  getAgent(name: string): Agent {
+  getAgent(name: string): Provider {
     const agent = this.agents.get(name);
     if (!agent) {
       throw new Error(`Agent not found: ${name}`);

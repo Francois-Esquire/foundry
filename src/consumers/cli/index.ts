@@ -29,8 +29,10 @@ type ProgramContext = {
   convert: boolean;
   skipGenerate: boolean;
 };
-
+import { FoundryLibrary } from '../../core';
 const { name, version } = pkg;
+
+const foundry = new FoundryLibrary();
 
 const program = termost<ProgramContext>({
   name,
@@ -85,6 +87,15 @@ program
       }
 
       // Implementation will go here
+      foundry.startWorkflow('product.create', {
+        prompt,
+        research,
+        auto,
+        data: {
+          concept: prompt,
+          description: 'Product description',
+        },
+      });
     },
   });
 

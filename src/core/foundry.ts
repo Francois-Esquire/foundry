@@ -1,5 +1,4 @@
 import type { Adapter } from '../adapters/types';
-import type { Agent } from '../agents/agent';
 import { ServiceRegistryImpl } from './registry';
 import type { ServiceRegistry } from './registry';
 import { CommandProcessorImpl } from './command-processor';
@@ -14,12 +13,14 @@ import { TaskManagerImpl } from './task-manager';
 import type { TaskManager, TaskInput } from './task-manager';
 import { DocumentGeneratorImpl } from '../generators/generator';
 import type { DocumentGenerator } from '../generators/generator';
+import type { Provider } from 'ai';
+import { createOpenAI } from '@ai-sdk/openai';
+import { createAnthropic } from '@ai-sdk/anthropic';
 import { InMemoryAdapter } from '../adapters/in-memory';
-import { OpenAIAgent } from '../agents/openai-agent';
 
 export interface FoundryLibraryOptions {
   adapter?: Adapter;
-  agents?: Record<string, Agent>;
+  agents?: Record<string, Provider>;
 }
 
 export interface FoundryLibraryStatus {
@@ -48,15 +49,37 @@ export class FoundryLibrary implements FoundryLibraryInterface {
   private taskManager: TaskManager;
   private documentGenerator: DocumentGenerator;
 
-  constructor(
-    options: FoundryLibraryOptions = {
-      adapter: new InMemoryAdapter(),
-      // agents: {
-      //   default: new OpenAIAgent(),
-      //   research: new OpenAIAgent(),
-      // },
+  constructor(options: FoundryLibraryOptions = {}) {
+    const { OPENAI_API_KEY, ANTHROPIC_API_KEY } = process.env;
+
+    const adapter = options.adapter || new InMemoryAdapter();
+    const agents =
+      options.agents ||
+      ({
+        default: null,
+        research: null,
+      } as Record<string, Provider | null>);
+
+    if (!ANTHROPIC_API_KEY) {
+      throw new Error('ANTHROPIC_API_KEY is not set');
+    } else {
+      const claude = createAnthropic({
+        apiKey: ANTHROPIC_API_KEY,
+      }) as Provider;
+
+      agents.default = claude;
     }
-  ) {
+
+    if (OPENAI_API_KEY) {
+      const openai = createOpenAI({
+        apiKey: OPENAI_API_KEY,
+      }) as Provider;
+
+      agents.research = openai;
+    } else {
+      agents.research = agents.default;
+    }
+
     // Initialize service registry
     this.serviceRegistry = new ServiceRegistryImpl();
 
@@ -66,7 +89,8 @@ export class FoundryLibrary implements FoundryLibraryInterface {
     }
 
     if (options.agents) {
-      Object.entries(options.agents).forEach(([name, agent]) => {
+      Object.entries(options.agents).forEach(([name, provider]) => {
+        const agent = provider;
         this.serviceRegistry.registerAgent(name, agent);
       });
     }
@@ -94,6 +118,8 @@ export class FoundryLibrary implements FoundryLibraryInterface {
 
     // Register standard workflows
     this.registerWorkflows();
+
+    this.serviceRegistry.lock();
   }
 
   async executeCommand(
@@ -239,6 +265,8 @@ export class FoundryLibrary implements FoundryLibraryInterface {
             if (!context.data.concept) {
               throw new Error('Concept is required');
             }
+
+            // todo: capture prompt with greeting, if prompt is not provided
             return context.data.concept;
           },
         },

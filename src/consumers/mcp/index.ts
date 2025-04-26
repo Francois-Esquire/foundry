@@ -1,9 +1,12 @@
+import { validateInitialConfig } from '../../helpers/errors';
 import server from './server';
 
 import 'dotenv/config';
 
 if (import.meta.main) {
   const { MCP_TRANSPORT_TYPE = 'stdio' } = process.env;
+
+  validateInitialConfig();
 
   let transportType = MCP_TRANSPORT_TYPE as 'stdio' | 'sse';
   let sse = undefined;

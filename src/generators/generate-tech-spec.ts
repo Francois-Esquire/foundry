@@ -1,13 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { DocumentType } from './generator';
-
-// Generator agent interface (minimal definition)
-export interface GeneratorAgent {
-  generate(
-    prompt: string,
-    options: { maxTokens?: number; temperature?: number }
-  ): Promise<string>;
-}
+import type { LanguageModel } from 'ai';
+import { generateText } from 'ai';
 
 // Technical specification options
 export interface TechSpecOptions {
@@ -39,7 +33,7 @@ export interface TechSpecDocument {
  * @returns The generated Technical Specification document (not yet saved)
  */
 export async function generateTechSpec(
-  agent: GeneratorAgent,
+  agent: LanguageModel,
   requirements: string,
   options?: TechSpecOptions
 ): Promise<TechSpecDocument> {
@@ -47,7 +41,9 @@ export async function generateTechSpec(
   const prompt = prepareTechSpecPrompt(requirements, options);
 
   // Generate the technical specification content
-  const content = await agent.generate(prompt, {
+  const content = await generateText({
+    model: agent,
+    prompt,
     maxTokens: options?.maxTokens || 4000,
     temperature: options?.temperature || 0.7,
   });
@@ -57,7 +53,7 @@ export async function generateTechSpec(
     id: uuidv4(),
     type: DocumentType.TECHNICAL_SPEC,
     title: options?.title || `Technical Specification`,
-    content,
+    content: content.text,
     createdAt: new Date(),
     updatedAt: new Date(),
     metadata: {
