@@ -1,9 +1,17 @@
 // memory/index.ts
-import fs from 'node:fs';
+import fs, { Dirent } from 'node:fs';
 import { Database } from 'bun:sqlite';
 import { cosineSimilarity } from 'ai';
 import crypto from 'crypto';
 import { embed as localEmbed } from './embeddings';
+// Import types separately when verbatimModuleSyntax is enabled
+import type { TraverseOptions } from './fs';
+import { traverseDirectory, processSingleFile } from './fs';
+import { extname } from 'node:path'; // Import extname
+// Import KnowledgeStore related types and functions
+import type { KnowledgeStore, KnowledgeSnippet } from './knowledge';
+import { createKnowledgeStore } from './knowledge';
+import { calculateHash } from './utils'; // Import from utils
 
 // Define embedding dimension constant
 const EMBEDDING_DIMENSION = 512;
@@ -144,15 +152,17 @@ function initializeDatabase(db: Database): void {
       content TEXT,
       deps_json TEXT,
       embedding_json TEXT,
-      matpath TEXT
+      matpath TEXT,
+      content_hash TEXT,
+      last_indexed INTEGER
     );
     
     CREATE TABLE IF NOT EXISTS deps (
       parent_id INTEGER,
       child_id INTEGER,
       PRIMARY KEY (parent_id, child_id),
-      FOREIGN KEY (parent_id) REFERENCES files(id),
-      FOREIGN KEY (child_id) REFERENCES files(id)
+      FOREIGN KEY (parent_id) REFERENCES files(id) ON DELETE CASCADE, -- Cascade deletes
+      FOREIGN KEY (child_id) REFERENCES files(id) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS chunk_cache (
@@ -165,6 +175,27 @@ function initializeDatabase(db: Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_chunk_file_path ON chunk_cache(file_path);
     CREATE INDEX IF NOT EXISTS idx_chunk_lines ON chunk_cache(file_path, start_line, end_line);
+
+    -- NEW: Knowledge Store Table
+    CREATE TABLE IF NOT EXISTS knowledge_store (
+      id           INTEGER PRIMARY KEY,
+      path         TEXT    NOT NULL,      -- Category path (e.g., knowledge/frontend/react/hooks)
+      content      TEXT    NOT NULL,      -- The actual knowledge snippet
+      content_hash TEXT    NOT NULL UNIQUE, -- Hash of the content for uniqueness
+      created_at   INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+      updated_at   INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_knowledge_path ON knowledge_store(path);
+    CREATE INDEX IF NOT EXISTS idx_knowledge_hash ON knowledge_store(content_hash);
+
+    -- NEW: Trigger to update updated_at for knowledge_store
+    CREATE TRIGGER IF NOT EXISTS trigger_knowledge_store_updated_at
+    AFTER UPDATE ON knowledge_store
+    FOR EACH ROW
+    BEGIN
+        UPDATE knowledge_store SET updated_at = strftime('%s','now') WHERE id = OLD.id;
+    END;
+
   `.trim()
   );
 }
@@ -279,6 +310,25 @@ export interface MemoryManager {
   >;
 
   /**
+   * Processes a directory recursively: filters files, reads them,
+   * chunks them, generates embeddings, and caches the chunks.
+   *
+   * @param directoryPath The absolute path to the directory to process.
+   * @param options Optional filtering options for traversal.
+   * @returns A Promise resolving to a Map where keys are processed file paths
+   *          and values are the arrays of cached chunks for that file.
+   */
+  processDirectory(
+    directoryPath: string,
+    options?: TraverseOptions
+  ): Promise<Map<string, CachedChunk[]>>;
+
+  /**
+   * Provides access to the knowledge snippet storage and retrieval methods.
+   */
+  knowledge: KnowledgeStore;
+
+  /**
    * Close the database connection
    */
   close(): void;
@@ -379,7 +429,7 @@ function hashChunk(
 ): string {
   // stringify metadata + content
   const payload = JSON.stringify({ filePath, start, end, text });
-  return crypto.createHash('sha256').update(payload).digest('hex');
+  return calculateHash(payload); // Restore call to calculateHash
 }
 
 /**
@@ -419,6 +469,49 @@ export async function createMemoryManager(
   // Prepare statements once
   const insertChunkStmt = prepareInsertChunk(db);
   const checkChunkExistsStmt = prepareCheckChunkExists(db);
+
+  // List of text-based extensions to process by default
+  const DEFAULT_TEXT_EXTENSIONS = [
+    '.js',
+    '.ts',
+    '.jsx',
+    '.tsx',
+    '.json',
+    '.md',
+    '.markdown',
+    '.html',
+    '.htm',
+    '.css',
+    '.scss',
+    '.less',
+    '.py',
+    '.java',
+    '.c',
+    '.cpp',
+    '.h',
+    '.hpp',
+    '.cs',
+    '.go',
+    '.php',
+    '.rb',
+    '.rs',
+    '.swift',
+    '.kt',
+    '.sh',
+    '.bash',
+    '.zsh',
+    '.yaml',
+    '.yml',
+    '.toml',
+    '.ini',
+    '.xml',
+    '.txt',
+    '.text',
+    // Add other relevant text-based extensions
+  ];
+
+  // Create the KnowledgeStore instance
+  const knowledgeStore = createKnowledgeStore(db);
 
   // Implement the memory manager
   const manager: MemoryManager = {
@@ -486,52 +579,77 @@ export async function createMemoryManager(
       const embeddings = await localEmbed([content]);
       const embedding =
         embeddings?.[0] || new Array(EMBEDDING_DIMENSION).fill(0);
+      const contentHash = calculateHash(content); // Restore call to calculateHash
+      const currentTime = Math.floor(Date.now() / 1000);
+
       const existing = db
-        .query(`SELECT id FROM files WHERE path = ?`)
-        .get(path) as DbRow | null;
+        .query(`SELECT id, content_hash FROM files WHERE path = ?`)
+        .get(path) as {
+        id: number | bigint;
+        content_hash: string | null;
+      } | null;
 
       let fileId: number;
 
-      if (existing && existing.id) {
+      if (existing?.id) {
         fileId = Number(existing.id);
-        db.query(
-          `UPDATE files SET content = ?, deps_json = ?, embedding_json = ? WHERE id = ?`
-        ).run(
-          content,
-          JSON.stringify(dependencies),
-          JSON.stringify(embedding),
-          fileId
-        );
-        db.query(`DELETE FROM deps WHERE parent_id = ?`).run(fileId);
+        // Only update if content hash has changed
+        if (existing.content_hash !== contentHash) {
+          console.log(`[addFile] Content changed for ${path}. Updating.`);
+          db.query(
+            `UPDATE files SET content = ?, deps_json = ?, embedding_json = ?, content_hash = ?, last_indexed = ? WHERE id = ?`
+          ).run(
+            content,
+            JSON.stringify(dependencies),
+            JSON.stringify(embedding),
+            contentHash,
+            currentTime,
+            fileId
+          );
+          // We might still want to update dependencies even if content is the same?
+          // For now, let's clear/re-add deps only when content changes.
+          db.query(`DELETE FROM deps WHERE parent_id = ?`).run(fileId);
+        } else {
+          console.log(
+            `[addFile] Content unchanged for ${path}. Skipping content update.`
+          );
+          // Optionally update dependencies even if content is same?
+          // db.query(`DELETE FROM deps WHERE parent_id = ?`).run(fileId);
+        }
       } else {
+        console.log(`[addFile] Adding new file: ${path}`);
         const result = db
           .query(
-            `INSERT INTO files (path, content, deps_json, embedding_json, matpath) VALUES (?, ?, ?, ?, ?)`
+            `INSERT INTO files (path, content, deps_json, embedding_json, matpath, content_hash, last_indexed) VALUES (?, ?, ?, ?, ?, ?, ?)`
           )
           .run(
             path,
             content,
             JSON.stringify(dependencies),
             JSON.stringify(embedding),
-            path.replace(/\//g, '.')
+            path.replace(/\//g, '.'),
+            contentHash,
+            currentTime
           );
-        fileId = Number((result as any).lastInsertRowid); // Use Number() and correct property
+        fileId = Number((result as any).lastInsertRowid);
       }
 
       if (isNaN(fileId)) {
         console.error(`[addFile] Failed to get valid fileId for path: ${path}`);
-        // Decide on error handling: throw error or return a specific value?
-        // For now, let's throw to make failures obvious in tests
         throw new Error(
           `[addFile] Failed to get valid fileId for path: ${path}`
         );
       }
 
+      // --- Dependency Handling (Consider if this should always run) ---
+      // Currently runs only if file is new or content hash changed (due to placement)
+      // If we need to update deps even if content hash is same, move this block outside the if/else
+      // and potentially modify the DELETE logic above.
       for (const depPath of dependencies) {
         const depFile = db
           .query(`SELECT id FROM files WHERE path = ?`)
-          .get(depPath) as DbRow | null;
-        if (depFile && depFile.id) {
+          .get(depPath) as { id: number | bigint } | null;
+        if (depFile?.id) {
           const depId = Number(depFile.id);
           console.log(
             `[addFile] Adding dependency: parent=${fileId} (type: ${typeof fileId}), child=${depId} (type: ${typeof depId})`
@@ -695,6 +813,62 @@ export async function createMemoryManager(
 
       return results;
     },
+
+    /**
+     * Processes a directory recursively: filters files, reads them,
+     * chunks them, generates embeddings, and caches the chunks.
+     */
+    async processDirectory(
+      directoryPath: string,
+      options: TraverseOptions = {}
+    ): Promise<Map<string, CachedChunk[]>> {
+      // Define the transform function to process file content into chunks
+      const transformFn = async (
+        filePath: string,
+        content: string
+      ): Promise<CachedChunk[] | null | undefined> => {
+        console.log(`[processDirectory] Processing file: ${filePath}`);
+        // Use the manager's processFileChunks method
+        // Need to ensure `this` context is correct or pass manager instance
+        return await this.processFileChunks(filePath, content);
+      };
+
+      // Define a filter function to include only text-based files by default
+      const filterFn = async (
+        filePath: string,
+        entry: Dirent
+      ): Promise<boolean> => {
+        const extension = extname(filePath).toLowerCase();
+        // Prioritize options.allowedExtensions if provided
+        if (options.allowedExtensions && options.allowedExtensions.length > 0) {
+          return options.allowedExtensions.includes(extension);
+        }
+        // Otherwise, use default text extensions (and check blocklist)
+        const isText = DEFAULT_TEXT_EXTENSIONS.includes(extension);
+        const isBlocked =
+          options.blockedExtensions?.includes(extension) ?? false;
+        return isText && !isBlocked;
+      };
+
+      console.log(
+        `[processDirectory] Starting traversal for: ${directoryPath}`
+      );
+      const results = await traverseDirectory<CachedChunk[]>(
+        directoryPath,
+        transformFn.bind(this), // Bind `this` to ensure correct context for processFileChunks
+        options, // Pass user-provided options (primarily for blockedExtensions)
+        filterFn // Pass the filter function
+      );
+      console.log(
+        `[processDirectory] Traversal complete. Processed ${results.size} files.`
+      );
+      return results;
+    },
+
+    /**
+     * Provides access to the knowledge snippet storage and retrieval methods.
+     */
+    knowledge: knowledgeStore,
 
     /**
      * Close the database connection
