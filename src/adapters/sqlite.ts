@@ -1,7 +1,7 @@
 import * as path from 'path';
 import { Database } from 'bun:sqlite';
 
-import type { Adapter } from '../core/types';
+import type { Adapter } from './types';
 
 /**
  * Constants for the SQLite adapter

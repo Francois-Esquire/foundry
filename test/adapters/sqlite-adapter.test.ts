@@ -1,8 +1,8 @@
 import { rm } from 'fs/promises';
 import { existsSync, mkdirSync } from 'fs';
-import { SQLiteAdapter } from '../../src/adapters';
+import { SQLiteAdapter } from '../../src/adapters/sqlite';
 import { createAdapterTests } from './adapter-test-suite';
-import type { Adapter } from '../../src/core/types';
+import type { Adapter } from '../../src/adapters/types';
 
 // For file-based testing, use a temp file that will be cleaned up
 const TEST_FILE_DB_PATH = './test/tmp/test-sqlite.db';

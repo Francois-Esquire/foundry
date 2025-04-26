@@ -1,4 +1,4 @@
-import type { Adapter } from '../core/types';
+import type { Adapter } from './types';
 
 /**
  * InMemoryAdapter stores all data in memory using JavaScript objects.

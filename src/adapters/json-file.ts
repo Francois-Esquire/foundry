@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-import type { Adapter } from '../core/types';
+import type { Adapter } from './types';
 
 /**
  * Interface for the internal data structure stored in the JSON file

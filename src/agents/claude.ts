@@ -1,9 +1,9 @@
 import { v4 as uuidv4 } from 'uuid';
 import {
-  createOpenAI,
-  type OpenAIProvider,
-  type OpenAIProviderSettings,
-} from '@ai-sdk/openai';
+  createAnthropic,
+  type AnthropicProvider,
+  type AnthropicProviderSettings,
+} from '@ai-sdk/anthropic';
 import { generateObject, generateText } from 'ai';
 import { z } from 'zod';
 import type {
@@ -15,27 +15,25 @@ import type {
 } from './agent';
 
 /**
- * Available OpenAI models
- * @reference https://platform.openai.com/docs/models
- * @see https://platform.openai.com/docs/models/gpt-4o
+ * Available Anthropic Claude models
+ * @reference https://docs.anthropic.com/claude/docs/models-overview
  * @see https://sdk.vercel.ai/docs/foundations/providers-and-models
  */
-export enum OpenAIModel {
-  GPT_4_1 = 'gpt-4.1',
-  GPT_4_1_MINI = 'gpt-4.1-mini',
-  GPT_4_1_NANO = 'gpt-4.1-nano',
-  GPT_4_0 = 'gpt-4o',
-  GPT_4_0_MINI = 'gpt-4o-mini',
-  GPT_4_0_NANO = 'gpt-4o-turbo',
-  O3_MINI = 'o3-mini',
+export enum ClaudeModel {
+  CLAUDE_3_5_SONNET = 'claude-3-5-sonnet-20240620',
+  CLAUDE_3_7_SONNET = 'claude-3-7-sonnet-20250219',
+  CLAUDE_3_7_HAIKU = 'claude-3-7-haiku-20240307',
+  CLAUDE_3_OPUS = 'claude-3-opus-20240229',
+  CLAUDE_3_SONNET = 'claude-3-sonnet-20240229',
+  CLAUDE_3_HAIKU = 'claude-3-haiku-20240307',
 }
 
 /**
- * OpenAI agent configuration options
+ * Claude agent configuration options
  */
-export interface OpenAIAgentOptions extends AgentOptions {
-  provider?: 'openai';
-  modelName: OpenAIModel | string;
+export interface ClaudeAgentOptions extends AgentOptions {
+  provider?: 'anthropic';
+  modelName: ClaudeModel | string;
   apiKey: string;
   contextWindowSize?: number;
   defaultMaxTokens?: number;
@@ -53,21 +51,22 @@ interface ContextItem {
 }
 
 /**
- * OpenAI agent implementation
+ * Claude agent implementation
  */
-export class OpenAIAgent implements Agent {
-  private options: OpenAIAgentOptions;
+export class ClaudeAgent implements Agent {
+  private options: ClaudeAgentOptions;
   private contextItems: ContextItem[] = [];
-  private openai: OpenAIProvider;
-  constructor(options: OpenAIAgentOptions) {
+  private anthropic: AnthropicProvider;
+
+  constructor(options: ClaudeAgentOptions) {
     this.options = options;
-    this.openai = createOpenAI({
+    this.anthropic = createAnthropic({
       apiKey: this.options.apiKey,
     });
   }
 
   /**
-   * Generate text from a prompt using the configured OpenAI model
+   * Generate text from a prompt using the configured Claude model
    */
   async generate(prompt: string, options?: GenerationOptions): Promise<string> {
     // Combine options with defaults
@@ -86,7 +85,7 @@ export class OpenAIAgent implements Agent {
     try {
       // Use Vercel AI SDK to generate text
       const { text: generatedText } = await generateText({
-        model: this.openai.chat(this.options.model.modelName),
+        model: this.anthropic.chat(this.options.modelName),
         prompt: fullPrompt,
         temperature: finalOptions.temperature,
         maxTokens: finalOptions.maxTokens,
@@ -97,8 +96,8 @@ export class OpenAIAgent implements Agent {
 
       return generatedText;
     } catch (error) {
-      console.error('Error generating text with OpenAI:', error);
-      throw new Error(`OpenAI generation failed: ${(error as Error).message}`);
+      console.error('Error generating text with Claude:', error);
+      throw new Error(`Claude generation failed: ${(error as Error).message}`);
     }
   }
 
@@ -135,10 +134,13 @@ export class OpenAIAgent implements Agent {
    * Configure the agent with new options
    */
   async configure(options: AgentOptions): Promise<void> {
-    if (options.model && options.model.provider === 'openai') {
-      this.options = { ...this.options, ...options } as OpenAIAgentOptions;
+    if (options.model?.provider === 'anthropic' || !options.model?.provider) {
+      this.options = { ...this.options, ...options } as ClaudeAgentOptions;
+      this.anthropic = createAnthropic({
+        apiKey: this.options.apiKey,
+      });
     } else {
-      throw new Error('Invalid options for OpenAI agent');
+      throw new Error('Invalid options for Claude agent');
     }
   }
 
@@ -147,23 +149,25 @@ export class OpenAIAgent implements Agent {
    */
   async getCapabilities(): Promise<AgentCapabilities> {
     // Define capabilities based on the model
-    let contextWindowSize = 4000;
-    let typicalResponseTime = 2000;
+    let contextWindowSize = 100000; // Default to a large context window
+    let typicalResponseTime = 3000;
 
     // Adjust capabilities based on the model
-    switch (this.options.model.modelName) {
-      case OpenAIModel.GPT_4_0:
-      case OpenAIModel.GPT_4_0_MINI:
-      case OpenAIModel.GPT_4_0_NANO:
-      case OpenAIModel.GPT_4_1:
-      case OpenAIModel.GPT_4_1_MINI:
-      case OpenAIModel.GPT_4_1_NANO:
-        contextWindowSize = 8000;
+    switch (this.options.modelName) {
+      case ClaudeModel.CLAUDE_3_OPUS:
+        contextWindowSize = 200000;
+        typicalResponseTime = 4000;
+        break;
+      case ClaudeModel.CLAUDE_3_5_SONNET:
+      case ClaudeModel.CLAUDE_3_7_SONNET:
+      case ClaudeModel.CLAUDE_3_SONNET:
+        contextWindowSize = 180000;
         typicalResponseTime = 3000;
         break;
-      case OpenAIModel.O3_MINI:
-        contextWindowSize = 8000;
-        typicalResponseTime = 3000;
+      case ClaudeModel.CLAUDE_3_7_HAIKU:
+      case ClaudeModel.CLAUDE_3_HAIKU:
+        contextWindowSize = 150000;
+        typicalResponseTime = 2000;
         break;
       default:
         // Use defaults for unknown models
@@ -171,13 +175,13 @@ export class OpenAIAgent implements Agent {
     }
 
     return {
-      modelName: this.options.model.modelName,
+      modelName: this.options.modelName,
       contextWindowSize: this.options.contextWindowSize || contextWindowSize,
       supportsStreaming: true,
       supportsJsonOutput: true,
       supportedOutputFormats: ['text', 'json', 'markdown'],
       typicalResponseTime,
-      costPerRequest: 0.01, // Simplified cost estimate
+      costPerRequest: 0.015, // Simplified cost estimate
     };
   }
 
@@ -212,4 +216,51 @@ export class OpenAIAgent implements Agent {
       );
     }
   }
+}
+
+export async function handleCustomerQuery(query: string) {
+  const model = createAnthropic({
+    apiKey: process.env.ANTHROPIC_API_KEY || '',
+  }).chat('claude-3-5-sonnet-20240620');
+
+  // First step: Classify the query type
+  const { object: classification } = await generateObject({
+    model,
+    schema: z.object({
+      reasoning: z.string(),
+      type: z.enum(['general', 'refund', 'technical']),
+      complexity: z.enum(['simple', 'complex']),
+    }),
+    prompt: `Classify this customer query:
+    ${query}
+
+    Determine:
+    1. Query type (general, refund, or technical)
+    2. Complexity (simple or complex)
+    3. Brief reasoning for classification`,
+  });
+
+  // Route based on classification
+  // Set model and system prompt based on query type and complexity
+  const anthropicClient = createAnthropic({
+    apiKey: process.env.ANTHROPIC_API_KEY || '',
+  });
+
+  const { text: response } = await generateText({
+    model:
+      classification.complexity === 'simple'
+        ? anthropicClient.chat('claude-3-7-haiku-20240307')
+        : anthropicClient.chat('claude-3-7-sonnet-20250219'),
+    system: {
+      general:
+        'You are an expert customer service agent handling general inquiries.',
+      refund:
+        'You are a customer service agent specializing in refund requests. Follow company policy and collect necessary information.',
+      technical:
+        'You are a technical support specialist with deep product knowledge. Focus on clear step-by-step troubleshooting.',
+    }[classification.type],
+    prompt: query,
+  });
+
+  return { response, classification };
 }

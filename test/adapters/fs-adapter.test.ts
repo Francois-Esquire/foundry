@@ -1,8 +1,8 @@
 import { rm } from 'fs/promises';
 import { existsSync, mkdirSync } from 'fs';
-import { FileSystemAdapter } from '../../src/adapters';
+import { FileSystemAdapter } from '../../src/adapters/fs';
 import { createAdapterTests } from './adapter-test-suite';
-import type { Adapter } from '../../src/core/types';
+import type { Adapter } from '../../src/adapters/types';
 
 // For file-based testing, use a temp directory that will be cleaned up
 const TEST_DIR_PATH = './test/tmp/fs-adapter';

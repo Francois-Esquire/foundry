@@ -1,8 +1,8 @@
 import { rm } from 'fs/promises';
 import { existsSync, mkdirSync } from 'fs';
-import { JsonFileAdapter } from '../../src/adapters';
+import { JsonFileAdapter } from '../../src/adapters/json-file';
 import { createAdapterTests } from './adapter-test-suite';
-import type { Adapter } from '../../src/core/types';
+import type { Adapter } from '../../src/adapters/types';
 import * as path from 'path';
 
 // For file-based testing, use a temp directory that will be cleaned up

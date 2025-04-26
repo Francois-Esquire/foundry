@@ -1,5 +1,5 @@
 import { expect, test, describe, beforeEach, afterEach } from 'bun:test';
-import type { Adapter } from '../../src/core/types';
+import type { Adapter } from '../../src/adapters/types';
 
 /**
  * A set of common tests that should work for all adapters
