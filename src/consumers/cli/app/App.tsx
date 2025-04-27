@@ -9,15 +9,18 @@ import { MemoryRouter, Outlet, Route, Routes } from "react-router";
 
 import { ScreenLayout } from "./layouts/ScreenLayout";
 import { AnalyzeProjectScreen } from "./screens/AnalyzeProjectScreen";
+import { ChatScreen } from "./screens/ChatScreen";
 import { ConfigureScreen } from "./screens/ConfigureScreen";
 import { CreateProductScreen } from "./screens/CreateProductScreen";
 import { CreateTaskScreen } from "./screens/CreateTaskScreen";
 import { DashboardScreen } from "./screens/DashboardScreen";
+import { DependencyGraphScreen } from "./screens/DependencyGraphScreen";
 import { NotFoundScreen } from "./screens/NotFound";
 import { ProductListScreen } from "./screens/ProductListScreen";
 import { ProductScreen } from "./screens/ProductScreen";
 import { TaskListScreen } from "./screens/TaskListScreen";
 import { TaskScreen } from "./screens/TaskScreen";
+import { UserJourneyScreen } from "./screens/UserJourneyScreen";
 import { WelcomeScreen } from "./screens/WelcomeScreen";
 
 const theme = extendTheme(defaultTheme, {
@@ -32,7 +35,6 @@ export function App() {
     <ThemeProvider theme={theme}>
       <MemoryRouter>
         <Routes>
-          <Route path="/" element={<WelcomeScreen />} />
           <Route
             element={
               <ScreenLayout>
@@ -40,6 +42,7 @@ export function App() {
               </ScreenLayout>
             }
           >
+            <Route path="/" element={<WelcomeScreen />} />
             <Route path="/dashboard" element={<DashboardScreen />} />
             <Route path="/products" element={<ProductListScreen />} />
             <Route path="/products/create" element={<CreateProductScreen />} />
@@ -52,6 +55,12 @@ export function App() {
               element={<AnalyzeProjectScreen />}
             />
             <Route path="/configure" element={<ConfigureScreen />} />
+            <Route path="/chat" element={<ChatScreen />} />
+            <Route path="/user-journey" element={<UserJourneyScreen />} />
+            <Route
+              path="/dependency-graph"
+              element={<DependencyGraphScreen />}
+            />
 
             <Route path="*" element={<NotFoundScreen />} />
           </Route>

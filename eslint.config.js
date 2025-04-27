@@ -34,15 +34,13 @@ export default [
     },
     rules: {
       "no-unused-vars": [
-        "error",
+        "warn",
         {
           vars: "all",
           args: "after-used",
           caughtErrors: "all",
           ignoreRestSiblings: false,
           reportUsedIgnorePattern: false,
-          argsIgnorePattern: "^_",
-          varsIgnorePattern: "^_",
         },
       ],
       "@typescript-eslint/no-unused-vars": "warn",

@@ -15,6 +15,10 @@ type FocusableElement =
   | "newProduct"
   | "analyzeProject"
   | "getNextTask"
+  | "settings"
+  | "chat"
+  | "userJourney"
+  | "dependencyGraph"
   | "viewAllProducts"
   | "viewAllTasks";
 
@@ -33,6 +37,10 @@ export function DashboardScreen() {
     "newProduct",
     "analyzeProject",
     "getNextTask",
+    "settings",
+    "chat",
+    "userJourney",
+    "dependencyGraph",
     ...(showViewAllProducts ? ["viewAllProducts" as FocusableElement] : []),
     ...(showViewAllTasks ? ["viewAllTasks" as FocusableElement] : []),
   ];
@@ -49,6 +57,10 @@ export function DashboardScreen() {
     newProduct: () => navigate("/products/create"),
     analyzeProject: () => navigate("/jobs/analyze-project"),
     getNextTask: handleGetNextTask,
+    settings: () => navigate("/configure"),
+    chat: () => navigate("/chat"),
+    userJourney: () => navigate("/user-journey"),
+    dependencyGraph: () => navigate("/dependency-graph"),
     viewAllProducts: () => navigate("/products"),
     viewAllTasks: () => navigate("/tasks"),
   };
@@ -130,7 +142,11 @@ export function DashboardScreen() {
       </Section>
       {/* Quick Actions Section */}
       <Section title="Quick Actions" gap={theme.spacing.sm}>
-        <Box gap={theme.spacing.sm} marginLeft={theme.spacing.sm}>
+        <Box
+          gap={theme.spacing.sm}
+          marginLeft={theme.spacing.sm}
+          flexWrap="wrap"
+        >
           <Button
             onPress={actions.newProduct}
             isFocused={focusedElement === "newProduct"}
@@ -148,6 +164,27 @@ export function DashboardScreen() {
             isFocused={focusedElement === "getNextTask"}
           >
             Get Next Task
+          </Button>
+          <Button
+            onPress={actions.settings}
+            isFocused={focusedElement === "settings"}
+          >
+            Settings
+          </Button>
+          <Button onPress={actions.chat} isFocused={focusedElement === "chat"}>
+            Chat
+          </Button>
+          <Button
+            onPress={actions.userJourney}
+            isFocused={focusedElement === "userJourney"}
+          >
+            User Journey
+          </Button>
+          <Button
+            onPress={actions.dependencyGraph}
+            isFocused={focusedElement === "dependencyGraph"}
+          >
+            Dependency Graph
           </Button>
         </Box>
       </Section>

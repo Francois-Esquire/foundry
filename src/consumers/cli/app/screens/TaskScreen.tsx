@@ -2,9 +2,11 @@ import React from "react";
 import { Box, Text, useInput } from "ink";
 import { useNavigate, useParams } from "react-router";
 
+import { PageFooter } from "../components/PageFooter";
 import { PageHeader } from "../components/PageHeader";
 import { StatusBadge } from "../components/StatusBadge";
 import { useAppStore } from "../store";
+import { theme } from "../theme";
 
 export function TaskScreen() {
   const { id } = useParams();
@@ -96,10 +98,7 @@ export function TaskScreen() {
         )}
       </Box>
 
-      <Box marginTop={1}>
-        <Text dimColor>Press Esc to go back.</Text>
-        {/* Add Edit/Delete prompts later */}
-      </Box>
+      <PageFooter helpText="(Press Esc to go back)" />
     </Box>
   );
 }

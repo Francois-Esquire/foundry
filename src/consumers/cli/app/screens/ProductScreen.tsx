@@ -4,8 +4,10 @@ import { useNavigate, useParams } from "react-router";
 
 import { CreateButton } from "../components/CreateButton";
 import { ListTasks } from "../components/ListTasks";
+import { PageFooter } from "../components/PageFooter";
 import { PageHeader } from "../components/PageHeader";
 import { useAppStore } from "../store";
+import { theme } from "../theme";
 
 export function ProductScreen() {
   const { id: productId } = useParams();
@@ -89,9 +91,7 @@ export function ProductScreen() {
         )}
       </Box>
 
-      <Box marginTop={1}>
-        <Text dimColor>Press Esc to go back.</Text>
-      </Box>
+      <PageFooter helpText="(Use ↑/↓ to navigate, Enter to select, Esc to go back)" />
     </Box>
   );
 }

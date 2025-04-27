@@ -3,6 +3,8 @@ import { Box, Text, useInput } from "ink";
 import { useNavigate } from "react-router";
 
 import { Gradient } from "../components/Gradient";
+import { PageFooter } from "../components/PageFooter";
+import { theme } from "../theme";
 
 // ASCII art banner for the product manager (TODO: rename to "FOUNDRY", "FOUNDRY CLI", etc.)
 const BANNER = `
@@ -13,12 +15,12 @@ const BANNER = `
 ██║     ██║  ██║╚██████╔╝██████╔╝╚██████╔╝╚██████╗   ██║   
 ╚═╝     ╚═╝  ╚═╝ ╚═════╝ ╚═════╝  ╚═════╝  ╚═════╝   ╚═╝   
                                                             
-███╗   ███╗ █████╗ ███╗   ██╗ █████╗  ██████╗ ███████╗██████╗ 
-████╗ ████║██╔══██╗████╗  ██║██╔══██╗██╔════╝ ██╔════╝██╔══██╗
-██╔████╔██║███████║██╔██╗ ██║███████║██║  ███╗█████╗  ██████╔╝
-██║╚██╔╝██║██╔══██║██║╚██╗██║██╔══██║██║   ██║██╔══╝  ██╔══██╗
-██║ ╚═╝ ██║██║  ██║██║ ╚████║██║  ██║╚██████╔╝███████╗██║  ██║
-╚═╝     ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═╝
+███████╗ ██████╗ ██╗   ██╗███╗   ██╗██████╗ ██████╗ ██╗   ██╗
+██╔════╝██╔═══██╗██║   ██║████╗  ██║██╔══██╗██╔══██╗╚██╗ ██╔╝
+█████╗  ██║   ██║██║   ██║██╔██╗ ██║██║  ██║██████╔╝ ╚████╔╝ 
+██╔══╝  ██║   ██║██║   ██║██║╚██╗██║██║  ██║██╔══██╗  ╚██╔╝  
+██║     ╚██████╔╝╚██████╔╝██║ ╚████║██████╔╝██║  ██║   ██║   
+╚═╝      ╚═════╝  ╚═════╝ ╚═╝  ╚═══╝╚═════╝ ╚═╝  ╚═╝   ╚═╝   
 `;
 
 export function WelcomeScreen() {
@@ -50,7 +52,7 @@ export function WelcomeScreen() {
       </Box>
 
       <Box marginY={1}>
-        <Text bold>Welcome to Product Manager CLI</Text>
+        <Text bold>Welcome to Foundry CLI</Text>
       </Box>
 
       <Box marginY={1}>
@@ -64,6 +66,8 @@ export function WelcomeScreen() {
           <Text color="green">Press Enter to continue →</Text>
         </Box>
       )}
+
+      <PageFooter helpText="(Press Enter to continue, Esc to exit)" />
     </Box>
   );
 }

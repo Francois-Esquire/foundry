@@ -3,9 +3,11 @@ import { Box, Text, useInput } from "ink";
 import { useNavigate } from "react-router";
 
 import { CreateButton } from "../components/CreateButton";
+import { PageFooter } from "../components/PageFooter";
 import { PageHeader } from "../components/PageHeader";
 import { ProductSelector } from "../components/ProductSelector";
 import { useAppStore } from "../store";
+import { theme } from "../theme";
 
 export function ProductListScreen() {
   const navigate = useNavigate();
@@ -52,13 +54,13 @@ export function ProductListScreen() {
         )
       )}
 
-      <Box marginTop={1}>
-        <Text dimColor>
-          {products.length > 0
-            ? "Use ↑ and ↓ to navigate, Enter to select"
-            : "Press Enter to create a new product"}
-        </Text>
-      </Box>
+      <PageFooter
+        helpText={
+          products.length > 0
+            ? "(Use ↑/↓ to navigate, Enter to select)"
+            : "(Press Enter to create a new product)"
+        }
+      />
     </Box>
   );
 }

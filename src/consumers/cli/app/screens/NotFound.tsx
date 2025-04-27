@@ -3,6 +3,7 @@ import { Box, Text } from "ink";
 import { useNavigate } from "react-router";
 
 import { Button } from "../components/Button";
+import { PageFooter } from "../components/PageFooter";
 import { theme } from "../theme";
 
 export function NotFoundScreen() {
@@ -35,11 +36,7 @@ export function NotFoundScreen() {
         Go to Welcome Screen
       </Button>
 
-      <Box marginTop={theme.spacing.md}>
-        <Text dimColor color={theme.colors.textDim}>
-          (Press Enter to continue)
-        </Text>
-      </Box>
+      <PageFooter helpText="(Press Enter to continue)" />
     </Box>
   );
 }

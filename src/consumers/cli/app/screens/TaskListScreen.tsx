@@ -4,8 +4,10 @@ import { useNavigate } from "react-router";
 
 import { CreateButton } from "../components/CreateButton";
 import { ListTasks } from "../components/ListTasks";
+import { PageFooter } from "../components/PageFooter";
 import { PageHeader } from "../components/PageHeader";
 import { useAppStore } from "../store";
+import { theme } from "../theme";
 
 export function TaskListScreen() {
   const navigate = useNavigate();
@@ -45,13 +47,13 @@ export function TaskListScreen() {
         isActive={!focusCreate}
       />
 
-      <Box marginTop={1}>
-        <Text dimColor>
-          {tasks.length > 0
-            ? "Use ↑ and ↓ to navigate, Enter to select, Esc to go back"
-            : "Press Enter to create a new task, Esc to go back"}
-        </Text>
-      </Box>
+      <PageFooter
+        helpText={
+          tasks.length > 0
+            ? "(Use ↑/↓ to navigate, Enter to select, Esc to go back)"
+            : "(Press Enter to create a new task, Esc to go back)"
+        }
+      />
     </Box>
   );
 }
