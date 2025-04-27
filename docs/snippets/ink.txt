@@ -1,0 +1,617 @@
+TITLE: Installing Ink and React using npm
+DESCRIPTION: This command installs the Ink library and React as dependencies using npm, which are required for building CLI applications with Ink.
+SOURCE: https://github.com/vadimdemedes/ink/blob/master/readme.md#_snippet_0
+
+LANGUAGE: sh
+CODE:
+```
+npm install ink react
+```
+
+----------------------------------------
+
+TITLE: Rendering "Hello World" with Ink
+DESCRIPTION: This JavaScript code renders a "Hello World" text in the terminal using Ink. It imports the necessary modules from `react` and `ink`, defines a simple component, and uses the `render` function to display it.
+SOURCE: https://github.com/vadimdemedes/ink/blob/master/readme.md#_snippet_6
+
+LANGUAGE: jsx
+CODE:
+```
+import React from 'react';
+import {render, Text} from 'ink';
+
+const Demo = () => <Text>Hello World</Text>;
+
+render(<Demo />);
+```
+
+----------------------------------------
+
+TITLE: Text Styling Example in Ink (JSX)
+DESCRIPTION: This example demonstrates how to use the `<Text>` component in Ink to display text with various styles such as color, background color, bold, italic, underline, strikethrough, and inverse.
+SOURCE: https://github.com/vadimdemedes/ink/blob/master/readme.md#_snippet_9
+
+LANGUAGE: jsx
+CODE:
+```
+import {render, Text} from 'ink';
+
+const Example = () => (
+	<>
+		<Text color="green">I am green</Text>
+		<Text color="black" backgroundColor="white">
+			I am black on white
+		</Text>
+		<Text color="#ffffff">I am white</Text>
+		<Text bold>I am bold</Text>
+		<Text italic>I am italic</Text>
+		<Text underline>I am underline</Text>
+		<Text strikethrough>I am strikethrough</Text>
+		<Text inverse>I am inversed</Text>
+	</>
+);
+
+render(<Example />);
+```
+
+----------------------------------------
+
+TITLE: Handling User Input with useInput Hook in Ink
+DESCRIPTION: Shows how to use the `useInput` hook to handle user input in an Ink application. The callback function receives the input string and key information, allowing for reacting to specific keys or input sequences.
+SOURCE: https://github.com/vadimdemedes/ink/blob/master/readme.md#_snippet_51
+
+LANGUAGE: jsx
+CODE:
+```
+import {useInput} from 'ink';
+
+const UserInput = () => {
+	useInput((input, key) => {
+		if (input === 'q') {
+			// Exit program
+		}
+
+		if (key.leftArrow) {
+			// Left arrow key pressed
+		}
+	});
+
+	return …
+};
+```
+
+----------------------------------------
+
+TITLE: Text Color in Ink (JSX)
+DESCRIPTION: This example shows how to use the `color` property of the `<Text>` component to change the text color. It supports various color formats such as named colors, hexadecimal codes, and RGB values.  It utilizes chalk under the hood for styling.
+SOURCE: https://github.com/vadimdemedes/ink/blob/master/readme.md#_snippet_10
+
+LANGUAGE: jsx
+CODE:
+```
+<Text color="green">Green</Text>
+<Text color="#005cc5">Blue</Text>
+<Text color="rgb(232, 131, 136)">Red</Text>
+```
+
+----------------------------------------
+
+TITLE: Creating a Counter Component with Ink and React
+DESCRIPTION: This code creates a React component named `Counter` that displays an incrementing counter in the terminal using Ink. It utilizes `useState` to manage the counter value and `useEffect` to set up a timer that increments the counter every 100 milliseconds.
+SOURCE: https://github.com/vadimdemedes/ink/blob/master/readme.md#_snippet_1
+
+LANGUAGE: jsx
+CODE:
+```
+import React, {useState, useEffect} from 'react';
+import {render, Text} from 'ink';
+
+const Counter = () => {
+	const [counter, setCounter] = useState(0);
+
+	useEffect(() => {
+		const timer = setInterval(() => {
+			setCounter(previousCounter => previousCounter + 1);
+		}, 100);
+
+		return () => {
+			clearInterval(timer);
+		};
+	}, []);
+
+	return <Text color="green">{counter} tests passed</Text>;
+};
+
+render(<Counter />);
+```
+
+----------------------------------------
+
+TITLE: Scaffolding a New Ink Project
+DESCRIPTION: This command uses `create-ink-app` to quickly create a new Ink-based CLI project. It sets up the basic project structure and dependencies.
+SOURCE: https://github.com/vadimdemedes/ink/blob/master/readme.md#_snippet_2
+
+LANGUAGE: sh
+CODE:
+```
+npx create-ink-app my-ink-cli
+```
+
+----------------------------------------
+
+TITLE: Testing Ink Component with ink-testing-library (JSX)
+DESCRIPTION: This code snippet provides a basic example of how to test an Ink component using the `ink-testing-library`. It renders a `Text` component and then asserts that the last rendered frame matches the expected text. It requires both 'ink' and 'ink-testing-library'.
+SOURCE: https://github.com/vadimdemedes/ink/blob/master/readme.md#_snippet_72
+
+LANGUAGE: jsx
+CODE:
+```
+import React from 'react';
+import {Text} from 'ink';
+import {render} from 'ink-testing-library';
+
+const Test = () => <Text>Hello World</Text>;
+const {lastFrame} = render(<Test />);
+
+lastFrame() === 'Hello World'; //=> true
+```
+
+----------------------------------------
+
+TITLE: Box Component Example in Ink (JSX)
+DESCRIPTION: This example demonstrates the basic usage of the `<Box>` component in Ink for creating layouts. It shows how to apply margins to the box.
+SOURCE: https://github.com/vadimdemedes/ink/blob/master/readme.md#_snippet_15
+
+LANGUAGE: jsx
+CODE:
+```
+import {render, Box, Text} from 'ink';
+
+const Example = () => (
+	<Box margin={2}>
+		<Text>This is a box with margin</Text>
+	</Box>
+);
+
+render(<Example />);
+```
+
+----------------------------------------
+
+TITLE: Box borderStyle property in Ink (JSX)
+DESCRIPTION: Illustrates the different border styles available for the `Box` component in Ink using the `borderStyle` property. The available styles are `single`, `double`, `round`, `bold`, `singleDouble`, `doubleSingle`, and `classic`. It shows how to apply each style and creates a visual representation of the borders.
+SOURCE: https://github.com/vadimdemedes/ink/blob/master/readme.md#_snippet_31
+
+LANGUAGE: jsx
+CODE:
+```
+<Box flexDirection="column">
+	<Box>
+		<Box borderStyle="single" marginRight={2}>
+			<Text>single</Text>
+		</Box>
+
+		<Box borderStyle="double" marginRight={2}>
+			<Text>double</Text>
+		</Box>
+
+		<Box borderStyle="round" marginRight={2}>
+			<Text>round</Text>
+		</Box>
+
+		<Box borderStyle="bold">
+			<Text>bold</Text>
+		</Box>
+	</Box>
+
+	<Box marginTop={1}>
+		<Box borderStyle="singleDouble" marginRight={2}>
+			<Text>singleDouble</Text>
+		</Box>
+
+		<Box borderStyle="doubleSingle" marginRight={2}>
+			<Text>doubleSingle</Text>
+		</Box>
+
+		<Box borderStyle="classic">
+			<Text>classic</Text>
+		</Box>
+	</Box>
+</Box>
+```
+
+----------------------------------------
+
+TITLE: Writing to Stdout with useStdout Hook in Ink
+DESCRIPTION: Demonstrates how to write directly to the standard output stream using the `write` function provided by the `useStdout` hook. This allows for displaying information outside of Ink's rendering area while preserving Ink's output.
+SOURCE: https://github.com/vadimdemedes/ink/blob/master/readme.md#_snippet_57
+
+LANGUAGE: javascript
+CODE:
+```
+import {useStdout} from 'ink';
+
+const Example = () => {
+	const {write} = useStdout();
+
+	useEffect(() => {
+		// Write a single message to stdout, above Ink's output
+		write('Hello from Ink to stdout\n');
+	}, []);
+
+	return …
+};
+```
+
+----------------------------------------
+
+TITLE: Text Wrap in Ink (JSX)
+DESCRIPTION: This example showcases how to use the `wrap` property of the `<Text>` component to control how text is wrapped or truncated when its width exceeds the container width. It demonstrates different values such as `wrap`, `truncate`, `truncate-middle`, and `truncate-start`.
+SOURCE: https://github.com/vadimdemedes/ink/blob/master/readme.md#_snippet_14
+
+LANGUAGE: jsx
+CODE:
+```
+<Box width={7}>
+	<Text>Hello World</Text>
+</Box>
+//=> 'Hello\nWorld'
+
+// `truncate` is an alias to `truncate-end`
+<Box width={7}>
+	<Text wrap="truncate">Hello World</Text>
+</Box>
+//=> 'Hello…'
+
+<Box width={7}>
+	<Text wrap="truncate-middle">Hello World</Text>
+</Box>
+//=> 'He…ld'
+
+<Box width={7}>
+	<Text wrap="truncate-start">Hello World</Text>
+</Box>
+//=> '…World'
+```
+
+----------------------------------------
+
+TITLE: Scaffolding a New TypeScript Ink Project
+DESCRIPTION: This command uses `create-ink-app` with the `--typescript` flag to create a new Ink-based CLI project configured to use TypeScript. It sets up the project with TypeScript support.
+SOURCE: https://github.com/vadimdemedes/ink/blob/master/readme.md#_snippet_3
+
+LANGUAGE: sh
+CODE:
+```
+npx create-ink-app --typescript my-ink-cli
+```
+
+----------------------------------------
+
+TITLE: Accessing Stdin Stream with useStdin Hook in Ink
+DESCRIPTION: Shows how to access the standard input stream using the `useStdin` hook. This hook provides the `stdin` object, which can be used to handle user input events.
+SOURCE: https://github.com/vadimdemedes/ink/blob/master/readme.md#_snippet_53
+
+LANGUAGE: javascript
+CODE:
+```
+import {useStdin} from 'ink';
+
+const Example = () => {
+	const {stdin} = useStdin();
+
+	return …
+};
+```
+
+----------------------------------------
+
+TITLE: Enabling Focus Management with useFocusManager (JavaScript)
+DESCRIPTION: This code snippet shows how to enable focus management for all components using the `useFocusManager` hook in Ink. It calls `enableFocus` within a `useEffect` hook to ensure focus management is enabled when the component mounts. It depends on the 'ink' library.
+SOURCE: https://github.com/vadimdemedes/ink/blob/master/readme.md#_snippet_61
+
+LANGUAGE: javascript
+CODE:
+```
+import {useFocusManager} from 'ink';
+
+const Example = () => {
+	const {enableFocus} = useFocusManager();
+
+	useEffect(() => {
+		enableFocus();
+	}, []);
+
+	return …
+};
+```
+
+----------------------------------------
+
+TITLE: Setting Raw Mode with useStdin Hook in Ink
+DESCRIPTION: Illustrates how to set the raw mode of the standard input stream using the `setRawMode` function provided by the `useStdin` hook. Raw mode allows for capturing special keys like Ctrl+C. The example shows how to enable and disable raw mode within a `useEffect` hook.
+SOURCE: https://github.com/vadimdemedes/ink/blob/master/readme.md#_snippet_55
+
+LANGUAGE: javascript
+CODE:
+```
+import {useStdin} from 'ink';
+
+const Example = () => {
+	const {setRawMode} = useStdin();
+
+	useEffect(() => {
+		setRawMode(true);
+
+		return () => {
+			setRawMode(false);
+		};
+	});
+
+	return …
+};
+```
+
+----------------------------------------
+
+TITLE: Box Margin in Ink (JSX)
+DESCRIPTION: This example showcases how to use margin properties (`marginTop`, `marginBottom`, `marginLeft`, `marginRight`, `marginX`, `marginY`, `margin`) of the `<Box>` component in Ink.
+SOURCE: https://github.com/vadimdemedes/ink/blob/master/readme.md#_snippet_19
+
+LANGUAGE: jsx
+CODE:
+```
+<Box marginTop={2}>Top</Box>
+<Box marginBottom={2}>Bottom</Box>
+<Box marginLeft={2}>Left</Box>
+<Box marginRight={2}>Right</Box>
+<Box marginX={2}>Left and right</Box>
+<Box marginY={2}>Top and bottom</Box>
+<Box margin={2}>Top, bottom, left and right</Box>
+```
+
+----------------------------------------
+
+TITLE: Waiting Until Ink App Exits (JSX)
+DESCRIPTION: This snippet illustrates how to wait until an Ink application has been unmounted by using `waitUntilExit`. The example renders an application, unmounts it after 1 second with `setTimeout` and then uses `await waitUntilExit()` to wait for the unmount to complete. Requires the 'ink' library.
+SOURCE: https://github.com/vadimdemedes/ink/blob/master/readme.md#_snippet_69
+
+LANGUAGE: jsx
+CODE:
+```
+const {unmount, waitUntilExit} = render(<MyApp />);
+
+setTimeout(unmount, 1000);
+
+await waitUntilExit(); // resolves after `unmount()` is called
+```
+
+----------------------------------------
+
+TITLE: Box Padding in Ink (JSX)
+DESCRIPTION: This example showcases how to use padding properties (`paddingTop`, `paddingBottom`, `paddingLeft`, `paddingRight`, `paddingX`, `paddingY`, `padding`) of the `<Box>` component in Ink.
+SOURCE: https://github.com/vadimdemedes/ink/blob/master/readme.md#_snippet_18
+
+LANGUAGE: jsx
+CODE:
+```
+<Box paddingTop={2}>Top</Box>
+<Box paddingBottom={2}>Bottom</Box>
+<Box paddingLeft={2}>Left</Box>
+<Box paddingRight={2}>Right</Box>
+<Box paddingX={2}>Left and right</Box>
+<Box paddingY={2}>Top and bottom</Box>
+<Box padding={2}>Top, bottom, left and right</Box>
+```
+
+----------------------------------------
+
+TITLE: Disabling Focus Management with useFocusManager (JavaScript)
+DESCRIPTION: This code snippet demonstrates how to disable focus management for all components using the `useFocusManager` hook in Ink. It calls `disableFocus` within a `useEffect` hook to ensure focus management is disabled when the component mounts. It requires the 'ink' library.
+SOURCE: https://github.com/vadimdemedes/ink/blob/master/readme.md#_snippet_62
+
+LANGUAGE: javascript
+CODE:
+```
+import {useFocusManager} from 'ink';
+
+const Example = () => {
+	const {disableFocus} = useFocusManager();
+
+	useEffect(() => {
+		disableFocus();
+	}, []);
+
+	return …
+};
+```
+
+----------------------------------------
+
+TITLE: Box justifyContent property in Ink (JSX)
+DESCRIPTION: Demonstrates how to use the `justifyContent` property of the `Box` component in Ink to control the horizontal alignment of its children.  The allowed values are `flex-start`, `center`, `flex-end`, `space-between`, `space-around`, and `space-evenly`. The code snippets illustrate the visual output of each value.
+SOURCE: https://github.com/vadimdemedes/ink/blob/master/readme.md#_snippet_30
+
+LANGUAGE: jsx
+CODE:
+```
+<Box justifyContent="flex-start">
+	<Text>X</Text>
+</Box>
+// [X      ]
+
+<Box justifyContent="center">
+	<Text>X</Text>
+</Box>
+// [   X   ]
+
+<Box justifyContent="flex-end">
+	<Text>X</Text>
+</Box>
+// [      X]
+
+<Box justifyContent="space-between">
+	<Text>X</Text>
+	<Text>Y</Text>
+</Box>
+// [X      Y]
+
+<Box justifyContent="space-around">
+	<Text>X</Text>
+	<Text>Y</Text>
+</Box>
+// [  X   Y  ]
+
+<Box justifyContent="space-evenly">
+	<Text>X</Text>
+	<Text>Y</Text>
+</Box>
+// [   X   Y   ]
+```
+
+----------------------------------------
+
+TITLE: Box Flex Direction in Ink (JSX)
+DESCRIPTION: This example demonstrates how to use the `flexDirection` property of the `<Box>` component to control the direction of the flex container (row, row-reverse, column, column-reverse).
+SOURCE: https://github.com/vadimdemedes/ink/blob/master/readme.md#_snippet_26
+
+LANGUAGE: jsx
+CODE:
+```
+<Box>
+	<Box marginRight={1}>
+		<Text>X</Text>
+	</Box>
+	<Text>Y</Text>
+</Box>
+// X Y
+
+<Box flexDirection="row-reverse">
+	<Text>X</Text>
+	<Box marginRight={1}>
+		<Text>Y</Text>
+	</Box>
+</Box>
+// Y X
+
+<Box flexDirection="column">
+	<Text>X</Text>
+	<Text>Y</Text>
+</Box>
+// X
+// Y
+
+<Box flexDirection="column-reverse">
+	<Text>X</Text>
+	<Text>Y</Text>
+</Box>
+// Y
+// X
+```
+
+----------------------------------------
+
+TITLE: Exiting Ink App with useApp Hook
+DESCRIPTION: Demonstrates using the `useApp` hook to programmatically exit an Ink application.  The `exit` function returned by the hook can be called to unmount the app, optionally passing an error to reject the `waitUntilExit` promise.
+SOURCE: https://github.com/vadimdemedes/ink/blob/master/readme.md#_snippet_52
+
+LANGUAGE: javascript
+CODE:
+```
+import {useApp} from 'ink';
+
+const Example = () => {
+	const {exit} = useApp();
+
+	// Exit the app after 5 seconds
+	useEffect(() => {
+		setTimeout(() => {
+			exit();
+		}, 5000);
+	}, []);
+
+	return …
+};
+```
+
+----------------------------------------
+
+TITLE: Transpiling JSX with Babel
+DESCRIPTION: This command uses Babel to transpile a JavaScript file containing JSX syntax (`source.js`) into a standard JavaScript file (`cli.js`) that can be executed by Node.js.
+SOURCE: https://github.com/vadimdemedes/ink/blob/master/readme.md#_snippet_7
+
+LANGUAGE: sh
+CODE:
+```
+npx babel source.js -o cli.js
+```
+
+----------------------------------------
+
+TITLE: Focusing Component by ID with useFocusManager (JavaScript)
+DESCRIPTION: This code snippet demonstrates how to switch focus to a specific component using its ID with the `useFocusManager` hook in Ink. It uses `useInput` to listen for a specific input ('s' in this case) and then calls `focus` with the component's ID. Requires the 'ink' library.
+SOURCE: https://github.com/vadimdemedes/ink/blob/master/readme.md#_snippet_65
+
+LANGUAGE: javascript
+CODE:
+```
+import {useFocusManager, useInput} from 'ink';
+
+const Example = () => {
+	const {focus} = useFocusManager();
+
+	useInput(input => {
+		if (input === 's') {
+			// Focus the component with focus ID 'someId'
+			focus('someId');
+		}
+	});
+
+	return …
+};
+```
+
+----------------------------------------
+
+TITLE: Rerendering Ink Components with Updated Props (JSX)
+DESCRIPTION: This code snippet demonstrates how to rerender an Ink component with updated props using the `rerender` function. It first renders a `Counter` component with an initial count and then rerenders it with an updated count. Requires the 'ink' library.
+SOURCE: https://github.com/vadimdemedes/ink/blob/master/readme.md#_snippet_66
+
+LANGUAGE: jsx
+CODE:
+```
+// Update props of the root node
+const {rerender} = render(<Counter count={1} />);
+rerender(<Counter count={2} />);
+```
+
+----------------------------------------
+
+TITLE: Running the CLI Application with Node.js
+DESCRIPTION: This command executes the transpiled JavaScript file (`cli.js`) using Node.js, which in turn runs the Ink application and displays its output in the terminal.
+SOURCE: https://github.com/vadimdemedes/ink/blob/master/readme.md#_snippet_8
+
+LANGUAGE: sh
+CODE:
+```
+node cli
+```
+
+----------------------------------------
+
+TITLE: Box Gap in Ink (JSX)
+DESCRIPTION: This example demonstrates how to use the `gap` property of the `<Box>` component to control the gap between elements.
+SOURCE: https://github.com/vadimdemedes/ink/blob/master/readme.md#_snippet_20
+
+LANGUAGE: jsx
+CODE:
+```
+<Box gap={1} width={3} flexWrap="wrap">
+	<Text>A</Text>
+	<Text>B</Text>
+	<Text>C</Text>
+</Box>
+// A B
+//
+// C
+```

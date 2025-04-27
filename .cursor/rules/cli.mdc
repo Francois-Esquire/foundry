@@ -1,0 +1,10 @@
+---
+description: 
+globs: src/consumers/cli/**/*.tsx
+alwaysApply: false
+---
+- The CLI is built with `ink` to create its screens - always reference [ink.txt](mdc:docs/snippets/ink.txt)
+- The CLI uses `@inkjs/ui` components to build screens (and components) on top of - always reference [ink-ui.txt](mdc:docs/snippets/ink-ui.txt) 
+- use screens/ instead of pages/
+- the cli entry [index.tsx](mdc:src/consumers/cli/app/index.tsx) along with the app [App.tsx](mdc:src/consumers/cli/app/App.tsx)
+- The cli uses the latest react-router MemoryRouter since we are running in a CLI

@@ -1,7 +1,7 @@
 import { termost } from "termost";
 
-import pkg from "../../../package.json";
-import { FoundryLibrary } from "../../core";
+import { FoundryLibrary } from "@/core";
+import pkg from "../../../../package.json";
 
 type ProgramContext = {
   prompt: string;
