@@ -17,7 +17,13 @@ export function ScreenLayout({ children }: { children: React.ReactNode }) {
   }, [stdout]);
 
   return (
-    <Box flexDirection="column" width={dimensions[0]} height={dimensions[1]}>
+    <Box
+      flexDirection="column"
+      justifyContent="space-between"
+      alignItems="stretch"
+      width={dimensions[0]}
+      height={dimensions[1]}
+    >
       {children}
     </Box>
   );

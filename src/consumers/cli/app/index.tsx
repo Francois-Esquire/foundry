@@ -1,7 +1,7 @@
 import React from "react";
 import { render } from "ink";
 
-import { App } from "./App";
+import { App } from "./app";
 
 if (import.meta.main) {
   render(<App />);

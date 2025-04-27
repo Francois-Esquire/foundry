@@ -2,26 +2,8 @@ import React, { useEffect, useState } from "react";
 import { Box, Text, useInput } from "ink";
 import { useNavigate } from "react-router";
 
-import { Gradient } from "../components/Gradient";
 import { PageFooter } from "../components/PageFooter";
-import { theme } from "../theme";
-
-// ASCII art banner for the product manager (TODO: rename to "FOUNDRY", "FOUNDRY CLI", etc.)
-const BANNER = `
-██████╗ ██████╗  ██████╗ ██████╗ ██╗   ██╗ ██████╗████████╗
-██╔══██╗██╔══██╗██╔═══██╗██╔══██╗██║   ██║██╔════╝╚══██╔══╝
-██████╔╝██████╔╝██║   ██║██║  ██║██║   ██║██║        ██║   
-██╔═══╝ ██╔══██╗██║   ██║██║  ██║██║   ██║██║        ██║   
-██║     ██║  ██║╚██████╔╝██████╔╝╚██████╔╝╚██████╗   ██║   
-╚═╝     ╚═╝  ╚═╝ ╚═════╝ ╚═════╝  ╚═════╝  ╚═════╝   ╚═╝   
-                                                            
-███████╗ ██████╗ ██╗   ██╗███╗   ██╗██████╗ ██████╗ ██╗   ██╗
-██╔════╝██╔═══██╗██║   ██║████╗  ██║██╔══██╗██╔══██╗╚██╗ ██╔╝
-█████╗  ██║   ██║██║   ██║██╔██╗ ██║██║  ██║██████╔╝ ╚████╔╝ 
-██╔══╝  ██║   ██║██║   ██║██║╚██╗██║██║  ██║██╔══██╗  ╚██╔╝  
-██║     ╚██████╔╝╚██████╔╝██║ ╚████║██████╔╝██║  ██║   ██║   
-╚═╝      ╚═════╝  ╚═════╝ ╚═╝  ╚═══╝╚═════╝ ╚═╝  ╚═╝   ╚═╝   
-`;
+import { WelcomeBanner } from "../components/welcome-banner";
 
 export function WelcomeScreen() {
   const navigate = useNavigate();
@@ -47,10 +29,7 @@ export function WelcomeScreen() {
 
   return (
     <Box flexDirection="column" padding={1}>
-      <Box flexDirection="column" marginBottom={1}>
-        <Gradient name="vice">{BANNER}</Gradient>
-      </Box>
-
+      <WelcomeBanner />
       <Box marginY={1}>
         <Text bold>Welcome to Foundry CLI</Text>
       </Box>
