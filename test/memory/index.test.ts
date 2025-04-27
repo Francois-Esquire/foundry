@@ -1,32 +1,33 @@
+import { createHash } from "crypto";
+import { mkdir, rm, writeFile } from "node:fs/promises";
+import { join, resolve as resolvePath } from "node:path";
+import type { Dirent } from "node:fs";
+
 import {
-  test,
-  expect,
-  describe,
-  beforeEach,
+  afterAll,
   afterEach,
   beforeAll,
-  afterAll,
+  beforeEach,
+  describe,
+  expect,
   mock,
-} from 'bun:test';
-import {
-  createMemoryManager,
-  type MemoryManager,
-  type CachedChunk,
-} from '../../src/memory';
-import { mkdir, rm, writeFile } from 'node:fs/promises';
-import { join, resolve as resolvePath } from 'node:path';
-import { createHash } from 'crypto';
-import { traverseDirectory, type TraverseOptions } from '../../src/memory/fs';
-import type { Dirent } from 'node:fs';
+  test,
+} from "bun:test";
 
-const TEST_DOCS_DIR = './docs/architecture';
+import type { CachedChunk, MemoryManager } from "../../src/memory";
+import type { TraverseOptions } from "../../src/memory/fs";
+
+import { createMemoryManager } from "../../src/memory";
+import { traverseDirectory } from "../../src/memory/fs";
+
+const TEST_DOCS_DIR = "./docs/architecture";
 const ABS_TEST_DOCS_DIR = resolvePath(TEST_DOCS_DIR);
 
-console.log('[TEST_DOCS_DIR]', TEST_DOCS_DIR);
-console.log('[ABS_TEST_DOCS_DIR]', ABS_TEST_DOCS_DIR);
+console.log("[TEST_DOCS_DIR]", TEST_DOCS_DIR);
+console.log("[ABS_TEST_DOCS_DIR]", ABS_TEST_DOCS_DIR);
 
-describe('Memory Manager', () => {
-  const MEMORY_DB_PATH = ':memory:';
+describe("Memory Manager", () => {
+  const MEMORY_DB_PATH = ":memory:";
   let memory: MemoryManager | null = null;
 
   beforeEach(async () => {
@@ -44,69 +45,69 @@ describe('Memory Manager', () => {
     }
   });
 
-  describe('File Operations', () => {
+  describe("File Operations", () => {
     const FILE_OPS_TIMEOUT = 15000; // 15 seconds timeout for these tests
 
     test(
-      'should add a new file',
+      "should add a new file",
       async () => {
         expect(memory).not.toBeNull();
         const fileId = await memory!.addFile({
-          path: '/src/test.ts',
-          content: 'const x = 1;',
+          path: "/src/test.ts",
+          content: "const x = 1;",
           dependencies: [],
         });
 
         expect(fileId).toBeGreaterThan(0);
 
-        const file = await memory!.getFile('/src/test.ts');
+        const file = await memory!.getFile("/src/test.ts");
         expect(file).not.toBeNull();
-        expect(file?.path).toBe('/src/test.ts');
-        expect(file?.content).toBe('const x = 1;');
+        expect(file?.path).toBe("/src/test.ts");
+        expect(file?.content).toBe("const x = 1;");
       },
-      { timeout: FILE_OPS_TIMEOUT }
+      { timeout: FILE_OPS_TIMEOUT },
     );
 
     test(
-      'should update an existing file',
+      "should update an existing file",
       async () => {
         expect(memory).not.toBeNull();
         const fileId = await memory!.addFile({
-          path: '/src/test.ts',
-          content: 'const x = 1;',
+          path: "/src/test.ts",
+          content: "const x = 1;",
           dependencies: [],
         });
 
         const updatedId = await memory!.addFile({
-          path: '/src/test.ts',
-          content: 'const x = 2;',
+          path: "/src/test.ts",
+          content: "const x = 2;",
           dependencies: [],
         });
 
         expect(updatedId).toBe(fileId);
 
-        const file = await memory!.getFile('/src/test.ts');
-        expect(file?.content).toBe('const x = 2;');
+        const file = await memory!.getFile("/src/test.ts");
+        expect(file?.content).toBe("const x = 2;");
       },
-      { timeout: FILE_OPS_TIMEOUT }
+      { timeout: FILE_OPS_TIMEOUT },
     );
 
     test(
-      'should track complex file dependencies',
+      "should track complex file dependencies",
       async () => {
         expect(memory).not.toBeNull();
 
         // Define file paths
-        const pathA = '/src/core/a.ts';
-        const pathB = '/src/feature/b.ts';
-        const pathC = '/src/feature/c.ts';
-        const pathD = '/src/app/d.ts';
-        const pathMain = '/src/main.ts';
+        const pathA = "/src/core/a.ts";
+        const pathB = "/src/feature/b.ts";
+        const pathC = "/src/feature/c.ts";
+        const pathD = "/src/app/d.ts";
+        const pathMain = "/src/main.ts";
 
         // Add files with dependencies
         await memory!.addFile({
           path: pathA,
-          content: 'export const A = 1;',
+          content: "export const A = 1;",
           dependencies: [],
         });
         await memory!.addFile({
@@ -137,7 +138,9 @@ describe('Memory Manager', () => {
         expect(mainDeps.length).toBe(4);
         // Sort by depth then path for consistent checking
         mainDeps.sort((x, y) =>
-          x.depth === y.depth ? x.path.localeCompare(y.path) : x.depth - y.depth
+          x.depth === y.depth
+            ? x.path.localeCompare(y.path)
+            : x.depth - y.depth,
         );
 
         expect(mainDeps[0]).toEqual({
@@ -147,10 +150,10 @@ describe('Memory Manager', () => {
         });
         // Order of b and c at depth 2 might vary, check existence
         expect(
-          mainDeps.find(d => d.path === pathB && d.depth === 2)
+          mainDeps.find((d) => d.path === pathB && d.depth === 2),
         ).toBeDefined();
         expect(
-          mainDeps.find(d => d.path === pathC && d.depth === 2)
+          mainDeps.find((d) => d.path === pathC && d.depth === 2),
         ).toBeDefined();
         expect(mainDeps[3]).toEqual({
           id: expect.any(Number),
@@ -163,15 +166,17 @@ describe('Memory Manager', () => {
         // Expected: b (1), c (1), a (2)
         expect(dDeps.length).toBe(3);
         dDeps.sort((x, y) =>
-          x.depth === y.depth ? x.path.localeCompare(y.path) : x.depth - y.depth
+          x.depth === y.depth
+            ? x.path.localeCompare(y.path)
+            : x.depth - y.depth,
         );
 
         // Order of b and c at depth 1 might vary, check existence
         expect(
-          dDeps.find(d => d.path === pathB && d.depth === 1)
+          dDeps.find((d) => d.path === pathB && d.depth === 1),
         ).toBeDefined();
         expect(
-          dDeps.find(d => d.path === pathC && d.depth === 1)
+          dDeps.find((d) => d.path === pathC && d.depth === 1),
         ).toBeDefined();
         expect(dDeps[2]).toEqual({
           id: expect.any(Number),
@@ -192,58 +197,58 @@ describe('Memory Manager', () => {
         const aDeps = await memory!.findRelatedFiles(pathA);
         expect(aDeps.length).toBe(0);
       },
-      { timeout: FILE_OPS_TIMEOUT } // Add timeout here too
+      { timeout: FILE_OPS_TIMEOUT }, // Add timeout here too
     );
 
     test(
-      'should find similar files by content',
+      "should find similar files by content",
       async () => {
         expect(memory).not.toBeNull();
         await memory!.addFile({
-          path: '/src/math.ts',
+          path: "/src/math.ts",
           content:
-            'export function add(a: number, b: number) { return a + b; }',
+            "export function add(a: number, b: number) { return a + b; }",
           dependencies: [],
         });
 
         await memory!.addFile({
-          path: '/src/string.ts',
+          path: "/src/string.ts",
           content:
-            'export function concat(a: string, b: string) { return a + b; }',
+            "export function concat(a: string, b: string) { return a + b; }",
           dependencies: [],
         });
 
         const results = await memory!.findSimilarFiles({
-          query: 'string concatenation function',
+          query: "string concatenation function",
         });
 
         expect(results.length).toBeGreaterThan(0);
-        const stringFile = results.find(r => r.path === '/src/string.ts');
-        const mathFile = results.find(r => r.path === '/src/math.ts');
+        const stringFile = results.find((r) => r.path === "/src/string.ts");
+        const mathFile = results.find((r) => r.path === "/src/math.ts");
 
         if (stringFile && mathFile) {
           expect(stringFile.score).toBeGreaterThan(mathFile.score);
         }
       },
-      { timeout: FILE_OPS_TIMEOUT } // Add timeout here as well
+      { timeout: FILE_OPS_TIMEOUT }, // Add timeout here as well
     );
   });
 
-  describe('Chunking', () => {
-    test('should process a file into chunks with correct line numbers', async () => {
+  describe("Chunking", () => {
+    test("should process a file into chunks with correct line numbers", async () => {
       expect(memory).not.toBeNull(); // Add null check
       const content = new Array(100)
-        .fill('line')
+        .fill("line")
         .map((l, i) => `${l} ${i}`)
-        .join('\n');
+        .join("\n");
 
       const chunks = await memory!.processFileChunks(
-        '/src/large-file.ts',
+        "/src/large-file.ts",
         content,
         {
           maxLines: 30,
           overlap: 5,
-        }
+        },
       );
 
       // Check chunk boundaries
@@ -261,17 +266,17 @@ describe('Memory Manager', () => {
       }
     });
 
-    test('should create consistent hashes for identical chunks', async () => {
+    test("should create consistent hashes for identical chunks", async () => {
       expect(memory).not.toBeNull(); // Add null check
-      const content = 'function test() { return true; }';
+      const content = "function test() { return true; }";
 
       // Process same content twice but with different file paths
       // The hash includes the file path, so they will have different hashes
-      await memory!.processFileChunks('/src/test1.ts', content);
-      await memory!.processFileChunks('/src/test2.ts', content);
+      await memory!.processFileChunks("/src/test1.ts", content);
+      await memory!.processFileChunks("/src/test2.ts", content);
 
-      const chunks1 = await memory!.getFileChunks('/src/test1.ts');
-      const chunks2 = await memory!.getFileChunks('/src/test2.ts');
+      const chunks1 = await memory!.getFileChunks("/src/test1.ts");
+      const chunks2 = await memory!.getFileChunks("/src/test2.ts");
 
       // Both should have chunks
       expect(chunks1.length).toBeGreaterThan(0);
@@ -289,8 +294,8 @@ describe('Memory Manager', () => {
       }
 
       // Same file reprocessed should use existing chunks
-      await memory!.processFileChunks('/src/test1.ts', content);
-      const chunksReprocessed = await memory!.getFileChunks('/src/test1.ts');
+      await memory!.processFileChunks("/src/test1.ts", content);
+      const chunksReprocessed = await memory!.getFileChunks("/src/test1.ts");
 
       if (
         chunksReprocessed.length > 0 &&
@@ -303,20 +308,20 @@ describe('Memory Manager', () => {
       }
     });
 
-    test('should process a file into chunks', async () => {
+    test("should process a file into chunks", async () => {
       expect(memory).not.toBeNull(); // Add null check
       const content = new Array(100)
-        .fill('line')
+        .fill("line")
         .map((l, i) => `${l} ${i}`)
-        .join('\n');
+        .join("\n");
 
       const chunks = await memory!.processFileChunks(
-        '/src/large-file.ts',
+        "/src/large-file.ts",
         content,
         {
           maxLines: 30,
           overlap: 5,
-        }
+        },
       );
 
       // With 100 lines, maxLines=30, overlap=5, we should get 4 chunks
@@ -325,7 +330,7 @@ describe('Memory Manager', () => {
       expect(chunks.length).toBe(expectedChunks);
 
       // Check that each chunk has an embedding
-      chunks.forEach(chunk => {
+      chunks.forEach((chunk) => {
         expect(chunk.embedding).toBeDefined();
         expect(Array.isArray(chunk.embedding)).toBe(true);
         expect(chunk.embedding.length).toBeGreaterThan(0);
@@ -333,8 +338,8 @@ describe('Memory Manager', () => {
     });
   });
 
-  describe('Semantic Search', () => {
-    test('should find similar chunks based on content', async () => {
+  describe("Semantic Search", () => {
+    test("should find similar chunks based on content", async () => {
       expect(memory).not.toBeNull(); // Add null check
       // Add a file with multiple chunks
       const content = `
@@ -357,27 +362,27 @@ export function uppercase(str: string) {
 }
       `.trim();
 
-      await memory!.processFileChunks('/src/utils.ts', content);
+      await memory!.processFileChunks("/src/utils.ts", content);
 
       // Search for chunks matching different queries
       const mathChunks = await memory!.findSimilarChunks(
-        'adding numbers together',
-        { minScore: 0.25 }
+        "adding numbers together",
+        { minScore: 0.25 },
       );
       const stringChunks = await memory!.findSimilarChunks(
-        'string manipulation',
-        { minScore: 0.25 }
+        "string manipulation",
+        { minScore: 0.25 },
       );
 
       expect(mathChunks.length).toBeGreaterThan(0);
       expect(stringChunks.length).toBeGreaterThan(0);
 
       // At least one math chunk should have a higher score for the math query than any string chunk
-      const highestMathChunkScore = Math.max(...mathChunks.map(c => c.score));
+      const highestMathChunkScore = Math.max(...mathChunks.map((c) => c.score));
 
       // Find any string chunks that contain "string" in their content
       const stringChunksWithHighScores = stringChunks.filter(
-        c => c.score > 0.7
+        (c) => c.score > 0.7,
       );
 
       // If we have high-scoring string chunks, they should be related to string operations
@@ -388,92 +393,92 @@ export function uppercase(str: string) {
     });
   });
 
-  describe('Invalidation', () => {
-    test('should invalidate chunks for a specific line range', async () => {
+  describe("Invalidation", () => {
+    test("should invalidate chunks for a specific line range", async () => {
       expect(memory).not.toBeNull(); // Add null check
       const content = new Array(100)
-        .fill('line')
+        .fill("line")
         .map((l, i) => `${l} ${i}`)
-        .join('\n');
+        .join("\n");
 
       // Process file initially
       const initialChunks = await memory!.processFileChunks(
-        '/src/large-file.ts',
+        "/src/large-file.ts",
         content,
         {
           maxLines: 30,
           overlap: 5,
-        }
+        },
       );
 
       // Invalidate middle section
-      await memory!.invalidateRange('/src/large-file.ts', 31, 60);
+      await memory!.invalidateRange("/src/large-file.ts", 31, 60);
 
       // Get remaining chunks
-      const remainingChunks = await memory!.getFileChunks('/src/large-file.ts');
+      const remainingChunks = await memory!.getFileChunks("/src/large-file.ts");
 
       // Should have fewer chunks now
       expect(remainingChunks.length).toBeLessThan(initialChunks.length);
 
       // The invalidated chunks should be gone
       const hasInvalidatedChunk = remainingChunks.some(
-        chunk => chunk.startLine <= 60 && chunk.endLine >= 31
+        (chunk) => chunk.startLine <= 60 && chunk.endLine >= 31,
       );
 
       expect(hasInvalidatedChunk).toBe(false);
     });
 
-    test('should invalidate all chunks for a file', async () => {
+    test("should invalidate all chunks for a file", async () => {
       expect(memory).not.toBeNull(); // Add null check
       const content = new Array(100)
-        .fill('line')
+        .fill("line")
         .map((l, i) => `${l} ${i}`)
-        .join('\n');
+        .join("\n");
 
       // Process file initially
-      await memory!.processFileChunks('/src/large-file.ts', content);
+      await memory!.processFileChunks("/src/large-file.ts", content);
 
       // Invalidate entire file
-      await memory!.invalidateFile('/src/large-file.ts');
+      await memory!.invalidateFile("/src/large-file.ts");
 
       // Get remaining chunks
-      const remainingChunks = await memory!.getFileChunks('/src/large-file.ts');
+      const remainingChunks = await memory!.getFileChunks("/src/large-file.ts");
 
       // Should be empty now
       expect(remainingChunks.length).toBe(0);
     });
 
-    test('should reprocess chunks after invalidation', async () => {
+    test("should reprocess chunks after invalidation", async () => {
       expect(memory).not.toBeNull(); // Add null check
       const content = new Array(100)
-        .fill('line')
+        .fill("line")
         .map((l, i) => `${l} ${i}`)
-        .join('\n');
+        .join("\n");
 
       // Process file initially
-      await memory!.processFileChunks('/src/large-file.ts', content);
+      await memory!.processFileChunks("/src/large-file.ts", content);
 
       // Invalidate entire file
-      await memory!.invalidateFile('/src/large-file.ts');
+      await memory!.invalidateFile("/src/large-file.ts");
 
       // Add content and reprocess
       const newContent =
-        content + '\n' + new Array(10).fill('new line').join('\n');
+        content + "\n" + new Array(10).fill("new line").join("\n");
       const newChunks = await memory!.processFileChunks(
-        '/src/large-file.ts',
-        newContent
+        "/src/large-file.ts",
+        newContent,
       );
 
       // Should have chunks again
       expect(newChunks.length).toBeGreaterThan(0);
 
       // The new content should be reflected in the chunks
-      const hasNewLines = newChunks.some(chunk => chunk.endLine > 100);
+      const hasNewLines = newChunks.some((chunk) => chunk.endLine > 100);
       expect(hasNewLines).toBe(true);
     });
   });
 
-  describe('Directory Traversal (fs.ts)', () => {
+  describe("Directory Traversal (fs.ts)", () => {
     // beforeAll(async () => {
     //   await mkdir(join(ABS_TEST_DOCS_DIR, 'sub'), { recursive: true });
     //   await Promise.all([
@@ -496,7 +501,7 @@ export function uppercase(str: string) {
     //   await rm(ABS_TEST_DOCS_DIR, { recursive: true, force: true });
     // });
 
-    test('should traverse and find all files', async () => {
+    test("should traverse and find all files", async () => {
       // Simple transform: return path
       const transformFn = async (filePath: string, content: string) => filePath;
       const filesMap = await traverseDirectory(ABS_TEST_DOCS_DIR, transformFn);
@@ -505,92 +510,92 @@ export function uppercase(str: string) {
       // Expect the number of files found in the actual directory
       expect(filesMap.size).toBe(10);
       // Check for a known file instead of the old temp ones
-      expect(filePaths.some(p => p.endsWith('README.md'))).toBe(true);
+      expect(filePaths.some((p) => p.endsWith("README.md"))).toBe(true);
     });
 
-    test('should filter by allowedExtensions', async () => {
+    test("should filter by allowedExtensions", async () => {
       // Filter for extensions not present in the target directory
-      const options: TraverseOptions = { allowedExtensions: ['.ts', '.json'] };
+      const options: TraverseOptions = { allowedExtensions: [".ts", ".json"] };
       const transformFn = async (filePath: string, content: string) => filePath;
       const filesMap = await traverseDirectory(
         ABS_TEST_DOCS_DIR,
         transformFn,
-        options
+        options,
       );
       const filePaths = new Set(
-        Array.from(filesMap.keys()).map(p => resolvePath(p))
+        Array.from(filesMap.keys()).map((p) => resolvePath(p)),
       );
 
-      console.log('[allowedExtensions] Found Paths:', filePaths);
+      console.log("[allowedExtensions] Found Paths:", filePaths);
       // Expect 0 files as only .md files exist
       expect(filesMap.size).toBe(0);
     });
 
-    test('should filter by blockedExtensions', async () => {
+    test("should filter by blockedExtensions", async () => {
       // Block extensions that don't exist in the target directory
-      const options: TraverseOptions = { blockedExtensions: ['.log', '.png'] };
+      const options: TraverseOptions = { blockedExtensions: [".log", ".png"] };
       const transformFn = async (filePath: string, content: string) => filePath;
       const filesMap = await traverseDirectory(
         ABS_TEST_DOCS_DIR,
         transformFn,
-        options
+        options,
       );
       const filePaths = new Set(
-        Array.from(filesMap.keys()).map(p => resolvePath(p))
+        Array.from(filesMap.keys()).map((p) => resolvePath(p)),
       );
 
-      console.log('[blockedExtensions] Found Paths:', filePaths);
+      console.log("[blockedExtensions] Found Paths:", filePaths);
       // Expect all 10 .md files since none are blocked
       expect(filesMap.size).toBe(10);
       // Check a known file is present
       expect(
-        filePaths.has(resolvePath(join(ABS_TEST_DOCS_DIR, 'README.md')))
+        filePaths.has(resolvePath(join(ABS_TEST_DOCS_DIR, "README.md"))),
       ).toBe(true);
     });
 
-    test('should filter using filterFn', async () => {
+    test("should filter using filterFn", async () => {
       // Filter out files containing 'core' in the path
       const filterFn = async (filePath: string, entry: Dirent) =>
-        !filePath.includes('core');
+        !filePath.includes("core");
       const transformFn = async (filePath: string, content: string) => filePath;
       const filesMap = await traverseDirectory(
         ABS_TEST_DOCS_DIR,
         transformFn,
         {},
-        filterFn
+        filterFn,
       );
       const filePaths = new Set(
-        Array.from(filesMap.keys()).map(p => resolvePath(p))
+        Array.from(filesMap.keys()).map((p) => resolvePath(p)),
       );
 
       // Check that the count is less than 10 and the core file is absent
       expect(filesMap.size).toBeLessThan(10);
       expect(filesMap.size).toBeGreaterThan(0); // Ensure some files were found
       expect(
-        filePaths.has(resolvePath(join(ABS_TEST_DOCS_DIR, 'core.md')))
+        filePaths.has(resolvePath(join(ABS_TEST_DOCS_DIR, "core.md"))),
       ).toBe(false);
     });
 
-    test('should apply transformFn to content', async () => {
+    test("should apply transformFn to content", async () => {
       const transformFn = async (filePath: string, content: string) =>
         content.length;
       // Filter for .md files this time
-      const options: TraverseOptions = { allowedExtensions: ['.md'] };
+      const options: TraverseOptions = { allowedExtensions: [".md"] };
       const filesMap = await traverseDirectory(
         ABS_TEST_DOCS_DIR,
         transformFn,
-        options
+        options,
       );
       const normalizedMap = new Map(
-        Array.from(filesMap.entries()).map(([k, v]) => [resolvePath(k), v])
+        Array.from(filesMap.entries()).map(([k, v]) => [resolvePath(k), v]),
       );
 
-      const expectedPath = resolvePath(join(ABS_TEST_DOCS_DIR, 'README.md'));
+      const expectedPath = resolvePath(join(ABS_TEST_DOCS_DIR, "README.md"));
       console.log(
-        '[transformFn] Found Paths:',
-        Array.from(normalizedMap.keys())
+        "[transformFn] Found Paths:",
+        Array.from(normalizedMap.keys()),
       );
-      console.log('[transformFn] Expected Path:', expectedPath);
+      console.log("[transformFn] Expected Path:", expectedPath);
 
       // Expect all 10 md files to be processed
       expect(normalizedMap.size).toBe(10);
@@ -600,31 +605,31 @@ export function uppercase(str: string) {
     });
   });
 
-  describe('Directory Processing (index.ts)', () => {
-    test('should process directory, chunk files, and allow searching', async () => {
+  describe("Directory Processing (index.ts)", () => {
+    test("should process directory, chunk files, and allow searching", async () => {
       expect(memory).not.toBeNull();
 
       const results = await memory!.processDirectory(ABS_TEST_DOCS_DIR);
       const resultPaths = new Set(
-        Array.from(results.keys()).map(p => resolvePath(p))
+        Array.from(results.keys()).map((p) => resolvePath(p)),
       );
 
       // Expect all 10 .md files from ./docs/architecture to be processed by default
       expect(results.size).toBe(10);
       expect(
-        resultPaths.has(resolvePath(join(ABS_TEST_DOCS_DIR, 'README.md')))
+        resultPaths.has(resolvePath(join(ABS_TEST_DOCS_DIR, "README.md"))),
       ).toBe(true);
       expect(
-        resultPaths.has(resolvePath(join(ABS_TEST_DOCS_DIR, 'core.md')))
+        resultPaths.has(resolvePath(join(ABS_TEST_DOCS_DIR, "core.md"))),
       ).toBe(true); // Check another known file
 
-      const readmePath = resolvePath(join(ABS_TEST_DOCS_DIR, 'README.md'));
-      const corePath = resolvePath(join(ABS_TEST_DOCS_DIR, 'core.md'));
+      const readmePath = resolvePath(join(ABS_TEST_DOCS_DIR, "README.md"));
+      const corePath = resolvePath(join(ABS_TEST_DOCS_DIR, "core.md"));
 
       // Get chunks for README.md (adjust if structure is different)
       const readmeChunks = Array.from(results.values())
         .flat()
-        .filter(c => resolvePath(c.filePath) === readmePath);
+        .filter((c) => resolvePath(c.filePath) === readmePath);
       expect(readmeChunks).toBeDefined();
       expect(readmeChunks.length).toBeGreaterThan(0);
       // Add check for filePath before resolving
@@ -636,8 +641,8 @@ export function uppercase(str: string) {
       // Test searching for content within the processed chunks
       // Note: Search terms might need adjustment depending on actual content
       const searchResults = await memory!.findSimilarChunks(
-        'foundry architecture overview',
-        { minScore: 0.25 }
+        "foundry architecture overview",
+        { minScore: 0.25 },
       );
       expect(searchResults.length).toBeGreaterThan(0);
       // Allow top result to be any of the architecture docs
@@ -647,8 +652,8 @@ export function uppercase(str: string) {
       expect(resultPaths.has(resolvePath(topResultPath!))).toBe(true);
 
       const coreSearchResults = await memory!.findSimilarChunks(
-        'core concepts',
-        { minScore: 0.25 }
+        "core concepts",
+        { minScore: 0.25 },
       );
       expect(coreSearchResults.length).toBeGreaterThan(0);
       // Ensure we have a result and a file path before resolving
@@ -658,58 +663,58 @@ export function uppercase(str: string) {
       // expect(resolvePath(coreResultPath!)).toBe(corePath);
     });
 
-    test('should respect custom allowedExtensions in processDirectory', async () => {
+    test("should respect custom allowedExtensions in processDirectory", async () => {
       expect(memory).not.toBeNull();
       // Allow only .md (which is all that exists)
-      const options: TraverseOptions = { allowedExtensions: ['.md'] };
+      const options: TraverseOptions = { allowedExtensions: [".md"] };
       const results = await memory!.processDirectory(
         ABS_TEST_DOCS_DIR,
-        options
+        options,
       );
       const resultPaths = new Set(
-        Array.from(results.keys()).map(p => resolvePath(p))
+        Array.from(results.keys()).map((p) => resolvePath(p)),
       );
 
-      const expectedPath = resolvePath(join(ABS_TEST_DOCS_DIR, 'README.md')); // Check README
-      console.log('[processDir allowed] Found Paths:', resultPaths);
-      console.log('[processDir allowed] Expected Path:', expectedPath);
+      const expectedPath = resolvePath(join(ABS_TEST_DOCS_DIR, "README.md")); // Check README
+      console.log("[processDir allowed] Found Paths:", resultPaths);
+      console.log("[processDir allowed] Expected Path:", expectedPath);
 
       // Should still find all 10 .md files
       expect(results.size).toBe(10);
       expect(resultPaths.has(expectedPath)).toBe(true);
     });
 
-    test('should respect blockedExtensions in processDirectory', async () => {
+    test("should respect blockedExtensions in processDirectory", async () => {
       expect(memory).not.toBeNull();
       // Block .md files
-      const options: TraverseOptions = { blockedExtensions: ['.md'] };
+      const options: TraverseOptions = { blockedExtensions: [".md"] };
       const results = await memory!.processDirectory(
         ABS_TEST_DOCS_DIR,
-        options
+        options,
       );
       const resultPaths = new Set(
-        Array.from(results.keys()).map(p => resolvePath(p))
+        Array.from(results.keys()).map((p) => resolvePath(p)),
       );
 
-      console.log('[processDir blocked] Found Paths:', resultPaths);
+      console.log("[processDir blocked] Found Paths:", resultPaths);
 
       // Should find 0 files as all are blocked
       expect(results.size).toBe(0);
     });
   });
 
-  describe('Integration Tests', () => {
-    test('complete workflow: add, chunk, search, update, invalidate', async () => {
+  describe("Integration Tests", () => {
+    test("complete workflow: add, chunk, search, update, invalidate", async () => {
       expect(memory).not.toBeNull(); // Add null check
       // Step 1: Add files with dependencies
       await memory!.addFile({
-        path: '/src/utils.ts',
-        content: 'export const util = 1;',
+        path: "/src/utils.ts",
+        content: "export const util = 1;",
         dependencies: [],
       });
 
       await memory!.addFile({
-        path: '/src/main.ts',
+        path: "/src/main.ts",
         content: `
           import { util } from "./utils";
           
@@ -718,12 +723,12 @@ export function uppercase(str: string) {
             return util + 1;
           }
         `,
-        dependencies: ['/src/utils.ts'],
+        dependencies: ["/src/utils.ts"],
       });
 
       // Step 2: Process files into chunks
       await memory!.processFileChunks(
-        '/src/main.ts',
+        "/src/main.ts",
         `
           import { util } from "./utils";
           
@@ -731,16 +736,16 @@ export function uppercase(str: string) {
             console.log(util);
             return util + 1;
           }
-        `
+        `,
       );
 
       // Step 3: Find related files by dependency
-      const related = await memory!.findRelatedFiles('/src/main.ts');
+      const related = await memory!.findRelatedFiles("/src/main.ts");
       expect(related.length).toBe(1);
-      expect(related[0]?.path).toBe('/src/utils.ts');
+      expect(related[0]?.path).toBe("/src/utils.ts");
 
       // Step 4: Search for similar code
-      const similar = await memory!.findSimilarChunks('logging utility value', {
+      const similar = await memory!.findSimilarChunks("logging utility value", {
         minScore: 0.25,
       });
       expect(similar.length).toBeGreaterThan(0);
@@ -757,18 +762,18 @@ export function uppercase(str: string) {
       `;
 
       // Step 6: Invalidate and reprocess
-      await memory!.invalidateFile('/src/main.ts');
+      await memory!.invalidateFile("/src/main.ts");
       const newChunks = await memory!.processFileChunks(
-        '/src/main.ts',
-        updatedContent
+        "/src/main.ts",
+        updatedContent,
       );
 
       expect(newChunks.length).toBeGreaterThan(0);
 
       // Step 7: Search again with new content
       const newSimilar = await memory!.findSimilarChunks(
-        'multiply utility value',
-        { minScore: 0.25 }
+        "multiply utility value",
+        { minScore: 0.25 },
       );
       expect(newSimilar.length).toBeGreaterThan(0);
     });

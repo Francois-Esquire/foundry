@@ -1,15 +1,17 @@
-import { rm } from 'fs/promises';
-import { existsSync, mkdirSync } from 'fs';
-import { FileSystemAdapter } from '../../src/adapters/fs';
-import { createAdapterTests } from './adapter-test-suite';
-import type { Adapter } from '../../src/adapters/types';
+import { existsSync, mkdirSync } from "fs";
+import { rm } from "fs/promises";
+
+import type { Adapter } from "../../src/adapters/types";
+
+import { FileSystemAdapter } from "../../src/adapters/fs";
+import { createAdapterTests } from "./adapter-test-suite";
 
 // For file-based testing, use a temp directory that will be cleaned up
-const TEST_DIR_PATH = './test/tmp/fs-adapter';
+const TEST_DIR_PATH = "./test/tmp/fs-adapter";
 
 // Tests with real file system
 createAdapterTests(
-  'FileSystem',
+  "FileSystem",
   () => {
     // Ensure the test directory exists
     if (!existsSync(TEST_DIR_PATH)) {
@@ -22,5 +24,5 @@ createAdapterTests(
     if (existsSync(TEST_DIR_PATH)) {
       await rm(TEST_DIR_PATH, { recursive: true, force: true });
     }
-  }
+  },
 );

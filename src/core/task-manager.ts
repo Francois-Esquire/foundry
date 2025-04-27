@@ -1,35 +1,36 @@
-import type { ServiceRegistry } from './registry';
-import {
-  createTask,
-  updateTask,
-  setTaskStatus,
-} from '../generators/generate-task';
+import type { ServiceRegistry } from "./registry";
+
 import {
   createSubtask,
-  updateSubtask,
   setSubtaskStatus,
-} from '../generators/generate-subtask';
+  updateSubtask,
+} from "../generators/generate-subtask";
 import {
-  parseTaskContent,
+  createTask,
+  setTaskStatus,
+  updateTask,
+} from "../generators/generate-task";
+import {
   parseSubtaskContent,
-} from '../generators/task-formatters';
+  parseTaskContent,
+} from "../generators/task-formatters";
 
 // Task status enum
 export enum TaskStatus {
-  PENDING = 'pending',
-  IN_PROGRESS = 'in-progress',
-  REVIEW = 'review',
-  DONE = 'done',
-  DEFERRED = 'deferred',
-  CANCELLED = 'cancelled',
+  PENDING = "pending",
+  IN_PROGRESS = "in-progress",
+  REVIEW = "review",
+  DONE = "done",
+  DEFERRED = "deferred",
+  CANCELLED = "cancelled",
 }
 
 // Task relationship enum
 export enum TaskRelationship {
-  DEPENDS_ON = 'depends_on',
-  RELATED_TO = 'related_to',
-  PARENT_OF = 'parent_of',
-  CHILD_OF = 'child_of',
+  DEPENDS_ON = "depends_on",
+  RELATED_TO = "related_to",
+  PARENT_OF = "parent_of",
+  CHILD_OF = "child_of",
 }
 
 // Task model
@@ -38,7 +39,7 @@ export interface Task {
   title: string;
   description: string;
   status: TaskStatus;
-  priority: 'high' | 'medium' | 'low';
+  priority: "high" | "medium" | "low";
   details?: string;
   testStrategy?: string;
   dependencies: string[];
@@ -67,7 +68,7 @@ export interface TaskInput {
   title: string;
   description: string;
   status?: TaskStatus;
-  priority?: 'high' | 'medium' | 'low';
+  priority?: "high" | "medium" | "low";
   details?: string;
   testStrategy?: string;
   dependencies?: string[];
@@ -85,7 +86,7 @@ export interface SubtaskInput {
 // Task query options
 export interface TaskQueryOptions {
   status?: TaskStatus | TaskStatus[];
-  priority?: 'high' | 'medium' | 'low';
+  priority?: "high" | "medium" | "low";
   withSubtasks?: boolean;
   dependsOn?: string;
   search?: string;
@@ -108,12 +109,12 @@ export interface TaskManager {
   updateSubtask(
     taskId: string,
     subtaskId: string,
-    updates: Partial<SubtaskInput>
+    updates: Partial<SubtaskInput>,
   ): Promise<Subtask>;
   setSubtaskStatus(
     taskId: string,
     subtaskId: string,
-    status: TaskStatus
+    status: TaskStatus,
   ): Promise<Subtask>;
 
   // Task Organization
@@ -121,7 +122,7 @@ export interface TaskManager {
   linkTasks(
     sourceId: string,
     targetId: string,
-    relationship: TaskRelationship
+    relationship: TaskRelationship,
   ): Promise<boolean>;
 }
 
@@ -134,10 +135,10 @@ export class TaskManagerImpl implements TaskManager {
   }
 
   async getTasks(options?: TaskQueryOptions): Promise<Task[]> {
-    const adapter = this.serviceRegistry.getAdapter('default');
+    const adapter = this.serviceRegistry.getAdapter("default");
 
     // Construct path for tasks directory
-    const path = 'tasks';
+    const path = "tasks";
 
     // List all task files
     const files = await adapter.list(path);
@@ -145,28 +146,28 @@ export class TaskManagerImpl implements TaskManager {
     // Read and parse each task file
     const tasks = await Promise.all(
       files
-        .filter(file => file.endsWith('.md'))
-        .map(async file => {
+        .filter((file) => file.endsWith(".md"))
+        .map(async (file) => {
           const result = await adapter.read(`${path}/${file}`);
           if (!result) return null;
 
           // Parse task content from markdown
           return parseTaskContent(result.content);
-        })
+        }),
     );
 
     // Filter out nulls and apply query options
     const filteredTasks = tasks
       .filter((task): task is Task => task !== null)
-      .filter(task => this.matchesQueryOptions(task, options));
+      .filter((task) => this.matchesQueryOptions(task, options));
 
     // Load subtasks if requested
     if (options?.withSubtasks) {
       await Promise.all(
-        filteredTasks.map(async task => {
+        filteredTasks.map(async (task) => {
           task.subtasks = await this.getSubtasks(task.id);
           return task;
-        })
+        }),
       );
     }
 
@@ -201,8 +202,8 @@ export class TaskManagerImpl implements TaskManager {
       const searchableText = `
         ${task.title.toLowerCase()}
         ${task.description.toLowerCase()}
-        ${task.details?.toLowerCase() || ''}
-        ${task.testStrategy?.toLowerCase() || ''}
+        ${task.details?.toLowerCase() || ""}
+        ${task.testStrategy?.toLowerCase() || ""}
       `;
 
       if (!searchableText.includes(searchTerm)) {
@@ -214,7 +215,7 @@ export class TaskManagerImpl implements TaskManager {
   }
 
   async getTask(id: string): Promise<Task | null> {
-    const adapter = this.serviceRegistry.getAdapter('default');
+    const adapter = this.serviceRegistry.getAdapter("default");
 
     // Check if task exists
     if (!(await adapter.exists(`tasks/${id}.md`))) {
@@ -237,25 +238,25 @@ export class TaskManagerImpl implements TaskManager {
 
   async createTask(
     taskInput: TaskInput,
-    options?: { model?: string }
+    options?: { model?: string },
   ): Promise<Task> {
-    const adapter = this.serviceRegistry.getAdapter('default');
-    const agent = this.serviceRegistry.getAgent('generator');
-    const model = agent.languageModel(options?.model || 'gpt-4o');
+    const adapter = this.serviceRegistry.getAdapter("default");
+    const agent = this.serviceRegistry.getAgent("generator");
+    const model = agent.languageModel(options?.model || "gpt-4o");
     // Generate task using the content generator
     const { task, content } = await createTask(
       model,
       taskInput,
-      TaskStatus.PENDING
+      TaskStatus.PENDING,
     );
 
     // Create tasks directory if it doesn't exist
-    if (!(await adapter.exists('tasks'))) {
-      await adapter.createDirectory('tasks');
+    if (!(await adapter.exists("tasks"))) {
+      await adapter.createDirectory("tasks");
     }
 
     // Write task file
-    await adapter.write(`tasks/${task.id}.md`, content, 'text/markdown');
+    await adapter.write(`tasks/${task.id}.md`, content, "text/markdown");
 
     return task;
   }
@@ -263,11 +264,11 @@ export class TaskManagerImpl implements TaskManager {
   async updateTask(
     id: string,
     updates: Partial<TaskInput>,
-    options?: { model?: string }
+    options?: { model?: string },
   ): Promise<Task> {
-    const adapter = this.serviceRegistry.getAdapter('default');
-    const agent = this.serviceRegistry.getAgent('generator');
-    const model = agent.languageModel(options?.model || 'gpt-4o');
+    const adapter = this.serviceRegistry.getAdapter("default");
+    const agent = this.serviceRegistry.getAgent("generator");
+    const model = agent.languageModel(options?.model || "gpt-4o");
 
     // Get existing task
     const task = await this.getTask(id);
@@ -279,17 +280,17 @@ export class TaskManagerImpl implements TaskManager {
     const { task: updatedTask, content } = await updateTask(
       model,
       task,
-      updates
+      updates,
     );
 
     // Write updated task file
-    await adapter.write(`tasks/${id}.md`, content, 'text/markdown');
+    await adapter.write(`tasks/${id}.md`, content, "text/markdown");
 
     return updatedTask;
   }
 
   async deleteTask(id: string): Promise<boolean> {
-    const adapter = this.serviceRegistry.getAdapter('default');
+    const adapter = this.serviceRegistry.getAdapter("default");
 
     // Check if task exists
     if (!(await adapter.exists(`tasks/${id}.md`))) {
@@ -301,7 +302,7 @@ export class TaskManagerImpl implements TaskManager {
   }
 
   async getSubtasks(taskId: string): Promise<Subtask[]> {
-    const adapter = this.serviceRegistry.getAdapter('default');
+    const adapter = this.serviceRegistry.getAdapter("default");
 
     // Construct path for subtasks directory
     const path = `tasks/${taskId}/subtasks`;
@@ -317,14 +318,14 @@ export class TaskManagerImpl implements TaskManager {
     // Read and parse each subtask file
     const subtasks = await Promise.all(
       files
-        .filter(file => file.endsWith('.md'))
-        .map(async file => {
+        .filter((file) => file.endsWith(".md"))
+        .map(async (file) => {
           const result = await adapter.read(`${path}/${file}`);
           if (!result) return null;
 
           // Parse subtask content
           return parseSubtaskContent(result.content, taskId);
-        })
+        }),
     );
 
     // Filter out nulls
@@ -334,11 +335,11 @@ export class TaskManagerImpl implements TaskManager {
   async addSubtask(
     taskId: string,
     subtaskInput: SubtaskInput,
-    options?: { model?: string }
+    options?: { model?: string },
   ): Promise<Subtask> {
-    const adapter = this.serviceRegistry.getAdapter('default');
-    const agent = this.serviceRegistry.getAgent('generator');
-    const model = agent.languageModel(options?.model || 'gpt-4o');
+    const adapter = this.serviceRegistry.getAdapter("default");
+    const agent = this.serviceRegistry.getAgent("generator");
+    const model = agent.languageModel(options?.model || "gpt-4o");
     // Get parent task
     const parentTask = await this.getTask(taskId);
     if (!parentTask) {
@@ -350,7 +351,7 @@ export class TaskManagerImpl implements TaskManager {
       model,
       taskId,
       subtaskInput,
-      TaskStatus.PENDING
+      TaskStatus.PENDING,
     );
 
     // Create subtasks directory if it doesn't exist
@@ -363,7 +364,7 @@ export class TaskManagerImpl implements TaskManager {
     await adapter.write(
       `${subtasksPath}/${subtask.id}.md`,
       content,
-      'text/markdown'
+      "text/markdown",
     );
 
     return subtask;
@@ -373,15 +374,15 @@ export class TaskManagerImpl implements TaskManager {
     taskId: string,
     subtaskId: string,
     updates: Partial<SubtaskInput>,
-    options?: { model?: string }
+    options?: { model?: string },
   ): Promise<Subtask> {
-    const adapter = this.serviceRegistry.getAdapter('default');
-    const agent = this.serviceRegistry.getAgent('generator');
-    const model = agent.languageModel(options?.model || 'gpt-4o');
+    const adapter = this.serviceRegistry.getAdapter("default");
+    const agent = this.serviceRegistry.getAgent("generator");
+    const model = agent.languageModel(options?.model || "gpt-4o");
 
     // Get existing subtasks
     const subtasks = await this.getSubtasks(taskId);
-    const subtask = subtasks.find(s => s.id === subtaskId);
+    const subtask = subtasks.find((s) => s.id === subtaskId);
 
     if (!subtask) {
       throw new Error(`Subtask not found: ${subtaskId}`);
@@ -391,7 +392,7 @@ export class TaskManagerImpl implements TaskManager {
     const { subtask: updatedSubtask, content } = await updateSubtask(
       model,
       subtask,
-      updates
+      updates,
     );
 
     // Write updated subtask file
@@ -399,7 +400,7 @@ export class TaskManagerImpl implements TaskManager {
     await adapter.write(
       `${subtasksPath}/${subtaskId}.md`,
       content,
-      'text/markdown'
+      "text/markdown",
     );
 
     return updatedSubtask;
@@ -408,11 +409,11 @@ export class TaskManagerImpl implements TaskManager {
   async setTaskStatus(
     id: string,
     status: TaskStatus,
-    options?: { model?: string }
+    options?: { model?: string },
   ): Promise<Task> {
-    const adapter = this.serviceRegistry.getAdapter('default');
-    const agent = this.serviceRegistry.getAgent('generator');
-    const model = agent.languageModel(options?.model || 'gpt-4o');
+    const adapter = this.serviceRegistry.getAdapter("default");
+    const agent = this.serviceRegistry.getAgent("generator");
+    const model = agent.languageModel(options?.model || "gpt-4o");
 
     // Get existing task
     const task = await this.getTask(id);
@@ -424,11 +425,11 @@ export class TaskManagerImpl implements TaskManager {
     const { task: updatedTask, content } = await setTaskStatus(
       model,
       task,
-      status
+      status,
     );
 
     // Write updated task file
-    await adapter.write(`tasks/${id}.md`, content, 'text/markdown');
+    await adapter.write(`tasks/${id}.md`, content, "text/markdown");
 
     return updatedTask;
   }
@@ -437,15 +438,15 @@ export class TaskManagerImpl implements TaskManager {
     taskId: string,
     subtaskId: string,
     status: TaskStatus,
-    options?: { model?: string }
+    options?: { model?: string },
   ): Promise<Subtask> {
-    const adapter = this.serviceRegistry.getAdapter('default');
-    const agent = this.serviceRegistry.getAgent('generator');
-    const model = agent.languageModel(options?.model || 'gpt-4o');
+    const adapter = this.serviceRegistry.getAdapter("default");
+    const agent = this.serviceRegistry.getAgent("generator");
+    const model = agent.languageModel(options?.model || "gpt-4o");
 
     // Get existing subtasks
     const subtasks = await this.getSubtasks(taskId);
-    const subtask = subtasks.find(s => s.id === subtaskId);
+    const subtask = subtasks.find((s) => s.id === subtaskId);
 
     if (!subtask) {
       throw new Error(`Subtask not found: ${subtaskId}`);
@@ -455,7 +456,7 @@ export class TaskManagerImpl implements TaskManager {
     const { subtask: updatedSubtask, content } = await setSubtaskStatus(
       model,
       subtask,
-      status
+      status,
     );
 
     // Write updated subtask file
@@ -463,7 +464,7 @@ export class TaskManagerImpl implements TaskManager {
     await adapter.write(
       `${subtasksPath}/${subtaskId}.md`,
       content,
-      'text/markdown'
+      "text/markdown",
     );
 
     return updatedSubtask;
@@ -473,19 +474,19 @@ export class TaskManagerImpl implements TaskManager {
     sourceId: string,
     targetId: string,
     relationship: TaskRelationship,
-    options?: { model?: string }
+    options?: { model?: string },
   ): Promise<boolean> {
     // Get source and target tasks
     const sourceTask = await this.getTask(sourceId);
     const targetTask = await this.getTask(targetId);
 
     if (!sourceTask || !targetTask) {
-      throw new Error('Source or target task not found');
+      throw new Error("Source or target task not found");
     }
 
-    const adapter = this.serviceRegistry.getAdapter('default');
-    const agent = this.serviceRegistry.getAgent('generator');
-    const model = agent.languageModel(options?.model || 'gpt-4o');
+    const adapter = this.serviceRegistry.getAdapter("default");
+    const agent = this.serviceRegistry.getAgent("generator");
+    const model = agent.languageModel(options?.model || "gpt-4o");
 
     switch (relationship) {
       case TaskRelationship.DEPENDS_ON:
@@ -499,7 +500,7 @@ export class TaskManagerImpl implements TaskManager {
           });
 
           // Write updated task file
-          await adapter.write(`tasks/${sourceId}.md`, content, 'text/markdown');
+          await adapter.write(`tasks/${sourceId}.md`, content, "text/markdown");
         }
         break;
 

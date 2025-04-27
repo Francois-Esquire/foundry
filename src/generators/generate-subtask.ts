@@ -1,8 +1,11 @@
-import { v4 as uuidv4 } from 'uuid';
-import type { Subtask, SubtaskInput, TaskStatus } from '../core/task-manager';
-import { formatSubtaskContent } from './task-formatters';
-import type { LanguageModel } from 'ai';
-import { generateText } from 'ai';
+import type { LanguageModel } from "ai";
+
+import { generateText } from "ai";
+import { v4 as uuidv4 } from "uuid";
+
+import type { Subtask, SubtaskInput, TaskStatus } from "../core/task-manager";
+
+import { formatSubtaskContent } from "./task-formatters";
 
 /**
  * Creates a new subtask
@@ -16,7 +19,7 @@ export async function createSubtask(
   agent: LanguageModel,
   taskId: string,
   subtaskInput: SubtaskInput,
-  defaultStatus: TaskStatus
+  defaultStatus: TaskStatus,
 ): Promise<{ subtask: Subtask; content: string }> {
   // Generate subtask ID
   const subtaskId = uuidv4();
@@ -53,7 +56,7 @@ export async function createSubtask(
 export async function updateSubtask(
   agent: LanguageModel,
   subtask: Subtask,
-  updates: Partial<SubtaskInput>
+  updates: Partial<SubtaskInput>,
 ): Promise<{ subtask: Subtask; content: string }> {
   // Update subtask fields
   if (updates.title !== undefined) subtask.title = updates.title;
@@ -86,7 +89,7 @@ export async function updateSubtask(
 export async function setSubtaskStatus(
   agent: LanguageModel,
   subtask: Subtask,
-  status: TaskStatus
+  status: TaskStatus,
 ): Promise<{ subtask: Subtask; content: string }> {
   // Update subtask status
   subtask.status = status;

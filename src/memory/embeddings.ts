@@ -1,6 +1,6 @@
 // offlineEmbed.ts
-import * as tf from '@tensorflow/tfjs-node'; // TensorFlow runtime
-import * as use from '@tensorflow-models/universal-sentence-encoder';
+import * as use from "@tensorflow-models/universal-sentence-encoder";
+import * as tf from "@tensorflow/tfjs-node"; // TensorFlow runtime
 
 let model: use.UniversalSentenceEncoder;
 

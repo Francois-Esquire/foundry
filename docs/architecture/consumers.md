@@ -24,14 +24,17 @@ interface Consumer {
   // Initialization & Configuration
   initialize(options: ConsumerOptions): Promise<void>;
   configure(options: Partial<ConsumerOptions>): Promise<void>;
-  
+
   // Command Processing
-  executeCommand(command: string, args: Record<string, any>): Promise<CommandResult>;
-  
+  executeCommand(
+    command: string,
+    args: Record<string, any>,
+  ): Promise<CommandResult>;
+
   // Status & Information
   getStatus(): Promise<ConsumerStatus>;
   getCapabilities(): Promise<ConsumerCapabilities>;
-  
+
   // Lifecycle Management
   start(): Promise<void>;
   stop(): Promise<void>;
@@ -46,14 +49,14 @@ interface ConsumerOptions {
   adapter?: Adapter;
   fallbackAdapter?: Adapter;
   agents?: Record<string, Agent>;
-  
+
   // Authentication & Security
   authentication?: AuthOptions;
-  
+
   // Logging & Monitoring
-  logLevel?: 'debug' | 'info' | 'warn' | 'error';
+  logLevel?: "debug" | "info" | "warn" | "error";
   telemetry?: boolean;
-  
+
   // Consumer-specific Options
   [key: string]: any;
 }
@@ -90,7 +93,7 @@ interface CLIConsumer extends Consumer {
   // CLI-specific Methods
   parseArguments(args: string[]): Record<string, any>;
   renderOutput(result: CommandResult): void;
-  
+
   // Interactive Mode
   startInteractiveMode(): Promise<void>;
   registerCompletions(): void;
@@ -106,17 +109,20 @@ class FoundryCLI implements CLIConsumer {
   constructor(options?: ConsumerOptions) {
     // Initialize with default options
   }
-  
-  async executeCommand(command: string, args: Record<string, any>): Promise<CommandResult> {
+
+  async executeCommand(
+    command: string,
+    args: Record<string, any>,
+  ): Promise<CommandResult> {
     // Process command using Core Library
     // Format result for CLI display
     return result;
   }
-  
+
   async start(): Promise<void> {
     // Parse command-line arguments
     const args = this.parseArguments(process.argv.slice(2));
-    
+
     if (args.interactive) {
       // Start interactive mode with REPL
       await this.startInteractiveMode();
@@ -127,7 +133,7 @@ class FoundryCLI implements CLIConsumer {
       process.exit(result.success ? 0 : 1);
     }
   }
-  
+
   // Other method implementations...
 }
 ```
@@ -141,9 +147,12 @@ interface MCPConsumer extends Consumer {
   // MCP-specific Methods
   handleConnection(connection: WebSocket): void;
   processMessage(message: MCPMessage): Promise<MCPResponse>;
-  
+
   // Notification System
-  sendNotification(connectionId: string, notification: MCPNotification): Promise<void>;
+  sendNotification(
+    connectionId: string,
+    notification: MCPNotification,
+  ): Promise<void>;
   broadcast(notification: MCPNotification): Promise<void>;
 }
 ```
@@ -156,34 +165,34 @@ The MCP consumer implements the Machine Control Protocol for integration with de
 class FoundryMCP implements MCPConsumer {
   private server: WebSocketServer;
   private connections: Map<string, WebSocket> = new Map();
-  
+
   constructor(options?: ConsumerOptions) {
     // Initialize with default options
   }
-  
+
   async start(): Promise<void> {
     // Start WebSocket server
     this.server = new WebSocketServer({ port: this.options.port || 9000 });
-    
-    this.server.on('connection', (ws) => {
+
+    this.server.on("connection", (ws) => {
       // Handle new connections
       const connectionId = this.generateConnectionId();
       this.connections.set(connectionId, ws);
       this.handleConnection(ws);
     });
   }
-  
+
   async processMessage(message: MCPMessage): Promise<MCPResponse> {
     // Convert MCP message to Foundry command
     const command = this.convertToCommand(message);
-    
+
     // Execute command
     const result = await this.executeCommand(command.name, command.args);
-    
+
     // Convert result to MCP response
     return this.convertToResponse(result);
   }
-  
+
   // Other method implementations...
 }
 ```
@@ -197,7 +206,7 @@ interface RESTConsumer extends Consumer {
   // REST-specific Methods
   configureRoutes(app: Express): void;
   handleRequest(req: Request, res: Response): Promise<void>;
-  
+
   // Authentication & Authorization
   authenticate(req: Request): Promise<AuthResult>;
   authorize(req: Request, command: string): Promise<boolean>;
@@ -211,39 +220,39 @@ The REST consumer implements RESTful endpoints for HTTP-based integration:
 ```typescript
 class FoundryREST implements RESTConsumer {
   private app: Express;
-  
+
   constructor(options?: ConsumerOptions) {
     // Initialize with default options
   }
-  
+
   async start(): Promise<void> {
     // Create Express app
     this.app = express();
-    
+
     // Configure middleware
     this.app.use(express.json());
     this.app.use(cors(this.options.cors));
-    
+
     // Configure authentication if enabled
     if (this.options.authentication) {
       this.app.use(this.authMiddleware.bind(this));
     }
-    
+
     // Configure routes
     this.configureRoutes(this.app);
-    
+
     // Start server
     this.server = this.app.listen(this.options.port || 3000);
   }
-  
+
   configureRoutes(app: Express): void {
     // Define API endpoints
-    app.post('/api/tasks', this.handleTasksRequest.bind(this));
-    app.get('/api/tasks', this.handleTasksRequest.bind(this));
-    app.get('/api/tasks/:id', this.handleTaskRequest.bind(this));
+    app.post("/api/tasks", this.handleTasksRequest.bind(this));
+    app.get("/api/tasks", this.handleTasksRequest.bind(this));
+    app.get("/api/tasks/:id", this.handleTaskRequest.bind(this));
     // Additional routes...
   }
-  
+
   // Other method implementations...
 }
 ```
@@ -258,35 +267,45 @@ const cli = new FoundryCLI({
   adapter: new FileSystemAdapter({ basePath: process.cwd() }),
   fallbackAdapter: new InMemoryAdapter(),
   agents: {
-    generator: new GeneratorAgent({ /* config */ }),
-    researcher: new ResearchAgent({ /* config */ })
+    generator: new GeneratorAgent({
+      /* config */
+    }),
+    researcher: new ResearchAgent({
+      /* config */
+    }),
   },
-  logLevel: 'info'
+  logLevel: "info",
 });
 
 // MCP Consumer
 const mcp = new FoundryMCP({
   adapter: new FileSystemAdapter({ basePath: workspaceRoot }),
-  agents: { /* agent config */ },
+  agents: {
+    /* agent config */
+  },
   port: 9000,
   authentication: {
-    type: 'token',
-    validateToken: (token) => validateToken(token)
-  }
+    type: "token",
+    validateToken: (token) => validateToken(token),
+  },
 });
 
 // REST Consumer
 const rest = new FoundryREST({
-  adapter: new ConvexAdapter({ /* config */ }),
-  agents: { /* agent config */ },
+  adapter: new ConvexAdapter({
+    /* config */
+  }),
+  agents: {
+    /* agent config */
+  },
   port: 3000,
   authentication: {
-    type: 'jwt',
-    jwtSecret: process.env.JWT_SECRET
+    type: "jwt",
+    jwtSecret: process.env.JWT_SECRET,
   },
   cors: {
-    origin: ['https://myapp.com']
-  }
+    origin: ["https://myapp.com"],
+  },
 });
 ```
 
@@ -309,17 +328,19 @@ foundry --adapter=fs --adapter-path=/path/to/project tasks list
 
 ```typescript
 // In an IDE extension
-const socket = new WebSocket('ws://localhost:9000');
+const socket = new WebSocket("ws://localhost:9000");
 
 socket.onopen = () => {
   // Send command
-  socket.send(JSON.stringify({
-    id: '123',
-    method: 'tasks.list',
-    params: {
-      status: 'pending'
-    }
-  }));
+  socket.send(
+    JSON.stringify({
+      id: "123",
+      method: "tasks.list",
+      params: {
+        status: "pending",
+      },
+    }),
+  );
 };
 
 socket.onmessage = (event) => {
@@ -334,12 +355,15 @@ socket.onmessage = (event) => {
 ```typescript
 // In a web application
 async function fetchTasks() {
-  const response = await fetch('http://localhost:3000/api/tasks?status=pending', {
-    headers: {
-      'Authorization': 'Bearer ' + token
-    }
-  });
-  
+  const response = await fetch(
+    "http://localhost:3000/api/tasks?status=pending",
+    {
+      headers: {
+        Authorization: "Bearer " + token,
+      },
+    },
+  );
+
   const data = await response.json();
   return data;
 }
@@ -356,7 +380,7 @@ interface A2AConsumer extends Consumer {
   // a2a Protocol Methods
   handleA2ARequest(request: A2ARequest): Promise<A2AResponse>;
   createA2AAgent(config: A2AAgentConfig): Promise<string>;
-  
+
   // Tool Registration
   registerTool(tool: A2ATool): Promise<void>;
 }
@@ -374,4 +398,4 @@ The a2a protocol implementation would enable:
 2. **WebHooks**: Support for triggering external systems when events occur
 3. **Event Streaming**: Real-time event streams for reactive applications
 4. **Multi-tenant Support**: Ability to serve multiple isolated tenants from a single deployment
-5. **SDK Generation**: Automatic generation of client SDKs for multiple languages 
+5. **SDK Generation**: Automatic generation of client SDKs for multiple languages

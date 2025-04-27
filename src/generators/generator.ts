@@ -1,17 +1,20 @@
-import type { ServiceRegistry } from '../core/registry';
-import { generatePRD } from './generate-prd';
-import { generateUserJourney } from './generate-user-journey';
-import { generateTechSpec } from './generate-tech-spec';
-import { formatDocumentContent, parseDocumentContent } from './formatters';
-import type { LanguageModel } from 'ai';
+import type { LanguageModel } from "ai";
+
+import type { ServiceRegistry } from "../core/registry";
+
+import { formatDocumentContent, parseDocumentContent } from "./formatters";
+import { generatePRD } from "./generate-prd";
+import { generateTechSpec } from "./generate-tech-spec";
+import { generateUserJourney } from "./generate-user-journey";
+
 // Document type enum
 export enum DocumentType {
-  CONCEPT = 'concept',
-  USER_JOURNEY = 'user-journey',
-  PRD = 'prd',
-  TECHNICAL_SPEC = 'technical-spec',
-  API_SPEC = 'api-spec',
-  ARCHITECTURE = 'architecture',
+  CONCEPT = "concept",
+  USER_JOURNEY = "user-journey",
+  PRD = "prd",
+  TECHNICAL_SPEC = "technical-spec",
+  API_SPEC = "api-spec",
+  ARCHITECTURE = "architecture",
 }
 
 // Document model
@@ -64,7 +67,7 @@ export interface DocumentGenerator {
   generateUserJourney(persona: string, scenario: string): Promise<Document>;
   generateTechnicalSpec(
     requirements: string,
-    options?: TechSpecOptions
+    options?: TechSpecOptions,
   ): Promise<Document>;
 
   // Document Operations
@@ -83,8 +86,8 @@ export class DocumentGeneratorImpl implements DocumentGenerator {
 
   async generatePRD(concept: string, options?: PRDOptions): Promise<Document> {
     // Get the generator agent
-    const agent = this.serviceRegistry.getAgent('generator');
-    const model = agent.languageModel(options?.model || 'gpt-4o');
+    const agent = this.serviceRegistry.getAgent("generator");
+    const model = agent.languageModel(options?.model || "gpt-4o");
     // Use the functional generator
     const document = await generatePRD(model, concept, options);
 
@@ -95,11 +98,11 @@ export class DocumentGeneratorImpl implements DocumentGenerator {
   async generateUserJourney(
     persona: string,
     scenario: string,
-    options?: { model?: string }
+    options?: { model?: string },
   ): Promise<Document> {
     // Get the generator agent
-    const agent = this.serviceRegistry.getAgent('generator');
-    const model = agent.languageModel(options?.model || 'gpt-4o');
+    const agent = this.serviceRegistry.getAgent("generator");
+    const model = agent.languageModel(options?.model || "gpt-4o");
 
     // Use the functional generator
     const document = await generateUserJourney(model, persona, scenario);
@@ -110,11 +113,11 @@ export class DocumentGeneratorImpl implements DocumentGenerator {
 
   async generateTechnicalSpec(
     requirements: string,
-    options?: TechSpecOptions
+    options?: TechSpecOptions,
   ): Promise<Document> {
     // Get the generator agent
-    const agent = this.serviceRegistry.getAgent('generator');
-    const model = agent.languageModel(options?.model || 'gpt-4o');
+    const agent = this.serviceRegistry.getAgent("generator");
+    const model = agent.languageModel(options?.model || "gpt-4o");
 
     // Use the functional generator
     const document = await generateTechSpec(model, requirements, options);
@@ -124,7 +127,7 @@ export class DocumentGeneratorImpl implements DocumentGenerator {
   }
 
   async getDocument(id: string): Promise<Document | null> {
-    const adapter = this.serviceRegistry.getAdapter('default');
+    const adapter = this.serviceRegistry.getAdapter("default");
 
     // Check if document exists
     const documentPath = `documents/${id}.md`;
@@ -141,11 +144,11 @@ export class DocumentGeneratorImpl implements DocumentGenerator {
   }
 
   async saveDocument(document: Document): Promise<Document> {
-    const adapter = this.serviceRegistry.getAdapter('default');
+    const adapter = this.serviceRegistry.getAdapter("default");
 
     // Create documents directory if it doesn't exist
-    if (!(await adapter.exists('documents'))) {
-      await adapter.createDirectory('documents');
+    if (!(await adapter.exists("documents"))) {
+      await adapter.createDirectory("documents");
     }
 
     // Create directory for document type if it doesn't exist
@@ -161,14 +164,14 @@ export class DocumentGeneratorImpl implements DocumentGenerator {
     await adapter.write(
       `${typeDir}/${document.id}.md`,
       content,
-      'text/markdown'
+      "text/markdown",
     );
 
     return document;
   }
 
   async listDocuments(type: DocumentType): Promise<DocumentSummary[]> {
-    const adapter = this.serviceRegistry.getAdapter('default');
+    const adapter = this.serviceRegistry.getAdapter("default");
 
     // Path for document type directory
     const typeDir = `documents/${type}`;
@@ -184,15 +187,15 @@ export class DocumentGeneratorImpl implements DocumentGenerator {
     // Read each document file and extract summary info
     const summaries = await Promise.all(
       files
-        .filter(file => file.endsWith('.md'))
-        .map(async file => {
+        .filter((file) => file.endsWith(".md"))
+        .map(async (file) => {
           const result = await adapter.read(`${typeDir}/${file}`);
           if (!result) return null;
 
           // Parse document to extract summary information using the formatter utility
           const document = parseDocumentContent(
             result.content,
-            file.replace('.md', '')
+            file.replace(".md", ""),
           );
           if (!document) return null;
 
@@ -203,12 +206,12 @@ export class DocumentGeneratorImpl implements DocumentGenerator {
             createdAt: document.createdAt,
             updatedAt: document.updatedAt,
           };
-        })
+        }),
     );
 
     // Filter out nulls
     return summaries.filter(
-      (summary): summary is DocumentSummary => summary !== null
+      (summary): summary is DocumentSummary => summary !== null,
     );
   }
 }

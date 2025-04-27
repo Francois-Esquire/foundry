@@ -1,5 +1,7 @@
-import { termost } from 'termost';
-import pkg from '../../../package.json';
+import { termost } from "termost";
+
+import pkg from "../../../package.json";
+import { FoundryLibrary } from "../../core";
 
 type ProgramContext = {
   prompt: string;
@@ -27,19 +29,19 @@ type ProgramContext = {
   convert: boolean;
   skipGenerate: boolean;
 };
-import { FoundryLibrary } from '../../core';
+
 const { name, version } = pkg;
 
 const foundry = new FoundryLibrary();
 
 export const program = termost<ProgramContext>({
   name,
-  description: 'Foundry: A CLI tool for AI-powered software development',
+  description: "Foundry: A CLI tool for AI-powered software development",
   version,
   onException(error) {
     console.error(`Error: ${error.message}`);
   },
   onShutdown() {
-    console.log('Foundry CLI has been shut down.');
+    console.log("Foundry CLI has been shut down.");
   },
 });

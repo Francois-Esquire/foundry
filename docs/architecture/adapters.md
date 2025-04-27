@@ -23,20 +23,20 @@ All adapters must implement the following core methods:
 ```typescript
 interface Adapter {
   // Basic Operations
-  read(path: string): Promise<{ content: string, type: string } | null>;
+  read(path: string): Promise<{ content: string; type: string } | null>;
   write(path: string, content: string, type: string): Promise<boolean>;
   delete(path: string): Promise<boolean>;
   exists(path: string): Promise<boolean>;
-  
+
   // Directory Operations
   list(path: string): Promise<string[]>;
   createDirectory(path: string): Promise<boolean>;
   deleteDirectory(path: string, recursive?: boolean): Promise<boolean>;
-  
+
   // Metadata Operations
   getMetadata(path: string): Promise<Record<string, any> | null>;
   setMetadata(path: string, metadata: Record<string, any>): Promise<boolean>;
-  
+
   // Utility Operations
   move(sourcePath: string, destinationPath: string): Promise<boolean>;
   copy(sourcePath: string, destinationPath: string): Promise<boolean>;
@@ -103,60 +103,60 @@ The File System Adapter maps operations directly to the local file system.
 
 ```typescript
 class FileSystemAdapter implements Adapter {
-  constructor(options: {
-    basePath: string;
-    metadataDir?: string;
-  }) {
+  constructor(options: { basePath: string; metadataDir?: string }) {
     this.basePath = options.basePath;
-    this.metadataDir = options.metadataDir || '.foundry';
+    this.metadataDir = options.metadataDir || ".foundry";
   }
-  
-  async read(path: string): Promise<{ content: string, type: string } | null> {
+
+  async read(path: string): Promise<{ content: string; type: string } | null> {
     const fullPath = this.resolvePath(path);
-    
+
     if (!fs.existsSync(fullPath)) {
       return null;
     }
-    
-    const content = await fs.promises.readFile(fullPath, 'utf-8');
+
+    const content = await fs.promises.readFile(fullPath, "utf-8");
     const metadata = await this.getMetadata(path);
     const type = metadata?.type || this.inferTypeFromPath(path);
-    
+
     return { content, type };
   }
-  
+
   async write(path: string, content: string, type: string): Promise<boolean> {
     const fullPath = this.resolvePath(path);
     const dirPath = this.getDirPath(fullPath);
-    
+
     // Ensure directory exists
     await fs.promises.mkdir(dirPath, { recursive: true });
-    
+
     // Write content
-    await fs.promises.writeFile(fullPath, content, 'utf-8');
-    
+    await fs.promises.writeFile(fullPath, content, "utf-8");
+
     // Store type in metadata
-    const metadata = await this.getMetadata(path) || {};
+    const metadata = (await this.getMetadata(path)) || {};
     metadata.type = type;
     await this.setMetadata(path, metadata);
-    
+
     return true;
   }
-  
+
   // Other method implementations...
-  
+
   private resolvePath(path: string): string {
     // Convert adapter path to actual file system path
     return nodePath.join(this.basePath, path);
   }
-  
+
   private inferTypeFromPath(path: string): string {
     // Infer content type from file extension
     const ext = nodePath.extname(path).toLowerCase();
     switch (ext) {
-      case '.md': return 'text/markdown';
-      case '.json': return 'application/json';
-      default: return 'text/plain';
+      case ".md":
+        return "text/markdown";
+      case ".json":
+        return "application/json";
+      default:
+        return "text/plain";
     }
   }
 }
@@ -175,43 +175,43 @@ The In-Memory Adapter stores all data in memory using JavaScript objects.
 
 ```typescript
 class InMemoryAdapter implements Adapter {
-  private content: Map<string, { content: string, type: string }> = new Map();
+  private content: Map<string, { content: string; type: string }> = new Map();
   private metadata: Map<string, Record<string, any>> = new Map();
-  
-  async read(path: string): Promise<{ content: string, type: string } | null> {
+
+  async read(path: string): Promise<{ content: string; type: string } | null> {
     return this.content.get(path) || null;
   }
-  
+
   async write(path: string, content: string, type: string): Promise<boolean> {
     // Create parent directories if needed
     const dirPath = this.getDirPath(path);
     if (dirPath && !this.content.has(dirPath)) {
       await this.createDirectory(dirPath);
     }
-    
+
     this.content.set(path, { content, type });
     return true;
   }
-  
+
   async list(path: string): Promise<string[]> {
     const result: string[] = [];
-    const prefix = path.endsWith('/') ? path : path + '/';
-    
+    const prefix = path.endsWith("/") ? path : path + "/";
+
     for (const storedPath of this.content.keys()) {
       if (storedPath.startsWith(prefix)) {
         // Get the next path segment
         const relativePath = storedPath.slice(prefix.length);
-        const nextSegment = relativePath.split('/')[0];
-        
+        const nextSegment = relativePath.split("/")[0];
+
         if (nextSegment && !result.includes(nextSegment)) {
           result.push(nextSegment);
         }
       }
     }
-    
+
     return result;
   }
-  
+
   // Other method implementations...
 }
 ```
@@ -225,39 +225,39 @@ The Core Library uses adapters to store and retrieve domain-specific data by map
 ```typescript
 class TaskManager {
   constructor(private adapter: Adapter) {}
-  
+
   async getTask(id: string): Promise<Task | null> {
     const path = `tasks/${id}.md`;
     const result = await this.adapter.read(path);
-    
+
     if (!result) {
       return null;
     }
-    
+
     // Parse the Markdown content into a Task object
     return this.parseTaskMarkdown(result.content);
   }
-  
+
   async saveTask(task: Task): Promise<boolean> {
     const path = `tasks/${task.id}.md`;
     const content = this.formatTaskAsMarkdown(task);
-    
-    return await this.adapter.write(path, content, 'foundry/task');
+
+    return await this.adapter.write(path, content, "foundry/task");
   }
-  
+
   async listTasks(): Promise<string[]> {
-    const paths = await this.adapter.list('tasks');
+    const paths = await this.adapter.list("tasks");
     return paths
-      .filter(path => path.endsWith('.md'))
-      .map(path => path.replace(/\.md$/, ''));
+      .filter((path) => path.endsWith(".md"))
+      .map((path) => path.replace(/\.md$/, ""));
   }
-  
+
   // Helper methods for transforming between domain models and storage format
   private parseTaskMarkdown(markdown: string): Task {
     // Extract task data from Markdown content
     // ...
   }
-  
+
   private formatTaskAsMarkdown(task: Task): string {
     // Format task as Markdown
     // ...
@@ -272,9 +272,9 @@ Adapters are selected and configured when initializing a Consumer:
 ```typescript
 const foundry = new Foundry({
   adapter: new FileSystemAdapter({
-    basePath: './my-project'
+    basePath: "./my-project",
   }),
-  fallbackAdapter: new InMemoryAdapter()
+  fallbackAdapter: new InMemoryAdapter(),
 });
 ```
 
@@ -298,11 +298,16 @@ interface CollaborativeAdapter extends Adapter {
   // Lock Operations
   lock(path: string, owner: string, ttl?: number): Promise<boolean>;
   unlock(path: string, owner: string): Promise<boolean>;
-  isLocked(path: string): Promise<{ locked: boolean, owner?: string, expiresAt?: Date } | null>;
-  
+  isLocked(
+    path: string,
+  ): Promise<{ locked: boolean; owner?: string; expiresAt?: Date } | null>;
+
   // Conflict Resolution
   getVersion(path: string): Promise<string>;
-  resolveConflict(path: string, versions: string[]): Promise<{ content: string, type: string }>;
+  resolveConflict(
+    path: string,
+    versions: string[],
+  ): Promise<{ content: string; type: string }>;
 }
 ```
 
@@ -337,30 +342,32 @@ class GitHubAdapter implements Adapter {
   }) {
     // Initialize with GitHub API configuration
   }
-  
-  async read(path: string): Promise<{ content: string, type: string } | null> {
+
+  async read(path: string): Promise<{ content: string; type: string } | null> {
     try {
       // Get file content from GitHub API
       const response = await this.octokit.repos.getContent({
         owner: this.owner,
         repo: this.repository,
         path,
-        ref: this.branch
+        ref: this.branch,
       });
-      
+
       // Decode content (GitHub API returns base64)
-      const content = Buffer.from(response.data.content, 'base64').toString('utf-8');
-      
+      const content = Buffer.from(response.data.content, "base64").toString(
+        "utf-8",
+      );
+
       // Determine content type
       const type = this.inferTypeFromPath(path);
-      
+
       return { content, type };
     } catch (error) {
       // Handle 404 and other errors
       return null;
     }
   }
-  
+
   // Other method implementations...
 }
 ```
@@ -373,4 +380,4 @@ class GitHubAdapter implements Adapter {
 4. **Adapters for Additional Systems**:
    - Convex Database
    - Cloud Storage (S3, Google Cloud Storage)
-   - Remote File Systems (SFTP, WebDAV) 
+   - Remote File Systems (SFTP, WebDAV)

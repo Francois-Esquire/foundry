@@ -1,7 +1,10 @@
-import { v4 as uuidv4 } from 'uuid';
-import { DocumentType } from './generator';
-import type { LanguageModel } from 'ai';
-import { generateText } from 'ai';
+import type { LanguageModel } from "ai";
+
+import { generateText } from "ai";
+import { v4 as uuidv4 } from "uuid";
+
+import { DocumentType } from "./generator";
+
 // User Journey generation options
 export interface UserJourneyOptions {
   title?: string;
@@ -36,7 +39,7 @@ export async function generateUserJourney(
   agent: LanguageModel,
   persona: string,
   scenario: string,
-  options?: UserJourneyOptions
+  options?: UserJourneyOptions,
 ): Promise<UserJourneyDocument> {
   // Prepare the prompt for user journey generation
   const prompt = prepareUserJourneyPrompt(persona, scenario, options);
@@ -71,15 +74,15 @@ export async function generateUserJourney(
 function prepareUserJourneyPrompt(
   persona: string,
   scenario: string,
-  options?: UserJourneyOptions
+  options?: UserJourneyOptions,
 ): string {
   let prompt = `Generate a detailed user journey for the following persona: "${persona}" in the scenario: "${scenario}".\n\n`;
 
-  prompt += 'Include the following elements:\n';
-  prompt += '1. Persona Profile: Detailed description of the user\n';
-  prompt += '2. User Goals: What the user wants to accomplish\n';
-  prompt += '3. Journey Map: Step-by-step sequence of interactions\n';
-  prompt += '4. Touchpoints: Where the user interacts with the product\n';
+  prompt += "Include the following elements:\n";
+  prompt += "1. Persona Profile: Detailed description of the user\n";
+  prompt += "2. User Goals: What the user wants to accomplish\n";
+  prompt += "3. Journey Map: Step-by-step sequence of interactions\n";
+  prompt += "4. Touchpoints: Where the user interacts with the product\n";
 
   if (options?.includeEmotionalJourney !== false) {
     prompt += "5. Emotions: User's emotional state at each step\n";
@@ -87,16 +90,16 @@ function prepareUserJourneyPrompt(
 
   if (options?.includePainPoints !== false) {
     prompt +=
-      '6. Pain Points: Challenges or frustrations the user experiences\n';
+      "6. Pain Points: Challenges or frustrations the user experiences\n";
   }
 
   if (options?.includeOpportunities !== false) {
     prompt +=
-      '7. Opportunities: Areas for improvement to enhance the experience\n';
+      "7. Opportunities: Areas for improvement to enhance the experience\n";
   }
 
   prompt +=
-    '\nFormat the document using Markdown syntax. Focus on creating a realistic and empathetic user journey.';
+    "\nFormat the document using Markdown syntax. Focus on creating a realistic and empathetic user journey.";
 
   return prompt;
 }

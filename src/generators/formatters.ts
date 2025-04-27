@@ -1,5 +1,6 @@
-import type { Document } from './generator';
-import { DocumentType } from './generator';
+import type { Document } from "./generator";
+
+import { DocumentType } from "./generator";
 
 /**
  * Formats a document with front matter and content for storage
@@ -7,7 +8,7 @@ import { DocumentType } from './generator';
 export function formatDocumentContent(document: Document): string {
   // Create front matter
   let frontMatter = [
-    '---',
+    "---",
     `title: ${document.title}`,
     `type: ${document.type}`,
     `createdAt: ${document.createdAt.toISOString()}`,
@@ -16,7 +17,7 @@ export function formatDocumentContent(document: Document): string {
 
   // Add metadata fields to front matter
   for (const [key, value] of Object.entries(document.metadata)) {
-    if (typeof value === 'string') {
+    if (typeof value === "string") {
       frontMatter.push(`${key}: ${value}`);
     } else {
       // For complex objects, we could use JSON.stringify, but that may not be ideal for front matter
@@ -24,10 +25,10 @@ export function formatDocumentContent(document: Document): string {
     }
   }
 
-  frontMatter.push('---');
+  frontMatter.push("---");
 
   // Combine front matter with document content
-  return `${frontMatter.join('\n')}\n\n${document.content}`;
+  return `${frontMatter.join("\n")}\n\n${document.content}`;
 }
 
 /**
@@ -35,16 +36,16 @@ export function formatDocumentContent(document: Document): string {
  */
 export function parseDocumentContent(
   content: string,
-  id: string
+  id: string,
 ): Document | null {
   try {
     // Parse markdown content with front matter
     const frontMatterMatch = content.match(
-      /^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/
+      /^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/,
     );
 
     if (!frontMatterMatch) {
-      console.error('Invalid document format: Missing front matter');
+      console.error("Invalid document format: Missing front matter");
       return null;
     }
 
@@ -52,34 +53,34 @@ export function parseDocumentContent(
     const documentContent = frontMatterMatch[2];
 
     if (frontMatter === undefined || documentContent === undefined) {
-      console.error('Invalid document format: Failed to extract content');
+      console.error("Invalid document format: Failed to extract content");
       return null;
     }
 
     // Extract fields from front matter
-    const title = extractField(frontMatter, 'title') || 'Untitled Document';
-    const typeStr = extractField(frontMatter, 'type');
+    const title = extractField(frontMatter, "title") || "Untitled Document";
+    const typeStr = extractField(frontMatter, "type");
     const type = typeStr ? (typeStr as DocumentType) : DocumentType.CONCEPT;
 
-    const createdAtStr = extractField(frontMatter, 'createdAt');
+    const createdAtStr = extractField(frontMatter, "createdAt");
     const createdAt = createdAtStr ? new Date(createdAtStr) : new Date();
 
-    const updatedAtStr = extractField(frontMatter, 'updatedAt');
+    const updatedAtStr = extractField(frontMatter, "updatedAt");
     const updatedAt = updatedAtStr ? new Date(updatedAtStr) : new Date();
 
     // Parse metadata from front matter
     const metadata: Record<string, any> = {};
-    const lines = frontMatter.split('\n');
+    const lines = frontMatter.split("\n");
 
     for (const line of lines) {
       if (
-        line.includes(':') &&
-        !line.startsWith('title:') &&
-        !line.startsWith('type:') &&
-        !line.startsWith('createdAt:') &&
-        !line.startsWith('updatedAt:')
+        line.includes(":") &&
+        !line.startsWith("title:") &&
+        !line.startsWith("type:") &&
+        !line.startsWith("createdAt:") &&
+        !line.startsWith("updatedAt:")
       ) {
-        const [key, value] = line.split(':', 2);
+        const [key, value] = line.split(":", 2);
         if (key && value) {
           metadata[key.trim()] = value.trim();
         }
@@ -96,7 +97,7 @@ export function parseDocumentContent(
       metadata,
     };
   } catch (error) {
-    console.error('Error parsing document content:', error);
+    console.error("Error parsing document content:", error);
     return null;
   }
 }

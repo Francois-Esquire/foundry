@@ -1,21 +1,23 @@
-import type { Provider } from 'ai';
-import { WorkflowManager } from './workflows';
-import type {
-  WorkflowStepFunction,
-  WorkflowContext,
-  RunWorkflowOptions,
-  Workflow,
-  RunWorkflowResult,
-} from './workflows';
-import { ToolRegistry } from './tools';
+import type { Provider } from "ai";
+
+import type { Extension } from "../core/extensions";
 import type {
   Tool,
-  ToolSchema,
   ToolContext,
   ToolRegistryConfig,
-} from './tools';
-import { extensionRegistry } from '../core/extensions';
-import type { Extension } from '../core/extensions';
+  ToolSchema,
+} from "./tools";
+import type {
+  RunWorkflowOptions,
+  RunWorkflowResult,
+  Workflow,
+  WorkflowContext,
+  WorkflowStepFunction,
+} from "./workflows";
+
+import { extensionRegistry } from "../core/extensions";
+import { ToolRegistry } from "./tools";
+import { WorkflowManager } from "./workflows";
 
 export interface AgentConfig {
   name: string;
@@ -59,12 +61,12 @@ export class Agent {
       try {
         await this.extensionRegistry.registerExtension(extension);
         console.log(
-          `Successfully registered extension: ${extension.metadata.name}`
+          `Successfully registered extension: ${extension.metadata.name}`,
         );
       } catch (error) {
         console.error(
           `Failed to register extension ${extension.metadata.name}:`,
-          error
+          error,
         );
       }
     }
@@ -99,11 +101,11 @@ export class Agent {
   executeTool(
     name: string,
     params: Record<string, any>,
-    context?: ToolContext
+    context?: ToolContext,
   ): Promise<any> {
     if (!this.toolRegistry.hasTool(name)) {
       throw new Error(
-        `Tool '${name}' not registered or available for agent '${this.name}'`
+        `Tool '${name}' not registered or available for agent '${this.name}'`,
       );
     }
     return this.toolRegistry.executeTool(name, params, context);
@@ -124,7 +126,7 @@ export class Agent {
   createWorkflow(
     steps: WorkflowStepFunction[],
     initialContext: WorkflowContext = {},
-    options?: { name?: string }
+    options?: { name?: string },
   ): Workflow {
     return this.workflowManager.createWorkflow(steps, initialContext, options);
   }
@@ -134,7 +136,7 @@ export class Agent {
    */
   runWorkflow(
     workflowId: string,
-    options?: RunWorkflowOptions
+    options?: RunWorkflowOptions,
   ): RunWorkflowResult {
     return this.workflowManager.runWorkflow(workflowId, options);
   }

@@ -1,7 +1,9 @@
-import { v4 as uuidv4 } from 'uuid';
-import { DocumentType } from './generator';
-import type { LanguageModel } from 'ai';
-import { generateText } from 'ai';
+import type { LanguageModel } from "ai";
+
+import { generateText } from "ai";
+import { v4 as uuidv4 } from "uuid";
+
+import { DocumentType } from "./generator";
 
 // PRD generation options
 
@@ -37,7 +39,7 @@ export interface PRDDocument {
 export async function generatePRD(
   agent: LanguageModel,
   concept: string,
-  options?: PRDOptions
+  options?: PRDOptions,
 ): Promise<PRDDocument> {
   // Prepare the prompt for PRD generation
   const prompt = preparePRDPrompt(concept, options);
@@ -71,21 +73,21 @@ export async function generatePRD(
 function preparePRDPrompt(concept: string, options?: PRDOptions): string {
   let prompt = `Generate a detailed Product Requirements Document for the following concept: "${concept}".\n\n`;
 
-  prompt += 'Include the following sections:\n';
-  prompt += '1. Product Overview\n';
-  prompt += '2. Problem Statement\n';
-  prompt += '3. Target Users\n';
-  prompt += '4. Feature Requirements\n';
-  prompt += '5. Constraints and Limitations\n';
-  prompt += '6. Success Metrics\n';
+  prompt += "Include the following sections:\n";
+  prompt += "1. Product Overview\n";
+  prompt += "2. Problem Statement\n";
+  prompt += "3. Target Users\n";
+  prompt += "4. Feature Requirements\n";
+  prompt += "5. Constraints and Limitations\n";
+  prompt += "6. Success Metrics\n";
 
   if (options?.includeUserJourneys) {
-    prompt += '7. User Journeys\n';
+    prompt += "7. User Journeys\n";
   }
 
   if (options?.includeTechnicalConsiderations) {
     prompt += `${
-      options.includeUserJourneys ? '8' : '7'
+      options.includeUserJourneys ? "8" : "7"
     }. Technical Considerations\n`;
   }
 
@@ -98,7 +100,7 @@ function preparePRDPrompt(concept: string, options?: PRDOptions): string {
   }
 
   prompt +=
-    '\nFormat the document using Markdown syntax. Be specific, detailed, and focused on user value.';
+    "\nFormat the document using Markdown syntax. Be specific, detailed, and focused on user value.";
 
   return prompt;
 }

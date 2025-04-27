@@ -1,20 +1,20 @@
-import { validateInitialConfig } from '../../helpers/errors';
-import server from './server';
+import { validateInitialConfig } from "../../helpers/errors";
+import server from "./server";
 
-import 'dotenv/config';
+import "dotenv/config";
 
 if (import.meta.main) {
-  const { MCP_TRANSPORT_TYPE = 'stdio' } = process.env;
+  const { MCP_TRANSPORT_TYPE = "stdio" } = process.env;
 
   validateInitialConfig();
 
-  let transportType = MCP_TRANSPORT_TYPE as 'stdio' | 'sse';
+  let transportType = MCP_TRANSPORT_TYPE as "stdio" | "sse";
   let sse = undefined;
 
-  if (transportType === 'sse') {
-    transportType = 'sse';
+  if (transportType === "sse") {
+    transportType = "sse";
     sse = {
-      endpoint: '/sse' as const,
+      endpoint: "/sse" as const,
       port: 3000,
     };
 
@@ -23,7 +23,7 @@ if (import.meta.main) {
       sse,
     });
   } else {
-    transportType = 'stdio';
+    transportType = "stdio";
     server.start({
       transportType,
     });

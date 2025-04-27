@@ -1,10 +1,11 @@
-import { ExtensionType, extensionRegistry } from '../../core/extensions';
 import type {
   ExtensionMetadata,
   MCPExtension,
   MCPExtensionConfig,
-} from '../../core/extensions';
-import { toolRegistry } from '../tools';
+} from "../../core/extensions";
+
+import { extensionRegistry, ExtensionType } from "../../core/extensions";
+import { toolRegistry } from "../tools";
 
 /**
  * Example of an MCP extension that connects to a hypothetical MCP server
@@ -13,19 +14,19 @@ export class ExampleMCPExtension implements MCPExtension {
   type: ExtensionType.MCP = ExtensionType.MCP;
 
   metadata: ExtensionMetadata = {
-    name: 'example-mcp',
-    description: 'Example MCP extension connecting to a task-master server',
-    version: '1.0.0',
-    author: 'Foundry',
+    name: "example-mcp",
+    description: "Example MCP extension connecting to a task-master server",
+    version: "1.0.0",
+    author: "Foundry",
   };
 
   config: MCPExtensionConfig = {
-    serverUrl: 'https://example-mcp-server.com/api',
-    apiKey: 'fake-api-key-12345',
+    serverUrl: "https://example-mcp-server.com/api",
+    apiKey: "fake-api-key-12345",
     tools: [
-      'task-master_get_tasks',
-      'task-master_add_task',
-      'task-master_next_task',
+      "task-master_get_tasks",
+      "task-master_add_task",
+      "task-master_next_task",
     ],
   };
 
@@ -52,55 +53,55 @@ export class ExampleMCPExtension implements MCPExtension {
     // that would normally come from the server
     return [
       {
-        name: 'task-master_get_tasks',
+        name: "task-master_get_tasks",
         description:
-          'Get all tasks from Task Master, optionally filtering by status.',
+          "Get all tasks from Task Master, optionally filtering by status.",
         parameters: {
-          type: 'object',
+          type: "object",
           properties: {
             status: {
-              type: 'string',
+              type: "string",
               description: 'Filter tasks by status (e.g., "pending", "done")',
             },
             withSubtasks: {
-              type: 'boolean',
-              description: 'Include subtasks in the response',
+              type: "boolean",
+              description: "Include subtasks in the response",
             },
             projectRoot: {
-              type: 'string',
+              type: "string",
               description:
-                'The directory of the project. Must be an absolute path.',
+                "The directory of the project. Must be an absolute path.",
             },
           },
-          required: ['projectRoot'],
+          required: ["projectRoot"],
         },
       },
       {
-        name: 'task-master_add_task',
-        description: 'Add a new task using AI',
+        name: "task-master_add_task",
+        description: "Add a new task using AI",
         parameters: {
-          type: 'object',
+          type: "object",
           properties: {
             prompt: {
-              type: 'string',
-              description: 'Description of the task to add',
+              type: "string",
+              description: "Description of the task to add",
             },
             dependencies: {
-              type: 'string',
+              type: "string",
               description:
-                'Comma-separated list of task IDs this task depends on',
+                "Comma-separated list of task IDs this task depends on",
             },
             priority: {
-              type: 'string',
-              description: 'Task priority (high, medium, low)',
+              type: "string",
+              description: "Task priority (high, medium, low)",
             },
             projectRoot: {
-              type: 'string',
+              type: "string",
               description:
-                'The directory of the project. Must be an absolute path.',
+                "The directory of the project. Must be an absolute path.",
             },
           },
-          required: ['projectRoot', 'prompt'],
+          required: ["projectRoot", "prompt"],
         },
       },
     ];
@@ -119,12 +120,12 @@ export async function demonstrateMCPExtension() {
   const autoDiscoverConfig = { autoDiscoverMCP: true };
 
   // Recreate registry with config that enables MCP autodiscovery
-  console.log('Tool registry configuration:', autoDiscoverConfig);
+  console.log("Tool registry configuration:", autoDiscoverConfig);
 
   // Check if MCP tools were registered
   const expectedTools = [
-    'mcp_example-mcp_task-master_get_tasks',
-    'mcp_example-mcp_task-master_add_task',
+    "mcp_example-mcp_task-master_get_tasks",
+    "mcp_example-mcp_task-master_add_task",
   ];
 
   for (const toolName of expectedTools) {
@@ -138,14 +139,14 @@ export async function demonstrateMCPExtension() {
   // Example: Execute an MCP tool
   try {
     const result = await toolRegistry.executeTool(
-      'mcp_example-mcp_task-master_get_tasks',
+      "mcp_example-mcp_task-master_get_tasks",
       {
-        projectRoot: '/Users/example/projects/my-project',
-        status: 'pending',
-      }
+        projectRoot: "/Users/example/projects/my-project",
+        status: "pending",
+      },
     );
-    console.log('MCP tool execution result:', result);
+    console.log("MCP tool execution result:", result);
   } catch (error) {
-    console.error('Error executing MCP tool:', error);
+    console.error("Error executing MCP tool:", error);
   }
 }

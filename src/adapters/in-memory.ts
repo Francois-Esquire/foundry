@@ -1,4 +1,4 @@
-import type { Adapter } from './types';
+import type { Adapter } from "./types";
 
 /**
  * InMemoryAdapter stores all data in memory using JavaScript objects.
@@ -85,10 +85,10 @@ export class InMemoryAdapter implements Adapter {
   async list(path: string): Promise<string[]> {
     try {
       const result: string[] = [];
-      const prefix = path.endsWith('/') ? path : path + '/';
+      const prefix = path.endsWith("/") ? path : path + "/";
 
       // Check if the directory exists
-      if (!this.directories.has(path) && !path.startsWith('/') && path !== '') {
+      if (!this.directories.has(path) && !path.startsWith("/") && path !== "") {
         return [];
       }
 
@@ -97,7 +97,7 @@ export class InMemoryAdapter implements Adapter {
         if (storedPath.startsWith(prefix)) {
           // Get the next path segment
           const relativePath = storedPath.slice(prefix.length);
-          const nextSegment = relativePath.split('/')[0];
+          const nextSegment = relativePath.split("/")[0];
 
           if (nextSegment && !result.includes(nextSegment)) {
             result.push(nextSegment);
@@ -121,7 +121,7 @@ export class InMemoryAdapter implements Adapter {
     try {
       // Create parent directories if needed
       const parentDir = this.getDirPath(path);
-      if (parentDir && !this.directories.has(parentDir) && parentDir !== '') {
+      if (parentDir && !this.directories.has(parentDir) && parentDir !== "") {
         await this.createDirectory(parentDir);
       }
 
@@ -142,20 +142,20 @@ export class InMemoryAdapter implements Adapter {
    */
   async deleteDirectory(
     path: string,
-    recursive: boolean = false
+    recursive: boolean = false,
   ): Promise<boolean> {
     try {
       if (!(await this.exists(path))) {
         return false;
       }
 
-      const prefix = path.endsWith('/') ? path : path + '/';
+      const prefix = path.endsWith("/") ? path : path + "/";
 
       // Check if directory has contents
       const contents = await this.list(path);
       if (contents.length > 0 && !recursive) {
         throw new Error(
-          `Directory is not empty: ${path}. Pass recursive=true to delete contents.`
+          `Directory is not empty: ${path}. Pass recursive=true to delete contents.`,
         );
       }
 
@@ -203,7 +203,7 @@ export class InMemoryAdapter implements Adapter {
    */
   async setMetadata(
     path: string,
-    metadata: Record<string, any>
+    metadata: Record<string, any>,
   ): Promise<boolean> {
     try {
       this.metadata.set(path, { ...metadata });
@@ -232,12 +232,12 @@ export class InMemoryAdapter implements Adapter {
         await this.createDirectory(destinationPath);
 
         // Get all paths that start with the source prefix
-        const sourcePrefix = sourcePath.endsWith('/')
+        const sourcePrefix = sourcePath.endsWith("/")
           ? sourcePath
-          : sourcePath + '/';
-        const destPrefix = destinationPath.endsWith('/')
+          : sourcePath + "/";
+        const destPrefix = destinationPath.endsWith("/")
           ? destinationPath
-          : destinationPath + '/';
+          : destinationPath + "/";
 
         // Move all content entries
         for (const [path, data] of [...this.content.entries()]) {
@@ -295,7 +295,7 @@ export class InMemoryAdapter implements Adapter {
     } catch (error) {
       console.error(
         `Error moving from ${sourcePath} to ${destinationPath}:`,
-        error
+        error,
       );
       return false;
     }
@@ -319,12 +319,12 @@ export class InMemoryAdapter implements Adapter {
         await this.createDirectory(destinationPath);
 
         // Get all paths that start with the source prefix
-        const sourcePrefix = sourcePath.endsWith('/')
+        const sourcePrefix = sourcePath.endsWith("/")
           ? sourcePath
-          : sourcePath + '/';
-        const destPrefix = destinationPath.endsWith('/')
+          : sourcePath + "/";
+        const destPrefix = destinationPath.endsWith("/")
           ? destinationPath
-          : destinationPath + '/';
+          : destinationPath + "/";
 
         // Copy all content entries
         for (const [path, data] of [...this.content.entries()]) {
@@ -374,7 +374,7 @@ export class InMemoryAdapter implements Adapter {
     } catch (error) {
       console.error(
         `Error copying from ${sourcePath} to ${destinationPath}:`,
-        error
+        error,
       );
       return false;
     }
@@ -386,9 +386,9 @@ export class InMemoryAdapter implements Adapter {
    * @returns Directory path
    */
   private getDirPath(filePath: string): string {
-    if (!filePath.includes('/')) {
-      return '';
+    if (!filePath.includes("/")) {
+      return "";
     }
-    return filePath.substring(0, filePath.lastIndexOf('/'));
+    return filePath.substring(0, filePath.lastIndexOf("/"));
   }
 }

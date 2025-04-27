@@ -1,17 +1,20 @@
 // memory/index.ts
-import fs, { Dirent } from 'node:fs';
-import { Database } from 'bun:sqlite';
-import { cosineSimilarity } from 'ai';
-import crypto from 'crypto';
-import { embed as localEmbed } from './embeddings';
+import crypto from "crypto";
+import fs, { Dirent } from "node:fs";
+import { extname } from "node:path"; // Import extname
+
+import { cosineSimilarity } from "ai";
+import { Database } from "bun:sqlite";
+
 // Import types separately when verbatimModuleSyntax is enabled
-import type { TraverseOptions } from './fs';
-import { traverseDirectory, processSingleFile } from './fs';
-import { extname } from 'node:path'; // Import extname
+import type { TraverseOptions } from "./fs";
 // Import KnowledgeStore related types and functions
-import type { KnowledgeStore, KnowledgeSnippet } from './knowledge';
-import { createKnowledgeStore } from './knowledge';
-import { calculateHash } from './utils'; // Import from utils
+import type { KnowledgeSnippet, KnowledgeStore } from "./knowledge";
+
+import { embed as localEmbed } from "./embeddings";
+import { processSingleFile, traverseDirectory } from "./fs";
+import { createKnowledgeStore } from "./knowledge";
+import { calculateHash } from "./utils"; // Import from utils
 
 // Re-export types for external use
 export type { KnowledgeStore, KnowledgeSnippet, TraverseOptions };
@@ -144,7 +147,7 @@ function initializeDatabase(db: Database): void {
     PRAGMA synchronous = NORMAL;
     PRAGMA foreign_keys = ON;
     PRAGMA busy_timeout = 5000;
-  `.trim()
+  `.trim(),
   );
 
   db.exec(
@@ -199,7 +202,7 @@ function initializeDatabase(db: Database): void {
         UPDATE knowledge_store SET updated_at = strftime('%s','now') WHERE id = OLD.id;
     END;
 
-  `.trim()
+  `.trim(),
   );
 }
 
@@ -232,7 +235,7 @@ export interface MemoryManager {
    */
   findRelatedFiles(
     filePath: string,
-    depth?: number
+    depth?: number,
   ): Promise<Array<{ id: number; path: string; depth: number }>>;
 
   /**
@@ -273,7 +276,7 @@ export interface MemoryManager {
     options?: {
       maxLines?: number;
       overlap?: number;
-    }
+    },
   ): Promise<CachedChunk[]>;
 
   /**
@@ -292,7 +295,7 @@ export interface MemoryManager {
   invalidateRange(
     filePath: string,
     startLine: number,
-    endLine: number
+    endLine: number,
   ): Promise<void>;
 
   /**
@@ -304,7 +307,7 @@ export interface MemoryManager {
       filePath?: string;
       limit?: number;
       minScore?: number;
-    }
+    },
   ): Promise<
     Array<{
       chunk: CachedChunk;
@@ -323,7 +326,7 @@ export interface MemoryManager {
    */
   processDirectory(
     directoryPath: string,
-    options?: TraverseOptions
+    options?: TraverseOptions,
   ): Promise<Map<string, CachedChunk[]>>;
 
   /**
@@ -343,16 +346,16 @@ type DbRow = Record<string, any>;
 
 async function queryDeps(
   db: Database,
-  rootId: number
+  rootId: number,
 ): Promise<Array<{ id: number; path: string; depth: number }>> {
   console.log(
-    `[queryDeps] Querying with rootId: ${rootId} (type: ${typeof rootId})`
+    `[queryDeps] Querying with rootId: ${rootId} (type: ${typeof rootId})`,
   );
   const results = db.query(queries.deps).all(rootId) as DbRow[];
   console.log(
-    `[queryDeps] Found ${results.length} related files for rootId: ${rootId}`
+    `[queryDeps] Found ${results.length} related files for rootId: ${rootId}`,
   );
-  return results.map(row => ({
+  return results.map((row) => ({
     id: Number(row.file_id), // Ensure Number type
     path: String(row.path),
     depth: Number(row.depth), // Ensure Number type
@@ -361,10 +364,10 @@ async function queryDeps(
 
 async function queryChunksByFile(
   db: Database,
-  filePath: string
+  filePath: string,
 ): Promise<CachedChunk[]> {
   const chunks = db.query(queries.chunksByFile).all(filePath) as DbRow[];
-  return chunks.map(row => ({
+  return chunks.map((row) => ({
     filePath: String(row.file_path),
     startLine: Number(row.start_line), // Cast BigInt to Number
     endLine: Number(row.end_line), // Cast BigInt to Number
@@ -376,10 +379,10 @@ async function queryChunksByFile(
 async function queryAllChunks(db: Database): Promise<CachedChunk[]> {
   const chunks = db
     .query(
-      `SELECT file_path, start_line, end_line, chunk_hash, embedding_json FROM chunk_cache`
+      `SELECT file_path, start_line, end_line, chunk_hash, embedding_json FROM chunk_cache`,
     )
     .all() as DbRow[];
-  return chunks.map(row => ({
+  return chunks.map((row) => ({
     filePath: String(row.file_path),
     startLine: Number(row.start_line),
     endLine: Number(row.end_line),
@@ -403,7 +406,7 @@ function prepareCheckChunkExists(db: Database) {
 
 async function deleteChunksByFile(
   db: Database,
-  filePath: string
+  filePath: string,
 ): Promise<void> {
   db.query(`DELETE FROM chunk_cache WHERE file_path = ?`).run(filePath);
 }
@@ -412,10 +415,10 @@ async function deleteChunksByRange(
   db: Database,
   filePath: string,
   startLine: number,
-  endLine: number
+  endLine: number,
 ): Promise<void> {
   db.query(
-    `DELETE FROM chunk_cache WHERE file_path = ? AND NOT (end_line < ? OR start_line > ?)`
+    `DELETE FROM chunk_cache WHERE file_path = ? AND NOT (end_line < ? OR start_line > ?)`,
   ).run(filePath, startLine, endLine);
 }
 
@@ -428,7 +431,7 @@ function hashChunk(
   filePath: string,
   text: string,
   start: number,
-  end: number
+  end: number,
 ): string {
   // stringify metadata + content
   const payload = JSON.stringify({ filePath, start, end, text });
@@ -445,7 +448,7 @@ function chunkByLines(text: string, maxLines = 50, overlap = 5): FileChunk[] {
   for (let i = 0; i < lines.length; i += maxLines - overlap) {
     const slice = lines.slice(i, i + maxLines);
     chunks.push({
-      text: slice.join('\n'),
+      text: slice.join("\n"),
       startLine: i + 1, // 1-based
       endLine: i + slice.length,
     });
@@ -458,7 +461,7 @@ function chunkByLines(text: string, maxLines = 50, overlap = 5): FileChunk[] {
  * Create a new memory manager instance
  */
 export async function createMemoryManager(
-  dbPath: string = ':memory:'
+  dbPath: string = ":memory:",
 ): Promise<MemoryManager> {
   const db = new Database(dbPath, {
     create: true,
@@ -475,41 +478,41 @@ export async function createMemoryManager(
 
   // List of text-based extensions to process by default
   const DEFAULT_TEXT_EXTENSIONS = [
-    '.js',
-    '.ts',
-    '.jsx',
-    '.tsx',
-    '.json',
-    '.md',
-    '.markdown',
-    '.html',
-    '.htm',
-    '.css',
-    '.scss',
-    '.less',
-    '.py',
-    '.java',
-    '.c',
-    '.cpp',
-    '.h',
-    '.hpp',
-    '.cs',
-    '.go',
-    '.php',
-    '.rb',
-    '.rs',
-    '.swift',
-    '.kt',
-    '.sh',
-    '.bash',
-    '.zsh',
-    '.yaml',
-    '.yml',
-    '.toml',
-    '.ini',
-    '.xml',
-    '.txt',
-    '.text',
+    ".js",
+    ".ts",
+    ".jsx",
+    ".tsx",
+    ".json",
+    ".md",
+    ".markdown",
+    ".html",
+    ".htm",
+    ".css",
+    ".scss",
+    ".less",
+    ".py",
+    ".java",
+    ".c",
+    ".cpp",
+    ".h",
+    ".hpp",
+    ".cs",
+    ".go",
+    ".php",
+    ".rb",
+    ".rs",
+    ".swift",
+    ".kt",
+    ".sh",
+    ".bash",
+    ".zsh",
+    ".yaml",
+    ".yml",
+    ".toml",
+    ".ini",
+    ".xml",
+    ".txt",
+    ".text",
     // Add other relevant text-based extensions
   ];
 
@@ -529,10 +532,10 @@ export async function createMemoryManager(
       // Check if fileQuery exists and has a valid id
       if (
         !fileQuery ||
-        (typeof fileQuery.id !== 'number' && typeof fileQuery.id !== 'bigint')
+        (typeof fileQuery.id !== "number" && typeof fileQuery.id !== "bigint")
       ) {
         console.warn(
-          `[findRelatedFiles] File not found or invalid ID for path: ${filePath}`
+          `[findRelatedFiles] File not found or invalid ID for path: ${filePath}`,
         );
         return [];
       }
@@ -549,7 +552,7 @@ export async function createMemoryManager(
      */
     async findSimilarFiles({
       query,
-      pathPattern = '%',
+      pathPattern = "%",
       minScore = 0.7,
       limit = 20,
     }) {
@@ -561,7 +564,7 @@ export async function createMemoryManager(
 
       const results = candidates
         .map((row: any) => {
-          const fileEmbedding = JSON.parse(row.embedding_json || '[]');
+          const fileEmbedding = JSON.parse(row.embedding_json || "[]");
           const score = cosineSimilarity(embedding, fileEmbedding);
           return {
             id: Number(row.id),
@@ -569,7 +572,7 @@ export async function createMemoryManager(
             score,
           };
         })
-        .filter(item => item.score > minScore)
+        .filter((item) => item.score > minScore)
         .sort((a, b) => b.score - a.score)
         .slice(0, limit);
       return results;
@@ -600,21 +603,21 @@ export async function createMemoryManager(
         if (existing.content_hash !== contentHash) {
           console.log(`[addFile] Content changed for ${path}. Updating.`);
           db.query(
-            `UPDATE files SET content = ?, deps_json = ?, embedding_json = ?, content_hash = ?, last_indexed = ? WHERE id = ?`
+            `UPDATE files SET content = ?, deps_json = ?, embedding_json = ?, content_hash = ?, last_indexed = ? WHERE id = ?`,
           ).run(
             content,
             JSON.stringify(dependencies),
             JSON.stringify(embedding),
             contentHash,
             currentTime,
-            fileId
+            fileId,
           );
           // We might still want to update dependencies even if content is the same?
           // For now, let's clear/re-add deps only when content changes.
           db.query(`DELETE FROM deps WHERE parent_id = ?`).run(fileId);
         } else {
           console.log(
-            `[addFile] Content unchanged for ${path}. Skipping content update.`
+            `[addFile] Content unchanged for ${path}. Skipping content update.`,
           );
           // Optionally update dependencies even if content is same?
           // db.query(`DELETE FROM deps WHERE parent_id = ?`).run(fileId);
@@ -623,16 +626,16 @@ export async function createMemoryManager(
         console.log(`[addFile] Adding new file: ${path}`);
         const result = db
           .query(
-            `INSERT INTO files (path, content, deps_json, embedding_json, matpath, content_hash, last_indexed) VALUES (?, ?, ?, ?, ?, ?, ?)`
+            `INSERT INTO files (path, content, deps_json, embedding_json, matpath, content_hash, last_indexed) VALUES (?, ?, ?, ?, ?, ?, ?)`,
           )
           .run(
             path,
             content,
             JSON.stringify(dependencies),
             JSON.stringify(embedding),
-            path.replace(/\//g, '.'),
+            path.replace(/\//g, "."),
             contentHash,
-            currentTime
+            currentTime,
           );
         fileId = Number((result as any).lastInsertRowid);
       }
@@ -640,7 +643,7 @@ export async function createMemoryManager(
       if (isNaN(fileId)) {
         console.error(`[addFile] Failed to get valid fileId for path: ${path}`);
         throw new Error(
-          `[addFile] Failed to get valid fileId for path: ${path}`
+          `[addFile] Failed to get valid fileId for path: ${path}`,
         );
       }
 
@@ -655,14 +658,14 @@ export async function createMemoryManager(
         if (depFile?.id) {
           const depId = Number(depFile.id);
           console.log(
-            `[addFile] Adding dependency: parent=${fileId} (type: ${typeof fileId}), child=${depId} (type: ${typeof depId})`
+            `[addFile] Adding dependency: parent=${fileId} (type: ${typeof fileId}), child=${depId} (type: ${typeof depId})`,
           );
           db.query(
-            `INSERT OR IGNORE INTO deps (parent_id, child_id) VALUES (?, ?)`
+            `INSERT OR IGNORE INTO deps (parent_id, child_id) VALUES (?, ?)`,
           ).run(fileId, depId);
         } else {
           console.warn(
-            `[addFile] Dependency file not found: ${depPath} for parent ${path}`
+            `[addFile] Dependency file not found: ${depPath} for parent ${path}`,
           );
         }
       }
@@ -681,7 +684,7 @@ export async function createMemoryManager(
         id: Number(result.id),
         path: String(result.path),
         content: String(result.content),
-        dependencies: JSON.parse(String(result.deps_json || '[]')),
+        dependencies: JSON.parse(String(result.deps_json || "[]")),
       };
     },
 
@@ -718,13 +721,13 @@ export async function createMemoryManager(
         return this.getFileChunks(filePath);
       }
 
-      const chunkTexts = pendingChunks.map(chunk => chunk.text);
+      const chunkTexts = pendingChunks.map((chunk) => chunk.text);
       const embeddings = await localEmbed(chunkTexts);
 
       db.transaction(
         (
           chunksToInsert: typeof pendingChunks,
-          embeddingsToInsert: number[][]
+          embeddingsToInsert: number[][],
         ) => {
           for (let i = 0; i < chunksToInsert.length; i++) {
             const chunk = chunksToInsert[i];
@@ -735,11 +738,11 @@ export async function createMemoryManager(
                 chunk.start,
                 chunk.end,
                 chunk.hash,
-                JSON.stringify(embedding)
+                JSON.stringify(embedding),
               );
             }
           }
-        }
+        },
       )(pendingChunks, embeddings);
 
       return this.getFileChunks(filePath);
@@ -767,7 +770,7 @@ export async function createMemoryManager(
     async invalidateRange(
       filePath: string,
       startLine: number,
-      endLine: number
+      endLine: number,
     ): Promise<void> {
       // Use the specialized delete function
       await deleteChunksByRange(db, filePath, startLine, endLine);
@@ -778,14 +781,14 @@ export async function createMemoryManager(
      */
     async findSimilarChunks(
       query: string,
-      options = {}
+      options = {},
     ): Promise<Array<{ chunk: CachedChunk; score: number }>> {
       const { filePath, limit = 10, minScore = 0.7 } = options;
       const [queryEmbedding = new Array(EMBEDDING_DIMENSION).fill(0)] =
         await localEmbed([query]);
       console.log(`[findSimilarChunks] Query: "${query}"`);
       console.log(
-        `[findSimilarChunks] Query Embedding Length: ${queryEmbedding?.length}`
+        `[findSimilarChunks] Query Embedding Length: ${queryEmbedding?.length}`,
       );
       // console.log(`[findSimilarChunks] Query Embedding (first 5): ${queryEmbedding?.slice(0, 5)}`); // Optional: log partial embedding
 
@@ -804,13 +807,13 @@ export async function createMemoryManager(
         console.log(
           `[findSimilarChunks] Chunk (${chunk.filePath}:${chunk.startLine}-${
             chunk.endLine
-          }) Score: ${score.toFixed(4)}`
+          }) Score: ${score.toFixed(4)}`,
         );
         return { chunk, score };
       });
 
       const results = scoredResults
-        .filter(item => item.score >= minScore) // Filter by minScore (0.7)
+        .filter((item) => item.score >= minScore) // Filter by minScore (0.7)
         .sort((a, b) => b.score - a.score)
         .slice(0, limit); // Limit results
 
@@ -823,12 +826,12 @@ export async function createMemoryManager(
      */
     async processDirectory(
       directoryPath: string,
-      options: TraverseOptions = {}
+      options: TraverseOptions = {},
     ): Promise<Map<string, CachedChunk[]>> {
       // Define the transform function to process file content into chunks
       const transformFn = async (
         filePath: string,
-        content: string
+        content: string,
       ): Promise<CachedChunk[] | null | undefined> => {
         console.log(`[processDirectory] Processing file: ${filePath}`);
         // Use the manager's processFileChunks method
@@ -839,7 +842,7 @@ export async function createMemoryManager(
       // Define a filter function to include only text-based files by default
       const filterFn = async (
         filePath: string,
-        entry: Dirent
+        entry: Dirent,
       ): Promise<boolean> => {
         const extension = extname(filePath).toLowerCase();
         // Prioritize options.allowedExtensions if provided
@@ -854,16 +857,16 @@ export async function createMemoryManager(
       };
 
       console.log(
-        `[processDirectory] Starting traversal for: ${directoryPath}`
+        `[processDirectory] Starting traversal for: ${directoryPath}`,
       );
       const results = await traverseDirectory<CachedChunk[]>(
         directoryPath,
         transformFn.bind(this), // Bind `this` to ensure correct context for processFileChunks
         options, // Pass user-provided options (primarily for blockedExtensions)
-        filterFn // Pass the filter function
+        filterFn, // Pass the filter function
       );
       console.log(
-        `[processDirectory] Traversal complete. Processed ${results.size} files.`
+        `[processDirectory] Traversal complete. Processed ${results.size} files.`,
       );
       return results;
     },

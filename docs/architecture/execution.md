@@ -30,20 +30,20 @@ interface Task {
   description: string;
   status: TaskStatus;
   priority: TaskPriority;
-  
+
   // User-Centered Context
   userJourneyConnections: UserJourneyConnection[];
   emotionalGoals: EmotionalGoal[];
-  
+
   // Implementation Details
   acceptanceCriteria: string[];
   dependencies: TaskDependency[];
   subtasks: Subtask[];
-  
+
   // Technical Context
   technicalContext: TechnicalContext;
   implementationGuidance: string;
-  
+
   // Review & Tracking
   reviews: Review[];
   auditResults: AuditResult[];
@@ -59,36 +59,36 @@ Each task includes specific technical context that guides its implementation:
 interface TechnicalContext {
   // Technology Stack
   stack: {
-    frontend?: string;        // e.g., "NextJS 14 with App Router"
-    backend?: string;         // e.g., "Node.js Express"
-    database?: string;        // e.g., "Supabase PostgreSQL"
-    auth?: string;            // e.g., "Clerk Authentication"
-    state?: string;           // e.g., "Redux Toolkit"
-    styling?: string;         // e.g., "Tailwind CSS"
-    testing?: string;         // e.g., "Jest + React Testing Library"
-    deployment?: string;      // e.g., "Vercel"
+    frontend?: string; // e.g., "NextJS 14 with App Router"
+    backend?: string; // e.g., "Node.js Express"
+    database?: string; // e.g., "Supabase PostgreSQL"
+    auth?: string; // e.g., "Clerk Authentication"
+    state?: string; // e.g., "Redux Toolkit"
+    styling?: string; // e.g., "Tailwind CSS"
+    testing?: string; // e.g., "Jest + React Testing Library"
+    deployment?: string; // e.g., "Vercel"
   };
-  
+
   // Code Style and Standards
   codeStyle: {
-    language: string;         // e.g., "TypeScript"
-    standard: string;         // e.g., "AirBnB Style Guide"
-    formatter: string;        // e.g., "Prettier"
-    linter: string;           // e.g., "ESLint"
+    language: string; // e.g., "TypeScript"
+    standard: string; // e.g., "AirBnB Style Guide"
+    formatter: string; // e.g., "Prettier"
+    linter: string; // e.g., "ESLint"
   };
-  
+
   // Implementation Locations
   locations: {
-    codebase: string;         // e.g., "src/features/auth"
-    relevantFiles: string[];  // e.g., ["src/features/auth/AuthForm.tsx"]
-    examplePatterns: string[];// e.g., ["src/features/profile/ProfileForm.tsx"]
+    codebase: string; // e.g., "src/features/auth"
+    relevantFiles: string[]; // e.g., ["src/features/auth/AuthForm.tsx"]
+    examplePatterns: string[]; // e.g., ["src/features/profile/ProfileForm.tsx"]
   };
-  
+
   // Additional Resources
   resources: {
-    documentation: string[];  // e.g., ["https://nextjs.org/docs/app"]
-    designAssets: string[];   // e.g., ["designs/auth-flow.fig"]
-    apiSpecs: string[];       // e.g., ["api-docs/auth-endpoints.md"]
+    documentation: string[]; // e.g., ["https://nextjs.org/docs/app"]
+    designAssets: string[]; // e.g., ["designs/auth-flow.fig"]
+    apiSpecs: string[]; // e.g., ["api-docs/auth-endpoints.md"]
   };
 }
 ```
@@ -168,12 +168,13 @@ Before task execution begins, several preconditions and context-gathering steps 
 
 Task execution can leverage external context sources through MCP (Machine Control Protocol) connections:
 
-1. **Technology-Specific MCP Servers**: 
+1. **Technology-Specific MCP Servers**:
+
    - Supabase MCP for database schema and API information
    - Convex MCP for backend function details
    - NextJS MCP for file system and routing information
 
-2. **IDE Integration**: 
+2. **IDE Integration**:
    - VS Code MCP for code structure and navigation
    - GitHub Copilot MCP for additional implementation guidance
 
@@ -197,30 +198,35 @@ Each task includes specific implementation guidance to ensure consistency and qu
 # Task Implementation Style Guide
 
 ## General Principles
+
 - Follow clean code principles (descriptive names, single responsibility)
 - Maintain consistent error handling
 - Add comments for complex logic only
 - Include appropriate tests
 
 ## Frontend Components
+
 - Use named exports
 - Implement proper accessibility attributes
 - Follow atomic design principles
 - Separate business logic from presentation
 
 ## API Integration
+
 - Use typed requests/responses
 - Implement proper error handling
 - Cache responses where appropriate
 - Include loading states
 
 ## State Management
+
 - Minimize global state
 - Use appropriate hooks for local state
 - Document state transitions
 - Ensure proper cleanup
 
 ## Testing Expectations
+
 - Unit tests for logic functions
 - Component tests for UI elements
 - Integration tests for critical paths
@@ -234,16 +240,19 @@ The task also includes a technical implementation map that shows the "neighborho
 # Technical Implementation Map
 
 ## Primary Work Areas
+
 - src/features/auth/components/LoginForm.tsx
 - src/features/auth/hooks/useAuth.ts
 - src/features/auth/api/authService.ts
 
 ## Related Patterns
+
 - See src/features/profile for similar form patterns
 - See src/lib/api for API client patterns
 - See src/components/common for UI component library
 
 ## Implementation Flow
+
 1. Update the authentication service first
 2. Then modify the hook implementation
 3. Finally update the form components
@@ -287,15 +296,15 @@ The review process is integrated into the task execution flow:
 
 ```typescript
 interface Review {
-  type: 'code' | 'design' | 'acceptance' | 'audit';
-  status: 'pending' | 'passed' | 'failed';
+  type: "code" | "design" | "acceptance" | "audit";
+  status: "pending" | "passed" | "failed";
   reviewer: string;
   comments: string;
   timestamp: Date;
   changes?: {
     requested: string[];
     implemented: string[];
-  }
+  };
 }
 ```
 
@@ -309,14 +318,17 @@ The Core Library exposes an Execution API for managing the execution process:
 interface ExecutionManager {
   // Execution Flow
   prepareTask(taskId: string): Promise<PreparedTask>;
-  executeTask(taskId: string, options?: ExecutionOptions): Promise<ExecutionResult>;
+  executeTask(
+    taskId: string,
+    options?: ExecutionOptions,
+  ): Promise<ExecutionResult>;
   reviewTask(taskId: string, review: ReviewInput): Promise<Task>;
   completeTask(taskId: string): Promise<Task>;
-  
+
   // Context Management
   buildContext(taskId: string): Promise<TaskContext>;
   refreshContext(taskId: string, sections?: string[]): Promise<TaskContext>;
-  
+
   // MCP Integration
   connectMCP(provider: string, connection: MCPConnection): Promise<void>;
   executeMCPQuery(provider: string, query: string): Promise<any>;
@@ -329,48 +341,48 @@ Here's how a task might flow through the execution process:
 
 ```typescript
 // 1. Prepare the task
-const preparedTask = await executionManager.prepareTask('TASK-123');
+const preparedTask = await executionManager.prepareTask("TASK-123");
 
 // 2. Build context
-const context = await executionManager.buildContext('TASK-123');
+const context = await executionManager.buildContext("TASK-123");
 
 // 3. Connect necessary MCP providers
-await executionManager.connectMCP('supabase', { 
-  endpoint: 'https://supabase-instance.supabase.co',
-  key: 'sbp_key',
-  schema: ['public', 'auth']
+await executionManager.connectMCP("supabase", {
+  endpoint: "https://supabase-instance.supabase.co",
+  key: "sbp_key",
+  schema: ["public", "auth"],
 });
 
 // 4. Execute the task
-const result = await executionManager.executeTask('TASK-123', {
-  implementationStrategy: 'incremental',
-  contextStrategy: 'refresh-on-demand'
+const result = await executionManager.executeTask("TASK-123", {
+  implementationStrategy: "incremental",
+  contextStrategy: "refresh-on-demand",
 });
 
 // 5. Submit for review
-const codeReview = await executionManager.reviewTask('TASK-123', {
-  type: 'code',
-  reviewer: 'senior-dev',
-  status: 'passed',
-  comments: 'Implementation follows the code standards.'
+const codeReview = await executionManager.reviewTask("TASK-123", {
+  type: "code",
+  reviewer: "senior-dev",
+  status: "passed",
+  comments: "Implementation follows the code standards.",
 });
 
-const designReview = await executionManager.reviewTask('TASK-123', {
-  type: 'design',
-  reviewer: 'design-lead',
-  status: 'passed',
-  comments: 'Implementation matches design specifications.'
+const designReview = await executionManager.reviewTask("TASK-123", {
+  type: "design",
+  reviewer: "design-lead",
+  status: "passed",
+  comments: "Implementation matches design specifications.",
 });
 
-const acceptanceReview = await executionManager.reviewTask('TASK-123', {
-  type: 'acceptance',
-  reviewer: 'product-owner',
-  status: 'passed',
-  comments: 'All acceptance criteria are met.'
+const acceptanceReview = await executionManager.reviewTask("TASK-123", {
+  type: "acceptance",
+  reviewer: "product-owner",
+  status: "passed",
+  comments: "All acceptance criteria are met.",
 });
 
 // 6. Mark task as complete
-const completedTask = await executionManager.completeTask('TASK-123');
+const completedTask = await executionManager.completeTask("TASK-123");
 ```
 
 ## Future Enhancements
@@ -381,4 +393,4 @@ const completedTask = await executionManager.completeTask('TASK-123');
 4. **Cross-Project Task Patterns**: Leverage similar tasks from other projects
 5. **Collaborative Execution**: Support multiple agents working on different subtasks
 6. **Interactive Debugging**: Provide interactive debugging during implementation
-7. **Integration with CI/CD**: Connect execution process to continuous integration and deployment 
+7. **Integration with CI/CD**: Connect execution process to continuous integration and deployment

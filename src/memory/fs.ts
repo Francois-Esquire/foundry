@@ -1,6 +1,6 @@
-import { readdir, readFile, stat } from 'node:fs/promises';
-import { Dirent } from 'node:fs';
-import { join, resolve, extname } from 'node:path';
+import { Dirent } from "node:fs";
+import { readdir, readFile, stat } from "node:fs/promises";
+import { extname, join, resolve } from "node:path";
 
 /**
  * Options for filtering files during traversal.
@@ -30,12 +30,12 @@ export async function traverseDirectory<T>(
   directoryPath: string,
   transformFn: (
     filePath: string,
-    content: string
+    content: string,
   ) => Promise<T | null | undefined>,
   options: TraverseOptions = {},
   filterFn: (filePath: string, entry: Dirent) => Promise<boolean> = async () =>
     true,
-  results: Map<string, T> = new Map()
+  results: Map<string, T> = new Map(),
 ): Promise<Map<string, T>> {
   try {
     const absolutePath = resolve(directoryPath);
@@ -51,7 +51,7 @@ export async function traverseDirectory<T>(
           transformFn,
           options,
           filterFn,
-          results
+          results,
         );
       } else if (entry.isFile()) {
         // Apply the pre-read filter function first
@@ -77,7 +77,7 @@ export async function traverseDirectory<T>(
 
         try {
           // Read file content
-          const content = await readFile(entryPath, 'utf-8');
+          const content = await readFile(entryPath, "utf-8");
           // Apply the transform function to the file path and content
           const transformedContent = await transformFn(entryPath, content);
 
@@ -88,7 +88,7 @@ export async function traverseDirectory<T>(
         } catch (readError) {
           console.error(
             `Error reading or transforming file ${entryPath}:`,
-            readError
+            readError,
           );
         }
       }
@@ -117,9 +117,9 @@ export async function processSingleFile<T>(
   filePath: string,
   transformFn: (
     filePath: string,
-    content: string
+    content: string,
   ) => Promise<T | null | undefined>,
-  options: TraverseOptions = {}
+  options: TraverseOptions = {},
 ): Promise<T | null | undefined> {
   try {
     const absolutePath = resolve(filePath);
@@ -138,7 +138,7 @@ export async function processSingleFile<T>(
       !options.allowedExtensions.includes(extension)
     ) {
       console.log(
-        `[processSingleFile] Skipping due to allowedExtensions: ${absolutePath}`
+        `[processSingleFile] Skipping due to allowedExtensions: ${absolutePath}`,
       );
       return null; // Skip if extension is not allowed
     }
@@ -147,26 +147,26 @@ export async function processSingleFile<T>(
       options.blockedExtensions.includes(extension)
     ) {
       console.log(
-        `[processSingleFile] Skipping due to blockedExtensions: ${absolutePath}`
+        `[processSingleFile] Skipping due to blockedExtensions: ${absolutePath}`,
       );
       return null; // Skip if extension is blocked
     }
 
     // Read file content
-    const content = await readFile(absolutePath, 'utf-8');
+    const content = await readFile(absolutePath, "utf-8");
     // Apply the transform function
     const transformedContent = await transformFn(absolutePath, content);
 
     return transformedContent;
   } catch (error: any) {
-    if (error.code === 'ENOENT') {
+    if (error.code === "ENOENT") {
       // File doesn't exist - not necessarily an error in all contexts
       console.log(`[processSingleFile] File not found: ${filePath}`);
     } else {
       // Log other errors (permissions, read errors, transform errors)
       console.error(
         `[processSingleFile] Error processing file ${filePath}:`,
-        error
+        error,
       );
     }
     return null; // Return null on any error

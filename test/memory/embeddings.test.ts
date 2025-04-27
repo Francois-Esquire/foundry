@@ -1,26 +1,27 @@
-import { test, expect, describe, beforeAll, mock } from 'bun:test';
-import { embed, load } from '../../src/memory/embeddings';
-import { cosineSimilarity } from 'ai';
+import { cosineSimilarity } from "ai";
+import { beforeAll, describe, expect, mock, test } from "bun:test";
+
+import { embed, load } from "../../src/memory/embeddings";
 
 // Helper function to safely calculate similarity between potentially undefined embeddings
 function safeSimilarity(
   emb1: number[] | undefined,
-  emb2: number[] | undefined
+  emb2: number[] | undefined,
 ): number {
   if (!emb1 || !emb2) return 0;
   return cosineSimilarity(emb1, emb2);
 }
 
-describe('Embeddings', () => {
+describe("Embeddings", () => {
   beforeAll(async () => {
     // Ensure the model is loaded before tests
     await load();
   });
 
-  test('should generate embeddings for text', async () => {
+  test("should generate embeddings for text", async () => {
     const texts = [
       "import fs from 'fs';",
-      'function chunkByLines(text) { /* … */ }',
+      "function chunkByLines(text) { /* … */ }",
     ];
 
     const embeddings = await embed(texts);
@@ -31,13 +32,13 @@ describe('Embeddings', () => {
     expect(embeddings.length).toBe(texts.length);
 
     // Check each embedding
-    embeddings.forEach(embedding => {
+    embeddings.forEach((embedding) => {
       expect(Array.isArray(embedding)).toBe(true);
       expect(embedding.length).toBeGreaterThan(0);
     });
   });
 
-  test('should handle empty input', async () => {
+  test("should handle empty input", async () => {
     const embeddings = await embed([]);
 
     expect(embeddings).toBeDefined();
@@ -45,10 +46,10 @@ describe('Embeddings', () => {
     expect(embeddings.length).toBe(0);
   });
 
-  test('should generate similar embeddings for similar text', async () => {
-    const similar1 = 'function add(a, b) { return a + b; }';
-    const similar2 = 'function sum(a, b) { return a + b; }';
-    const different = 'class User { constructor(name) { this.name = name; } }';
+  test("should generate similar embeddings for similar text", async () => {
+    const similar1 = "function add(a, b) { return a + b; }";
+    const similar2 = "function sum(a, b) { return a + b; }";
+    const different = "class User { constructor(name) { this.name = name; } }";
 
     const embeddings = await embed([similar1, similar2, different]);
     expect(embeddings.length).toBe(3);
@@ -68,16 +69,16 @@ describe('Embeddings', () => {
     }
   });
 
-  test('should handle different programming languages', async () => {
+  test("should handle different programming languages", async () => {
     const snippets = [
       // JavaScript
-      'const total = items.reduce((sum, item) => sum + item.price, 0);',
+      "const total = items.reduce((sum, item) => sum + item.price, 0);",
       // Python
-      'def calculate_total(items):\n    return sum(item.price for item in items)',
+      "def calculate_total(items):\n    return sum(item.price for item in items)",
       // Rust
-      'fn calculate_total(items: &[Item]) -> f64 {\n    items.iter().map(|item| item.price).sum()\n}',
+      "fn calculate_total(items: &[Item]) -> f64 {\n    items.iter().map(|item| item.price).sum()\n}",
       // SQL
-      'SELECT SUM(price) FROM items;',
+      "SELECT SUM(price) FROM items;",
     ];
 
     const embeddings = await embed(snippets);
@@ -86,14 +87,14 @@ describe('Embeddings', () => {
     // All embeddings should have the same dimensions
     if (embeddings[0]) {
       const dimension = embeddings[0].length;
-      embeddings.forEach(emb => {
+      embeddings.forEach((emb) => {
         if (emb) expect(emb.length).toBe(dimension);
       });
     }
   });
 
-  test('should generate consistent embeddings for the same input', async () => {
-    const text = 'This is a test for embedding consistency';
+  test("should generate consistent embeddings for the same input", async () => {
+    const text = "This is a test for embedding consistency";
 
     // Generate embeddings twice for the same text
     const embeddings1 = await embed([text]);
@@ -112,11 +113,11 @@ describe('Embeddings', () => {
     }
   });
 
-  test('should handle long text input', async () => {
+  test("should handle long text input", async () => {
     // Generate a long text sample (about 2000 chars)
     const longText = Array(50)
-      .fill('This is a test for long text embedding. ')
-      .join('');
+      .fill("This is a test for long text embedding. ")
+      .join("");
 
     const embeddings = await embed([longText]);
     const embedding = embeddings[0];
@@ -128,32 +129,32 @@ describe('Embeddings', () => {
     }
   });
 
-  test('should handle special characters and non-English text', async () => {
+  test("should handle special characters and non-English text", async () => {
     const texts = [
       // Special characters
-      '!@#$%^&*()_+-=[]{}|;:\'",.<>/?\\',
+      "!@#$%^&*()_+-=[]{}|;:'\",.<>/?\\",
       // Emojis
-      '😀 😃 😄 😁 😆 😅 😂 🤣 🥲 ☺️',
+      "😀 😃 😄 😁 😆 😅 😂 🤣 🥲 ☺️",
       // Non-English text
-      'こんにちは世界', // Japanese
-      'Привет, мир!', // Russian
-      'مرحبا بالعالم', // Arabic
+      "こんにちは世界", // Japanese
+      "Привет, мир!", // Russian
+      "مرحبا بالعالم", // Arabic
     ];
 
     const embeddings = await embed(texts);
     expect(embeddings.length).toBe(texts.length);
   });
 
-  test('should handle different content types', async () => {
+  test("should handle different content types", async () => {
     const contents = [
       // Code
-      'function processData(data) { return data.map(x => x * 2); }',
+      "function processData(data) { return data.map(x => x * 2); }",
       // Natural language
-      'The quick brown fox jumps over the lazy dog.',
+      "The quick brown fox jumps over the lazy dog.",
       // JSON
       '{"name": "John", "age": 30, "city": "New York"}',
       // Numeric content
-      '3.14159265359 2.71828182846 1.61803398875',
+      "3.14159265359 2.71828182846 1.61803398875",
       // Mixed content
       'User #1234 reported error: "Cannot read property of undefined" at line 42.',
     ];
@@ -162,10 +163,10 @@ describe('Embeddings', () => {
     expect(embeddings.length).toBe(contents.length);
   });
 
-  test('should handle null or undefined gracefully', async () => {
+  test("should handle null or undefined gracefully", async () => {
     // The embed function might return an empty array for an empty string
     // This depends on actual implementation behavior
-    const emptyResult = await embed(['']);
+    const emptyResult = await embed([""]);
 
     // Check if it returns array (could be empty or with a single embedding)
     expect(Array.isArray(emptyResult)).toBe(true);
@@ -176,7 +177,7 @@ describe('Embeddings', () => {
     }
   });
 
-  test('should batch inputs correctly', async () => {
+  test("should batch inputs correctly", async () => {
     // Create a batch of 10 similar items
     const batch = Array(10)
       .fill(0)
@@ -186,11 +187,11 @@ describe('Embeddings', () => {
     expect(embeddings.length).toBe(batch.length);
   });
 
-  test('should embed semantically related concepts similarly', async () => {
+  test("should embed semantically related concepts similarly", async () => {
     const concepts = [
-      'apples and oranges are fruits',
-      'bananas and strawberries are fruits',
-      'carrots and potatoes are vegetables',
+      "apples and oranges are fruits",
+      "bananas and strawberries are fruits",
+      "carrots and potatoes are vegetables",
     ];
 
     const embeddings = await embed(concepts);
@@ -211,8 +212,8 @@ describe('Embeddings', () => {
     }
   });
 
-  test('should generate embeddings with correct dimensions', async () => {
-    const embeddings = await embed(['Test embedding dimensions']);
+  test("should generate embeddings with correct dimensions", async () => {
+    const embeddings = await embed(["Test embedding dimensions"]);
     const embedding = embeddings[0];
 
     expect(embedding).toBeDefined();
@@ -223,11 +224,11 @@ describe('Embeddings', () => {
     }
   });
 
-  test('should perform well with technical content', async () => {
+  test("should perform well with technical content", async () => {
     const technicalContent = [
-      'React uses a virtual DOM to optimize rendering performance.',
-      'useState is a Hook that lets you add React state to function components.',
-      'SQL transactions ensure data integrity by guaranteeing ACID properties.',
+      "React uses a virtual DOM to optimize rendering performance.",
+      "useState is a Hook that lets you add React state to function components.",
+      "SQL transactions ensure data integrity by guaranteeing ACID properties.",
     ];
 
     const embeddings = await embed(technicalContent);
@@ -247,10 +248,10 @@ describe('Embeddings', () => {
     }
   });
 
-  test('should handle whitespace variations', async () => {
+  test("should handle whitespace variations", async () => {
     const texts = [
-      'This is a normal sentence.',
-      'This is a sentence with normal spacing.',
+      "This is a normal sentence.",
+      "This is a sentence with normal spacing.",
     ];
 
     const embeddings = await embed(texts);
@@ -263,21 +264,21 @@ describe('Embeddings', () => {
       expect(baseSimilarity).toBeGreaterThan(0.5);
       console.log(
         `Similarity between differently spaced sentences: ${baseSimilarity.toFixed(
-          4
-        )}`
+          4,
+        )}`,
       );
     }
   });
 
   // Performance test
-  test('should efficiently process multiple inputs', async () => {
+  test("should efficiently process multiple inputs", async () => {
     const startTime = performance.now();
 
     const inputs = Array(20)
       .fill(0)
       .map(
         (_, i) =>
-          `Test string ${i} for performance measurement with some additional text to make it longer.`
+          `Test string ${i} for performance measurement with some additional text to make it longer.`,
       );
 
     const embeddings = await embed(inputs);
@@ -289,7 +290,7 @@ describe('Embeddings', () => {
     console.log(
       `Processed ${inputs.length} inputs in ${duration.toFixed(2)}ms (${(
         duration / inputs.length
-      ).toFixed(2)}ms per input)`
+      ).toFixed(2)}ms per input)`,
     );
 
     // This is not a strict assertion, but helps monitor performance
@@ -297,7 +298,7 @@ describe('Embeddings', () => {
   });
 
   // Add a new test for file modification scenario
-  test('should detect semantic changes when a file is modified', async () => {
+  test("should detect semantic changes when a file is modified", async () => {
     // Original file content - a simple JS function
     const originalContent = `
     /**
@@ -361,7 +362,7 @@ describe('Embeddings', () => {
     }
   });
 
-  test('should properly embed code with imports and dependencies', async () => {
+  test("should properly embed code with imports and dependencies", async () => {
     const fileWithImports = `
     import React, { useState, useEffect } from 'react';
     import { Button, TextField } from '@material-ui/core';
@@ -430,7 +431,7 @@ describe('Embeddings', () => {
     }
   });
 
-  test('should properly handle code comments vs implementation', async () => {
+  test("should properly handle code comments vs implementation", async () => {
     // Files with different implementations but similar documentation
     const file1 = `
     /**
@@ -493,8 +494,8 @@ describe('Embeddings', () => {
       // Ideally similarImpl > similarDocs as the function does the same thing
       console.log(
         `Comment similarity: ${similarDocs.toFixed(
-          4
-        )}, Implementation similarity: ${similarImpl.toFixed(4)}`
+          4,
+        )}, Implementation similarity: ${similarImpl.toFixed(4)}`,
       );
 
       // The implementation similarity should be higher
@@ -502,7 +503,7 @@ describe('Embeddings', () => {
     }
   });
 
-  test('should handle code refactoring patterns', async () => {
+  test("should handle code refactoring patterns", async () => {
     // Original implementation using a for loop
     const forLoop = `
     function sumArray(numbers) {
@@ -557,7 +558,7 @@ describe('Embeddings', () => {
     }
   });
 
-  test('should handle memory-related code specifically', async () => {
+  test("should handle memory-related code specifically", async () => {
     // Memory-related operation examples
     const localStorageCode = `
     function saveUserPreferences(prefs) {
@@ -620,15 +621,15 @@ describe('Embeddings', () => {
       // Calculate similarities between various memory operations
       const localStorage_indexedDB = cosineSimilarity(
         embeddings[0],
-        embeddings[1]
+        embeddings[1],
       );
       const localStorage_sqlite = cosineSimilarity(
         embeddings[0],
-        embeddings[2]
+        embeddings[2],
       );
       const localStorage_unrelated = cosineSimilarity(
         embeddings[0],
-        embeddings[3]
+        embeddings[3],
       );
 
       // Memory-related code should be more similar to each other than to unrelated code
@@ -637,7 +638,7 @@ describe('Embeddings', () => {
     }
   });
 
-  test('should detect error handling patterns', async () => {
+  test("should detect error handling patterns", async () => {
     // Try-catch pattern
     const tryCatch = `
     async function fetchData(url) {
@@ -709,13 +710,13 @@ describe('Embeddings', () => {
     }
   });
 
-  test('should handle file path patterns for coding projects', async () => {
+  test("should handle file path patterns for coding projects", async () => {
     const filepaths = [
-      'src/components/Button.tsx',
-      'src/components/TextField.tsx',
-      'src/utils/validation.ts',
-      'src/memory/index.ts',
-      'src/memory/embeddings.ts',
+      "src/components/Button.tsx",
+      "src/components/TextField.tsx",
+      "src/utils/validation.ts",
+      "src/memory/index.ts",
+      "src/memory/embeddings.ts",
     ];
 
     const embeddings = await embed(filepaths);
@@ -737,7 +738,7 @@ describe('Embeddings', () => {
       // Cross-category similarity should be lower
       const crossCategorySimilarity = safeSimilarity(
         embeddings[0],
-        embeddings[3]
+        embeddings[3],
       );
 
       // Files in the same directory should be more similar than files in different directories
@@ -746,22 +747,22 @@ describe('Embeddings', () => {
     }
   });
 
-  test('should maintain consistency with varying input length', async () => {
+  test("should maintain consistency with varying input length", async () => {
     // Create progressively longer versions of the same content
     const baseContent =
-      'function calculateTotal(items) { return items.reduce((sum, item) => sum + item.price, 0); }';
+      "function calculateTotal(items) { return items.reduce((sum, item) => sum + item.price, 0); }";
 
     const contents = [
       baseContent,
-      baseContent + '\n// This is a comment\n',
+      baseContent + "\n// This is a comment\n",
       baseContent +
-        '\n// This is a longer comment with additional explanation\n',
+        "\n// This is a longer comment with additional explanation\n",
       baseContent +
-        '\n// This is a longer comment with additional explanation\n// And another line\n',
+        "\n// This is a longer comment with additional explanation\n// And another line\n",
       baseContent +
-        '\n'.repeat(10) +
-        '// Many blank lines added' +
-        '\n'.repeat(10),
+        "\n".repeat(10) +
+        "// Many blank lines added" +
+        "\n".repeat(10),
     ];
 
     const embeddings = await embed(contents);
@@ -778,7 +779,7 @@ describe('Embeddings', () => {
     }
   });
 
-  test('should handle repetitive code patterns', async () => {
+  test("should handle repetitive code patterns", async () => {
     // Code with repeated similar patterns
     const repetitiveCode = `
     function fetchUser() { return api.get('/user'); }
@@ -808,14 +809,14 @@ describe('Embeddings', () => {
     }
   });
 
-  test('should handle large input batch sizes', async () => {
+  test("should handle large input batch sizes", async () => {
     // Generate a larger number of inputs to test batch handling
     const largeInputCount = 50;
     const largeInputs = Array(largeInputCount)
       .fill(0)
       .map(
         (_, i) =>
-          `// Function number ${i}\nfunction processItem${i}(data) { return data.map(x => x * ${i}); }`
+          `// Function number ${i}\nfunction processItem${i}(data) { return data.map(x => x * ${i}); }`,
       );
 
     // We'll time how long this takes for performance monitoring
@@ -831,21 +832,21 @@ describe('Embeddings', () => {
 
     console.log(
       `Processed ${largeInputCount} inputs in ${totalTime.toFixed(
-        2
-      )}ms (${avgTime.toFixed(2)}ms per input)`
+        2,
+      )}ms (${avgTime.toFixed(2)}ms per input)`,
     );
 
     // Check that similar functions have high similarity
     if (largeEmbeddings[0] && largeEmbeddings[1]) {
       const similarFunctions = cosineSimilarity(
         largeEmbeddings[0],
-        largeEmbeddings[1]
+        largeEmbeddings[1],
       );
       expect(similarFunctions).toBeGreaterThan(0.9); // Very similar functions
     }
   });
 
-  test('should handle code with variable names consistently', async () => {
+  test("should handle code with variable names consistently", async () => {
     // Same code with different variable names
     const code1 = `
     function calculateTotal(items) {
@@ -890,10 +891,10 @@ describe('Embeddings', () => {
     }
   });
 
-  test('should test embedding dimensions and normalization', async () => {
+  test("should test embedding dimensions and normalization", async () => {
     const sampleTexts = [
-      'This is a short text',
-      'This is a longer text with more content and information that should be embedded correctly',
+      "This is a short text",
+      "This is a longer text with more content and information that should be embedded correctly",
     ];
 
     const embeddings = await embed(sampleTexts);
@@ -905,19 +906,19 @@ describe('Embeddings', () => {
 
       // Check for proper normalization - compute vector magnitudes
       const magnitude1 = Math.sqrt(
-        embeddings[0].reduce((sum, val) => sum + val * val, 0)
+        embeddings[0].reduce((sum, val) => sum + val * val, 0),
       );
 
       const magnitude2 = Math.sqrt(
-        embeddings[1].reduce((sum, val) => sum + val * val, 0)
+        embeddings[1].reduce((sum, val) => sum + val * val, 0),
       );
 
       // Magnitudes should be close to 1.0 if vectors are normalized
       // or at least consistent between different length inputs
       console.log(
         `Vector magnitudes - Short text: ${magnitude1.toFixed(
-          4
-        )}, Long text: ${magnitude2.toFixed(4)}`
+          4,
+        )}, Long text: ${magnitude2.toFixed(4)}`,
       );
 
       // Check if magnitudes are roughly equal or close to 1
@@ -929,7 +930,7 @@ describe('Embeddings', () => {
     }
   });
 
-  test('should be robust to code formatting differences', async () => {
+  test("should be robust to code formatting differences", async () => {
     // Well-formatted code
     const formattedCode = `
     function processData(data) {

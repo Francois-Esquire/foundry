@@ -1,11 +1,14 @@
-import { describe, test, expect, beforeEach, jest, spyOn } from 'bun:test';
-import type { Provider } from 'ai';
-import { Agent } from '../../src/agents/agents';
-import type { AgentConfig } from '../../src/agents/agents';
-import { ToolRegistry } from '../../src/agents/tools';
-import { WorkflowManager } from '../../src/agents/workflows';
-import { ExtensionType } from '../../src/core/extensions';
-import type { Extension, ExtensionMetadata } from '../../src/core/extensions';
+import type { Provider } from "ai";
+
+import { beforeEach, describe, expect, jest, spyOn, test } from "bun:test";
+
+import type { AgentConfig } from "../../src/agents/agents";
+import type { Extension, ExtensionMetadata } from "../../src/core/extensions";
+
+import { Agent } from "../../src/agents/agents";
+import { ToolRegistry } from "../../src/agents/tools";
+import { WorkflowManager } from "../../src/agents/workflows";
+import { ExtensionType } from "../../src/core/extensions";
 
 // --- Mocks ---
 
@@ -24,7 +27,7 @@ const mockWorkflowManagerInstance = {
   cancelWorkflow: jest.fn(),
   getWorkflow: jest.fn(),
 };
-jest.mock('../../src/agents/workflows', () => ({
+jest.mock("../../src/agents/workflows", () => ({
   WorkflowManager: jest
     .fn()
     .mockImplementation(() => mockWorkflowManagerInstance),
@@ -45,15 +48,15 @@ const mockProvider = {
 class MockExtension implements Extension {
   type: ExtensionType = ExtensionType.TOOL;
   metadata: ExtensionMetadata = {
-    name: 'mock-extension',
-    description: 'A mock extension',
-    version: '1.0.0',
+    name: "mock-extension",
+    description: "A mock extension",
+    version: "1.0.0",
   };
   initialize = jest.fn(() => Promise.resolve());
   teardown = jest.fn(() => Promise.resolve());
 }
 
-describe('Agent', () => {
+describe("Agent", () => {
   let agent: Agent;
   let config: AgentConfig;
 
@@ -76,8 +79,8 @@ describe('Agent', () => {
 
     // Default config
     config = {
-      name: 'Test Agent',
-      description: 'An agent for testing',
+      name: "Test Agent",
+      description: "An agent for testing",
     };
 
     // Instantiate agent
@@ -88,9 +91,9 @@ describe('Agent', () => {
     expect(WorkflowManager).toHaveBeenCalledTimes(1);
   });
 
-  test('should instantiate correctly with basic config', () => {
-    expect(agent.name).toBe('Test Agent');
-    expect(agent.description).toBe('An agent for testing');
+  test("should instantiate correctly with basic config", () => {
+    expect(agent.name).toBe("Test Agent");
+    expect(agent.description).toBe("An agent for testing");
     expect(agent.toolRegistry).toBe(mockToolRegistryInstance);
     expect(agent.workflowManager).toBe(mockWorkflowManagerInstance);
     expect(agent.extensionRegistry).toBeDefined();
@@ -98,15 +101,15 @@ describe('Agent', () => {
     expect(mockRegisterExtension).not.toHaveBeenCalled();
   });
 
-  test('should instantiate with provider', () => {
+  test("should instantiate with provider", () => {
     const agentWithProvider = new Agent({ ...config, provider: mockProvider });
     expect(agentWithProvider.getProvider()).toBe(mockProvider);
   });
 
-  test('should instantiate with extensions and attempt registration', async () => {
+  test("should instantiate with extensions and attempt registration", async () => {
     const ext1 = new MockExtension();
     const ext2 = new MockExtension();
-    ext2.metadata.name = 'mock-extension-2';
+    ext2.metadata.name = "mock-extension-2";
 
     const agentWithExtensions = new Agent({
       ...config,
@@ -115,41 +118,41 @@ describe('Agent', () => {
     expect(agentWithExtensions).toBeDefined(); // Use variable
 
     // Allow async registration logic to proceed
-    await new Promise(resolve => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(mockRegisterExtension).toHaveBeenCalledTimes(2);
     expect(mockRegisterExtension).toHaveBeenCalledWith(ext1);
     expect(mockRegisterExtension).toHaveBeenCalledWith(ext2);
   });
 
-  test('should instantiate ToolRegistry with specific config', () => {
+  test("should instantiate ToolRegistry with specific config", () => {
     const toolConfig = { autoDiscoverMCP: true };
     agent = new Agent({ ...config, toolRegistryConfig: toolConfig }); // Re-instantiate
     expect(ToolRegistry).toHaveBeenCalledWith(toolConfig);
   });
 
-  test('setProvider should update the provider', () => {
+  test("setProvider should update the provider", () => {
     expect(agent.getProvider()).toBeUndefined();
     agent.setProvider(mockProvider);
     expect(agent.getProvider()).toBe(mockProvider);
   });
 
-  test('registerTool should delegate to ToolRegistry', () => {
-    const mockTool: any = { schema: { name: 'test-tool' }, execute: jest.fn() };
+  test("registerTool should delegate to ToolRegistry", () => {
+    const mockTool: any = { schema: { name: "test-tool" }, execute: jest.fn() };
     agent.registerTool(mockTool);
     expect(mockToolRegistryInstance.registerTool).toHaveBeenCalledTimes(1);
     expect(mockToolRegistryInstance.registerTool).toHaveBeenCalledWith(
-      mockTool
+      mockTool,
     );
   });
 
-  test('executeTool should delegate to ToolRegistry if tool exists', async () => {
-    const toolName = 'existing-tool';
+  test("executeTool should delegate to ToolRegistry if tool exists", async () => {
+    const toolName = "existing-tool";
     const params = { a: 1 };
     const context = { b: 2 };
     mockToolRegistryInstance.hasTool.mockReturnValue(true);
     mockToolRegistryInstance.executeTool.mockResolvedValue({
-      result: 'success',
+      result: "success",
     });
 
     await agent.executeTool(toolName, params, context);
@@ -159,69 +162,69 @@ describe('Agent', () => {
     expect(mockToolRegistryInstance.executeTool).toHaveBeenCalledWith(
       toolName,
       params,
-      context
+      context,
     );
   });
 
-  test('executeTool should throw if tool does not exist', async () => {
-    const toolName = 'non-existing-tool';
+  test("executeTool should throw if tool does not exist", async () => {
+    const toolName = "non-existing-tool";
     mockToolRegistryInstance.hasTool.mockReturnValue(false);
 
     await expect(agent.executeTool(toolName, {})).rejects.toThrow(
-      `Tool '${toolName}' not registered or available for agent '${agent.name}'`
+      `Tool '${toolName}' not registered or available for agent '${agent.name}'`,
     );
     expect(mockToolRegistryInstance.executeTool).not.toHaveBeenCalled();
   });
 
-  test('getAvailableToolSchemas should delegate to ToolRegistry', () => {
+  test("getAvailableToolSchemas should delegate to ToolRegistry", () => {
     agent.getAvailableToolSchemas();
     expect(mockToolRegistryInstance.getAllToolSchemas).toHaveBeenCalledTimes(1);
   });
 
-  test('createWorkflow should delegate to WorkflowManager', () => {
+  test("createWorkflow should delegate to WorkflowManager", () => {
     const steps: any[] = [jest.fn()];
     const context = { c: 3 };
-    const options = { name: 'MyWorkflow' };
+    const options = { name: "MyWorkflow" };
     agent.createWorkflow(steps, context, options);
     expect(mockWorkflowManagerInstance.createWorkflow).toHaveBeenCalledTimes(1);
     expect(mockWorkflowManagerInstance.createWorkflow).toHaveBeenCalledWith(
       steps,
       context,
-      options
+      options,
     );
   });
 
-  test('runWorkflow should delegate to WorkflowManager', () => {
-    const workflowId = 'wf-123';
+  test("runWorkflow should delegate to WorkflowManager", () => {
+    const workflowId = "wf-123";
     const options = { callbacks: {} };
     agent.runWorkflow(workflowId, options);
     expect(mockWorkflowManagerInstance.runWorkflow).toHaveBeenCalledTimes(1);
     expect(mockWorkflowManagerInstance.runWorkflow).toHaveBeenCalledWith(
       workflowId,
-      options
+      options,
     );
   });
 
-  test('cancelWorkflow should delegate to WorkflowManager', () => {
-    const workflowId = 'wf-123';
+  test("cancelWorkflow should delegate to WorkflowManager", () => {
+    const workflowId = "wf-123";
     agent.cancelWorkflow(workflowId);
     expect(mockWorkflowManagerInstance.cancelWorkflow).toHaveBeenCalledTimes(1);
     expect(mockWorkflowManagerInstance.cancelWorkflow).toHaveBeenCalledWith(
-      workflowId
+      workflowId,
     );
   });
 
-  test('getWorkflow should delegate to WorkflowManager', () => {
-    const workflowId = 'wf-123';
+  test("getWorkflow should delegate to WorkflowManager", () => {
+    const workflowId = "wf-123";
     agent.getWorkflow(workflowId);
     expect(mockWorkflowManagerInstance.getWorkflow).toHaveBeenCalledTimes(1);
     expect(mockWorkflowManagerInstance.getWorkflow).toHaveBeenCalledWith(
-      workflowId
+      workflowId,
     );
   });
 
-  test('destroy should log a message', async () => {
-    const consoleSpy = spyOn(console, 'log');
+  test("destroy should log a message", async () => {
+    const consoleSpy = spyOn(console, "log");
     await agent.destroy();
     expect(consoleSpy).toHaveBeenCalledWith(`Destroying agent: ${agent.name}`);
     consoleSpy.mockRestore(); // Clean up spy

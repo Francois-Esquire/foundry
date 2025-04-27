@@ -1,6 +1,6 @@
-import { experimental_createMCPClient, generateText } from 'ai';
-import { Experimental_StdioMCPTransport } from 'ai/mcp-stdio';
-import { openai } from '@ai-sdk/openai';
+import { openai } from "@ai-sdk/openai";
+import { experimental_createMCPClient, generateText } from "ai";
+import { Experimental_StdioMCPTransport } from "ai/mcp-stdio";
 
 export async function useMCP() {
   let clientOne;
@@ -10,16 +10,16 @@ export async function useMCP() {
   try {
     clientOne = await experimental_createMCPClient({
       transport: new Experimental_StdioMCPTransport({
-        command: 'node',
-        args: ['src/stdio/dist/server.js'],
+        command: "node",
+        args: ["src/stdio/dist/server.js"],
       }),
     });
 
     // Alternatively, you can connect to a Server-Sent Events (SSE) MCP server:
     clientTwo = await experimental_createMCPClient({
       transport: {
-        type: 'sse',
-        url: 'http://localhost:3000/sse',
+        type: "sse",
+        url: "http://localhost:3000/sse",
       },
     });
 
@@ -41,12 +41,12 @@ export async function useMCP() {
     };
 
     const response = await generateText({
-      model: openai('gpt-4o'),
+      model: openai("gpt-4o"),
       tools,
       messages: [
         {
-          role: 'user',
-          content: 'Find products under $100',
+          role: "user",
+          content: "Find products under $100",
         },
       ],
     });

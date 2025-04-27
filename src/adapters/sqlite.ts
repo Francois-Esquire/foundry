@@ -1,13 +1,14 @@
-import * as path from 'path';
-import { Database } from 'bun:sqlite';
+import * as path from "path";
 
-import type { Adapter } from './types';
+import { Database } from "bun:sqlite";
+
+import type { Adapter } from "./types";
 
 /**
  * Constants for the SQLite adapter
  */
-const PATH_DELIMITER = '/';
-const TABLE_PREFIX = 'foundry_fs_'; // 'fs' namespace for file system tables
+const PATH_DELIMITER = "/";
+const TABLE_PREFIX = "foundry_fs_"; // 'fs' namespace for file system tables
 
 /**
  * SQLiteAdapter stores data in an SQLite database.
@@ -38,7 +39,7 @@ export class SQLiteAdapter implements Adapter {
     try {
       const result = this.db
         .query(
-          `SELECT content, type FROM ${TABLE_PREFIX}content WHERE path = ?`
+          `SELECT content, type FROM ${TABLE_PREFIX}content WHERE path = ?`,
         )
         .get(path) as { content: string; type: string } | undefined;
 
@@ -75,14 +76,14 @@ export class SQLiteAdapter implements Adapter {
           // Update existing content
           this.db
             .query(
-              `UPDATE ${TABLE_PREFIX}content SET content = ?, type = ? WHERE path = ?`
+              `UPDATE ${TABLE_PREFIX}content SET content = ?, type = ? WHERE path = ?`,
             )
             .run(content, type, path);
         } else {
           // Insert new content
           this.db
             .query(
-              `INSERT INTO ${TABLE_PREFIX}content (path, content, type) VALUES (?, ?, ?)`
+              `INSERT INTO ${TABLE_PREFIX}content (path, content, type) VALUES (?, ?, ?)`,
             )
             .run(path, content, type);
         }
@@ -170,7 +171,7 @@ export class SQLiteAdapter implements Adapter {
 
       // Check if the directory exists (except for root)
       if (
-        path !== '' &&
+        path !== "" &&
         path !== PATH_DELIMITER &&
         !(await this.exists(path))
       ) {
@@ -180,25 +181,25 @@ export class SQLiteAdapter implements Adapter {
       // Query for content entries
       const contentPaths = this.db
         .query(
-          `SELECT path FROM ${TABLE_PREFIX}content WHERE path LIKE ? AND path NOT LIKE ?`
+          `SELECT path FROM ${TABLE_PREFIX}content WHERE path LIKE ? AND path NOT LIKE ?`,
         )
-        .all(prefix + '%', prefix + '%' + PATH_DELIMITER + '%') as {
+        .all(prefix + "%", prefix + "%" + PATH_DELIMITER + "%") as {
         path: string;
       }[];
 
       // Query for directory entries
       const dirPaths = this.db
         .query(
-          `SELECT path FROM ${TABLE_PREFIX}directories WHERE path LIKE ? AND path NOT LIKE ?`
+          `SELECT path FROM ${TABLE_PREFIX}directories WHERE path LIKE ? AND path NOT LIKE ?`,
         )
-        .all(prefix + '%', prefix + '%' + PATH_DELIMITER + '%') as {
+        .all(prefix + "%", prefix + "%" + PATH_DELIMITER + "%") as {
         path: string;
       }[];
 
       // Combine results and extract the next segment
       const allPaths = [
-        ...contentPaths.map(row => row.path),
-        ...dirPaths.map(row => row.path),
+        ...contentPaths.map((row) => row.path),
+        ...dirPaths.map((row) => row.path),
       ];
 
       for (const storedPath of allPaths) {
@@ -226,7 +227,7 @@ export class SQLiteAdapter implements Adapter {
     try {
       // Create parent directories if needed
       const parentDir = this.getDirPath(path);
-      if (parentDir && !(await this.exists(parentDir)) && parentDir !== '') {
+      if (parentDir && !(await this.exists(parentDir)) && parentDir !== "") {
         await this.createDirectory(parentDir);
       }
 
@@ -255,7 +256,7 @@ export class SQLiteAdapter implements Adapter {
    */
   async deleteDirectory(
     path: string,
-    recursive: boolean = false
+    recursive: boolean = false,
   ): Promise<boolean> {
     try {
       // Check if directory exists
@@ -275,7 +276,7 @@ export class SQLiteAdapter implements Adapter {
       const contents = await this.list(path);
       if (contents.length > 0 && !recursive) {
         throw new Error(
-          `Directory is not empty: ${path}. Pass recursive=true to delete contents.`
+          `Directory is not empty: ${path}. Pass recursive=true to delete contents.`,
         );
       }
 
@@ -290,21 +291,21 @@ export class SQLiteAdapter implements Adapter {
           // Delete all content entries that start with the prefix
           this.db
             .query(
-              `DELETE FROM ${TABLE_PREFIX}content WHERE path = ? OR path LIKE ?`
+              `DELETE FROM ${TABLE_PREFIX}content WHERE path = ? OR path LIKE ?`,
             )
-            .run(path, prefix + '%');
+            .run(path, prefix + "%");
 
           // Delete all metadata entries that start with the prefix
           this.db
             .query(
-              `DELETE FROM ${TABLE_PREFIX}metadata WHERE path = ? OR path LIKE ?`
+              `DELETE FROM ${TABLE_PREFIX}metadata WHERE path = ? OR path LIKE ?`,
             )
-            .run(path, prefix + '%');
+            .run(path, prefix + "%");
 
           // Delete all subdirectories
           this.db
             .query(`DELETE FROM ${TABLE_PREFIX}directories WHERE path LIKE ?`)
-            .run(prefix + '%');
+            .run(prefix + "%");
         }
       });
 
@@ -347,7 +348,7 @@ export class SQLiteAdapter implements Adapter {
    */
   async setMetadata(
     path: string,
-    metadata: Record<string, any>
+    metadata: Record<string, any>,
   ): Promise<boolean> {
     try {
       const metadataJson = JSON.stringify(metadata);
@@ -363,14 +364,14 @@ export class SQLiteAdapter implements Adapter {
           // Update existing metadata
           this.db
             .query(
-              `UPDATE ${TABLE_PREFIX}metadata SET metadata = ? WHERE path = ?`
+              `UPDATE ${TABLE_PREFIX}metadata SET metadata = ? WHERE path = ?`,
             )
             .run(metadataJson, path);
         } else {
           // Insert new metadata
           this.db
             .query(
-              `INSERT INTO ${TABLE_PREFIX}metadata (path, metadata) VALUES (?, ?)`
+              `INSERT INTO ${TABLE_PREFIX}metadata (path, metadata) VALUES (?, ?)`,
             )
             .run(path, metadataJson);
         }
@@ -421,9 +422,9 @@ export class SQLiteAdapter implements Adapter {
           // Move all content entries
           const contentEntries = this.db
             .query(
-              `SELECT path, content, type FROM ${TABLE_PREFIX}content WHERE path LIKE ?`
+              `SELECT path, content, type FROM ${TABLE_PREFIX}content WHERE path LIKE ?`,
             )
-            .all(sourcePrefix + '%') as {
+            .all(sourcePrefix + "%") as {
             path: string;
             content: string;
             type: string;
@@ -436,7 +437,7 @@ export class SQLiteAdapter implements Adapter {
             // Insert at new path
             this.db
               .query(
-                `INSERT INTO ${TABLE_PREFIX}content (path, content, type) VALUES (?, ?, ?)`
+                `INSERT INTO ${TABLE_PREFIX}content (path, content, type) VALUES (?, ?, ?)`,
               )
               .run(newPath, entry.content, entry.type);
 
@@ -449,9 +450,9 @@ export class SQLiteAdapter implements Adapter {
           // Move all metadata entries
           const metadataEntries = this.db
             .query(
-              `SELECT path, metadata FROM ${TABLE_PREFIX}metadata WHERE path LIKE ?`
+              `SELECT path, metadata FROM ${TABLE_PREFIX}metadata WHERE path LIKE ?`,
             )
-            .all(sourcePrefix + '%') as {
+            .all(sourcePrefix + "%") as {
             path: string;
             metadata: string;
           }[];
@@ -463,7 +464,7 @@ export class SQLiteAdapter implements Adapter {
             // Insert at new path
             this.db
               .query(
-                `INSERT INTO ${TABLE_PREFIX}metadata (path, metadata) VALUES (?, ?)`
+                `INSERT INTO ${TABLE_PREFIX}metadata (path, metadata) VALUES (?, ?)`,
               )
               .run(newPath, entry.metadata);
 
@@ -476,9 +477,9 @@ export class SQLiteAdapter implements Adapter {
           // Move all subdirectories
           const dirEntries = this.db
             .query(
-              `SELECT path FROM ${TABLE_PREFIX}directories WHERE path LIKE ? AND path != ?`
+              `SELECT path FROM ${TABLE_PREFIX}directories WHERE path LIKE ? AND path != ?`,
             )
-            .all(sourcePrefix + '%', sourcePath) as {
+            .all(sourcePrefix + "%", sourcePath) as {
             path: string;
           }[];
 
@@ -502,7 +503,7 @@ export class SQLiteAdapter implements Adapter {
           // It's a file, move the content
           const content = this.db
             .query(
-              `SELECT content, type FROM ${TABLE_PREFIX}content WHERE path = ?`
+              `SELECT content, type FROM ${TABLE_PREFIX}content WHERE path = ?`,
             )
             .get(sourcePath) as { content: string; type: string } | undefined;
 
@@ -513,14 +514,14 @@ export class SQLiteAdapter implements Adapter {
               destDirPath &&
               !this.db
                 .query(
-                  `SELECT 1 FROM ${TABLE_PREFIX}directories WHERE path = ?`
+                  `SELECT 1 FROM ${TABLE_PREFIX}directories WHERE path = ?`,
                 )
                 .get(destDirPath)
             ) {
               // Insert the directory directly - don't use createDirectory which would start another transaction
               this.db
                 .query(
-                  `INSERT INTO ${TABLE_PREFIX}directories (path) VALUES (?)`
+                  `INSERT INTO ${TABLE_PREFIX}directories (path) VALUES (?)`,
                 )
                 .run(destDirPath);
             }
@@ -528,7 +529,7 @@ export class SQLiteAdapter implements Adapter {
             // Insert at new path
             this.db
               .query(
-                `INSERT INTO ${TABLE_PREFIX}content (path, content, type) VALUES (?, ?, ?)`
+                `INSERT INTO ${TABLE_PREFIX}content (path, content, type) VALUES (?, ?, ?)`,
               )
               .run(destinationPath, content.content, content.type);
 
@@ -540,7 +541,7 @@ export class SQLiteAdapter implements Adapter {
             // Move metadata if it exists
             const metadata = this.db
               .query(
-                `SELECT metadata FROM ${TABLE_PREFIX}metadata WHERE path = ?`
+                `SELECT metadata FROM ${TABLE_PREFIX}metadata WHERE path = ?`,
               )
               .get(sourcePath) as { metadata: string } | undefined;
 
@@ -548,7 +549,7 @@ export class SQLiteAdapter implements Adapter {
               // Insert at new path
               this.db
                 .query(
-                  `INSERT INTO ${TABLE_PREFIX}metadata (path, metadata) VALUES (?, ?)`
+                  `INSERT INTO ${TABLE_PREFIX}metadata (path, metadata) VALUES (?, ?)`,
                 )
                 .run(destinationPath, metadata.metadata);
 
@@ -581,7 +582,7 @@ export class SQLiteAdapter implements Adapter {
     } catch (error) {
       console.error(
         `Error moving from ${sourcePath} to ${destinationPath}:`,
-        error
+        error,
       );
       return false;
     }
@@ -621,9 +622,9 @@ export class SQLiteAdapter implements Adapter {
           // Copy all content entries
           const contentEntries = this.db
             .query(
-              `SELECT path, content, type FROM ${TABLE_PREFIX}content WHERE path LIKE ?`
+              `SELECT path, content, type FROM ${TABLE_PREFIX}content WHERE path LIKE ?`,
             )
-            .all(sourcePrefix + '%') as {
+            .all(sourcePrefix + "%") as {
             path: string;
             content: string;
             type: string;
@@ -636,7 +637,7 @@ export class SQLiteAdapter implements Adapter {
             // Insert at new path
             this.db
               .query(
-                `INSERT INTO ${TABLE_PREFIX}content (path, content, type) VALUES (?, ?, ?)`
+                `INSERT INTO ${TABLE_PREFIX}content (path, content, type) VALUES (?, ?, ?)`,
               )
               .run(newPath, entry.content, entry.type);
           }
@@ -644,9 +645,9 @@ export class SQLiteAdapter implements Adapter {
           // Copy all metadata entries
           const metadataEntries = this.db
             .query(
-              `SELECT path, metadata FROM ${TABLE_PREFIX}metadata WHERE path LIKE ?`
+              `SELECT path, metadata FROM ${TABLE_PREFIX}metadata WHERE path LIKE ?`,
             )
-            .all(sourcePrefix + '%') as {
+            .all(sourcePrefix + "%") as {
             path: string;
             metadata: string;
           }[];
@@ -658,7 +659,7 @@ export class SQLiteAdapter implements Adapter {
             // Insert at new path
             this.db
               .query(
-                `INSERT INTO ${TABLE_PREFIX}metadata (path, metadata) VALUES (?, ?)`
+                `INSERT INTO ${TABLE_PREFIX}metadata (path, metadata) VALUES (?, ?)`,
               )
               .run(newPath, entry.metadata);
           }
@@ -666,9 +667,9 @@ export class SQLiteAdapter implements Adapter {
           // Copy all subdirectories
           const dirEntries = this.db
             .query(
-              `SELECT path FROM ${TABLE_PREFIX}directories WHERE path LIKE ? AND path != ?`
+              `SELECT path FROM ${TABLE_PREFIX}directories WHERE path LIKE ? AND path != ?`,
             )
-            .all(sourcePrefix + '%', sourcePath) as {
+            .all(sourcePrefix + "%", sourcePath) as {
             path: string;
           }[];
 
@@ -685,7 +686,7 @@ export class SQLiteAdapter implements Adapter {
           // It's a file, copy the content
           const content = this.db
             .query(
-              `SELECT content, type FROM ${TABLE_PREFIX}content WHERE path = ?`
+              `SELECT content, type FROM ${TABLE_PREFIX}content WHERE path = ?`,
             )
             .get(sourcePath) as { content: string; type: string } | undefined;
 
@@ -699,14 +700,14 @@ export class SQLiteAdapter implements Adapter {
             // Insert at new path
             this.db
               .query(
-                `INSERT INTO ${TABLE_PREFIX}content (path, content, type) VALUES (?, ?, ?)`
+                `INSERT INTO ${TABLE_PREFIX}content (path, content, type) VALUES (?, ?, ?)`,
               )
               .run(destinationPath, content.content, content.type);
 
             // Copy metadata if it exists
             const metadata = this.db
               .query(
-                `SELECT metadata FROM ${TABLE_PREFIX}metadata WHERE path = ?`
+                `SELECT metadata FROM ${TABLE_PREFIX}metadata WHERE path = ?`,
               )
               .get(sourcePath) as { metadata: string } | undefined;
 
@@ -714,7 +715,7 @@ export class SQLiteAdapter implements Adapter {
               // Insert at new path
               this.db
                 .query(
-                  `INSERT INTO ${TABLE_PREFIX}metadata (path, metadata) VALUES (?, ?)`
+                  `INSERT INTO ${TABLE_PREFIX}metadata (path, metadata) VALUES (?, ?)`,
                 )
                 .run(destinationPath, metadata.metadata);
             }
@@ -728,7 +729,7 @@ export class SQLiteAdapter implements Adapter {
     } catch (error) {
       console.error(
         `Error copying from ${sourcePath} to ${destinationPath}:`,
-        error
+        error,
       );
       return false;
     }
@@ -741,7 +742,7 @@ export class SQLiteAdapter implements Adapter {
    */
   private getDirPath(filePath: string): string {
     if (!filePath.includes(PATH_DELIMITER)) {
-      return '';
+      return "";
     }
     return filePath.substring(0, filePath.lastIndexOf(PATH_DELIMITER));
   }
@@ -754,7 +755,7 @@ export class SQLiteAdapter implements Adapter {
 
     try {
       // Enable foreign keys
-      this.db.exec('PRAGMA foreign_keys = ON');
+      this.db.exec("PRAGMA foreign_keys = ON");
 
       // Create tables in a transaction
       const transaction = this.db.transaction(() => {
@@ -805,7 +806,7 @@ export class SQLiteAdapter implements Adapter {
       transaction();
       this.initialized = true;
     } catch (error) {
-      console.error('Error initializing database:', error);
+      console.error("Error initializing database:", error);
       throw new Error(`Failed to initialize SQLite database: ${error}`);
     }
   }

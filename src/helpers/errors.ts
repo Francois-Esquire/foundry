@@ -24,6 +24,6 @@ export class FoundryOutputError extends FoundryError {
 
 export const validateInitialConfig = () => {
   if (!process.env.ANTHROPIC_API_KEY) {
-    throw new FoundryConfigError('ANTHROPIC_API_KEY is not set');
+    throw new FoundryConfigError("ANTHROPIC_API_KEY is not set");
   }
 };

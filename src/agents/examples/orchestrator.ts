@@ -1,21 +1,18 @@
-import { createOpenAI } from '@ai-sdk/openai';
-import { createAnthropic } from '@ai-sdk/anthropic';
-import {
-  generateObject,
-  generateText,
-  type CoreMessage,
-  type LanguageModel,
-} from 'ai';
-import { z } from 'zod';
+import type { CoreMessage, LanguageModel } from "ai";
+
+import { createAnthropic } from "@ai-sdk/anthropic";
+import { createOpenAI } from "@ai-sdk/openai";
+import { generateObject, generateText } from "ai";
+import { z } from "zod";
 
 // Define standard model names
-const DEFAULT_OPENAI_MODEL = 'gpt-4o';
-const DEFAULT_ANTHROPIC_MODEL = 'claude-3-5-sonnet-20240620';
+const DEFAULT_OPENAI_MODEL = "gpt-4o";
+const DEFAULT_ANTHROPIC_MODEL = "claude-3-5-sonnet-20240620";
 
 /**
  * Supported AI model types
  */
-export type ModelType = 'openai' | 'anthropic';
+export type ModelType = "openai" | "anthropic";
 
 /**
  * Configuration for the orchestrator
@@ -49,21 +46,21 @@ function getProviderInstances(config: OrchestratorConfig): ProviderInstances {
   // Configure default provider (Prefer OpenAI)
   if (config.openaiApiKey) {
     providers.default = {
-      type: 'openai',
+      type: "openai",
       model: createOpenAI({ apiKey: config.openaiApiKey }).chat(
-        DEFAULT_OPENAI_MODEL
+        DEFAULT_OPENAI_MODEL,
       ),
     };
   } else if (config.anthropicApiKey) {
     providers.default = {
-      type: 'anthropic',
+      type: "anthropic",
       model: createAnthropic({ apiKey: config.anthropicApiKey }).chat(
-        DEFAULT_ANTHROPIC_MODEL
+        DEFAULT_ANTHROPIC_MODEL,
       ),
     };
   } else {
     throw new Error(
-      'OrchestratorConfig requires at least openaiApiKey or anthropicApiKey.'
+      "OrchestratorConfig requires at least openaiApiKey or anthropicApiKey.",
     );
   }
 
@@ -85,7 +82,7 @@ function getProviderInstances(config: OrchestratorConfig): ProviderInstances {
 export async function routeMessage(
   message: string,
   config: OrchestratorConfig,
-  conversationHistory: CoreMessage[] = [] // Use CoreMessage type from 'ai'
+  conversationHistory: CoreMessage[] = [], // Use CoreMessage type from 'ai'
 ): Promise<{
   response: string;
   provider: ModelType;
@@ -118,7 +115,7 @@ export async function routeMessage(
 export async function handleQuery(
   query: string,
   openaiApiKey: string,
-  anthropicApiKey: string
+  anthropicApiKey: string,
 ): Promise<string> {
   // Simplified configuration
   const config: OrchestratorConfig = {

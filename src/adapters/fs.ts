@@ -1,7 +1,7 @@
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from "fs";
+import * as path from "path";
 
-import type { Adapter } from './types';
+import type { Adapter } from "./types";
 
 /**
  * FileSystemAdapter maps operations directly to the local file system.
@@ -22,7 +22,7 @@ export class FileSystemAdapter implements Adapter {
    */
   constructor(options: { basePath: string; metadataDir?: string }) {
     this.basePath = options.basePath;
-    this.metadataDir = options.metadataDir || '.foundry';
+    this.metadataDir = options.metadataDir || ".foundry";
   }
 
   /**
@@ -38,7 +38,7 @@ export class FileSystemAdapter implements Adapter {
         return null;
       }
 
-      const content = await fs.promises.readFile(fullPath, 'utf-8');
+      const content = await fs.promises.readFile(fullPath, "utf-8");
       const metadata = await this.getMetadata(path);
       const type = metadata?.type || this.inferTypeFromPath(path);
 
@@ -65,7 +65,7 @@ export class FileSystemAdapter implements Adapter {
       await fs.promises.mkdir(dirPath, { recursive: true });
 
       // Write content
-      await fs.promises.writeFile(fullPath, content, 'utf-8');
+      await fs.promises.writeFile(fullPath, content, "utf-8");
 
       // Store type in metadata
       const metadata = (await this.getMetadata(path)) || {};
@@ -139,7 +139,7 @@ export class FileSystemAdapter implements Adapter {
       const entries = await fs.promises.readdir(fullPath);
 
       // Filter out metadata directory
-      return entries.filter(entry => entry !== this.metadataDir);
+      return entries.filter((entry) => entry !== this.metadataDir);
     } catch (error) {
       console.error(`Error listing directory at ${path}:`, error);
       return [];
@@ -171,7 +171,7 @@ export class FileSystemAdapter implements Adapter {
    */
   async deleteDirectory(
     path: string,
-    recursive: boolean = false
+    recursive: boolean = false,
   ): Promise<boolean> {
     const fullPath = this.resolvePath(path);
 
@@ -188,7 +188,7 @@ export class FileSystemAdapter implements Adapter {
         const entries = await fs.promises.readdir(fullPath);
         if (entries.length > 0) {
           throw new Error(
-            `Directory is not empty: ${path}. Pass recursive=true to delete contents.`
+            `Directory is not empty: ${path}. Pass recursive=true to delete contents.`,
           );
         }
         await fs.promises.rmdir(fullPath);
@@ -220,7 +220,7 @@ export class FileSystemAdapter implements Adapter {
         return null;
       }
 
-      const content = await fs.promises.readFile(metadataPath, 'utf-8');
+      const content = await fs.promises.readFile(metadataPath, "utf-8");
       return JSON.parse(content);
     } catch (error) {
       console.error(`Error reading metadata for ${path}:`, error);
@@ -236,7 +236,7 @@ export class FileSystemAdapter implements Adapter {
    */
   async setMetadata(
     path: string,
-    metadata: Record<string, any>
+    metadata: Record<string, any>,
   ): Promise<boolean> {
     const metadataPath = this.getMetadataPath(path);
     const metadataDir = this.getMetadataDirPath(path);
@@ -249,7 +249,7 @@ export class FileSystemAdapter implements Adapter {
       await fs.promises.writeFile(
         metadataPath,
         JSON.stringify(metadata, null, 2),
-        'utf-8'
+        "utf-8",
       );
 
       return true;
@@ -298,7 +298,7 @@ export class FileSystemAdapter implements Adapter {
     } catch (error) {
       console.error(
         `Error moving from ${sourcePath} to ${destinationPath}:`,
-        error
+        error,
       );
       return false;
     }
@@ -343,7 +343,7 @@ export class FileSystemAdapter implements Adapter {
     } catch (error) {
       console.error(
         `Error copying from ${sourcePath} to ${destinationPath}:`,
-        error
+        error,
       );
       return false;
     }
@@ -377,7 +377,7 @@ export class FileSystemAdapter implements Adapter {
    */
   private getMetadataPath(relativePath: string): string {
     const metadataDir = this.getMetadataDirPath(relativePath);
-    const metadataFileName = path.basename(relativePath) + '.meta.json';
+    const metadataFileName = path.basename(relativePath) + ".meta.json";
     return path.join(metadataDir, metadataFileName);
   }
 
@@ -399,22 +399,22 @@ export class FileSystemAdapter implements Adapter {
   private inferTypeFromPath(filePath: string): string {
     const ext = path.extname(filePath).toLowerCase();
     switch (ext) {
-      case '.md':
-        return 'text/markdown';
-      case '.json':
-        return 'application/json';
-      case '.js':
-        return 'application/javascript';
-      case '.ts':
-        return 'application/typescript';
-      case '.html':
-        return 'text/html';
-      case '.css':
-        return 'text/css';
-      case '.txt':
-        return 'text/plain';
+      case ".md":
+        return "text/markdown";
+      case ".json":
+        return "application/json";
+      case ".js":
+        return "application/javascript";
+      case ".ts":
+        return "application/typescript";
+      case ".html":
+        return "text/html";
+      case ".css":
+        return "text/css";
+      case ".txt":
+        return "text/plain";
       default:
-        return 'application/octet-stream';
+        return "application/octet-stream";
     }
   }
 

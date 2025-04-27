@@ -247,3 +247,4 @@ foundry tasks add-task --prompt="Description" --priority=high
 ```bash
 # Initialize a new project with Foundry Task Manager structure
 foundry tasks init
+```

@@ -1,28 +1,28 @@
-import eslint from '@eslint/js';
-import tseslint from '@typescript-eslint/eslint-plugin';
-import tsparser from '@typescript-eslint/parser';
-import globals from 'globals';
+import eslint from "@eslint/js";
+import tseslint from "@typescript-eslint/eslint-plugin";
+import tsparser from "@typescript-eslint/parser";
+import globals from "globals";
 
 export default [
   eslint.configs.recommended,
   {
     ignores: [
-      'node_modules/**',
-      'dist/**',
-      'build/**',
-      '.bun/**',
-      '*.cjs',
-      '*.js',
+      "node_modules/**",
+      "dist/**",
+      "build/**",
+      ".bun/**",
+      "*.cjs",
+      "*.js",
     ],
   },
   {
-    files: ['**/*.ts', '**/*.tsx'],
+    files: ["**/*.ts", "**/*.tsx"],
     languageOptions: {
       parser: tsparser,
       parserOptions: {
-        ecmaVersion: 'latest',
-        sourceType: 'module',
-        project: './tsconfig.json',
+        ecmaVersion: "latest",
+        sourceType: "module",
+        project: "./tsconfig.json",
       },
       globals: {
         ...globals.node,
@@ -30,12 +30,12 @@ export default [
       },
     },
     plugins: {
-      '@typescript-eslint': tseslint,
+      "@typescript-eslint": tseslint,
     },
     rules: {
-      '@typescript-eslint/no-explicit-any': 'warn',
-      '@typescript-eslint/explicit-function-return-type': 'off',
-      '@typescript-eslint/ban-ts-comment': 'warn',
+      "@typescript-eslint/no-explicit-any": "warn",
+      "@typescript-eslint/explicit-function-return-type": "off",
+      "@typescript-eslint/ban-ts-comment": "warn",
     },
   },
 ];

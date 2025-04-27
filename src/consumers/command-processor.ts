@@ -1,4 +1,4 @@
-import type { ServiceRegistry } from '../core/registry';
+import type { ServiceRegistry } from "../core/registry";
 
 // Result of command validation
 export interface ValidationResult {
@@ -55,7 +55,7 @@ export class CommandProcessorImpl implements CommandProcessor {
 
   async execute(
     command: string,
-    args: Record<string, any>
+    args: Record<string, any>,
   ): Promise<CommandResult> {
     const startTime = Date.now();
 
@@ -65,7 +65,7 @@ export class CommandProcessorImpl implements CommandProcessor {
         return {
           success: false,
           error: {
-            code: 'COMMAND_NOT_FOUND',
+            code: "COMMAND_NOT_FOUND",
             message: `Command not found: ${command}`,
           },
           metadata: {
@@ -80,8 +80,8 @@ export class CommandProcessorImpl implements CommandProcessor {
         return {
           success: false,
           error: {
-            code: 'INVALID_ARGUMENTS',
-            message: 'Invalid command arguments',
+            code: "INVALID_ARGUMENTS",
+            message: "Invalid command arguments",
             details: validationResult.errors,
           },
           metadata: {
@@ -105,7 +105,7 @@ export class CommandProcessorImpl implements CommandProcessor {
       return {
         success: false,
         error: {
-          code: 'EXECUTION_ERROR',
+          code: "EXECUTION_ERROR",
           message: (error as Error).message,
         },
         metadata: {
@@ -125,7 +125,7 @@ export class CommandProcessorImpl implements CommandProcessor {
 
   validateCommand(
     command: string,
-    args: Record<string, any>
+    args: Record<string, any>,
   ): ValidationResult {
     // Basic validation - command must exist
     if (!this.hasCommand(command)) {
@@ -143,18 +143,18 @@ export class CommandProcessorImpl implements CommandProcessor {
 
   initialize() {
     // Register task management commands
-    this.commandProcessor.registerCommand('tasks.list', async args => {
+    this.commandProcessor.registerCommand("tasks.list", async (args) => {
       return this.taskManager.getTasks(args);
     });
 
-    this.commandProcessor.registerCommand('tasks.get', async args => {
-      if (!args.id) throw new Error('Task ID is required');
+    this.commandProcessor.registerCommand("tasks.get", async (args) => {
+      if (!args.id) throw new Error("Task ID is required");
       return this.taskManager.getTask(args.id);
     });
 
-    this.commandProcessor.registerCommand('tasks.create', async args => {
+    this.commandProcessor.registerCommand("tasks.create", async (args) => {
       if (!args.title || !args.description)
-        throw new Error('Title and description are required');
+        throw new Error("Title and description are required");
       const taskInput: TaskInput = {
         title: args.title,
         description: args.description,
@@ -167,61 +167,61 @@ export class CommandProcessorImpl implements CommandProcessor {
       return this.taskManager.createTask(taskInput);
     });
 
-    this.commandProcessor.registerCommand('tasks.update', async args => {
-      if (!args.id) throw new Error('Task ID is required');
+    this.commandProcessor.registerCommand("tasks.update", async (args) => {
+      if (!args.id) throw new Error("Task ID is required");
       return this.taskManager.updateTask(args.id, args.updates || {});
     });
 
-    this.commandProcessor.registerCommand('tasks.delete', async args => {
-      if (!args.id) throw new Error('Task ID is required');
+    this.commandProcessor.registerCommand("tasks.delete", async (args) => {
+      if (!args.id) throw new Error("Task ID is required");
       return this.taskManager.deleteTask(args.id);
     });
 
-    this.commandProcessor.registerCommand('tasks.status', async args => {
+    this.commandProcessor.registerCommand("tasks.status", async (args) => {
       if (!args.id || !args.status)
-        throw new Error('Task ID and status are required');
+        throw new Error("Task ID and status are required");
       return this.taskManager.setTaskStatus(args.id, args.status);
     });
 
     // Register document generation commands
     this.commandProcessor.registerCommand(
-      'documents.generatePRD',
-      async args => {
-        if (!args.concept) throw new Error('Concept is required');
+      "documents.generatePRD",
+      async (args) => {
+        if (!args.concept) throw new Error("Concept is required");
         return this.documentGenerator.generatePRD(args.concept, args.options);
-      }
+      },
     );
 
     this.commandProcessor.registerCommand(
-      'documents.generateUserJourney',
-      async args => {
+      "documents.generateUserJourney",
+      async (args) => {
         if (!args.persona || !args.scenario)
-          throw new Error('Persona and scenario are required');
+          throw new Error("Persona and scenario are required");
         return this.documentGenerator.generateUserJourney(
           args.persona,
-          args.scenario
+          args.scenario,
         );
-      }
+      },
     );
 
     this.commandProcessor.registerCommand(
-      'documents.generateTechSpec',
-      async args => {
-        if (!args.requirements) throw new Error('Requirements are required');
+      "documents.generateTechSpec",
+      async (args) => {
+        if (!args.requirements) throw new Error("Requirements are required");
         return this.documentGenerator.generateTechnicalSpec(
           args.requirements,
-          args.options
+          args.options,
         );
-      }
+      },
     );
 
-    this.commandProcessor.registerCommand('documents.get', async args => {
-      if (!args.id) throw new Error('Document ID is required');
+    this.commandProcessor.registerCommand("documents.get", async (args) => {
+      if (!args.id) throw new Error("Document ID is required");
       return this.documentGenerator.getDocument(args.id);
     });
 
-    this.commandProcessor.registerCommand('documents.list', async args => {
-      if (!args.type) throw new Error('Document type is required');
+    this.commandProcessor.registerCommand("documents.list", async (args) => {
+      if (!args.type) throw new Error("Document type is required");
       return this.documentGenerator.listDocuments(args.type);
     });
   }

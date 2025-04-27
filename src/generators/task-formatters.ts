@@ -1,5 +1,6 @@
-import type { Task, Subtask } from '../core/task-manager';
-import { TaskStatus } from '../core/task-manager';
+import type { Subtask, Task } from "../core/task-manager";
+
+import { TaskStatus } from "../core/task-manager";
 
 /**
  * Formats a task into markdown content with front matter
@@ -7,19 +8,19 @@ import { TaskStatus } from '../core/task-manager';
 export function formatTaskContent(task: Task): string {
   // Create front matter
   const frontMatter = [
-    '---',
+    "---",
     `id: ${task.id}`,
     `title: ${task.title}`,
     `status: ${task.status}`,
     `priority: ${task.priority}`,
-    `dependencies: [${task.dependencies.join(', ')}]`,
+    `dependencies: [${task.dependencies.join(", ")}]`,
     `createdAt: ${task.createdAt.toISOString()}`,
     `updatedAt: ${task.updatedAt.toISOString()}`,
     task.completedAt ? `completedAt: ${task.completedAt.toISOString()}` : null,
-    '---',
+    "---",
   ]
     .filter(Boolean)
-    .join('\n');
+    .join("\n");
 
   // Build markdown content
   let content = `${frontMatter}\n\n${task.description}\n`;
@@ -43,23 +44,23 @@ export function formatTaskContent(task: Task): string {
 export function formatSubtaskContent(subtask: Subtask): string {
   // Create front matter
   const frontMatter = [
-    '---',
+    "---",
     `id: ${subtask.id}`,
     `parentId: ${subtask.parentId}`,
     `title: ${subtask.title}`,
     `status: ${subtask.status}`,
     subtask.dependencies
-      ? `dependencies: [${subtask.dependencies.join(', ')}]`
+      ? `dependencies: [${subtask.dependencies.join(", ")}]`
       : null,
     `createdAt: ${subtask.createdAt.toISOString()}`,
     `updatedAt: ${subtask.updatedAt.toISOString()}`,
     subtask.completedAt
       ? `completedAt: ${subtask.completedAt.toISOString()}`
       : null,
-    '---',
+    "---",
   ]
     .filter(Boolean)
-    .join('\n');
+    .join("\n");
 
   // Build markdown content
   let content = `${frontMatter}\n\n${subtask.description}\n`;
@@ -79,11 +80,11 @@ export function parseTaskContent(content: string): Task | null {
   try {
     // Basic parsing of markdown content with front matter
     const frontMatterMatch = content.match(
-      /^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/
+      /^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/,
     );
 
     if (!frontMatterMatch || !frontMatterMatch[1] || !frontMatterMatch[2]) {
-      console.error('Invalid task format: Missing front matter');
+      console.error("Invalid task format: Missing front matter");
       return null;
     }
 
@@ -91,23 +92,23 @@ export function parseTaskContent(content: string): Task | null {
     const description = frontMatterMatch[2].trim();
 
     // Parse front matter fields
-    const id = extractField(frontMatter, 'id') ?? '';
-    const title = extractField(frontMatter, 'title') ?? '';
-    const statusField = extractField(frontMatter, 'status');
+    const id = extractField(frontMatter, "id") ?? "";
+    const title = extractField(frontMatter, "title") ?? "";
+    const statusField = extractField(frontMatter, "status");
     const status = statusField
       ? (statusField as TaskStatus)
       : TaskStatus.PENDING;
-    const priorityField = extractField(frontMatter, 'priority');
-    const priority = (priorityField as 'high' | 'medium' | 'low') || 'medium';
-    const dependencies = extractArrayField(frontMatter, 'dependencies');
+    const priorityField = extractField(frontMatter, "priority");
+    const priority = (priorityField as "high" | "medium" | "low") || "medium";
+    const dependencies = extractArrayField(frontMatter, "dependencies");
 
-    const createdAtField = extractField(frontMatter, 'createdAt');
+    const createdAtField = extractField(frontMatter, "createdAt");
     const createdAt = new Date(createdAtField ?? Date.now());
 
-    const updatedAtField = extractField(frontMatter, 'updatedAt');
+    const updatedAtField = extractField(frontMatter, "updatedAt");
     const updatedAt = new Date(updatedAtField ?? Date.now());
 
-    const completedAtField = extractField(frontMatter, 'completedAt');
+    const completedAtField = extractField(frontMatter, "completedAt");
     const completedAt = completedAtField
       ? new Date(completedAtField)
       : undefined;
@@ -115,20 +116,20 @@ export function parseTaskContent(content: string): Task | null {
     // Split description into parts
     const sections = description.split(/^## /m);
     if (!sections || sections.length === 0) {
-      console.error('Invalid task format: Missing description');
+      console.error("Invalid task format: Missing description");
       return null;
     }
 
     // Extract details and test strategy from sections
-    let details = '';
-    let testStrategy = '';
+    let details = "";
+    let testStrategy = "";
 
     if (sections && sections.length > 0) {
       for (const section of sections) {
-        if (section && section.startsWith('Implementation Details')) {
-          details = section.replace('Implementation Details\n', '').trim();
-        } else if (section && section.startsWith('Test Strategy')) {
-          testStrategy = section.replace('Test Strategy\n', '').trim();
+        if (section && section.startsWith("Implementation Details")) {
+          details = section.replace("Implementation Details\n", "").trim();
+        } else if (section && section.startsWith("Test Strategy")) {
+          testStrategy = section.replace("Test Strategy\n", "").trim();
         }
       }
     }
@@ -136,7 +137,7 @@ export function parseTaskContent(content: string): Task | null {
     return {
       id,
       title,
-      description: sections[0]?.trim() ?? '', // First section is the description
+      description: sections[0]?.trim() ?? "", // First section is the description
       status,
       priority,
       details: details || undefined,
@@ -147,7 +148,7 @@ export function parseTaskContent(content: string): Task | null {
       completedAt,
     };
   } catch (error) {
-    console.error('Error parsing task content:', error);
+    console.error("Error parsing task content:", error);
     return null;
   }
 }
@@ -157,16 +158,16 @@ export function parseTaskContent(content: string): Task | null {
  */
 export function parseSubtaskContent(
   content: string,
-  parentId: string
+  parentId: string,
 ): Subtask | null {
   try {
     // Similar parsing logic to tasks, but simpler
     const frontMatterMatch = content.match(
-      /^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/
+      /^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/,
     );
 
     if (!frontMatterMatch || !frontMatterMatch[1] || !frontMatterMatch[2]) {
-      console.error('Invalid subtask format: Missing front matter');
+      console.error("Invalid subtask format: Missing front matter");
       return null;
     }
 
@@ -174,28 +175,28 @@ export function parseSubtaskContent(
     const description = frontMatterMatch[2].trim();
 
     // Parse front matter fields
-    const id = extractField(frontMatter, 'id') ?? '';
-    const title = extractField(frontMatter, 'title') ?? '';
-    const statusField = extractField(frontMatter, 'status');
+    const id = extractField(frontMatter, "id") ?? "";
+    const title = extractField(frontMatter, "title") ?? "";
+    const statusField = extractField(frontMatter, "status");
     const status = statusField
       ? (statusField as TaskStatus)
       : TaskStatus.PENDING;
-    const dependencies = extractArrayField(frontMatter, 'dependencies');
+    const dependencies = extractArrayField(frontMatter, "dependencies");
 
-    const createdAtField = extractField(frontMatter, 'createdAt');
+    const createdAtField = extractField(frontMatter, "createdAt");
     const createdAt = new Date(createdAtField ?? Date.now());
 
-    const updatedAtField = extractField(frontMatter, 'updatedAt');
+    const updatedAtField = extractField(frontMatter, "updatedAt");
     const updatedAt = new Date(updatedAtField ?? Date.now());
 
-    const completedAtField = extractField(frontMatter, 'completedAt');
+    const completedAtField = extractField(frontMatter, "completedAt");
     const completedAt = completedAtField
       ? new Date(completedAtField)
       : undefined;
 
     // Extract details from the description
-    const details = description.startsWith('## Details')
-      ? description.replace('## Details\n', '').trim()
+    const details = description.startsWith("## Details")
+      ? description.replace("## Details\n", "").trim()
       : undefined;
 
     return {
@@ -211,7 +212,7 @@ export function parseSubtaskContent(
       completedAt,
     };
   } catch (error) {
-    console.error('Error parsing subtask content:', error);
+    console.error("Error parsing subtask content:", error);
     return null;
   }
 }
@@ -221,7 +222,7 @@ export function parseSubtaskContent(
  */
 export function extractField(
   frontMatter: string,
-  fieldName: string
+  fieldName: string,
 ): string | null {
   const match = frontMatter.match(new RegExp(`${fieldName}:\\s*(.+)\\s*`));
   return match && match[1] ? match[1].trim() : null;
@@ -232,15 +233,15 @@ export function extractField(
  */
 export function extractArrayField(
   frontMatter: string,
-  fieldName: string
+  fieldName: string,
 ): string[] {
   const match = frontMatter.match(
-    new RegExp(`${fieldName}:\\s*\\[(.*)\\]\\s*`)
+    new RegExp(`${fieldName}:\\s*\\[(.*)\\]\\s*`),
   );
   if (!match || !match[1]) return [];
 
   return match[1]
-    .split(',')
-    .map(item => item.trim())
+    .split(",")
+    .map((item) => item.trim())
     .filter(Boolean);
 }

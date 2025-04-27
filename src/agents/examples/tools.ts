@@ -33,17 +33,17 @@
 //   maxSteps: 2,
 // });
 
-import { generateText, tool } from 'ai';
-import { openai } from '@ai-sdk/openai';
-import { z } from 'zod';
+import { openai } from "@ai-sdk/openai";
+import { generateText, tool } from "ai";
+import { z } from "zod";
 
 const result = await generateText({
-  model: openai('gpt-4-turbo'),
+  model: openai("gpt-4-turbo"),
   tools: {
     weather: tool({
-      description: 'Get the weather in a location',
+      description: "Get the weather in a location",
       parameters: z.object({
-        location: z.string().describe('The location to get the weather for'),
+        location: z.string().describe("The location to get the weather for"),
       }),
       execute: async ({ location }: { location: string }) => ({
         location,
@@ -53,11 +53,11 @@ const result = await generateText({
     cityAttractions: tool({
       parameters: z.object({ city: z.string() }),
       execute: async ({ city }: { city: string }) => {
-        if (city === 'San Francisco') {
+        if (city === "San Francisco") {
           return {
             attractions: [
-              'Golden Gate Bridge',
-              'Alcatraz Island',
+              "Golden Gate Bridge",
+              "Alcatraz Island",
               "Fisherman's Wharf",
             ],
           };
@@ -68,7 +68,7 @@ const result = await generateText({
     }),
   },
   prompt:
-    'What is the weather in San Francisco and what attractions should I visit?',
+    "What is the weather in San Francisco and what attractions should I visit?",
 });
 
 console.log(result);

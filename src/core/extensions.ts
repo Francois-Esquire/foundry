@@ -1,13 +1,13 @@
-import { EventEmitter } from 'events';
+import { EventEmitter } from "events";
 
 /**
  * Extension types supported by the framework
  */
 export enum ExtensionType {
-  TOOL = 'tool',
-  MCP = 'mcp',
-  ADAPTER = 'adapter',
-  WORKFLOW = 'workflow',
+  TOOL = "tool",
+  MCP = "mcp",
+  ADAPTER = "adapter",
+  WORKFLOW = "workflow",
 }
 
 // Force usage of enum values to prevent linter errors
@@ -99,18 +99,18 @@ export class ExtensionRegistry extends EventEmitter {
       case ExtensionType.MCP:
         this.mcpExtensions.set(
           extension.metadata.name,
-          extension as MCPExtension
+          extension as MCPExtension,
         );
         break;
       case ExtensionType.TOOL:
         this.toolExtensions.set(
           extension.metadata.name,
-          extension as ToolExtension
+          extension as ToolExtension,
         );
         break;
     }
 
-    this.emit('extension:registered', extension);
+    this.emit("extension:registered", extension);
   }
 
   /**
@@ -139,7 +139,7 @@ export class ExtensionRegistry extends EventEmitter {
         break;
     }
 
-    this.emit('extension:unregistered', extension);
+    this.emit("extension:unregistered", extension);
   }
 
   /**
@@ -147,7 +147,7 @@ export class ExtensionRegistry extends EventEmitter {
    */
   getExtensionsByType(type: ExtensionType): Extension[] {
     return Array.from(this.extensions.values()).filter(
-      ext => ext.type === type
+      (ext) => ext.type === type,
     );
   }
 

@@ -1,6 +1,7 @@
-import { ExtensionType, extensionRegistry } from '../../core/extensions';
-import type { ExtensionMetadata, ToolExtension } from '../../core/extensions';
-import { toolRegistry } from '../tools';
+import type { ExtensionMetadata, ToolExtension } from "../../core/extensions";
+
+import { extensionRegistry, ExtensionType } from "../../core/extensions";
+import { toolRegistry } from "../tools";
 
 /**
  * Example of a custom tool extension that provides a calculator functionality
@@ -9,41 +10,41 @@ export class CalculatorToolExtension implements ToolExtension {
   type: ExtensionType.TOOL = ExtensionType.TOOL;
 
   metadata: ExtensionMetadata = {
-    name: 'calculator',
+    name: "calculator",
     description:
-      'A simple calculator tool for performing basic math operations',
-    version: '1.0.0',
-    author: 'Foundry',
+      "A simple calculator tool for performing basic math operations",
+    version: "1.0.0",
+    author: "Foundry",
   };
 
   async initialize(): Promise<void> {
-    console.log('Calculator tool extension initialized');
+    console.log("Calculator tool extension initialized");
   }
 
   async teardown(): Promise<void> {
-    console.log('Calculator tool extension terminated');
+    console.log("Calculator tool extension terminated");
   }
 
   getSchema(): Record<string, any> {
     return {
-      type: 'object',
+      type: "object",
       properties: {
         operation: {
-          type: 'string',
+          type: "string",
           description:
-            'The operation to perform (add, subtract, multiply, divide)',
-          enum: ['add', 'subtract', 'multiply', 'divide'],
+            "The operation to perform (add, subtract, multiply, divide)",
+          enum: ["add", "subtract", "multiply", "divide"],
         },
         a: {
-          type: 'number',
-          description: 'First operand',
+          type: "number",
+          description: "First operand",
         },
         b: {
-          type: 'number',
-          description: 'Second operand',
+          type: "number",
+          description: "Second operand",
         },
       },
-      required: ['operation', 'a', 'b'],
+      required: ["operation", "a", "b"],
     };
   }
 
@@ -51,15 +52,15 @@ export class CalculatorToolExtension implements ToolExtension {
     const { operation, a, b } = params;
 
     switch (operation) {
-      case 'add':
+      case "add":
         return { result: a + b };
-      case 'subtract':
+      case "subtract":
         return { result: a - b };
-      case 'multiply':
+      case "multiply":
         return { result: a * b };
-      case 'divide':
+      case "divide":
         if (b === 0) {
-          throw new Error('Division by zero is not allowed');
+          throw new Error("Division by zero is not allowed");
         }
         return { result: a / b };
       default:
@@ -81,24 +82,24 @@ export async function demonstrateCalculatorTool() {
 
   // If the registry wasn't already configured with autoDiscoverMCP,
   // we would need to create a new registry with this config
-  console.log('Tool registry configuration:', autoDiscoverConfig);
+  console.log("Tool registry configuration:", autoDiscoverConfig);
 
   // Example: verify the tool is registered
-  if (toolRegistry.hasTool('calculator')) {
+  if (toolRegistry.hasTool("calculator")) {
     const params = {
-      operation: 'multiply',
+      operation: "multiply",
       a: 5,
       b: 10,
     };
 
     // Execute the tool
     try {
-      const result = await toolRegistry.executeTool('calculator', params);
-      console.log('Calculator result:', result);
+      const result = await toolRegistry.executeTool("calculator", params);
+      console.log("Calculator result:", result);
     } catch (error) {
-      console.error('Error executing calculator tool:', error);
+      console.error("Error executing calculator tool:", error);
     }
   } else {
-    console.warn('Calculator tool was not properly registered');
+    console.warn("Calculator tool was not properly registered");
   }
 }

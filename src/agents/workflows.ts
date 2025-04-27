@@ -1,31 +1,26 @@
-import { v4 as uuidv4 } from 'uuid';
-import {
-  Duplex,
-  Writable,
-  Readable,
-  Transform,
-  type TransformOptions,
-  pipeline,
-} from 'node:stream';
+import { Duplex, pipeline, Readable, Transform, Writable } from "node:stream";
 import type {
   GenerateObjectResult,
   GenerateTextResult,
   Output,
   ToolSet,
-} from 'ai';
+} from "ai";
+import type { TransformOptions } from "node:stream";
+
+import { v4 as uuidv4 } from "uuid";
 
 // --- Core Types ---
 
 export type WorkflowStatus =
-  | 'pending'
-  | 'running'
-  | 'completed'
-  | 'failed'
-  | 'cancelled';
+  | "pending"
+  | "running"
+  | "completed"
+  | "failed"
+  | "cancelled";
 
 export type WorkflowLogEntry = {
   timestamp: number; // Unix timestamp (ms)
-  type: 'info' | 'error' | 'usage' | 'tool_call' | 'sub_workflow';
+  type: "info" | "error" | "usage" | "tool_call" | "sub_workflow";
   message: string;
   details?: Record<string, any>; // For errors, tool params, usage data etc.
 };
@@ -44,9 +39,9 @@ export type WorkflowContext = Record<string, any>;
 // Result passed to the next() function
 export type WorkflowStepResult<
   T extends ToolSet = ToolSet,
-  TT = Output.Output<any, any>
+  TT = Output.Output<any, any>,
 > = {
-  status: 'success' | 'failure';
+  status: "success" | "failure";
   output?: GenerateObjectResult<T> | GenerateTextResult<T, TT> | null; // Optional data produced by the step (can be merged by manager if needed)
   error?: unknown | null; // Error message if status is failure
   usage?: TokenUsage; // Token usage from AI calls
@@ -55,11 +50,11 @@ export type WorkflowStepResult<
 // --- Lifecycle Callback Types ---
 export type OnTickCallback = (
   context: Readonly<WorkflowContext>,
-  workflow: Readonly<Workflow>
+  workflow: Readonly<Workflow>,
 ) => void;
 export type OnNextCallback = (
   workflow: Readonly<Workflow>,
-  stepResult: Readonly<WorkflowStepResult>
+  stepResult: Readonly<WorkflowStepResult>,
 ) => void;
 export type OnSuccessCallback = (workflow: Readonly<Workflow>) => void;
 export type OnErrorCallback = (workflow: Readonly<Workflow>) => void;
@@ -87,7 +82,7 @@ export interface StepExecutionContext {
   updateSharedContext(updates: Partial<WorkflowContext>): void;
 
   // Log entries specific to this workflow run
-  log(entry: Omit<WorkflowLogEntry, 'timestamp'>): void;
+  log(entry: Omit<WorkflowLogEntry, "timestamp">): void;
 
   // Function to call when the step is complete (success or failure)
   next(result: WorkflowStepResult): void;
@@ -102,7 +97,7 @@ export interface StepExecutionContext {
 
 // Function signature for a workflow step using the next() pattern
 export type WorkflowStepFunction = (
-  stepContext: StepExecutionContext // Pass the enhanced context object
+  stepContext: StepExecutionContext, // Pass the enhanced context object
 ) => Promise<void> | void; // Steps now call next(), return type less critical
 
 export interface Workflow {
@@ -150,10 +145,10 @@ class WorkflowInternalStream extends Transform {
     });
 
     // Add error handling to prevent uncaught exceptions
-    this.on('error', err => {
+    this.on("error", (err) => {
       // Just log the error but don't rethrow - it's expected in some cases
       console.log(
-        `[WorkflowStream] Error (handled internally): ${err.message}`
+        `[WorkflowStream] Error (handled internally): ${err.message}`,
       );
     });
   }
@@ -161,7 +156,7 @@ class WorkflowInternalStream extends Transform {
   _transform(
     chunk: any,
     encoding: BufferEncoding,
-    callback: (error?: Error | null, data?: any) => void
+    callback: (error?: Error | null, data?: any) => void,
   ): void {
     // Simply pass chunks through
     this.push(chunk);
@@ -185,18 +180,18 @@ export class WorkflowManager {
     ...args: Parameters<NonNullable<LifecycleCallbacks[T]>>
   ): void {
     const callback = workflow._runState?.callbacks?.[callbackName];
-    if (typeof callback === 'function') {
+    if (typeof callback === "function") {
       try {
         // Use Function.prototype.apply to pass arguments as an array
         (callback as (...args: any[]) => void).apply(null, args);
       } catch (error) {
         console.error(
           `Error executing workflow callback '${callbackName}' for workflow ${workflow.id}:`,
-          error
+          error,
         );
         // Log this as a system error within the workflow itself?
         this.log(workflow.id, {
-          type: 'error',
+          type: "error",
           message: `Error executing lifecycle callback: ${callbackName}`,
           details: { error: String(error), stack: (error as Error)?.stack },
         });
@@ -206,22 +201,22 @@ export class WorkflowManager {
 
   // Utility function to convert WorkflowStatus to a terminal status
   private toTerminalStatus(
-    status: WorkflowStatus
-  ): 'cancelled' | 'failed' | 'completed' {
+    status: WorkflowStatus,
+  ): "cancelled" | "failed" | "completed" {
     if (
-      status === 'cancelled' ||
-      status === 'failed' ||
-      status === 'completed'
+      status === "cancelled" ||
+      status === "failed" ||
+      status === "completed"
     ) {
       return status;
     }
     // Default non-terminal statuses to 'failed'
-    return 'failed';
+    return "failed";
   }
 
   private log(
     workflowId: string,
-    entry: Omit<WorkflowLogEntry, 'timestamp'>
+    entry: Omit<WorkflowLogEntry, "timestamp">,
   ): void {
     const workflow = this.workflows.get(workflowId);
     if (workflow) {
@@ -233,7 +228,7 @@ export class WorkflowManager {
       workflow.updatedAt = logEntry.timestamp;
     } else {
       console.error(
-        `Attempted to log for non-existent workflow: ${workflowId}`
+        `Attempted to log for non-existent workflow: ${workflowId}`,
       );
     }
   }
@@ -242,13 +237,13 @@ export class WorkflowManager {
   private _handleStepCompletion(
     workflowId: string,
     completedStepIndex: number,
-    result: WorkflowStepResult
+    result: WorkflowStepResult,
   ): void {
     const workflow = this.workflows.get(workflowId);
     // Ensure workflow and run state exist
     if (!workflow || !workflow._runState) {
       console.error(
-        `Cannot handle completion for inactive/unknown workflow run: ${workflowId}`
+        `Cannot handle completion for inactive/unknown workflow run: ${workflowId}`,
       );
       return;
     }
@@ -257,23 +252,23 @@ export class WorkflowManager {
 
     if (result.usage) {
       this.log(workflowId, {
-        type: 'usage',
+        type: "usage",
         message: `Token usage for step ${completedStepIndex + 1}.`,
         details: { usage: result.usage },
       });
       // Tick after usage log
-      this._invokeCallback(workflow, 'onTick', workflow.context, workflow);
+      this._invokeCallback(workflow, "onTick", workflow.context, workflow);
     }
 
-    if (result.status === 'success') {
+    if (result.status === "success") {
       this.log(workflowId, {
-        type: 'info',
+        type: "info",
         message: `Step ${completedStepIndex + 1} reported success.`,
       });
       // Tick after step success log
-      this._invokeCallback(workflow, 'onTick', workflow.context, workflow);
+      this._invokeCallback(workflow, "onTick", workflow.context, workflow);
       // Invoke onNext callback *before* proceeding
-      this._invokeCallback(workflow, 'onNext', workflow, result);
+      this._invokeCallback(workflow, "onNext", workflow, result);
 
       // Proceed to the next step
       const nextStepIndex = completedStepIndex + 1;
@@ -282,23 +277,23 @@ export class WorkflowManager {
       this._executeStep(workflowId, nextStepIndex);
     } else {
       // Step reported failure
-      workflow.status = 'failed';
+      workflow.status = "failed";
       workflow.error =
-        result.error || 'Step failed without specific error message.';
+        result.error || "Step failed without specific error message.";
       this.log(workflowId, {
-        type: 'error',
+        type: "error",
         message: `Step ${completedStepIndex + 1} reported failure: ${
           workflow.error
         }`,
         details: { error: result.error },
       });
       // Invoke onError callback
-      this._invokeCallback(workflow, 'onError', workflow);
+      this._invokeCallback(workflow, "onError", workflow);
       // End the internal stream with error - create error with full message
       if (!workflow._runState.internalStream.destroyed) {
         const errorWithFullMessage = new Error(workflow.error as string);
         // Add custom property to help with identification/debugging
-        Object.defineProperty(errorWithFullMessage, 'workflowError', {
+        Object.defineProperty(errorWithFullMessage, "workflowError", {
           value: true,
           enumerable: true,
         });
@@ -316,11 +311,11 @@ export class WorkflowManager {
     if (!workflow || !workflow._runState) {
       // Check _runState existence
       console.error(
-        `Cannot execute step for inactive/unknown/unprepared workflow run: ${workflowId}`
+        `Cannot execute step for inactive/unknown/unprepared workflow run: ${workflowId}`,
       );
       workflow?._runState?.completionPromise?.reject(
         // Reject if possible
-        new Error(`Workflow run state inconsistent during execution.`)
+        new Error(`Workflow run state inconsistent during execution.`),
       );
       return;
     }
@@ -330,21 +325,21 @@ export class WorkflowManager {
 
     // Helper to terminate run and resolve promise
     const terminateRun = (
-      finalStatus: 'cancelled' | 'failed' | 'completed',
-      error?: Error
+      finalStatus: "cancelled" | "failed" | "completed",
+      error?: Error,
     ) => {
-      if (workflow.status === 'running') {
+      if (workflow.status === "running") {
         // Only update status and invoke callbacks if we're transitioning from running
         workflow.status = finalStatus; // Update status
 
         // Invoke appropriate callback based on intended final status
         // but only when we're changing state from running
-        if (finalStatus === 'cancelled')
-          this._invokeCallback(workflow, 'onCancel', workflow);
-        else if (finalStatus === 'failed')
-          this._invokeCallback(workflow, 'onError', workflow);
-        else if (finalStatus === 'completed')
-          this._invokeCallback(workflow, 'onSuccess', workflow);
+        if (finalStatus === "cancelled")
+          this._invokeCallback(workflow, "onCancel", workflow);
+        else if (finalStatus === "failed")
+          this._invokeCallback(workflow, "onError", workflow);
+        else if (finalStatus === "completed")
+          this._invokeCallback(workflow, "onSuccess", workflow);
       }
 
       // Always handle the stream and resolve promise, regardless of previous state
@@ -359,7 +354,7 @@ export class WorkflowManager {
         } catch (err) {
           // Log but swallow any errors during stream destruction
           console.log(
-            `[WorkflowManager] Error during stream termination: ${err}`
+            `[WorkflowManager] Error during stream termination: ${err}`,
           );
         }
       }
@@ -368,56 +363,56 @@ export class WorkflowManager {
     };
 
     // Check overall workflow status before proceeding
-    if (workflow.status !== 'running') {
+    if (workflow.status !== "running") {
       this.log(workflowId, {
-        type: 'info',
+        type: "info",
         message: `Workflow execution halt. Status: ${workflow.status}.`,
       });
-      if (workflow.status === 'cancelled' && !signal.aborted)
+      if (workflow.status === "cancelled" && !signal.aborted)
         abortController.abort();
 
       // Handle each terminal state explicitly to satisfy TypeScript
-      if (workflow.status === 'cancelled') {
-        terminateRun('cancelled', new Error('Workflow cancelled'));
-      } else if (workflow.status === 'failed') {
+      if (workflow.status === "cancelled") {
+        terminateRun("cancelled", new Error("Workflow cancelled"));
+      } else if (workflow.status === "failed") {
         terminateRun(
-          'failed',
-          new Error((workflow.error as Error)?.message || 'Workflow failed')
+          "failed",
+          new Error((workflow.error as Error)?.message || "Workflow failed"),
         );
-      } else if (workflow.status === 'completed') {
-        terminateRun('completed');
+      } else if (workflow.status === "completed") {
+        terminateRun("completed");
       } else {
         // For 'pending' - should not normally happen, but handle it
-        workflow.status = 'failed';
-        const error = new Error('Invalid workflow state transition');
+        workflow.status = "failed";
+        const error = new Error("Invalid workflow state transition");
         workflow.error = error.message;
-        terminateRun('failed', error);
+        terminateRun("failed", error);
       }
       return;
     }
 
     if (signal.aborted) {
       this.log(workflowId, {
-        type: 'info',
+        type: "info",
         message: `Workflow run aborted before executing step ${stepIndex + 1}.`,
       });
-      workflow.status = 'cancelled'; // Ensure status reflects cancellation
-      this._invokeCallback(workflow, 'onCancel', workflow); // Invoke cancel callback *here*
-      terminateRun('cancelled', new Error('Workflow aborted'));
+      workflow.status = "cancelled"; // Ensure status reflects cancellation
+      this._invokeCallback(workflow, "onCancel", workflow); // Invoke cancel callback *here*
+      terminateRun("cancelled", new Error("Workflow aborted"));
       return;
     }
 
     // Check if we've completed all steps
     if (stepIndex >= workflow.steps.length) {
-      workflow.status = 'completed';
+      workflow.status = "completed";
       workflow.result = workflow.context;
       workflow.updatedAt = Date.now();
       this.log(workflowId, {
-        type: 'info',
-        message: 'Workflow completed all steps successfully.',
+        type: "info",
+        message: "Workflow completed all steps successfully.",
       });
-      this._invokeCallback(workflow, 'onSuccess', workflow); // Invoke success callback
-      terminateRun('completed');
+      this._invokeCallback(workflow, "onSuccess", workflow); // Invoke success callback
+      terminateRun("completed");
       return;
     }
 
@@ -425,60 +420,60 @@ export class WorkflowManager {
     const stepFunction = workflow.steps[stepIndex];
 
     if (!stepFunction) {
-      workflow.status = 'failed';
+      workflow.status = "failed";
       workflow.error = `Internal error: Step function at index ${stepIndex} is undefined.`;
       workflow.updatedAt = Date.now();
       this.log(workflowId, {
-        type: 'error',
-        message: (workflow.error as Error)?.message || 'Workflow failed',
+        type: "error",
+        message: (workflow.error as Error)?.message || "Workflow failed",
       });
-      this._invokeCallback(workflow, 'onError', workflow); // Invoke error callback
+      this._invokeCallback(workflow, "onError", workflow); // Invoke error callback
       terminateRun(
-        'failed',
-        new Error((workflow.error as Error)?.message || 'Workflow failed')
+        "failed",
+        new Error((workflow.error as Error)?.message || "Workflow failed"),
       );
       return;
     }
 
     this.log(workflowId, {
-      type: 'info',
+      type: "info",
       message: `Executing step ${stepIndex + 1}/${workflow.steps.length}...`,
     });
     // Tick when starting a step
-    this._invokeCallback(workflow, 'onTick', workflow.context, workflow);
+    this._invokeCallback(workflow, "onTick", workflow.context, workflow);
 
     // Create the execution context for the step
     const stepContext: StepExecutionContext = {
       sharedContext: Object.freeze({ ...workflow.context }),
       updateSharedContext: (updates: Partial<WorkflowContext>) => {
-        if (workflow.status === 'running') {
+        if (workflow.status === "running") {
           Object.assign(workflow.context, updates);
           workflow.updatedAt = Date.now();
           // Tick after context update
-          this._invokeCallback(workflow, 'onTick', workflow.context, workflow);
+          this._invokeCallback(workflow, "onTick", workflow.context, workflow);
         } else {
           this.log(workflowId, {
-            type: 'info',
+            type: "info",
             message: `Ignoring context update in non-running state (${workflow.status})`,
           });
         }
       },
-      log: (entry: Omit<WorkflowLogEntry, 'timestamp'>) => {
+      log: (entry: Omit<WorkflowLogEntry, "timestamp">) => {
         this.log(workflowId, entry);
       },
       next: (result: WorkflowStepResult) => {
         // Check signal and status before processing next()
-        if (!signal.aborted && workflow.status === 'running') {
+        if (!signal.aborted && workflow.status === "running") {
           setTimeout(
             () => this._handleStepCompletion(workflowId, stepIndex, result),
-            0
+            0,
           );
         } else {
           const reason = signal.aborted
-            ? 'abort signal'
+            ? "abort signal"
             : `non-running state (${workflow.status})`;
           this.log(workflowId, {
-            type: 'info',
+            type: "info",
             message: `Ignoring next() call due to ${reason} for step ${
               stepIndex + 1
             }`,
@@ -488,7 +483,7 @@ export class WorkflowManager {
             terminateRun(
               // Use utility function to convert any status to a valid terminal status
               this.toTerminalStatus(workflow.status),
-              new Error(`Workflow ended due to ${reason}`)
+              new Error(`Workflow ended due to ${reason}`),
             );
           }
         }
@@ -502,14 +497,14 @@ export class WorkflowManager {
       if (signal.aborted) {
         // Re-check signal just before execution
         this.log(workflowId, {
-          type: 'info',
+          type: "info",
           message: `Workflow run aborted just before calling step ${
             stepIndex + 1
           }.`,
         });
-        workflow.status = 'cancelled';
-        this._invokeCallback(workflow, 'onCancel', workflow);
-        terminateRun('cancelled', new Error('Workflow aborted'));
+        workflow.status = "cancelled";
+        this._invokeCallback(workflow, "onCancel", workflow);
+        terminateRun("cancelled", new Error("Workflow aborted"));
         return;
       }
 
@@ -522,7 +517,7 @@ export class WorkflowManager {
           if (!signal.aborted) {
             // Process error only if not aborted
             this.log(workflowId, {
-              type: 'error',
+              type: "error",
               // Generic message for errors caught via promise rejection
               message: `Error in async step ${
                 stepIndex + 1
@@ -531,22 +526,22 @@ export class WorkflowManager {
             });
             // Use the step's next() mechanism to report failure correctly
             stepContext.next({
-              status: 'failure',
+              status: "failure",
               // Pass the specific error message
               error: `Error in async step: ${error?.message || String(error)}`,
             });
           } else {
             this.log(workflowId, {
-              type: 'info',
+              type: "info",
               message: `Caught async error in step ${
                 stepIndex + 1
               } but workflow was already aborted.`,
             });
             // Ensure workflow terminates correctly
-            if (workflow.status === 'running' && workflow._runState) {
-              workflow.status = 'cancelled';
+            if (workflow.status === "running" && workflow._runState) {
+              workflow.status = "cancelled";
               // No duplicate onCancel call here, let the main checks handle it
-              terminateRun('cancelled', new Error('Workflow aborted'));
+              terminateRun("cancelled", new Error("Workflow aborted"));
             }
           }
         });
@@ -558,7 +553,7 @@ export class WorkflowManager {
         // Process error only if not aborted
         // This block catches synchronous errors thrown *directly* by stepFunction call.
         this.log(workflowId, {
-          type: 'error',
+          type: "error",
           message: `Synchronous error during step ${stepIndex + 1} execution: ${
             error?.message || String(error)
           }`,
@@ -566,22 +561,22 @@ export class WorkflowManager {
         });
         // Use the step's next() mechanism to report failure correctly
         stepContext.next({
-          status: 'failure',
+          status: "failure",
           error: `Synchronous error in step: ${
             error?.message || String(error)
           }`,
         });
       } else {
         this.log(workflowId, {
-          type: 'info',
+          type: "info",
           message: `Caught sync error in step ${
             stepIndex + 1
           } but workflow was already aborted.`,
         });
         // Ensure workflow terminates correctly
-        if (workflow.status === 'running' && workflow._runState) {
-          workflow.status = 'cancelled';
-          terminateRun('cancelled', new Error('Workflow aborted'));
+        if (workflow.status === "running" && workflow._runState) {
+          workflow.status = "cancelled";
+          terminateRun("cancelled", new Error("Workflow aborted"));
         }
       }
     }
@@ -590,7 +585,7 @@ export class WorkflowManager {
   createWorkflow(
     steps: WorkflowStepFunction[],
     initialContext: WorkflowContext = {},
-    options?: { name?: string } // Optional: Add workflow name on creation
+    options?: { name?: string }, // Optional: Add workflow name on creation
   ): Workflow {
     const workflowId = uuidv4();
     const now = Date.now();
@@ -606,7 +601,7 @@ export class WorkflowManager {
         !this.workflows.get(workflowId)?._runState
       ) {
         console.warn(
-          `Cannot pipe from workflow ${workflowId}: not running or no run state`
+          `Cannot pipe from workflow ${workflowId}: not running or no run state`,
         );
         return destination;
       }
@@ -614,7 +609,7 @@ export class WorkflowManager {
       const workflow = this.workflows.get(workflowId)!;
 
       // Setup the pipeline from the internal stream to the destination
-      pipeline(workflow._runState!.internalStream, destination, err => {
+      pipeline(workflow._runState!.internalStream, destination, (err) => {
         if (err) {
           console.error(`Pipeline error in workflow ${workflowId}:`, err);
         }
@@ -626,7 +621,7 @@ export class WorkflowManager {
     const newWorkflow: Workflow = {
       id: workflowId,
       name: options?.name,
-      status: 'pending',
+      status: "pending",
       steps,
       currentStepIndex: 0,
       context: { ...initialContext },
@@ -638,7 +633,7 @@ export class WorkflowManager {
     };
     this.workflows.set(workflowId, newWorkflow);
     this.log(workflowId, {
-      type: 'info',
+      type: "info",
       message: `Workflow '${options?.name || workflowId}' created.`,
     });
 
@@ -652,7 +647,7 @@ export class WorkflowManager {
   // Updated runWorkflow signature returns RunWorkflowResult
   runWorkflow(
     workflowId: string,
-    options?: RunWorkflowOptions
+    options?: RunWorkflowOptions,
   ): RunWorkflowResult {
     const workflow = this.workflows.get(workflowId);
 
@@ -661,9 +656,9 @@ export class WorkflowManager {
     }
 
     // Check if already actively running
-    if (workflow._runState && workflow.status === 'running') {
+    if (workflow._runState && workflow.status === "running") {
       this.log(workflowId, {
-        type: 'info',
+        type: "info",
         message: `Workflow run already in progress. Returning existing workflow.`,
       });
       return {
@@ -674,12 +669,12 @@ export class WorkflowManager {
 
     // Prevent starting a new run if already in a terminal state
     if (
-      workflow.status === 'completed' ||
-      workflow.status === 'failed' ||
-      workflow.status === 'cancelled'
+      workflow.status === "completed" ||
+      workflow.status === "failed" ||
+      workflow.status === "cancelled"
     ) {
       this.log(workflowId, {
-        type: 'info',
+        type: "info",
         message: `Workflow already in terminal status: ${workflow.status}. Cannot run again without reset.`,
       });
       // Return the workflow in its current state
@@ -702,7 +697,7 @@ export class WorkflowManager {
     const internalStream = new WorkflowInternalStream();
 
     // Reset state
-    workflow.status = 'running';
+    workflow.status = "running";
     workflow.currentStepIndex = 0;
     workflow.error = undefined;
     workflow.result = undefined;
@@ -720,7 +715,7 @@ export class WorkflowManager {
       internalStream, // Store the internal stream
     };
 
-    this.log(workflowId, { type: 'info', message: 'Workflow run initiated.' });
+    this.log(workflowId, { type: "info", message: "Workflow run initiated." });
 
     // Start the first step
     this._executeStep(workflowId, 0);
@@ -738,21 +733,21 @@ export class WorkflowManager {
       return false;
     }
 
-    if (workflow.status === 'running' || workflow.status === 'pending') {
+    if (workflow.status === "running" || workflow.status === "pending") {
       const oldStatus = workflow.status;
-      workflow.status = 'cancelled';
+      workflow.status = "cancelled";
       workflow.updatedAt = Date.now();
       this.log(workflowId, {
-        type: 'info',
+        type: "info",
         message: `Workflow cancellation requested (was ${oldStatus}).`,
       });
 
-      this._invokeCallback(workflow, 'onCancel', workflow); // Can invoke lifecycle callback
+      this._invokeCallback(workflow, "onCancel", workflow); // Can invoke lifecycle callback
 
-      if (oldStatus === 'running' && workflow._runState) {
+      if (oldStatus === "running" && workflow._runState) {
         this.log(workflowId, {
-          type: 'info',
-          message: 'Aborting controller and destroying stream.',
+          type: "info",
+          message: "Aborting controller and destroying stream.",
         });
         // Abort signal first to stop processing
         workflow._runState.abortController.abort();
@@ -761,12 +756,12 @@ export class WorkflowManager {
         if (!workflow._runState.internalStream.destroyed) {
           try {
             workflow._runState.internalStream.destroy(
-              new Error('Workflow cancelled')
+              new Error("Workflow cancelled"),
             );
           } catch (err) {
             // Swallow any errors during destruction - they're expected in test scenarios
             console.log(
-              `[WorkflowManager] Error during stream destruction in cancel: ${err}`
+              `[WorkflowManager] Error during stream destruction in cancel: ${err}`,
             );
           }
         }
@@ -775,7 +770,7 @@ export class WorkflowManager {
       return true;
     } else {
       this.log(workflowId, {
-        type: 'info',
+        type: "info",
         message: `Cannot cancel workflow already in status: ${workflow.status}.`,
       });
       return false;

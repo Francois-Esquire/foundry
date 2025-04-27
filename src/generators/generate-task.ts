@@ -1,8 +1,12 @@
-import { v4 as uuidv4 } from 'uuid';
-import type { Task, TaskInput, TaskStatus } from '../core/task-manager';
-import { formatTaskContent } from './task-formatters';
-import type { LanguageModel } from 'ai';
-import { generateText } from 'ai';
+import type { LanguageModel } from "ai";
+
+import { generateText } from "ai";
+import { v4 as uuidv4 } from "uuid";
+
+import type { Task, TaskInput, TaskStatus } from "../core/task-manager";
+
+import { formatTaskContent } from "./task-formatters";
+
 /**
  * Creates a new task from task input
  *
@@ -13,7 +17,7 @@ import { generateText } from 'ai';
 export async function createTask(
   agent: LanguageModel,
   taskInput: TaskInput,
-  defaultStatus: TaskStatus
+  defaultStatus: TaskStatus,
 ): Promise<{ task: Task; content: string }> {
   // Generate task ID
   const id = uuidv4();
@@ -24,7 +28,7 @@ export async function createTask(
     title: taskInput.title,
     description: taskInput.description,
     status: taskInput.status || defaultStatus,
-    priority: taskInput.priority || 'medium',
+    priority: taskInput.priority || "medium",
     details: taskInput.details,
     testStrategy: taskInput.testStrategy,
     dependencies: taskInput.dependencies || [],
@@ -52,7 +56,7 @@ export async function createTask(
 export async function updateTask(
   agent: LanguageModel,
   task: Task,
-  updates: Partial<TaskInput>
+  updates: Partial<TaskInput>,
 ): Promise<{ task: Task; content: string }> {
   // Update task fields
   if (updates.title !== undefined) task.title = updates.title;
@@ -87,7 +91,7 @@ export async function updateTask(
 export async function setTaskStatus(
   agent: LanguageModel,
   task: Task,
-  status: TaskStatus
+  status: TaskStatus,
 ): Promise<{ task: Task; content: string }> {
   // Update task status
   task.status = status;

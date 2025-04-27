@@ -1,31 +1,30 @@
 // Core library exports
-import { type Adapter } from '../adapters/types';
-import { type ServiceRegistry, ServiceRegistryImpl } from './registry';
+import type { CommandProcessor } from "../consumers/command-processor";
+import type { DocumentGenerator } from "../generators/generator";
+import type {
+  Extension,
+  ExtensionMetadata,
+  MCPExtension,
+  MCPExtensionConfig,
+  ToolExtension,
+} from "./extensions";
+import type { FoundryLibraryInterface, FoundryLibraryOptions } from "./foundry";
+import type { ServiceRegistry } from "./registry";
+import type { TaskManager } from "./task-manager";
+import type { WorkflowEngine } from "./workflow-engine";
+
+import { type Adapter } from "../adapters/types";
+import { CommandProcessorImpl } from "../consumers/command-processor";
+import { DocumentGeneratorImpl } from "../generators/generator";
 import {
-  type CommandProcessor,
-  CommandProcessorImpl,
-} from '../consumers/command-processor';
-import { type WorkflowEngine, WorkflowEngineImpl } from './workflow-engine';
-import { type TaskManager, TaskManagerImpl } from './task-manager';
-import {
-  type DocumentGenerator,
-  DocumentGeneratorImpl,
-} from '../generators/generator';
-import {
-  FoundryLibrary,
-  type FoundryLibraryOptions,
-  type FoundryLibraryInterface,
-} from './foundry';
-import {
-  type Extension,
-  type ExtensionMetadata,
-  type MCPExtension,
-  type MCPExtensionConfig,
-  type ToolExtension,
   ExtensionRegistry,
-  ExtensionType,
   extensionRegistry,
-} from './extensions';
+  ExtensionType,
+} from "./extensions";
+import { FoundryLibrary } from "./foundry";
+import { ServiceRegistryImpl } from "./registry";
+import { TaskManagerImpl } from "./task-manager";
+import { WorkflowEngineImpl } from "./workflow-engine";
 
 // Re-export core types
 export type {

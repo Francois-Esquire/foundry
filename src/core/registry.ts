@@ -1,6 +1,6 @@
-import type { Provider } from 'ai';
+import type { Provider } from "ai";
 
-import type { Adapter } from '../adapters/types';
+import type { Adapter } from "../adapters/types";
 
 export interface HealthStatus {
   healthy: boolean;
@@ -37,9 +37,9 @@ export class ServiceRegistryImpl implements ServiceRegistry {
 
   lock(): void {
     [
-      ['adapters', ...this.adapters.keys()],
-      ['agents', ...this.agents.keys()],
-      ['services', ...this.services.keys()],
+      ["adapters", ...this.adapters.keys()],
+      ["agents", ...this.agents.keys()],
+      ["services", ...this.services.keys()],
     ].forEach(([key, value]) => {
       this.internalKeys.add(`${key}:${value}`);
     });
@@ -48,21 +48,21 @@ export class ServiceRegistryImpl implements ServiceRegistry {
 
   registerAdapter(name: string, adapter: Adapter): void {
     if (this.locked && this.internalKeys.has(`adapters:${name}`)) {
-      throw new Error('Adapter already registered');
+      throw new Error("Adapter already registered");
     }
     this.adapters.set(name, adapter);
   }
 
   registerAgent(name: string, agent: Provider): void {
     if (this.locked && this.internalKeys.has(`agents:${name}`)) {
-      throw new Error('Agent already registered');
+      throw new Error("Agent already registered");
     }
     this.agents.set(name, agent);
   }
 
   registerService<T>(name: string, service: T): void {
     if (this.locked && this.internalKeys.has(`services:${name}`)) {
-      throw new Error('Service already registered');
+      throw new Error("Service already registered");
     }
     this.services.set(name, service);
   }
@@ -99,7 +99,7 @@ export class ServiceRegistryImpl implements ServiceRegistry {
     for (const [name, adapter] of this.adapters.entries()) {
       try {
         // Basic health check - try to list root directory
-        await adapter.list('/');
+        await adapter.list("/");
       } catch (error) {
         healthy = false;
         issues[`adapter:${name}`] = (error as Error).message;

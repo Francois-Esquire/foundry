@@ -1,6 +1,5 @@
-import { validateInitialConfig } from '../../helpers/errors';
-
-import server from './server';
+import { validateInitialConfig } from "../../helpers/errors";
+import server from "./server";
 
 // Start the server if this file is being run directly
 if (import.meta.main) {

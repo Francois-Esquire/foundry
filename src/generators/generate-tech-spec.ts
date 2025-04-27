@@ -1,7 +1,9 @@
-import { v4 as uuidv4 } from 'uuid';
-import { DocumentType } from './generator';
-import type { LanguageModel } from 'ai';
-import { generateText } from 'ai';
+import type { LanguageModel } from "ai";
+
+import { generateText } from "ai";
+import { v4 as uuidv4 } from "uuid";
+
+import { DocumentType } from "./generator";
 
 // Technical specification options
 export interface TechSpecOptions {
@@ -35,7 +37,7 @@ export interface TechSpecDocument {
 export async function generateTechSpec(
   agent: LanguageModel,
   requirements: string,
-  options?: TechSpecOptions
+  options?: TechSpecOptions,
 ): Promise<TechSpecDocument> {
   // Prepare the prompt for technical specification generation
   const prompt = prepareTechSpecPrompt(requirements, options);
@@ -68,22 +70,22 @@ export async function generateTechSpec(
  */
 function prepareTechSpecPrompt(
   requirements: string,
-  options?: TechSpecOptions
+  options?: TechSpecOptions,
 ): string {
   let prompt = `Generate a detailed Technical Specification based on the following requirements: "${requirements}".\n\n`;
 
-  prompt += 'Include the following sections:\n';
-  prompt += '1. Overview and Goals\n';
-  prompt += '2. System Requirements\n';
-  prompt += '3. Dependencies\n';
-  prompt += '4. Technical Implementation Details\n';
+  prompt += "Include the following sections:\n";
+  prompt += "1. Overview and Goals\n";
+  prompt += "2. System Requirements\n";
+  prompt += "3. Dependencies\n";
+  prompt += "4. Technical Implementation Details\n";
 
   if (options?.includeArchitecture) {
-    prompt += '5. Architecture Design\n';
+    prompt += "5. Architecture Design\n";
   }
 
   if (options?.includeAPISpec) {
-    prompt += `${options.includeArchitecture ? '6' : '5'}. API Specification\n`;
+    prompt += `${options.includeArchitecture ? "6" : "5"}. API Specification\n`;
   }
 
   if (options?.includeSecurityConsiderations) {
@@ -95,7 +97,7 @@ function prepareTechSpecPrompt(
   }
 
   prompt +=
-    '\nFormat the document using Markdown syntax. Be specific, technically accurate, and implementation-focused.';
+    "\nFormat the document using Markdown syntax. Be specific, technically accurate, and implementation-focused.";
 
   return prompt;
 }

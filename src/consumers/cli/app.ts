@@ -1,4 +1,4 @@
-import { helpers, termost } from 'termost';
+import { helpers, termost } from "termost";
 
 // Define our context type to hold state and options
 type ProductContext = {
@@ -40,14 +40,14 @@ interface ProductPlan {
 export function createProductManagerApp() {
   // Initialize program with context
   const program = termost<ProductContext>({
-    name: 'product-manager',
-    description: 'A CLI tool for managing product documentation and plans',
-    version: '1.0.0',
+    name: "product-manager",
+    description: "A CLI tool for managing product documentation and plans",
+    version: "1.0.0",
     onException(error) {
       console.error(`Error: ${error.message}`);
     },
     onShutdown() {
-      console.log('Product Manager CLI has been shut down.');
+      console.log("Product Manager CLI has been shut down.");
     },
   });
 
@@ -69,31 +69,31 @@ function addCommands(program: ReturnType<typeof termost<ProductContext>>) {
   // Create a new product
   program
     .command({
-      name: 'create',
-      description: 'Create a new product',
+      name: "create",
+      description: "Create a new product",
     })
     .option({
-      key: 'prompt',
-      name: 'prompt',
-      description: 'Product concept prompt',
+      key: "prompt",
+      name: "prompt",
+      description: "Product concept prompt",
     })
     .option({
-      key: 'name',
-      name: 'name',
-      description: 'Product name',
+      key: "name",
+      name: "name",
+      description: "Product name",
     })
     .task({
       async handler(context) {
         const { prompt, name } = context;
 
         if (!prompt) {
-          helpers.message('Error: Product prompt is required', {
-            type: 'error',
+          helpers.message("Error: Product prompt is required", {
+            type: "error",
           });
           return;
         }
 
-        helpers.message('Creating a new product...', { type: 'information' });
+        helpers.message("Creating a new product...", { type: "information" });
 
         // Initialize products array if needed
         if (!context.products) {
@@ -121,7 +121,7 @@ function addCommands(program: ReturnType<typeof termost<ProductContext>>) {
         context.currentProduct = product;
 
         helpers.message(`Product "${productName}" created successfully!`, {
-          type: 'success',
+          type: "success",
         });
 
         // Generate initial documentation based on prompt
@@ -132,14 +132,14 @@ function addCommands(program: ReturnType<typeof termost<ProductContext>>) {
   // List all products
   program
     .command({
-      name: 'list',
-      description: 'List all products',
+      name: "list",
+      description: "List all products",
     })
     .option({
-      key: 'format',
-      name: 'format',
-      description: 'Output format (json, table)',
-      defaultValue: 'table',
+      key: "format",
+      name: "format",
+      description: "Output format (json, table)",
+      defaultValue: "table",
     })
     .task({
       handler(context) {
@@ -151,24 +151,24 @@ function addCommands(program: ReturnType<typeof termost<ProductContext>>) {
         }
 
         if (context.products.length === 0) {
-          helpers.message('No products found.', { type: 'warning' });
+          helpers.message("No products found.", { type: "warning" });
           return;
         }
 
         helpers.message(`Found ${context.products.length} products:`, {
-          type: 'information',
+          type: "information",
         });
 
-        if (format === 'json') {
+        if (format === "json") {
           console.log(JSON.stringify(context.products, null, 2));
         } else {
           // Display as table
-          const table = context.products.map(product => ({
+          const table = context.products.map((product) => ({
             ID: product.id.substring(0, 8),
             Name: product.name,
             Description:
               product.description.substring(0, 50) +
-              (product.description.length > 50 ? '...' : ''),
+              (product.description.length > 50 ? "..." : ""),
             Created: product.createdAt.toLocaleDateString(),
           }));
 
@@ -180,13 +180,13 @@ function addCommands(program: ReturnType<typeof termost<ProductContext>>) {
   // Select a product to work with
   program
     .command({
-      name: 'select',
-      description: 'Select a product to work with',
+      name: "select",
+      description: "Select a product to work with",
     })
     .option({
-      key: 'id',
-      name: 'id',
-      description: 'Product ID',
+      key: "id",
+      name: "id",
+      description: "Product ID",
     })
     .task({
       handler(context) {
@@ -198,24 +198,24 @@ function addCommands(program: ReturnType<typeof termost<ProductContext>>) {
         }
 
         if (!id) {
-          helpers.message('Error: Product ID is required', { type: 'error' });
+          helpers.message("Error: Product ID is required", { type: "error" });
           return;
         }
 
         const product = context.products.find(
-          p => p.id === id || p.id.startsWith(id)
+          (p) => p.id === id || p.id.startsWith(id),
         );
 
         if (!product) {
           helpers.message(`Product with ID "${id}" not found.`, {
-            type: 'error',
+            type: "error",
           });
           return;
         }
 
         context.currentProduct = product;
         helpers.message(`Selected product: ${product.name}`, {
-          type: 'success',
+          type: "success",
         });
       },
     });
@@ -223,13 +223,13 @@ function addCommands(program: ReturnType<typeof termost<ProductContext>>) {
   // Generate user journey
   program
     .command({
-      name: 'generate-journey',
-      description: 'Generate user journey documentation',
+      name: "generate-journey",
+      description: "Generate user journey documentation",
     })
     .option({
-      key: 'prompt',
-      name: 'prompt',
-      description: 'Additional context for the user journey',
+      key: "prompt",
+      name: "prompt",
+      description: "Additional context for the user journey",
     })
     .task({
       async handler(context) {
@@ -239,30 +239,30 @@ function addCommands(program: ReturnType<typeof termost<ProductContext>>) {
         if (!currentProduct) {
           helpers.message(
             'No product selected. Use the "select" command first.',
-            { type: 'error' }
+            { type: "error" },
           );
           return;
         }
 
         helpers.message(
           `Generating user journey for "${currentProduct.name}"...`,
-          { type: 'information' }
+          { type: "information" },
         );
 
         // Here we would integrate with an AI to generate the journey
         const journey = [
-          'User discovers the product through marketing',
-          'User signs up for a free trial',
-          'User explores key features',
-          'User converts to paid plan',
-          'User becomes a power user and advocate',
+          "User discovers the product through marketing",
+          "User signs up for a free trial",
+          "User explores key features",
+          "User converts to paid plan",
+          "User becomes a power user and advocate",
         ];
 
         currentProduct.userJourney = journey;
         currentProduct.updatedAt = new Date();
 
-        helpers.message('User journey generated successfully!', {
-          type: 'success',
+        helpers.message("User journey generated successfully!", {
+          type: "success",
         });
         journey.forEach((step, index) => {
           console.log(`${index + 1}. ${step}`);
@@ -273,13 +273,13 @@ function addCommands(program: ReturnType<typeof termost<ProductContext>>) {
   // Generate systems documentation
   program
     .command({
-      name: 'generate-systems',
-      description: 'Generate systems documentation',
+      name: "generate-systems",
+      description: "Generate systems documentation",
     })
     .option({
-      key: 'prompt',
-      name: 'prompt',
-      description: 'Additional context for the systems documentation',
+      key: "prompt",
+      name: "prompt",
+      description: "Additional context for the systems documentation",
     })
     .task({
       async handler(context) {
@@ -289,30 +289,30 @@ function addCommands(program: ReturnType<typeof termost<ProductContext>>) {
         if (!currentProduct) {
           helpers.message(
             'No product selected. Use the "select" command first.',
-            { type: 'error' }
+            { type: "error" },
           );
           return;
         }
 
         helpers.message(
           `Generating systems documentation for "${currentProduct.name}"...`,
-          { type: 'information' }
+          { type: "information" },
         );
 
         // Here we would integrate with an AI to generate the systems docs
         const systems = [
-          'Authentication system: Handles user login and session management',
-          'Payment system: Processes subscriptions and payments',
-          'Content management system: Manages product content and assets',
-          'Analytics system: Tracks user behavior and product usage',
-          'Notification system: Sends alerts and communications to users',
+          "Authentication system: Handles user login and session management",
+          "Payment system: Processes subscriptions and payments",
+          "Content management system: Manages product content and assets",
+          "Analytics system: Tracks user behavior and product usage",
+          "Notification system: Sends alerts and communications to users",
         ];
 
         currentProduct.systems = systems;
         currentProduct.updatedAt = new Date();
 
-        helpers.message('Systems documentation generated successfully!', {
-          type: 'success',
+        helpers.message("Systems documentation generated successfully!", {
+          type: "success",
         });
         systems.forEach((system, index) => {
           console.log(`${index + 1}. ${system}`);
@@ -323,19 +323,19 @@ function addCommands(program: ReturnType<typeof termost<ProductContext>>) {
   // Generate product plan
   program
     .command({
-      name: 'generate-plan',
-      description: 'Generate a product development plan',
+      name: "generate-plan",
+      description: "Generate a product development plan",
     })
     .option({
-      key: 'prompt',
-      name: 'prompt',
-      description: 'Additional context for the product plan',
+      key: "prompt",
+      name: "prompt",
+      description: "Additional context for the product plan",
     })
     .option({
-      key: 'name',
-      name: 'name',
-      description: 'Plan name',
-      defaultValue: 'Development Plan',
+      key: "name",
+      name: "name",
+      description: "Plan name",
+      defaultValue: "Development Plan",
     })
     .task({
       async handler(context) {
@@ -345,14 +345,14 @@ function addCommands(program: ReturnType<typeof termost<ProductContext>>) {
         if (!currentProduct) {
           helpers.message(
             'No product selected. Use the "select" command first.',
-            { type: 'error' }
+            { type: "error" },
           );
           return;
         }
 
         helpers.message(
           `Generating product plan for "${currentProduct.name}"...`,
-          { type: 'information' }
+          { type: "information" },
         );
 
         // Here we would integrate with an AI to generate the plan
@@ -361,11 +361,11 @@ function addCommands(program: ReturnType<typeof termost<ProductContext>>) {
           title: name,
           description: `Development plan for ${currentProduct.name}`,
           steps: [
-            'Phase 1: Research and validation',
-            'Phase 2: MVP development',
-            'Phase 3: Beta testing',
-            'Phase 4: Public launch',
-            'Phase 5: Iteration and improvement',
+            "Phase 1: Research and validation",
+            "Phase 2: MVP development",
+            "Phase 3: Beta testing",
+            "Phase 4: Public launch",
+            "Phase 5: Iteration and improvement",
           ],
           createdAt: new Date(),
         };
@@ -377,12 +377,12 @@ function addCommands(program: ReturnType<typeof termost<ProductContext>>) {
         currentProduct.plans.push(plan);
         currentProduct.updatedAt = new Date();
 
-        helpers.message('Product plan generated successfully!', {
-          type: 'success',
+        helpers.message("Product plan generated successfully!", {
+          type: "success",
         });
         console.log(`Plan: ${plan.title}`);
         console.log(`Description: ${plan.description}`);
-        console.log('Steps:');
+        console.log("Steps:");
         plan.steps.forEach((step, index) => {
           console.log(`${index + 1}. ${step}`);
         });
@@ -391,27 +391,27 @@ function addCommands(program: ReturnType<typeof termost<ProductContext>>) {
 
   program
     .command({
-      name: 'start',
-      description: 'Interactive product manager',
+      name: "start",
+      description: "Interactive product manager",
     })
     .input({
-      type: 'select',
-      key: 'input1',
-      label: 'What is your single choice?',
-      options: ['singleOption1', 'singleOption2'],
-      defaultValue: 'singleOption2',
+      type: "select",
+      key: "input1",
+      label: "What is your single choice?",
+      options: ["singleOption1", "singleOption2"],
+      defaultValue: "singleOption2",
     })
     .input({
-      type: 'multiselect',
-      key: 'input2',
-      label: 'What is your multiple choices?',
-      options: ['multipleOption1', 'multipleOption2'],
-      defaultValue: ['multipleOption2'],
+      type: "multiselect",
+      key: "input2",
+      label: "What is your multiple choices?",
+      options: ["multipleOption1", "multipleOption2"],
+      defaultValue: ["multipleOption2"],
     })
     .input({
-      type: 'confirm',
-      key: 'input3',
-      label: 'Are you sure to skip next input?',
+      type: "confirm",
+      key: "input3",
+      label: "Are you sure to skip next input?",
       defaultValue: false,
     })
     .task({
@@ -421,12 +421,12 @@ function addCommands(program: ReturnType<typeof termost<ProductContext>>) {
         if (!currentProduct) {
           helpers.message(
             'No product selected. Use the "select" command first.',
-            { type: 'error' }
+            { type: "error" },
           );
         } else {
           helpers.message(
             `Starting interactive product manager for "${currentProduct.name}"...`,
-            { type: 'information' }
+            { type: "information" },
           );
         }
 
@@ -467,8 +467,8 @@ async function generateProductDocumentation(context: ProductContext) {
     return;
   }
 
-  helpers.message('Generating initial product documentation...', {
-    type: 'information',
+  helpers.message("Generating initial product documentation...", {
+    type: "information",
   });
 
   // In a real implementation, this would call an AI service to generate documentation
@@ -476,33 +476,33 @@ async function generateProductDocumentation(context: ProductContext) {
 
   // Generate user journey
   currentProduct.userJourney = [
-    'User discovers the product',
-    'User signs up for an account',
-    'User explores core features',
-    'User integrates product into workflow',
-    'User becomes regular user',
+    "User discovers the product",
+    "User signs up for an account",
+    "User explores core features",
+    "User integrates product into workflow",
+    "User becomes regular user",
   ];
 
   // Generate systems documentation
   currentProduct.systems = [
-    'Frontend system: User interface and experience',
-    'Backend system: API and data processing',
-    'Database system: Data storage and retrieval',
-    'Authentication system: User management',
+    "Frontend system: User interface and experience",
+    "Backend system: API and data processing",
+    "Database system: Data storage and retrieval",
+    "Authentication system: User management",
   ];
 
   // Generate initial plan
   const initialPlan: ProductPlan = {
     id: generateUniqueId(),
-    title: 'Initial Development Plan',
+    title: "Initial Development Plan",
     description: `First development plan for ${currentProduct.name}`,
     steps: [
-      'Validate product idea with market research',
-      'Create product specifications',
-      'Develop MVP (Minimum Viable Product)',
-      'Test with early adopters',
-      'Iterate based on feedback',
-      'Prepare for public launch',
+      "Validate product idea with market research",
+      "Create product specifications",
+      "Develop MVP (Minimum Viable Product)",
+      "Test with early adopters",
+      "Iterate based on feedback",
+      "Prepare for public launch",
     ],
     createdAt: new Date(),
   };
@@ -513,8 +513,8 @@ async function generateProductDocumentation(context: ProductContext) {
 
   currentProduct.plans.push(initialPlan);
 
-  helpers.message('Initial documentation generated successfully!', {
-    type: 'success',
+  helpers.message("Initial documentation generated successfully!", {
+    type: "success",
   });
 }
 

@@ -1,5 +1,6 @@
-import type { Database } from 'bun:sqlite';
-import { calculateHash } from './utils'; // Import from utils
+import type { Database } from "bun:sqlite";
+
+import { calculateHash } from "./utils"; // Import from utils
 
 /**
  * Represents a stored knowledge snippet.
@@ -27,7 +28,7 @@ export interface KnowledgeStore {
    */
   add(
     path: string,
-    content: string
+    content: string,
   ): Promise<{ id: number; hash: string; created: boolean }>;
 
   /**
@@ -74,20 +75,20 @@ export interface KnowledgeStore {
 export function createKnowledgeStore(db: Database): KnowledgeStore {
   // Prepare statements for efficiency
   const addStmt = db.prepare(
-    'INSERT OR IGNORE INTO knowledge_store (path, content, content_hash) VALUES (?, ?, ?)'
+    "INSERT OR IGNORE INTO knowledge_store (path, content, content_hash) VALUES (?, ?, ?)",
   );
   const findByHashStmt = db.prepare(
-    'SELECT id, path, content, content_hash, created_at, updated_at FROM knowledge_store WHERE content_hash = ?'
+    "SELECT id, path, content, content_hash, created_at, updated_at FROM knowledge_store WHERE content_hash = ?",
   );
   const findByIdStmt = db.prepare(
-    'SELECT id, path, content, content_hash, created_at, updated_at FROM knowledge_store WHERE id = ?'
+    "SELECT id, path, content, content_hash, created_at, updated_at FROM knowledge_store WHERE id = ?",
   );
-  const deleteByIdStmt = db.prepare('DELETE FROM knowledge_store WHERE id = ?');
+  const deleteByIdStmt = db.prepare("DELETE FROM knowledge_store WHERE id = ?");
   const deleteByHashStmt = db.prepare(
-    'DELETE FROM knowledge_store WHERE content_hash = ?'
+    "DELETE FROM knowledge_store WHERE content_hash = ?",
   );
   const findByPathPrefixStmt = db.prepare(
-    'SELECT id, path, content, content_hash, created_at, updated_at FROM knowledge_store WHERE path LIKE ?'
+    "SELECT id, path, content, content_hash, created_at, updated_at FROM knowledge_store WHERE path LIKE ?",
   );
 
   function rowToSnippet(row: any): KnowledgeSnippet | null {
@@ -123,10 +124,10 @@ export function createKnowledgeStore(db: Database): KnowledgeStore {
 
       if (
         id === undefined ||
-        (typeof id !== 'number' && typeof id !== 'bigint')
+        (typeof id !== "number" && typeof id !== "bigint")
       ) {
         throw new Error(
-          `Failed to add or find knowledge snippet with hash: ${hash}`
+          `Failed to add or find knowledge snippet with hash: ${hash}`,
         );
       }
 
@@ -154,10 +155,10 @@ export function createKnowledgeStore(db: Database): KnowledgeStore {
     },
 
     async findByPathPrefix(pathPrefix) {
-      const rows = findByPathPrefixStmt.all(pathPrefix + '%') as any[];
+      const rows = findByPathPrefixStmt.all(pathPrefix + "%") as any[];
       return rows
-        .map(row => rowToSnippet(row))
-        .filter(s => s !== null) as KnowledgeSnippet[];
+        .map((row) => rowToSnippet(row))
+        .filter((s) => s !== null) as KnowledgeSnippet[];
     },
   };
 }

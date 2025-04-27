@@ -26,6 +26,7 @@ Every great product begins with a vision - a clear articulation of the problem t
 - The unique approach or perspective
 
 **Example Vision Statement:**
+
 > "Create a collaborative workspace that transforms how remote teams share knowledge by making information discovery as natural and effortless as face-to-face conversation."
 
 Foundry uses generative AI to help refine and expand this vision, ensuring it's compelling, clear, and actionable.
@@ -40,6 +41,7 @@ User journeys map the path that different users take when interacting with a pro
 - Highlight emotional and functional aspects of the experience
 
 **Example User Journey Structure:**
+
 ```
 Persona: Sarah, Product Manager at a Mid-Size Tech Company
 
@@ -75,6 +77,7 @@ Emotional maps extend user journeys by explicitly mapping the emotional states u
 - Creating opportunities for delight and connection
 
 **Example Emotional Map Elements:**
+
 ```
 Touchpoint: First-time login
 Expected Emotion: Anticipation mixed with uncertainty
@@ -95,6 +98,7 @@ Based on user journeys and emotional maps, Foundry generates site maps and infor
 - Content organization that supports emotional goals
 
 **Example Site Map Elements:**
+
 ```
 1. Home/Dashboard
    1.1 Activity Feed
@@ -125,6 +129,7 @@ Finally, Foundry breaks down the site map and information architecture into spec
 - Tagged with relevant emotional goals
 
 **Example Task Structure:**
+
 ```
 Task ID: 12
 Title: Implement Document Sharing Modal
@@ -171,9 +176,10 @@ Foundry's implementation of this philosophy is automated through its generative 
 ### Example Prompts Used in the Process
 
 **User Journey Generation Prompt:**
+
 ```
-Based on the vision statement "{vision}" and persona "{persona}", 
-create a comprehensive user journey that follows this user through 
+Based on the vision statement "{vision}" and persona "{persona}",
+create a comprehensive user journey that follows this user through
 their entire experience with the product. For each stage, include:
 
 1. The user's situation and context
@@ -183,13 +189,14 @@ their entire experience with the product. For each stage, include:
 5. Touchpoints with the product
 6. Opportunities and pain points
 
-Structure the journey into these stages: Discovery, Consideration, 
+Structure the journey into these stages: Discovery, Consideration,
 Onboarding, Regular Usage, and Advocacy.
 ```
 
 **Emotional Map Prompt:**
+
 ```
-For the following user journey touchpoints, create an emotional 
+For the following user journey touchpoints, create an emotional
 map that captures:
 
 1. The expected emotional state of the user
@@ -204,4 +211,4 @@ User Journey: {user_journey_json}
 
 Foundry's philosophical approach represents a comprehensive methodology for product development that bridges human-centered design and technical implementation. By starting with user journeys and emotional maps before moving to site maps and tasks, Foundry ensures that technical execution remains firmly connected to user needs and experiences.
 
-This approach produces products that are not only functional but emotionally resonant, creating deeper connections with users and delivering more meaningful value. 
+This approach produces products that are not only functional but emotionally resonant, creating deeper connections with users and delivering more meaningful value.

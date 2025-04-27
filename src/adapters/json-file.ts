@@ -1,7 +1,7 @@
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from "fs";
+import * as path from "path";
 
-import type { Adapter } from './types';
+import type { Adapter } from "./types";
 
 /**
  * Interface for the internal data structure stored in the JSON file
@@ -119,13 +119,13 @@ export class JsonFileAdapter implements Adapter {
   async list(path: string): Promise<string[]> {
     try {
       const result: string[] = [];
-      const prefix = path.endsWith('/') ? path : path + '/';
+      const prefix = path.endsWith("/") ? path : path + "/";
 
       // Check if the directory exists
       if (
         !this.data.directories.includes(path) &&
-        !path.startsWith('/') &&
-        path !== ''
+        !path.startsWith("/") &&
+        path !== ""
       ) {
         return [];
       }
@@ -138,7 +138,7 @@ export class JsonFileAdapter implements Adapter {
         if (storedPath.startsWith(prefix)) {
           // Get the next path segment
           const relativePath = storedPath.slice(prefix.length);
-          const nextSegment = relativePath.split('/')[0];
+          const nextSegment = relativePath.split("/")[0];
 
           if (nextSegment && !result.includes(nextSegment)) {
             result.push(nextSegment);
@@ -165,7 +165,7 @@ export class JsonFileAdapter implements Adapter {
       if (
         parentDir &&
         !this.data.directories.includes(parentDir) &&
-        parentDir !== ''
+        parentDir !== ""
       ) {
         await this.createDirectory(parentDir);
       }
@@ -191,20 +191,20 @@ export class JsonFileAdapter implements Adapter {
    */
   async deleteDirectory(
     path: string,
-    recursive: boolean = false
+    recursive: boolean = false,
   ): Promise<boolean> {
     try {
       if (!this.data.directories.includes(path)) {
         return false;
       }
 
-      const prefix = path.endsWith('/') ? path : path + '/';
+      const prefix = path.endsWith("/") ? path : path + "/";
 
       // Check if directory has contents
       const contents = await this.list(path);
       if (contents.length > 0 && !recursive) {
         throw new Error(
-          `Directory is not empty: ${path}. Pass recursive=true to delete contents.`
+          `Directory is not empty: ${path}. Pass recursive=true to delete contents.`,
         );
       }
 
@@ -225,7 +225,7 @@ export class JsonFileAdapter implements Adapter {
 
         // Delete all subdirectories
         this.data.directories = this.data.directories.filter(
-          dir => dir !== path && !dir.startsWith(prefix)
+          (dir) => dir !== path && !dir.startsWith(prefix),
         );
       }
 
@@ -254,7 +254,7 @@ export class JsonFileAdapter implements Adapter {
    */
   async setMetadata(
     path: string,
-    metadata: Record<string, any>
+    metadata: Record<string, any>,
   ): Promise<boolean> {
     try {
       this.data.metadata[path] = { ...metadata };
@@ -284,12 +284,12 @@ export class JsonFileAdapter implements Adapter {
         await this.createDirectory(destinationPath);
 
         // Get all paths that start with the source prefix
-        const sourcePrefix = sourcePath.endsWith('/')
+        const sourcePrefix = sourcePath.endsWith("/")
           ? sourcePath
-          : sourcePath + '/';
-        const destPrefix = destinationPath.endsWith('/')
+          : sourcePath + "/";
+        const destPrefix = destinationPath.endsWith("/")
           ? destinationPath
-          : destinationPath + '/';
+          : destinationPath + "/";
 
         // Move all content entries
         for (const path of Object.keys(this.data.content)) {
@@ -358,7 +358,7 @@ export class JsonFileAdapter implements Adapter {
     } catch (error) {
       console.error(
         `Error moving from ${sourcePath} to ${destinationPath}:`,
-        error
+        error,
       );
       return false;
     }
@@ -382,12 +382,12 @@ export class JsonFileAdapter implements Adapter {
         await this.createDirectory(destinationPath);
 
         // Get all paths that start with the source prefix
-        const sourcePrefix = sourcePath.endsWith('/')
+        const sourcePrefix = sourcePath.endsWith("/")
           ? sourcePath
-          : sourcePath + '/';
-        const destPrefix = destinationPath.endsWith('/')
+          : sourcePath + "/";
+        const destPrefix = destinationPath.endsWith("/")
           ? destinationPath
-          : destinationPath + '/';
+          : destinationPath + "/";
 
         // Copy all content entries
         for (const path of Object.keys(this.data.content)) {
@@ -447,7 +447,7 @@ export class JsonFileAdapter implements Adapter {
     } catch (error) {
       console.error(
         `Error copying from ${sourcePath} to ${destinationPath}:`,
-        error
+        error,
       );
       return false;
     }
@@ -459,10 +459,10 @@ export class JsonFileAdapter implements Adapter {
    * @returns Directory path
    */
   private getDirPath(filePath: string): string {
-    if (!filePath.includes('/')) {
-      return '';
+    if (!filePath.includes("/")) {
+      return "";
     }
-    return filePath.substring(0, filePath.lastIndexOf('/'));
+    return filePath.substring(0, filePath.lastIndexOf("/"));
   }
 
   /**
@@ -472,7 +472,7 @@ export class JsonFileAdapter implements Adapter {
   private _loadData(): void {
     try {
       if (fs.existsSync(this.filePath)) {
-        const fileContent = fs.readFileSync(this.filePath, 'utf-8');
+        const fileContent = fs.readFileSync(this.filePath, "utf-8");
         try {
           this.data = JSON.parse(fileContent);
 
@@ -483,7 +483,7 @@ export class JsonFileAdapter implements Adapter {
         } catch (parseError) {
           console.error(
             `Error parsing JSON file ${this.filePath}:`,
-            parseError
+            parseError,
           );
           // Initialize with empty data on parse error
           this.data = {
@@ -547,7 +547,7 @@ export class JsonFileAdapter implements Adapter {
           fs.writeFileSync(
             tempPath,
             JSON.stringify(this.data, null, 2),
-            'utf-8'
+            "utf-8",
           );
 
           // Rename the temp file to the actual file (atomic operation)

@@ -1,19 +1,21 @@
-import { rm } from 'fs/promises';
-import { existsSync, mkdirSync } from 'fs';
-import { SQLiteAdapter } from '../../src/adapters/sqlite';
-import { createAdapterTests } from './adapter-test-suite';
-import type { Adapter } from '../../src/adapters/types';
+import { existsSync, mkdirSync } from "fs";
+import { rm } from "fs/promises";
+
+import type { Adapter } from "../../src/adapters/types";
+
+import { SQLiteAdapter } from "../../src/adapters/sqlite";
+import { createAdapterTests } from "./adapter-test-suite";
 
 // For file-based testing, use a temp file that will be cleaned up
-const TEST_FILE_DB_PATH = './test/tmp/test-sqlite.db';
+const TEST_FILE_DB_PATH = "./test/tmp/test-sqlite.db";
 
 // Tests with file-based database to ensure file persistence works
 createAdapterTests(
-  'SQLite (File-Based)',
+  "SQLite (File-Based)",
   () => {
     // Ensure the directory exists
-    if (!existsSync('./test/tmp')) {
-      mkdirSync('./test/tmp', { recursive: true });
+    if (!existsSync("./test/tmp")) {
+      mkdirSync("./test/tmp", { recursive: true });
     }
     return new SQLiteAdapter({ databasePath: TEST_FILE_DB_PATH });
   },
@@ -23,5 +25,5 @@ createAdapterTests(
     if (existsSync(TEST_FILE_DB_PATH)) {
       await rm(TEST_FILE_DB_PATH);
     }
-  }
+  },
 );

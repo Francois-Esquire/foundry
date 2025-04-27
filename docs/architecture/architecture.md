@@ -59,10 +59,12 @@ Foundry is built on four main architectural components:
 Adapters provide a consistent interface for input and output operations across different platforms and systems. They abstract away the specifics of each target system and are responsible for interacting with the environment to create, read, update, and delete resources.
 
 #### Current Adapters:
+
 - **File System Adapter**: Interacts with the local file system for reading and writing data (e.g., creating individual markdown files for tasks with embedded subtasks)
 - **In-Memory Adapter**: Manages data in memory for testing and rapid operations
 
 #### Planned Adapters:
+
 - **GitHub API Adapter**: Will interface with GitHub for repository management
 - **Convex Backend Adapter**: Will integrate with Convex for database storage and operations
 
@@ -89,6 +91,7 @@ This transform interface is part of the internal API and can be surfaced when im
 Agents are the generative AI components of the system. They use underlying AI models to perform specific tasks like content generation and research.
 
 #### Agent Types:
+
 - **Generator Agent**: Creates content based on specifications and requirements (including tasks, user journeys, PRDs)
 - **Research Agent**: Gathers and synthesizes information from various sources
 - **Tool Manager Agent**: Designs and implements tools that can extend Foundry's functionality on request
@@ -107,6 +110,7 @@ Agents follow standard LLM (Large Language Model) usage patterns in the industry
 Consumers are the interface points that applications and users interact with to access Foundry's functionality.
 
 #### Consumer Types:
+
 - **Command Line Interface**: Terminal-based interaction for direct user control
 - **MCP Server**: Machine Control Protocol server for integration with IDEs and other systems
 - **REST API**: HTTP-based interface for web and distributed applications
@@ -163,4 +167,4 @@ Foundry's modular architecture allows for extension in several ways:
    - Structured Data Memory for Figma files, databases, and other structured formats
    - Document Memory for books, articles, and unstructured content
    - Graph-Based Memory for representing complex relationships
-7. **Agent Lifecycle Management**: Implementing a review process with defined steps and feedback loops 
+7. **Agent Lifecycle Management**: Implementing a review process with defined steps and feedback loops

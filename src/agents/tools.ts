@@ -1,6 +1,8 @@
-import { EventEmitter } from 'events';
-import { extensionRegistry, ExtensionType } from '../core/extensions';
-import type { MCPExtension, ToolExtension } from '../core/extensions';
+import { EventEmitter } from "events";
+
+import type { MCPExtension, ToolExtension } from "../core/extensions";
+
+import { extensionRegistry, ExtensionType } from "../core/extensions";
 
 /**
  * Tool parameter schema
@@ -91,7 +93,7 @@ export class ToolRegistry extends EventEmitter {
       throw new Error(`Tool already registered: ${name}`);
     }
     this.tools.set(name, tool);
-    this.emit('tool:registered', tool);
+    this.emit("tool:registered", tool);
   }
 
   /**
@@ -121,7 +123,7 @@ export class ToolRegistry extends EventEmitter {
     }
     const tool = this.tools.get(name)!;
     this.tools.delete(name);
-    this.emit('tool:removed', tool);
+    this.emit("tool:removed", tool);
   }
 
   /**
@@ -135,7 +137,7 @@ export class ToolRegistry extends EventEmitter {
    * Get all tool schemas
    */
   getAllToolSchemas(): ToolSchema[] {
-    return this.getAllTools().map(tool => tool.schema);
+    return this.getAllTools().map((tool) => tool.schema);
   }
 
   /**
@@ -144,15 +146,15 @@ export class ToolRegistry extends EventEmitter {
   async executeTool(
     name: string,
     params: Record<string, any>,
-    context?: ToolContext
+    context?: ToolContext,
   ): Promise<any> {
     const tool = this.getTool(name);
     try {
       const result = await tool.execute(params, context);
-      this.emit('tool:executed', { name, params, result, success: true });
+      this.emit("tool:executed", { name, params, result, success: true });
       return result;
     } catch (error) {
-      this.emit('tool:executed', {
+      this.emit("tool:executed", {
         name,
         params,
         error: error instanceof Error ? error.message : String(error),
@@ -167,17 +169,17 @@ export class ToolRegistry extends EventEmitter {
    */
   private connectExtensionRegistry(): void {
     // Add existing MCP extensions
-    extensionRegistry.getAllMCPExtensions().forEach(mcpExt => {
+    extensionRegistry.getAllMCPExtensions().forEach((mcpExt) => {
       this.registerMCPExtensionTools(mcpExt);
     });
 
     // Add existing tool extensions
-    extensionRegistry.getAllToolExtensions().forEach(toolExt => {
+    extensionRegistry.getAllToolExtensions().forEach((toolExt) => {
       this.registerToolExtension(toolExt);
     });
 
     // Listen for new extensions
-    extensionRegistry.on('extension:registered', extension => {
+    extensionRegistry.on("extension:registered", (extension) => {
       if (extension.type === ExtensionType.MCP) {
         this.registerMCPExtensionTools(extension as MCPExtension);
       } else if (extension.type === ExtensionType.TOOL) {
@@ -186,7 +188,7 @@ export class ToolRegistry extends EventEmitter {
     });
 
     // Listen for extension removals
-    extensionRegistry.on('extension:unregistered', extension => {
+    extensionRegistry.on("extension:unregistered", (extension) => {
       // For MCP extensions, we would need to remove all tools associated with that extension
       if (extension.type === ExtensionType.MCP) {
         const mcpExt = extension as MCPExtension;
@@ -194,7 +196,7 @@ export class ToolRegistry extends EventEmitter {
         const prefix = `${mcpExt.metadata.name}_`;
 
         // Find and remove all tools with this prefix
-        this.getAllTools().forEach(tool => {
+        this.getAllTools().forEach((tool) => {
           if (tool.schema.name.startsWith(prefix)) {
             this.removeTool(tool.schema.name);
           }
@@ -214,12 +216,12 @@ export class ToolRegistry extends EventEmitter {
    * Register tools from an MCP extension
    */
   private async registerMCPExtensionTools(
-    mcpExtension: MCPExtension
+    mcpExtension: MCPExtension,
   ): Promise<void> {
     try {
       const toolDefinitions = await mcpExtension.getToolDefinitions();
 
-      toolDefinitions.forEach(def => {
+      toolDefinitions.forEach((def) => {
         // Create an MCP tool adapter
         const mcpTool: MCPTool = {
           schema: {
@@ -235,20 +237,20 @@ export class ToolRegistry extends EventEmitter {
             const response = await fetch(
               `${mcpExtension.config.serverUrl}/v1/tools/${def.name}`,
               {
-                method: 'POST',
+                method: "POST",
                 headers: {
-                  'Content-Type': 'application/json',
+                  "Content-Type": "application/json",
                   ...(mcpExtension.config.apiKey
                     ? { Authorization: `Bearer ${mcpExtension.config.apiKey}` }
                     : {}),
                 },
                 body: JSON.stringify({ params, context }),
-              }
+              },
             );
 
             if (!response.ok) {
               throw new Error(
-                `MCP tool execution failed: ${response.statusText}`
+                `MCP tool execution failed: ${response.statusText}`,
               );
             }
 
@@ -261,9 +263,9 @@ export class ToolRegistry extends EventEmitter {
     } catch (error) {
       console.error(
         `Failed to register MCP extension tools for ${mcpExtension.metadata.name}:`,
-        error
+        error,
       );
-      this.emit('mcp:registration-failed', { extension: mcpExtension, error });
+      this.emit("mcp:registration-failed", { extension: mcpExtension, error });
     }
   }
 
@@ -277,7 +279,7 @@ export class ToolRegistry extends EventEmitter {
           name: toolExtension.metadata.name,
           description: toolExtension.metadata.description,
           parameters: {
-            type: 'object',
+            type: "object",
             ...toolExtension.getSchema(),
           },
         },
@@ -290,9 +292,9 @@ export class ToolRegistry extends EventEmitter {
     } catch (error) {
       console.error(
         `Failed to register tool extension ${toolExtension.metadata.name}:`,
-        error
+        error,
       );
-      this.emit('tool-extension:registration-failed', {
+      this.emit("tool-extension:registration-failed", {
         extension: toolExtension,
         error,
       });
@@ -310,8 +312,8 @@ export function createTool(
   schema: ToolSchema,
   executeFn: (
     params: Record<string, any>,
-    context?: ToolContext
-  ) => Promise<any>
+    context?: ToolContext,
+  ) => Promise<any>,
 ): Tool {
   return {
     schema,
@@ -325,7 +327,7 @@ export function createTool(
 export function createMCPTool(
   schema: ToolSchema,
   serverUrl: string,
-  apiKey?: string
+  apiKey?: string,
 ): MCPTool {
   return {
     schema,
@@ -333,9 +335,9 @@ export function createMCPTool(
     apiKey,
     execute: async (params, context) => {
       const response = await fetch(`${serverUrl}/v1/tools/${schema.name}`, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
           ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
         },
         body: JSON.stringify({ params, context }),

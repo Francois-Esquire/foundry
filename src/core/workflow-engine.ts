@@ -1,5 +1,6 @@
-import type { ServiceRegistry } from './registry';
-import { v4 as uuidv4 } from 'uuid';
+import { v4 as uuidv4 } from "uuid";
+
+import type { ServiceRegistry } from "./registry";
 
 // Workflow step interface
 export interface WorkflowStep {
@@ -45,7 +46,7 @@ export interface WorkflowInstance {
   id: string;
   definition: string;
   context: WorkflowContext;
-  status: 'running' | 'completed' | 'failed' | 'paused';
+  status: "running" | "completed" | "failed" | "paused";
   error?: {
     step: string;
     message: string;
@@ -64,7 +65,7 @@ export interface WorkflowSummary {
   id: string;
   definition: string;
   currentStep: string;
-  status: 'running' | 'completed' | 'failed' | 'paused';
+  status: "running" | "completed" | "failed" | "paused";
   startedAt: Date;
   lastUpdatedAt: Date;
 }
@@ -77,11 +78,11 @@ export interface WorkflowEngine {
   // Workflow Execution
   startWorkflow(
     name: string,
-    context: WorkflowContext
+    context: WorkflowContext,
   ): Promise<WorkflowInstance>;
   resumeWorkflow(
     instanceId: string,
-    event: WorkflowEvent
+    event: WorkflowEvent,
   ): Promise<WorkflowInstance>;
 
   // Workflow Status
@@ -105,7 +106,7 @@ export class WorkflowEngineImpl implements WorkflowEngine {
 
   async startWorkflow(
     name: string,
-    initialData: Record<string, any> = {}
+    initialData: Record<string, any> = {},
   ): Promise<WorkflowInstance> {
     // Check if workflow exists
     const definition = this.workflows.get(name);
@@ -133,7 +134,7 @@ export class WorkflowEngineImpl implements WorkflowEngine {
       id: context.id,
       definition: name,
       context,
-      status: 'running',
+      status: "running",
     };
 
     // Store instance
@@ -145,7 +146,7 @@ export class WorkflowEngineImpl implements WorkflowEngine {
 
   async resumeWorkflow(
     instanceId: string,
-    event: WorkflowEvent
+    event: WorkflowEvent,
   ): Promise<WorkflowInstance> {
     // Get workflow instance
     const instance = this.instances.get(instanceId);
@@ -154,9 +155,9 @@ export class WorkflowEngineImpl implements WorkflowEngine {
     }
 
     // Ensure workflow is paused
-    if (instance.status !== 'paused') {
+    if (instance.status !== "paused") {
       throw new Error(
-        `Cannot resume workflow that is not paused: ${instanceId}`
+        `Cannot resume workflow that is not paused: ${instanceId}`,
       );
     }
 
@@ -168,24 +169,25 @@ export class WorkflowEngineImpl implements WorkflowEngine {
     instance.context.lastUpdatedAt = new Date();
 
     // Update instance status
-    instance.status = 'running';
+    instance.status = "running";
 
     // Continue execution
     return this.executeStep(instance);
   }
 
   async getWorkflowInstance(
-    instanceId: string
+    instanceId: string,
   ): Promise<WorkflowInstance | null> {
     return this.instances.get(instanceId) || null;
   }
 
   async listActiveWorkflows(): Promise<WorkflowSummary[]> {
     const activeInstances = Array.from(this.instances.values()).filter(
-      instance => instance.status === 'running' || instance.status === 'paused'
+      (instance) =>
+        instance.status === "running" || instance.status === "paused",
     );
 
-    return activeInstances.map(instance => ({
+    return activeInstances.map((instance) => ({
       id: instance.id,
       definition: instance.definition,
       currentStep: instance.context.currentStep,
@@ -196,7 +198,7 @@ export class WorkflowEngineImpl implements WorkflowEngine {
   }
 
   private async executeStep(
-    instance: WorkflowInstance
+    instance: WorkflowInstance,
   ): Promise<WorkflowInstance> {
     // Get workflow definition
     const definition = this.workflows.get(instance.definition);
@@ -207,7 +209,7 @@ export class WorkflowEngineImpl implements WorkflowEngine {
     // Get current step
     const currentStepName = instance.context.currentStep;
     const currentStep = definition.steps.find(
-      step => step.name === currentStepName
+      (step) => step.name === currentStepName,
     );
     if (!currentStep) {
       throw new Error(`Step not found in workflow: ${currentStepName}`);
@@ -222,9 +224,9 @@ export class WorkflowEngineImpl implements WorkflowEngine {
 
       // Find next step based on transitions
       const transition = definition.transitions.find(
-        t =>
+        (t) =>
           t.from === currentStepName &&
-          this.evaluateCondition(t.condition, stepResult)
+          this.evaluateCondition(t.condition, stepResult),
       );
 
       if (transition) {
@@ -234,24 +236,24 @@ export class WorkflowEngineImpl implements WorkflowEngine {
 
         // Check if next step exists or if workflow is complete
         const nextStep = definition.steps.find(
-          step => step.name === transition.to
+          (step) => step.name === transition.to,
         );
         if (nextStep) {
           // Continue to next step
           return this.executeStep(instance);
         } else {
           // Workflow completed
-          instance.status = 'completed';
+          instance.status = "completed";
         }
       } else {
         // No transition found, pause workflow
-        instance.status = 'paused';
+        instance.status = "paused";
       }
 
       return instance;
     } catch (error) {
       // Handle error
-      instance.status = 'failed';
+      instance.status = "failed";
       instance.error = {
         step: currentStepName,
         message: (error as Error).message,
@@ -263,11 +265,11 @@ export class WorkflowEngineImpl implements WorkflowEngine {
           await definition.onError(
             error as Error,
             instance.context,
-            currentStep
+            currentStep,
           );
         } catch (handlerError) {
           // Log error from error handler
-          console.error('Error in workflow error handler:', handlerError);
+          console.error("Error in workflow error handler:", handlerError);
         }
       }
 
@@ -277,14 +279,14 @@ export class WorkflowEngineImpl implements WorkflowEngine {
 
   private evaluateCondition(
     condition: string | ((result: any) => boolean),
-    result: any
+    result: any,
   ): boolean {
-    if (typeof condition === 'function') {
+    if (typeof condition === "function") {
       return condition(result);
     }
 
     // Handle string conditions
-    if (condition === 'always') {
+    if (condition === "always") {
       return true;
     }
 

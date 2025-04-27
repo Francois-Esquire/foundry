@@ -62,10 +62,10 @@ interface VectorizationEngine {
   vectorizeText(text: string, options?: VectorizationOptions): Promise<Vector>;
   vectorizeCode(code: string, language: string): Promise<Vector>;
   vectorizeArtifact(artifact: Artifact): Promise<VectorizedArtifact>;
-  
+
   // Batch Processing
   vectorizeBatch(items: Array<string | Artifact>): Promise<VectorizedResult[]>;
-  
+
   // Model Management
   setEmbeddingModel(model: EmbeddingModel): void;
   getEmbeddingModelInfo(): EmbeddingModelInfo;
@@ -83,17 +83,20 @@ interface KnowledgeGraph {
   getNode(id: string): Promise<GraphNode | null>;
   updateNode(id: string, updates: Partial<GraphNode>): Promise<GraphNode>;
   deleteNode(id: string): Promise<boolean>;
-  
+
   // Edge Operations
   addEdge(source: string, target: string, type: EdgeType): Promise<string>;
   getEdge(id: string): Promise<GraphEdge | null>;
   getEdgesBetween(source: string, target: string): Promise<GraphEdge[]>;
   deleteEdge(id: string): Promise<boolean>;
-  
+
   // Traversal
-  findConnectedNodes(nodeId: string, options?: TraversalOptions): Promise<GraphNode[]>;
+  findConnectedNodes(
+    nodeId: string,
+    options?: TraversalOptions,
+  ): Promise<GraphNode[]>;
   shortestPath(startId: string, endId: string): Promise<GraphPath | null>;
-  
+
   // Advanced Queries
   findByProperty(property: string, value: any): Promise<GraphNode[]>;
   runGraphQuery(query: GraphQuery): Promise<QueryResult>;
@@ -107,15 +110,18 @@ The Query Engine provides advanced capabilities for retrieving artifacts and inf
 ```typescript
 interface QueryEngine {
   // Semantic Search
-  semanticSearch(query: string, options?: SearchOptions): Promise<SearchResult[]>;
-  
+  semanticSearch(
+    query: string,
+    options?: SearchOptions,
+  ): Promise<SearchResult[]>;
+
   // Context-based Retrieval
   retrieveForContext(context: QueryContext): Promise<ContextualResult>;
-  
+
   // Code-specific Queries
   findCodeImplementations(concept: string): Promise<CodeSearchResult[]>;
   findRelatedCode(snippet: string): Promise<CodeSearchResult[]>;
-  
+
   // Task-specific Queries
   findTasksAffectedBy(codeLocation: string): Promise<Task[]>;
   findImplementationForTask(taskId: string): Promise<CodeSearchResult[]>;
@@ -131,12 +137,12 @@ interface IndexManager {
   // Index Maintenance
   buildIndices(): Promise<IndexBuildResult>;
   updateIndices(changedArtifacts: Artifact[]): Promise<IndexUpdateResult>;
-  
+
   // Index Types
   getVectorIndex(): VectorIndex;
   getFullTextIndex(): FullTextIndex;
   getCodeSymbolIndex(): CodeSymbolIndex;
-  
+
   // Stats and Health
   getIndexStats(): IndexStats;
   optimizeIndices(): Promise<OptimizationResult>;
@@ -152,11 +158,11 @@ interface ConsistencyTracker {
   // Consistency Checks
   checkConsistency(artifactId: string): Promise<ConsistencyResult>;
   trackDrift(artifactId: string, referenceId: string): Promise<DriftResult>;
-  
+
   // Monitoring
   startMonitoring(artifactIds: string[]): Promise<void>;
   stopMonitoring(artifactIds?: string[]): Promise<void>;
-  
+
   // Alerts and Reports
   getInconsistencies(): Promise<Inconsistency[]>;
   generateConsistencyReport(): Promise<ConsistencyReport>;
@@ -173,11 +179,11 @@ interface CacheManager {
   cacheItem(key: string, item: any, options?: CacheOptions): Promise<void>;
   getCachedItem<T>(key: string): Promise<T | null>;
   invalidateCache(pattern?: string): Promise<void>;
-  
+
   // Preloading
   preloadForTask(taskId: string): Promise<PreloadResult>;
   preloadRelated(artifactId: string): Promise<PreloadResult>;
-  
+
   // Stats
   getCacheStats(): CacheStats;
 }
@@ -193,27 +199,27 @@ The Memory Module integrates with Foundry's adapter system by extending and enha
 class MemoryEnhancedAdapter implements Adapter {
   constructor(
     private baseAdapter: Adapter,
-    private memoryModule: MemoryModule
+    private memoryModule: MemoryModule,
   ) {}
-  
-  async read(path: string): Promise<{ content: string, type: string } | null> {
+
+  async read(path: string): Promise<{ content: string; type: string } | null> {
     // Get the raw content from the base adapter
     const result = await this.baseAdapter.read(path);
-    
+
     if (!result) {
       return null;
     }
-    
+
     // Enhanced with contextual information
     this.memoryModule.registerAccess(path);
-    
+
     // Return the enriched result
     return {
       ...result,
-      context: await this.memoryModule.getContextFor(path)
+      context: await this.memoryModule.getContextFor(path),
     };
   }
-  
+
   // Similar enhancements for other adapter methods...
 }
 ```
@@ -223,12 +229,14 @@ class MemoryEnhancedAdapter implements Adapter {
 The Memory Module vectorizes different types of artifacts in specialized ways:
 
 1. **Code Vectorization**:
+
    - Handles syntax-aware chunking
    - Preserves function and class boundaries
    - Captures imports and dependencies
    - Indexes symbols and their usages
 
 2. **Document Vectorization**:
+
    - Semantic chunking based on content
    - Maintains hierarchical structure
    - Preserves formatting where relevant
@@ -247,9 +255,9 @@ The core schema for the Knowledge Graph includes:
 ```typescript
 interface GraphNode {
   id: string;
-  type: NodeType;  // 'artifact', 'code', 'task', 'concept', etc.
+  type: NodeType; // 'artifact', 'code', 'task', 'concept', etc.
   properties: Record<string, any>;
-  vector?: Vector;  // For vectorized nodes
+  vector?: Vector; // For vectorized nodes
   metadata: {
     createdAt: Date;
     updatedAt: Date;
@@ -259,15 +267,15 @@ interface GraphNode {
 
 interface GraphEdge {
   id: string;
-  source: string;  // Node ID
-  target: string;  // Node ID
-  type: EdgeType;  // 'depends_on', 'implements', 'references', etc.
+  source: string; // Node ID
+  target: string; // Node ID
+  type: EdgeType; // 'depends_on', 'implements', 'references', etc.
   properties: Record<string, any>;
-  weight?: number;  // For weighted relationships
+  weight?: number; // For weighted relationships
   metadata: {
     createdAt: Date;
     updatedAt: Date;
-    confidence?: number;  // For inferred relationships
+    confidence?: number; // For inferred relationships
   };
 }
 ```
@@ -279,31 +287,34 @@ interface GraphEdge {
 The Memory Module can efficiently build context for task execution:
 
 ```typescript
-async function buildExecutionContext(taskId: string): Promise<ExecutionContext> {
+async function buildExecutionContext(
+  taskId: string,
+): Promise<ExecutionContext> {
   // Get the core task information
   const task = await memoryModule.queryEngine.getNode(taskId);
-  
+
   // Find related code artifacts
-  const relatedCode = await memoryModule.queryEngine.findImplementationForTask(taskId);
-  
+  const relatedCode =
+    await memoryModule.queryEngine.findImplementationForTask(taskId);
+
   // Find dependency implementations
   const dependencies = await memoryModule.knowledgeGraph.findConnectedNodes(
-    taskId, 
-    { edgeType: 'depends_on', direction: 'outgoing' }
+    taskId,
+    { edgeType: "depends_on", direction: "outgoing" },
   );
-  
+
   // Find similar patterns
   const patterns = await memoryModule.queryEngine.findRelatedCode(
-    relatedCode.map(code => code.snippet).join('\n')
+    relatedCode.map((code) => code.snippet).join("\n"),
   );
-  
+
   // Build the execution context
   return {
     task,
     codeArtifacts: relatedCode,
     dependencies: dependencies,
     patterns: patterns,
-    technicalContext: await buildTechnicalContext(task)
+    technicalContext: await buildTechnicalContext(task),
   };
 }
 ```
@@ -316,34 +327,36 @@ The Memory Module can identify when tasks are drifting from their specifications
 async function detectTaskDrift(taskId: string): Promise<DriftAnalysis> {
   // Get the original task specification
   const task = await memoryModule.queryEngine.getNode(taskId);
-  
+
   // Find the implementation
-  const implementation = await memoryModule.queryEngine.findImplementationForTask(taskId);
-  
+  const implementation =
+    await memoryModule.queryEngine.findImplementationForTask(taskId);
+
   // Vectorize the implementation
-  const implementationVector = await memoryModule.vectorizationEngine.vectorizeCode(
-    implementation.map(i => i.snippet).join('\n'),
-    implementation[0].language
-  );
-  
+  const implementationVector =
+    await memoryModule.vectorizationEngine.vectorizeCode(
+      implementation.map((i) => i.snippet).join("\n"),
+      implementation[0].language,
+    );
+
   // Compare with the task vector
   const similarity = await memoryModule.vectorizationEngine.calculateSimilarity(
     task.vector,
-    implementationVector
+    implementationVector,
   );
-  
+
   // Analyze specific divergences
   const divergences = await memoryModule.consistencyTracker.analyzeDivergences(
     task,
-    implementation
+    implementation,
   );
-  
+
   return {
     taskId,
     similarity,
     isDrifting: similarity < 0.8,
     divergences,
-    recommendations: await generateRecommendations(divergences)
+    recommendations: await generateRecommendations(divergences),
   };
 }
 ```
@@ -366,4 +379,4 @@ The Memory Module provides several key benefits to the Core Library and Agents:
 4. **Temporal Awareness**: Track how artifacts evolve over time
 5. **Multi-Modal Vectors**: Support for code, text, images, and other modalities
 6. **Memory Compression**: Techniques to reduce the storage footprint while maintaining retrieval quality
-7. **Active Learning**: Asking for human input to resolve ambiguities and improve knowledge representation 
+7. **Active Learning**: Asking for human input to resolve ambiguities and improve knowledge representation
