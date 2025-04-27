@@ -4,7 +4,7 @@ import { type ServiceRegistry, ServiceRegistryImpl } from './registry';
 import {
   type CommandProcessor,
   CommandProcessorImpl,
-} from './command-processor';
+} from '../consumers/command-processor';
 import { type WorkflowEngine, WorkflowEngineImpl } from './workflow-engine';
 import { type TaskManager, TaskManagerImpl } from './task-manager';
 import {
@@ -16,6 +16,16 @@ import {
   type FoundryLibraryOptions,
   type FoundryLibraryInterface,
 } from './foundry';
+import {
+  type Extension,
+  type ExtensionMetadata,
+  type MCPExtension,
+  type MCPExtensionConfig,
+  type ToolExtension,
+  ExtensionRegistry,
+  ExtensionType,
+  extensionRegistry,
+} from './extensions';
 
 // Re-export core types
 export type {
@@ -27,6 +37,11 @@ export type {
   DocumentGenerator,
   FoundryLibraryOptions,
   FoundryLibraryInterface,
+  Extension,
+  ExtensionMetadata,
+  MCPExtension,
+  MCPExtensionConfig,
+  ToolExtension,
 };
 
 // Re-export core implementations
@@ -37,4 +52,7 @@ export {
   TaskManagerImpl,
   DocumentGeneratorImpl,
   FoundryLibrary,
+  ExtensionRegistry,
+  ExtensionType,
+  extensionRegistry,
 };

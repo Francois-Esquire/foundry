@@ -13,6 +13,9 @@ import type { KnowledgeStore, KnowledgeSnippet } from './knowledge';
 import { createKnowledgeStore } from './knowledge';
 import { calculateHash } from './utils'; // Import from utils
 
+// Re-export types for external use
+export type { KnowledgeStore, KnowledgeSnippet, TraverseOptions };
+
 // Define embedding dimension constant
 const EMBEDDING_DIMENSION = 512;
 

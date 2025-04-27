@@ -85,17 +85,16 @@ program
       if (auto) {
         helpers.message('Auto mode enabled', { type: 'information' });
       }
-
       // Implementation will go here
-      foundry.startWorkflow('product.create', {
-        prompt,
-        research,
-        auto,
-        data: {
-          concept: prompt,
-          description: 'Product description',
-        },
-      });
+      // foundry.startWorkflow('product.create', {
+      //   prompt,
+      //   research,
+      //   auto,
+      //   data: {
+      //     concept: prompt,
+      //     description: 'Product description',
+      //   },
+      // });
     },
   });
 
