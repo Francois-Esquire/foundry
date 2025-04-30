@@ -147,45 +147,13 @@ export function DashboardScreen() {
           marginLeft={theme.spacing.sm}
           flexWrap="wrap"
         >
-          <Button
-            onPress={actions.newProduct}
-            isFocused={focusedElement === "newProduct"}
-          >
-            New Product
-          </Button>
-          <Button
-            onPress={actions.analyzeProject}
-            isFocused={focusedElement === "analyzeProject"}
-          >
-            Analyze Project
-          </Button>
-          <Button
-            onPress={actions.getNextTask}
-            isFocused={focusedElement === "getNextTask"}
-          >
-            Get Next Task
-          </Button>
-          <Button
-            onPress={actions.settings}
-            isFocused={focusedElement === "settings"}
-          >
-            Settings
-          </Button>
-          <Button onPress={actions.chat} isFocused={focusedElement === "chat"}>
-            Chat
-          </Button>
-          <Button
-            onPress={actions.userJourney}
-            isFocused={focusedElement === "userJourney"}
-          >
-            User Journey
-          </Button>
-          <Button
-            onPress={actions.dependencyGraph}
-            isFocused={focusedElement === "dependencyGraph"}
-          >
-            Dependency Graph
-          </Button>
+          <Button onPress={actions.newProduct}>New Product</Button>
+          <Button onPress={actions.analyzeProject}>Analyze Project</Button>
+          <Button onPress={actions.getNextTask}>Get Next Task</Button>
+          <Button onPress={actions.settings}>Settings</Button>
+          <Button onPress={actions.chat}>Chat</Button>
+          <Button onPress={actions.userJourney}>User Journey</Button>
+          <Button onPress={actions.dependencyGraph}>Dependency Graph</Button>
         </Box>
       </Section>
       {/* Products Section */}
@@ -206,10 +174,7 @@ export function DashboardScreen() {
         )}
         {showViewAllProducts && (
           <Box paddingLeft={theme.spacing.sm} marginTop={theme.spacing.xs}>
-            <Button
-              onPress={actions.viewAllProducts}
-              isFocused={focusedElement === "viewAllProducts"}
-            >
+            <Button onPress={actions.viewAllProducts}>
               View All Products...
             </Button>
           </Box>
@@ -234,12 +199,7 @@ export function DashboardScreen() {
         )}
         {showViewAllTasks && (
           <Box paddingLeft={theme.spacing.sm} marginTop={theme.spacing.xs}>
-            <Button
-              onPress={actions.viewAllTasks}
-              isFocused={focusedElement === "viewAllTasks"}
-            >
-              View All Tasks...
-            </Button>
+            <Button onPress={actions.viewAllTasks}>View All Tasks...</Button>
           </Box>
         )}
       </Section>

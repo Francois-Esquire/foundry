@@ -1,52 +1,35 @@
-import React, { useEffect, useState } from "react";
-import { Box, Text, useInput } from "ink";
-import { useNavigate } from "react-router";
+import React from "react";
+import { Box, Text } from "ink";
 
-import { PageFooter } from "../components/PageFooter";
+import CLI from "../components/cli";
+import { Link } from "../components/Link";
 import { WelcomeBanner } from "../components/welcome-banner";
 
 export function WelcomeScreen() {
-  const navigate = useNavigate();
-  const [showPrompt, setShowPrompt] = useState(false);
-
-  // Show the enter prompt after a short delay for better UX
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setShowPrompt(true);
-    }, 0);
-
-    return () => clearTimeout(timer);
-  }, []);
-
-  // Use the useInput hook to capture Enter key press
-  useInput((input, key) => {
-    if (showPrompt && key.return) {
-      navigate("/dashboard");
-    } else if (key.escape) {
-      process.exit(0);
-    }
-  });
-
   return (
-    <Box flexDirection="column" padding={1}>
-      <WelcomeBanner />
-      <Box marginY={1}>
-        <Text bold>Welcome to Foundry CLI</Text>
+    <Box flexDirection="column" padding={1} position="relative">
+      <Box flexDirection="column" padding={1} position="absolute">
+        <Link to="/dashboard">Dashboard</Link>
       </Box>
+      <WelcomeBanner />
 
-      <Box marginY={1}>
+      <Box borderStyle="round" paddingX={1} width={64}>
+        <Text bold color="magenta">
+          Foundry CLI
+        </Text>
+
         <Text>
           Easily manage your products, user journeys, and system documentation.
         </Text>
       </Box>
 
-      {showPrompt && (
-        <Box marginY={1}>
-          <Text color="green">Press Enter to continue →</Text>
-        </Box>
-      )}
+      <Box flexDirection="column" padding={1}>
+        {/* <Box marginY={1}></Box> */}
 
-      <PageFooter helpText="(Press Enter to continue, Esc to exit)" />
+        <Box marginY={1}></Box>
+      </Box>
+
+      <CLI />
     </Box>
   );
 }

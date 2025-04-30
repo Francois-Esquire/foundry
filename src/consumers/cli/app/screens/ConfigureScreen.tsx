@@ -236,12 +236,7 @@ export function ConfigureScreen() {
                 isDisabled={focusedElement !== "envValueInput"}
                 onSubmit={handleAddEnv}
               />
-              <Button
-                onPress={handleAddEnv}
-                isFocused={focusedElement === "addEnvButton"}
-              >
-                Add/Update
-              </Button>
+              <Button onPress={handleAddEnv}>Add/Update</Button>
             </Box>
           </Box>
         )}

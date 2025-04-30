@@ -206,12 +206,7 @@ export function AnalyzeProjectScreen() {
           </Text>
           <Text wrap="wrap">{analysisResult}</Text>
           <Box marginTop={1}>
-            <Button
-              onPress={() => navigate(-1)}
-              isFocused={focusedEndButton === "okButton"}
-            >
-              OK (Go Back)
-            </Button>
+            <Button onPress={() => navigate(-1)}>OK (Go Back)</Button>
           </Box>
         </Box>
       );
@@ -235,12 +230,7 @@ export function AnalyzeProjectScreen() {
             </Box>
           )}
           <Box marginTop={1}>
-            <Button
-              onPress={() => navigate(-1)}
-              isFocused={focusedEndButton === "okButton"}
-            >
-              OK (Go Back)
-            </Button>
+            <Button onPress={() => navigate(-1)}>OK (Go Back)</Button>
           </Box>
         </Box>
       );

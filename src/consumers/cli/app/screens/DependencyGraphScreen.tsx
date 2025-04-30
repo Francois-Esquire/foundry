@@ -187,55 +187,20 @@ export function DependencyGraphScreen() {
       />
 
       <Box flexDirection="row" gap={2}>
-        <Button
-          onPress={() => setCurrentViewMode("all")}
-          isFocused={focusedElement === "viewMode" && currentViewMode === "all"}
-        >
-          All Tasks
-        </Button>
-        <Button
-          onPress={() => setCurrentViewMode("pending")}
-          isFocused={
-            focusedElement === "viewMode" && currentViewMode === "pending"
-          }
-        >
+        <Button onPress={() => setCurrentViewMode("all")}>All Tasks</Button>
+        <Button onPress={() => setCurrentViewMode("pending")}>
           Pending Only
         </Button>
-        <Button
-          onPress={() => setCurrentViewMode("blocked")}
-          isFocused={
-            focusedElement === "viewMode" && currentViewMode === "blocked"
-          }
-        >
+        <Button onPress={() => setCurrentViewMode("blocked")}>
           Blocked Tasks
         </Button>
       </Box>
 
       <Box flexDirection="row" gap={2}>
-        <Button
-          onPress={() => setLayoutType("horizontal")}
-          isFocused={focusedElement === "layout" && layoutType === "horizontal"}
-        >
-          Horizontal
-        </Button>
-        <Button
-          onPress={() => setLayoutType("vertical")}
-          isFocused={focusedElement === "layout" && layoutType === "vertical"}
-        >
-          Vertical
-        </Button>
-        <Button
-          onPress={() => setLayoutType("radial")}
-          isFocused={focusedElement === "layout" && layoutType === "radial"}
-        >
-          Tree
-        </Button>
-        <Button
-          onPress={() => setLayoutType("auto")}
-          isFocused={focusedElement === "layout" && layoutType === "auto"}
-        >
-          Auto
-        </Button>
+        <Button onPress={() => setLayoutType("horizontal")}>Horizontal</Button>
+        <Button onPress={() => setLayoutType("vertical")}>Vertical</Button>
+        <Button onPress={() => setLayoutType("radial")}>Tree</Button>
+        <Button onPress={() => setLayoutType("auto")}>Auto</Button>
       </Box>
 
       <Section title={`Task Dependencies (${nodes.length} tasks)`}>
@@ -274,10 +239,7 @@ export function DependencyGraphScreen() {
                   <Text bold>Dependencies:</Text>{" "}
                   {task.dependencies?.length || 0} tasks
                 </Text>
-                <Button
-                  onPress={() => navigate(`/tasks/${selectedNodeId}`)}
-                  isFocused={focusedElement === "graph"}
-                >
+                <Button onPress={() => navigate(`/tasks/${selectedNodeId}`)}>
                   View Details
                 </Button>
               </Box>
@@ -287,10 +249,7 @@ export function DependencyGraphScreen() {
       )}
 
       <Box justifyContent="center">
-        <Button
-          onPress={() => navigate("/dashboard")}
-          isFocused={focusedElement === "back"}
-        >
+        <Button onPress={() => navigate("/dashboard")}>
           Back to Dashboard
         </Button>
       </Box>

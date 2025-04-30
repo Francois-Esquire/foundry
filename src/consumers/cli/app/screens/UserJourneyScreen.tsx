@@ -214,39 +214,12 @@ export function UserJourneyScreen() {
 
       <Section title="User Journey View Options">
         <Box flexDirection="row" gap={2}>
-          <Button
-            onPress={() => setCurrentLayout("auto")}
-            isFocused={
-              focusedElement === "layoutToggle" && currentLayout === "auto"
-            }
-          >
-            Auto Layout
-          </Button>
-          <Button
-            onPress={() => setCurrentLayout("horizontal")}
-            isFocused={
-              focusedElement === "layoutToggle" &&
-              currentLayout === "horizontal"
-            }
-          >
+          <Button onPress={() => setCurrentLayout("auto")}>Auto Layout</Button>
+          <Button onPress={() => setCurrentLayout("horizontal")}>
             Horizontal
           </Button>
-          <Button
-            onPress={() => setCurrentLayout("vertical")}
-            isFocused={
-              focusedElement === "layoutToggle" && currentLayout === "vertical"
-            }
-          >
-            Vertical
-          </Button>
-          <Button
-            onPress={() => setCurrentLayout("radial")}
-            isFocused={
-              focusedElement === "layoutToggle" && currentLayout === "radial"
-            }
-          >
-            Tree
-          </Button>
+          <Button onPress={() => setCurrentLayout("vertical")}>Vertical</Button>
+          <Button onPress={() => setCurrentLayout("radial")}>Tree</Button>
         </Box>
       </Section>
 

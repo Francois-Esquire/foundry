@@ -1,38 +1,78 @@
 import React from "react";
-import { Box, Text, useInput } from "ink";
+import { Box, Text, useFocus, useInput } from "ink";
 
 import { theme } from "../theme"; // Import theme
 
 interface ButtonProps {
+  variant?: "primary" | "outline" | "ghost";
   onPress: () => void;
   children: React.ReactNode;
-  isFocused?: boolean; // Allow parent to control focus appearance
+  autoFocus?: boolean;
 }
 
-export function Button({ onPress, children, isFocused = false }: ButtonProps) {
-  // Handle Enter key press when the button is intended to be focused
-  // Note: Actual focus management might need to be handled by the parent component
-  // if there are multiple focusable elements.
+export function Button({
+  onPress,
+  children,
+  autoFocus = false,
+  variant = "primary",
+}: ButtonProps) {
+  // Use the built-in useFocus hook from Ink
+  const { isFocused } = useFocus({ autoFocus });
+
+  // Handle Enter key press when focused
   useInput((input, key) => {
     if (isFocused && key.return) {
       onPress();
     }
   });
 
-  const currentBorderColor = isFocused
-    ? theme.colors.borderFocused
-    : theme.colors.border;
-  const currentTextColor = isFocused ? theme.colors.primary : theme.colors.text;
+  // For ghost variant that's not focused, render just the text without a box
+  if (variant === "ghost") {
+    return (
+      <Text color={isFocused ? theme.colors.primary : theme.colors.textDim}>
+        {children}
+      </Text>
+    );
+  }
+
+  // Determine styling based on variant and focus state
+  let borderStyle = theme.borders.default;
+  let borderColor = theme.colors.border;
+  let textColor = theme.colors.text;
+  let paddingX = theme.spacing.sm;
+  let paddingY = 1;
+
+  // Apply variant-specific styling
+  switch (variant) {
+    case "primary":
+      textColor = theme.colors.primary;
+      break;
+    case "outline":
+      textColor = theme.colors.text;
+      break;
+    // case "ghost":
+    //   // Ghost button when focused
+    //   textColor = theme.colors.primary;
+    //   break;
+  }
+
+  // Add focus styling for all variants
+  if (isFocused) {
+    // When focused, all buttons show a border in primary color
+    borderStyle = theme.borders.default;
+    borderColor = theme.colors.primary;
+    textColor = theme.colors.primary;
+  }
 
   return (
-    // Add some styling for definition
     <Box
-      borderStyle={theme.borders.default}
-      borderColor={currentBorderColor}
-      paddingX={theme.spacing.sm} // Use theme spacing
-      alignSelf="center" // Center the button itself
+      borderStyle={borderStyle}
+      borderColor={borderColor}
+      paddingX={paddingX}
+      paddingY={paddingY}
+      alignSelf="center"
     >
-      <Text color={currentTextColor}>{children}</Text>
+      <Text color={textColor}>{children}</Text>
     </Box>
   );
 }

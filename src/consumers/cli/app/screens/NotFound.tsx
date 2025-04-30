@@ -32,9 +32,7 @@ export function NotFoundScreen() {
         </Text>
       </Box>
 
-      <Button onPress={() => navigate("/")} isFocused={isButtonFocused}>
-        Go to Welcome Screen
-      </Button>
+      <Button onPress={() => navigate("/")}>Go to Welcome Screen</Button>
 
       <PageFooter helpText="(Press Enter to continue)" />
     </Box>
