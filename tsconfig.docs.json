@@ -1,0 +1,7 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": ".cache/docs.tsbuildinfo"
+  },
+  "include": ["blume.config.ts", "docs/**/meta.ts"]
+}

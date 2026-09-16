@@ -1,0 +1,29 @@
+---
+title: Behaviors as code
+description: Give recurring work an explicit shape without making every decision agentic.
+---
+
+A behavior is broader than its workflow. A reviewer has instructions and a
+conversation. It also needs a reason to return, a view of what changed, and a
+place to record what happened. The graph describes the work; observation,
+timing, and state give that work continuity.
+
+Some behaviors run once. Others wake on a schedule or react to a changed file.
+Some remember earlier visits. Each can combine deterministic operations with
+model judgment. Reading a checksum need not involve a model; deciding whether
+an instruction contradicts the rest of a repository might.
+
+The harness runs the agentic loop. Quirks decides where that loop belongs within
+a larger behavior. A step can ask a question, validate the answer with ordinary
+code, and pass the result onward. Existing TypeScript libraries remain available.
+
+:::note
+“Behavior” describes the composition. There is no `quirk()` factory or
+first-class Quirk runtime object.
+:::
+
+Keep the smallest useful version. A single async step can be enough. Add a
+workflow when outputs need to flow between tasks, a session when history helps,
+and a monitor or schedule when the behavior should return.
+
+[Composition](/quirks/concepts/composition) shows how these parts fit together.

@@ -91,30 +91,32 @@ export interface Detection {
 }
 
 export const DEFAULT_EVERY = "60s";
+const NETWORK_SOURCE = /^(https?|wss?):\/\//;
+const WEBSOCKET_SOURCE = /^wss?:\/\//;
+const REGEXP_SPECIAL = /[.+^$()|[\]\\{}]/;
 
 export function resolveMonitor(options: MonitorOptions): MonitorSpec {
   if (typeof options === "string") {
-    return /^(https?|wss?):\/\//.test(options)
+    return NETWORK_SOURCE.test(options)
       ? resolveMonitor({ url: options })
       : { glob: options, kind: "files" };
   }
   if (!("url" in options)) {
     return { kind: "files", ...options };
   }
-  return /^wss?:\/\//.test(options.url)
+  return WEBSOCKET_SOURCE.test(options.url)
     ? { kind: "ws", ...options }
     : { kind: "http", ...options };
 }
 
 export function describeMonitor(spec: MonitorSpec): string {
-  switch (spec.kind) {
-    case "files":
-      return `files ${spec.glob}`;
-    case "http":
-      return `http ${spec.url}`;
-    case "ws":
-      return `ws ${spec.url} live`;
+  if (spec.kind === "files") {
+    return `files ${spec.glob}`;
   }
+  if (spec.kind === "http") {
+    return `http ${spec.url}`;
+  }
+  return `ws ${spec.url} live`;
 }
 
 /** `*`, `**`, `?` and `{a,b}` over POSIX paths; everything else is literal. */
@@ -144,7 +146,7 @@ export function globToRegExp(glob: string): RegExp {
     } else if (char === "," && braces > 0) {
       out += "|";
     } else {
-      out += char.replace(/[.+^$()|[\]\\{}]/, "\\$&");
+      out += char.replace(REGEXP_SPECIAL, "\\$&");
     }
   }
   return new RegExp(`^${out}$`);
@@ -249,7 +251,7 @@ async function observeFiles(
   spec: FileMonitor,
   previous: unknown
 ): Promise<Observation> {
-  const workspace = await primitives.workspaces.system.add({
+  const workspace = await primitives.workspaces.add({
     path: spec.root ?? primitives.workspace.root,
   });
   const { files } = await workspace.refresh();

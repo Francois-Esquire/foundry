@@ -1,0 +1,121 @@
+name: Publish Packages
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: npm-publish
+  cancel-in-progress: false
+
+env:
+  HUSKY: "0"
+  TURBO_TELEMETRY_DISABLED: "1"
+
+jobs:
+  build:
+    name: Build and test packages
+    timeout-minutes: 20
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      prerelease: ${{ steps.release.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Validate release tag and public packages
+        id: release
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: bun run release:check --tag
+      - name: Generate release documentation
+        run: bun run changelog
+      - name: Test and build
+        run: |
+          bun run validate
+          bun run build
+          bun run test
+      - name: Pack and test public packages
+        run: bun run release:pack
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npm-package
+          path: |
+            .cache/release/packages/*/package.tgz
+            .cache/release/packages.json
+            .cache/release/release-notes.md
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish tested artifact
+    needs: [build]
+    if: ${{ needs.build.result == 'success' }}
+    environment: npm
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - name: Verify npm supports trusted publishing
+        run: |
+          node --version
+          npm --version
+          node -e '
+            const [major, minor, patch] = process.argv[1].split(".").map(Number);
+            if (major < 11 || (major === 11 && (minor < 5 || (minor === 5 && patch < 1)))) {
+              throw new Error("Trusted publishing requires npm >=11.5.1. Update the setup-node Node version.");
+            }
+          ' "$(npm --version)"
+      - uses: actions/download-artifact@v4
+        with:
+          name: npm-package
+          path: artifact
+      - name: Publish with npm trusted publishing
+        id: npm
+        env:
+          NPM_DIST_TAG: ${{ needs.build.outputs.prerelease == 'true' && 'next' || 'latest' }}
+        run: |
+          for archive in artifact/packages/*/package.tgz; do
+            directory=$(dirname "$archive")
+            tar -xzf "$archive" -C "$directory"
+            npm publish "./$directory/package" --ignore-scripts --access public --tag "$NPM_DIST_TAG" --registry https://registry.npmjs.org
+          done
+          echo "published=true" >> "$GITHUB_OUTPUT"
+      - name: Create or update GitHub release notes
+        if: steps.npm.outputs.published == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.build.outputs.tag }}
+          RELEASE_SHA: ${{ github.sha }}
+          PRERELEASE: ${{ needs.build.outputs.prerelease }}
+        run: |
+          if gh release view "$RELEASE_TAG" > /dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" --notes-file artifact/release-notes.md
+          else
+            gh release create "$RELEASE_TAG" --target "$RELEASE_SHA" --title "$RELEASE_TAG" --notes-file artifact/release-notes.md --prerelease="$PRERELEASE"
+          fi

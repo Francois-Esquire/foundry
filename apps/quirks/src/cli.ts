@@ -2,7 +2,8 @@
 import { existsSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { plugin } from "bun";
 
 import { parseArgs } from "~/args";
 import { startEngine } from "~/engine";
@@ -25,7 +26,7 @@ const print = (line: string) => {
   process.stdout.write(`${line}\n`);
 };
 
-const USAGE = `quirks — agent workflow runner
+const USAGE = `quirks — programmable local behaviors
 
   run                        run every configured schedule until stopped
   once <name> [--input json] dispatch one workflow or schedule now, then exit
@@ -41,8 +42,9 @@ const USAGE = `quirks — agent workflow runner
   --harness <id>     use only this harness (claude-code | codex); repeatable
 
 Each workspace (the config's directory) gets <state>/<id>/ holding
-workspace.json, runs/, schedules/, locks/ and sessions/. --dry writes nothing.`;
+workspace.json, runs/, schedules/, locks/ and sessions/. --dry disables Quirks state persistence; custom code still runs.`;
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Command dispatch shares configuration loading, runtime ownership, and teardown in one lifecycle.
 async function main(): Promise<void> {
   const { command, name, target, dry, config, state, inputJson, only } =
     parseArgs(process.argv.slice(2));
@@ -54,6 +56,25 @@ async function main(): Promise<void> {
   const configPath = resolve(config);
   const hasConfig = existsSync(configPath);
   if (hasConfig) {
+    // Configs use this installation even outside a project with node_modules.
+    // Both entry points must share the same registry instance.
+    const libraryPath = fileURLToPath(
+      new URL(
+        import.meta.url.endsWith(".ts") ? "./lib/index.ts" : "./index.js",
+        import.meta.url
+      )
+    );
+    const library = await import(libraryPath);
+    plugin({
+      name: "quirks-config-library",
+      setup(builder) {
+        builder.module("@foundry/quirks", () => ({
+          exports: library,
+          loader: "object",
+        }));
+      },
+      target: "bun",
+    });
     await import(pathToFileURL(configPath).href);
     print(`[config] ${configPath}`);
   }

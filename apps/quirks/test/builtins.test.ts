@@ -28,6 +28,10 @@ interface BindOptions {
 function bind(reply: Reply, options: BindOptions = {}) {
   const models = mockModels(executors, reply);
   const sessions = new InMemorySessionStore();
+  const catalogue = new WorkspaceSystem().extend(
+    directory(),
+    git(options.live ? {} : { run: echoGit(() => undefined) })
+  );
   registry.bind({
     agents: bindAgents({
       executors,
@@ -41,12 +45,9 @@ function bind(reply: Reply, options: BindOptions = {}) {
     sessions,
     workspace: { root: process.cwd() },
     workspaces: {
+      add: (input) => catalogue.add(input),
       git: (root) =>
         Git.at(root, options.live ? {} : { run: echoGit(() => undefined) }),
-      system: new WorkspaceSystem().extend(
-        directory(),
-        git(options.live ? {} : { run: echoGit(() => undefined) })
-      ),
     },
   });
   return sessions;

@@ -16,7 +16,7 @@ import { parseAt } from "~/schedule";
  * it registered, so config code passes handles and only the CLI and schedules
  * address anything by string. The libraries themselves are re-exported rather
  * than wrapped: a step body talks to `ModelManager`, `SessionHarness`,
- * `WorkspaceSystem` and `generateText` directly.
+ * Git directly.
  */
 
 export function step<I, O>(name: string, body: StepBody<I, O>): Step<I, O> {
@@ -80,19 +80,19 @@ export function monitor(
 
 export type { AgentSpec } from "@foundry/agents/agents/index";
 export type { SessionHarnessSettings } from "@foundry/agents/harness";
+// biome-ignore lint/performance/noBarrelFile: This is the public package entry point for configuration imports.
 export { SessionHarness } from "@foundry/agents/harness";
 export type { SessionMessage, SessionStore } from "@foundry/agents/session";
 export type { TurnExecutorRef } from "@foundry/models";
 export { ModelManager } from "@foundry/models";
-export { WorkspaceSystem } from "@foundry/workspaces";
 export type { GitRun, GitSnapshot } from "@foundry/workspaces/git";
 export { Git, Worktree } from "@foundry/workspaces/git";
 export type {
   CalendarSlot,
   Primitives,
-  QuirksWorkspaceSystem,
   SessionOptions,
   Weekday,
+  Workspaces,
 } from "~/lib/registry";
 export type {
   Change,

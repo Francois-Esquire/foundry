@@ -1,0 +1,49 @@
+---
+title: Safety and Limits
+description: What dry execution substitutes and what your code can still do.
+---
+
+Quirks executes local TypeScript with the authority of its host process. It is
+not a security sandbox or permission-management system. Environment variables,
+tokens, filesystem access, and network access remain available according to that
+process's environment and permissions.
+
+## Dry execution
+
+For execution commands, `--dry` disables Quirks run, schedule, monitor, heartbeat,
+and session persistence. It substitutes echo models for supplied model access
+and an echo runner for Git commands routed through supplied workspaces helpers.
+
+Custom step bodies still execute ordinary code and can produce side effects.
+File monitors still scan, HTTP and WebSocket monitors still use the network, and
+Git status can still read the working tree. Worktree helpers can allocate a
+temporary directory even when their Git commands are echoed. Clients and tools
+you construct independently do not inherit these substitutions.
+
+:::note
+`--dry` does not prevent `launchd install` or `launchd uninstall` from changing
+LaunchAgent files and invoking `launchctl`. Use it to inspect managed execution,
+not to contain arbitrary code.
+:::
+
+## Agents and authority
+
+`cwd` sets context, not a security boundary. A prompt asking an agent not to edit
+is a behavioral instruction, not an enforceable permission. Harness
+authentication and available tools belong to the installed Claude Code or Codex
+CLI. Review their configuration before granting a behavior access to your work.
+
+LaunchAgent jobs run as the installing user. Quirks exits between launchd ticks;
+it is not a resident daemon. Schedule locks skip overlapping ticks for the same
+workspace and schedule. They do not coordinate every action or custom side
+effect across your machine.
+
+## Continuity has boundaries
+
+State is saved to disk. Settled run history, schedule outcomes, file and HTTP
+snapshots, and named agent sessions survive separate invocations. Interrupted
+computations are not automatically resumed. WebSocket messages have no durable
+queue. Model judgments and conversation history do not guarantee correctness.
+
+Explorations in the use-case section are application blueprints, not a hosted
+service, desktop application, or general-purpose personal assistant.

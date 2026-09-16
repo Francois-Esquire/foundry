@@ -1,0 +1,5 @@
+{
+  "extends": "@foundry/tsconfig/base.json",
+  "compilerOptions": { "types": ["bun"] },
+  "include": ["src/**/*.ts"]
+}

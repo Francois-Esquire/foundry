@@ -46,11 +46,6 @@ export function bindRuntime(options: RuntimeOptions): Runtime {
     only.length === 0
       ? detected
       : detected.filter((executor) => only.includes(executor.harness));
-  if (executors.length === 0) {
-    throw new Error(
-      "No usable harness. Install `claude` or `codex`, or pass --dry."
-    );
-  }
 
   const models: ModelManager = dry
     ? echoModels(executors, print)
@@ -59,6 +54,10 @@ export function bindRuntime(options: RuntimeOptions): Runtime {
     state === undefined || dry
       ? new InMemorySessionStore()
       : new JsonSessionStore(join(state, "sessions"));
+  const catalogue = new WorkspaceSystem().extend(
+    directory(),
+    git(dry ? { run: echoGit(print) } : {})
+  );
   const primitives: Primitives = {
     agents: bindAgents({
       executors,
@@ -73,11 +72,9 @@ export function bindRuntime(options: RuntimeOptions): Runtime {
     state,
     workspace: { root },
     workspaces: {
-      git: (root) => Git.at(root, dry ? { run: echoGit(print) } : {}),
-      system: new WorkspaceSystem().extend(
-        directory(),
-        git(dry ? { run: echoGit(print) } : {})
-      ),
+      add: (input) => catalogue.add(input),
+      git: (directoryRoot) =>
+        Git.at(directoryRoot, dry ? { run: echoGit(print) } : {}),
     },
   };
   registry.bind(primitives);

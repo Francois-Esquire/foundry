@@ -29,6 +29,27 @@
     },
     "clean": {
       "cache": false
+    },
+    "test:package": {
+      "dependsOn": ["build"],
+      "cache": false
+    },
+    "//#docs:build": {
+      "inputs": ["docs/**", "blume.config.ts", "package.json", "bun.lock"],
+      "outputs": ["dist/**", ".blume/**"],
+      "cache": false
+    },
+    "//#docs:dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "//#docs:check": {
+      "inputs": ["docs/**", "blume.config.ts", "package.json", "bun.lock"],
+      "outputs": []
+    },
+    "//#docs:typecheck": {
+      "cache": false,
+      "outputs": []
     }
   },
   "globalEnv": ["CI", "NODE_ENV"],

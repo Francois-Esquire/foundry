@@ -36,7 +36,7 @@ terminal status view uses OpenTUI Core.
 | `bun run dev` | Start package development tasks |
 
 `check-types` remains an alias for `typecheck` for existing callers. New package
-scripts use `typecheck`. Use `bun run --cwd apps/tui typecheck` to run a package
+scripts use `typecheck`. Use `bun run --cwd apps/quirks typecheck` to run a package
 script directly, or `bun run typecheck --filter=tui` to use Turbo filtering.
 
 ## Package conventions
@@ -76,3 +76,20 @@ no secrets. Dependabot checks GitHub Actions updates weekly.
 
 The pre-commit hook runs combined code checks for staged paths. Use
 `bun run prepare` to install it. It does not replace full validation.
+
+## Documentation
+
+Quirks documentation lives in [docs/quirks](docs/quirks/index.md). Blume is
+installed at the repository root and reads `blume.config.ts`.
+
+```sh
+bun run docs:dev
+bun run docs:check
+bun run docs:typecheck
+bun run docs:build
+```
+
+These repository-wide documentation tools also have explicit Turbo root tasks.
+The static site is written to `dist/`; `.blume/` is the generated runtime. Both
+are ignored. Stop the docs dev server before building, since the build regenerates its
+runtime. The docs typecheck covers the authored configuration and navigation.

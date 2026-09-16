@@ -18,11 +18,15 @@ afterEach(() => {
 
 function primitivesIn(root: string, state?: string) {
   const lines: string[] = [];
+  const catalogue = new WorkspaceSystem().extend(directory(), git());
   const primitives: Primitives = {
     log: (line: string) => lines.push(line),
     state,
     workspace: { root },
-    workspaces: { system: new WorkspaceSystem().extend(directory(), git()) },
+    workspaces: {
+      add: (options: Parameters<Primitives["workspaces"]["add"]>[0]) =>
+        catalogue.add(options),
+    },
   } as never;
   return { lines, primitives };
 }

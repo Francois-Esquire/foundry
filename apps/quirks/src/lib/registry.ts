@@ -26,7 +26,7 @@ export interface SessionOptions {
    * a partial object overrides individual settings (e.g. `keepTokens`).
    */
   readonly compaction?: false | Partial<CompactionSettings>;
-  /** Confines every turn's CLI harness to this directory. */
+  /** Sets the CLI harness working directory; not a security boundary. */
   readonly cwd?: string;
   /** Defaults to the first executor. */
   readonly executor?: TurnExecutorRef;
@@ -34,10 +34,15 @@ export interface SessionOptions {
   readonly sessionId?: string;
 }
 
-/** The system as Quirks composes it: `add({ path })`, and `git` on any working tree. */
-export type QuirksWorkspaceSystem = WorkspaceSystem<
+type DirectoryCatalogue = WorkspaceSystem<
   [ReturnType<typeof directory>, ReturnType<typeof git>]
 >;
+
+/** Catalogue directories and operate on Git working trees. */
+export interface Workspaces {
+  readonly add: DirectoryCatalogue["add"];
+  readonly git: (root: string) => Git;
+}
 
 /** What a step body receives, bound by the CLI after config import. */
 export interface Primitives {
@@ -48,21 +53,17 @@ export interface Primitives {
       options?: SessionOptions
     ): Promise<SessionHarness>;
   };
-  /** Harnesses on this machine, in preference order. Never empty. */
+  /** Detected harnesses in preference order; may be empty for deterministic work. */
   readonly executors: readonly TurnExecutorRef[];
   readonly log: (line: string) => void;
   readonly models: ModelManager;
-  /** Where every session's messages live. In memory today; the seam a durable store slots behind. */
+  /** Session storage: disk-backed in the CLI, in memory under --dry. */
   readonly sessions: SessionStore;
   /** The workspace state dir; `undefined` under `--dry`, when nothing persists. */
   readonly state?: string;
   /** The config's directory (or the cwd without one): what a files monitor watches by default. */
   readonly workspace: { readonly root: string };
-  readonly workspaces: {
-    readonly system: QuirksWorkspaceSystem;
-    /** `Git` at a root; under `--dry` every mutation is echoed instead of run. */
-    readonly git: (root: string) => Git;
-  };
+  readonly workspaces: Workspaces;
 }
 
 export type StepBody<I, O> = (primitives: Primitives, input: I) => Promise<O>;

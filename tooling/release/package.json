@@ -1,0 +1,21 @@
+{
+  "name": "@foundry/release",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "bun test src/test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "conventional-changelog": "8.1.3",
+    "conventional-changelog-conventionalcommits": "10.4.0",
+    "semver": "7.8.5"
+  },
+  "devDependencies": {
+    "@foundry/tsconfig": "workspace:*",
+    "@types/bun": "1.3.14",
+    "@types/semver": "7.7.1",
+    "typescript": "^6.0.3"
+  }
+}

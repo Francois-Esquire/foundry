@@ -59,3 +59,6 @@ temp
 .agents/*
 .claude/*
 !.claude/settings.json
+
+# Blume generated runtime
+.blume/
