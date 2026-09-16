@@ -10,20 +10,33 @@
   "scripts": {
     "build": "turbo run build",
     "check": "ultracite check",
-    "check-types": "turbo run check-types",
+    "check-types": "bun run typecheck",
+    "clean": "turbo run clean && bun run clean:root",
+    "clean:root": "rm -rf .turbo .cache",
+    "dead-code": "knip",
     "dev": "turbo run dev",
     "dev:tui": "turbo run dev -F tui --",
     "fix": "ultracite fix",
-    "prepare": "husky"
-  },
-  "dependencies": {
-    "zod": "^4.5.4"
+    "format": "biome format .",
+    "format:fix": "biome format --write .",
+    "lint": "biome lint .",
+    "lint:deps": "sherif",
+    "lint:deps-fix": "sherif --fix",
+    "lint:fix": "biome lint --write .",
+    "prepare": "husky",
+    "test": "turbo run test",
+    "test:coverage": "turbo run test:coverage",
+    "test:watch": "turbo run test:watch",
+    "typecheck": "turbo run typecheck",
+    "validate": "bun run check && bun run lint:deps && bun run typecheck && bun run dead-code"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.12",
     "@foundry/tsconfig": "workspace:*",
     "@types/node": "^26.4.1",
     "husky": "latest",
+    "knip": "6.32.0",
+    "sherif": "1.13.0",
     "turbo": "^2.10.12",
     "typescript": "^6.0.3",
     "ultracite": "7.11.0",

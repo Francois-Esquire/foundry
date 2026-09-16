@@ -1,66 +1,73 @@
-# foundry
+# Foundry
 
-This project was created with [Better-T-Stack](https://github.com/AmanVarshney01/create-better-t-stack), a modern TypeScript stack.
+Bun and Turborepo workspace for applications, shared packages, and repository tooling.
 
-## Features
+## Getting started
 
-- **TypeScript** - For type safety and improved developer experience
-- **Husky** - Git hooks for code quality
-- **Turborepo** - Optimized monorepo build system
+Use the Bun version in `packageManager`, then install the locked dependencies:
 
-## Getting Started
-
-First, install the dependencies:
-
-```bash
-bun install
+```sh
+bun install --frozen-lockfile
+bun run dev:tui
 ```
 
-Then, run the development server:
+`apps/` owns runnable applications, `packages/` owns shared libraries, and
+`tooling/` owns shared configuration. No application packages have been migrated
+from the agents repository yet.
 
-```bash
-bun run dev
-```
+## Repository commands
 
-## Environment Configuration
+| Command | Purpose |
+| --- | --- |
+| `bun run validate` | Combined code checks, dependency consistency, typecheck, and dead code |
+| `bun run lint` / `lint:fix` | Check or fix lint issues with Ultracite's Biome rules |
+| `bun run format` / `format:fix` | Check or fix formatting |
+| `bun run check` / `fix` | Combined lint, formatting, and import organization |
+| `bun run typecheck` | Run package typechecks through Turbo |
+| `bun run lint:deps` / `lint:deps-fix` | Check or fix dependency consistency with Sherif |
+| `bun run dead-code` | Find unused code and dependencies with Knip |
+| `bun run build` | Run package builds in dependency order |
+| `bun run test` / `test:coverage` | Run package tests or coverage scripts |
+| `bun run test:watch` | Run package test watchers locally |
+| `bun run clean` | Remove package outputs and root task caches |
+| `bun run dev` | Start package development tasks |
 
-Each app owns its environment schema in `.env.schema`. Varlock generates `src/env.ts` during installation; run `bun run env:generate` after changing a schema. Commit schemas, and keep secrets in ignored env files or your deployment platform.
+`check-types` remains an alias for `typecheck` for existing callers. New package
+scripts use `typecheck`. Use `bun run --cwd apps/tui typecheck` to run a package
+script directly, or `bun run typecheck --filter=tui` to use Turbo filtering.
 
-Import the generated `ENV` accessor in application code. Shared database and auth packages receive configuration or initialized clients from the application. See [Varlock's monorepo guide](https://varlock.dev/guides/monorepos/).
+## Package conventions
 
-Bun's automatic env loading is disabled in `bunfig.toml`; the framework integration or server bootstrap loads Varlock. Node deployments must include Varlock and its dependencies alongside the app schema.
+Keep build, test, and clean implementations in each package. Root commands only
+orchestrate them. Declare actual build outputs in Turbo; typechecking waits for
+dependency builds, and tests wait for their package build. Watch tasks and cleaning
+are never cached. Cleaning preserves installed dependencies and environment files.
 
-## Git Hooks and Formatting
+Linting and formatting use one root Biome configuration extending Ultracite.
+Knip analyzes the repository's workspace graph; entry points and exceptions belong
+in `knip.json`. Keep exceptions specific to actual dynamic or public entry points.
 
-- Initialize hooks: `bun run prepare`
+Use explicit dependency versions or ranges in package manifests and `workspace:*`
+for internal dependencies. There is no catalog. Sherif checks consistency across
+manifests. Keep dependency upgrades separate from migration where possible.
 
-## Project Structure
-
-```text
-foundry/
-├── apps/
-```
-
-## Available Scripts
-
-- `bun run dev`: Start all applications in development mode
-- `bun run build`: Build all applications
-- `bun run check-types`: Check TypeScript types across all apps
+Bun's automatic environment loading is disabled in `bunfig.toml`. Applications
+use Varlock for environment loading and validation. Varlock is intentionally
+retained as root tooling and excepted from Knip until app-level wiring lands.
+Environment schema generation is not configured yet. Declare build/test environment inputs in Turbo
+when adding applications that consume them.
 
 ## Continuous integration
 
-GitHub Actions runs a frozen-lockfile install, lint and formatting checks, and
-TypeScript checks on pull requests and pushes to `main`. The Bun version comes
-from `packageManager` in the root `package.json`. Dependabot checks for GitHub
-Actions updates weekly.
+PRs, pushes to `main`, and manual runs perform a frozen install and separate code,
+dependency, typecheck, and dead-code checks. A second job runs package build and
+test scripts. These two commands currently have no runnable tasks; their gates
+become meaningful as migrated packages add real scripts. No test coverage claim
+is made for the current scaffold.
 
-Run the same checks locally:
+Run `bun run validate`, `bun run build`, and `bun run test` before opening a PR.
+CI uses read-only repository permissions, cancels superseded PR runs, and requires
+no secrets. Dependabot checks GitHub Actions updates weekly.
 
-```bash
-bun install --frozen-lockfile
-bun run check
-bun run check-types
-```
-
-Add build and test steps when packages define those scripts. Currently no package
-has a build script or test suite, so CI does not claim to validate either.
+The pre-commit hook runs combined code checks for staged paths. Use
+`bun run prepare` to install it. It does not replace full validation.

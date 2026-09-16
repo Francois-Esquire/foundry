@@ -4,18 +4,31 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
-      "inputs": ["$TURBO_DEFAULT$", ".env*"],
-      "outputs": ["dist/**"]
+      "outputs": ["dist/**", "out/**", ".cache/tsbuildinfo.json"]
     },
-    "lint": {
-      "dependsOn": ["^lint"]
+    "typecheck": {
+      "dependsOn": ["^build"],
+      "outputs": []
     },
-    "check-types": {
-      "dependsOn": ["^check-types"]
+    "test": {
+      "dependsOn": ["build"],
+      "outputs": []
+    },
+    "test:coverage": {
+      "dependsOn": ["build"],
+      "outputs": ["coverage/**"]
+    },
+    "test:watch": {
+      "dependsOn": ["build"],
+      "cache": false,
+      "persistent": true
     },
     "dev": {
       "cache": false,
       "persistent": true
+    },
+    "clean": {
+      "cache": false
     }
   },
   "globalEnv": ["CI", "NODE_ENV"],
