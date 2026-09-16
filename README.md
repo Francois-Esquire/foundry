@@ -8,12 +8,15 @@ Use the Bun version in `packageManager`, then install the locked dependencies:
 
 ```sh
 bun install --frozen-lockfile
-bun run dev:tui
+bun run build
+bun run quirks status
 ```
 
 `apps/` owns runnable applications, `packages/` owns shared libraries, and
-`tooling/` owns shared configuration. No application packages have been migrated
-from the agents repository yet.
+`tooling/` owns shared configuration. Shared libraries include
+`@foundry/lib`, `@foundry/workspaces`, `@foundry/agents`, `@foundry/workflows`,
+and `@foundry/models`. Quirks is the workflow runner in `apps/quirks`; its
+terminal status view uses OpenTUI Core.
 
 ## Repository commands
 
@@ -38,6 +41,9 @@ script directly, or `bun run typecheck --filter=tui` to use Turbo filtering.
 
 ## Package conventions
 
+Packages keep tests in `src/test/`; apps keep tests in root `test/`. Shared
+test helpers go in the corresponding `test/helpers/` directory.
+
 Keep build, test, and clean implementations in each package. Root commands only
 orchestrate them. Declare actual build outputs in Turbo; typechecking waits for
 dependency builds, and tests wait for their package build. Watch tasks and cleaning
@@ -49,21 +55,20 @@ in `knip.json`. Keep exceptions specific to actual dynamic or public entry point
 
 Use explicit dependency versions or ranges in package manifests and `workspace:*`
 for internal dependencies. There is no catalog. Sherif checks consistency across
-manifests. Keep dependency upgrades separate from migration where possible.
+manifests.
 
-Bun's automatic environment loading is disabled in `bunfig.toml`. Applications
-use Varlock for environment loading and validation. Varlock is intentionally
-retained as root tooling and excepted from Knip until app-level wiring lands.
-Environment schema generation is not configured yet. Declare build/test environment inputs in Turbo
-when adding applications that consume them.
+Bun's automatic `.env` loading is disabled in `bunfig.toml`. Quirks currently
+uses the environment inherited from its launching process. Varlock is installed
+for application environment loading and validation, but Quirks does not yet
+invoke it or define an environment schema. Export required variables before
+launching the app. Declare task-specific environment inputs in Turbo.
 
 ## Continuous integration
 
 PRs, pushes to `main`, and manual runs perform a frozen install and separate code,
 dependency, typecheck, and dead-code checks. A second job runs package build and
-test scripts. These two commands currently have no runnable tasks; their gates
-become meaningful as migrated packages add real scripts. No test coverage claim
-is made for the current scaffold.
+test scripts. These gates build and test the libraries and Quirks. The TUI scaffold
+currently has typechecking but no build or test script.
 
 Run `bun run validate`, `bun run build`, and `bun run test` before opening a PR.
 CI uses read-only repository permissions, cancels superseded PR runs, and requires
