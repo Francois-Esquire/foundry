@@ -5,6 +5,11 @@ export default defineConfig({
     include: ["index.md", "quirks/**/*.md", "quirks/**/*.mdx"],
     root: "docs",
   },
+  deployment: {
+    base: "/foundry",
+    output: "static",
+    site: "https://francois-esquire.github.io",
+  },
   description: "Documentation for Foundry's local developer tools.",
   github: { owner: "Francois-Esquire", repo: "foundry" },
   title: "Foundry",

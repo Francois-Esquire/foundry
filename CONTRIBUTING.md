@@ -20,6 +20,89 @@ These tests do not require model credentials.
 Quirks has a `prepack` hook for ordinary local packing. CI builds explicitly and
 uses `--ignore-scripts` during packing and publishing to preserve the tested build.
 
+## Repository commands
+
+| Command | Purpose |
+| --- | --- |
+| `bun run validate` | Combined code checks, dependency consistency, typecheck, and dead code |
+| `bun run lint` / `lint:fix` | Check or fix lint issues with Ultracite's Biome rules |
+| `bun run format` / `format:fix` | Check or fix formatting |
+| `bun run check` / `fix` | Combined lint, formatting, and import organization |
+| `bun run typecheck` | Run package typechecks through Turbo |
+| `bun run lint:deps` / `lint:deps-fix` | Check or fix dependency consistency with Sherif |
+| `bun run dead-code` | Find unused code and dependencies with Knip |
+| `bun run build` | Run package builds in dependency order |
+| `bun run test` / `test:coverage` | Run package tests or coverage scripts |
+| `bun run test:watch` | Run package test watchers locally |
+| `bun run clean` | Remove package outputs and root task caches |
+| `bun run dev` | Start package development tasks |
+
+`check-types` remains an alias for `typecheck`. New package scripts use
+`typecheck`. Run one package directly with `bun run --cwd apps/quirks typecheck`,
+or use `bun run typecheck --filter=@foundry/quirks` for Turbo filtering.
+
+## Package conventions
+
+`apps/` owns runnable applications, `packages/` owns shared libraries, and
+`tooling/` owns repository tools and configuration. Packages keep tests in
+`src/test/`; apps keep tests in root `test/`. Shared test helpers go in the
+corresponding `test/helpers/` directory.
+
+Keep build, test, and clean implementations in each package. Declare actual
+outputs in Turbo. Typechecking waits for dependency builds; tests wait for their
+package build. Watch tasks and cleaning are uncached. Cleaning preserves
+installed dependencies and environment files.
+
+Use explicit dependency versions or ranges and `workspace:*` for internal
+dependencies. There is no catalog. Sherif checks manifest consistency. Biome
+extends Ultracite at the root; Knip entries and narrow exceptions belong in
+`knip.json`.
+
+Bun's automatic `.env` loading is disabled in `bunfig.toml`. Quirks inherits its
+launching process's environment. Varlock is installed, but Quirks does not yet
+invoke it or define an environment schema. Export required variables before
+launching the app and declare task-specific environment inputs in Turbo.
+
+## Continuous integration
+
+PRs, pushes to `main`, and manual runs perform a frozen install and code,
+dependency, typecheck, and dead-code checks. Separate jobs build and test packages
+and validate and build documentation. CI uses read-only repository permissions,
+cancels superseded PR runs, and requires no secrets. Publishing has its own
+workflow and permissions, described below.
+
+The pre-commit hook checks staged paths. Use `bun run prepare` to install it.
+It does not replace full validation. Dependabot checks GitHub Actions weekly.
+
+## Documentation
+
+The [documentation site](https://francois-esquire.github.io/foundry/) is hosted
+on this repository's GitHub Pages. Its source lives in [docs/quirks](docs/quirks/index.md).
+Blume is installed at the root and reads `blume.config.ts`.
+
+```sh
+bun run docs:dev
+bun run docs:check
+bun run docs:typecheck
+bun run docs:build
+```
+
+These commands also have explicit Turbo root tasks. The static output is
+`dist/`; `.blume/` holds the generated runtime. Both are ignored by Git. Stop
+the docs server before building because the build regenerates its runtime.
+The docs typecheck covers authored configuration and navigation.
+
+The CI documentation job builds and checks pull requests. On pushes to `main`,
+or a manual CI run on `main`, it also uploads `dist/` as the Pages artifact.
+A separate deployment job publishes that exact artifact using the `github-pages`
+environment and Pages/OIDC permissions. It depends on the documentation build;
+the other repository checks run independently.
+
+Blume's deployment base is `/foundry`, matching the GitHub project site. Author
+internal documentation links without that prefix; Blume applies it to routes,
+assets, search, and canonical URLs. A local `docs:build` produces the site but
+does not deploy it. GitHub Pages must use GitHub Actions as its publishing source.
+
 ## Changelog and versions
 
 Public packages share a release version and one `vX.Y.Z` tag. Private workspace

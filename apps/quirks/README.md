@@ -51,13 +51,13 @@ are execution context, not security sandboxes.
 
 ## Documentation
 
-- [Introduction](https://github.com/Francois-Esquire/foundry/blob/main/docs/quirks/index.md)
-- [Start Here](https://github.com/Francois-Esquire/foundry/blob/main/docs/quirks/start-here.md)
-- [Concepts](https://github.com/Francois-Esquire/foundry/blob/main/docs/quirks/concepts/index.mdx)
-- [Use Cases](https://github.com/Francois-Esquire/foundry/blob/main/docs/quirks/use-cases/index.mdx)
-- [API reference](https://github.com/Francois-Esquire/foundry/blob/main/docs/quirks/reference/factories.md)
-- [CLI reference](https://github.com/Francois-Esquire/foundry/blob/main/docs/quirks/reference/cli.md)
-- [Safety and Limits](https://github.com/Francois-Esquire/foundry/blob/main/docs/quirks/safety-and-limits.mdx)
-- [Contributing](https://github.com/Francois-Esquire/foundry/blob/main/docs/quirks/contributing.md)
+- [Introduction](https://francois-esquire.github.io/foundry/quirks/)
+- [Start Here](https://francois-esquire.github.io/foundry/quirks/start-here/)
+- [Concepts](https://francois-esquire.github.io/foundry/quirks/concepts/)
+- [Use Cases](https://francois-esquire.github.io/foundry/quirks/use-cases/)
+- [API reference](https://francois-esquire.github.io/foundry/quirks/reference/factories/)
+- [CLI reference](https://francois-esquire.github.io/foundry/quirks/reference/cli/)
+- [Safety and Limits](https://francois-esquire.github.io/foundry/quirks/safety-and-limits/)
+- [Contributing](https://francois-esquire.github.io/foundry/quirks/contributing/)
 
 Repository setup and documentation development commands are in the contributing guide.

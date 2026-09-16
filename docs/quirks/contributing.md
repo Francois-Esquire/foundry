@@ -48,6 +48,11 @@ The static site is generated in `dist/`. Blume's generated runtime lives in
 `.blume/`. Both are ignored by Git. Maintainer notes prefixed with `_`, including
 `_api-followups.md`, stay outside the rendered site.
 
+CI publishes the built site to GitHub Pages after a successful documentation
+build on `main`. Pull requests only validate and build. The site lives at
+`https://francois-esquire.github.io/foundry/`, so local previews also use the
+`/foundry` deployment base.
+
 The authored first-release introduction lives in `first-release.md`. It is kept
 separate from the generated package changelog so regeneration cannot overwrite
 it. Integrating that introduction into release generation is a tracked follow-up.
