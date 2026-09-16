@@ -19,10 +19,10 @@ vi.mock("@ai-sdk/mcp", () => ({
   ElicitationRequestSchema: {},
 }));
 
-// Dynamic: both transitively import "@ai-sdk/mcp" (via `../../mcp`), so they
+// Dynamic: both transitively import "@ai-sdk/mcp" (via `../../mcp/client`), so they
 // must load after the mock above is registered — a static import would
 // resolve before this file's own body runs and see the real module.
-const { McpClient } = await import("../../mcp");
+const { McpClient } = await import("../../mcp/client");
 const { SessionHarness } = await import("../../harness");
 
 beforeEach(() => {

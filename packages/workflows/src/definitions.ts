@@ -1,6 +1,7 @@
 import type { BaseContext } from "./executable";
 import type { RunExecutionContext } from "./orchestrator";
 
+// biome-ignore lint/performance/noBarrelFile: This is the exported @foundry/workflows/definitions public API.
 export { DefinitionAuthoringError } from "./definition-errors";
 
 /** JSON-safe presentation of one code-defined workflow graph. */

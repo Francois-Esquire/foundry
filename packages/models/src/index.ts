@@ -19,6 +19,7 @@ export type {
   LocalModelDefinition,
   LocalProviderSurface,
 } from "./local/surface";
+// biome-ignore lint/performance/noBarrelFile: This is the exported @foundry/models public API.
 export { isLocalProvider } from "./local/surface";
 export type {
   LanguageModelOptions,

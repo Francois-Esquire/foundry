@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
-
-import type { GatewayModelGroup } from "../../catalog/index";
-
-import { fromGateway } from "../../catalog/index";
+import type { GatewayModelGroup } from "../../catalog/gateway";
+import { fromGateway } from "../../catalog/gateway";
 
 // Representative LiteLLM /model_group/info rows.
 const CHAT: GatewayModelGroup = {

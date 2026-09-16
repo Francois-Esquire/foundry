@@ -3,8 +3,9 @@ import type { Tool, ToolExecutionOptions } from "ai";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { metaOf } from "../../harness/types";
-import type { McpClientOptions, McpLogMessage } from "../../mcp";
-import { McpClient, sdkStdioTransport, spawnStdioTransport } from "../../mcp";
+import { McpClient } from "../../mcp/client";
+import { sdkStdioTransport, spawnStdioTransport } from "../../mcp/stdio";
+import type { McpClientOptions, McpLogMessage } from "../../mcp/types";
 
 // Drives the real @ai-sdk/mcp client over a real stdio subprocess: the only
 // MCP tests in the package that do not mock the SDK.

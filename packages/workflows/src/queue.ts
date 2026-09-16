@@ -63,18 +63,6 @@ function yieldToHost(): Effect.Effect<void> {
   );
 }
 
-// Re-exported to preserve the file-based public subpaths these symbols
-// resolved under before extraction (`@foundry/workflows/queue`).
-export { DispatchedWorkflow } from "./dispatched-workflow";
-export type {
-  DispatchOptions,
-  QueueEvent,
-  QueueEventPayload,
-  QueueOptions,
-  QueueSize,
-  RecoverableRun,
-} from "./queue-types";
-
 interface RunLane {
   eventBuffer: ChannelEvent[];
   insertPromise?: Promise<unknown>;

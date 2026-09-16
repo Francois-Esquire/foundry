@@ -11,11 +11,8 @@ can do.
 
 ```typescript
 import { ModelManager } from "@foundry/models";
-import { vercelProvider } from "@foundry/models/vercel";
 
-const models = new ModelManager({
-  providers: [vercelProvider({ config: { apiKey } })],
-});
+const models = new ModelManager();
 await models.init(); // live catalog discovery; optional
 
 const model = models.model("openai/gpt-5-mini", "vercel");
@@ -85,13 +82,10 @@ models.register(
 );
 ```
 
-Built-in factories, each on its own subpath so a host bundles only what it
-registers: `gatewayProvider` (`@foundry/models/gateway`, any OpenAI-compatible
-host), `vercelProvider` (`/vercel`), `falProvider` (`/fal`),
-`replicateProvider` (`/replicate`), `claudeCodeProvider` (`/claude-code`),
-`codexProvider` (`/codex`). The root entry exports the contract and the
-manager and no provider. On-device weights are the `LocalProvider` class
-behind `@foundry/models/local` (see below).
+Built-in factories are exposed only where hosts use them: `falProvider`
+(`@foundry/models/fal`), `claudeCodeProvider` (`/claude-code`), and
+`codexProvider` (`/codex`). The root entry exports the contract and manager;
+provider adapters and on-device runtime modules otherwise stay internal.
 
 The credentialed factories also export a **binding** (`vercelBinding`,
 `gatewayBinding`, `falBinding`, `replicateBinding`): how that provider follows
@@ -157,57 +151,12 @@ and, when it returns rows, swaps the catalog for them. A failure keeps the floor
 serving. The returned map lets a host persist the fresh catalog; assign
 `provider.models = stored` before `init()` to hydrate it back on an offline boot.
 
-## `@foundry/models/local`
-
-The on-device runtime is its own entry point. The root barrel exports only the
-`LocalProviderSurface` type and `isLocalProvider`, so importing the registry
-never loads transformers-js; a host that wants weights on this machine imports
-the subpath and registers the provider as `local` itself:
-
-```typescript
-import { configureCache, LocalProvider } from "@foundry/models/local";
-
-configureCache(cacheDir);
-models.register(new LocalProvider());
-models.bootstrap(); // now routes embeddings on-device
-```
-
-`LocalProvider` serves text, embedding, and transcription through
-transformers-js and manages weights by catalog id:
-
-```typescript
-local.status() / preload() / download(id) / progress(id);
-local.isDownloaded(id) / downloadedModels();
-local.transcribe(audio, options?, id?); // with segments
-local.events; // "download-progress" | "model-loaded"
-```
-
-Model instances are cached per wire id across every instance in the process:
-transformers-js holds the ONNX session in each one, so a second build would load
-the weights twice.
-
-`RemoteLocalProvider` is the same surface served by a forked worker
-(`forkLocalWorker` + the `remote/worker-entry` executable), for hosts whose own
-process should not hold large text weights. A host can keep embedding and
-transcription in-process and run text generation in the worker.
-
 ## `@foundry/models/model-option` · `/cost`
 
 Pure leaves a renderer can import without the Node-only runtime:
 `toModelOption(row)` flattens a catalog row for a picker; `costFromUsage(costs,
 usage)` prices a turn with cache and tiered rates. Use these subpaths for browser
 code; the root entry also imports registry and observability code.
-
-## `@foundry/models/catalog`
-
-`fromGateway`, `fromVercelRest`, `fromCodexListing` build rows from upstream
-shapes; `enrichFromModelsDev` / `enrichFromSnapshot` fill limits, capabilities,
-and cache rates from the bundled models.dev snapshot. Enrichment never overwrites
-a provider's stated price and matches ids exactly — no fuzzy matching, no alias
-pinning. The models.dev snapshot is bundled, not fetched; refresh with
-`scripts/sync-models-dev.ts`. Gateway deployment snapshots are not bundled.
-Supply gateway rows through the provider's `models` option; use `fromGateway`
-to normalize LiteLLM responses.
 
 ## Observability · errors
 
@@ -221,8 +170,7 @@ Errors are a defined catalog (`modelErrors`), so callers branch on the code.
 
 - Types resolve from `dist/`. Build this package before a consumer typechecks
   against a changed public API.
-- `embeddings/` (chunking) lives here beside the models that consume it; see
-  `@foundry/models/embeddings`.
+- Chunking and local-runtime modules remain internal to this package.
 
 ## Local checks
 

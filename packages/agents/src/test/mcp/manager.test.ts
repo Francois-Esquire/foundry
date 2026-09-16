@@ -10,7 +10,8 @@ vi.mock("@ai-sdk/mcp", () => ({
 /** The stdio seam; the mocked client never starts what it returns. */
 const spawnStdio = vi.fn((config: unknown) => ({ config }) as never);
 
-const { McpClient, McpManager } = await import("../../mcp");
+const { McpClient } = await import("../../mcp/client");
+const { McpManager } = await import("../../mcp/manager");
 const { metaOf } = await import("../../harness/types");
 
 /** A fake SDK client returning the named tools, with a spyable `close`. */

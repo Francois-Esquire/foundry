@@ -8,6 +8,7 @@ export type {
   SuspensionRequest,
   SuspensionState,
 } from "./channels";
+// biome-ignore lint/performance/noBarrelFile: This is the exported @foundry/workflows/channels public API.
 export {
   ChannelEventSchema,
   CustomEvent,

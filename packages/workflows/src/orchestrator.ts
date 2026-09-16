@@ -1,6 +1,7 @@
 import type { Config } from "@foundry/lib/config";
 import { Effect, Exit, Option, Schema, Scope } from "effect";
 import { contributeQueueConfig } from "./config";
+import type { DispatchedWorkflow } from "./dispatched-workflow";
 import {
   DefinitionNotRegisteredError,
   OrchestratorNotStartedError,
@@ -15,13 +16,12 @@ import type { OrchestratorLogger } from "./logger";
 import { BaseOrchestratorLogger } from "./logger";
 import type { ExecutionPersistence } from "./persistence";
 import { orchestratorStoreFromPersistence } from "./persistence-compatibility";
+import { Queue } from "./queue";
 import type {
-  DispatchedWorkflow,
   DispatchOptions,
   QueueEvent,
   QueueEventPayload,
-} from "./queue";
-import { Queue } from "./queue";
+} from "./queue-types";
 import type { ObserveRunOptions, RunObservation } from "./run-observation";
 import { RunObservationJournal } from "./run-observation";
 import type { StepSnapshot } from "./snapshot";

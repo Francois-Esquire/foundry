@@ -5,10 +5,28 @@ import { describe, expect, test } from "vitest";
 import type { SuspensionRequest, SuspensionState } from "../channels";
 import * as ChannelsPublic from "../channels-public";
 import { contributeQueueConfig } from "../config";
+import { DispatchedWorkflow } from "../dispatched-workflow";
+import type { WorkflowDomainError } from "../errors";
+import {
+  DefinitionNotRegisteredError,
+  JobAlreadySettledError,
+  JobAttemptAlreadyActiveError,
+  JobNotFoundError,
+  OrchestratorNotStartedError,
+  RecoverableDefinitionMissingError,
+  RunAlreadySettledError,
+  RunNotFoundError,
+  RunNotSuspendedError,
+  RunReplayGapError,
+  SuspensionOccurrenceMismatchError,
+} from "../errors";
 import type { BaseContext } from "../executable";
 import * as ExecutablePublic from "../executable-public";
+import type { ExecutionRepository } from "../execution-repository";
 import type { OrchestratorLogger, RunLifecycleEvent } from "../logger";
 import { BaseOrchestratorLogger } from "../logger";
+import type { WorkflowTraceFacts } from "../metadata-codec";
+import { workflowTraceFactsFromMetadata } from "../metadata-codec";
 import type {
   CreateJobOptions,
   DirectRunLinks,
@@ -23,22 +41,17 @@ import type {
 import { Orchestrator } from "../orchestrator";
 import type {
   ExecutionPersistence,
-  ExecutionRepository,
   InMemoryExecutionPersistence,
-  RunJournal,
-  WorkflowTraceFacts,
 } from "../persistence";
-import {
-  createInMemoryExecutionPersistence,
-  workflowTraceFactsFromMetadata,
-} from "../persistence";
+import { createInMemoryExecutionPersistence } from "../persistence";
+import { Queue } from "../queue";
 import type {
   DispatchOptions,
   QueueEvent,
   QueueEventPayload,
   QueueOptions,
-} from "../queue";
-import { DispatchedWorkflow, Queue } from "../queue";
+} from "../queue-types";
+import type { RunJournal } from "../run-journal";
 import type { StepSnapshot, StepStatus, WorkflowSnapshot } from "../snapshot";
 import * as SnapshotPublic from "../snapshot-public";
 import type { StepContext, StepSpec } from "../step";
@@ -103,20 +116,7 @@ import {
   SuspensionRecordSchema,
   validateOrchestratorStoreSnapshot,
 } from "../store";
-import type { RunStatus, WorkflowDomainError } from "../types";
-import {
-  DefinitionNotRegisteredError,
-  JobAlreadySettledError,
-  JobAttemptAlreadyActiveError,
-  JobNotFoundError,
-  OrchestratorNotStartedError,
-  RecoverableDefinitionMissingError,
-  RunAlreadySettledError,
-  RunNotFoundError,
-  RunNotSuspendedError,
-  RunReplayGapError,
-  SuspensionOccurrenceMismatchError,
-} from "../types";
+import type { RunStatus } from "../types";
 import type { WorkflowResult } from "../workflow";
 import { Workflow } from "../workflow";
 
@@ -217,9 +217,7 @@ const expectedExportKeys = [
   "./types",
   "./executable",
   "./store",
-  "./persistence",
   "./logger",
-  "./testing",
 ];
 
 describe("public surface", () => {

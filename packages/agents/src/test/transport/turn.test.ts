@@ -13,7 +13,7 @@ import {
   streamSessionAgent,
   toSessionInput,
   turnHasInput,
-} from "../../transport";
+} from "../../transport/turn";
 
 const USAGE: SessionUsage = { inputTokens: 1, outputTokens: 1, totalTokens: 2 };
 

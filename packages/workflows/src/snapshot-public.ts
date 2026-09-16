@@ -7,6 +7,7 @@ export type {
   WorkflowSnapshot,
   WorkflowStepNode,
 } from "./snapshot";
+// biome-ignore lint/performance/noBarrelFile: This is the exported @foundry/workflows/snapshot public API.
 export {
   SnapshotStateSchema,
   StepSnapshotSchema,

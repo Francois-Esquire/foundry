@@ -3,6 +3,7 @@ export type {
   ModelSummarizerOptions,
   Summarizer,
 } from "./compactor";
+// biome-ignore lint/performance/noBarrelFile: This is the exported @foundry/agents/session public API.
 export {
   compact,
   createModelSummarizer,

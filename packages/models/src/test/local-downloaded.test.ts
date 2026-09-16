@@ -27,7 +27,9 @@ vi.mock("../logger", () => ({
   traceModelDownload: vi.fn(() => ({ finish: vi.fn(), track: vi.fn() })),
 }));
 
-const { LOCAL_DEFAULT_MODELS, LocalProvider } = await import("../local");
+const { LOCAL_DEFAULT_MODELS, LocalProvider } = await import(
+  "../local/provider"
+);
 
 const upstreamId = (catalogId: string): string => {
   const row = LOCAL_DEFAULT_MODELS.find((m) => m.id === catalogId);

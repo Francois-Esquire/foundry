@@ -3,30 +3,6 @@ import { createInMemoryPersistenceAdapters } from "./in-memory-execution-persist
 import type { RunJournal } from "./run-journal";
 import type { OrchestratorStoreSnapshot } from "./store-snapshot";
 
-export {
-  decodeJobRecord,
-  decodeRunRecord,
-  decodeSuspensionRecord,
-} from "./execution-records";
-export type { ExecutionRepository } from "./execution-repository";
-export type { WorkflowTraceFacts } from "./metadata-codec";
-export { workflowTraceFactsFromMetadata } from "./metadata-codec";
-export type {
-  AppendRunFrameInput,
-  ClaimRunEffectInput,
-  FrameRun,
-  RunFramePageQuery,
-  RunJournal,
-} from "./run-journal";
-export {
-  decodeRunFrame,
-  decodeRunFrameSequence,
-  decodeRunFrames,
-  isPostTerminalRunEvidence,
-  isRunEffectClaim,
-  runEffectClaimPayload,
-} from "./run-journal";
-
 /** One host-provided persistence capability with internal domain seams. */
 export interface ExecutionPersistence {
   /** Defer through the outermost transaction; rollback drops the callback. */

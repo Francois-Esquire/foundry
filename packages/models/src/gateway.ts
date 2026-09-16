@@ -8,8 +8,6 @@ import { GATEWAY_DEFAULT_MODELS } from "./catalog/defaults";
 import type { Provider, ProviderBinding } from "./provider";
 import type { ModelKind, ProviderModelDefinition } from "./types";
 
-export { GATEWAY_DEFAULT_MODELS } from "./catalog/defaults";
-
 export interface GatewayProviderConfig {
   apiKey?: string;
   baseURL: string;

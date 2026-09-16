@@ -1,15 +1,14 @@
-import type {
-  ExecutionPersistence,
-  ExecutionRepository,
-  RunJournal,
-} from "@foundry/workflows/persistence";
+import { expect, test } from "vitest";
+
+import type { ExecutionRepository } from "../execution-repository";
+import type { ExecutionPersistence } from "../persistence";
+import { createInMemoryExecutionPersistence } from "../persistence";
+import type { RunJournal } from "../run-journal";
 import {
-  createInMemoryExecutionPersistence,
   decodeRunFrame,
   decodeRunFrameSequence,
   decodeRunFrames,
-} from "@foundry/workflows/persistence";
-import { expect, test } from "vitest";
+} from "../run-journal";
 
 type PersistenceSubpathPins = [
   ExecutionPersistence,

@@ -10,7 +10,7 @@ import type {
   SessionUsage,
 } from "../../session";
 
-import { projectToUIMessageChunks } from "../../transport";
+import { projectToUIMessageChunks } from "../../transport/ui-stream";
 
 const USAGE: SessionUsage = {
   inputTokens: 10,

@@ -8,6 +8,7 @@ export type {
 } from "../agents/model";
 
 export type { AgentHarnessSettings } from "./agent-harness";
+// biome-ignore lint/performance/noBarrelFile: This is the exported @foundry/agents/harness public API.
 export { AgentHarness } from "./agent-harness";
 export { directToolEffectPort } from "./effect-port";
 export type {

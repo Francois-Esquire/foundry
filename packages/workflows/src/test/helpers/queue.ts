@@ -16,8 +16,8 @@
  * assertion into the helper.
  */
 
-import type { QueueOptions } from "../../queue";
 import { Queue } from "../../queue";
+import type { QueueOptions } from "../../queue-types";
 import type { OrchestratorStore } from "../../store";
 import { makeInMemoryStore } from "./store";
 

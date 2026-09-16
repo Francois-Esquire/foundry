@@ -15,7 +15,7 @@ vi.mock("@huggingface/transformers", () => ({
 }));
 
 const { ModelManager } = await import("../manager");
-const { LocalProvider } = await import("../local");
+const { LocalProvider } = await import("../local/provider");
 const { configureModelObservability } = await import("../logger");
 const { falBinding, falProvider } = await import("../fal/provider");
 const { setFalRuntime } = await import("../fal/client");

@@ -10,45 +10,21 @@
       "types": "./src/agents/*.ts",
       "import": "./src/agents/*.ts"
     },
-    "./tools/*": {
-      "types": "./src/tools/*.ts",
-      "import": "./src/tools/*.ts"
-    },
     "./harness": {
       "types": "./src/harness/index.ts",
       "import": "./src/harness/index.ts"
-    },
-    "./mcp": {
-      "types": "./src/mcp/index.ts",
-      "import": "./src/mcp/index.ts"
     },
     "./session": {
       "types": "./src/session/index.ts",
       "import": "./src/session/index.ts"
     },
-    "./memory": {
-      "types": "./src/memory/index.ts",
-      "import": "./src/memory/index.ts"
-    },
-    "./contexts": {
-      "types": "./src/contexts/index.ts",
-      "import": "./src/contexts/index.ts"
-    },
     "./authorization": {
       "types": "./src/authorization/index.ts",
       "import": "./src/authorization/index.ts"
     },
-    "./transport": {
-      "types": "./src/transport/index.ts",
-      "import": "./src/transport/index.ts"
-    },
     "./skills": {
       "types": "./src/skills/index.ts",
       "import": "./src/skills/index.ts"
-    },
-    ".": {
-      "types": "./src/index.ts",
-      "import": "./src/index.ts"
     }
   },
   "scripts": {

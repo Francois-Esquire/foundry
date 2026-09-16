@@ -61,7 +61,7 @@ vi.mock("../logger", () => ({
 }));
 
 const { LOCAL_DEFAULT_MODELS, LOCAL_DEFAULTS, LocalProvider } = await import(
-  "../local"
+  "../local/provider"
 );
 const { resolveDefinition } = await import("../provider");
 

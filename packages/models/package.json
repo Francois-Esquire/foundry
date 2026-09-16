@@ -10,25 +10,9 @@
       "types": "./dist/src/index.d.ts",
       "import": "./src/index.ts"
     },
-    "./*": {
-      "types": "./dist/src/*.d.ts",
-      "import": "./src/*.ts"
-    },
-    "./catalog": {
-      "types": "./dist/src/catalog/index.d.ts",
-      "import": "./src/catalog/index.ts"
-    },
     "./fal": {
       "types": "./dist/src/fal/provider.d.ts",
       "import": "./src/fal/provider.ts"
-    },
-    "./local": {
-      "types": "./dist/src/local/index.d.ts",
-      "import": "./src/local/index.ts"
-    },
-    "./embeddings": {
-      "types": "./dist/src/embeddings/index.d.ts",
-      "import": "./src/embeddings/index.ts"
     },
     "./live": {
       "types": "./dist/src/live/index.d.ts",
@@ -37,6 +21,14 @@
     "./live/node": {
       "types": "./dist/src/live/node/index.d.ts",
       "import": "./src/live/node/index.ts"
+    },
+    "./claude-code": {
+      "types": "./dist/src/claude-code.d.ts",
+      "import": "./src/claude-code.ts"
+    },
+    "./codex": {
+      "types": "./dist/src/codex.d.ts",
+      "import": "./src/codex.ts"
     }
   },
   "files": [

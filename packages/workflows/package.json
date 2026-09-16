@@ -62,17 +62,9 @@
       "types": "./dist/store.d.ts",
       "import": "./src/store.ts"
     },
-    "./persistence": {
-      "types": "./dist/persistence.d.ts",
-      "import": "./src/persistence.ts"
-    },
     "./logger": {
       "types": "./dist/logger.d.ts",
       "import": "./src/logger.ts"
-    },
-    "./testing": {
-      "types": "./dist/testing.d.ts",
-      "import": "./src/testing.ts"
     }
   },
   "scripts": {

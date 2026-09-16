@@ -1,11 +1,4 @@
 import { describe, expect, test } from "vitest";
-
-import type {
-  InMemoryOrchestratorStore,
-  JsonValue,
-  OrchestratorStore,
-} from "../../store";
-
 import {
   JobAlreadySettledError,
   JobAttemptAlreadyActiveError,
@@ -16,7 +9,12 @@ import {
   StaleSuspensionRevisionError,
   SuspensionAlreadySettledError,
   SuspensionOccurrenceMismatchError,
-} from "../../types";
+} from "../../errors";
+import type {
+  InMemoryOrchestratorStore,
+  JsonValue,
+  OrchestratorStore,
+} from "../../store";
 
 export type StoreFactory = () => OrchestratorStore | Promise<OrchestratorStore>;
 

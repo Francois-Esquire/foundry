@@ -9,8 +9,6 @@ import { fromVercelRest } from "./catalog/vercel";
 import type { Provider, ProviderBinding } from "./provider";
 import type { ModelKind, ProviderModelDefinition } from "./types";
 
-export { VERCEL_DEFAULT_MODELS } from "./catalog/defaults";
-
 export const VERCEL_GATEWAY_BASE_URL = "https://ai-gateway.vercel.sh/v1";
 
 export interface VercelProviderConfig {

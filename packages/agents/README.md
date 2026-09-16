@@ -294,73 +294,6 @@ renderer-safe — it re-exports only what stays pure, so a UI can import it.
 
 ---
 
-## `@foundry/agents/contexts`
-
-Window sizing and provider caching. Siblings, one entry point.
-
-```typescript
-const window = new SessionWindow(store, options);
-const result = await window.windowFor(sessionId, model); // history, budget and plan
-
-window.recordUsage(sessionId, usage); // record actual usage
-window.stateFor(sessionId); // WindowState | undefined
-
-resolveWindow(model); // → the model's context window
-resolveBudget(model, options); // → ContextBudget after reserved output
-effectiveLimit(budget, 0.8); // → the usable token ceiling
-prepareContext(input); // → PrepareOutput: unchanged history and budget diagnostics
-estimatingCounter; // a TokenCounter, no tokenizer needed
-```
-
-`SessionWindow` is a drop-in `SessionStore` decorator — wrap any store and the
-harness keeps working. `prepareContext` currently returns the full history,
-flags `overBudget`, and does not trim or summarize. Session compaction is a
-separate mechanism in the session harness.
-
-```typescript
-cacheDirectivesFor(input); // → CacheDirectives for this provider
-resolveCacheProvider(model); // → which cache dialect applies
-mergeProviderOptions(a, b); // → the merged providerOptions bag
-```
-
----
-
-## `@foundry/agents/mcp`
-
-Two classes. `McpClient` is one server: it takes a definition, runs the SDK
-client for it, and emits `status`, `tools`, and `log`. `McpManager` is the set
-of them, keyed by id: it holds the definitions a host persists and the clients
-that run for them.
-
-```typescript
-const mcp = new McpManager({ spawnStdio }); // seams only, no handlers
-
-const linear = mcp.define({ id: "linear", transport, enabled: true }); // enabled → connects
-linear.on("status", render);
-mcp.elicit = askTheUser; // default for every client; set `client.elicit` to override
-
-const tools = await mcp.tools(); // enabled ∩ connected, `${id}__name`, capability-tagged
-mcp.status(); // → McpServerState[] for a status UI
-mcp.definitions(); // → the JSON back out
-
-await mcp.disable("linear"); // closes; `enable` reconnects; `remove` forgets
-await mcp[Symbol.asyncDispose]();
-```
-
-A definition is plain JSON: `{ id, name?, description?, transport, enabled? }`.
-Redefining an id with a transport change reconnects; a metadata change does
-not. Each client also exposes `connect`, `close`, `refresh`, `tools()`, and the
-resource/prompt helpers, and can be built standalone with `new McpClient(def)`.
-
-Tools carry `source: "mcp"` and an exact `mcp.tool` capability, which is what
-lets the _harness_ policy decide a call rather than this package. A failed
-client waits out a retry cooldown before the next `connect()` tries again.
-
-`runMcpOAuth` and `UnauthorizedError` are re-exported so a host can drive the
-authorization-code exchange without depending on `@ai-sdk/mcp` directly.
-
----
-
 ## `@foundry/agents/skills`
 
 A skill is a named capability the model loads on demand: a description it routes
@@ -386,33 +319,6 @@ registry.add(...skills).remove(name);
 
 Pass `toolSet` to a harness and the model gets the catalog and the loaders
 together. Bundles stay in memory — the registry holds no paths.
-
----
-
-## `@foundry/agents/transport`
-
-The wire. One turn, projected as `useChat` chunks.
-
-```typescript
-async function* streamSessionAgent(
-  agent: SessionHarness,
-  input: SessionTurnInput,
-  options?: { onFinish?: (e) => void; signal?: AbortSignal },
-): AsyncGenerator<UIMessageChunk>;
-```
-
-```typescript
-sessionTurnShape; // the zod shape for a turn's input
-toSessionInput(input); // SessionTurnInput → SessionInput
-turnHasInput(input); // is there anything to send?
-freshIterable(gen); // wrap before returning across a subscription boundary
-projectToUIMessageChunks(stream, options);
-```
-
-Pass the subscription's `signal` so a stop button cancels the model request
-rather than generating on into a closed stream. Wrap the generator in
-`freshIterable` before it crosses the subscription boundary — some transports
-throw trying to attach their own `Symbol.asyncDispose`.
 
 ---
 
@@ -475,32 +381,6 @@ Peers talk over the ordinary tool loop, and each can spawn sub-peers —
 delegation is recursive, and `recursionDepth` is frozen at spawn.
 
 ---
-
-## `@foundry/agents/tools/*`
-
-Built-in tools. The harness installs `todo` itself; the rest are opt-in.
-
-```typescript
-createTodos(store?)          // the todo tool + a TodoStore that emits events
-createQuestions()            // structured questions with typed answers
-createWebFetchTools(opts?)   // fetch, capped at WEB_FETCH_MAX_BODY_CHARS
-createToolContext(options?)  // the experimental_context tools read
-```
-
-`createToolContext` is how a tool reaches the session's conversation store,
-space, and policy — `getConversationStore`, `getSpace`, and `getPolicy` read
-them back out of an opaque context.
-
-## `@foundry/agents`
-
-The root export is deliberately small: only the memory tool.
-
-```typescript
-import { confidenceSchema, Memory, namespaceSchema } from "@foundry/agents";
-```
-
-Every other entry point is a subpath. That is on purpose — a renderer importing
-`consent` should not drag in an MCP client.
 
 ## Local checks
 

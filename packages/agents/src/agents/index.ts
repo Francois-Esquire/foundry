@@ -13,6 +13,7 @@ export type {
   AgentPresetIdentity,
   AgentRegistry,
 } from "./registry";
+// biome-ignore lint/performance/noBarrelFile: This is the exported @foundry/agents/agents public API.
 export {
   createAgentCompatibilityRegistry,
   createAgentRegistry,

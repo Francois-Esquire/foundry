@@ -7,8 +7,9 @@ import type {
   WorkerReply,
   WorkerRequest,
   WorkerSideTransport,
-} from "../local/remote";
-import { RemoteLocalProvider, runLocalWorker } from "../local/remote";
+} from "../local/remote/protocol";
+import { RemoteLocalProvider } from "../local/remote/provider";
+import { runLocalWorker } from "../local/remote/worker";
 import type { LocalProviderSurface } from "../local/surface";
 import { ModelManager } from "../manager";
 import { fakeProvider } from "./helpers/model";

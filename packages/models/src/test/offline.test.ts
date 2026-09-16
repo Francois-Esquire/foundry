@@ -21,7 +21,7 @@ vi.mock("@huggingface/transformers", () => ({
 }));
 
 const { ModelManager } = await import("../manager");
-const { LocalProvider } = await import("../local");
+const { LocalProvider } = await import("../local/provider");
 
 /** decoy (offline, first) → cloud → the real local role. */
 function airplane() {

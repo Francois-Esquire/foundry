@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { freshIterable } from "../../transport";
+import { freshIterable } from "../../transport/stream";
 
 // `freshIterable` exists so subscription transports can attach their own
 // `Symbol.asyncDispose` for cleanup: a native async generator already carries

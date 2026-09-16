@@ -1,5 +1,9 @@
 import { describe, expect, test } from "vitest";
-
+import {
+  RecordAlreadyExistsError,
+  RecordInUseError,
+  SuspensionAlreadySettledError,
+} from "../errors";
 import type {
   RunFrame,
   RunRecord,
@@ -11,13 +15,7 @@ import type {
   SuspensionSettlement,
   SuspensionSettlementTransaction,
 } from "../store";
-
 import { InMemoryOrchestratorStore } from "../store";
-import {
-  RecordAlreadyExistsError,
-  RecordInUseError,
-  SuspensionAlreadySettledError,
-} from "../types";
 import { makeInMemoryStore } from "./helpers/store";
 import { orchestratorStoreContract } from "./helpers/store.contract";
 

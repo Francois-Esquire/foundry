@@ -15,14 +15,10 @@ import type { Mesh } from "../agents/mesh";
 import { createMesh } from "../agents/mesh";
 import type { AgentCompatibilityRegistry } from "../agents/registry";
 import { createAgentCompatibilityRegistry } from "../agents/registry";
-import type { SessionWindowOptions, WindowModel } from "../contexts";
-import {
-  cacheDirectivesFor,
-  effectiveLimit,
-  estimatingCounter,
-  mergeProviderOptions,
-  resolveBudget,
-} from "../contexts";
+import { effectiveLimit, resolveBudget } from "../contexts/budget";
+import { cacheDirectivesFor, mergeProviderOptions } from "../contexts/cache";
+import { estimatingCounter } from "../contexts/counter";
+import type { SessionWindowOptions, WindowModel } from "../contexts/types";
 import type {
   SessionInput,
   SessionMessage,

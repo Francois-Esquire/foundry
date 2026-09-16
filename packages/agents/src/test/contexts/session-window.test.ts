@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import type { WindowModel } from "../../contexts";
-
-import { SessionWindow } from "../../contexts";
+import { SessionWindow } from "../../contexts/session-window";
+import type { WindowModel } from "../../contexts/types";
 import { InMemorySessionStore } from "../../session/store";
 
 const MODEL: WindowModel = { contextWindow: 1000, id: "test-model" };

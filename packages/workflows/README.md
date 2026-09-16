@@ -449,48 +449,8 @@ bail(error) / isBail(v) / StepBailError / isStepBailError(e);
 interface Logger { debug/info/warn/error }
 ```
 
-Plus every domain error re-exported: `RunNotFoundError`,
-`SuspensionAlreadySettledError`, `StaleSuspensionRevisionError`,
-`RunReplayGapError`, and about twenty more. They are named classes, so a caller
-branches on the type rather than matching a message.
-
 `RetryPolicy` is declarative on purpose — authors say _what_ they want and the
 runtime decides _how_ to schedule it.
-
-## `@foundry/workflows/persistence`
-
-The seam a host implements to make runs durable.
-
-```typescript
-interface ExecutionPersistence {
-  readonly repository: ExecutionRepository; // records: jobs, runs, suspensions
-  readonly journal: RunJournal; // append-only frames
-}
-
-createInMemoryExecutionPersistence(options?): InMemoryExecutionPersistence;
-```
-
-Two seams, not one. The repository answers "what is true now"; the journal is
-append-only history. Decoders (`decodeRunRecord`, `decodeRunFrame`,
-`decodeSuspensionRecord`, …) are exported so an adapter validates rather than
-casts at its boundary.
-
-## `@foundry/workflows/testing`
-
-Contract suites — run them against your own persistence implementation.
-
-```typescript
-import {
-  executionPersistenceContract,
-  orchestratorStoreContract,
-} from "@foundry/workflows/testing";
-
-orchestratorStoreContract(() => new MyStore());
-executionPersistenceContract(() => myPersistence());
-```
-
-This is the intended way to validate a custom store. The in-memory
-implementation passes them, so they define the behaviour rather than describe it.
 
 ## `@foundry/workflows/config` · `/executable` · `/logger` · `/store`
 
@@ -509,9 +469,7 @@ interface OrchestratorLogger / class BaseOrchestratorLogger;
 type RunLifecycleEvent;
 ```
 
-`./store` is a compatibility barrel that re-exports the execution coordinator
-whole. Its own docblock says new persistence implementations should use the
-repository, journal, and persistence seams instead — treat it as the old door.
+`./store` is the compatibility surface for the existing Orchestrator consumer.
 
 ---
 

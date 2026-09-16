@@ -17,7 +17,8 @@ vi.mock("ai", () => ({
   wrapLanguageModel: mockWrapLanguageModel,
 }));
 
-const { vercelProvider, VERCEL_DEFAULT_MODELS } = await import("../vercel");
+const { vercelProvider } = await import("../vercel");
+const { VERCEL_DEFAULT_MODELS } = await import("../catalog/defaults");
 const { ModelManager } = await import("../manager");
 
 const FAKE_MODEL = { modelId: "any", provider: "vercel" };

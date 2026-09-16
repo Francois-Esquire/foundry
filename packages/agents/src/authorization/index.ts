@@ -30,6 +30,7 @@ export type {
   GrantLifetime,
   GrantProvenance,
 } from "@foundry/lib/config/authorization";
+// biome-ignore lint/performance/noBarrelFile: This is the exported @foundry/agents/authorization public API.
 export {
   encodeAddress,
   GrantClaimError,
