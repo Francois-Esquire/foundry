@@ -1,0 +1,8 @@
+{
+  "audio": {
+    "url": "https://v3.fal.media/files/music.mp3",
+    "content_type": "audio/mpeg",
+    "file_name": "music.mp3",
+    "file_size": 1048576
+  }
+}

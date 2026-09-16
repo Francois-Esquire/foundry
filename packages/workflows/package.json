@@ -1,0 +1,99 @@
+{
+  "name": "@foundry/workflows",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Workflow runtime \u2014 Step / Workflow / Run / Queue. Effect-backed inside, plain TS at the seam.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    "./approval": {
+      "types": "./dist/approval.d.ts",
+      "import": "./src/approval.ts"
+    },
+    "./authored": {
+      "types": "./dist/authored.d.ts",
+      "import": "./src/authored.ts"
+    },
+    "./orchestrator": {
+      "types": "./dist/orchestrator.d.ts",
+      "import": "./src/orchestrator.ts"
+    },
+    "./queue": {
+      "types": "./dist/queue.d.ts",
+      "import": "./src/queue.ts"
+    },
+    "./step": {
+      "types": "./dist/step.d.ts",
+      "import": "./src/step.ts"
+    },
+    "./definitions": {
+      "types": "./dist/definitions.d.ts",
+      "import": "./src/definitions.ts"
+    },
+    "./step-hooks": {
+      "types": "./dist/step-hooks.d.ts",
+      "import": "./src/step-hooks.ts"
+    },
+    "./workflow": {
+      "types": "./dist/workflow.d.ts",
+      "import": "./src/workflow.ts"
+    },
+    "./snapshot": {
+      "types": "./dist/snapshot-public.d.ts",
+      "import": "./src/snapshot-public.ts"
+    },
+    "./channels": {
+      "types": "./dist/channels-public.d.ts",
+      "import": "./src/channels-public.ts"
+    },
+    "./config": {
+      "types": "./dist/config.d.ts",
+      "import": "./src/config.ts"
+    },
+    "./types": {
+      "types": "./dist/types.d.ts",
+      "import": "./src/types.ts"
+    },
+    "./executable": {
+      "types": "./dist/executable-public.d.ts",
+      "import": "./src/executable-public.ts"
+    },
+    "./store": {
+      "types": "./dist/store.d.ts",
+      "import": "./src/store.ts"
+    },
+    "./persistence": {
+      "types": "./dist/persistence.d.ts",
+      "import": "./src/persistence.ts"
+    },
+    "./logger": {
+      "types": "./dist/logger.d.ts",
+      "import": "./src/logger.ts"
+    },
+    "./testing": {
+      "types": "./dist/testing.d.ts",
+      "import": "./src/testing.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist .cache .turbo coverage",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@foundry/lib": "workspace:*",
+    "effect": "^3.22.1",
+    "evlog": "^2.25.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@effect/language-service": "^0.87.2",
+    "@foundry/tsconfig": "workspace:*",
+    "@types/bun": "1.3.14",
+    "@vitest/coverage-v8": "^4.1.9",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
+  }
+}

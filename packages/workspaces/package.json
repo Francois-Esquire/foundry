@@ -1,0 +1,50 @@
+{
+  "name": "@foundry/workspaces",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The Workspace system \u2014 one durable catalog over one authoritative source.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./git": {
+      "types": "./dist/git.d.ts",
+      "import": "./src/git.ts",
+      "default": "./src/git.ts"
+    },
+    "./tests/helpers/workspace-system-conformance": {
+      "types": "./dist/test/helpers/workspace-system-conformance.d.ts",
+      "import": "./src/test/helpers/workspace-system-conformance.ts",
+      "default": "./src/test/helpers/workspace-system-conformance.ts"
+    }
+  },
+  "files": [
+    "./dist/**/*",
+    "./src/**/*",
+    "!**/*.test.*"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist .cache .turbo coverage",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "ignore": "^7.0.6",
+    "simple-git": "^3.36.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@foundry/tsconfig": "workspace:*",
+    "@types/bun": "1.3.14",
+    "@types/node": "^26.4.1",
+    "@vitest/coverage-v8": "^4.1.9",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
+  }
+}

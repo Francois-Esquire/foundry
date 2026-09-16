@@ -1,0 +1,28 @@
+{
+  "masks": [
+    {
+      "url": "https://v3.fal.media/files/mask-0.png",
+      "content_type": "image/png",
+      "file_name": "mask-0.png",
+      "width": 1024,
+      "height": 768
+    },
+    {
+      "url": "https://v3.fal.media/files/mask-1.png",
+      "content_type": "image/png",
+      "file_name": "mask-1.png",
+      "width": 1024,
+      "height": 768
+    }
+  ],
+  "image": {
+    "url": "https://v3.fal.media/files/preview.png",
+    "content_type": "image/png"
+  },
+  "metadata": [
+    { "index": 0, "score": 0.94, "box": [0.5, 0.5, 0.25, 0.5] },
+    { "index": 1, "score": 0.71, "box": [0.2, 0.4, 0.1, 0.2] }
+  ],
+  "scores": [0.94, 0.71],
+  "boxes": [[0.5, 0.5, 0.25, 0.5], [0.2, 0.4, 0.1, 0.2]]
+}

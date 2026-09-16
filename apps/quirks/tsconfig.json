@@ -1,0 +1,13 @@
+{
+  "extends": "@foundry/tsconfig/base.json",
+  "compilerOptions": {
+    "lib": ["ESNext"],
+    "types": ["bun"],
+    "paths": {
+      "~/*": ["./src/*"],
+      "@foundry/quirks": ["./src/lib/index.ts"]
+    }
+  },
+  "include": ["src/**/*", "test/**/*"],
+  "exclude": ["node_modules", "dist"]
+}

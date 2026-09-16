@@ -1,0 +1,8 @@
+{
+  "audio": {
+    "url": "https://v3.fal.media/files/sound-effect.mp3",
+    "content_type": "audio/mpeg",
+    "file_name": "sound-effect.mp3",
+    "file_size": 40960
+  }
+}

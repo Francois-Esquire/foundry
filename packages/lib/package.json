@@ -1,0 +1,48 @@
+{
+  "name": "@foundry/lib",
+  "version": "0.1.0",
+  "private": true,
+  "description": "App-agnostic common utilities shared across the workspace.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./config": {
+      "types": "./dist/config/config.d.ts",
+      "import": "./src/config/config.ts"
+    },
+    "./config/authorization": {
+      "types": "./dist/config/authorization/index.d.ts",
+      "import": "./src/config/authorization/index.ts"
+    },
+    "./config/*": {
+      "types": "./dist/config/*.d.ts",
+      "import": "./src/config/*.ts"
+    }
+  },
+  "files": [
+    "./dist/**/*",
+    "./src/**/*",
+    "!**/*.test.*"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist .cache .turbo coverage",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "unique-names-generator": "^4.7.1",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@foundry/tsconfig": "workspace:*",
+    "@types/bun": "1.3.14",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
+  }
+}

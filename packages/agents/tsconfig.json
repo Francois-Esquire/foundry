@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "@foundry/tsconfig/base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM"],
+    "types": ["bun"]
+  },
+  "include": ["src", "scripts", "*.ts"],
+  "exclude": ["node_modules", "dist"]
+}
