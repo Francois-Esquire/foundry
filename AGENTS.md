@@ -2,8 +2,7 @@
 
 Use Bun and Turborepo. Keep dependency versions explicit in each package.json;
 do not introduce dependency catalogs. Internal packages use `workspace:*`.
-Use Varlock for application environment loading and validation. Its root Knip
-exception is intentional while app-level wiring is pending.
+Use Varlock for application environment loading and validation.
 Keep shared dependency ranges consistent. Install repository tools locally and
 commit bun.lock; do not use floating bunx downloads in scripts or CI.
 
@@ -29,11 +28,6 @@ the default test command. Declare task-specific environment inputs in Turbo.
 Clean scripts remove only named generated directories, never source, env files,
 or node_modules. Dependency removal is a separate manual maintenance action.
 Do not run clean concurrently with builds, tests, or typechecking.
-
-For migration, preserve public exports and existing tests, translate scripts to
-these conventions, and remove obsolete ESLint/Prettier configurations. Verify a
-frozen-lockfile install and validation before adding a package to the CI baseline.
-Do not copy the source repository's lockfile, catalogs, or blanket suppressions.
 
 # Ultracite Code Standards
 
@@ -142,6 +136,8 @@ Write code that is **accessible, performant, type-safe, and maintainable**. Focu
 
 ## Testing
 
+- Packages keep tests in `src/test/`; apps keep tests in root `test/`.
+- Shared test helpers belong in that test directory's `helpers/` folder.
 - Write assertions inside `it()` or `test()` blocks
 - Avoid done callbacks in async tests - use async/await instead
 - Don't use `.only` or `.skip` in committed code

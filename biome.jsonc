@@ -1,10 +1,38 @@
 {
   "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
   "extends": ["ultracite/biome/core"],
+  "linter": {
+    "rules": {
+      "suspicious": {
+        "useAwait": "off"
+      },
+      "style": {
+        "useConsistentMethodSignatures": "off",
+        "useDestructuring": "off",
+        "noIncrementDecrement": "off"
+      }
+    }
+  },
   "overrides": [
     {
       "includes": ["tooling/typescript/*.json"],
-      "json": { "parser": { "allowComments": true } }
+      "json": {
+        "parser": {
+          "allowComments": true
+        }
+      }
+    },
+    {
+      // Tests keep ordered setup and assertion regexes beside the cases they describe.
+      "includes": ["packages/*/src/test/**/*.ts", "apps/*/test/**/*.ts"],
+      "linter": {
+        "rules": {
+          "performance": {
+            "noAwaitInLoops": "off",
+            "useTopLevelRegex": "off"
+          }
+        }
+      }
     }
   ],
   "vcs": {
