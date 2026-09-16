@@ -194,17 +194,19 @@ test("publishing requires tested artifacts and keeps installation out of the OID
   expect(
     publish.steps.some((step) => step.uses?.startsWith("actions/cache"))
   ).toBe(false);
-  expect(
-    publish.steps.find((step) => step.uses === "actions/setup-node@v6")?.with?.[
-      "package-manager-cache"
-    ]
-  ).toBe(false);
-  const upload = build.steps.find(
-    (step) => step.uses === "actions/upload-artifact@v4"
+  const setupNode = publish.steps.find((step) =>
+    step.uses?.startsWith("actions/setup-node@")
   );
-  const download = publish.steps.find(
-    (step) => step.uses === "actions/download-artifact@v4"
+  expect(setupNode).toBeDefined();
+  expect(setupNode?.with?.["package-manager-cache"]).toBe(false);
+  const upload = build.steps.find((step) =>
+    step.uses?.startsWith("actions/upload-artifact@")
   );
+  const download = publish.steps.find((step) =>
+    step.uses?.startsWith("actions/download-artifact@")
+  );
+  expect(upload).toBeDefined();
+  expect(download).toBeDefined();
   expect(upload?.with?.name).toBe(download?.with?.name);
   expect(upload?.with?.path).toContain(".cache/release/packages/*/package.tgz");
 });
