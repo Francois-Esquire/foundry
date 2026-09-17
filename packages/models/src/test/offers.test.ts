@@ -114,9 +114,9 @@ describe("offers", () => {
         },
       ],
     });
-    // biome-ignore lint/correctness/noUnusedInstantiation: Construction initializes process-wide observability from provider catalog pricing, asserted below.
-    new ModelManager({ providers: [priced] });
+    const manager = new ModelManager({ providers: [priced] });
 
+    expect(manager.get("fixture")).toBe(priced);
     expect(configureModelObservability).toHaveBeenLastCalledWith({
       cost: { "upstream/smart": { input: 1, output: 2 } },
     });

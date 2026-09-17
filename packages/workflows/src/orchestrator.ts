@@ -354,19 +354,15 @@ export class Orchestrator {
   ): Promise<SuspensionRecord>;
   resolve<I = unknown, O = unknown, X extends BaseContext = BaseContext>(
     nameOrSuspensionId: string,
-    resolution?: JsonValue,
-    options?: ResolveSuspensionOptions
+    ...resolutionAndOptions:
+      | []
+      | [resolution: JsonValue, options?: ResolveSuspensionOptions]
   ): Factory<I, O, X> | Promise<SuspensionRecord> {
-    // biome-ignore-start lint/complexity/noArguments lint/correctness/noUndeclaredVariables: One argument selects factory resolution; explicit undefined selects suspension resolution.
-    if (arguments.length === 1) {
+    if (resolutionAndOptions.length === 0) {
       return this.registry.resolve<I, O, X>(nameOrSuspensionId);
     }
-    // biome-ignore-end lint/complexity/noArguments lint/correctness/noUndeclaredVariables: End the overload dispatch that preserves argument-count semantics.
-    return this.#suspensions.resolve(
-      nameOrSuspensionId,
-      resolution as JsonValue,
-      options
-    );
+    const [resolution, options] = resolutionAndOptions;
+    return this.#suspensions.resolve(nameOrSuspensionId, resolution, options);
   }
 
   resolveDefinition<

@@ -79,13 +79,19 @@ export class Composer<S extends BaseScope = BaseScope> {
     name: string,
     input?: unknown,
     config?: Partial<ExecutableConfig>
+  ): Composer<S>;
+  fork(
+    name: string,
+    ...inputAndConfig:
+      | []
+      | [input: unknown]
+      | [input: unknown, config?: Partial<ExecutableConfig>]
   ): Composer<S> {
-    // biome-ignore-start lint/complexity/noArguments lint/correctness/noUndeclaredVariables: Omission selects the executable default while explicit undefined is forwarded as input.
+    const [input, config] = inputAndConfig;
     const childExec =
-      arguments.length > 1
+      inputAndConfig.length > 0
         ? this.executable.fork({ config, input, name })
         : this.executable.fork({ config, name });
-    // biome-ignore-end lint/complexity/noArguments lint/correctness/noUndeclaredVariables: End the omission-sensitive dispatch.
     return new Composer({
       executable: childExec,
       name,

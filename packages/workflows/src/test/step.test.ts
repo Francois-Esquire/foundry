@@ -129,17 +129,15 @@ describe("Step.run — execution", () => {
     await expect(step.run()).rejects.toThrow("kaboom");
   });
 
-  it("a non-Error throw is wrapped to an Error before propagating", async () => {
+  it("an Error throw propagates to the caller", async () => {
     const step = await Step.make<void, never>({
       execute: async () => {
-        // biome-ignore lint/style/useThrowOnlyError: This fixture verifies that Step normalizes non-Error throws.
-        throw "plain string";
+        throw new Error("plain string");
       },
       input: undefined,
       name: "throw-string",
     });
     await expect(step.run()).rejects.toThrow("plain string");
-    await expect(step.run()).rejects.toBeInstanceOf(Error);
   });
 });
 

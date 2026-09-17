@@ -191,6 +191,10 @@ export abstract class Step<
    * claimed-but-unbound; auto-binds as a root if unclaimed-unbound.
    */
   get #s() {
+    return this.#ensureSubstrate();
+  }
+
+  #ensureSubstrate() {
     if (this.#runtime === undefined) {
       throw new Error(
         "Definition Steps have no runtime substrate; call create(input) first."
@@ -492,9 +496,8 @@ export abstract class Step<
    * dynamically forked (via `ctx.fork`). Reading triggers lazy bind.
    */
   get children(): readonly Step[] {
-    // Touch substrate to trigger lazy bind / materialize declared children.
-    // biome-ignore lint/suspicious/noUnusedExpressions: Accessing #s intentionally triggers lazy binding before exposing the materialized children.
-    this.#s;
+    // Trigger lazy binding before exposing materialized children.
+    this.#ensureSubstrate();
     return this.#children;
   }
 

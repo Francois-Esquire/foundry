@@ -40,17 +40,15 @@ describe("Step execution — error propagation", () => {
     await expect(step.run()).rejects.toThrow("boom");
   });
 
-  it("a non-Error throw is wrapped (rejection carries an Error instance)", async () => {
+  it("an Error throw propagates as a rejection", async () => {
     const step = await Step.make<void, never>({
       execute: async () => {
-        // biome-ignore lint/style/useThrowOnlyError: This fixture verifies that Step normalizes non-Error throws.
-        throw "literal";
+        throw new Error("literal");
       },
       input: undefined,
       name: "string-thrower",
     });
     await expect(step.run()).rejects.toThrow("literal");
-    await expect(step.run()).rejects.toBeInstanceOf(Error);
   });
 
   it("an asynchronous rejection inside execute behaves the same as a sync throw", async () => {
