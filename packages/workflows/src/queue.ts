@@ -124,7 +124,7 @@ export class Queue {
 
   // Driver-loop fiber handle, captured at construction. Held for
   // shutdown() to interrupt cleanly.
-  #driverFiber: ReturnType<typeof Effect.runFork> | null = null;
+  readonly #driverFiber: ReturnType<typeof Effect.runFork> | null;
   // Idempotent shutdown gate. Once set, dispatch rejects and a second
   // shutdown call returns the same in-flight promise.
   #shutdownPromise: Promise<void> | null = null;

@@ -118,7 +118,10 @@ export function createSkillRegistry(skills: Skill[] = []): SkillRegistry {
       return available.get(name);
     },
     get instructions() {
-      return (instructionsMemo ??= computeInstructions(list()));
+      if (instructionsMemo === null) {
+        instructionsMemo = computeInstructions(list());
+      }
+      return instructionsMemo;
     },
     list,
     remove(name) {

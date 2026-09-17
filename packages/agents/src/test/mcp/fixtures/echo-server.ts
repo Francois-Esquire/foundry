@@ -43,7 +43,7 @@ let nextId = 1;
 const pending = new Map<number, (message: Message) => void>();
 
 function send(message: object): void {
-  process.stdout.write(JSON.stringify({ jsonrpc: "2.0", ...message }) + "\n");
+  process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", ...message })}\n`);
 }
 
 function request(method: string, params: unknown): Promise<Message> {

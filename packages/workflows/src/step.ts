@@ -37,12 +37,13 @@ import type { StepContext, StepSpec } from "./step-types";
 import type { Bail, Unsubscribe } from "./types";
 // StepBailError / isStepBailError live in `./types` — re-exported here for
 // back-compat with consumers that import from "@foundry/workflows/step".
-import { isBail, isStepBailError, StepBailError } from "./types";
+import { isBail, StepBailError } from "./types";
 
 // StepContext / StepSpec live in `./step-types` — re-exported here so
 // consumers that import from "@foundry/workflows/step" keep resolving them.
-export type { StepContext, StepSpec };
-export { isStepBailError, StepBailError };
+export type { StepContext, StepSpec } from "./step-types";
+// biome-ignore lint/performance/noBarrelFile: Preserve the declared @foundry/workflows/step compatibility API.
+export { isStepBailError, StepBailError } from "./types";
 
 function optionalMetadata(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
@@ -133,7 +134,7 @@ export abstract class Step<
   // ── Deferred-spec stash ──────────────────────────────────────────────────
   // The constructor stores spec inputs; `#initialize` performs allocation.
 
-  #runtime: StepRuntime<I, X> | undefined;
+  readonly #runtime: StepRuntime<I, X> | undefined;
   #definitionPlan: LeafDefinitionPlan<I, O, X> | undefined;
 
   /**
@@ -141,6 +142,7 @@ export abstract class Step<
    * A claimed step refuses substrate access until the parent binds it;
    * an unclaimed step auto-binds as a root on first access.
    */
+  // biome-ignore lint/style/useReadonlyClassProperties: A parent claims a child after construction to prevent premature binding.
   #claimedByParent = false as boolean;
 
   // ── Substrate (lazy) ─────────────────────────────────────────────────────

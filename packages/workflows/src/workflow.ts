@@ -204,7 +204,7 @@ export abstract class Workflow<
   declare __definitionInput?: (input: I) => void;
   declare __definitionOutput?: () => O;
   declare __definitionContext?: (context: X) => void;
-  #runtime: WorkflowRuntime<I, O, X> | undefined;
+  readonly #runtime: WorkflowRuntime<I, O, X> | undefined;
   #definitionPlan: WorkflowDefinitionPlan<I, O, X> | undefined;
   #planningDefinition = false as boolean;
   /**

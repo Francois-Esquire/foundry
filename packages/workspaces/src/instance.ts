@@ -234,7 +234,6 @@ export class Workspace {
    * pre-write facts; a second system over the same store can still interleave
    * (documented optimistic concurrency, G-04).
    */
-  // biome-ignore lint/suspicious/useAwait: Keep synchronous failures as rejected promises under the asynchronous public contract.
   async save(command: SaveFileCommand): Promise<SaveFileResult> {
     return this.serialize(() => this.performSave(command));
   }

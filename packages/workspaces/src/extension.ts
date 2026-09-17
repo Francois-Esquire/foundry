@@ -32,7 +32,6 @@ export interface WorkspaceExtension<
   Cap = unknown,
 > {
   applies: (record: StoredWorkspaceRecord) => Promise<boolean> | boolean;
-  // biome-ignore lint/style/useConsistentMethodSignatures: Method variance permits registration of extensions with different reference types.
   identify?(ref: Ref): Promise<WorkspaceIdentity> | WorkspaceIdentity;
   readonly name: string;
   /** The key of `Ref` that names this layer's source. Absent on an additive layer. */

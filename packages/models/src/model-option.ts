@@ -15,6 +15,8 @@
 
 import type { ModelCosts, ProviderModelDefinition } from "./types";
 
+const MODEL_ID_WORD_SEPARATOR_PATTERN = /[-_\s]+/;
+
 /**
  * The harness that runs a turn in-app, as opposed to shelling out to an
  * installed CLI. Matches `ModelProvider.harness`'s default.
@@ -103,7 +105,7 @@ export function vendorOf(id: string): string {
 /** Id → label: `vercel` → "Vercel", `ai_gateway` → "Ai Gateway". */
 export function titleCase(id: string): string {
   return id
-    .split(/[-_\s]+/)
+    .split(MODEL_ID_WORD_SEPARATOR_PATTERN)
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");

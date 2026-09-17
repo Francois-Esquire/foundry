@@ -5,8 +5,12 @@ export interface Frontmatter {
   data: FrontmatterData;
 }
 
+const WINDOWS_NEWLINE_PATTERN = /\r\n/g;
+const FRONTMATTER_FIELD_PATTERN = /^([A-Za-z0-9_-]+):[ \t]*(.*)$/;
+const INDENTATION_PATTERN = /^[ \t]*/;
+
 export function parseFrontmatter(text: string): Frontmatter {
-  const src = text.replace(/\r\n/g, "\n");
+  const src = text.replace(WINDOWS_NEWLINE_PATTERN, "\n");
   if (!src.startsWith("---\n")) {
     return { body: src, data: {} };
   }
@@ -37,7 +41,7 @@ export function parseYamlBlock(block: string): Record<string, string> {
       continue;
     }
 
-    const match = /^([A-Za-z0-9_-]+):[ \t]*(.*)$/.exec(line);
+    const match = FRONTMATTER_FIELD_PATTERN.exec(line);
     const key = match?.[1];
     if (key === undefined) {
       continue;
@@ -76,7 +80,7 @@ export function parseYamlBlock(block: string): Record<string, string> {
 }
 
 function indentWidth(line: string): number {
-  return /^[ \t]*/.exec(line)?.[0].length ?? 0;
+  return INDENTATION_PATTERN.exec(line)?.[0].length ?? 0;
 }
 
 function unquote(value: string): string {

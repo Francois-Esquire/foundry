@@ -53,10 +53,10 @@ export class LiveCore {
   #throttleTimer: ReturnType<typeof setTimeout> | null = null;
   #expiryTimer: ReturnType<typeof setTimeout> | null = null;
   #closedFired = false as boolean;
-  #correlations = new Map<string, { sequence: number; id?: string }>();
+  readonly #correlations = new Map<string, { sequence: number; id?: string }>();
   #lastSentSequence = 1;
   #nextCorrelation = 0;
-  #teardowns: (() => void)[] = [];
+  readonly #teardowns: (() => void)[] = [];
 
   readonly #transport: Transport;
   readonly #options: LiveOptions;

@@ -335,7 +335,6 @@ export function createAuthorizer<
       return decisionForMode(policy.global, "global-policy");
     },
 
-    // biome-ignore lint/suspicious/useAwait: Keep synchronous failures as rejected promises under the asynchronous public contract.
     async resolveApproval(
       request: AuthorizationRequest<S, C>,
       resolution: ApprovalResolution

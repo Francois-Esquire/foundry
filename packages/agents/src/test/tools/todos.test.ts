@@ -61,7 +61,9 @@ describe("TodoStore", () => {
   it("emits a snapshot copy, not the live array", () => {
     const store = new TodoStore();
     let captured: TodoItem[] | undefined;
-    store.on("changed", (items) => (captured = items));
+    store.on("changed", (items) => {
+      captured = items;
+    });
     store.add("first");
     store.add("second");
     // The first snapshot must not have grown when the second item was added.

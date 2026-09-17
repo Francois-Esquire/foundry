@@ -12,10 +12,11 @@ const UNITS: Record<string, number> = {
   m: 60_000,
   s: 1000,
 };
+const EVERY_PATTERN = /^(\d+)([smhd])$/;
 
 /** `"30m" | "6h" | "1d"` to milliseconds. */
 export function parseEvery(every: string): number {
-  const match = /^(\d+)([smhd])$/.exec(every.trim());
+  const match = EVERY_PATTERN.exec(every.trim());
   const unit = match?.[2] === undefined ? undefined : UNITS[match[2]];
   if (!match || unit === undefined) {
     throw new Error(

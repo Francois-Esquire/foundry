@@ -53,10 +53,18 @@ export function transformStream(
   let resolveUsage!: (value: SessionUsage) => void;
   let resolveMessage!: (value: SessionMessage) => void;
   let resolveOutcome!: (value: SessionTurnOutcome) => void;
-  const text = new Promise<string>((r) => (resolveText = r));
-  const usage = new Promise<SessionUsage>((r) => (resolveUsage = r));
-  const message = new Promise<SessionMessage>((r) => (resolveMessage = r));
-  const outcome = new Promise<SessionTurnOutcome>((r) => (resolveOutcome = r));
+  const text = new Promise<string>((resolve) => {
+    resolveText = resolve;
+  });
+  const usage = new Promise<SessionUsage>((resolve) => {
+    resolveUsage = resolve;
+  });
+  const message = new Promise<SessionMessage>((resolve) => {
+    resolveMessage = resolve;
+  });
+  const outcome = new Promise<SessionTurnOutcome>((resolve) => {
+    resolveOutcome = resolve;
+  });
 
   const handlers = options.handlers;
   const emit = (event: SessionEvent) => {

@@ -8,6 +8,8 @@ import { Experimental_StdioMCPTransport } from "@ai-sdk/mcp/mcp-stdio";
 
 import type { McpStdioTransportConfig } from "./types";
 
+const TRAILING_CARRIAGE_RETURN_PATTERN = /\r$/u;
+
 /** What a host wants back from a subprocess besides protocol messages. */
 export interface StdioTransportHooks {
   /** The subprocess ended. `code` is null when a signal ended it. */
@@ -186,7 +188,9 @@ function lineReader(each: (line: string) => void): (chunk: Buffer) => void {
       if (end === -1) {
         break;
       }
-      const line = rest.slice(start, end).replace(/\r$/u, "");
+      const line = rest
+        .slice(start, end)
+        .replace(TRAILING_CARRIAGE_RETURN_PATTERN, "");
       if (line.length > 0) {
         each(line);
       }

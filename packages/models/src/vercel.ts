@@ -9,6 +9,8 @@ import { fromVercelRest } from "./catalog/vercel";
 import type { Provider, ProviderBinding } from "./provider";
 import type { ModelKind, ProviderModelDefinition } from "./types";
 
+const TRAILING_SLASHES_PATTERN = /\/+$/;
+
 export const VERCEL_GATEWAY_BASE_URL = "https://ai-gateway.vercel.sh/v1";
 
 export interface VercelProviderConfig {
@@ -65,7 +67,7 @@ export function vercelProvider(
       options.defaults ?? (options.models ? undefined : VERCEL_DEFAULTS),
     discover: async () => {
       const base = (config.baseURL ?? VERCEL_GATEWAY_BASE_URL).replace(
-        /\/+$/,
+        TRAILING_SLASHES_PATTERN,
         ""
       );
       const response = await fetch(`${base}/models`);

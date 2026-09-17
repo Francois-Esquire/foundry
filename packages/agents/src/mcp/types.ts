@@ -1,9 +1,4 @@
-import type {
-  OAuthClientInformation,
-  OAuthClientMetadata,
-  OAuthClientProvider,
-  OAuthTokens,
-} from "@ai-sdk/mcp";
+import type { OAuthClientProvider } from "@ai-sdk/mcp";
 
 import type { SpawnStdio } from "./stdio";
 
@@ -13,7 +8,7 @@ export type {
   OAuthClientMetadata,
   OAuthClientProvider,
   OAuthTokens,
-};
+} from "@ai-sdk/mcp";
 
 interface McpServerMetadata {
   /** Catalog metadata — what the server offers. */

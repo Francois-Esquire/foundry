@@ -16,6 +16,8 @@ export type ProviderOptions = Record<string, Record<string, unknown>>;
 /** Provider families we have explicit cache rules for. */
 export type CacheProvider = "anthropic" | "openai" | "google";
 
+const OPENAI_REASONING_MODEL_PATTERN = /^o\d/;
+
 /**
  * What to apply, split by the two injection seams (§4):
  *  - `request` — request-level `providerOptions` (OpenAI `promptCacheKey`,
@@ -143,7 +145,11 @@ function familyFromToken(token: string): CacheProvider | null {
   if (t.includes("google") || t.includes("gemini") || t.includes("vertex")) {
     return "google";
   }
-  if (t.includes("openai") || t.includes("gpt") || /^o\d/.test(t)) {
+  if (
+    t.includes("openai") ||
+    t.includes("gpt") ||
+    OPENAI_REASONING_MODEL_PATTERN.test(t)
+  ) {
     return "openai";
   }
   return null;

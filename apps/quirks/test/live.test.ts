@@ -26,8 +26,12 @@ async function probeWatch(): Promise<string | undefined> {
   const seen: { fired: boolean; failure?: string } = { fired: false };
   const watching = watchFiles(
     root,
-    () => (seen.fired = true),
-    (error) => (seen.failure = String(error))
+    () => {
+      seen.fired = true;
+    },
+    (error) => {
+      seen.failure = String(error);
+    }
   );
   await watching.ready;
   writeFileSync(join(root, "probe.txt"), "x");
@@ -48,7 +52,9 @@ describe.skipIf(unavailable !== undefined)(
       let calls = 0;
       const watching = watchFiles(
         root,
-        () => (calls += 1),
+        () => {
+          calls += 1;
+        },
         () => undefined
       );
       await watching.ready;
@@ -67,7 +73,9 @@ describe.skipIf(unavailable !== undefined)(
       let calls = 0;
       const watching = watchFiles(
         root,
-        () => (calls += 1),
+        () => {
+          calls += 1;
+        },
         () => undefined
       );
       await watching.ready;
@@ -121,8 +129,12 @@ describe("ws pipeline", () => {
       socket,
       { send: '{"subscribe":"ticks"}', url: "ws://x" },
       {
-        close: () => (closed += 1),
-        message: (message) => messages.push(message),
+        close: () => {
+          closed += 1;
+        },
+        message: (message) => {
+          messages.push(message);
+        },
       }
     );
     expect(sent).toEqual([]);

@@ -88,7 +88,7 @@ export function isModelObservabilityEnabled(): boolean {
  * `ToolLoopAgent`: tool executions + total duration), and `emit` (the harness:
  * settling at the turn boundary the evlog library can't see).
  */
-export type { TurnObservation };
+export type { TurnObservation } from "@foundry/agents/agents/model";
 
 /**
  * Open a turn-scoped {@link TurnObservation}, or `null` when observability is

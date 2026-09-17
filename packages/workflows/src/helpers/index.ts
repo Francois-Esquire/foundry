@@ -7,6 +7,8 @@ import { Cause, Effect, Exit, Option, Schedule } from "effect";
 
 import type { BackoffStrategy, Duration, RetryPolicy } from "../types";
 
+const DURATION_PATTERN = /^(\d+(?:\.\d+)?)(ms|s|m|h)$/;
+
 /** Use a bound input only when the caller omitted one; explicit null is data. */
 export function resolveInput<T>(input: T | undefined, bound: T): T {
   if (input === undefined) {
@@ -78,7 +80,7 @@ export function parseDuration(d: Duration): number {
   if (typeof d === "number") {
     return d;
   }
-  const match = /^(\d+(?:\.\d+)?)(ms|s|m|h)$/.exec(d.trim());
+  const match = DURATION_PATTERN.exec(d.trim());
   if (!match) {
     throw new Error(`Unparseable duration: ${d}`);
   }
@@ -92,7 +94,6 @@ export function parseDuration(d: Duration): number {
       return n * 60_000;
     case "h":
       return n * 3_600_000;
-    case undefined:
     default:
       throw new Error(`Unparseable duration: ${d}`);
   }

@@ -25,7 +25,7 @@ export async function collectSource(input: ChunkSource): Promise<string> {
  * **Not incremental.** The chonkie chunkers (recursive, semantic) operate on the
  * whole document — recursion needs the full string, and semantic boundary
  * detection needs the global similarity signal across every sentence. So this
- * *buffers the entire source first*, chunks it, then yields the chunks one by
+ * buffers the entire source first, chunks it, then yields the chunks one by
  * one. The value is ergonomic and compositional (a chunk stream is a source the
  * embedder can consume), **not** constant-memory streaming of an unbounded
  * input. Don't feed it a 1GB stream expecting bounded memory.

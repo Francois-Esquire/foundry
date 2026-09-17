@@ -631,10 +631,13 @@ describe("tool-compiler — withToolCallRegistration", () => {
     let done = false;
     return {
       [Symbol.asyncIterator]: () => ({
-        next: (): Promise<IteratorResult<T>> =>
-          done
-            ? Promise.resolve({ done: true, value: undefined })
-            : ((done = true), Promise.resolve({ done: false, value: chunk })),
+        next: (): Promise<IteratorResult<T>> => {
+          if (done) {
+            return Promise.resolve({ done: true, value: undefined });
+          }
+          done = true;
+          return Promise.resolve({ done: false, value: chunk });
+        },
       }),
     };
   }

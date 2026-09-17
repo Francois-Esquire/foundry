@@ -7,11 +7,7 @@
  * reasons over the persisted {@link SessionMessage} vocabulary, same as the
  * store it wraps.
  */
-import type {
-  SessionMessage,
-  SessionPart,
-  SessionUsage,
-} from "../session/types";
+import type { SessionMessage } from "../session/types";
 
 /**
  * The model facts the sizing engine needs. Self-contained for now (see
@@ -114,4 +110,8 @@ export interface SessionWindowOptions {
   safetyMarginRatio?: number;
 }
 
-export type { SessionMessage, SessionPart, SessionUsage };
+export type {
+  SessionMessage,
+  SessionPart,
+  SessionUsage,
+} from "../session/types";

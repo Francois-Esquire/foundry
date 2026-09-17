@@ -31,7 +31,7 @@ export interface PlanOptions {
   readonly state: string;
 }
 
-const escape = (value: string) =>
+const escapeXml = (value: string) =>
   value
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
@@ -80,14 +80,14 @@ function triggerKeys(trigger: Trigger): string {
 
 function plistFor(options: PlistOptions): string {
   const program = options.program
-    .map((arg) => `    <string>${escape(arg)}</string>`)
+    .map((arg) => `    <string>${escapeXml(arg)}</string>`)
     .join("\n");
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>${escape(options.label)}</string>
+  <string>${escapeXml(options.label)}</string>
   <key>ProgramArguments</key>
   <array>
 ${program}
@@ -96,16 +96,16 @@ ${triggerKeys(options.trigger)}
   <key>RunAtLoad</key>
   <false/>
   <key>WorkingDirectory</key>
-  <string>${escape(options.workingDirectory)}</string>
+  <string>${escapeXml(options.workingDirectory)}</string>
   <key>EnvironmentVariables</key>
   <dict>
     <key>PATH</key>
-    <string>${escape(options.path)}</string>
+    <string>${escapeXml(options.path)}</string>
   </dict>
   <key>StandardOutPath</key>
-  <string>${escape(options.log)}</string>
+  <string>${escapeXml(options.log)}</string>
   <key>StandardErrorPath</key>
-  <string>${escape(options.log)}</string>
+  <string>${escapeXml(options.log)}</string>
 </dict>
 </plist>
 `;

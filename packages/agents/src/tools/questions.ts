@@ -9,7 +9,7 @@ import { z } from "zod";
  * calls it the harness pauses the loop and surfaces the call to the renderer,
  * which translates the questionnaire (the tool's *input*) into a form (see
  * `@foundry/ui/generator`). The user's answers are posted back as the tool's
- * *output* — an {@link Answers} keyed by question id — which resumes the loop,
+ * output — an {@link Answers} keyed by question id — which resumes the loop,
  * so the model reads them inline on the same turn. This is the standard AI SDK
  * human-in-the-loop pattern (same pause/resume the sandbox + preview tools use).
  */

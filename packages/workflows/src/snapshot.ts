@@ -469,7 +469,7 @@ const namespaceOf = (path: readonly string[]): string =>
 
 const blankStep = (path: readonly string[]): StepSnapshot => ({
   attempt: 0,
-  name: path[path.length - 1] ?? "",
+  name: path.at(-1) ?? "",
   namespace: namespaceOf(path),
   status: "pending",
 });

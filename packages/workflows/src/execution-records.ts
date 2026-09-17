@@ -5,6 +5,8 @@ import type { WorkflowSnapshot } from "./snapshot";
 import { WorkflowSnapshotSchema } from "./snapshot";
 import type { ErrorShape, RunStatus } from "./types";
 
+const RUN_ID_PATTERN = /^rn-.+/;
+
 /** JSON-safe value accepted at persistence and transport seams. */
 export type JsonValue =
   | null
@@ -97,7 +99,7 @@ function checkJsonValue(
 }
 
 const JobIdSchema = Schema.String.pipe(Schema.pattern(/^jb-.+/));
-const RunIdSchema = Schema.String.pipe(Schema.pattern(/^rn-.+/));
+const RunIdSchema = Schema.String.pipe(Schema.pattern(RUN_ID_PATTERN));
 const SuspensionIdSchema = Schema.String.pipe(Schema.pattern(/^su-.+/));
 
 export const DefinitionReferenceSchema = Schema.Struct({
@@ -212,7 +214,7 @@ function isRunRecord(value: unknown): value is RunRecord {
   }
   if (
     typeof value.id !== "string" ||
-    !/^rn-.+/.test(value.id) ||
+    !RUN_ID_PATTERN.test(value.id) ||
     typeof value.queueId !== "string" ||
     typeof value.step !== "string" ||
     !Schema.is(RunStatusSchema)(value.status) ||
