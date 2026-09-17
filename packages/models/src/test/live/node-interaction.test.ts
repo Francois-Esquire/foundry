@@ -110,7 +110,10 @@ describe("the Node interaction", () => {
     const feed = track("video");
     const wrapped: unknown[] = [];
     class InstalledStream {
-      constructor(readonly tracks: unknown[]) {
+      readonly tracks: unknown[];
+
+      constructor(tracks: unknown[]) {
+        this.tracks = tracks;
         wrapped.push(tracks);
       }
       getTracks() {

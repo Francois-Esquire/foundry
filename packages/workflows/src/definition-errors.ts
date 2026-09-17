@@ -1,7 +1,18 @@
 /** Deterministic authoring failure with the owning definition and local path. */
 export class DefinitionAuthoringError extends Error {
+  readonly code:
+    | "invalid-definition-key"
+    | "invalid-node-key"
+    | "duplicate-node-key"
+    | "definition-cycle"
+    | "invalid-composition"
+    | "missing-output"
+    | "duplicate-output";
+  readonly definitionKey: string;
+  readonly path: readonly string[];
+
   constructor(
-    readonly code:
+    code:
       | "invalid-definition-key"
       | "invalid-node-key"
       | "duplicate-node-key"
@@ -9,13 +20,16 @@ export class DefinitionAuthoringError extends Error {
       | "invalid-composition"
       | "missing-output"
       | "duplicate-output",
-    readonly definitionKey: string,
-    readonly path: readonly string[],
+    definitionKey: string,
+    path: readonly string[],
     message: string
   ) {
     super(
       `[definition:${code}] ${definitionKey} at ${path.join(".") || "<root>"}: ${message}`
     );
+    this.code = code;
+    this.definitionKey = definitionKey;
+    this.path = path;
     this.name = "DefinitionAuthoringError";
   }
 }

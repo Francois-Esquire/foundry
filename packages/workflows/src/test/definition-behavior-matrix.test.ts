@@ -125,12 +125,11 @@ class SharedContextWorkflow extends Workflow<string, string, SharedContext> {
 
 class SingleStepWorkflow extends Workflow<void, string> {
   readonly definitionKey: string;
+  private readonly source: Step<void, string>;
 
-  constructor(
-    key: string,
-    private readonly source: Step<void, string>
-  ) {
+  constructor(key: string, source: Step<void, string>) {
     super();
+    this.source = source;
     this.definitionKey = key;
   }
 

@@ -1320,11 +1320,13 @@ export abstract class AbstractOrchestratorStore implements OrchestratorStore {
 
 /** Execution policy composed over durable records and an ordered Run journal. */
 export class ExecutionCoordinator extends AbstractOrchestratorStore {
-  constructor(
-    private readonly repository: ExecutionRepository,
-    private readonly journal: RunJournal
-  ) {
+  private readonly repository: ExecutionRepository;
+  private readonly journal: RunJournal;
+
+  constructor(repository: ExecutionRepository, journal: RunJournal) {
     super();
+    this.repository = repository;
+    this.journal = journal;
   }
 
   override appendRunFrame(input: AppendRunFrameInput): Promise<RunFrame> {

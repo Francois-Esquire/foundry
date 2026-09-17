@@ -343,7 +343,11 @@ class InMemoryExecutionState {
 }
 
 export class InMemoryExecutionRepository implements ExecutionRepository {
-  constructor(private readonly state: InMemoryExecutionState) {}
+  private readonly state: InMemoryExecutionState;
+
+  constructor(state: InMemoryExecutionState) {
+    this.state = state;
+  }
 
   getJob(id: string): Promise<JobRecord | null> {
     return Promise.resolve(cloneOptional(this.state.jobs.get(id)));
@@ -609,7 +613,11 @@ export class InMemoryExecutionRepository implements ExecutionRepository {
 }
 
 export class InMemoryRunJournal implements RunJournal {
-  constructor(private readonly state: InMemoryExecutionState) {}
+  private readonly state: InMemoryExecutionState;
+
+  constructor(state: InMemoryExecutionState) {
+    this.state = state;
+  }
 
   appendRunFrame(input: AppendRunFrameInput): Promise<RunFrame> {
     return this.state.lock(`frame:${input.runId}`, () => {

@@ -271,12 +271,15 @@ interface DownloadEventFields {
  */
 class DownloadTraceImpl implements ModelDownloadTrace {
   private readonly files = new Map<string, TraceFile>();
+  private readonly target: ModelDownloadTarget;
   private log: ReturnType<typeof createLogger<DownloadEventFields>> | null =
     null;
   private startedAt: number | null = null;
   private ended = false;
 
-  constructor(private readonly target: ModelDownloadTarget) {}
+  constructor(target: ModelDownloadTarget) {
+    this.target = target;
+  }
 
   track(tick: DownloadTick): void {
     // Only a real fetch streams sub-100% byte progress; cache loads jump

@@ -14,73 +14,84 @@ export class OrchestratorNotStartedError extends WorkflowDomainError {
 
 export class DefinitionNotRegisteredError extends WorkflowDomainError {
   readonly code = "DEFINITION_NOT_REGISTERED";
+  readonly definition: string;
 
-  constructor(readonly definition: string) {
+  constructor(definition: string) {
     super(`Definition is not registered: ${definition}`);
+    this.definition = definition;
     this.name = "DefinitionNotRegisteredError";
   }
 }
 
 export class RecoverableDefinitionMissingError extends WorkflowDomainError {
   readonly code = "RECOVERABLE_DEFINITION_MISSING";
+  readonly runId: string;
+  readonly definition: string;
 
-  constructor(
-    readonly runId: string,
-    readonly definition: string
-  ) {
+  constructor(runId: string, definition: string) {
     super(`Run ${runId} cannot recover without definition ${definition}`);
+    this.runId = runId;
+    this.definition = definition;
     this.name = "RecoverableDefinitionMissingError";
   }
 }
 
 export class RunReplayGapError extends WorkflowDomainError {
   readonly code = "RUN_REPLAY_GAP";
+  readonly runId: string;
+  readonly requestedAfter: number;
+  readonly earliestAvailable: number;
+  readonly latestAvailable: number;
 
   constructor(
-    readonly runId: string,
-    readonly requestedAfter: number,
-    readonly earliestAvailable: number,
-    readonly latestAvailable = earliestAvailable
+    runId: string,
+    requestedAfter: number,
+    earliestAvailable: number,
+    latestAvailable = earliestAvailable
   ) {
     super(
       `Run ${runId} cannot replay after cursor ${requestedAfter}; available cursors are ${earliestAvailable} through ${latestAvailable}`
     );
+    this.runId = runId;
+    this.requestedAfter = requestedAfter;
+    this.earliestAvailable = earliestAvailable;
+    this.latestAvailable = latestAvailable;
     this.name = "RunReplayGapError";
   }
 }
 
 export class ExecutionConflictRetriesExhaustedError extends WorkflowDomainError {
   readonly code = "EXECUTION_CONFLICT_RETRIES_EXHAUSTED";
+  readonly operation: string;
+  readonly attempts: number;
 
-  constructor(
-    readonly operation: string,
-    readonly attempts: number
-  ) {
+  constructor(operation: string, attempts: number) {
     super(
       `Execution operation ${operation} exhausted ${attempts} optimistic commit attempts`
     );
+    this.operation = operation;
+    this.attempts = attempts;
     this.name = "ExecutionConflictRetriesExhaustedError";
   }
 }
 
 export class InvalidRunFrameSequenceError extends WorkflowDomainError {
   readonly code = "INVALID_RUN_FRAME_SEQUENCE";
+  readonly runId: string;
 
-  constructor(
-    readonly runId: string,
-    message: string
-  ) {
+  constructor(runId: string, message: string) {
     super(`Run ${runId} frame sequence is invalid: ${message}`);
+    this.runId = runId;
     this.name = "InvalidRunFrameSequenceError";
   }
 }
 
 abstract class RecordError extends WorkflowDomainError {
-  constructor(
-    readonly recordId: string,
-    message: string
-  ) {
+  readonly recordId: string;
+
+  constructor(recordId: string, message: string) {
     super(message);
+    this.recordId = recordId;
   }
 }
 
@@ -104,12 +115,11 @@ export class JobAlreadySettledError extends RecordError {
 
 export class JobAttemptAlreadyActiveError extends RecordError {
   readonly code = "JOB_ATTEMPT_ALREADY_ACTIVE";
+  readonly runId: string;
 
-  constructor(
-    jobId: string,
-    readonly runId: string
-  ) {
+  constructor(jobId: string, runId: string) {
     super(jobId, `Job ${jobId} already has active Run ${runId}`);
+    this.runId = runId;
     this.name = "JobAttemptAlreadyActiveError";
   }
 }
@@ -168,39 +178,47 @@ export class RunNotSuspendedError extends RecordError {
 
 export class RecordAlreadyExistsError extends WorkflowDomainError {
   readonly code = "RECORD_ALREADY_EXISTS";
+  readonly recordType: "job" | "run" | "suspension";
+  readonly recordId: string;
 
-  constructor(
-    readonly recordType: "job" | "run" | "suspension",
-    readonly recordId: string
-  ) {
+  constructor(recordType: "job" | "run" | "suspension", recordId: string) {
     super(`${recordType} already exists: ${recordId}`);
+    this.recordType = recordType;
+    this.recordId = recordId;
     this.name = "RecordAlreadyExistsError";
   }
 }
 
 export class RecordInUseError extends WorkflowDomainError {
   readonly code = "RECORD_IN_USE";
+  readonly recordType: "job" | "run" | "suspension";
+  readonly recordId: string;
 
-  constructor(
-    readonly recordType: "job" | "run" | "suspension",
-    readonly recordId: string
-  ) {
+  constructor(recordType: "job" | "run" | "suspension", recordId: string) {
     super(`${recordType} is still referenced: ${recordId}`);
+    this.recordType = recordType;
+    this.recordId = recordId;
     this.name = "RecordInUseError";
   }
 }
 
 export class StaleSuspensionRevisionError extends WorkflowDomainError {
   readonly code = "STALE_SUSPENSION_REVISION";
+  readonly suspensionId: string;
+  readonly expectedRevision: number;
+  readonly actualRevision: number;
 
   constructor(
-    readonly suspensionId: string,
-    readonly expectedRevision: number,
-    readonly actualRevision: number
+    suspensionId: string,
+    expectedRevision: number,
+    actualRevision: number
   ) {
     super(
       `Suspension ${suspensionId} expected revision ${expectedRevision}, actual ${actualRevision}`
     );
+    this.suspensionId = suspensionId;
+    this.expectedRevision = expectedRevision;
+    this.actualRevision = actualRevision;
     this.name = "StaleSuspensionRevisionError";
   }
 }
@@ -216,11 +234,13 @@ export class InvalidStoreSnapshotError extends WorkflowDomainError {
 
 export class UnsupportedStoreSnapshotVersionError extends WorkflowDomainError {
   readonly code = "UNSUPPORTED_STORE_SNAPSHOT_VERSION";
+  readonly version: unknown;
 
-  constructor(readonly version: unknown) {
+  constructor(version: unknown) {
     super(
       `Unsupported orchestrator store snapshot version: ${String(version)}`
     );
+    this.version = version;
     this.name = "UnsupportedStoreSnapshotVersionError";
   }
 }

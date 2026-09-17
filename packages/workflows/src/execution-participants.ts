@@ -5,12 +5,21 @@ import { orchestratorStoreFromPersistence } from "./persistence-compatibility";
 import type { OrchestratorStore, RunRecord } from "./store";
 
 export class ExecutionParticipants {
+  private readonly persistence: ExecutionPersistence | undefined;
+  private readonly store: OrchestratorStore;
+  private readonly admission: OrchestratorOptions["admissionParticipant"];
+  private readonly cancellation: OrchestratorOptions["cancellationParticipant"];
+
   constructor(
-    private readonly persistence: ExecutionPersistence | undefined,
-    private readonly store: OrchestratorStore,
-    private readonly admission: OrchestratorOptions["admissionParticipant"],
-    private readonly cancellation: OrchestratorOptions["cancellationParticipant"]
+    persistence: ExecutionPersistence | undefined,
+    store: OrchestratorStore,
+    admission: OrchestratorOptions["admissionParticipant"],
+    cancellation: OrchestratorOptions["cancellationParticipant"]
   ) {
+    this.persistence = persistence;
+    this.store = store;
+    this.admission = admission;
+    this.cancellation = cancellation;
     if ((admission || cancellation) && !persistence?.transaction) {
       throw new Error("Runtime participants require transactional persistence");
     }

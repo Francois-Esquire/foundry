@@ -30,8 +30,11 @@ import {
 
 class TypedFailure extends Error {
   readonly tag = "typed-failure" as const;
-  constructor(public readonly payload: string) {
+  readonly payload: string;
+
+  constructor(payload: string) {
     super(`typed: ${payload}`);
+    this.payload = payload;
     this.name = "TypedFailure";
   }
 }
