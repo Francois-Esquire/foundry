@@ -154,5 +154,8 @@ function backoffSchedule(
       return Schedule.jittered(
         Schedule.exponential(parseDuration(backoff.initial))
       );
+    default:
+      break;
   }
+  return undefined as never;
 }

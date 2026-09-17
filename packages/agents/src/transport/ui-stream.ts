@@ -113,6 +113,8 @@ export async function* projectToUIMessageChunks(
         };
         break;
       }
+      default:
+        break;
     }
   }
 }

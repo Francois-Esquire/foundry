@@ -105,6 +105,8 @@ export function transformStream(
       case "finish":
         handlers?.onFinish?.({ message: event.message, usage: event.usage });
         break;
+      default:
+        break;
     }
     queue.push(event);
   };

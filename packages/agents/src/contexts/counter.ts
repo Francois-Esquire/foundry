@@ -42,7 +42,10 @@ function partTokens(part: SessionPart): number {
       return textTokens(part.name) + serializedTokens(part.input);
     case "tool_approval_response":
       return part.reason ? textTokens(part.reason) : 0;
+    default:
+      break;
   }
+  return undefined as never;
 }
 
 /** Estimate tokens for a single message, content + envelope. */

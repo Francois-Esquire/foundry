@@ -86,7 +86,10 @@ export function describeCapability(capability: Capability): string {
       ])}`;
     case "tool.call":
       return `tool.call::${capability.source}::${capability.tool}`;
+    default:
+      break;
   }
+  return undefined as never;
 }
 
 /**
@@ -130,7 +133,10 @@ export function explainCapability(
         action: `run tool ${capability.tool} (${capability.source})`,
         subject: "The agent",
       };
+    default:
+      break;
   }
+  return undefined as never;
 }
 
 /**

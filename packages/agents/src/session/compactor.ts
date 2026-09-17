@@ -86,7 +86,10 @@ function renderPart(part: ModelMessagePart): string {
     case "tool-approval-request":
     case "tool-approval-response":
       return "";
+    default:
+      break;
   }
+  return undefined as never;
 }
 
 /**

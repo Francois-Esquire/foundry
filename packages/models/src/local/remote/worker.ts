@@ -128,6 +128,8 @@ export function runLocalWorker(
         done(null);
         return;
       }
+      default:
+        break;
     }
   }
 }

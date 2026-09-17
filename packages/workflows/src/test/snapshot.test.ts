@@ -308,7 +308,10 @@ describe("clearCursorIf — cursor clears on terminal events for the matching pa
           return { _tag: "step.skipped", ...base };
         case "step.aborted":
           return { _tag: "step.aborted", ...base };
+        default:
+          break;
       }
+      return undefined as never;
     })();
     const next = Snapshot.apply(seedWithCursor("a"), event);
     expect(next.workflow?.cursor).toBeNull();

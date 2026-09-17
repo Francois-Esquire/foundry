@@ -46,6 +46,8 @@ export class BaseOrchestratorLogger implements OrchestratorLogger {
       case "recovered":
         this.recovered(event);
         break;
+      default:
+        break;
     }
   }
 

@@ -68,7 +68,10 @@ export function chunk(
       return [wholeChunk(text, resourceId)];
     case "fixed-cutoff":
       return fixedCutoff(text, strategy.maxChars, resourceId);
+    default:
+      break;
   }
+  return undefined as never;
 }
 
 function wholeChunk(text: string, resourceId?: string): Chunk {

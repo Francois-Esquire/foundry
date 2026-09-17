@@ -156,5 +156,8 @@ function mediaOutputFor(operation: MediaOutput["operation"]): MediaOutput {
         audio: { bytes: new Uint8Array([4]), mime: "audio/mpeg" },
         operation,
       };
+    default:
+      break;
   }
+  return undefined as never;
 }

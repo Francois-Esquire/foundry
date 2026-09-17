@@ -101,7 +101,10 @@ async function run(
         operation: "generate-sound-effect",
       };
     }
+    default:
+      break;
   }
+  return undefined as never;
 }
 
 async function subscribe(
@@ -146,7 +149,10 @@ function promptFields(prompt: SegmentationPrompt): Record<string, unknown> {
           },
         ],
       };
+    default:
+      break;
   }
+  return undefined as never;
 }
 
 async function toMasks(

@@ -227,7 +227,10 @@ describe("Step.stream — value-only ReadableStream<ChunkPayload>", () => {
           return payload.text;
         case "data":
           return JSON.stringify(payload.data);
+        default:
+          break;
       }
+      return undefined as never;
     };
 
     const step = await makeWriter("switcher");

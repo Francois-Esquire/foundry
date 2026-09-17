@@ -125,7 +125,10 @@ export function agentCapabilityAddress(
         namespace: capability.kind,
         version: AGENT_CAPABILITY_VERSION,
       };
+    default:
+      break;
   }
+  return undefined as never;
 }
 
 /** The one way an agent address is produced. */

@@ -106,7 +106,10 @@ export function cacheDirectivesFor(input: CacheRuleInput): CacheDirectives {
         : {};
     case null:
       return {};
+    default:
+      break;
   }
+  return undefined as never;
 }
 
 /**
