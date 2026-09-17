@@ -276,12 +276,12 @@ describe("Queue — concurrency cap", () => {
     const wfs = Array.from({ length: 6 }, (_, i) =>
       Workflow.create({
         execute: async () => {
-          inFlight++;
+          inFlight += 1;
           if (inFlight > max) {
             max = inFlight;
           }
           await sleep(15);
-          inFlight--;
+          inFlight -= 1;
           return i;
         },
         input: i,

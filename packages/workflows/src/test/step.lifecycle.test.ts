@@ -107,7 +107,7 @@ describe("step.run() honors pre-set state", () => {
     let calls = 0;
     const step = await Step.make({
       execute: async () => {
-        calls++;
+        calls += 1;
         return "should not run";
       },
       input: undefined,
@@ -124,7 +124,7 @@ describe("step.run() honors pre-set state", () => {
     let calls = 0;
     const step = await Step.make({
       execute: async () => {
-        calls++;
+        calls += 1;
         return "ok";
       },
       input: undefined,

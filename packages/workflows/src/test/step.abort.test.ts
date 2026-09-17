@@ -190,7 +190,7 @@ describe("step.run() interaction with abort", () => {
     let calls = 0;
     const step = await Step.make({
       execute: async () => {
-        calls++;
+        calls += 1;
         return "should not run";
       },
       input: undefined,

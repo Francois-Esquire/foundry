@@ -59,7 +59,7 @@ describe("Channels.stream — multiplexed ChannelMessage", () => {
           });
 
           const collected: ChannelMessage[] = [];
-          for (let i = 0; i < 4; i++) {
+          for (let i = 0; i < 4; i += 1) {
             const next = yield* Effect.promise(() => reader.read());
             if (next.done) {
               break;

@@ -173,7 +173,7 @@ describe("Executable.drive — retry", () => {
           const step = Step.create<unknown, number>({
             config: { retry: { maxAttempts: 3 } },
             execute: async () => {
-              attempts++;
+              attempts += 1;
               if (attempts < 3) {
                 throw new Error(`a${attempts}`);
               }
@@ -211,7 +211,7 @@ describe("Executable.drive — retry", () => {
           const step = Step.create<unknown, number>({
             config: { retry: { maxAttempts: 2 } },
             execute: async () => {
-              attempts++;
+              attempts += 1;
               throw new Error("never");
             },
             input: undefined,
@@ -245,7 +245,7 @@ describe("Executable.drive — retry", () => {
           const step = Step.create<unknown, number>({
             config: { retry: { maxAttempts: 5 } },
             execute: async () => {
-              attempts++;
+              attempts += 1;
               return bail("nope");
             },
             input: undefined,

@@ -126,9 +126,11 @@ export function toSchedule(policy: RetryPolicy): Schedule.Schedule<unknown> {
   if (policy.shouldRetry) {
     const predicate = policy.shouldRetry;
     let attempt = 1;
-    schedule = Schedule.whileInput(schedule, (input: unknown) =>
-      predicate(input, attempt++)
-    );
+    schedule = Schedule.whileInput(schedule, (input: unknown) => {
+      const currentAttempt = attempt;
+      attempt += 1;
+      return predicate(input, currentAttempt);
+    });
   }
   return schedule;
 }

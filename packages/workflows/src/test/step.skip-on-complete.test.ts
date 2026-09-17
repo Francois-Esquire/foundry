@@ -69,10 +69,10 @@ function countLifecycle(step: Step): {
     Stream.runForEach(step.channels.events.stream, (e: ChannelEvent) =>
       Effect.sync(() => {
         if (e._tag === "step.started") {
-          startedCount++;
+          startedCount += 1;
         }
         if (e._tag === "step.complete") {
-          completeCount++;
+          completeCount += 1;
         }
       })
     )
@@ -100,7 +100,7 @@ describe("step.run skip-on-complete — persisted complete", () => {
     let calls = 0;
     const step = await Step.make<unknown, unknown>({
       execute: async () => {
-        calls++;
+        calls += 1;
         return "fresh";
       },
       input: undefined,
@@ -122,7 +122,7 @@ describe("step.run skip-on-complete — persisted complete", () => {
     let calls = 0;
     const step = await Step.make<unknown, unknown>({
       execute: async () => {
-        calls++;
+        calls += 1;
         return { a: 0, b: "fresh" };
       },
       input: undefined,
@@ -138,7 +138,7 @@ describe("step.run skip-on-complete — persisted complete", () => {
     let calls = 0;
     const step = await Step.make<unknown, unknown>({
       execute: async () => {
-        calls++;
+        calls += 1;
       },
       input: undefined,
       name: "skipvoid",
@@ -159,7 +159,7 @@ describe("step.run skip-on-complete — non-complete persisted re-runs", () => {
     let calls = 0;
     const step = await Step.make<unknown, unknown>({
       execute: async () => {
-        calls++;
+        calls += 1;
         return "ok";
       },
       input: undefined,
@@ -181,7 +181,7 @@ describe("step.run skip-on-complete — non-complete persisted re-runs", () => {
     let calls = 0;
     const step = await Step.make<unknown, unknown>({
       execute: async () => {
-        calls++;
+        calls += 1;
         return "ok";
       },
       input: undefined,
@@ -197,7 +197,7 @@ describe("step.run skip-on-complete — non-complete persisted re-runs", () => {
     let calls = 0;
     const step = await Step.make<unknown, unknown>({
       execute: async () => {
-        calls++;
+        calls += 1;
         return "ok";
       },
       input: undefined,
@@ -213,7 +213,7 @@ describe("step.run skip-on-complete — non-complete persisted re-runs", () => {
     let calls = 0;
     const step = await Step.make<unknown, unknown>({
       execute: async () => {
-        calls++;
+        calls += 1;
         return "ok";
       },
       input: undefined,
@@ -235,7 +235,7 @@ describe("step.run skip-on-complete — no prior persisted record", () => {
     let calls = 0;
     const step = await Step.make<unknown, unknown>({
       execute: async () => {
-        calls++;
+        calls += 1;
         return "ok";
       },
       input: undefined,

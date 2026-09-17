@@ -17,7 +17,7 @@ describe("Step.retry — maxAttempts", () => {
     const step = await Step.make({
       config: { retry: { maxAttempts: 3 } },
       execute: async () => {
-        calls++;
+        calls += 1;
         if (calls < 3) {
           throw new Error(`fail ${calls}`);
         }
@@ -37,7 +37,7 @@ describe("Step.retry — maxAttempts", () => {
     const step = await Step.make({
       config: { retry: { maxAttempts: 3 } },
       execute: async () => {
-        calls++;
+        calls += 1;
         throw new Error("always fails");
       },
       input: undefined,
@@ -53,7 +53,7 @@ describe("Step.retry — maxAttempts", () => {
     const step = await Step.make({
       config: { retry: { maxAttempts: 1 } },
       execute: async () => {
-        calls++;
+        calls += 1;
         throw new Error("fail");
       },
       input: undefined,
@@ -68,7 +68,7 @@ describe("Step.retry — maxAttempts", () => {
     let calls = 0;
     const step = await Step.make({
       execute: async () => {
-        calls++;
+        calls += 1;
         throw new Error("fail");
       },
       input: undefined,
@@ -86,7 +86,7 @@ describe("Step.retry — Bail vs throw", () => {
     const step = await Step.make({
       config: { retry: { maxAttempts: 5 } },
       execute: async () => {
-        calls++;
+        calls += 1;
         return bail("hard fail");
       },
       input: undefined,
@@ -108,7 +108,7 @@ describe("Step.retry — Bail vs throw", () => {
     const step = await Step.make({
       config: { retry: { maxAttempts: 5 } },
       execute: async () => {
-        calls++;
+        calls += 1;
         if (calls < 3) {
           throw new Error("recoverable");
         }
@@ -140,7 +140,7 @@ describe("Step.retry — shouldRetry predicate", () => {
         },
       },
       execute: async () => {
-        calls++;
+        calls += 1;
         throw new Error("fail");
       },
       input: undefined,
@@ -167,7 +167,7 @@ describe("Step.retry — shouldRetry predicate", () => {
         },
       },
       execute: async () => {
-        calls++;
+        calls += 1;
         throw new Error(`fail ${calls}`);
       },
       input: undefined,
@@ -197,7 +197,7 @@ describe("Step.retry — backoff strategies", () => {
         },
       },
       execute: async () => {
-        calls++;
+        calls += 1;
         timestamps.push(Date.now());
         if (calls < 3) {
           throw new Error("fail");
@@ -227,7 +227,7 @@ describe("Step.retry — backoff strategies", () => {
         },
       },
       execute: async () => {
-        calls++;
+        calls += 1;
         timestamps.push(Date.now());
         if (calls < 3) {
           throw new Error("fail");
@@ -263,7 +263,7 @@ describe("Step.retry — backoff strategies", () => {
         },
       },
       execute: async () => {
-        calls++;
+        calls += 1;
         timestamps.push(Date.now());
         if (calls < 3) {
           throw new Error("fail");
@@ -297,7 +297,7 @@ describe("Step.retry — backoff strategies", () => {
         },
       },
       execute: async () => {
-        calls++;
+        calls += 1;
         timestamps.push(Date.now());
         if (calls < 3) {
           throw new Error("fail");
@@ -327,7 +327,7 @@ describe("Step.retry — scope (no cascade across fork)", () => {
       children: [
         {
           execute: async () => {
-            childCalls++;
+            childCalls += 1;
             throw new Error("child fail");
           },
           input: undefined,
@@ -336,7 +336,7 @@ describe("Step.retry — scope (no cascade across fork)", () => {
       ],
       config: { retry: { maxAttempts: 5 } },
       execute: async (_, ctx) => {
-        parentCalls++;
+        parentCalls += 1;
         const child = ctx.children[0];
         if (!child) {
           throw new Error("no child");
@@ -369,7 +369,7 @@ describe("Step.retry — scope (no cascade across fork)", () => {
         {
           config: { retry: { maxAttempts: 3 } },
           execute: async () => {
-            childCalls++;
+            childCalls += 1;
             if (childCalls < 3) {
               throw new Error("child fail");
             }
@@ -380,7 +380,7 @@ describe("Step.retry — scope (no cascade across fork)", () => {
         },
       ],
       execute: async (_, ctx) => {
-        parentCalls++;
+        parentCalls += 1;
         const child = ctx.children[0];
         if (!child) {
           throw new Error("no child");

@@ -235,7 +235,7 @@ export function makeCounterSpec(
     name,
     ...(retry ? { config: { retry } } : {}),
     execute: async () => {
-      attempts++;
+      attempts += 1;
       if (attempts < succeedAfter) {
         throw new Error(`counter: attempt ${attempts} < ${succeedAfter}`);
       }

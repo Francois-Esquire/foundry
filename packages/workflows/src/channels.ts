@@ -610,7 +610,7 @@ export class Channels<S = unknown> {
     if (eventPath.length !== path.length) {
       return false;
     }
-    for (let i = 0; i < path.length; i++) {
+    for (let i = 0; i < path.length; i += 1) {
       if (eventPath[i] !== path[i]) {
         return false;
       }

@@ -162,7 +162,7 @@ function contextTokens(
   messages: SessionMessage[],
   counter: TokenCounter
 ): number {
-  for (let i = messages.length - 1; i >= 0; i--) {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
     const usage = messages[i]?.metadata?.usage;
     if (usage) {
       return usage.inputTokens + usage.outputTokens;
@@ -188,7 +188,7 @@ export function selectMarker(
 ): string | undefined {
   let kept = 0;
   let boundary = messages.length;
-  for (let i = messages.length - 1; i >= 0; i--) {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
     const m = messages[i];
     if (!m) {
       continue;
@@ -201,7 +201,7 @@ export function selectMarker(
   }
 
   let markerIndex: number | undefined;
-  for (let i = boundary; i < messages.length; i++) {
+  for (let i = boundary; i < messages.length; i += 1) {
     if (messages[i]?.role === "user") {
       markerIndex = i;
       break;
@@ -236,7 +236,7 @@ function protectUnresolvedApprovals(
     }
   }
 
-  for (let i = 0; i < markerIndex; i++) {
+  for (let i = 0; i < markerIndex; i += 1) {
     const m = messages[i];
     if (!m) {
       continue;

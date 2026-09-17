@@ -11,8 +11,7 @@
       },
       "style": {
         "useConsistentMethodSignatures": "off",
-        "useDestructuring": "off",
-        "noIncrementDecrement": "off"
+        "useDestructuring": "off"
       }
     }
   },

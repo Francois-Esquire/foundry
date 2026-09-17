@@ -127,7 +127,7 @@ describe("ctx.next() — multi-call safety", () => {
       children: [
         {
           execute: async () => {
-            leafRuns++;
+            leafRuns += 1;
             return "leaf-out";
           },
           input: undefined,
@@ -135,7 +135,7 @@ describe("ctx.next() — multi-call safety", () => {
         },
       ],
       execute: async (_input, ctx): Promise<"ok"> => {
-        bodyRuns++;
+        bodyRuns += 1;
         await ctx.next();
         await ctx.next();
         return "ok";

@@ -32,7 +32,7 @@ async function takePayloads(
 ): Promise<ChunkPayload[]> {
   const reader = step.stream.getReader();
   const payloads: ChunkPayload[] = [];
-  for (let i = 0; i < count; i++) {
+  for (let i = 0; i < count; i += 1) {
     const { value, done } = await reader.read();
     if (done) {
       break;
@@ -266,7 +266,7 @@ describe("generator body — abort mid-yield runs finally blocks", () => {
     const reader = step.stream.getReader();
     const drained = (async () => {
       // Read up to a few payloads, then release.
-      for (let i = 0; i < 3; i++) {
+      for (let i = 0; i < 3; i += 1) {
         const { done } = await reader.read();
         if (done) {
           break;

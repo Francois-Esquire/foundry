@@ -294,7 +294,7 @@ describe("Queue — suspension lifecycle", () => {
 
     const wf = Workflow.create({
       execute: async () => {
-        executions++;
+        executions += 1;
         if (executions === 1) {
           throw new SuspendSignal(
             {
@@ -327,7 +327,7 @@ describe("Queue — suspension lifecycle", () => {
     let runs = 0;
     const wf = Workflow.create({
       execute: async () => {
-        runs++;
+        runs += 1;
         if (runs === 1) {
           throw new SuspendSignal(
             {
@@ -396,7 +396,7 @@ describe("Queue — retry / timeout / Bail interaction", () => {
       // Even with retry, bail should be terminal on first call.
       config: { retry: { maxAttempts: 5 } },
       execute: async () => {
-        attempts++;
+        attempts += 1;
         return bail<"refused">("refused");
       },
       input: undefined,
@@ -440,7 +440,7 @@ describe("Queue — retry / timeout / Bail interaction", () => {
     const wf = Workflow.create({
       config: { retry: { maxAttempts: 3 }, timeout: 15 },
       execute: async () => {
-        attempts++;
+        attempts += 1;
         await sleep(100);
         return "done" as const;
       },
@@ -561,7 +561,7 @@ describe("Queue — events firehose (queue.on)", () => {
     let attempts = 0;
     const wf = Workflow.create({
       execute: async () => {
-        attempts++;
+        attempts += 1;
         if (attempts === 1) {
           throw new SuspendSignal(
             {
@@ -618,7 +618,7 @@ describe("Queue — events firehose (queue.on)", () => {
     const queue = new Queue({ concurrency: 1, store });
     let count = 0;
     const unsub = queue.on("complete", () => {
-      count++;
+      count += 1;
     });
 
     const a = Workflow.create(makeEchoSpec("x", "ev-unsub-a"));
@@ -643,7 +643,7 @@ describe("Queue — events firehose (queue.on)", () => {
       throw new Error("first handler boom");
     });
     queue.on("complete", () => {
-      goodCount++;
+      goodCount += 1;
     });
 
     const wf = Workflow.create(makeEchoSpec("x", "ev-throw"));

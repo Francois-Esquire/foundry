@@ -558,7 +558,7 @@ describe("Orchestrator.start — cold-start hydration", () => {
     orch.register("recover-once", () =>
       Workflow.create({
         execute: async () => {
-          calls++;
+          calls += 1;
           return "ok";
         },
         input: null,
@@ -606,7 +606,7 @@ describe("Orchestrator.start — cold-start hydration", () => {
     orch.register("known-recovery", () =>
       Workflow.create({
         execute: async () => {
-          knownCalls++;
+          knownCalls += 1;
           return "known";
         },
         input: null,
@@ -672,7 +672,7 @@ describe("Orchestrator.start — cold-start hydration", () => {
     orch.register("prepared-first", () =>
       Workflow.create({
         execute: async () => {
-          firstCalls++;
+          firstCalls += 1;
           return "first";
         },
         input: null,
@@ -803,7 +803,7 @@ describe("Orchestrator.start — cold-start hydration", () => {
     orch.register("skip-root", () =>
       Workflow.create({
         execute: async () => {
-          calls++;
+          calls += 1;
           return "fresh-output";
         },
         input: null,
@@ -865,7 +865,7 @@ describe("Orchestrator.start — cold-start hydration", () => {
         children: [
           {
             execute: async () => {
-              childACalls++;
+              childACalls += 1;
               return "a-fresh";
             },
             input: null,
@@ -873,7 +873,7 @@ describe("Orchestrator.start — cold-start hydration", () => {
           },
           {
             execute: async () => {
-              childBCalls++;
+              childBCalls += 1;
               return "b-fresh";
             },
             input: null,
@@ -928,7 +928,7 @@ describe("Orchestrator.start — cold-start hydration", () => {
     orch.register("terminal", () =>
       Workflow.create({
         execute: async () => {
-          calls++;
+          calls += 1;
           return "unexpected";
         },
         input: null,

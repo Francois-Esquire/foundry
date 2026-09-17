@@ -109,7 +109,11 @@ async function retryAggregateCommit<
   submit: (commit: Commit) => Promise<Outcome>,
   project: (result: Result, outcome: Outcome) => Result
 ): Promise<Result> {
-  for (let attempt = 1; attempt <= MAX_AGGREGATE_COMMIT_ATTEMPTS; attempt++) {
+  for (
+    let attempt = 1;
+    attempt <= MAX_AGGREGATE_COMMIT_ATTEMPTS;
+    attempt += 1
+  ) {
     const prepared = await prepare();
     if (prepared.commit === undefined) {
       return prepared.result;

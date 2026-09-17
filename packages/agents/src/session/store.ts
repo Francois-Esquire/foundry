@@ -118,7 +118,7 @@ export function messagesToSummarize(
 function latestActiveSummary(
   messages: SessionMessage[]
 ): SessionMessage | undefined {
-  for (let i = messages.length - 1; i >= 0; i--) {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
     const m = messages[i];
     if (m?.role === "summary" && !m.summarized) {
       return m;

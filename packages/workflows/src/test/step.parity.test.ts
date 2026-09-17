@@ -197,7 +197,7 @@ describe("Parity — retry semantics", () => {
       return {
         attempts: () => n,
         body: async () => {
-          n++;
+          n += 1;
           if (n < 3) {
             throw new Error(`a${n}`);
           }
@@ -291,7 +291,7 @@ describe("Parity — retry semantics", () => {
           const step = Step.create<unknown, number>({
             config: { retry: { maxAttempts: 5 } },
             execute: async () => {
-              n++;
+              n += 1;
               return bail("x");
             },
             input: undefined,
@@ -309,7 +309,7 @@ describe("Parity — retry semantics", () => {
           const step = Step.create<unknown, number>({
             config: { retry: { maxAttempts: 5 } },
             execute: async () => {
-              n++;
+              n += 1;
               return bail("x");
             },
             input: undefined,

@@ -78,7 +78,7 @@ describe("Step.timeout — duration parsing", () => {
     const step = await Step.make({
       config: { timeout: "potato" },
       execute: async () => {
-        calls++;
+        calls += 1;
         return "should not run";
       },
       input: undefined,
@@ -171,7 +171,7 @@ describe("Step.timeout — interaction with retry", () => {
         timeout: 30,
       },
       execute: async () => {
-        calls++;
+        calls += 1;
         if (calls < 3) {
           // First two attempts blow the budget.
           await sleep(150);
@@ -203,7 +203,7 @@ describe("Step.timeout — interaction with retry", () => {
         timeout: 15,
       },
       execute: async () => {
-        calls++;
+        calls += 1;
         await sleep(120);
         return "late";
       },
@@ -234,7 +234,7 @@ describe("Step.timeout — interaction with retry", () => {
         timeout: 15,
       },
       execute: async () => {
-        calls++;
+        calls += 1;
         await sleep(120);
         return "late";
       },

@@ -31,7 +31,7 @@ export function parseYamlBlock(block: string): Record<string, string> {
   const data: Record<string, string> = {};
   const lines = block.split("\n");
 
-  for (let i = 0; i < lines.length; i++) {
+  for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i];
     if (line === undefined) {
       continue;
@@ -81,14 +81,14 @@ function collectMultilineValue(
     }
     if (next.trim() === "") {
       collected.push("");
-      lastLine++;
+      lastLine += 1;
       continue;
     }
     if (indentWidth(next) < baseIndent) {
       break;
     }
     collected.push(next.slice(baseIndent));
-    lastLine++;
+    lastLine += 1;
   }
 
   const value = folded

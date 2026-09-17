@@ -124,7 +124,7 @@ describe("ctx.parallel — fan-out, all-or-nothing", () => {
     const make = (name: string, ms: number): Promise<Step> =>
       Step.make<unknown, unknown>({
         execute: async () => {
-          started++;
+          started += 1;
           if (started === 3) {
             release();
           }
@@ -411,7 +411,7 @@ describe("ctx.branch — conditional composition", () => {
     let noCalls = 0;
     const yes = await Step.make<unknown, string>({
       execute: async () => {
-        yesCalls++;
+        yesCalls += 1;
         return "yes";
       },
       input: undefined,
@@ -419,7 +419,7 @@ describe("ctx.branch — conditional composition", () => {
     });
     const no = await Step.make<unknown, string>({
       execute: async () => {
-        noCalls++;
+        noCalls += 1;
         return "no";
       },
       input: undefined,

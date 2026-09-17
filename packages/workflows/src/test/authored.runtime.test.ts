@@ -786,7 +786,7 @@ async function waitFor(
   predicate: () => Promise<boolean>,
   label: string
 ): Promise<void> {
-  for (let i = 0; i < 400; i++) {
+  for (let i = 0; i < 400; i += 1) {
     if (await predicate()) {
       return;
     }

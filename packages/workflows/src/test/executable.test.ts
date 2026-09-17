@@ -275,7 +275,7 @@ describe("Executable cancellation surface", () => {
           let calls = 0;
           let lastReason: unknown;
           const off = exe.onAbort((reason) => {
-            calls++;
+            calls += 1;
             lastReason = reason;
           });
           off();

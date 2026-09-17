@@ -106,7 +106,7 @@ describe("withStepHooks — success composition", () => {
         children: [
           {
             execute: async () => {
-              childCalls++;
+              childCalls += 1;
             },
             input: undefined,
             name: "body-child",
@@ -121,7 +121,7 @@ describe("withStepHooks — success composition", () => {
           success: [
             {
               execute: async () => {
-                afterCalls++;
+                afterCalls += 1;
               },
               name: "once-after",
             },
@@ -130,7 +130,7 @@ describe("withStepHooks — success composition", () => {
         before: [
           {
             execute: async () => {
-              beforeCalls++;
+              beforeCalls += 1;
             },
             name: "once-before",
           },
@@ -158,7 +158,7 @@ describe("withStepHooks — success composition", () => {
       withStepHooks(
         {
           execute: async (input) => {
-            bodyCalls++;
+            bodyCalls += 1;
             return input * 2;
           },
           input: 3,
@@ -169,7 +169,7 @@ describe("withStepHooks — success composition", () => {
             success: [
               {
                 execute: async () => {
-                  hookCalls++;
+                  hookCalls += 1;
                 },
                 name: "notify",
               },
@@ -198,7 +198,7 @@ describe("withStepHooks — before outcome", () => {
     const step = withStepHooks(
       {
         execute: async () => {
-          bodyCalls++;
+          bodyCalls += 1;
           return "never";
         },
         input: undefined,
@@ -209,7 +209,7 @@ describe("withStepHooks — before outcome", () => {
           failure: [
             {
               execute: async () => {
-                afterCalls++;
+                afterCalls += 1;
               },
               name: "report",
             },
@@ -237,7 +237,7 @@ describe("withStepHooks — before outcome", () => {
     const step = withStepHooks(
       {
         execute: async () => {
-          bodyCalls++;
+          bodyCalls += 1;
           return "never";
         },
         input: undefined,
@@ -277,7 +277,7 @@ describe("withStepHooks — body failure", () => {
       {
         config: { retry: { maxAttempts: 3 } },
         execute: async () => {
-          bodyAttempts++;
+          bodyAttempts += 1;
           throw new Error("body terminal");
         },
         input: "payload",
@@ -353,7 +353,7 @@ describe("withStepHooks — body failure", () => {
         {
           config: { retry: { maxAttempts: 2 } },
           execute: async () => {
-            bodyAttempts++;
+            bodyAttempts += 1;
             throw new TypeError("persist me");
           },
           input: undefined,
@@ -364,7 +364,7 @@ describe("withStepHooks — body failure", () => {
             failure: [
               {
                 execute: async () => {
-                  failureHookCalls++;
+                  failureHookCalls += 1;
                 },
                 name: "persisted-report",
               },
@@ -451,7 +451,7 @@ describe("withStepHooks — suspension outcomes", () => {
           suspension: [
             {
               execute: async (_input, ctx) => {
-                hookCalls++;
+                hookCalls += 1;
                 await ctx.suspend({
                   name: "hook-wait",
                   reason: "persist checkpoint",
@@ -526,7 +526,7 @@ describe("withStepHooks — suspension outcomes", () => {
       withStepHooks(
         {
           execute: async (_input, ctx) => {
-            bodyCalls++;
+            bodyCalls += 1;
             await ctx.suspend({ name: "wait", reason: "external" });
             return "done";
           },
@@ -538,7 +538,7 @@ describe("withStepHooks — suspension outcomes", () => {
             suspension: [
               {
                 execute: async () => {
-                  suspensionHookCalls++;
+                  suspensionHookCalls += 1;
                 },
                 name: "parked",
               },
@@ -547,7 +547,7 @@ describe("withStepHooks — suspension outcomes", () => {
           before: [
             {
               execute: async () => {
-                beforeCalls++;
+                beforeCalls += 1;
               },
               name: "prepare",
             },
@@ -581,7 +581,7 @@ describe("withStepHooks — execution policy and validation", () => {
     const step = withStepHooks(
       {
         execute: async () => {
-          bodyCalls++;
+          bodyCalls += 1;
           return "done";
         },
         input: undefined,
@@ -592,7 +592,7 @@ describe("withStepHooks — execution policy and validation", () => {
           {
             config: { retry: { maxAttempts: 2 } },
             execute: async () => {
-              retriedHookCalls++;
+              retriedHookCalls += 1;
               if (retriedHookCalls === 1) {
                 throw new Error("retry me");
               }
@@ -601,7 +601,7 @@ describe("withStepHooks — execution policy and validation", () => {
           },
           {
             execute: async () => {
-              nextHookCalls++;
+              nextHookCalls += 1;
             },
             name: "single",
           },

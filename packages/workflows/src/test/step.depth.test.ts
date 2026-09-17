@@ -129,7 +129,7 @@ describe("N-ary fanout via fork", () => {
       if (depth === D) {
         return {
           execute: async () => {
-            leafCalls++;
+            leafCalls += 1;
             return "leaf";
           },
           input: undefined,
@@ -193,10 +193,10 @@ describe("N-ary fanout via fork", () => {
     const step = await Step.make({
       children: Array.from({ length: 5 }, (_, i) => ({
         execute: async () => {
-          concurrency++;
+          concurrency += 1;
           maxConcurrency = Math.max(maxConcurrency, concurrency);
           await new Promise((r) => setTimeout(r, 20));
-          concurrency--;
+          concurrency -= 1;
           return "ok";
         },
         input: undefined,

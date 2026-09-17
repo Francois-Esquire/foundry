@@ -261,7 +261,7 @@ describe("Queue event log — cross-process monotonicity", () => {
     // Monotonic: bStream is at least as long as aStream, and the leading
     // entries in bStream match aStream entry-for-entry.
     expect(bStream.length).toBeGreaterThanOrEqual(aLength);
-    for (let i = 0; i < aLength; i++) {
+    for (let i = 0; i < aLength; i += 1) {
       expect(bStream[i]?._tag).toBe(aStream[i]?._tag);
     }
     // queueB's appends include the second `step.started` for the
@@ -297,7 +297,7 @@ describe("Queue event log — #eventLogLoop filter", () => {
             execute: async (_input, ctx) => {
               // Many progress ticks + a custom emit; the filter must
               // drop both from the persisted log.
-              for (let i = 0; i < 25; i++) {
+              for (let i = 0; i < 25; i += 1) {
                 ctx.step.progress = i * 4;
               }
               ctx.emit("user.click", { x: 1 });

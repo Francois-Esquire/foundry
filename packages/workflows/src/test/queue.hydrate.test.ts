@@ -225,7 +225,7 @@ describe("Queue.hydrate — idempotency", () => {
           // First hydrate: should hit the in-memory cache, factory not called.
           const h1 = yield* Effect.promise(() =>
             queue.hydrate(d.id, () => {
-              factoryCalls++;
+              factoryCalls += 1;
               return Workflow.create(
                 makeEchoSpec("once", "hydrate-idempotent")
               );
@@ -234,7 +234,7 @@ describe("Queue.hydrate — idempotency", () => {
           // Second hydrate: also from cache.
           const h2 = yield* Effect.promise(() =>
             queue.hydrate(d.id, () => {
-              factoryCalls++;
+              factoryCalls += 1;
               return Workflow.create(
                 makeEchoSpec("once", "hydrate-idempotent")
               );
@@ -260,7 +260,7 @@ describe("Queue.hydrate — missing runId", () => {
     const queue = new Queue({ concurrency: 1, store });
     let factoryCalls = 0;
     const result = await queue.hydrate("rn-does-not-exist", () => {
-      factoryCalls++;
+      factoryCalls += 1;
       return Workflow.create(makeEchoSpec("noop", "noop"));
     });
     expect(result).toBeNull();

@@ -96,7 +96,7 @@ describe("step.pipe — ReadableStream source", () => {
         if (done) {
           return;
         }
-        chunkCount++;
+        chunkCount += 1;
       }
     })();
 
@@ -206,7 +206,7 @@ describe("step.pipe — abort semantics", () => {
     let pulls = 0;
     async function* counted(): AsyncGenerator<string> {
       for (;;) {
-        pulls++;
+        pulls += 1;
         await sleep(1);
         yield "x";
       }
@@ -225,7 +225,7 @@ describe("step.pipe — abort semantics", () => {
     let returnCalled = false;
     async function* longRunning(): AsyncGenerator<string> {
       try {
-        for (let i = 0; i < 1000; i++) {
+        for (let i = 0; i < 1000; i += 1) {
           await sleep(2);
           yield `tick-${i}`;
         }

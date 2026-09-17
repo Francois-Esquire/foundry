@@ -240,7 +240,7 @@ describe("Bail vs throw — distinct semantics", () => {
         retry: { maxAttempts: 5 },
       },
       execute: async () => {
-        attempts++;
+        attempts += 1;
         return bail("nope");
       },
       input: undefined,

@@ -218,7 +218,7 @@ describe("ctx — typed context spread (X on ctx directly)", () => {
       },
       execute: async (_input, ctx) => {
         seen.push(ctx.agent);
-        attempts++;
+        attempts += 1;
         if (attempts < 3) {
           throw new Error(`flake ${String(attempts)}`);
         }
@@ -918,7 +918,7 @@ describe("ctx — channel write delegation", () => {
     const reader = step.stream.getReader();
     await step.run();
     const collected: unknown[] = [];
-    for (let i = 0; i < 2; i++) {
+    for (let i = 0; i < 2; i += 1) {
       const { value, done } = await reader.read();
       if (done) {
         break;
@@ -963,7 +963,7 @@ describe("ctx.suspend — Promise-flavored suspend", () => {
     const captured: { value?: unknown } = {};
     const childSpec: StepSpec = {
       execute: async (_input, ctx) => {
-        attempts++;
+        attempts += 1;
         const v = await ctx.suspend<string>({
           name: "approval",
           reason: "needs human signoff",
@@ -1001,7 +1001,7 @@ describe("ctx.suspend — Promise-flavored suspend", () => {
 
     const spec = asSpec<void, "ok">({
       execute: async (_input, ctx) => {
-        attempts++;
+        attempts += 1;
         const v = await ctx.suspend<string>({
           name: "approval",
           reason: "needs human signoff",

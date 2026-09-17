@@ -66,7 +66,7 @@ describe("step.progress — sibling children are independent", () => {
       children: [
         {
           execute: async () => {
-            aRunCount++;
+            aRunCount += 1;
             return "a";
           },
           input: undefined,

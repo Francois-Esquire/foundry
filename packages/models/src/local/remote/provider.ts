@@ -130,7 +130,8 @@ export class RemoteLocalProvider implements LocalProviderSurface {
     hooks: Omit<Pending, "resolve" | "reject"> = {},
     abortSignal?: AbortSignal
   ): Promise<unknown> {
-    const id = this.nextId++;
+    const id = this.nextId;
+    this.nextId += 1;
     return new Promise((resolve, reject) => {
       this.pending.set(id, { reject, resolve, ...hooks });
       abortSignal?.addEventListener(
@@ -139,7 +140,9 @@ export class RemoteLocalProvider implements LocalProviderSurface {
           if (!this.pending.has(id) || this.exitReason !== null) {
             return;
           }
-          this.post({ id: this.nextId++, op: "cancel", target: id });
+          const cancelId = this.nextId;
+          this.nextId += 1;
+          this.post({ id: cancelId, op: "cancel", target: id });
         },
         { once: true }
       );

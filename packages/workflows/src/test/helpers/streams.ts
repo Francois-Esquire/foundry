@@ -166,7 +166,7 @@ export async function takePayloads(
 ): Promise<ChunkPayload[]> {
   const reader = step.stream.getReader();
   const payloads: ChunkPayload[] = [];
-  for (let i = 0; i < count; i++) {
+  for (let i = 0; i < count; i += 1) {
     const { value, done } = await reader.read();
     if (done) {
       break;

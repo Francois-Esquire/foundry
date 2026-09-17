@@ -47,7 +47,8 @@ function send(message: object): void {
 }
 
 function request(method: string, params: unknown): Promise<Message> {
-  const id = nextId++;
+  const id = nextId;
+  nextId += 1;
   return new Promise((resolve) => {
     pending.set(id, resolve);
     send({ id, method, params });
