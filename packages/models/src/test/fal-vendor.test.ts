@@ -23,9 +23,7 @@ import { falProvider } from "../fal/provider";
 import { operationsOf } from "../provider";
 import type { CapabilityFact, OperationName } from "../types";
 
-// eslint-disable-next-line turbo/no-undeclared-env-vars
 const FAL_KEY = process.env.FAL_KEY;
-// eslint-disable-next-line turbo/no-undeclared-env-vars
 const VIDEO_PATH = process.env.FAL_VENDOR_VIDEO;
 
 /** A 1x1 PNG, inlined so the instrument depends on no file outside the repo. */

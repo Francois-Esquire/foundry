@@ -53,7 +53,6 @@ export type StepContext<
   readonly workflow: Promise<WorkflowSnapshot | null>;
 
   // Path-relative helpers (sync)
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters -- caller-supplied type for an ergonomic typed accessor over the untyped results map
   resultOf<T = unknown>(name: string): T | undefined;
   statusOf(name: string): StepStatus | undefined;
 

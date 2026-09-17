@@ -11,7 +11,6 @@ import { describe, expect, it } from "vitest";
 import { operationsOf } from "../provider";
 import { REPLICATE_DEFAULT_MODELS, replicateProvider } from "../replicate";
 
-// eslint-disable-next-line turbo/no-undeclared-env-vars
 const TOKEN = process.env.REPLICATE_API_TOKEN;
 
 describe.skipIf(!TOKEN)("Replicate vendor obligations", () => {

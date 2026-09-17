@@ -110,7 +110,6 @@ export class LoopAgent extends ToolLoopAgent<never, ToolSet> {
               };
             };
           }
-          // eslint-disable-next-line @typescript-eslint/no-unsafe-return -- Reflect.get returns any by design; Proxy is structurally transparent
           return Reflect.get(target, prop, receiver);
         },
       });
@@ -120,7 +119,6 @@ export class LoopAgent extends ToolLoopAgent<never, ToolSet> {
           if (prop === "stream") {
             return wrappedFullStream;
           }
-          // eslint-disable-next-line @typescript-eslint/no-unsafe-return -- Reflect.get returns any by design; Proxy is structurally transparent
           return Reflect.get(target, prop, receiver);
         },
       });

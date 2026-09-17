@@ -10,7 +10,6 @@ import { freshIterable } from "../../transport/stream";
 // `Symbol.asyncDispose`, and it forwards the underlying generator's values.
 
 // A native async generator is exactly what this test needs (no work to await).
-// eslint-disable-next-line @typescript-eslint/require-await
 async function* nativeGen(): AsyncGenerator<number> {
   yield 1;
   yield 2;
@@ -37,7 +36,6 @@ describe("freshIterable", () => {
     let cleanedUp = false;
     // A native async generator with nothing to await — it exists only to prove
     // `return()` propagates and runs the `finally`.
-    // eslint-disable-next-line @typescript-eslint/require-await
     async function* withCleanup(): AsyncGenerator<number> {
       try {
         yield 1;

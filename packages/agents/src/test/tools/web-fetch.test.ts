@@ -211,7 +211,6 @@ describe("createWebFetchTools — through the compiler", () => {
       policy: fakePolicy(() => ({ kind: "requires-approval" })),
     });
 
-    // eslint-disable-next-line @typescript-eslint/no-deprecated -- ai v7 moves tool approval to the call level; the harness still owns approval today (deferred migration)
     const needsApproval = compiled.needsApproval as (
       input: unknown,
       options: unknown

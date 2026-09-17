@@ -44,7 +44,6 @@ function needsApproval(
   input: unknown,
   options: { toolCallId: string; messages: unknown[]; context?: unknown }
 ): Promise<boolean> {
-  // eslint-disable-next-line @typescript-eslint/no-deprecated -- ai v7 moves tool approval to the call level; the harness still owns approval today (deferred migration)
   const fn = compiled.needsApproval as (
     input: unknown,
     options: unknown

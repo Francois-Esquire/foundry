@@ -496,7 +496,6 @@ export class Executable<I = unknown, X extends BaseContext = BaseContext> {
         path: step.path,
         race: (specs: Record<string, ParallelEntry>, name?: string) =>
           (witness.composer ?? step.composer).race(specs, name),
-        // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters -- caller-supplied type for an ergonomic typed accessor over the untyped results map
         resultOf: <T = unknown>(name: string): T | undefined => {
           const state = Effect.runSync(step.snapshot.current);
           for (const key of lookupKeys(step.path, name)) {

@@ -20,7 +20,6 @@ const USAGE: SessionUsage = { inputTokens: 1, outputTokens: 1, totalTokens: 2 };
 /** A finished, empty SessionStream — the turn helper only iterates it. */
 function emptyStream(): SessionStream {
   return {
-    // eslint-disable-next-line @typescript-eslint/require-await -- nothing to await
     async *[Symbol.asyncIterator]() {
       yield { message: {} as SessionMessage, type: "finish", usage: USAGE };
     },

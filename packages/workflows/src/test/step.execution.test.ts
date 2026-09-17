@@ -43,7 +43,6 @@ describe("Step execution — error propagation", () => {
   it("a non-Error throw is wrapped (rejection carries an Error instance)", async () => {
     const step = await Step.make<void, never>({
       execute: async () => {
-        // eslint-disable-next-line @typescript-eslint/only-throw-error -- test fixture: asserts non-Error throws are wrapped
         throw "literal";
       },
       input: undefined,

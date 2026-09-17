@@ -361,7 +361,6 @@ export function compileTool(
     return original;
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-deprecated -- ai v7 moves tool approval to the call level; the harness still owns approval today (deferred migration)
   const originalNeedsApproval = original.needsApproval;
 
   const needsApproval = async (

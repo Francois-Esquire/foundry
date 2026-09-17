@@ -56,7 +56,6 @@ describe("Linear recursion via fork", () => {
   });
 
   test("recursion to a configured depth completes and reports the reached depth", async () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const makeDeep = (depth: number, maxDepth: number): any => {
       if (depth === maxDepth) {
         return {
@@ -68,11 +67,8 @@ describe("Linear recursion via fork", () => {
       return {
         children: [makeDeep(depth + 1, maxDepth)],
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         execute: async (_: unknown, ctx: any) => {
-          // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
           const child = ctx.children[0];
-          // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-member-access
           return child.run();
         },
         input: undefined,
@@ -80,7 +76,6 @@ describe("Linear recursion via fork", () => {
       };
     };
 
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
     const step = await Step.make(makeDeep(0, 10));
     const result = await step.run();
     expect(result).toBe(10);
@@ -97,7 +92,6 @@ describe("Linear recursion via fork", () => {
   });
 
   test("deep nesting (e.g. 50 levels) completes without stack issues", async () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const makeDeep = (depth: number, maxDepth: number): any => {
       if (depth === maxDepth) {
         return {
@@ -109,11 +103,8 @@ describe("Linear recursion via fork", () => {
       return {
         children: [makeDeep(depth + 1, maxDepth)],
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         execute: async (_: unknown, ctx: any) => {
-          // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
           const child = ctx.children[0];
-          // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-member-access
           return child.run();
         },
         input: undefined,
@@ -121,7 +112,6 @@ describe("Linear recursion via fork", () => {
       };
     };
 
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
     const step = await Step.make(makeDeep(0, 50));
     const result = await step.run();
     expect(result).toBe("reached bottom");
@@ -135,7 +125,6 @@ describe("N-ary fanout via fork", () => {
     const K = 3;
     const D = 2;
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const makeTree = (depth: number): any => {
       if (depth === D) {
         return {
@@ -149,9 +138,7 @@ describe("N-ary fanout via fork", () => {
       }
       return {
         children: Array.from({ length: K }, (): unknown => makeTree(depth + 1)),
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         execute: async (_: unknown, ctx: any) => {
-          // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-explicit-any
           await Promise.all(ctx.children.map((c: any) => c.run()));
           return "branch";
         },
@@ -160,7 +147,6 @@ describe("N-ary fanout via fork", () => {
       };
     };
 
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
     const step = await Step.make(makeTree(0));
     await step.run();
     expect(leafCalls).toBe(9);

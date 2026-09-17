@@ -205,7 +205,6 @@ export abstract class Step<
       );
     }
     this.#initialize(null);
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     return this.#substrate!;
   }
 
@@ -488,7 +487,7 @@ export abstract class Step<
    */
   get children(): readonly Step[] {
     // Touch substrate to trigger lazy bind / materialize declared children.
-    this.#s; // eslint-disable-line @typescript-eslint/no-unused-expressions
+    this.#s;
     return this.#children;
   }
 

@@ -64,7 +64,6 @@ export function createAgentTool<TOOLS extends ToolSet = ToolSet>(
         // `toUIMessageStream`, but the standalone form needs one concrete
         // `TOOLS` instantiation and this agent is generic. Pending the wider
         // v7 approval/stream migration — see `needsApproval` below.
-        // eslint-disable-next-line @typescript-eslint/no-deprecated -- deprecated, not removed; migrates with the approval rework
         stream: result.toUIMessageStream(),
       })) {
         yield message;

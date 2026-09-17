@@ -23,7 +23,6 @@ import type { LiveAccess, LiveTarget } from "../../live/types";
 import { operationsOf } from "../../provider";
 import type { CapabilityFact, OperationName } from "../../types";
 
-// eslint-disable-next-line turbo/no-undeclared-env-vars
 const FAL_KEY = process.env.FAL_KEY;
 
 const KLEIN = "fal-ai/flux-2/klein/realtime";

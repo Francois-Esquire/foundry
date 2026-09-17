@@ -23,7 +23,6 @@ function streamOf(events: SessionEvent[]): SessionStream {
   return {
     // Async generator with nothing to await — it exists only to satisfy
     // SessionStream's AsyncIterable contract over a fixed in-memory list.
-    // eslint-disable-next-line @typescript-eslint/require-await
     async *[Symbol.asyncIterator]() {
       yield* events;
     },

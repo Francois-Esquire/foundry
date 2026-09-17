@@ -84,7 +84,6 @@ export function createSpawnTool(deps: SpawnDeps) {
 
       // (4) foreground: collapse ONLY the final result (ruling 0008 R2).
       const artifact = await collapseFinalText(
-        // eslint-disable-next-line @typescript-eslint/no-deprecated -- ai v7 deprecates this method; migrates with the approval rework
         run.toUIMessageStream(),
         "Task completed."
       );

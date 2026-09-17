@@ -408,7 +408,6 @@ describe("Abort cascade across forks", () => {
   it("parent.abort() after parent completes still aborts a dynamic child", async () => {
     // Substrate-cascade judgment call: executable.abort always fires through
     // forked children, even when the parent has reached a terminal status.
-    // eslint-disable-next-line prefer-const -- captured by parentSpec.execute closure; assigned after Step.make
     let parentRef: StepType<void, "ok"> | undefined;
     let dynRef: StepType | undefined;
 

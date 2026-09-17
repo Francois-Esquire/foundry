@@ -132,7 +132,6 @@ describe("Step.run — execution", () => {
   it("a non-Error throw is wrapped to an Error before propagating", async () => {
     const step = await Step.make<void, never>({
       execute: async () => {
-        // eslint-disable-next-line @typescript-eslint/only-throw-error -- test fixture: asserts non-Error throws are wrapped
         throw "plain string";
       },
       input: undefined,

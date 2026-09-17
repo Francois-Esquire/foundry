@@ -20,7 +20,6 @@ export interface HarnessAvailability {
 /** First executable named `name` on `path`, or null. */
 export function which(
   name: string,
-  // eslint-disable-next-line turbo/no-undeclared-env-vars -- the OS PATH, not app config
   path: string | undefined = process.env.PATH
 ): string | null {
   for (const dir of (path ?? "").split(delimiter)) {

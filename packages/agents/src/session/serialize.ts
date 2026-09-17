@@ -8,7 +8,6 @@ export function stringifyValue(value: unknown): string {
     return value;
   }
   try {
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
     return JSON.stringify(value) ?? String(value);
   } catch {
     return String(value);

@@ -671,7 +671,6 @@ export class Channels<S = unknown> {
               // `closed` may have flipped while we were blocked on `take`
               // (signal aborted from another callback). Recheck before
               // touching the controller.
-              // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
               if (closed) {
                 return;
               }

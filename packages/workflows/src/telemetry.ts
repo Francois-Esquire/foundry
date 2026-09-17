@@ -41,10 +41,8 @@ export interface LogSink {
 
 /** No-op sink. Logging stays inert until a host swaps in a real backend. */
 export const noopSink: LogSink = {
-  /* eslint-disable @typescript-eslint/no-empty-function -- inert by design */
-  record() {},
-  settle() {},
-  /* eslint-enable @typescript-eslint/no-empty-function */
+  record: () => undefined,
+  settle: () => undefined,
 };
 
 /**

@@ -224,7 +224,6 @@ export abstract class Workflow<
 
   constructor();
   /** @internal */
-  // eslint-disable-next-line @typescript-eslint/unified-signatures -- separate overload is stripped from the published declaration
   constructor(args: WorkflowRuntime<I, O, X>);
   constructor(args?: WorkflowRuntime<I, O, X>) {
     if (args === undefined) {

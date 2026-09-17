@@ -165,7 +165,6 @@ async function main(): Promise<void> {
       config: configPath,
       cwd: process.cwd(),
       home: homedir(),
-      // eslint-disable-next-line turbo/no-undeclared-env-vars -- the OS PATH launchd will not inherit, not app config
       path: process.env.PATH ?? "",
       state: resolve(state),
     });

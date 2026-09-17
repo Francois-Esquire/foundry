@@ -138,7 +138,6 @@ export class TodoStore extends EventEmitter<TodoEventMap> {
   tool() {
     return tool({
       description: TODO_TOOL_DESCRIPTION,
-      // eslint-disable-next-line @typescript-eslint/require-await
       execute: async ({ action, description, id }) => {
         if (action === "add") {
           const item = this.add(description ?? "(unnamed)");
