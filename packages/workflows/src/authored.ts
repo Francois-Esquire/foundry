@@ -869,7 +869,7 @@ class MaterializedWorkflow extends Workflow<
     // Connection: read the in-memory Result of the source placement.
     const source = assignment.placement;
     const inMemory = this.#results.get(source);
-    if (inMemory != null) {
+    if (inMemory !== null && inMemory !== undefined) {
       return inMemory;
     }
     // Absent or `null` → the lazy rehydrate path under the bound Contract.

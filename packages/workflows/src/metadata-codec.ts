@@ -157,7 +157,7 @@ export function workflowTraceFactsFromMetadata(
  * persisted shape, or `null` if absent or malformed. Used for the pass-through
  * `RecoverableRun.metadata` Record that `adopt` re-seeds from. */
 export function decodeMetadataValue(value: unknown): PersistedMetadata | null {
-  if (value == null) {
+  if (value === null || value === undefined) {
     return null;
   }
   return Option.getOrNull(decodeMetadataOption(value));

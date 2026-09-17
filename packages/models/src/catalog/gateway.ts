@@ -42,13 +42,15 @@ export function fromGateway(
     const params = group.supported_openai_params?.length
       ? group.supported_openai_params
       : undefined;
+    const maxInputTokens = group.max_input_tokens;
+    const maxOutputTokens = group.max_output_tokens;
     const limits = {
-      ...(group.max_input_tokens == null
+      ...(maxInputTokens === null || maxInputTokens === undefined
         ? {}
-        : { maxInputTokens: group.max_input_tokens }),
-      ...(group.max_output_tokens == null
+        : { maxInputTokens }),
+      ...(maxOutputTokens === null || maxOutputTokens === undefined
         ? {}
-        : { maxOutputTokens: group.max_output_tokens }),
+        : { maxOutputTokens }),
     };
 
     rows.push({
@@ -69,7 +71,12 @@ export function fromGateway(
 function normalizeCosts(group: GatewayModelGroup): ModelCosts | undefined {
   const input = group.input_cost_per_token;
   const output = group.output_cost_per_token;
-  if (input == null || output == null) {
+  if (
+    input === null ||
+    input === undefined ||
+    output === null ||
+    output === undefined
+  ) {
     return undefined;
   }
   if (input === 0 && output === 0) {

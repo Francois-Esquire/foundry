@@ -604,7 +604,13 @@ function extractSegments(chunks: unknown): TranscribeSegment[] | undefined {
         text?: string;
       };
       const [start, end] = obj.timestamp ?? [null, null];
-      if (start == null || end == null || !obj.text) {
+      if (
+        start === null ||
+        start === undefined ||
+        end === null ||
+        end === undefined ||
+        !obj.text
+      ) {
         return null;
       }
       return { end, start, text: obj.text };

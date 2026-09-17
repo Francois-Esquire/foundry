@@ -64,13 +64,15 @@ export function fromVercelRest(
 
     const costs = normalizeCosts(model.pricing);
     const capabilities = normalizeTags(model.tags);
+    const contextWindow = model.context_window;
+    const maxTokens = model.max_tokens;
     const limits = {
-      ...(model.context_window == null
+      ...(contextWindow === null || contextWindow === undefined
         ? {}
-        : { maxInputTokens: model.context_window }),
-      ...(model.max_tokens == null
+        : { maxInputTokens: contextWindow }),
+      ...(maxTokens === null || maxTokens === undefined
         ? {}
-        : { maxOutputTokens: model.max_tokens }),
+        : { maxOutputTokens: maxTokens }),
     };
 
     rows.push({

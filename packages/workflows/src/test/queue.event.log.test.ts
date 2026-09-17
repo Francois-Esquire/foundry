@@ -32,7 +32,7 @@ interface PersistedMeta {
 }
 
 function readMeta(rawMeta: unknown): PersistedMeta {
-  if (rawMeta == null) {
+  if (rawMeta === null || rawMeta === undefined) {
     return {};
   }
   return typeof rawMeta === "string"

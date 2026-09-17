@@ -35,7 +35,7 @@ interface PersistedWorkflow {
 }
 
 function readWorkflowMeta(rawMeta: unknown): PersistedWorkflow | null {
-  if (rawMeta == null) {
+  if (rawMeta === null || rawMeta === undefined) {
     return null;
   }
   const parsed =

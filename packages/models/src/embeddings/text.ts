@@ -75,10 +75,10 @@ export async function embedFields(
   fields: EmbedFieldInput[],
   options: EmbedFieldsOptions = {}
 ): Promise<EmbeddingPayload[]> {
-  const active = fields.filter(
-    (f): f is { field: string; text: string } =>
-      f.text != null && f.text.length > 0
-  );
+  const active = fields.filter((f): f is { field: string; text: string } => {
+    const text = f.text;
+    return text !== null && text !== undefined && text.length > 0;
+  });
   if (active.length === 0) {
     return [];
   }

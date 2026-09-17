@@ -263,7 +263,7 @@ async function resolveOriginalNeedsApproval(
     context: unknown;
   }
 ): Promise<boolean> {
-  if (needsApproval == null) {
+  if (needsApproval === null || needsApproval === undefined) {
     return false;
   }
   if (typeof needsApproval === "boolean") {
