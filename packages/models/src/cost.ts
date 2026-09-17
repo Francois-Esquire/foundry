@@ -31,7 +31,7 @@ function tierRate(
 
 /**
  * A turn's token counts, in the provider's reported shape. `inputTokens` is the
- * *gross* prompt size — it already includes the cache read/write tokens, which
+ * _gross_ prompt size — it already includes the cache read/write tokens, which
  * are reported separately so they can be billed at their own rates.
  */
 export interface CostUsageCounts {
