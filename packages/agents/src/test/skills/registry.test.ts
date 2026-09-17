@@ -163,8 +163,8 @@ describe("createSkillRegistry", () => {
   it("memoizes instructions until the set changes; tools stay stable", () => {
     const registry = createSkillRegistry([skill("a", { description: "d" })]);
 
-    const instructions = registry.instructions;
-    const tools = registry.tools;
+    const { instructions } = registry;
+    const { tools } = registry;
     expect(registry.instructions).toBe(instructions);
     expect(registry.tools).toBe(tools);
 

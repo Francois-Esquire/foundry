@@ -98,13 +98,13 @@ export async function* embedChunks(
         });
       }
       const dimensions = vector.length;
-      const endIndex = c.endIndex;
+      const { endIndex } = c;
       const chunkIndex = index;
       index += 1;
-      const modelId = model.modelId;
-      const startIndex = c.startIndex;
+      const { modelId } = model;
+      const { startIndex } = c;
       const chunkText = c.text;
-      const tokenCount = c.tokenCount;
+      const { tokenCount } = c;
       yield {
         dimensions,
         endIndex,

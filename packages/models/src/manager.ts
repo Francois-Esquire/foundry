@@ -356,7 +356,7 @@ export class ModelManager {
    */
   defaultProviderFor(kind: ModelKind): string | null {
     if (this._offline) {
-      const local = this.local;
+      const { local } = this;
       return local && servesKind(local, kind) ? local.id : null;
     }
     const usable = (p: Provider | undefined): p is Provider =>
@@ -591,7 +591,7 @@ export class ModelManager {
         reason: `provider "${providerId}" was requested explicitly`,
       });
     }
-    const local = this.local;
+    const { local } = this;
     if (!local) {
       throw modelErrors.AIRPLANE_LOCAL_UNAVAILABLE({
         kind: subject,

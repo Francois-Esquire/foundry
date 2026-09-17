@@ -49,7 +49,7 @@ function isWebFetchResult(value: unknown): value is WebFetchResult {
  *  compiler calls `execute` once a call is already authorized). */
 function build(fetchImpl: FetchLike) {
   const { tools } = createWebFetchTools({ fetchImpl });
-  const registration = registrationsOf(tools, "builtin")[0];
+  const [registration] = registrationsOf(tools, "builtin");
   if (!registration) {
     throw new Error("no web_fetch registration");
   }

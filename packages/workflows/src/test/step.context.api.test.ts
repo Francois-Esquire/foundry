@@ -605,7 +605,7 @@ describe("ctx.fork — dynamic child creation with typed X", () => {
 
     const step = await Step.make(spec);
     await step.run();
-    const steps = step.steps;
+    const { steps } = step;
     expect(Object.keys(steps).sort()).toEqual([
       "fork-parent",
       "fork-parent.fork-child",
@@ -632,12 +632,12 @@ describe("ctx.fork — dynamic child creation with typed X", () => {
     });
     const step = await Step.make(spec);
     await step.run();
-    const child = step.children[0];
+    const [child] = step.children;
     expect(child).toBeDefined();
     expect(child?.snapshot).toBe(step.snapshot);
     expect(child?.channels).toBe(step.channels);
     // And declared-child events fold into parent's snapshot under namespaced key.
-    const steps = step.steps;
+    const { steps } = step;
     expect(Object.keys(steps).sort()).toEqual([
       "declared-parent",
       "declared-parent.declared-child",

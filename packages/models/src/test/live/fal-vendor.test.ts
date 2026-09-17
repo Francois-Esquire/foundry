@@ -23,7 +23,7 @@ import type { LiveAccess, LiveTarget } from "../../live/types";
 import { operationsOf } from "../../provider";
 import type { CapabilityFact, OperationName } from "../../types";
 
-const FAL_KEY = process.env.FAL_KEY;
+const { FAL_KEY } = process.env;
 
 const KLEIN = "fal-ai/flux-2/klein/realtime";
 const LUCY = "decart/lucy-2-5/realtime";
@@ -110,7 +110,7 @@ describe.skipIf(!FAL_KEY)("FAL live vendor obligations", () => {
     const { MediaDevices } = await import("werift/nonstandard");
     const devices = new MediaDevices({ dummyMedia: { enabled: true } });
     const stream = await devices.getUserMedia({ video: true });
-    const feed = stream.getTracks()[0];
+    const [feed] = stream.getTracks();
     if (feed === undefined) {
       return;
     }

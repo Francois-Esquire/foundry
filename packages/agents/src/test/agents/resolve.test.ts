@@ -125,7 +125,7 @@ describe("createAgentPreset", () => {
     const requests: AgentAuthorizationRequest[] = [];
     const policy = trackingPolicy(requests);
     const mcp = vi.fn((ids: string[]) => {
-      const serverId = ids[0];
+      const [serverId] = ids;
       if (!serverId) {
         throw new Error("missing MCP server id");
       }

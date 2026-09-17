@@ -216,7 +216,7 @@ describe("manager integration", () => {
     const { provider } = makeBridge();
     const manager = new ModelManager({ providers: [provider] });
 
-    const local = manager.local;
+    const { local } = manager;
     expect(local).toBe(provider);
     if (!local) {
       throw new Error("expected the local role");

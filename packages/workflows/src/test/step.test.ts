@@ -206,7 +206,7 @@ describe("Step — identity surface", () => {
       input: undefined,
       name: "parent",
     });
-    const child = parent.children[0];
+    const [child] = parent.children;
     expect(child).toBeDefined();
     expect(child?.path).toEqual(["parent", "child"]);
   });
@@ -301,7 +301,7 @@ describe("Step — snapshot identity", () => {
       name: "completed",
     });
     await step.run();
-    const state = step.state;
+    const { state } = step;
     expect(Object.keys(state.steps)).toContain("completed");
     const record = state.steps.completed;
     expect(record?.name).toBe("completed");

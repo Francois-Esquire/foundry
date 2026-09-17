@@ -102,7 +102,7 @@ function indentWidth(line: string): number {
 }
 
 function unquote(value: string): string {
-  const quote = value[0];
+  const [quote] = value;
   if (
     value.length >= 2 &&
     (quote === '"' || quote === "'") &&

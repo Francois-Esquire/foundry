@@ -57,7 +57,7 @@ function lifecycleEvent(frame: RunFrame): string | null {
   if (frame.payload.kind !== "lifecycle") {
     return null;
   }
-  const value = frame.payload.value;
+  const { value } = frame.payload;
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return null;
   }
@@ -82,7 +82,7 @@ async function expectSingleTerminal(
   });
   const terminals = terminalFrames(frames);
   expect(terminals).toHaveLength(1);
-  const terminal = terminals[0];
+  const [terminal] = terminals;
   if (!terminal) {
     throw new Error(`missing terminal frame for ${runId}`);
   }

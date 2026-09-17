@@ -97,7 +97,7 @@ describe("transactional admission", () => {
     await first.setup();
     await first.start();
     const job = await first.createJob("cold", null);
-    const queue = (await first.listQueueDiagnostics())[0];
+    const [queue] = await first.listQueueDiagnostics();
     if (!queue) {
       throw new Error("Expected queue");
     }

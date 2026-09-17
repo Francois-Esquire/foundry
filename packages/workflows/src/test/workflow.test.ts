@@ -220,7 +220,7 @@ describe("Workflow", () => {
     });
 
     await workflow.run();
-    const telemetry = workflow.state.telemetry;
+    const { telemetry } = workflow.state;
     expect(telemetry.metrics.values["workflow.runs"]).toBe(1);
     expect(telemetry.metrics.values["workflow.completions"]).toBe(1);
     expect(telemetry.metrics.values["workflow.status.complete"]).toBe(1);

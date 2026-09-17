@@ -56,7 +56,7 @@ export function vercelProvider(
 
   return {
     get available() {
-      const apiKey = config.apiKey;
+      const { apiKey } = config;
       return apiKey !== null && apiKey !== undefined;
     },
     configure: (patch) => {

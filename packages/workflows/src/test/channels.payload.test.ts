@@ -78,7 +78,7 @@ describe("Channels.stream — multiplexed ChannelMessage", () => {
             if (m._tag === "event") {
               eventTags.push(m.event._tag);
             } else {
-              const payload = m.chunk.payload;
+              const { payload } = m.chunk;
               chunkPayloads.push(
                 payload.kind === "text"
                   ? { kind: "text", value: payload.text }

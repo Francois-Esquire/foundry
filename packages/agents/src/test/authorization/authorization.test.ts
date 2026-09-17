@@ -232,7 +232,7 @@ describe("createAgentAuthorizer", () => {
   });
 
   it("honors an exact deny over authority the Subject already holds", async () => {
-    const grants = createInMemoryAgentAuthorizer().grants;
+    const { grants } = createInMemoryAgentAuthorizer();
     const authorizer = createAgentAuthorizer({
       grants,
       policy: {

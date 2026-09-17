@@ -389,7 +389,7 @@ export class Queue {
       return;
     }
     await this.withRunControl(runId, async () => {
-      const status = run.status;
+      const { status } = run;
       if (this.#driverOwned.has(runId)) {
         await run._cancelLiveAfterAuthorityUnlocked();
         return;
@@ -1149,8 +1149,8 @@ export class Queue {
     const self = this;
     return Effect.gen(function* () {
       self.#driverOwned.delete(run.id);
-      const suspension = run.snapshot.suspension;
-      const onRunSuspended = self.#opts.onRunSuspended;
+      const { suspension } = run.snapshot;
+      const { onRunSuspended } = self.#opts;
 
       if (onRunSuspended) {
         if (!suspension) {
@@ -1249,7 +1249,7 @@ export class Queue {
     const self = this;
     // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Terminal settlement keeps persistence, cancellation authority, events, and promise settlement in their required order.
     return Effect.gen(function* () {
-      let status = run.status;
+      let { status } = run;
       if (status === "complete" || status === "failed") {
         const terminalWriteError = yield* self
           .#persistSnapshotStrict(
@@ -1285,7 +1285,7 @@ export class Queue {
 
       const terminalSnapshot: WorkflowState =
         status === snapshot.status ? snapshot : { ...run.snapshot, status };
-      const onRunCancelled = self.#opts.onRunCancelled;
+      const { onRunCancelled } = self.#opts;
       if (status === "cancelled" && onRunCancelled) {
         const fields = yield* self.#snapshotRunPatch(
           run.id,

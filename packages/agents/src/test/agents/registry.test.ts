@@ -45,7 +45,7 @@ describe("AgentPreset catalog", () => {
     });
 
     const direct = registry.getPreset("researcher");
-    const listed = registry.listPresets()[0];
+    const [listed] = registry.listPresets();
     expect(direct).toEqual(listed);
     expect(direct?.preset).toBe(definition.preset);
     expect(direct?.preset.spec.id).toBe("researcher");

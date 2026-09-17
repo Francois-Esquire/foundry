@@ -108,7 +108,7 @@ describe("ctx.next() — opt-in: fallback cascade unchanged", () => {
     await step.run();
 
     expect(ran).toEqual(["a", "b"]);
-    const steps = step.steps;
+    const { steps } = step;
     expect(steps["no-next.leaf-a"]?.status).toBe("complete");
     expect(steps["no-next.leaf-b"]?.status).toBe("complete");
   });
@@ -268,7 +268,7 @@ describe("ctx.next() — skip-on-complete for eager-driven children", () => {
         },
       ],
       execute: async (_input, ctx): Promise<"ok"> => {
-        const eager = ctx.children[0];
+        const [eager] = ctx.children;
         if (!eager) {
           throw new Error("missing eager child");
         }
@@ -341,7 +341,7 @@ describe("ctx.next() — throw propagation", () => {
     // surfaced (i.e. inside the catch). The fallback cascade then runs
     // it once the body returns.
     expect(tailRan).toBe(true);
-    const steps = step.steps;
+    const { steps } = step;
     expect(steps["throw-mid.boomer"]?.status).toBe("failed");
     expect(steps["throw-mid.tail"]?.status).toBe("complete");
   });
@@ -404,7 +404,7 @@ describe("ctx.next() — resume-after-failure", () => {
     expect((captured as Error).message).toBe("first-time-bad");
     // fail-once ran once (during first next()), tails ran during second.
     expect(runs).toEqual(["fail-once", "tail-a", "tail-b"]);
-    const steps = step.steps;
+    const { steps } = step;
     expect(steps["resume.fail-once"]?.status).toBe("failed");
     expect(steps["resume.tail-a"]?.status).toBe("complete");
     expect(steps["resume.tail-b"]?.status).toBe("complete");

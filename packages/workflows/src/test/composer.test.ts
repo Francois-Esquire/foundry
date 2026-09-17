@@ -172,7 +172,7 @@ describe("Composer.mount — publishes step.started", () => {
           if (collected._tag === "Success") {
             const events = [...collected.value] as readonly ChannelEvent[];
             expect(events).toHaveLength(1);
-            const ev = events[0];
+            const [ev] = events;
             expect(ev?._tag).toBe("step.started");
             if (ev?._tag === "step.started") {
               expect(ev.path).toEqual(["root"]);
@@ -204,7 +204,7 @@ describe("Composer.mount — publishes step.started", () => {
           root.mount(3);
           const collected = yield* fiber.await;
           if (collected._tag === "Success") {
-            const ev = [...collected.value][0];
+            const [ev] = [...collected.value];
             if (ev?._tag === "step.started") {
               expect(ev.attempt).toBe(3);
             }
@@ -234,7 +234,7 @@ describe("Composer.complete — publishes step.complete", () => {
           root.complete({ ok: true });
           const collected = yield* fiber.await;
           if (collected._tag === "Success") {
-            const ev = [...collected.value][0];
+            const [ev] = [...collected.value];
             expect(ev?._tag).toBe("step.complete");
             if (ev?._tag === "step.complete") {
               expect(ev.path).toEqual(["root"]);
@@ -268,7 +268,7 @@ describe("Composer.fail — publishes step.failed with error shape", () => {
           root.fail(new Error("boom"));
           const collected = yield* fiber.await;
           if (collected._tag === "Success") {
-            const ev = [...collected.value][0];
+            const [ev] = [...collected.value];
             expect(ev?._tag).toBe("step.failed");
             if (ev?._tag === "step.failed") {
               expect(ev.path).toEqual(["root"]);

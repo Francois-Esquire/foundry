@@ -531,7 +531,7 @@ export class Channels<S = unknown> {
   subscribeStatus(
     path: readonly string[]
   ): Effect.Effect<Stream.Stream<StepStatus>, never, Scope.Scope> {
-    const pubsub = this.events.pubsub;
+    const { pubsub } = this.events;
     return Effect.map(PubSub.subscribe(pubsub), (dequeue) =>
       this.#statusStream(Stream.fromQueue(dequeue), path)
     );
@@ -545,7 +545,7 @@ export class Channels<S = unknown> {
   subscribeOutput<O = unknown>(
     path: readonly string[]
   ): Effect.Effect<Stream.Stream<O>, never, Scope.Scope> {
-    const pubsub = this.events.pubsub;
+    const { pubsub } = this.events;
     return Effect.map(PubSub.subscribe(pubsub), (dequeue) =>
       Stream.fromQueue(dequeue).pipe(
         Stream.filterMap((event) => {
@@ -627,7 +627,7 @@ export class Channels<S = unknown> {
     stepId: string,
     signal?: AbortSignal
   ): ReadableStream<ChunkPayload<S>> {
-    const pubsub = this.chunks.pubsub;
+    const { pubsub } = this.chunks;
     const scope = Effect.runSync(Scope.make());
     const subscription = Effect.runSync(
       PubSub.subscribe(pubsub).pipe(Scope.extend(scope))

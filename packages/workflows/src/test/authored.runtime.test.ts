@@ -712,7 +712,7 @@ describe("Group B — absent Results and rehydration (in-process)", () => {
         step: "p",
       },
     ]);
-    const failure = eventsOf(records, "contract-failure")[0];
+    const [failure] = eventsOf(records, "contract-failure");
     expect(failure?.boundary).toBe("connection");
     expect(failure?.from).toBe("producer");
     expect(error?.message).toBe("c at consumer: connection text is null");
@@ -727,7 +727,7 @@ describe("Group B — absent Results and rehydration (in-process)", () => {
     expect(status).toBe("failed");
     const records = await logRecords(persistence, runId);
     expect(eventsOf(records, "result-rehydrated")).toEqual([]);
-    const failure = eventsOf(records, "contract-failure")[0];
+    const [failure] = eventsOf(records, "contract-failure");
     expect(failure?.boundary).toBe("connection");
     expect(failure?.from).toBe("producer");
   });

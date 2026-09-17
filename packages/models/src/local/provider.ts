@@ -485,7 +485,7 @@ export class LocalProvider implements LocalProviderSurface {
    */
   async isDownloaded(id: string): Promise<boolean> {
     const def = this.models.find((m) => m.id === id);
-    const cacheDir = env.cacheDir;
+    const { cacheDir } = env;
     if (!(def && cacheDir)) {
       return false;
     }

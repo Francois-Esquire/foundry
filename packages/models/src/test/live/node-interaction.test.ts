@@ -52,7 +52,7 @@ describe("the Node interaction", () => {
       onTrack: (received, direction) =>
         seen.push({ direction, kind: received.kind }),
     });
-    const double = webrtc.doubles[0];
+    const [double] = webrtc.doubles;
 
     double?.emitMedia({
       getTracks: () => [track("video"), track("audio")],

@@ -873,7 +873,7 @@ class MaterializedWorkflow extends Workflow<
     ctx: StepContext<AuthoredRunInput, string | null, AuthoredContext>
   ): Promise<string | null> {
     const exec = ctx.execution;
-    const runId = exec.runId;
+    const { runId } = exec;
     const placement = this.#placementByKey.get(placementKey);
     if (placement === undefined) {
       throw new StepUnavailable(`no placement ${placementKey} in plan`);

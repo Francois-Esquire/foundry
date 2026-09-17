@@ -65,7 +65,7 @@ export function isPostTerminalRunEvidence(payload: JsonValue): boolean {
   ) {
     return false;
   }
-  const value = payload.value;
+  const { value } = payload;
   return (
     value.event === RUN_EFFECT_CLAIM_EVENT &&
     typeof value.key === "string" &&
@@ -93,7 +93,7 @@ export function isRunEffectClaim(frame: RunFrame, key: string): boolean {
   if (frame.payload.kind !== "log") {
     return false;
   }
-  const value = frame.payload.value;
+  const { value } = frame.payload;
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return false;
   }
@@ -157,10 +157,10 @@ function isTerminalFrame(frame: RunFrame): boolean {
   if (frame.payload.kind !== "lifecycle") {
     return false;
   }
-  const value = frame.payload.value;
+  const { value } = frame.payload;
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return false;
   }
-  const event = (value as Readonly<Record<string, unknown>>).event;
+  const { event } = value as Readonly<Record<string, unknown>>;
   return event === "complete" || event === "failed" || event === "cancelled";
 }

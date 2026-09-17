@@ -49,7 +49,7 @@ class CompositionWorkflow extends Workflow<number, Record<string, unknown>> {
 
 describe("definition composition compiler", () => {
   it("projects all declared group nodes before input", () => {
-    const definition = new CompositionWorkflow().definition;
+    const { definition } = new CompositionWorkflow();
 
     expect(definition.graph.children).toMatchObject([
       { kind: "sequence", nodeKey: "pipeline" },

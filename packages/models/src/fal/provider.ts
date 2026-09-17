@@ -52,7 +52,7 @@ export function falProvider(
   // Only a key writes the shared holder. An unkeyed Provider constructed
   // alongside a keyed one must not clear the client out from under it;
   // clearing is `configure`'s, where a key was deliberately removed.
-  const apiKey = config.apiKey;
+  const { apiKey } = config;
   if (apiKey !== null && apiKey !== undefined) {
     applyRuntime(config);
   }
@@ -108,7 +108,7 @@ function sdkSettings(config: FalProviderConfig) {
 }
 
 function applyRuntime(config: FalProviderConfig): void {
-  const apiKey = config.apiKey;
+  const { apiKey } = config;
   setFalRuntime(
     apiKey === null || apiKey === undefined
       ? null

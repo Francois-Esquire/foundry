@@ -77,7 +77,7 @@ export async function embedFields(
   options: EmbedFieldsOptions = {}
 ): Promise<EmbeddingPayload[]> {
   const active = fields.filter((f): f is { field: string; text: string } => {
-    const text = f.text;
+    const { text } = f;
     return text !== null && text !== undefined && text.length > 0;
   });
   if (active.length === 0) {

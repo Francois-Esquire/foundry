@@ -12,7 +12,7 @@ import {
 const root = resolve(import.meta.dirname, "../../..");
 const packages = publicWorkspaces(discoverWorkspaces(root));
 const version = releaseVersion(packages);
-const command = process.argv[2];
+const [, , command] = process.argv;
 if (command === "check") {
   if (process.argv.includes("--tag")) {
     validateTag(version, process.env.REF_TYPE, process.env.RELEASE_TAG);

@@ -163,8 +163,8 @@ test("publishing requires tested artifacts and keeps installation out of the OID
   const workflow = YAML.parse(
     readFileSync(join(root, ".github/workflows/publish.yml"), "utf8")
   ) as Workflow;
-  const build = workflow.jobs.build;
-  const publish = workflow.jobs.publish;
+  const { build } = workflow.jobs;
+  const { publish } = workflow.jobs;
   expect(build).toBeDefined();
   expect(publish).toBeDefined();
   if (!(build && publish)) {

@@ -114,7 +114,7 @@ export function orchestratorStoreContract(
         queueId: "main",
         step: "documents.generate",
       });
-      const run = claim.run;
+      const { run } = claim;
       input.nested.revision = 2;
 
       expect(

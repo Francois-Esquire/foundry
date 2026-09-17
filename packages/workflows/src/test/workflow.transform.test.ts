@@ -51,7 +51,7 @@ describe("ctx.invoke — single child invocation", () => {
     });
     await parent.run();
     await sleep(10);
-    const state = parent.state;
+    const { state } = parent;
     // The composer forks a sub-frame named after the child step under
     // the parent's path: "outer.child-frame".
     expect(state.steps["outer.child-frame"]).toBeDefined();

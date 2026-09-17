@@ -533,7 +533,7 @@ export class Orchestrator {
 
   async #executeJob(job: JobRecord): Promise<DispatchedWorkflow<JsonValue>> {
     const queue = this.#requireStartedQueue();
-    const definition = job.definition;
+    const { definition } = job;
     const factory = this.registry.resolve<JsonValue>(definition.name);
     const runId = generateId("rn");
     const inheritedLinks = jobLinksToRunLinks(job.links);
@@ -552,7 +552,7 @@ export class Orchestrator {
         );
         const workflow = yield* Orchestrator.#asWorkflow(instance, job.input);
         this.#wireWorkflowObservation(workflow, runId);
-        const state = workflow.state;
+        const { state } = workflow;
         return { state, workflow };
       }).pipe(Scope.extend(this.#scope))
     );
@@ -1050,7 +1050,7 @@ export class Orchestrator {
     if (!wf || typeof wf !== "object") {
       return null;
     }
-    const steps = (wf as { steps?: unknown }).steps;
+    const { steps } = wf as { steps?: unknown };
     return Option.getOrNull(decodeSeedSteps(steps));
   }
 }

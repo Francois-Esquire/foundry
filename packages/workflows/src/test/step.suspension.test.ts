@@ -46,7 +46,7 @@ describe("Suspension — basic flow", () => {
       name: "wf-suspend",
     });
     await wf.run().catch(() => undefined);
-    const status = wf.status;
+    const { status } = wf;
     expect(status).toBe("suspended");
   });
 
@@ -64,7 +64,7 @@ describe("Suspension — basic flow", () => {
       name: "wf-state",
     });
     await wf.run().catch(() => undefined);
-    const state = wf.state;
+    const { state } = wf;
     expect(state.suspension?.name).toBe("approval");
     expect(state.suspension?.reason).toBe("needs-review");
     expect(state.suspension?.meta).toEqual({ ticket: "TKT-42" });
@@ -286,7 +286,7 @@ describe("Suspension — edge cases", () => {
         },
       ],
       execute: async (_input, ctx) => {
-        const child = ctx.children[0];
+        const [child] = ctx.children;
         if (!child) {
           throw new Error("expected child");
         }
@@ -297,9 +297,9 @@ describe("Suspension — edge cases", () => {
       name: "wf-child-suspend",
     });
     await wf.run().catch(() => undefined);
-    const status = wf.status;
+    const { status } = wf;
     expect(status).toBe("suspended");
-    const state = wf.state;
+    const { state } = wf;
     expect(state.suspension?.name).toBe("wait-in-child");
   });
 

@@ -105,7 +105,7 @@ export class DispatchedWorkflow<
   /** Sync read of the latest workflow snapshot. Reflects the in-memory
    * projection; for hydrated runs, this is the seeded snapshot. */
   get snapshot(): WorkflowState {
-    const state = this.workflow.state;
+    const { state } = this.workflow;
     if (!this.#admissionFailure) {
       return state;
     }

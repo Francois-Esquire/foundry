@@ -87,7 +87,7 @@ describe("step.abort — event emission + projection", () => {
       (event) => event._tag === "step.aborted"
     );
     expect(aborted).toHaveLength(1);
-    const abortedEvent = aborted[0];
+    const [abortedEvent] = aborted;
     if (abortedEvent?._tag === "step.aborted") {
       expect(abortedEvent.reason).toEqual({ code: 42, msg: "user-cancelled" });
     }
@@ -221,7 +221,7 @@ describe("step.run() interaction with abort", () => {
     const step = await Step.make<void, void>({
       execute: () =>
         new Promise<void>((_resolve, reject) => {
-          const current = stepHolder.current;
+          const { current } = stepHolder;
           if (!current) {
             reject(new Error("stepRef not initialized"));
             return;
@@ -311,7 +311,7 @@ describe("Abort cascade across forks", () => {
     if (!(c1 && c2)) {
       throw new Error("expected children");
     }
-    const grand = c2.children[0];
+    const [grand] = c2.children;
     if (!grand) {
       throw new Error("expected grandchild");
     }
@@ -370,7 +370,7 @@ describe("Abort cascade across forks", () => {
             },
           ],
           execute: async (_input, ctx) => {
-            const g = ctx.children[0];
+            const [g] = ctx.children;
             if (!g) {
               throw new Error("expected grandchild");
             }
@@ -381,7 +381,7 @@ describe("Abort cascade across forks", () => {
         },
       ],
       execute: async (_input, ctx) => {
-        const c = ctx.children[0];
+        const [c] = ctx.children;
         if (!c) {
           throw new Error("expected child");
         }

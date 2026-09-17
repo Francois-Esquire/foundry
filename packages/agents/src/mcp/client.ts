@@ -108,7 +108,7 @@ function asString(value: unknown): string {
 
 /** Connection-affecting identity of a definition — metadata and `enabled` excluded. */
 export function connectionSignature(c: McpServerDefinition): string {
-  const transport = c.transport;
+  const { transport } = c;
   return transport.kind === "remote"
     ? JSON.stringify({
         hasAuth: transport.authProvider !== undefined,
@@ -493,7 +493,7 @@ export class McpClient extends McpEmitter<McpClientEvents> {
   async #open(): Promise<void> {
     this.#setStatus("connecting");
     try {
-      const transport = this.#definition.transport;
+      const { transport } = this.#definition;
       // Only a transport we construct can be tapped for notifications; the
       // SDK builds remote transports internally and exposes no hook.
       let stdio: MCPTransport | undefined;

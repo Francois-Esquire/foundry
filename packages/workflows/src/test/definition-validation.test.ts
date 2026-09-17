@@ -225,7 +225,7 @@ describe("definition validation", () => {
   });
 
   it("keeps presentation metadata out of local identity and preserves dot keys", () => {
-    const definition = new DotKeyWorkflow().definition;
+    const { definition } = new DotKeyWorkflow();
     const child = definition.graph.children?.[0];
 
     expect(definition.definitionKey).toBe("stable.workflow");

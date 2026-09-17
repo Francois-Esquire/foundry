@@ -81,8 +81,8 @@ describe("Executable.drive — lifecycle (success)", () => {
           const tags = h.events.map((e) => e._tag);
           // drive does NOT emit step.progress=100 (that's Step.#run only).
           expect(tags).toEqual(["step.started", "step.complete"]);
-          const started = h.events[0];
-          const complete = h.events[1];
+          const [started] = h.events;
+          const [, complete] = h.events;
           if (started?._tag === "step.started") {
             expect(started.path).toEqual(["root"]);
             expect(started.attempt).toBe(1);
@@ -111,7 +111,7 @@ describe("Executable.drive — lifecycle (success)", () => {
           yield* Effect.sleep(5);
           const tags = h.events.map((e) => e._tag);
           expect(tags).toEqual(["step.started", "step.bailed"]);
-          const bailed = h.events[1];
+          const [, bailed] = h.events;
           if (bailed?._tag === "step.bailed") {
             expect(bailed.bail).toEqual({ code: "DENY" });
           }
@@ -148,7 +148,7 @@ describe("Executable.drive — lifecycle (failure)", () => {
           yield* Effect.sleep(5);
           const tags = h.events.map((e) => e._tag);
           expect(tags).toEqual(["step.started", "step.failed"]);
-          const failed = h.events[1];
+          const [, failed] = h.events;
           if (failed?._tag === "step.failed") {
             expect(failed.error.name).toBe("TypeError");
             expect(failed.error.message).toBe("boom");

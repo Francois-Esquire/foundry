@@ -119,7 +119,7 @@ function assertJobParents(
   indexedJobs: ReadonlyMap<string, JobRecord>
 ): void {
   for (const job of jobs) {
-    const parentJobId = job.links.parentJobId;
+    const { parentJobId } = job.links;
     if (parentJobId !== undefined && !indexedJobs.has(parentJobId)) {
       throw new InconsistentStoreSnapshotError(
         `Job ${job.id} references missing parent Job ${parentJobId}`
@@ -277,11 +277,11 @@ function terminalFrameStatus(
   if (frame.payload.kind !== "lifecycle") {
     return null;
   }
-  const value = frame.payload.value;
+  const { value } = frame.payload;
   if (!isRecord(value)) {
     return null;
   }
-  const event = value.event;
+  const { event } = value;
   return event === "complete" || event === "failed" || event === "cancelled"
     ? event
     : null;

@@ -71,7 +71,7 @@ function deriveStepNode<I, O, X extends BaseContext>(
   step: Step<I, O, X>,
   index: number
 ): WorkflowStepNode {
-  const children = step.children;
+  const { children } = step;
   const node: {
     key: string;
     name: string;

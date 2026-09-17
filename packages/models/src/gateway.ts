@@ -59,7 +59,7 @@ export function gatewayProvider(
   options: GatewayProviderOptions
 ): Provider<GatewayProviderConfig> {
   const id = options.id ?? "gateway";
-  let config = options.config;
+  let { config } = options;
 
   const url = ({ path }: { path: string }) => {
     const base = withoutTrailingSlash(config.baseURL) ?? config.baseURL;

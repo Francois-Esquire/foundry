@@ -208,7 +208,7 @@ describe("direction attribution on the socket path", () => {
     expect(live.direction).toBe(1);
 
     live.supply(frame(1), "a");
-    const double = socket.doubles[0];
+    const [double] = socket.doubles;
     const send = double?.sent.at(-1);
     expect(send?.frameId).toBe("a");
     double?.deliver(send?.correlation);
@@ -228,7 +228,7 @@ describe("direction attribution on the socket path", () => {
       direction: { prompt: "one" },
       ...sink.options,
     });
-    const double = socket.doubles[0];
+    const [double] = socket.doubles;
 
     live.supply(frame(1), "a");
     await settle();
@@ -260,7 +260,7 @@ describe("direction attribution on the socket path", () => {
       direction: { prompt: "one" },
       ...sink.options,
     });
-    const double = socket.doubles[0];
+    const [double] = socket.doubles;
     live.supply(frame(1), "a");
     await settle();
     const first = double?.sent.find(
@@ -283,7 +283,7 @@ describe("direction attribution on the socket path", () => {
 describe("supersession and throttling", () => {
   it("sends only the last of three frames supplied before acceptance", async () => {
     const live = await open(target(), token(), { direction: { prompt: "p" } });
-    const double = socket.doubles[0];
+    const [double] = socket.doubles;
     double?.gate();
 
     live.supply(frame(1), "a");
@@ -312,7 +312,7 @@ describe("refusal", () => {
       direction: { prompt: "p" },
       ...sink.options,
     });
-    const double = socket.doubles[0];
+    const [double] = socket.doubles;
 
     live.reference([frame(1)]);
     live.attach({} as unknown as MediaStream);
@@ -368,9 +368,9 @@ describe("attach on a supporting socket fact", () => {
       token(),
       { direction: { prompt: "p" } }
     );
-    const double = socket.doubles[0];
+    const [double] = socket.doubles;
     live.attach({} as unknown as MediaStream);
-    const emit = state.samples[0];
+    const [emit] = state.samples;
     expect(emit).toBeDefined();
 
     double?.gate();
@@ -419,7 +419,7 @@ describe("feed at open on a continuous fact", () => {
         onStream: (stream, direction) => streams.push({ direction, stream }),
       }
     );
-    const double = webrtc.doubles[0];
+    const [double] = webrtc.doubles;
     double?.emitMedia("stream-a");
     live.direct({ prompt: "q" });
     double?.emitMedia("stream-b");
@@ -438,7 +438,7 @@ describe("terminal states", () => {
       direction: { prompt: "p" },
       ...sink.options,
     });
-    const double = socket.doubles[0];
+    const [double] = socket.doubles;
 
     live.close();
     live.close();

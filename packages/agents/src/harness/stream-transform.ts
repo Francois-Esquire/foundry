@@ -66,7 +66,7 @@ export function transformStream(
     resolveOutcome = resolve;
   });
 
-  const handlers = options.handlers;
+  const { handlers } = options;
   const emit = (event: SessionEvent) => {
     switch (event.type) {
       case "text-delta":

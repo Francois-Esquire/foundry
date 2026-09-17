@@ -59,7 +59,7 @@ export function configureModelObservability(
   options: ModelObservabilityOptions = {}
 ): void {
   if (options.enabled !== undefined) {
-    enabled = options.enabled;
+    ({ enabled } = options);
   }
   if (options.cost) {
     costMap = { ...costMap, ...options.cost };

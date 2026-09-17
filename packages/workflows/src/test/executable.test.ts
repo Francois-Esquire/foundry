@@ -310,7 +310,7 @@ describe("Executable suspend / resolve", () => {
     );
     expect(exit._tag).toBe("Failure");
     if (exit._tag === "Failure") {
-      const cause = exit.cause;
+      const { cause } = exit;
       // Pull SuspendSignal out of the cause; happy with any failure shape
       // that carries one.
       const causeStr = JSON.stringify(cause, null, 2);

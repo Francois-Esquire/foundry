@@ -267,7 +267,7 @@ describe("Step.timeout — snapshot record", () => {
     });
     await step.run().catch(() => undefined);
     await sleep(10);
-    const state = step.state;
+    const { state } = step;
     const record = state.steps.snap;
     expect(record?.status).toBe("failed");
     expect(record?.error?.message).toMatch(/Step "snap" timed out after 15/);
@@ -294,7 +294,7 @@ describe("Step.timeout — distinct from cancellation", () => {
     await sleep(10);
     expect(step.status).toBe("failed");
     expect(step.aborted).toBe(false);
-    const state = step.state;
+    const { state } = step;
     expect(state.steps["timeout-not-cancel"]?.status).toBe("failed");
   });
 

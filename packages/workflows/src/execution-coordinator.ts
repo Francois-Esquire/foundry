@@ -1855,11 +1855,11 @@ function isTerminalFramePayload(payload: RunFramePayload): boolean {
   if (payload.kind !== "lifecycle") {
     return false;
   }
-  const value = payload.value;
+  const { value } = payload;
   if (!isUnknownRecord(value)) {
     return false;
   }
-  const event = value.event;
+  const { event } = value;
   return event === "complete" || event === "failed" || event === "cancelled";
 }
 

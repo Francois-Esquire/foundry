@@ -80,7 +80,7 @@ export function replicateProvider(
 
   const provider: Provider<ReplicateProviderConfig> = {
     get available() {
-      const apiToken = config.apiToken;
+      const { apiToken } = config;
       return apiToken !== null && apiToken !== undefined;
     },
     configure: (patch) => {

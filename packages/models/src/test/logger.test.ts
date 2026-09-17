@@ -161,7 +161,7 @@ describe("traceModelDownload", () => {
     trace.finish("ready");
 
     expect(events).toHaveLength(1);
-    const event = events[0];
+    const [event] = events;
     expect(event?.download?.modelId).toBe("test/model");
     expect(event?.download?.label).toBe("Test Model");
     expect(event?.download?.fileCount).toBe(2);

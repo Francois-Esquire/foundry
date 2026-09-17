@@ -69,7 +69,7 @@ describe("cascade via ctx.invoke", () => {
     expect(ran).toEqual(["invoked-body", "leaf-a", "leaf-b"]);
 
     // The children's completion is recorded on the invoked step's snapshot.
-    const steps = invoked.steps;
+    const { steps } = invoked;
     expect(steps["invoked.leaf-a"]?.status).toBe("complete");
     expect(steps["invoked.leaf-b"]?.status).toBe("complete");
   });

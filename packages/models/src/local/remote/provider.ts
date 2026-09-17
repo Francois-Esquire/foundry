@@ -260,7 +260,7 @@ export class RemoteLocalProvider implements LocalProviderSurface {
   /** Same on-disk probe as the in-process provider — the cache dir is shared. */
   async isDownloaded(id: string): Promise<boolean> {
     const def = this.models.find((m) => m.id === id);
-    const cacheDir = env.cacheDir;
+    const { cacheDir } = env;
     if (!(def && cacheDir)) {
       return false;
     }

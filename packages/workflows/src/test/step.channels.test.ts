@@ -50,7 +50,7 @@ describe("Step.write — chunk delivery + envelope shape", () => {
     await sleep(20);
     sink.stop();
     expect(sink.chunks).toHaveLength(1);
-    const envelope = sink.chunks[0];
+    const [envelope] = sink.chunks;
     expect(envelope?.stepId).toBe(step.name);
     expect(envelope?.payload).toEqual({ kind: "text", text: "hello" });
     expect(typeof envelope?.at).toBe("string");
@@ -69,7 +69,7 @@ describe("Step.write — chunk delivery + envelope shape", () => {
     step.write(data);
     await sleep(20);
     sink.stop();
-    const envelope = sink.chunks[0];
+    const [envelope] = sink.chunks;
     expect(envelope?.stepId).toBe(step.name);
     expect(envelope?.payload).toEqual({ data, kind: "data" });
   });
@@ -273,7 +273,7 @@ describe("Cross-step chunk filtering", () => {
       input: undefined,
       name: "parent",
     });
-    const child = parent.children[0];
+    const [child] = parent.children;
     if (!child) {
       throw new Error("expected one child");
     }
@@ -312,7 +312,7 @@ describe("Cross-step chunk filtering", () => {
       input: undefined,
       name: "parent",
     });
-    const child = parent.children[0];
+    const [child] = parent.children;
     if (!child) {
       throw new Error("expected one child");
     }

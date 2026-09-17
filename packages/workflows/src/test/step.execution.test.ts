@@ -261,7 +261,7 @@ describe("Bail vs throw — distinct semantics", () => {
         },
       ],
       execute: async (_input, ctx) => {
-        const child = ctx.children[0];
+        const [child] = ctx.children;
         if (!child) {
           return;
         }

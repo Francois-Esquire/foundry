@@ -246,7 +246,7 @@ describe("InMemoryOrchestratorStore", () => {
       queueId: "main",
       step: "publish",
     });
-    const run = claim.run;
+    const { run } = claim;
     const suspension = await store.createSuspension({
       kind: "approval",
       name: "approval",

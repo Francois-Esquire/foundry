@@ -354,7 +354,7 @@ describe("Queue event log — entry structure", () => {
       expect(typeof event._tag).toBe("string");
       // Lifecycle entries carry a path; custom emits do too. Both are
       // non-empty arrays of strings.
-      const path = (event as { path?: unknown }).path;
+      const { path } = event as { path?: unknown };
       expect(Array.isArray(path)).toBe(true);
     }
   });

@@ -111,13 +111,13 @@ export class JobLifecycle {
     ) {
       return job;
     }
-    const active = (
+    const [active] = (
       await this.#store.listRuns({
         limit: 1,
         links: { jobId: job.id },
         status: ["queued", "running", "suspended"],
       })
-    ).items[0];
+    ).items;
     const completed = active
       ? false
       : (

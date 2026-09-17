@@ -20,7 +20,7 @@ describe("Linear recursion via fork", () => {
             },
           ],
           execute: async (_, ctx) => {
-            const child = ctx.children[0];
+            const [child] = ctx.children;
             if (!child) {
               return;
             }
@@ -31,7 +31,7 @@ describe("Linear recursion via fork", () => {
         },
       ],
       execute: async (_, ctx) => {
-        const child = ctx.children[0];
+        const [child] = ctx.children;
         if (!child) {
           return;
         }
@@ -43,8 +43,8 @@ describe("Linear recursion via fork", () => {
 
     await step.run();
 
-    const state = step.state;
-    const steps = state.steps;
+    const { state } = step;
+    const { steps } = state;
 
     expect(steps.root).toBeDefined();
     expect(steps["root.child1"]).toBeDefined();
@@ -68,7 +68,7 @@ describe("Linear recursion via fork", () => {
         children: [makeDeep(depth + 1, maxDepth)],
 
         execute: async (_: unknown, ctx: any) => {
-          const child = ctx.children[0];
+          const [child] = ctx.children;
           return child.run();
         },
         input: undefined,
@@ -104,7 +104,7 @@ describe("Linear recursion via fork", () => {
         children: [makeDeep(depth + 1, maxDepth)],
 
         execute: async (_: unknown, ctx: any) => {
-          const child = ctx.children[0];
+          const [child] = ctx.children;
           return child.run();
         },
         input: undefined,
@@ -230,7 +230,7 @@ describe("Context propagation through depth", () => {
         },
       ],
       execute: async (_, ctx) => {
-        const child = ctx.children[0];
+        const [child] = ctx.children;
         return child?.run();
       },
       input: undefined,
@@ -257,7 +257,7 @@ describe("Context propagation through depth", () => {
       ],
       async execute(this: Step, _, ctx) {
         rootContext = this.context;
-        const child = ctx.children[0];
+        const [child] = ctx.children;
         await child?.run();
         return "ok";
       },
@@ -295,7 +295,7 @@ describe("Snapshot tree under depth", () => {
     });
     await step.run();
 
-    const state = step.state;
+    const { state } = step;
     const keys = Object.keys(state.steps).sort();
     expect(keys).toEqual(["root", "root.child", "root.child.grandchild"]);
   });
@@ -315,7 +315,7 @@ describe("Snapshot tree under depth", () => {
     });
     await step.run();
 
-    const state = step.state;
+    const { state } = step;
     expect(state.steps.root?.attempt).toBe(1);
     expect(state.steps["root.child"]?.attempt).toBe(1);
   });
@@ -332,7 +332,7 @@ describe("Snapshot tree under depth", () => {
     });
     await step.run();
 
-    const state = step.state;
+    const { state } = step;
     expect(state.steps["root.A"]?.output).toBe("A");
     expect(state.steps["root.B"]?.output).toBe("B");
   });

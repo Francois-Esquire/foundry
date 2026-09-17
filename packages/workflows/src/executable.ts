@@ -299,7 +299,7 @@ export class Executable<I = unknown, X extends BaseContext = BaseContext> {
 
   /** Subscribe to cancellation; returns an unsubscribe. */
   onAbort(handler: (reason: unknown) => void): Unsubscribe {
-    const signal = this.#controller.signal;
+    const { signal } = this.#controller;
     // Wrap to isolate handler throw from poisoning other subscribers.
     const safe = (reason: unknown): void => {
       try {

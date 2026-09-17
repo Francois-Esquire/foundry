@@ -26,6 +26,7 @@ export class ExecutionParticipants {
   }
 
   claim(jobId: string, input: Parameters<OrchestratorStore["claimJobRun"]>[1]) {
+    // biome-ignore lint/style/useDestructuring: Destructuring from `this` does not register this private field as used with noUnusedPrivateClassMembers.
     const admission = this.admission;
     const transaction = this.persistence?.transaction;
     if (!(admission && transaction)) {
@@ -41,6 +42,7 @@ export class ExecutionParticipants {
   }
 
   async recover(runId: string, jobId: string | undefined): Promise<void> {
+    // biome-ignore lint/style/useDestructuring: Destructuring from `this` does not register this private field as used with noUnusedPrivateClassMembers.
     const admission = this.admission;
     if (!(admission && jobId)) {
       return;
@@ -55,6 +57,7 @@ export class ExecutionParticipants {
   }
 
   cancel(runId: string): Promise<RunRecord | null> {
+    // biome-ignore lint/style/useDestructuring: Destructuring from `this` does not register this private field as used with noUnusedPrivateClassMembers.
     const cancellation = this.cancellation;
     return cancellation
       ? this.settle(runId, (run, persistence) =>

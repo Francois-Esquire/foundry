@@ -274,7 +274,7 @@ describe("step.progress — auto-100 on success", () => {
     const stepHolder: { current: Step | undefined } = { current: undefined };
     const step = await Step.make<unknown, unknown>({
       execute: async () => {
-        const current = stepHolder.current;
+        const { current } = stepHolder;
         if (!current) {
           throw new Error("stepRef not initialized");
         }
@@ -294,7 +294,7 @@ describe("step.progress — auto-100 on success", () => {
     const stepHolder: { current: Step | undefined } = { current: undefined };
     const step = await Step.make<unknown, unknown>({
       execute: async () => {
-        const current = stepHolder.current;
+        const { current } = stepHolder;
         if (!current) {
           throw new Error("stepRef not initialized");
         }

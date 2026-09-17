@@ -87,7 +87,7 @@ async function mint(runtime: FalRuntime, endpointId: string): Promise<string> {
   }
   // Old proxies wrap the token; the client tolerates both, so this does too.
   if (typeof payload === "object" && payload !== null) {
-    const detail = (payload as { detail?: unknown }).detail;
+    const { detail } = payload as { detail?: unknown };
     if (typeof detail === "string") {
       return detail;
     }

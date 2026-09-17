@@ -20,7 +20,7 @@ describe("Workflow logging", () => {
 
     await workflow.run();
 
-    const logs = workflow.state.telemetry.logs;
+    const { logs } = workflow.state.telemetry;
     const info = logs.find((entry) => entry.message === "starting work");
     expect(logs).toHaveLength(2);
     expect(info).toMatchObject({

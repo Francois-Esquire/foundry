@@ -1006,10 +1006,10 @@ function isTerminalPayload(payload: RunFrame["payload"]): boolean {
   if (payload.kind !== "lifecycle") {
     return false;
   }
-  const value = payload.value;
+  const { value } = payload;
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return false;
   }
-  const event = (value as Readonly<Record<string, unknown>>).event;
+  const { event } = value as Readonly<Record<string, unknown>>;
   return event === "complete" || event === "failed" || event === "cancelled";
 }

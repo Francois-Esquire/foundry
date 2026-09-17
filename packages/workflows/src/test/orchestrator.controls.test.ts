@@ -247,7 +247,7 @@ describe("Orchestrator explicit controls", () => {
       if (frame.payload.kind !== "lifecycle") {
         return false;
       }
-      const value = frame.payload.value;
+      const { value } = frame.payload;
       if (typeof value !== "object" || value === null || Array.isArray(value)) {
         return false;
       }

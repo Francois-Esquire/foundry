@@ -337,7 +337,7 @@ describe("Step.retry — scope (no cascade across fork)", () => {
       config: { retry: { maxAttempts: 5 } },
       execute: async (_, ctx) => {
         parentCalls += 1;
-        const child = ctx.children[0];
+        const [child] = ctx.children;
         if (!child) {
           throw new Error("no child");
         }
@@ -381,7 +381,7 @@ describe("Step.retry — scope (no cascade across fork)", () => {
       ],
       execute: async (_, ctx) => {
         parentCalls += 1;
-        const child = ctx.children[0];
+        const [child] = ctx.children;
         if (!child) {
           throw new Error("no child");
         }

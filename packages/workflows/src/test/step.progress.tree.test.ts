@@ -79,7 +79,7 @@ describe("step.progress — sibling children are independent", () => {
         },
       ],
       execute: async (_input, ctx): Promise<"ok"> => {
-        const a = ctx.children[0];
+        const [a] = ctx.children;
         if (!a) {
           throw new Error("expected child-a");
         }
@@ -126,7 +126,7 @@ describe("step.progress — same name at different depths is path-keyed", () => 
       name: "gather",
     });
 
-    const child = parent.children[0];
+    const [child] = parent.children;
     if (!child) {
       throw new Error("expected one child");
     }
@@ -140,7 +140,7 @@ describe("step.progress — same name at different depths is path-keyed", () => 
     expect(parent.progress).toBe(40);
     expect(child.progress).toBe(80);
 
-    const state = parent.state;
+    const { state } = parent;
     expect(state.steps.gather?.progress).toBe(40);
     expect(state.steps["gather.gather"]?.progress).toBe(80);
   });
@@ -158,7 +158,7 @@ describe("step.progress — snapshot read parity", () => {
       name: "x",
     });
     step.progress = 55;
-    const state = step.state;
+    const { state } = step;
     const key = step.path.join(".");
     expect(state.steps[key]?.progress).toBe(55);
     expect(step.progress).toBe(55);

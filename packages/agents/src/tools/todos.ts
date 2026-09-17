@@ -108,7 +108,7 @@ export class TodoStore extends EventEmitter<TodoEventMap> {
       return `No todo with id ${id}.`;
     }
     const removed = this.#todos.splice(idx, 1);
-    const item = removed[0];
+    const [item] = removed;
     if (!item) {
       return `No todo with id ${id}.`;
     }

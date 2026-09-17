@@ -10,8 +10,7 @@
         "useAwait": "off"
       },
       "style": {
-        "useConsistentMethodSignatures": "off",
-        "useDestructuring": "off"
+        "useConsistentMethodSignatures": "off"
       }
     }
   },
