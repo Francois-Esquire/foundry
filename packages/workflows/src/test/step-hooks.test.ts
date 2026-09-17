@@ -287,9 +287,9 @@ describe("withStepHooks — body failure", () => {
         after: {
           failure: [
             {
-              execute: async ({ input, error }) => {
+              execute: async ({ input, error: hookError }) => {
                 expect(input).toBe("payload");
-                seen.push(error);
+                seen.push(hookError);
               },
               name: "record",
             },

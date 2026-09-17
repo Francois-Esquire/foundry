@@ -224,12 +224,12 @@ export class Executable<I = unknown, X extends BaseContext = BaseContext> {
    * Allocate a root Executable. `Scope`-managed so cancellation
    * finalizer aborts pending consumers on close.
    */
-  static make<I, X extends BaseContext = BaseContext>(args: {
-    readonly input: I;
+  static make<Input, Context extends BaseContext = BaseContext>(args: {
+    readonly input: Input;
     readonly name: string;
-    readonly seed?: Omit<X, "name">;
+    readonly seed?: Omit<Context, "name">;
     readonly config?: Partial<ExecutableConfig>;
-  }): Effect.Effect<Executable<I, X>, never, Scope.Scope> {
+  }): Effect.Effect<Executable<Input, Context>, never, Scope.Scope> {
     return Effect.gen(function* () {
       const controller = new AbortController();
       yield* Effect.addFinalizer(() =>
@@ -240,9 +240,9 @@ export class Executable<I = unknown, X extends BaseContext = BaseContext> {
         })
       );
       const resolutions = yield* Ref.make(HashMap.empty<string, unknown>());
-      return new Executable<I, X>({
+      return new Executable<Input, Context>({
         config: { ...defaultConfig, ...args.config },
-        context: { ...(args.seed ?? {}), name: args.name } as X,
+        context: { ...(args.seed ?? {}), name: args.name } as Context,
         controller,
         input: args.input,
         name: args.name,

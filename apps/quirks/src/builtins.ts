@@ -22,8 +22,8 @@ const PASS = "PASS";
 const VERDICT_PROTOCOL = `Reply with exactly "${PASS}" on a line of its own if you find nothing worth changing. Otherwise list one finding per line, no preamble.`;
 
 /** Read a review turn's text as a verdict. `PASS` anywhere alone means clean. */
-export function findingsIn(review: string): readonly string[] {
-  const lines = review
+export function findingsIn(reviewText: string): readonly string[] {
+  const lines = reviewText
     .split("\n")
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
@@ -100,14 +100,14 @@ export const developRound = workflow<DevelopInput, DevelopRoundOutput>(
             ? input.task
             : `Round ${String(input.round)}. ${input.task}\n\nA review of your last round raised these; address them:\n${input.findings.join("\n")}`,
       }))
-      .step("review", review, ({ input, implement }) => ({
+      .step("review", review, ({ input, implement: implementation }) => ({
         cwd: input.cwd,
-        prompt: `Review the uncommitted changes in this working tree against the task: ${input.task}\n\nThe implementer reported:\n${implement.text}\n\n${VERDICT_PROTOCOL}`,
+        prompt: `Review the uncommitted changes in this working tree against the task: ${input.task}\n\nThe implementer reported:\n${implementation.text}\n\n${VERDICT_PROTOCOL}`,
       }))
-      .output(({ implement, review }) => ({
-        findings: findingsIn(review.text),
-        implemented: implement.text,
-        review: review.text,
+      .output(({ implement: implementation, review: reviewResult }) => ({
+        findings: findingsIn(reviewResult.text),
+        implemented: implementation.text,
+        review: reviewResult.text,
       }));
   }
 );

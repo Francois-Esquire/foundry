@@ -150,14 +150,14 @@ export function deserializeEmbedding(json: string): number[] {
 export function rankBySimilarity<T extends { embedding: string }>(
   query: number[],
   rows: T[],
-  topK: number
+  limit: number
 ): { row: T; score: number }[] {
   const scored = rows.map((row) => ({
     row,
     score: cosineSimilarity(query, deserializeEmbedding(row.embedding)),
   }));
   scored.sort((a, b) => b.score - a.score);
-  return scored.slice(0, topK);
+  return scored.slice(0, limit);
 }
 
 export interface ScoredCandidate<T> {

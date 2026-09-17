@@ -216,9 +216,9 @@ export class Channels<S = unknown> {
    *
    * @internal Effect-typed factory. Consumers receive Channels via Step/Workflow.
    */
-  static make<S = unknown>(
+  static make<Chunk = unknown>(
     snapshot: Snapshot
-  ): Effect.Effect<Channels<S>, never, Scope.Scope> {
+  ): Effect.Effect<Channels<Chunk>, never, Scope.Scope> {
     return Effect.gen(function* () {
       // Allocate raw PubSubs.
       const eventsPubSub = yield* Effect.acquireRelease(
@@ -226,7 +226,7 @@ export class Channels<S = unknown> {
         (h) => PubSub.shutdown(h)
       );
       const chunksPubSub = yield* Effect.acquireRelease(
-        PubSub.unbounded<ChannelChunk<S>>(),
+        PubSub.unbounded<ChannelChunk<Chunk>>(),
         (h) => PubSub.shutdown(h)
       );
 
@@ -246,7 +246,7 @@ export class Channels<S = unknown> {
       };
 
       // chunks: pure broadcast (no Snapshot side-effect).
-      const chunks: PubSubChannel<ChannelChunk<S>> = {
+      const chunks: PubSubChannel<ChannelChunk<Chunk>> = {
         publish: (chunk) => PubSub.publish(chunksPubSub, chunk),
         pubsub: chunksPubSub,
         push: (chunk) => Effect.runSync(PubSub.publish(chunksPubSub, chunk)),
@@ -257,12 +257,12 @@ export class Channels<S = unknown> {
       // controller exists, then enqueues directly. Scope finalizer
       // closes the controller so consumers see EOF on scope close.
       let controller: ReadableStreamDefaultController<
-        ChannelMessage<S>
+        ChannelMessage<Chunk>
       > | null = null;
       let closed = false;
-      const buffer: ChannelMessage<S>[] = [];
+      const buffer: ChannelMessage<Chunk>[] = [];
 
-      const enqueue = (msg: ChannelMessage<S>): void => {
+      const enqueue = (msg: ChannelMessage<Chunk>): void => {
         if (closed) {
           return;
         }
@@ -304,7 +304,7 @@ export class Channels<S = unknown> {
         })
       );
 
-      const stream = new ReadableStream<ChannelMessage<S>>({
+      const stream = new ReadableStream<ChannelMessage<Chunk>>({
         start(c) {
           controller = c;
           for (const msg of buffer) {
@@ -325,7 +325,7 @@ export class Channels<S = unknown> {
         },
       });
 
-      return new Channels<S>({ chunks, events, snapshot, stream });
+      return new Channels<Chunk>({ chunks, events, snapshot, stream });
     });
   }
 

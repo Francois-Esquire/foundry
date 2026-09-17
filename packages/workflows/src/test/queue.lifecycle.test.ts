@@ -593,8 +593,8 @@ describe("Queue — events firehose (queue.on)", () => {
       status: string;
       at: string;
     } | null = null;
-    queue.on("complete", (p) => {
-      payload = p;
+    queue.on("complete", (completionPayload) => {
+      payload = completionPayload;
     });
 
     const wf = Workflow.create(makeEchoSpec("x", "ev-payload"));
@@ -602,16 +602,16 @@ describe("Queue — events firehose (queue.on)", () => {
     await d.result();
     await queue.drain();
     expect(payload).not.toBeNull();
-    const p = payload as unknown as {
+    const completedRun = payload as unknown as {
       runId: string;
       step: string;
       status: string;
       at: string;
     };
-    expect(p.runId).toMatch(/^rn-/);
-    expect(p.step).toBe("ev-payload");
-    expect(p.status).toBe("complete");
-    expect(p.at).toBeTypeOf("string");
+    expect(completedRun.runId).toMatch(/^rn-/);
+    expect(completedRun.step).toBe("ev-payload");
+    expect(completedRun.status).toBe("complete");
+    expect(completedRun.at).toBeTypeOf("string");
   });
 
   test("the unsubscribe function returned by on() stops further callbacks (after drain)", async () => {

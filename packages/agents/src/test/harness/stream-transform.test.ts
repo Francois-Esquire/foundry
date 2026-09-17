@@ -354,9 +354,9 @@ describe("transformStream", () => {
 
   it("calls commit and uses its result as the final message", async () => {
     const commit = vi.fn(
-      (msg: Awaited<ReturnType<typeof transformStream>["message"]>) =>
+      (message: Awaited<ReturnType<typeof transformStream>["message"]>) =>
         Promise.resolve({
-          ...msg,
+          ...message,
           id: "persisted-id",
           sessionId: "session-1",
         })
@@ -400,8 +400,8 @@ describe("transformStream", () => {
       throw new Error("stream boom");
     }
 
-    const commit = vi.fn((msg) =>
-      Promise.resolve({ ...msg, sessionId: "session-1" })
+    const commit = vi.fn((message) =>
+      Promise.resolve({ ...message, sessionId: "session-1" })
     );
 
     const stream = transformStream(throwingSource(), { commit });

@@ -62,10 +62,10 @@ export class Composer<S extends BaseScope = BaseScope> {
   }
 
   /** Allocate the root node of a Composer tree. */
-  static root<S extends BaseScope>(
-    scope: S,
+  static root<ScopeType extends BaseScope>(
+    scope: ScopeType,
     executable: Executable
-  ): Composer<S> {
+  ): Composer<ScopeType> {
     return new Composer({
       executable,
       name: executable.name,

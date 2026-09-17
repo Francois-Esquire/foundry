@@ -46,9 +46,9 @@ describe("freshIterable", () => {
         cleanedUp = true;
       }
     }
-    const it = freshIterable(withCleanup())[Symbol.asyncIterator]();
-    await it.next();
-    await it.return?.(undefined);
+    const iterator = freshIterable(withCleanup())[Symbol.asyncIterator]();
+    await iterator.next();
+    await iterator.return?.(undefined);
     expect(cleanedUp).toBe(true);
   });
 });

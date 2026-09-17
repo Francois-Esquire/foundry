@@ -75,13 +75,13 @@ export class LoopAgent extends ToolLoopAgent<never, ToolSet> {
               return {
                 next: async () => {
                   try {
-                    const result = await iter.next();
+                    const nextResult = await iter.next();
                     // Settle once the stream is exhausted — by now the telemetry
                     // integration has folded tool executions + duration in.
-                    if (result.done) {
+                    if (nextResult.done) {
                       observation.emit();
                     }
-                    return result;
+                    return nextResult;
                   } catch (e) {
                     observation.emit(e);
                     throw e;

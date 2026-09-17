@@ -244,8 +244,8 @@ export abstract class AbstractOrchestratorStore implements OrchestratorStore {
   }
 
   async deleteJob(id: string): Promise<void> {
-    const linkedRuns = await this.listRuns({ links: { jobId: id } });
-    if (linkedRuns.items.length > 0) {
+    const jobRuns = await this.listRuns({ links: { jobId: id } });
+    if (jobRuns.items.length > 0) {
       throw new RecordInUseError("job", id);
     }
     await this.removeJob(id);
@@ -340,16 +340,16 @@ export abstract class AbstractOrchestratorStore implements OrchestratorStore {
           throw new JobAlreadySettledError(jobId);
         }
 
-        const linkedRuns = (await transaction.readRuns())
+        const jobRuns = (await transaction.readRuns())
           .map(hydrateRunRecord)
           .filter((run) => run.links?.jobId === jobId);
-        const active = linkedRuns.find((run) =>
+        const active = jobRuns.find((run) =>
           ["queued", "running", "suspended"].includes(run.status)
         );
         if (active) {
           throw new JobAttemptAlreadyActiveError(jobId, active.id);
         }
-        if (linkedRuns.some((run) => run.status === "complete")) {
+        if (jobRuns.some((run) => run.status === "complete")) {
           const settled = decodeJobRecord({
             ...job,
             status: "complete",
@@ -711,23 +711,23 @@ export abstract class AbstractOrchestratorStore implements OrchestratorStore {
       }
       const frames = await this.readCanonicalFrames(input.runId);
       if (isTerminalFramePayload(input.payload)) {
-        const existingTerminal = frames.find((frame) =>
-          isTerminalFramePayload(frame.payload)
+        const existingTerminal = frames.find((existingFrame) =>
+          isTerminalFramePayload(existingFrame.payload)
         );
         if (existingTerminal) {
           return cloneValue(existingTerminal);
         }
       }
       const lastFrame = frames.at(-1);
-      const frame = decodeRunFrame({
+      const nextFrame = decodeRunFrame({
         at: input.at ?? Date.now(),
         cursor: lastFrame === undefined ? 0 : lastFrame.cursor + 1,
         payload: input.payload,
         runId: input.runId,
       });
-      decodeRunFrameSequence(input.runId, [...frames, frame]);
-      await this.writeFrame(frame);
-      return cloneValue(frame);
+      decodeRunFrameSequence(input.runId, [...frames, nextFrame]);
+      await this.writeFrame(nextFrame);
+      return cloneValue(nextFrame);
     });
   }
 
@@ -738,19 +738,23 @@ export abstract class AbstractOrchestratorStore implements OrchestratorStore {
         throw new RunNotFoundError(input.runId);
       }
       const frames = await this.readCanonicalFrames(input.runId);
-      if (frames.some((frame) => isRunEffectClaim(frame, input.key))) {
+      if (
+        frames.some((existingFrame) =>
+          isRunEffectClaim(existingFrame, input.key)
+        )
+      ) {
         return null;
       }
       const lastFrame = frames.at(-1);
-      const frame = decodeRunFrame({
+      const nextFrame = decodeRunFrame({
         at: input.at ?? Date.now(),
         cursor: lastFrame === undefined ? 0 : lastFrame.cursor + 1,
         payload,
         runId: input.runId,
       });
-      decodeRunFrameSequence(input.runId, [...frames, frame]);
-      await this.writeFrame(frame);
-      return cloneValue(frame);
+      decodeRunFrameSequence(input.runId, [...frames, nextFrame]);
+      await this.writeFrame(nextFrame);
+      return cloneValue(nextFrame);
     });
   }
 

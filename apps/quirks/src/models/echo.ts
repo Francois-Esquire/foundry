@@ -74,23 +74,23 @@ export function mockProvider(
       };
       return new MockLanguageModelV4({
         doGenerate: ({ prompt }) => {
-          const { output, usage } = answer(prompt);
+          const { output, usage: responseUsage } = answer(prompt);
           return Promise.resolve({
             content: [{ text: output, type: "text" }],
             finishReason: STOP,
-            usage,
+            usage: responseUsage,
             warnings: [],
           });
         },
         doStream: ({ prompt }) => {
-          const { output, usage } = answer(prompt);
+          const { output, usage: responseUsage } = answer(prompt);
           return Promise.resolve({
             stream: simulateReadableStream({
               chunks: [
                 { id: "text-1", type: "text-start" },
                 { delta: output, id: "text-1", type: "text-delta" },
                 { id: "text-1", type: "text-end" },
-                { finishReason: STOP, type: "finish", usage },
+                { finishReason: STOP, type: "finish", usage: responseUsage },
               ],
             }),
           });

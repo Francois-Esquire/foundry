@@ -124,11 +124,11 @@ export type StepContext<
   /**
    * Pipeline: each step's output feeds the next input.
    */
-  sequence<O = unknown>(
+  sequence<Output = unknown>(
     steps: readonly Step[],
     initialInput: unknown,
     name?: string
-  ): Promise<O>;
+  ): Promise<Output>;
 };
 
 /**

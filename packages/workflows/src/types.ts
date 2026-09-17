@@ -86,11 +86,11 @@ export function isBail<E>(value: unknown): value is Bail<E> {
 export class StepBailError extends Error {
   readonly bail: Bail<unknown>;
   readonly stepName: string;
-  constructor(stepName: string, bail: Bail<unknown>) {
-    super(`Step "${stepName}" bailed: ${JSON.stringify(bail.error)}`);
+  constructor(stepName: string, bailResult: Bail<unknown>) {
+    super(`Step "${stepName}" bailed: ${JSON.stringify(bailResult.error)}`);
     this.name = "StepBailError";
     this.stepName = stepName;
-    this.bail = bail;
+    this.bail = bailResult;
   }
 }
 

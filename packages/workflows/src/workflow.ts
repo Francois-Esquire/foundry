@@ -398,10 +398,13 @@ export abstract class Workflow<
    * Allocate and return a Workflow from a {@link StepSpec}. Supports
    * immediate `.step()` chaining for child appends.
    */
-  static create<I, O, X extends BaseContext = BaseContext>(
-    spec: StepSpec<I, O, X>
-  ): Workflow<I, O, X> {
-    return Workflow.#allocate<I, O, X>(Step.create<I, O, X>(spec), spec.input);
+  static create<Input, Output, Context extends BaseContext = BaseContext>(
+    spec: StepSpec<Input, Output, Context>
+  ): Workflow<Input, Output, Context> {
+    return Workflow.#allocate<Input, Output, Context>(
+      Step.create<Input, Output, Context>(spec),
+      spec.input
+    );
   }
 
   /**
@@ -410,20 +413,20 @@ export abstract class Workflow<
    * Use this when the Step tree is built or recovered separately and
    * Workflow is layered on top.
    */
-  static attach<I, O, X extends BaseContext = BaseContext>(
-    step: Step<I, O, X>,
-    input: I,
+  static attach<Input, Output, Context extends BaseContext = BaseContext>(
+    step: Step<Input, Output, Context>,
+    input: Input,
     persistence?: WorkflowPersistence
-  ): Workflow<I, O, X> {
-    return Workflow.#allocate<I, O, X>(step, input, persistence);
+  ): Workflow<Input, Output, Context> {
+    return Workflow.#allocate<Input, Output, Context>(step, input, persistence);
   }
 
   /** @internal Allocate Workflow substrate and fork mirror fibers. */
-  static #allocate<I, O, X extends BaseContext = BaseContext>(
-    root: Step<I, O, X>,
-    input: I,
+  static #allocate<Input, Output, Context extends BaseContext = BaseContext>(
+    root: Step<Input, Output, Context>,
+    input: Input,
     persistence?: WorkflowPersistence
-  ): Workflow<I, O, X> {
+  ): Workflow<Input, Output, Context> {
     const now = new Date().toISOString();
     const scope = Effect.runSync(ScopeMod.make());
     const status = Effect.runSync(SubscriptionRef.make<RunStatus>("queued"));
@@ -443,7 +446,7 @@ export abstract class Workflow<
         tree,
       })
     );
-    const result = Effect.runSync(Deferred.make<WorkflowResult<O>>());
+    const result = Effect.runSync(Deferred.make<WorkflowResult<Output>>());
 
     Effect.runSync(root.snapshot.setWorkflow(tree));
 

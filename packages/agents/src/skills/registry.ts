@@ -73,15 +73,15 @@ export function createSkillRegistry(skills: Skill[] = []): SkillRegistry {
           // Models often send `file: ""` for "no file"; read that as omitted.
           const fileName = file?.trim();
           if (fileName) {
-            const file = fileName;
-            const content = skill.files?.[file];
+            const requestedFile = fileName;
+            const content = skill.files?.[requestedFile];
             if (content === undefined) {
               const keys = Object.keys(skill.files ?? {});
-              return `Skill "${name}" has no file "${file}". Files: ${
+              return `Skill "${name}" has no file "${requestedFile}". Files: ${
                 keys.length > 0 ? keys.join(", ") : "(none)"
               }.`;
             }
-            return renderFile(file, content);
+            return renderFile(requestedFile, content);
           }
           return renderSkill(skill);
         },

@@ -621,15 +621,15 @@ export class InMemoryRunJournal implements RunJournal {
         this.state.frames.get(input.runId) ?? []
       );
       if (isTerminalPayload(input.payload)) {
-        const terminal = frames.find((frame) =>
-          isTerminalPayload(frame.payload)
+        const terminal = frames.find((existingFrame) =>
+          isTerminalPayload(existingFrame.payload)
         );
         if (terminal) {
           return clone(terminal);
         }
       }
       const lastFrame = frames.at(-1);
-      const frame = decodeRunFrame({
+      const nextFrame = decodeRunFrame({
         at: input.at ?? Date.now(),
         cursor: lastFrame === undefined ? 0 : lastFrame.cursor + 1,
         payload: input.payload,
@@ -637,10 +637,10 @@ export class InMemoryRunJournal implements RunJournal {
       });
       const nextFrames = decodeRunFrameSequence(input.runId, [
         ...frames,
-        frame,
+        nextFrame,
       ]);
       this.state.frames.set(input.runId, nextFrames.map(clone));
-      return clone(frame);
+      return clone(nextFrame);
     });
   }
 
@@ -654,10 +654,14 @@ export class InMemoryRunJournal implements RunJournal {
         input.runId,
         this.state.frames.get(input.runId) ?? []
       );
-      if (frames.some((frame) => isRunEffectClaim(frame, input.key))) {
+      if (
+        frames.some((existingFrame) =>
+          isRunEffectClaim(existingFrame, input.key)
+        )
+      ) {
         return null;
       }
-      const frame = decodeRunFrame({
+      const nextFrame = decodeRunFrame({
         at: input.at ?? Date.now(),
         cursor: frames.length,
         payload,
@@ -665,10 +669,10 @@ export class InMemoryRunJournal implements RunJournal {
       });
       const nextFrames = decodeRunFrameSequence(input.runId, [
         ...frames,
-        frame,
+        nextFrame,
       ]);
       this.state.frames.set(input.runId, nextFrames.map(clone));
-      return clone(frame);
+      return clone(nextFrame);
     });
   }
 

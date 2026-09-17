@@ -409,10 +409,10 @@ export abstract class Step<
    * @internal Construct an unbound Step. Routes all construction through
    * one site so the protected constructor needn't be reached via a cast.
    */
-  static #new<I, O, X extends BaseContext = BaseContext>(
-    spec: StepSpec<I, O, X>
-  ): Step<I, O, X> {
-    return new RuntimeStep<I, O, X>(spec);
+  static #new<Input, Output, Context extends BaseContext = BaseContext>(
+    spec: StepSpec<Input, Output, Context>
+  ): Step<Input, Output, Context> {
+    return new RuntimeStep<Input, Output, Context>(spec);
   }
 
   /**
@@ -434,9 +434,9 @@ export abstract class Step<
    * @example
    *   const parent = Step.create({ name, input, execute }).step(childSpec);
    */
-  static create<I, O, X extends BaseContext = BaseContext>(
-    spec: StepSpec<I, O, X>
-  ): Step<I, O, X> {
+  static create<Input, Output, Context extends BaseContext = BaseContext>(
+    spec: StepSpec<Input, Output, Context>
+  ): Step<Input, Output, Context> {
     return Step.#new(spec);
   }
 
@@ -444,10 +444,10 @@ export abstract class Step<
    * Allocate a Step asynchronously. Wraps {@link Step.create} for
    * back-compat with code that does `await Step.make(...)`.
    */
-  static make<I, O, X extends BaseContext = BaseContext>(
-    spec: StepSpec<I, O, X>
-  ): Promise<Step<I, O, X>> {
-    return Promise.resolve(Step.create<I, O, X>(spec));
+  static make<Input, Output, Context extends BaseContext = BaseContext>(
+    spec: StepSpec<Input, Output, Context>
+  ): Promise<Step<Input, Output, Context>> {
+    return Promise.resolve(Step.create<Input, Output, Context>(spec));
   }
 
   /**
@@ -457,11 +457,11 @@ export abstract class Step<
    *   const step = await Step.from("hello", async () => "world");
    *   const value = await step.run(); // "world"
    */
-  static from<O = unknown>(
+  static from<Output = unknown>(
     name: string,
-    body: () => Promise<O | Bail<unknown>>
-  ): Promise<Step<void, O>> {
-    return Step.make<void, O>({
+    body: () => Promise<Output | Bail<unknown>>
+  ): Promise<Step<void, Output>> {
+    return Step.make<void, Output>({
       execute: () => body(),
       input: undefined,
       name,

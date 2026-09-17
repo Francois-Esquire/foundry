@@ -779,17 +779,20 @@ export class Orchestrator {
             row.input,
             construction.context
           );
-          const workflow = yield* Orchestrator.#asWorkflow(instance, row.input);
+          const runWorkflow = yield* Orchestrator.#asWorkflow(
+            instance,
+            row.input
+          );
           const seedSteps = Orchestrator.#snapshotStepsFromMetadata(
             row.metadata
           );
           if (seedSteps !== null) {
-            yield* workflow.root.snapshot.seed(seedSteps);
+            yield* runWorkflow.root.snapshot.seed(seedSteps);
           }
           for (const suspension of suspensionRecords) {
             if (suspension.status === "resolved") {
               yield* Effect.promise(() =>
-                workflow.resolveOccurrence(
+                runWorkflow.resolveOccurrence(
                   suspension.stepPath,
                   suspension.name,
                   suspension.occurrence,
@@ -798,8 +801,8 @@ export class Orchestrator {
               );
             }
           }
-          this.#wireWorkflowObservation(workflow, row.id);
-          return workflow;
+          this.#wireWorkflowObservation(runWorkflow, row.id);
+          return runWorkflow;
         }).pipe(Scope.extend(this.#scope))
       );
       construction.finish();

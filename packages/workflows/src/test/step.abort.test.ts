@@ -83,11 +83,13 @@ describe("step.abort — event emission + projection", () => {
     step.abort({ code: 42, msg: "user-cancelled" });
     await sleep(10);
     sink.stop();
-    const aborted = sink.events.filter((e) => e._tag === "step.aborted");
+    const aborted = sink.events.filter(
+      (event) => event._tag === "step.aborted"
+    );
     expect(aborted).toHaveLength(1);
-    const e = aborted[0];
-    if (e?._tag === "step.aborted") {
-      expect(e.reason).toEqual({ code: 42, msg: "user-cancelled" });
+    const abortedEvent = aborted[0];
+    if (abortedEvent?._tag === "step.aborted") {
+      expect(abortedEvent.reason).toEqual({ code: 42, msg: "user-cancelled" });
     }
   });
 
