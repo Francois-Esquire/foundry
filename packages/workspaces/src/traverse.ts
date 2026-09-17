@@ -211,7 +211,7 @@ async function walkDirectory(
     }
 
     if (entry.isDirectory) {
-      // biome-ignore lint/performance/noAwaitInLoops: Operations are intentionally sequential to preserve observation and mutation order.
+      // Operations are intentionally sequential to preserve observation and mutation order.
       await walkDirectory(
         filesystem,
         absolutePath,

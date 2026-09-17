@@ -177,7 +177,7 @@ export class WorkspaceSystem<
   ): Promise<Workspace & CapOf<Exts>> {
     let Composed: WorkspaceCtor = Workspace;
     for (const extension of this.extensions) {
-      // biome-ignore lint/performance/noAwaitInLoops: Operations are intentionally sequential to preserve observation and mutation order.
+      // Operations are intentionally sequential to preserve observation and mutation order.
       if (await extension.applies(record)) {
         Composed = extension.wrap(Composed);
       }

@@ -5,6 +5,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { plugin } from "bun";
 
+import type { Args } from "~/args";
 import { parseArgs } from "~/args";
 import { startEngine } from "~/engine";
 import { install, launchdPlan, uninstall } from "~/launchd";
@@ -44,59 +45,280 @@ const USAGE = `quirks — programmable local behaviors
 Each workspace (the config's directory) gets <state>/<id>/ holding
 workspace.json, runs/, schedules/, locks/ and sessions/. --dry disables Quirks state persistence; custom code still runs.`;
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Command dispatch shares configuration loading, runtime ownership, and teardown in one lifecycle.
+type Engine = Awaited<ReturnType<typeof startEngine>>;
+type Schedule = NonNullable<ReturnType<typeof registry.schedules.get>>;
+type WorkspaceState = ReturnType<typeof workspaceState>;
+
+async function loadConfiguration(configPath: string): Promise<boolean> {
+  if (!existsSync(configPath)) {
+    return false;
+  }
+
+  // Configs use this installation even outside a project with node_modules.
+  // Both entry points must share the same registry instance.
+  const libraryPath = fileURLToPath(
+    new URL(
+      import.meta.url.endsWith(".ts") ? "./lib/index.ts" : "./index.js",
+      import.meta.url
+    )
+  );
+  const library = await import(libraryPath);
+  plugin({
+    name: "quirks-config-library",
+    setup(builder) {
+      builder.module("@foundry/quirks", () => ({
+        exports: library,
+        loader: "object",
+      }));
+    },
+    target: "bun",
+  });
+  await import(pathToFileURL(configPath).href);
+  print(`[config] ${configPath}`);
+  return true;
+}
+
+async function showStatus(
+  workspace: WorkspaceState,
+  state: string
+): Promise<void> {
+  const report = readStatus(resolve(state));
+  if (process.stdout.isTTY && process.stdin.isTTY) {
+    const { showStatus: renderStatus } = await import("~/status/view");
+    await renderStatus({ here: workspace.id, report });
+    return;
+  }
+  print(statusText(report, workspace.id));
+}
+
+function listRegistry(schedules: readonly Schedule[]): void {
+  const { monitors } = registry;
+  for (const key of registry.definitions.keys()) {
+    if (!monitors.has(key)) {
+      print(`[workflow] ${key}`);
+    }
+  }
+  for (const schedule of schedules) {
+    const { trigger } = schedule;
+    const when =
+      trigger.kind === "interval"
+        ? `every ${cadence(trigger.ms)}`
+        : `at ${weekdays(trigger.slot).join(",") || "daily"} ${clock(trigger.slot)}`;
+    const monitor = monitors.get(schedule.name);
+    if (monitor?.kind === "ws") {
+      print(`[monitor] ${schedule.name} ${describeMonitor(monitor)}`);
+    } else if (monitor) {
+      print(`[monitor] ${schedule.name} ${describeMonitor(monitor)} ${when}`);
+    } else {
+      print(`[schedule] ${schedule.name} → ${schedule.workflow} ${when}`);
+    }
+  }
+}
+
+async function listSessions(workspace: WorkspaceState): Promise<void> {
+  const dir = join(workspace.dir, "sessions");
+  // The store mkdirs on construction; a listing must not leave one behind.
+  if (!existsSync(dir)) {
+    return;
+  }
+  for (const line of await sessionLines(new JsonSessionStore(dir))) {
+    print(line);
+  }
+}
+
+function manageLaunchd(
+  name: string | undefined,
+  target: string | undefined,
+  configPath: string,
+  state: string
+): void {
+  if (name !== "install" && name !== "uninstall") {
+    throw new Error("quirks: launchd takes install or uninstall");
+  }
+  if (target === undefined) {
+    throw new Error("quirks: launchd needs a schedule");
+  }
+  if (process.platform !== "darwin") {
+    throw new Error("quirks: launchd is macOS only");
+  }
+  const schedule = registry.schedules.get(target);
+  if (!schedule) {
+    throw new Error(`quirks: no schedule named "${target}"`);
+  }
+  if (registry.monitors.get(target)?.kind === "ws") {
+    throw new Error(
+      `quirks: "${target}" is a ws monitor, which is live-only; use \`quirks run\``
+    );
+  }
+  const plan = launchdPlan(schedule, {
+    config: configPath,
+    cwd: process.cwd(),
+    home: homedir(),
+    path: process.env.PATH ?? "",
+    state: resolve(state),
+  });
+  if (name === "install") {
+    install(plan, print);
+  } else {
+    uninstall(plan, print);
+  }
+}
+
+async function handleNonRuntimeCommand(
+  args: Args,
+  workspace: WorkspaceState,
+  schedules: readonly Schedule[],
+  configPath: string
+): Promise<boolean> {
+  if (args.command === "list") {
+    listRegistry(schedules);
+    return true;
+  }
+  if (args.command === "sessions") {
+    await listSessions(workspace);
+    return true;
+  }
+  if (args.command === "launchd") {
+    manageLaunchd(args.name, args.target, configPath, args.state);
+    return true;
+  }
+  return false;
+}
+
+async function runOnce(
+  engine: Engine,
+  name: string,
+  inputJson: string | undefined,
+  stateDir: string | undefined
+): Promise<void> {
+  const schedule = registry.schedules.get(name);
+  const input: unknown =
+    inputJson === undefined ? schedule?.input : JSON.parse(inputJson);
+  if (schedule) {
+    const result = await tick(
+      engine,
+      { ...schedule, input },
+      { print, state: stateDir }
+    );
+    if (result) {
+      print(JSON.stringify(result.value, null, 2));
+    }
+    return;
+  }
+  if (registry.definitions.has(name)) {
+    print(JSON.stringify(await engine.run<unknown>(name, input), null, 2));
+    return;
+  }
+  throw new Error(`quirks: no workflow or schedule named "${name}"`);
+}
+
+async function runSchedulesUntilStopped(
+  engine: Engine,
+  schedules: readonly Schedule[],
+  workspace: WorkspaceState,
+  stateDir: string | undefined,
+  hasConfig: boolean,
+  configPath: string
+): Promise<void> {
+  if (schedules.length === 0) {
+    throw new Error("quirks: nothing scheduled; add schedule(...) to config");
+  }
+  const controller = new AbortController();
+  process.once("SIGINT", () => {
+    controller.abort();
+  });
+  const heartbeat =
+    stateDir === undefined ? undefined : join(stateDir, "heartbeat.json");
+  if (heartbeat !== undefined) {
+    writeJson(heartbeat, {
+      config: hasConfig ? configPath : null,
+      pid: process.pid,
+      startedAt: new Date().toISOString(),
+      version: 1,
+    });
+  }
+  // A ws monitor has nothing to poll; files monitors keep their poll as a
+  // net under the watcher.
+  const live = schedules.flatMap((schedule) => {
+    const spec = registry.monitors.get(schedule.name);
+    return spec === undefined || spec.kind === "http"
+      ? []
+      : [{ schedule, spec }];
+  });
+  const polled = schedules.filter(
+    (schedule) => registry.monitors.get(schedule.name)?.kind !== "ws"
+  );
+  const options = { print, signal: controller.signal, state: stateDir };
+  try {
+    await Promise.all([
+      runLive(engine, live, { ...options, root: workspace.root }),
+      runSchedules(engine, polled, options),
+    ]);
+  } finally {
+    if (heartbeat !== undefined) {
+      rmSync(heartbeat, { force: true });
+    }
+  }
+}
+
+async function dispatchRuntimeCommand(
+  args: Args,
+  engine: Engine,
+  schedules: readonly Schedule[],
+  workspace: WorkspaceState,
+  stateDir: string | undefined,
+  hasConfig: boolean,
+  configPath: string
+): Promise<boolean> {
+  if (args.command === "once" && args.name) {
+    await runOnce(engine, args.name, args.inputJson, stateDir);
+    return true;
+  }
+  if (args.command === "run") {
+    await runSchedulesUntilStopped(
+      engine,
+      schedules,
+      workspace,
+      stateDir,
+      hasConfig,
+      configPath
+    );
+    return true;
+  }
+  print(USAGE);
+  process.exitCode = 1;
+  return false;
+}
+
+async function printNewRuns(engine: Engine, restored: ReadonlySet<string>) {
+  for (const record of await engine.runs()) {
+    if (!restored.has(record.id)) {
+      print(`[run] ${record.step} ${record.status} ${record.id}`);
+    }
+  }
+}
+
 async function main(): Promise<void> {
-  const { command, name, target, dry, config, state, inputJson, only } =
-    parseArgs(process.argv.slice(2));
-  if (!command) {
+  const args = parseArgs(process.argv.slice(2));
+  if (!args.command) {
     print(USAGE);
     return;
   }
 
-  const configPath = resolve(config);
-  const hasConfig = existsSync(configPath);
-  if (hasConfig) {
-    // Configs use this installation even outside a project with node_modules.
-    // Both entry points must share the same registry instance.
-    const libraryPath = fileURLToPath(
-      new URL(
-        import.meta.url.endsWith(".ts") ? "./lib/index.ts" : "./index.js",
-        import.meta.url
-      )
-    );
-    const library = await import(libraryPath);
-    plugin({
-      name: "quirks-config-library",
-      setup(builder) {
-        builder.module("@foundry/quirks", () => ({
-          exports: library,
-          loader: "object",
-        }));
-      },
-      target: "bun",
-    });
-    await import(pathToFileURL(configPath).href);
-    print(`[config] ${configPath}`);
-  }
-
+  const configPath = resolve(args.config);
+  const hasConfig = await loadConfiguration(configPath);
   const workspace = workspaceState(
-    resolve(state),
+    resolve(args.state),
     hasConfig ? dirname(configPath) : process.cwd()
   );
   // The one place --dry is applied to the state dir: everything downstream
   // takes `stateDir` and writes nothing when it is undefined.
-  const stateDir = dry ? undefined : workspace.dir;
+  const stateDir = args.dry ? undefined : workspace.dir;
 
   // Reads files only, so it runs before this workspace is touched or the
   // engine is built: an empty state root stays empty.
-  if (command === "status") {
-    const report = readStatus(resolve(state));
-    if (process.stdout.isTTY && process.stdin.isTTY) {
-      const { showStatus } = await import("~/status/view");
-      await showStatus({ here: workspace.id, report });
-    } else {
-      print(statusText(report, workspace.id));
-    }
+  if (args.command === "status") {
+    await showStatus(workspace, args.state);
     return;
   }
 
@@ -105,80 +327,13 @@ async function main(): Promise<void> {
   }
 
   const schedules = [...registry.schedules.values()];
-
-  if (command === "list") {
-    const { monitors } = registry;
-    for (const key of registry.definitions.keys()) {
-      if (!monitors.has(key)) {
-        print(`[workflow] ${key}`);
-      }
-    }
-    for (const schedule of schedules) {
-      const { trigger } = schedule;
-      const when =
-        trigger.kind === "interval"
-          ? `every ${cadence(trigger.ms)}`
-          : `at ${weekdays(trigger.slot).join(",") || "daily"} ${clock(trigger.slot)}`;
-      const monitor = monitors.get(schedule.name);
-      if (monitor?.kind === "ws") {
-        print(`[monitor] ${schedule.name} ${describeMonitor(monitor)}`);
-      } else if (monitor) {
-        print(`[monitor] ${schedule.name} ${describeMonitor(monitor)} ${when}`);
-      } else {
-        print(`[schedule] ${schedule.name} → ${schedule.workflow} ${when}`);
-      }
-    }
-    return;
-  }
-
-  if (command === "sessions") {
-    const dir = join(workspace.dir, "sessions");
-    // The store mkdirs on construction; a listing must not leave one behind.
-    if (existsSync(dir)) {
-      for (const line of await sessionLines(new JsonSessionStore(dir))) {
-        print(line);
-      }
-    }
-    return;
-  }
-
-  if (command === "launchd") {
-    if (name !== "install" && name !== "uninstall") {
-      throw new Error("quirks: launchd takes install or uninstall");
-    }
-    if (target === undefined) {
-      throw new Error("quirks: launchd needs a schedule");
-    }
-    if (process.platform !== "darwin") {
-      throw new Error("quirks: launchd is macOS only");
-    }
-    const schedule = registry.schedules.get(target);
-    if (!schedule) {
-      throw new Error(`quirks: no schedule named "${target}"`);
-    }
-    if (registry.monitors.get(target)?.kind === "ws") {
-      throw new Error(
-        `quirks: "${target}" is a ws monitor, which is live-only; use \`quirks run\``
-      );
-    }
-    const plan = launchdPlan(schedule, {
-      config: configPath,
-      cwd: process.cwd(),
-      home: homedir(),
-      path: process.env.PATH ?? "",
-      state: resolve(state),
-    });
-    if (name === "install") {
-      install(plan, print);
-    } else {
-      uninstall(plan, print);
-    }
+  if (await handleNonRuntimeCommand(args, workspace, schedules, configPath)) {
     return;
   }
 
   const runtime = bindRuntime({
-    dry,
-    only,
+    dry: args.dry,
+    only: args.only,
     print,
     root: workspace.root,
     state: stateDir,
@@ -198,77 +353,17 @@ async function main(): Promise<void> {
   const restored = new Set((await engine.runs()).map((record) => record.id));
 
   try {
-    if (command === "once" && name) {
-      const schedule = registry.schedules.get(name);
-      const input: unknown =
-        inputJson === undefined ? schedule?.input : JSON.parse(inputJson);
-      if (schedule) {
-        const result = await tick(
-          engine,
-          { ...schedule, input },
-          { print, state: stateDir }
-        );
-        if (result) {
-          print(JSON.stringify(result.value, null, 2));
-        }
-      } else if (registry.definitions.has(name)) {
-        print(JSON.stringify(await engine.run<unknown>(name, input), null, 2));
-      } else {
-        throw new Error(`quirks: no workflow or schedule named "${name}"`);
-      }
-    } else if (command === "run") {
-      if (schedules.length === 0) {
-        throw new Error(
-          "quirks: nothing scheduled; add schedule(...) to config"
-        );
-      }
-      const controller = new AbortController();
-      process.once("SIGINT", () => {
-        controller.abort();
-      });
-      const heartbeat =
-        stateDir === undefined ? undefined : join(stateDir, "heartbeat.json");
-      if (heartbeat !== undefined) {
-        writeJson(heartbeat, {
-          config: hasConfig ? configPath : null,
-          pid: process.pid,
-          startedAt: new Date().toISOString(),
-          version: 1,
-        });
-      }
-      // A ws monitor has nothing to poll; files monitors keep their poll as a
-      // net under the watcher.
-      const live = schedules.flatMap((schedule) => {
-        const spec = registry.monitors.get(schedule.name);
-        return spec === undefined || spec.kind === "http"
-          ? []
-          : [{ schedule, spec }];
-      });
-      const polled = schedules.filter(
-        (schedule) => registry.monitors.get(schedule.name)?.kind !== "ws"
-      );
-      const options = { print, signal: controller.signal, state: stateDir };
-      try {
-        await Promise.all([
-          runLive(engine, live, { ...options, root: workspace.root }),
-          runSchedules(engine, polled, options),
-        ]);
-      } finally {
-        if (heartbeat !== undefined) {
-          rmSync(heartbeat, { force: true });
-        }
-      }
-    } else {
-      print(USAGE);
-      process.exitCode = 1;
-      return;
-    }
-
-    for (const record of await engine.runs()) {
-      if (restored.has(record.id)) {
-        continue;
-      }
-      print(`[run] ${record.step} ${record.status} ${record.id}`);
+    const executed = await dispatchRuntimeCommand(
+      args,
+      engine,
+      schedules,
+      workspace,
+      stateDir,
+      hasConfig,
+      configPath
+    );
+    if (executed) {
+      await printNewRuns(engine, restored);
     }
   } finally {
     await engine.stop();

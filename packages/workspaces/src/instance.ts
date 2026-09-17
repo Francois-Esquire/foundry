@@ -347,8 +347,7 @@ export class Workspace {
       () => undefined
     );
     serialized.set(this.id, tail);
-    // biome-ignore lint/complexity/noVoid: The serialized queue tail handles both outcomes; cleanup must not delay the caller.
-    void tail.then(() => {
+    tail.then(() => {
       if (serialized.get(this.id) === tail) {
         serialized.delete(this.id);
       }

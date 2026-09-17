@@ -129,7 +129,7 @@ export async function resolveStoredPath(
   let absolute = canonicalRoot;
   for (const segment of relativePath.split("/")) {
     const direct = joinPath(absolute, segment);
-    // biome-ignore lint/performance/noAwaitInLoops: Operations are intentionally sequential to preserve observation and mutation order.
+    // Operations are intentionally sequential to preserve observation and mutation order.
     if (await exists(filesystem, direct)) {
       absolute = direct;
       continue;
@@ -185,7 +185,7 @@ export async function scanDirectory(
     // observed.
     let bytes: Uint8Array;
     try {
-      // biome-ignore lint/performance/noAwaitInLoops: Operations are intentionally sequential to preserve observation and mutation order.
+      // Operations are intentionally sequential to preserve observation and mutation order.
       bytes = await filesystem.readFile(file.absolutePath);
     } catch (error) {
       throw new WorkspaceSourceUnavailableError(

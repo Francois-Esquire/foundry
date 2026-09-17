@@ -3,7 +3,7 @@ const DRIVE_PREFIX_PATTERN = /^[a-zA-Z]:/;
 
 import { WorkspaceSourceUnavailableError } from "./errors";
 import type { WorkspaceExtension } from "./extension";
-import type { WorkspaceFileSystem } from "./filesystem";
+import type { EntryStats, WorkspaceFileSystem } from "./filesystem";
 import { isBeneath, nodeFileSystem, sha256Hex } from "./filesystem";
 import type { WorkspaceCtor } from "./instance";
 import type { FileCandidate } from "./scanner";
@@ -125,34 +125,16 @@ export function WithDirectory<B extends WorkspaceCtor>(
      * A failure names its issue so each consumer maps it to its own result
      * vocabulary without re-deciding policy.
      */
-    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Keep confinement checks and their ordered failure classifications together.
     private async resolveBytes(
       file: StoredFileRecord
     ): Promise<ResolvedBytes | ResolveFailure> {
       if (escapesRoot(file.path)) {
-        return {
-          issue: "escape",
-          kind: "failure",
-          reason: `Refusing a File path that escapes its Workspace root: ${file.path}`,
-        };
+        return escapePathFailure(file.path);
       }
 
-      // Asked before the File itself, so an unplugged source reads as one
-      // unavailable Workspace rather than as every File having gone stale.
-      try {
-        await verifyRoot(filesystem, this.root);
-      } catch (error) {
-        if (!(error instanceof WorkspaceSourceUnavailableError)) {
-          throw error;
-        }
-        return {
-          issue:
-            error.issue === "unavailable"
-              ? "root-unavailable"
-              : "root-unreadable",
-          kind: "failure",
-          reason: error.message,
-        };
+      const rootFailure = await verifyWorkspaceRoot(filesystem, this.root);
+      if (rootFailure !== undefined) {
+        return rootFailure;
       }
 
       // The stored path is normalized; the source's own spelling may not be,
@@ -164,74 +146,38 @@ export function WithDirectory<B extends WorkspaceCtor>(
         file.path
       );
       if (absolute === null) {
-        return {
-          issue: "missing",
-          kind: "failure",
-          reason: `${file.path} is no longer present in the Workspace source`,
-        };
+        return missingFileFailure(file.path);
       }
 
-      let stats: Awaited<ReturnType<typeof filesystem.lstat>>;
-      try {
-        stats = await filesystem.lstat(absolute);
-      } catch {
-        return {
-          issue: "missing",
-          kind: "failure",
-          reason: `${file.path} is no longer present in the Workspace source`,
-        };
+      const stats = await storedFileStats(filesystem, absolute, file.path);
+      if ("kind" in stats) {
+        return stats;
       }
       if (stats.isSymbolicLink) {
-        return {
-          issue: "symlink",
-          kind: "failure",
-          reason: `Refusing to follow a symlink at ${file.path}`,
-        };
+        return symlinkFailure(file.path);
       }
       if (!stats.isFile) {
-        return {
-          issue: "not-regular",
-          kind: "failure",
-          reason: `${file.path} is no longer a regular file`,
-        };
+        return nonRegularFileFailure(file.path);
       }
 
       // The lexical check above and the lstat only cover the final component.
       // A directory component swapped for a symlink after the scan would still
       // resolve outside the root, so the resolved path — not the joined one —
       // is what has to be confined.
-      let resolved: string;
-      try {
-        resolved = await filesystem.realpath(absolute);
-      } catch {
-        return {
-          issue: "missing",
-          kind: "failure",
-          reason: `${file.path} is no longer present in the Workspace source`,
-        };
-      }
-      if (!isBeneath(this.root, resolved)) {
-        return {
-          issue: "escape",
-          kind: "failure",
-          reason: `Refusing a File that resolves outside its Workspace root: ${file.path}`,
-        };
+      const resolved = await resolveConfinedPath(
+        filesystem,
+        this.root,
+        absolute,
+        file.path
+      );
+      if (typeof resolved !== "string") {
+        return resolved;
       }
 
-      let bytes: Uint8Array;
-      try {
-        bytes = await filesystem.readFile(resolved);
-      } catch (error) {
-        // The error's own message embeds the absolute path Node was opening,
-        // and this reason crosses to the renderer. Only the relative path and
-        // a code.
-        return {
-          issue: "read-error",
-          kind: "failure",
-          reason: `Could not read ${file.path} (${errorCode(error)})`,
-        };
+      const bytes = await readStoredFile(filesystem, resolved, file.path);
+      if ("kind" in bytes) {
+        return bytes;
       }
-
       return { bytes, kind: "bytes", resolved };
     }
   };
@@ -274,6 +220,106 @@ export function directory(
 function basenameOf(root: string): string {
   const segments = root.split(PATH_SEPARATORS_PATTERN).filter(Boolean);
   return segments.at(-1) ?? root;
+}
+
+function failure(
+  issue: ResolveFailure["issue"],
+  reason: string
+): ResolveFailure {
+  return { issue, kind: "failure", reason };
+}
+
+function missingFileFailure(path: string): ResolveFailure {
+  return failure(
+    "missing",
+    `${path} is no longer present in the Workspace source`
+  );
+}
+
+function escapePathFailure(path: string): ResolveFailure {
+  return failure(
+    "escape",
+    `Refusing a File path that escapes its Workspace root: ${path}`
+  );
+}
+
+function symlinkFailure(path: string): ResolveFailure {
+  return failure("symlink", `Refusing to follow a symlink at ${path}`);
+}
+
+function nonRegularFileFailure(path: string): ResolveFailure {
+  return failure("not-regular", `${path} is no longer a regular file`);
+}
+
+async function verifyWorkspaceRoot(
+  filesystem: WorkspaceFileSystem,
+  root: string
+): Promise<ResolveFailure | undefined> {
+  // Asked before the File itself, so an unplugged source reads as one
+  // unavailable Workspace rather than as every File having gone stale.
+  try {
+    await verifyRoot(filesystem, root);
+    return undefined;
+  } catch (error) {
+    if (!(error instanceof WorkspaceSourceUnavailableError)) {
+      throw error;
+    }
+    return failure(
+      error.issue === "unavailable" ? "root-unavailable" : "root-unreadable",
+      error.message
+    );
+  }
+}
+
+async function storedFileStats(
+  filesystem: WorkspaceFileSystem,
+  absolute: string,
+  path: string
+): Promise<EntryStats | ResolveFailure> {
+  try {
+    return await filesystem.lstat(absolute);
+  } catch {
+    return missingFileFailure(path);
+  }
+}
+
+async function resolveConfinedPath(
+  filesystem: WorkspaceFileSystem,
+  root: string,
+  absolute: string,
+  path: string
+): Promise<string | ResolveFailure> {
+  let resolved: string;
+  try {
+    resolved = await filesystem.realpath(absolute);
+  } catch {
+    return missingFileFailure(path);
+  }
+  if (!isBeneath(root, resolved)) {
+    return failure(
+      "escape",
+      `Refusing a File that resolves outside its Workspace root: ${path}`
+    );
+  }
+  return resolved;
+}
+
+async function readStoredFile(
+  filesystem: WorkspaceFileSystem,
+  resolved: string,
+  path: string
+): Promise<Uint8Array | ResolveFailure> {
+  try {
+    return await filesystem.readFile(resolved);
+  } catch (error) {
+    // The error's own message embeds the absolute path Node was opening,
+    // and this reason crosses to the renderer. Only the relative path and
+    // a code.
+    return failure(
+      "read-error",
+      `Could not read ${path} (${errorCode(error)})`
+    );
+  }
 }
 
 interface ResolvedBytes {

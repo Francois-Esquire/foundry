@@ -235,7 +235,7 @@ export function createInMemoryCertificateRepository<
           specification.capability
         );
         issued.push(
-          // biome-ignore lint/performance/noAwaitInLoops: Operations are intentionally sequential to preserve observation and mutation order.
+          // Operations are intentionally sequential to preserve observation and mutation order.
           await grants.issue({
             address,
             capability: specification.capability,
@@ -281,7 +281,7 @@ export function createInMemoryCertificateRepository<
 
   async function revokeGrantsOf(certificateId: string): Promise<void> {
     for (const grantId of issuedGrants.get(certificateId) ?? []) {
-      // biome-ignore lint/performance/noAwaitInLoops: Operations are intentionally sequential to preserve observation and mutation order.
+      // Operations are intentionally sequential to preserve observation and mutation order.
       await grants.revoke(grantId);
     }
     issuedGrants.delete(certificateId);
