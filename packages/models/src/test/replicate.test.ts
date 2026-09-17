@@ -4,6 +4,8 @@ import { ModelManager } from "../manager";
 import { operationsOf } from "../provider";
 import { REPLICATE_DEFAULT_MODELS, replicateProvider } from "../replicate";
 
+const NO_CREDENTIALED_PROVIDER_PATTERN = /No credentialed provider/;
+
 function withToken(apiToken?: string) {
   const manager = new ModelManager();
   manager.register(
@@ -53,7 +55,7 @@ describe("Replicate availability", () => {
   it("refuses NO_USABLE_PROVIDER without a token", () => {
     expect(() =>
       withToken().select("generate-image", { provider: "replicate" })
-    ).toThrow(/No credentialed provider/);
+    ).toThrow(NO_CREDENTIALED_PROVIDER_PATTERN);
   });
 
   it("stays in offers while registered without a token", () => {

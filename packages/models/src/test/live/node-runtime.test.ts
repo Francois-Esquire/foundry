@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type * as Werift from "werift";
 
+const MEDIASTREAMTRACK_PATTERN = /MediaStreamTrack/;
+const RTCICECANDIDATE_PATTERN = /RTCIceCandidate/;
+
 const WEBRTC_SYMBOLS = [
   "RTCPeerConnection",
   "MediaStream",
@@ -81,7 +84,7 @@ describe("installWebRtc", () => {
     const { installWebRtc } = await import("../../live/node/runtime");
     expect(() => {
       installWebRtc();
-    }).toThrow(/MediaStreamTrack/);
+    }).toThrow(MEDIASTREAMTRACK_PATTERN);
   });
 
   it("rejects `open` when a required symbol cannot be installed", async () => {
@@ -100,7 +103,7 @@ describe("installWebRtc", () => {
           direction: { prompt: "p" },
         }
       )
-    ).rejects.toThrow(/RTCIceCandidate/);
+    ).rejects.toThrow(RTCICECANDIDATE_PATTERN);
   });
 });
 

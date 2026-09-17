@@ -9,6 +9,32 @@ import type {
 } from "../types";
 import { fakeProvider } from "./helpers/model";
 
+const PROVIDER_FIXTURE_DOES_NOT_SUPPORT_THE_GENERATE_PATTERN =
+  /^Provider "fixture" does not support the generate-text Operation in request mode\.$/;
+const PROVIDER_NOPE_IS_NOT_REGISTERED_PATTERN =
+  /Provider "nope" is not registered/;
+const MODEL_UNKNOWN_ID_IS_NOT_REGISTERED_PATTERN =
+  /Model "unknown-id" is not registered/;
+const PROVIDER_FIXTURE_DOES_NOT_SUPPORT_THE_GENERATE_PATTERN_2 =
+  /^Provider "fixture" does not support the generate-image Operation in request mode\.$/;
+const NO_CREDENTIALED_PROVIDER_CAN_SERVE_GENERATE_IMAGE_PATTERN =
+  /No credentialed provider can serve "generate-image"/;
+const NO_CREDENTIALED_PROVIDER_CAN_SERVE_GENERATE_IMAGE_PATTERN_2 =
+  /No credentialed provider can serve "generate-image"/;
+const AIRPLANE_MODE_IS_ENABLED_PATTERN = /Airplane Mode is enabled/;
+const AIRPLANE_MODE_IS_ENABLED_AND_THE_LOCAL_PATTERN =
+  /Airplane Mode is enabled and the local provider cannot serve "generate-image"/;
+const DOES_NOT_SUPPORT_VIDEO_MODELS_PATTERN = /does not support video models/;
+const MODEL_MISSING_IS_NOT_REGISTERED_PATTERN =
+  /Model "missing" is not registered/;
+const PROVIDER_NOPE_IS_NOT_REGISTERED_PATTERN_2 =
+  /Provider "nope" is not registered/;
+const DOES_NOT_SUPPORT_MEDIA_MODELS_PATTERN = /does not support media models/;
+const PROVIDER_FIXTURE_DOES_NOT_SUPPORT_THE_GENERATE_PATTERN_3 =
+  /^Provider "fixture" does not support the generate-video Operation in live mode\.$/;
+const PROVIDER_FIXTURE_DOES_NOT_SUPPORT_THE_GENERATE_PATTERN_4 =
+  /^Provider "fixture" does not support the generate-image Operation in request mode\.$/;
+
 /** A Request-mode fact, so a row can be written in one line. */
 function fact(
   operation: OperationName,
@@ -133,9 +159,7 @@ describe("select by Capability fact", () => {
     ]);
     expect(() =>
       manager.select("generate-image", { model: "embed", provider: "fixture" })
-    ).toThrow(
-      /^Provider "fixture" does not support the generate-image Operation in request mode\.$/
-    );
+    ).toThrow(PROVIDER_FIXTURE_DOES_NOT_SUPPORT_THE_GENERATE_PATTERN_4);
   });
 
   it("refuses live mode on a request-only row", () => {
@@ -146,9 +170,7 @@ describe("select by Capability fact", () => {
         model: "generate-video",
         provider: "fixture",
       })
-    ).toThrow(
-      /^Provider "fixture" does not support the generate-video Operation in live mode\.$/
-    );
+    ).toThrow(PROVIDER_FIXTURE_DOES_NOT_SUPPORT_THE_GENERATE_PATTERN_3);
   });
 
   it("admits a live fact when the row declares one", () => {
@@ -180,7 +202,7 @@ describe("select by Capability fact", () => {
     const { manager } = withCatalog(EVERY_OPERATION);
     expect(() =>
       manager.select("generate-image", { provider: "nope" })
-    ).toThrow(/Provider "nope" is not registered/);
+    ).toThrow(PROVIDER_NOPE_IS_NOT_REGISTERED_PATTERN);
   });
 
   it("refuses an unknown Model id where a kind accessor still passes it through", () => {
@@ -190,7 +212,7 @@ describe("select by Capability fact", () => {
         model: "unknown-id",
         provider: "fixture",
       })
-    ).toThrow(/Model "unknown-id" is not registered/);
+    ).toThrow(MODEL_UNKNOWN_ID_IS_NOT_REGISTERED_PATTERN);
 
     manager.image("unknown-id", "fixture");
     expect(provider.calls).toContain("image:unknown-id");
@@ -208,9 +230,7 @@ describe("select by Capability fact", () => {
     ).toBe("smart");
     expect(() =>
       manager.select("generate-image", { provider: "fixture" })
-    ).toThrow(
-      /^Provider "fixture" does not support the generate-image Operation in request mode\.$/
-    );
+    ).toThrow(PROVIDER_FIXTURE_DOES_NOT_SUPPORT_THE_GENERATE_PATTERN_2);
   });
 
   it("offers nothing for an embedding row", () => {
@@ -219,9 +239,7 @@ describe("select by Capability fact", () => {
     ]);
     expect(() =>
       manager.select("generate-text", { provider: "fixture" })
-    ).toThrow(
-      /^Provider "fixture" does not support the generate-text Operation in request mode\.$/
-    );
+    ).toThrow(PROVIDER_FIXTURE_DOES_NOT_SUPPORT_THE_GENERATE_PATTERN);
   });
 
   it("returns equal Selections for two identical calls", () => {
@@ -314,7 +332,7 @@ describe("select provider resolution", () => {
     });
     const manager = new ModelManager({ providers: [provider] });
     expect(() => manager.select("generate-image")).toThrow(
-      /No credentialed provider can serve "generate-image"/
+      NO_CREDENTIALED_PROVIDER_CAN_SERVE_GENERATE_IMAGE_PATTERN
     );
   });
 
@@ -330,7 +348,7 @@ describe("select provider resolution", () => {
         model: "generate-image",
         provider: "fixture",
       })
-    ).toThrow(/No credentialed provider can serve "generate-image"/);
+    ).toThrow(NO_CREDENTIALED_PROVIDER_CAN_SERVE_GENERATE_IMAGE_PATTERN_2);
   });
 
   it("skips providers whose rows lack the fact when none is named", () => {
@@ -396,7 +414,7 @@ describe("select provider resolution", () => {
     expect(manager.select("generate-image").provider.id).toBe("local");
     expect(() =>
       manager.select("generate-image", { provider: "cloud" })
-    ).toThrow(/Airplane Mode is enabled/);
+    ).toThrow(AIRPLANE_MODE_IS_ENABLED_PATTERN);
   });
 
   it("refuses as Airplane Mode, not as missing credentials, when the local role is unavailable", () => {
@@ -412,7 +430,7 @@ describe("select provider resolution", () => {
     manager.setOfflineMode(true);
 
     expect(() => manager.select("generate-image")).toThrow(
-      /Airplane Mode is enabled and the local provider cannot serve "generate-image"/
+      AIRPLANE_MODE_IS_ENABLED_AND_THE_LOCAL_PATTERN
     );
   });
 });
@@ -426,7 +444,7 @@ describe("video and media accessors", () => {
     });
     const manager = new ModelManager({ providers: [provider] });
     expect(() => manager.video("vid", "fixture")).toThrow(
-      /does not support video models/
+      DOES_NOT_SUPPORT_VIDEO_MODELS_PATTERN
     );
   });
 
@@ -449,10 +467,10 @@ describe("video and media accessors", () => {
     });
     const manager = new ModelManager({ providers: [provider] });
     expect(() => manager.media("missing", "fixture")).toThrow(
-      /Model "missing" is not registered/
+      MODEL_MISSING_IS_NOT_REGISTERED_PATTERN
     );
     expect(() => manager.media("sam", "nope")).toThrow(
-      /Provider "nope" is not registered/
+      PROVIDER_NOPE_IS_NOT_REGISTERED_PATTERN_2
     );
   });
 
@@ -493,7 +511,7 @@ describe("video and media accessors", () => {
     });
     const manager = new ModelManager({ providers: [provider] });
     expect(() => manager.media("sam", "fixture")).toThrow(
-      /does not support media models/
+      DOES_NOT_SUPPORT_MEDIA_MODELS_PATTERN
     );
   });
 

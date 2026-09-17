@@ -7,6 +7,8 @@ import {
   topK,
 } from "../../embeddings/text";
 
+const EXPECTED_NUMBER_ARRAY_PATTERN = /expected number array/;
+
 describe("serializeEmbedding / deserializeEmbedding", () => {
   it("roundtrips a number array", () => {
     const v = [0.1, -0.2, 0.3, 1, -1, 0];
@@ -15,7 +17,7 @@ describe("serializeEmbedding / deserializeEmbedding", () => {
 
   it("rejects non-array JSON", () => {
     expect(() => deserializeEmbedding(`{"a":1}`)).toThrow(
-      /expected number array/
+      EXPECTED_NUMBER_ARRAY_PATTERN
     );
   });
 

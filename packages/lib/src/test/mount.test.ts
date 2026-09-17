@@ -12,6 +12,10 @@ import { Config } from "../config/config";
 import { ReactiveStore } from "../config/reactive-store";
 import type { ConfigChangePayload } from "../config/types";
 
+const WHOLE_MOUNTED_PREFIX_PATTERN = /whole mounted prefix/;
+const ALREADY_CONTRIBUTED_PATTERN = /already contributed/;
+const ALREADY_MOUNTED_PATTERN = /already mounted/;
+
 const BlockSchema = z.object({ label: z.string(), n: z.number() });
 const BLOCK_DEFAULTS = { label: "x", n: 0 };
 
@@ -63,7 +67,7 @@ describe("mount — read/write delegation", () => {
     parent.mount("models", makeChild());
     expect(() => {
       parent.set("models", { block: { n: 1 } });
-    }).toThrow(/whole mounted prefix/);
+    }).toThrow(WHOLE_MOUNTED_PREFIX_PATTERN);
   });
 
   it("leaves contributed prefixes working alongside mounts", () => {
@@ -239,12 +243,12 @@ describe("mount — conflict / re-mount policy", () => {
     const parent = makeParent();
     expect(() => {
       parent.mount("queue", makeChild());
-    }).toThrow(/already contributed/);
+    }).toThrow(ALREADY_CONTRIBUTED_PATTERN);
 
     parent.mount("models", makeChild());
     expect(() => {
       parent.contribute("models", z.object({}), {});
-    }).toThrow(/already mounted/);
+    }).toThrow(ALREADY_MOUNTED_PATTERN);
   });
 });
 

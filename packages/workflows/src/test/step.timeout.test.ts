@@ -7,6 +7,17 @@ import { describe, expect, test } from "vitest";
 
 import { Step } from "../step";
 
+const TIMED_OUT_AFTER_30_PATTERN = /timed out after 30/;
+const TIMED_OUT_AFTER_20MS_PATTERN = /timed out after 20ms/;
+const UNPARSEABLE_DURATION_5SECONDS_PATTERN = /Unparseable duration: 5seconds/;
+const TIMED_OUT_PATTERN = /timed out/;
+const STEP_NAMED_BUDGET_TIMED_OUT_AFTER_25MS_PATTERN =
+  /Step "named-budget" timed out after 25ms/;
+const TIMED_OUT_PATTERN_2 = /timed out/;
+const TIMED_OUT_PATTERN_3 = /timed out/;
+const TIMED_OUT_PATTERN_4 = /timed out/;
+const STEP_SNAP_TIMED_OUT_AFTER_15_PATTERN = /Step "snap" timed out after 15/;
+
 const sleep = (ms: number): Promise<void> =>
   new Promise((r) => setTimeout(r, ms));
 
@@ -25,7 +36,7 @@ describe("Step.timeout — duration parsing", () => {
       input: undefined,
       name: "num-ms",
     });
-    await expect(step.run()).rejects.toThrow(/timed out after 30/);
+    await expect(step.run()).rejects.toThrow(TIMED_OUT_AFTER_30_PATTERN);
     expect(step.status).toBe("failed");
   });
 
@@ -39,7 +50,7 @@ describe("Step.timeout — duration parsing", () => {
       input: undefined,
       name: "str-ms",
     });
-    await expect(fast.run()).rejects.toThrow(/timed out after 20ms/);
+    await expect(fast.run()).rejects.toThrow(TIMED_OUT_AFTER_20MS_PATTERN);
     expect(fast.status).toBe("failed");
 
     // '5s' / '2m' are valid syntactically — exercise via a step that
@@ -69,7 +80,9 @@ describe("Step.timeout — duration parsing", () => {
       input: undefined,
       name: "bad-duration",
     });
-    await expect(step.run()).rejects.toThrow(/Unparseable duration: 5seconds/);
+    await expect(step.run()).rejects.toThrow(
+      UNPARSEABLE_DURATION_5SECONDS_PATTERN
+    );
     expect(step.status).toBe("failed");
   });
 
@@ -105,7 +118,7 @@ describe("Step.timeout — enforcement on a leaf step", () => {
       input: undefined,
       name: "exceed",
     });
-    await expect(step.run()).rejects.toThrow(/timed out/);
+    await expect(step.run()).rejects.toThrow(TIMED_OUT_PATTERN);
     expect(step.status).toBe("failed");
   });
 
@@ -120,7 +133,7 @@ describe("Step.timeout — enforcement on a leaf step", () => {
       name: "named-budget",
     });
     await expect(step.run()).rejects.toThrow(
-      /Step "named-budget" timed out after 25ms/
+      STEP_NAMED_BUDGET_TIMED_OUT_AFTER_25MS_PATTERN
     );
   });
 
@@ -149,7 +162,7 @@ describe("Step.timeout — enforcement on a leaf step", () => {
       input: undefined,
       name: "tight",
     });
-    await expect(step.run()).rejects.toThrow(/timed out/);
+    await expect(step.run()).rejects.toThrow(TIMED_OUT_PATTERN_2);
     expect(step.status).toBe("failed");
   });
 });
@@ -210,7 +223,7 @@ describe("Step.timeout — interaction with retry", () => {
       input: undefined,
       name: "always-slow",
     });
-    await expect(step.run()).rejects.toThrow(/timed out/);
+    await expect(step.run()).rejects.toThrow(TIMED_OUT_PATTERN_3);
     expect(calls).toBe(3);
     expect(step.status).toBe("failed");
   });
@@ -241,7 +254,7 @@ describe("Step.timeout — interaction with retry", () => {
       input: undefined,
       name: "opt-out",
     });
-    await expect(step.run()).rejects.toThrow(/timed out/);
+    await expect(step.run()).rejects.toThrow(TIMED_OUT_PATTERN_4);
     // shouldRetry sees the timeout error on the first attempt and bails out;
     // exactly one execute call (no retries).
     expect(calls).toBe(1);
@@ -270,7 +283,9 @@ describe("Step.timeout — snapshot record", () => {
     const { state } = step;
     const record = state.steps.snap;
     expect(record?.status).toBe("failed");
-    expect(record?.error?.message).toMatch(/Step "snap" timed out after 15/);
+    expect(record?.error?.message).toMatch(
+      STEP_SNAP_TIMED_OUT_AFTER_15_PATTERN
+    );
     expect(record?.output).toBeUndefined();
   });
 });

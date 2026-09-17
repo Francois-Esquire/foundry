@@ -7,6 +7,8 @@ import {
   ResourceUriError,
 } from "../resource-uri";
 
+const APP_ID_ARTIFACT_PATTERN = /^app:\/\/id-[0-9a-f.]+\.artifact\/$/;
+
 const SCHEME = "app";
 
 describe("resource URLs", () => {
@@ -44,7 +46,7 @@ describe("resource URLs", () => {
         resource: "artifact",
         scheme: SCHEME,
       });
-      expect(value).toMatch(/^app:\/\/id-[0-9a-f.]+\.artifact\/$/);
+      expect(value).toMatch(APP_ID_ARTIFACT_PATTERN);
       expect(parseResourceUrl(SCHEME, value)).toEqual({
         id,
         path: "",

@@ -6,6 +6,8 @@ import { createInMemoryExecutionPersistence } from "../persistence";
 import { InMemoryOrchestratorStore } from "../store";
 import { Workflow } from "../workflow";
 
+const EITHER_PERSISTENCE_OR_STORE_PATTERN = /either persistence or store/;
+
 describe("Orchestrator defaults", () => {
   test("accepts composed persistence without exposing a Store escape hatch", () => {
     const persistence = createInMemoryExecutionPersistence();
@@ -21,7 +23,7 @@ describe("Orchestrator defaults", () => {
           persistence,
           store: new InMemoryOrchestratorStore(),
         })
-    ).toThrow(/either persistence or store/);
+    ).toThrow(EITHER_PERSISTENCE_OR_STORE_PATTERN);
   });
   test("uses an in-memory store that carries namespaced queue and run extensions", async () => {
     const extensions = {

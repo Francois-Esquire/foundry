@@ -4,6 +4,12 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+const TYPESCRIPT_SOURCE_FILE_PATTERN = /\.tsx?$/;
+const WORKFLOWS_PACKAGE_IMPORT_PATTERN = /^@foundry\/workflows(?:\/|$)/;
+const AGENTS_PACKAGE_IMPORT_PATTERN = /^@foundry\/agents(?:\/|$)/;
+const TOOLS_COMPILED_TOOLS_PATTERN = /tools:\s*compiled\.tools/;
+const TOOLS_TOOLS_PATTERN = /tools:\s*\{\s*\.\.\.tools/;
+
 /** Agents and workflows remain independent; apps compose them through the harness. */
 const AGENTS_SRC = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const REPO_ROOT = resolve(AGENTS_SRC, "../../..");
@@ -34,7 +40,7 @@ function sourceFilesUnder(
         pending.push(join(dir, entry.name));
         continue;
       }
-      if (/\.tsx?$/.test(entry.name)) {
+      if (TYPESCRIPT_SOURCE_FILE_PATTERN.test(entry.name)) {
         files.push(join(dir, entry.name));
       }
     }
@@ -62,7 +68,7 @@ describe("architecture boundary — package independence", () => {
     const violations = sourceFilesUnder(AGENTS_SRC)
       .filter(
         (file) =>
-          importsMatching(file, /^@foundry\/workflows(?:\/|$)/).length > 0
+          importsMatching(file, WORKFLOWS_PACKAGE_IMPORT_PATTERN).length > 0
       )
       .map((file) => relative(REPO_ROOT, file));
     expect(violations).toEqual([]);
@@ -71,7 +77,8 @@ describe("architecture boundary — package independence", () => {
   it("finds no @foundry/agents import anywhere in packages/workflows/src", () => {
     const violations = sourceFilesUnder(WORKFLOWS_SRC)
       .filter(
-        (file) => importsMatching(file, /^@foundry\/agents(?:\/|$)/).length > 0
+        (file) =>
+          importsMatching(file, AGENTS_PACKAGE_IMPORT_PATTERN).length > 0
       )
       .map((file) => relative(REPO_ROOT, file));
     expect(violations).toEqual([]);
@@ -129,7 +136,7 @@ describe("architecture boundary — no tool-assembly bypass", () => {
     // `LoopAgent` only ever receives `compiled.tools`, never `tools` (or any
     // other raw map) directly.
     expect(source).toContain("compileTools(tools ?? {}");
-    expect(source).toMatch(/tools:\s*compiled\.tools/);
-    expect(source).not.toMatch(/tools:\s*\{\s*\.\.\.tools/);
+    expect(source).toMatch(TOOLS_COMPILED_TOOLS_PATTERN);
+    expect(source).not.toMatch(TOOLS_TOOLS_PATTERN);
   });
 });

@@ -4,6 +4,11 @@ import type { TransportHandlers } from "../../live/transport";
 
 import { target, token } from "../helpers/live-double";
 
+const LUCY_PATTERN = /lucy/i;
+const DECLARES_NO_TOKEN_OPTION_PATTERN = /declares no token option/;
+const LUCY_PATTERN_2 = /lucy/i;
+const KEY_OWNING_PROCESS_PATTERN = /key-owning process/;
+
 const state = vi.hoisted(() => ({
   configs: [] as Record<string, unknown>[],
   connects: [] as { app: string; handler: Record<string, unknown> }[],
@@ -113,7 +118,7 @@ describe("the socket transport", () => {
   it("refuses credential access when the configured-client holder is empty", async () => {
     await expect(
       connectFalSocket(target(), { kind: "credential" }, OPENING, handlers())
-    ).rejects.toThrow(/key-owning process/);
+    ).rejects.toThrow(KEY_OWNING_PROCESS_PATTERN);
   });
 
   it("sends a frame on the endpoint's declared image_url field, base64", async () => {
@@ -235,7 +240,7 @@ describe("the WebRTC transport's extension selection", () => {
       OPENING,
       handlers()
     );
-    expect(state.opens[0]?.extension.id).toMatch(/lucy/i);
+    expect(state.opens[0]?.extension.id).toMatch(LUCY_PATTERN_2);
   });
 
   it("selects wma with that endpoint id for a continuous model lucy does not claim", async () => {
@@ -248,7 +253,7 @@ describe("the WebRTC transport's extension selection", () => {
       OPENING,
       handlers()
     );
-    expect(state.opens[0]?.extension.id).not.toMatch(/lucy/i);
+    expect(state.opens[0]?.extension.id).not.toMatch(LUCY_PATTERN);
     expect(state.opens[0]?.options.endpointId).toBe("minimax/h3-max/director");
     // The same proxy gate applies on this path, where the extensions reach the
     // ICE endpoint and the WMA bridge through the client's own request path.
@@ -271,7 +276,7 @@ describe("the WebRTC transport's extension selection", () => {
         OPENING,
         handlers()
       )
-    ).rejects.toThrow(/declares no token option/);
+    ).rejects.toThrow(DECLARES_NO_TOKEN_OPTION_PATTERN);
   });
 });
 

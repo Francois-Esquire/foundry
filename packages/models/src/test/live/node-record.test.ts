@@ -6,6 +6,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { newRegistry, target, token } from "../helpers/live-double";
 
+const NO_TRACK_HAS_BEEN_RECEIVED_PATTERN = /no track has been received/;
+const ALREADY_ACTIVE_PATTERN = /already active/;
+const DOES_NOT_CARRY_THE_NEGOTIATED_PATTERN = /does not carry the negotiated/;
+
 const state = vi.hoisted(() => ({
   recorders: [] as { path: string; tracks: unknown[]; stopped: boolean }[],
   webrtc: { current: null as { connects: number } | null },
@@ -102,7 +106,7 @@ describe("record", () => {
       direction: { prompt: "p" },
     });
     const path = destination("no-track");
-    expect(() => live.record(path)).toThrow(/no track has been received/);
+    expect(() => live.record(path)).toThrow(NO_TRACK_HAS_BEEN_RECEIVED_PATTERN);
     expect(state.recorders).toHaveLength(0);
     expect(existsSync(path)).toBe(false);
     expect(live.state).toBe("open");
@@ -112,7 +116,7 @@ describe("record", () => {
     const live = await session();
     live.record(destination("first"));
     const second = destination("second");
-    expect(() => live.record(second)).toThrow(/already active/);
+    expect(() => live.record(second)).toThrow(ALREADY_ACTIVE_PATTERN);
     expect(state.recorders).toHaveLength(1);
     expect(existsSync(second)).toBe(false);
     expect(live.state).toBe("open");
@@ -134,7 +138,9 @@ describe("record", () => {
   it("refuses a codec the webm writer does not carry rather than transcoding", async () => {
     const live = await session("PCMU");
     const path = destination("uncarried");
-    expect(() => live.record(path)).toThrow(/does not carry the negotiated/);
+    expect(() => live.record(path)).toThrow(
+      DOES_NOT_CARRY_THE_NEGOTIATED_PATTERN
+    );
     expect(state.recorders).toHaveLength(0);
     expect(existsSync(path)).toBe(false);
   });

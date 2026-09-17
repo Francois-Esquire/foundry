@@ -11,6 +11,8 @@ import SEGMENT_IMAGE_NO_METADATA from "./fixtures/fal/segment-image-no-metadata.
 import SEGMENT_VIDEO from "./fixtures/fal/segment-video.json";
 import SOUND_EFFECT from "./fixtures/fal/sound-effect.json";
 
+const NO_CREDENTIALED_PROVIDER_PATTERN = /No credentialed provider/;
+
 const TEXT_PROMPT: SegmentationPrompt = { kind: "text", text: "wheel" };
 
 interface Harness {
@@ -263,7 +265,7 @@ describe("falMediaModel — refusal and abort", () => {
     const harness = install(SEGMENT_IMAGE);
     const model = falProvider().mediaModel?.("fal-ai/sam-3/image");
     await expect(model?.run(IMAGE_INPUT)).rejects.toThrow(
-      /No credentialed provider/
+      NO_CREDENTIALED_PROVIDER_PATTERN
     );
     expect(harness.uploads).toHaveLength(0);
     expect(harness.calls).toHaveLength(0);

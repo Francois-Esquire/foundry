@@ -12,6 +12,8 @@ import { Workflow } from "../workflow";
 import { makeOrchestratorConfig } from "./helpers/config";
 import { makeInMemoryStore } from "./helpers/store";
 
+const TERMINAL_FRAME_FAILED_PATTERN = /terminal frame failed/i;
+
 class DelayedFrameStore extends InMemoryOrchestratorStore {
   readonly frameWriteEntered: Promise<void>;
   #announceFrameWrite: () => void = () => undefined;
@@ -398,7 +400,7 @@ describe("Orchestrator.observe", () => {
 
     releaseRun();
     await run.result();
-    await expect(frames).rejects.toThrow(/terminal frame failed/i);
+    await expect(frames).rejects.toThrow(TERMINAL_FRAME_FAILED_PATTERN);
     const retained = await store.listRunFrames(run.id);
     const after = retained.at(-1)?.cursor ?? -1;
     const restarted = new Orchestrator({

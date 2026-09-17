@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { InMemorySessionStore, messagesToSummarize } from "../../session/store";
 import type { SessionMessage, SessionPart } from "../../session/types";
 
+const UNKNOWN_SESSION_PATTERN = /unknown session/;
+
 const text = (t: string): SessionPart[] => [{ text: t, type: "text" }];
 
 function req<T>(value: T | undefined): T {
@@ -94,7 +96,7 @@ describe("InMemorySessionStore", () => {
     const store = new InMemorySessionStore();
     await expect(
       store.appendMessage({ parts: [], role: "user", sessionId: "ghost" })
-    ).rejects.toThrow(/unknown session/);
+    ).rejects.toThrow(UNKNOWN_SESSION_PATTERN);
   });
 
   it("updates a streaming message's parts and status", async () => {

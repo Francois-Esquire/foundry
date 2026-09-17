@@ -7,6 +7,17 @@ import type { Registry } from "../helpers/live-double";
 
 import { frame, newRegistry, target, token } from "../helpers/live-double";
 
+const NO_LIVE_FACT_PATTERN = /no live fact/;
+const DECLARES_OPERATION_GENERATE_IMAGE_PATTERN =
+  /declares operation "generate-image"/;
+const EXPIRED_PATTERN = /expired/;
+const KEY_OWNING_PROCESS_PATTERN = /key-owning process/;
+const DOES_NOT_ACCEPT_A_FEED_PATTERN = /does not accept a feed/;
+const REQUIRES_A_FEED_AT_OPEN_PATTERN = /requires a feed at open/;
+const OPENING_SEND_REFUSED_PATTERN = /opening send refused/;
+const NEGOTIATES_ITS_FEED_AT_OPEN_PATTERN = /negotiates its feed at open/;
+const OPTIONS_FEED_PATTERN = /options\.feed/;
+
 // The mock factories are hoisted above every import, so they reach the
 // per-test registries through this holder rather than closing over one.
 const state = vi.hoisted(() => ({
@@ -111,7 +122,7 @@ describe("open refusals", () => {
       open(target({ delivery: "whole", mode: "request" }), token(), {
         direction: { prompt: "p" },
       })
-    ).rejects.toThrow(/no live fact/);
+    ).rejects.toThrow(NO_LIVE_FACT_PATTERN);
     expect(socket.connects).toBe(0);
     expect(webrtc.connects).toBe(0);
   });
@@ -122,7 +133,7 @@ describe("open refusals", () => {
       open({ ...declared, operation: "generate-video" }, token(), {
         direction: { prompt: "p" },
       })
-    ).rejects.toThrow(/declares operation "generate-image"/);
+    ).rejects.toThrow(DECLARES_OPERATION_GENERATE_IMAGE_PATTERN);
     expect(socket.connects).toBe(0);
   });
 
@@ -133,14 +144,14 @@ describe("open refusals", () => {
         { expiresAt: Date.now() - 1, kind: "token", token: "t" },
         { direction: { prompt: "p" } }
       )
-    ).rejects.toThrow(/expired/);
+    ).rejects.toThrow(EXPIRED_PATTERN);
     expect(socket.connects).toBe(0);
   });
 
   it("rejects credential access with no configured client", async () => {
     await expect(
       open(target(), { kind: "credential" }, { direction: { prompt: "p" } })
-    ).rejects.toThrow(/key-owning process/);
+    ).rejects.toThrow(KEY_OWNING_PROCESS_PATTERN);
     expect(socket.connects).toBe(0);
   });
 
@@ -150,7 +161,7 @@ describe("open refusals", () => {
         direction: { prompt: "p" },
         feed: {} as unknown as MediaStream,
       })
-    ).rejects.toThrow(/does not accept a feed/);
+    ).rejects.toThrow(DOES_NOT_ACCEPT_A_FEED_PATTERN);
     expect(socket.connects).toBe(0);
     expect(webrtc.connects).toBe(0);
   });
@@ -166,7 +177,7 @@ describe("open refusals", () => {
         token(),
         { direction: { prompt: "p" } }
       )
-    ).rejects.toThrow(/requires a feed at open/);
+    ).rejects.toThrow(REQUIRES_A_FEED_AT_OPEN_PATTERN);
     expect(webrtc.connects).toBe(0);
   });
 
@@ -174,7 +185,7 @@ describe("open refusals", () => {
     socket.failPrime = true;
     await expect(
       open(target(), token(), { direction: { prompt: "p" } })
-    ).rejects.toThrow(/opening send refused/);
+    ).rejects.toThrow(OPENING_SEND_REFUSED_PATTERN);
     expect(socket.doubles).toHaveLength(1);
     expect(socket.doubles[0]?.closed()).toBe(true);
   });
@@ -340,8 +351,10 @@ describe("refusal", () => {
     );
     live.attach({} as unknown as MediaStream);
     expect(sink.refusals.map((refusal) => refusal.input)).toEqual(["feed"]);
-    expect(sink.refusals[0]?.reason).toMatch(/negotiates its feed at open/);
-    expect(sink.refusals[0]?.reason).toMatch(/options\.feed/);
+    expect(sink.refusals[0]?.reason).toMatch(
+      NEGOTIATES_ITS_FEED_AT_OPEN_PATTERN
+    );
+    expect(sink.refusals[0]?.reason).toMatch(OPTIONS_FEED_PATTERN);
     expect(live.state).toBe("open");
   });
 

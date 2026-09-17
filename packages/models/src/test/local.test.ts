@@ -2,6 +2,10 @@ import type * as AiModule from "ai";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const IS_KIND_EMBEDDING_EXPECTED_TEXT_PATTERN =
+  /is kind "embedding", expected "text"/;
+const NOT_REGISTERED_PATTERN = /not registered/;
+
 const mockLanguageModel = vi.fn((_id: string, _opts?: unknown) => ({
   tag: "lm",
 }));
@@ -170,7 +174,7 @@ describe("LocalProvider", () => {
 
   it("kind validation still applies for known catalog ids", () => {
     expect(() => text(new LocalProvider(), "embed")).toThrow(
-      /is kind "embedding", expected "text"/
+      IS_KIND_EMBEDDING_EXPECTED_TEXT_PATTERN
     );
   });
 
@@ -402,7 +406,7 @@ describe("LocalProvider", () => {
 
   it("download() rejects an unknown catalog id", async () => {
     await expect(new LocalProvider().download("ghost")).rejects.toThrow(
-      /not registered/
+      NOT_REGISTERED_PATTERN
     );
   });
 });

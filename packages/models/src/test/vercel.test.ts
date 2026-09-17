@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const MALFORMED_PATTERN = /malformed/;
+
 const mockLanguageModel = vi.fn();
 const mockEmbeddingModel = vi.fn();
 const mockImageModel = vi.fn();
@@ -153,7 +155,7 @@ describe("vercelProvider — discovery", () => {
     try {
       await expect(
         vercelProvider({ config: { apiKey: "k" } }).discover?.()
-      ).rejects.toThrow(/malformed/);
+      ).rejects.toThrow(MALFORMED_PATTERN);
     } finally {
       vi.unstubAllGlobals();
     }

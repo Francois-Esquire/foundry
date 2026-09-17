@@ -4,6 +4,11 @@ import { isSuspendSignal } from "../executable";
 import type { StepSnapshot } from "../snapshot";
 import { withStepHooks } from "../step-hooks";
 
+const NON_EMPTY_PATTERN = /non-empty/;
+const WHITESPACE_PATTERN = /whitespace/;
+const RESERVED_PATTERN = /reserved/;
+const DUPLICATE_AFTER_FAILURE_PATTERN = /Duplicate.*after\.failure/;
+
 async function captureError(run: () => Promise<unknown>): Promise<Error> {
   try {
     await run();
@@ -616,9 +621,9 @@ describe("withStepHooks — execution policy and validation", () => {
   });
 
   test.each([
-    ["reserved", "@internal", /reserved/],
-    ["blank", "", /non-empty/],
-    ["whitespace", " spaced", /whitespace/],
+    ["reserved", "@internal", RESERVED_PATTERN],
+    ["blank", "", NON_EMPTY_PATTERN],
+    ["whitespace", " spaced", WHITESPACE_PATTERN],
   ])("rejects %s hook names", (_case, name, expected) => {
     expect(() =>
       withStepHooks(
@@ -651,7 +656,7 @@ describe("withStepHooks — execution policy and validation", () => {
           },
         }
       )
-    ).toThrow(/Duplicate.*after\.failure/);
+    ).toThrow(DUPLICATE_AFTER_FAILURE_PATTERN);
 
     const valid = withStepHooks(
       {

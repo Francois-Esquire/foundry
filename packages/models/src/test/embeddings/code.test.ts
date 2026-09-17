@@ -2,6 +2,8 @@ import type { CodeChunkerBackend } from "@chonkiejs/core";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const GRAMMAR_PATTERN = /grammar/i;
+
 const mockDownload = vi.fn();
 const mockDownloadedLanguages = vi.fn<() => string[]>(() => []);
 
@@ -104,7 +106,7 @@ describe("downloadCodeLanguages", () => {
       throw new Error("network down");
     });
     await expect(downloadCodeLanguages(["lang-flaky"])).rejects.toThrow(
-      /grammar/i
+      GRAMMAR_PATTERN
     );
     // The in-flight memo was cleared, so a retry attempts the fetch again
     // (falling back to the base mock, which succeeds).

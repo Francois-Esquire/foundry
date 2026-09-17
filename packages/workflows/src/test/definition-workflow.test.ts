@@ -6,6 +6,9 @@ import { Step } from "../step";
 import { Workflow } from "../workflow";
 import { materializeWorkflow } from "./helpers/definitions";
 
+const EXACTLY_ONE_OUTPUT_PATTERN = /exactly one output/;
+const EXACTLY_ONE_OUTPUT_PATTERN_2 = /exactly one output/;
+
 class AddOne extends Step<number, number> {
   readonly definitionKey = "math.add-one";
   calls = 0;
@@ -150,10 +153,10 @@ describe("definition-backed Workflow", () => {
 
   it("rejects missing and duplicate outputs before runtime allocation", () => {
     expect(() => new MissingOutputWorkflow().definition).toThrow(
-      /exactly one output/
+      EXACTLY_ONE_OUTPUT_PATTERN
     );
     expect(() => new DuplicateOutputWorkflow().definition).toThrow(
-      /exactly one output/
+      EXACTLY_ONE_OUTPUT_PATTERN_2
     );
   });
 

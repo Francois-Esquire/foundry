@@ -2,6 +2,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { fakeProvider } from "./helpers/model";
 
+const NO_CREDENTIALED_PROVIDER_PATTERN = /No credentialed provider/;
+const PROVIDER_FAL_IS_NOT_REGISTERED_PATTERN =
+  /Provider "fal" is not registered/;
+const NO_CREDENTIALED_PROVIDER_PATTERN_2 = /No credentialed provider/;
+const PROVIDER_FAL_IS_NOT_REGISTERED_PATTERN_2 =
+  /Provider "fal" is not registered/;
+
 vi.mock("@browser-ai/transformers-js", () => ({
   transformersJS: {
     embeddingModel: vi.fn(() => ({ provider: "local" })),
@@ -202,10 +209,10 @@ describe("ModelManager.configure — fal and replicate lifecycle", () => {
     // state it: nothing else registered bears a generate-image fact.
     expect(manager.offers("generate-image")).toEqual([]);
     expect(() => manager.select("generate-image", { provider: "fal" })).toThrow(
-      /Provider "fal" is not registered/
+      PROVIDER_FAL_IS_NOT_REGISTERED_PATTERN_2
     );
     expect(() => manager.select("generate-image")).toThrow(
-      /No credentialed provider/
+      NO_CREDENTIALED_PROVIDER_PATTERN
     );
   });
 
@@ -215,7 +222,7 @@ describe("ModelManager.configure — fal and replicate lifecycle", () => {
     manager.configure({ falApiKey: "fal_key" });
     manager.configure({ falApiKey: null });
     expect(() => manager.select("generate-image", { provider: "fal" })).toThrow(
-      /Provider "fal" is not registered/
+      PROVIDER_FAL_IS_NOT_REGISTERED_PATTERN
     );
     const selection = manager.select("generate-image");
     expect(selection.provider.id).toBe("other");
@@ -229,7 +236,7 @@ describe("ModelManager.configure — fal and replicate lifecycle", () => {
       manager.offers("segment-image").map((offer) => offer.available)
     ).toEqual([false]);
     expect(() => manager.select("segment-image", { provider: "fal" })).toThrow(
-      /No credentialed provider/
+      NO_CREDENTIALED_PROVIDER_PATTERN_2
     );
   });
 

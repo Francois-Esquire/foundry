@@ -5,6 +5,13 @@ import { createAgentRegistry, resolveAgentEntry } from "../../agents/registry";
 import type { AgentPreset } from "../../agents/resolve";
 import type { AgentHarness, SessionHarness } from "../../harness";
 
+const ALREADY_REGISTERED_AT_GENERATION_1_PATTERN =
+  /already registered at generation 1/;
+const RAW_ACCESS_REQUIRES_REGISTRY_COMPATIBILITY_PATTERN =
+  /raw access requires registry\.compatibility/;
+const CURRENT_GENERATION_IS_42_PATTERN = /current generation is 42/;
+const CURRENT_GENERATION_IS_42_PATTERN_2 = /current generation is 42/;
+
 function retainedPreset(
   id: string,
   reply: string
@@ -75,13 +82,13 @@ describe("AgentPreset catalog", () => {
         id: "researcher",
         preset: definition.preset,
       });
-    }).toThrow(/already registered at generation 1/);
+    }).toThrow(ALREADY_REGISTERED_AT_GENERATION_1_PATTERN);
     expect(() =>
       resolveAgentEntry(
         "researcher",
         registry as unknown as Parameters<typeof resolveAgentEntry>[1]
       )
-    ).toThrow(/raw access requires registry\.compatibility/);
+    ).toThrow(RAW_ACCESS_REQUIRES_REGISTRY_COMPATIBILITY_PATTERN);
     expect(registry).not.toHaveProperty("register");
     expect(registry).not.toHaveProperty("get");
     expect(registry).not.toHaveProperty("list");
@@ -115,10 +122,10 @@ describe("AgentPreset catalog", () => {
         { generation: 41, id },
         { generation: 43, id, preset: second.preset }
       );
-    }).toThrow(/current generation is 42/);
+    }).toThrow(CURRENT_GENERATION_IS_42_PATTERN);
     expect(() => {
       registry.withdrawPreset({ generation: 41, id });
-    }).toThrow(/current generation is 42/);
+    }).toThrow(CURRENT_GENERATION_IS_42_PATTERN_2);
     expect(registry.withdrawPreset({ generation: 42, id })).toBe(true);
     expect(registry.getPreset(id)).toBeUndefined();
     expect(registry.compatibility.has(id)).toBe(false);

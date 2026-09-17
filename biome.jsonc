@@ -22,17 +22,6 @@
           "allowComments": true
         }
       }
-    },
-    {
-      // Tests keep assertion regexes beside the cases they describe.
-      "includes": ["packages/*/src/test/**/*.ts", "apps/*/test/**/*.ts"],
-      "linter": {
-        "rules": {
-          "performance": {
-            "useTopLevelRegex": "off"
-          }
-        }
-      }
     }
   ],
   "vcs": {

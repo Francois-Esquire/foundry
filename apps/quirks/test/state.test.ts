@@ -17,6 +17,13 @@ import { runSchedules, tick } from "~/schedule";
 import { acquireLock } from "~/state/locks";
 import { workspaceState } from "~/state/workspace";
 
+const SKIPPED_RUNS_RN_BAD_JSON_PATTERN =
+  /^\[state\] skipped runs\/rn-bad\.json: /;
+const SKIPPED_RUNS_RN_HOLLOW_JSON_PATTERN =
+  /^\[state\] skipped runs\/rn-hollow\.json: /;
+const SHORT_HEX_ID_PATTERN = /^[0-9a-f]{12}$/;
+const BOOM_PATTERN = /boom/;
+
 class Shout extends Step<string, string> {
   readonly definitionKey = "test.shout";
 
@@ -116,8 +123,8 @@ describe("run files", () => {
 
     expect(runs).toHaveLength(1);
     expect(lines.filter((line) => line.startsWith("[state] skipped"))).toEqual([
-      expect.stringMatching(/^\[state\] skipped runs\/rn-bad\.json: /),
-      expect.stringMatching(/^\[state\] skipped runs\/rn-hollow\.json: /),
+      expect.stringMatching(SKIPPED_RUNS_RN_BAD_JSON_PATTERN),
+      expect.stringMatching(SKIPPED_RUNS_RN_HOLLOW_JSON_PATTERN),
     ]);
   });
 });
@@ -131,7 +138,7 @@ describe("workspace", () => {
     const first = workspaceState(state, a);
     expect(workspaceState(state, a).id).toBe(first.id);
     expect(workspaceState(state, b).id).not.toBe(first.id);
-    expect(first.id).toMatch(/^[0-9a-f]{12}$/);
+    expect(first.id).toMatch(SHORT_HEX_ID_PATTERN);
     expect(first.dir).toBe(join(state, first.id));
 
     first.touch(join(a, "quirks.config.ts"));
@@ -202,7 +209,7 @@ describe("schedule state", () => {
 
     await expect(
       tick(engine, { ...schedule, workflow: "explode" }, { print, state })
-    ).rejects.toThrow(/boom/);
+    ).rejects.toThrow(BOOM_PATTERN);
     expect(readJson(join(state, "schedules", "s.json"))).toMatchObject({
       lastStatus: "failed",
     });

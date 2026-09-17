@@ -10,6 +10,8 @@ import { join } from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
 
+const FROM_NODE_WERIFT_PATTERN = /from "(node:[^"]*|werift[^"]*)"/;
+
 vi.mock("werift", () => {
   throw new Error("the browser live entry must not import werift");
 });
@@ -66,7 +68,7 @@ describe("@foundry/models/live in a browser-like environment", () => {
 
   it("names no Node module or WebRTC library outside src/live/node", () => {
     const offenders = browserSources(LIVE_DIR).filter((path) =>
-      /from "(node:[^"]*|werift[^"]*)"/.test(readFileSync(path, "utf8"))
+      FROM_NODE_WERIFT_PATTERN.test(readFileSync(path, "utf8"))
     );
     expect(offenders).toEqual([]);
   });

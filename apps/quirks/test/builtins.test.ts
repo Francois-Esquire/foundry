@@ -17,6 +17,9 @@ import { echoGit } from "~/runtime";
 
 import { seedRepository } from "./helpers/repository";
 
+const REVIEWING_IN_AS_REVIEW_MAIN_PATTERN =
+  /^reviewing in (.*) as review-main$/;
+
 const executors = [CLAUDE_CODE, CODEX];
 
 interface BindOptions {
@@ -144,7 +147,7 @@ describe("reviewSession", () => {
       log: (line) => lines.push(line),
     });
     const result = await reviewSession.create().run(input);
-    const root = lines[0]?.replace(/^reviewing in (.*) as review-main$/, "$1");
+    const root = lines[0]?.replace(REVIEWING_IN_AS_REVIEW_MAIN_PATTERN, "$1");
     expect(result).toEqual({
       sessionId: "review-main",
       text: `saw ${root ?? ""}`,

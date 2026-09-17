@@ -7,6 +7,8 @@ import { Step } from "../step";
 import { Workflow } from "../workflow";
 import { materializeWorkflow } from "./helpers/definitions";
 
+const DEFINITION_CYCLE_PATTERN = /definition-cycle/;
+
 class Leaf extends Step<void, string> {
   readonly definitionKey = "leaf";
 
@@ -183,7 +185,7 @@ describe("definition validation", () => {
     const workflow = new RecursiveWorkflow();
 
     expect(() => workflow.definition).toThrow(DefinitionAuthoringError);
-    expect(() => workflow.definition).toThrow(/definition-cycle/);
+    expect(() => workflow.definition).toThrow(DEFINITION_CYCLE_PATTERN);
   });
 
   it("uses a child definitionKey as the default local placement key", () => {

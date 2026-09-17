@@ -7,6 +7,8 @@ import { McpClient } from "../../mcp/client";
 import { sdkStdioTransport, spawnStdioTransport } from "../../mcp/stdio";
 import type { McpClientOptions, McpLogMessage } from "../../mcp/types";
 
+const NOT_CONNECTED_PATTERN = /not connected/u;
+
 // Drives the real @ai-sdk/mcp client over a real stdio subprocess: the only
 // MCP tests in the package that do not mock the SDK.
 const FIXTURE = fileURLToPath(
@@ -255,6 +257,6 @@ describe("stdio MCP server (live subprocess)", () => {
 
   it("rejects resource calls while not connected", async () => {
     const client = new McpClient(server);
-    await expect(client.listResources()).rejects.toThrow(/not connected/u);
+    await expect(client.listResources()).rejects.toThrow(NOT_CONNECTED_PATTERN);
   });
 });

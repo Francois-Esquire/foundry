@@ -16,6 +16,17 @@ import { Workflow } from "../workflow";
 import { makeEchoSpec } from "./fixtures/steps";
 import { makeInMemoryStore } from "./helpers/store";
 
+const QUEUE_ID_PATTERN = /^qu-/;
+const SHUT_DOWN_PATTERN = /shut down/i;
+const QUEUE_ID_PATTERN_2 = /^qu-/;
+const ORCHESTRATOR_EXECUTE_PATTERN = /Orchestrator\.execute/;
+const SHUT_DOWN_PATTERN_2 = /shut down/;
+const ALREADY_EXISTS_PATTERN = /already exists/i;
+const ALREADY_EXISTS_PATTERN_2 = /already exists/i;
+const EXISTS_PATTERN = /exists/i;
+const ALREADY_EXISTS_PATTERN_3 = /already exists/i;
+const RUN_ID_PATTERN = /^rn-/;
+
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 const store = makeInMemoryStore();
@@ -43,8 +54,8 @@ describe("Queue — construction", () => {
   test("generates a fresh qu-* id when none is provided", () => {
     const a = new Queue({ concurrency: 1, store });
     const b = new Queue({ concurrency: 1, store });
-    expect(a.id).toMatch(/^qu-/);
-    expect(b.id).toMatch(/^qu-/);
+    expect(a.id).toMatch(QUEUE_ID_PATTERN_2);
+    expect(b.id).toMatch(QUEUE_ID_PATTERN);
     expect(a.id).not.toBe(b.id);
   });
 
@@ -67,7 +78,7 @@ describe("Queue.dispatch — handle shape", () => {
       queue.dispatch(Workflow.create(makeEchoSpec("x", "linked")), {
         links: { jobId: "jb-bypass" },
       } as never)
-    ).toThrow(/Orchestrator\.execute/);
+    ).toThrow(ORCHESTRATOR_EXECUTE_PATTERN);
     expect((await localStore.listRuns({})).items).toEqual([]);
     await queue.shutdown();
   });
@@ -102,7 +113,7 @@ describe("Queue.dispatch — handle shape", () => {
         metadata: claim.run.metadata,
         step: claim.run.step,
       })
-    ).toThrow(/shut down/);
+    ).toThrow(SHUT_DOWN_PATTERN_2);
     await expect(localStore.getRun(claim.run.id)).resolves.toMatchObject({
       links: { jobId: job.id },
       status: "queued",
@@ -126,7 +137,7 @@ describe("Queue.dispatch — handle shape", () => {
       queue.dispatch(Workflow.create(makeEchoSpec("second", "duplicate")), {
         runId: suppliedId,
       })
-    ).toThrow(/already exists/i);
+    ).toThrow(ALREADY_EXISTS_PATTERN);
     await dispatched.result();
     await expect(localStore.getRun(suppliedId)).resolves.toMatchObject({
       id: suppliedId,
@@ -151,7 +162,7 @@ describe("Queue.dispatch — handle shape", () => {
       { runId: suppliedId }
     );
     await expect(secondQueue.awaitPersistence(duplicate.id)).rejects.toThrow(
-      /already exists/i
+      ALREADY_EXISTS_PATTERN_2
     );
     const duplicateResult = await duplicate.result();
     if (
@@ -164,9 +175,9 @@ describe("Queue.dispatch — handle shape", () => {
       throw new Error("Expected a failed workflow result");
     }
     expect(duplicateResult.status).toBe("failed");
-    expect(duplicateResult.error.message).toMatch(/exists/i);
+    expect(duplicateResult.error.message).toMatch(EXISTS_PATTERN);
     await expect(secondQueue.awaitPersistence(duplicate.id)).rejects.toThrow(
-      /already exists/i
+      ALREADY_EXISTS_PATTERN_3
     );
     expect(duplicate.status).toBe("failed");
     await expect(localStore.getRun(suppliedId)).resolves.toMatchObject({
@@ -183,7 +194,7 @@ describe("Queue.dispatch — handle shape", () => {
 
     const wf = Workflow.create(makeEchoSpec("hello", "echo"));
     const dispatched = queue.dispatch(wf);
-    expect(dispatched.id).toMatch(/^rn-/);
+    expect(dispatched.id).toMatch(RUN_ID_PATTERN);
     expect(dispatched.step).toBe("echo");
     expect(dispatched.status).toBe("queued");
     expect(dispatched.queueId).toBe(queue.id);
@@ -630,7 +641,7 @@ describe("Queue — shutdown", () => {
     const queue = new Queue({ concurrency: 1, store });
     await queue.shutdown();
     const wf = Workflow.create(makeEchoSpec("x", "after-shutdown"));
-    expect(() => queue.dispatch(wf)).toThrow(/shut down/i);
+    expect(() => queue.dispatch(wf)).toThrow(SHUT_DOWN_PATTERN);
   });
 });
 

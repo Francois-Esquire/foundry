@@ -5,6 +5,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { startEngine } from "~/engine";
 import { registry } from "~/lib/registry";
 
+const RUN_EXPLODE_FAILED_PATTERN = /run "explode" failed/;
+
 afterEach(() => {
   registry.reset();
 });
@@ -71,7 +73,7 @@ describe("startEngine", () => {
     );
 
     await expect(engine.run<never>("explode", undefined)).rejects.toThrow(
-      /run "explode" failed/
+      RUN_EXPLODE_FAILED_PATTERN
     );
     expect(lines).toEqual([
       "[step] explode started",

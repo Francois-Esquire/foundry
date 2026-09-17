@@ -5,6 +5,8 @@ import { bail } from "../types";
 import type { WorkflowState } from "../workflow";
 import { Workflow } from "../workflow";
 
+const BAILED_PATTERN = /bailed/;
+
 async function firstValue<T>(stream: ReadableStream<T>): Promise<T> {
   const reader = stream.getReader();
   try {
@@ -109,7 +111,7 @@ describe("Workflow", () => {
       name: "bail",
     });
 
-    await expect(workflow.run()).rejects.toThrow(/bailed/);
+    await expect(workflow.run()).rejects.toThrow(BAILED_PATTERN);
     expect(workflow.status).toBe("failed");
     expect(workflow.state.telemetry.metrics.values["workflow.bails"]).toBe(1);
     expect(

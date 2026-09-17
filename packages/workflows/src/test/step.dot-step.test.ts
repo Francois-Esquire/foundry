@@ -42,6 +42,10 @@ import type { StepSpec } from "../step";
 
 import { Step } from "../step";
 
+const NOT_BOUND_PATTERN = /not bound/;
+const ALREADY_PATTERN = /already/;
+const ALREADY_BOUND_PATTERN = /already bound/;
+
 // ════════════════════════════════════════════════════════════════════════════
 // 1. Pre-bind, spec form — child returned unbound + claimed
 // ════════════════════════════════════════════════════════════════════════════
@@ -100,7 +104,7 @@ describe("Step.create + .step(stepInstance) — pre-bind, instance form", () => 
     expect(returned).toBe(parent);
 
     // Now claimed-unbound — substrate access throws.
-    expect(() => child.snapshot).toThrow(/not bound/);
+    expect(() => child.snapshot).toThrow(NOT_BOUND_PATTERN);
 
     await parent.run();
 
@@ -271,7 +275,7 @@ describe(".step() — double-claim", () => {
     });
 
     parentA.step(child);
-    expect(() => parentB.step(child)).toThrow(/already/);
+    expect(() => parentB.step(child)).toThrow(ALREADY_PATTERN);
   });
 });
 
@@ -296,7 +300,7 @@ describe(".step() — already-bound child", () => {
       name: "other",
     });
 
-    expect(() => other.step(child)).toThrow(/already bound/);
+    expect(() => other.step(child)).toThrow(ALREADY_BOUND_PATTERN);
   });
 });
 

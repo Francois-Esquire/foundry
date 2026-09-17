@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import { authorizationAddress, encodeAddress } from "../config/authorization";
 import { addressDigest } from "../config/authorization/digest";
 
+const AUTHORIZATION_ADDRESS_HEX_PATTERN = /^[0-9a-f]{32}$/;
+
 const CAPABILITY = {
   constraintsDigest: "abc",
   id: "web_fetch",
@@ -171,6 +173,6 @@ describe("addressDigest", () => {
         CAPABILITY
       )
     );
-    expect(digest).toMatch(/^[0-9a-f]{32}$/);
+    expect(digest).toMatch(AUTHORIZATION_ADDRESS_HEX_PATTERN);
   });
 });

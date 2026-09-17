@@ -3,6 +3,10 @@ import { z } from "zod";
 import { Config } from "../config/config";
 import type { ConfigChangePayload } from "../config/types";
 
+const NOT_CONTRIBUTED_PATTERN = /not contributed/;
+const ALREADY_CONTRIBUTED_PATTERN = /already contributed/;
+const SINGLE_SEGMENT_PATTERN = /single segment/;
+
 const QueueSchema = z.object({
   concurrency: z.number(),
   retryLimit: z.number().optional(),
@@ -40,14 +44,14 @@ describe("Config — contribution", () => {
     c.contribute<Queue>("queue", QueueSchema, { concurrency: 4 });
     expect(() => {
       c.contribute<Queue>("queue", QueueSchema, { concurrency: 4 });
-    }).toThrow(/already contributed/);
+    }).toThrow(ALREADY_CONTRIBUTED_PATTERN);
   });
 
   test("contribute throws on dotted prefix (must be single segment)", () => {
     const c = new Config();
     expect(() => {
       c.contribute("queue.runner", QueueSchema, { concurrency: 4 });
-    }).toThrow(/single segment/);
+    }).toThrow(SINGLE_SEGMENT_PATTERN);
   });
 });
 
@@ -105,7 +109,7 @@ describe("Config — write by dot-path", () => {
     const c = makeConfig();
     expect(() => {
       c.set("unknown.x", 1);
-    }).toThrow(/not contributed/);
+    }).toThrow(NOT_CONTRIBUTED_PATTERN);
   });
 });
 

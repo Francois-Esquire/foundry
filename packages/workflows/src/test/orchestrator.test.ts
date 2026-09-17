@@ -25,6 +25,21 @@ import { Workflow } from "../workflow";
 import { makeOrchestratorConfig } from "./helpers/config";
 import { makeInMemoryStore } from "./helpers/store";
 
+const ALREADY_REGISTERED_PATTERN = /already registered/i;
+const NOT_REGISTERED_PATTERN = /not registered/i;
+const ALREADY_REGISTERED_PATTERN_2 = /already registered/i;
+const NOT_REGISTERED_PATTERN_2 = /not registered/i;
+const TRANSIENT_QUEUE_PERSISTENCE_FAILURE_PATTERN =
+  /transient queue persistence failure/i;
+const TRANSIENT_QUEUE_PERSISTENCE_FAILURE_PATTERN_2 =
+  /transient queue persistence failure/i;
+const SHUT_DOWN_PATTERN = /shut down/i;
+const SHUT_DOWN_PATTERN_2 = /shut down/i;
+const SHUT_DOWN_PATTERN_3 = /shut down/i;
+const CONSTRUCTION_FAILED_PATTERN = /construction failed/i;
+const SHUT_DOWN_PATTERN_4 = /shut down/i;
+const OWNED_BY_START_PATTERN = /owned by.*start/i;
+
 const store = makeInMemoryStore();
 
 function requireRun<T>(run: T | null): T {
@@ -55,7 +70,7 @@ describe("Registry — register / resolve / has / names", () => {
     registry.register("dup", factory);
     expect(() => {
       registry.register("dup", factory);
-    }).toThrow(/already registered/i);
+    }).toThrow(ALREADY_REGISTERED_PATTERN);
   });
 
   test("resolve returns the registered factory; calling it produces the runnable", async () => {
@@ -75,7 +90,7 @@ describe("Registry — register / resolve / has / names", () => {
 
   test("resolve throws on missing name", () => {
     const registry = new Registry();
-    expect(() => registry.resolve("nope")).toThrow(/not registered/i);
+    expect(() => registry.resolve("nope")).toThrow(NOT_REGISTERED_PATTERN);
   });
 
   test("Step and Workflow factories share one namespace", () => {
@@ -91,7 +106,7 @@ describe("Registry — register / resolve / has / names", () => {
     registry.register("shared", stepFactory);
     expect(() => {
       registry.register("shared", wfFactory);
-    }).toThrow(/already registered/i);
+    }).toThrow(ALREADY_REGISTERED_PATTERN_2);
   });
 });
 
@@ -263,7 +278,7 @@ describe("Orchestrator.run — dispatch by name", () => {
       captured = e;
     }
     expect(captured).toBeInstanceOf(DefinitionNotRegisteredError);
-    expect((captured as Error).message).toMatch(/not registered/i);
+    expect((captured as Error).message).toMatch(NOT_REGISTERED_PATTERN_2);
     await orch.stop();
   });
 
@@ -332,9 +347,11 @@ describe("Orchestrator — lifecycle passthroughs", () => {
     const first = orch.setup();
     const concurrent = orch.setup();
     expect(first).toBe(concurrent);
-    await expect(first).rejects.toThrow(/transient queue persistence failure/i);
+    await expect(first).rejects.toThrow(
+      TRANSIENT_QUEUE_PERSISTENCE_FAILURE_PATTERN
+    );
     await expect(concurrent).rejects.toThrow(
-      /transient queue persistence failure/i
+      TRANSIENT_QUEUE_PERSISTENCE_FAILURE_PATTERN_2
     );
     expect(attempts).toBe(1);
 
@@ -370,7 +387,7 @@ describe("Orchestrator — lifecycle passthroughs", () => {
       store: makeInMemoryStore(),
     });
     await Promise.all([stoppedBeforeSetup.stop(), stoppedBeforeSetup.stop()]);
-    await expect(stoppedBeforeSetup.setup()).rejects.toThrow(/shut down/i);
+    await expect(stoppedBeforeSetup.setup()).rejects.toThrow(SHUT_DOWN_PATTERN);
 
     const localStore = makeInMemoryStore();
     const originalListQueues = localStore.listQueues.bind(localStore);
@@ -390,7 +407,9 @@ describe("Orchestrator — lifecycle passthroughs", () => {
     const stop = stoppedDuringSetup.stop();
     releaseSetup();
     await Promise.all([setup, stop]);
-    await expect(stoppedDuringSetup.start()).rejects.toThrow(/shut down/i);
+    await expect(stoppedDuringSetup.start()).rejects.toThrow(
+      SHUT_DOWN_PATTERN_2
+    );
     await stoppedDuringSetup.stop();
   });
 
@@ -422,7 +441,7 @@ describe("Orchestrator — lifecycle passthroughs", () => {
       captured = e;
     }
     expect(captured).toBeInstanceOf(Error);
-    expect(String(captured)).toMatch(/shut down/i);
+    expect(String(captured)).toMatch(SHUT_DOWN_PATTERN_3);
   });
 
   test("pause prevents the next run from starting until resume", async () => {
@@ -683,7 +702,7 @@ describe("Orchestrator.start — cold-start hydration", () => {
       throw new Error("factory construction failed");
     });
 
-    await expect(orch.start()).rejects.toThrow(/construction failed/i);
+    await expect(orch.start()).rejects.toThrow(CONSTRUCTION_FAILED_PATTERN);
     expect(firstCalls).toBe(0);
     expect(await orch.get("rn-prepared-first")).toBeNull();
     await expect(localStore.getRun("rn-prepared-first")).resolves.toMatchObject(
@@ -744,7 +763,7 @@ describe("Orchestrator.start — cold-start hydration", () => {
     ]);
     expect(stopOutcome).toBe("stopped");
     releaseFactory();
-    await expect(starting).rejects.toThrow(/shut down/i);
+    await expect(starting).rejects.toThrow(SHUT_DOWN_PATTERN_4);
     expect(await orch.get(runId)).toBeNull();
     await expect(localStore.getRun(runId)).resolves.toMatchObject({
       status: "queued",
@@ -758,7 +777,7 @@ describe("Orchestrator.start — cold-start hydration", () => {
     });
     await orch.setup();
     await orch.start();
-    await expect(orch.recover()).rejects.toThrow(/owned by.*start/i);
+    await expect(orch.recover()).rejects.toThrow(OWNED_BY_START_PATTERN);
     await orch.stop();
   });
 

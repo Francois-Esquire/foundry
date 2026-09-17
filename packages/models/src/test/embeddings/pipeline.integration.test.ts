@@ -5,6 +5,8 @@ import type * as AiModule from "ai";
 
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
+const NON_WORD_SEPARATOR_PATTERN = /\W+/;
+
 const mockEmbedMany = vi.fn();
 
 vi.mock("ai", async (orig) => {
@@ -27,7 +29,7 @@ const { embedChunks } = await import("../../embeddings/pipeline");
 // Deterministic fake embedding so the whole pipeline runs offline.
 function fakeEmbed(text: string): number[] {
   const v: number[] = new Array<number>(8).fill(0);
-  for (const w of text.toLowerCase().split(/\W+/)) {
+  for (const w of text.toLowerCase().split(NON_WORD_SEPARATOR_PATTERN)) {
     if (!w) {
       continue;
     }

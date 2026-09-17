@@ -11,6 +11,9 @@ import { isStepBailError, Step, StepBailError } from "../step";
 import type { Bail } from "../types";
 import { bail, isBail } from "../types";
 
+const CHILD_FAIL_PATTERN = /child-fail/;
+const ORIGINAL_PATTERN = /original/;
+
 /**
  * Drive a step and capture either its successful output or — when the
  * body returned `bail(...)` — the surfaced Bail value (instead of letting
@@ -163,7 +166,7 @@ describe("Step execution — child fan-out via fork", () => {
       input: undefined,
       name: "p",
     });
-    await expect(parent.run()).rejects.toThrow(/child-fail/);
+    await expect(parent.run()).rejects.toThrow(CHILD_FAIL_PATTERN);
   });
 });
 
@@ -212,7 +215,7 @@ describe("Step execution — mixed success/failure", () => {
       input: undefined,
       name: "p",
     });
-    await expect(parent.run()).rejects.toThrow(/original/);
+    await expect(parent.run()).rejects.toThrow(ORIGINAL_PATTERN);
   });
 });
 

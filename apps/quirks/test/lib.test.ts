@@ -6,6 +6,12 @@ import type { CalendarSlot, Schedule } from "~/lib/registry";
 import { registry } from "~/lib/registry";
 import { nextDue, parseEvery, runSchedules } from "~/schedule";
 
+const NOT_BOUND_PATTERN = /not bound/;
+const CALENDAR_SLOT_PATTERN = /calendar slot/;
+const CALENDAR_SLOT_PATTERN_2 = /calendar slot/;
+const CADENCE_PATTERN = /cadence/;
+const ALREADY_REGISTERED_PATTERN = /already registered/;
+
 afterEach(() => {
   registry.reset();
 });
@@ -21,7 +27,9 @@ describe("factories", () => {
 
   it("refuse a duplicate name across steps and workflows", () => {
     step("x", () => Promise.resolve(null));
-    expect(() => workflow("x", () => undefined)).toThrow(/already registered/);
+    expect(() => workflow("x", () => undefined)).toThrow(
+      ALREADY_REGISTERED_PATTERN
+    );
   });
 
   it("run a step body against the bound primitives, only once bound", async () => {
@@ -29,7 +37,7 @@ describe("factories", () => {
       log(input);
       return Promise.resolve(input);
     });
-    await expect(seen.create().run("hi")).rejects.toThrow(/not bound/);
+    await expect(seen.create().run("hi")).rejects.toThrow(NOT_BOUND_PATTERN);
 
     const lines: string[] = [];
     registry.bind({
@@ -82,14 +90,14 @@ describe("factories", () => {
   it("reject a calendar slot outside the clock", () => {
     expect(() => {
       schedule("bad", { at: { hour: 24 }, input: null, workflow: "w" });
-    }).toThrow(/calendar slot/);
+    }).toThrow(CALENDAR_SLOT_PATTERN);
     expect(() => {
       schedule("bad", {
         at: { hour: 1, minute: 60 },
         input: null,
         workflow: "w",
       });
-    }).toThrow(/calendar slot/);
+    }).toThrow(CALENDAR_SLOT_PATTERN_2);
   });
 });
 
@@ -97,7 +105,7 @@ describe("cadence", () => {
   it("parses s/m/h/d and rejects the rest", () => {
     expect(parseEvery("90s")).toBe(90_000);
     expect(parseEvery("1d")).toBe(86_400_000);
-    expect(() => parseEvery("weekly")).toThrow(/cadence/);
+    expect(() => parseEvery("weekly")).toThrow(CADENCE_PATTERN);
   });
 
   it("fires from the last completion, so a mid-run tick is skipped", async () => {

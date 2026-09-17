@@ -30,6 +30,9 @@ import {
   hostWorkspace,
 } from "./helpers/workspace-system-conformance";
 
+const FOLDER_CONTENT_PROJECT_ANALYSIS_PATTERN =
+  /folder|content|project|analysis/i;
+
 const roots: string[] = [];
 
 afterAll(async () => {
@@ -889,7 +892,7 @@ describe("published contracts", () => {
     expect(Object.keys(summary)).not.toContain("path");
     expect(Object.keys(summary)).not.toContain("sourceId");
     expect(serialized).not.toContain(root);
-    expect(serialized).not.toMatch(/folder|content|project|analysis/i);
+    expect(serialized).not.toMatch(FOLDER_CONTENT_PROJECT_ANALYSIS_PATTERN);
     expect(files[0] && Object.keys(files[0])).not.toContain("content");
   });
 });

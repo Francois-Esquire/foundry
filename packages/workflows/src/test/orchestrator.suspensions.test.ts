@@ -18,6 +18,11 @@ import { Workflow } from "../workflow";
 import { makeOrchestratorConfig } from "./helpers/config";
 import { makeInMemoryStore } from "./helpers/store";
 
+const JSON_VALUE_PATTERN = /JSON value/;
+const ORCHESTRATOR_RESOLVE_PATTERN = /Orchestrator\.resolve/;
+const RESTART_RECOVERY_PATTERN = /restart recovery/;
+const RESTART_RECOVERY_PATTERN_2 = /restart recovery/;
+
 class FailingParkingStore extends InMemoryOrchestratorStore {
   failParking = false as boolean;
   failTerminalUpdate = false as boolean;
@@ -330,7 +335,7 @@ describe("Orchestrator first-class Suspensions", () => {
     ).rejects.toBeInstanceOf(StaleSuspensionRevisionError);
     await expect(
       orchestrator.resolve(suspension.id, new Map() as never)
-    ).rejects.toThrow(/JSON value/);
+    ).rejects.toThrow(JSON_VALUE_PATTERN);
     await expect(
       orchestrator.getSuspension(suspension.id)
     ).resolves.toMatchObject({ revision: 0, status: "pending" });
@@ -411,7 +416,7 @@ describe("Orchestrator first-class Suspensions", () => {
     const suspension = await pendingSuspension(orchestrator, run.id);
 
     await expect(run.resume("approval", "bypass")).rejects.toThrow(
-      /Orchestrator\.resolve/
+      ORCHESTRATOR_RESOLVE_PATTERN
     );
     await expect(store.getRun(run.id)).resolves.toMatchObject({
       status: "suspended",
@@ -533,9 +538,11 @@ describe("Orchestrator first-class Suspensions", () => {
       ])
     ).resolves.toBe("pending");
 
-    await expect(orchestrator.resume()).rejects.toThrow(/restart recovery/);
+    await expect(orchestrator.resume()).rejects.toThrow(
+      RESTART_RECOVERY_PATTERN
+    );
     await expect(orchestrator.run("store-offline", null)).rejects.toThrow(
-      /restart recovery/
+      RESTART_RECOVERY_PATTERN_2
     );
 
     store.failParking = false;

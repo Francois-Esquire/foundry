@@ -19,6 +19,10 @@ import { InMemoryOrchestratorStore } from "../store";
 import { makeInMemoryStore } from "./helpers/store";
 import { orchestratorStoreContract } from "./helpers/store.contract";
 
+const RUN_ID_PATTERN = /^rn-/;
+const RESERVED_PATTERN = /reserved/;
+const JSON_SAFE_PATTERN = /JSON-safe/;
+
 orchestratorStoreContract("in-memory", makeInMemoryStore);
 
 class FailingSettlementStore extends InMemoryOrchestratorStore {
@@ -318,7 +322,7 @@ describe("InMemoryOrchestratorStore", () => {
       step: "publish",
     });
 
-    expect(created.id).toMatch(/^rn-/);
+    expect(created.id).toMatch(RUN_ID_PATTERN);
     expect(created).toMatchObject({
       error: null,
       extensions: {},
@@ -493,14 +497,14 @@ describe("InMemoryOrchestratorStore", () => {
         queueId: "queue-1",
         step: "publish",
       })
-    ).rejects.toThrow(/reserved/);
+    ).rejects.toThrow(RESERVED_PATTERN);
     await expect(
       store.ensureQueue({
         extensions: { "host.trace": Number.NaN },
         id: "queue-1",
         name: "First",
       })
-    ).rejects.toThrow(/JSON-safe/);
+    ).rejects.toThrow(JSON_SAFE_PATTERN);
   });
 
   test("does not expose mutable extension references", async () => {

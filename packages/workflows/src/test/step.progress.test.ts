@@ -19,6 +19,8 @@ import { describe, expect, it } from "vitest";
 import { Step } from "../step";
 import { bail } from "../types";
 
+const STEP_PROGRESS_MUST_BE_IN_PATTERN = /step\.progress must be in \[0, 100\]/;
+
 const sleep = (ms: number): Promise<void> =>
   new Promise((r) => setTimeout(r, ms));
 
@@ -114,7 +116,7 @@ describe("step.progress — setter validation", () => {
     }).toThrow(RangeError);
     expect(() => {
       step.progress = -1;
-    }).toThrow(/step\.progress must be in \[0, 100\]/);
+    }).toThrow(STEP_PROGRESS_MUST_BE_IN_PATTERN);
   });
 
   it("throws RangeError on 101", async () => {

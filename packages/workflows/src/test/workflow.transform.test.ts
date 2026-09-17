@@ -12,6 +12,8 @@ import { describe, expect, test } from "vitest";
 import { Step } from "../step";
 import { bail, StepBailError } from "../types";
 
+const BAILED_AT_B_PATTERN = /bailed at "b"/;
+
 const sleep = (ms: number): Promise<void> =>
   new Promise((r) => setTimeout(r, ms));
 
@@ -598,7 +600,7 @@ describe("ctx.sequence — left-to-right with short-circuit", () => {
       input: undefined,
       name: "pipe",
     });
-    await expect(parent.run()).rejects.toThrow(/bailed at "b"/);
+    await expect(parent.run()).rejects.toThrow(BAILED_AT_B_PATTERN);
     expect(order).toEqual(["a", "b"]);
   });
 });

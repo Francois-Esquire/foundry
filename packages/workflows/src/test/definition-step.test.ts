@@ -5,6 +5,9 @@ import type { DefinitionDescriptor } from "../definitions";
 import { Step } from "../step";
 import { materializeStep } from "./helpers/definitions";
 
+const NO_RUNTIME_SUBSTRATE_PATTERN = /no runtime substrate/;
+const DO_NOT_HAVE_A_RUNTIME_ID_PATTERN = /do not have a runtime id/;
+
 class DoubleStep extends Step<number, number> {
   readonly definitionKey = "math.double";
   readonly name = "Double number";
@@ -48,8 +51,8 @@ describe("definition-backed Step", () => {
     expect(Object.isFrozen(descriptor)).toBe(true);
     expect(Object.isFrozen(descriptor.graph)).toBe(true);
     expect(definition.calls).toBe(0);
-    expect(() => definition.snapshot).toThrow(/no runtime substrate/);
-    expect(() => definition.id).toThrow(/do not have a runtime id/);
+    expect(() => definition.snapshot).toThrow(NO_RUNTIME_SUBSTRATE_PATTERN);
+    expect(() => definition.id).toThrow(DO_NOT_HAVE_A_RUNTIME_ID_PATTERN);
   });
 
   it("returns detached immutable descriptor projections", () => {

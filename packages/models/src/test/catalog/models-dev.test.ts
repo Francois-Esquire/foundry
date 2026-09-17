@@ -10,6 +10,8 @@ import { MODELS_DEV } from "../../catalog/models-dev-snapshot";
 import { costFromUsage } from "../../cost";
 import type { ProviderModelDefinition } from "../../types";
 
+const ASSERTION_PATTERN = /^[a-z0-9.-]+\/.+$/;
+
 /**
  * Trimmed entries copied verbatim from https://models.dev/catalog.json, so the
  * fixture drifts from reality only when reality changes.
@@ -284,7 +286,7 @@ describe("the bundled snapshot", () => {
     expect(keys.length).toBeGreaterThan(200);
     for (const key of keys) {
       // Every entry is `author/model` — the matcher's whole index depends on it.
-      expect(key).toMatch(/^[a-z0-9.-]+\/.+$/);
+      expect(key).toMatch(ASSERTION_PATTERN);
       // Benchmarks dominate the upstream payload and are dropped by the sync
       // script; their return would mean the prune list went stale.
       expect(MODELS_DEV[key]).not.toHaveProperty("benchmarks");

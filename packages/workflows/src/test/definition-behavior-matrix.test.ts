@@ -9,6 +9,8 @@ import { Workflow } from "../workflow";
 import { materializeWorkflow } from "./helpers/definitions";
 import { collectChunks } from "./helpers/streams";
 
+const BAILED_PATTERN = /bailed/;
+
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -178,7 +180,7 @@ describe("compiled definition behavior matrix", () => {
   it("keeps Bail distinct from thrown failures", async () => {
     await expect(
       new SingleStepWorkflow("matrix.bail-workflow", new BailingStep()).run()
-    ).rejects.toThrow(/bailed/);
+    ).rejects.toThrow(BAILED_PATTERN);
     await expect(
       new SingleStepWorkflow("matrix.throw-workflow", new ThrowingStep()).run()
     ).rejects.toThrow("definition throw");

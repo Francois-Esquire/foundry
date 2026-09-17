@@ -6,6 +6,15 @@ import { falProvider } from "../fal/provider";
 import type { Provider } from "../provider";
 import type { ProviderModelDefinition } from "../types";
 
+const STATUS_401_PATTERN = /status 401/;
+const NO_CREDENTIALED_PROVIDER_PATTERN = /No credentialed provider/;
+const DOES_NOT_SUPPORT_THE_SEGMENT_IMAGE_OPERATION_PATTERN =
+  /does not support the segment-image Operation in live/;
+const IS_NOT_REGISTERED_ON_PROVIDER_FAL_PATTERN =
+  /is not registered on provider "fal"/;
+const GENERATE_SPEECH_OPERATION_IN_LIVE_PATTERN =
+  /generate-speech Operation in live/;
+
 const KEY = "fal_key_QZX7_never_leaves_the_provider_0987654321";
 const TOKEN = "temporary-token-abc";
 
@@ -141,7 +150,7 @@ describe("FAL grant", () => {
     });
     await expect(
       provider.grant?.("fal-ai/flux-2/klein/realtime", "generate-image")
-    ).rejects.toThrow(/status 401/);
+    ).rejects.toThrow(STATUS_401_PATTERN);
     await provider
       .grant?.("fal-ai/flux-2/klein/realtime", "generate-image")
       .catch((error: unknown) => {
@@ -169,20 +178,20 @@ describe("FAL grant", () => {
   it("refuses NO_USABLE_PROVIDER without a key, before any mint", async () => {
     await expect(
       falProvider().grant?.("fal-ai/flux-2/klein/realtime", "generate-image")
-    ).rejects.toThrow(/No credentialed provider/);
+    ).rejects.toThrow(NO_CREDENTIALED_PROVIDER_PATTERN);
     expect(sent).toHaveLength(0);
   });
 
   it("refuses CAPABILITY_UNSUPPORTED for a row with only request facts", async () => {
     await expect(
       keyed().grant?.("fal-ai/sam-3/image", "segment-image")
-    ).rejects.toThrow(/does not support the segment-image Operation in live/);
+    ).rejects.toThrow(DOES_NOT_SUPPORT_THE_SEGMENT_IMAGE_OPERATION_PATTERN);
   });
 
   it("refuses MODEL_NOT_REGISTERED for an id the Provider does not carry", async () => {
     await expect(
       keyed().grant?.("vendor/unknown", "generate-image")
-    ).rejects.toThrow(/is not registered on provider "fal"/);
+    ).rejects.toThrow(IS_NOT_REGISTERED_ON_PROVIDER_FAL_PATTERN);
   });
 
   it("answers each live Operation on a row bearing two, and refuses the request-only one", async () => {
@@ -195,6 +204,6 @@ describe("FAL grant", () => {
     ).toBe("token");
     await expect(
       provider.grant?.("vendor/dual", "generate-speech")
-    ).rejects.toThrow(/generate-speech Operation in live/);
+    ).rejects.toThrow(GENERATE_SPEECH_OPERATION_IN_LIVE_PATTERN);
   });
 });

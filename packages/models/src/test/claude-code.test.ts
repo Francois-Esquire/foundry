@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
+const VERSION_DIGIT_PATTERN = /\d/;
+
 const languageModel = vi.fn((modelId: string) => ({ modelId }));
 const createClaudeCode = vi.fn(() => ({ languageModel }));
 
@@ -34,7 +36,7 @@ describe("claudeCodeProvider", () => {
   it("offers only family aliases, never a pinned version", () => {
     for (const model of CLAUDE_CODE_DEFAULT_MODELS) {
       expect(model.id).toBe(model.modelId);
-      expect(model.id).not.toMatch(/\d/);
+      expect(model.id).not.toMatch(VERSION_DIGIT_PATTERN);
     }
   });
 

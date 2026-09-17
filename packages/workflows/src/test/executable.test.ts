@@ -26,6 +26,9 @@ import type { BaseContext } from "../executable";
 
 import { Executable } from "../executable";
 
+const SUSPENDSIGNAL_APPROVAL_NEEDS_HUMAN_PATTERN =
+  /SuspendSignal|approval|needs human/;
+
 // ════════════════════════════════════════════════════════════════════════════
 // 1. Construction
 // ════════════════════════════════════════════════════════════════════════════
@@ -314,7 +317,7 @@ describe("Executable suspend / resolve", () => {
       // Pull SuspendSignal out of the cause; happy with any failure shape
       // that carries one.
       const causeStr = JSON.stringify(cause, null, 2);
-      expect(causeStr).toMatch(/SuspendSignal|approval|needs human/);
+      expect(causeStr).toMatch(SUSPENDSIGNAL_APPROVAL_NEEDS_HUMAN_PATTERN);
     }
   });
 

@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import { chunk } from "../../embeddings/chunk";
 
+const MAXCHARS_0_PATTERN = /maxChars > 0/;
+const MAXCHARS_0_PATTERN_2 = /maxChars > 0/;
+
 describe("chunk — whole strategy", () => {
   it("returns a single non-chunked entry regardless of length", () => {
     const text = "hello world".repeat(1000);
@@ -60,10 +63,10 @@ describe("chunk — fixed-cutoff strategy", () => {
 
   it("rejects non-positive maxChars", () => {
     expect(() => chunk("x", { kind: "fixed-cutoff", maxChars: 0 })).toThrow(
-      /maxChars > 0/
+      MAXCHARS_0_PATTERN
     );
     expect(() => chunk("x", { kind: "fixed-cutoff", maxChars: -1 })).toThrow(
-      /maxChars > 0/
+      MAXCHARS_0_PATTERN_2
     );
   });
 });

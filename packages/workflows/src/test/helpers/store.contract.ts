@@ -16,6 +16,9 @@ import type {
   OrchestratorStore,
 } from "../../store";
 
+const CLAIMJOBRUN_PATTERN = /claimJobRun/;
+const PLAIN_OBJECTS_PATTERN = /plain objects/;
+
 export type StoreFactory = () => OrchestratorStore | Promise<OrchestratorStore>;
 
 export function orchestratorStoreContract(
@@ -101,7 +104,7 @@ export function orchestratorStoreContract(
           queueId: "main",
           step: "documents.generate",
         } as never)
-      ).rejects.toThrow(/claimJobRun/);
+      ).rejects.toThrow(CLAIMJOBRUN_PATTERN);
       const job = await store.createJob({
         definition: { name: "documents.generate" },
         input: null,
@@ -682,7 +685,7 @@ export function orchestratorStoreContract(
           queueId: "main",
           step: "invalid",
         })
-      ).rejects.toThrow(/plain objects/);
+      ).rejects.toThrow(PLAIN_OBJECTS_PATTERN);
 
       const normalized = await store.createRun({
         input: undefined,

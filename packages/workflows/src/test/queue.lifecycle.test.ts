@@ -28,6 +28,9 @@ import {
 } from "./fixtures/steps";
 import { makeInMemoryStore } from "./helpers/store";
 
+const TIMED_OUT_PATTERN = /timed out/i;
+const RUN_ID_PATTERN = /^rn-/;
+
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 const store = makeInMemoryStore();
@@ -431,7 +434,7 @@ describe("Queue — retry / timeout / Bail interaction", () => {
     expect((r as { status: string }).status).toBe("failed");
     expect(
       (r as { status: string; error?: { message?: string } }).error?.message
-    ).toMatch(/timed out/i);
+    ).toMatch(TIMED_OUT_PATTERN);
   });
 
   test("retry × timeout exhaustion: every attempt fires (count == maxAttempts)", async () => {
@@ -608,7 +611,7 @@ describe("Queue — events firehose (queue.on)", () => {
       status: string;
       at: string;
     };
-    expect(completedRun.runId).toMatch(/^rn-/);
+    expect(completedRun.runId).toMatch(RUN_ID_PATTERN);
     expect(completedRun.step).toBe("ev-payload");
     expect(completedRun.status).toBe("complete");
     expect(completedRun.at).toBeTypeOf("string");

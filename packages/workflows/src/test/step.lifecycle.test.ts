@@ -13,6 +13,8 @@ import { describe, expect, it } from "vitest";
 
 import { Step } from "../step";
 
+const CAN_ONLY_SKIP_A_PENDING_STEP_PATTERN = /can only skip a pending step/;
+
 const sleep = (ms: number): Promise<void> =>
   new Promise((r) => setTimeout(r, ms));
 
@@ -98,7 +100,7 @@ describe("step.skip", () => {
     await step.run();
     expect(() => {
       step.skip();
-    }).toThrow(/can only skip a pending step/);
+    }).toThrow(CAN_ONLY_SKIP_A_PENDING_STEP_PATTERN);
   });
 });
 

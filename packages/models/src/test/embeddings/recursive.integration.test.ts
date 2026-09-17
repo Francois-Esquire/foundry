@@ -8,6 +8,8 @@ import type { Chunk } from "../../embeddings/recursive";
 
 import { recursiveChunk } from "../../embeddings/recursive";
 
+const SENTENCE_TERMINATOR_PATTERN = /[.!?}\])"']$/;
+
 // ── corpus assembly (mirrors pipeline.integration.test.ts) ───────────────────
 
 const SRC_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -108,7 +110,7 @@ describe("recursiveChunk — prose splits on paragraph/sentence boundaries", () 
     // Each chunk should end at a sentence/paragraph boundary, never mid-word.
     for (const c of chunks) {
       const trimmed = c.text.trimEnd();
-      expect(/[.!?}\])"']$/.test(trimmed)).toBe(true);
+      expect(SENTENCE_TERMINATOR_PATTERN.test(trimmed)).toBe(true);
     }
     console.log(
       "[recursiveChunk prose @256]",

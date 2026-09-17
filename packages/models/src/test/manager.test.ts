@@ -5,6 +5,15 @@ import { describe, expect, it } from "vitest";
 import { ModelManager } from "../manager";
 import { fakeProvider } from "./helpers/model";
 
+const NOT_REGISTERED_PATTERN = /not registered/;
+const NOT_REGISTERED_PATTERN_2 = /not registered/;
+const IS_KIND_EMBEDDING_PATTERN = /is kind "embedding"/;
+const DOES_NOT_SUPPORT_EMBEDDING_PATTERN = /does not support embedding/;
+const NO_CREDENTIALED_PROVIDER_PATTERN = /No credentialed provider/;
+const NOT_REGISTERED_PATTERN_3 = /not registered/;
+const DOES_NOT_OWN_PROVIDER_A_PATTERN = /does not own provider "a"/;
+const NO_CREDENTIALED_PROVIDER_PATTERN_2 = /No credentialed provider/;
+
 describe("ModelManager registry", () => {
   it("registers providers and looks them up by id", () => {
     const manager = new ModelManager();
@@ -17,7 +26,7 @@ describe("ModelManager registry", () => {
 
   it("get throws on a missing id", () => {
     const manager = new ModelManager();
-    expect(() => manager.get("nope")).toThrow(/not registered/);
+    expect(() => manager.get("nope")).toThrow(NOT_REGISTERED_PATTERN);
   });
 
   it("unregister removes the provider", () => {
@@ -30,7 +39,7 @@ describe("ModelManager registry", () => {
     const manager = new ModelManager();
     expect(() => {
       manager.setDefault("text", { provider: "x" });
-    }).toThrow(/not registered/);
+    }).toThrow(NOT_REGISTERED_PATTERN_2);
   });
 });
 
@@ -99,7 +108,7 @@ describe("ModelManager kind dispatch", () => {
 
   it("rejects a known id of the wrong kind", () => {
     const manager = new ModelManager({ providers: [fakeProvider("a")] });
-    expect(() => manager.model("embed")).toThrow(/is kind "embedding"/);
+    expect(() => manager.model("embed")).toThrow(IS_KIND_EMBEDDING_PATTERN);
   });
 
   it("throws CAPABILITY_UNSUPPORTED when the provider lacks the kind", () => {
@@ -107,18 +116,20 @@ describe("ModelManager kind dispatch", () => {
       providers: [fakeProvider("a", { kinds: [] })],
     });
     expect(() => manager.embedding(undefined, "a")).toThrow(
-      /does not support embedding/
+      DOES_NOT_SUPPORT_EMBEDDING_PATTERN
     );
   });
 
   it("throws when no provider can serve the kind", () => {
     const manager = new ModelManager();
-    expect(() => manager.model()).toThrow(/No credentialed provider/);
+    expect(() => manager.model()).toThrow(NO_CREDENTIALED_PROVIDER_PATTERN);
   });
 
   it("throws when an explicit provider id is not registered", () => {
     const manager = new ModelManager({ providers: [fakeProvider("a")] });
-    expect(() => manager.model("smart", "ghost")).toThrow(/not registered/);
+    expect(() => manager.model("smart", "ghost")).toThrow(
+      NOT_REGISTERED_PATTERN_3
+    );
   });
 
   it("returns a model that declares its route and window, delegating calls to the provider's", () => {
@@ -309,7 +320,7 @@ describe("ModelManager.resolveTextExecutor", () => {
   it("rejects a harness that does not own the selected provider", () => {
     const manager = new ModelManager({ providers: [fakeProvider("a")] });
     expect(() => manager.resolveTextExecutor("smart", "a", "codex")).toThrow(
-      /does not own provider "a"/
+      DOES_NOT_OWN_PROVIDER_A_PATTERN
     );
   });
 
@@ -318,7 +329,7 @@ describe("ModelManager.resolveTextExecutor", () => {
       providers: [fakeProvider("a", { available: false })],
     });
     expect(() => manager.resolveTextExecutor("smart", "a")).toThrow(
-      /No credentialed provider/
+      NO_CREDENTIALED_PROVIDER_PATTERN_2
     );
   });
 });

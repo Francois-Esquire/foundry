@@ -25,6 +25,9 @@ import { Snapshot } from "../snapshot";
 import { Step } from "../step";
 import { bail } from "../types";
 
+const UNPARSEABLE_DURATION_PATTERN = /Unparseable duration/;
+const TIMED_OUT_PATTERN = /timed out/;
+
 // Build a minimal harness — Snapshot + Channels + a root Executable —
 // and a typed event collector. Helpers stay file-local (Phase 2 will
 // extract a shared streams helper across tests/).
@@ -286,7 +289,7 @@ describe("Executable.drive — timeout", () => {
             .pipe(Effect.either);
           expect(result._tag).toBe("Left");
           if (result._tag === "Left") {
-            expect(result.left.message).toMatch(/timed out/);
+            expect(result.left.message).toMatch(TIMED_OUT_PATTERN);
           }
           yield* Effect.sleep(5);
           const tags = h.events.map((e) => e._tag);
@@ -312,7 +315,7 @@ describe("Executable.drive — timeout", () => {
             .pipe(Effect.either);
           expect(result._tag).toBe("Left");
           if (result._tag === "Left") {
-            expect(result.left.message).toMatch(/Unparseable duration/);
+            expect(result.left.message).toMatch(UNPARSEABLE_DURATION_PATTERN);
           }
         })
       )

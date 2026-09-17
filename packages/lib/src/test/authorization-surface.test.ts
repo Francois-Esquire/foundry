@@ -9,6 +9,8 @@ import packageJson from "../../package.json";
 import * as authorization from "../config/authorization";
 import { addressDigest } from "../config/authorization/digest";
 
+const SUSPEND_CALL_PATTERN = /\bsuspend\s*[(:]/;
+
 /**
  * The authorization module's structural claims, pinned rather than asserted in
  * prose.
@@ -135,7 +137,7 @@ describe("@foundry/lib/config/authorization boundaries", () => {
 
   it("owns no suspend port — authorization decides, execution waits", () => {
     for (const file of sourceFiles()) {
-      expect(readFileSync(file, "utf8")).not.toMatch(/\bsuspend\s*[(:]/);
+      expect(readFileSync(file, "utf8")).not.toMatch(SUSPEND_CALL_PATTERN);
     }
   });
 });

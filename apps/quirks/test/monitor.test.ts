@@ -12,6 +12,10 @@ import type { Change, Fetch, MonitorSpec } from "~/monitor";
 import { detector, globToRegExp, resolveMonitor } from "~/monitor";
 import { isRecord, readJson } from "~/state/json";
 
+const SHA_256_HEX_PATTERN = /^[0-9a-f]{64}$/;
+const SHA_256_HEX_PATTERN_2 = /^[0-9a-f]{64}$/;
+const ALREADY_REGISTERED_PATTERN = /already registered/;
+
 afterEach(() => {
   registry.reset();
 });
@@ -99,7 +103,7 @@ describe("files detector", () => {
     const removed = changes[2]?.kind === "files" ? changes[2].removed : [];
     expect(removed).toHaveLength(1);
     expect(removed[0]?.path).toBe("sub/b.md");
-    expect(removed[0]?.checksum).toMatch(/^[0-9a-f]{64}$/);
+    expect(removed[0]?.checksum).toMatch(SHA_256_HEX_PATTERN);
   });
 
   it("round-trips its state through monitors/<name>.json", async () => {
@@ -116,7 +120,7 @@ describe("files detector", () => {
     const stored = readJson(join(state, "monitors", "m.json"));
     const files =
       isRecord(stored) && isRecord(stored.files) ? stored.files : {};
-    expect(files["a.md"]).toMatch(/^[0-9a-f]{64}$/);
+    expect(files["a.md"]).toMatch(SHA_256_HEX_PATTERN_2);
 
     const second = recorder();
     const detect = detector("m", spec, second.handler);
@@ -270,7 +274,7 @@ describe("monitor factory", () => {
     step("taken", () => Promise.resolve(null));
     expect(() => {
       monitor("taken", handler, "*.md");
-    }).toThrow(/already registered/);
+    }).toThrow(ALREADY_REGISTERED_PATTERN);
     expect(registry.schedules.has("taken")).toBe(false);
   });
 });

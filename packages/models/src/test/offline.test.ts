@@ -2,6 +2,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { fakeProvider } from "./helpers/model";
 
+const AIRPLANE_MODE_PATTERN = /Airplane Mode/;
+const NO_MODEL_OF_THIS_KIND_PATTERN = /no model of this kind/;
+const NO_PROVIDER_IS_REGISTERED_PATTERN = /no provider is registered/;
+const LOCAL_MODELS_PATTERN = /Local Models/;
+const NO_PROVIDER_IS_REGISTERED_PATTERN_2 = /no provider is registered/;
+
 const mockLanguageModel = vi.fn(() => ({ tag: "lm" }));
 const mockEmbeddingModel = vi.fn(() => ({ tag: "em" }));
 const mockTranscriptionModel = vi.fn(() => ({ tag: "tm" }));
@@ -63,14 +69,16 @@ describe("Airplane Mode routing", () => {
   it("rejects an explicit non-local provider before invoking it", () => {
     const { manager, cloud } = airplane();
     manager.setOfflineMode(true);
-    expect(() => manager.model(undefined, "cloud")).toThrow(/Airplane Mode/);
+    expect(() => manager.model(undefined, "cloud")).toThrow(
+      AIRPLANE_MODE_PATTERN
+    );
     expect(cloud.calls).toEqual([]);
   });
 
   it("rejects a kind the local role does not serve", () => {
     const { manager } = airplane();
     manager.setOfflineMode(true);
-    expect(() => manager.image()).toThrow(/no model of this kind/);
+    expect(() => manager.image()).toThrow(NO_MODEL_OF_THIS_KIND_PATTERN);
     expect(manager.defaultProviderFor("image")).toBeNull();
   });
 
@@ -79,7 +87,7 @@ describe("Airplane Mode routing", () => {
       providers: [fakeProvider("decoy", { offline: true })],
     });
     manager.setOfflineMode(true);
-    expect(() => manager.model()).toThrow(/no provider is registered/);
+    expect(() => manager.model()).toThrow(NO_PROVIDER_IS_REGISTERED_PATTERN);
     expect(manager.defaultProviderFor("text")).toBeNull();
   });
 
@@ -98,7 +106,7 @@ describe("Airplane Mode routing", () => {
     expect(error?.message).toContain("Airplane Mode is enabled");
     expect(error?.message).toContain('cannot serve "image"');
     expect(error?.message).toContain("No cloud fallback was attempted");
-    expect(error?.fix).toMatch(/Local Models/);
+    expect(error?.fix).toMatch(LOCAL_MODELS_PATTERN);
   });
 
   it("tells providers to stop fetching remote weights", () => {
@@ -140,6 +148,6 @@ describe("local role identity", () => {
     const manager = new ModelManager({ providers: [fakeProvider("local")] });
     expect(manager.local).toBeNull();
     manager.setOfflineMode(true);
-    expect(() => manager.model()).toThrow(/no provider is registered/);
+    expect(() => manager.model()).toThrow(NO_PROVIDER_IS_REGISTERED_PATTERN_2);
   });
 });

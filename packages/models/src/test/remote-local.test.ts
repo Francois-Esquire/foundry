@@ -14,6 +14,11 @@ import type { LocalProviderSurface } from "../local/surface";
 import { ModelManager } from "../manager";
 import { fakeProvider } from "./helpers/model";
 
+const WORKER_EXITED_CRASHED_PATTERN = /worker exited: crashed/;
+const WORKER_EXITED_PATTERN = /worker exited/;
+const WORKER_EXITED_CRASHED_PATTERN_2 = /worker exited: crashed/;
+const AIRPLANE_MODE_PATTERN = /Airplane Mode/;
+
 /** Cross-wired in-memory transports: what one side sends, the other receives. */
 function makeTransportPair() {
   const toWorker = new EventEmitter();
@@ -205,9 +210,11 @@ describe("remote-local bridge", () => {
     const provider = new RemoteLocalProvider({ transport: host });
     const inFlight = provider.download("text");
     killWorker("crashed");
-    await expect(inFlight).rejects.toThrow(/worker exited: crashed/);
+    await expect(inFlight).rejects.toThrow(WORKER_EXITED_CRASHED_PATTERN);
     expect(provider.workerLost).toBe(true);
-    await expect(provider.download("text")).rejects.toThrow(/worker exited/);
+    await expect(provider.download("text")).rejects.toThrow(
+      WORKER_EXITED_PATTERN
+    );
   });
 });
 
@@ -262,10 +269,12 @@ describe("manager integration", () => {
     killWorker("crashed");
 
     await expect(manager.model().doGenerate(callOptions)).rejects.toThrow(
-      /worker exited: crashed/
+      WORKER_EXITED_CRASHED_PATTERN_2
     );
     expect(provider.workerLost).toBe(true);
-    expect(() => manager.model(undefined, "cloud")).toThrow(/Airplane Mode/);
+    expect(() => manager.model(undefined, "cloud")).toThrow(
+      AIRPLANE_MODE_PATTERN
+    );
     expect(cloud.calls).toEqual([]);
   });
 });

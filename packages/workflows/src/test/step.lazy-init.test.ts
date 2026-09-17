@@ -41,6 +41,9 @@ import type { StepSpec } from "../step";
 
 import { Step } from "../step";
 
+const NOT_BOUND_PATTERN = /not bound/;
+const ALREADY_BOUND_PATTERN = /already bound/;
+
 // ════════════════════════════════════════════════════════════════════════════
 // 1. Claimed-unbound — substrate access throws
 // ════════════════════════════════════════════════════════════════════════════
@@ -65,7 +68,7 @@ describe("Step.make — claimed-unbound substrate access", () => {
     // The child is now claimed-unbound. Touching substrate must throw —
     // a parent.run() will bind it; doing it now would create a root
     // substrate that conflicts with the parent's fork.
-    expect(() => child.snapshot).toThrow(/not bound/);
+    expect(() => child.snapshot).toThrow(NOT_BOUND_PATTERN);
   });
 });
 
@@ -207,7 +210,7 @@ describe("Step.make — double-claim", () => {
         input: undefined,
         name: "second-parent",
       });
-    }).toThrow(/already bound/);
+    }).toThrow(ALREADY_BOUND_PATTERN);
   });
 });
 

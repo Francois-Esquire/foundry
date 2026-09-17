@@ -24,6 +24,8 @@ import {
   toSchedule,
 } from "../helpers";
 
+const UNPARSEABLE_DURATION_PATTERN = /Unparseable duration/;
+
 // ════════════════════════════════════════════════════════════════════════════
 // 1. runEffectPromise — typed-failure identity preservation
 // ════════════════════════════════════════════════════════════════════════════
@@ -121,7 +123,7 @@ describe("parseDuration", () => {
   test("unparseable strings throw", () => {
     const cases = ["", "abc", "10x", "1d", "1.2.3s", "100 ms"];
     for (const input of cases) {
-      expect(() => parseDuration(input)).toThrow(/Unparseable duration/);
+      expect(() => parseDuration(input)).toThrow(UNPARSEABLE_DURATION_PATTERN);
     }
   });
 });

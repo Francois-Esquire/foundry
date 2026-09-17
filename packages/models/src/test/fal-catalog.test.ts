@@ -5,6 +5,9 @@ import { ModelManager } from "../manager";
 import { operationsOf } from "../provider";
 import type { CapabilityFact, OperationName } from "../types";
 
+const SEGMENT_VIDEO_PATTERN = /segment-video/;
+const NO_CREDENTIALED_PROVIDER_PATTERN = /No credentialed provider/;
+
 const LIVE_ROWS = {
   h3: "minimax/h3-max/director",
   klein: "fal-ai/flux-2/klein/realtime",
@@ -168,14 +171,14 @@ describe("select over the shipped FAL catalog", () => {
   it("refuses segment-video in live mode", () => {
     expect(() =>
       keyed().select("segment-video", { mode: "live", provider: "fal" })
-    ).toThrow(/segment-video/);
+    ).toThrow(SEGMENT_VIDEO_PATTERN);
   });
 
   it("refuses every Operation when the key is absent", () => {
     const manager = new ModelManager();
     manager.register(falProvider());
     expect(() => manager.select("segment-image", { provider: "fal" })).toThrow(
-      /No credentialed provider/
+      NO_CREDENTIALED_PROVIDER_PATTERN
     );
   });
 

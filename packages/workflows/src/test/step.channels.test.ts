@@ -26,6 +26,9 @@ import type { ChunkPayload } from "../channels";
 import { Step } from "../step";
 import { collectChunks, collectEvents, takePayloads } from "./helpers/streams";
 
+const ISO_TIMESTAMP_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+const WRITE_CIRCULAR_WRITE_PATTERN = /write-circular\.write/;
+
 const sleep = (ms: number): Promise<void> =>
   new Promise((r) => setTimeout(r, ms));
 
@@ -54,9 +57,7 @@ describe("Step.write — chunk delivery + envelope shape", () => {
     expect(envelope?.stepId).toBe(step.name);
     expect(envelope?.payload).toEqual({ kind: "text", text: "hello" });
     expect(typeof envelope?.at).toBe("string");
-    expect(envelope?.at).toMatch(
-      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/
-    );
+    expect(envelope?.at).toMatch(ISO_TIMESTAMP_PATTERN);
     const parsed = envelope ? new Date(envelope.at).getTime() : Number.NaN;
     expect(parsed).toBeGreaterThanOrEqual(before);
   });
@@ -184,7 +185,7 @@ describe("Step.write — assertSerializable guard", () => {
     }).toThrow(TypeError);
     expect(() => {
       step.write(circular);
-    }).toThrow(/write-circular\.write/);
+    }).toThrow(WRITE_CIRCULAR_WRITE_PATTERN);
   });
 });
 
