@@ -47,36 +47,54 @@ export function parseYamlBlock(block: string): Record<string, string> {
       continue;
     }
     const value = (match?.[2] ?? "").trim();
-
-    if (value === ">" || value === "|" || value === ">-" || value === "|-") {
-      const folded = value.startsWith(">");
-      const collected: string[] = [];
-      const baseIndent = indentWidth(lines[i + 1] ?? "");
-      while (i + 1 < lines.length) {
-        const next = lines[i + 1];
-        if (next === undefined) {
-          break;
-        }
-        if (next.trim() === "") {
-          collected.push("");
-          i++;
-          continue;
-        }
-        if (indentWidth(next) < baseIndent) {
-          break;
-        }
-        collected.push(next.slice(baseIndent));
-        i++;
-      }
-      data[key] = folded
-        ? collected.join(" ").replace(/\s+/g, " ").trim()
-        : collected.join("\n").trim();
-    } else {
+    if (!isMultilineValue(value)) {
       data[key] = unquote(value);
+      continue;
     }
+
+    const multiline = collectMultilineValue(lines, i, value);
+    data[key] = multiline.value;
+    i = multiline.lastLine;
   }
 
   return data;
+}
+
+function isMultilineValue(value: string): boolean {
+  return value === ">" || value === "|" || value === ">-" || value === "|-";
+}
+
+function collectMultilineValue(
+  lines: string[],
+  start: number,
+  marker: string
+): { lastLine: number; value: string } {
+  const folded = marker.startsWith(">");
+  const collected: string[] = [];
+  const baseIndent = indentWidth(lines[start + 1] ?? "");
+  let lastLine = start;
+
+  while (lastLine + 1 < lines.length) {
+    const next = lines[lastLine + 1];
+    if (next === undefined) {
+      break;
+    }
+    if (next.trim() === "") {
+      collected.push("");
+      lastLine++;
+      continue;
+    }
+    if (indentWidth(next) < baseIndent) {
+      break;
+    }
+    collected.push(next.slice(baseIndent));
+    lastLine++;
+  }
+
+  const value = folded
+    ? collected.join(" ").replace(/\s+/g, " ").trim()
+    : collected.join("\n").trim();
+  return { lastLine, value };
 }
 
 function indentWidth(line: string): number {

@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 
 import type { SuspensionRequest, SuspensionState } from "../channels";
+// biome-ignore lint/performance/noNamespaceImport: This public-surface test intentionally inspects the complete channels namespace.
 import * as ChannelsPublic from "../channels-public";
 import { contributeQueueConfig } from "../config";
 import { DispatchedWorkflow } from "../dispatched-workflow";
@@ -21,6 +22,7 @@ import {
   SuspensionOccurrenceMismatchError,
 } from "../errors";
 import type { BaseContext } from "../executable";
+// biome-ignore lint/performance/noNamespaceImport: This public-surface test intentionally inspects the complete executable namespace.
 import * as ExecutablePublic from "../executable-public";
 import type { ExecutionRepository } from "../execution-repository";
 import type { OrchestratorLogger, RunLifecycleEvent } from "../logger";
@@ -53,6 +55,7 @@ import type {
 } from "../queue-types";
 import type { RunJournal } from "../run-journal";
 import type { StepSnapshot, StepStatus, WorkflowSnapshot } from "../snapshot";
+// biome-ignore lint/performance/noNamespaceImport: This public-surface test intentionally inspects the complete snapshot namespace.
 import * as SnapshotPublic from "../snapshot-public";
 import type { StepContext, StepSpec } from "../step";
 import { Step } from "../step";

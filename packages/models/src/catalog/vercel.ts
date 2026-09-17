@@ -55,39 +55,49 @@ export function fromVercelRest(
   payload: VercelRestModelList | VercelRestModel[]
 ): ProviderModelDefinition[] {
   const models = Array.isArray(payload) ? payload : payload.data;
-  const rows: ProviderModelDefinition[] = [];
-  for (const model of models) {
-    const kind = KIND_BY_TYPE[model.type ?? ""];
-    if (!(kind && model.id)) {
-      continue;
-    }
+  return models.flatMap((model) => {
+    const definition = vercelDefinition(model);
+    return definition === undefined ? [] : [definition];
+  });
+}
 
-    const costs = normalizeCosts(model.pricing);
-    const capabilities = normalizeTags(model.tags);
-    const contextWindow = model.context_window;
-    const maxTokens = model.max_tokens;
-    const limits = {
-      ...(contextWindow === null || contextWindow === undefined
-        ? {}
-        : { maxInputTokens: contextWindow }),
-      ...(maxTokens === null || maxTokens === undefined
-        ? {}
-        : { maxOutputTokens: maxTokens }),
-    };
-
-    rows.push({
-      id: model.id,
-      kind,
-      modelId: model.id,
-      ...(model.name ? { label: model.name } : {}),
-      ...(model.description ? { description: model.description } : {}),
-      ...(model.owned_by ? { vendor: model.owned_by } : {}),
-      ...(costs ? { costs } : {}),
-      ...(Object.keys(limits).length > 0 ? { limits } : {}),
-      ...(capabilities ? { capabilities } : {}),
-    });
+function vercelDefinition(
+  model: VercelRestModel
+): ProviderModelDefinition | undefined {
+  const kind = KIND_BY_TYPE[model.type ?? ""];
+  if (!(kind && model.id)) {
+    return undefined;
   }
-  return rows;
+
+  const costs = normalizeCosts(model.pricing);
+  const capabilities = normalizeTags(model.tags);
+  const limits = tokenLimits(model.context_window, model.max_tokens);
+  return {
+    id: model.id,
+    kind,
+    modelId: model.id,
+    ...(model.name ? { label: model.name } : {}),
+    ...(model.description ? { description: model.description } : {}),
+    ...(model.owned_by ? { vendor: model.owned_by } : {}),
+    ...(costs ? { costs } : {}),
+    ...(limits ? { limits } : {}),
+    ...(capabilities ? { capabilities } : {}),
+  };
+}
+
+function tokenLimits(
+  contextWindow: number | null | undefined,
+  maxTokens: number | null | undefined
+): { maxInputTokens?: number; maxOutputTokens?: number } | undefined {
+  const limits = {
+    ...(contextWindow === null || contextWindow === undefined
+      ? {}
+      : { maxInputTokens: contextWindow }),
+    ...(maxTokens === null || maxTokens === undefined
+      ? {}
+      : { maxOutputTokens: maxTokens }),
+  };
+  return Object.keys(limits).length > 0 ? limits : undefined;
 }
 
 /** Parse a per-token decimal string into USD per 1M tokens. */

@@ -41,6 +41,7 @@ class SuspendingStep extends Step<void, string> {
   readonly definitionKey = "matrix.suspend";
 
   protected async execute(
+    // biome-ignore lint/suspicious/noConfusingVoidType: The Step<void, string> contract models a deliberately argumentless definition.
     _input: void,
     context: StepContext<void, string>
   ): Promise<string> {
@@ -53,6 +54,7 @@ class ForkingStep extends Step<void, string> {
   child: Step<undefined, string> | undefined;
 
   protected async execute(
+    // biome-ignore lint/suspicious/noConfusingVoidType: The Step<void, string> contract models a deliberately argumentless definition.
     _input: void,
     context: StepContext<void, string>
   ): Promise<string> {

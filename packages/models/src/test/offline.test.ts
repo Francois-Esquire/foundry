@@ -40,6 +40,7 @@ beforeEach(() => {
   mockLanguageModel.mockClear();
   mockEmbeddingModel.mockClear();
   mockTranscriptionModel.mockClear();
+  // biome-ignore lint/performance/noDelete: The fixture must restore property absence, which differs from an undefined property.
   delete transformersEnv.allowRemoteModels;
 });
 

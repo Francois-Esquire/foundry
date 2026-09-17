@@ -30,42 +30,52 @@ const KIND_BY_MODE: Record<string, ModelKind> = {
 export function fromGateway(
   groups: GatewayModelGroup[]
 ): ProviderModelDefinition[] {
-  const rows: ProviderModelDefinition[] = [];
-  for (const group of groups) {
-    const kind = KIND_BY_MODE[group.mode ?? ""];
-    if (!(kind && group.model_group)) {
-      continue;
-    }
+  return groups.flatMap((group) => {
+    const definition = gatewayDefinition(group);
+    return definition === undefined ? [] : [definition];
+  });
+}
 
-    const costs = normalizeCosts(group);
-    const capabilities = normalizeFlags(group);
-    const params = group.supported_openai_params?.length
-      ? group.supported_openai_params
-      : undefined;
-    const maxInputTokens = group.max_input_tokens;
-    const maxOutputTokens = group.max_output_tokens;
-    const limits = {
-      ...(maxInputTokens === null || maxInputTokens === undefined
-        ? {}
-        : { maxInputTokens }),
-      ...(maxOutputTokens === null || maxOutputTokens === undefined
-        ? {}
-        : { maxOutputTokens }),
-    };
-
-    rows.push({
-      id: group.model_group,
-      kind,
-      label: group.model_group,
-      modelId: group.model_group,
-      ...(group.providers?.[0] ? { vendor: group.providers[0] } : {}),
-      ...(costs ? { costs } : {}),
-      ...(Object.keys(limits).length > 0 ? { limits } : {}),
-      ...(capabilities ? { capabilities } : {}),
-      ...(params ? { params } : {}),
-    });
+function gatewayDefinition(
+  group: GatewayModelGroup
+): ProviderModelDefinition | undefined {
+  const kind = KIND_BY_MODE[group.mode ?? ""];
+  if (!(kind && group.model_group)) {
+    return undefined;
   }
-  return rows;
+
+  const costs = normalizeCosts(group);
+  const capabilities = normalizeFlags(group);
+  const params = group.supported_openai_params?.length
+    ? group.supported_openai_params
+    : undefined;
+  const limits = tokenLimits(group.max_input_tokens, group.max_output_tokens);
+  return {
+    id: group.model_group,
+    kind,
+    label: group.model_group,
+    modelId: group.model_group,
+    ...(group.providers?.[0] ? { vendor: group.providers[0] } : {}),
+    ...(costs ? { costs } : {}),
+    ...(limits ? { limits } : {}),
+    ...(capabilities ? { capabilities } : {}),
+    ...(params ? { params } : {}),
+  };
+}
+
+function tokenLimits(
+  maxInputTokens: number | null | undefined,
+  maxOutputTokens: number | null | undefined
+): { maxInputTokens?: number; maxOutputTokens?: number } | undefined {
+  const limits = {
+    ...(maxInputTokens === null || maxInputTokens === undefined
+      ? {}
+      : { maxInputTokens }),
+    ...(maxOutputTokens === null || maxOutputTokens === undefined
+      ? {}
+      : { maxOutputTokens }),
+  };
+  return Object.keys(limits).length > 0 ? limits : undefined;
 }
 
 function normalizeCosts(group: GatewayModelGroup): ModelCosts | undefined {

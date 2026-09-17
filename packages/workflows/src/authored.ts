@@ -303,191 +303,296 @@ export function validateLinear(
     }
   });
 
+  const context: ValidationContext = {
+    entries,
+    firstIndexByKey,
+    placements: plan.placements,
+    runInputByKey,
+  };
   plan.placements.forEach((placement, index) => {
-    const { key: placementKey, step } = placement;
-    const entry = entries.get(step);
-    const flag = (f: {
-      boundary: IssueBoundary;
-      key?: string;
-      code: Issue["code"];
-      reason: string;
-    }): void => {
-      issues.push(makeIssue({ placement: placementKey, step, ...f }));
-    };
-
-    // Admission and availability — plan-relative, but the address carries the
-    // Step name. When absent or unavailable, contract-dependent rules skip.
-    let contract: StepContract | undefined;
-    if (entry === undefined) {
-      flag({
-        boundary: "placement",
-        code: "step-not-admitted",
-        reason: REASON.stepNotAdmitted,
-      });
-    } else if (entry.availability.status === "unavailable") {
-      flag({
-        boundary: "placement",
-        code: "step-unavailable",
-        reason: entry.availability.reason,
-      });
-    } else {
-      contract = entry.contract;
-    }
-
-    const contractInput = new Map(
-      (contract?.inputs ?? []).map((i) => [i.key, i])
-    );
-
-    for (const [inputKey, assignment] of Object.entries(placement.inputs)) {
-      const ic = contract ? contractInput.get(inputKey) : undefined;
-
-      if (assignment.source === "run") {
-        const runInput = runInputByKey.get(assignment.input);
-        // Plan-only: the named Run-start Input must exist.
-        if (runInput === undefined) {
-          flag({
-            boundary: "run-input",
-            code: "unknown-run-input",
-            key: inputKey,
-            reason: REASON.unknownRunInput,
-          });
-        }
-        if (contract) {
-          if (ic === undefined) {
-            flag({
-              boundary: "input",
-              code: "unknown-input",
-              key: inputKey,
-              reason: REASON.unknownInput,
-            });
-          } else if (runInput !== undefined) {
-            if (runInput.type !== ic.type) {
-              flag({
-                boundary: "run-input",
-                code: "type-mismatch",
-                key: inputKey,
-                reason: REASON.runTypeMismatch,
-              });
-            } else if (ic.required && !runInput.required) {
-              flag({
-                boundary: "run-input",
-                code: "missing-required",
-                key: inputKey,
-                reason: `requires an assignment, but Run-start Input ${runInput.key} is optional`,
-              });
-            }
-          }
-        }
-        continue;
-      }
-
-      if (assignment.source === "connection") {
-        const sourceIndex = firstIndexByKey.get(assignment.placement);
-        const resolvesEarlier =
-          sourceIndex !== undefined && sourceIndex < index;
-        // Plan-only: the source must exist and be strictly earlier.
-        if (sourceIndex === undefined) {
-          flag({
-            boundary: "connection",
-            code: "unknown-placement",
-            key: inputKey,
-            reason: REASON.unknownPlacement,
-          });
-        } else if (!resolvesEarlier) {
-          flag({
-            boundary: "connection",
-            code: "forward-connection",
-            key: inputKey,
-            reason: REASON.forwardConnection,
-          });
-        }
-
-        // Source- and both-contract rules only apply to a resolved earlier
-        // producer that is itself admitted and available.
-        const sourcePlacement = resolvesEarlier
-          ? plan.placements[sourceIndex]
-          : undefined;
-        const sourceEntry = sourcePlacement
-          ? entries.get(sourcePlacement.step)
-          : undefined;
-        const sourceContract =
-          sourceEntry?.availability.status === "available"
-            ? sourceEntry.contract
-            : undefined;
-
-        if (sourceContract) {
-          if (sourceContract.result === null) {
-            flag({
-              boundary: "connection",
-              code: "no-result",
-              key: inputKey,
-              reason: REASON.noResult,
-            });
-          }
-          if (
-            contract &&
-            ic !== undefined &&
-            sourceContract.result !== null &&
-            sourceContract.result.type !== ic.type
-          ) {
-            flag({
-              boundary: "connection",
-              code: "type-mismatch",
-              key: inputKey,
-              reason: REASON.connectionTypeMismatch,
-            });
-          }
-        }
-
-        if (contract && ic === undefined) {
-          flag({
-            boundary: "input",
-            code: "unknown-input",
-            key: inputKey,
-            reason: REASON.unknownInput,
-          });
-        }
-        continue;
-      }
-
-      // source === "setting"
-      if (contract) {
-        if (ic === undefined) {
-          flag({
-            boundary: "input",
-            code: "unknown-input",
-            key: inputKey,
-            reason: REASON.unknownInput,
-          });
-        } else if (!settingSatisfies(ic.type, assignment.value)) {
-          flag({
-            boundary: "input",
-            code: "type-mismatch",
-            key: inputKey,
-            reason: REASON.settingTypeMismatch,
-          });
-        }
-      }
-    }
-
-    // missing-required sweep — contract-dependent, after per-assignment rules.
-    if (contract) {
-      for (const ic of contract.inputs) {
-        if (ic.required && placement.inputs[ic.key] === undefined) {
-          flag({
-            boundary: "input",
-            code: "missing-required",
-            key: ic.key,
-            reason: REASON.missingRequired,
-          });
-        }
-      }
-    }
+    validatePlacement(placement, index, context, issues);
   });
 
   return issues.length === 0
     ? { executable: true, issues: [] }
     : { executable: false, issues };
+}
+
+type FlagIssue = (fields: {
+  boundary: IssueBoundary;
+  key?: string;
+  code: Issue["code"];
+  reason: string;
+}) => void;
+
+interface ValidationContext {
+  entries: ReadonlyMap<string, StepEntry>;
+  firstIndexByKey: ReadonlyMap<string, number>;
+  placements: readonly Placement[];
+  runInputByKey: ReadonlyMap<string, RunInput>;
+}
+
+function validatePlacement(
+  placement: Placement,
+  index: number,
+  context: ValidationContext,
+  issues: Issue[]
+): void {
+  const flag = placementFlag(placement, issues);
+  const contract = admittedContract(placement.step, context.entries, flag);
+  const contractInput = new Map(
+    (contract?.inputs ?? []).map((input) => [input.key, input])
+  );
+
+  for (const [inputKey, assignment] of Object.entries(placement.inputs)) {
+    validateAssignment(
+      assignment,
+      inputKey,
+      index,
+      contract,
+      contractInput.get(inputKey),
+      context,
+      flag
+    );
+  }
+  if (contract) {
+    validateMissingRequired(placement, contract, flag);
+  }
+}
+
+function placementFlag(placement: Placement, issues: Issue[]): FlagIssue {
+  return (fields) => {
+    issues.push(
+      makeIssue({ placement: placement.key, step: placement.step, ...fields })
+    );
+  };
+}
+
+function admittedContract(
+  step: string,
+  entries: ReadonlyMap<string, StepEntry>,
+  flag: FlagIssue
+): StepContract | undefined {
+  const entry = entries.get(step);
+  if (entry === undefined) {
+    flag({
+      boundary: "placement",
+      code: "step-not-admitted",
+      reason: REASON.stepNotAdmitted,
+    });
+    return undefined;
+  }
+  if (entry.availability.status === "unavailable") {
+    flag({
+      boundary: "placement",
+      code: "step-unavailable",
+      reason: entry.availability.reason,
+    });
+    return undefined;
+  }
+  return entry.contract;
+}
+
+function validateAssignment(
+  assignment: Assignment,
+  inputKey: string,
+  index: number,
+  contract: StepContract | undefined,
+  inputContract: InputContract | undefined,
+  context: ValidationContext,
+  flag: FlagIssue
+): void {
+  if (assignment.source === "run") {
+    validateRunAssignment(
+      assignment,
+      inputKey,
+      contract,
+      inputContract,
+      context.runInputByKey,
+      flag
+    );
+    return;
+  }
+  if (assignment.source === "connection") {
+    validateConnectionAssignment(
+      assignment,
+      inputKey,
+      index,
+      contract,
+      inputContract,
+      context,
+      flag
+    );
+    return;
+  }
+  validateSettingAssignment(
+    assignment,
+    inputKey,
+    contract,
+    inputContract,
+    flag
+  );
+}
+
+function validateRunAssignment(
+  assignment: Extract<Assignment, { source: "run" }>,
+  inputKey: string,
+  contract: StepContract | undefined,
+  inputContract: InputContract | undefined,
+  runInputs: ReadonlyMap<string, RunInput>,
+  flag: FlagIssue
+): void {
+  const runInput = runInputs.get(assignment.input);
+  if (runInput === undefined) {
+    flag({
+      boundary: "run-input",
+      code: "unknown-run-input",
+      key: inputKey,
+      reason: REASON.unknownRunInput,
+    });
+  }
+  if (!contract) {
+    return;
+  }
+  if (inputContract === undefined) {
+    flag({
+      boundary: "input",
+      code: "unknown-input",
+      key: inputKey,
+      reason: REASON.unknownInput,
+    });
+    return;
+  }
+  if (runInput === undefined) {
+    return;
+  }
+  if (runInput.type !== inputContract.type) {
+    flag({
+      boundary: "run-input",
+      code: "type-mismatch",
+      key: inputKey,
+      reason: REASON.runTypeMismatch,
+    });
+  } else if (inputContract.required && !runInput.required) {
+    flag({
+      boundary: "run-input",
+      code: "missing-required",
+      key: inputKey,
+      reason: `requires an assignment, but Run-start Input ${runInput.key} is optional`,
+    });
+  }
+}
+
+function validateConnectionAssignment(
+  assignment: Extract<Assignment, { source: "connection" }>,
+  inputKey: string,
+  index: number,
+  contract: StepContract | undefined,
+  inputContract: InputContract | undefined,
+  context: ValidationContext,
+  flag: FlagIssue
+): void {
+  const sourceIndex = context.firstIndexByKey.get(assignment.placement);
+  const resolvesEarlier = sourceIndex !== undefined && sourceIndex < index;
+  if (sourceIndex === undefined) {
+    flag({
+      boundary: "connection",
+      code: "unknown-placement",
+      key: inputKey,
+      reason: REASON.unknownPlacement,
+    });
+  } else if (!resolvesEarlier) {
+    flag({
+      boundary: "connection",
+      code: "forward-connection",
+      key: inputKey,
+      reason: REASON.forwardConnection,
+    });
+  }
+  const sourcePlacement = resolvesEarlier
+    ? context.placements[sourceIndex]
+    : undefined;
+  const sourceEntry = sourcePlacement
+    ? context.entries.get(sourcePlacement.step)
+    : undefined;
+  const sourceContract =
+    sourceEntry?.availability.status === "available"
+      ? sourceEntry.contract
+      : undefined;
+  if (sourceContract?.result === null) {
+    flag({
+      boundary: "connection",
+      code: "no-result",
+      key: inputKey,
+      reason: REASON.noResult,
+    });
+  }
+  if (
+    contract &&
+    inputContract !== undefined &&
+    sourceContract?.result !== null &&
+    sourceContract?.result !== undefined &&
+    sourceContract.result.type !== inputContract.type
+  ) {
+    flag({
+      boundary: "connection",
+      code: "type-mismatch",
+      key: inputKey,
+      reason: REASON.connectionTypeMismatch,
+    });
+  }
+  if (contract && inputContract === undefined) {
+    flag({
+      boundary: "input",
+      code: "unknown-input",
+      key: inputKey,
+      reason: REASON.unknownInput,
+    });
+  }
+}
+
+function validateSettingAssignment(
+  assignment: Extract<Assignment, { source: "setting" }>,
+  inputKey: string,
+  contract: StepContract | undefined,
+  inputContract: InputContract | undefined,
+  flag: FlagIssue
+): void {
+  if (!contract) {
+    return;
+  }
+  if (inputContract === undefined) {
+    flag({
+      boundary: "input",
+      code: "unknown-input",
+      key: inputKey,
+      reason: REASON.unknownInput,
+    });
+  } else if (!settingSatisfies(inputContract.type, assignment.value)) {
+    flag({
+      boundary: "input",
+      code: "type-mismatch",
+      key: inputKey,
+      reason: REASON.settingTypeMismatch,
+    });
+  }
+}
+
+function validateMissingRequired(
+  placement: Placement,
+  contract: StepContract,
+  flag: FlagIssue
+): void {
+  for (const input of contract.inputs) {
+    if (input.required && placement.inputs[input.key] === undefined) {
+      flag({
+        boundary: "input",
+        code: "missing-required",
+        key: input.key,
+        reason: REASON.missingRequired,
+      });
+    }
+  }
 }
 
 // ═════════════════════════════════════════════════════════════════════════════

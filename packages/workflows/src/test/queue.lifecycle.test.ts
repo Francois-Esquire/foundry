@@ -677,9 +677,9 @@ describe("Queue — events firehose (queue.on)", () => {
     // failure or DAO write rejection is brittle without a fault-injection
     // seam, so the deeper integration tests are deferred.
     const queue = new Queue({ concurrency: 1, store });
-    const unsubR = queue.on("restarted", () => {});
-    const unsubF = queue.on("queue_failed", () => {});
-    const unsubP = queue.on("persist_failed", () => {});
+    const unsubR = queue.on("restarted", () => undefined);
+    const unsubF = queue.on("queue_failed", () => undefined);
+    const unsubP = queue.on("persist_failed", () => undefined);
     expect(typeof unsubR).toBe("function");
     expect(typeof unsubF).toBe("function");
     expect(typeof unsubP).toBe("function");

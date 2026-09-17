@@ -1247,6 +1247,7 @@ export class Queue {
     workflow: ReturnType<typeof workflowEffectAccess>
   ): Effect.Effect<RunFinishOutcome, Error> {
     const self = this;
+    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Terminal settlement keeps persistence, cancellation authority, events, and promise settlement in their required order.
     return Effect.gen(function* () {
       let status = run.status;
       if (status === "complete" || status === "failed") {
@@ -1668,7 +1669,6 @@ export class Queue {
 }
 
 function withoutStatus(fields: UpdateRunInput): Omit<UpdateRunInput, "status"> {
-  const patch = { ...fields };
-  delete patch.status;
+  const { status: _status, ...patch } = fields;
   return patch;
 }

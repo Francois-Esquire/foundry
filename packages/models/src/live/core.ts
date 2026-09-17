@@ -354,12 +354,15 @@ export async function openCore(request: CoreRequest): Promise<LiveCore> {
     });
   }
   // The fact fixes the transport; no host, runtime, or environment check.
-  const connect =
-    fact.delivery === "continuous"
-      ? request.connect.webrtc
-      : fact.delivery === "result-per-input"
-        ? request.connect.socket
-        : null;
+  let connect:
+    | typeof request.connect.webrtc
+    | typeof request.connect.socket
+    | null = null;
+  if (fact.delivery === "continuous") {
+    connect = request.connect.webrtc;
+  } else if (fact.delivery === "result-per-input") {
+    connect = request.connect.socket;
+  }
   if (connect === null) {
     throw modelErrors.LIVE_OPEN_REFUSED({
       reason: `delivery "${fact.delivery}" is not a live transport`,

@@ -21,18 +21,18 @@ export function parseArgs(argv: readonly string[]): Args {
   let state = join(homedir(), ".foundry", "quirks");
   let inputJson: string | undefined;
 
-  for (let i = 0; i < argv.length; i += 1) {
-    const arg = argv[i];
+  const argumentsIterator = argv.values();
+  for (const arg of argumentsIterator) {
     if (arg === "--dry") {
       dry = true;
     } else if (arg === "--config") {
-      config = argv[++i] ?? config;
+      config = argumentsIterator.next().value ?? config;
     } else if (arg === "--state") {
-      state = argv[++i] ?? state;
+      state = argumentsIterator.next().value ?? state;
     } else if (arg === "--input") {
-      inputJson = argv[++i];
+      inputJson = argumentsIterator.next().value;
     } else if (arg === "--harness") {
-      const id = argv[++i];
+      const id = argumentsIterator.next().value;
       if (id) {
         only.push(id);
       }

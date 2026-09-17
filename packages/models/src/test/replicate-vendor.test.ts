@@ -43,14 +43,12 @@ describe.skipIf(!TOKEN)("Replicate vendor obligations", () => {
     // PNG, JPEG, and WebP are distinguishable by their leading bytes, which is
     // the only MIME evidence the adapter passes through.
     const signature = Buffer.from(first.subarray(0, 12));
-    const observed = signature
-      .subarray(8, 12)
-      .toString("ascii")
-      .startsWith("WEBP")
-      ? "image/webp"
-      : signature[0] === 0x89
-        ? "image/png"
-        : "image/jpeg";
+    let observed = "image/jpeg";
+    if (signature.subarray(8, 12).toString("ascii").startsWith("WEBP")) {
+      observed = "image/webp";
+    } else if (signature[0] === 0x89) {
+      observed = "image/png";
+    }
     expect(observed).toBe(fact?.outputs[0]);
   });
 });

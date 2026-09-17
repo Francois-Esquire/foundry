@@ -40,7 +40,8 @@ function fakeBackend(parts = 3): CodeChunkerBackend {
     hasLanguage: () => true,
     process: (source: string) => {
       const size = Math.ceil(source.length / parts);
-      const chunks = [];
+      const chunks: { content: string; endByte: number; startByte: number }[] =
+        [];
       for (let i = 0; i < source.length; i += size) {
         chunks.push({
           content: source.slice(i, i + size),

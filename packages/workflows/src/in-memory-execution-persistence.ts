@@ -902,11 +902,13 @@ function matchesStatus<T extends string>(
   status: T,
   query: T | readonly T[] | undefined
 ): boolean {
-  return query === undefined
-    ? true
-    : typeof query === "string"
-      ? status === query
-      : query.includes(status);
+  if (query === undefined) {
+    return true;
+  }
+  if (typeof query === "string") {
+    return status === query;
+  }
+  return query.includes(status);
 }
 
 function matchesLinks<T extends object>(

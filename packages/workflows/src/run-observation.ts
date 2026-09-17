@@ -158,6 +158,7 @@ export class RunObservationJournal {
     });
   }
 
+  // biome-ignore-start lint/complexity/noExcessiveCognitiveComplexity: Replay reconciliation and live subscription share one per-run lock so no frame can fall between them.
   observe(
     runId: string,
     options: ObserveRunOptions = {}
@@ -243,6 +244,7 @@ export class RunObservationJournal {
     });
   }
 
+  // biome-ignore-end lint/complexity/noExcessiveCognitiveComplexity: End the replay-and-subscription lock contract.
   fail(runId: string, error: unknown): Promise<void> {
     return this.#withRunLock(runId, () => {
       const failure = toError(error);

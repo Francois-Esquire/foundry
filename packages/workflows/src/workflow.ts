@@ -222,6 +222,7 @@ export abstract class Workflow<
    */
   #runId: string | undefined;
 
+  // biome-ignore lint/style/useUnifiedTypeSignatures: The public no-argument constructor and internal runtime constructor have different declaration visibility.
   constructor();
   /** @internal */
   constructor(args: WorkflowRuntime<I, O, X>);

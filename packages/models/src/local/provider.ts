@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events";
+import type { Dirent } from "node:fs";
 import { access, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import type {
@@ -364,12 +365,12 @@ export class LocalProvider implements LocalProviderSurface {
     const prev = files.get(event.file);
     const total = event.total ?? prev?.total ?? 0;
     const loaded = event.loaded ?? prev?.loaded ?? 0;
-    const progress =
-      typeof event.progress === "number"
-        ? clamp01(event.progress / 100)
-        : total > 0
-          ? clamp01(loaded / total)
-          : 0;
+    let progress = 0;
+    if (typeof event.progress === "number") {
+      progress = clamp01(event.progress / 100);
+    } else if (total > 0) {
+      progress = clamp01(loaded / total);
+    }
     files.set(event.file, { file: event.file, loaded, progress, total });
   }
 
@@ -532,7 +533,7 @@ export async function modelWeightsPresent(dir: string): Promise<boolean> {
 }
 
 async function hasNonEmptyOnnx(dir: string): Promise<boolean> {
-  let entries;
+  let entries: Dirent[];
   try {
     entries = await readdir(dir, { withFileTypes: true });
   } catch {

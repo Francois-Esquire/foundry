@@ -34,7 +34,7 @@ describe("Queue — construction", () => {
 
   test("preserves an optional logger config on the instance", () => {
     const logger = {
-      on: () => {},
+      on: () => undefined,
     };
     const queue = new Queue({ concurrency: 1, logger, store });
     expect(queue.options.logger).toBe(logger);

@@ -181,6 +181,7 @@ describe("withStepHooks — success composition", () => {
     const first = make();
     await expect(first.run()).resolves.toBe(6);
     const recoveredRecords = { ...first.steps };
+    // biome-ignore lint/performance/noDelete: Recovery requires the snapshot key to be absent, not present with an undefined value.
     delete recoveredRecords["success-recovery"];
 
     const recovered = make();
@@ -376,6 +377,7 @@ describe("withStepHooks — body failure", () => {
     const first = make();
     await expect(first.run()).rejects.toThrow("persist me");
     const recoveredRecords = { ...first.steps };
+    // biome-ignore lint/performance/noDelete: Recovery requires the snapshot key to be absent, not present with an undefined value.
     delete recoveredRecords["failure-recovery"];
 
     const recovered = make();
@@ -559,6 +561,7 @@ describe("withStepHooks — suspension outcomes", () => {
     const firstError = await captureError(() => first.run());
     expect(isSuspendSignal(firstError)).toBe(true);
     const records: Record<string, StepSnapshot> = { ...first.steps };
+    // biome-ignore lint/performance/noDelete: Recovery requires the snapshot key to be absent, not present with an undefined value.
     delete records["suspension-recovery"];
 
     const recovered = make();

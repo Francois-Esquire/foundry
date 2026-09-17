@@ -9,6 +9,7 @@ import type {
   JobLinks,
   JobQuery,
   JobRecord,
+  JobStatus,
   JsonValue,
   OrchestratorStore,
   Page,
@@ -126,13 +127,12 @@ export class JobLifecycle {
             status: "complete",
           })
         ).items.length > 0;
-    const nextStatus = active
-      ? active.status === "suspended"
-        ? "waiting"
-        : "active"
-      : completed
-        ? "complete"
-        : "pending";
+    let nextStatus: JobStatus;
+    if (active) {
+      nextStatus = active.status === "suspended" ? "waiting" : "active";
+    } else {
+      nextStatus = completed ? "complete" : "pending";
+    }
     if (nextStatus === job.status) {
       return job;
     }

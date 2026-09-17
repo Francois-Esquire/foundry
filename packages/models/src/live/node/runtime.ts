@@ -69,8 +69,10 @@ export function installWebRtc(): void {
         value,
         writable: true,
       });
-    } catch {
-      throw modelErrors.WEBRTC_UNAVAILABLE({ symbol: name });
+    } catch (cause) {
+      const unavailable = modelErrors.WEBRTC_UNAVAILABLE({ symbol: name });
+      unavailable.cause = cause;
+      throw unavailable;
     }
     if (!(name in globalThis)) {
       throw modelErrors.WEBRTC_UNAVAILABLE({ symbol: name });

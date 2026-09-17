@@ -11,6 +11,7 @@ import type {
   CreateJobRunInput,
   JobRecord,
   JobRunClaim,
+  RunFrame,
   RunRecord,
   SuspensionRecord,
   UpdateJobInput,
@@ -238,7 +239,7 @@ describe("Orchestrator explicit controls", () => {
       status: "cancelled",
     });
     const observation = await orchestrator.observe(run.id);
-    const frames = [];
+    const frames: RunFrame[] = [];
     for await (const frame of observation) {
       frames.push(frame);
     }

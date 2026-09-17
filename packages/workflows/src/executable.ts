@@ -558,6 +558,7 @@ export class Executable<I = unknown, X extends BaseContext = BaseContext> {
       return base as unknown as StepContext<unknown, O>;
     };
 
+    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: This sequential execution state machine preserves pause, retry, cancellation, and lifecycle-event ordering in one Effect scope.
     return Effect.gen(function* () {
       // ── Pre-exec short-circuits (stepMode) ──
       // Skip / aborted / persisted-complete short-circuit without firing

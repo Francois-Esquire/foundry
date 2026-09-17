@@ -357,9 +357,11 @@ export class Orchestrator {
     resolution?: JsonValue,
     options?: ResolveSuspensionOptions
   ): Factory<I, O, X> | Promise<SuspensionRecord> {
+    // biome-ignore-start lint/complexity/noArguments lint/correctness/noUndeclaredVariables: One argument selects factory resolution; explicit undefined selects suspension resolution.
     if (arguments.length === 1) {
       return this.registry.resolve<I, O, X>(nameOrSuspensionId);
     }
+    // biome-ignore-end lint/complexity/noArguments lint/correctness/noUndeclaredVariables: End the overload dispatch that preserves argument-count semantics.
     return this.#suspensions.resolve(
       nameOrSuspensionId,
       resolution as JsonValue,
@@ -633,10 +635,9 @@ export class Orchestrator {
         logger: this.#logger,
         onRunCancelled: (runId, runPatch) =>
           this.#suspensions.cancelRun(runId, runPatch),
-        onRunSuspended: (runId, step, suspension, runPatch) =>
-          this.#suspensions
-            .park(runId, step, suspension, runPatch)
-            .then(() => undefined),
+        onRunSuspended: async (runId, step, suspension, runPatch) => {
+          await this.#suspensions.park(runId, step, suspension, runPatch);
+        },
         store: this.store,
       });
       this.#attachQueueObservation(queue);

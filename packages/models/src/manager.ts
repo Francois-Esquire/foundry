@@ -360,7 +360,7 @@ export class ModelManager {
       return local && servesKind(local, kind) ? local.id : null;
     }
     const usable = (p: Provider | undefined): p is Provider =>
-      p !== undefined && p.available && !p.offline && servesKind(p, kind);
+      p?.available === true && !p.offline && servesKind(p, kind);
     const preferred = this._providers.get(
       this._defaults.get(kind)?.provider ?? ""
     );

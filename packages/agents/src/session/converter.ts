@@ -129,12 +129,7 @@ function toToolPart(
       toolCallId: call.toolCallId,
       type,
       ...meta,
-      approval: {
-        approved: false,
-        id: request.approvalId,
-        ...(response.reason === undefined ? {} : { reason: response.reason }),
-        ...(signature === undefined ? {} : { signature }),
-      },
+      approval: rejectedApproval(request, response, signature),
     };
   }
 
@@ -145,27 +140,20 @@ function toToolPart(
       toolCallId: call.toolCallId,
       type,
       ...meta,
-      approval: {
-        id: request.approvalId,
-        ...(signature === undefined ? {} : { signature }),
-      },
+      approval: pendingApproval(request, signature),
     };
   }
 
+  const approval = approvedApproval(request, response, signature);
   if (!result) {
-    if (request && response?.approved) {
+    if (approval) {
       return {
         input: call.input,
         state: "approval-responded",
         toolCallId: call.toolCallId,
         type,
         ...meta,
-        approval: {
-          approved: true,
-          id: request.approvalId,
-          ...(response.reason === undefined ? {} : { reason: response.reason }),
-          ...(signature === undefined ? {} : { signature }),
-        },
+        approval,
       };
     }
     return {
@@ -178,22 +166,6 @@ function toToolPart(
   }
 
   if (result.isError) {
-    if (request && response?.approved) {
-      return {
-        errorText: stringifyValue(result.output),
-        input: call.input,
-        state: "output-error",
-        toolCallId: call.toolCallId,
-        type,
-        ...meta,
-        approval: {
-          approved: true,
-          id: request.approvalId,
-          ...(response.reason === undefined ? {} : { reason: response.reason }),
-          ...(signature === undefined ? {} : { signature }),
-        },
-      };
-    }
     return {
       errorText: stringifyValue(result.output),
       input: call.input,
@@ -201,25 +173,10 @@ function toToolPart(
       toolCallId: call.toolCallId,
       type,
       ...meta,
+      ...(approval ? { approval } : {}),
     };
   }
 
-  if (request && response?.approved) {
-    return {
-      input: call.input,
-      output: result.output,
-      state: "output-available",
-      toolCallId: call.toolCallId,
-      type,
-      ...meta,
-      approval: {
-        approved: true,
-        id: request.approvalId,
-        ...(response.reason === undefined ? {} : { reason: response.reason }),
-        ...(signature === undefined ? {} : { signature }),
-      },
-    };
-  }
   return {
     input: call.input,
     output: result.output,
@@ -227,6 +184,48 @@ function toToolPart(
     toolCallId: call.toolCallId,
     type,
     ...meta,
+    ...(approval ? { approval } : {}),
+  };
+}
+
+function rejectedApproval(
+  request: ApprovalRequestPart,
+  response: ApprovalResponsePart,
+  signature: string | undefined
+): { approved: false; id: string; reason?: string; signature?: string } {
+  return {
+    approved: false,
+    id: request.approvalId,
+    ...(response.reason === undefined ? {} : { reason: response.reason }),
+    ...(signature === undefined ? {} : { signature }),
+  };
+}
+
+function pendingApproval(
+  request: ApprovalRequestPart,
+  signature: string | undefined
+): { id: string; signature?: string } {
+  return {
+    id: request.approvalId,
+    ...(signature === undefined ? {} : { signature }),
+  };
+}
+
+function approvedApproval(
+  request: ApprovalRequestPart | undefined,
+  response: ApprovalResponsePart | undefined,
+  signature: string | undefined
+):
+  | { approved: true; id: string; reason?: string; signature?: string }
+  | undefined {
+  if (!(request && response?.approved)) {
+    return undefined;
+  }
+  return {
+    approved: true,
+    id: request.approvalId,
+    ...(response.reason === undefined ? {} : { reason: response.reason }),
+    ...(signature === undefined ? {} : { signature }),
   };
 }
 

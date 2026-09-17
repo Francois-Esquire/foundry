@@ -161,182 +161,154 @@ export function transformStream(
 
     try {
       const stream = await source;
-      for await (const ev of stream) {
-        switch (ev.type) {
-          case "text-delta": {
-            const delta = readString(ev, ["text", "delta"]);
-            if (!delta) {
-              break;
-            }
-            if (textIdx === null) {
-              parts.push({ text: "", type: "text" });
-              textIdx = parts.length - 1;
-            }
-            const part = parts[textIdx];
-            if (part?.type === "text") {
-              part.text += delta;
-            }
-            textBuf += delta;
-            reasoningIdx = null;
-            emit({ delta, type: "text-delta" });
-            break;
+      const consume: Record<string, (event: StreamPart) => void> = {
+        error: (event) => {
+          const error = toError(event.error);
+          parts.push({ message: error.message, type: "error" });
+          emit({ error, type: "error" });
+        },
+        finish: (event) => {
+          usageAcc = normalizeUsage(event.totalUsage ?? event.usage);
+        },
+        "reasoning-delta": (event) => {
+          const delta = readString(event, ["text", "delta"]);
+          if (!delta) {
+            return;
           }
-          case "text-end": {
-            textIdx = null;
-            break;
+          if (reasoningIdx === null) {
+            parts.push({ text: "", type: "reasoning" });
+            reasoningIdx = parts.length - 1;
           }
-          case "reasoning-delta": {
-            const delta = readString(ev, ["text", "delta"]);
-            if (!delta) {
-              break;
-            }
-            if (reasoningIdx === null) {
-              parts.push({ text: "", type: "reasoning" });
-              reasoningIdx = parts.length - 1;
-            }
-            const part = parts[reasoningIdx];
-            if (part?.type === "reasoning") {
-              part.text += delta;
-            }
-            textIdx = null;
-            emit({ delta, type: "reasoning-delta" });
-            break;
+          const part = parts[reasoningIdx];
+          if (part?.type === "reasoning") {
+            part.text += delta;
           }
-          case "reasoning-end": {
-            reasoningIdx = null;
-            break;
+          textIdx = null;
+          emit({ delta, type: "reasoning-delta" });
+        },
+        "reasoning-end": () => {
+          reasoningIdx = null;
+        },
+        "text-delta": (event) => {
+          const delta = readString(event, ["text", "delta"]);
+          if (!delta) {
+            return;
           }
-          case "tool-call": {
-            const toolCallId = readString(ev, ["toolCallId"]);
-            const name = readString(ev, ["toolName", "name"]);
-            const callInput = ev.input ?? ev.args;
-            // Preserve provider metadata (e.g. Gemini 3's `thoughtSignature`)
-            // so a persisted + replayed tool call stays valid on the next turn.
-            const providerOptions = readProviderMetadata(ev);
-            const provenance = readToolProvenance(ev.provenance);
-            parts.push({
-              input: callInput,
-              name,
-              toolCallId,
-              type: "tool_call",
-              ...(providerOptions ? { providerOptions } : {}),
-              ...(provenance ? { provenance } : {}),
-            });
-            textIdx = null;
-            reasoningIdx = null;
+          if (textIdx === null) {
+            parts.push({ text: "", type: "text" });
+            textIdx = parts.length - 1;
+          }
+          const part = parts[textIdx];
+          if (part?.type === "text") {
+            part.text += delta;
+          }
+          textBuf += delta;
+          reasoningIdx = null;
+          emit({ delta, type: "text-delta" });
+        },
+        "text-end": () => {
+          textIdx = null;
+        },
+        "tool-approval-request": (event) => {
+          const approval = readApprovalRequest(event);
+          const {
+            agentGeneration,
+            agentId,
+            approvalId,
+            capability,
+            input,
+            signature,
+            toolCallId,
+            toolName,
+          } = approval;
+          hasApprovalRequest = true;
+          parts.push({
+            approvalId,
+            capability,
+            input,
+            name: toolName,
+            toolCallId,
+            type: "tool_approval_request",
+            ...(signature ? { signature } : {}),
+          });
+          textIdx = null;
+          reasoningIdx = null;
+          emit({
+            approvalId,
+            capability,
+            input,
+            toolCallId,
+            toolName,
+            type: "tool-approval-request",
+            ...(signature ? { signature } : {}),
+            ...(agentId ? { agentId } : {}),
+            ...(agentGeneration === undefined ? {} : { agentGeneration }),
+          });
+        },
+        "tool-call": (event) => {
+          const toolCallId = readString(event, ["toolCallId"]);
+          const name = readString(event, ["toolName", "name"]);
+          const callInput = event.input ?? event.args;
+          // Preserve provider metadata (e.g. Gemini 3's `thoughtSignature`)
+          // so a persisted + replayed tool call stays valid on the next turn.
+          const providerOptions = readProviderMetadata(event);
+          const provenance = readToolProvenance(event.provenance);
+          parts.push({
+            input: callInput,
+            name,
+            toolCallId,
+            type: "tool_call",
+            ...(providerOptions ? { providerOptions } : {}),
+            ...(provenance ? { provenance } : {}),
+          });
+          textIdx = null;
+          reasoningIdx = null;
+          emit({
+            input: callInput,
+            name,
+            toolCallId,
+            type: "tool-call",
+            ...(provenance ? { provenance } : {}),
+          });
+        },
+        "tool-error": (event) => {
+          const toolCallId = readString(event, ["toolCallId"]);
+          const messageText = errMessage(event.error);
+          parts.push({
+            isError: true,
+            output: messageText,
+            toolCallId,
+            type: "tool_result",
+          });
+          emit({
+            isError: true,
+            output: messageText,
+            toolCallId,
+            type: "tool-result",
+          });
+        },
+        "tool-result": (event) => {
+          const toolCallId = readString(event, ["toolCallId"]);
+          const output = event.output ?? event.result;
+          // A generator tool yields interim results the SDK flags
+          // `preliminary`; only the final one belongs in history.
+          if (event.preliminary === true) {
             emit({
-              input: callInput,
-              name,
-              toolCallId,
-              type: "tool-call",
-              ...(provenance ? { provenance } : {}),
-            });
-            break;
-          }
-          case "tool-result": {
-            const toolCallId = readString(ev, ["toolCallId"]);
-            const output = ev.output ?? ev.result;
-            // A generator tool yields interim results the SDK flags
-            // `preliminary`; only the final one belongs in history.
-            if (ev.preliminary === true) {
-              emit({
-                output,
-                preliminary: true,
-                toolCallId,
-                type: "tool-result",
-              });
-              break;
-            }
-            parts.push({ output, toolCallId, type: "tool_result" });
-            textIdx = null;
-            reasoningIdx = null;
-            emit({ output, toolCallId, type: "tool-result" });
-            break;
-          }
-          case "tool-approval-request": {
-            // The AI SDK nests the call under `toolCall`; fall back to the
-            // chunk's own top-level fields for a looser/synthetic source.
-            const toolCallRaw = ev.toolCall;
-            const toolCall =
-              toolCallRaw && typeof toolCallRaw === "object"
-                ? (toolCallRaw as Record<string, unknown>)
-                : undefined;
-            const approvalId = readString(ev, ["approvalId"]);
-            const toolCallId =
-              stringField(toolCall, "toolCallId") ||
-              readString(ev, ["toolCallId"]);
-            const toolName =
-              stringField(toolCall, "toolName") ||
-              readString(ev, ["toolName", "name"]);
-            const input = toolCall ? toolCall.input : ev.input;
-            const signature = readString(ev, ["signature"]) || undefined;
-            // Not resolvable from the raw stream chunk alone — the emitting
-            // source (a tool compiled with its capability, per the design's
-            // tool-registration seam) is responsible for attaching it.
-            const capability = ev.capability as Capability;
-            // Stamped by the registration-aware stream wrapper alongside the
-            // capability, so an "always" answer resolved much later lands on
-            // the Subject that actually asked.
-            const agentId = readString(ev, ["agentId"]) || undefined;
-            const agentGeneration =
-              typeof ev.agentGeneration === "number"
-                ? ev.agentGeneration
-                : undefined;
-            hasApprovalRequest = true;
-            parts.push({
-              approvalId,
-              capability,
-              input,
-              name: toolName,
-              toolCallId,
-              type: "tool_approval_request",
-              ...(signature ? { signature } : {}),
-            });
-            textIdx = null;
-            reasoningIdx = null;
-            emit({
-              approvalId,
-              capability,
-              input,
-              toolCallId,
-              toolName,
-              type: "tool-approval-request",
-              ...(signature ? { signature } : {}),
-              ...(agentId ? { agentId } : {}),
-              ...(agentGeneration === undefined ? {} : { agentGeneration }),
-            });
-            break;
-          }
-          case "tool-error": {
-            const toolCallId = readString(ev, ["toolCallId"]);
-            const messageText = errMessage(ev.error);
-            parts.push({
-              isError: true,
-              output: messageText,
-              toolCallId,
-              type: "tool_result",
-            });
-            emit({
-              isError: true,
-              output: messageText,
+              output,
+              preliminary: true,
               toolCallId,
               type: "tool-result",
             });
-            break;
+            return;
           }
-          case "finish": {
-            usageAcc = normalizeUsage(ev.totalUsage ?? ev.usage);
-            break;
-          }
-          case "error": {
-            const error = toError(ev.error);
-            parts.push({ message: error.message, type: "error" });
-            emit({ error, type: "error" });
-            break;
-          }
-          default:
-            break;
-        }
+          parts.push({ output, toolCallId, type: "tool_result" });
+          textIdx = null;
+          reasoningIdx = null;
+          emit({ output, toolCallId, type: "tool-result" });
+        },
+      };
+      for await (const event of stream) {
+        consume[event.type]?.(event);
       }
 
       await finalize("complete");
@@ -490,6 +462,45 @@ function stringField(
 
 /** Read the AI SDK provider-metadata bag off a stream part (it arrives as
  *  `providerMetadata` on the model stream; tolerate `providerOptions` too). */
+interface ApprovalRequestFields {
+  agentGeneration: number | undefined;
+  agentId: string | undefined;
+  approvalId: string;
+  capability: Capability;
+  input: unknown;
+  signature: string | undefined;
+  toolCallId: string;
+  toolName: string;
+}
+
+function readApprovalRequest(event: StreamPart): ApprovalRequestFields {
+  const toolCall = nestedToolCall(event.toolCall);
+  return {
+    agentGeneration:
+      typeof event.agentGeneration === "number"
+        ? event.agentGeneration
+        : undefined,
+    agentId: readString(event, ["agentId"]) || undefined,
+    approvalId: readString(event, ["approvalId"]),
+    // Not resolvable from the raw stream chunk alone — the emitting source is
+    // responsible for attaching the capability at its registration seam.
+    capability: event.capability as Capability,
+    input: toolCall ? toolCall.input : event.input,
+    signature: readString(event, ["signature"]) || undefined,
+    toolCallId:
+      stringField(toolCall, "toolCallId") || readString(event, ["toolCallId"]),
+    toolName:
+      stringField(toolCall, "toolName") ||
+      readString(event, ["toolName", "name"]),
+  };
+}
+
+function nestedToolCall(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
 function readProviderMetadata(
   ev: StreamPart
 ): Record<string, Record<string, unknown>> | undefined {

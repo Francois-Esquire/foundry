@@ -1038,14 +1038,20 @@ describe("Group C — recovery (Task 5)", () => {
     );
     const p0Bound = bounds.find((b) => b.placement === "p0");
     const p1Bounds = bounds.filter((b) => b.placement === "p1");
+    if (p0Bound === undefined) {
+      throw new Error("expected a p0 invocation bound");
+    }
     // p0 completed under v1 — its bound Contract stays v1 across recovery.
     expect(
-      (p0Bound?.contract as { result?: { label?: string } }).result?.label
+      (p0Bound.contract as { result?: { label?: string } }).result?.label
     ).toBe("v1");
     // p1 re-ran on recovery and bound the current v2.
     const lastP1 = p1Bounds.at(-1);
+    if (lastP1 === undefined) {
+      throw new Error("expected a p1 invocation bound");
+    }
     expect(
-      (lastP1?.contract as { result?: { label?: string } }).result?.label
+      (lastP1.contract as { result?: { label?: string } }).result?.label
     ).toBe("v2");
   });
 

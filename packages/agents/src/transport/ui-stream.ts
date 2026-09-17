@@ -20,49 +20,20 @@ export async function* projectToUIMessageChunks(
   // Per-turn step boundary for pause/resume: tracks which tool results are new
   yield { type: "start-step" };
 
-  let textId: string | null = null;
-  let reasoningId: string | null = null;
-
-  /** Close open text/reasoning runs before boundaries */
-  function* closeRuns(): Generator<UIMessageChunk> {
-    if (textId !== null) {
-      yield { id: textId, type: "text-end" };
-      textId = null;
-    }
-    if (reasoningId !== null) {
-      yield { id: reasoningId, type: "reasoning-end" };
-      reasoningId = null;
-    }
-  }
+  const runs: OpenRuns = { reasoningId: null, textId: null };
 
   for await (const event of stream) {
     switch (event.type) {
       case "text-delta": {
-        if (reasoningId !== null) {
-          yield { id: reasoningId, type: "reasoning-end" };
-          reasoningId = null;
-        }
-        if (textId === null) {
-          textId = randomUUID();
-          yield { id: textId, type: "text-start" };
-        }
-        yield { delta: event.delta, id: textId, type: "text-delta" };
+        yield* projectTextDelta(event, runs);
         break;
       }
       case "reasoning-delta": {
-        if (textId !== null) {
-          yield { id: textId, type: "text-end" };
-          textId = null;
-        }
-        if (reasoningId === null) {
-          reasoningId = randomUUID();
-          yield { id: reasoningId, type: "reasoning-start" };
-        }
-        yield { delta: event.delta, id: reasoningId, type: "reasoning-delta" };
+        yield* projectReasoningDelta(event, runs);
         break;
       }
       case "tool-call": {
-        yield* closeRuns();
+        yield* closeRuns(runs);
         yield {
           input: event.input,
           toolCallId: event.toolCallId,
@@ -72,23 +43,11 @@ export async function* projectToUIMessageChunks(
         break;
       }
       case "tool-result": {
-        if (event.isError) {
-          yield {
-            errorText: stringifyOutput(event.output),
-            toolCallId: event.toolCallId,
-            type: "tool-output-error",
-          };
-        } else {
-          yield {
-            output: event.output,
-            toolCallId: event.toolCallId,
-            type: "tool-output-available",
-          };
-        }
+        yield* projectToolResult(event);
         break;
       }
       case "tool-approval-request": {
-        yield* closeRuns();
+        yield* closeRuns(runs);
         yield {
           approvalId: event.approvalId,
           toolCallId: event.toolCallId,
@@ -100,12 +59,12 @@ export async function* projectToUIMessageChunks(
         break;
       }
       case "error": {
-        yield* closeRuns();
+        yield* closeRuns(runs);
         yield { errorText: event.error.message, type: "error" };
         break;
       }
       case "finish": {
-        yield* closeRuns();
+        yield* closeRuns(runs);
         yield { type: "finish-step" };
         yield {
           messageMetadata: { usage: toUiUsage(event.usage) },
@@ -117,6 +76,73 @@ export async function* projectToUIMessageChunks(
         break;
     }
   }
+}
+
+interface OpenRuns {
+  reasoningId: string | null;
+  textId: string | null;
+}
+
+/** Close open text/reasoning runs before boundaries. */
+function* closeRuns(runs: OpenRuns): Generator<UIMessageChunk> {
+  if (runs.textId !== null) {
+    yield { id: runs.textId, type: "text-end" };
+    runs.textId = null;
+  }
+  if (runs.reasoningId !== null) {
+    yield { id: runs.reasoningId, type: "reasoning-end" };
+    runs.reasoningId = null;
+  }
+}
+
+function* projectTextDelta(
+  event: { delta: string },
+  runs: OpenRuns
+): Generator<UIMessageChunk> {
+  if (runs.reasoningId !== null) {
+    yield { id: runs.reasoningId, type: "reasoning-end" };
+    runs.reasoningId = null;
+  }
+  if (runs.textId === null) {
+    runs.textId = randomUUID();
+    yield { id: runs.textId, type: "text-start" };
+  }
+  yield { delta: event.delta, id: runs.textId, type: "text-delta" };
+}
+
+function* projectReasoningDelta(
+  event: { delta: string },
+  runs: OpenRuns
+): Generator<UIMessageChunk> {
+  if (runs.textId !== null) {
+    yield { id: runs.textId, type: "text-end" };
+    runs.textId = null;
+  }
+  if (runs.reasoningId === null) {
+    runs.reasoningId = randomUUID();
+    yield { id: runs.reasoningId, type: "reasoning-start" };
+  }
+  yield { delta: event.delta, id: runs.reasoningId, type: "reasoning-delta" };
+}
+
+function* projectToolResult(event: {
+  isError?: boolean;
+  output: unknown;
+  toolCallId: string;
+}): Generator<UIMessageChunk> {
+  if (event.isError) {
+    yield {
+      errorText: stringifyOutput(event.output),
+      toolCallId: event.toolCallId,
+      type: "tool-output-error",
+    };
+    return;
+  }
+  yield {
+    output: event.output,
+    toolCallId: event.toolCallId,
+    type: "tool-output-available",
+  };
 }
 
 /**

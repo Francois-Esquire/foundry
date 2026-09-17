@@ -205,7 +205,13 @@ export abstract class Step<
       );
     }
     this.#initialize(null);
-    return this.#substrate!;
+    const substrate = this.#substrate;
+    if (substrate === undefined) {
+      throw new Error(
+        "Step initialization did not create a runtime substrate."
+      );
+    }
+    return substrate;
   }
 
   constructor(args?: { spec: StepSpec<I, O, X> }) {
@@ -487,6 +493,7 @@ export abstract class Step<
    */
   get children(): readonly Step[] {
     // Touch substrate to trigger lazy bind / materialize declared children.
+    // biome-ignore lint/suspicious/noUnusedExpressions: Accessing #s intentionally triggers lazy binding before exposing the materialized children.
     this.#s;
     return this.#children;
   }

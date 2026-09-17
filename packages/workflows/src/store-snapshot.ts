@@ -88,10 +88,12 @@ export function validateOrchestratorStoreSnapshot(
     for (const run of decoded.runs) {
       createExtensions(run.extensions);
     }
-  } catch {
-    throw new InvalidStoreSnapshotError(
+  } catch (cause) {
+    const malformed = new InvalidStoreSnapshotError(
       "Orchestrator store snapshot contains a malformed record"
     );
+    malformed.cause = cause;
+    throw malformed;
   }
 
   assertConsistent(decoded);
@@ -104,16 +106,35 @@ function assertConsistent(snapshot: OrchestratorStoreSnapshot): void {
   const runs = uniqueById(snapshot.runs, "Run");
   const suspensions = uniqueById(snapshot.suspensions, "Suspension");
 
-  for (const job of snapshot.jobs) {
+  assertJobParents(snapshot.jobs, jobs);
+  assertRunReferences(snapshot.runs, queues, jobs, runs);
+  assertSuspensionReferences(snapshot.suspensions, runs);
+  assertJobRunStates(snapshot.jobs, snapshot.runs);
+  assertFrames(snapshot.frames, runs, suspensions);
+  assertRunFrameSequences(snapshot.runs, snapshot.frames);
+}
+
+function assertJobParents(
+  jobs: readonly JobRecord[],
+  indexedJobs: ReadonlyMap<string, JobRecord>
+): void {
+  for (const job of jobs) {
     const parentJobId = job.links.parentJobId;
-    if (parentJobId !== undefined && !jobs.has(parentJobId)) {
+    if (parentJobId !== undefined && !indexedJobs.has(parentJobId)) {
       throw new InconsistentStoreSnapshotError(
         `Job ${job.id} references missing parent Job ${parentJobId}`
       );
     }
   }
+}
 
-  for (const run of snapshot.runs) {
+function assertRunReferences(
+  runs: readonly RunRecord[],
+  queues: ReadonlyMap<string, QueueRecord>,
+  jobs: ReadonlyMap<string, JobRecord>,
+  indexedRuns: ReadonlyMap<string, RunRecord>
+): void {
+  for (const run of runs) {
     if (!queues.has(run.queueId)) {
       throw new InconsistentStoreSnapshotError(
         `Run ${run.id} references missing Queue ${run.queueId}`
@@ -132,14 +153,19 @@ function assertConsistent(snapshot: OrchestratorStoreSnapshot): void {
       }
     }
     const parentRunId = run.links?.parentRunId;
-    if (parentRunId !== undefined && !runs.has(parentRunId)) {
+    if (parentRunId !== undefined && !indexedRuns.has(parentRunId)) {
       throw new InconsistentStoreSnapshotError(
         `Run ${run.id} references missing parent Run ${parentRunId}`
       );
     }
   }
+}
 
-  for (const suspension of snapshot.suspensions) {
+function assertSuspensionReferences(
+  suspensions: readonly SuspensionRecord[],
+  runs: ReadonlyMap<string, RunRecord>
+): void {
+  for (const suspension of suspensions) {
     const run = runs.get(suspension.runId);
     if (!run) {
       throw new InconsistentStoreSnapshotError(
@@ -152,9 +178,14 @@ function assertConsistent(snapshot: OrchestratorStoreSnapshot): void {
       );
     }
   }
+}
 
-  for (const job of snapshot.jobs) {
-    const activeRuns = snapshot.runs.filter(
+function assertJobRunStates(
+  jobs: readonly JobRecord[],
+  runs: readonly RunRecord[]
+): void {
+  for (const job of jobs) {
+    const activeRuns = runs.filter(
       (run) => run.links?.jobId === job.id && isNonTerminalRunStatus(run.status)
     );
     if (activeRuns.length > 1) {
@@ -168,10 +199,16 @@ function assertConsistent(snapshot: OrchestratorStoreSnapshot): void {
       );
     }
   }
+}
 
+function assertFrames(
+  frames: readonly RunFrame[],
+  runs: ReadonlyMap<string, RunRecord>,
+  suspensions: ReadonlyMap<string, SuspensionRecord>
+): void {
   const nextCursor = new Map<string, number>();
   const terminalFrames = new Map<string, "complete" | "failed" | "cancelled">();
-  for (const frame of snapshot.frames) {
+  for (const frame of frames) {
     const run = runs.get(frame.runId);
     if (!run) {
       throw new InconsistentStoreSnapshotError(
@@ -210,18 +247,26 @@ function assertConsistent(snapshot: OrchestratorStoreSnapshot): void {
     }
     terminalFrames.set(frame.runId, terminal);
   }
-  for (const run of snapshot.runs) {
+}
+
+function assertRunFrameSequences(
+  runs: readonly RunRecord[],
+  frames: readonly RunFrame[]
+): void {
+  for (const run of runs) {
     try {
       decodeRunFrameSequence(
         run.id,
-        snapshot.frames.filter((frame) => frame.runId === run.id)
+        frames.filter((frame) => frame.runId === run.id)
       );
-    } catch (error) {
-      throw new InconsistentStoreSnapshotError(
-        error instanceof Error
-          ? error.message
+    } catch (cause) {
+      const inconsistent = new InconsistentStoreSnapshotError(
+        cause instanceof Error
+          ? cause.message
           : `Run ${run.id} has invalid frames`
       );
+      inconsistent.cause = cause;
+      throw inconsistent;
     }
   }
 }

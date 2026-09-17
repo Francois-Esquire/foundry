@@ -43,6 +43,7 @@ describe("Step execution — error propagation", () => {
   it("a non-Error throw is wrapped (rejection carries an Error instance)", async () => {
     const step = await Step.make<void, never>({
       execute: async () => {
+        // biome-ignore lint/style/useThrowOnlyError: This fixture verifies that Step normalizes non-Error throws.
         throw "literal";
       },
       input: undefined,
