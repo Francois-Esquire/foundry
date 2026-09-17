@@ -26,8 +26,8 @@ class BufferedRunObservation
   readonly #buffer: RunFrame[] = [];
   readonly #waiting: PendingNext[] = [];
   readonly #detach: () => void;
-  #closed = false;
-  #detached = false;
+  #closed = false as boolean;
+  #detached = false as boolean;
   #failure: Error | null = null;
 
   constructor(detach: () => void) {

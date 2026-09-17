@@ -39,7 +39,7 @@ export function runLocalWorker(
       inFlight.get(req.target)?.abort();
       return;
     }
-    void handle(req).catch((error: unknown) => {
+    handle(req).catch((error: unknown) => {
       fail(req.id, error);
     });
   });

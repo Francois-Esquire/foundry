@@ -338,7 +338,7 @@ export function transformStream(
     queue.close();
   };
 
-  void drive();
+  drive();
 
   return {
     [Symbol.asyncIterator]: () => queue.iterator(),

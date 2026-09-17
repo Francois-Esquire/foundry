@@ -32,9 +32,9 @@ export class LoopAgent extends ToolLoopAgent<never, ToolSet> {
 
   constructor(settings: LoopAgentSettings, context: TurnContext) {
     const { model, observe, onFinish, ...rest } = settings;
-    const observation =
-      observe?.({ model: routeOf(model), sessionId: context.sessionId }) ??
-      null;
+    const observation: TurnObservation | null = observe
+      ? observe({ model: routeOf(model), sessionId: context.sessionId })
+      : null;
 
     super({
       ...rest,

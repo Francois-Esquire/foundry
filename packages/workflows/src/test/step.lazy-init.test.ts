@@ -201,7 +201,7 @@ describe("Step.make — double-claim", () => {
     // `Promise.resolve`, so a constructor throw surfaces synchronously
     // before any Promise is returned.
     expect(() => {
-      void Step.make({
+      Step.make({
         children: [child] as readonly (StepSpec | Step)[],
         execute: async () => "second-out",
         input: undefined,

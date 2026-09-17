@@ -56,7 +56,7 @@ export function watchFiles(
     )
     .then((subscription): "parcel" => {
       close = () => {
-        void subscription.unsubscribe();
+        subscription.unsubscribe();
       };
       if (stopped) {
         close();
@@ -192,7 +192,9 @@ export function runLive(
           print(`[monitor] ${name} disconnected, retrying in 5s`);
           retry = setTimeout(open, RECONNECT_MS);
         },
-        message: (message) => void fire(schedule, { message }),
+        message: (message) => {
+          fire(schedule, { message });
+        },
       });
     };
     open();
@@ -207,11 +209,13 @@ export function runLive(
       };
       const watching = watchFiles(
         root,
-        () => void fire(schedule, null),
+        () => {
+          fire(schedule, null);
+        },
         failed
       );
       closers.push(watching.stop);
-      void watching.ready.then((backend) => {
+      watching.ready.then((backend) => {
         print(
           `[monitor] ${name} watching ${root}${backend === "parcel" ? "" : " (fs.watch)"}`
         );

@@ -751,7 +751,7 @@ class MaterializedWorkflow extends Workflow<
       // itself is ignored — Connections flow through `#results`, not the graph.
       const next = builder.step(placement.key, leaf, (values) => {
         if (previous !== undefined) {
-          void values[previous];
+          Reflect.get(values, previous);
         }
         return values.input;
       });

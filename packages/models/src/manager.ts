@@ -84,7 +84,7 @@ export class ModelManager {
   private readonly _providers = new Map<string, Provider>();
   private readonly _bindings = new Map<string, ProviderBinding>();
   private readonly _defaults = new Map<ModelKind, KindDefault>();
-  private _offline = false;
+  private _offline = false as boolean;
 
   readonly events = new EventEmitter();
   readonly settings: AgentConfig;

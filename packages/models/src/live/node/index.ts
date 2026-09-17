@@ -97,7 +97,7 @@ export async function open(
   core.addTeardown(() => {
     // Whoever holds the LiveRecording still gets its segment: `stop` is
     // idempotent and resolves the same promise for both callers.
-    void recording?.stop();
+    recording?.stop();
   });
 
   return {

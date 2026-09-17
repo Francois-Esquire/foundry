@@ -91,7 +91,7 @@ describe("step.pipe — ReadableStream source", () => {
     let chunkCount = 0;
     const reader = step.stream.getReader();
     const drain = (async () => {
-      while (true) {
+      for (;;) {
         const { done } = await reader.read();
         if (done) {
           return;
@@ -102,7 +102,7 @@ describe("step.pipe — ReadableStream source", () => {
 
     await step.pipe(streamOf<string>([]));
     await sleep(5);
-    void reader.cancel();
+    reader.cancel();
     await drain.catch(() => undefined);
     reader.releaseLock();
     expect(chunkCount).toBe(0);
@@ -205,7 +205,7 @@ describe("step.pipe — abort semantics", () => {
   it("pre-aborted step: pipe is a no-op and never reads from the source", async () => {
     let pulls = 0;
     async function* counted(): AsyncGenerator<string> {
-      while (true) {
+      for (;;) {
         pulls++;
         await sleep(1);
         yield "x";

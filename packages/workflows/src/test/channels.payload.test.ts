@@ -118,7 +118,7 @@ describe("Channels.chunksFor — ChunkPayload (value-only)", () => {
           const result = yield* Effect.promise(() => reader.read());
           reader.releaseLock();
           yield* Effect.sync(() => {
-            void stream.cancel();
+            stream.cancel();
           });
 
           expect(result.done).toBe(false);
@@ -167,7 +167,7 @@ describe("Channels.chunksFor — filters by stepId", () => {
           const b = yield* Effect.promise(() => reader.read());
           reader.releaseLock();
           yield* Effect.sync(() => {
-            void stream.cancel();
+            stream.cancel();
           });
 
           expect(a.done).toBe(false);

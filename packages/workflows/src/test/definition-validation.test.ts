@@ -120,7 +120,7 @@ describe("definition validation", () => {
   it("rejects untrimmed definition keys with stable authoring facts", () => {
     expect(() => new InvalidKey().definition).toThrow(DefinitionAuthoringError);
     try {
-      void new InvalidKey().definition;
+      Reflect.get(new InvalidKey(), "definition");
     } catch (error) {
       expect(error).toMatchObject({
         code: "invalid-definition-key",
@@ -141,7 +141,7 @@ describe("definition validation", () => {
       DefinitionAuthoringError
     );
     try {
-      void new DuplicateSequence().definition;
+      Reflect.get(new DuplicateSequence(), "definition");
     } catch (error) {
       expect(error).toMatchObject({
         code: "duplicate-node-key",
@@ -153,7 +153,7 @@ describe("definition validation", () => {
 
   it("reports an empty race as an invalid composition", () => {
     try {
-      void new EmptyRace().definition;
+      Reflect.get(new EmptyRace(), "definition");
     } catch (error) {
       expect(error).toMatchObject({
         code: "invalid-composition",
@@ -167,7 +167,7 @@ describe("definition validation", () => {
 
   it("rejects untrimmed local keys with the owning definition", () => {
     try {
-      void new InvalidNodeKey().definition;
+      Reflect.get(new InvalidNodeKey(), "definition");
     } catch (error) {
       expect(error).toMatchObject({
         code: "invalid-node-key",

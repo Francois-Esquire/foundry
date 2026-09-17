@@ -169,7 +169,7 @@ async function runBody<O>(
   if (typeof result === "object" && Symbol.asyncIterator in result) {
     const iter = result;
     try {
-      while (true) {
+      for (;;) {
         if (signal.aborted) {
           await iter.return(undefined as never).catch(() => undefined);
           throw new Error(`Step "${name}" aborted`);

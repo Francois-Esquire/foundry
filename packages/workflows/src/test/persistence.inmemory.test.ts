@@ -37,7 +37,7 @@ class DelayedQueueStore extends InMemoryOrchestratorStore {
 
 class FrameBoundaryStore extends InMemoryOrchestratorStore {
   readonly writtenFrames: RunFrame[] = [];
-  invalidHydration = false;
+  invalidHydration = false as boolean;
 
   protected override writeFrame(frame: RunFrame): Promise<void> {
     this.writtenFrames.push(structuredClone(frame));

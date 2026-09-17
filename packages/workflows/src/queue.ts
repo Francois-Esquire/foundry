@@ -349,7 +349,7 @@ export class Queue {
     });
     Effect.runSync(this.#acquireOutstanding(erased.id));
     const offer = EffectQueue.offer(this.#pendingQueue, erased);
-    void Effect.runPromise(
+    Effect.runPromise(
       deferExecution ? yieldToHost().pipe(Effect.zipRight(offer)) : offer
     ).catch(() => undefined);
   }

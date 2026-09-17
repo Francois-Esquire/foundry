@@ -117,7 +117,7 @@ describe("Queue — reactive persistence", () => {
     const store = makeInMemoryStore();
     const queue = new Queue({ concurrency: 1, store });
 
-    const id = await Effect.runPromise(
+    await Effect.runPromise(
       Effect.scoped(
         Effect.gen(function* () {
           const wf = Workflow.create(
@@ -153,10 +153,6 @@ describe("Queue — reactive persistence", () => {
         })
       )
     );
-    // Cleanup: drain the queue so the suspended run doesn't leak into
-    // other tests' counters (drain() doesn't unblock a suspended run,
-    // but the queue's outstanding gate sits at 0 once #runOne exits).
-    void id;
   });
 
   // ════════════════════════════════════════════════════════════════════════════

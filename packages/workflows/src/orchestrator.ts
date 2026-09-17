@@ -951,9 +951,7 @@ export class Orchestrator {
   }
 
   #watchPublication(runId: string, publication: Promise<void>): void {
-    void publication.catch((error: unknown) =>
-      this.#journal.fail(runId, error)
-    );
+    publication.catch((error: unknown) => this.#journal.fail(runId, error));
   }
 
   #runContext(runId: string, definition: DefinitionReference, links: RunLinks) {
@@ -1017,7 +1015,7 @@ export class Orchestrator {
     const result = previous.catch(() => undefined).then(operation);
     const tail = result.then(() => undefined);
     this.#frameTails.set(runId, tail);
-    void tail
+    tail
       .finally(() => {
         if (this.#frameTails.get(runId) === tail) {
           this.#frameTails.delete(runId);

@@ -206,7 +206,7 @@ export abstract class Workflow<
   declare __definitionContext?: (context: X) => void;
   #runtime: WorkflowRuntime<I, O, X> | undefined;
   #definitionPlan: WorkflowDefinitionPlan<I, O, X> | undefined;
-  #planningDefinition = false;
+  #planningDefinition = false as boolean;
   /**
    * Swappable audit backend. Granular `ctx.log` lines are mirrored here via
    * `record`, and one consolidated audit event is flushed on settle. Defaults

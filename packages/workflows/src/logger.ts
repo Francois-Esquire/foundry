@@ -52,48 +52,48 @@ export class BaseOrchestratorLogger implements OrchestratorLogger {
   protected dispatched(
     _event: Extract<RunLifecycleEvent, { kind: "dispatched" }>
   ): void {
-    void _event;
+    // Concrete loggers opt into individual lifecycle events.
   }
 
   protected started(
     _event: Extract<RunLifecycleEvent, { kind: "started" }>
   ): void {
-    void _event;
+    // Concrete loggers opt into individual lifecycle events.
   }
 
   protected suspended(
     _event: Extract<RunLifecycleEvent, { kind: "suspended" }>
   ): void {
-    void _event;
+    // Concrete loggers opt into individual lifecycle events.
   }
 
   protected resumed(
     _event: Extract<RunLifecycleEvent, { kind: "resumed" }>
   ): void {
-    void _event;
+    // Concrete loggers opt into individual lifecycle events.
   }
 
   protected completed(
     _event: Extract<RunLifecycleEvent, { kind: "completed" }>
   ): void {
-    void _event;
+    // Concrete loggers opt into individual lifecycle events.
   }
 
   protected failed(
     _event: Extract<RunLifecycleEvent, { kind: "failed" }>
   ): void {
-    void _event;
+    // Concrete loggers opt into individual lifecycle events.
   }
 
   protected cancelled(
     _event: Extract<RunLifecycleEvent, { kind: "cancelled" }>
   ): void {
-    void _event;
+    // Concrete loggers opt into individual lifecycle events.
   }
 
   protected recovered(
     _event: Extract<RunLifecycleEvent, { kind: "recovered" }>
   ): void {
-    void _event;
+    // Concrete loggers opt into individual lifecycle events.
   }
 }

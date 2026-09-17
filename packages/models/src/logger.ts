@@ -275,7 +275,7 @@ class DownloadTraceImpl implements ModelDownloadTrace {
   private log: ReturnType<typeof createLogger<DownloadEventFields>> | null =
     null;
   private startedAt: number | null = null;
-  private ended = false;
+  private ended = false as boolean;
 
   constructor(target: ModelDownloadTarget) {
     this.target = target;

@@ -245,7 +245,7 @@ describe("generator body — abort mid-yield runs finally blocks", () => {
           // iteration after step.abort() is called from outside, calling
           // iter.return() — which runs the `finally` block below before
           // the body has a chance to issue another yield.
-          while (true) {
+          for (;;) {
             yield "tick";
             // Macrotask gap — lets the test's setTimeout-driven abort
             // land on the event loop. A microtask gap (Promise.resolve)

@@ -126,7 +126,7 @@ function sending(
   let opened = false;
   return {
     close() {
-      void close();
+      close();
     },
     send(message) {
       const opening = !opened;

@@ -355,7 +355,7 @@ describe("Channels.stream — multiplexed events + chunks", () => {
           expect(first.value?._tag).toBe("event");
           expect(second.value?._tag).toBe("chunk");
           yield* Effect.sync(() => {
-            void reader.cancel();
+            reader.cancel();
           });
         })
       )

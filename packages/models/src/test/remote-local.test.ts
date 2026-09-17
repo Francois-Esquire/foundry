@@ -179,10 +179,9 @@ describe("remote-local bridge", () => {
   it("host abort reaches the worker model's signal", async () => {
     const { provider, fake } = makeBridge();
     const abort = new AbortController();
-    const { stream } = await provider
+    await provider
       .languageModel("m")
       .doStream({ ...callOptions, abortSignal: abort.signal });
-    void stream; // parts already emitted; the signal was captured at call time
     abort.abort();
     expect(fake.seenSignals[0]?.aborted).toBe(true);
   });

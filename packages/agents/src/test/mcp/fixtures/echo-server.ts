@@ -197,6 +197,6 @@ async function handle(message: Message): Promise<void> {
 
 createInterface({ input: process.stdin }).on("line", (line: string) => {
   if (line.trim()) {
-    void handle(JSON.parse(line) as Message);
+    handle(JSON.parse(line) as Message);
   }
 });

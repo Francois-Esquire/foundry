@@ -83,7 +83,7 @@ export class JobLifecycle {
       }
 
       const dispatched = await this.#executeJob(job);
-      void dispatched
+      dispatched
         .result()
         .then(() => this.#projectById(jobId))
         .catch(() => undefined);

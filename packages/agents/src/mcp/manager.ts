@@ -37,7 +37,7 @@ export class McpManager extends McpEmitter<McpClientEvents> {
   define(definition: McpServerDefinition): McpClient {
     const existing = this.#clients.get(definition.id);
     if (existing) {
-      void existing.update(definition);
+      existing.update(definition);
       return existing;
     }
     const client = new McpClient(definition, this.#options);
@@ -63,7 +63,7 @@ export class McpManager extends McpEmitter<McpClientEvents> {
       }
     });
     if (client.enabled) {
-      void client.connect();
+      client.connect();
     }
     return client;
   }

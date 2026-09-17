@@ -141,7 +141,7 @@ export abstract class Step<
    * A claimed step refuses substrate access until the parent binds it;
    * an unclaimed step auto-binds as a root on first access.
    */
-  #claimedByParent = false;
+  #claimedByParent = false as boolean;
 
   // ── Substrate (lazy) ─────────────────────────────────────────────────────
   // Effect-allocated state; undefined until `#initialize`. Public getters route

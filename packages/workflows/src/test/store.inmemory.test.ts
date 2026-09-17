@@ -22,7 +22,7 @@ import { orchestratorStoreContract } from "./helpers/store.contract";
 orchestratorStoreContract("in-memory", makeInMemoryStore);
 
 class FailingSettlementStore extends InMemoryOrchestratorStore {
-  failSettlement = false;
+  failSettlement = false as boolean;
 
   protected override writeSuspensionSettlement(input: {
     previousSuspension: SuspensionRecord;

@@ -151,6 +151,7 @@ describe("encodePersistedMetadata under the transient policy", () => {
     };
     const events = encoded.stream as { _tag: string; value?: unknown }[];
 
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: persisted metadata may omit an indexed step at runtime.
     expect(wf.steps.research?.output).toBe("researched the topic");
     expect(events.find((e) => e._tag === "step.complete")?.value).toBe(
       "researched the topic"

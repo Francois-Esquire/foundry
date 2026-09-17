@@ -463,7 +463,7 @@ export class McpClient extends McpEmitter<McpClientEvents> {
         if (!client) {
           return;
         }
-        void this.#serialize(() => this.#relist(client)).then(
+        this.#serialize(() => this.#relist(client)).then(
           () => {
             this.emit("tools", this);
           },

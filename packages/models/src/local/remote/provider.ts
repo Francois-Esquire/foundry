@@ -248,7 +248,7 @@ export class RemoteLocalProvider implements LocalProviderSurface {
   }
 
   progress(id: string): number | null {
-    void this.request((rid) => ({ id: rid, model: id, op: "progress" }))
+    this.request((rid) => ({ id: rid, model: id, op: "progress" }))
       .then((value) => this.progressCache.set(id, value as number | null))
       .catch(() => undefined);
     return this.progressCache.get(id) ?? null;
@@ -280,13 +280,13 @@ export class RemoteLocalProvider implements LocalProviderSurface {
    * fetches. Fire-and-forget; a lost worker surfaces on the next request.
    */
   setOffline(offline: boolean): void {
-    void this.request((rid) => ({ id: rid, offline, op: "set-offline" })).catch(
+    this.request((rid) => ({ id: rid, offline, op: "set-offline" })).catch(
       () => undefined
     );
   }
 
   private refreshStatus(): void {
-    void this.request((rid) => ({ id: rid, op: "status" }))
+    this.request((rid) => ({ id: rid, op: "status" }))
       .then((value) => {
         this.statusCache = value as LocalLoadStatus;
       })

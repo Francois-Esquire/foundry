@@ -1,6 +1,8 @@
+export type FrontmatterData = Partial<Record<string, string>>;
+
 export interface Frontmatter {
   body: string;
-  data: Record<string, string>;
+  data: FrontmatterData;
 }
 
 export function parseFrontmatter(text: string): Frontmatter {

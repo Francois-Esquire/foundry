@@ -210,7 +210,7 @@ describe("Step.stream — value-only ReadableStream<ChunkPayload>", () => {
     const first = await reader.read();
     const second = await reader.read();
     reader.releaseLock();
-    void step.stream.cancel();
+    step.stream.cancel();
 
     expect(first.done).toBe(false);
     expect(second.done).toBe(false);
@@ -284,7 +284,7 @@ describe("Cross-step chunk filtering", () => {
     const a = await reader.read();
     const b = await reader.read();
     reader.releaseLock();
-    void child.stream.cancel();
+    child.stream.cancel();
 
     expect(a.done).toBe(false);
     expect(b.done).toBe(false);
@@ -324,7 +324,7 @@ describe("Cross-step chunk filtering", () => {
     const a = await reader.read();
     const b = await reader.read();
     reader.releaseLock();
-    void stream.cancel();
+    stream.cancel();
 
     expect(a.done).toBe(false);
     expect(b.done).toBe(false);

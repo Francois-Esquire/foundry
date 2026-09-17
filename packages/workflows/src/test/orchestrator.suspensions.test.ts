@@ -19,8 +19,8 @@ import { makeOrchestratorConfig } from "./helpers/config";
 import { makeInMemoryStore } from "./helpers/store";
 
 class FailingParkingStore extends InMemoryOrchestratorStore {
-  failParking = false;
-  failTerminalUpdate = false;
+  failParking = false as boolean;
+  failTerminalUpdate = false as boolean;
   #terminalUpdateGate: Promise<void> | null = null;
   #releaseTerminalUpdate: (() => void) | null = null;
   #terminalUpdateStarted: (() => void) | null = null;
@@ -69,7 +69,7 @@ class FailingParkingStore extends InMemoryOrchestratorStore {
 }
 
 class FailingCancellationStore extends InMemoryOrchestratorStore {
-  failCancellation = false;
+  failCancellation = false as boolean;
 
   protected override writeSuspensionCancellation(input: {
     previousRun: RunRecord;
@@ -85,7 +85,7 @@ class FailingCancellationStore extends InMemoryOrchestratorStore {
 }
 
 class FailingResolvedFrameStore extends InMemoryOrchestratorStore {
-  failResolvedFrame = false;
+  failResolvedFrame = false as boolean;
 
   protected override writeFrame(frame: RunFrame): Promise<void> {
     if (

@@ -35,7 +35,7 @@ export function sampleStream(
       if (stopped || blob === null) {
         return;
       }
-      void blob.arrayBuffer().then((bytes) => {
+      blob.arrayBuffer().then((bytes) => {
         if (stopped) {
           return;
         }
@@ -43,7 +43,7 @@ export function sampleStream(
       });
     }, "image/jpeg");
   }, intervalMs);
-  void video.play().catch(() => {
+  video.play().catch(() => {
     // A stream that will not play yields no frames; it is not a state change.
   });
   return {

@@ -293,7 +293,11 @@ describe("the bundled snapshot", () => {
 
   it("carries usable facts for models we actually route to", () => {
     const opus = MODELS_DEV["anthropic/claude-opus-4-7"];
-    expect(opus?.limit?.context).toBeGreaterThan(0);
-    expect(opus?.cost?.input).toBeGreaterThan(0);
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: generated catalog data can omit an indexed model at runtime.
+    if (opus === undefined) {
+      throw new Error("the bundled catalog must include Claude Opus 4.7");
+    }
+    expect(opus.limit?.context).toBeGreaterThan(0);
+    expect(opus.cost?.input).toBeGreaterThan(0);
   });
 });
