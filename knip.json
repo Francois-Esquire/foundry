@@ -2,11 +2,13 @@
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "workspaces": {
     ".": {
-      "ignoreDependencies": ["varlock"],
-      "entry": ["blume.config.ts", "docs/**/meta.ts"]
+      "ignoreDependencies": ["varlock"]
     },
     "apps/*": {
       "includeEntryExports": true
+    },
+    "packages/docs": {
+      "entry": ["blume.config.ts", "**/meta.ts"]
     },
     "tooling/*": {}
   }

@@ -1,0 +1,18 @@
+{
+  "name": "@foundry/docs",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "clean": "rm -rf .blume .cache .turbo dist",
+    "docs:build": "blume build",
+    "docs:check": "blume validate --strict",
+    "docs:dev": "blume dev",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@foundry/tsconfig": "workspace:*",
+    "blume": "1.6.3",
+    "typescript": "^6.0.3"
+  }
+}

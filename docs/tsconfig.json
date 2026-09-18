@@ -1,0 +1,7 @@
+{
+  "extends": "@foundry/tsconfig/base.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": ".cache/docs.tsbuildinfo"
+  },
+  "include": ["blume.config.ts", "**/meta.ts"]
+}

@@ -31,8 +31,10 @@ changelog currently contains repository-wide release history.
 
 ## Documentation
 
-Blume is installed at the repository root. Quirks pages live in `docs/quirks`;
-`blume.config.ts` selects the published content and `docs/quirks/meta.ts` orders it.
+Blume and its configuration live in `packages/docs`. Quirks pages live directly
+in `packages/docs/quirks`; `blume.config.ts` selects the published content and
+`quirks/meta.ts` orders it.
+
 Most pages use Markdown. Pages with Mermaid diagrams, callouts, or pattern cards
 use MDX because Blume renders those components through its MDX pipeline. Internal
 links use site routes such as `/quirks/start-here`.
@@ -44,9 +46,9 @@ bun run docs:typecheck
 bun run docs:build
 ```
 
-The static site is generated in `dist/`. Blume's generated runtime lives in
-`.blume/`. Both are ignored by Git. Maintainer notes prefixed with `_`, including
-`_api-followups.md`, stay outside the rendered site.
+The static site is generated in `packages/docs/dist/`. Blume's generated runtime
+lives in `packages/docs/.blume/`. Both are ignored by Git. Maintainer notes
+prefixed with `_`, including `_api-followups.md`, stay outside the rendered site.
 
 CI publishes the built site to GitHub Pages after a successful documentation
 build on `main`. Pull requests only validate and build. The site lives at

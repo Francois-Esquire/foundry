@@ -5,7 +5,8 @@
   "workspaces": [
     "apps/*",
     "packages/*",
-    "tooling/*"
+    "tooling/*",
+    "docs/"
   ],
   "scripts": {
     "build": "turbo run build",
@@ -13,14 +14,14 @@
     "check": "ultracite check",
     "check-types": "bun run typecheck",
     "clean": "turbo run clean && bun run clean:root",
-    "clean:root": "rm -rf .turbo .cache .blume dist",
+    "clean:root": "rm -rf .turbo .cache",
     "dead-code": "knip",
     "dev": "turbo run dev",
     "dev:quirks": "turbo run dev -F @foundry/quirks --",
-    "docs:build": "blume build",
-    "docs:check": "blume validate --strict",
-    "docs:dev": "blume dev",
-    "docs:typecheck": "tsc --project tsconfig.docs.json",
+    "docs:build": "turbo run docs:build --filter=@foundry/docs",
+    "docs:check": "turbo run docs:check --filter=@foundry/docs",
+    "docs:dev": "turbo run docs:dev --filter=@foundry/docs",
+    "docs:typecheck": "turbo run typecheck --filter=@foundry/docs",
     "fix": "ultracite fix",
     "format": "biome format .",
     "format:fix": "biome format --write .",
@@ -43,7 +44,6 @@
     "@biomejs/biome": "2.5.12",
     "@foundry/tsconfig": "workspace:*",
     "@types/node": "^26.4.1",
-    "blume": "1.6.3",
     "husky": "latest",
     "knip": "6.32.0",
     "sherif": "1.13.0",

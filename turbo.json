@@ -34,21 +34,15 @@
       "dependsOn": ["build"],
       "cache": false
     },
-    "//#docs:build": {
-      "inputs": ["docs/**", "blume.config.ts", "package.json", "bun.lock"],
+    "docs:build": {
       "outputs": ["dist/**", ".blume/**"],
       "cache": false
     },
-    "//#docs:dev": {
+    "docs:dev": {
       "cache": false,
       "persistent": true
     },
-    "//#docs:check": {
-      "inputs": ["docs/**", "blume.config.ts", "package.json", "bun.lock"],
-      "outputs": []
-    },
-    "//#docs:typecheck": {
-      "cache": false,
+    "docs:check": {
       "outputs": []
     }
   },

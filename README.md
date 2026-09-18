@@ -7,7 +7,7 @@
 [![Bun](https://img.shields.io/badge/Bun-1.3.14-14151a?logo=bun&logoColor=white)](package.json)
 [![Turborepo](https://img.shields.io/badge/build-Turborepo-ef4444?logo=turborepo&logoColor=white)](turbo.json)
 [![Code checks](https://img.shields.io/badge/code_checks-Ultracite-60a5fa)](biome.jsonc)
-[![Documentation site](https://img.shields.io/badge/docs_built_with-Blume-8b5cf6)](blume.config.ts)
+[![Documentation site](https://img.shields.io/badge/docs_built_with-Blume-8b5cf6)](packages/docs/blume.config.ts)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 Tools and TypeScript libraries for building local behaviors with coding agents.

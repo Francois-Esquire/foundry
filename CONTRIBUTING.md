@@ -77,8 +77,10 @@ It does not replace full validation. Dependabot checks GitHub Actions weekly.
 ## Documentation
 
 The [documentation site](https://francois-esquire.github.io/foundry/) is hosted
-on this repository's GitHub Pages. Its source lives in [docs/quirks](docs/quirks/index.md).
-Blume is installed at the root and reads `blume.config.ts`.
+on this repository's GitHub Pages. Its source lives in
+[packages/docs/quirks](packages/docs/quirks/index.md). The `@foundry/docs`
+workspace package owns Blume and its configuration. Pages live directly in the
+package, and `blume.config.ts` names the content folders to publish.
 
 ```sh
 bun run docs:dev
@@ -87,13 +89,15 @@ bun run docs:typecheck
 bun run docs:build
 ```
 
-These commands also have explicit Turbo root tasks. The static output is
-`dist/`; `.blume/` holds the generated runtime. Both are ignored by Git. Stop
-the docs server before building because the build regenerates its runtime.
+These root commands delegate to the docs package through Turbo. The static
+output is `packages/docs/dist/`; `packages/docs/.blume/` holds the generated
+runtime. Both are ignored by Git. Stop the docs server before building because
+the build regenerates its runtime.
 The docs typecheck covers authored configuration and navigation.
 
 The CI documentation job builds and checks pull requests. On pushes to `main`,
-or a manual CI run on `main`, it also uploads `dist/` as the Pages artifact.
+or a manual CI run on `main`, it uploads `packages/docs/dist/` as the Pages
+artifact.
 A separate deployment job publishes that exact artifact using the `github-pages`
 environment and Pages/OIDC permissions. It depends on the documentation build;
 the other repository checks run independently.
