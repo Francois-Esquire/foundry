@@ -1,5 +1,5 @@
 /**
- * H-10 — host write authority. Exact-version reads feed `save`; every
+ * Host write authority. Exact-version reads feed `save`; every
  * confinement check re-runs before an atomic replacement; conflict, stale,
  * and failed outcomes are proven against real temporary directories with
  * injected filesystem and store faults. `failed` always means the original
@@ -60,7 +60,6 @@ function checksumOf(text: string): string {
   return sha256Hex(new TextEncoder().encode(text));
 }
 
-/** A Workspace over a real root, with the write path optionally instrumented. */
 async function opened(
   tree: Record<string, string | Uint8Array>,
   filesystem: WorkspaceFileSystem = nodeFileSystem
@@ -81,7 +80,6 @@ function one<T>(items: readonly T[]): T {
   return item;
 }
 
-/** Counts replacements without changing what the real filesystem does. */
 function countingWrites(): {
   filesystem: WorkspaceFileSystem;
   writes: () => number;
@@ -194,7 +192,6 @@ describe("save", () => {
       },
       kind: "conflict",
     });
-    // The external bytes and the catalog row both survive untouched.
     expect(await readFile(join(root, "README.md"), "utf8")).toBe(
       "external change"
     );
@@ -250,7 +247,6 @@ describe("save refusals", () => {
     });
 
     expect(result).toMatchObject({ kind: "stale" });
-    // Stale never recreates the path.
     await expect(lstat(join(root, "gone.md"))).rejects.toMatchObject({
       code: "ENOENT",
     });
@@ -293,7 +289,6 @@ describe("save refusals", () => {
     });
 
     expect(result).toMatchObject({ kind: "stale" });
-    // Neither the link's target nor anything else was written through it.
     expect(await readFile(join(root, "target.md"), "utf8")).toBe("safe");
   });
 
@@ -486,8 +481,6 @@ describe("catalog observation after write", () => {
       text: "second",
     });
 
-    // The bytes are on disk and the snapshot is truthful; only the catalog
-    // is behind — and it says so instead of downgrading to failed.
     expect(result).toEqual({
       catalog: "refresh-required",
       kind: "saved",
@@ -503,7 +496,6 @@ describe("catalog observation after write", () => {
     );
     expect(writes()).toBe(1);
 
-    // Ordinary reconciliation converges the catalog without a byte retry.
     const recovered = directorySystem({ filesystem, store: inner });
     await (await recovered.open(workspace.id)).refresh();
     expect(one(await inner.listFiles(workspace.id)).checksum).toBe(
@@ -591,7 +583,6 @@ describe("nodeFileSystem.replaceFile", () => {
     expect(await readFile(target, "utf8")).toBe("after");
     // biome-ignore lint/suspicious/noBitwiseOperators: Filesystem permissions are a bit mask.
     expect((await lstat(target)).mode & 0o7777).toBe(0o600);
-    // No abandoned temporary sibling.
     expect(await readdir(root)).toEqual(["mode.txt"]);
   });
 

@@ -73,9 +73,9 @@ export const nodeFileSystem: WorkspaceFileSystem = {
    * the exact bytes and the existing file's permission bits, is synced and
    * closed, then renamed over the original within the same directory. Failure
    * before the rename leaves the original untouched and best-effort unlinks
-   * the temp. Compare-then-rename is optimistic concurrency (G-04) — an
+   * the temp. Compare-then-rename is optimistic concurrency — an
    * external write inside that interval wins the rename, not a lock — and the
-   * rename's durability is the host filesystem's contract (G-05); neither
+   * rename's durability is the host filesystem's contract; neither
    * snapshot isolation nor a directory fsync is claimed here.
    */
   async replaceFile(path, bytes) {
@@ -103,7 +103,6 @@ export function joinPath(base: string, segment: string): string {
   return join(base, segment);
 }
 
-/** True when `candidate` is the root itself or genuinely inside it. */
 export function isBeneath(root: string, candidate: string): boolean {
   return candidate === root || candidate.startsWith(`${root}${sep}`);
 }

@@ -232,7 +232,7 @@ export class Workspace {
    * read. The write and its catalog observation are serialized with this
    * system's own observations so a concurrent reconciliation cannot restore
    * pre-write facts; a second system over the same store can still interleave
-   * (documented optimistic concurrency, G-04).
+   * (optimistic concurrency across systems).
    */
   async save(command: SaveFileCommand): Promise<SaveFileResult> {
     return this.serialize(() => this.performSave(command));
@@ -315,7 +315,7 @@ export class Workspace {
    * Two overlapping observations both see the same arrival missing, both
    * allocate an id for it, and the second commit collides on the unique
    * `(workspaceId, path)` pair — surfacing as a persistence exception, which
-   * is precisely the shape this milestone refuses for source-side trouble.
+   * is precisely the shape this system refuses for source-side trouble.
    * A renderer that opens and refreshes together reaches that today, so the
    * second caller joins the observation already running instead.
    */

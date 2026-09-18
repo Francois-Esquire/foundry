@@ -1,4 +1,3 @@
-/** Base for every failure this package chooses to raise. */
 export class WorkspaceSystemError extends Error {
   constructor(message: string, options?: { cause?: unknown }) {
     super(message, options);
@@ -51,10 +50,8 @@ export function sourceIssueFor(cause: unknown): WorkspaceSourceIssue {
   return code === "EACCES" || code === "EPERM" ? "unreadable" : "scan-failed";
 }
 
-/** The store rejected an otherwise well-formed commit. */
 export class WorkspacePersistenceError extends WorkspaceSystemError {}
 
-/** No registered layer claims the stored source, so nothing can observe it. */
 export class WorkspaceSourceUnsupportedError extends WorkspaceSystemError {
   constructor(source: string) {
     super(`No registered Workspace layer claims the source "${source}"`);

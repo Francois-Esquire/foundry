@@ -172,7 +172,6 @@ export type WorkspaceSourceStatus =
   | { readonly kind: "unreadable"; readonly reason: string }
   | { readonly kind: "scan-failed"; readonly reason: string };
 
-/** One Workspace, its catalog, and what the source said while producing it. */
 export interface WorkspaceView {
   readonly files: readonly WorkspaceFile[];
   readonly source: WorkspaceSourceStatus;

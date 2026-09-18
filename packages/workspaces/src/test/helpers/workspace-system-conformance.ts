@@ -858,9 +858,8 @@ export function hostWorkspace(
 }
 
 /**
- * The other member of the closed source enumeration. Milestone 1 writes no
- * `artifact` rows, but both stores must already agree on their uniqueness rule
- * — the divergence is invisible while every fixture leaves `sourceId` null.
+ * Both stores must agree on uniqueness for every source kind, even while the
+ * common fixtures leave `sourceId` null.
  */
 export function artifactWorkspace(
   artifactId: string,

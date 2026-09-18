@@ -17,7 +17,6 @@ import { decodeUtf8, errorCode } from "./text";
 import type { FileContentResult, WriteOutcome } from "./workspace";
 import type { StoredFileRecord } from "./workspace-store";
 
-/** The stored `source` value a directory Workspace carries. */
 export const DIRECTORY_SOURCE = "host";
 
 export interface DirectoryOptions {
@@ -342,7 +341,6 @@ interface ResolveFailure {
   readonly reason: string;
 }
 
-/** How `readFile` reports each confinement/read failure — the pre-save shape. */
 function contentKindFor(
   issue: ResolveFailure["issue"]
 ): "stale" | "unavailable" | "unreadable" {

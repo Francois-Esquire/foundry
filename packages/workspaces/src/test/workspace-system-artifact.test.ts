@@ -48,7 +48,6 @@ async function makeRoot(
   return await nodeFileSystem.realpath(root);
 }
 
-/** The one tree both layers are proven over. */
 const TREE = {
   "docs/guide.md": "# guide\n",
   "media/logo.png": new Uint8Array([0x00, 0x50, 0x4e, 0x47]),
@@ -59,7 +58,6 @@ type Files = Record<string, string | Uint8Array>;
 
 const FAKE_SOURCE = "fake";
 
-/** In-memory trees keyed by source id, swapped wholesale by `replace`. */
 class FakeTrees {
   readonly #trees = new Map<string, Files>();
 

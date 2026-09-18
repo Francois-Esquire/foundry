@@ -114,7 +114,6 @@ function differs(row: StoredFileRecord, candidate: FileCandidate): boolean {
   return OBSERVED_KEYS.some((key) => row[key] !== candidate[key]);
 }
 
-/** The surviving row: its id and birth are kept, every observed fact replaced. */
 function observed(
   row: StoredFileRecord,
   candidate: FileCandidate,
@@ -123,7 +122,6 @@ function observed(
   return { ...row, ...candidate, updatedAt: at };
 }
 
-/** One newly catalogued File. Shared with the first scan of a new Workspace. */
 export function createFileRecord(
   workspaceId: WorkspaceId,
   candidate: FileCandidate,
@@ -133,7 +131,6 @@ export function createFileRecord(
   return { id, workspaceId, ...candidate, createdAt: at, updatedAt: at };
 }
 
-/** A null key means the value is not groupable, so it joins no group. */
 function groupBy<T>(
   values: readonly T[],
   key: (value: T) => string | null

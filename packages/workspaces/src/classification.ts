@@ -69,7 +69,6 @@ export function classifyFile(relativePath: string): FileClassification {
   };
 }
 
-/** Lowercased and dotless, or null for a dotfile or a name without one. */
 function extensionOf(name: string): string | null {
   const dot = name.lastIndexOf(".");
   if (dot <= 0 || dot === name.length - 1) {

@@ -14,7 +14,7 @@ import { directorySystem } from "./helpers/directory-system";
 import { hostWorkspace } from "./helpers/workspace-system-conformance";
 
 /**
- * H-11 — `Git` over real temporary repositories.
+ * `Git` over real temporary repositories.
  *
  * Every fixture is built with the `git` binary rather than through the class,
  * because `Git` has no way to create a repository and must not gain one.
@@ -67,7 +67,6 @@ async function write(root: string, tree: Record<string, string>) {
   }
 }
 
-/** A repository with `tree` committed on `main`. */
 async function makeRepository(tree: Record<string, string>): Promise<string> {
   const root = await makeDirectory(tree);
   await git(root, "init", "-b", "main");
@@ -331,7 +330,7 @@ describe("Git.status failures", () => {
    * repository. A throw is not: the repository is there and Git cannot open
    * it, and calling that an ordinary directory hides a broken environment.
    *
-   * Deliberately not fixtured with `chmod` (G-04) and deliberately not with a
+   * Deliberately not fixtured with `chmod` and deliberately not with a
    * corrupt `HEAD`: Git itself reports that as "not a git repository", so
    * `simple-git` resolves false and no caller can tell it from a plain
    * directory. That is recorded below rather than asserted as unavailable.
@@ -417,7 +416,6 @@ describe("WithGit", () => {
         { path: "README.md", staged: false, unstaged: true, untracked: false },
       ],
     });
-    // The status was live, and the catalog it describes never moved.
     expect((await added.files()).map((file) => file.path)).toEqual([
       "README.md",
     ]);

@@ -1,7 +1,6 @@
 import type { WorkspaceCtor } from "./instance";
 import type { StoredWorkspaceRecord } from "./workspace-store";
 
-/** What `create` needs to register a source; everything else is allocated. */
 export type WorkspaceIdentity = Pick<
   StoredWorkspaceRecord,
   "name" | "source" | "sourceId" | "path"
@@ -41,10 +40,8 @@ export interface WorkspaceExtension<
   wrap: (Base: WorkspaceCtor) => WorkspaceCtor;
 }
 
-/** Any extension: what the system stores and iterates. */
 export type AnyWorkspaceExtension = WorkspaceExtension<object>;
 
-/** The union of every ref a system's floors accept. */
 export type RefOf<Exts extends readonly AnyWorkspaceExtension[]> =
   Exts[number] extends infer E
     ? E extends WorkspaceExtension<infer R>
@@ -52,7 +49,6 @@ export type RefOf<Exts extends readonly AnyWorkspaceExtension[]> =
       : never
     : never;
 
-/** The floor capability `add(ref)` returns for one ref shape. */
 export type FloorFor<
   Exts extends readonly AnyWorkspaceExtension[],
   R,
