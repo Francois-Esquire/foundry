@@ -22,6 +22,8 @@
     "docs:check": "turbo run docs:check --filter=@foundry/docs",
     "docs:dev": "turbo run docs:dev --filter=@foundry/docs",
     "docs:typecheck": "turbo run typecheck --filter=@foundry/docs",
+    "env:check": "varlock load --agent",
+    "env:run": "varlock run --",
     "fix": "ultracite fix",
     "format": "biome format .",
     "format:fix": "biome format --write .",

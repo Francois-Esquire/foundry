@@ -58,10 +58,21 @@ dependencies. There is no catalog. Sherif checks manifest consistency. Biome
 extends Ultracite at the root; Knip entries and narrow exceptions belong in
 `knip.json`.
 
-Bun's automatic `.env` loading is disabled in `bunfig.toml`. Quirks inherits its
-launching process's environment. Varlock is installed, but Quirks does not yet
-invoke it or define an environment schema. Export required variables before
-launching the app and declare task-specific environment inputs in Turbo.
+Bun's automatic `.env` loading is disabled in `bunfig.toml`. The root
+[`.env.schema`](.env.schema) declares `AI_GATEWAY_API_KEY` as required and
+sensitive. Put its value in the ignored `.env` file or provide it through the
+process environment. Validate without printing the secret, then launch a
+command with the validated environment:
+
+```sh
+bun run env:check
+bun run env:run bun run quirks list
+```
+
+The `env:run` command accepts any command after its name. Quirks inherits the
+environment of the process that starts it; the published package does not
+require Varlock. Declare task-specific environment inputs in Turbo when a
+task begins using a secret.
 
 ## Continuous integration
 
