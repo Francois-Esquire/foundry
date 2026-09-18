@@ -13,10 +13,6 @@ import type {
   EmbedOptions,
   EmbedSource,
 } from "./types";
-
-// biome-ignore lint/performance/noBarrelFile: Preserve the embeddings module's public cosineSimilarity export while using it locally.
-export { cosineSimilarity } from "ai";
-
 export function resolveEmbeddingModel(
   source: EmbedSource,
   opts: { model?: string; provider?: string }

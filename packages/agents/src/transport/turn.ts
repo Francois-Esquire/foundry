@@ -18,7 +18,7 @@ const ToolResult = z.object({
   toolCallId: z.string(),
 });
 
-export const sessionTurnShape = {
+const sessionTurnShape = {
   attachments: z.array(ImageAttachment).optional(),
   content: z.string().default(""),
   harness: z.string().optional(),

@@ -2,25 +2,10 @@ import { tool } from "ai";
 import { z } from "zod";
 
 /**
- * Questionnaire tool: lets an agent ask the user one or more questions and
- * collect the answers, blocking the turn until they reply.
- *
- * `ask_questions` is declared **schema-only** (no `execute`). When the model
- * calls it the harness pauses the loop and surfaces the call to the renderer,
- * which translates the questionnaire (the tool's *input*) into a form (see
- * `@foundry/ui/generator`). The user's answers are posted back as the tool's
- * output — an {@link Answers} keyed by question id — which resumes the loop,
- * so the model reads them inline on the same turn. This is the standard AI SDK
- * human-in-the-loop pattern (same pause/resume the sandbox + preview tools use).
+ * Questionnaire input for a schema-only tool. The harness pauses when the
+ * model calls it; the renderer collects answers and returns them as the tool
+ * output when the turn resumes.
  */
-
-/**
- * Sentinel option value for the free-text "Other" choice on single/multiple
- * questions. When `allowOther` is set, the renderer adds a choice with this
- * value; the typed text rides on the answer's `other` field, not in `options`.
- */
-export const OTHER_VALUE = "__other__";
-
 const choiceSchema = z.object({
   label: z.string().describe("Human-readable choice text."),
   value: z.string().describe("Stable value stored when this choice is picked."),
@@ -71,22 +56,7 @@ export const questionnaireSchema = z.object({
   questions: z.array(questionSchema).min(1),
   title: z.string().optional(),
 });
-
-export type Choice = z.infer<typeof choiceSchema>;
-export type Question = z.infer<typeof questionSchema>;
 export type Questionnaire = z.infer<typeof questionnaireSchema>;
-
-/** Collected answer for a single question, discriminated by question type. */
-export type Answer =
-  | { type: "single"; value: string | null; other?: string }
-  | { type: "multiple"; values: string[]; other?: string }
-  | { type: "text"; value: string };
-
-/**
- * All answers for a questionnaire, keyed by question id. This is the tool's
- * output — what the renderer posts back and the model reads on resume.
- */
-export type Answers = Record<string, Answer>;
 
 const ASK_QUESTIONS_DESCRIPTION = `Ask the user one or more questions and collect their answers.
 WHEN TO USE: you need a decision or input from the user before continuing —

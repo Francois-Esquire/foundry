@@ -13,7 +13,7 @@ import { Step } from "@foundry/workflows/step";
  */
 
 /** What one completed round of the body reports back to the loop. */
-export interface LoopRound<O> {
+interface LoopRound<O> {
   readonly output: O;
   readonly round: number;
 }
@@ -23,7 +23,7 @@ export interface LoopRound<O> {
  * which is the only capability the loop needs, so the loop asks for exactly
  * that rather than for one of the two classes.
  */
-export interface LoopBody<I, O> {
+interface LoopBody<I, O> {
   create(): { run(input: I): Promise<O> };
 }
 

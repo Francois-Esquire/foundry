@@ -8,7 +8,7 @@ import type { LiveTarget } from "../../live/types";
 import type { CapabilityFact, Media } from "../../types";
 
 /** One connected transport double, driven by the test. */
-export interface Double {
+interface Double {
   readonly closed: () => boolean;
   deliver(correlation: string | undefined, media?: Media): void;
   drop(message?: string): void;
@@ -96,7 +96,7 @@ export function connector(registry: Registry): Connect {
   };
 }
 
-export function fact(over: Partial<CapabilityFact> = {}): CapabilityFact {
+function fact(over: Partial<CapabilityFact> = {}): CapabilityFact {
   return {
     delivery: "result-per-input",
     inputs: ["direction", "frame"],

@@ -6,13 +6,13 @@ import type {
   ProviderModelDefinition,
 } from "../types";
 
-export interface VercelRestPricingTier {
+interface VercelRestPricingTier {
   cost: string;
   max?: number;
   min: number;
 }
 
-export interface VercelRestPricing {
+interface VercelRestPricing {
   input?: string;
   input_cache_read?: string;
   input_cache_write?: string;

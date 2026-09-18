@@ -1,0 +1,13 @@
+# Quirks packaging
+
+Quirks is published as a standalone package. Its build inlines the Foundry
+workspace packages, but leaves third-party imports external. Keep their
+third-party runtime dependencies in this package's `dependencies`, even when
+Quirks source does not import them directly or a build tree-shakes a path.
+Optional features may use an explicitly declared optional peer dependency.
+
+Knip cannot trace those bundled imports back to this manifest. Keep its
+`apps/quirks` dependency exceptions limited to this packaging case. Before
+removing one, inspect the build and run
+`bun run test:package` from this directory; the package test installs the
+tarball in an isolated consumer and exercises the CLI.

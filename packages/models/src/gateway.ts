@@ -22,7 +22,7 @@ export interface GatewayProviderOptions {
   models?: ProviderModelDefinition[];
 }
 
-export const GATEWAY_DEFAULTS: Partial<Record<ModelKind, string>> = {
+const GATEWAY_DEFAULTS: Partial<Record<ModelKind, string>> = {
   embedding: "openai/text-embedding-3-small",
   text: "openai/gpt-5-mini",
 };

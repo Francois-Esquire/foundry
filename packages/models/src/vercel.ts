@@ -11,7 +11,7 @@ import type { ModelKind, ProviderModelDefinition } from "./types";
 
 const TRAILING_SLASHES_PATTERN = /\/+$/;
 
-export const VERCEL_GATEWAY_BASE_URL = "https://ai-gateway.vercel.sh/v1";
+const VERCEL_GATEWAY_BASE_URL = "https://ai-gateway.vercel.sh/v1";
 
 export interface VercelProviderConfig {
   apiKey?: string;
@@ -25,7 +25,7 @@ export interface VercelProviderOptions {
   models?: ProviderModelDefinition[];
 }
 
-export const VERCEL_DEFAULTS: Partial<Record<ModelKind, string>> = {
+const VERCEL_DEFAULTS: Partial<Record<ModelKind, string>> = {
   embedding: "openai/text-embedding-3-small",
   text: "openai/gpt-5.6-luna",
 };

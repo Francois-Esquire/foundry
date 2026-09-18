@@ -23,7 +23,7 @@ export type ChunkStrategy =
  * next chunk name the same shared line. For the inclusive last line a chunk
  * touches, use `countNewlines(resource.slice(0, endOffset - 1))`.
  */
-export interface ChunkSpan {
+interface ChunkSpan {
   endLine: number;
   endOffset: number;
   resourceId: string;
@@ -42,7 +42,7 @@ export interface Chunk {
  * Counts `\n` occurrences in `s`. Used to advance line numbers across chunks
  * without re-slicing the resource from offset 0 each time.
  */
-export function countNewlines(s: string): number {
+function countNewlines(s: string): number {
   let n = 0;
   for (let i = 0; i < s.length; i += 1) {
     if (s.charCodeAt(i) === 10) {

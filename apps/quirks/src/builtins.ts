@@ -89,7 +89,7 @@ const review = step("review", ({ models, executors }, input: TurnInput) =>
   ask(models, executorAt(executors, 1), input)
 );
 
-export const developRound = workflow<DevelopInput, DevelopRoundOutput>(
+const developRound = workflow<DevelopInput, DevelopRoundOutput>(
   "develop-round",
   (graph) => {
     graph
@@ -146,7 +146,7 @@ export interface ReviewInput {
 const reviewPrompt = (base: string) =>
   `Review the code in this working tree, checked out from ${base}. Report what you would change, most important first.`;
 
-export interface ReviewOutput {
+interface ReviewOutput {
   readonly reviews: readonly {
     readonly harness: string;
     readonly text: string;
@@ -199,12 +199,12 @@ export const reviewInWorktree = step(
 
 // ── review-session ───────────────────────────────────────────────────────
 
-export const reviewer = agent("quirks-reviewer", {
+const reviewer = agent("quirks-reviewer", {
   prompt:
     "You review code. Read only; never edit, commit, or run anything that changes the tree.",
 });
 
-export interface ReviewSessionOutput {
+interface ReviewSessionOutput {
   readonly sessionId: string;
   readonly text: string;
 }

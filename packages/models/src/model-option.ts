@@ -103,7 +103,7 @@ export function vendorOf(id: string): string {
 }
 
 /** Id → label: `vercel` → "Vercel", `ai_gateway` → "Ai Gateway". */
-export function titleCase(id: string): string {
+function titleCase(id: string): string {
   return id
     .split(MODEL_ID_WORD_SEPARATOR_PATTERN)
     .filter(Boolean)

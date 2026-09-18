@@ -342,7 +342,7 @@ class InMemoryExecutionState {
   }
 }
 
-export class InMemoryExecutionRepository implements ExecutionRepository {
+class InMemoryExecutionRepository implements ExecutionRepository {
   private readonly state: InMemoryExecutionState;
 
   constructor(state: InMemoryExecutionState) {
@@ -612,7 +612,7 @@ export class InMemoryExecutionRepository implements ExecutionRepository {
   }
 }
 
-export class InMemoryRunJournal implements RunJournal {
+class InMemoryRunJournal implements RunJournal {
   private readonly state: InMemoryExecutionState;
 
   constructor(state: InMemoryExecutionState) {

@@ -26,7 +26,7 @@ import type { EmbedSource } from "./types";
  * the final chunk texts (tracked telemetry, the vectors you keep). Recursive
  * mode embeds once. That second pass is the only one that surfaces here.
  */
-export type ChunkMethod = "semantic" | "recursive";
+type ChunkMethod = "semantic" | "recursive";
 
 export interface EmbedChunksOptions {
   abortSignal?: AbortSignal;

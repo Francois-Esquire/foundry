@@ -5,7 +5,7 @@ import type { MemoryStore } from "./store";
 
 import { InMemoryMemoryStore, MEMORY_TYPES } from "./store";
 
-export const memoryTypeSchema = z.enum(MEMORY_TYPES);
+const memoryTypeSchema = z.enum(MEMORY_TYPES);
 
 export interface MemoryOptions {
   /**

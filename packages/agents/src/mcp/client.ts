@@ -107,7 +107,7 @@ function asString(value: unknown): string {
 }
 
 /** Connection-affecting identity of a definition — metadata and `enabled` excluded. */
-export function connectionSignature(c: McpServerDefinition): string {
+function connectionSignature(c: McpServerDefinition): string {
   const { transport } = c;
   return transport.kind === "remote"
     ? JSON.stringify({

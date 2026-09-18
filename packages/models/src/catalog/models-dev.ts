@@ -28,7 +28,7 @@ import type {
 
 /** Rates in USD per 1M tokens — already per-million upstream, unlike the wire
  *  formats `fromGateway`/`fromVercelRest` read, which are per-token. */
-export interface ModelsDevCost {
+interface ModelsDevCost {
   cache_read?: number;
   cache_write?: number;
   input: number;
@@ -41,7 +41,7 @@ export interface ModelsDevCost {
   }[];
 }
 
-export interface ModelsDevModel {
+interface ModelsDevModel {
   attachment?: boolean;
   cost?: ModelsDevCost;
   limit?: { context?: number; output?: number };

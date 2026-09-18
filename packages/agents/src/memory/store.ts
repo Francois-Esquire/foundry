@@ -1,7 +1,7 @@
 import { generateId } from "ai";
 
 export const MEMORY_TYPES = ["memory", "note", "artifact", "fact"] as const;
-export type MemoryType = (typeof MEMORY_TYPES)[number];
+type MemoryType = (typeof MEMORY_TYPES)[number];
 
 export interface CreateMemoryInput {
   content: string;
@@ -26,7 +26,7 @@ export interface SearchMemoryInput {
   type?: MemoryType;
 }
 
-export interface MemoryHit extends MemoryRecord {
+interface MemoryHit extends MemoryRecord {
   score: number;
 }
 

@@ -7,7 +7,7 @@ import type {
 } from "../../execution-records";
 import type { ExecutionPersistence } from "../../persistence";
 
-export interface PersistenceContractHarness {
+interface PersistenceContractHarness {
   readonly persistence: ExecutionPersistence;
   replaceRunFrames(runId: string, values: readonly unknown[]): Promise<void>;
 }

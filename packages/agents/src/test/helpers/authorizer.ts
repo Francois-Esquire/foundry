@@ -41,8 +41,3 @@ export function fakeAuthorizer(
       ),
   };
 }
-
-/** The permissive authorizer, for tests that only need calls to go through. */
-export function allowAllAuthorizer(): AgentAuthorizer {
-  return fakeAuthorizer(() => ({ kind: "allow", source: "global-policy" }));
-}

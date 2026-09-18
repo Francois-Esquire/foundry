@@ -34,7 +34,7 @@ export interface CacheDirectives {
 }
 
 /** Per-agent overrides layered over the provider-family base rule. */
-export interface CacheOverrides {
+interface CacheOverrides {
   /** Anthropic ephemeral TTL. Omit to use the provider default (5m). */
   anthropicTtl?: "5m" | "1h";
   /** Turn caching off for this agent/turn (emits no directives). */

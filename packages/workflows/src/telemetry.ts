@@ -1,4 +1,4 @@
-export interface TelemetryMetrics {
+interface TelemetryMetrics {
   readonly updatedAt: string;
   readonly values: Readonly<Record<string, number>>;
 }

@@ -14,12 +14,12 @@ import type { TranscribeOptions } from "../../types";
  */
 
 /** Call options with the non-serializable members stripped for transit. */
-export type WireCallOptions = Omit<
+type WireCallOptions = Omit<
   LanguageModelV4CallOptions,
   "abortSignal" | "headers"
 >;
 
-export type WireEmbedOptions = Omit<
+type WireEmbedOptions = Omit<
   EmbeddingModelV4CallOptions,
   "abortSignal" | "headers"
 >;
@@ -45,7 +45,7 @@ export type WorkerRequest =
   | { id: number; op: "cancel"; target: number };
 
 /** Provider events forwarded from the worker, outside any request. */
-export interface WorkerBroadcast {
+interface WorkerBroadcast {
   id: 0;
   name: "download-progress" | "model-loaded";
   payload: unknown;
@@ -64,7 +64,7 @@ export type WorkerReply =
  * (production), an in-memory cross-wired pair (tests). `onExit` fires when the
  * far side is gone — the provider uses it to reject in-flight requests.
  */
-export interface WorkerTransport<TSend, TReceive> {
+interface WorkerTransport<TSend, TReceive> {
   onExit(handler: (reason: string) => void): void;
   onMessage(handler: (message: TReceive) => void): void;
   send(message: TSend): void;

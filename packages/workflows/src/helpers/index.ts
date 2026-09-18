@@ -52,29 +52,6 @@ export function runEffectPromise<A>(
   });
 }
 
-/** Abortable sleep wrapping `setTimeout` + `AbortSignal`. */
-export function sleepFor(
-  duration: Duration,
-  signal?: AbortSignal
-): Promise<void> {
-  const ms = parseDuration(duration);
-  return new Promise<void>((resolve, reject) => {
-    if (signal?.aborted) {
-      reject(new DOMException("Aborted", "AbortError"));
-      return;
-    }
-    const timer = setTimeout(() => {
-      signal?.removeEventListener("abort", onAbort);
-      resolve();
-    }, ms);
-    const onAbort = (): void => {
-      clearTimeout(timer);
-      reject(new DOMException("Aborted", "AbortError"));
-    };
-    signal?.addEventListener("abort", onAbort, { once: true });
-  });
-}
-
 /** Parse a {@link Duration} (`number` ms or `"5s"` / `"3m"` / `"2h"` string) to ms. */
 export function parseDuration(d: Duration): number {
   if (typeof d === "number") {

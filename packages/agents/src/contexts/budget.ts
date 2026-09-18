@@ -13,22 +13,22 @@ import type { ContextBudget, SessionWindowOptions, WindowModel } from "./types";
  * the app-level tables and display meters (context.md §5). Conservative by
  * design — overshooting the real window is the failure we're preventing.
  */
-export const CONTEXT_WINDOWS: Record<string, number> = {};
+const CONTEXT_WINDOWS: Record<string, number> = {};
 
 /**
  * Fallback when a model has no table entry and carries no `contextWindow`
  * (context.md §5 open item — deliberately conservative). Tune once the catalog
  * consolidation lands.
  */
-export const FALLBACK_WINDOW = 128_000;
+const FALLBACK_WINDOW = 128_000;
 
 /** Default reply reservation when a turn doesn't override it. */
-export const DEFAULT_RESERVED_OUTPUT = 8192;
+const DEFAULT_RESERVED_OUTPUT = 8192;
 
 const DEFAULT_SAFETY_MARGIN_RATIO = 0.08;
 
 /** Resolve the input context window for a model: explicit → table → fallback. */
-export function resolveWindow(model: WindowModel): number {
+function resolveWindow(model: WindowModel): number {
   return model.contextWindow ?? CONTEXT_WINDOWS[model.id] ?? FALLBACK_WINDOW;
 }
 

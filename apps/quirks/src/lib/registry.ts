@@ -136,7 +136,7 @@ class RegisteredWorkflow<I, O> extends Workflow<I, O> {
  * Step and Workflow are invariant in their type parameters, so the registry
  * holds a closure that registers each one rather than the definition itself.
  */
-export type Register = (orchestrator: Orchestrator) => void;
+type Register = (orchestrator: Orchestrator) => void;
 
 class Registry {
   readonly definitions = new Map<string, Register>();

@@ -65,19 +65,6 @@ export function toolCallGenerateResult(
   };
 }
 
-/** Build a nested LanguageModelV4 usage from plain input/output token counts. */
-export function mkUsage(inputTokens: number, outputTokens: number): Usage {
-  return {
-    inputTokens: {
-      cacheRead: 0,
-      cacheWrite: 0,
-      noCache: inputTokens,
-      total: inputTokens,
-    },
-    outputTokens: { reasoning: 0, text: outputTokens, total: outputTokens },
-  };
-}
-
 export function toolCallStreamResult(
   toolCallId: string,
   toolName: string,
@@ -147,29 +134,6 @@ export function usageStreamResult(
               total: outputTokens,
             },
           },
-        },
-      ],
-    }),
-  };
-}
-
-export function reasoningStreamResult(
-  reasoning: string,
-  text: string
-): StreamResult {
-  return {
-    stream: simulateReadableStream({
-      chunks: [
-        { id: "reasoning-1", type: "reasoning-start" },
-        { delta: reasoning, id: "reasoning-1", type: "reasoning-delta" },
-        { id: "reasoning-1", type: "reasoning-end" },
-        { id: "text-1", type: "text-start" },
-        { delta: text, id: "text-1", type: "text-delta" },
-        { id: "text-1", type: "text-end" },
-        {
-          finishReason: stopReason,
-          type: "finish",
-          usage: emptyUsage,
         },
       ],
     }),

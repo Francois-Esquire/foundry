@@ -4,11 +4,21 @@
     ".": {
       "ignoreDependencies": ["varlock"]
     },
-    "apps/*": {
-      "includeEntryExports": true
+    "apps/quirks": {
+      "ignoreDependencies": [
+        "@browser-ai/transformers-js",
+        "ai-sdk-provider-claude-code",
+        "ai-sdk-provider-codex-cli",
+        "ignore",
+        "simple-git",
+        "unique-names-generator"
+      ]
     },
-    "packages/docs": {
+    "docs": {
       "entry": ["blume.config.ts", "**/meta.ts"]
+    },
+    "packages/models": {
+      "entry": ["src/local/remote/worker-entry.ts"]
     },
     "tooling/*": {}
   }

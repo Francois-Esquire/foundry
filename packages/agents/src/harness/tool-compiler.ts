@@ -34,7 +34,7 @@ export interface ToolCompilerDeps {
 
 /** Per-call facts available when a chunk needs a capability but isn't going
  *  through `needsApproval`/`execute` itself. */
-export interface ToolCallContext {
+interface ToolCallContext {
   experimentalContext?: unknown;
   messages: ModelMessage[];
   toolCallId: string;
@@ -55,7 +55,7 @@ export interface CompiledTools {
  *  human-declined-approval path) — the model reads it as an ordinary tool
  *  result and can choose another path (design: "denial is a tool result,
  *  not a failed Run"). */
-export interface PolicyDeniedOutput {
+interface PolicyDeniedOutput {
   approved: false;
   reason: string;
 }

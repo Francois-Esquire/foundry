@@ -113,7 +113,6 @@
         "@foundry/agents": "workspace:*",
         "@foundry/lib": "workspace:*",
         "@huggingface/transformers": "^4.2.0",
-        "@kreuzberg/node": "^4.10.2",
         "@kreuzberg/tree-sitter-language-pack": "^1.10.9",
         "ai": "7.0.58",
         "ai-sdk-provider-claude-code": "4.0.1",
@@ -558,16 +557,6 @@
     "@jsep-plugin/regex": ["@jsep-plugin/regex@1.0.4", "", { "peerDependencies": { "jsep": "^0.4.0||^1.0.0" } }, "sha512-q7qL4Mgjs1vByCaTnDFcBnV9HS7GVPJX5vyVoCgZHNSC9rjwIlmbXG5sUuorR5ndfHAIlJ8pVStxvjXHbNvtUg=="],
 
     "@jsep-plugin/ternary": ["@jsep-plugin/ternary@1.1.4", "", { "peerDependencies": { "jsep": "^0.4.0||^1.0.0" } }, "sha512-ck5wiqIbqdMX6WRQztBL7ASDty9YLgJ3sSAK5ZpBzXeySvFGCzIvM6UiAI4hTZ22fEcYQVV/zhUbNscggW+Ukg=="],
-
-    "@kreuzberg/node": ["@kreuzberg/node@4.10.2", "", { "dependencies": { "@emnapi/runtime": "1.11.2", "which": "^7.0.0" }, "optionalDependencies": { "@kreuzberg/node-darwin-arm64": "4.10.2", "@kreuzberg/node-linux-arm64-gnu": "4.10.2", "@kreuzberg/node-linux-x64-gnu": "4.10.2", "@kreuzberg/node-win32-x64-msvc": "4.10.2" }, "bin": { "kreuzberg": "dist/cli.js" } }, "sha512-cOp4SpS4/dZ2MX4jJT8vvcb4KF6eM68JJPPs2ykUnH3+ypvdkJlZC92GOylczw0TNa3yiXB7EGBMrbicHCLbHw=="],
-
-    "@kreuzberg/node-darwin-arm64": ["@kreuzberg/node-darwin-arm64@4.10.2", "", { "os": "darwin", "cpu": "arm64" }, "sha512-XXOoXVYvPAvp8rGQPRpIdKZr4kqPgLG8qp+LdTmjun82AMz11KqAb0HHHuA5kDQ6OiVnM78rvDRYHN36FsprMQ=="],
-
-    "@kreuzberg/node-linux-arm64-gnu": ["@kreuzberg/node-linux-arm64-gnu@4.10.2", "", { "os": "linux", "cpu": "arm64" }, "sha512-vGbBOPo0yy2b1qhffeyGhi+gZVfmHTcq3Rqz0sHnA/kz9JB1T//4gB9QjCHA/6fPdXV6hjHvFLk6lftLzpoi7A=="],
-
-    "@kreuzberg/node-linux-x64-gnu": ["@kreuzberg/node-linux-x64-gnu@4.10.2", "", { "os": "linux", "cpu": "x64" }, "sha512-qA9kfoYTP3sShMnoJTKAv0k/Acj174cIeXPvBkF/QZL+2k7Zqy+iAUaACflJJb2hlsvyO7qPo/K5La+GrUSYRA=="],
-
-    "@kreuzberg/node-win32-x64-msvc": ["@kreuzberg/node-win32-x64-msvc@4.10.2", "", { "os": "win32", "cpu": "x64" }, "sha512-CQywJ5hZwihdJ0gpSY/k+njtSdmD3tAg+vU+1uHhrmmRArKlxwuqeqMqfKwMbrDwPvMgWkf3QjAFe27CZ3xL5w=="],
 
     "@kreuzberg/tree-sitter-language-pack": ["@kreuzberg/tree-sitter-language-pack@1.10.9", "", { "optionalDependencies": { "@kreuzberg/tree-sitter-language-pack-darwin-arm64": "1.10.9", "@kreuzberg/tree-sitter-language-pack-darwin-x64": "1.10.9", "@kreuzberg/tree-sitter-language-pack-linux-arm64-gnu": "1.10.9", "@kreuzberg/tree-sitter-language-pack-linux-arm64-musl": "1.10.9", "@kreuzberg/tree-sitter-language-pack-linux-x64-gnu": "1.10.9", "@kreuzberg/tree-sitter-language-pack-linux-x64-musl": "1.10.9", "@kreuzberg/tree-sitter-language-pack-win32-arm64-msvc": "1.10.9", "@kreuzberg/tree-sitter-language-pack-win32-x64-msvc": "1.10.9" } }, "sha512-sarsHH8pselagUmP76z02m1U6mh2yL8DQeYBNDhsdxnmJQJYXLr+F07dp46SboB1TGYGcLtsN8f5cLVT5lerRg=="],
 
@@ -1941,7 +1930,7 @@
 
     "isarray": ["isarray@1.0.0", "", {}, "sha512-VLghIWNM6ELQzo7zwmcg0NmTVyWKYjvIeM83yjp0wRDTmUnrM678fQbcKBo6n2CJEF0szoG//ytg+TKla89ALQ=="],
 
-    "isexe": ["isexe@4.0.0", "", {}, "sha512-FFUtZMpoZ8RqHS3XeXEmHWLA4thH+ZxCv2lOiPIn1Xc7CxrqhWzNSDzD+/chS/zbYezmiwWLdQC09JdQKmthOw=="],
+    "isexe": ["isexe@2.0.0", "", {}, "sha512-RHxMLp9lnKHGHRng9QFhRCMbYAcVpn69smSGcq3f36xjgVVWThj4qqLbTLlq7Ssj8B+fIQ1EuCEGI2lKsyQeIw=="],
 
     "isobject": ["isobject@3.0.1", "", {}, "sha512-WhB9zCku7EGTj/HQQRz5aUQEUeoQZH2bWcltRErOpymJ4boYE6wL9Tbr23krRPSZ+C5zqNSrSw+Cc7sZZ4b7vg=="],
 
@@ -2767,7 +2756,7 @@
 
     "whatwg-url": ["whatwg-url@5.0.0", "", { "dependencies": { "tr46": "~0.0.3", "webidl-conversions": "^3.0.0" } }, "sha512-saE57nupxk6v3HY35+jzBwYa0rKSy0XR8JSxZPwgLr7ys0IBzhGviA1/TUGJLmSVqs8pb9AnvICXEuOHLprYTw=="],
 
-    "which": ["which@7.0.0", "", { "dependencies": { "isexe": "^4.0.0" }, "bin": { "node-which": "bin/which.js" } }, "sha512-RancgH2dmbLdHl6LRhEqvklWMgl/Hdnun0Y90KhBOLkMefg8Qa7/Zel8Sm+8HEcP6DEjzsWzpkuBQEZok58isA=="],
+    "which": ["which@2.0.2", "", { "dependencies": { "isexe": "^2.0.0" }, "bin": { "node-which": "./bin/node-which" } }, "sha512-BLI3Tl1TW3Pvl70l3yq3Y64i+awpwXqsGBYWkkqMtnbXgrMD+yj7rhW0kuEDxzJaYXGjEW5ogapKNMEKNMjibA=="],
 
     "which-boxed-primitive": ["which-boxed-primitive@1.1.1", "", { "dependencies": { "is-bigint": "^1.1.0", "is-boolean-object": "^1.2.1", "is-number-object": "^1.1.1", "is-string": "^1.1.1", "is-symbol": "^1.1.1" } }, "sha512-TbX3mj8n0odCBFVlY8AxkqcHASw3L60jIuF8jFP78az3C2YhmGvqbHBpAjTRH2/xqYunrJ9g1jSyjCjpoWzIAA=="],
 
@@ -2936,8 +2925,6 @@
     "cliui/strip-ansi": ["strip-ansi@7.2.0", "", { "dependencies": { "ansi-regex": "^6.2.2" } }, "sha512-yDPMNjp4WyfYBkHnjIRLfca1i6KMyGCtsVgoKe/z1+6vukgaENdgGBZt+ZmKPc4gavvEZ5OgHfHdrazhgNyG7w=="],
 
     "cliui/wrap-ansi": ["wrap-ansi@9.0.2", "", { "dependencies": { "ansi-styles": "^6.2.1", "string-width": "^7.0.0", "strip-ansi": "^7.1.0" } }, "sha512-42AtmgqjV+X1VpdOfyTGOYRi0/zsoLqtXQckTmqTeybT+BDIbM/Guxo7x3pE2vtpr1ok6xRqM9OpBe+Jyoqyww=="],
-
-    "cross-spawn/which": ["which@2.0.2", "", { "dependencies": { "isexe": "^2.0.0" }, "bin": { "node-which": "./bin/node-which" } }, "sha512-BLI3Tl1TW3Pvl70l3yq3Y64i+awpwXqsGBYWkkqMtnbXgrMD+yj7rhW0kuEDxzJaYXGjEW5ogapKNMEKNMjibA=="],
 
     "css-select/css-what": ["css-what@6.2.2", "", {}, "sha512-u/O3vwbptzhMs3L1fQE82ZSLHQQfto5gyZzwteVIEyeaY5Fc7R4dapF/BvRoSYFeqfBk4m0V1Vafq5Pjv25wvA=="],
 
@@ -3252,8 +3239,6 @@
     "blume/ai/@ai-sdk/provider": ["@ai-sdk/provider@4.0.11", "", { "dependencies": { "json-schema": "^0.4.0" } }, "sha512-A/Cyjma9RLTLsF9xv/2OSaw9eyFhOIBqzoeOVZhp+xKZD8wv5opN+qyIa83NE4Jug2SjQ/Kaf08w1JX6CESR/w=="],
 
     "blume/ai/@ai-sdk/provider-utils": ["@ai-sdk/provider-utils@5.0.37", "", { "dependencies": { "@ai-sdk/provider": "4.0.11", "@standard-schema/spec": "^1.1.0", "@workflow/serde": "4.1.0", "eventsource-parser": "^3.0.8", "undici": "^7.29.0" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-WzLQPWtpLpunKBanq/TX8+rbBz7JdKpl8Io4nl/g+bLvePbxMlMuxLrxT8JzquxJmgWKbW4nfFrQ5mnX4A8mpw=="],
-
-    "cross-spawn/which/isexe": ["isexe@2.0.0", "", {}, "sha512-RHxMLp9lnKHGHRng9QFhRCMbYAcVpn69smSGcq3f36xjgVVWThj4qqLbTLlq7Ssj8B+fIQ1EuCEGI2lKsyQeIw=="],
 
     "csso/css-tree/mdn-data": ["mdn-data@2.0.28", "", {}, "sha512-aylIc7Z9y4yzHYAJNuESG3hfhC+0Ibp/MAMiaOZgNv4pmEdFyfZhhhny4MNiAfWdBQ1RQ2mfDWmM1x8SvGyp8g=="],
 

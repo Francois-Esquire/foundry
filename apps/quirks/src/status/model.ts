@@ -28,7 +28,7 @@ export interface WorkspaceStatus {
   readonly sessions: number;
 }
 
-export interface ScheduleStatus {
+interface ScheduleStatus {
   readonly kind: "monitor" | null;
   readonly lastFinish: string | null;
   readonly lastStatus: string | null;
@@ -38,13 +38,13 @@ export interface ScheduleStatus {
   readonly running: number | null;
 }
 
-export interface RunsStatus {
+interface RunsStatus {
   /** Newest first, at most five. */
   readonly recent: readonly RunSummary[];
   readonly total: number;
 }
 
-export interface RunSummary {
+interface RunSummary {
   readonly createdAt: number;
   readonly id: string;
   /** Not settled, and the process that owned it is gone. */

@@ -10,11 +10,7 @@ import {
   SuspensionAlreadySettledError,
   SuspensionOccurrenceMismatchError,
 } from "../../errors";
-import type {
-  InMemoryOrchestratorStore,
-  JsonValue,
-  OrchestratorStore,
-} from "../../store";
+import type { JsonValue, OrchestratorStore } from "../../store";
 
 const CLAIMJOBRUN_PATTERN = /claimJobRun/;
 const PLAIN_OBJECTS_PATTERN = /plain objects/;
@@ -713,8 +709,3 @@ export function orchestratorStoreContract(
     });
   });
 }
-
-// Type-only pin: the reference adapter must remain usable wherever the
-// interface is accepted.
-export type InMemoryStorePin =
-  InMemoryOrchestratorStore extends OrchestratorStore ? true : false;

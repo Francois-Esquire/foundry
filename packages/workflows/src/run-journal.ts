@@ -45,10 +45,10 @@ export interface RunJournal {
   listRunFrames(runId: string, after?: number): Promise<RunFrame[]>;
 }
 
-export const RUN_EFFECT_CLAIM_EVENT = "run-effect-claimed";
+const RUN_EFFECT_CLAIM_EVENT = "run-effect-claimed";
 
 /** Receipts and named claims may outlive execution; live activity may not. */
-export function isPostTerminalRunEvidence(payload: JsonValue): boolean {
+function isPostTerminalRunEvidence(payload: JsonValue): boolean {
   if (typeof payload !== "object" || payload === null || !("kind" in payload)) {
     return false;
   }

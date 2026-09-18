@@ -14,20 +14,10 @@ import type { RunStatus } from "./types";
 import type { WorkflowPersistence, WorkflowState } from "./workflow";
 
 /**
- * Persisted-row metadata codec.
- *
- * The Queue serializes each run's {@link WorkflowState} (plus an append-only
- * event stream) into `runs.metadata`. This module owns the single schema that
- * both sides of that boundary share: {@link encodePersistedMetadata} writes
- * through it and {@link decodeMetadata} reads through it, so the persisted
- * shape can't drift between writer and reader. Every accessor projects from
- * the one decode rather than re-walking the raw JSON.
+ * Shared schema for the persisted run metadata blob. The writer validates it
+ * with encodePersistedMetadata, and readers decode it through
+ * decodeMetadataValue or workflowTraceFactsFromMetadata.
  */
-
-// Suspension payload on RecoverableRun is exactly the channels suspension
-// schema's type — derive it rather than redeclaring a parallel interface.
-export type SuspendingMeta = Schema.Schema.Type<typeof SuspensionStateSchema>;
-
 // Run-level status vocabulary owned by workflows. Kept as an Effect-Schema
 // literal so the persisted blob decodes with a typed status.
 const RunStatusSchema = Schema.Literal(
@@ -163,41 +153,6 @@ export function decodeMetadataValue(value: unknown): PersistedMetadata | null {
   return Option.getOrNull(decodeMetadataOption(value));
 }
 
-/** Opaque pass-through parse for the `RecoverableRun.metadata` blob. Preserves
- * the raw shape (including any caller-supplied keys) exactly as persisted. */
-export function parseMetadata(
-  raw: string | null | undefined
-): Record<string, unknown> | null {
-  if (!raw) {
-    return null;
-  }
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : null;
-  } catch {
-    return null;
-  }
-}
-
-/** Decode `runs.metadata` into the typed persisted shape, or `null` if absent
- * or malformed. The single schema read all accessors project from. */
-export function decodeMetadata(
-  raw: string | null | undefined
-): PersistedMetadata | null {
-  if (!raw) {
-    return null;
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return null;
-  }
-  return Option.getOrNull(decodeMetadataOption(parsed));
-}
-
 /**
  * Under a `transient` policy, strip the two evidence-carrying fields the gate
  * forbids while keeping every other field so the row still decodes: drop each
@@ -226,7 +181,7 @@ function gateTransientStream(
 }
 
 /** Encode the persisted blob through the shared schema so the written shape
- * stays in lockstep with {@link decodeMetadata}. May throw on a non-conforming
+ * stays in lockstep with {@link decodeMetadataValue}. May throw on a non-conforming
  * snapshot; callers wrap in a best-effort effect. Under a `transient` policy
  * the Step outputs and `step.complete` stream values are gated out at this one
  * seam; the default `retained` policy encodes exactly as before. */

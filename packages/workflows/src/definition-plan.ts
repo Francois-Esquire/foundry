@@ -172,7 +172,7 @@ export function describeLeafDefinition(plan: {
   });
 }
 
-export function createWorkflowDefinitionPlan<
+function createWorkflowDefinitionPlan<
   I,
   O,
   X extends BaseContext = BaseContext,

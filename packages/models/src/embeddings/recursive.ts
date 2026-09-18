@@ -47,13 +47,13 @@ export interface RecursiveChunkOptions {
 }
 
 /** Default chunk size (tokens). Sized for embedding inputs, above the ~256 floor. */
-export const DEFAULT_RECURSIVE_CHUNK_SIZE = 512;
+const DEFAULT_RECURSIVE_CHUNK_SIZE = 512;
 
 /**
  * Build a {@link RecursiveChunker} with our defaults. Async because chonkie
  * lazily initializes its WASM split engine (and any non-default tokenizer).
  */
-export function createRecursiveChunker(
+function createRecursiveChunker(
   options: RecursiveChunkOptions = {}
 ): Promise<RecursiveChunker> {
   return RecursiveChunker.create({

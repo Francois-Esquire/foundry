@@ -11,7 +11,7 @@ import type { McpStdioTransportConfig } from "./types";
 const TRAILING_CARRIAGE_RETURN_PATTERN = /\r$/u;
 
 /** What a host wants back from a subprocess besides protocol messages. */
-export interface StdioTransportHooks {
+interface StdioTransportHooks {
   /** The subprocess ended. `code` is null when a signal ended it. */
   onExit?: (code: number | null, signal: string | null) => void;
   /** One line of the server's stderr, without the newline. */

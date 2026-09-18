@@ -25,7 +25,7 @@ import type { EmbedSource } from "./types";
  * chunking emits chunks, embedding emits vectors, and a chunk stream is just a
  * source the embedder consumes.
  */
-export type { Chunk, EmbeddingModel, EmbedFunction } from "@chonkiejs/core";
+export type { Chunk, EmbedFunction } from "@chonkiejs/core";
 
 export interface SemanticChunkOptions {
   abortSignal?: AbortSignal;
@@ -45,7 +45,7 @@ export interface SemanticChunkOptions {
 }
 
 /** Default semantic chunk size (tokens), above the ~256 coverage floor. */
-export const DEFAULT_SEMANTIC_CHUNK_SIZE = 512;
+const DEFAULT_SEMANTIC_CHUNK_SIZE = 512;
 
 /**
  * Adapt a `@foundry/models` {@link EmbedSource} into the `(texts) => number[][]`
@@ -73,7 +73,7 @@ export function toEmbedFunction(
 }
 
 /** Build a {@link SemanticChunker} bound to a `@foundry/models` embed source. */
-export function createSemanticChunker(
+function createSemanticChunker(
   source: EmbedSource,
   options: SemanticChunkOptions = {}
 ): Promise<SemanticChunker> {

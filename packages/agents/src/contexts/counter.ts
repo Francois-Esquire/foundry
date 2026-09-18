@@ -49,7 +49,7 @@ function partTokens(part: SessionPart): number {
 }
 
 /** Estimate tokens for a single message, content + envelope. */
-export function estimateMessageTokens(message: SessionMessage): number {
+function estimateMessageTokens(message: SessionMessage): number {
   let total = MESSAGE_OVERHEAD;
   for (const part of message.parts) {
     total += partTokens(part);

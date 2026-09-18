@@ -26,7 +26,7 @@ import { streamFrom } from "./source";
  * downloaded* grammars; with nothing cached it has nothing to detect. Warm the
  * languages you expect first, or pass an explicit language.
  */
-export type { Chunk, CodeChunkerBackend } from "@chonkiejs/core";
+export type { Chunk } from "@chonkiejs/core";
 
 export interface CodeChunkOptions {
   /**
@@ -41,7 +41,7 @@ export interface CodeChunkOptions {
 }
 
 /** Default code chunk size (tokens). */
-export const DEFAULT_CODE_CHUNK_SIZE = 512;
+const DEFAULT_CODE_CHUNK_SIZE = 512;
 
 // One in-flight download promise per language, so concurrent first-chunks of the
 // same language don't double-fetch. Cleared on failure so a transient error can
@@ -89,7 +89,7 @@ async function fetchLanguage(language: string): Promise<void> {
 }
 
 /** Build a {@link CodeChunker} for `language`, auto-downloading its grammar by default. */
-export async function createCodeChunker(
+async function createCodeChunker(
   language: string,
   options: CodeChunkOptions = {}
 ): Promise<CodeChunker> {

@@ -1,4 +1,4 @@
-export type FrontmatterData = Partial<Record<string, string>>;
+type FrontmatterData = Partial<Record<string, string>>;
 
 export interface Frontmatter {
   body: string;

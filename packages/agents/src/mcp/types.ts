@@ -2,14 +2,6 @@ import type { OAuthClientProvider } from "@ai-sdk/mcp";
 
 import type { SpawnStdio } from "./stdio";
 
-/** Re-exported so consumers can implement OAuth without reaching into @ai-sdk/mcp. */
-export type {
-  OAuthClientInformation,
-  OAuthClientMetadata,
-  OAuthClientProvider,
-  OAuthTokens,
-} from "@ai-sdk/mcp";
-
 interface McpServerMetadata {
   /** Catalog metadata — what the server offers. */
   description?: string;
@@ -20,7 +12,7 @@ interface McpServerMetadata {
 }
 
 /** A fully-resolved remote transport. Secret references are resolved by the host. */
-export interface McpRemoteTransportConfig {
+interface McpRemoteTransportConfig {
   authProvider?: OAuthClientProvider;
   headers?: Record<string, string>;
   kind: "remote";
@@ -37,9 +29,7 @@ export interface McpStdioTransportConfig {
   kind: "stdio";
 }
 
-export type McpTransportConfig =
-  | McpRemoteTransportConfig
-  | McpStdioTransportConfig;
+type McpTransportConfig = McpRemoteTransportConfig | McpStdioTransportConfig;
 
 /**
  * What a host hands the manager: the JSON that configures one server, plus
@@ -112,14 +102,14 @@ export interface McpPromptMessage {
 }
 
 /** A server asking the user for structured input mid-call. */
-export interface McpElicitationRequest {
+interface McpElicitationRequest {
   message: string;
   /** Flat JSON-schema object (string/number/integer/boolean/enum properties). */
   requestedSchema: unknown;
   serverId: string;
 }
 
-export type McpElicitationResult =
+type McpElicitationResult =
   | { action: "accept"; content: Record<string, unknown> }
   | { action: "decline" | "cancel" };
 

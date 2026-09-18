@@ -15,7 +15,7 @@ export interface TransportSend {
 }
 
 /** One delivered output on the socket path. */
-export interface TransportMessage {
+interface TransportMessage {
   /** The `correlation` of the send this answers, when the vendor echoes it. */
   readonly correlation?: string;
   readonly media: Media;

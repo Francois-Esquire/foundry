@@ -33,7 +33,7 @@ function usage(input: string, output: string): Generated["usage"] {
   };
 }
 
-export interface MockCall {
+interface MockCall {
   readonly cwd: string | undefined;
   readonly executor: TurnExecutorRef;
   readonly prompt: string;
@@ -54,10 +54,7 @@ function promptText(prompt: Prompt): string {
     .join("\n");
 }
 
-export function mockProvider(
-  executor: TurnExecutorRef,
-  reply: Reply
-): Provider {
+function mockProvider(executor: TurnExecutorRef, reply: Reply): Provider {
   return {
     available: true,
     harness: executor.harness,
