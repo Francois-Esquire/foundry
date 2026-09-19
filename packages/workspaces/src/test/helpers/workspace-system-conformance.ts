@@ -1,8 +1,16 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rename,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterAll, describe, expect, test } from "vitest";
+import { afterAll, describe, expect, test, vi } from "vitest";
 
 import type { DirectoryRef } from "../../directory";
 import type {
@@ -11,6 +19,7 @@ import type {
 } from "../../extension";
 import { sha256Hex } from "../../node";
 import type {
+  WorkspaceChange,
   WorkspaceEntry,
   WorkspaceEntryId,
   WorkspaceFile,
@@ -712,6 +721,195 @@ export function describeWorkspaceSystemConformance(
         }
         return root;
       }
+
+      test("publishes committed entry changes and preserves deleted descriptors", async () => {
+        const { system, store } = await createHarness();
+        const events: WorkspaceChange[] = [];
+        const stop = system.on("change", (change) => {
+          events.push(change);
+        });
+        const root = await sourceDirectory({
+          "keep.txt": "first",
+          "move.txt": "unique",
+        });
+        await mkdir(join(root, "empty"));
+        await symlink("missing", join(root, "link"));
+        const workspace = await system.add({ path: root });
+        const initial = await workspace.entries();
+        expect(events).toEqual(
+          initial.map((entry) => ({ action: "add", entry }))
+        );
+        events.length = 0;
+        await system.add({ path: root });
+        await workspace.refresh();
+        expect(events).toEqual([]);
+
+        await writeFile(join(root, "keep.txt"), "second");
+        await rename(join(root, "move.txt"), join(root, "moved.txt"));
+        await rm(join(root, "link"));
+        await workspace.refresh();
+        const current = await workspace.entries();
+        expect(events).toEqual([
+          {
+            action: "delete",
+            entry: initial.find((entry) => entry.path === "link"),
+          },
+          {
+            action: "change",
+            entry: current.find((entry) => entry.path === "keep.txt"),
+          },
+          {
+            action: "change",
+            entry: current.find((entry) => entry.path === "moved.txt"),
+          },
+        ]);
+        expect(events[2]?.entry.id).toBe(
+          initial.find((entry) => entry.path === "move.txt")?.id
+        );
+        expect(await store.listEntries(workspace.id)).toEqual(current);
+        events.length = 0;
+        await workspace.remove();
+        expect(events).toEqual(
+          current.map((entry) => ({ action: "delete", entry }))
+        );
+        stop();
+      });
+
+      test("save publishes once and no-op, conflict, and failed scans publish nothing", async () => {
+        const { system } = await createHarness();
+        const root = await sourceDirectory({ "file.txt": "first" });
+        const workspace = await system.add({ path: root });
+        const [file] = await workspace.files();
+        if (!file) {
+          throw new Error("Expected file");
+        }
+        const events: WorkspaceChange[] = [];
+        const stop = system.on("change", (change) => {
+          events.push(change);
+        });
+        const result = await workspace.save({
+          expectedDigest: file.digest,
+          fileId: file.id,
+          text: "second",
+        });
+        expect(result.kind).toBe("saved");
+        const [saved] = await workspace.files();
+        if (!saved) {
+          throw new Error("Expected saved file");
+        }
+        expect(events).toEqual([{ action: "change", entry: saved }]);
+        events.length = 0;
+        await workspace.refresh();
+        await workspace.save({
+          expectedDigest: saved.digest,
+          fileId: saved.id,
+          text: "second",
+        });
+        expect(
+          (
+            await workspace.save({
+              expectedDigest: file.digest,
+              fileId: saved.id,
+              text: "third",
+            })
+          ).kind
+        ).toBe("conflict");
+        await rm(root, { force: true, recursive: true });
+        expect((await workspace.refresh()).source.kind).toBe("unavailable");
+        expect(events).toEqual([]);
+        stop();
+      });
+
+      test("removal waits for a save and deletes its committed descriptor", async () => {
+        const { system, store } = await createHarness();
+        const root = await sourceDirectory({ "file.txt": "first" });
+        const workspace = await system.add({ path: root });
+        const [file] = await workspace.files();
+        if (!file) {
+          throw new Error("Expected file");
+        }
+        const events: WorkspaceChange[] = [];
+        const stop = system.on("change", (change) => {
+          events.push(change);
+        });
+        const started = Promise.withResolvers<undefined>();
+        const release = Promise.withResolvers<undefined>();
+        const commit = store.commitFileObservation.bind(store);
+        const observation = vi
+          .spyOn(store, "commitFileObservation")
+          .mockImplementation(async (input) => {
+            started.resolve(undefined);
+            await release.promise;
+            return commit(input);
+          });
+        try {
+          const save = workspace.save({
+            expectedDigest: file.digest,
+            fileId: file.id,
+            text: "second",
+          });
+          await started.promise;
+          const removal = workspace.remove();
+          release.resolve(undefined);
+          await Promise.all([save, removal]);
+          expect(events.map((event) => event.action)).toEqual([
+            "change",
+            "delete",
+          ]);
+          expect(events[1]?.entry).toEqual(events[0]?.entry);
+        } finally {
+          release.resolve(undefined);
+          observation.mockRestore();
+          stop();
+        }
+      });
+
+      test("unsubscribe stops future notifications", async () => {
+        const { system } = await createHarness();
+        const events: WorkspaceChange[] = [];
+        const stop = system.on("change", (change) => {
+          events.push(change);
+        });
+        stop();
+        await system.add({
+          path: await sourceDirectory({ "file.txt": "one" }),
+        });
+        expect(events).toEqual([]);
+      });
+
+      test("waits for reconciliation when a saved file's catalog update fails", async () => {
+        const { system, store } = await createHarness();
+        const root = await sourceDirectory({ "file.txt": "first" });
+        const workspace = await system.add({ path: root });
+        const [file] = await workspace.files();
+        if (!file) {
+          throw new Error("Expected file");
+        }
+        const events: WorkspaceChange[] = [];
+        const stop = system.on("change", (change) => {
+          events.push(change);
+        });
+        const observation = vi
+          .spyOn(store, "commitFileObservation")
+          .mockRejectedValueOnce(new Error("unavailable"));
+        try {
+          expect(
+            await workspace.save({
+              expectedDigest: file.digest,
+              fileId: file.id,
+              text: "second",
+            })
+          ).toMatchObject({ catalog: "refresh-required", kind: "saved" });
+          expect(events).toEqual([]);
+          await workspace.refresh();
+          expect(events).toEqual([
+            { action: "change", entry: (await workspace.files())[0] },
+          ]);
+        } finally {
+          observation.mockRestore();
+          stop();
+        }
+      });
 
       test("adds a directory and catalogs every included File", async () => {
         const { system } = await createHarness();

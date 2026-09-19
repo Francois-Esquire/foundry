@@ -43,6 +43,7 @@ type DirectoryCatalogue = WorkspaceSystem<
 export interface Workspaces {
   readonly add: DirectoryCatalogue["add"];
   readonly git: (root: string) => Git;
+  readonly on: DirectoryCatalogue["on"];
 }
 
 /** What a step body receives, bound by the CLI after config import. */

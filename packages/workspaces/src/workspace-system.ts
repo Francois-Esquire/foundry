@@ -14,7 +14,7 @@ import type {
 import { InMemoryWorkspaceStore } from "./in-memory-workspace-store";
 import type { WorkspaceContext, WorkspaceCtor } from "./instance";
 import { initialEntries, Workspace } from "./instance";
-import type { WorkspaceId } from "./workspace";
+import type { WorkspaceChange, WorkspaceId } from "./workspace";
 import type { StoredWorkspaceRecord, WorkspaceStore } from "./workspace-store";
 
 export interface WorkspaceSystemOptions {
@@ -37,7 +37,11 @@ export class WorkspaceSystem<
   Exts extends readonly AnyWorkspaceExtension[] = [],
 > {
   private readonly context: WorkspaceContext;
+  private readonly listeners = new Set<
+    (change: WorkspaceChange) => void | Promise<void>
+  >();
   private readonly extensions: AnyWorkspaceExtension[] = [];
+  private readonly closing = new Map<WorkspaceId, Promise<void>>();
   private readonly opened = new Map<
     WorkspaceId,
     Promise<Workspace & CapOf<Exts>>
@@ -45,11 +49,48 @@ export class WorkspaceSystem<
 
   constructor(options: WorkspaceSystemOptions = {}) {
     this.context = {
+      changed: (change) => {
+        this.publish(change);
+      },
       close: (workspaceId) => this.close(workspaceId),
       observing: new Map(),
       serialized: new Map(),
       store: options.store ?? new InMemoryWorkspaceStore(),
     };
+  }
+
+  /** Future changes from this system; no replay. Listener failures do not fail committed operations. */
+  on(
+    _event: "change",
+    listener: (change: WorkspaceChange) => void | Promise<void>
+  ): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
+  private publish(change: WorkspaceChange): void {
+    if (this.listeners.size === 0) {
+      return;
+    }
+    const snapshot = structuredClone(change);
+    const listeners = [...this.listeners];
+    this.context.store.afterCommit(() => {
+      for (const listener of listeners) {
+        if (!this.listeners.has(listener)) {
+          continue;
+        }
+        try {
+          const result = listener(structuredClone(snapshot));
+          if (result) {
+            result.catch(reportListenerError);
+          }
+        } catch (error) {
+          reportListenerError(error);
+        }
+      }
+    });
   }
 
   /** Later extensions wrap earlier ones. Affects instances opened from now on. */
@@ -62,6 +103,10 @@ export class WorkspaceSystem<
 
   /** The live instance for one id: composed and started once, then shared. */
   open(workspaceId: WorkspaceId): Promise<Workspace & CapOf<Exts>> {
+    const closing = this.closing.get(workspaceId);
+    if (closing) {
+      return closing.then(() => this.open(workspaceId));
+    }
     const running = this.opened.get(workspaceId);
     if (running) {
       return running;
@@ -73,7 +118,12 @@ export class WorkspaceSystem<
         throw new WorkspaceNotFoundError(workspaceId);
       }
       const workspace = await this.instantiate(record);
-      await Workspace.start(workspace);
+      try {
+        await Workspace.start(workspace);
+      } catch (error) {
+        await Workspace.stop(workspace);
+        throw error;
+      }
       return workspace;
     })();
     this.opened.set(workspaceId, opening);
@@ -87,12 +137,22 @@ export class WorkspaceSystem<
 
   /** Stops and forgets one instance. A no-op for an id that is not open. */
   async close(workspaceId: WorkspaceId): Promise<void> {
+    const closing = this.closing.get(workspaceId);
+    if (closing) {
+      return closing;
+    }
     const running = this.opened.get(workspaceId);
     if (!running) {
       return;
     }
-    this.opened.delete(workspaceId);
-    await Workspace.stop(await running);
+    const stopping = running
+      .then((workspace) => Workspace.stop(workspace))
+      .finally(() => {
+        this.opened.delete(workspaceId);
+        this.closing.delete(workspaceId);
+      });
+    this.closing.set(workspaceId, stopping);
+    await stopping;
   }
 
   async closeAll(): Promise<void> {
@@ -163,10 +223,16 @@ export class WorkspaceSystem<
     // Composed but never started or cached: it exists to run the first scan.
     const probe = await this.instantiate(record);
     const candidates = await probe.scan();
+    const entries = initialEntries(record.id, candidates, createdAt);
     const result = await this.context.store.commitCreate({
-      entries: initialEntries(record.id, candidates, createdAt),
+      entries,
       workspace: record,
     });
+    if (result.kind === "committed") {
+      for (const entry of entries) {
+        this.publish({ action: "add", entry });
+      }
+    }
     return this.open(
       result.kind === "workspace-exists" ? result.existingId : record.id
     );
@@ -193,4 +259,8 @@ export class WorkspaceSystem<
     }
     return workspace;
   }
+}
+
+function reportListenerError(error: unknown): void {
+  console.error("[workspaces] change listener failed:", error);
 }

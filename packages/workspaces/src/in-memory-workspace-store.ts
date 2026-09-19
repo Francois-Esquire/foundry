@@ -19,6 +19,10 @@ import { nextWorkspaceObservation } from "./workspace-store";
 
 /** Zero-configuration reference persistence for WorkspaceSystem. */
 export class InMemoryWorkspaceStore implements WorkspaceStore {
+  afterCommit(callback: () => void): void {
+    callback();
+  }
+
   private readonly workspaces = new Map<WorkspaceId, StoredWorkspaceRecord>();
   private readonly entries = new Map<WorkspaceEntryId, WorkspaceEntry>();
 

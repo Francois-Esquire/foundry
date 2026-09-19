@@ -444,6 +444,9 @@ describe("catalog observation after write", () => {
     fail: () => ReturnType<WorkspaceStore["commitFileObservation"]>
   ): WorkspaceStore {
     return {
+      afterCommit: (callback) => {
+        store.afterCommit(callback);
+      },
       commitCreate: (input) => store.commitCreate(input),
       commitFileObservation: () => fail(),
       commitReconcile: (input) => store.commitReconcile(input),

@@ -1,4 +1,4 @@
-import type { StorageReader } from "@foundry/core/storage";
+import type { StorageObserver, StorageReader } from "@foundry/core/storage";
 import { sha256Hex } from "./digest";
 import { WorkspaceSourceUnavailableError } from "./errors";
 import type { WorkspaceExtension } from "./extension";
@@ -25,6 +25,7 @@ export const DIRECTORY_SOURCE = "host";
 
 export interface DirectoryOptions {
   readonly filesystem: WorkspaceFileSystem;
+  readonly observer?: StorageObserver;
 }
 
 /**
@@ -54,6 +55,13 @@ export function WithDirectory<B extends WorkspaceCtor>(
 
     scan(): Promise<readonly ObservedFacts[]> {
       return scanDirectory(filesystem, this.root);
+    }
+
+    protected watch(changed: () => void, failed: (error: unknown) => void) {
+      return (
+        (options.observer ?? filesystem).watch?.(this.root, changed, failed) ??
+        super.watch(changed, failed)
+      );
     }
 
     protected async readFile(file: WorkspaceFile): Promise<FileContentResult> {

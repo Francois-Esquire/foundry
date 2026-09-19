@@ -5,6 +5,7 @@ import { WorkspaceSystem } from "@foundry/workspaces";
 import type { GitRun } from "@foundry/workspaces/git";
 import { Git, git } from "@foundry/workspaces/git";
 import { directory } from "@foundry/workspaces/node";
+import { nodeObserver } from "@foundry/workspaces/node/watch";
 import { bindAgents } from "~/agents";
 import {
   availableExecutors,
@@ -56,7 +57,7 @@ export function bindRuntime(options: RuntimeOptions): Runtime {
       ? new InMemorySessionStore()
       : new JsonSessionStore(join(state, "sessions"));
   const catalogue = new WorkspaceSystem().extend(
-    directory(),
+    directory({ observer: nodeObserver }),
     git(dry ? { run: echoGit(print) } : {})
   );
   const primitives: Primitives = {
@@ -75,6 +76,7 @@ export function bindRuntime(options: RuntimeOptions): Runtime {
     workspaces: {
       add: (ref) => catalogue.add(ref),
       git: (_root) => Git.at(_root, dry ? { run: echoGit(print) } : {}),
+      on: (event, listener) => catalogue.on(event, listener),
     },
   };
   registry.bind(primitives);
@@ -82,7 +84,13 @@ export function bindRuntime(options: RuntimeOptions): Runtime {
   return {
     // The Codex provider holds a `codex app-server` child; without this the
     // process never exits.
-    dispose: () => models.dispose(),
+    async dispose() {
+      try {
+        await catalogue.closeAll();
+      } finally {
+        await models.dispose();
+      }
+    },
     primitives,
   };
 }

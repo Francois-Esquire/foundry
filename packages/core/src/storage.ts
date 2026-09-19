@@ -199,3 +199,18 @@ export interface Storage
   extends StorageReader,
     StorageWriter,
     AtomicStorageWriter {}
+
+export interface StorageSubscription {
+  /** Stops notifications and releases the source subscription. */
+  close(): Promise<void>;
+}
+
+/** Signals invalidate an inventory; they are not committed entry changes. */
+export interface StorageObserver {
+  /** Resolves when subscribed. Callers must scan afterwards to close the startup gap. */
+  watch(
+    root: string,
+    changed: () => void,
+    failed: (error: unknown) => void
+  ): Promise<StorageSubscription>;
+}

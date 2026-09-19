@@ -45,6 +45,7 @@ export type {
   FileTextSnapshot,
   SaveFileCommand,
   SaveFileResult,
+  WorkspaceChange,
   WorkspaceEntry,
   WorkspaceEntryId,
   WorkspaceFile,

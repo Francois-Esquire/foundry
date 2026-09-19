@@ -52,6 +52,7 @@ function bind(reply: Reply, options: BindOptions = {}) {
       add: (ref) => catalogue.add(ref),
       git: (root) =>
         Git.at(root, options.live ? {} : { run: echoGit(() => undefined) }),
+      on: (event, listener) => catalogue.on(event, listener),
     },
   });
   return sessions;

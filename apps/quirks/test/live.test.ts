@@ -1,95 +1,10 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-
 import { describe, expect, it } from "vitest";
 
 import type { Primitives } from "~/lib/registry";
 import type { Socket } from "~/live";
-import { attachSocket, readMessage, watchFiles } from "~/live";
+import { attachSocket, readMessage } from "~/live";
 import type { Change, WsMonitor } from "~/monitor";
 import { detector } from "~/monitor";
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-async function waitFor(done: () => boolean, ms: number): Promise<boolean> {
-  const start = Date.now();
-  while (!done() && Date.now() - start < ms) {
-    await sleep(50);
-  }
-  return done();
-}
-
-/** Sandboxes deny FSEvents; neither backend fires there, so the watcher cases skip. */
-async function probeWatch(): Promise<string | undefined> {
-  const root = mkdtempSync(join(tmpdir(), "quirks-live-probe-"));
-  const seen: { fired: boolean; failure?: string } = { fired: false };
-  const watching = watchFiles(
-    root,
-    () => {
-      seen.fired = true;
-    },
-    (error) => {
-      seen.failure = String(error);
-    }
-  );
-  await watching.ready;
-  writeFileSync(join(root, "probe.txt"), "x");
-  await waitFor(() => seen.fired || seen.failure !== undefined, 2000);
-  watching.stop();
-  return seen.fired
-    ? undefined
-    : `no watcher backend here: ${seen.failure ?? "no event in 2s"}`;
-}
-
-const unavailable = await probeWatch();
-
-describe.skipIf(unavailable !== undefined)(
-  ["watchFiles", unavailable].filter(Boolean).join(" "),
-  () => {
-    it("fires on a write, then not after stop", async () => {
-      const root = mkdtempSync(join(tmpdir(), "quirks-live-"));
-      let calls = 0;
-      const watching = watchFiles(
-        root,
-        () => {
-          calls += 1;
-        },
-        () => undefined
-      );
-      await watching.ready;
-
-      writeFileSync(join(root, "a.md"), "one\n");
-      expect(await waitFor(() => calls === 1, 2000)).toBe(true);
-
-      watching.stop();
-      writeFileSync(join(root, "b.md"), "two\n");
-      await sleep(600);
-      expect(calls).toBe(1);
-    });
-
-    it("coalesces a burst of writes into one call", async () => {
-      const root = mkdtempSync(join(tmpdir(), "quirks-live-"));
-      let calls = 0;
-      const watching = watchFiles(
-        root,
-        () => {
-          calls += 1;
-        },
-        () => undefined
-      );
-      await watching.ready;
-
-      writeFileSync(join(root, "a.md"), "1\n");
-      writeFileSync(join(root, "b.md"), "2\n");
-      writeFileSync(join(root, "c.md"), "3\n");
-      expect(await waitFor(() => calls >= 1, 2000)).toBe(true);
-      await sleep(400);
-      expect(calls).toBe(1);
-      watching.stop();
-    });
-  }
-);
 
 describe("ws pipeline", () => {
   type Listener = (event: { readonly data?: unknown }) => void;

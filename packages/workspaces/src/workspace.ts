@@ -78,6 +78,12 @@ export type WorkspaceEntry =
   | WorkspaceFile
   | (Exclude<StorageEntry, { readonly type: "file" }> & WorkspaceEntryMetadata);
 
+/** A committed catalog change. Deletes carry the last known entry. */
+export interface WorkspaceChange {
+  readonly action: "add" | "change" | "delete";
+  readonly entry: WorkspaceEntry;
+}
+
 /**
  * What a caller outside the trust boundary may see. The root path and the
  * source reference stay behind the system; the kind survives as a label.

@@ -42,6 +42,52 @@ const gitStatus = await ws.git?.status();
 await workspaces.closeAll();
 ```
 
+Subscribe to committed catalog changes on the system:
+
+```ts
+const unsubscribe = workspaces.on("change", ({ action, entry }) => {
+  // action: "add" | "change" | "delete"
+  // entry includes workspaceId, id, path, and the storage descriptor.
+});
+unsubscribe();
+```
+
+Add/change carries the committed entry; delete carries its last known value.
+Registration, refresh, save, and removal can emit changes. Removal forgets
+catalog entries without deleting source files. Unchanged observations emit
+nothing. Delivery is in-process, with no replay; listeners receive detached
+payloads and their failures do not fail committed operations. Closing an
+instance does not unsubscribe system listeners.
+
+Stores implement `afterCommit(callback)` to defer delivery until the outer
+transaction commits and discard callbacks on rollback. The in-memory store
+runs callbacks immediately. Changes made outside this system are observed on
+the next refresh. Enable storage observation to refresh automatically.
+
+Storage observation is optional. `directory({ filesystem, observer })` uses an
+explicit `StorageObserver`, or the filesystem's own `watch` capability when
+present. Its signals request reconciliation; only committed differences emit
+`change`. The workspace subscribes before its initial refresh, coalesces bursts,
+and rescans when another signal arrives during a scan. `close` and `closeAll`
+unsubscribe, cancel pending work, and await the running observation.
+
+```ts
+import { nodeObserver } from "@foundry/workspaces/node/watch";
+
+const workspaces = new WorkspaceSystem().extend(
+  directory({ observer: nodeObserver }),
+);
+// ...
+await workspaces.closeAll();
+```
+
+The Node adapter tries optional `@parcel/watcher`, then recursive `fs.watch`.
+If neither starts, or the active watcher reports failure, it polls. Native
+watching stays outside the portable root import. For storage without a native
+signal, pass `polling(intervalMs)` from `@foundry/workspaces/observation`.
+Polling and native watchers observe current state; they do not record every
+intermediate write or provide a durable event log.
+
 A layer is a `WorkspaceExtension`: `applies(record)` decides from the stored
 row, `wrap(Base)` is the mixin. Layers apply in registration order, each
 extending the class the previous one returned, so `super` runs the chain. The

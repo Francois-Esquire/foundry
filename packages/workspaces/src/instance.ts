@@ -1,3 +1,4 @@
+import type { StorageSubscription } from "@foundry/core/storage";
 import { storageTree } from "@foundry/core/storage";
 import { sha256Hex } from "./digest";
 import {
@@ -8,6 +9,7 @@ import {
   WorkspaceSourceUnavailableError,
   WorkspaceSourceUnsupportedError,
 } from "./errors";
+import { observe } from "./observation";
 import { createEntryRecord, diffCatalog, isEmptyChange } from "./reconcile";
 import { decodeUtf8 } from "./text";
 import type {
@@ -15,6 +17,7 @@ import type {
   FileTextSnapshot,
   SaveFileCommand,
   SaveFileResult,
+  WorkspaceChange,
   WorkspaceEntry,
   WorkspaceEntryId,
   WorkspaceFile,
@@ -42,6 +45,7 @@ import { nextWorkspaceObservation } from "./workspace-store";
  * chain, or the serialization guarantee below is silently lost.
  */
 export interface WorkspaceContext {
+  readonly changed?: (change: WorkspaceChange) => void;
   /** Tells the system an instance is finished with, so it stops and forgets it. */
   readonly close: (workspaceId: WorkspaceId) => Promise<void>;
   /** The observation currently running for a Workspace, if any. */
@@ -84,6 +88,7 @@ export class Workspace {
   readonly id: WorkspaceId;
   readonly source: WorkspaceSource;
   protected readonly context: WorkspaceContext;
+  private observation: StorageSubscription | undefined;
 
   constructor(record: StoredWorkspaceRecord, context: WorkspaceContext) {
     this.id = record.id;
@@ -135,13 +140,31 @@ export class Workspace {
   }
 
   /** Runs once when the system opens this instance. Layers call `super`. */
-  protected start(): Promise<void> {
-    return Promise.resolve();
+  protected async start(): Promise<void> {
+    this.observation = await observe(
+      (changed, failed) => this.watch(changed, failed),
+      async () => {
+        // A signal must not merely join a scan that started before it arrived.
+        await this.context.observing.get(this.id)?.catch(() => undefined);
+        await this.refresh();
+      },
+      (error) => {
+        console.error("[workspaces] observation failed", error);
+      }
+    );
   }
 
   /** Runs once when the system closes this instance. Layers call `super`. */
-  protected stop(): Promise<void> {
-    return Promise.resolve();
+  protected async stop(): Promise<void> {
+    await this.observation?.close();
+    this.observation = undefined;
+  }
+
+  protected watch(
+    _changed: () => void,
+    _failed: (error: unknown) => void
+  ): Promise<StorageSubscription | undefined> {
+    return Promise.resolve(undefined);
   }
 
   /** The registration alone. Cheap, always current, and never scans. */
@@ -202,10 +225,16 @@ export class Workspace {
    * no delete of any kind reaches it from here.
    */
   async remove(): Promise<void> {
-    const result = await this.context.store.removeWorkspace(this.id);
-    if (result.kind === "not-found") {
-      throw new WorkspaceNotFoundError(this.id);
-    }
+    await this.serialize(async () => {
+      const entries = await this.context.store.listEntries(this.id);
+      const result = await this.context.store.removeWorkspace(this.id);
+      if (result.kind === "not-found") {
+        throw new WorkspaceNotFoundError(this.id);
+      }
+      for (const entry of entries) {
+        this.context.changed?.({ action: "delete", entry });
+      }
+    });
     await this.context.close(this.id);
   }
 
@@ -309,6 +338,7 @@ export class Workspace {
     snapshot: FileTextSnapshot
   ): Promise<"current" | "refresh-required"> {
     try {
+      const updatedAt = nextWorkspaceObservation(workspace.lastReconciledAt);
       const result = await this.context.store.commitFileObservation({
         fileId: file.id,
         observed: {
@@ -321,9 +351,23 @@ export class Workspace {
           path: file.path,
           type: "file",
         },
-        updatedAt: nextWorkspaceObservation(workspace.lastReconciledAt),
+        updatedAt,
         workspaceId: workspace.id,
       });
+      if (
+        result.kind === "committed" &&
+        (file.digest !== snapshot.digest || file.bytes !== snapshot.bytes)
+      ) {
+        this.context.changed?.({
+          action: "change",
+          entry: {
+            ...file,
+            bytes: snapshot.bytes,
+            digest: snapshot.digest,
+            updatedAt,
+          },
+        });
+      }
       return result.kind === "committed" ? "current" : "refresh-required";
     } catch {
       // The store's own words may carry the absolute database path; they stay
@@ -410,10 +454,11 @@ export class Workspace {
     // same clock tick still have a strict order. Catalog timestamps retain the
     // same value only when an actual File change is committed.
     const at = nextWorkspaceObservation(workspace.lastReconciledAt);
+    const existing = await this.context.store.listEntries(workspace.id);
     const change = diffCatalog({
       at,
       candidates,
-      existing: await this.context.store.listEntries(workspace.id),
+      existing,
       newEntryId: () => crypto.randomUUID() as WorkspaceEntryId,
       workspaceId: workspace.id,
     });
@@ -434,6 +479,18 @@ export class Workspace {
     }
     if (result.kind === "workspace-not-found") {
       throw new WorkspaceNotFoundError(workspace.id);
+    }
+    const deleted = new Set(change.deletedIds);
+    for (const entry of existing) {
+      if (deleted.has(entry.id)) {
+        this.context.changed?.({ action: "delete", entry });
+      }
+    }
+    for (const entry of change.updated) {
+      this.context.changed?.({ action: "change", entry });
+    }
+    for (const entry of change.inserted) {
+      this.context.changed?.({ action: "add", entry });
     }
     return { kind: "reconciled" };
   }

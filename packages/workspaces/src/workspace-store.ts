@@ -85,6 +85,9 @@ export function nextWorkspaceObservation(
  * domain errors — that is WorkspaceSystem behavior.
  */
 export interface WorkspaceStore {
+  /** Run after the outer transaction commits; discard on rollback. Run immediately without a transaction. */
+  afterCommit: (callback: () => void) => void;
+
   /** Inserts one Workspace and its complete initial catalog together. */
   commitCreate: (input: {
     readonly workspace: StoredWorkspaceRecord;

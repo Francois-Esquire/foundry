@@ -828,6 +828,9 @@ describe("reconciliation", () => {
     const { root, store, id, files } = await opened({ "README.md": "first" });
     await writeFile(join(root, "second.md"), "more");
     const refusing: WorkspaceStore = {
+      afterCommit: (callback) => {
+        store.afterCommit(callback);
+      },
       commitCreate: (input) => store.commitCreate(input),
       commitFileObservation: (input) => store.commitFileObservation(input),
       commitReconcile: () =>

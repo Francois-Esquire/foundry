@@ -251,7 +251,11 @@ async function runSchedulesUntilStopped(
   const options = { print, signal: controller.signal, state: stateDir };
   try {
     await Promise.all([
-      runLive(engine, live, { ...options, root: workspace.root }),
+      runLive(engine, live, {
+        ...options,
+        root: workspace.root,
+        workspaces: registry.primitives().workspaces,
+      }),
       runSchedules(engine, polled, options),
     ]);
   } finally {

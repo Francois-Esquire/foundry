@@ -16,17 +16,20 @@ import { basename, dirname, join, sep } from "node:path";
 
 import type { EntryStats, Storage } from "@foundry/core/storage";
 
-import type { DirectoryOptions as PortableDirectoryOptions } from "./directory";
+import type { DirectoryOptions as PortableDirectoryOptions } from "../directory";
 import {
   directory as storageDirectory,
   WithDirectory as WithStorageDirectory,
-} from "./directory";
-import type { WorkspaceCtor } from "./instance";
+} from "../directory";
+import type { WorkspaceCtor } from "../instance";
 
 export type DirectoryOptions = Partial<PortableDirectoryOptions>;
 
 export function directory(options: DirectoryOptions = {}) {
-  return storageDirectory({ filesystem: options.filesystem ?? nodeFileSystem });
+  return storageDirectory({
+    ...options,
+    filesystem: options.filesystem ?? nodeFileSystem,
+  });
 }
 
 export function WithDirectory<B extends WorkspaceCtor>(
@@ -34,6 +37,7 @@ export function WithDirectory<B extends WorkspaceCtor>(
   options: DirectoryOptions = {}
 ) {
   return WithStorageDirectory(Base, {
+    ...options,
     filesystem: options.filesystem ?? nodeFileSystem,
   });
 }
