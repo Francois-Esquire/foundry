@@ -1,8 +1,9 @@
 import type { StorageReader } from "@foundry/core/storage";
 
 import { storageTree } from "@foundry/core/storage";
+import { sha256Hex } from "@foundry/lib/digest";
+import { joinFilesystemPath } from "@foundry/lib/paths";
 import { classifyFile } from "./classification";
-import { sha256Hex } from "./digest";
 import type { WorkspaceSourceIssue } from "./errors";
 import {
   InvalidWorkspaceInputError,
@@ -10,7 +11,6 @@ import {
   WorkspaceSourceUnavailableError,
 } from "./errors";
 import type { DirectoryEntry } from "./filesystem";
-import { joinPath } from "./path";
 import { walkEntries } from "./traverse";
 import type { ObservedFacts } from "./workspace-store";
 
@@ -123,7 +123,7 @@ export async function resolveStoredPath(
 ): Promise<string | null> {
   let absolute = canonicalRoot;
   for (const segment of relativePath.split("/")) {
-    const direct = joinPath(absolute, segment, filesystem.separator);
+    const direct = joinFilesystemPath(absolute, segment, filesystem.separator);
     // Operations are intentionally sequential to preserve observation and mutation order.
     if (await exists(filesystem, direct)) {
       absolute = direct;
@@ -142,7 +142,7 @@ export async function resolveStoredPath(
     if (!spelled) {
       return null;
     }
-    absolute = joinPath(absolute, spelled.name, filesystem.separator);
+    absolute = joinFilesystemPath(absolute, spelled.name, filesystem.separator);
   }
   return absolute;
 }

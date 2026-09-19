@@ -1,10 +1,14 @@
 # @foundry/lib
 
-Shared readable-name, resource-URI, configuration, and authorization primitives.
+Import shared helpers directly from their owning module:
 
-The root entry point exports `generateReadableName`, `createResourceUrl`,
-`formatResourceUrl`, `parseResourcePath`, `parseResourceUrl`, and `ResourceUriError`.
-Configuration and authorization use the subpaths documented below.
+- `@foundry/lib/paths`: storage spelling, filesystem paths, and resource URIs. Bind a URI scheme once with `resourcePaths(scheme)`.
+- `@foundry/lib/digest`: SHA-256 hex digests of text or bytes and canonical JSON digests.
+- `@foundry/lib/json`: canonical JSON serialization.
+- `@foundry/lib/encoding`: Base64 conversion for bytes.
+
+These modules have no third-party dependencies or filesystem I/O. Storage contracts and structural validation live in `@foundry/core/storage`.
+Configuration requires the optional Zod peer; `@foundry/lib/readable-name` requires the optional `unique-names-generator` peer.
 
 Tests live in `src/test/`, with reusable fixtures in `src/test/helpers/`.
 Run `bun run --cwd packages/lib test`, `typecheck`, or `build` from the repo root.

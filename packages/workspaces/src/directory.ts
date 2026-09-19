@@ -1,10 +1,10 @@
 import type { StorageObserver, StorageReader } from "@foundry/core/storage";
-import { sha256Hex } from "./digest";
+import { sha256Hex } from "@foundry/lib/digest";
+import { isFilesystemPathWithin } from "@foundry/lib/paths";
 import { WorkspaceSourceUnavailableError } from "./errors";
 import type { WorkspaceExtension } from "./extension";
 import type { EntryStats, WorkspaceFileSystem } from "./filesystem";
 import type { WorkspaceCtor } from "./instance";
-import { isBeneath } from "./path";
 import {
   canonicalizeRoot,
   resolveStoredPath,
@@ -306,7 +306,7 @@ async function resolveConfinedPath(
   } catch {
     return missingFileFailure(path);
   }
-  if (!isBeneath(root, resolved, filesystem.separator)) {
+  if (!isFilesystemPathWithin(root, resolved, filesystem.separator)) {
     return failure(
       "escape",
       `Refusing a File that resolves outside its Workspace root: ${path}`

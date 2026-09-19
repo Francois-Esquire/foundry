@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { StorageReader } from "@foundry/core/storage";
+import { normalizeStoragePath } from "@foundry/lib/paths";
 import { afterAll, describe, expect, it } from "vitest";
 import { classifyFile } from "../classification";
 import {
@@ -11,11 +12,7 @@ import {
 import type { WorkspaceFileSystem } from "../filesystem";
 import { nodeFileSystem, sha256Hex } from "../node";
 import { canonicalizeRoot, scanDirectory, verifyRoot } from "../scanner";
-import {
-  BASELINE_IGNORE_VERSION,
-  normalizeRelativePath,
-  walkEntries,
-} from "../traverse";
+import { BASELINE_IGNORE_VERSION, walkEntries } from "../traverse";
 
 const roots: string[] = [];
 
@@ -493,8 +490,8 @@ describe("scanDirectory confinement", () => {
 
 describe("traversal vocabulary", () => {
   it("normalizes a relative path to POSIX form", () => {
-    expect(normalizeRelativePath("./src/app.ts")).toBe("src/app.ts");
-    expect(normalizeRelativePath("src/deep/")).toBe("src/deep");
+    expect(normalizeStoragePath("./src/app.ts")).toBe("src/app.ts");
+    expect(normalizeStoragePath("src/deep/")).toBe("src/deep");
   });
 
   it("classifies by extension and leaves unknown formats alone", () => {

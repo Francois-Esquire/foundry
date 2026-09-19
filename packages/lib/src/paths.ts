@@ -1,10 +1,69 @@
+const DOT_PREFIX_PATTERN = /^\.\//;
+const TRAILING_SLASHES_PATTERN = /\/+$/;
 const HEX_BYTES_PATTERN = /^(?:[0-9a-f]{2})+$/;
 
-/**
- * Scheme-agnostic resource URI construction and parsing. Resource identity
- * lives in the host: `<scheme>://<id>.<resource>/<path>`. The scheme itself is
- * the caller's — apps bind their own (and its meaning) in a local wrapper.
- */
+/** Lexical joining only; the caller supplies the filesystem's separator. */
+export function joinFilesystemPath(
+  base: string,
+  segment: string,
+  separator = "/"
+): string {
+  if (base === "") {
+    return segment;
+  }
+  return `${base.endsWith(separator) ? base : `${base}${separator}`}${segment}`;
+}
+
+/** Both paths must already be canonical. This does not resolve symlinks or traversal. */
+export function isFilesystemPathWithin(
+  root: string,
+  candidate: string,
+  separator = "/"
+): boolean {
+  return (
+    candidate === root ||
+    candidate.startsWith(
+      root.endsWith(separator) ? root : `${root}${separator}`
+    )
+  );
+}
+
+/** NFC unifies decomposed filesystem names with catalog spelling; this does not validate paths. */
+export function normalizeStoragePath(path: string): string {
+  return path
+    .replace(DOT_PREFIX_PATTERN, "")
+    .replace(TRAILING_SLASHES_PATTERN, "")
+    .normalize("NFC");
+}
+
+/** Portable POSIX paths reject parent traversal rather than resolving it. */
+export function normalizePosixPath(path: string): string {
+  if (path.includes("\0") || path.includes("\\")) {
+    throw new TypeError("path must be a portable POSIX path");
+  }
+  const segments = path
+    .split("/")
+    .filter((part) => part !== "" && part !== ".");
+  if (segments.includes("..")) {
+    throw new TypeError("path must not contain parent traversal");
+  }
+  return path.startsWith("/") ? `/${segments.join("/")}` : segments.join("/");
+}
+
+export function resolvePosixPath(path: string, workingDirectory = "/"): string {
+  if (path.length === 0) {
+    throw new TypeError("path must not be empty");
+  }
+  if (!workingDirectory.startsWith("/")) {
+    throw new TypeError("working directory must be absolute");
+  }
+  const base = normalizePosixPath(workingDirectory);
+  const normalized = normalizePosixPath(path);
+  if (normalized.startsWith("/")) {
+    return normalized;
+  }
+  return normalized === "" ? base : joinFilesystemPath(base, normalized);
+}
 
 const SCHEME_PATTERN = /^[a-z][a-z0-9+.-]*$/;
 const RESOURCE_PATTERN = /^[a-z][a-z0-9-]*$/;
@@ -20,6 +79,25 @@ export interface ResourceAddress {
   readonly resource: string;
 }
 
+export interface ResourceLocation {
+  readonly id: string;
+  readonly path?: string;
+  readonly resource: string;
+}
+
+/** Bind the scheme once at the caller; no application protocol is assumed here. */
+export function resourcePaths(scheme: string) {
+  requireScheme(scheme);
+  return Object.freeze({
+    create: (input: ResourceLocation): URL =>
+      createResourceUrl({ ...input, scheme }),
+    format: (input: ResourceLocation): string =>
+      formatResourceUrl({ ...input, scheme }),
+    parse: (input: string | URL): ResourceAddress | null =>
+      parseResourceUrl(scheme, input),
+  });
+}
+
 export class ResourceUriError extends Error {
   constructor(message: string, options?: ErrorOptions) {
     super(`[resource-uri] ${message}`, options);
@@ -32,12 +110,9 @@ export class ResourceUriError extends Error {
  * IDs must survive hostname normalization exactly; callers never hand-build a
  * resource URI or guess how an opaque domain identity maps into an origin.
  */
-export function createResourceUrl(input: {
-  readonly scheme: string;
-  readonly resource: string;
-  readonly id: string;
-  readonly path?: string;
-}): URL {
+export function createResourceUrl(
+  input: ResourceLocation & { readonly scheme: string }
+): URL {
   requireScheme(input.scheme);
   requireResource(input.resource);
   if (input.id.length === 0) {
@@ -56,12 +131,9 @@ export function createResourceUrl(input: {
   return url;
 }
 
-export function formatResourceUrl(input: {
-  readonly scheme: string;
-  readonly resource: string;
-  readonly id: string;
-  readonly path?: string;
-}): string {
+export function formatResourceUrl(
+  input: ResourceLocation & { readonly scheme: string }
+): string {
   return createResourceUrl(input).toString();
 }
 

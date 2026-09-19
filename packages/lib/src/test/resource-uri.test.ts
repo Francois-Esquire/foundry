@@ -5,7 +5,7 @@ import {
   formatResourceUrl,
   parseResourceUrl,
   ResourceUriError,
-} from "../resource-uri";
+} from "../paths";
 
 const APP_ID_ARTIFACT_PATTERN = /^app:\/\/id-[0-9a-f.]+\.artifact\/$/;
 

@@ -11,7 +11,9 @@ const internalPaths = Object.fromEntries([
   ["~/*", ["./src/*"]],
   ["@foundry/quirks", ["./src/lib/index.ts"]],
   ...INTERNAL.flatMap((name) => [
-    [`@foundry/${name}`, [`../../packages/${name}/src/index`]],
+    ...(name === "lib"
+      ? []
+      : [[`@foundry/${name}`, [`../../packages/${name}/src/index`]]]),
     [
       `@foundry/${name}/*`,
       [`../../packages/${name}/src/*`, `../../packages/${name}/src/*/index`],

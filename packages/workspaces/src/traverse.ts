@@ -1,12 +1,9 @@
 import type { StorageNode, StorageReader } from "@foundry/core/storage";
+import { joinFilesystemPath, normalizeStoragePath } from "@foundry/lib/paths";
 import ignore from "ignore";
 import { sourceIssueFor, WorkspaceSourceUnavailableError } from "./errors";
 import type { DirectoryEntry } from "./filesystem";
 import { byCodeUnit } from "./ordering";
-import { joinPath } from "./path";
-
-const DOT_PREFIX_PATTERN = /^\.\//;
-const TRAILING_SLASHES_PATTERN = /\/+$/;
 
 /**
  * The built-in exclusions, versioned so a later change to the set is an
@@ -21,21 +18,6 @@ export const BASELINE_IGNORE_PATTERNS: readonly string[] = [
   ".DS_Store",
   "Thumbs.db",
 ];
-
-/**
- * The Workspace-relative POSIX form every File row and tree node uses.
- *
- * Input already uses POSIX separators. macOS hands back
- * decomposed names while a `.gitignore` rule, a stored row, and a renderer
- * selection are all composed, and comparing the two spellings byte-wise would
- * make one file look like two.
- */
-export function normalizeRelativePath(relativePath: string): string {
-  return relativePath
-    .replace(DOT_PREFIX_PATTERN, "")
-    .replace(TRAILING_SLASHES_PATTERN, "")
-    .normalize("NFC");
-}
 
 /**
  * Git-compatible ignore evaluation over a stack of `.gitignore` files.
@@ -188,10 +170,10 @@ async function walkDirectory(
   );
 
   for (const entry of ordered) {
-    const relativePath = normalizeRelativePath(
-      joinPath(relativeDirectory, entry.name)
+    const relativePath = normalizeStoragePath(
+      joinFilesystemPath(relativeDirectory, entry.name)
     );
-    const absolutePath = joinPath(
+    const absolutePath = joinFilesystemPath(
       absoluteDirectory,
       entry.name,
       filesystem.separator
@@ -235,7 +217,11 @@ async function extendScopes(
   try {
     contents = new TextDecoder().decode(
       await filesystem.readFile(
-        joinPath(absoluteDirectory, ".gitignore", filesystem.separator)
+        joinFilesystemPath(
+          absoluteDirectory,
+          ".gitignore",
+          filesystem.separator
+        )
       )
     );
   } catch (error) {

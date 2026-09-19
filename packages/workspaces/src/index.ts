@@ -36,7 +36,6 @@ export {
   baselineIgnoreScope,
   gitignoreScope,
   isIgnored,
-  normalizeRelativePath,
   walkEntries,
 } from "./traverse";
 export type {

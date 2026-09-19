@@ -1,6 +1,6 @@
 import type { StorageSubscription } from "@foundry/core/storage";
 import { storageTree } from "@foundry/core/storage";
-import { sha256Hex } from "./digest";
+import { sha256Hex } from "@foundry/lib/digest";
 import {
   InvalidWorkspaceInputError,
   WorkspaceFileNotFoundError,
