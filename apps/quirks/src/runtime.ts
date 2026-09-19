@@ -1,9 +1,10 @@
 import { join } from "node:path";
 import { InMemorySessionStore } from "@foundry/agents/session";
 import type { ModelManager } from "@foundry/models";
-import { directory, WorkspaceSystem } from "@foundry/workspaces";
+import { WorkspaceSystem } from "@foundry/workspaces";
 import type { GitRun } from "@foundry/workspaces/git";
 import { Git, git } from "@foundry/workspaces/git";
+import { directory } from "@foundry/workspaces/node";
 import { bindAgents } from "~/agents";
 import {
   availableExecutors,
@@ -72,9 +73,8 @@ export function bindRuntime(options: RuntimeOptions): Runtime {
     state,
     workspace: { root },
     workspaces: {
-      add: (input) => catalogue.add(input),
-      git: (directoryRoot) =>
-        Git.at(directoryRoot, dry ? { run: echoGit(print) } : {}),
+      add: (ref) => catalogue.add(ref),
+      git: (_root) => Git.at(_root, dry ? { run: echoGit(print) } : {}),
     },
   };
   registry.bind(primitives);

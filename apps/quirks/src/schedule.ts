@@ -19,9 +19,7 @@ export function parseEvery(every: string): number {
   const match = EVERY_PATTERN.exec(every.trim());
   const unit = match?.[2] === undefined ? undefined : UNITS[match[2]];
   if (!match || unit === undefined) {
-    throw new Error(
-      `quirks: cannot read cadence "${every}" (want e.g. 30m, 6h, 1d)`
-    );
+    throw new Error(`cannot read cadence "${every}" (want e.g. 30m, 6h, 1d)`);
   }
   return Number(match[1]) * unit;
 }
@@ -46,7 +44,7 @@ export function parseAt(at: string | CalendarSlot): Trigger {
   const minute = at.minute ?? 0;
   if (!(inRange(at.hour, 23) && inRange(minute, 59))) {
     throw new Error(
-      `quirks: cannot read calendar slot ${JSON.stringify(at)} (want hour 0–23, minute 0–59)`
+      `cannot read calendar slot ${JSON.stringify(at)} (want hour 0–23, minute 0–59)`
     );
   }
   return { kind: "calendar", slot: { ...at, minute } };
@@ -81,7 +79,7 @@ export function nextDue(schedule: Schedule, last: number): number {
   }`;
   const next = new Cron(pattern).nextRun(new Date(last));
   if (next === null) {
-    throw new Error(`quirks: "${pattern}" never fires`);
+    throw new Error(`"${pattern}" never fires`);
   }
   return next.getTime();
 }

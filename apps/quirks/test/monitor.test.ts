@@ -2,8 +2,9 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { monitor, step } from "@foundry/quirks";
-import { directory, WorkspaceSystem } from "@foundry/workspaces";
+import { WorkspaceSystem } from "@foundry/workspaces";
 import { git } from "@foundry/workspaces/git";
+import { directory } from "@foundry/workspaces/node";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { Primitives } from "~/lib/registry";
@@ -27,10 +28,7 @@ function primitivesIn(root: string, state?: string) {
     log: (line: string) => lines.push(line),
     state,
     workspace: { root },
-    workspaces: {
-      add: (options: Parameters<Primitives["workspaces"]["add"]>[0]) =>
-        catalogue.add(options),
-    },
+    workspaces: { add: (ref: { path: string }) => catalogue.add(ref) },
   } as never;
   return { lines, primitives };
 }

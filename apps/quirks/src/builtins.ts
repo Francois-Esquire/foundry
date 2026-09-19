@@ -8,7 +8,7 @@ import { agent, loopUntil, step, workflow } from "@foundry/quirks";
 import { generateText } from "ai";
 
 /**
- * The built-in workflows, written in the same dialect a `quirks.config.ts`
+ * The built-in workflows, written in the same dialect a configuration module
  * uses. If one of these cannot be said with the lib, the lib is missing
  * something — that is the point of writing them this way.
  *
@@ -75,7 +75,7 @@ async function ask(
 function executorAt(executors: readonly TurnExecutorRef[], index: number) {
   const executor = executors[index] ?? executors[0];
   if (!executor) {
-    throw new Error("quirks: no executor available");
+    throw new Error("no executor available");
   }
   return executor;
 }
@@ -89,7 +89,7 @@ const review = step("review", ({ models, executors }, input: TurnInput) =>
   ask(models, executorAt(executors, 1), input)
 );
 
-const developRound = workflow<DevelopInput, DevelopRoundOutput>(
+export const developRound = workflow<DevelopInput, DevelopRoundOutput>(
   "develop-round",
   (graph) => {
     graph
@@ -146,7 +146,7 @@ export interface ReviewInput {
 const reviewPrompt = (base: string) =>
   `Review the code in this working tree, checked out from ${base}. Report what you would change, most important first.`;
 
-interface ReviewOutput {
+export interface ReviewOutput {
   readonly reviews: readonly {
     readonly harness: string;
     readonly text: string;
@@ -199,12 +199,12 @@ export const reviewInWorktree = step(
 
 // ── review-session ───────────────────────────────────────────────────────
 
-const reviewer = agent("quirks-reviewer", {
+const reviewer = agent("reviewer", {
   prompt:
     "You review code. Read only; never edit, commit, or run anything that changes the tree.",
 });
 
-interface ReviewSessionOutput {
+export interface ReviewSessionOutput {
   readonly sessionId: string;
   readonly text: string;
 }

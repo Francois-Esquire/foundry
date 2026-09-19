@@ -57,6 +57,7 @@
   },
   "devDependencies": {
     "@foundry/agents": "workspace:*",
+    "@foundry/core": "workspace:*",
     "@foundry/lib": "workspace:*",
     "@foundry/models": "workspace:*",
     "@foundry/tsconfig": "workspace:*",

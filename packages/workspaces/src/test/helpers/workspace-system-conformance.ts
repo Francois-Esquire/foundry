@@ -9,7 +9,7 @@ import type {
   AnyWorkspaceExtension,
   WorkspaceExtension,
 } from "../../extension";
-import { sha256Hex } from "../../filesystem";
+import { sha256Hex } from "../../node";
 import type { WorkspaceFileId, WorkspaceId } from "../../workspace";
 import type {
   StoredFileRecord,

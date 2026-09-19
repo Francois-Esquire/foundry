@@ -13,7 +13,7 @@ import { Step } from "@foundry/workflows/step";
  */
 
 /** What one completed round of the body reports back to the loop. */
-interface LoopRound<O> {
+export interface LoopRound<O> {
   readonly output: O;
   readonly round: number;
 }
@@ -23,7 +23,7 @@ interface LoopRound<O> {
  * which is the only capability the loop needs, so the loop asks for exactly
  * that rather than for one of the two classes.
  */
-interface LoopBody<I, O> {
+export interface LoopBody<I, O> {
   create(): { run(input: I): Promise<O> };
 }
 
@@ -61,7 +61,7 @@ export class LoopUntil<I, O> extends Step<I, LoopUntilResult<O>> {
       throw new Error("loopUntil: maxRounds must be at least 1");
     }
     this.#options = options;
-    this.definitionKey = options.definitionKey ?? "quirks.loop-until";
+    this.definitionKey = options.definitionKey ?? "loop-until";
     this.name = options.name ?? "Loop until";
   }
 

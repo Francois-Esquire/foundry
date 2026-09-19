@@ -1,6 +1,7 @@
 import { InMemorySessionStore } from "@foundry/agents/session";
-import { directory, WorkspaceSystem } from "@foundry/workspaces";
+import { WorkspaceSystem } from "@foundry/workspaces";
 import { Git, git } from "@foundry/workspaces/git";
+import { directory } from "@foundry/workspaces/node";
 import { describe, expect, it } from "vitest";
 import { bindAgents } from "~/agents";
 import {
@@ -48,7 +49,7 @@ function bind(reply: Reply, options: BindOptions = {}) {
     sessions,
     workspace: { root: process.cwd() },
     workspaces: {
-      add: (input) => catalogue.add(input),
+      add: (ref) => catalogue.add(ref),
       git: (root) =>
         Git.at(root, options.live ? {} : { run: echoGit(() => undefined) }),
     },

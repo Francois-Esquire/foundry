@@ -22,7 +22,7 @@ describe("factories", () => {
       Promise.resolve(input.toUpperCase())
     );
     expect(registry.definitions.has("shout")).toBe(true);
-    expect(shout.definitionKey).toBe("quirks.shout");
+    expect(shout.definitionKey).toBe("shout");
   });
 
   it("refuse a duplicate name across steps and workflows", () => {
@@ -58,6 +58,7 @@ describe("factories", () => {
         .step("b", shout, ({ a }) => `${a}!`)
         .output(({ b }) => b);
     });
+    expect(twice.definitionKey).toBe("twice");
     await expect(twice.create().run("hey")).resolves.toBe("HEY!");
   });
 

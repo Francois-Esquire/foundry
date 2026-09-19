@@ -10,13 +10,12 @@ import { DEFAULT_EVERY, detector, resolveMonitor } from "~/monitor";
 import { parseAt } from "~/schedule";
 
 /**
- * The Quirks lib: what a `quirks.config.ts` imports.
+ * The configuration module imports these registration factories.
  *
  * Each factory registers by name as a side effect and returns the definition
  * it registered, so config code passes handles and only the CLI and schedules
- * address anything by string. The libraries themselves are re-exported rather
- * than wrapped: a step body talks to `ModelManager`, `SessionHarness`,
- * Git directly.
+ * address anything by string. Step bodies receive `ModelManager`,
+ * `SessionHarness`, and the `Workspaces` interface through their primitives.
  */
 
 export function step<I, O>(name: string, body: StepBody<I, O>): Step<I, O> {
@@ -85,6 +84,7 @@ export { SessionHarness } from "@foundry/agents/harness";
 export type { SessionMessage, SessionStore } from "@foundry/agents/session";
 export type { TurnExecutorRef } from "@foundry/models";
 export { ModelManager } from "@foundry/models";
+export { WorkspaceSystem } from "@foundry/workspaces";
 export type { GitRun, GitSnapshot } from "@foundry/workspaces/git";
 export { Git, Worktree } from "@foundry/workspaces/git";
 export type {

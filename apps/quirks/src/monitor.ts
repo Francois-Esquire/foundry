@@ -48,7 +48,7 @@ export type MonitorSpec =
   | ({ readonly kind: "http" } & HttpMonitor)
   | ({ readonly kind: "ws" } & WsMonitor);
 
-interface FileEntry {
+export interface FileEntry {
   readonly checksum: string;
   readonly path: string;
 }

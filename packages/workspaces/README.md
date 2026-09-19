@@ -10,9 +10,18 @@ the serialization guarantee. It knows nothing about where bytes come from.
 Every source and every capability is a layer: a class mixin the system wraps
 around the root when it opens an instance.
 
+The root entry has no Node runtime imports or default storage. Its directory
+layer requires caller-supplied storage: `directory({ filesystem })`.
+`WorkspaceFileSystem` combines `StorageReader` and `AtomicStorageWriter` from
+`@foundry/core/filesystem`. Storage owns its path separator; catalog paths
+remain POSIX. Checksums use Web Crypto.
+
+For Node disk access, import the default directory adapter from `/node`:
+
 ```ts
-import { directory, WorkspaceSystem } from "@foundry/workspaces";
+import { WorkspaceSystem } from "@foundry/workspaces";
 import { git } from "@foundry/workspaces/git";
+import { directory } from "@foundry/workspaces/node";
 
 const workspaces = new WorkspaceSystem().extend(directory()).extend(git());
 
@@ -43,7 +52,9 @@ record declares its capability optional (`{ git?: Git }`).
 Composition by hand needs no registry:
 
 ```ts
-const Cls = WithGit(WithDirectory(Workspace));
+import { WithDirectory, Workspace } from "@foundry/workspaces";
+
+const Cls = WithDirectory(Workspace, { filesystem });
 const ws = new Cls(record, context);
 ```
 
@@ -55,8 +66,11 @@ from the store per call, so two instances of one id never disagree and both
 join the same in-flight observation.
 
 `WorkspaceStore` is the persistence capability the system consumes.
-`InMemoryWorkspaceStore` is the zero-configuration default, so the whole
-lifecycle runs without SQLite or Studio.
+`InMemoryWorkspaceStore` is the default. Supply another `WorkspaceStore` to
+persist registrations and file catalogs elsewhere.
+
+`@foundry/workspaces/node` also exports `WithDirectory` with default disk
+storage, `nodeFileSystem`, and the synchronous `sha256Hex` helper.
 
 Git is opt-in on `@foundry/workspaces/git`: the `git()` layer, plus
 `Git.at(root)`, `Git.open(root)`, `Git.isRepository(root)`, and worktrees on

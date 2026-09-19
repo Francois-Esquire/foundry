@@ -22,7 +22,6 @@ export type {
   EntryStats,
   WorkspaceFileSystem,
 } from "./filesystem";
-export { nodeFileSystem, sha256Hex } from "./filesystem";
 // `Git` itself is opt-in on `@foundry/workspaces/git`; only its result types
 // travel with the root.
 export type { GitPathStatus, GitSnapshot } from "./git";

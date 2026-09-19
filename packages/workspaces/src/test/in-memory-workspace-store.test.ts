@@ -3,9 +3,8 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
-
-import { directory } from "../directory";
 import { InMemoryWorkspaceStore } from "../in-memory-workspace-store";
+import { directory } from "../node";
 import { WorkspaceSystem } from "../workspace-system";
 import {
   describeWorkspaceSystemConformance,

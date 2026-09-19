@@ -5,8 +5,8 @@ import { isRecord, readJson } from "~/state/json";
 import { alive, holderPid } from "~/state/locks";
 
 /**
- * Everything `quirks status` shows, read straight from the state dir. Pure
- * fs: no engine, no store, no renderer, so it works with no Quirks running.
+ * Everything the status command shows, read straight from the state dir. Pure
+ * fs: no engine, no store, no renderer, so it works with no CLI process running.
  * Unreadable files are skipped; the report is advisory, never fatal.
  */
 
@@ -28,7 +28,7 @@ export interface WorkspaceStatus {
   readonly sessions: number;
 }
 
-interface ScheduleStatus {
+export interface ScheduleStatus {
   readonly kind: "monitor" | null;
   readonly lastFinish: string | null;
   readonly lastStatus: string | null;
@@ -38,13 +38,13 @@ interface ScheduleStatus {
   readonly running: number | null;
 }
 
-interface RunsStatus {
+export interface RunsStatus {
   /** Newest first, at most five. */
   readonly recent: readonly RunSummary[];
   readonly total: number;
 }
 
-interface RunSummary {
+export interface RunSummary {
   readonly createdAt: number;
   readonly id: string;
   /** Not settled, and the process that owned it is gone. */

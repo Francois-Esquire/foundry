@@ -9,8 +9,9 @@ import type { DefinitionGraphBuilder } from "@foundry/workflows/definitions";
 import type { Orchestrator } from "@foundry/workflows/orchestrator";
 import { Step } from "@foundry/workflows/step";
 import { Workflow } from "@foundry/workflows/workflow";
-import type { directory, WorkspaceSystem } from "@foundry/workspaces";
+import type { WorkspaceSystem } from "@foundry/workspaces";
 import type { Git, git } from "@foundry/workspaces/git";
+import type { directory } from "@foundry/workspaces/node";
 
 import type { MonitorInput, MonitorSpec } from "~/monitor";
 
@@ -105,7 +106,7 @@ class RegisteredStep<I, O> extends Step<I, O> {
 
   constructor(name: string, body: StepBody<I, O>) {
     super();
-    this.definitionKey = `quirks.${name}`;
+    this.definitionKey = name;
     this.name = name;
     this.#body = body;
   }
@@ -122,7 +123,7 @@ class RegisteredWorkflow<I, O> extends Workflow<I, O> {
 
   constructor(name: string, body: WorkflowBody<I, O>) {
     super();
-    this.definitionKey = `quirks.${name}`;
+    this.definitionKey = name;
     this.name = name;
     this.#body = body;
   }
@@ -136,7 +137,7 @@ class RegisteredWorkflow<I, O> extends Workflow<I, O> {
  * Step and Workflow are invariant in their type parameters, so the registry
  * holds a closure that registers each one rather than the definition itself.
  */
-type Register = (orchestrator: Orchestrator) => void;
+export type Register = (orchestrator: Orchestrator) => void;
 
 class Registry {
   readonly definitions = new Map<string, Register>();
@@ -148,7 +149,7 @@ class Registry {
 
   agent(spec: AgentSpec): AgentSpec {
     if (this.agents.has(spec.id)) {
-      throw new Error(`quirks: agent "${spec.id}" already registered`);
+      throw new Error(`agent "${spec.id}" already registered`);
     }
     this.agents.set(spec.id, spec);
     return spec;
@@ -172,7 +173,7 @@ class Registry {
 
   schedule(schedule: Schedule): void {
     if (this.schedules.has(schedule.name)) {
-      throw new Error(`quirks: schedule "${schedule.name}" already registered`);
+      throw new Error(`schedule "${schedule.name}" already registered`);
     }
     this.schedules.set(schedule.name, schedule);
   }
@@ -185,7 +186,7 @@ class Registry {
     trigger: Trigger
   ): void {
     if (this.definitions.has(name) || this.schedules.has(name)) {
-      throw new Error(`quirks: "${name}" already registered`);
+      throw new Error(`"${name}" already registered`);
     }
     this.step(name, body);
     this.schedule({
@@ -204,7 +205,7 @@ class Registry {
 
   primitives(): Primitives {
     if (!this.#primitives) {
-      throw new Error("quirks: primitives are not bound; the CLI binds them");
+      throw new Error("primitives are not bound; the CLI binds them");
     }
     return this.#primitives;
   }
@@ -220,7 +221,7 @@ class Registry {
 
   #add(name: string, register: Register): void {
     if (this.definitions.has(name)) {
-      throw new Error(`quirks: "${name}" already registered`);
+      throw new Error(`"${name}" already registered`);
     }
     this.definitions.set(name, register);
   }

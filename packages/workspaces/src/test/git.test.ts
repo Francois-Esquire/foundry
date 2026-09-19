@@ -5,11 +5,11 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 
 import { afterAll, describe, expect, it } from "vitest";
-import { WithDirectory } from "../directory";
 import type { GitPathStatus } from "../git";
 import { Git, git as gitLayer, WithGit } from "../git";
 import { InMemoryWorkspaceStore } from "../in-memory-workspace-store";
 import { Workspace } from "../instance";
+import { WithDirectory } from "../node";
 import { directorySystem } from "./helpers/directory-system";
 import { hostWorkspace } from "./helpers/workspace-system-conformance";
 

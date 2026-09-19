@@ -8,7 +8,7 @@ import type { Workflow } from "@foundry/workflows/workflow";
  * channel stream. Resolves once the root step settles; the stream itself stays
  * open until the workflow is disposed.
  *
- * The root path segment is the definition key (`quirks.develop`); it is
+ * The root path segment is the definition key; it is
  * replaced by the registered name so lines match the final `[run]` line.
  */
 export async function observeSteps<I, O, X extends BaseContext>(

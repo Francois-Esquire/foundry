@@ -1,11 +1,10 @@
-const PATH_SEPARATORS_PATTERN = /[/\\]/;
-const DRIVE_PREFIX_PATTERN = /^[a-zA-Z]:/;
-
+import type { StorageReader } from "@foundry/core/filesystem";
+import { sha256Hex } from "./digest";
 import { WorkspaceSourceUnavailableError } from "./errors";
 import type { WorkspaceExtension } from "./extension";
 import type { EntryStats, WorkspaceFileSystem } from "./filesystem";
-import { isBeneath, nodeFileSystem, sha256Hex } from "./filesystem";
 import type { WorkspaceCtor } from "./instance";
+import { isBeneath } from "./path";
 import type { FileCandidate } from "./scanner";
 import {
   canonicalizeRoot,
@@ -17,20 +16,22 @@ import { decodeUtf8, errorCode } from "./text";
 import type { FileContentResult, WriteOutcome } from "./workspace";
 import type { StoredFileRecord } from "./workspace-store";
 
+const DRIVE_PREFIX_PATTERN = /^[a-zA-Z]:/;
+
 export const DIRECTORY_SOURCE = "host";
 
 export interface DirectoryOptions {
-  readonly filesystem?: WorkspaceFileSystem;
+  readonly filesystem: WorkspaceFileSystem;
 }
 
 /**
- * The layer over a directory on this machine. Answers the three source
+ * The layer over a directory in the supplied storage. Answers the three source
  * primitives from `source.path`, which is the canonical absolute root.
  *
  * Every read and write re-runs the confinement chain immediately before
  * touching bytes: lexical escape, root availability, stored-path resolution,
  * final lstat, symlink refusal, regular-file check, realpath, beneath-root
- * confinement. Replacement is atomic (sibling temp + same-directory rename).
+ * confinement. The storage adapter owns atomic replacement.
  */
 export interface DirectoryCapable {
   /** The canonical absolute root. Never leaves the trust boundary. */
@@ -39,9 +40,9 @@ export interface DirectoryCapable {
 
 export function WithDirectory<B extends WorkspaceCtor>(
   Base: B,
-  options: DirectoryOptions = {}
+  options: DirectoryOptions
 ): B & WorkspaceCtor<DirectoryCapable> {
-  const filesystem = options.filesystem ?? nodeFileSystem;
+  const { filesystem } = options;
 
   return class extends Base implements DirectoryCapable {
     get root(): string {
@@ -60,7 +61,7 @@ export function WithDirectory<B extends WorkspaceCtor>(
         return { kind: contentKindFor(read.issue), reason: read.reason };
       }
       const text = decodeUtf8(read.bytes);
-      const checksum = sha256Hex(read.bytes);
+      const checksum = await sha256Hex(read.bytes);
       return text === null
         ? {
             checksum,
@@ -95,7 +96,7 @@ export function WithDirectory<B extends WorkspaceCtor>(
         };
       }
 
-      const currentChecksum = sha256Hex(read.bytes);
+      const currentChecksum = await sha256Hex(read.bytes);
       if (currentChecksum !== expectedChecksum) {
         return {
           current: {
@@ -196,15 +197,15 @@ export interface DirectoryRef {
  * to the Workspace that already exists.
  */
 export function directory(
-  options: DirectoryOptions = {}
+  options: DirectoryOptions
 ): WorkspaceExtension<DirectoryRef, DirectoryCapable> {
-  const filesystem = options.filesystem ?? nodeFileSystem;
+  const { filesystem } = options;
   return {
     applies: (record) => record.source === DIRECTORY_SOURCE,
     async identify({ path }) {
       const root = await canonicalizeRoot(filesystem, path);
       return {
-        name: basenameOf(root),
+        name: basenameOf(root, filesystem.separator),
         path: root,
         source: DIRECTORY_SOURCE,
         sourceId: null,
@@ -216,8 +217,8 @@ export function directory(
   };
 }
 
-function basenameOf(root: string): string {
-  const segments = root.split(PATH_SEPARATORS_PATTERN).filter(Boolean);
+function basenameOf(root: string, separator: string): string {
+  const segments = root.split(separator).filter(Boolean);
   return segments.at(-1) ?? root;
 }
 
@@ -251,7 +252,7 @@ function nonRegularFileFailure(path: string): ResolveFailure {
 }
 
 async function verifyWorkspaceRoot(
-  filesystem: WorkspaceFileSystem,
+  filesystem: Pick<StorageReader, "lstat" | "realpath">,
   root: string
 ): Promise<ResolveFailure | undefined> {
   // Asked before the File itself, so an unplugged source reads as one
@@ -271,7 +272,7 @@ async function verifyWorkspaceRoot(
 }
 
 async function storedFileStats(
-  filesystem: WorkspaceFileSystem,
+  filesystem: Pick<StorageReader, "lstat">,
   absolute: string,
   path: string
 ): Promise<EntryStats | ResolveFailure> {
@@ -283,7 +284,7 @@ async function storedFileStats(
 }
 
 async function resolveConfinedPath(
-  filesystem: WorkspaceFileSystem,
+  filesystem: Pick<StorageReader, "realpath" | "separator">,
   root: string,
   absolute: string,
   path: string
@@ -294,7 +295,7 @@ async function resolveConfinedPath(
   } catch {
     return missingFileFailure(path);
   }
-  if (!isBeneath(root, resolved)) {
+  if (!isBeneath(root, resolved, filesystem.separator)) {
     return failure(
       "escape",
       `Refusing a File that resolves outside its Workspace root: ${path}`
@@ -304,7 +305,7 @@ async function resolveConfinedPath(
 }
 
 async function readStoredFile(
-  filesystem: WorkspaceFileSystem,
+  filesystem: Pick<StorageReader, "readFile">,
   resolved: string,
   path: string
 ): Promise<Uint8Array | ResolveFailure> {

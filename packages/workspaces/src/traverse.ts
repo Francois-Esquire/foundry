@@ -1,13 +1,13 @@
 const DOT_PREFIX_PATTERN = /^\.\//;
 const TRAILING_SLASHES_PATTERN = /\/+$/;
 
-import { sep } from "node:path";
-
+import type { StorageReader } from "@foundry/core/filesystem";
 import ignore from "ignore";
+
 import { sourceIssueFor, WorkspaceSourceUnavailableError } from "./errors";
-import type { DirectoryEntry, WorkspaceFileSystem } from "./filesystem";
-import { joinPath } from "./filesystem";
+import type { DirectoryEntry } from "./filesystem";
 import { byCodeUnit } from "./ordering";
+import { joinPath } from "./path";
 
 /**
  * The built-in exclusions, versioned so a later change to the set is an
@@ -26,15 +26,13 @@ export const BASELINE_IGNORE_PATTERNS: readonly string[] = [
 /**
  * The Workspace-relative POSIX form every File row and tree node uses.
  *
- * Unicode composition is normalized as well as separators. macOS hands back
+ * Input already uses POSIX separators. macOS hands back
  * decomposed names while a `.gitignore` rule, a stored row, and a renderer
  * selection are all composed, and comparing the two spellings byte-wise would
  * make one file look like two.
  */
-export function normalizeRelativePath(hostRelativePath: string): string {
-  const posix =
-    sep === "/" ? hostRelativePath : hostRelativePath.split(sep).join("/");
-  return posix
+export function normalizeRelativePath(relativePath: string): string {
+  return relativePath
     .replace(DOT_PREFIX_PATTERN, "")
     .replace(TRAILING_SLASHES_PATTERN, "")
     .normalize("NFC");
@@ -132,7 +130,7 @@ export interface WalkedFile {
  * determinism for comparison, not a persisted directory model.
  */
 export async function walkFiles(
-  filesystem: WorkspaceFileSystem,
+  filesystem: Pick<StorageReader, "readDirectory" | "readFile" | "separator">,
   root: string
 ): Promise<readonly WalkedFile[]> {
   const collected: WalkedFile[] = [];
@@ -140,7 +138,7 @@ export async function walkFiles(
   // A total comparator, so equal paths are guaranteed adjacent — which is the
   // whole basis of the duplicate check on the next line.
   collected.sort(byCodeUnit((file: WalkedFile) => file.relativePath));
-  assertDistinctPaths(collected);
+  assertDistinctPaths(collected, filesystem.separator);
   return collected;
 }
 
@@ -154,26 +152,29 @@ export async function walkFiles(
  * the source, not a Workspace defect, and the only resolution is renaming one
  * of them — so the message names both spellings the source actually holds.
  */
-function assertDistinctPaths(walked: readonly WalkedFile[]): void {
+function assertDistinctPaths(
+  walked: readonly WalkedFile[],
+  separator: string
+): void {
   for (const [index, file] of walked.entries()) {
     const previous = walked[index - 1];
     if (previous?.relativePath === file.relativePath) {
       throw new WorkspaceSourceUnavailableError(
         `Two source entries normalize to one Workspace path (${file.relativePath}). ` +
-          `Rename one of them; their raw names are ${JSON.stringify(basenameOf(previous.absolutePath))} ` +
-          `and ${JSON.stringify(basenameOf(file.absolutePath))}.`
+          `Rename one of them; their raw names are ${JSON.stringify(basenameOf(previous.absolutePath, separator))} ` +
+          `and ${JSON.stringify(basenameOf(file.absolutePath, separator))}.`
       );
     }
   }
 }
 
 /** The final component only — the rest of an absolute path never travels. */
-function basenameOf(absolutePath: string): string {
-  return absolutePath.split(sep).at(-1) ?? absolutePath;
+function basenameOf(absolutePath: string, separator: string): string {
+  return absolutePath.split(separator).at(-1) ?? absolutePath;
 }
 
 async function walkDirectory(
-  filesystem: WorkspaceFileSystem,
+  filesystem: Pick<StorageReader, "readDirectory" | "readFile" | "separator">,
   absoluteDirectory: string,
   relativeDirectory: string,
   inheritedScopes: readonly IgnoreScope[],
@@ -202,7 +203,11 @@ async function walkDirectory(
     const relativePath = normalizeRelativePath(
       joinPath(relativeDirectory, entry.name)
     );
-    const absolutePath = joinPath(absoluteDirectory, entry.name);
+    const absolutePath = joinPath(
+      absoluteDirectory,
+      entry.name,
+      filesystem.separator
+    );
     if (entry.isSymbolicLink) {
       continue;
     }
@@ -226,7 +231,7 @@ async function walkDirectory(
 }
 
 async function extendScopes(
-  filesystem: WorkspaceFileSystem,
+  filesystem: Pick<StorageReader, "readFile" | "separator">,
   absoluteDirectory: string,
   relativeDirectory: string,
   entries: readonly DirectoryEntry[],
@@ -242,7 +247,9 @@ async function extendScopes(
   let contents: string;
   try {
     contents = new TextDecoder().decode(
-      await filesystem.readFile(joinPath(absoluteDirectory, ".gitignore"))
+      await filesystem.readFile(
+        joinPath(absoluteDirectory, ".gitignore", filesystem.separator)
+      )
     );
   } catch (error) {
     throw new WorkspaceSourceUnavailableError(

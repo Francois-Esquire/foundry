@@ -7,8 +7,7 @@ import { defineSkill } from "@foundry/agents/skills";
 
 /**
  * Reading `<workspace>/skills/` off disk. `@foundry/agents/skills`
- * deliberately never touches a filesystem, so every host keeps its own reader
- * (chat and Studio each have one); this is Quirks's.
+ * deliberately never touches a filesystem, so the CLI supplies this reader.
  */
 
 async function collectFiles(root: string): Promise<Record<string, SkillFile>> {

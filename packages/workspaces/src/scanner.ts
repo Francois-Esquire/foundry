@@ -1,12 +1,15 @@
+import type { StorageReader } from "@foundry/core/filesystem";
+
 import { classifyFile } from "./classification";
+import { sha256Hex } from "./digest";
 import type { WorkspaceSourceIssue } from "./errors";
 import {
   InvalidWorkspaceInputError,
   sourceIssueFor,
   WorkspaceSourceUnavailableError,
 } from "./errors";
-import type { DirectoryEntry, WorkspaceFileSystem } from "./filesystem";
-import { joinPath, sha256Hex } from "./filesystem";
+import type { DirectoryEntry } from "./filesystem";
+import { joinPath } from "./path";
 import { walkFiles } from "./traverse";
 import type { ObservedFacts } from "./workspace-store";
 
@@ -26,7 +29,7 @@ export type FileCandidate = ObservedFacts;
  * different spellings of the same directory.
  */
 export async function canonicalizeRoot(
-  filesystem: WorkspaceFileSystem,
+  filesystem: Pick<StorageReader, "lstat" | "realpath">,
   selected: string
 ): Promise<string> {
   // None of these messages echo the selected path. They are mapped straight
@@ -63,7 +66,7 @@ export async function canonicalizeRoot(
  * existing Workspace is a source problem, not a bad request.
  */
 export async function verifyRoot(
-  filesystem: WorkspaceFileSystem,
+  filesystem: Pick<StorageReader, "lstat" | "realpath">,
   canonicalRoot: string
 ): Promise<void> {
   let resolved: string;
@@ -122,13 +125,13 @@ function rootIssueFor(cause: unknown): WorkspaceSourceIssue {
  * on a miss is the parent listed for an entry that normalizes to it.
  */
 export async function resolveStoredPath(
-  filesystem: WorkspaceFileSystem,
+  filesystem: Pick<StorageReader, "readDirectory" | "lstat" | "separator">,
   canonicalRoot: string,
   relativePath: string
 ): Promise<string | null> {
   let absolute = canonicalRoot;
   for (const segment of relativePath.split("/")) {
-    const direct = joinPath(absolute, segment);
+    const direct = joinPath(absolute, segment, filesystem.separator);
     // Operations are intentionally sequential to preserve observation and mutation order.
     if (await exists(filesystem, direct)) {
       absolute = direct;
@@ -147,13 +150,13 @@ export async function resolveStoredPath(
     if (!spelled) {
       return null;
     }
-    absolute = joinPath(absolute, spelled.name);
+    absolute = joinPath(absolute, spelled.name, filesystem.separator);
   }
   return absolute;
 }
 
 async function exists(
-  filesystem: WorkspaceFileSystem,
+  filesystem: Pick<StorageReader, "lstat">,
   path: string
 ): Promise<boolean> {
   try {
@@ -172,7 +175,7 @@ async function exists(
  * catalog would read as "every unobserved file was deleted".
  */
 export async function scanDirectory(
-  filesystem: WorkspaceFileSystem,
+  filesystem: StorageReader,
   canonicalRoot: string
 ): Promise<readonly FileCandidate[]> {
   await verifyRoot(filesystem, canonicalRoot);
@@ -195,7 +198,7 @@ export async function scanDirectory(
     }
     const classification = classifyFile(file.relativePath);
     candidates.push({
-      checksum: sha256Hex(bytes),
+      checksum: await sha256Hex(bytes),
       extension: classification.extension,
       kind: classification.kind,
       mimeType: classification.mimeType,

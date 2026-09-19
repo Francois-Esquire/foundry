@@ -10,7 +10,7 @@ import type { Primitives, SessionOptions } from "~/lib/registry";
 
 /**
  * Sessions over `createAgentPreset`: the package provisions prompt, skills and
- * model; Quirks supplies the surface (the session store, a skills reader,
+ * model; the runtime supplies the surface (the session store, a skills reader,
  * turn observation) and pins the executor so the route is explicit, as
  * everywhere else.
  *
@@ -40,7 +40,7 @@ export function bindAgents(options: AgentsOptions): Primitives["agents"] {
     session(agent: AgentSpec, session: SessionOptions = {}) {
       const executor = session.executor ?? executors[0];
       if (!executor) {
-        throw new Error("quirks: no executor available");
+        throw new Error("no executor available");
       }
       const model = models.model(
         agent.model ?? executor.model,

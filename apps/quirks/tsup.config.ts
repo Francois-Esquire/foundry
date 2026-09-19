@@ -1,6 +1,6 @@
 import { defineConfig } from "tsup";
 
-const INTERNAL = ["agents", "lib", "models", "workflows", "workspaces"];
+const INTERNAL = ["agents", "core", "lib", "models", "workflows", "workspaces"];
 
 /**
  * The types pass resolves with a pre-`exports` resolver, so every internal

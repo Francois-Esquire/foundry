@@ -133,21 +133,21 @@ function manageLaunchd(
   state: string
 ): void {
   if (name !== "install" && name !== "uninstall") {
-    throw new Error("quirks: launchd takes install or uninstall");
+    throw new Error("launchd takes install or uninstall");
   }
   if (target === undefined) {
-    throw new Error("quirks: launchd needs a schedule");
+    throw new Error("launchd needs a schedule");
   }
   if (process.platform !== "darwin") {
-    throw new Error("quirks: launchd is macOS only");
+    throw new Error("launchd is macOS only");
   }
   const schedule = registry.schedules.get(target);
   if (!schedule) {
-    throw new Error(`quirks: no schedule named "${target}"`);
+    throw new Error(`no schedule named "${target}"`);
   }
   if (registry.monitors.get(target)?.kind === "ws") {
     throw new Error(
-      `quirks: "${target}" is a ws monitor, which is live-only; use \`quirks run\``
+      `"${target}" is a ws monitor, which is live-only; use \`quirks run\``
     );
   }
   const plan = launchdPlan(schedule, {
@@ -209,7 +209,7 @@ async function runOnce(
     print(JSON.stringify(await engine.run<unknown>(name, input), null, 2));
     return;
   }
-  throw new Error(`quirks: no workflow or schedule named "${name}"`);
+  throw new Error(`no workflow or schedule named "${name}"`);
 }
 
 async function runSchedulesUntilStopped(
@@ -221,7 +221,7 @@ async function runSchedulesUntilStopped(
   configPath: string
 ): Promise<void> {
   if (schedules.length === 0) {
-    throw new Error("quirks: nothing scheduled; add schedule(...) to config");
+    throw new Error("nothing scheduled; add schedule(...) to config");
   }
   const controller = new AbortController();
   process.once("SIGINT", () => {

@@ -1,3 +1,4 @@
+import { sha256Hex } from "./digest";
 import {
   InvalidWorkspaceInputError,
   WorkspaceFileNotFoundError,
@@ -6,7 +7,6 @@ import {
   WorkspaceSourceUnavailableError,
   WorkspaceSourceUnsupportedError,
 } from "./errors";
-import { sha256Hex } from "./filesystem";
 import { createFileRecord, diffCatalog, isEmptyChange } from "./reconcile";
 import type { FileCandidate } from "./scanner";
 import { decodeUtf8 } from "./text";
@@ -264,7 +264,7 @@ export class Workspace {
     }
 
     const snapshot: FileTextSnapshot = {
-      checksum: sha256Hex(bytes),
+      checksum: await sha256Hex(bytes),
       size: bytes.byteLength,
       text: written,
     };

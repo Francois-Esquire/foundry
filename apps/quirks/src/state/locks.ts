@@ -37,7 +37,7 @@ export function acquireLock(dir: string, name: string): Lock | number {
     }
     rmSync(path, { force: true });
   }
-  throw new Error(`quirks: lock ${name} keeps changing hands`);
+  throw new Error(`lock ${name} keeps changing hands`);
 }
 
 export function holderPid(path: string): number | undefined {

@@ -1,15 +1,16 @@
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
+import type { StorageReader } from "@foundry/core/filesystem";
 import { afterAll, describe, expect, it } from "vitest";
+
 import { classifyFile } from "../classification";
 import {
   InvalidWorkspaceInputError,
   WorkspaceSourceUnavailableError,
 } from "../errors";
 import type { WorkspaceFileSystem } from "../filesystem";
-import { nodeFileSystem, sha256Hex } from "../filesystem";
+import { nodeFileSystem, sha256Hex } from "../node";
 import { canonicalizeRoot, scanDirectory, verifyRoot } from "../scanner";
 import {
   BASELINE_IGNORE_VERSION,
@@ -80,6 +81,37 @@ describe("canonicalizeRoot", () => {
 });
 
 describe("scanDirectory inclusion", () => {
+  it("scans through read-only capabilities without requiring writes", async () => {
+    const { root, canonical } = await makeRoot({ "README.md": "hello" });
+    const inspector = {
+      lstat: (path: string) => nodeFileSystem.lstat(path),
+      realpath: (path: string) => nodeFileSystem.realpath(path),
+    };
+    const reader = {
+      readDirectory: (path: string) => nodeFileSystem.readDirectory(path),
+      readFile: (path: string) => nodeFileSystem.readFile(path),
+      separator: nodeFileSystem.separator,
+    };
+    const filesystem: StorageReader = { ...inspector, ...reader };
+
+    expect(await canonicalizeRoot(inspector, root)).toBe(canonical);
+    await verifyRoot(inspector, canonical);
+    expect(await walkFiles(reader, canonical)).toEqual([
+      { absolutePath: join(canonical, "README.md"), relativePath: "README.md" },
+    ]);
+    expect(await scanDirectory(filesystem, canonical)).toEqual([
+      {
+        checksum: sha256Hex(new TextEncoder().encode("hello")),
+        extension: "md",
+        kind: "document",
+        mimeType: "text/markdown",
+        name: "README.md",
+        path: "README.md",
+        size: 5,
+      },
+    ]);
+  });
+
   it("returns one deterministic candidate per included File and no directories", async () => {
     const { canonical } = await makeRoot({
       "README.md": "hello",
@@ -229,6 +261,7 @@ describe("scanDirectory determinism", () => {
       readFile: () => Promise.resolve(new TextEncoder().encode("x")),
       realpath: (path) => Promise.resolve(path),
       replaceFile: () => Promise.reject(new Error("a scan never writes")),
+      separator: "/",
     };
 
     await expect(scanDirectory(colliding, "/root")).rejects.toBeInstanceOf(
