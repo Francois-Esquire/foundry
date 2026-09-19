@@ -1,5 +1,6 @@
-import type { StorageReader } from "@foundry/core/filesystem";
+import type { StorageReader } from "@foundry/core/storage";
 
+import { storageTree } from "@foundry/core/storage";
 import { classifyFile } from "./classification";
 import { sha256Hex } from "./digest";
 import type { WorkspaceSourceIssue } from "./errors";
@@ -10,17 +11,8 @@ import {
 } from "./errors";
 import type { DirectoryEntry } from "./filesystem";
 import { joinPath } from "./path";
-import { walkFiles } from "./traverse";
+import { walkEntries } from "./traverse";
 import type { ObservedFacts } from "./workspace-store";
-
-/**
- * One included file as the source described it during a complete scan.
- *
- * Exactly the observed facts, by definition rather than by coincidence: a
- * candidate is what one observation saw, and a File row is that plus identity
- * and lifecycle. Spelling the fields again here would let the two drift.
- */
-export type FileCandidate = ObservedFacts;
 
 /**
  * The canonical absolute root a Workspace stores.
@@ -52,7 +44,7 @@ export async function canonicalizeRoot(
       cause: error,
     });
   }
-  if (!stats.isDirectory) {
+  if (stats.type !== "directory") {
     throw new InvalidWorkspaceInputError("Selected root is not a directory");
   }
   return canonical;
@@ -94,7 +86,7 @@ export async function verifyRoot(
       { cause: error, issue: rootIssueFor(error) }
     );
   }
-  if (!stats.isDirectory) {
+  if (stats.type !== "directory") {
     throw new WorkspaceSourceUnavailableError(
       "The Workspace source is no longer a directory",
       { issue: "unavailable" }
@@ -177,13 +169,31 @@ async function exists(
 export async function scanDirectory(
   filesystem: StorageReader,
   canonicalRoot: string
-): Promise<readonly FileCandidate[]> {
+): Promise<readonly ObservedFacts[]> {
   await verifyRoot(filesystem, canonicalRoot);
-  const walked = await walkFiles(filesystem, canonicalRoot);
-  const candidates: FileCandidate[] = [];
+  const walked = await walkEntries(filesystem, canonicalRoot);
+  const candidates: ObservedFacts[] = [];
 
   for (const file of walked) {
-    // One opened byte sequence answers both the checksum and the size. A
+    const path = file.relativePath;
+    const name = path.slice(path.lastIndexOf("/") + 1);
+    if (file.type !== "file") {
+      if (file.type === "symlink") {
+        try {
+          const target = await filesystem.readLink(file.absolutePath);
+          candidates.push({ name, path, target, type: "symlink" });
+        } catch (cause) {
+          throw new WorkspaceSourceUnavailableError(
+            `Could not read link ${path}`,
+            { cause }
+          );
+        }
+      } else {
+        candidates.push({ name, path, type: file.type });
+      }
+      continue;
+    }
+    // One opened byte sequence answers both the digest and the size. A
     // metadata-only size would let the two disagree about which moment they
     // observed.
     let bytes: Uint8Array;
@@ -198,15 +208,21 @@ export async function scanDirectory(
     }
     const classification = classifyFile(file.relativePath);
     candidates.push({
-      checksum: await sha256Hex(bytes),
+      bytes: bytes.byteLength,
+      digest: await sha256Hex(bytes),
       extension: classification.extension,
       kind: classification.kind,
-      mimeType: classification.mimeType,
+      mime: classification.mime,
       name: classification.name,
       path: file.relativePath,
-      size: bytes.byteLength,
+      type: "file",
     });
   }
 
+  try {
+    storageTree(candidates);
+  } catch (cause) {
+    throw new WorkspaceSourceUnavailableError("Invalid source tree", { cause });
+  }
   return candidates;
 }

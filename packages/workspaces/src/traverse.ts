@@ -1,13 +1,12 @@
-const DOT_PREFIX_PATTERN = /^\.\//;
-const TRAILING_SLASHES_PATTERN = /\/+$/;
-
-import type { StorageReader } from "@foundry/core/filesystem";
+import type { StorageNode, StorageReader } from "@foundry/core/storage";
 import ignore from "ignore";
-
 import { sourceIssueFor, WorkspaceSourceUnavailableError } from "./errors";
 import type { DirectoryEntry } from "./filesystem";
 import { byCodeUnit } from "./ordering";
 import { joinPath } from "./path";
+
+const DOT_PREFIX_PATTERN = /^\.\//;
+const TRAILING_SLASHES_PATTERN = /\/+$/;
 
 /**
  * The built-in exclusions, versioned so a later change to the set is an
@@ -106,7 +105,7 @@ function scopedPath(base: string, relativePath: string): string | null {
     : null;
 }
 
-export interface WalkedFile {
+export interface WalkedEntry {
   /**
    * Built from the raw entry names the source reported, never from
    * `relativePath` — a normalized spelling is not guaranteed to be openable on
@@ -114,30 +113,19 @@ export interface WalkedFile {
    */
   readonly absolutePath: string;
   readonly relativePath: string;
+  readonly type: StorageNode["type"];
 }
 
-/**
- * Every included regular file beneath `root`, sorted by normalized relative
- * path.
- *
- * Symlinks — file or directory — are never followed, so a Workspace can neither
- * cycle nor silently catalog files outside its own root. Any traversal failure
- * aborts: a Workspace catalog must represent one complete observation, and a
- * skipped unreadable directory would quietly delete every File under it.
- *
- * The result is sorted rather than emitted in walk order, so the candidate
- * list, the diff, and both stores' `listFiles` all speak one ordering. This is
- * determinism for comparison, not a persisted directory model.
- */
-export async function walkFiles(
+/** Links are cataloged without traversal. An incomplete scan never reaches the catalog. */
+export async function walkEntries(
   filesystem: Pick<StorageReader, "readDirectory" | "readFile" | "separator">,
   root: string
-): Promise<readonly WalkedFile[]> {
-  const collected: WalkedFile[] = [];
+): Promise<readonly WalkedEntry[]> {
+  const collected: WalkedEntry[] = [];
   await walkDirectory(filesystem, root, "", [baselineIgnoreScope()], collected);
   // A total comparator, so equal paths are guaranteed adjacent — which is the
   // whole basis of the duplicate check on the next line.
-  collected.sort(byCodeUnit((file: WalkedFile) => file.relativePath));
+  collected.sort(byCodeUnit((file: WalkedEntry) => file.relativePath));
   assertDistinctPaths(collected, filesystem.separator);
   return collected;
 }
@@ -153,7 +141,7 @@ export async function walkFiles(
  * of them — so the message names both spellings the source actually holds.
  */
 function assertDistinctPaths(
-  walked: readonly WalkedFile[],
+  walked: readonly WalkedEntry[],
   separator: string
 ): void {
   for (const [index, file] of walked.entries()) {
@@ -178,7 +166,7 @@ async function walkDirectory(
   absoluteDirectory: string,
   relativeDirectory: string,
   inheritedScopes: readonly IgnoreScope[],
-  collected: WalkedFile[]
+  collected: WalkedEntry[]
 ): Promise<void> {
   let entries: readonly DirectoryEntry[];
   try {
@@ -208,14 +196,15 @@ async function walkDirectory(
       entry.name,
       filesystem.separator
     );
-    if (entry.isSymbolicLink) {
+    if (entry.type === "unknown") {
       continue;
     }
-    if (isIgnored(scopes, relativePath, entry.isDirectory)) {
+    if (isIgnored(scopes, relativePath, entry.type === "directory")) {
       continue;
     }
 
-    if (entry.isDirectory) {
+    collected.push({ absolutePath, relativePath, type: entry.type });
+    if (entry.type === "directory") {
       // Operations are intentionally sequential to preserve observation and mutation order.
       await walkDirectory(
         filesystem,
@@ -224,8 +213,6 @@ async function walkDirectory(
         scopes,
         collected
       );
-    } else if (entry.isFile) {
-      collected.push({ absolutePath, relativePath });
     }
   }
 }
@@ -238,7 +225,7 @@ async function extendScopes(
   inherited: readonly IgnoreScope[]
 ): Promise<readonly IgnoreScope[]> {
   const declaration = entries.find(
-    (entry) => entry.name === ".gitignore" && entry.isFile
+    (entry) => entry.name === ".gitignore" && entry.type === "file"
   );
   if (!declaration) {
     return inherited;

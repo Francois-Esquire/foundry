@@ -129,8 +129,8 @@ step(123, async () => true);
 import { step } from "@foundry/quirks";
 step("inventory", async ({ workspaces, workspace }) => {
   const directory = await workspaces.add({ path: workspace.root });
-  const { files } = await directory.refresh();
-  return { paths: files.map(file => file.path) };
+  const { entries } = await directory.refresh();
+  return { paths: entries.filter(entry => entry.type === "file").map(file => file.path) };
 });
 `
     );

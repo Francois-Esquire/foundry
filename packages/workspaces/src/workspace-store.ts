@@ -1,4 +1,11 @@
-import type { FileKind, WorkspaceFileId, WorkspaceId } from "./workspace";
+import type { FileRepresentation, StorageEntry } from "@foundry/core/storage";
+
+import type { FileClassification } from "./classification";
+import type {
+  WorkspaceEntry,
+  WorkspaceEntryId,
+  WorkspaceId,
+} from "./workspace";
 
 /**
  * Store-owned Workspace state. The `source`/`sourceId`/`path` triple is the
@@ -19,44 +26,11 @@ export interface StoredWorkspaceRecord {
   readonly updatedAt: Date;
 }
 
-/**
- * What one observation of a source says about a File: everything a row carries
- * that is not identity or lifecycle.
- *
- * Written out once, here, and referenced everywhere else. A candidate the
- * scanner produces, the comparison that decides whether a row changed, and the
- * fields an update writes are all derived from this list, so a new observed
- * fact cannot be recorded in one place and forgotten in another.
- */
-export const OBSERVED_KEYS = [
-  "path",
-  "name",
-  "extension",
-  "mimeType",
-  "kind",
-  "checksum",
-  "size",
-] as const;
-
-export type ObservedFacts = Pick<
-  StoredFileRecord,
-  (typeof OBSERVED_KEYS)[number]
->;
-
-/** Store-owned File state. Identity and observed facts only — never content. */
-export interface StoredFileRecord {
-  readonly checksum: string;
-  readonly createdAt: Date;
-  readonly extension: string | null;
-  readonly id: WorkspaceFileId;
-  readonly kind: FileKind;
-  readonly mimeType: string | null;
-  readonly name: string;
-  readonly path: string;
-  readonly size: number;
-  readonly updatedAt: Date;
-  readonly workspaceId: WorkspaceId;
-}
+export type ObservedFacts =
+  | (FileRepresentation & FileClassification)
+  | (Exclude<StorageEntry, { readonly type: "file" }> & {
+      readonly name: string;
+    });
 
 /**
  * `workspace-exists` names the Workspace already registered for this source —
@@ -70,9 +44,9 @@ export type CommitCreateResult =
 
 /** One reconciliation's exact diff, applied or not applied as a whole. */
 export interface WorkspaceCatalogChange {
-  readonly deletedIds: readonly WorkspaceFileId[];
-  readonly inserted: readonly StoredFileRecord[];
-  readonly updated: readonly StoredFileRecord[];
+  readonly deletedIds: readonly WorkspaceEntryId[];
+  readonly inserted: readonly WorkspaceEntry[];
+  readonly updated: readonly WorkspaceEntry[];
 }
 
 export type CommitReconcileResult =
@@ -114,7 +88,7 @@ export interface WorkspaceStore {
   /** Inserts one Workspace and its complete initial catalog together. */
   commitCreate: (input: {
     readonly workspace: StoredWorkspaceRecord;
-    readonly files: readonly StoredFileRecord[];
+    readonly entries: readonly WorkspaceEntry[];
   }) => Promise<CommitCreateResult>;
 
   /**
@@ -125,8 +99,8 @@ export interface WorkspaceStore {
    */
   commitFileObservation: (input: {
     readonly workspaceId: WorkspaceId;
-    readonly fileId: WorkspaceFileId;
-    readonly observed: ObservedFacts;
+    readonly fileId: WorkspaceEntryId;
+    readonly observed: Extract<ObservedFacts, { readonly type: "file" }>;
     readonly updatedAt: Date;
   }) => Promise<CommitFileObservationResult>;
 
@@ -141,14 +115,14 @@ export interface WorkspaceStore {
   countFiles: (workspaceId: WorkspaceId) => Promise<number>;
   /** Looks a Workspace up by its canonical root, which is unique per source. */
   findWorkspaceByPath: (path: string) => Promise<StoredWorkspaceRecord | null>;
-  getFile: (
+  getEntry: (
     workspaceId: WorkspaceId,
-    fileId: WorkspaceFileId
-  ) => Promise<StoredFileRecord | null>;
+    entryId: WorkspaceEntryId
+  ) => Promise<WorkspaceEntry | null>;
   getWorkspace: (
     workspaceId: WorkspaceId
   ) => Promise<StoredWorkspaceRecord | null>;
-  listFiles: (workspaceId: WorkspaceId) => Promise<readonly StoredFileRecord[]>;
+  listEntries: (workspaceId: WorkspaceId) => Promise<readonly WorkspaceEntry[]>;
   listWorkspaces: () => Promise<readonly StoredWorkspaceRecord[]>;
 
   removeWorkspace: (workspaceId: WorkspaceId) => Promise<RemoveWorkspaceResult>;

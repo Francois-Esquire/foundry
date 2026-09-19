@@ -1,12 +1,16 @@
+import { storageTree } from "@foundry/core/storage";
 import { byCodeUnit } from "./ordering";
-import type { WorkspaceFileId, WorkspaceId } from "./workspace";
+import type {
+  WorkspaceEntry,
+  WorkspaceEntryId,
+  WorkspaceId,
+} from "./workspace";
 import type {
   CommitCreateResult,
   CommitFileObservationResult,
   CommitReconcileResult,
   ObservedFacts,
   RemoveWorkspaceResult,
-  StoredFileRecord,
   StoredWorkspaceRecord,
   WorkspaceCatalogChange,
   WorkspaceStore,
@@ -16,7 +20,7 @@ import { nextWorkspaceObservation } from "./workspace-store";
 /** Zero-configuration reference persistence for WorkspaceSystem. */
 export class InMemoryWorkspaceStore implements WorkspaceStore {
   private readonly workspaces = new Map<WorkspaceId, StoredWorkspaceRecord>();
-  private readonly files = new Map<WorkspaceFileId, StoredFileRecord>();
+  private readonly entries = new Map<WorkspaceEntryId, WorkspaceEntry>();
 
   getWorkspace(
     workspaceId: WorkspaceId
@@ -41,27 +45,30 @@ export class InMemoryWorkspaceStore implements WorkspaceStore {
     return Promise.resolve(ordered);
   }
 
-  listFiles(workspaceId: WorkspaceId): Promise<readonly StoredFileRecord[]> {
-    return Promise.resolve(this.ownedFiles(workspaceId).map(copyFile));
+  listEntries(workspaceId: WorkspaceId): Promise<readonly WorkspaceEntry[]> {
+    return Promise.resolve(this.ownedEntries(workspaceId).map(copyEntry));
   }
 
   countFiles(workspaceId: WorkspaceId): Promise<number> {
-    return Promise.resolve(this.ownedFiles(workspaceId).length);
+    return Promise.resolve(
+      this.ownedEntries(workspaceId).filter((entry) => entry.type === "file")
+        .length
+    );
   }
 
-  getFile(
+  getEntry(
     workspaceId: WorkspaceId,
-    fileId: WorkspaceFileId
-  ): Promise<StoredFileRecord | null> {
-    const file = this.files.get(fileId);
+    entryId: WorkspaceEntryId
+  ): Promise<WorkspaceEntry | null> {
+    const entry = this.entries.get(entryId);
     return Promise.resolve(
-      file?.workspaceId === workspaceId ? copyFile(file) : null
+      entry?.workspaceId === workspaceId ? copyEntry(entry) : null
     );
   }
 
   commitCreate(input: {
     readonly workspace: StoredWorkspaceRecord;
-    readonly files: readonly StoredFileRecord[];
+    readonly entries: readonly WorkspaceEntry[];
   }): Promise<CommitCreateResult> {
     // Both uniqueness rules SQLite enforces with indexes: the root, and a
     // non-null source reference. Checking only the root here would let this
@@ -71,25 +78,26 @@ export class InMemoryWorkspaceStore implements WorkspaceStore {
     if (claimed) {
       return Promise.resolve({ existingId: claimed, kind: "workspace-exists" });
     }
+    storageTree(input.entries);
     this.workspaces.set(input.workspace.id, copyWorkspace(input.workspace));
-    for (const file of input.files) {
-      this.files.set(file.id, copyFile(file));
+    for (const file of input.entries) {
+      this.entries.set(file.id, copyEntry(file));
     }
     return Promise.resolve({ kind: "committed" });
   }
 
   commitFileObservation(input: {
     readonly workspaceId: WorkspaceId;
-    readonly fileId: WorkspaceFileId;
-    readonly observed: ObservedFacts;
+    readonly fileId: WorkspaceEntryId;
+    readonly observed: Extract<ObservedFacts, { readonly type: "file" }>;
     readonly updatedAt: Date;
   }): Promise<CommitFileObservationResult> {
     const workspace = this.workspaces.get(input.workspaceId);
     if (!workspace) {
       return Promise.resolve({ kind: "workspace-not-found" });
     }
-    const file = this.files.get(input.fileId);
-    if (file?.workspaceId !== input.workspaceId) {
+    const file = this.entries.get(input.fileId);
+    if (file?.workspaceId !== input.workspaceId || file.type !== "file") {
       return Promise.resolve({ kind: "file-not-found" });
     }
     // A path change is a move, and a move is reconciliation's decision — this
@@ -97,7 +105,7 @@ export class InMemoryWorkspaceStore implements WorkspaceStore {
     if (file.path !== input.observed.path) {
       return Promise.resolve({ kind: "path-mismatch" });
     }
-    this.files.set(input.fileId, {
+    this.entries.set(input.fileId, {
       ...file,
       ...input.observed,
       updatedAt: new Date(input.updatedAt),
@@ -125,6 +133,26 @@ export class InMemoryWorkspaceStore implements WorkspaceStore {
       return Promise.resolve({ kind: "conflict", reason: rejection });
     }
 
+    const next = new Map(
+      this.ownedEntries(input.workspaceId).map((entry) => [entry.id, entry])
+    );
+    for (const id of input.change.deletedIds) {
+      next.delete(id);
+    }
+    for (const entry of input.change.updated) {
+      if (next.has(entry.id)) {
+        next.set(entry.id, entry);
+      }
+    }
+    for (const entry of input.change.inserted) {
+      next.set(entry.id, entry);
+    }
+    try {
+      storageTree(next.values());
+    } catch (error) {
+      return Promise.resolve({ kind: "conflict", reason: String(error) });
+    }
+
     // Deletes first: the unique `(workspaceId, path)` pair only has to hold at
     // the end of the commit, so a File may arrive at a path this same change
     // frees. Each clause below matches what the durable store's SQL does to
@@ -133,8 +161,8 @@ export class InMemoryWorkspaceStore implements WorkspaceStore {
       // `delete ... where workspace_id = ? and id in (...)` simply matches
       // nothing for an absent or foreign id. Neither store treats that as a
       // failure: the row the caller wanted gone is gone either way.
-      if (this.files.get(id)?.workspaceId === input.workspaceId) {
-        this.files.delete(id);
+      if (this.entries.get(id)?.workspaceId === input.workspaceId) {
+        this.entries.delete(id);
       }
     }
     for (const file of input.change.updated) {
@@ -142,12 +170,12 @@ export class InMemoryWorkspaceStore implements WorkspaceStore {
       // row is gone, and nothing when it belongs to someone else. Writing it
       // back here would resurrect a File the durable store left deleted, or
       // hand another Workspace's row to this one.
-      if (this.files.get(file.id)?.workspaceId === input.workspaceId) {
-        this.files.set(file.id, copyFile(file));
+      if (this.entries.get(file.id)?.workspaceId === input.workspaceId) {
+        this.entries.set(file.id, copyEntry(file));
       }
     }
     for (const file of input.change.inserted) {
-      this.files.set(file.id, copyFile(file));
+      this.entries.set(file.id, copyEntry(file));
     }
     const lastReconciledAt = nextWorkspaceObservation(
       workspace.lastReconciledAt,
@@ -184,8 +212,8 @@ export class InMemoryWorkspaceStore implements WorkspaceStore {
     if (!this.workspaces.delete(workspaceId)) {
       return Promise.resolve({ kind: "not-found" });
     }
-    for (const file of this.ownedFiles(workspaceId)) {
-      this.files.delete(file.id);
+    for (const file of this.ownedEntries(workspaceId)) {
+      this.entries.delete(file.id);
     }
     return Promise.resolve({ kind: "removed" });
   }
@@ -219,8 +247,8 @@ export class InMemoryWorkspaceStore implements WorkspaceStore {
     return byReference?.id ?? null;
   }
 
-  private ownedFiles(workspaceId: WorkspaceId): StoredFileRecord[] {
-    return [...this.files.values()]
+  private ownedEntries(workspaceId: WorkspaceId): WorkspaceEntry[] {
+    return [...this.entries.values()]
       .filter((file) => file.workspaceId === workspaceId)
       .sort(byCodeUnit((file) => file.path));
   }
@@ -239,12 +267,12 @@ export class InMemoryWorkspaceStore implements WorkspaceStore {
     // room for an arrival either.
     const deleted = new Set(
       change.deletedIds.filter(
-        (id) => this.files.get(id)?.workspaceId === workspaceId
+        (id) => this.entries.get(id)?.workspaceId === workspaceId
       )
     );
 
-    const paths = new Map<string, WorkspaceFileId>();
-    for (const file of this.ownedFiles(workspaceId)) {
+    const paths = new Map<string, WorkspaceEntryId>();
+    for (const file of this.ownedEntries(workspaceId)) {
       if (!deleted.has(file.id)) {
         paths.set(file.path, file.id);
       }
@@ -256,7 +284,7 @@ export class InMemoryWorkspaceStore implements WorkspaceStore {
       // The same guard the apply loop uses. An update that matches no row
       // writes nothing, so it cannot hold a path against an arrival either —
       // and claiming one here would reject a commit SQLite accepts.
-      if (this.files.get(file.id)?.workspaceId !== workspaceId) {
+      if (this.entries.get(file.id)?.workspaceId !== workspaceId) {
         continue;
       }
       const rejection = claim(paths, workspaceId, file);
@@ -279,9 +307,9 @@ export class InMemoryWorkspaceStore implements WorkspaceStore {
 
 /** Takes a path for one File, or names the row already holding it. */
 function claim(
-  paths: Map<string, WorkspaceFileId>,
+  paths: Map<string, WorkspaceEntryId>,
   workspaceId: WorkspaceId,
-  file: StoredFileRecord
+  file: WorkspaceEntry
 ): string | null {
   const owner = paths.get(file.path);
   if (owner !== undefined && owner !== file.id) {
@@ -310,7 +338,7 @@ function copyWorkspace(record: StoredWorkspaceRecord): StoredWorkspaceRecord {
   };
 }
 
-function copyFile(record: StoredFileRecord): StoredFileRecord {
+function copyEntry(record: WorkspaceEntry): WorkspaceEntry {
   return {
     ...record,
     createdAt: new Date(record.createdAt),

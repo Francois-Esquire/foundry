@@ -5,7 +5,9 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 
 import { afterAll, describe, expect, it } from "vitest";
+
 import type { GitPathStatus } from "../git";
+
 import { Git, git as gitLayer, WithGit } from "../git";
 import { InMemoryWorkspaceStore } from "../in-memory-workspace-store";
 import { Workspace } from "../instance";
@@ -453,7 +455,7 @@ describe("WithGit", () => {
     const root = await realpath(await makeRepository({ "README.md": "hello" }));
     const store = new InMemoryWorkspaceStore();
     const record = hostWorkspace({ path: root });
-    await store.commitCreate({ files: [], workspace: record });
+    await store.commitCreate({ entries: [], workspace: record });
     const Composed = WithGit(WithDirectory(Workspace));
 
     const workspace = new Composed(record, {
@@ -464,7 +466,7 @@ describe("WithGit", () => {
     });
 
     expect(workspace.git.root).toBe(root);
-    expect((await workspace.refresh()).files.map((f) => f.path)).toEqual([
+    expect((await workspace.refresh()).entries.map((f) => f.path)).toEqual([
       "README.md",
     ]);
   });

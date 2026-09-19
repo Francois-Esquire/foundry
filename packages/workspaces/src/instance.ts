@@ -1,3 +1,4 @@
+import { storageTree } from "@foundry/core/storage";
 import { sha256Hex } from "./digest";
 import {
   InvalidWorkspaceInputError,
@@ -7,16 +8,16 @@ import {
   WorkspaceSourceUnavailableError,
   WorkspaceSourceUnsupportedError,
 } from "./errors";
-import { createFileRecord, diffCatalog, isEmptyChange } from "./reconcile";
-import type { FileCandidate } from "./scanner";
+import { createEntryRecord, diffCatalog, isEmptyChange } from "./reconcile";
 import { decodeUtf8 } from "./text";
 import type {
   FileContentResult,
   FileTextSnapshot,
   SaveFileCommand,
   SaveFileResult,
+  WorkspaceEntry,
+  WorkspaceEntryId,
   WorkspaceFile,
-  WorkspaceFileId,
   WorkspaceId,
   WorkspaceRegistration,
   WorkspaceSource,
@@ -27,7 +28,7 @@ import type {
 } from "./workspace";
 import { workspaceSummary } from "./workspace";
 import type {
-  StoredFileRecord,
+  ObservedFacts,
   StoredWorkspaceRecord,
   WorkspaceStore,
 } from "./workspace-store";
@@ -104,15 +105,15 @@ export class Workspace {
     return workspace.scan !== Workspace.prototype.scan;
   }
 
-  /** The complete inventory of the source, with checksums and sizes; no bytes are kept. */
-  scan(): Promise<readonly FileCandidate[]> {
+  /** The complete entry inventory; only regular files carry content metadata. */
+  scan(): Promise<readonly ObservedFacts[]> {
     return Promise.reject(
       new WorkspaceSourceUnsupportedError(this.source.kind)
     );
   }
 
   /** Current bytes for one catalogued File, decoded. */
-  protected readFile(_file: StoredFileRecord): Promise<FileContentResult> {
+  protected readFile(_file: WorkspaceFile): Promise<FileContentResult> {
     return Promise.reject(
       new WorkspaceSourceUnsupportedError(this.source.kind)
     );
@@ -120,13 +121,13 @@ export class Workspace {
 
   /**
    * Replace one File's bytes when the source still holds the bytes the caller
-   * last read. `expectedChecksum` is that version; a mismatch is the conflict
+   * last read. `expectedDigest` is that version; a mismatch is the conflict
    * outcome carrying what is there now.
    */
   protected writeFile(
-    _file: StoredFileRecord,
+    _file: WorkspaceFile,
     _bytes: Uint8Array,
-    _expectedChecksum: string
+    _expectedDigest: string
   ): Promise<WriteOutcome> {
     return Promise.reject(
       new WorkspaceSourceUnsupportedError(this.source.kind)
@@ -173,11 +174,14 @@ export class Workspace {
     // store twice would let a concurrent writer land between them and produce
     // a view whose `fileCount` disagrees with its own `files`.
     const current = await this.require();
-    const rows = await this.context.store.listFiles(this.id);
+    const rows = await this.context.store.listEntries(this.id);
     return {
-      files: rows.map(toWorkspaceFile),
+      entries: rows.map((row) => ({ ...row })),
       source,
-      workspace: workspaceSummary(toRegistration(current), rows.length),
+      workspace: workspaceSummary(
+        toRegistration(current),
+        rows.filter((row) => row.type === "file").length
+      ),
     };
   }
 
@@ -207,19 +211,30 @@ export class Workspace {
 
   async files(): Promise<readonly WorkspaceFile[]> {
     await this.require();
-    const rows = await this.context.store.listFiles(this.id);
-    return rows.map(toWorkspaceFile);
+    const rows = await this.context.store.listEntries(this.id);
+    return rows.filter((row): row is WorkspaceFile => row.type === "file");
+  }
+
+  async entries(): Promise<readonly WorkspaceEntry[]> {
+    await this.require();
+    return this.context.store.listEntries(this.id);
   }
 
   /**
    * Current bytes for one owned File. Identity is the only input: a caller
    * names a File, never a path.
    */
-  async read(fileId: WorkspaceFileId): Promise<FileContentResult> {
+  async read(fileId: WorkspaceEntryId): Promise<FileContentResult> {
     await this.require();
-    const file = await this.context.store.getFile(this.id, fileId);
+    const file = await this.context.store.getEntry(this.id, fileId);
     if (!file) {
       throw new WorkspaceFileNotFoundError(this.id, fileId);
+    }
+    if (file.type !== "file") {
+      return {
+        kind: "stale",
+        reason: `${file.path} is a ${file.type}, not a regular file`,
+      };
     }
     return this.readFile(file);
   }
@@ -228,7 +243,7 @@ export class Workspace {
    * Replace one File's bytes with the command's UTF-8 draft — the only write
    * this package performs against a source.
    *
-   * The expected checksum is the version of the exact bytes the caller last
+   * The expected digest is the version of the exact bytes the caller last
    * read. The write and its catalog observation are serialized with this
    * system's own observations so a concurrent reconciliation cannot restore
    * pre-write facts; a second system over the same store can still interleave
@@ -240,9 +255,16 @@ export class Workspace {
 
   private async performSave(command: SaveFileCommand): Promise<SaveFileResult> {
     const workspace = await this.require();
-    const file = await this.context.store.getFile(this.id, command.fileId);
+    const file = await this.context.store.getEntry(this.id, command.fileId);
     if (!file) {
       throw new WorkspaceFileNotFoundError(this.id, command.fileId);
+    }
+
+    if (file.type !== "file") {
+      return {
+        kind: "stale",
+        reason: `${file.path} is a ${file.type}, not a regular file`,
+      };
     }
 
     // The returned snapshot must be truthful about the bytes at the source, so
@@ -258,14 +280,14 @@ export class Workspace {
       };
     }
 
-    const outcome = await this.writeFile(file, bytes, command.expectedChecksum);
+    const outcome = await this.writeFile(file, bytes, command.expectedDigest);
     if (outcome.kind !== "written") {
       return outcome;
     }
 
     const snapshot: FileTextSnapshot = {
-      checksum: await sha256Hex(bytes),
-      size: bytes.byteLength,
+      bytes: bytes.byteLength,
+      digest: await sha256Hex(bytes),
       text: written,
     };
     return {
@@ -283,20 +305,21 @@ export class Workspace {
    */
   private async recordWrite(
     workspace: StoredWorkspaceRecord,
-    file: StoredFileRecord,
+    file: WorkspaceFile,
     snapshot: FileTextSnapshot
   ): Promise<"current" | "refresh-required"> {
     try {
       const result = await this.context.store.commitFileObservation({
         fileId: file.id,
         observed: {
-          checksum: snapshot.checksum,
+          bytes: snapshot.bytes,
+          digest: snapshot.digest,
           extension: file.extension,
           kind: file.kind,
-          mimeType: file.mimeType,
+          mime: file.mime,
           name: file.name,
           path: file.path,
-          size: snapshot.size,
+          type: "file",
         },
         updatedAt: nextWorkspaceObservation(workspace.lastReconciledAt),
         workspaceId: workspace.id,
@@ -373,7 +396,7 @@ export class Workspace {
   private async observeSource(
     workspace: StoredWorkspaceRecord
   ): Promise<WorkspaceSourceStatus> {
-    let candidates: readonly FileCandidate[];
+    let candidates: readonly ObservedFacts[];
     try {
       candidates = await this.scan();
     } catch (error) {
@@ -390,8 +413,8 @@ export class Workspace {
     const change = diffCatalog({
       at,
       candidates,
-      existing: await this.context.store.listFiles(workspace.id),
-      newFileId: () => crypto.randomUUID() as WorkspaceFileId,
+      existing: await this.context.store.listEntries(workspace.id),
+      newEntryId: () => crypto.randomUUID() as WorkspaceEntryId,
       workspaceId: workspace.id,
     });
     const result = await this.context.store.commitReconcile({
@@ -424,18 +447,19 @@ export class Workspace {
   }
 }
 
-/** The File rows a Workspace is born with, built by the same builder reconciliation uses. */
-export function initialFiles(
+/** Initial entries use the same identity allocation as reconciliation. */
+export function initialEntries(
   workspaceId: WorkspaceId,
-  candidates: readonly FileCandidate[],
+  candidates: readonly ObservedFacts[],
   createdAt: Date
-): StoredFileRecord[] {
+): WorkspaceEntry[] {
+  storageTree(candidates);
   return candidates.map((candidate) =>
-    createFileRecord(
+    createEntryRecord(
       workspaceId,
       candidate,
       createdAt,
-      crypto.randomUUID() as WorkspaceFileId
+      crypto.randomUUID() as WorkspaceEntryId
     )
   );
 }
@@ -463,21 +487,4 @@ function normalizeWorkspaceName(value: string): string {
     throw new InvalidWorkspaceInputError("Workspace name cannot be empty");
   }
   return name;
-}
-
-/** Detached, renderer-safe: relative path only, no root and no bytes. */
-function toWorkspaceFile(record: StoredFileRecord): WorkspaceFile {
-  return {
-    checksum: record.checksum,
-    createdAt: record.createdAt,
-    extension: record.extension,
-    id: record.id,
-    kind: record.kind,
-    mimeType: record.mimeType,
-    name: record.name,
-    path: record.path,
-    size: record.size,
-    updatedAt: record.updatedAt,
-    workspaceId: record.workspaceId,
-  };
 }

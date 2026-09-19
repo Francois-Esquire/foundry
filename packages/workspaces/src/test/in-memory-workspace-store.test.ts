@@ -3,6 +3,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
+
 import { InMemoryWorkspaceStore } from "../in-memory-workspace-store";
 import { directory } from "../node";
 import { WorkspaceSystem } from "../workspace-system";
@@ -33,7 +34,7 @@ describe("WorkspaceSystem construction", () => {
     const store = new InMemoryWorkspaceStore();
     const system = new WorkspaceSystem({ store }).extend(directory());
     const workspace = hostWorkspace({ path: newRoot("injected") });
-    await store.commitCreate({ files: [], workspace });
+    await store.commitCreate({ entries: [], workspace });
 
     expect((await system.list()).map((w) => w.id)).toEqual([workspace.id]);
   });

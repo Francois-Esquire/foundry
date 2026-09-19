@@ -1,3 +1,8 @@
+import type {
+  FileNode,
+  FileRepresentation,
+  StorageEntry,
+} from "@foundry/core/storage";
 import { z } from "zod";
 
 export const workspaceIdSchema = z
@@ -6,11 +11,11 @@ export const workspaceIdSchema = z
   .brand("WorkspaceId");
 export type WorkspaceId = z.infer<typeof workspaceIdSchema>;
 
-export const workspaceFileIdSchema = z
+export const workspaceEntryIdSchema = z
   .string()
-  .min(1, "WorkspaceFileId must not be empty")
-  .brand("WorkspaceFileId");
-export type WorkspaceFileId = z.infer<typeof workspaceFileIdSchema>;
+  .min(1, "WorkspaceEntryId must not be empty")
+  .brand("WorkspaceEntryId");
+export type WorkspaceEntryId = z.infer<typeof workspaceEntryIdSchema>;
 
 /**
  * The coarse whole-file categories. Deliberately not code symbols: a `FileKind`
@@ -54,21 +59,24 @@ export interface WorkspaceRegistration {
   readonly updatedAt: Date;
 }
 
-/** One included source file. It never carries the file's current bytes. */
-export interface WorkspaceFile {
-  readonly checksum: string;
+interface WorkspaceEntryMetadata {
   readonly createdAt: Date;
-  readonly extension: string | null;
-  readonly id: WorkspaceFileId;
-  readonly kind: FileKind;
-  readonly mimeType: string | null;
+  readonly id: WorkspaceEntryId;
   readonly name: string;
-  /** Normalized POSIX path relative to the Workspace root. */
-  readonly path: string;
-  readonly size: number;
   readonly updatedAt: Date;
   readonly workspaceId: WorkspaceId;
 }
+
+export interface WorkspaceFile
+  extends FileRepresentation,
+    WorkspaceEntryMetadata {
+  readonly extension: string | null;
+  readonly kind: FileKind;
+}
+
+export type WorkspaceEntry =
+  | WorkspaceFile
+  | (Exclude<StorageEntry, { readonly type: "file" }> & WorkspaceEntryMetadata);
 
 /**
  * What a caller outside the trust boundary may see. The root path and the
@@ -89,42 +97,34 @@ export interface WorkspaceSummary {
  * The outcome of reading a known File's current bytes. Every non-text outcome
  * is explicit so presentation never has to infer one from empty content.
  *
- * `checksum` is computed from the exact byte sequence this read decoded and
+ * `digest` is computed from the exact byte sequence this read decoded and
  * sized — never copied from the catalog, whose observation may predate an
  * external change. It is the version a later save must present as expected.
  */
 export type FileContentResult =
-  | {
+  | (FileNode & {
       readonly kind: "text";
       readonly text: string;
-      readonly mimeType: string | null;
-      readonly size: number;
-      readonly checksum: string;
-    }
-  | {
+    })
+  | (FileNode & {
       readonly kind: "binary";
-      readonly mimeType: string | null;
-      readonly size: number;
-      readonly checksum: string;
-    }
+    })
   | { readonly kind: "stale"; readonly reason: string }
   | { readonly kind: "unavailable"; readonly reason: string }
   | { readonly kind: "unreadable"; readonly reason: string };
 
 /**
- * One host File save: identity, the complete UTF-8 draft, and the checksum of
+ * One File save: identity, the complete UTF-8 draft, and the digest of
  * the exact bytes the caller last read. Never a path.
  */
 export interface SaveFileCommand {
-  readonly expectedChecksum: string;
-  readonly fileId: WorkspaceFileId;
+  readonly expectedDigest: string;
+  readonly fileId: WorkspaceEntryId;
   readonly text: string;
 }
 
-/** The source text after a read or write, versioned by its own checksum. */
-export interface FileTextSnapshot {
-  readonly checksum: string;
-  readonly size: number;
+/** The source text after a read or write, versioned by its own digest. */
+export interface FileTextSnapshot extends Pick<FileNode, "digest" | "bytes"> {
   readonly text: string;
 }
 
@@ -137,7 +137,7 @@ export interface FileTextSnapshot {
  * caller must adopt the snapshot and never resend the bytes). `conflict`
  * carries the current source snapshot so recovery is an explicit choice.
  * `stale` means the File is no longer representable as writable text (gone,
- * a directory, a symlink, binary, or an Artifact source). `failed` guarantees
+ * a directory, a symlink, or binary). `failed` guarantees
  * this command left the original source bytes unchanged.
  */
 export type SaveFileResult =
@@ -173,7 +173,7 @@ export type WorkspaceSourceStatus =
   | { readonly kind: "scan-failed"; readonly reason: string };
 
 export interface WorkspaceView {
-  readonly files: readonly WorkspaceFile[];
+  readonly entries: readonly WorkspaceEntry[];
   readonly source: WorkspaceSourceStatus;
   readonly workspace: WorkspaceSummary;
 }

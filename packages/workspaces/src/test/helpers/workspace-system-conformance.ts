@@ -10,9 +10,13 @@ import type {
   WorkspaceExtension,
 } from "../../extension";
 import { sha256Hex } from "../../node";
-import type { WorkspaceFileId, WorkspaceId } from "../../workspace";
 import type {
-  StoredFileRecord,
+  WorkspaceEntry,
+  WorkspaceEntryId,
+  WorkspaceFile,
+  WorkspaceId,
+} from "../../workspace";
+import type {
   StoredWorkspaceRecord,
   WorkspaceStore,
 } from "../../workspace-store";
@@ -51,6 +55,63 @@ export function describeWorkspaceSystemConformance(
   createHarness: WorkspaceSystemConformanceFactory
 ): void {
   describe(`${name} WorkspaceSystem conformance`, () => {
+    test("round-trips every entry type and counts only regular files", async () => {
+      const { store } = await createHarness();
+      const workspace = hostWorkspace({ path: newRoot("entries") });
+      const file = fileRecord(workspace.id, { path: "file.txt" });
+      const device = {
+        ...directoryRecord(workspace.id, "device"),
+        type: "device" as const,
+      };
+      const entries: WorkspaceEntry[] = [
+        device,
+        directoryRecord(workspace.id, "empty"),
+        file,
+        {
+          ...directoryRecord(workspace.id, "link"),
+          target: "../missing",
+          type: "symlink",
+        },
+        { ...directoryRecord(workspace.id, "pipe"), type: "pipe" },
+        { ...directoryRecord(workspace.id, "socket"), type: "socket" },
+      ];
+      await store.commitCreate({ entries, workspace });
+      expect(await store.listEntries(workspace.id)).toEqual(entries);
+      expect(await store.countFiles(workspace.id)).toBe(1);
+      const {
+        id: _id,
+        workspaceId: _workspaceId,
+        createdAt: _createdAt,
+        updatedAt: _updatedAt,
+        ...observed
+      } = file;
+      expect(
+        await store.commitFileObservation({
+          fileId: device.id,
+          observed: { ...observed, path: "device" },
+          updatedAt: new Date(5000),
+          workspaceId: workspace.id,
+        })
+      ).toEqual({ kind: "file-not-found" });
+      expect(await store.listEntries(workspace.id)).toEqual(entries);
+    });
+
+    test("rejects removing a parent while its child remains, atomically", async () => {
+      const { store } = await createHarness();
+      const workspace = hostWorkspace({ path: newRoot("structure") });
+      const parent = directoryRecord(workspace.id, "src");
+      const file = fileRecord(workspace.id, { path: "src/file.ts" });
+      await store.commitCreate({ entries: [parent, file], workspace });
+      expect(
+        await store.commitReconcile({
+          change: { deletedIds: [parent.id], inserted: [], updated: [] },
+          lastReconciledAt: new Date(5000),
+          workspaceId: workspace.id,
+        })
+      ).toMatchObject({ kind: "conflict" });
+      expect(await store.listEntries(workspace.id)).toEqual([parent, file]);
+    });
+
     test("creates a Workspace and its complete initial catalog together", async () => {
       const { store } = await createHarness();
       const workspace = hostWorkspace({ path: newRoot("alpha") });
@@ -60,17 +121,22 @@ export function describeWorkspaceSystemConformance(
         path: "docs/guide.md",
       });
 
+      const docs = directoryRecord(workspace.id, "docs");
       expect(
         await store.commitCreate({
-          files: [readme, nested],
+          entries: [readme, docs, nested],
           workspace,
         })
       ).toEqual({ kind: "committed" });
 
       expect(await store.getWorkspace(workspace.id)).toEqual(workspace);
-      expect(await store.listFiles(workspace.id)).toEqual([readme, nested]);
+      expect(await store.listEntries(workspace.id)).toEqual([
+        readme,
+        docs,
+        nested,
+      ]);
       expect(await store.countFiles(workspace.id)).toBe(2);
-      expect(await store.getFile(workspace.id, readme.id)).toEqual(readme);
+      expect(await store.getEntry(workspace.id, readme.id)).toEqual(readme);
     });
 
     test("finds a Workspace by its canonical root and lists every Workspace", async () => {
@@ -83,8 +149,8 @@ export function describeWorkspaceSystemConformance(
         createdAt: new Date(2000),
         path: newRoot("beta"),
       });
-      await store.commitCreate({ files: [], workspace: first });
-      await store.commitCreate({ files: [], workspace: second });
+      await store.commitCreate({ entries: [], workspace: first });
+      await store.commitCreate({ entries: [], workspace: second });
 
       expect(await store.findWorkspaceByPath(second.path)).toEqual(second);
       expect(await store.findWorkspaceByPath(newRoot("absent"))).toBeNull();
@@ -99,11 +165,11 @@ export function describeWorkspaceSystemConformance(
       const { store } = await createHarness();
       const root = newRoot("alpha");
       const first = hostWorkspace({ path: root });
-      await store.commitCreate({ files: [], workspace: first });
+      await store.commitCreate({ entries: [], workspace: first });
 
       expect(
         await store.commitCreate({
-          files: [],
+          entries: [],
           workspace: hostWorkspace({ path: root }),
         })
       ).toEqual({ existingId: first.id, kind: "workspace-exists" });
@@ -119,19 +185,19 @@ export function describeWorkspaceSystemConformance(
       const firstReadme = fileRecord(first.id, { path: "README.md" });
       const secondReadme = fileRecord(second.id, { path: "README.md" });
       await store.commitCreate({
-        files: [firstReadme],
+        entries: [firstReadme],
         workspace: first,
       });
       await store.commitCreate({
-        files: [secondReadme],
+        entries: [secondReadme],
         workspace: second,
       });
 
-      expect(await store.getFile(first.id, firstReadme.id)).toEqual(
+      expect(await store.getEntry(first.id, firstReadme.id)).toEqual(
         firstReadme
       );
-      expect(await store.getFile(first.id, secondReadme.id)).toBeNull();
-      expect(await store.listFiles(second.id)).toEqual([secondReadme]);
+      expect(await store.getEntry(first.id, secondReadme.id)).toBeNull();
+      expect(await store.listEntries(second.id)).toEqual([secondReadme]);
     });
 
     test("applies one reconciliation as a whole", async () => {
@@ -140,23 +206,25 @@ export function describeWorkspaceSystemConformance(
       const kept = fileRecord(workspace.id, { path: "README.md" });
       const removed = fileRecord(workspace.id, { path: "old.md" });
       await store.commitCreate({
-        files: [kept, removed],
+        entries: [kept, removed],
         workspace,
       });
 
-      const edited: StoredFileRecord = {
+      const edited: WorkspaceFile = {
         ...kept,
-        checksum: "edited",
-        size: 12,
+        bytes: 12,
+        digest:
+          "1fb9f4097256db2d7b1e13aff79cee44339891a31c556b9cf6093885773b3618",
         updatedAt: new Date(5000),
       };
       const added = fileRecord(workspace.id, { path: "src/new.ts" });
+      const src = directoryRecord(workspace.id, "src");
 
       expect(
         await store.commitReconcile({
           change: {
             deletedIds: [removed.id],
-            inserted: [added],
+            inserted: [src, added],
             updated: [edited],
           },
           lastReconciledAt: new Date(5000),
@@ -165,7 +233,11 @@ export function describeWorkspaceSystemConformance(
         })
       ).toEqual({ kind: "committed" });
 
-      expect(await store.listFiles(workspace.id)).toEqual([edited, added]);
+      expect(await store.listEntries(workspace.id)).toEqual([
+        edited,
+        src,
+        added,
+      ]);
       expect((await store.getWorkspace(workspace.id))?.updatedAt).toEqual(
         new Date(5000)
       );
@@ -174,7 +246,7 @@ export function describeWorkspaceSystemConformance(
     test("advances freshness strictly when stale callers propose the same observation time", async () => {
       const { store } = await createHarness();
       const workspace = hostWorkspace({ path: newRoot("freshness") });
-      await store.commitCreate({ files: [], workspace });
+      await store.commitCreate({ entries: [], workspace });
       const input = {
         change: { deletedIds: [], inserted: [], updated: [] },
         lastReconciledAt: new Date(1001),
@@ -204,8 +276,9 @@ export function describeWorkspaceSystemConformance(
       const workspace = hostWorkspace({ path: newRoot("alpha") });
       const target = fileRecord(workspace.id, { path: "README.md" });
       const traveller = fileRecord(workspace.id, { path: "docs/README.md" });
+      const docs = directoryRecord(workspace.id, "docs");
       await store.commitCreate({
-        files: [target, traveller],
+        entries: [target, docs, traveller],
         workspace,
       });
 
@@ -215,7 +288,7 @@ export function describeWorkspaceSystemConformance(
       // of an ordering assumption a later producer would have to know about.
       // The unique `(workspaceId, path)` pair only has to hold at the end of
       // the commit, so deletion has to come first in both stores.
-      const arrived: StoredFileRecord = {
+      const arrived: WorkspaceFile = {
         ...traveller,
         path: "README.md",
         updatedAt: new Date(6000),
@@ -234,14 +307,14 @@ export function describeWorkspaceSystemConformance(
         })
       ).toEqual({ kind: "committed" });
 
-      expect(await store.listFiles(workspace.id)).toEqual([arrived]);
+      expect(await store.listEntries(workspace.id)).toEqual([arrived, docs]);
     });
 
     test("preserves the prior catalog exactly when a commit is rejected", async () => {
       const { store } = await createHarness();
       const workspace = hostWorkspace({ path: newRoot("alpha") });
       const readme = fileRecord(workspace.id, { path: "README.md" });
-      await store.commitCreate({ files: [readme], workspace });
+      await store.commitCreate({ entries: [readme], workspace });
       const before = await store.getWorkspace(workspace.id);
 
       const collides = fileRecord(workspace.id, { path: "README.md" });
@@ -253,7 +326,7 @@ export function describeWorkspaceSystemConformance(
       });
 
       expect(result.kind).toBe("conflict");
-      expect(await store.listFiles(workspace.id)).toEqual([readme]);
+      expect(await store.listEntries(workspace.id)).toEqual([readme]);
       expect(await store.getWorkspace(workspace.id)).toEqual(before);
     });
 
@@ -262,7 +335,7 @@ export function describeWorkspaceSystemConformance(
       const workspace = hostWorkspace({ path: newRoot("alpha") });
       const kept = fileRecord(workspace.id, { path: "README.md" });
       const doomed = fileRecord(workspace.id, { path: "old.md" });
-      await store.commitCreate({ files: [kept, doomed], workspace });
+      await store.commitCreate({ entries: [kept, doomed], workspace });
       const before = await store.getWorkspace(workspace.id);
 
       // Two arrivals claiming one path. The commit gets far enough to have
@@ -276,7 +349,14 @@ export function describeWorkspaceSystemConformance(
             fileRecord(workspace.id, { path: "added.md" }),
             fileRecord(workspace.id, { path: "added.md" }),
           ],
-          updated: [{ ...kept, checksum: "edited", updatedAt: new Date(9000) }],
+          updated: [
+            {
+              ...kept,
+              digest:
+                "1fb9f4097256db2d7b1e13aff79cee44339891a31c556b9cf6093885773b3618",
+              updatedAt: new Date(9000),
+            },
+          ],
         },
         lastReconciledAt: new Date(9000),
         updatedAt: new Date(9000),
@@ -284,7 +364,7 @@ export function describeWorkspaceSystemConformance(
       });
 
       expect(result.kind).toBe("conflict");
-      expect(await store.listFiles(workspace.id)).toEqual([kept, doomed]);
+      expect(await store.listEntries(workspace.id)).toEqual([kept, doomed]);
       expect(await store.getWorkspace(workspace.id)).toEqual(before);
     });
 
@@ -294,8 +374,8 @@ export function describeWorkspaceSystemConformance(
       const theirs = hostWorkspace({ path: newRoot("beta") });
       const kept = fileRecord(mine.id, { path: "README.md" });
       const foreign = fileRecord(theirs.id, { path: "README.md" });
-      await store.commitCreate({ files: [kept], workspace: mine });
-      await store.commitCreate({ files: [foreign], workspace: theirs });
+      await store.commitCreate({ entries: [kept], workspace: mine });
+      await store.commitCreate({ entries: [foreign], workspace: theirs });
 
       // `delete ... where workspace_id = ? and id in (...)` matches neither an
       // id that is gone nor one belonging to someone else, and reports no
@@ -304,7 +384,7 @@ export function describeWorkspaceSystemConformance(
       expect(
         await store.commitReconcile({
           change: {
-            deletedIds: [newWorkspaceFileId(), foreign.id],
+            deletedIds: [newWorkspaceEntryId(), foreign.id],
             inserted: [],
             updated: [],
           },
@@ -314,8 +394,8 @@ export function describeWorkspaceSystemConformance(
         })
       ).toEqual({ kind: "committed" });
 
-      expect(await store.listFiles(mine.id)).toEqual([kept]);
-      expect(await store.listFiles(theirs.id)).toEqual([foreign]);
+      expect(await store.listEntries(mine.id)).toEqual([kept]);
+      expect(await store.listEntries(theirs.id)).toEqual([foreign]);
     });
 
     test("never updates a File another Workspace owns", async () => {
@@ -323,8 +403,8 @@ export function describeWorkspaceSystemConformance(
       const mine = hostWorkspace({ path: newRoot("alpha") });
       const theirs = hostWorkspace({ path: newRoot("beta") });
       const foreign = fileRecord(theirs.id, { path: "README.md" });
-      await store.commitCreate({ files: [], workspace: mine });
-      await store.commitCreate({ files: [foreign], workspace: theirs });
+      await store.commitCreate({ entries: [], workspace: mine });
+      await store.commitCreate({ entries: [foreign], workspace: theirs });
 
       // The record claims this Workspace, but the row it names is someone
       // else's. `update ... where workspace_id = ? and id = ?` matches nothing,
@@ -334,15 +414,22 @@ export function describeWorkspaceSystemConformance(
         change: {
           deletedIds: [],
           inserted: [],
-          updated: [{ ...foreign, checksum: "stolen", workspaceId: mine.id }],
+          updated: [
+            {
+              ...foreign,
+              digest:
+                "823d95a9a728f14d626df9a894705dda27417b8927412364255b515e9f2ac2e2",
+              workspaceId: mine.id,
+            },
+          ],
         },
         lastReconciledAt: new Date(8500),
         updatedAt: new Date(8500),
         workspaceId: mine.id,
       });
 
-      expect(await store.listFiles(theirs.id)).toEqual([foreign]);
-      expect(await store.listFiles(mine.id)).toEqual([]);
+      expect(await store.listEntries(theirs.id)).toEqual([foreign]);
+      expect(await store.listEntries(mine.id)).toEqual([]);
     });
 
     test("does not resurrect a File that vanished before the commit", async () => {
@@ -350,7 +437,7 @@ export function describeWorkspaceSystemConformance(
       const workspace = hostWorkspace({ path: newRoot("alpha") });
       const kept = fileRecord(workspace.id, { path: "README.md" });
       const vanished = fileRecord(workspace.id, { path: "gone.md" });
-      await store.commitCreate({ files: [kept], workspace });
+      await store.commitCreate({ entries: [kept], workspace });
 
       // An update for a row that is no longer there. `update ... where id = ?`
       // matches nothing; a store that wrote the record back instead would
@@ -360,7 +447,13 @@ export function describeWorkspaceSystemConformance(
           change: {
             deletedIds: [],
             inserted: [],
-            updated: [{ ...vanished, checksum: "edited" }],
+            updated: [
+              {
+                ...vanished,
+                digest:
+                  "1fb9f4097256db2d7b1e13aff79cee44339891a31c556b9cf6093885773b3618",
+              },
+            ],
           },
           lastReconciledAt: new Date(8000),
           updatedAt: new Date(8000),
@@ -368,7 +461,7 @@ export function describeWorkspaceSystemConformance(
         })
       ).toEqual({ kind: "committed" });
 
-      expect(await store.listFiles(workspace.id)).toEqual([kept]);
+      expect(await store.listEntries(workspace.id)).toEqual([kept]);
     });
 
     test("lets an arrival take the path of an update that matches no row", async () => {
@@ -376,7 +469,7 @@ export function describeWorkspaceSystemConformance(
       const workspace = hostWorkspace({ path: newRoot("alpha") });
       const vanished = fileRecord(workspace.id, { path: "notes.md" });
       const arriving = fileRecord(workspace.id, { path: "notes.md" });
-      await store.commitCreate({ files: [], workspace });
+      await store.commitCreate({ entries: [], workspace });
 
       // The update names a row that is gone, so it writes nothing and holds no
       // path. A pre-check that reserved `notes.md` for it anyway would reject
@@ -394,7 +487,7 @@ export function describeWorkspaceSystemConformance(
         })
       ).toEqual({ kind: "committed" });
 
-      expect(await store.listFiles(workspace.id)).toEqual([arriving]);
+      expect(await store.listEntries(workspace.id)).toEqual([arriving]);
     });
 
     test("reports a reconciliation against an absent Workspace", async () => {
@@ -419,11 +512,11 @@ export function describeWorkspaceSystemConformance(
       const firstReadme = fileRecord(first.id, { path: "README.md" });
       const secondReadme = fileRecord(second.id, { path: "README.md" });
       await store.commitCreate({
-        files: [firstReadme],
+        entries: [firstReadme],
         workspace: first,
       });
       await store.commitCreate({
-        files: [secondReadme],
+        entries: [secondReadme],
         workspace: second,
       });
 
@@ -432,9 +525,9 @@ export function describeWorkspaceSystemConformance(
       });
 
       expect(await store.getWorkspace(first.id)).toBeNull();
-      expect(await store.listFiles(first.id)).toEqual([]);
-      expect(await store.getFile(first.id, firstReadme.id)).toBeNull();
-      expect(await store.listFiles(second.id)).toEqual([secondReadme]);
+      expect(await store.listEntries(first.id)).toEqual([]);
+      expect(await store.getEntry(first.id, firstReadme.id)).toBeNull();
+      expect(await store.listEntries(second.id)).toEqual([secondReadme]);
       expect(await store.removeWorkspace(first.id)).toEqual({
         kind: "not-found",
       });
@@ -444,14 +537,14 @@ export function describeWorkspaceSystemConformance(
       const { store } = await createHarness();
       const artifactId = crypto.randomUUID();
       const first = artifactWorkspace(artifactId, newRoot("first"));
-      await store.commitCreate({ files: [], workspace: first });
+      await store.commitCreate({ entries: [], workspace: first });
 
       // Distinct roots, one Artifact. SQLite has a unique index for this; the
       // in-memory reference has to reach the same answer or the two stores
       // disagree the moment a second source kind exists.
       expect(
         await store.commitCreate({
-          files: [],
+          entries: [],
           workspace: artifactWorkspace(artifactId, newRoot("second")),
         })
       ).toEqual({ existingId: first.id, kind: "workspace-exists" });
@@ -463,8 +556,8 @@ export function describeWorkspaceSystemConformance(
       const contestedRoot = newRoot("contested");
       const byReference = artifactWorkspace(sharedSourceId, newRoot("first"));
       const byRoot = artifactWorkspace(crypto.randomUUID(), contestedRoot);
-      await store.commitCreate({ files: [], workspace: byReference });
-      await store.commitCreate({ files: [], workspace: byRoot });
+      await store.commitCreate({ entries: [], workspace: byReference });
+      await store.commitCreate({ entries: [], workspace: byRoot });
 
       // The candidate collides with one incumbent on its root and a different
       // one on its source reference. `existingId` is what a duplicate add
@@ -473,7 +566,7 @@ export function describeWorkspaceSystemConformance(
       // first.
       expect(
         await store.commitCreate({
-          files: [],
+          entries: [],
           workspace: artifactWorkspace(sharedSourceId, contestedRoot),
         })
       ).toEqual({ existingId: byRoot.id, kind: "workspace-exists" });
@@ -484,35 +577,38 @@ export function describeWorkspaceSystemConformance(
       const workspace = hostWorkspace({ path: newRoot("written") });
       const file = fileRecord(workspace.id, { path: "notes.md" });
       const sibling = fileRecord(workspace.id, { path: "other.md" });
-      await store.commitCreate({ files: [file, sibling], workspace });
+      await store.commitCreate({ entries: [file, sibling], workspace });
       const updatedAt = new Date(file.updatedAt.getTime() + 5000);
 
       expect(
         await store.commitFileObservation({
           fileId: file.id,
           observed: {
-            checksum: "written-checksum",
+            bytes: 42,
+            digest:
+              "552b19b9d3e9f6d990ed22f23005713d830372af6b5f1f542d0a1940a5bcd0cc",
             extension: file.extension,
             kind: file.kind,
-            mimeType: file.mimeType,
+            mime: file.mime,
             name: file.name,
             path: file.path,
-            size: 42,
+            type: "file" as const,
           },
           updatedAt,
           workspaceId: workspace.id,
         })
       ).toEqual({ kind: "committed" });
 
-      expect(await store.getFile(workspace.id, file.id)).toEqual({
+      expect(await store.getEntry(workspace.id, file.id)).toEqual({
         ...file,
-        checksum: "written-checksum",
-        size: 42,
+        bytes: 42,
+        digest:
+          "552b19b9d3e9f6d990ed22f23005713d830372af6b5f1f542d0a1940a5bcd0cc",
         updatedAt,
       });
       // The sibling row and the observation clock are untouched; only the
       // Workspace's own updatedAt moves with its changed catalog fact.
-      expect(await store.getFile(workspace.id, sibling.id)).toEqual(sibling);
+      expect(await store.getEntry(workspace.id, sibling.id)).toEqual(sibling);
       const after = await store.getWorkspace(workspace.id);
       expect(after?.updatedAt).toEqual(updatedAt);
       expect(after?.lastReconciledAt).toEqual(workspace.lastReconciledAt);
@@ -522,15 +618,17 @@ export function describeWorkspaceSystemConformance(
       const { store } = await createHarness();
       const workspace = hostWorkspace({ path: newRoot("refusals") });
       const file = fileRecord(workspace.id, { path: "kept.md" });
-      await store.commitCreate({ files: [file], workspace });
+      await store.commitCreate({ entries: [file], workspace });
       const observed = {
-        checksum: "new",
+        bytes: 1,
+        digest:
+          "11507a0e2f5e69d5dfa40a62a1bd7b6ee57e6bcd85c67c9b8431b36fff21c437",
         extension: file.extension,
         kind: file.kind,
-        mimeType: file.mimeType,
+        mime: file.mime,
         name: file.name,
         path: file.path,
-        size: 1,
+        type: "file" as const,
       };
       const updatedAt = new Date(9000);
 
@@ -544,7 +642,7 @@ export function describeWorkspaceSystemConformance(
       ).toEqual({ kind: "workspace-not-found" });
       expect(
         await store.commitFileObservation({
-          fileId: newWorkspaceFileId(),
+          fileId: newWorkspaceEntryId(),
           observed,
           updatedAt,
           workspaceId: workspace.id,
@@ -560,7 +658,7 @@ export function describeWorkspaceSystemConformance(
       ).toEqual({ kind: "path-mismatch" });
 
       // Every refusal wrote nothing: no replacement row, no fact change.
-      expect(await store.listFiles(workspace.id)).toEqual([file]);
+      expect(await store.listEntries(workspace.id)).toEqual([file]);
       expect(await store.getWorkspace(workspace.id)).toEqual(workspace);
     });
 
@@ -569,26 +667,28 @@ export function describeWorkspaceSystemConformance(
       const owner = hostWorkspace({ path: newRoot("owner") });
       const other = hostWorkspace({ path: newRoot("other") });
       const theirs = fileRecord(other.id, { path: "shared.md" });
-      await store.commitCreate({ files: [], workspace: owner });
-      await store.commitCreate({ files: [theirs], workspace: other });
+      await store.commitCreate({ entries: [], workspace: owner });
+      await store.commitCreate({ entries: [theirs], workspace: other });
 
       expect(
         await store.commitFileObservation({
           fileId: theirs.id,
           observed: {
-            checksum: "stolen",
+            bytes: 1,
+            digest:
+              "823d95a9a728f14d626df9a894705dda27417b8927412364255b515e9f2ac2e2",
             extension: theirs.extension,
             kind: theirs.kind,
-            mimeType: theirs.mimeType,
+            mime: theirs.mime,
             name: theirs.name,
             path: theirs.path,
-            size: 1,
+            type: "file" as const,
           },
           updatedAt: new Date(9000),
           workspaceId: owner.id,
         })
       ).toEqual({ kind: "file-not-found" });
-      expect(await store.getFile(other.id, theirs.id)).toEqual(theirs);
+      expect(await store.getEntry(other.id, theirs.id)).toEqual(theirs);
     });
 
     describe("public operations", () => {
@@ -670,18 +770,18 @@ export function describeWorkspaceSystemConformance(
         const view = await added.refresh();
 
         expect(view.source).toEqual({ kind: "reconciled" });
-        expect(view.files.map((file) => file.path)).toEqual([
-          "README.md",
-          "added.md",
-          "docs/notes.md",
-        ]);
         expect(
-          view.files.find((file) => file.path === "docs/notes.md")?.id
+          view.entries
+            .filter((entry) => entry.type === "file")
+            .map((file) => file.path)
+        ).toEqual(["README.md", "added.md", "docs/notes.md"]);
+        expect(
+          view.entries.find((file) => file.path === "docs/notes.md")?.id
         ).toBe(moved?.id);
-        expect(view.files.find((file) => file.path === "README.md")?.id).toBe(
+        expect(view.entries.find((file) => file.path === "README.md")?.id).toBe(
           edited?.id
         );
-        expect(await added.files()).toEqual(view.files);
+        expect(await added.entries()).toEqual(view.entries);
       });
 
       test("returns the prior catalog beside an unavailable source", async () => {
@@ -694,7 +794,7 @@ export function describeWorkspaceSystemConformance(
         const view = await added.refresh();
 
         expect(view.source).toMatchObject({ kind: "unavailable" });
-        expect(view.files).toEqual(before);
+        expect(view.entries).toEqual(before);
         expect(await added.summary()).toBeTruthy();
       });
 
@@ -709,7 +809,7 @@ export function describeWorkspaceSystemConformance(
         await added.remove();
 
         expect(await store.getWorkspace(added.id)).toBeNull();
-        expect(await store.listFiles(added.id)).toEqual([]);
+        expect(await store.listEntries(added.id)).toEqual([]);
         expect(await readFile(join(root, "README.md"), "utf8")).toBe("hello");
         expect(await readFile(join(root, "src", "app.ts"), "utf8")).toBe("1");
       });
@@ -726,13 +826,14 @@ export function describeWorkspaceSystemConformance(
         await writeFile(join(root, "README.md"), "second");
 
         expect(await added.read(file.id)).toEqual({
+          bytes: 6,
           // Computed from the bytes just read — deliberately not the
-          // catalogued checksum, which still describes "first".
-          checksum: sha256Hex(new TextEncoder().encode("second")),
+          // catalogued digest, which still describes "first".
+          digest: sha256Hex(new TextEncoder().encode("second")),
           kind: "text",
-          mimeType: "text/markdown",
-          size: 6,
+          mime: "text/markdown",
           text: "second",
+          type: "file" as const,
         });
         expect((await added.files())[0]).toEqual(file);
       });
@@ -751,7 +852,7 @@ export function describeWorkspaceSystemConformance(
         }
 
         const result = await added.save({
-          expectedChecksum: read.checksum,
+          expectedDigest: read.digest,
           fileId: file.id,
           text: "after the save",
         });
@@ -764,15 +865,15 @@ export function describeWorkspaceSystemConformance(
           "after the save"
         );
         expect(await added.read(file.id)).toMatchObject({
-          checksum: result.snapshot.checksum,
+          digest: result.snapshot.digest,
           kind: "text",
           text: "after the save",
         });
-        const [row] = await store.listFiles(added.id);
+        const [row] = await store.listEntries(added.id);
         expect(row).toMatchObject({
-          checksum: result.snapshot.checksum,
+          bytes: result.snapshot.bytes,
+          digest: result.snapshot.digest,
           id: file.id,
-          size: result.snapshot.size,
         });
       });
 
@@ -788,7 +889,7 @@ export function describeWorkspaceSystemConformance(
         await writeFile(join(root, "notes.md"), "theirs");
 
         const result = await added.save({
-          expectedChecksum: file.checksum,
+          expectedDigest: file.digest,
           fileId: file.id,
           text: "my draft",
         });
@@ -835,8 +936,8 @@ export function newWorkspaceId(): WorkspaceId {
   return crypto.randomUUID() as WorkspaceId;
 }
 
-export function newWorkspaceFileId(): WorkspaceFileId {
-  return crypto.randomUUID() as WorkspaceFileId;
+export function newWorkspaceEntryId(): WorkspaceEntryId {
+  return crypto.randomUUID() as WorkspaceEntryId;
 }
 
 export function hostWorkspace(
@@ -857,6 +958,21 @@ export function hostWorkspace(
   };
 }
 
+export function directoryRecord(
+  workspaceId: WorkspaceId,
+  path: string
+): WorkspaceEntry {
+  return {
+    createdAt: new Date(1000),
+    id: newWorkspaceEntryId(),
+    name: path.slice(path.lastIndexOf("/") + 1),
+    path,
+    type: "directory",
+    updatedAt: new Date(1000),
+    workspaceId,
+  };
+}
+
 /**
  * Both stores must agree on uniqueness for every source kind, even while the
  * common fixtures leave `sourceId` null.
@@ -870,18 +986,19 @@ export function artifactWorkspace(
 
 export function fileRecord(
   workspaceId: WorkspaceId,
-  overrides: Partial<StoredFileRecord> & { path: string }
-): StoredFileRecord {
+  overrides: Partial<WorkspaceFile> & { path: string }
+): WorkspaceFile {
   const createdAt = overrides.createdAt ?? new Date(1000);
   return {
-    checksum: "checksum",
+    bytes: 4,
     createdAt,
+    digest: "0bf474896363505e5ea5e5d6ace8ebfb13a760a409b1fb467d428fc716f9f284",
     extension: "md",
-    id: newWorkspaceFileId(),
+    id: newWorkspaceEntryId(),
     kind: "document",
-    mimeType: "text/markdown",
+    mime: "text/markdown",
     name: overrides.path.split("/").at(-1) ?? overrides.path,
-    size: 4,
+    type: "file",
     updatedAt: overrides.updatedAt ?? createdAt,
     workspaceId,
     ...overrides,

@@ -1,9 +1,8 @@
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { StorageReader } from "@foundry/core/filesystem";
+import type { StorageReader } from "@foundry/core/storage";
 import { afterAll, describe, expect, it } from "vitest";
-
 import { classifyFile } from "../classification";
 import {
   InvalidWorkspaceInputError,
@@ -15,7 +14,7 @@ import { canonicalizeRoot, scanDirectory, verifyRoot } from "../scanner";
 import {
   BASELINE_IGNORE_VERSION,
   normalizeRelativePath,
-  walkFiles,
+  walkEntries,
 } from "../traverse";
 
 const roots: string[] = [];
@@ -40,7 +39,7 @@ async function makeRoot(
 }
 
 function entry(name: string) {
-  return { isDirectory: false, isFile: true, isSymbolicLink: false, name };
+  return { name, type: "file" as const };
 }
 
 describe("canonicalizeRoot", () => {
@@ -81,10 +80,42 @@ describe("canonicalizeRoot", () => {
 });
 
 describe("scanDirectory inclusion", () => {
+  it("catalogs special entries without opening them or resolving symlink targets", async () => {
+    const filesystem: StorageReader = {
+      lstat: () => Promise.resolve({ type: "directory" }),
+      readDirectory: () =>
+        Promise.resolve([
+          { name: "socket", type: "socket" },
+          { name: "device", type: "device" },
+          { name: "pipe", type: "pipe" },
+          { name: "link", type: "symlink" },
+          { name: "unsupported", type: "unknown" },
+        ]),
+      readFile: () =>
+        Promise.reject(new Error("Special entries must not be opened")),
+      readLink: (path) => {
+        expect(path).toBe("/root/link");
+        return Promise.resolve("../missing\n");
+      },
+      realpath: (path) => {
+        expect(path).toBe("/root");
+        return Promise.resolve(path);
+      },
+      separator: "/",
+    };
+    expect(await scanDirectory(filesystem, "/root")).toEqual([
+      { name: "device", path: "device", type: "device" },
+      { name: "link", path: "link", target: "../missing\n", type: "symlink" },
+      { name: "pipe", path: "pipe", type: "pipe" },
+      { name: "socket", path: "socket", type: "socket" },
+    ]);
+  });
+
   it("scans through read-only capabilities without requiring writes", async () => {
     const { root, canonical } = await makeRoot({ "README.md": "hello" });
     const inspector = {
       lstat: (path: string) => nodeFileSystem.lstat(path),
+      readLink: (path: string) => nodeFileSystem.readLink(path),
       realpath: (path: string) => nodeFileSystem.realpath(path),
     };
     const reader = {
@@ -96,23 +127,28 @@ describe("scanDirectory inclusion", () => {
 
     expect(await canonicalizeRoot(inspector, root)).toBe(canonical);
     await verifyRoot(inspector, canonical);
-    expect(await walkFiles(reader, canonical)).toEqual([
-      { absolutePath: join(canonical, "README.md"), relativePath: "README.md" },
+    expect(await walkEntries(reader, canonical)).toEqual([
+      {
+        absolutePath: join(canonical, "README.md"),
+        relativePath: "README.md",
+        type: "file",
+      },
     ]);
     expect(await scanDirectory(filesystem, canonical)).toEqual([
       {
-        checksum: sha256Hex(new TextEncoder().encode("hello")),
+        bytes: 5,
+        digest: sha256Hex(new TextEncoder().encode("hello")),
         extension: "md",
         kind: "document",
-        mimeType: "text/markdown",
+        mime: "text/markdown",
         name: "README.md",
         path: "README.md",
-        size: 5,
+        type: "file" as const,
       },
     ]);
   });
 
-  it("returns one deterministic candidate per included File and no directories", async () => {
+  it("catalogs files, parent directories, and empty directories", async () => {
     const { canonical } = await makeRoot({
       "README.md": "hello",
       "src/app.ts": "export const a = 1;\n",
@@ -124,22 +160,30 @@ describe("scanDirectory inclusion", () => {
 
     expect(candidates.map((c) => c.path)).toEqual([
       "README.md",
+      "empty",
+      "src",
       "src/app.ts",
+      "src/deep",
       "src/deep/notes.unknownext",
     ]);
     expect(candidates[0]).toEqual({
-      checksum: sha256Hex(new TextEncoder().encode("hello")),
+      bytes: 5,
+      digest: sha256Hex(new TextEncoder().encode("hello")),
       extension: "md",
       kind: "document",
-      mimeType: "text/markdown",
+      mime: "text/markdown",
       name: "README.md",
       path: "README.md",
-      size: 5,
+      type: "file" as const,
     });
-    expect(candidates[2]).toMatchObject({
+    expect(
+      candidates.find(
+        (candidate) => candidate.path === "src/deep/notes.unknownext"
+      )
+    ).toMatchObject({
       extension: "unknownext",
       kind: "other",
-      mimeType: null,
+      mime: null,
     });
   });
 
@@ -171,7 +215,14 @@ describe("scanDirectory inclusion", () => {
 
     expect(
       (await scanDirectory(nodeFileSystem, canonical)).map((c) => c.path)
-    ).toEqual([".gitignore", "keep.ts", "pkg/.gitignore", "pkg/shared.json"]);
+    ).toEqual([
+      ".gitignore",
+      "keep.ts",
+      "pkg",
+      "pkg/.gitignore",
+      "pkg/nested",
+      "pkg/shared.json",
+    ]);
   });
 
   it("lets a nested negation re-include what a parent excluded", async () => {
@@ -187,7 +238,7 @@ describe("scanDirectory inclusion", () => {
     // scope stack together would make `!keep.log` unreachable.
     expect(
       (await scanDirectory(nodeFileSystem, canonical)).map((c) => c.path)
-    ).toEqual([".gitignore", "pkg/.gitignore", "pkg/keep.log"]);
+    ).toEqual([".gitignore", "pkg", "pkg/.gitignore", "pkg/keep.log"]);
   });
 
   it("anchors a leading-slash rule to its own declaring directory", async () => {
@@ -201,7 +252,7 @@ describe("scanDirectory inclusion", () => {
     // `local.json` would take the nested copy with it.
     expect(
       (await scanDirectory(nodeFileSystem, canonical)).map((c) => c.path)
-    ).toEqual(["pkg/.gitignore", "pkg/sub/local.json"]);
+    ).toEqual(["pkg", "pkg/.gitignore", "pkg/sub", "pkg/sub/local.json"]);
   });
 
   it("keeps a nested rule from leaking into a sibling subtree", async () => {
@@ -213,7 +264,7 @@ describe("scanDirectory inclusion", () => {
 
     expect(
       (await scanDirectory(nodeFileSystem, canonical)).map((c) => c.path)
-    ).toEqual(["left/.gitignore", "right/secret.txt"]);
+    ).toEqual(["left", "left/.gitignore", "right", "right/secret.txt"]);
   });
 });
 
@@ -231,7 +282,7 @@ describe("scanDirectory determinism", () => {
     // for both stores and the diff, so it is sorted by path instead.
     expect(
       (await scanDirectory(nodeFileSystem, canonical)).map((c) => c.path)
-    ).toEqual(["a/a.txt", "a/z.txt", "src.md", "src/app.ts"]);
+    ).toEqual(["a", "a/a.txt", "a/z.txt", "src", "src.md", "src/app.ts"]);
   });
 
   it("composes a decomposed source name and still reads its raw bytes", async () => {
@@ -242,7 +293,7 @@ describe("scanDirectory determinism", () => {
 
     expect(candidate?.path).toBe("café.md");
     expect(candidate?.name).toBe("café.md");
-    expect(candidate?.size).toBe(5);
+    expect(candidate).toMatchObject({ bytes: 5 });
   });
 
   it("refuses a scan whose entries normalize onto one path", async () => {
@@ -252,13 +303,12 @@ describe("scanDirectory determinism", () => {
     const colliding: WorkspaceFileSystem = {
       lstat: () =>
         Promise.resolve({
-          isDirectory: true,
-          isFile: false,
-          isSymbolicLink: false,
+          type: "directory",
         }),
       readDirectory: () =>
         Promise.resolve([entry("café.md"), entry("café.md")]),
       readFile: () => Promise.resolve(new TextEncoder().encode("x")),
+      readLink: () => Promise.reject(new Error("not a link")),
       realpath: (path) => Promise.resolve(path),
       replaceFile: () => Promise.reject(new Error("a scan never writes")),
       separator: "/",
@@ -269,7 +319,7 @@ describe("scanDirectory determinism", () => {
     );
   });
 
-  it("takes each checksum and size from one opened byte sequence", async () => {
+  it("takes each digest and bytes from one opened byte sequence", async () => {
     const { canonical } = await makeRoot({ "README.md": "hello" });
     const statted: string[] = [];
     const watched: WorkspaceFileSystem = {
@@ -282,10 +332,10 @@ describe("scanDirectory determinism", () => {
 
     const [candidate] = await scanDirectory(watched, canonical);
 
-    expect(candidate?.checksum).toBe(
-      sha256Hex(new TextEncoder().encode("hello"))
-    );
-    expect(candidate?.size).toBe(5);
+    expect(candidate).toMatchObject({
+      digest: sha256Hex(new TextEncoder().encode("hello")),
+    });
+    expect(candidate).toMatchObject({ bytes: 5 });
     expect(statted).toEqual([canonical]);
   });
 });
@@ -385,8 +435,12 @@ describe("scanDirectory confinement", () => {
     };
 
     expect(
-      (await scanDirectory(watched, canonical)).map((c) => c.path)
-    ).toEqual(["README.md"]);
+      (await scanDirectory(watched, canonical)).map((c) => [c.path, c.type])
+    ).toEqual([
+      ["README.md", "file"],
+      ["escape", "symlink"],
+      ["leak.txt", "symlink"],
+    ]);
     expect(read.some((path) => path.includes(outside))).toBe(false);
   });
 
@@ -431,7 +485,7 @@ describe("scanDirectory confinement", () => {
       },
     };
 
-    await expect(walkFiles(failing, canonical)).rejects.toBeInstanceOf(
+    await expect(walkEntries(failing, canonical)).rejects.toBeInstanceOf(
       WorkspaceSourceUnavailableError
     );
   });
@@ -447,13 +501,13 @@ describe("traversal vocabulary", () => {
     expect(classifyFile("src/app.tsx")).toEqual({
       extension: "tsx",
       kind: "code",
-      mimeType: "text/typescript",
+      mime: "text/typescript",
       name: "app.tsx",
     });
     expect(classifyFile(".gitignore")).toEqual({
       extension: null,
       kind: "other",
-      mimeType: null,
+      mime: null,
       name: ".gitignore",
     });
   });

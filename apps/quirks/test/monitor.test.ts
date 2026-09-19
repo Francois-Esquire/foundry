@@ -1,4 +1,10 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { monitor, step } from "@foundry/quirks";
@@ -128,6 +134,41 @@ describe("files detector", () => {
     writeFileSync(join(root, "a.md"), "two\n");
     await detect(primitivesIn(root, state).primitives, null);
     expect(second.changes[0]).toMatchObject({ modified: [{ path: "a.md" }] });
+  });
+
+  it("ignores directories and links matching the file glob", async () => {
+    const root = mkdtempSync(join(tmpdir(), "quirks-mon-"));
+    try {
+      mkdirSync(join(root, "empty.md"));
+      writeFileSync(join(root, "a.md"), "one\n");
+      symlinkSync("a.md", join(root, "link.md"));
+      const { primitives } = primitivesIn(root);
+      const { changes, handler } = recorder();
+      const detect = detector("m", spec, handler);
+
+      await expect(detect(primitives, null)).resolves.toEqual({
+        changed: true,
+        handled: 1,
+      });
+      expect(changes[0]).toEqual({
+        added: [
+          {
+            checksum: expect.stringMatching(SHA_256_HEX_PATTERN),
+            path: "a.md",
+          },
+        ],
+        kind: "files",
+        modified: [],
+        removed: [],
+      });
+      rmSync(join(root, "empty.md"), { recursive: true });
+      rmSync(join(root, "link.md"));
+      await expect(detect(primitives, null)).resolves.toEqual({
+        changed: false,
+      });
+    } finally {
+      rmSync(root, { force: true, recursive: true });
+    }
   });
 });
 

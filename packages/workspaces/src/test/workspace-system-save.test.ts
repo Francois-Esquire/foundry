@@ -32,7 +32,7 @@ import { directorySystem } from "./helpers/directory-system";
 import {
   fileRecord,
   hostWorkspace,
-  newWorkspaceFileId,
+  newWorkspaceEntryId,
 } from "./helpers/workspace-system-conformance";
 
 const roots: string[] = [];
@@ -56,7 +56,7 @@ async function makeRoot(
   return await nodeFileSystem.realpath(root);
 }
 
-function checksumOf(text: string): string {
+function digestOf(text: string): string {
   return sha256Hex(new TextEncoder().encode(text));
 }
 
@@ -112,7 +112,7 @@ describe("save", () => {
     }
 
     const result = await workspace.save({
-      expectedChecksum: read.checksum,
+      expectedDigest: read.digest,
       fileId: file.id,
       text: "second draft",
     });
@@ -121,8 +121,8 @@ describe("save", () => {
       catalog: "current",
       kind: "saved",
       snapshot: {
-        checksum: checksumOf("second draft"),
-        size: 12,
+        bytes: 12,
+        digest: digestOf("second draft"),
         text: "second draft",
       },
     });
@@ -131,23 +131,23 @@ describe("save", () => {
     );
     expect(writes()).toBe(1);
 
-    const row = one(await store.listFiles(id));
+    const row = one(await store.listEntries(id));
     expect(row).toMatchObject({
-      checksum: checksumOf("second draft"),
+      bytes: 12,
+      digest: digestOf("second draft"),
       id: file.id,
       path: "README.md",
-      size: 12,
     });
     expect(row.updatedAt.getTime()).toBeGreaterThan(file.updatedAt.getTime());
     expect(row.createdAt).toEqual(file.createdAt);
   });
 
-  it("chains read version to save: the returned snapshot's checksum is the next expected version", async () => {
+  it("chains read version to save: the returned snapshot's digest is the next expected version", async () => {
     const { workspace, files } = await opened({ "a.txt": "v1" });
     const file = one(files);
 
     const first = await workspace.save({
-      expectedChecksum: checksumOf("v1"),
+      expectedDigest: digestOf("v1"),
       fileId: file.id,
       text: "v2",
     });
@@ -156,14 +156,14 @@ describe("save", () => {
     }
 
     const second = await workspace.save({
-      expectedChecksum: first.snapshot.checksum,
+      expectedDigest: first.snapshot.digest,
       fileId: file.id,
       text: "v3",
     });
 
     expect(second).toMatchObject({ catalog: "current", kind: "saved" });
     expect(await workspace.read(file.id)).toMatchObject({
-      checksum: checksumOf("v3"),
+      digest: digestOf("v3"),
       text: "v3",
     });
   });
@@ -179,15 +179,15 @@ describe("save", () => {
     await writeFile(join(root, "README.md"), "external change");
 
     const result = await workspace.save({
-      expectedChecksum: checksumOf("mine base"),
+      expectedDigest: digestOf("mine base"),
       fileId: file.id,
       text: "my draft",
     });
 
     expect(result).toEqual({
       current: {
-        checksum: checksumOf("external change"),
-        size: 15,
+        bytes: 15,
+        digest: digestOf("external change"),
         text: "external change",
       },
       kind: "conflict",
@@ -195,9 +195,9 @@ describe("save", () => {
     expect(await readFile(join(root, "README.md"), "utf8")).toBe(
       "external change"
     );
-    expect(one(await store.listFiles(id)).checksum).toBe(
-      checksumOf("mine base")
-    );
+    expect(one(await store.listEntries(id))).toMatchObject({
+      digest: digestOf("mine base"),
+    });
     expect(writes()).toBe(0);
   });
 
@@ -209,8 +209,8 @@ describe("save", () => {
     );
     await expect(
       workspace.save({
-        expectedChecksum: checksumOf("x"),
-        fileId: newWorkspaceFileId(),
+        expectedDigest: digestOf("x"),
+        fileId: newWorkspaceEntryId(),
         text: "x",
       })
     ).rejects.toBeInstanceOf(WorkspaceFileNotFoundError);
@@ -222,7 +222,7 @@ describe("save", () => {
 
     await expect(
       workspace.save({
-        expectedChecksum: checksumOf("x"),
+        expectedDigest: digestOf("x"),
         fileId: one(files).id,
         text: "x",
       })
@@ -241,7 +241,7 @@ describe("save refusals", () => {
     await unlink(join(root, "gone.md"));
 
     const result = await workspace.save({
-      expectedChecksum: checksumOf("here"),
+      expectedDigest: digestOf("here"),
       fileId: one(files).id,
       text: "draft",
     });
@@ -260,7 +260,7 @@ describe("save refusals", () => {
     await mkdir(join(root, "swap.md"));
 
     const result = await workspace.save({
-      expectedChecksum: checksumOf("text"),
+      expectedDigest: digestOf("text"),
       fileId: one(files).id,
       text: "draft",
     });
@@ -283,7 +283,7 @@ describe("save refusals", () => {
     await symlink(join(root, "target.md"), join(root, "linked.md"));
 
     const result = await workspace.save({
-      expectedChecksum: checksumOf("original"),
+      expectedDigest: digestOf("original"),
       fileId: linked.id,
       text: "draft through the link",
     });
@@ -302,7 +302,7 @@ describe("save refusals", () => {
     await symlink(outside, join(root, "dir"));
 
     const result = await workspace.save({
-      expectedChecksum: checksumOf("inside"),
+      expectedDigest: digestOf("inside"),
       fileId: one(files).id,
       text: "escape attempt",
     });
@@ -318,16 +318,11 @@ describe("save refusals", () => {
     const store = new InMemoryWorkspaceStore();
     const registered = hostWorkspace({ path: root });
     const escaping = fileRecord(registered.id, { path: "../evil.md" });
-    await store.commitCreate({ files: [escaping], workspace: registered });
-    const workspace = await directorySystem({ store }).open(registered.id);
+    expect(() =>
+      store.commitCreate({ entries: [escaping], workspace: registered })
+    ).toThrow("Invalid storage path");
+    expect(await store.getWorkspace(registered.id)).toBeNull();
 
-    const result = await workspace.save({
-      expectedChecksum: escaping.checksum,
-      fileId: escaping.id,
-      text: "never lands",
-    });
-
-    expect(result).toMatchObject({ kind: "failed" });
     await expect(lstat(join(root, "..", "evil.md"))).rejects.toMatchObject({
       code: "ENOENT",
     });
@@ -339,7 +334,7 @@ describe("save refusals", () => {
     await writeFile(join(root, "doc.md"), Buffer.from([0xff, 0x00, 0x01]));
 
     const result = await workspace.save({
-      expectedChecksum: checksumOf("text"),
+      expectedDigest: digestOf("text"),
       fileId: one(files).id,
       text: "draft",
     });
@@ -354,7 +349,7 @@ describe("save refusals", () => {
     const { workspace, root, files } = await opened({ "a.txt": "clean" });
 
     const result = await workspace.save({
-      expectedChecksum: checksumOf("clean"),
+      expectedDigest: digestOf("clean"),
       fileId: one(files).id,
       text: ["nul", "inside"].join(String.fromCharCode(0)),
     });
@@ -379,7 +374,7 @@ describe("save refusals", () => {
     });
 
     const result = await (await denied.open(id)).save({
-      expectedChecksum: checksumOf("original"),
+      expectedDigest: digestOf("original"),
       fileId: one(files).id,
       text: "draft",
     });
@@ -402,7 +397,7 @@ describe("save refusals", () => {
     );
 
     const result = await workspace.save({
-      expectedChecksum: checksumOf("original"),
+      expectedDigest: digestOf("original"),
       fileId: one(files).id,
       text: "draft",
     });
@@ -422,7 +417,7 @@ describe("save refusals", () => {
     await writeFile(join(root, "a.txt"), "changed");
     results.push(
       await workspace.save({
-        expectedChecksum: checksumOf("original"),
+        expectedDigest: digestOf("original"),
         fileId: file.id,
         text: "draft",
       })
@@ -430,7 +425,7 @@ describe("save refusals", () => {
     await unlink(join(root, "a.txt"));
     results.push(
       await workspace.save({
-        expectedChecksum: checksumOf("original"),
+        expectedDigest: digestOf("original"),
         fileId: file.id,
         text: "draft",
       })
@@ -454,9 +449,9 @@ describe("catalog observation after write", () => {
       commitReconcile: (input) => store.commitReconcile(input),
       countFiles: (workspaceId) => store.countFiles(workspaceId),
       findWorkspaceByPath: (path) => store.findWorkspaceByPath(path),
-      getFile: (workspaceId, fileId) => store.getFile(workspaceId, fileId),
+      getEntry: (workspaceId, fileId) => store.getEntry(workspaceId, fileId),
       getWorkspace: (workspaceId) => store.getWorkspace(workspaceId),
-      listFiles: (workspaceId) => store.listFiles(workspaceId),
+      listEntries: (workspaceId) => store.listEntries(workspaceId),
       listWorkspaces: () => store.listWorkspaces(),
       removeWorkspace: (workspaceId) => store.removeWorkspace(workspaceId),
       renameWorkspace: (workspaceId, name, updatedAt) =>
@@ -476,7 +471,7 @@ describe("catalog observation after write", () => {
     const file = one(await workspace.files());
 
     const result = await workspace.save({
-      expectedChecksum: checksumOf("first"),
+      expectedDigest: digestOf("first"),
       fileId: file.id,
       text: "second",
     });
@@ -485,22 +480,22 @@ describe("catalog observation after write", () => {
       catalog: "refresh-required",
       kind: "saved",
       snapshot: {
-        checksum: checksumOf("second"),
-        size: 6,
+        bytes: 6,
+        digest: digestOf("second"),
         text: "second",
       },
     });
     expect(await readFile(join(root, "README.md"), "utf8")).toBe("second");
-    expect(one(await inner.listFiles(workspace.id)).checksum).toBe(
-      checksumOf("first")
-    );
+    expect(one(await inner.listEntries(workspace.id))).toMatchObject({
+      digest: digestOf("first"),
+    });
     expect(writes()).toBe(1);
 
     const recovered = directorySystem({ filesystem, store: inner });
     await (await recovered.open(workspace.id)).refresh();
-    expect(one(await inner.listFiles(workspace.id)).checksum).toBe(
-      checksumOf("second")
-    );
+    expect(one(await inner.listEntries(workspace.id))).toMatchObject({
+      digest: digestOf("second"),
+    });
     expect(writes()).toBe(1);
   });
 
@@ -515,7 +510,7 @@ describe("catalog observation after write", () => {
     const file = one(await workspace.files());
 
     const result = await workspace.save({
-      expectedChecksum: checksumOf("first"),
+      expectedDigest: digestOf("first"),
       fileId: file.id,
       text: "second",
     });
@@ -555,7 +550,7 @@ describe("catalog observation after write", () => {
     const system = directorySystem({ filesystem: slowScan, store });
     const observation = (await system.open(registered.id)).refresh();
     const save = (await system.open(registered.id)).save({
-      expectedChecksum: checksumOf("first"),
+      expectedDigest: digestOf("first"),
       fileId: file.id,
       text: "second",
     });
@@ -565,9 +560,9 @@ describe("catalog observation after write", () => {
     const result = await save;
 
     expect(result).toMatchObject({ catalog: "current", kind: "saved" });
-    expect(one(await store.listFiles(registered.id)).checksum).toBe(
-      checksumOf("second")
-    );
+    expect(one(await store.listEntries(registered.id))).toMatchObject({
+      digest: digestOf("second"),
+    });
     expect(await readFile(join(root, "README.md"), "utf8")).toBe("second");
   });
 });

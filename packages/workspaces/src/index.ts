@@ -26,11 +26,10 @@ export type {
 // travel with the root.
 export type { GitPathStatus, GitSnapshot } from "./git";
 export { InMemoryWorkspaceStore } from "./in-memory-workspace-store";
-export type { FileCandidate } from "./scanner";
 export { canonicalizeRoot, scanDirectory } from "./scanner";
 export { decodeUtf8 } from "./text";
 
-export type { IgnoreScope, WalkedFile } from "./traverse";
+export type { IgnoreScope, WalkedEntry } from "./traverse";
 export {
   BASELINE_IGNORE_PATTERNS,
   BASELINE_IGNORE_VERSION,
@@ -38,7 +37,7 @@ export {
   gitignoreScope,
   isIgnored,
   normalizeRelativePath,
-  walkFiles,
+  walkEntries,
 } from "./traverse";
 export type {
   FileContentResult,
@@ -46,8 +45,9 @@ export type {
   FileTextSnapshot,
   SaveFileCommand,
   SaveFileResult,
+  WorkspaceEntry,
+  WorkspaceEntryId,
   WorkspaceFile,
-  WorkspaceFileId,
   WorkspaceId,
   WorkspaceRegistration,
   WorkspaceSource,
@@ -58,7 +58,7 @@ export type {
 } from "./workspace";
 export {
   FILE_KINDS,
-  workspaceFileIdSchema,
+  workspaceEntryIdSchema,
   workspaceIdSchema,
   workspaceSummary,
 } from "./workspace";
@@ -68,7 +68,6 @@ export type {
   CommitReconcileResult,
   ObservedFacts,
   RemoveWorkspaceResult,
-  StoredFileRecord,
   StoredWorkspaceRecord,
   WorkspaceCatalogChange,
   WorkspaceStore,

@@ -13,7 +13,7 @@ import type {
 } from "./extension";
 import { InMemoryWorkspaceStore } from "./in-memory-workspace-store";
 import type { WorkspaceContext, WorkspaceCtor } from "./instance";
-import { initialFiles, Workspace } from "./instance";
+import { initialEntries, Workspace } from "./instance";
 import type { WorkspaceId } from "./workspace";
 import type { StoredWorkspaceRecord, WorkspaceStore } from "./workspace-store";
 
@@ -164,7 +164,7 @@ export class WorkspaceSystem<
     const probe = await this.instantiate(record);
     const candidates = await probe.scan();
     const result = await this.context.store.commitCreate({
-      files: initialFiles(record.id, candidates, createdAt),
+      entries: initialEntries(record.id, candidates, createdAt),
       workspace: record,
     });
     return this.open(

@@ -64,9 +64,7 @@ function missing(): Error {
 
 function entryStats(kind: "file" | "directory") {
   return {
-    isDirectory: kind === "directory",
-    isFile: kind === "file",
-    isSymbolicLink: false,
+    type: kind,
   };
 }
 
@@ -244,11 +242,12 @@ describe("read", () => {
     const result = await added.read(file.id);
 
     expect(result).toEqual({
-      checksum: sha256Hex(new TextEncoder().encode("second")),
+      bytes: 6,
+      digest: sha256Hex(new TextEncoder().encode("second")),
       kind: "text",
-      mimeType: "text/markdown",
-      size: 6,
+      mime: "text/markdown",
       text: "second",
+      type: "file" as const,
     });
     const [reread] = await added.files();
     expect(reread).toEqual(file);
@@ -365,11 +364,12 @@ describe("read", () => {
     // reporting a File that is plainly there as `stale` would be a lie.
     expect(file.path).toBe(decomposed.normalize("NFC"));
     expect(await added.read(file.id)).toEqual({
-      checksum: sha256Hex(new TextEncoder().encode("beans")),
+      bytes: 5,
+      digest: sha256Hex(new TextEncoder().encode("beans")),
       kind: "text",
-      mimeType: "text/markdown",
-      size: 5,
+      mime: "text/markdown",
       text: "beans",
+      type: "file" as const,
     });
   });
 
@@ -380,7 +380,7 @@ describe("read", () => {
     const store = new InMemoryWorkspaceStore();
     const registered = hostWorkspace({ path: root });
     const file = fileRecord(registered.id, { path: composed });
-    await store.commitCreate({ files: [file], workspace: registered });
+    await store.commitCreate({ entries: [file], workspace: registered });
 
     // macOS looks a name up regardless of its composition, so a real temporary
     // directory cannot tell a correct resolution apart from a naive join. This
@@ -401,10 +401,8 @@ describe("read", () => {
         path === root
           ? Promise.resolve([
               {
-                isDirectory: false,
-                isFile: true,
-                isSymbolicLink: false,
                 name: decomposed,
+                type: "file",
               },
             ])
           : Promise.reject(missing()),
@@ -412,6 +410,7 @@ describe("read", () => {
         path === onlyDecomposed
           ? Promise.resolve(new TextEncoder().encode("beans"))
           : Promise.reject(missing()),
+      readLink: (path) => nodeFileSystem.readLink(path),
       realpath: (path) =>
         path === root || path === onlyDecomposed
           ? Promise.resolve(path)
@@ -426,11 +425,12 @@ describe("read", () => {
     }).open(registered.id);
 
     expect(await workspace.read(file.id)).toEqual({
-      checksum: sha256Hex(new TextEncoder().encode("beans")),
+      bytes: 5,
+      digest: sha256Hex(new TextEncoder().encode("beans")),
       kind: "text",
-      mimeType: "text/markdown",
-      size: 5,
+      mime: "text/markdown",
       text: "beans",
+      type: "file" as const,
     });
   });
 
@@ -493,10 +493,11 @@ describe("read", () => {
     }
 
     expect(await added.read(file.id)).toEqual({
-      checksum: sha256Hex(new Uint8Array([0xc3, 0x28])),
+      bytes: 2,
+      digest: sha256Hex(new Uint8Array([0xc3, 0x28])),
       kind: "binary",
-      mimeType: "text/plain",
-      size: 2,
+      mime: "text/plain",
+      type: "file" as const,
     });
   });
 
@@ -511,10 +512,11 @@ describe("read", () => {
     }
 
     expect(await added.read(file.id)).toEqual({
-      checksum: sha256Hex(new Uint8Array([0xff, 0xfe, 0x00, 1])),
+      bytes: 4,
+      digest: sha256Hex(new Uint8Array([0xff, 0xfe, 0x00, 1])),
       kind: "binary",
-      mimeType: null,
-      size: 4,
+      mime: null,
+      type: "file" as const,
     });
   });
 });
@@ -529,8 +531,8 @@ describe("reconciliation", () => {
     return { added, files, id: added.id, root, store, system };
   }
 
-  function idsByPath(files: readonly { path: string; id: string }[]) {
-    return Object.fromEntries(files.map((file) => [file.path, file.id]));
+  function idsByPath(entries: readonly { path: string; id: string }[]) {
+    return Object.fromEntries(entries.map((file) => [file.path, file.id]));
   }
 
   it("applies an edit, an addition, and a deletion in one observation", async () => {
@@ -547,14 +549,15 @@ describe("reconciliation", () => {
     const view = await added.refresh();
 
     expect(view.source).toEqual({ kind: "reconciled" });
-    expect(view.files.map((file) => file.path)).toEqual([
-      "README.md",
-      "added.md",
-    ]);
-    const after = idsByPath(view.files);
+    expect(
+      view.entries
+        .filter((entry) => entry.type === "file")
+        .map((file) => file.path)
+    ).toEqual(["README.md", "added.md"]);
+    const after = idsByPath(view.entries);
     expect(after["README.md"]).toBe(before["README.md"]);
     expect(Object.values(after)).not.toContain(before["drop.md"]);
-    expect(view.files[0]?.size).toBe(6);
+    expect(view.entries[0]).toMatchObject({ bytes: 6 });
   });
 
   it("leaves an untouched catalog byte-for-byte identical", async () => {
@@ -562,7 +565,7 @@ describe("reconciliation", () => {
 
     const view = await added.refresh();
 
-    expect(view.files).toEqual(files);
+    expect(view.entries).toEqual(files);
     expect(view.workspace).toEqual(await added.summary());
   });
 
@@ -577,9 +580,17 @@ describe("reconciliation", () => {
 
     const view = await added.refresh();
 
-    expect(view.files.map((file) => file.path)).toEqual(["docs/notes.md"]);
-    expect(view.files[0]?.id).toBe(files[0]?.id);
-    expect(view.files[0]?.createdAt).toEqual(files[0]?.createdAt);
+    expect(
+      view.entries
+        .filter((entry) => entry.type === "file")
+        .map((file) => file.path)
+    ).toEqual(["docs/notes.md"]);
+    expect(view.entries.find((entry) => entry.type === "file")?.id).toBe(
+      files[0]?.id
+    );
+    expect(
+      view.entries.find((entry) => entry.type === "file")?.createdAt
+    ).toEqual(files[0]?.createdAt);
   });
 
   it("deletes and recreates when a move is ambiguous", async () => {
@@ -597,11 +608,12 @@ describe("reconciliation", () => {
 
     const view = await added.refresh();
 
-    expect(view.files.map((file) => file.path)).toEqual([
-      "moved/a.md",
-      "moved/b.md",
-    ]);
-    for (const file of view.files) {
+    expect(
+      view.entries
+        .filter((entry) => entry.type === "file")
+        .map((file) => file.path)
+    ).toEqual(["moved/a.md", "moved/b.md"]);
+    for (const file of view.entries) {
       expect(before.has(file.id)).toBe(false);
     }
   });
@@ -614,10 +626,11 @@ describe("reconciliation", () => {
 
     await writeFile(join(root, "pkg", ".gitignore"), "local.json\n");
 
-    expect((await added.refresh()).files.map((file) => file.path)).toEqual([
-      "pkg/.gitignore",
-      "pkg/keep.ts",
-    ]);
+    expect(
+      (await added.refresh()).entries
+        .filter((entry) => entry.type === "file")
+        .map((file) => file.path)
+    ).toEqual(["pkg/.gitignore", "pkg/keep.ts"]);
   });
 
   it("preserves the prior catalog exactly when the scan fails partway", async () => {
@@ -643,7 +656,7 @@ describe("reconciliation", () => {
       kind: "scan-failed",
       reason: "Could not read b.md",
     });
-    expect(view.files).toEqual(files);
+    expect(view.entries).toEqual(files);
     expect(await added.files()).toEqual(files);
   });
 
@@ -654,7 +667,7 @@ describe("reconciliation", () => {
     const view = await added.refresh();
 
     expect(view.source).toMatchObject({ kind: "unavailable" });
-    expect(view.files).toEqual(files);
+    expect(view.entries).toEqual(files);
     expect(JSON.stringify(view)).not.toContain(root);
   });
 
@@ -674,7 +687,7 @@ describe("reconciliation", () => {
 
     const view = await rightWorkspace.refresh();
 
-    expect(view.files.map((file) => file.id)).not.toContain(leftFile?.id);
+    expect(view.entries.map((file) => file.id)).not.toContain(leftFile?.id);
     expect((await leftWorkspace.files())[0]).toEqual(leftFile);
   });
 
@@ -705,6 +718,7 @@ describe("reconciliation", () => {
       lstat: refusing("lstat"),
       readDirectory: refusing("readDirectory"),
       readFile: refusing("readFile"),
+      readLink: (path) => nodeFileSystem.readLink(path),
       realpath: refusing("realpath"),
       replaceFile: refusing("replaceFile"),
       separator: nodeFileSystem.separator,
@@ -750,10 +764,10 @@ describe("reconciliation", () => {
     ]);
 
     expect(scans).toBe(1);
-    expect(left.files.map((file) => file.id)).toEqual(
-      right.files.map((file) => file.id)
+    expect(left.entries.map((file) => file.id)).toEqual(
+      right.entries.map((file) => file.id)
     );
-    expect((await store.listFiles(id)).map((file) => file.path)).toEqual([
+    expect((await store.listEntries(id)).map((file) => file.path)).toEqual([
       "README.md",
       "second.md",
     ]);
@@ -783,7 +797,7 @@ describe("reconciliation", () => {
     const second = await workspace.refresh();
 
     expect(scans).toBe(2);
-    expect(second.files.map((file) => file.path)).toEqual([
+    expect(second.entries.map((file) => file.path)).toEqual([
       "README.md",
       "second.md",
     ]);
@@ -805,7 +819,7 @@ describe("reconciliation", () => {
     await expect(
       directorySystem({ filesystem: failing, store }).add({ path: root })
     ).rejects.toBeInstanceOf(WorkspaceSourceUnavailableError);
-    expect(await store.listFiles(id)).toEqual(
+    expect(await store.listEntries(id)).toEqual(
       files.map((file) => ({ ...file, workspaceId: id }))
     );
   });
@@ -820,9 +834,9 @@ describe("reconciliation", () => {
         Promise.resolve({ kind: "conflict", reason: "injected" }),
       countFiles: (workspaceId) => store.countFiles(workspaceId),
       findWorkspaceByPath: (path) => store.findWorkspaceByPath(path),
-      getFile: (workspaceId, fileId) => store.getFile(workspaceId, fileId),
+      getEntry: (workspaceId, fileId) => store.getEntry(workspaceId, fileId),
       getWorkspace: (workspaceId) => store.getWorkspace(workspaceId),
-      listFiles: (workspaceId) => store.listFiles(workspaceId),
+      listEntries: (workspaceId) => store.listEntries(workspaceId),
       listWorkspaces: () => store.listWorkspaces(),
       removeWorkspace: (workspaceId) => store.removeWorkspace(workspaceId),
       renameWorkspace: (workspaceId, name, updatedAt) =>
@@ -843,10 +857,10 @@ describe("reconciliation", () => {
     // could be shown.
     expect(failure?.message).not.toContain("injected");
     expect((failure as { cause?: unknown } | null)?.cause).toBe("injected");
-    expect((await store.listFiles(id)).map((file) => file.path)).toEqual(
+    expect((await store.listEntries(id)).map((file) => file.path)).toEqual(
       files.map((file) => file.path)
     );
-    expect((await store.listFiles(id)).map((file) => file.id)).toEqual(
+    expect((await store.listEntries(id)).map((file) => file.id)).toEqual(
       files.map((file) => file.id)
     );
   });
@@ -964,7 +978,7 @@ describe("lifecycle", () => {
       crypto.randomUUID(),
       "foundry://abc.artifact"
     );
-    await store.commitCreate({ files: [], workspace: record });
+    await store.commitCreate({ entries: [], workspace: record });
     const system = directorySystem({ store });
 
     await expect(system.open(record.id)).rejects.toThrow(

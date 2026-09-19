@@ -1,9 +1,10 @@
+import type { FileNode } from "@foundry/core/storage";
+
 import type { FileKind } from "./workspace";
 
-export interface FileClassification {
+export interface FileClassification extends Pick<FileNode, "mime"> {
   readonly extension: string | null;
   readonly kind: FileKind;
-  readonly mimeType: string | null;
   readonly name: string;
 }
 
@@ -15,46 +16,46 @@ export interface FileClassification {
 export const CLASSIFICATION_VERSION = 1;
 
 const BY_EXTENSION: Readonly<
-  Record<string, { readonly mimeType: string; readonly kind: FileKind }>
+  Record<string, { readonly mime: string; readonly kind: FileKind }>
 > = {
-  css: { kind: "code", mimeType: "text/css" },
-  csv: { kind: "data", mimeType: "text/csv" },
-  env: { kind: "config", mimeType: "text/plain" },
-  gif: { kind: "image", mimeType: "image/gif" },
-  go: { kind: "code", mimeType: "text/x-go" },
-  html: { kind: "code", mimeType: "text/html" },
-  ini: { kind: "config", mimeType: "text/plain" },
-  jpeg: { kind: "image", mimeType: "image/jpeg" },
-  jpg: { kind: "image", mimeType: "image/jpeg" },
-  js: { kind: "code", mimeType: "text/javascript" },
+  css: { kind: "code", mime: "text/css" },
+  csv: { kind: "data", mime: "text/csv" },
+  env: { kind: "config", mime: "text/plain" },
+  gif: { kind: "image", mime: "image/gif" },
+  go: { kind: "code", mime: "text/x-go" },
+  html: { kind: "code", mime: "text/html" },
+  ini: { kind: "config", mime: "text/plain" },
+  jpeg: { kind: "image", mime: "image/jpeg" },
+  jpg: { kind: "image", mime: "image/jpeg" },
+  js: { kind: "code", mime: "text/javascript" },
 
-  json: { kind: "data", mimeType: "application/json" },
-  jsx: { kind: "code", mimeType: "text/javascript" },
+  json: { kind: "data", mime: "application/json" },
+  jsx: { kind: "code", mime: "text/javascript" },
 
-  md: { kind: "document", mimeType: "text/markdown" },
-  mdx: { kind: "document", mimeType: "text/markdown" },
+  md: { kind: "document", mime: "text/markdown" },
+  mdx: { kind: "document", mime: "text/markdown" },
 
-  mp3: { kind: "audio", mimeType: "audio/mpeg" },
-  mp4: { kind: "video", mimeType: "video/mp4" },
-  pdf: { kind: "document", mimeType: "application/pdf" },
+  mp3: { kind: "audio", mime: "audio/mpeg" },
+  mp4: { kind: "video", mime: "video/mp4" },
+  pdf: { kind: "document", mime: "application/pdf" },
 
-  png: { kind: "image", mimeType: "image/png" },
-  py: { kind: "code", mimeType: "text/x-python" },
-  rs: { kind: "code", mimeType: "text/x-rust" },
-  sh: { kind: "code", mimeType: "application/x-sh" },
-  sql: { kind: "code", mimeType: "application/sql" },
-  svg: { kind: "image", mimeType: "image/svg+xml" },
-  toml: { kind: "config", mimeType: "application/toml" },
-  ts: { kind: "code", mimeType: "text/typescript" },
-  tsx: { kind: "code", mimeType: "text/typescript" },
-  txt: { kind: "document", mimeType: "text/plain" },
-  wav: { kind: "audio", mimeType: "audio/wav" },
-  webm: { kind: "video", mimeType: "video/webm" },
-  webp: { kind: "image", mimeType: "image/webp" },
-  xml: { kind: "data", mimeType: "application/xml" },
+  png: { kind: "image", mime: "image/png" },
+  py: { kind: "code", mime: "text/x-python" },
+  rs: { kind: "code", mime: "text/x-rust" },
+  sh: { kind: "code", mime: "application/x-sh" },
+  sql: { kind: "code", mime: "application/sql" },
+  svg: { kind: "image", mime: "image/svg+xml" },
+  toml: { kind: "config", mime: "application/toml" },
+  ts: { kind: "code", mime: "text/typescript" },
+  tsx: { kind: "code", mime: "text/typescript" },
+  txt: { kind: "document", mime: "text/plain" },
+  wav: { kind: "audio", mime: "audio/wav" },
+  webm: { kind: "video", mime: "video/webm" },
+  webp: { kind: "image", mime: "image/webp" },
+  xml: { kind: "data", mime: "application/xml" },
 
-  yaml: { kind: "config", mimeType: "application/yaml" },
-  yml: { kind: "config", mimeType: "application/yaml" },
+  yaml: { kind: "config", mime: "application/yaml" },
+  yml: { kind: "config", mime: "application/yaml" },
 };
 
 export function classifyFile(relativePath: string): FileClassification {
@@ -64,7 +65,7 @@ export function classifyFile(relativePath: string): FileClassification {
   return {
     extension,
     kind: known?.kind ?? "other",
-    mimeType: known?.mimeType ?? null,
+    mime: known?.mime ?? null,
     name,
   };
 }

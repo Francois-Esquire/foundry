@@ -1,11 +1,10 @@
-import type { StorageReader } from "@foundry/core/filesystem";
+import type { StorageReader } from "@foundry/core/storage";
 import { sha256Hex } from "./digest";
 import { WorkspaceSourceUnavailableError } from "./errors";
 import type { WorkspaceExtension } from "./extension";
 import type { EntryStats, WorkspaceFileSystem } from "./filesystem";
 import type { WorkspaceCtor } from "./instance";
 import { isBeneath } from "./path";
-import type { FileCandidate } from "./scanner";
 import {
   canonicalizeRoot,
   resolveStoredPath,
@@ -13,8 +12,12 @@ import {
   verifyRoot,
 } from "./scanner";
 import { decodeUtf8, errorCode } from "./text";
-import type { FileContentResult, WriteOutcome } from "./workspace";
-import type { StoredFileRecord } from "./workspace-store";
+import type {
+  FileContentResult,
+  WorkspaceFile,
+  WriteOutcome,
+} from "./workspace";
+import type { ObservedFacts } from "./workspace-store";
 
 const DRIVE_PREFIX_PATTERN = /^[a-zA-Z]:/;
 
@@ -49,39 +52,39 @@ export function WithDirectory<B extends WorkspaceCtor>(
       return this.source.path;
     }
 
-    scan(): Promise<readonly FileCandidate[]> {
+    scan(): Promise<readonly ObservedFacts[]> {
       return scanDirectory(filesystem, this.root);
     }
 
-    protected async readFile(
-      file: StoredFileRecord
-    ): Promise<FileContentResult> {
+    protected async readFile(file: WorkspaceFile): Promise<FileContentResult> {
       const read = await this.resolveBytes(file);
       if (read.kind === "failure") {
         return { kind: contentKindFor(read.issue), reason: read.reason };
       }
       const text = decodeUtf8(read.bytes);
-      const checksum = await sha256Hex(read.bytes);
+      const digest = await sha256Hex(read.bytes);
       return text === null
         ? {
-            checksum,
+            bytes: read.bytes.byteLength,
+            digest,
             kind: "binary",
-            mimeType: file.mimeType,
-            size: read.bytes.byteLength,
+            mime: file.mime,
+            type: "file",
           }
         : {
-            checksum,
+            bytes: read.bytes.byteLength,
+            digest,
             kind: "text",
-            mimeType: file.mimeType,
-            size: read.bytes.byteLength,
+            mime: file.mime,
             text,
+            type: "file",
           };
     }
 
     protected async writeFile(
-      file: StoredFileRecord,
+      file: WorkspaceFile,
       bytes: Uint8Array,
-      expectedChecksum: string
+      expectedDigest: string
     ): Promise<WriteOutcome> {
       const read = await this.resolveBytes(file);
       if (read.kind === "failure") {
@@ -96,12 +99,12 @@ export function WithDirectory<B extends WorkspaceCtor>(
         };
       }
 
-      const currentChecksum = await sha256Hex(read.bytes);
-      if (currentChecksum !== expectedChecksum) {
+      const currentDigest = await sha256Hex(read.bytes);
+      if (currentDigest !== expectedDigest) {
         return {
           current: {
-            checksum: currentChecksum,
-            size: read.bytes.byteLength,
+            bytes: read.bytes.byteLength,
+            digest: currentDigest,
             text: currentText,
           },
           kind: "conflict",
@@ -126,7 +129,7 @@ export function WithDirectory<B extends WorkspaceCtor>(
      * vocabulary without re-deciding policy.
      */
     private async resolveBytes(
-      file: StoredFileRecord
+      file: WorkspaceFile
     ): Promise<ResolvedBytes | ResolveFailure> {
       if (escapesRoot(file.path)) {
         return escapePathFailure(file.path);
@@ -153,10 +156,10 @@ export function WithDirectory<B extends WorkspaceCtor>(
       if ("kind" in stats) {
         return stats;
       }
-      if (stats.isSymbolicLink) {
+      if (stats.type === "symlink") {
         return symlinkFailure(file.path);
       }
-      if (!stats.isFile) {
+      if (stats.type !== "file") {
         return nonRegularFileFailure(file.path);
       }
 

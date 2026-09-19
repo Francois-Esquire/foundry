@@ -1,12 +1,11 @@
-import type { FileCandidate } from "./scanner";
-import type { WorkspaceFileId, WorkspaceId } from "./workspace";
-import type {
-  ObservedFacts,
-  StoredFileRecord,
-  WorkspaceCatalogChange,
-} from "./workspace-store";
+import { storageTree } from "@foundry/core/storage";
 
-import { OBSERVED_KEYS } from "./workspace-store";
+import type {
+  WorkspaceEntry,
+  WorkspaceEntryId,
+  WorkspaceId,
+} from "./workspace";
+import type { ObservedFacts, WorkspaceCatalogChange } from "./workspace-store";
 
 /**
  * The exact difference between the last observation and this one.
@@ -18,15 +17,16 @@ import { OBSERVED_KEYS } from "./workspace-store";
  */
 export function diffCatalog(input: {
   readonly workspaceId: WorkspaceId;
-  readonly existing: readonly StoredFileRecord[];
-  readonly candidates: readonly FileCandidate[];
+  readonly existing: readonly WorkspaceEntry[];
+  readonly candidates: readonly ObservedFacts[];
   readonly at: Date;
-  readonly newFileId: () => WorkspaceFileId;
+  readonly newEntryId: () => WorkspaceEntryId;
 }): WorkspaceCatalogChange {
+  storageTree(input.candidates);
   const existingByPath = new Map(input.existing.map((row) => [row.path, row]));
-  const matchedIds = new Set<WorkspaceFileId>();
-  const updated: StoredFileRecord[] = [];
-  const arrivals: FileCandidate[] = [];
+  const matchedIds = new Set<WorkspaceEntryId>();
+  const updated: WorkspaceEntry[] = [];
+  const arrivals: ObservedFacts[] = [];
 
   // Path first, and path wins. A candidate standing where a row already stands
   // *is* that row, even when its bytes came from somewhere else — delete
@@ -52,8 +52,8 @@ export function diffCatalog(input: {
   const oldByFingerprint = groupBy(departures, fingerprintOf);
   const newByFingerprint = groupBy(arrivals, fingerprintOf);
 
-  const moved = new Set<WorkspaceFileId>();
-  const inserted: StoredFileRecord[] = [];
+  const moved = new Set<WorkspaceEntryId>();
+  const inserted: WorkspaceEntry[] = [];
   for (const candidate of arrivals) {
     // Exactly one departure and exactly one arrival share the fingerprint, so
     // among files that carry bytes there is only one story the change can
@@ -70,11 +70,11 @@ export function diffCatalog(input: {
       updated.push(observed(origin, candidate, input.at));
     } else {
       inserted.push(
-        createFileRecord(
+        createEntryRecord(
           input.workspaceId,
           candidate,
           input.at,
-          input.newFileId()
+          input.newEntryId()
         )
       );
     }
@@ -107,27 +107,55 @@ export function isEmptyChange(change: WorkspaceCatalogChange): boolean {
  * identity when there are bytes.
  */
 function fingerprintOf(facts: ObservedFacts): string | null {
-  return facts.size === 0 ? null : `${facts.checksum}:${facts.size}`;
+  return facts.type !== "file" || facts.bytes === 0
+    ? null
+    : `${facts.digest}:${facts.bytes}`;
 }
 
-function differs(row: StoredFileRecord, candidate: FileCandidate): boolean {
-  return OBSERVED_KEYS.some((key) => row[key] !== candidate[key]);
+function differs(row: WorkspaceEntry, candidate: ObservedFacts): boolean {
+  if (
+    row.type !== candidate.type ||
+    row.path !== candidate.path ||
+    row.name !== candidate.name
+  ) {
+    return true;
+  }
+  if (row.type === "file" && candidate.type === "file") {
+    return (
+      row.digest !== candidate.digest ||
+      row.bytes !== candidate.bytes ||
+      row.mime !== candidate.mime ||
+      row.kind !== candidate.kind ||
+      row.extension !== candidate.extension
+    );
+  }
+  return (
+    row.type === "symlink" &&
+    candidate.type === "symlink" &&
+    row.target !== candidate.target
+  );
 }
 
 function observed(
-  row: StoredFileRecord,
-  candidate: FileCandidate,
+  row: WorkspaceEntry,
+  candidate: ObservedFacts,
   at: Date
-): StoredFileRecord {
-  return { ...row, ...candidate, updatedAt: at };
+): WorkspaceEntry {
+  return {
+    createdAt: row.createdAt,
+    id: row.id,
+    workspaceId: row.workspaceId,
+    ...candidate,
+    updatedAt: at,
+  };
 }
 
-export function createFileRecord(
+export function createEntryRecord(
   workspaceId: WorkspaceId,
-  candidate: FileCandidate,
+  candidate: ObservedFacts,
   at: Date,
-  id: WorkspaceFileId
-): StoredFileRecord {
+  id: WorkspaceEntryId
+): WorkspaceEntry {
   return { id, workspaceId, ...candidate, createdAt: at, updatedAt: at };
 }
 

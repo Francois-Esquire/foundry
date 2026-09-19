@@ -254,12 +254,13 @@ async function observeFiles(
   const workspace = await primitives.workspaces.add({
     path: spec.root ?? primitives.workspace.root,
   });
-  const { files } = await workspace.refresh();
+  const { entries } = await workspace.refresh();
   const pattern = globToRegExp(spec.glob);
   const current = new Map(
-    files
+    entries
+      .filter((entry) => entry.type === "file")
       .filter((entry) => pattern.test(entry.path))
-      .map((entry) => [entry.path, entry.checksum])
+      .map((entry) => [entry.path, entry.digest])
   );
   const last = storedFiles(previous);
 

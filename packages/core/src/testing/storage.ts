@@ -1,4 +1,4 @@
-import type { Storage } from "../filesystem";
+import type { Storage } from "../storage";
 
 /**
  * A fresh root containing kept.txt, nested/value.txt, an empty directory named
@@ -87,16 +87,16 @@ export const storageChecks: readonly StorageCheck[] = [
       );
       const entries = await storage.readDirectory(root);
       check(
-        entries.find((entry) => entry.name === "kept.txt")?.isFile === true,
+        entries.find((entry) => entry.name === "kept.txt")?.type === "file",
         "Regular files must be classified"
       );
       check(
-        entries.find((entry) => entry.name === "nested")?.isDirectory === true,
+        entries.find((entry) => entry.name === "nested")?.type === "directory",
         "Directories must be classified"
       );
       const link = entries.find((entry) => entry.name === "link");
       check(
-        link?.isSymbolicLink === true && !link.isFile && !link.isDirectory,
+        link?.type === "symlink",
         "Listing must inspect a symbolic link itself"
       );
       check(
@@ -121,7 +121,7 @@ export const storageChecks: readonly StorageCheck[] = [
     async run({ storage, root }) {
       const link = await storage.lstat(`${root}/link`);
       check(
-        link.isSymbolicLink && !link.isFile && !link.isDirectory,
+        link.type === "symlink",
         "lstat must not follow the final symbolic link"
       );
       check(

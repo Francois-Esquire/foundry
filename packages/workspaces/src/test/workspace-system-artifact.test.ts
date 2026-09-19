@@ -10,9 +10,12 @@ import type { WorkspaceExtension } from "../extension";
 import { InMemoryWorkspaceStore } from "../in-memory-workspace-store";
 import type { WorkspaceCtor } from "../instance";
 import { nodeFileSystem } from "../node";
-import type { FileCandidate } from "../scanner";
-import type { FileContentResult, WriteOutcome } from "../workspace";
-import type { StoredFileRecord } from "../workspace-store";
+import type {
+  FileContentResult,
+  WorkspaceFile,
+  WriteOutcome,
+} from "../workspace";
+import type { ObservedFacts } from "../workspace-store";
 import type { WorkspaceSystem } from "../workspace-system";
 import { directorySystem } from "./helpers/directory-system";
 
@@ -87,35 +90,51 @@ class FakeTrees {
 
 function WithFake<B extends WorkspaceCtor>(Base: B, trees: FakeTrees) {
   return class extends Base {
-    scan(): Promise<readonly FileCandidate[]> {
+    scan(): Promise<readonly ObservedFacts[]> {
       const files = trees.require(this.sourceRef());
-      return Promise.resolve(
-        Object.entries(files).map(([path, value]) => {
+      const parents = new Set<string>();
+      for (const path of Object.keys(files)) {
+        let slash = path.lastIndexOf("/");
+        while (slash !== -1) {
+          const parent = path.slice(0, slash);
+          parents.add(parent);
+          slash = parent.lastIndexOf("/");
+        }
+      }
+      return Promise.resolve([
+        ...[...parents].map((path) => ({
+          name: path.slice(path.lastIndexOf("/") + 1),
+          path,
+          type: "directory" as const,
+        })),
+        ...Object.entries(files).map(([path, value]) => {
           const bytes = encode(value);
           const classification = classifyFile(path);
           return {
-            checksum: digest(bytes),
+            bytes: bytes.byteLength,
+            digest: digest(bytes),
             extension: classification.extension,
             kind: classification.kind,
-            mimeType: classification.mimeType,
+            mime: classification.mime,
             name: classification.name,
             path,
-            size: bytes.byteLength,
+            type: "file" as const,
           };
-        })
-      );
+        }),
+      ]);
     }
 
-    protected readFile(file: StoredFileRecord): Promise<FileContentResult> {
+    protected readFile(file: WorkspaceFile): Promise<FileContentResult> {
       const value = trees.require(this.sourceRef())[file.path];
       if (value === undefined) {
         return Promise.resolve({ kind: "stale", reason: "gone" });
       }
       const bytes = encode(value);
       const common = {
-        checksum: digest(bytes),
-        mimeType: file.mimeType,
-        size: bytes.byteLength,
+        bytes: bytes.byteLength,
+        digest: digest(bytes),
+        mime: file.mime,
+        type: "file" as const,
       };
       return Promise.resolve(
         typeof value === "string"
@@ -125,9 +144,9 @@ function WithFake<B extends WorkspaceCtor>(Base: B, trees: FakeTrees) {
     }
 
     protected writeFile(
-      file: StoredFileRecord,
+      file: WorkspaceFile,
       bytes: Uint8Array,
-      expectedChecksum: string
+      expectedDigest: string
     ): Promise<WriteOutcome> {
       const files = trees.require(this.sourceRef());
       const current = files[file.path];
@@ -135,11 +154,11 @@ function WithFake<B extends WorkspaceCtor>(Base: B, trees: FakeTrees) {
         return Promise.resolve({ kind: "stale", reason: "gone" });
       }
       const currentBytes = encode(current);
-      if (digest(currentBytes) !== expectedChecksum) {
+      if (digest(currentBytes) !== expectedDigest) {
         return Promise.resolve({
           current: {
-            checksum: digest(currentBytes),
-            size: currentBytes.byteLength,
+            bytes: currentBytes.byteLength,
+            digest: digest(currentBytes),
             text: new TextDecoder().decode(currentBytes),
           },
           kind: "conflict",
@@ -301,11 +320,11 @@ describe.each([
 
     const view = await added.refresh();
     expect(view.source).toEqual({ kind: "reconciled" });
-    expect(view.files.map((file) => file.path)).toEqual([
-      "README.md",
-      "docs/guide.md",
-      "media/logo.png",
-    ]);
+    expect(
+      view.entries
+        .filter((entry) => entry.type === "file")
+        .map((file) => file.path)
+    ).toEqual(["README.md", "docs/guide.md", "media/logo.png"]);
 
     const files = await added.files();
     const text = files.find((file) => file.path === "docs/guide.md");
@@ -315,21 +334,23 @@ describe.each([
     }
 
     expect(await added.read(text.id)).toEqual({
-      checksum: text.checksum,
+      bytes: 8,
+      digest: text.digest,
       kind: "text",
-      mimeType: "text/markdown",
-      size: 8,
+      mime: "text/markdown",
       text: "# guide\n",
+      type: "file" as const,
     });
     expect(await added.read(binary.id)).toEqual({
-      checksum: binary.checksum,
+      bytes: 4,
+      digest: binary.digest,
       kind: "binary",
-      mimeType: "image/png",
-      size: 4,
+      mime: "image/png",
+      type: "file" as const,
     });
 
     const saved = await added.save({
-      expectedChecksum: text.checksum,
+      expectedDigest: text.digest,
       fileId: text.id,
       text: "# revised\n",
     });
@@ -340,7 +361,7 @@ describe.each([
     });
 
     const conflict = await added.save({
-      expectedChecksum: text.checksum,
+      expectedDigest: text.digest,
       fileId: text.id,
       text: "# too late\n",
     });
@@ -351,9 +372,11 @@ describe.each([
 
     const refreshed = await added.refresh();
     expect(refreshed.source).toEqual({ kind: "reconciled" });
-    expect(refreshed.files.map((file) => file.id)).toEqual(
-      files.map((file) => file.id)
-    );
+    expect(
+      refreshed.entries
+        .filter((entry) => entry.type === "file")
+        .map((file) => file.id)
+    ).toEqual(files.map((file) => file.id));
 
     await added.remove();
     expect(await system.list()).toEqual([]);
@@ -385,7 +408,11 @@ describe("a layered Workspace follows its source", () => {
     const view = await added.refresh();
 
     expect(view.source).toEqual({ kind: "reconciled" });
-    expect(view.files.map((file) => file.path)).toEqual(["kept.md", "new.md"]);
+    expect(
+      view.entries
+        .filter((entry) => entry.type === "file")
+        .map((file) => file.path)
+    ).toEqual(["kept.md", "new.md"]);
   });
 
   it("keeps the prior catalog and reports unavailable once the source is gone", async () => {
@@ -397,10 +424,10 @@ describe("a layered Workspace follows its source", () => {
 
     expect(view.source.kind).toBe("unavailable");
     expect(view.workspace.fileCount).toBe(3);
-    expect(view.files.map((file) => file.path)).toEqual([
-      "README.md",
-      "docs/guide.md",
-      "media/logo.png",
-    ]);
+    expect(
+      view.entries
+        .filter((entry) => entry.type === "file")
+        .map((file) => file.path)
+    ).toEqual(["README.md", "docs/guide.md", "media/logo.png"]);
   });
 });

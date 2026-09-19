@@ -6,6 +6,7 @@ import {
   open,
   readdir,
   readFile,
+  readlink,
   realpath,
   rename,
   unlink,
@@ -13,7 +14,7 @@ import {
 } from "node:fs/promises";
 import { basename, dirname, join, sep } from "node:path";
 
-import type { Storage } from "@foundry/core/filesystem";
+import type { EntryStats, Storage } from "@foundry/core/storage";
 
 import type { DirectoryOptions as PortableDirectoryOptions } from "./directory";
 import {
@@ -37,27 +38,52 @@ export function WithDirectory<B extends WorkspaceCtor>(
   });
 }
 
+function entryStats(stats: {
+  isFile(): boolean;
+  isDirectory(): boolean;
+  isSymbolicLink(): boolean;
+  isSocket(): boolean;
+  isFIFO(): boolean;
+  isBlockDevice(): boolean;
+  isCharacterDevice(): boolean;
+}): EntryStats {
+  if (stats.isSymbolicLink()) {
+    return { type: "symlink" };
+  }
+  if (stats.isFile()) {
+    return { type: "file" };
+  }
+  if (stats.isDirectory()) {
+    return { type: "directory" };
+  }
+  if (stats.isSocket()) {
+    return { type: "socket" };
+  }
+  if (stats.isFIFO()) {
+    return { type: "pipe" };
+  }
+  if (stats.isBlockDevice() || stats.isCharacterDevice()) {
+    return { type: "device" };
+  }
+  return { type: "unknown" };
+}
+
 export const nodeFileSystem: Storage = {
   async lstat(path) {
     const stats = await lstat(path);
-    return {
-      isDirectory: stats.isDirectory(),
-      isFile: stats.isFile(),
-      isSymbolicLink: stats.isSymbolicLink(),
-    };
+    return entryStats(stats);
   },
   async readDirectory(path) {
     const entries = await readdir(path, { withFileTypes: true });
     return entries.map((entry) => ({
-      isDirectory: entry.isDirectory(),
-      isFile: entry.isFile(),
-      isSymbolicLink: entry.isSymbolicLink(),
+      ...entryStats(entry),
       name: entry.name,
     }));
   },
   async readFile(path) {
     return new Uint8Array(await readFile(path));
   },
+  readLink: (path) => readlink(path),
   realpath: (path) => realpath(path),
   /**
    * Bounded atomic replacement: an exclusive sibling temporary file receives

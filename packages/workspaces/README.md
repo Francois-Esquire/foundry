@@ -1,9 +1,16 @@
 # @foundry/workspaces
 
 The Workspace system. A Workspace is the durable registration of one
-authoritative source; a File is one included file within it. The source owns
+authoritative source; an entry is one included path within it. The source owns
 current bytes — the package owns identity, inclusion, and the last
 successfully reconciled inventory.
+
+`WorkspaceEntry` adds identity, name, and timestamps to Core's `StorageEntry`.
+`WorkspaceFile` is its regular-file variant, with content classification and
+extension. Scans retain directories, including empty ones, and describe links,
+sockets, devices, and pipes without opening them. Links are never traversed.
+The root remains on `WorkspaceSource`; actual file contents are read from storage.
+Saves accept `expectedDigest` for the version last read.
 
 The root `Workspace` class owns identity, the catalog, reconciliation, and
 the serialization guarantee. It knows nothing about where bytes come from.
@@ -13,8 +20,8 @@ around the root when it opens an instance.
 The root entry has no Node runtime imports or default storage. Its directory
 layer requires caller-supplied storage: `directory({ filesystem })`.
 `WorkspaceFileSystem` combines `StorageReader` and `AtomicStorageWriter` from
-`@foundry/core/filesystem`. Storage owns its path separator; catalog paths
-remain POSIX. Checksums use Web Crypto.
+`@foundry/core/storage`. Storage owns its path separator; catalog paths
+remain POSIX. Digests use Web Crypto.
 
 For Node disk access, import the default directory adapter from `/node`:
 
@@ -27,6 +34,7 @@ const workspaces = new WorkspaceSystem().extend(directory()).extend(git());
 
 const ws = await workspaces.add({ path: "." });
 await ws.refresh();
+const entries = await ws.entries();
 const files = await ws.files();
 const summary = await ws.summary();
 const gitStatus = await ws.git?.status();
@@ -67,7 +75,7 @@ join the same in-flight observation.
 
 `WorkspaceStore` is the persistence capability the system consumes.
 `InMemoryWorkspaceStore` is the default. Supply another `WorkspaceStore` to
-persist registrations and file catalogs elsewhere.
+persist registrations and entry catalogs elsewhere.
 
 `@foundry/workspaces/node` also exports `WithDirectory` with default disk
 storage, `nodeFileSystem`, and the synchronous `sha256Hex` helper.
