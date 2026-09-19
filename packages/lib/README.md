@@ -8,6 +8,7 @@ Import shared helpers directly from their owning module:
 - `@foundry/lib/encoding`: Base64 conversion, strict UTF-8 decoding, and NUL-aware text detection.
 - `@foundry/lib/glob`: POSIX glob matching with `*`, `**`, `?`, and brace alternatives.
 - `@foundry/lib/ordering`: locale-independent string-key comparators.
+- `@foundry/lib/pagination`: page limits, page construction, and complete traversal through `collectPages`.
 - `@foundry/lib/mime`: shared MIME constants and text MIME detection.
 - `@foundry/lib/file-classification`: filename classification, `FileClassification`, `FileKind`, `FILE_KINDS`, and `CLASSIFICATION_VERSION`.
 

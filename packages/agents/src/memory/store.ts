@@ -1,3 +1,5 @@
+import type { Page, PageInput } from "@foundry/core/pagination";
+import { pageLimit, sliceRanked } from "@foundry/lib/pagination";
 import { generateId } from "ai";
 
 export const MEMORY_TYPES = ["memory", "note", "artifact", "fact"] as const;
@@ -20,19 +22,13 @@ export interface MemoryRecord {
   type: MemoryType;
 }
 
-export interface SearchMemoryInput {
-  limit?: number;
+export interface SearchMemoryInput extends PageInput<number> {
   query: string;
   type?: MemoryType;
 }
 
 interface MemoryHit extends MemoryRecord {
   score: number;
-}
-
-export interface MemorySearchPage {
-  hits: MemoryHit[];
-  truncated: boolean;
 }
 
 /**
@@ -45,7 +41,7 @@ export interface MemorySearchPage {
 export interface MemoryStore {
   create(input: CreateMemoryInput): Promise<MemoryRecord>;
   delete(id: string): Promise<void>;
-  search(input: SearchMemoryInput): Promise<MemorySearchPage>;
+  search(input: SearchMemoryInput): Promise<Page<MemoryHit, number>>;
 }
 
 const DEFAULT_SEARCH_LIMIT = 10;
@@ -71,16 +67,15 @@ export class InMemoryMemoryStore implements MemoryStore {
     return Promise.resolve({ ...record });
   }
 
-  search(input: SearchMemoryInput): Promise<MemorySearchPage> {
-    const limit = input.limit ?? DEFAULT_SEARCH_LIMIT;
+  search(input: SearchMemoryInput): Promise<Page<MemoryHit, number>> {
+    const limit = pageLimit(input.limit, { fallback: DEFAULT_SEARCH_LIMIT });
     const needle = input.query.toLowerCase();
     const hits = this.#rows
       .filter((row) => input.type === undefined || row.type === input.type)
       .filter((row) => row.content.toLowerCase().includes(needle))
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-      .slice(0, limit)
       .map((row) => ({ ...row, score: 1, tags: [...row.tags] }));
-    return Promise.resolve({ hits, truncated: false });
+    return Promise.resolve(sliceRanked(hits, limit, input.cursor ?? 0));
   }
 
   delete(id: string): Promise<void> {

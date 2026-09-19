@@ -72,7 +72,7 @@ export class Memory {
         "Semantic search across stored memories. Returns ranked hits with id, content, type, score, and tags. Use before answering questions where prior context could help.",
       execute: async (input) => {
         const page = await this.store.search(input);
-        return { hits: page.hits, truncated: page.truncated };
+        return page;
       },
       inputSchema: z.object({
         limit: z.number().int().min(1).max(20).default(8),

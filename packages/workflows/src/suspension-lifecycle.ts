@@ -1,3 +1,4 @@
+import type { Page } from "@foundry/core/pagination";
 import { Schema } from "effect";
 
 import type { SuspensionState } from "./channels";
@@ -8,7 +9,6 @@ import {
 import type {
   JsonValue,
   OrchestratorStore,
-  Page,
   SuspensionCancellation,
   SuspensionQuery,
   SuspensionRecord,
@@ -51,7 +51,7 @@ export class SuspensionLifecycle {
     return this.#store.getSuspension(id);
   }
 
-  list(query?: SuspensionQuery): Promise<Page<SuspensionRecord>> {
+  list(query?: SuspensionQuery): Promise<Page<SuspensionRecord, number>> {
     return this.#store.listSuspensions(query);
   }
 

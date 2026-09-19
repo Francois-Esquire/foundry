@@ -11,12 +11,12 @@ describe("InMemoryMemoryStore", () => {
     expect(created.tags).toEqual([]);
 
     const page = await store.search({ query: "VITEST" });
-    expect(page.hits.map((h) => h.id)).toEqual([created.id]);
-    expect(page.hits[0]?.score).toBe(1);
-    expect(page.truncated).toBe(false);
+    expect(page.items.map((h) => h.id)).toEqual([created.id]);
+    expect(page.items[0]?.score).toBe(1);
+    expect(page.total).toBe(1);
 
     const miss = await store.search({ query: "unrelated" });
-    expect(miss.hits).toEqual([]);
+    expect(miss.items).toEqual([]);
   });
 
   it("filters by type and honors limit", async () => {
@@ -26,10 +26,10 @@ describe("InMemoryMemoryStore", () => {
     await store.create({ content: "alpha note two", type: "note" });
 
     const facts = await store.search({ query: "alpha", type: "fact" });
-    expect(facts.hits.map((h) => h.content)).toEqual(["alpha fact"]);
+    expect(facts.items.map((h) => h.content)).toEqual(["alpha fact"]);
 
     const limited = await store.search({ limit: 2, query: "alpha" });
-    expect(limited.hits).toHaveLength(2);
+    expect(limited.items).toHaveLength(2);
   });
 
   it("deletes by id", async () => {
@@ -37,7 +37,7 @@ describe("InMemoryMemoryStore", () => {
     const created = await store.create({ content: "temp" });
     await store.delete(created.id);
     const page = await store.search({ query: "temp" });
-    expect(page.hits).toEqual([]);
+    expect(page.items).toEqual([]);
   });
 });
 

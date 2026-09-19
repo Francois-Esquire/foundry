@@ -1,3 +1,4 @@
+import type { Page } from "@foundry/core/pagination";
 import type { Config } from "@foundry/lib/config";
 import { Effect, Exit, Option, Schema, Scope } from "effect";
 import { contributeQueueConfig } from "./config";
@@ -36,11 +37,9 @@ import type {
   JobRecord,
   JsonValue,
   OrchestratorStore,
-  Page,
   QueueRecord,
   RunFramePayload,
   RunLinks,
-  RunPage,
   RunQuery,
   RunRecord,
   SuspensionQuery,
@@ -62,17 +61,17 @@ function generateId(prefix: string): string {
 }
 
 async function collectPageItems<T>(
-  list: (page: { limit: number; offset: number }) => Promise<Page<T>>
+  list: (page: { limit: number; cursor: number }) => Promise<Page<T, number>>
 ): Promise<T[]> {
   const items: T[] = [];
   let offset = 0;
   for (;;) {
-    const page = await list({ limit: 200, offset });
+    const page = await list({ cursor: offset, limit: 200 });
     items.push(...page.items);
-    if (page.nextOffset === null) {
+    if (page.nextCursor === undefined) {
       return items;
     }
-    offset = page.nextOffset;
+    offset = page.nextCursor;
   }
 }
 
@@ -456,7 +455,7 @@ export class Orchestrator {
     return this.#jobs.get(jobId);
   }
 
-  listJobs(query?: JobQuery): Promise<Page<JobRecord>> {
+  listJobs(query?: JobQuery): Promise<Page<JobRecord, number>> {
     return this.#jobs.list(query);
   }
 
@@ -466,7 +465,7 @@ export class Orchestrator {
   }
 
   /** Durable Run listing for host-facing execution facades. */
-  listRuns(query: RunQuery = {}): Promise<RunPage> {
+  listRuns(query: RunQuery = {}): Promise<Page<RunRecord, number>> {
     return this.store.listRuns(query);
   }
 
@@ -844,7 +843,9 @@ export class Orchestrator {
     return this.#suspensions.get(id);
   }
 
-  listSuspensions(query?: SuspensionQuery): Promise<Page<SuspensionRecord>> {
+  listSuspensions(
+    query?: SuspensionQuery
+  ): Promise<Page<SuspensionRecord, number>> {
     return this.#suspensions.list(query);
   }
 
@@ -874,7 +875,7 @@ export class Orchestrator {
         await this.#frameTails.get(row.id)?.catch(() => undefined);
         await this.#journal.deleteRun(row.id);
       }
-      if (!queued.hasMore) {
+      if (queued.nextCursor === undefined) {
         break;
       }
     }

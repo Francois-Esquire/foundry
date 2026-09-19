@@ -75,6 +75,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@foundry/core": "workspace:*",
     "@foundry/lib": "workspace:*",
     "effect": "^3.22.1",
     "evlog": "^2.25.0",

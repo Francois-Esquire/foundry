@@ -114,8 +114,10 @@ describe("@foundry/lib/config/authorization boundaries", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("keeps config a leaf, so hosts adopting it cannot create a cycle", () => {
-    expect(packageJson).not.toHaveProperty("dependencies");
+  it("depends only on Core contracts, never consuming packages", () => {
+    expect(packageJson.dependencies).toEqual({
+      "@foundry/core": "workspace:*",
+    });
     expect(
       Object.keys(packageJson.peerDependencies).filter((name) =>
         name.startsWith("@foundry/")

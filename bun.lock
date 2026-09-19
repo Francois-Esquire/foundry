@@ -73,6 +73,7 @@
       "dependencies": {
         "@ai-sdk/mcp": "2.0.29",
         "@ai-sdk/provider": "4.0.7",
+        "@foundry/core": "workspace:*",
         "@foundry/lib": "workspace:*",
         "ai": "7.0.58",
         "zod": "^4.4.3",
@@ -97,6 +98,9 @@
     "packages/lib": {
       "name": "@foundry/lib",
       "version": "0.1.0",
+      "dependencies": {
+        "@foundry/core": "workspace:*",
+      },
       "devDependencies": {
         "@foundry/tsconfig": "workspace:*",
         "@types/bun": "1.3.14",
@@ -152,6 +156,7 @@
       "name": "@foundry/workflows",
       "version": "0.0.1",
       "dependencies": {
+        "@foundry/core": "workspace:*",
         "@foundry/lib": "workspace:*",
         "effect": "^3.22.1",
         "evlog": "^2.25.0",

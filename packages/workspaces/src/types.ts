@@ -1,3 +1,4 @@
+import type { Page, PageInput } from "@foundry/core/pagination";
 import type {
   AtomicStorageWriter,
   FileNode,
@@ -282,7 +283,9 @@ export interface WorkspaceStore {
     workspaceId: WorkspaceId
   ) => Promise<StoredWorkspaceRecord | null>;
   listEntries: (workspaceId: WorkspaceId) => Promise<readonly WorkspaceEntry[]>;
-  listWorkspaces: () => Promise<readonly StoredWorkspaceRecord[]>;
+  listWorkspaces: (
+    input?: PageInput<number>
+  ) => Promise<Page<StoredWorkspaceRecord, number>>;
 
   removeWorkspace: (workspaceId: WorkspaceId) => Promise<RemoveWorkspaceResult>;
 

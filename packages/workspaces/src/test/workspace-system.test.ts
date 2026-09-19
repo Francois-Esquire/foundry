@@ -111,7 +111,7 @@ describe("add({ path })", () => {
 
     expect((await system.load({ path: root })).id).toBe(first.id);
     expect((await system.load({ path: alias })).id).toBe(first.id);
-    expect(await system.list()).toHaveLength(1);
+    expect((await system.list()).items).toHaveLength(1);
   });
 
   it("resolves two concurrent adds of one root to a single durable Workspace", async () => {
@@ -124,7 +124,7 @@ describe("add({ path })", () => {
     ]);
 
     expect(left.id).toBe(right.id);
-    expect(await system.list()).toHaveLength(1);
+    expect((await system.list()).items).toHaveLength(1);
   });
 
   it("creates nothing when the first scan fails", async () => {
@@ -143,7 +143,7 @@ describe("add({ path })", () => {
     await expect(system.load({ path: root })).rejects.toBeInstanceOf(
       WorkspaceSourceUnavailableError
     );
-    expect(await store.listWorkspaces()).toEqual([]);
+    expect((await store.listWorkspaces()).items).toEqual([]);
   });
 
   it("refuses a selection that is not a readable directory", async () => {
@@ -735,7 +735,7 @@ describe("reconciliation", () => {
     expect(await workspace.summary()).toEqual(
       await (await systemOver(store).open(id)).summary()
     );
-    expect((await offline.list()).map((w) => w.id)).toEqual([id]);
+    expect((await offline.list()).items.map((w) => w.id)).toEqual([id]);
     expect(reached).toEqual([]);
   });
 
@@ -879,7 +879,7 @@ describe("remove", () => {
 
     await added.remove();
 
-    expect(await system.list()).toEqual([]);
+    expect((await system.list()).items).toEqual([]);
     await expect(system.open(added.id)).rejects.toBeInstanceOf(
       WorkspaceNotFoundError
     );
@@ -929,7 +929,7 @@ describe("lifecycle", () => {
     const added = await system.load({ path: root });
 
     expect(await system.open(added.id)).toBe(added);
-    expect((await system.list())[0]).toBe(added);
+    expect((await system.list()).items[0]).toBe(added);
 
     await system.close(added.id);
     const reopened = await system.open(added.id);

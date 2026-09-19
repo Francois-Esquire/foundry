@@ -250,7 +250,7 @@ describe("create over a registered layer", () => {
     const second = await add();
 
     expect(second).toBe(first);
-    expect(await system.list()).toHaveLength(1);
+    expect((await system.list()).items).toHaveLength(1);
   });
 
   it("reconciles on a re-add exactly as a re-add of a registered root does", async () => {
@@ -270,7 +270,7 @@ describe("create over a registered layer", () => {
     const [left, right] = await Promise.all([add(), add()]);
 
     expect(left.id).toBe(right.id);
-    expect(await system.list()).toHaveLength(1);
+    expect((await system.list()).items).toHaveLength(1);
   });
 
   it("creates nothing when the first scan fails", async () => {
@@ -285,7 +285,7 @@ describe("create over a registered layer", () => {
         sourceId: id,
       })
     ).rejects.toBeInstanceOf(WorkspaceSourceUnavailableError);
-    expect(await system.list()).toEqual([]);
+    expect((await system.list()).items).toEqual([]);
   });
 });
 
@@ -379,7 +379,7 @@ describe.each([
     ).toEqual(files.map((file) => file.id));
 
     await added.remove();
-    expect(await system.list()).toEqual([]);
+    expect((await system.list()).items).toEqual([]);
   });
 });
 
@@ -392,7 +392,9 @@ describe("mixed-layer collection", () => {
     const other = await add();
 
     expect(
-      (await system.list()).map((workspace) => workspace.source.kind).sort()
+      (await system.list()).items
+        .map((workspace) => workspace.source.kind)
+        .sort()
     ).toEqual([FAKE_SOURCE, "host"]);
     expect(other).not.toHaveProperty("git");
     expect(host).not.toHaveProperty("git");

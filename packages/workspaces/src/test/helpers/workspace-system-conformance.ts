@@ -158,10 +158,20 @@ export function describeWorkspaceSystemConformance(
       expect(await store.findWorkspaceByPath(second.path)).toEqual(second);
       expect(await store.findWorkspaceByPath(newRoot("absent"))).toBeNull();
 
-      const listed = (await store.listWorkspaces()).map((w) => w.id);
+      const listed = (await store.listWorkspaces()).items.map((w) => w.id);
       expect(
         listed.filter((id) => id === first.id || id === second.id)
       ).toEqual([first.id, second.id]);
+      const firstPage = await store.listWorkspaces({ limit: 1 });
+      const secondPage = await store.listWorkspaces({
+        cursor: firstPage.nextCursor,
+        limit: 1,
+      });
+      expect(firstPage.total).toBe(listed.length);
+      expect(secondPage.total).toBe(firstPage.total);
+      expect(firstPage.items).toHaveLength(1);
+      expect(secondPage.items).toHaveLength(1);
+      expect(secondPage.items[0]?.id).not.toBe(firstPage.items[0]?.id);
     });
 
     test("refuses a second Workspace over the same root and names the first", async () => {
@@ -177,7 +187,7 @@ export function describeWorkspaceSystemConformance(
         })
       ).toEqual({ existingId: first.id, kind: "workspace-exists" });
       expect(
-        (await store.listWorkspaces()).filter((w) => w.path === root)
+        (await store.listWorkspaces()).items.filter((w) => w.path === root)
       ).toEqual([first]);
     });
 
@@ -925,7 +935,9 @@ export function describeWorkspaceSystemConformance(
         expect(await (await system.open(added.id)).summary()).toEqual(
           await added.summary()
         );
-        expect((await system.list()).map((w) => w.id)).toContain(added.id);
+        expect((await system.list()).items.map((w) => w.id)).toContain(
+          added.id
+        );
       });
 
       test("resolves a duplicate add to the Workspace already registered", async () => {
@@ -936,7 +948,7 @@ export function describeWorkspaceSystemConformance(
 
         expect((await system.load({ path: root })).id).toBe(first.id);
         expect(
-          (await system.list()).filter((w) => w.id === first.id)
+          (await system.list()).items.filter((w) => w.id === first.id)
         ).toHaveLength(1);
       });
 

@@ -1,5 +1,7 @@
+import type { Page, PageInput } from "@foundry/core/pagination";
 import { storageTree } from "@foundry/core/storage";
 import { byCodeUnit } from "@foundry/lib/ordering";
+import { pageLimit, sliceRanked } from "@foundry/lib/pagination";
 import { nextWorkspaceObservation } from "./observation";
 import type {
   CommitCreateResult,
@@ -40,11 +42,16 @@ export class InMemoryWorkspaceStore implements WorkspaceStore {
     return Promise.resolve(null);
   }
 
-  listWorkspaces(): Promise<readonly StoredWorkspaceRecord[]> {
-    const ordered = [...this.workspaces.values()]
-      .sort(byCreatedAtThenId)
-      .map(copyWorkspace);
-    return Promise.resolve(ordered);
+  listWorkspaces(
+    input: PageInput<number> = {}
+  ): Promise<Page<StoredWorkspaceRecord, number>> {
+    const ordered = [...this.workspaces.values()].sort(byCreatedAtThenId);
+    const page = sliceRanked(
+      ordered,
+      pageLimit(input.limit),
+      input.cursor ?? 0
+    );
+    return Promise.resolve({ ...page, items: page.items.map(copyWorkspace) });
   }
 
   listEntries(workspaceId: WorkspaceId): Promise<readonly WorkspaceEntry[]> {

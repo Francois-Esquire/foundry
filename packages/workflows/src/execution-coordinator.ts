@@ -1,3 +1,4 @@
+import type { Page } from "@foundry/core/pagination";
 import {
   ExecutionConflictRetriesExhaustedError,
   JobAlreadySettledError,
@@ -45,11 +46,9 @@ import type {
   JobRunClaimCommit,
   JobRunClaimOutcome,
   JobRunClaimTransaction,
-  Page,
   QueueRecord,
   RecoverableRun,
   RepositoryCommitOutcome,
-  RunPage,
   RunQuery,
   SettleSuspensionInput,
   SuspensionCancellation,
@@ -136,27 +135,27 @@ async function retryAggregateCommit<
 }
 
 async function collectPages<T>(
-  list: (page: { limit: number; offset: number }) => Promise<Page<T>>
+  list: (page: { limit: number; cursor: number }) => Promise<Page<T, number>>
 ): Promise<T[]> {
   const items: T[] = [];
   let offset = 0;
   for (;;) {
-    const page = await list({ limit: INTERNAL_PAGE_LIMIT, offset });
+    const page = await list({ cursor: offset, limit: INTERNAL_PAGE_LIMIT });
     items.push(...page.items);
-    if (page.nextOffset === null) {
+    if (page.nextCursor === undefined) {
       return items;
     }
-    offset = page.nextOffset;
+    offset = page.nextCursor;
   }
 }
 
 function pageValues<T>(
   values: readonly T[],
-  query: { readonly limit?: number; readonly offset?: number },
+  query: { readonly limit?: number; readonly cursor?: number },
   fallback: number
-): Page<T> {
+): Page<T, number> {
   const limit = query.limit ?? fallback;
-  const offset = query.offset ?? 0;
+  const offset = query.cursor ?? 0;
   if (!Number.isInteger(limit) || limit <= 0 || limit > 200) {
     throw new Error("[execution] page limit must be an integer from 1 to 200");
   }
@@ -166,11 +165,9 @@ function pageValues<T>(
   const items = values.slice(offset, offset + limit).map(cloneValue);
   const hasMore = values.length > offset + items.length;
   return {
-    hasMore,
     items,
-    limit,
-    nextOffset: hasMore ? offset + items.length : null,
-    offset,
+    total: values.length,
+    ...(hasMore ? { nextCursor: offset + items.length } : {}),
   };
 }
 
@@ -243,7 +240,7 @@ export abstract class AbstractOrchestratorStore implements OrchestratorStore {
     });
   }
 
-  listJobs(query: JobQuery = {}): Promise<Page<JobRecord>> {
+  listJobs(query: JobQuery = {}): Promise<Page<JobRecord, number>> {
     return this.queryJobs(query);
   }
 
@@ -430,7 +427,7 @@ export abstract class AbstractOrchestratorStore implements OrchestratorStore {
     });
   }
 
-  listRuns(query: RunQuery): Promise<RunPage> {
+  listRuns(query: RunQuery): Promise<Page<RunRecord, number>> {
     return this.queryRuns(query);
   }
 
@@ -562,7 +559,7 @@ export abstract class AbstractOrchestratorStore implements OrchestratorStore {
 
   async listSuspensions(
     query: SuspensionQuery = {}
-  ): Promise<Page<SuspensionRecord>> {
+  ): Promise<Page<SuspensionRecord, number>> {
     return this.querySuspensions(query);
   }
 
@@ -772,7 +769,9 @@ export abstract class AbstractOrchestratorStore implements OrchestratorStore {
       .map((frame) => cloneValue(frame));
   }
 
-  async listFrames(query: RunFramePageQuery = {}): Promise<Page<RunFrame>> {
+  async listFrames(
+    query: RunFramePageQuery = {}
+  ): Promise<Page<RunFrame, number>> {
     const runIds =
       query.runId === undefined
         ? (await this.readRuns()).map((run) => run.id)
@@ -811,7 +810,7 @@ export abstract class AbstractOrchestratorStore implements OrchestratorStore {
 
   async listFrameRuns(
     query: { limit?: number; offset?: number; order?: "newest" | "oldest" } = {}
-  ): Promise<Page<FrameRun>> {
+  ): Promise<Page<FrameRun, number>> {
     const runs = await this.readRuns();
     const values = (
       await Promise.all(
@@ -1298,12 +1297,16 @@ export abstract class AbstractOrchestratorStore implements OrchestratorStore {
   protected abstract readJob(id: string): Promise<JobRecord | null>;
   protected abstract writeJob(record: JobRecord): Promise<void>;
   protected abstract readJobs(): Promise<JobRecord[]>;
-  protected abstract queryJobs(query: JobQuery): Promise<Page<JobRecord>>;
+  protected abstract queryJobs(
+    query: JobQuery
+  ): Promise<Page<JobRecord, number>>;
   protected abstract removeJob(id: string): Promise<void>;
   protected abstract readRun(id: string): Promise<RunRecord | null>;
   protected abstract writeRun(record: RunRecord): Promise<void>;
   protected abstract readRuns(): Promise<RunRecord[]>;
-  protected abstract queryRuns(query: RunQuery): Promise<RunPage>;
+  protected abstract queryRuns(
+    query: RunQuery
+  ): Promise<Page<RunRecord, number>>;
   protected abstract removeRun(id: string): Promise<void>;
   protected abstract readSuspension(
     id: string
@@ -1312,7 +1315,7 @@ export abstract class AbstractOrchestratorStore implements OrchestratorStore {
   protected abstract readSuspensions(): Promise<SuspensionRecord[]>;
   protected abstract querySuspensions(
     query: SuspensionQuery
-  ): Promise<Page<SuspensionRecord>>;
+  ): Promise<Page<SuspensionRecord, number>>;
   protected abstract removeSuspension(id: string): Promise<void>;
   protected abstract readQueue(id: string): Promise<QueueRecord | null>;
   protected abstract writeQueue(record: QueueRecord): Promise<void>;
@@ -1347,7 +1350,9 @@ export class ExecutionCoordinator extends AbstractOrchestratorStore {
     return this.journal.listRunFrames(runId, after);
   }
 
-  override listFrames(query?: RunFramePageQuery): Promise<Page<RunFrame>> {
+  override listFrames(
+    query?: RunFramePageQuery
+  ): Promise<Page<RunFrame, number>> {
     return this.journal.listFrames(query);
   }
 
@@ -1359,9 +1364,9 @@ export class ExecutionCoordinator extends AbstractOrchestratorStore {
 
   override listFrameRuns(query?: {
     limit?: number;
-    offset?: number;
+    cursor?: number;
     order?: "newest" | "oldest";
-  }): Promise<Page<FrameRun>> {
+  }): Promise<Page<FrameRun, number>> {
     return this.journal.listFrameRuns(query);
   }
 
@@ -1385,7 +1390,7 @@ export class ExecutionCoordinator extends AbstractOrchestratorStore {
     return collectPages((page) => this.repository.listJobRecords(page));
   }
 
-  protected queryJobs(query: JobQuery): Promise<Page<JobRecord>> {
+  protected queryJobs(query: JobQuery): Promise<Page<JobRecord, number>> {
     return this.repository.listJobRecords(query);
   }
 
@@ -1405,7 +1410,7 @@ export class ExecutionCoordinator extends AbstractOrchestratorStore {
     return collectPages((page) => this.repository.listRunRecords(page));
   }
 
-  protected queryRuns(query: RunQuery): Promise<RunPage> {
+  protected queryRuns(query: RunQuery): Promise<Page<RunRecord, number>> {
     return this.repository.listRunRecords(query);
   }
 
@@ -1427,7 +1432,7 @@ export class ExecutionCoordinator extends AbstractOrchestratorStore {
 
   protected querySuspensions(
     query: SuspensionQuery
-  ): Promise<Page<SuspensionRecord>> {
+  ): Promise<Page<SuspensionRecord, number>> {
     return this.repository.listSuspensionRecords(query);
   }
 

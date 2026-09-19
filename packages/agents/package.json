@@ -38,6 +38,7 @@
   "dependencies": {
     "@ai-sdk/mcp": "2.0.29",
     "@ai-sdk/provider": "4.0.7",
+    "@foundry/core": "workspace:*",
     "@foundry/lib": "workspace:*",
     "ai": "7.0.58",
     "zod": "^4.4.3"

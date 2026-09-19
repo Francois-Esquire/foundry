@@ -1,3 +1,4 @@
+import type { Page } from "@foundry/core/pagination";
 import { RunNotFoundError } from "./errors";
 import { AbstractOrchestratorStore } from "./execution-coordinator";
 import type {
@@ -12,10 +13,8 @@ import type {
   JobQuery,
   JobRunClaimCommit,
   JobRunClaimOutcome,
-  Page,
   QueueRecord,
   RepositoryCommitOutcome,
-  RunPage,
   RunQuery,
   SuspensionCancellationCommit,
   SuspensionParkingCommit,
@@ -104,7 +103,7 @@ export class InMemoryOrchestratorStore extends AbstractOrchestratorStore {
     return Promise.resolve([...this.#jobs.values()].map(clone));
   }
 
-  protected queryJobs(query: JobQuery): Promise<Page<JobRecord>> {
+  protected queryJobs(query: JobQuery): Promise<Page<JobRecord, number>> {
     return Promise.resolve(
       pageRecords(
         [...this.#jobs.values()].filter((record) =>
@@ -135,19 +134,18 @@ export class InMemoryOrchestratorStore extends AbstractOrchestratorStore {
     return Promise.resolve([...this.#runs.values()].map(clone));
   }
 
-  protected queryRuns(query: RunQuery): Promise<RunPage> {
+  protected queryRuns(query: RunQuery): Promise<Page<RunRecord, number>> {
     const records = [...this.#runs.values()]
       .map((record) => this.hydrateStoredRun(record))
       .filter((record) => this.matchesRunQuery(record, query));
-    return Promise.resolve({
-      ...pageRecords(
+    return Promise.resolve(
+      pageRecords(
         records,
         { order: "newest", ...query },
         3,
         (record) => record.timestamps.createdAt
-      ),
-      total: records.length,
-    });
+      )
+    );
   }
 
   protected removeRun(id: string): Promise<void> {
@@ -170,7 +168,7 @@ export class InMemoryOrchestratorStore extends AbstractOrchestratorStore {
 
   protected querySuspensions(
     query: SuspensionQuery
-  ): Promise<Page<SuspensionRecord>> {
+  ): Promise<Page<SuspensionRecord, number>> {
     return Promise.resolve(
       pageRecords(
         [...this.#suspensions.values()].filter((record) =>
@@ -358,7 +356,7 @@ class InMemoryExecutionRepository implements ExecutionRepository {
     return Promise.resolve();
   }
 
-  listJobRecords(query: JobQuery = {}): Promise<Page<JobRecord>> {
+  listJobRecords(query: JobQuery = {}): Promise<Page<JobRecord, number>> {
     return Promise.resolve(
       pageRecords(
         [...this.state.jobs.values()].filter((record) =>
@@ -385,19 +383,18 @@ class InMemoryExecutionRepository implements ExecutionRepository {
     return Promise.resolve();
   }
 
-  listRunRecords(query: RunQuery = {}): Promise<RunPage> {
+  listRunRecords(query: RunQuery = {}): Promise<Page<RunRecord, number>> {
     const records = [...this.state.runs.values()].filter((record) =>
       matchesRunQuery(record, query)
     );
-    return Promise.resolve({
-      ...pageRecords(
+    return Promise.resolve(
+      pageRecords(
         records,
         { order: "newest", ...query },
         3,
         (record) => record.timestamps.createdAt
-      ),
-      total: records.length,
-    });
+      )
+    );
   }
 
   deleteRunRecord(id: string): Promise<void> {
@@ -416,7 +413,7 @@ class InMemoryExecutionRepository implements ExecutionRepository {
 
   listSuspensionRecords(
     query: SuspensionQuery = {}
-  ): Promise<Page<SuspensionRecord>> {
+  ): Promise<Page<SuspensionRecord, number>> {
     return Promise.resolve(
       pageRecords(
         [...this.state.suspensions.values()].filter((record) =>
@@ -695,7 +692,7 @@ class InMemoryRunJournal implements RunJournal {
     });
   }
 
-  listFrames(query: RunFramePageQuery = {}): Promise<Page<RunFrame>> {
+  listFrames(query: RunFramePageQuery = {}): Promise<Page<RunFrame, number>> {
     return Promise.resolve().then(() => {
       const frames = [...this.state.frames.values()]
         .flat()
@@ -733,7 +730,7 @@ class InMemoryRunJournal implements RunJournal {
 
   listFrameRuns(
     query: { limit?: number; offset?: number; order?: "newest" | "oldest" } = {}
-  ): Promise<Page<FrameRun>> {
+  ): Promise<Page<FrameRun, number>> {
     const values = [...this.state.frames.entries()].flatMap(
       ([runId, frames]) => {
         const last = frames.at(-1);
@@ -865,14 +862,14 @@ function pageRecords<T extends object>(
   records: readonly T[],
   query: {
     readonly limit?: number;
-    readonly offset?: number;
+    readonly cursor?: number;
     readonly order?: "newest" | "oldest";
   },
   fallback: number,
   createdAt: (record: T) => number
-): Page<T> {
+): Page<T, number> {
   const limit = query.limit ?? fallback;
-  const offset = query.offset ?? 0;
+  const offset = query.cursor ?? 0;
   if (!Number.isInteger(limit) || limit <= 0 || limit > 200) {
     throw new Error("[execution] page limit must be an integer from 1 to 200");
   }
@@ -890,11 +887,9 @@ function pageRecords<T extends object>(
   const items = ordered.slice(offset, offset + limit).map(clone);
   const hasMore = ordered.length > offset + items.length;
   return {
-    hasMore,
     items,
-    limit,
-    nextOffset: hasMore ? offset + items.length : null,
-    offset,
+    total: ordered.length,
+    ...(hasMore ? { nextCursor: offset + items.length } : {}),
   };
 }
 

@@ -1,8 +1,9 @@
+import type { Page } from "@foundry/core/pagination";
 import { Schema } from "effect";
 import { InvalidRunFrameSequenceError } from "./errors";
 import type { JsonValue, RunFrame, RunFramePayload } from "./execution-records";
 import { RunFrameSchema } from "./execution-records";
-import type { Page, PageQuery } from "./execution-repository";
+import type { PageQuery } from "./execution-repository";
 
 export interface AppendRunFrameInput {
   at?: number;
@@ -40,8 +41,8 @@ export interface RunJournal {
     query?: Pick<RunFramePageQuery, "runId" | "after">
   ): Promise<number>;
   deleteRunFrames(runId: string): Promise<void>;
-  listFrameRuns(query?: PageQuery): Promise<Page<FrameRun>>;
-  listFrames(query?: RunFramePageQuery): Promise<Page<RunFrame>>;
+  listFrameRuns(query?: PageQuery): Promise<Page<FrameRun, number>>;
+  listFrames(query?: RunFramePageQuery): Promise<Page<RunFrame, number>>;
   listRunFrames(runId: string, after?: number): Promise<RunFrame[]>;
 }
 

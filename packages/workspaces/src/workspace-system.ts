@@ -1,3 +1,4 @@
+import type { Page, PageInput } from "@foundry/core/pagination";
 import {
   InvalidWorkspaceInputError,
   WorkspaceNotFoundError,
@@ -158,9 +159,14 @@ export class WorkspaceSystem<
     await Promise.all([...this.opened.keys()].map((id) => this.close(id)));
   }
 
-  async list(): Promise<readonly (Workspace & CapOf<Exts>)[]> {
-    const records = await this.context.store.listWorkspaces();
-    return Promise.all(records.map((record) => this.open(record.id)));
+  async list(
+    input: PageInput<number> = {}
+  ): Promise<Page<Workspace & CapOf<Exts>, number>> {
+    const page = await this.context.store.listWorkspaces(input);
+    const items = await Promise.all(
+      page.items.map((record) => this.open(record.id))
+    );
+    return { ...page, items };
   }
 
   /**

@@ -1,3 +1,4 @@
+import type { Page, PageInput } from "@foundry/core/pagination";
 import type { SuspensionState } from "./channels";
 import type {
   DefinitionReference,
@@ -15,22 +16,7 @@ import type { Extensions } from "./extensions";
 import type { WorkflowSnapshot } from "./snapshot";
 import type { ErrorShape, QueueStatus, RunStatus } from "./types";
 
-export interface Page<T> {
-  hasMore: boolean;
-  items: T[];
-  limit: number;
-  nextOffset: number | null;
-  offset: number;
-}
-
-/** A paginated Run slice plus the matching count before pagination. */
-export interface RunPage extends Page<RunRecord> {
-  total: number;
-}
-
-export interface PageQuery {
-  limit?: number;
-  offset?: number;
+export interface PageQuery extends PageInput<number> {
   order?: "newest" | "oldest";
 }
 
@@ -280,10 +266,12 @@ export interface ExecutionCommands {
   getJob(id: string): Promise<JobRecord | null>;
   getRun(id: string): Promise<RunRecord | null>;
   getSuspension(id: string): Promise<SuspensionRecord | null>;
-  listJobs(query?: JobQuery): Promise<Page<JobRecord>>;
+  listJobs(query?: JobQuery): Promise<Page<JobRecord, number>>;
   listQueues(): Promise<QueueRecord[]>;
-  listRuns(query: RunQuery): Promise<RunPage>;
-  listSuspensions(query?: SuspensionQuery): Promise<Page<SuspensionRecord>>;
+  listRuns(query: RunQuery): Promise<Page<RunRecord, number>>;
+  listSuspensions(
+    query?: SuspensionQuery
+  ): Promise<Page<SuspensionRecord, number>>;
   parkSuspension(
     input: CreateSuspensionInput,
     runPatch?: Omit<UpdateRunInput, "status">
@@ -379,12 +367,12 @@ export interface ExecutionRepository {
   getRun(id: string): Promise<RunRecord | null>;
 
   getSuspension(id: string): Promise<SuspensionRecord | null>;
-  listJobRecords(query?: JobQuery): Promise<Page<JobRecord>>;
+  listJobRecords(query?: JobQuery): Promise<Page<JobRecord, number>>;
   listQueueRecords(): Promise<QueueRecord[]>;
-  listRunRecords(query?: RunQuery): Promise<RunPage>;
+  listRunRecords(query?: RunQuery): Promise<Page<RunRecord, number>>;
   listSuspensionRecords(
     query?: SuspensionQuery
-  ): Promise<Page<SuspensionRecord>>;
+  ): Promise<Page<SuspensionRecord, number>>;
   putJob(record: JobRecord): Promise<void>;
   putQueue(record: QueueRecord): Promise<void>;
   putRun(record: RunRecord): Promise<void>;

@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { InMemoryWorkspaceStore } from "../in-memory-workspace-store";
 import { directory } from "../node";
@@ -19,6 +19,31 @@ describeWorkspaceSystemConformance("in-memory", () => {
 });
 
 describe("WorkspaceSystem construction", () => {
+  it("opens only the requested page and retains the catalog total", async () => {
+    const store = new InMemoryWorkspaceStore();
+    const system = new WorkspaceSystem({ store }).extend(directory());
+    const first = hostWorkspace({
+      createdAt: new Date(1),
+      path: newRoot("first"),
+    });
+    const second = hostWorkspace({
+      createdAt: new Date(2),
+      path: newRoot("second"),
+    });
+    await store.commitCreate({ entries: [], workspace: first });
+    await store.commitCreate({ entries: [], workspace: second });
+    const open = vi.spyOn(system, "open");
+    const page = await system.list({ limit: 1 });
+    expect(page.total).toBe(2);
+    expect(page.nextCursor).toBe(1);
+    expect(page.items.map((workspace) => workspace.id)).toEqual([first.id]);
+    expect(open).toHaveBeenCalledExactlyOnceWith(first.id);
+    const next = await system.list({ cursor: page.nextCursor, limit: 1 });
+    expect(next.total).toBe(2);
+    expect(next.nextCursor).toBeUndefined();
+    expect(next.items.map((workspace) => workspace.id)).toEqual([second.id]);
+    await system.closeAll();
+  });
   /**
    * The default is asserted through behavior rather than by reading the store
    * back off the system — a zero-configuration system that answers is the
@@ -27,7 +52,7 @@ describe("WorkspaceSystem construction", () => {
   it("runs the whole lifecycle with no store and no database setup", async () => {
     const zeroConfig = new WorkspaceSystem();
 
-    expect(await zeroConfig.list()).toEqual([]);
+    expect((await zeroConfig.list()).items).toEqual([]);
   });
 
   it("reads through an injected store instead of its own default", async () => {
@@ -36,7 +61,9 @@ describe("WorkspaceSystem construction", () => {
     const workspace = hostWorkspace({ path: newRoot("injected") });
     await store.commitCreate({ entries: [], workspace });
 
-    expect((await system.list()).map((w) => w.id)).toEqual([workspace.id]);
+    expect((await system.list()).items.map((w) => w.id)).toEqual([
+      workspace.id,
+    ]);
   });
 });
 

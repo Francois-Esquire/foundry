@@ -34,13 +34,24 @@ import { git } from "@foundry/workspaces/git";
 import { directory } from "@foundry/workspaces/node";
 
 const workspaces = new WorkspaceSystem().extend(directory()).extend(git());
+const page = await workspaces.list({ limit: 20 }); // opens only this page
+const next =
+  page.nextCursor === undefined
+    ? undefined
+    : await workspaces.list({ limit: 20, cursor: page.nextCursor });
 
 const ws = await workspaces.load({ path: "." });
-await ws.refresh();
 const entries = await ws.entries();
 const files = await ws.files();
 const summary = await ws.summary();
 const gitStatus = await ws.git?.status();
+
+await ws.refresh(); // reconcile → { workspace, entries, source }
+await ws.read(fileId);
+await ws.save({ fileId, text, expectedDigest });
+await ws.rename(name);
+await ws.registration(); // trusted: carries the source root
+await ws.remove(); // forgets the registration and closes the instance
 
 await workspaces.closeAll();
 ```

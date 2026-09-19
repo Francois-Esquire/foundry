@@ -1,3 +1,4 @@
+import type { Page } from "@foundry/core/pagination";
 import type { DispatchedWorkflow } from "./dispatched-workflow";
 import {
   JobAlreadySettledError,
@@ -12,7 +13,6 @@ import type {
   JobStatus,
   JsonValue,
   OrchestratorStore,
-  Page,
   RunRecord,
 } from "./store";
 
@@ -54,7 +54,7 @@ export class JobLifecycle {
     return job ? this.#project(job) : null;
   }
 
-  async list(query: JobQuery = {}): Promise<Page<JobRecord>> {
+  async list(query: JobQuery = {}): Promise<Page<JobRecord, number>> {
     const page = await this.#store.listJobs(query);
     return {
       ...page,
