@@ -1,8 +1,8 @@
 import type { StorageSubscription } from "@foundry/core/storage";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { observe, polling } from "../observation";
-import type { WorkspaceChange } from "../workspace";
-import type { ObservedFacts } from "../workspace-store";
+import type { ObservedFacts, WorkspaceChange } from "../types";
+
 import { WorkspaceSystem } from "../workspace-system";
 
 afterEach(() => {

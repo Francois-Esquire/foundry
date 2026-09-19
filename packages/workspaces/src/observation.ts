@@ -20,6 +20,14 @@ export function polling(intervalMs = 1000): StorageObserver {
   };
 }
 
+/** Gives successful source observations a strict, shared order. */
+export function nextWorkspaceObservation(
+  previous: Date,
+  requested: Date = new Date()
+): Date {
+  return new Date(Math.max(previous.getTime() + 1, requested.getTime()));
+}
+
 export async function observe(
   subscribe: (
     changed: () => void,

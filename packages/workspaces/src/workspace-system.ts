@@ -4,22 +4,21 @@ import {
   WorkspaceSourceUnavailableError,
   WorkspaceSourceUnsupportedError,
 } from "./errors";
+import { InMemoryWorkspaceStore } from "./in-memory-workspace-store";
+import { initialEntries, Workspace } from "./instance";
 import type {
   AnyWorkspaceExtension,
   CapOf,
   FloorFor,
   RefOf,
+  StoredWorkspaceRecord,
+  WorkspaceChange,
+  WorkspaceContext,
+  WorkspaceCtor,
+  WorkspaceId,
   WorkspaceIdentity,
-} from "./extension";
-import { InMemoryWorkspaceStore } from "./in-memory-workspace-store";
-import type { WorkspaceContext, WorkspaceCtor } from "./instance";
-import { initialEntries, Workspace } from "./instance";
-import type { WorkspaceChange, WorkspaceId } from "./workspace";
-import type { StoredWorkspaceRecord, WorkspaceStore } from "./workspace-store";
-
-export interface WorkspaceSystemOptions {
-  readonly store?: WorkspaceStore;
-}
+  WorkspaceSystemOptions,
+} from "./types";
 
 /**
  * Composes and owns Workspace instances.

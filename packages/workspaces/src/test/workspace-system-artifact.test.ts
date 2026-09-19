@@ -2,21 +2,21 @@ import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
 import { afterAll, describe, expect, it } from "vitest";
 import { classifyFile } from "../classification";
 import { WorkspaceSourceUnavailableError } from "../errors";
-import type { WorkspaceExtension } from "../extension";
 import { InMemoryWorkspaceStore } from "../in-memory-workspace-store";
-import type { WorkspaceCtor } from "../instance";
 import { nodeFileSystem } from "../node";
 import type {
   FileContentResult,
+  ObservedFacts,
+  WorkspaceCtor,
+  WorkspaceExtension,
   WorkspaceFile,
   WriteOutcome,
-} from "../workspace";
-import type { ObservedFacts } from "../workspace-store";
+} from "../types";
 import type { WorkspaceSystem } from "../workspace-system";
+
 import { directorySystem } from "./helpers/directory-system";
 
 /**

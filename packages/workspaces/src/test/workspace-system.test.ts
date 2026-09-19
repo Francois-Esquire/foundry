@@ -8,7 +8,6 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
 import { afterAll, describe, expect, it } from "vitest";
 import {
   InvalidWorkspaceInputError,
@@ -18,11 +17,14 @@ import {
   WorkspaceSourceUnavailableError,
   WorkspaceSourceUnsupportedError,
 } from "../errors";
-import type { WorkspaceFileSystem } from "../filesystem";
 import { InMemoryWorkspaceStore } from "../in-memory-workspace-store";
 import { nodeFileSystem, sha256Hex } from "../node";
-import type { WorkspaceId } from "../workspace";
-import type { WorkspaceStore } from "../workspace-store";
+import type {
+  WorkspaceFileSystem,
+  WorkspaceId,
+  WorkspaceStore,
+} from "../types";
+
 import { directorySystem } from "./helpers/directory-system";
 import {
   artifactWorkspace,

@@ -1,12 +1,11 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
 import { expect, it, vi } from "vitest";
-
 import { directory } from "../node";
 import { nodeObserver } from "../node/watch";
-import type { WorkspaceChange } from "../workspace";
+import type { WorkspaceChange } from "../types";
+
 import { WorkspaceSystem } from "../workspace-system";
 
 it("reconciles an external disk write and does not duplicate a save", async () => {

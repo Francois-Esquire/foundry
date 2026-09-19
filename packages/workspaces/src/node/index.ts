@@ -13,15 +13,13 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { basename, dirname, join, sep } from "node:path";
-
 import type { EntryStats, Storage } from "@foundry/core/storage";
-
 import type { DirectoryOptions as PortableDirectoryOptions } from "../directory";
 import {
   directory as storageDirectory,
   WithDirectory as WithStorageDirectory,
 } from "../directory";
-import type { WorkspaceCtor } from "../instance";
+import type { WorkspaceCtor } from "../types";
 
 export type DirectoryOptions = Partial<PortableDirectoryOptions>;
 

@@ -9,26 +9,20 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
 import { afterAll, describe, expect, test, vi } from "vitest";
-
 import type { DirectoryRef } from "../../directory";
-import type {
-  AnyWorkspaceExtension,
-  WorkspaceExtension,
-} from "../../extension";
 import { sha256Hex } from "../../node";
 import type {
+  AnyWorkspaceExtension,
+  StoredWorkspaceRecord,
   WorkspaceChange,
   WorkspaceEntry,
   WorkspaceEntryId,
+  WorkspaceExtension,
   WorkspaceFile,
   WorkspaceId,
-} from "../../workspace";
-import type {
-  StoredWorkspaceRecord,
   WorkspaceStore,
-} from "../../workspace-store";
+} from "../../types";
 import type { WorkspaceSystem } from "../../workspace-system";
 
 export interface WorkspaceSystemConformanceHarness {

@@ -9,15 +9,17 @@ import {
   WorkspaceSourceUnavailableError,
   WorkspaceSourceUnsupportedError,
 } from "./errors";
-import { observe } from "./observation";
+import { nextWorkspaceObservation, observe } from "./observation";
 import { createEntryRecord, diffCatalog, isEmptyChange } from "./reconcile";
 import { decodeUtf8 } from "./text";
 import type {
   FileContentResult,
   FileTextSnapshot,
+  ObservedFacts,
   SaveFileCommand,
   SaveFileResult,
-  WorkspaceChange,
+  StoredWorkspaceRecord,
+  WorkspaceContext,
   WorkspaceEntry,
   WorkspaceEntryId,
   WorkspaceFile,
@@ -28,46 +30,8 @@ import type {
   WorkspaceSummary,
   WorkspaceView,
   WriteOutcome,
-} from "./workspace";
+} from "./types";
 import { workspaceSummary } from "./workspace";
-import type {
-  ObservedFacts,
-  StoredWorkspaceRecord,
-  WorkspaceStore,
-} from "./workspace-store";
-import { nextWorkspaceObservation } from "./workspace-store";
-
-/**
- * What every instance shares with the system that made it.
- *
- * The two maps are the system's, never the instance's: two instances of the
- * same id must join the same running observation and the same save/scan
- * chain, or the serialization guarantee below is silently lost.
- */
-export interface WorkspaceContext {
-  readonly changed?: (change: WorkspaceChange) => void;
-  /** Tells the system an instance is finished with, so it stops and forgets it. */
-  readonly close: (workspaceId: WorkspaceId) => Promise<void>;
-  /** The observation currently running for a Workspace, if any. */
-  readonly observing: Map<WorkspaceId, Promise<WorkspaceSourceStatus>>;
-  /**
-   * Per-Workspace exclusion shared by observations and saves. A scan that
-   * read pre-write bytes must not commit after a save's targeted observation
-   * — serializing both makes the save's facts land in a gap no stale broad
-   * commit can close. In-process only; a second system over the same store
-   * remains the documented persistence-collision case.
-   */
-  readonly serialized: Map<WorkspaceId, Promise<void>>;
-  readonly store: WorkspaceStore;
-}
-
-/**
- * What a layer extends. Every layer takes `(record, context)`; the rest
- * signature is TypeScript's requirement for a mixin base (TS2545), not a
- * looser contract.
- */
-// biome-ignore lint/suspicious/noExplicitAny: The generic mixin constructor requires an any[] rest parameter under TS2545.
-export type WorkspaceCtor<T = Workspace> = new (...args: any[]) => T;
 
 /**
  * The root of every Workspace: identity, catalog, reconciliation, and the

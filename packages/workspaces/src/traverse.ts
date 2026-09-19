@@ -1,9 +1,9 @@
-import type { StorageNode, StorageReader } from "@foundry/core/storage";
+import type { DirectoryEntry, StorageReader } from "@foundry/core/storage";
 import { joinFilesystemPath, normalizeStoragePath } from "@foundry/lib/paths";
 import ignore from "ignore";
 import { sourceIssueFor, WorkspaceSourceUnavailableError } from "./errors";
-import type { DirectoryEntry } from "./filesystem";
 import { byCodeUnit } from "./ordering";
+import type { IgnoreScope, WalkedEntry } from "./types";
 
 /**
  * The built-in exclusions, versioned so a later change to the set is an
@@ -18,18 +18,6 @@ export const BASELINE_IGNORE_PATTERNS: readonly string[] = [
   ".DS_Store",
   "Thumbs.db",
 ];
-
-/**
- * Git-compatible ignore evaluation over a stack of `.gitignore` files.
- *
- * Each entry in the stack is scoped to the directory that declared it, which is
- * what makes a nested `.gitignore` apply to its own subtree only.
- */
-export interface IgnoreScope {
-  /** POSIX path of the declaring directory, relative to the Workspace root. */
-  readonly base: string;
-  readonly matcher: ignore.Ignore;
-}
 
 export function baselineIgnoreScope(): IgnoreScope {
   return {
@@ -85,17 +73,6 @@ function scopedPath(base: string, relativePath: string): string | null {
   return relativePath.startsWith(prefix)
     ? relativePath.slice(prefix.length)
     : null;
-}
-
-export interface WalkedEntry {
-  /**
-   * Built from the raw entry names the source reported, never from
-   * `relativePath` — a normalized spelling is not guaranteed to be openable on
-   * a filesystem that stores names decomposed.
-   */
-  readonly absolutePath: string;
-  readonly relativePath: string;
-  readonly type: StorageNode["type"];
 }
 
 /** Links are cataloged without traversal. An incomplete scan never reaches the catalog. */

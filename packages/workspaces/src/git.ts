@@ -1,3 +1,5 @@
+import type { WorkspaceCtor, WorkspaceExtension } from "./types";
+
 const WORKTREE_PREFIX_PATTERN = /^worktree /;
 const BRANCH_PREFIX_PATTERN = /^branch refs\/heads\//;
 
@@ -6,9 +8,6 @@ import { tmpdir } from "node:os";
 import { join, relative, sep } from "node:path";
 
 import simpleGit from "simple-git";
-
-import type { WorkspaceExtension } from "./extension";
-import type { WorkspaceCtor } from "./instance";
 
 import { byCodeUnit } from "./ordering";
 

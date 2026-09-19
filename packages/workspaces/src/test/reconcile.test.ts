@@ -1,14 +1,13 @@
 import { createHash } from "node:crypto";
-
 import { describe, expect, it } from "vitest";
 import { diffCatalog, isEmptyChange } from "../reconcile";
 import type {
+  ObservedFacts,
   WorkspaceEntry,
   WorkspaceEntryId,
   WorkspaceFile,
   WorkspaceId,
-} from "../workspace";
-import type { ObservedFacts } from "../workspace-store";
+} from "../types";
 
 /**
  * The identity rules, without a filesystem.

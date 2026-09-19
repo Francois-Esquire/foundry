@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { InMemoryWorkspaceStore } from "../in-memory-workspace-store";
-import type { WorkspaceChange } from "../workspace";
-import type { ObservedFacts } from "../workspace-store";
+import type { ObservedFacts, WorkspaceChange } from "../types";
+
 import { WorkspaceSystem } from "../workspace-system";
 
 function fixture() {

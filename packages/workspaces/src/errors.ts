@@ -1,3 +1,5 @@
+import type { WorkspaceSourceIssue } from "./types";
+
 export class WorkspaceSystemError extends Error {
   constructor(message: string, options?: { cause?: unknown }) {
     super(message, options);
@@ -18,14 +20,6 @@ export class WorkspaceFileNotFoundError extends WorkspaceSystemError {
     super(`File ${fileId} does not belong to Workspace ${workspaceId}`);
   }
 }
-
-/**
- * Why one incomplete observation failed, as a caller-facing distinction:
- * the source itself is gone, a part of it refused to be read, or the walk
- * broke for some other reason. Reconciliation reports one of these beside the
- * preserved prior catalog instead of throwing the whole operation away.
- */
-export type WorkspaceSourceIssue = "unavailable" | "unreadable" | "scan-failed";
 
 /** The source could not be observed completely, so no catalog was mutated. */
 export class WorkspaceSourceUnavailableError extends WorkspaceSystemError {

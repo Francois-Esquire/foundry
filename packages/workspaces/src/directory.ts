@@ -1,10 +1,11 @@
-import type { StorageObserver, StorageReader } from "@foundry/core/storage";
+import type {
+  EntryStats,
+  StorageObserver,
+  StorageReader,
+} from "@foundry/core/storage";
 import { sha256Hex } from "@foundry/lib/digest";
 import { isFilesystemPathWithin } from "@foundry/lib/paths";
 import { WorkspaceSourceUnavailableError } from "./errors";
-import type { WorkspaceExtension } from "./extension";
-import type { EntryStats, WorkspaceFileSystem } from "./filesystem";
-import type { WorkspaceCtor } from "./instance";
 import {
   canonicalizeRoot,
   resolveStoredPath,
@@ -14,10 +15,13 @@ import {
 import { decodeUtf8, errorCode } from "./text";
 import type {
   FileContentResult,
+  ObservedFacts,
+  WorkspaceCtor,
+  WorkspaceExtension,
   WorkspaceFile,
+  WorkspaceFileSystem,
   WriteOutcome,
-} from "./workspace";
-import type { ObservedFacts } from "./workspace-store";
+} from "./types";
 
 const DRIVE_PREFIX_PATTERN = /^[a-zA-Z]:/;
 

@@ -14,22 +14,18 @@
  * depends on this package, never the reverse.
  */
 
-export type { FileClassification } from "./classification";
+export type { DirectoryEntry, EntryStats } from "@foundry/core/storage";
+
 // biome-ignore lint/performance/noBarrelFile: This is a declared package entry point; preserve its public exports.
 export { CLASSIFICATION_VERSION, classifyFile } from "./classification";
-export type {
-  DirectoryEntry,
-  EntryStats,
-  WorkspaceFileSystem,
-} from "./filesystem";
+
 // `Git` itself is opt-in on `@foundry/workspaces/git`; only its result types
 // travel with the root.
 export type { GitPathStatus, GitSnapshot } from "./git";
 export { InMemoryWorkspaceStore } from "./in-memory-workspace-store";
+export { nextWorkspaceObservation } from "./observation";
 export { canonicalizeRoot, scanDirectory } from "./scanner";
 export { decodeUtf8 } from "./text";
-
-export type { IgnoreScope, WalkedEntry } from "./traverse";
 export {
   BASELINE_IGNORE_PATTERNS,
   BASELINE_IGNORE_VERSION,
@@ -38,41 +34,12 @@ export {
   isIgnored,
   walkEntries,
 } from "./traverse";
-export type {
-  FileContentResult,
-  FileKind,
-  FileTextSnapshot,
-  SaveFileCommand,
-  SaveFileResult,
-  WorkspaceChange,
-  WorkspaceEntry,
-  WorkspaceEntryId,
-  WorkspaceFile,
-  WorkspaceId,
-  WorkspaceRegistration,
-  WorkspaceSource,
-  WorkspaceSourceStatus,
-  WorkspaceSummary,
-  WorkspaceView,
-  WriteOutcome,
-} from "./workspace";
 export {
   FILE_KINDS,
   workspaceEntryIdSchema,
   workspaceIdSchema,
   workspaceSummary,
 } from "./workspace";
-export type {
-  CommitCreateResult,
-  CommitFileObservationResult,
-  CommitReconcileResult,
-  ObservedFacts,
-  RemoveWorkspaceResult,
-  StoredWorkspaceRecord,
-  WorkspaceCatalogChange,
-  WorkspaceStore,
-} from "./workspace-store";
-export { nextWorkspaceObservation } from "./workspace-store";
 
 // Reconciliation is deliberately unpublished. `diffCatalog` takes an identity
 // allocator, and handing that out invites a second owner of File identity
@@ -84,7 +51,7 @@ export type {
   DirectoryRef,
 } from "./directory";
 export { DIRECTORY_SOURCE, directory, WithDirectory } from "./directory";
-export type { WorkspaceSourceIssue } from "./errors";
+
 export {
   InvalidWorkspaceInputError,
   WorkspaceFileNotFoundError,
@@ -94,15 +61,46 @@ export {
   WorkspaceSourceUnsupportedError,
   WorkspaceSystemError,
 } from "./errors";
+
+export { Workspace } from "./instance";
 export type {
   AnyWorkspaceExtension,
   CapOf,
+  CommitCreateResult,
+  CommitFileObservationResult,
+  CommitReconcileResult,
+  FileClassification,
+  FileContentResult,
+  FileKind,
+  FileTextSnapshot,
   FloorFor,
+  IgnoreScope,
+  ObservedFacts,
   RefOf,
+  RemoveWorkspaceResult,
+  SaveFileCommand,
+  SaveFileResult,
+  StoredWorkspaceRecord,
+  WalkedEntry,
+  WorkspaceCatalogChange,
+  WorkspaceChange,
+  WorkspaceContext,
+  WorkspaceCtor,
+  WorkspaceEntry,
+  WorkspaceEntryId,
   WorkspaceExtension,
+  WorkspaceFile,
+  WorkspaceFileSystem,
+  WorkspaceId,
   WorkspaceIdentity,
-} from "./extension";
-export type { WorkspaceContext, WorkspaceCtor } from "./instance";
-export { Workspace } from "./instance";
-export type { WorkspaceSystemOptions } from "./workspace-system";
+  WorkspaceRegistration,
+  WorkspaceSource,
+  WorkspaceSourceIssue,
+  WorkspaceSourceStatus,
+  WorkspaceStore,
+  WorkspaceSummary,
+  WorkspaceSystemOptions,
+  WorkspaceView,
+  WriteOutcome,
+} from "./types";
 export { WorkspaceSystem } from "./workspace-system";

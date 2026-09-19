@@ -1,3 +1,10 @@
+import type {
+  SaveFileResult,
+  WorkspaceFileSystem,
+  WorkspaceId,
+  WorkspaceStore,
+} from "../types";
+
 /**
  * Host write authority. Exact-version reads feed `save`; every
  * confinement check re-runs before an atomic replacement; conflict, stale,
@@ -23,11 +30,10 @@ import { join } from "node:path";
 
 import { afterAll, describe, expect, it } from "vitest";
 import { WorkspaceFileNotFoundError, WorkspaceNotFoundError } from "../errors";
-import type { WorkspaceFileSystem } from "../filesystem";
+
 import { InMemoryWorkspaceStore } from "../in-memory-workspace-store";
 import { nodeFileSystem, sha256Hex } from "../node";
-import type { SaveFileResult, WorkspaceId } from "../workspace";
-import type { WorkspaceStore } from "../workspace-store";
+
 import { directorySystem } from "./helpers/directory-system";
 import {
   fileRecord,

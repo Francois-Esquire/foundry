@@ -1,11 +1,11 @@
 import { storageTree } from "@foundry/core/storage";
-
 import type {
+  ObservedFacts,
+  WorkspaceCatalogChange,
   WorkspaceEntry,
   WorkspaceEntryId,
   WorkspaceId,
-} from "./workspace";
-import type { ObservedFacts, WorkspaceCatalogChange } from "./workspace-store";
+} from "./types";
 
 /**
  * The exact difference between the last observation and this one.

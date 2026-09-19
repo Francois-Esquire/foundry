@@ -1,18 +1,15 @@
-import type { StorageReader } from "@foundry/core/storage";
-
+import type { DirectoryEntry, StorageReader } from "@foundry/core/storage";
 import { storageTree } from "@foundry/core/storage";
 import { sha256Hex } from "@foundry/lib/digest";
 import { joinFilesystemPath } from "@foundry/lib/paths";
 import { classifyFile } from "./classification";
-import type { WorkspaceSourceIssue } from "./errors";
 import {
   InvalidWorkspaceInputError,
   sourceIssueFor,
   WorkspaceSourceUnavailableError,
 } from "./errors";
-import type { DirectoryEntry } from "./filesystem";
 import { walkEntries } from "./traverse";
-import type { ObservedFacts } from "./workspace-store";
+import type { ObservedFacts, WorkspaceSourceIssue } from "./types";
 
 /**
  * The canonical absolute root a Workspace stores.

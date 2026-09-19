@@ -1,10 +1,6 @@
 import { storageTree } from "@foundry/core/storage";
+import { nextWorkspaceObservation } from "./observation";
 import { byCodeUnit } from "./ordering";
-import type {
-  WorkspaceEntry,
-  WorkspaceEntryId,
-  WorkspaceId,
-} from "./workspace";
 import type {
   CommitCreateResult,
   CommitFileObservationResult,
@@ -13,9 +9,11 @@ import type {
   RemoveWorkspaceResult,
   StoredWorkspaceRecord,
   WorkspaceCatalogChange,
+  WorkspaceEntry,
+  WorkspaceEntryId,
+  WorkspaceId,
   WorkspaceStore,
-} from "./workspace-store";
-import { nextWorkspaceObservation } from "./workspace-store";
+} from "./types";
 
 /** Zero-configuration reference persistence for WorkspaceSystem. */
 export class InMemoryWorkspaceStore implements WorkspaceStore {

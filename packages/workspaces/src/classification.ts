@@ -1,12 +1,4 @@
-import type { FileNode } from "@foundry/core/storage";
-
-import type { FileKind } from "./workspace";
-
-export interface FileClassification extends Pick<FileNode, "mime"> {
-  readonly extension: string | null;
-  readonly kind: FileKind;
-  readonly name: string;
-}
+import type { FileClassification, FileKind } from "./types";
 
 /**
  * The versioned extension table. Deterministic and deliberately small: an
