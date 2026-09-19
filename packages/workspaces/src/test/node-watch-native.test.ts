@@ -14,7 +14,7 @@ it("reconciles an external disk write and does not duplicate a save", async () =
     directory({ observer: nodeObserver })
   );
   try {
-    const workspace = await system.add({ path: root });
+    const workspace = await system.load({ path: root });
     const changed = vi.fn<(change: WorkspaceChange) => void>();
     system.on("change", changed);
     await writeFile(join(root, "a.txt"), "external");

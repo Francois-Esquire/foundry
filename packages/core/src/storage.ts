@@ -190,9 +190,26 @@ export interface StorageWriter {
 export interface AtomicStorageWriter {
   /**
    * Replaces an existing regular file. Failure leaves the original bytes
-   * unchanged. Does not promise compare-and-swap or crash durability.
+   * unchanged unless StorageApplicationError reports a committed source write.
+   * Implementations supporting a digest fence refuse stale writes atomically.
    */
-  replaceFile(path: string, bytes: Uint8Array): Promise<void>;
+  replaceFile(
+    path: string,
+    bytes: Uint8Array,
+    expectedDigest?: string
+  ): Promise<void>;
+}
+
+export class StorageApplicationError extends Error {
+  readonly committed = true;
+}
+
+export class StorageConflictError extends Error {
+  readonly current: Uint8Array;
+  constructor(current: Uint8Array) {
+    super("Storage changed before replacement");
+    this.current = current;
+  }
 }
 
 export interface Storage

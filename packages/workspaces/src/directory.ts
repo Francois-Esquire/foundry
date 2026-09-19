@@ -3,8 +3,14 @@ import type {
   StorageObserver,
   StorageReader,
 } from "@foundry/core/storage";
+import {
+  StorageApplicationError,
+  StorageConflictError,
+} from "@foundry/core/storage";
 import { sha256Hex } from "@foundry/lib/digest";
-import { decodeText } from "@foundry/lib/encoding";
+import { decodeText, decodeUtf8 } from "@foundry/lib/encoding";
+import { classifyFile } from "@foundry/lib/file-classification";
+import { isTextMime } from "@foundry/lib/mime";
 import { isFilesystemPathWithin } from "@foundry/lib/paths";
 import { DIRECTORY_SOURCE } from "./constants";
 import { errorCode, WorkspaceSourceUnavailableError } from "./errors";
@@ -26,9 +32,10 @@ import type {
 
 const DRIVE_PREFIX_PATTERN = /^[a-zA-Z]:/;
 
-export interface DirectoryOptions {
-  readonly filesystem: WorkspaceFileSystem;
+export interface DirectoryOptions<Ref extends object = DirectoryRef> {
+  readonly filesystem: WorkspaceFileSystem<Ref>;
   readonly observer?: StorageObserver;
+  readonly source?: string;
 }
 
 /**
@@ -45,9 +52,12 @@ export interface DirectoryCapable {
   readonly root: string;
 }
 
-export function WithDirectory<B extends WorkspaceCtor>(
+export function WithDirectory<
+  B extends WorkspaceCtor,
+  Ref extends object = DirectoryRef,
+>(
   Base: B,
-  options: DirectoryOptions
+  options: DirectoryOptions<Ref>
 ): B & WorkspaceCtor<DirectoryCapable> {
   const { filesystem } = options;
 
@@ -56,7 +66,42 @@ export function WithDirectory<B extends WorkspaceCtor>(
       return this.source.path;
     }
 
-    scan(): Promise<readonly ObservedFacts[]> {
+    async scan(): Promise<readonly ObservedFacts[]> {
+      if (filesystem.tree) {
+        try {
+          return Object.entries(await filesystem.tree(this.root)).map(
+            ([path, node]) => {
+              if (node.type !== "file") {
+                return {
+                  ...node,
+                  name: path.slice(path.lastIndexOf("/") + 1),
+                  path,
+                };
+              }
+              const classification = classifyFile(path);
+              return {
+                ...classification,
+                bytes: node.bytes,
+                digest: node.digest,
+                mime: node.mime ?? classification.mime,
+                path,
+                type: node.type,
+              };
+            }
+          );
+        } catch (cause) {
+          if (cause instanceof WorkspaceSourceUnavailableError) {
+            throw cause;
+          }
+          throw new WorkspaceSourceUnavailableError(
+            "Could not read the Workspace tree",
+            {
+              cause,
+              issue: "scan-failed",
+            }
+          );
+        }
+      }
       return scanDirectory(filesystem, this.root);
     }
 
@@ -72,7 +117,9 @@ export function WithDirectory<B extends WorkspaceCtor>(
       if (read.kind === "failure") {
         return { kind: contentKindFor(read.issue), reason: read.reason };
       }
-      const text = decodeText(read.bytes);
+      const text = isTextMime(file.mime)
+        ? decodeUtf8(read.bytes)
+        : decodeText(read.bytes);
       const digest = await sha256Hex(read.bytes);
       return text === null
         ? {
@@ -102,7 +149,9 @@ export function WithDirectory<B extends WorkspaceCtor>(
         return { kind: saveKindFor(read.issue), reason: read.reason };
       }
 
-      const currentText = decodeText(read.bytes);
+      const currentText = isTextMime(file.mime)
+        ? decodeUtf8(read.bytes)
+        : decodeText(read.bytes);
       if (currentText === null) {
         return {
           kind: "stale",
@@ -123,9 +172,25 @@ export function WithDirectory<B extends WorkspaceCtor>(
       }
 
       try {
-        await filesystem.replaceFile(read.resolved, bytes);
+        await filesystem.replaceFile(read.resolved, bytes, expectedDigest);
       } catch (error) {
-        // `replaceFile` guarantees a throw left the original bytes unchanged.
+        if (error instanceof StorageApplicationError) {
+          return { application: "pending", kind: "written" };
+        }
+        if (error instanceof StorageConflictError) {
+          const text = decodeText(error.current);
+          if (text === null) {
+            return { kind: "stale", reason: "File is no longer UTF-8 text" };
+          }
+          return {
+            current: {
+              bytes: error.current.byteLength,
+              digest: await sha256Hex(error.current),
+              text,
+            },
+            kind: "conflict",
+          };
+        }
         return {
           kind: "failed",
           reason: `Could not save ${file.path} (${errorCode(error)})`,
@@ -197,7 +262,7 @@ export function WithDirectory<B extends WorkspaceCtor>(
   };
 }
 
-/** What `add` takes for a directory: the path as selected, canonicalized here. */
+/** The selected directory path, canonicalized when loaded. */
 export interface DirectoryRef {
   readonly path: string;
 }
@@ -207,26 +272,36 @@ export interface DirectoryRef {
  * turns `{ path }` into an identity.
  *
  * A duplicate canonical root — including a different spelling of the same
- * directory, and including a concurrent add that wins the race — resolves
+ * directory, and including a concurrent load that wins the race — resolves
  * to the Workspace that already exists.
  */
-export function directory(
-  options: DirectoryOptions
-): WorkspaceExtension<DirectoryRef, DirectoryCapable> {
+export function directory<Ref extends object = DirectoryRef>(
+  options: DirectoryOptions<Ref>
+): WorkspaceExtension<Ref, DirectoryCapable> {
   const { filesystem } = options;
   return {
-    applies: (record) => record.source === DIRECTORY_SOURCE,
-    async identify({ path }) {
-      const root = await canonicalizeRoot(filesystem, path);
+    applies: (record) => record.source === (options.source ?? DIRECTORY_SOURCE),
+    async identify(ref) {
+      const resolved = filesystem.resolve ? await filesystem.resolve(ref) : ref;
+      if (!("path" in resolved) || typeof resolved.path !== "string") {
+        throw new Error("Directory reference requires a path resolver");
+      }
+      const root = await canonicalizeRoot(filesystem, resolved.path);
       return {
-        name: basenameOf(root, filesystem.separator),
+        name:
+          "name" in resolved && typeof resolved.name === "string"
+            ? resolved.name
+            : basenameOf(root, filesystem.separator),
         path: root,
-        source: DIRECTORY_SOURCE,
-        sourceId: null,
+        source: options.source ?? DIRECTORY_SOURCE,
+        sourceId:
+          "sourceId" in resolved && typeof resolved.sourceId === "string"
+            ? resolved.sourceId
+            : null,
       };
     },
     name: "directory",
-    ref: "path",
+    ref: filesystem.reference ?? "path",
     wrap: (Base) => WithDirectory(Base, options),
   };
 }

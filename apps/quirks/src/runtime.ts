@@ -74,8 +74,8 @@ export function bindRuntime(options: RuntimeOptions): Runtime {
     state,
     workspace: { root },
     workspaces: {
-      add: (ref) => catalogue.add(ref),
       git: (_root) => Git.at(_root, dry ? { run: echoGit(print) } : {}),
+      load: (ref) => catalogue.load(ref),
       on: (event, listener) => catalogue.on(event, listener),
     },
   };

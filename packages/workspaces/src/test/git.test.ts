@@ -405,7 +405,7 @@ describe("WithGit", () => {
   it("applies to a directory Workspace inside a working tree and reads live status", async () => {
     const root = await makeRepository({ "README.md": "hello" });
     const system = directorySystem().extend(gitLayer());
-    const added = await system.add({ path: root });
+    const added = await system.load({ path: root });
 
     await writeFile(join(root, "README.md"), "changed outside Studio");
     const snapshot = await added.git?.status();
@@ -426,7 +426,7 @@ describe("WithGit", () => {
   it("does not apply to an ordinary directory", async () => {
     const root = await makeDirectory({ "README.md": "hello" });
     const system = directorySystem().extend(gitLayer());
-    const added = await system.add({ path: root });
+    const added = await system.load({ path: root });
 
     expect(added.git).toBeUndefined();
   });
@@ -442,7 +442,7 @@ describe("WithGit", () => {
         },
       })
     );
-    const added = await system.add({ path: root });
+    const added = await system.load({ path: root });
 
     await added.git?.worktrees();
 
@@ -475,7 +475,7 @@ describe("WithGit", () => {
     const root = await makeRepository({ "README.md": "hello" });
     const store = new InMemoryWorkspaceStore();
     const system = directorySystem({ store }).extend(gitLayer());
-    const added = await system.add({ path: root });
+    const added = await system.load({ path: root });
     const writes: string[] = [];
     for (const method of [
       "commitCreate",

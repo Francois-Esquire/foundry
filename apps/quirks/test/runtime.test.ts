@@ -27,10 +27,10 @@ it("exposes directory cataloguing and dry-run Git through Workspaces", async () 
     expect(runtime.primitives.executors).toEqual([]);
     await writeFile(join(root, "notes.md"), "initial");
     const workspaces: Workspaces = runtime.primitives.workspaces;
-    const { add } = workspaces;
-    const workspace = await add({ path: root });
+    const { load } = workspaces;
+    const workspace = await load({ path: root });
     expect(await workspace.files()).toMatchObject([{ path: "notes.md" }]);
-    expect((await add({ path: root })).id).toBe(workspace.id);
+    expect((await load({ path: root })).id).toBe(workspace.id);
 
     const worktree = await workspaces.git(root).worktree({ base: "HEAD" });
     expect(lines.some((line) => line.includes("git worktree add"))).toBe(true);

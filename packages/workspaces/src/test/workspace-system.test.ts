@@ -78,7 +78,7 @@ describe("add({ path })", () => {
     });
     const system = directorySystem();
 
-    const workspace = await system.add({ path: root });
+    const workspace = await system.load({ path: root });
 
     expect(workspace.source).toEqual({
       kind: "host",
@@ -107,10 +107,10 @@ describe("add({ path })", () => {
     await symlink(root, alias, "dir");
     const system = directorySystem();
 
-    const first = await system.add({ path: root });
+    const first = await system.load({ path: root });
 
-    expect((await system.add({ path: root })).id).toBe(first.id);
-    expect((await system.add({ path: alias })).id).toBe(first.id);
+    expect((await system.load({ path: root })).id).toBe(first.id);
+    expect((await system.load({ path: alias })).id).toBe(first.id);
     expect(await system.list()).toHaveLength(1);
   });
 
@@ -119,8 +119,8 @@ describe("add({ path })", () => {
     const system = directorySystem();
 
     const [left, right] = await Promise.all([
-      system.add({ path: root }),
-      system.add({ path: root }),
+      system.load({ path: root }),
+      system.load({ path: root }),
     ]);
 
     expect(left.id).toBe(right.id);
@@ -140,7 +140,7 @@ describe("add({ path })", () => {
     };
     const system = directorySystem({ filesystem: failing, store });
 
-    await expect(system.add({ path: root })).rejects.toBeInstanceOf(
+    await expect(system.load({ path: root })).rejects.toBeInstanceOf(
       WorkspaceSourceUnavailableError
     );
     expect(await store.listWorkspaces()).toEqual([]);
@@ -151,7 +151,7 @@ describe("add({ path })", () => {
     const system = directorySystem();
 
     await expect(
-      system.add({ path: join(root, "README.md") })
+      system.load({ path: join(root, "README.md") })
     ).rejects.toBeInstanceOf(InvalidWorkspaceInputError);
   });
 
@@ -160,7 +160,7 @@ describe("add({ path })", () => {
 
     await expect(
       // @ts-expect-error -- `nope` is not a ref any registered floor accepts
-      system.add({ nope: "x" })
+      system.load({ nope: "x" })
     ).rejects.toBeInstanceOf(InvalidWorkspaceInputError);
   });
 });
@@ -169,7 +169,7 @@ describe("reload", () => {
   it("serves the same catalog through a freshly constructed system", async () => {
     const root = await makeRoot({ "README.md": "hello" });
     const store = new InMemoryWorkspaceStore();
-    const added = await systemOver(store).add({ path: root });
+    const added = await systemOver(store).load({ path: root });
 
     const reloaded = await systemOver(store).open(added.id);
 
@@ -180,7 +180,7 @@ describe("reload", () => {
   it("reports an unknown Workspace and an unowned File by identity", async () => {
     const root = await makeRoot({ "README.md": "hello" });
     const system = directorySystem();
-    const added = await system.add({ path: root });
+    const added = await system.load({ path: root });
     const absent = crypto.randomUUID() as WorkspaceId;
 
     await expect(system.open(absent)).rejects.toBeInstanceOf(
@@ -197,7 +197,7 @@ describe("Workspace registration identity and freshness", () => {
     const root = await makeRoot({ "README.md": "hello" });
     const store = new InMemoryWorkspaceStore();
     const system = directorySystem({ store });
-    const added = await system.add({ path: root });
+    const added = await system.load({ path: root });
     const before = await added.registration();
 
     expect(await added.summary()).not.toHaveProperty("source");
@@ -222,7 +222,7 @@ describe("Workspace registration identity and freshness", () => {
 
   it("refuses an empty name", async () => {
     const root = await makeRoot({ "README.md": "hello" });
-    const added = await directorySystem().add({ path: root });
+    const added = await directorySystem().load({ path: root });
 
     await expect(added.rename("   ")).rejects.toBeInstanceOf(
       InvalidWorkspaceInputError
@@ -234,7 +234,7 @@ describe("read", () => {
   it("returns current source text without changing the File row", async () => {
     const root = await makeRoot({ "README.md": "first" });
     const system = directorySystem();
-    const added = await system.add({ path: root });
+    const added = await system.load({ path: root });
     const [file] = await added.files();
     if (!file) {
       throw new Error("expected one File");
@@ -261,7 +261,7 @@ describe("read", () => {
     roots.push(outside);
     await writeFile(join(outside, "secret.txt"), "classified");
     const system = directorySystem();
-    const added = await system.add({ path: root });
+    const added = await system.load({ path: root });
     const [file] = await added.files();
     if (!file) {
       throw new Error("expected one File");
@@ -282,7 +282,7 @@ describe("read", () => {
     await mkdir(join(outside, "pkg"), { recursive: true });
     await writeFile(join(outside, "pkg", "notes.md"), "classified");
     const system = directorySystem();
-    const added = await system.add({ path: root });
+    const added = await system.load({ path: root });
     const [file] = await added.files();
     if (!file) {
       throw new Error("expected one File");
@@ -315,7 +315,7 @@ describe("read", () => {
     };
     const store = new InMemoryWorkspaceStore();
     const scanned = directorySystem({ store });
-    const added = await scanned.add({ path: root });
+    const added = await scanned.load({ path: root });
     const [file] = await added.files();
     if (!file) {
       throw new Error("expected one File");
@@ -335,7 +335,7 @@ describe("read", () => {
   it("reports a File that disappeared since reconciliation as stale", async () => {
     const root = await makeRoot({ "README.md": "first" });
     const system = directorySystem();
-    const added = await system.add({ path: root });
+    const added = await system.load({ path: root });
     const [file] = await added.files();
     if (!file) {
       throw new Error("expected one File");
@@ -355,7 +355,7 @@ describe("read", () => {
     const decomposed = `cafe${String.fromCodePoint(0x03_01)}.md`;
     const root = await makeRoot({ [decomposed]: "beans" });
     const system = directorySystem();
-    const added = await system.add({ path: root });
+    const added = await system.load({ path: root });
     const [file] = await added.files();
     if (!file) {
       throw new Error("expected one File");
@@ -447,7 +447,7 @@ describe("read", () => {
       },
     };
     const store = new InMemoryWorkspaceStore();
-    const added = await directorySystem({ store }).add({ path: root });
+    const added = await directorySystem({ store }).load({ path: root });
     const [file] = await added.files();
     if (!file) {
       throw new Error("expected one File");
@@ -465,7 +465,7 @@ describe("read", () => {
   it("separates a Workspace whose source is gone from one missing File", async () => {
     const root = await makeRoot({ "other.md": "second", "README.md": "first" });
     const system = directorySystem();
-    const added = await system.add({ path: root });
+    const added = await system.load({ path: root });
     const [first, second] = await added.files();
     if (!(first && second)) {
       throw new Error("expected two Files");
@@ -488,7 +488,7 @@ describe("read", () => {
     // a replacement character and call it content.
     await writeFile(join(root, "broken.txt"), Buffer.from([0xc3, 0x28]));
     const system = directorySystem();
-    const added = await system.add({ path: root });
+    const added = await system.load({ path: root });
     const [file] = await added.files();
     if (!file) {
       throw new Error("expected one File");
@@ -507,7 +507,7 @@ describe("read", () => {
     const root = await makeRoot({});
     await writeFile(join(root, "blob.bin"), Buffer.from([0xff, 0xfe, 0x00, 1]));
     const system = directorySystem();
-    const added = await system.add({ path: root });
+    const added = await system.load({ path: root });
     const [file] = await added.files();
     if (!file) {
       throw new Error("expected one File");
@@ -528,7 +528,7 @@ describe("reconciliation", () => {
     const root = await makeRoot(tree);
     const store = new InMemoryWorkspaceStore();
     const system = systemOver(store);
-    const added = await system.add({ path: root });
+    const added = await system.load({ path: root });
     const files = await added.files();
     return { added, files, id: added.id, root, store, system };
   }
@@ -678,8 +678,8 @@ describe("reconciliation", () => {
     const system = systemOver(store);
     const left = await makeRoot({ "twin.md": "identical bytes" });
     const right = await makeRoot({ "other.md": "unrelated" });
-    const leftWorkspace = await system.add({ path: left });
-    const rightWorkspace = await system.add({ path: right });
+    const leftWorkspace = await system.load({ path: left });
+    const rightWorkspace = await system.load({ path: right });
     const [leftFile] = await leftWorkspace.files();
 
     // The right Workspace gains a File with the left's exact fingerprint while
@@ -697,7 +697,7 @@ describe("reconciliation", () => {
     const { root, system, id, files } = await opened({ "README.md": "first" });
     await writeFile(join(root, "second.md"), "more");
 
-    const again = await system.add({ path: root });
+    const again = await system.load({ path: root });
 
     expect(again.id).toBe(id);
     expect((await again.summary()).fileCount).toBe(2);
@@ -819,7 +819,7 @@ describe("reconciliation", () => {
     // A first add throws here. A re-add that returned an instance instead
     // would report success over a source it could not read.
     await expect(
-      directorySystem({ filesystem: failing, store }).add({ path: root })
+      directorySystem({ filesystem: failing, store }).load({ path: root })
     ).rejects.toBeInstanceOf(WorkspaceSourceUnavailableError);
     expect(await store.listEntries(id)).toEqual(
       files.map((file) => ({ ...file, workspaceId: id }))
@@ -875,7 +875,7 @@ describe("remove", () => {
   it("deletes the rows and leaves every source File in place", async () => {
     const root = await makeRoot({ "README.md": "hi", "src/app.ts": "1" });
     const system = directorySystem();
-    const added = await system.add({ path: root });
+    const added = await system.load({ path: root });
 
     await added.remove();
 
@@ -890,7 +890,7 @@ describe("remove", () => {
   it("removes a Workspace whose source is gone and reports a second removal", async () => {
     const root = await makeRoot({ "README.md": "hi" });
     const system = directorySystem();
-    const added = await system.add({ path: root });
+    const added = await system.load({ path: root });
     await rm(root, { recursive: true });
 
     await added.remove();
@@ -903,7 +903,7 @@ describe("published contracts", () => {
   it("carries the source kind as a label and never a root or reference", async () => {
     const root = await makeRoot({ "README.md": "hello" });
     const system = directorySystem();
-    const added = await system.add({ path: root });
+    const added = await system.load({ path: root });
     const summary = await added.summary();
     const files = await added.files();
 
@@ -926,7 +926,7 @@ describe("lifecycle", () => {
   it("opens one instance per id and shares it until closed", async () => {
     const root = await makeRoot({ "README.md": "hello" });
     const system = directorySystem();
-    const added = await system.add({ path: root });
+    const added = await system.load({ path: root });
 
     expect(await system.open(added.id)).toBe(added);
     expect((await system.list())[0]).toBe(added);
@@ -956,7 +956,7 @@ describe("lifecycle", () => {
         },
     });
 
-    const added = await system.add({ path: root });
+    const added = await system.load({ path: root });
     await system.open(added.id);
     expect(events).toEqual(["start"]);
 
@@ -968,7 +968,7 @@ describe("lifecycle", () => {
   it("evicts a removed Workspace so a later open refuses it", async () => {
     const root = await makeRoot({ "README.md": "hello" });
     const system = directorySystem();
-    const added = await system.add({ path: root });
+    const added = await system.load({ path: root });
 
     await added.remove();
 
@@ -1006,7 +1006,7 @@ describe("lifecycle", () => {
         },
     });
 
-    const added = await system.add({ path: root });
+    const added = await system.load({ path: root });
 
     expect(added).toHaveProperty("label", `dir:${root}`);
     expect(added).toHaveProperty("root", root);

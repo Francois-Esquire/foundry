@@ -28,6 +28,9 @@ export async function canonicalizeRoot(
   try {
     canonical = await filesystem.realpath(selected);
   } catch (error) {
+    if (error instanceof WorkspaceSourceUnavailableError) {
+      throw error;
+    }
     throw new InvalidWorkspaceInputError("Selected root does not resolve", {
       cause: error,
     });
@@ -37,6 +40,9 @@ export async function canonicalizeRoot(
   try {
     stats = await filesystem.lstat(canonical);
   } catch (error) {
+    if (error instanceof WorkspaceSourceUnavailableError) {
+      throw error;
+    }
     throw new InvalidWorkspaceInputError("Selected root is not readable", {
       cause: error,
     });

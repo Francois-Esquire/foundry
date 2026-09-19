@@ -49,9 +49,9 @@ function bind(reply: Reply, options: BindOptions = {}) {
     sessions,
     workspace: { root: process.cwd() },
     workspaces: {
-      add: (ref) => catalogue.add(ref),
       git: (root) =>
         Git.at(root, options.live ? {} : { run: echoGit(() => undefined) }),
+      load: (ref) => catalogue.load(ref),
       on: (event, listener) => catalogue.on(event, listener),
     },
   });

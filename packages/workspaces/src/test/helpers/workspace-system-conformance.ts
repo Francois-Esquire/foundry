@@ -728,13 +728,13 @@ export function describeWorkspaceSystemConformance(
         });
         await mkdir(join(root, "empty"));
         await symlink("missing", join(root, "link"));
-        const workspace = await system.add({ path: root });
+        const workspace = await system.load({ path: root });
         const initial = await workspace.entries();
         expect(events).toEqual(
           initial.map((entry) => ({ action: "add", entry }))
         );
         events.length = 0;
-        await system.add({ path: root });
+        await system.load({ path: root });
         await workspace.refresh();
         expect(events).toEqual([]);
 
@@ -772,7 +772,7 @@ export function describeWorkspaceSystemConformance(
       test("save publishes once and no-op, conflict, and failed scans publish nothing", async () => {
         const { system } = await createHarness();
         const root = await sourceDirectory({ "file.txt": "first" });
-        const workspace = await system.add({ path: root });
+        const workspace = await system.load({ path: root });
         const [file] = await workspace.files();
         if (!file) {
           throw new Error("Expected file");
@@ -817,7 +817,7 @@ export function describeWorkspaceSystemConformance(
       test("removal waits for a save and deletes its committed descriptor", async () => {
         const { system, store } = await createHarness();
         const root = await sourceDirectory({ "file.txt": "first" });
-        const workspace = await system.add({ path: root });
+        const workspace = await system.load({ path: root });
         const [file] = await workspace.files();
         if (!file) {
           throw new Error("Expected file");
@@ -865,7 +865,7 @@ export function describeWorkspaceSystemConformance(
           events.push(change);
         });
         stop();
-        await system.add({
+        await system.load({
           path: await sourceDirectory({ "file.txt": "one" }),
         });
         expect(events).toEqual([]);
@@ -874,7 +874,7 @@ export function describeWorkspaceSystemConformance(
       test("waits for reconciliation when a saved file's catalog update fails", async () => {
         const { system, store } = await createHarness();
         const root = await sourceDirectory({ "file.txt": "first" });
-        const workspace = await system.add({ path: root });
+        const workspace = await system.load({ path: root });
         const [file] = await workspace.files();
         if (!file) {
           throw new Error("Expected file");
@@ -912,7 +912,7 @@ export function describeWorkspaceSystemConformance(
           "src/deep/app.ts": "const a = 1;\n",
         });
 
-        const added = await system.add({ path: root });
+        const added = await system.load({ path: root });
 
         expect(await added.summary()).toMatchObject({
           fileCount: 2,
@@ -932,9 +932,9 @@ export function describeWorkspaceSystemConformance(
         const { system } = await createHarness();
         const root = await sourceDirectory({ "README.md": "hello" });
 
-        const first = await system.add({ path: root });
+        const first = await system.load({ path: root });
 
-        expect((await system.add({ path: root })).id).toBe(first.id);
+        expect((await system.load({ path: root })).id).toBe(first.id);
         expect(
           (await system.list()).filter((w) => w.id === first.id)
         ).toHaveLength(1);
@@ -947,7 +947,7 @@ export function describeWorkspaceSystemConformance(
           "README.md": "first",
           "src/notes.md": "one of a kind",
         });
-        const added = await system.add({ path: root });
+        const added = await system.load({ path: root });
         const before = await added.files();
         const moved = before.find((file) => file.path === "src/notes.md");
         const edited = before.find((file) => file.path === "README.md");
@@ -979,7 +979,7 @@ export function describeWorkspaceSystemConformance(
       test("returns the prior catalog beside an unavailable source", async () => {
         const { system } = await createHarness();
         const root = await sourceDirectory({ "README.md": "hello" });
-        const added = await system.add({ path: root });
+        const added = await system.load({ path: root });
         const before = await added.files();
 
         await rm(root, { force: true, recursive: true });
@@ -996,7 +996,7 @@ export function describeWorkspaceSystemConformance(
           "README.md": "hello",
           "src/app.ts": "1",
         });
-        const added = await system.add({ path: root });
+        const added = await system.load({ path: root });
 
         await added.remove();
 
@@ -1009,7 +1009,7 @@ export function describeWorkspaceSystemConformance(
       test("reads the source's current text, not the catalogued facts", async () => {
         const { system } = await createHarness();
         const root = await sourceDirectory({ "README.md": "first" });
-        const added = await system.add({ path: root });
+        const added = await system.load({ path: root });
         const [file] = await added.files();
         if (!file) {
           throw new Error("expected one File");
@@ -1033,7 +1033,7 @@ export function describeWorkspaceSystemConformance(
       test("saves a host File and converges catalog, source, and version", async () => {
         const { system, store } = await createHarness();
         const root = await sourceDirectory({ "notes.md": "before" });
-        const added = await system.add({ path: root });
+        const added = await system.load({ path: root });
         const [file] = await added.files();
         if (!file) {
           throw new Error("expected one File");
@@ -1072,7 +1072,7 @@ export function describeWorkspaceSystemConformance(
       test("returns a conflict with the current snapshot and leaves the source unchanged", async () => {
         const { system } = await createHarness();
         const root = await sourceDirectory({ "notes.md": "mine" });
-        const added = await system.add({ path: root });
+        const added = await system.load({ path: root });
         const [file] = await added.files();
         if (!file) {
           throw new Error("expected one File");

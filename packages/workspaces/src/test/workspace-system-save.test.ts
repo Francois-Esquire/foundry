@@ -73,7 +73,7 @@ async function opened(
   const root = await makeRoot(tree);
   const store = new InMemoryWorkspaceStore();
   const system = directorySystem({ filesystem, store });
-  const workspace = await system.add({ path: root });
+  const workspace = await system.load({ path: root });
   const files = await workspace.files();
   return { files, id: workspace.id, root, store, system, workspace };
 }
@@ -476,7 +476,7 @@ describe("catalog observation after write", () => {
       Promise.reject(new Error("catalog write refused"))
     );
     const system = directorySystem({ filesystem, store: faulty });
-    const workspace = await system.add({ path: root });
+    const workspace = await system.load({ path: root });
     const file = one(await workspace.files());
 
     const result = await workspace.save({
@@ -515,7 +515,7 @@ describe("catalog observation after write", () => {
       Promise.resolve({ kind: "path-mismatch" as const })
     );
     const system = directorySystem({ store: refusing });
-    const workspace = await system.add({ path: root });
+    const workspace = await system.load({ path: root });
     const file = one(await workspace.files());
 
     const result = await workspace.save({
@@ -552,7 +552,7 @@ describe("catalog observation after write", () => {
       },
     };
     const setup = directorySystem({ store });
-    const registered = await setup.add({ path: root });
+    const registered = await setup.load({ path: root });
     const file = one(await registered.files());
 
     // Two instances of one id over one system: they must share the chain.

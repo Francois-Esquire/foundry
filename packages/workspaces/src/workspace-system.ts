@@ -28,7 +28,7 @@ import type {
  * root in registration order. The system holds one live instance per id and
  * runs its lifecycle; nothing else starts or stops one.
  *
- * `Exts` is the tuple of registered extensions. It types `add` by the refs
+ * `Exts` is the tuple of registered extensions. It types `load` by the refs
  * the floors accept and every returned Workspace by the capabilities the
  * layers declare, so what comes out of a system is what went into it.
  */
@@ -168,7 +168,7 @@ export class WorkspaceSystem<
    * back its Workspace. The floor whose key the ref carries turns it into an
    * identity; `create` does the rest.
    */
-  async add<R extends RefOf<Exts>>(
+  async load<R extends RefOf<Exts>>(
     ref: R
   ): Promise<Workspace & CapOf<Exts> & FloorFor<Exts, R>> {
     const floor = this.extensions.find(
@@ -188,9 +188,9 @@ export class WorkspaceSystem<
    * registered over its path, reconciled.
    *
    * The complete inventory is built before anything is written, so a failed
-   * first scan creates nothing. A re-add is one of the moments the design
+   * first scan creates nothing. Reloading is one of the moments the design
    * reconciles: it runs literally the path `refresh` runs, and throws when
-   * the source cannot be observed, so it says the same thing a first add
+   * the source cannot be observed, so it says the same thing a first load
    * would rather than returning an instance over a status it discarded.
    */
   async create(identity: WorkspaceIdentity): Promise<Workspace & CapOf<Exts>> {

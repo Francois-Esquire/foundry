@@ -219,7 +219,7 @@ async function observeFiles(
   spec: FileMonitor,
   previous: unknown
 ): Promise<Observation> {
-  const workspace = await primitives.workspaces.add({
+  const workspace = await primitives.workspaces.load({
     path: spec.root ?? primitives.workspace.root,
   });
   const { entries } = await workspace.refresh();

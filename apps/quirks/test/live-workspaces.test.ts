@@ -13,7 +13,7 @@ vi.mock("~/schedule", () => ({ tick: vi.fn() }));
 it("dispatches workspace changes and retains a change arriving during a tick", async () => {
   const root = await mkdtemp(join(tmpdir(), "live-workspaces-"));
   const system = new WorkspaceSystem().extend(directory());
-  const workspace = await system.add({ path: root });
+  const workspace = await system.load({ path: root });
   const abort = new AbortController();
   const first = Promise.withResolvers<undefined>();
   vi.mocked(tick)
@@ -38,7 +38,7 @@ it("dispatches workspace changes and retains a change arriving during a tick", a
       root,
       signal: abort.signal,
       workspaces: {
-        add: (ref) => system.add(ref),
+        load: (ref) => system.load(ref),
         on: (event, listener) => system.on(event, listener),
       },
     }

@@ -299,7 +299,7 @@ describe.each([
     open: async () => {
       const root = await makeRoot(TREE);
       const system = directorySystem();
-      return { added: await system.add({ path: root }), system };
+      return { added: await system.load({ path: root }), system };
     },
   },
   {
@@ -388,7 +388,7 @@ describe("mixed-layer collection", () => {
     const root = await makeRoot(TREE);
     const { system, add } = seed();
 
-    const host = await system.add({ path: root });
+    const host = await system.load({ path: root });
     const other = await add();
 
     expect(

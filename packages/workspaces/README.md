@@ -35,7 +35,7 @@ import { directory } from "@foundry/workspaces/node";
 
 const workspaces = new WorkspaceSystem().extend(directory()).extend(git());
 
-const ws = await workspaces.add({ path: "." });
+const ws = await workspaces.load({ path: "." });
 await ws.refresh();
 const entries = await ws.entries();
 const files = await ws.files();
@@ -99,10 +99,10 @@ source; anything after it only adds. A record no layer claims is refused at
 open with `WorkspaceSourceUnsupportedError`.
 
 The system is the source of every Workspace. A floor also names the ref
-`add` accepts (`ref: "path"`) and turns it into a registration (`identify`);
-`add` dispatches on the key. Every extension carries three types the system
-accumulates through `extend` — the ref, what `add(ref)` returns, and what
-every opened Workspace carries — so a composed system's `add`, `open`, and
+`load` accepts (`ref: "path"`) and turns it into a registration (`identify`);
+`load` dispatches on the key. Every extension carries three types the system
+accumulates through `extend` — the ref, what `load(ref)` returns, and what
+every opened Workspace carries — so a composed system's `load`, `open`, and
 `list` are typed by exactly the layers it holds. A layer that applies per
 record declares its capability optional (`{ git?: Git }`).
 

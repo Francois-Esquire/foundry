@@ -34,7 +34,7 @@ function primitivesIn(root: string, state?: string) {
     log: (line: string) => lines.push(line),
     state,
     workspace: { root },
-    workspaces: { add: (ref: { path: string }) => catalogue.add(ref) },
+    workspaces: { load: (ref: { path: string }) => catalogue.load(ref) },
   } as never;
   return { lines, primitives };
 }

@@ -6,8 +6,8 @@
  * identity, inclusion, and the last successfully reconciled inventory.
  *
  * The root `Workspace` knows nothing about where bytes come from. A layer
- * (`WithDirectory` here, the Artifact one in the artifacts package) answers
- * that, and further layers (`WithGit` on the git subpath) add capability.
+ * (`WithDirectory` with a supplied filesystem) answers that, and further layers
+ * (`WithGit` on the git subpath) add capability.
  * `WorkspaceSystem` composes them at open and owns the instance lifecycle.
  *
  * The dependency runs one way: `@foundry/db` supplies the durable store and

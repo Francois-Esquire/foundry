@@ -41,8 +41,8 @@ type DirectoryCatalogue = WorkspaceSystem<
 
 /** Catalogue directories and operate on Git working trees. */
 export interface Workspaces {
-  readonly add: DirectoryCatalogue["add"];
   readonly git: (root: string) => Git;
+  readonly load: DirectoryCatalogue["load"];
   readonly on: DirectoryCatalogue["on"];
 }
 

@@ -6,6 +6,7 @@ import type {
   StorageNode,
   StorageObserver,
   StorageReader,
+  StorageTree,
 } from "@foundry/core/storage";
 import type {
   FileClassification,
@@ -136,6 +137,7 @@ export type SaveFileResult =
       readonly kind: "saved";
       readonly snapshot: FileTextSnapshot;
       readonly catalog: "current" | "refresh-required";
+      readonly application?: "pending";
     }
   | { readonly kind: "conflict"; readonly current: FileTextSnapshot }
   | { readonly kind: "stale"; readonly reason: string }
@@ -147,7 +149,7 @@ export type SaveFileResult =
  * into the saved snapshot and the catalog observation.
  */
 export type WriteOutcome =
-  | { readonly kind: "written" }
+  | { readonly kind: "written"; readonly application?: "pending" }
   | Exclude<SaveFileResult, { readonly kind: "saved" }>;
 
 /**
@@ -306,10 +308,10 @@ export type WorkspaceIdentity = Pick<
  * anything after it only adds.
  *
  * The three type parameters are what the system accumulates through
- * `extend`, so a composed system's `add` and `open` are typed by the layers
+ * `extend`, so a composed system's `load` and `open` are typed by the layers
  * it holds:
  *
- * - `Ref` — what `add` accepts for this layer's source (`{ path }`). Only a
+ * - `Ref` — what `load` accepts for this layer's source (`{ path }`). Only a
  *   floor has one; `ref` names the key the system dispatches on.
  * - `Floor` — what `add(ref)` returns beyond the root (`DirectoryCapable`).
  * - `Cap` — what every opened Workspace carries. A layer that applies per
@@ -370,10 +372,20 @@ type UnionToIntersection<U> = (
   ? I
   : unknown;
 
-export interface WorkspaceFileSystem
-  extends StorageReader,
+export interface WorkspaceFileSystem<
+  Ref extends object = { readonly path: string },
+> extends StorageReader,
     AtomicStorageWriter,
-    Partial<StorageObserver> {}
+    Partial<StorageObserver> {
+  readonly reference?: keyof Ref & string;
+  resolve?(ref: Ref): Promise<{
+    readonly path: string;
+    readonly name?: string;
+    readonly sourceId?: string;
+  }>;
+  /** An authoritative inventory bypasses filesystem ignore rules and byte hashing. */
+  tree?(root: string): Promise<StorageTree>;
+}
 
 /**
  * What every instance shares with the system that made it.

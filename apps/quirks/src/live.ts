@@ -62,7 +62,7 @@ export interface LiveMonitor {
 export interface LiveOptions extends LoopOptions {
   /** What a files monitor without `root` watches. */
   readonly root: string;
-  readonly workspaces: Pick<Workspaces, "add" | "on">;
+  readonly workspaces: Pick<Workspaces, "load" | "on">;
 }
 
 /**
@@ -151,7 +151,7 @@ export async function runLive(
       if (spec.kind === "files") {
         const root = spec.root ?? options.root;
         try {
-          const workspace = await options.workspaces.add({ path: root });
+          const workspace = await options.workspaces.load({ path: root });
           if (signal.aborted) {
             break;
           }

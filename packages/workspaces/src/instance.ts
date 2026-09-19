@@ -284,9 +284,15 @@ export class Workspace {
       text: written,
     };
     return {
-      catalog: await this.recordWrite(workspace, file, snapshot),
+      catalog:
+        outcome.application === "pending"
+          ? "refresh-required"
+          : await this.recordWrite(workspace, file, snapshot),
       kind: "saved",
       snapshot,
+      ...(outcome.application === undefined
+        ? {}
+        : { application: outcome.application }),
     };
   }
 
