@@ -115,8 +115,9 @@ describe("@foundry/lib/config/authorization boundaries", () => {
   });
 
   it("keeps config a leaf, so hosts adopting it cannot create a cycle", () => {
+    expect(packageJson).not.toHaveProperty("dependencies");
     expect(
-      Object.keys(packageJson.dependencies).filter((name) =>
+      Object.keys(packageJson.peerDependencies).filter((name) =>
         name.startsWith("@foundry/")
       )
     ).toEqual([]);
