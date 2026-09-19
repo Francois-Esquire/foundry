@@ -7,16 +7,16 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { globToRegExp } from "@foundry/lib/glob";
 import { monitor, step } from "@foundry/quirks";
 import { WorkspaceSystem } from "@foundry/workspaces";
 import { git } from "@foundry/workspaces/git";
 import { directory } from "@foundry/workspaces/node";
 import { afterEach, describe, expect, it } from "vitest";
-
 import type { Primitives } from "~/lib/registry";
 import { registry } from "~/lib/registry";
 import type { Change, Fetch, MonitorSpec } from "~/monitor";
-import { detector, globToRegExp, resolveMonitor } from "~/monitor";
+import { detector, resolveMonitor } from "~/monitor";
 import { isRecord, readJson } from "~/state/json";
 
 const SHA_256_HEX_PATTERN = /^[0-9a-f]{64}$/;

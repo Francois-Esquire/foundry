@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 
+import { globToRegExp } from "@foundry/lib/glob";
+
 import type { CalendarSlot, Primitives, StepBody } from "~/lib/registry";
 
 import { isRecord, readJson, writeJson } from "~/state/json";
@@ -93,7 +95,6 @@ export interface Detection {
 export const DEFAULT_EVERY = "60s";
 const NETWORK_SOURCE = /^(https?|wss?):\/\//;
 const WEBSOCKET_SOURCE = /^wss?:\/\//;
-const REGEXP_SPECIAL = /[.+^$()|[\]\\{}]/;
 
 export function resolveMonitor(options: MonitorOptions): MonitorSpec {
   if (typeof options === "string") {
@@ -117,39 +118,6 @@ export function describeMonitor(spec: MonitorSpec): string {
     return `http ${spec.url}`;
   }
   return `ws ${spec.url} live`;
-}
-
-/** `*`, `**`, `?` and `{a,b}` over POSIX paths; everything else is literal. */
-export function globToRegExp(glob: string): RegExp {
-  let out = "";
-  let braces = 0;
-  for (let i = 0; i < glob.length; i += 1) {
-    const char = glob[i] ?? "";
-    if (char === "*" && glob[i + 1] === "*") {
-      i += 1;
-      if (glob[i + 1] === "/") {
-        i += 1;
-        out += "(?:.*/)?";
-      } else {
-        out += ".*";
-      }
-    } else if (char === "*") {
-      out += "[^/]*";
-    } else if (char === "?") {
-      out += "[^/]";
-    } else if (char === "{") {
-      braces += 1;
-      out += "(?:";
-    } else if (char === "}" && braces > 0) {
-      braces -= 1;
-      out += ")";
-    } else if (char === "," && braces > 0) {
-      out += "|";
-    } else {
-      out += char.replace(REGEXP_SPECIAL, "\\$&");
-    }
-  }
-  return new RegExp(`^${out}$`);
 }
 
 function stableJson(value: unknown): string {

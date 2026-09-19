@@ -1,8 +1,8 @@
 import type { DirectoryEntry, StorageReader } from "@foundry/core/storage";
 import { storageTree } from "@foundry/core/storage";
 import { sha256Hex } from "@foundry/lib/digest";
+import { classifyFile } from "@foundry/lib/file-classification";
 import { joinFilesystemPath } from "@foundry/lib/paths";
-import { classifyFile } from "./classification";
 import {
   InvalidWorkspaceInputError,
   sourceIssueFor,

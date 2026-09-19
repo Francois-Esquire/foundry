@@ -1,6 +1,6 @@
 import { storageTree } from "@foundry/core/storage";
+import { byCodeUnit } from "@foundry/lib/ordering";
 import { nextWorkspaceObservation } from "./observation";
-import { byCodeUnit } from "./ordering";
 import type {
   CommitCreateResult,
   CommitFileObservationResult,

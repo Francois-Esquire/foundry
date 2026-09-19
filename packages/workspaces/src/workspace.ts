@@ -11,23 +11,6 @@ export const workspaceEntryIdSchema = z
   .min(1, "WorkspaceEntryId must not be empty")
   .brand("WorkspaceEntryId");
 
-/**
- * The coarse whole-file categories. Deliberately not code symbols: a `FileKind`
- * classifies the file, a symbol is a future analysis-derived declaration.
- */
-export const FILE_KINDS = [
-  "code",
-  "document",
-  "image",
-  "audio",
-  "video",
-  "data",
-  "config",
-  "skill",
-  "agent",
-  "other",
-] as const;
-
 export function workspaceSummary(
   workspace: WorkspaceRegistration,
   fileCount: number

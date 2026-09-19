@@ -1,6 +1,7 @@
 import type { StorageSubscription } from "@foundry/core/storage";
 import { storageTree } from "@foundry/core/storage";
 import { sha256Hex } from "@foundry/lib/digest";
+import { decodeText } from "@foundry/lib/encoding";
 import {
   InvalidWorkspaceInputError,
   WorkspaceFileNotFoundError,
@@ -11,7 +12,6 @@ import {
 } from "./errors";
 import { nextWorkspaceObservation, observe } from "./observation";
 import { createEntryRecord, diffCatalog, isEmptyChange } from "./reconcile";
-import { decodeUtf8 } from "./text";
 import type {
   FileContentResult,
   FileTextSnapshot,
@@ -265,7 +265,7 @@ export class Workspace {
     // would not decode back to text (a draft containing NUL would turn the
     // File binary and break every later read/save round-trip).
     const bytes = new TextEncoder().encode(command.text);
-    const written = decodeUtf8(bytes);
+    const written = decodeText(bytes);
     if (written === null) {
       return {
         kind: "failed",

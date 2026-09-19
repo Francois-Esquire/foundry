@@ -5,7 +5,11 @@ Import shared helpers directly from their owning module:
 - `@foundry/lib/paths`: storage spelling, filesystem paths, and resource URIs. Bind a URI scheme once with `resourcePaths(scheme)`.
 - `@foundry/lib/digest`: SHA-256 hex digests of text or bytes and canonical JSON digests.
 - `@foundry/lib/json`: canonical JSON serialization.
-- `@foundry/lib/encoding`: Base64 conversion for bytes.
+- `@foundry/lib/encoding`: Base64 conversion, strict UTF-8 decoding, and NUL-aware text detection.
+- `@foundry/lib/glob`: POSIX glob matching with `*`, `**`, `?`, and brace alternatives.
+- `@foundry/lib/ordering`: locale-independent string-key comparators.
+- `@foundry/lib/mime`: shared MIME constants and text MIME detection.
+- `@foundry/lib/file-classification`: filename classification, `FileClassification`, `FileKind`, `FILE_KINDS`, and `CLASSIFICATION_VERSION`.
 
 These modules have no third-party dependencies or filesystem I/O. Storage contracts and structural validation live in `@foundry/core/storage`.
 Configuration requires the optional Zod peer; `@foundry/lib/readable-name` requires the optional `unique-names-generator` peer.

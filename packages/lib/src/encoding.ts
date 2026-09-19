@@ -1,3 +1,17 @@
+/** Invalid UTF-8 returns null; valid NUL characters are preserved. */
+export function decodeUtf8(bytes: Uint8Array): string | null {
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    return null;
+  }
+}
+
+/** NUL bytes are treated as binary, even when the bytes are valid UTF-8. */
+export function decodeText(bytes: Uint8Array): string | null {
+  return bytes.includes(0) ? null : decodeUtf8(bytes);
+}
+
 export function bytesToBase64(bytes: Uint8Array): string {
   const chunkSize = 32_768;
   let binary = "";

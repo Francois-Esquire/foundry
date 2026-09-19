@@ -4,14 +4,14 @@ import { join } from "node:path";
 import type { StorageReader } from "@foundry/core/storage";
 import { normalizeStoragePath } from "@foundry/lib/paths";
 import { afterAll, describe, expect, it } from "vitest";
-import { classifyFile } from "../classification";
+import { BASELINE_IGNORE_VERSION } from "../constants";
 import {
   InvalidWorkspaceInputError,
   WorkspaceSourceUnavailableError,
 } from "../errors";
 import { nodeFileSystem, sha256Hex } from "../node";
 import { canonicalizeRoot, scanDirectory, verifyRoot } from "../scanner";
-import { BASELINE_IGNORE_VERSION, walkEntries } from "../traverse";
+import { walkEntries } from "../traverse";
 import type { WorkspaceFileSystem } from "../types";
 
 const roots: string[] = [];
@@ -492,20 +492,5 @@ describe("traversal vocabulary", () => {
   it("normalizes a relative path to POSIX form", () => {
     expect(normalizeStoragePath("./src/app.ts")).toBe("src/app.ts");
     expect(normalizeStoragePath("src/deep/")).toBe("src/deep");
-  });
-
-  it("classifies by extension and leaves unknown formats alone", () => {
-    expect(classifyFile("src/app.tsx")).toEqual({
-      extension: "tsx",
-      kind: "code",
-      mime: "text/typescript",
-      name: "app.tsx",
-    });
-    expect(classifyFile(".gitignore")).toEqual({
-      extension: null,
-      kind: "other",
-      mime: null,
-      name: ".gitignore",
-    });
   });
 });

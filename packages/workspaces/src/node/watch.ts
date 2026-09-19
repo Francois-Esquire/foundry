@@ -1,13 +1,10 @@
 import { watch } from "node:fs";
-
 import type {
   StorageObserver,
   StorageSubscription,
 } from "@foundry/core/storage";
-
 import { polling } from "../observation";
-
-const SKIP = /(^|[\\/])(node_modules|\.git)([\\/]|$)/;
+import { SKIP } from "./constants";
 
 export const nodeObserver: StorageObserver = {
   async watch(root, changed, failed) {

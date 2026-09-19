@@ -1,5 +1,11 @@
 import type { WorkspaceSourceIssue } from "./types";
 
+/** The errno alone, never the message, which carries the absolute path. */
+export function errorCode(error: unknown): string {
+  const code: unknown = (error as { code?: unknown } | null)?.code;
+  return typeof code === "string" ? code : "unknown";
+}
+
 export class WorkspaceSystemError extends Error {
   constructor(message: string, options?: { cause?: unknown }) {
     super(message, options);

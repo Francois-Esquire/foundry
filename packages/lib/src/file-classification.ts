@@ -1,4 +1,27 @@
-import type { FileClassification, FileKind } from "./types";
+import { HTML_MIME } from "./mime";
+
+/** Coarse whole-file categories; code symbols belong to analysis. */
+export const FILE_KINDS = [
+  "code",
+  "document",
+  "image",
+  "audio",
+  "video",
+  "data",
+  "config",
+  "skill",
+  "agent",
+  "other",
+] as const;
+
+export type FileKind = (typeof FILE_KINDS)[number];
+
+export interface FileClassification {
+  readonly extension: string | null;
+  readonly kind: FileKind;
+  readonly mime: string | null;
+  readonly name: string;
+}
 
 /**
  * The versioned extension table. Deterministic and deliberately small: an
@@ -15,7 +38,7 @@ const BY_EXTENSION: Readonly<
   env: { kind: "config", mime: "text/plain" },
   gif: { kind: "image", mime: "image/gif" },
   go: { kind: "code", mime: "text/x-go" },
-  html: { kind: "code", mime: "text/html" },
+  html: { kind: "code", mime: HTML_MIME },
   ini: { kind: "config", mime: "text/plain" },
   jpeg: { kind: "image", mime: "image/jpeg" },
   jpg: { kind: "image", mime: "image/jpeg" },

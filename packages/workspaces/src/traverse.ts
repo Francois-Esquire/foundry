@@ -1,23 +1,10 @@
 import type { DirectoryEntry, StorageReader } from "@foundry/core/storage";
+import { byCodeUnit } from "@foundry/lib/ordering";
 import { joinFilesystemPath, normalizeStoragePath } from "@foundry/lib/paths";
 import ignore from "ignore";
+import { BASELINE_IGNORE_PATTERNS } from "./constants";
 import { sourceIssueFor, WorkspaceSourceUnavailableError } from "./errors";
-import { byCodeUnit } from "./ordering";
 import type { IgnoreScope, WalkedEntry } from "./types";
-
-/**
- * The built-in exclusions, versioned so a later change to the set is an
- * observable input to reconciliation rather than a silent behavior drift.
- */
-export const BASELINE_IGNORE_VERSION = 1;
-export const BASELINE_IGNORE_PATTERNS: readonly string[] = [
-  ".git/",
-  ".foundry/",
-  ".turbo/",
-  "node_modules/",
-  ".DS_Store",
-  "Thumbs.db",
-];
 
 export function baselineIgnoreScope(): IgnoreScope {
   return {

@@ -4,15 +4,16 @@ import type {
   StorageReader,
 } from "@foundry/core/storage";
 import { sha256Hex } from "@foundry/lib/digest";
+import { decodeText } from "@foundry/lib/encoding";
 import { isFilesystemPathWithin } from "@foundry/lib/paths";
-import { WorkspaceSourceUnavailableError } from "./errors";
+import { DIRECTORY_SOURCE } from "./constants";
+import { errorCode, WorkspaceSourceUnavailableError } from "./errors";
 import {
   canonicalizeRoot,
   resolveStoredPath,
   scanDirectory,
   verifyRoot,
 } from "./scanner";
-import { decodeUtf8, errorCode } from "./text";
 import type {
   FileContentResult,
   ObservedFacts,
@@ -24,8 +25,6 @@ import type {
 } from "./types";
 
 const DRIVE_PREFIX_PATTERN = /^[a-zA-Z]:/;
-
-export const DIRECTORY_SOURCE = "host";
 
 export interface DirectoryOptions {
   readonly filesystem: WorkspaceFileSystem;
@@ -73,7 +72,7 @@ export function WithDirectory<B extends WorkspaceCtor>(
       if (read.kind === "failure") {
         return { kind: contentKindFor(read.issue), reason: read.reason };
       }
-      const text = decodeUtf8(read.bytes);
+      const text = decodeText(read.bytes);
       const digest = await sha256Hex(read.bytes);
       return text === null
         ? {
@@ -103,7 +102,7 @@ export function WithDirectory<B extends WorkspaceCtor>(
         return { kind: saveKindFor(read.issue), reason: read.reason };
       }
 
-      const currentText = decodeUtf8(read.bytes);
+      const currentText = decodeText(read.bytes);
       if (currentText === null) {
         return {
           kind: "stale",

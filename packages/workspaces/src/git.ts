@@ -6,10 +6,8 @@ const BRANCH_PREFIX_PATTERN = /^branch refs\/heads\//;
 import { mkdtemp, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative, sep } from "node:path";
-
+import { byCodeUnit } from "@foundry/lib/ordering";
 import simpleGit from "simple-git";
-
-import { byCodeUnit } from "./ordering";
 
 /**
  * Git over one working tree.

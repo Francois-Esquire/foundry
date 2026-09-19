@@ -15,27 +15,25 @@
  */
 
 export type { DirectoryEntry, EntryStats } from "@foundry/core/storage";
-
 // biome-ignore lint/performance/noBarrelFile: This is a declared package entry point; preserve its public exports.
-export { CLASSIFICATION_VERSION, classifyFile } from "./classification";
-
+export {
+  BASELINE_IGNORE_PATTERNS,
+  BASELINE_IGNORE_VERSION,
+  DIRECTORY_SOURCE,
+} from "./constants";
 // `Git` itself is opt-in on `@foundry/workspaces/git`; only its result types
 // travel with the root.
 export type { GitPathStatus, GitSnapshot } from "./git";
 export { InMemoryWorkspaceStore } from "./in-memory-workspace-store";
 export { nextWorkspaceObservation } from "./observation";
 export { canonicalizeRoot, scanDirectory } from "./scanner";
-export { decodeUtf8 } from "./text";
 export {
-  BASELINE_IGNORE_PATTERNS,
-  BASELINE_IGNORE_VERSION,
   baselineIgnoreScope,
   gitignoreScope,
   isIgnored,
   walkEntries,
 } from "./traverse";
 export {
-  FILE_KINDS,
   workspaceEntryIdSchema,
   workspaceIdSchema,
   workspaceSummary,
@@ -50,7 +48,7 @@ export type {
   DirectoryOptions,
   DirectoryRef,
 } from "./directory";
-export { DIRECTORY_SOURCE, directory, WithDirectory } from "./directory";
+export { directory, WithDirectory } from "./directory";
 
 export {
   InvalidWorkspaceInputError,
@@ -69,9 +67,7 @@ export type {
   CommitCreateResult,
   CommitFileObservationResult,
   CommitReconcileResult,
-  FileClassification,
   FileContentResult,
-  FileKind,
   FileTextSnapshot,
   FloorFor,
   IgnoreScope,

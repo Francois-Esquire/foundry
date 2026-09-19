@@ -7,20 +7,18 @@ import type {
   StorageObserver,
   StorageReader,
 } from "@foundry/core/storage";
+import type {
+  FileClassification,
+  FileKind,
+} from "@foundry/lib/file-classification";
 import type { Ignore } from "ignore";
 import type { z } from "zod";
 import type { Workspace } from "./instance";
-import type {
-  FILE_KINDS,
-  workspaceEntryIdSchema,
-  workspaceIdSchema,
-} from "./workspace";
+import type { workspaceEntryIdSchema, workspaceIdSchema } from "./workspace";
 
 export type WorkspaceId = z.infer<typeof workspaceIdSchema>;
 
 export type WorkspaceEntryId = z.infer<typeof workspaceEntryIdSchema>;
-
-export type FileKind = (typeof FILE_KINDS)[number];
 
 /**
  * Where a Workspace's bytes come from. `kind` is the string a layer claims
@@ -169,12 +167,6 @@ export interface WorkspaceView {
   readonly entries: readonly WorkspaceEntry[];
   readonly source: WorkspaceSourceStatus;
   readonly workspace: WorkspaceSummary;
-}
-
-export interface FileClassification extends Pick<FileNode, "mime"> {
-  readonly extension: string | null;
-  readonly kind: FileKind;
-  readonly name: string;
 }
 
 /**

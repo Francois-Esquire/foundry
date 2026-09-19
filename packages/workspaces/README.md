@@ -12,6 +12,9 @@ sockets, devices, and pipes without opening them. Links are never traversed.
 The root remains on `WorkspaceSource`; actual file contents are read from storage.
 Saves accept `expectedDigest` for the version last read.
 
+File classification, kinds, and their constants live in `@foundry/lib/file-classification`.
+Package constants live in `@foundry/workspaces/constants`; Node watcher constants stay under `src/node/constants.ts`.
+
 The root `Workspace` class owns identity, the catalog, reconciliation, and
 the serialization guarantee. It knows nothing about where bytes come from.
 Every source and every capability is a layer: a class mixin the system wraps
