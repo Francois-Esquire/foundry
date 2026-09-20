@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "clean": "rm -rf .blume .cache .turbo dist",
+    "dev": "bun run docs:dev",
     "docs:build": "blume build",
     "docs:check": "blume validate --strict",
     "docs:dev": "blume dev",

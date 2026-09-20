@@ -8,4 +8,5 @@ description: Documentation for Foundry's local developer tools.
 Quirks turns recurring behaviors into inspectable TypeScript. Define local
 automation with steps, workflows, agents, schedules, and monitors.
 
-[Get started with Quirks](/quirks).
+[Get started with Quirks](./quirks/index.md).
+[Contributing](../CONTRIBUTING.md).
