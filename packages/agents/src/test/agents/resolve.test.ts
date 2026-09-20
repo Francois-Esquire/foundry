@@ -5,7 +5,10 @@ import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { createMesh } from "../../agents/mesh";
 import type { AgentModel } from "../../agents/model";
-import { createAgentRegistry } from "../../agents/registry";
+import {
+  createAgentCompatibilityRegistry,
+  createAgentRegistry,
+} from "../../agents/registry";
 import type { AgentSurface } from "../../agents/resolve";
 import { createAgentPreset, resolveAgent } from "../../agents/resolve";
 import type { AgentSpec } from "../../agents/spec";
@@ -20,7 +23,9 @@ import { fakeAuthorizer } from "../helpers/authorizer";
 import {
   createScriptedMockModel,
   textGenerateResult,
+  textStreamResult,
   toolCallGenerateResult,
+  toolCallStreamResult,
   usageStreamResult,
 } from "../helpers/mock-language-model";
 
@@ -121,6 +126,265 @@ describe("resolveAgent", () => {
 });
 
 describe("createAgentPreset", () => {
+  it.each([false, true])(
+    "retains one-off Session correlation without creating history or joining the mesh, factory: %s",
+    async (factory) => {
+      const requests: AgentAuthorizationRequest[] = [];
+      const store = new InMemorySessionStore();
+      const create = vi.spyOn(store, "createSession");
+      const mesh = createMesh();
+      const observe = vi.fn(() => null);
+      const spec: AgentSpec = {
+        id: "correlated",
+        mesh: { join: true },
+        prompt: "Work once.",
+      };
+      const preset = createAgentPreset(
+        spec,
+        factory
+          ? () => ({ mesh, model: toolCallModel(), observe, store })
+          : { mesh, model: toolCallModel, observe, store }
+      );
+      const harness = await preset.createAgent({
+        policy: trackingPolicy(requests),
+        sessionId: "existing-session",
+        tools: probeTools(),
+      });
+      await harness.generate({ prompt: "go" });
+      expect(observe).toHaveBeenCalledWith(
+        expect.objectContaining({ sessionId: "existing-session" })
+      );
+      expect(requests[0]).toMatchObject({ scopeId: "existing-session" });
+      expect(create).not.toHaveBeenCalled();
+      expect(mesh.list()).toHaveLength(0);
+    }
+  );
+
+  it("applies configured generation settings and invocation overrides in both harnesses", async () => {
+    const model = createScriptedMockModel({
+      generate: [textGenerateResult("direct")],
+      stream: [textStreamResult("session")],
+    });
+    const generate = vi.spyOn(model, "doGenerate");
+    const stream = vi.spyOn(model, "doStream");
+    const preset = createAgentPreset(
+      {
+        id: "settings",
+        prompt: "Configured prompt",
+        settings: { maxOutputTokens: 42, temperature: 0.2 },
+      },
+      (context) => ({
+        instructions: context.instructions,
+        model,
+        temperature: 0.1,
+      })
+    );
+    const direct = await preset.createAgent({ settings: { temperature: 0.3 } });
+    await direct.generate({ prompt: "go" });
+    const session = await preset.createSession({
+      settings: { temperature: 0.4 },
+    });
+    await session.generate("go");
+    expect(generate.mock.calls[0]?.[0]).toMatchObject({
+      maxOutputTokens: 42,
+      temperature: 0.3,
+    });
+    expect(stream.mock.calls[0]?.[0]).toMatchObject({
+      maxOutputTokens: 42,
+      temperature: 0.4,
+    });
+    expect(generate.mock.calls[0]?.[0].prompt).toContainEqual({
+      content: "Configured prompt",
+      role: "system",
+    });
+    expect(stream.mock.calls[0]?.[0].prompt).toContainEqual({
+      content: "Configured prompt",
+      role: "system",
+    });
+  });
+
+  it.each([false, true])(
+    "retains factory Session defaults and applies invocation overrides: %s",
+    async (override) => {
+      const store = new InMemorySessionStore();
+      const registry = createAgentCompatibilityRegistry();
+      const mesh = createMesh({ registry });
+      const overrideStore = new InMemorySessionStore();
+      const overrideRegistry = createAgentCompatibilityRegistry();
+      const overrideMesh = createMesh({ registry: overrideRegistry });
+      const observe = vi.fn(() => null);
+      const toolContext = vi.fn((id: string) => ({ sessionId: id }));
+      const preset = createAgentPreset(
+        { id: "configured", prompt: "", role: "researcher" },
+        () => ({
+          mesh,
+          model: fakeModel(),
+          nodeId: "worker",
+          observe,
+          registry,
+          sessionId: "default-session",
+          store,
+          toolContext,
+        })
+      );
+      const harness = await preset.createSession(
+        override
+          ? {
+              mesh: overrideMesh,
+              sessionId: "invoked-session",
+              sessionStore: overrideStore,
+            }
+          : {}
+      );
+      const expectedStore = override ? overrideStore : store;
+      const expectedMesh = override ? overrideMesh : mesh;
+      const sessionId = override ? "invoked-session" : "default-session";
+      expect(harness.store).toBe(expectedStore);
+      expect(harness.mesh).toBe(expectedMesh);
+      expect(harness.registry).toBe(override ? overrideRegistry : registry);
+      expect(harness.nodeId).toBe("worker");
+      expect(expectedMesh.get("worker")).toMatchObject({ role: "researcher" });
+      expect(harness.registry.get("configured")).toBe(harness.agent);
+      await harness.generate("go");
+      expect(await expectedStore.getSession(sessionId)).toBeDefined();
+      expect(toolContext).toHaveBeenCalledWith(sessionId);
+      expect(observe).toHaveBeenCalledWith(
+        expect.objectContaining({ sessionId })
+      );
+      if (override) {
+        expect(mesh.list()).toHaveLength(0);
+      }
+    }
+  );
+
+  it.each([true, false])(
+    "resolves Session compaction settings, enabled: %s",
+    async (enabled) => {
+      const store = new InMemorySessionStore();
+      const summarize = vi.fn(() => Promise.resolve("RECAP"));
+      const preset = createAgentPreset(
+        {
+          id: "compaction",
+          prompt: "",
+          session: { compaction: { keepTokens: 1 } },
+        },
+        () => ({
+          compaction: {
+            model: { contextWindow: 100, id: "small" },
+            summarizer: { summarize },
+            window: {
+              highWaterRatio: 1,
+              reservedOutput: 0,
+              safetyMarginRatio: 0,
+            },
+          },
+          model: createScriptedMockModel({
+            stream: [
+              usageStreamResult("first", 200, 0),
+              usageStreamResult("second", 0, 0),
+            ],
+          }),
+          store,
+        })
+      );
+      const session = await preset.createSession(
+        enabled ? {} : { compaction: false }
+      );
+      await session.generate("first");
+      await session.generate("second");
+      expect(summarize).toHaveBeenCalledTimes(enabled ? 1 : 0);
+    }
+  );
+
+  it("resolves selected domain tools and rejects missing or duplicate bindings", async () => {
+    const tools = vi.fn(() => Promise.resolve(probeTools()));
+    const preset = createAgentPreset(
+      { id: "configured", prompt: "Use the domain.", tools: ["probe"] },
+      { model: toolCallModel, tools }
+    );
+    const direct = await preset.createAgent({
+      surfaceContext: { artifactId: "a" },
+    });
+    await direct.generate({ prompt: "go" });
+    const session = await preset.createSession({ sessionId: "s" });
+    await session.generate("go");
+    expect(tools).toHaveBeenCalledWith(["probe"], {
+      surfaceContext: { artifactId: "a" },
+    });
+    await expect(preset.createAgent({ tools: probeTools() })).rejects.toThrow(
+      "Duplicate tool binding: probe"
+    );
+    await expect(
+      createAgentPreset(
+        { id: "missing", prompt: "", tools: ["unknown"] },
+        { model: fakeModel, tools }
+      ).createAgent({})
+    ).rejects.toThrow('no binding for tool "unknown"');
+    await expect(
+      createAgentPreset(
+        { id: "missing", prompt: "", tools: ["probe"] },
+        { model: fakeModel }
+      ).createAgent({})
+    ).rejects.toThrow("no tool resolver");
+  });
+
+  it("binds domain context in both harnesses without constructing a Session for an operation", async () => {
+    const store = new InMemorySessionStore();
+    const create = vi.spyOn(store, "createSession");
+    const seen: unknown[] = [];
+    const preset = createAgentPreset(
+      { id: "domain", prompt: "Shared instructions" },
+      (context, spec) => ({
+        instructions: spec.prompt,
+        model: createScriptedMockModel({
+          generate: [
+            toolCallGenerateResult("direct", "probe", {}),
+            textGenerateResult("done"),
+          ],
+          stream: [
+            toolCallStreamResult("session", "probe", {}),
+            textStreamResult("done"),
+          ],
+        }),
+        store,
+        tools: {
+          probe: tool({
+            description: "Read bound context",
+            execute: (_input, options) => {
+              seen.push(options.context);
+              return "ok";
+            },
+            inputSchema: z.object({}),
+          }),
+        },
+        toolsContext: {
+          db: "bound-db",
+          ...context.surfaceContext,
+          execution: context.execution,
+        },
+      })
+    );
+    const execution = { runId: "run", signal: new AbortController().signal };
+    const direct = await preset.createAgent({
+      execution,
+      surfaceContext: { artifactId: "a" },
+    });
+    await direct.generate({ prompt: "go" });
+    expect(create).not.toHaveBeenCalled();
+    const session = await preset.createSession({
+      execution,
+      surfaceContext: { artifactId: "b" },
+    });
+    await session.generate("go");
+    expect(create).toHaveBeenCalledOnce();
+    expect(seen).toEqual([
+      expect.objectContaining({ artifactId: "a", db: "bound-db", execution }),
+      expect.objectContaining({ artifactId: "b", db: "bound-db", execution }),
+    ]);
+    expect(direct.agent.tools).not.toHaveProperty("list_agents");
+    expect(session.agent.tools).toHaveProperty("list_agents");
+  });
+
   it("keeps file-defined MCP registration identity through provisioning", async () => {
     const requests: AgentAuthorizationRequest[] = [];
     const policy = trackingPolicy(requests);
@@ -163,6 +427,68 @@ describe("createAgentPreset", () => {
       tool: "probe",
     });
   });
+
+  it.each([false, true])(
+    "retains context overrides and the resolved Session identity, domain callback: %s",
+    async (callback) => {
+      const store = new InMemorySessionStore();
+      const contexts: unknown[] = [];
+      const model = createScriptedMockModel({
+        stream: [
+          toolCallStreamResult("probe-1", "probe", {}),
+          textStreamResult("done"),
+        ],
+      });
+      const settings = {
+        model,
+        store,
+        tools: {
+          probe: tool({
+            execute: (_input, options) => {
+              contexts.push(options.context);
+              return "ok";
+            },
+            inputSchema: z.object({}),
+          }),
+        },
+        toolsContext: { db: "database", setting: "default" },
+      };
+      const preset = createAgentPreset(
+        { id: "context", prompt: "" },
+        callback
+          ? () => ({
+              ...settings,
+              toolContext: () => ({
+                artifactId: "artifact",
+                setting: "domain",
+              }),
+            })
+          : {
+              ...settings,
+              model: () => model,
+              tools: () => Promise.resolve(settings.tools),
+            }
+      );
+      const execution = { runId: "run", signal: new AbortController().signal };
+      const harness = await preset.createSession({
+        execution,
+        tools: callback ? undefined : settings.tools,
+        toolsContext: { setting: "invocation" },
+      });
+      await harness.generate("go");
+      expect(contexts[0]).toMatchObject({
+        db: "database",
+        execution,
+        sessionId: expect.any(String) as unknown,
+        setting: "invocation",
+      });
+      const context = contexts[0] as { sessionId: string };
+      expect(await store.getSession(context.sessionId)).toBeDefined();
+      if (callback) {
+        expect(contexts[0]).toHaveProperty("artifactId", "artifact");
+      }
+    }
+  );
 
   it("createAgent and createSession share base tools, policy, prompt, and model; createSession adds store + mesh", async () => {
     const requests: AgentAuthorizationRequest[] = [];

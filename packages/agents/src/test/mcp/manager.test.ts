@@ -51,6 +51,16 @@ beforeEach(() => {
 });
 
 describe("McpManager", () => {
+  it("rejects collisions across namespaced server tools", async () => {
+    createMCPClient.mockResolvedValueOnce(fakeClient(["b__search"]).client);
+    createMCPClient.mockResolvedValueOnce(fakeClient(["search"]).client);
+    await using mcp = new McpManager();
+    mcp.define(remote("a", "http://a/mcp"));
+    mcp.define(remote("a__b", "http://b/mcp"));
+    await expect(mcp.tools()).rejects.toThrow(
+      "Duplicate tool binding: a__b__search"
+    );
+  });
   it("connects an enabled definition on define and prefixes its tools", async () => {
     createMCPClient.mockResolvedValueOnce(fakeClient(["search"]).client);
     const mcp = new McpManager();

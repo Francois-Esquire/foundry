@@ -1,5 +1,5 @@
 import type { ToolSet } from "ai";
-
+import { composeTools } from "../tools/compose";
 import type { McpClientEvents } from "./client";
 import { McpClient } from "./client";
 import { McpEmitter } from "./emitter";
@@ -103,18 +103,17 @@ export class McpManager extends McpEmitter<McpClientEvents> {
   /**
    * The merged tools of every enabled, connected client, namespaced
    * `<serverId>__<tool>`. Enabled clients that are not connected are
-   * connected first (a failed one only after its cooldown). Later
-   * definitions win a same-name collision.
+   * connected first (a failed one only after its cooldown).
    */
   async tools(): Promise<ToolSet> {
-    const out: ToolSet = {};
+    let out: ToolSet = {};
     for (const client of this.#clients.values()) {
       if (!client.enabled) {
         continue;
       }
       await client.connect();
       if (client.status === "connected") {
-        Object.assign(out, client.tools());
+        out = composeTools(out, client.tools());
       }
     }
     return out;

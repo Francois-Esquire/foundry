@@ -44,12 +44,14 @@ export function parseAgentSpec(
   }
 
   const model = data.model?.trim();
+  const provider = data.provider?.trim();
   const role = data.role?.trim();
   const skills = commaList(data.skills);
   return {
     id,
     ...(role ? { role } : {}),
     ...(model ? { model } : {}),
+    ...(provider ? { provider } : {}),
     prompt,
     ...(skills.length > 0 ? { skills } : {}),
     mcp: commaList(data.mcp),

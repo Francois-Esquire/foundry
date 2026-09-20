@@ -35,6 +35,7 @@ import {
   toModelMessages,
   validateApprovalResponse,
 } from "../session/converter";
+import { composeTools } from "../tools/compose";
 import type { AgentHarnessSettings } from "./agent-harness";
 import { AgentHarness } from "./agent-harness";
 import type { StreamPart, StreamSource } from "./stream-transform";
@@ -126,7 +127,7 @@ export class SessionHarness extends AgentHarness {
     super(
       {
         ...harnessSettings,
-        tools: { ...tools, ...agentMesh.tools(resolvedNodeId) },
+        tools: composeTools(tools, agentMesh.tools(resolvedNodeId)),
       },
       context
     );
@@ -135,7 +136,9 @@ export class SessionHarness extends AgentHarness {
     this.#registry = agentRegistry;
     this.#mesh = agentMesh;
     this.#nodeId = resolvedNodeId;
-    this.#toolContext = toolContext;
+    const defaultContext = harnessSettings.toolsContext;
+    this.#toolContext =
+      toolContext ?? (defaultContext ? () => defaultContext : undefined);
     this.#compaction = compaction;
     this.#baseProviderOptions = settings.providerOptions;
   }

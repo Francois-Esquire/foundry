@@ -10,6 +10,10 @@
       "types": "./src/agents/*.ts",
       "import": "./src/agents/*.ts"
     },
+    "./tools/*": {
+      "types": "./src/tools/*.ts",
+      "import": "./src/tools/*.ts"
+    },
     "./harness": {
       "types": "./src/harness/index.ts",
       "import": "./src/harness/index.ts"

@@ -99,16 +99,17 @@ describe("AgentHarness — duplicate tool name precedence", () => {
     expect(harness.agent.tools.dup?.description).toBe("second");
   });
 
-  it("mesh tools win over a caller's tool of the same name", () => {
-    const harness = new SessionHarness(
-      {
-        instructions: "x",
-        model: createScriptedMockModel({}),
-        tools: { list_agents: noopTool("mine") },
-      },
-      { sessionId: "" }
-    );
-
-    expect(harness.agent.tools.list_agents?.description).not.toBe("mine");
+  it("rejects a caller tool that collides with a mesh tool", () => {
+    expect(
+      () =>
+        new SessionHarness(
+          {
+            instructions: "x",
+            model: createScriptedMockModel({}),
+            tools: { list_agents: noopTool("mine") },
+          },
+          { sessionId: "" }
+        )
+    ).toThrow("Duplicate tool binding: list_agents");
   });
 });

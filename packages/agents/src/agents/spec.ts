@@ -13,6 +13,9 @@
  * resolves.
  */
 
+import type { CompactionSettings } from "../harness";
+import type { AgentSettings } from "./resolve";
+
 export type AgentSource =
   | { kind: "file"; root: string; path: string }
   | { kind: "virtual" };
@@ -23,13 +26,13 @@ export interface AgentSpec {
   mesh?: { join: boolean; node?: string };
   model?: string;
   prompt: string;
+  provider?: string;
   role?: string;
+  session?: {
+    compaction?: false | Pick<CompactionSettings, "keepTokens" | "window">;
+  };
+  settings?: AgentSettings;
   skills?: string[];
   source?: AgentSource;
-  /**
-   * Declared tool names. NOT yet provisioned — there is no tool-name catalog
-   * to resolve them against (a deliberate divergence: the `.md` format keeps a
-   * `tools:` list). Carried as durable spec data until that catalog exists.
-   */
   tools?: string[];
 }

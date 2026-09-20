@@ -8,239 +8,325 @@ import type {
   ToolEffectPort,
 } from "../harness";
 import { AgentHarness, SessionHarness } from "../harness";
+import { createModelSummarizer } from "../session";
 import type { SessionStore } from "../session/store";
 import type { Skill } from "../skills";
 import { createSkillRegistry } from "../skills";
+import { composeTools } from "../tools/compose";
 import { createTodos } from "../tools/todos";
 import type { Mesh } from "./mesh";
 import type { AgentModel, ObserveTurn } from "./model";
 import type { AgentSpec } from "./spec";
 
-/**
- * The capabilities a substrate provides for building agents. The resolver
- * gates on **presence** — an absent capability degrades gracefully (no store →
- * stateless; no mesh → off-bus) rather than branching on substrate kind.
- */
-export interface AgentSurface {
-  /** Resolve MCP server ids → their tagged tools. Absent → no MCP tools. */
-  mcp?: (ids: string[]) => Promise<ToolSet>;
-  /** The inter-agent mesh a joining spec registers on. Absent → off-bus. */
-  mesh?: Mesh;
-  /** Resolve a spec's model id, or the host's default when it names none. Required. */
-  model: (id?: string) => AgentModel;
-  /** Per-turn observation. Absent → unobserved. */
-  observe?: ObserveTurn;
-  /** Resolve skill catalog names → skills. Absent → no skills. */
-  skills?: (names: string[]) => Promise<Skill[]>;
-  /** Session persistence. Absent → stateless. */
-  store?: SessionStore;
+export type AgentSettings = Omit<
+  AgentHarnessSettings,
+  | "model"
+  | "instructions"
+  | "tools"
+  | "toolsContext"
+  | "agentId"
+  | "agentGeneration"
+  | "policy"
+  | "effectPort"
+>;
+
+export interface AgentExecutionContext {
+  readonly runId: string;
+  readonly signal: AbortSignal;
 }
 
-/** Runtime context for one provisioning: which session, and any per-turn overrides. */
-export interface ResolveAgentContext {
-  /** The model this instance runs; falls back to the surface resolving `spec.model`. */
-  model?: AgentModel;
-  /** The session this instance runs for; generated on first turn when omitted. */
-  sessionId?: string;
-}
-
-/**
- * Per-invocation overrides shared by both {@link AgentPreset.createAgent} and
- * `.createSession` (design: "Reusable agent preset"). Both methods forward
- * these fields onto the harness they build through the exact same
- * provisioning stage — that shared forwarding, not a separate preset-level
- * default, is what keeps a preset's direct and Session variants using the
- * same policy and effect defaults.
- */
 export interface AgentPresetContext {
-  /** Retained preset generation used to scope authorization and call identity. */
   agentGeneration?: number;
-  /** Effect boundary every allowed tool call executes through. Defaults to
-   *  the harness's direct in-process executor when omitted. */
   effectPort?: ToolEffectPort;
-  /** The model this instance runs; falls back to the surface resolving `spec.model`. */
+  execution?: AgentExecutionContext;
+  instructions?: string;
   model?: AgentModel;
-  /** Policy every compiled tool call is checked against. Defaults to the
-   *  harness's own permissive policy when omitted. */
   policy?: AgentAuthorizer;
-  /** Correlation id recorded on turn observation telemetry. */
   sessionId?: string;
-  /** Additional tools layered on top of the preset's own; later wins on a name. */
-  tools?: ToolSet;
-}
-
-/**
- * {@link AgentPresetContext} plus the Session-only continuity settings
- * `AgentPreset.createSession` adds on top of the shared base.
- */
-export interface AgentSessionContext extends AgentPresetContext {
-  /** Pre-turn auto-compaction; needs a summarize-aware store to take effect. */
-  compaction?: CompactionSettings;
-  /** Mesh to join for this session, overriding the surface default (e.g. a
-   *  session-scoped `meshFor(sessionId)`). */
-  mesh?: Mesh;
-  /** Adopt an existing session id, or generate one on first turn. */
-  sessionId?: string;
-  /** Session persistence. Defaults to the surface's store; stateless if neither is set. */
-  sessionStore?: SessionStore;
-  /**
-   * Caller-validated, JSON-safe per-turn context (design: "Agentic surface" —
-   * e.g. a Roadmap `{ roadmapId }`). Forwarded here opaquely; this module
-   * neither validates it nor merges it into a harness's tool context — a
-   * preset's own `.createSession` reads it and decides what, if anything, to
-   * fold into its live tool context. Absent for presets that need none.
-   */
+  settings?: AgentSettings;
   surfaceContext?: Readonly<Record<string, unknown>>;
+  tools?: ToolSet;
+  toolsContext?: Record<string, unknown>;
 }
 
-/**
- * A retained, reusable agent definition (design: "Reusable agent preset").
- * `createAgent` and `createSession` both provision the same `spec` through
- * the same shared stages — `createSession` only layers Session storage and
- * mesh context on top — so a caller can move one agent between direct,
- * Session, one-off, and background use without it silently becoming a
- * different agent.
- */
+export interface AgentSessionContext extends AgentPresetContext {
+  compaction?: false | CompactionSettings;
+  mesh?: Mesh;
+  sessionStore?: SessionStore;
+}
+
+export interface ResolveAgentContext {
+  model?: AgentModel;
+  sessionId?: string;
+}
+
 export interface AgentPreset {
   createAgent(context: AgentPresetContext): Promise<AgentHarness>;
   createSession(context: AgentSessionContext): Promise<SessionHarness>;
   spec: AgentSpec;
 }
 
-/**
- * Stage 1, shared by every {@link AgentPreset} construction path: resolve the
- * model resolver, skills, and MCP registrations, and fold them — together with
- * `spec.id` as the harness's stable `agentId` and this call's policy/effect
- * overrides — into one {@link AgentHarnessSettings}. `spec.tools` is
- * intentionally NOT wired yet (no tool-name catalog exists to resolve it), the
- * same divergence `resolveAgent` has always carried.
- */
+export interface AgentSurface {
+  mcp?: (ids: string[]) => Promise<ToolSet>;
+  mesh?: Mesh;
+  model: (id?: string, provider?: string) => AgentModel;
+  observe?: ObserveTurn;
+  policy?: AgentAuthorizer;
+  skills?: (names: string[]) => Promise<Skill[]>;
+  store?: SessionStore;
+  tools?: (names: string[], context: AgentPresetContext) => Promise<ToolSet>;
+  toolsContext?: Record<string, unknown>;
+}
+
+/** Bind domain defaults; invocation overrides are applied after binding. */
+export type AgentConfigurationFactory = (
+  context: AgentPresetContext,
+  spec: AgentSpec
+) => SessionHarnessSettings | Promise<SessionHarnessSettings>;
+
+type SessionSettings = Omit<SessionHarnessSettings, keyof AgentHarnessSettings>;
+
+interface Configuration {
+  agent: AgentHarnessSettings;
+  session: SessionSettings;
+}
+
+function splitSettings(settings: SessionHarnessSettings): Configuration {
+  const {
+    store,
+    sessionId,
+    mesh,
+    registry,
+    nodeId,
+    compaction,
+    toolContext,
+    ...agent
+  } = settings;
+  return {
+    agent,
+    session: {
+      compaction,
+      mesh,
+      nodeId,
+      registry,
+      sessionId,
+      store,
+      toolContext,
+    },
+  };
+}
+
+async function resolveTools(
+  spec: AgentSpec,
+  surface: AgentSurface,
+  context: AgentPresetContext
+): Promise<ToolSet | undefined> {
+  if (!spec.tools?.length) {
+    return undefined;
+  }
+  if (!surface.tools) {
+    throw new Error(`Agent "${spec.id}" has no tool resolver`);
+  }
+  const resolved = await surface.tools(spec.tools, context);
+  const tools: ToolSet = {};
+  for (const name of spec.tools) {
+    const binding = resolved[name];
+    if (!binding) {
+      throw new Error(`Agent "${spec.id}" has no binding for tool "${name}"`);
+    }
+    if (Object.hasOwn(tools, name)) {
+      throw new Error(`Duplicate tool binding: ${name}`);
+    }
+    tools[name] = binding;
+  }
+  return tools;
+}
+
+async function provisionSkills(spec: AgentSpec, surface: AgentSurface) {
+  const resolved =
+    spec.skills?.length && surface.skills
+      ? await surface.skills(spec.skills)
+      : undefined;
+  for (const name of spec.skills ?? []) {
+    if (!resolved?.some((skill) => skill.name === name)) {
+      throw new Error(`Agent "${spec.id}" has no skill "${name}"`);
+    }
+  }
+  return resolved ? createSkillRegistry(resolved) : undefined;
+}
+
 async function provisionSpec(
   spec: AgentSpec,
   surface: AgentSurface,
   context: AgentPresetContext
 ): Promise<AgentHarnessSettings> {
-  const model = context.model ?? surface.model(spec.model);
-
-  const skills =
-    spec.skills && spec.skills.length > 0 && surface.skills
-      ? createSkillRegistry(await surface.skills(spec.skills))
-      : undefined;
-
+  const model =
+    context.model ??
+    (spec.provider
+      ? surface.model(spec.model, spec.provider)
+      : surface.model(spec.model));
+  if (spec.skills?.length && !surface.skills) {
+    throw new Error(`Agent "${spec.id}" has no skill resolver`);
+  }
+  if (spec.mcp?.length && !surface.mcp) {
+    throw new Error(`Agent "${spec.id}" has no MCP resolver`);
+  }
+  const skills = await provisionSkills(spec, surface);
   const mcpTools =
-    spec.mcp && spec.mcp.length > 0 && surface.mcp
-      ? await surface.mcp(spec.mcp)
-      : undefined;
-
+    spec.mcp?.length && surface.mcp ? await surface.mcp(spec.mcp) : undefined;
+  const domainTools = await resolveTools(spec, surface, context);
   return {
-    agentId: spec.id,
-    ...(context.agentGeneration === undefined
-      ? {}
-      : { agentGeneration: context.agentGeneration }),
     model,
     ...(surface.observe ? { observe: surface.observe } : {}),
-    instructions: [spec.prompt, skills?.instructions]
-      .filter((block) => Boolean(block))
+    instructions: [context.instructions ?? spec.prompt, skills?.instructions]
+      .filter(Boolean)
       .join("\n\n"),
-    tools: {
-      ...createTodos().tools,
-      ...skills?.tools,
-      ...mcpTools,
-      ...context.tools,
-    },
-    ...(context.policy ? { policy: context.policy } : {}),
-    ...(context.effectPort ? { effectPort: context.effectPort } : {}),
+    tools: composeTools(
+      createTodos().tools,
+      skills?.tools,
+      mcpTools,
+      domainTools
+    ),
+    ...(surface.toolsContext ? { toolsContext: surface.toolsContext } : {}),
+    ...(surface.policy ? { policy: surface.policy } : {}),
   };
 }
 
-/** Stage 2, Session-only: resolve which mesh (if any) this spec joins and
- *  under which node id — shared by `createSession` and the legacy
- *  `resolveAgent` wrapper. `context.mesh` overrides the surface default so a
- *  caller can hand in a session-scoped mesh (e.g. `meshFor(sessionId)`). */
-function provisionMesh(
+function configureAgent(
   spec: AgentSpec,
-  surface: AgentSurface,
-  context: AgentSessionContext
-): { mesh: Mesh | undefined; nodeId: string } {
-  const mesh = spec.mesh?.join ? (context.mesh ?? surface.mesh) : undefined;
-  const nodeId = spec.mesh?.node ?? spec.id;
-  return { mesh, nodeId };
+  defaults: AgentHarnessSettings,
+  context: AgentPresetContext
+): AgentHarnessSettings {
+  return {
+    ...defaults,
+    ...spec.settings,
+    ...context.settings,
+    agentId: spec.id,
+    instructions: defaults.instructions ?? context.instructions ?? spec.prompt,
+    ...(context.agentGeneration === undefined
+      ? {}
+      : { agentGeneration: context.agentGeneration }),
+    ...(context.model ? { model: context.model } : {}),
+    ...(context.policy ? { policy: context.policy } : {}),
+    ...(context.effectPort ? { effectPort: context.effectPort } : {}),
+    tools: composeTools(defaults.tools, context.tools),
+    toolsContext: {
+      ...defaults.toolsContext,
+      ...context.toolsContext,
+      ...(context.execution ? { execution: context.execution } : {}),
+    },
+  };
 }
 
-/**
- * Provision an {@link AgentSpec} into a retained {@link AgentPreset} against
- * an {@link AgentSurface} (design: "Reusable agent preset") — the
- * generalization of the desktop's hand-written agent factories onto a
- * capability surface (design: `agent-as-infrastructure-code`). Source-neutral:
- * the spec may come from a file, code, or a virtual mint.
- *
- * `createAgent` and `createSession` both run {@link provisionSpec}, so a
- * direct and a Session harness built from one preset always share prompt,
- * model, skills, MCP tools, policy, and effect defaults; `createSession` only
- * layers Session storage and mesh context on top. `spec.id` is always the
- * constructed harness's `agentId` — reconstructing the preset never falls
- * back to a placeholder identity.
- */
+function resolveCompaction(
+  spec: AgentSpec,
+  agent: AgentHarnessSettings,
+  defaults: SessionSettings,
+  context: AgentSessionContext
+): CompactionSettings | undefined {
+  if (context.compaction !== undefined) {
+    return context.compaction || undefined;
+  }
+  const configured = spec.session?.compaction;
+  if (configured === false) {
+    return undefined;
+  }
+  if (!configured) {
+    return defaults.compaction;
+  }
+  return {
+    summarizer:
+      defaults.compaction?.summarizer ??
+      createModelSummarizer({ model: agent.model }),
+    ...defaults.compaction,
+    ...configured,
+  };
+}
+
+function configureSession(
+  spec: AgentSpec,
+  { agent, session }: Configuration,
+  context: AgentSessionContext
+): SessionHarnessSettings {
+  const mesh = context.mesh ?? session.mesh;
+  return {
+    ...agent,
+    ...session,
+    compaction: resolveCompaction(spec, agent, session, context),
+    mesh,
+    nodeId: mesh
+      ? (session.nodeId ?? spec.mesh?.node ?? spec.id)
+      : session.nodeId,
+    registry: mesh?.registry ?? session.registry,
+    sessionId: context.sessionId ?? session.sessionId,
+    store: context.sessionStore ?? session.store,
+    toolContext: (sessionId) => ({
+      ...agent.toolsContext,
+      ...session.toolContext?.(sessionId),
+      ...context.toolsContext,
+      ...(sessionId ? { sessionId } : {}),
+      ...(context.execution ? { execution: context.execution } : {}),
+    }),
+  };
+}
+
 export function createAgentPreset(
   spec: AgentSpec,
-  surface: AgentSurface
+  source: AgentSurface | AgentConfigurationFactory
 ): AgentPreset {
+  async function configure(
+    context: AgentPresetContext
+  ): Promise<Configuration> {
+    const { tools: _tools, ...overrides } = context;
+    const bindingContext = {
+      ...overrides,
+      instructions: context.instructions ?? spec.prompt,
+    };
+    const defaults =
+      typeof source === "function"
+        ? splitSettings(await source(bindingContext, spec))
+        : {
+            agent: await provisionSpec(spec, source, context),
+            session: {
+              mesh: spec.mesh?.join ? source.mesh : undefined,
+              store: source.store,
+            },
+          };
+    return {
+      agent: configureAgent(spec, defaults.agent, context),
+      session: defaults.session,
+    };
+  }
+
   return {
-    async createAgent(context: AgentPresetContext = {}): Promise<AgentHarness> {
-      const settings = await provisionSpec(spec, surface, context);
-      return new AgentHarness(settings, {
-        sessionId: context.sessionId ?? "",
+    async createAgent(context = {}) {
+      const { agent, session } = await configure(context);
+      return new AgentHarness(agent, {
+        sessionId: context.sessionId ?? session.sessionId ?? "",
       });
     },
-    async createSession(
-      context: AgentSessionContext = {}
-    ): Promise<SessionHarness> {
-      const settings = await provisionSpec(spec, surface, context);
-      const { mesh, nodeId } = provisionMesh(spec, surface, context);
-      const store = context.sessionStore ?? surface.store;
-
-      const sessionSettings: SessionHarnessSettings = {
-        ...settings,
-        ...(store ? { store } : {}),
-        ...(mesh
-          ? {
-              mesh,
-              ...(mesh.registry ? { registry: mesh.registry } : {}),
-              nodeId,
-            }
-          : {}),
-        ...(context.sessionId === undefined
-          ? {}
-          : { sessionId: context.sessionId }),
-        ...(context.compaction ? { compaction: context.compaction } : {}),
-      };
-
-      const harness = new SessionHarness(sessionSettings, {
-        sessionId: context.sessionId ?? "",
+    async createSession(context = {}) {
+      const settings = configureSession(
+        spec,
+        await configure(context),
+        context
+      );
+      const harness = new SessionHarness(settings, {
+        sessionId: settings.sessionId ?? "",
       });
-
-      // Join the bus so peers can discover and `message_agent` this agent.
-      if (mesh) {
-        mesh.register(nodeId, {
+      if (settings.mesh) {
+        settings.mesh.register(harness.nodeId, {
           agent: harness.agent,
-          role: spec.role ?? nodeId,
+          role: spec.role ?? harness.nodeId,
         });
+        settings.mesh.registry?.register(spec.id, harness.agent);
       }
-
       return harness;
     },
     spec,
   };
 }
 
-/**
- * Provision an {@link AgentSpec} directly into a live {@link SessionHarness}
- * (design: "Reusable agent preset") — a thin, backward-compatible wrapper
- * over `createAgentPreset(spec, surface).createSession(context)`, kept for
- * existing direct callers (e.g. Studio's file-agent loader). New code should
- * retain the {@link AgentPreset} instead, so it can also construct the direct
- * `AgentHarness` variant from the same spec.
- */
 export async function resolveAgent(
   spec: AgentSpec,
   surface: AgentSurface,
