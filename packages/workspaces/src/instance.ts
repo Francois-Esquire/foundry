@@ -107,11 +107,9 @@ export class Workspace {
   protected async start(): Promise<void> {
     this.observation = await observe(
       (changed, failed) => this.watch(changed, failed),
-      async () => {
-        // A signal must not merely join a scan that started before it arrived.
-        await this.context.observing.get(this.id)?.catch(() => undefined);
-        await this.refresh();
-      },
+      // Manual refreshes must scan after a watcher's older source snapshot.
+      () =>
+        this.serialize(async () => this.observeSource(await this.require())),
       (error) => {
         console.error("[workspaces] observation failed", error);
       }

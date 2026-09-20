@@ -120,6 +120,23 @@ describe("workspace observation", () => {
     await f.system.closeAll();
   });
 
+  it("refreshes current source after an older watcher scan finishes", async () => {
+    vi.useFakeTimers();
+    const f = fixture();
+    const workspace = await f.open();
+    const captured = Promise.withResolvers<readonly ObservedFacts[]>();
+    f.blockScan(() => captured.promise);
+    f.signal();
+    await vi.advanceTimersByTimeAsync(50);
+    f.setEntries([{ name: "late", path: "late", type: "directory" }]);
+    const refreshing = workspace.refresh();
+    await vi.advanceTimersByTimeAsync(0);
+    captured.resolve([]);
+    const view = await refreshing;
+    expect(view.entries).toEqual([expect.objectContaining({ path: "late" })]);
+    await f.system.closeAll();
+  });
+
   it("retains signals during its own scan and drains before closing", async () => {
     vi.useFakeTimers();
     const f = fixture();
