@@ -66,6 +66,49 @@ function digestOf(text: string): string {
   return sha256Hex(new TextEncoder().encode(text));
 }
 
+describe("createFile", () => {
+  it("creates and catalogs a new file without overwriting an existing entry", async () => {
+    const { workspace, root } = await opened({ "existing.txt": "keep" });
+    expect(
+      await workspace.createFile({ path: "created.txt", text: "new" })
+    ).toMatchObject({
+      catalog: "current",
+      kind: "saved",
+      snapshot: { text: "new" },
+    });
+    expect(await readFile(join(root, "created.txt"), "utf8")).toBe("new");
+    expect(await workspace.files()).toEqual(
+      expect.arrayContaining([expect.objectContaining({ path: "created.txt" })])
+    );
+    expect(
+      await workspace.createFile({ path: "existing.txt", text: "replace" })
+    ).toMatchObject({ kind: "failed" });
+    expect(await readFile(join(root, "existing.txt"), "utf8")).toBe("keep");
+  });
+
+  it("refuses missing parents, escaping paths, and symlink parents", async () => {
+    const { workspace, root } = await opened({});
+    const outside = await makeRoot({});
+    await symlink(outside, join(root, "link"));
+    for (const path of ["missing/new.txt", "../outside.txt", "link/new.txt"]) {
+      expect(await workspace.createFile({ path, text: "no" })).toMatchObject({
+        kind: "failed",
+      });
+    }
+    expect(await readdir(outside)).toEqual([]);
+  });
+
+  it("allows exactly one concurrent creation", async () => {
+    const { workspace, root } = await opened({});
+    const results = await Promise.all([
+      workspace.createFile({ path: "one.txt", text: "first" }),
+      workspace.createFile({ path: "one.txt", text: "second" }),
+    ]);
+    expect(results.filter((result) => result.kind === "saved")).toHaveLength(1);
+    expect(await readFile(join(root, "one.txt"), "utf8")).toBe("first");
+  });
+});
+
 async function opened(
   tree: Record<string, string | Uint8Array>,
   filesystem: WorkspaceFileSystem = nodeFileSystem

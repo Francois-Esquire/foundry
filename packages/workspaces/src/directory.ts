@@ -11,7 +11,7 @@ import { sha256Hex } from "@foundry/lib/digest";
 import { decodeText, decodeUtf8 } from "@foundry/lib/encoding";
 import { classifyFile } from "@foundry/lib/file-classification";
 import { isTextMime } from "@foundry/lib/mime";
-import { isFilesystemPathWithin } from "@foundry/lib/paths";
+import { isFilesystemPathWithin, joinFilesystemPath } from "@foundry/lib/paths";
 import { DIRECTORY_SOURCE } from "./constants";
 import { errorCode, WorkspaceSourceUnavailableError } from "./errors";
 import {
@@ -194,6 +194,70 @@ export function WithDirectory<
         return {
           kind: "failed",
           reason: `Could not save ${file.path} (${errorCode(error)})`,
+        };
+      }
+      return { kind: "written" };
+    }
+
+    protected async insertFile(
+      path: string,
+      bytes: Uint8Array
+    ): Promise<WriteOutcome> {
+      if (!filesystem.createFile) {
+        return {
+          kind: "failed",
+          reason: "This storage does not support file creation",
+        };
+      }
+      if (escapesRoot(path)) {
+        return { kind: "failed", reason: "Path escapes the Workspace root" };
+      }
+      const rootFailure = await verifyWorkspaceRoot(filesystem, this.root);
+      if (rootFailure) {
+        return { kind: "failed", reason: rootFailure.reason };
+      }
+      const slash = path.lastIndexOf("/");
+      const parent =
+        slash < 0
+          ? this.root
+          : await resolveStoredPath(
+              filesystem,
+              this.root,
+              path.slice(0, slash)
+            );
+      if (!parent) {
+        return { kind: "failed", reason: "Parent directory does not exist" };
+      }
+      const stats = await storedFileStats(filesystem, parent, path);
+      if ("kind" in stats || stats.type !== "directory") {
+        return {
+          kind: "failed",
+          reason: "Parent must be an existing regular directory",
+        };
+      }
+      const resolved = await resolveConfinedPath(
+        filesystem,
+        this.root,
+        parent,
+        path
+      );
+      if (typeof resolved !== "string") {
+        return { kind: "failed", reason: resolved.reason };
+      }
+      const destination = joinFilesystemPath(
+        resolved,
+        path.slice(slash + 1),
+        filesystem.separator
+      );
+      try {
+        await filesystem.createFile(destination, bytes);
+      } catch (error) {
+        if (error instanceof StorageApplicationError) {
+          return { application: "pending", kind: "written" };
+        }
+        return {
+          kind: "failed",
+          reason: `Could not create ${path} (${errorCode(error)})`,
         };
       }
       return { kind: "written" };

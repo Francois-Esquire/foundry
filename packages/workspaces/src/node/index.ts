@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
   chmod,
+  link,
   lstat,
   mkdir,
   open,
@@ -13,7 +14,11 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { basename, dirname, join, sep } from "node:path";
-import type { EntryStats, Storage } from "@foundry/core/storage";
+import type {
+  EntryStats,
+  Storage,
+  StorageFileCreator,
+} from "@foundry/core/storage";
 import type { DirectoryOptions as PortableDirectoryOptions } from "../directory";
 import {
   directory as storageDirectory,
@@ -70,7 +75,22 @@ function entryStats(stats: {
   return { type: "unknown" };
 }
 
-export const nodeFileSystem: Storage = {
+export const nodeFileSystem: Storage & StorageFileCreator = {
+  async createFile(path, bytes) {
+    const temp = join(dirname(path), `.${basename(path)}.${randomUUID()}.tmp`);
+    try {
+      const handle = await open(temp, "wx", 0o600);
+      try {
+        await handle.writeFile(bytes);
+        await handle.sync();
+      } finally {
+        await handle.close();
+      }
+      await link(temp, path);
+    } finally {
+      await unlink(temp).catch(() => undefined);
+    }
+  },
   async lstat(path) {
     const stats = await lstat(path);
     return entryStats(stats);

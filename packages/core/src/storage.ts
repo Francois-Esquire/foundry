@@ -200,6 +200,11 @@ export interface AtomicStorageWriter {
   ): Promise<void>;
 }
 
+export interface StorageFileCreator {
+  /** Creates a regular file in an existing directory; refuses any existing entry. */
+  createFile(path: string, bytes: Uint8Array): Promise<void>;
+}
+
 export class StorageApplicationError extends Error {
   readonly committed = true;
 }

@@ -4,6 +4,7 @@ import type {
   FileNode,
   FileRepresentation,
   StorageEntry,
+  StorageFileCreator,
   StorageNode,
   StorageObserver,
   StorageReader,
@@ -316,7 +317,7 @@ export type WorkspaceIdentity = Pick<
  *
  * - `Ref` — what `load` accepts for this layer's source (`{ path }`). Only a
  *   floor has one; `ref` names the key the system dispatches on.
- * - `Floor` — what `add(ref)` returns beyond the root (`DirectoryCapable`).
+ * - `Floor` — what `load(ref)` returns beyond the root (`DirectoryCapable`).
  * - `Cap` — what every opened Workspace carries. A layer that applies per
  *   record declares it optional (`{ git?: Git }`).
  */
@@ -379,7 +380,8 @@ export interface WorkspaceFileSystem<
   Ref extends object = { readonly path: string },
 > extends StorageReader,
     AtomicStorageWriter,
-    Partial<StorageObserver> {
+    Partial<StorageObserver>,
+    Partial<StorageFileCreator> {
   readonly reference?: keyof Ref & string;
   resolve?(ref: Ref): Promise<{
     readonly path: string;

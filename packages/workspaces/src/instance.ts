@@ -1,5 +1,5 @@
 import type { StorageSubscription } from "@foundry/core/storage";
-import { storageTree } from "@foundry/core/storage";
+import { isStoragePath, storageTree } from "@foundry/core/storage";
 import { sha256Hex } from "@foundry/lib/digest";
 import { decodeText } from "@foundry/lib/encoding";
 import {
@@ -97,6 +97,15 @@ export class Workspace {
     _file: WorkspaceFile,
     _bytes: Uint8Array,
     _expectedDigest: string
+  ): Promise<WriteOutcome> {
+    return Promise.reject(
+      new WorkspaceSourceUnsupportedError(this.source.kind)
+    );
+  }
+
+  protected insertFile(
+    _path: string,
+    _bytes: Uint8Array
   ): Promise<WriteOutcome> {
     return Promise.reject(
       new WorkspaceSourceUnsupportedError(this.source.kind)
@@ -231,8 +240,7 @@ export class Workspace {
   }
 
   /**
-   * Replace one File's bytes with the command's UTF-8 draft — the only write
-   * this package performs against a source.
+   * Replace one File's bytes with the command's UTF-8 draft.
    *
    * The expected digest is the version of the exact bytes the caller last
    * read. The write and its catalog observation are serialized with this
@@ -242,6 +250,47 @@ export class Workspace {
    */
   async save(command: SaveFileCommand): Promise<SaveFileResult> {
     return this.serialize(() => this.performSave(command));
+  }
+
+  async createFile(command: {
+    readonly path: string;
+    readonly text: string;
+  }): Promise<SaveFileResult> {
+    return this.serialize(async () => {
+      const workspace = await this.require();
+      if (!isStoragePath(command.path)) {
+        return { kind: "failed", reason: "Invalid relative storage path" };
+      }
+      const bytes = new TextEncoder().encode(command.text);
+      const text = decodeText(bytes);
+      if (text === null) {
+        return { kind: "failed", reason: "File cannot be saved as UTF-8 text" };
+      }
+      const outcome = await this.insertFile(command.path, bytes);
+      if (outcome.kind !== "written") {
+        return outcome;
+      }
+      let catalog: "current" | "refresh-required" = "refresh-required";
+      if (outcome.application !== "pending") {
+        try {
+          if ((await this.observeSource(workspace)).kind === "reconciled") {
+            catalog = "current";
+          }
+        } catch {
+          // Creation committed; a failed catalog update must not invite another write.
+        }
+      }
+      return {
+        catalog,
+        kind: "saved",
+        snapshot: {
+          bytes: bytes.byteLength,
+          digest: await sha256Hex(bytes),
+          text,
+        },
+        ...(outcome.application ? { application: outcome.application } : {}),
+      };
+    });
   }
 
   private async performSave(command: SaveFileCommand): Promise<SaveFileResult> {
