@@ -807,6 +807,34 @@ test("ready splash stays centered, fits small terminals, and accepts clicks", as
   expect(entered).toBe(5);
 });
 
+test("sparkles shimmer without changing silhouettes and pause for the quit dialog", async () => {
+  setup = await testRender(
+    <SplashView
+      onClose={close}
+      onEnter={enterSplash}
+      preview
+      state={{ counts: summarizeConfig(dashboardSnapshot), status: "ready" }}
+      workspace="foundry"
+    />,
+    { exitOnCtrlC: false, height: 40, kittyKeyboard: true, width: 120 }
+  );
+  await flush(setup);
+  const first = setup.captureCharFrame();
+  const firstColors = JSON.stringify(setup.captureSpans());
+  expect(first).toContain("▀");
+  expect(first).toContain("▄");
+  await act(async () => sleep(650));
+  await flush(setup);
+  const next = setup.captureCharFrame();
+  expect(next).toBe(first);
+  expect(JSON.stringify(setup.captureSpans())).not.toBe(firstColors);
+  await ctrlC(setup);
+  const modal = JSON.stringify(setup.captureSpans());
+  await act(async () => sleep(450));
+  await flush(setup);
+  expect(JSON.stringify(setup.captureSpans())).toBe(modal);
+});
+
 test("empty config reports zero counts and still permits entry", async () => {
   entered = 0;
   const counts = summarizeConfig({

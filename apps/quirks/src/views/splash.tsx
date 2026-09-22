@@ -4,6 +4,7 @@ import { Action } from "~/components/action";
 import { QuitDialog } from "~/components/blocks/quit-dialog";
 import { StartupSummary } from "~/components/blocks/startup-summary";
 import { LoadingIndicator } from "~/components/ui/loading-indicator";
+import { SparkleField } from "~/components/ui/sparkle-field";
 import { useTheme } from "~/hooks/use-theme";
 import type { SplashState } from "./splash-model";
 
@@ -61,8 +62,14 @@ export function SplashView({
       justifyContent="center"
       width="100%"
     >
+      <SparkleField
+        height={dimensions.height}
+        paused={quitting}
+        width={dimensions.width}
+      />
       <box
         alignItems="center"
+        backgroundColor={theme.colors.background}
         border
         borderColor={
           state.status === "ready" ? theme.colors.accent : theme.border.color
@@ -74,6 +81,7 @@ export function SplashView({
         paddingX={2}
         paddingY={compact ? 0 : 1}
         width={Math.min(64, Math.max(1, dimensions.width - 4))}
+        zIndex={1}
       >
         <ascii-font
           color={[
