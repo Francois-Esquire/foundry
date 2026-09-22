@@ -1,0 +1,10 @@
+{
+  "extends": ["//"],
+  "tasks": {
+    "test:integration": {
+      "dependsOn": ["build"],
+      "env": ["MSB_HOME"],
+      "cache": false
+    }
+  }
+}
