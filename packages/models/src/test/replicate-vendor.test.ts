@@ -4,7 +4,7 @@
  * an installed declaration — the image row's output MIME, which comes from the
  * model's documented default output format rather than from the adapter.
  *
- *   REPLICATE_API_TOKEN=… bun run --cwd=packages/models test -- replicate-vendor
+ *   REPLICATE_API_TOKEN=… bun run --cwd=packages/models test:integration -- replicate-vendor
  */
 import { describe, expect, it } from "vitest";
 

@@ -178,7 +178,8 @@ Tests live in `src/test/`; shared helpers live in `src/test/helpers/`.
 Run `bun run test`, `bun run typecheck`, and `bun run build` from this package.
 Lint and formatting are owned by the repository root.
 
-The default test suite excludes credentialed vendor tests. Run
+One `vitest.config.ts` defines the `unit` and `integration` projects. The
+default test suite excludes credentialed vendor tests. Run
 `bun run test:integration` explicitly with the relevant provider credentials
 and media fixtures to exercise them. These tests can make paid API calls.
 The model catalog is application data, not a dependency version catalog.

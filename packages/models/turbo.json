@@ -1,0 +1,10 @@
+{
+  "extends": ["//"],
+  "tasks": {
+    "test:integration": {
+      "dependsOn": ["build"],
+      "env": ["FAL_KEY", "FAL_VENDOR_VIDEO", "REPLICATE_API_TOKEN"],
+      "cache": false
+    }
+  }
+}

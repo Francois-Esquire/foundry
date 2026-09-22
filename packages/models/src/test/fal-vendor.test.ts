@@ -3,13 +3,13 @@
  * is a gate: each test names the specification.md "Evidence limits" row it
  * would close, and its absence of a run is the deferral, not a pass.
  *
- *   FAL_KEY=… bun run --cwd=packages/models test -- fal-vendor
+ *   FAL_KEY=… bun run --cwd=packages/models test:integration -- fal-vendor
  *
  * Two tests need media the repository does not carry. Supply them and they run;
  * omit them and they skip:
  *
  *   FAL_KEY=… FAL_VENDOR_VIDEO=/abs/path/clip.mp4 \
- *     bun run --cwd=packages/models test -- fal-vendor
+ *     bun run --cwd=packages/models test:integration -- fal-vendor
  *
  * The four live rows (Klein, LCM, Lucy 2.5, H3 Max Director) are not exercised
  * here: opening their transports is Step 05's, and their vendor obligations are

@@ -8,9 +8,24 @@ export default defineConfig({
       provider: "v8",
       reporter: ["text", "html"],
     },
-    exclude: ["src/test/**/*-vendor.test.ts"],
     globals: true,
-    include: ["src/test/**/*.test.ts"],
+    projects: [
+      {
+        extends: true,
+        test: {
+          exclude: ["src/test/**/*-vendor.test.ts"],
+          include: ["src/test/**/*.test.ts"],
+          name: "unit",
+        },
+      },
+      {
+        extends: true,
+        test: {
+          include: ["src/test/**/*-vendor.test.ts"],
+          name: "integration",
+        },
+      },
+    ],
     server: {
       deps: {
         inline: [/@huggingface\/transformers/, /@browser-ai\//],
