@@ -94,7 +94,11 @@ export function SplashView({
         {state.status === "loading" ? (
           <LoadingIndicator label="Loading config" />
         ) : (
-          <text fg={theme.colors.success}>✓ Config loaded</text>
+          <text fg={theme.colors.success}>
+            {state.hasConfig === false
+              ? "No config · setup skipped"
+              : "✓ Config loaded"}
+          </text>
         )}
         <StartupSummary
           compact={compact}

@@ -9,7 +9,8 @@
         "ignore",
         "simple-git",
         "unique-names-generator"
-      ]
+      ],
+      "entry": ["examples/**/*.ts", "templates/**/quirks.config.ts"]
     },
     "docs": {
       "entry": ["blume.config.ts", "**/meta.ts"]
@@ -17,6 +18,9 @@
     "packages/models": {
       "entry": ["src/local/remote/worker-entry.ts"]
     },
-    "tooling/*": {}
+    "tooling/*": {},
+    ".": {
+      "entry": ["quirks.config.ts"]
+    }
   }
 }

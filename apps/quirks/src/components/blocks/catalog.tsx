@@ -10,9 +10,11 @@ import {
   selectionKey,
   type TriggerSnapshot,
 } from "~/views/dashboard-model";
+import { EmptyState } from "./empty-state";
 
 interface CatalogProps {
   readonly active: boolean;
+  readonly onReset?: () => void;
   readonly onSelect: (selection: DashboardSelection) => void;
   readonly searching?: boolean;
   readonly selected?: DashboardSelection;
@@ -24,6 +26,7 @@ export function TriggersBlock({
   active,
   onSelect,
   searching,
+  onReset,
 }: CatalogProps & {
   readonly items: readonly TriggerSnapshot[];
 }) {
@@ -36,9 +39,17 @@ export function TriggersBlock({
       title="1 Triggers"
     >
       {items.length === 0 && (
-        <Text>
-          {searching ? "No matching triggers." : "No schedules or monitors."}
-        </Text>
+        <EmptyState
+          description={
+            searching
+              ? "Try another search or clear filters."
+              : "Add schedule() or monitor() in quirks.config.ts when you want automatic runs."
+          }
+          onReset={searching ? onReset : undefined}
+          title={
+            searching ? "No matching triggers." : "No schedules or monitors."
+          }
+        />
       )}
       {items.map((item) => (
         <SelectableRow
@@ -75,6 +86,7 @@ export function DefinitionsBlock({
   active,
   onSelect,
   searching,
+  onReset,
 }: CatalogProps & { readonly items: readonly DefinitionSnapshot[] }) {
   return (
     <Panel
@@ -84,11 +96,19 @@ export function DefinitionsBlock({
       title="2 Catalog · workflows & steps"
     >
       {items.length === 0 && (
-        <Text>
-          {searching
-            ? "No matching workflows or steps."
-            : "No workflows or steps."}
-        </Text>
+        <EmptyState
+          description={
+            searching
+              ? "Try another search or clear filters."
+              : "Choose a starter during setup, or add a prebuilt step in quirks.config.ts."
+          }
+          onReset={searching ? onReset : undefined}
+          title={
+            searching
+              ? "No matching workflows or steps."
+              : "No workflows or steps."
+          }
+        />
       )}
       {items.map((item) => (
         <SelectableRow

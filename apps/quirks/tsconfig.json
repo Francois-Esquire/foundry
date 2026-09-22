@@ -5,11 +5,12 @@
     "types": ["bun"],
     "paths": {
       "~/*": ["./src/*"],
-      "@foundry/quirks": ["./src/lib/index.ts"]
+      "@foundry/quirks": ["./src/lib/index.ts"],
+      "@foundry/quirks/prebuilt": ["./src/prebuilt.ts"]
     },
     "jsx": "react-jsx",
     "jsxImportSource": "@opentui/react"
   },
-  "include": ["src/**/*", "test/**/*", "preview/**/*"],
+  "include": ["src/**/*", "test/**/*", "preview/**/*", "templates/**/*"],
   "exclude": ["node_modules", "dist"]
 }

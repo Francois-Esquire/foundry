@@ -143,3 +143,20 @@ unambiguous paths for array items and object keys. Keyboard handlers honor focus
 logs retain their position when follow is paused. Dialog adds a modal backdrop,
 scrollable body, mouse actions, and a default cancel choice on each open. Theme files live under
 `components/ui`; unused provider and motion APIs are omitted.
+
+## Setup and manual launches
+
+Run `bun run preview:ui --setup` to try the setup flow without writing files.
+Use `--setup-error` to preview an existing-config write failure and `--load-error`
+to preview a newly created config that cannot load. Use `--config-error` for the
+existing-config error screen. The default preview's `]`
+key cycles through empty config, steps without triggers, no run history, launch
+arguments, and launch failure scenarios. Press `2`, select a definition, then
+`l` to launch a simulated run. No preview action calls a model or starts a real
+schedule. Search any panel with `/` to preview no matching results; `x` or the
+Clear filters action restores the list.
+
+The setup composition adapts termcn's [OpenTUI Setup Flow](https://www.termcn.dev/docs/templates/opentui/setup-flow)
+and Select components. Form input uses OpenTUI input/textarea primitives, with
+Gruvbox colors, keyboard focus, and mouse actions. Views receive snapshots and
+callbacks; the live host creates configs and dispatches runs.

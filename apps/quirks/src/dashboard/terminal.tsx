@@ -2,13 +2,24 @@ import { createCliRenderer } from "@opentui/core";
 import { createRoot } from "@opentui/react";
 import { useSyncExternalStore } from "react";
 import { useTheme } from "~/hooks/use-theme";
+import type { SetupDraft } from "~/onboarding/templates";
+import { ConfigErrorView } from "~/views/config-error";
 import { DashboardView } from "~/views/dashboard";
 import type { DashboardSnapshot } from "~/views/dashboard-model";
+import { OnboardingView } from "~/views/onboarding";
 import { SplashView } from "~/views/splash";
 import { summarizeConfig } from "~/views/splash-model";
 
 interface Screen {
   readonly entered: boolean;
+  readonly error?: string;
+  readonly hasConfig?: boolean;
+  readonly onLaunch?: (name: string, input: unknown) => Promise<string>;
+  readonly setup?: {
+    readonly path: string;
+    readonly onCreate: (draft: SetupDraft) => Promise<void>;
+    readonly onSkip: () => void;
+  };
   readonly snapshot?: DashboardSnapshot;
 }
 interface ScreenStore {
@@ -28,14 +39,26 @@ function DashboardApp({
   readonly onClose: () => void;
 }) {
   const theme = useTheme();
-  const { entered, snapshot } = useSyncExternalStore(
-    store.subscribe,
-    store.getSnapshot
-  );
+  const { entered, snapshot, setup, error, hasConfig, onLaunch } =
+    useSyncExternalStore(store.subscribe, store.getSnapshot);
+  if (error) {
+    return <ConfigErrorView message={error} onClose={onClose} />;
+  }
+  if (setup) {
+    return (
+      <OnboardingView
+        onClose={onClose}
+        onCreate={setup.onCreate}
+        onSkip={setup.onSkip}
+        path={setup.path}
+      />
+    );
+  }
   if (entered && snapshot) {
     return (
       <DashboardView
         onClose={onClose}
+        onLaunch={onLaunch}
         snapshot={snapshot}
         toolbar={
           <text fg={theme.colors.mutedForeground} wrapMode="none">
@@ -52,7 +75,7 @@ function DashboardApp({
       preview={false}
       state={
         snapshot
-          ? { counts: summarizeConfig(snapshot), status: "ready" }
+          ? { counts: summarizeConfig(snapshot), hasConfig, status: "ready" }
           : { status: "loading" }
       }
       workspace={snapshot?.workspace ?? workspace}
@@ -131,8 +154,46 @@ export async function openDashboard(
   return {
     close: actions.close,
     entry,
-    update(snapshot: DashboardSnapshot) {
-      publish({ ...screen, snapshot });
+    async failure(error: unknown) {
+      publish({ ...screen, error: String(error), setup: undefined });
+      if (!controller.signal.aborted) {
+        await new Promise<void>((resolve) =>
+          controller.signal.addEventListener("abort", () => resolve(), {
+            once: true,
+          })
+        );
+      }
+    },
+    onboard(
+      path: string,
+      create: (draft: SetupDraft) => Promise<void>
+    ): Promise<boolean> {
+      return new Promise((resolve) => {
+        const abort = () => resolve(false);
+        controller.signal.addEventListener("abort", abort, { once: true });
+        const finishSetup = (created: boolean) => {
+          controller.signal.removeEventListener("abort", abort);
+          publish({ ...screen, setup: undefined });
+          resolve(created);
+        };
+        publish({
+          ...screen,
+          setup: {
+            onCreate: async (draft) => {
+              await create(draft);
+              finishSetup(true);
+            },
+            onSkip: () => finishSetup(false),
+            path,
+          },
+        });
+      });
+    },
+    setLauncher(onLaunch: (name: string, input: unknown) => Promise<string>) {
+      publish({ ...screen, onLaunch });
+    },
+    update(snapshot: DashboardSnapshot, hasConfig = true) {
+      publish({ ...screen, hasConfig, snapshot });
     },
   };
 }

@@ -3,19 +3,19 @@ title: Implement–Review Loop
 description: Compose implementation and review with a bounded stopping condition.
 ---
 
-Quirks includes `implement`, `review`, `develop-round`, and `develop` as executable
-examples. `develop` gives implementation to the first selected harness and
+The repository example `apps/quirks/examples/development.ts` registers
+`implement`, `review`, `develop-round`, and `develop` when explicitly loaded. `develop` gives implementation to the first selected harness and
 review to the second, falling back to the first when only one is available.
 Findings feed into another round, up to five rounds.
 
 ```sh
-quirks once develop --dry \
+quirks once develop --config apps/quirks/examples/development.ts --dry \
   --input '{"task":"Add a --json flag to list","cwd":".","round":1,"findings":[]}'
 ```
 
 Remove `--dry` to perform real model operations. The current review parser accepts
 a standalone `PASS` line or an empty response as no findings. This is a model
-verdict; the built-in does not independently prove verification passed.
+verdict; the example does not independently prove verification passed.
 
 ## Compose your own loop
 
@@ -55,6 +55,7 @@ checkout where you intend the harness to make changes. Add an ordinary step
 that runs your actual verification command, and incorporate its result into the
 stopping predicate when passing tests must govern completion.
 
-For independent reviews in a temporary checkout, use
+To opt into independent reviews in a temporary checkout, add
+`reviewInWorktree()` from `@foundry/quirks/prebuilt` to your config, then use
 `quirks once review-in-worktree --input '{"repository":".","base":"main"}'`.
 Worktree isolation is not a security sandbox.

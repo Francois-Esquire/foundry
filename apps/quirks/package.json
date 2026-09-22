@@ -18,6 +18,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./prebuilt": {
+      "types": "./dist/prebuilt.d.ts",
+      "default": "./dist/prebuilt.js"
     }
   },
   "bin": {
@@ -36,7 +40,7 @@
     "start": "bun run src/cli.ts",
     "test": "bun run test:unit && bun run test:tui",
     "test:package": "bun test test/package.test.ts",
-    "test:tui": "bun test test/status-view.test.ts test/dashboard.test.tsx test/cli-terminal.test.ts",
+    "test:tui": "bun test test/status-view.test.ts test/dashboard.test.tsx test/cli-terminal.test.ts test/setup-launch.test.tsx",
     "test:unit": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"

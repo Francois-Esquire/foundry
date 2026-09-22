@@ -3,12 +3,14 @@ import { useCallback, useEffect, useState } from "react";
 import { Text } from "~/components/ui/text";
 import { Action } from "../src/components/action";
 import { DashboardView } from "../src/views/dashboard";
+import type { JsonValue, RunSnapshot } from "../src/views/dashboard-model";
 import { previewScenarios } from "./scenarios";
 
 type PreviewAction = "previous" | "next" | "play" | "advance" | "reset";
 const PLAYBACK_INTERVAL = 1200;
 
 export function PreviewApp({ onClose }: { readonly onClose: () => void }) {
+  const [manualRuns, setManualRuns] = useState<readonly RunSnapshot[]>([]);
   const [scenarioIndex, setScenarioIndex] = useState(0);
   const [frameIndex, setFrameIndex] = useState(2);
   const [playing, setPlaying] = useState(false);
@@ -39,6 +41,7 @@ export function PreviewApp({ onClose }: { readonly onClose: () => void }) {
               (index + (command === "next" ? 1 : previewScenarios.length - 1)) %
               previewScenarios.length
           );
+          setManualRuns([]);
           setFrameIndex(0);
           setPlaying(false);
           break;
@@ -82,6 +85,30 @@ export function PreviewApp({ onClose }: { readonly onClose: () => void }) {
     [action]
   );
   const snapshot = scenario?.frames[Math.min(frameIndex, frameCount - 1)];
+  const launch = useCallback(
+    (name: string, input: unknown): Promise<string> => {
+      if (scenario?.id === "launch-error") {
+        return Promise.reject(
+          new Error("Preview: executor unavailable. Your inputs are preserved.")
+        );
+      }
+      const id = `preview-${Date.now()}`;
+      const run: RunSnapshot = {
+        definitionId: name,
+        elapsed: "0.1s",
+        id,
+        input: input as JsonValue,
+        name,
+        result: { preview: true },
+        started: "Just now",
+        status: "complete",
+        steps: [],
+      };
+      setManualRuns((previous) => [run, ...previous]);
+      return Promise.resolve(id);
+    },
+    [scenario?.id]
+  );
   if (!(scenario && snapshot)) {
     return <Text>No preview scenario available.</Text>;
   }
@@ -117,8 +144,9 @@ export function PreviewApp({ onClose }: { readonly onClose: () => void }) {
     <DashboardView
       key={scenario.id}
       onClose={onClose}
+      onLaunch={launch}
       onShortcut={shortcut}
-      snapshot={snapshot}
+      snapshot={{ ...snapshot, runs: [...manualRuns, ...snapshot.runs] }}
       toolbar={toolbar}
       viewportWidth={scenario.width}
     />

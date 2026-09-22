@@ -8,7 +8,7 @@ import { agent, loopUntil, step, workflow } from "@foundry/quirks";
 import { generateText } from "ai";
 
 /**
- * The built-in workflows, written in the same dialect a configuration module
+ * Example workflow compositions, written in the same dialect a configuration module
  * uses. If one of these cannot be said with the lib, the lib is missing
  * something — that is the point of writing them this way.
  *

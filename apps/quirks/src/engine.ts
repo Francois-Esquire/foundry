@@ -19,6 +19,11 @@ import { loadRuns, saveRun } from "~/state/runs";
  */
 
 export interface Engine {
+  launch<O>(
+    name: string,
+    input: unknown,
+    triggerId?: string
+  ): Promise<{ readonly id: string; readonly result: Promise<O> }>;
   /**
    * Dispatch a registered definition and wait for its value. `input` is
    * `unknown` because names, not types, address the registry — the caller
@@ -76,8 +81,8 @@ export async function startEngine(
     }
   };
 
-  return {
-    async run<O>(name: string, input: unknown, triggerId?: string): Promise<O> {
+  const engine: Engine = {
+    async launch<O>(name: string, input: unknown, triggerId?: string) {
       if (stopping) {
         throw new Error("engine is stopping");
       }
@@ -93,19 +98,29 @@ export async function startEngine(
       const observed = observeSteps(name, dispatched.workflow, print);
       // The queue handle settles once its side effects are applied; the
       // workflow's own result carries the typed value.
-      await dispatched.result();
-      const settled = await dispatched.workflow.result();
-      await observed;
-      active.delete(dispatched.id);
-      save(dispatched.id);
-      if (settled.status !== "complete") {
-        throw new Error(
-          settled.status === "failed"
-            ? `run "${name}" failed: ${settled.error.message}`
-            : `run "${name}" was cancelled: ${settled.reason ?? "no reason"}`
-        );
-      }
-      return settled.value;
+      const complete = async () => {
+        await dispatched.result();
+        const settled = await dispatched.workflow.result();
+        await observed;
+        active.delete(dispatched.id);
+        save(dispatched.id);
+        if (settled.status !== "complete") {
+          throw new Error(
+            settled.status === "failed"
+              ? `run "${name}" failed: ${settled.error.message}`
+              : `run "${name}" was cancelled: ${settled.reason ?? "no reason"}`
+          );
+        }
+        return settled.value;
+      };
+      const result = complete();
+      // The host may attach after the first snapshot refresh.
+      result.catch(() => undefined);
+      return { id: dispatched.id, result };
+    },
+    async run<O>(name: string, input: unknown, triggerId?: string): Promise<O> {
+      const launched = await this.launch<O>(name, input, triggerId);
+      return launched.result;
     },
 
     async runs() {
@@ -141,4 +156,5 @@ export async function startEngine(
       await orchestrator.stop();
     },
   };
+  return engine;
 }

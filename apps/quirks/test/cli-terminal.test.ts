@@ -1,13 +1,15 @@
 import { expect, test } from "bun:test";
 import {
+  chmodSync,
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { sleep, spawn } from "bun";
 
 async function until(predicate: () => boolean) {
@@ -143,6 +145,8 @@ test("a config error restores the terminal and exits instead of leaving the spla
     }
   );
   try {
+    await until(() => output.includes("Config could not load"));
+    child.terminal?.write("\r");
     await until(() => child.exitCode !== null);
     expect(await child.exited).not.toBe(0);
     expect(output).toContain("test config could not load");
@@ -154,3 +158,147 @@ test("a config error restores the terminal and exits instead of leaving the spla
     rmSync(dir, { force: true, recursive: true });
   }
 }, 12_000);
+
+async function openTestCli(config: string) {
+  const bin = join(dirname(config), "test-bin");
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(join(bin, "codex"), "#!/bin/sh\nexit 1\n");
+  chmodSync(join(bin, "codex"), 0o755);
+  let output = "";
+  const child = spawn(
+    [process.execPath, resolve("src/cli.ts"), "--dry", "--config", config],
+    {
+      env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}` },
+      terminal: {
+        cols: 100,
+        data(_terminal, bytes) {
+          output += Buffer.from(bytes).toString();
+        },
+        rows: 40,
+      },
+    }
+  );
+  return {
+    child,
+    async dispose() {
+      child.kill();
+      await child.exited;
+      child.terminal?.close();
+    },
+    async see(value: string) {
+      await until(() => output.includes(value));
+    },
+    async send(value: string) {
+      child.terminal?.write(value);
+      await sleep(75);
+    },
+  };
+}
+
+test("missing config creates a Product starter without executing it, then launches from Catalog", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "quirks-setup-"));
+  const config = join(dir, "quirks.config.ts");
+  const terminal = await openTestCli(config);
+  try {
+    await terminal.see("Choose a starter");
+    expect(existsSync(config)).toBe(false);
+    await terminal.send("\r");
+    await terminal.see("Step name");
+    await terminal.send("\t");
+    await terminal.send("\t");
+    await terminal.send("\t");
+    await terminal.send("\r");
+    await terminal.see("summarizeCodebase");
+    expect(existsSync(config)).toBe(false);
+    await terminal.send("\r");
+    await terminal.see("Press Enter to enter");
+    expect(readFileSync(config, "utf8")).toContain("@foundry/quirks/prebuilt");
+    await terminal.send("\r");
+    await terminal.see("2 Catalog");
+    await terminal.send("2");
+    await terminal.send("l");
+    await terminal.see("complete");
+    await terminal.send("q");
+    await terminal.see("Quit Quirks?");
+    await terminal.send("\x03");
+    await until(() => terminal.child.exitCode !== null);
+    expect(await terminal.child.exited).toBe(0);
+  } finally {
+    await terminal.dispose();
+    rmSync(dir, { force: true, recursive: true });
+  }
+}, 15_000);
+
+test("setup skip leaves the config absent and opens the empty dashboard", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "quirks-skip-"));
+  const config = join(dir, "quirks.config.ts");
+  const terminal = await openTestCli(config);
+  try {
+    await terminal.see("Choose a starter");
+    await terminal.send("\x1b");
+    await terminal.see("setup skipped");
+    await terminal.send("\r");
+    await terminal.see("No workflows or steps.");
+    expect(existsSync(config)).toBe(false);
+    await terminal.send("q");
+    await terminal.see("Quit Quirks?");
+    await terminal.send("\x03");
+    await until(() => terminal.child.exitCode !== null);
+    expect(await terminal.child.exited).toBe(0);
+  } finally {
+    await terminal.dispose();
+    rmSync(dir, { force: true, recursive: true });
+  }
+}, 15_000);
+
+test("manual workflow launch uses typed arguments while scheduled runs continue", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "quirks-launch-"));
+  const config = join(dir, "quirks.config.ts");
+  const marker = join(dir, "manual.json");
+  const ticks = join(dir, "ticks");
+  writeFileSync(
+    config,
+    `
+import { writeFileSync, appendFileSync } from "node:fs";
+import { step, workflow, schedule } from "@foundry/quirks";
+const tick = step("tick", async () => { appendFileSync(${JSON.stringify(ticks)}, "tick\\n"); });
+schedule("heartbeat", { workflow: tick, input: null, at: "1s" });
+const echo = step("echo", async (_context, input) => { writeFileSync(${JSON.stringify(marker)}, JSON.stringify(input)); return input; });
+workflow("manual", (graph) => graph.step("echo", echo, ({ input }) => input).output(({ echo }) => echo), { input: { fields: [{ name: "message", label: "Message", type: "text", required: true }, { name: "enabled", label: "Enabled", type: "boolean", default: false }, { name: "count", label: "Count", type: "number", default: 0 }] } });
+`
+  );
+  const terminal = await openTestCli(config);
+  try {
+    await terminal.see("Press Enter to enter");
+    await terminal.send("\r");
+    await until(() => existsSync(ticks));
+    const before = readFileSync(ticks, "utf8").length;
+    await terminal.send("2");
+    await terminal.send("\x1b[B");
+    await terminal.send("\x1b[B");
+    await terminal.send("\r");
+    await terminal.send("l");
+    await terminal.see("Launch manual");
+    await terminal.send("hello");
+    await terminal.send("\t");
+    await terminal.send("\t");
+    await terminal.send("\t");
+    await terminal.send("\r");
+    await until(() => existsSync(marker));
+    expect(JSON.parse(readFileSync(marker, "utf8"))).toEqual({
+      count: 0,
+      enabled: false,
+      message: "hello",
+    });
+    await until(() => readFileSync(ticks, "utf8").length > before);
+    await terminal.see("3 Runs");
+    await terminal.send("q");
+    await terminal.see("Quit Quirks?");
+    await terminal.send("\x03");
+    await until(() => terminal.child.exitCode !== null);
+    expect(await terminal.child.exited).toBe(0);
+  } finally {
+    await terminal.dispose();
+    rmSync(dir, { force: true, recursive: true });
+  }
+}, 15_000);

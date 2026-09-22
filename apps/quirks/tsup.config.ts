@@ -50,7 +50,11 @@ export default defineConfig({
     compilerOptions: { ignoreDeprecations: "6.0", paths: internalPaths },
     resolve: true,
   },
-  entry: { cli: "src/cli.ts", index: "src/lib/index.ts" },
+  entry: {
+    cli: "src/cli.ts",
+    index: "src/lib/index.ts",
+    prebuilt: "src/prebuilt.ts",
+  },
   esbuildOptions(options) {
     options.alias = { "@foundry/quirks": "./src/lib/index.ts" };
   },

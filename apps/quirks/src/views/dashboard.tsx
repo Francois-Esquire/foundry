@@ -1,6 +1,7 @@
 import type { KeyEvent } from "@opentui/core";
 import { useTerminalDimensions } from "@opentui/react";
 import type { ReactNode } from "react";
+import { useCallback, useRef, useState } from "react";
 import { DefinitionsBlock, TriggersBlock } from "~/components/blocks/catalog";
 import { DetailsBlock } from "~/components/blocks/details";
 import { ExecutionPanels } from "~/components/blocks/execution-panels";
@@ -12,11 +13,15 @@ import { Text } from "~/components/ui/text";
 import { useTheme } from "~/hooks/use-theme";
 import type { DashboardSnapshot } from "./dashboard-model";
 import type { CatalogSelection } from "./dashboard-tree";
+import { LaunchView } from "./launch";
 import { useDashboard } from "./use-dashboard";
 
-function footer(pane: string, tab: string): string {
+function footer(pane: string, tab: string, definition: boolean): string {
+  if (pane === "details" && definition) {
+    return "l launch · f filter runs · Esc catalog";
+  }
   if (pane === "trigger" || pane === "definition") {
-    return "↑↓ select · f filter runs · / search";
+    return "↑↓ select · l launch catalog item · f filter runs · / search";
   }
   if (pane === "run") {
     return "↑↓ select · ←→ fold · a active · e failed · / search";
@@ -49,23 +54,82 @@ export function DashboardView({
   toolbar,
   onShortcut,
   viewportWidth,
+  onLaunch,
 }: {
   readonly snapshot: DashboardSnapshot;
   readonly onClose: () => void;
   readonly toolbar?: ReactNode;
   readonly onShortcut?: (key: KeyEvent) => void;
   readonly viewportWidth?: number;
+  readonly onLaunch?: (name: string, input: unknown) => Promise<string>;
 }) {
   const theme = useTheme();
   const dimensions = useTerminalDimensions();
   const width = Math.min(viewportWidth ?? dimensions.width, dimensions.width);
-  const ui = useDashboard(snapshot, onClose, onShortcut);
+  const [launchId, setLaunchId] = useState<string>();
+  const [launchError, setLaunchError] = useState<string>();
+  const [launching, setLaunching] = useState(false);
+  const pending = useRef(false);
+  async function launch(id: string) {
+    if (!onLaunch || pending.current) {
+      return;
+    }
+    const definition = snapshot.definitions.find((item) => item.id === id);
+    if (!definition) {
+      return;
+    }
+    setLaunchError(undefined);
+    if (!definition.input || definition.input.fields.length > 0) {
+      setLaunchId(id);
+      return;
+    }
+    pending.current = true;
+    setLaunching(true);
+    try {
+      ui.showRun(await onLaunch(id, undefined));
+    } catch (error) {
+      setLaunchError(String(error));
+    } finally {
+      pending.current = false;
+      setLaunching(false);
+    }
+  }
+  const ui = useDashboard(
+    snapshot,
+    onClose,
+    onShortcut,
+    Boolean(launchId),
+    launch
+  );
+  const cancelLaunch = useCallback(() => setLaunchId(undefined), []);
+  const started = useCallback(
+    (id: string) => {
+      setLaunchId(undefined);
+      ui.showRun(id);
+    },
+    [ui.showRun]
+  );
+  const launchingDefinition = snapshot.definitions.find(
+    (item) => item.id === launchId
+  );
+  if (launchingDefinition && onLaunch) {
+    return (
+      <LaunchView
+        definition={launchingDefinition}
+        onCancel={cancelLaunch}
+        onClose={onClose}
+        onLaunch={onLaunch}
+        onStarted={started}
+      />
+    );
+  }
   const activePane = ui.inputActive ? undefined : ui.pane;
   const filterLabel = describeFilter(snapshot, ui.filter);
   const triggers = (
     <TriggersBlock
       active={activePane === "trigger"}
       items={ui.triggers}
+      onReset={ui.clearFilters}
       onSelect={ui.inspect}
       searching={ui.queries.trigger.length > 0}
       selected={ui.selected}
@@ -75,6 +139,7 @@ export function DashboardView({
     <DefinitionsBlock
       active={activePane === "definition"}
       items={ui.definitions}
+      onReset={ui.clearFilters}
       onSelect={ui.inspect}
       searching={ui.queries.definition.length > 0}
       selected={ui.selected}
@@ -85,10 +150,12 @@ export function DashboardView({
       active={activePane === "run"}
       filtered={Boolean(ui.filter || ui.queries.run)}
       filterLabel={filterLabel}
+      onReset={ui.clearFilters}
       onSelect={ui.inspect}
       onToggle={ui.toggle}
       rows={ui.rows}
       selected={ui.selected}
+      triggerCount={snapshot.triggers.length}
     />
   );
   const details = (
@@ -96,6 +163,7 @@ export function DashboardView({
       active={activePane === "details"}
       onFilter={ui.filterRuns}
       onInspect={ui.inspect}
+      onLaunch={onLaunch ? launch : undefined}
       onTab={ui.changeTab}
       selection={ui.selected}
       snapshot={snapshot}
@@ -155,12 +223,14 @@ export function DashboardView({
         <text fg={theme.colors.mutedForeground} wrapMode="none">
           {ui.searching
             ? "Type to search · Enter apply · Esc clear"
-            : `${ui.pane} · ${footer(ui.pane, ui.tab)}`}
+            : `${ui.pane} · ${footer(ui.pane, ui.tab, ui.selected?.kind === "definition")}`}
         </text>
       )}
       <text fg={theme.colors.mutedForeground} wrapMode="none">
         Tab focus · Enter details · Esc back · ? help · q / Ctrl+C quit
       </text>
+      {launching && <Text>Launching...</Text>}
+      {launchError && <Text>{launchError}</Text>}
       {!ui.help && toolbar}
       {ui.quitting && (
         <QuitDialog

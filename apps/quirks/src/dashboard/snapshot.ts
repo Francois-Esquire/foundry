@@ -236,7 +236,10 @@ export function dashboardSnapshot(
     definitions: [...registry.definitionKinds]
       .filter(([id]) => !registry.monitors.has(id))
       .map(([id, kind]) => ({
-        description: `Registered ${kind}`,
+        ...registry.definitionOptions.get(id),
+        description:
+          registry.definitionOptions.get(id)?.description ??
+          `Registered ${kind}`,
         id,
         kind,
         name: id,

@@ -13,8 +13,8 @@ import { Workflow } from "@foundry/workflows/workflow";
 import type { WorkspaceSystem } from "@foundry/workspaces";
 import type { Git, git } from "@foundry/workspaces/git";
 import type { directory } from "@foundry/workspaces/node";
-
 import type { MonitorInput, MonitorSpec } from "~/monitor";
+import type { DefinitionOptions } from "./inputs";
 
 /**
  * The registry the factories write into. One per process, populated by
@@ -155,6 +155,7 @@ class RegisteredWorkflow<I, O> extends Workflow<I, O> {
 export type Register = (orchestrator: Orchestrator) => void;
 
 class Registry {
+  readonly definitionOptions = new Map<string, DefinitionOptions>();
   readonly definitions = new Map<string, Register>();
   readonly definitionKinds = new Map<string, "step" | "workflow">();
   readonly schedules = new Map<string, Schedule>();
@@ -171,21 +172,35 @@ class Registry {
     return spec;
   }
 
-  step<I, O>(name: string, body: StepBody<I, O>): Step<I, O> {
+  step<I, O>(
+    name: string,
+    body: StepBody<I, O>,
+    options?: DefinitionOptions
+  ): Step<I, O> {
     const step = new RegisteredStep(name, body);
     this.#add(name, (orchestrator) => {
       orchestrator.register(name, step.factory());
     });
     this.definitionKinds.set(name, "step");
+    if (options) {
+      this.definitionOptions.set(name, options);
+    }
     return step;
   }
 
-  workflow<I, O>(name: string, body: WorkflowBody<I, O>): Workflow<I, O> {
+  workflow<I, O>(
+    name: string,
+    body: WorkflowBody<I, O>,
+    options?: DefinitionOptions
+  ): Workflow<I, O> {
     const workflow = new RegisteredWorkflow(name, body);
     this.#add(name, (orchestrator) => {
       orchestrator.register(name, workflow.factory());
     });
     this.definitionKinds.set(name, "workflow");
+    if (options) {
+      this.definitionOptions.set(name, options);
+    }
     return workflow;
   }
 
@@ -231,6 +246,7 @@ class Registry {
   /** Tests only: forget everything a previous config registered. */
   reset(): void {
     this.definitions.clear();
+    this.definitionOptions.clear();
     this.definitionKinds.clear();
     this.schedules.clear();
     this.agents.clear();

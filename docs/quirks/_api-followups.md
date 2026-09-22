@@ -32,7 +32,7 @@ in-memory behavior.
 
 LaunchAgent labels need workspace identity to avoid cross-project collisions.
 Retained review session IDs need repository identity when one workspace reviews
-multiple repositories. The built-in `PASS` parser should not imply verified
+multiple repositories. The development example `PASS` parser should not imply verified
 completion, particularly when a response contains both `PASS` and findings.
 
 ## Authored release copy

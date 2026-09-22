@@ -20,8 +20,6 @@ import { workspaceState } from "~/state/workspace";
 import { readStatus } from "~/status/model";
 import { statusText } from "~/status/text";
 
-import "~/builtins";
-
 const print = (line: string) => {
   process.stdout.write(`${line}\n`);
 };
@@ -66,9 +64,19 @@ async function loadConfiguration(
     )
   );
   const library = await import(libraryPath);
+  const prebuilt = await import(
+    new URL(
+      import.meta.url.endsWith(".ts") ? "./prebuilt.ts" : "./prebuilt.js",
+      import.meta.url
+    ).href
+  );
   plugin({
     name: "quirks-config-library",
     setup(builder) {
+      builder.module("@foundry/quirks/prebuilt", () => ({
+        exports: prebuilt,
+        loader: "object",
+      }));
       builder.module("@foundry/quirks", () => ({
         exports: library,
         loader: "object",

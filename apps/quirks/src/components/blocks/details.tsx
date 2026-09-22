@@ -133,11 +133,13 @@ function CatalogDetails({
   selection,
   onInspect,
   onFilter,
+  onLaunch,
 }: {
   readonly snapshot: DashboardSnapshot;
   readonly selection: CatalogSelection;
   readonly onInspect: (selection: DashboardSelection) => void;
   readonly onFilter: (selection: CatalogSelection) => void;
+  readonly onLaunch?: (id: string) => void;
 }) {
   const item =
     selection.kind === "trigger"
@@ -173,6 +175,15 @@ function CatalogDetails({
           Configuration: {JSON.stringify(item.configuration, null, 2)}
         </Text>
       )}
+      {selection.kind === "definition" && onLaunch && (
+        <Action
+          active
+          id="catalog:launch"
+          label="l Launch"
+          onAction={onLaunch}
+          value={selection.id}
+        />
+      )}
       <Action
         id="filter:runs"
         label={`f Show these runs (${runs.length})`}
@@ -204,6 +215,7 @@ export function DetailsBlock({
   onTab,
   onInspect,
   onFilter,
+  onLaunch,
 }: {
   readonly snapshot: DashboardSnapshot;
   readonly selection?: DashboardSelection;
@@ -212,6 +224,7 @@ export function DetailsBlock({
   readonly onTab: (tab: InspectorTab) => void;
   readonly onInspect: (selection: DashboardSelection) => void;
   readonly onFilter: (selection: CatalogSelection) => void;
+  readonly onLaunch?: (id: string) => void;
 }) {
   let content = (
     <Text>Select a schedule, monitor, definition, run, or step.</Text>
@@ -237,6 +250,7 @@ export function DetailsBlock({
       <CatalogDetails
         onFilter={onFilter}
         onInspect={onInspect}
+        onLaunch={onLaunch}
         selection={selection}
         snapshot={snapshot}
       />

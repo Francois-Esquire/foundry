@@ -44,7 +44,9 @@ quirks status
 In a terminal, `quirks` and `quirks run` open the Gruvbox splash, load your
 configuration and saved run history, then wait for Enter or a click. Enter opens
 the Triggers, Catalog, and Runs dashboard and starts schedules and monitors.
-An empty configuration still opens the dashboard. `quirks --help` prints usage.
+A missing config opens a guided setup for Developer/code review, Design/prototype,
+or Product/codebase summary. It creates only your selected prebuilt step.
+A valid empty configuration opens the dashboard directly; nothing registers by default. `quirks --help` prints usage.
 Piped or redirected runs use plain text and start immediately.
 
 Press `q` or Ctrl+C to open the quit dialog; Ctrl+C again confirms. Quitting stops
@@ -55,12 +57,26 @@ not undo side effects or forcibly stop custom work that ignores the signal.
 
 Deterministic steps need no agent harness. For model operations, install and
 authenticate Claude Code or Codex. The CLI resolves configuration imports of
-`@foundry/quirks` to its own installation, including when installed globally.
+`@foundry/quirks` and `@foundry/quirks/prebuilt` to its own installation, including when installed globally.
 
 State is saved to disk between invocations. `--dry` substitutes supplied model
 and Git operations and disables Quirks state persistence; it does not contain
 custom code, monitor I/O, or launchd installation and removal. Working directories
 are execution context, not security sandboxes.
+
+## Start with a prebuilt step
+
+```ts
+import { summarizeCodebase } from "@foundry/quirks/prebuilt";
+summarizeCodebase();
+```
+
+Press `2` for Catalog, Enter for details, then `l` or click Launch. Steps and
+workflows with declared arguments open a form; argument-free definitions start
+immediately. The dashboard selects the new run while triggers continue running.
+Custom definitions declare fields in the third `step`/`workflow` argument:
+`{ input: { fields: [] } }` explicitly means no arguments. See the configuration
+reference for text, multiline, number, boolean, and choice fields.
 
 ## Documentation
 

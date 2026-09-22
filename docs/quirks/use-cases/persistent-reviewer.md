@@ -28,12 +28,16 @@ The schedule determines when to return. The stable session ID determines which
 conversation to reuse. The workspace determines where that conversation lives
 on disk. Compaction may replace older exchanges with summaries.
 
-For the built-in temporary-checkout variant:
+For a prebuilt reviewer in the current workspace, explicitly register it:
 
-```sh
-quirks once review-session --input '{"repository":".","base":"main"}'
+```ts
+import { reviewSession } from "@foundry/quirks/prebuilt";
+reviewSession();
 ```
 
-Its session ID is based on `base`, so use your own stable IDs when reviewing
-multiple repositories from one workspace. Retained context is useful evidence
-for a review, not proof that the model remembers every detail correctly.
+```sh
+quirks once review-session --input '{"sessionId":"project-review"}'
+```
+
+Use distinct session IDs for unrelated reviews. Retained context helps compare
+findings but does not prove that the model remembers every detail correctly.

@@ -147,7 +147,7 @@ test("empty snapshots remain navigable and explain the waiting state", async () 
   const ui = await render(empty);
   expect(ui.captureCharFrame()).toContain("No schedules or monitors.");
   expect(ui.captureCharFrame()).toContain(
-    "No runs yet. Waiting for a trigger."
+    "Launch a step or workflow from Catalog."
   );
   await press(ui, "c");
   expect(ui.captureCharFrame()).toContain("No workflows or steps.");
@@ -326,7 +326,9 @@ test("preview switches scenarios and advances deterministic playback", async () 
   await press(setup, "n");
   expect(setup.captureCharFrame()).toContain("Frame 2/4");
   await press(setup, "]");
-  expect(setup.captureCharFrame()).toContain("Scenario 2/8: Idle");
+  expect(setup.captureCharFrame()).toContain(
+    `Scenario 2/${previewScenarios.length}: Idle`
+  );
   expect(setup.captureCharFrame()).toContain("No runs yet.");
   await press(setup, "[");
   expect(setup.captureCharFrame()).toContain("Frame 1/4");

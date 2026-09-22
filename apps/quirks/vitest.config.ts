@@ -6,6 +6,10 @@ export default defineConfig({
   resolve: {
     alias: {
       "@foundry/quirks": resolve(import.meta.dirname, "src/lib/index.ts"),
+      "@foundry/quirks/prebuilt": resolve(
+        import.meta.dirname,
+        "src/prebuilt.ts"
+      ),
       "~": resolve(import.meta.dirname, "src"),
     },
   },

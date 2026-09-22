@@ -1,3 +1,7 @@
+import type { DefinitionOptions } from "./inputs";
+
+export type { DefinitionOptions, InputField } from "./inputs";
+
 import type { AgentSpec } from "@foundry/agents/agents/index";
 import type { DefinitionSource } from "@foundry/workflows/definitions";
 import type { Step } from "@foundry/workflows/step";
@@ -18,15 +22,20 @@ import { parseAt } from "~/schedule";
  * `SessionHarness`, and the `Workspaces` interface through their primitives.
  */
 
-export function step<I, O>(name: string, body: StepBody<I, O>): Step<I, O> {
-  return registry.step(name, body);
+export function step<I, O>(
+  name: string,
+  body: StepBody<I, O>,
+  options?: DefinitionOptions
+): Step<I, O> {
+  return registry.step(name, body, options);
 }
 
 export function workflow<I, O>(
   name: string,
-  body: WorkflowBody<I, O>
+  body: WorkflowBody<I, O>,
+  options?: DefinitionOptions
 ): Workflow<I, O> {
-  return registry.workflow(name, body);
+  return registry.workflow(name, body, options);
 }
 
 /**

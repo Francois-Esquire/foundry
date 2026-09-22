@@ -6,6 +6,7 @@ import { StatusLabel } from "~/components/status-label";
 import { Text } from "~/components/ui/text";
 import { type DashboardSelection, selectionKey } from "~/views/dashboard-model";
 import type { RunRow } from "~/views/dashboard-tree";
+import { EmptyState } from "./empty-state";
 
 export function RunsBlock({
   rows,
@@ -15,6 +16,8 @@ export function RunsBlock({
   onToggle,
   filterLabel,
   filtered,
+  triggerCount = 0,
+  onReset,
 }: {
   readonly rows: readonly RunRow[];
   readonly selected?: DashboardSelection;
@@ -23,7 +26,12 @@ export function RunsBlock({
   readonly onToggle: (selection: DashboardSelection) => void;
   readonly filterLabel?: string;
   readonly filtered: boolean;
+  readonly triggerCount?: number;
+  readonly onReset?: () => void;
 }) {
+  const idleDescription = triggerCount
+    ? "Waiting for a configured trigger, or launch a catalog item now."
+    : "Launch a step or workflow from Catalog. Add triggers for automatic runs.";
   return (
     <Panel
       active={active}
@@ -32,11 +40,17 @@ export function RunsBlock({
       title={filterLabel ? `3 Runs · ${filterLabel}` : "3 Runs"}
     >
       {rows.length === 0 && (
-        <Text>
-          {filtered
-            ? "No matching runs. x clears filters."
-            : "No runs yet. Waiting for a trigger."}
-        </Text>
+        <EmptyState
+          description={
+            filtered
+              ? "Clear filters to see all recorded runs."
+              : idleDescription
+          }
+          onReset={filtered ? onReset : undefined}
+          title={
+            filtered ? "No matching runs. x clears filters." : "No runs yet."
+          }
+        />
       )}
       {rows.map((row) => (
         <SelectableRow

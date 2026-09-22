@@ -36,7 +36,7 @@ triggers and let active runs finish.
 
 | Flag | Default | Meaning |
 | --- | --- | --- |
-| `--config <path>` | `./quirks.config.ts` | Configuration module. If absent, built-in definitions remain available. |
+| `--config <path>` | `./quirks.config.ts` | Configuration module. If absent, interactive startup offers setup; other commands have an empty registry. |
 | `--state <dir>` | `~/.foundry/quirks` | Root directory for workspace state. |
 | `--input <json>` | Schedule input, or no input for a direct definition | Input for `once`; overrides a schedule's configured input. |
 | `--harness <id>` | All detected harnesses | Restrict execution to `claude-code` or `codex`. Repeatable. |

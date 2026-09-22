@@ -1,4 +1,5 @@
 import type { LogEntry } from "~/components/ui/log";
+import type { DefinitionOptions } from "~/lib/inputs";
 
 export type JsonValue =
   | null
@@ -30,7 +31,7 @@ export interface TriggerSnapshot {
   readonly targetId: string;
 }
 
-export interface DefinitionSnapshot {
+export interface DefinitionSnapshot extends DefinitionOptions {
   readonly description: string;
   readonly id: string;
   readonly kind: "workflow" | "step";

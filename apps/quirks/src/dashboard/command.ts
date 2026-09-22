@@ -4,7 +4,9 @@ import { dashboardSnapshot } from "~/dashboard/snapshot";
 import { openDashboard } from "~/dashboard/terminal";
 import type { Engine } from "~/engine";
 import { startEngine } from "~/engine";
+import { launchInput } from "~/lib/inputs";
 import { registry } from "~/lib/registry";
+import { createConfig } from "~/onboarding/config";
 import { runSchedulesUntilStopped } from "~/run-loop";
 import type { Runtime } from "~/runtime";
 import { bindRuntime } from "~/runtime";
@@ -43,7 +45,21 @@ export async function runInteractive(
   process.once("SIGTERM", stop);
   process.once("SIGINT", stop);
   try {
-    const hasConfig = await loadConfiguration(configPath, print);
+    let hasConfig = await loadConfiguration(configPath, print);
+    if (!(hasConfig || controller.signal.aborted)) {
+      hasConfig = await terminal.onboard(configPath, async (draft) => {
+        await createConfig(configPath, draft);
+        try {
+          await loadConfiguration(configPath, print);
+        } catch (error) {
+          registry.reset();
+          throw new Error(
+            `Config was created but could not load: ${String(error)}. Fix it and restart Quirks.`,
+            { cause: error }
+          );
+        }
+      });
+    }
     if (controller.signal.aborted) {
       return;
     }
@@ -93,8 +109,23 @@ export async function runInteractive(
           root: workspace.root,
           startedAt,
           status: args.dry ? `dry · ${status}` : status,
-        })
+        }),
+        hasConfig
       );
+    terminal.setLauncher(async (name, input) => {
+      if (!registry.definitions.has(name) || registry.monitors.has(name)) {
+        throw new Error("This definition is not available for manual launch.");
+      }
+      const launched = await runningEngine.launch(
+        name,
+        launchInput(registry.definitionOptions.get(name), input)
+      );
+      launched.result.catch((error: unknown) =>
+        print(`[run] ${String(error)}`)
+      );
+      await update();
+      return launched.id;
+    });
     status = hasConfig
       ? "Config loaded"
       : "No config found · add quirks.config.ts to register triggers";
@@ -137,6 +168,11 @@ export async function runInteractive(
       print
     );
     await loop;
+  } catch (error) {
+    process.exitCode = 1;
+    if (!controller.signal.aborted) {
+      await terminal.failure(error);
+    }
   } finally {
     if (refresh !== undefined) {
       clearInterval(refresh);

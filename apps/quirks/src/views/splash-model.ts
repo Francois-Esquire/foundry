@@ -10,7 +10,11 @@ export interface StartupCounts {
 
 export type SplashState =
   | { readonly status: "loading" }
-  | { readonly status: "ready"; readonly counts: StartupCounts };
+  | {
+      readonly status: "ready";
+      readonly hasConfig?: boolean;
+      readonly counts: StartupCounts;
+    };
 
 export function summarizeConfig(snapshot: DashboardSnapshot): StartupCounts {
   return {

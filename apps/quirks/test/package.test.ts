@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import {
+  chmodSync,
+  mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
@@ -9,12 +11,61 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import {
+  createSourceFile,
+  forEachChild,
+  isCallExpression,
+  isExportDeclaration,
+  isImportDeclaration,
+  isImportTypeNode,
+  isLiteralTypeNode,
+  isStringLiteral,
+  type Node,
+  ScriptTarget,
+  SyntaxKind,
+} from "typescript";
 
 import { inspectDashboard } from "./helpers/terminal";
 
 const PACKAGE_ROOT = resolve(import.meta.dirname, "..");
-const PRIVATE_IMPORT =
-  /(?:from\s*|import\s*\()\s*["'](@foundry\/[^"']+|~\/[^"']+)["']/;
+function privateImports(source: string): string[] {
+  const imports: string[] = [];
+  function inspect(node: Node) {
+    let specifier: Node | undefined;
+    if (isImportDeclaration(node) || isExportDeclaration(node)) {
+      specifier = node.moduleSpecifier;
+    } else if (isImportTypeNode(node) && isLiteralTypeNode(node.argument)) {
+      specifier = node.argument.literal;
+    } else if (
+      isCallExpression(node) &&
+      node.expression.kind === SyntaxKind.ImportKeyword
+    ) {
+      [specifier] = node.arguments;
+    }
+    if (
+      specifier &&
+      isStringLiteral(specifier) &&
+      (specifier.text.startsWith("@foundry/") ||
+        specifier.text.startsWith("~/"))
+    ) {
+      imports.push(specifier.text);
+    }
+    forEachChild(node, inspect);
+  }
+  inspect(createSourceFile("package.ts", source, ScriptTarget.Latest, true));
+  return imports;
+}
+
+test("package import inspection checks declarations and dynamic imports, not config source strings", () => {
+  expect(
+    privateImports(
+      'import type { T } from "@foundry/private"; type X = import("@foundry/query").X; import("~/dynamic");'
+    )
+  ).toEqual(["@foundry/private", "@foundry/query", "~/dynamic"]);
+  expect(
+    privateImports('const config = `import { step } from "@foundry/quirks";`;')
+  ).toEqual([]);
+});
 
 function run(command: string, args: string[], cwd: string): string {
   try {
@@ -67,9 +118,9 @@ test("the tarball installs and shares the library registry with the CLI", async 
     expect(readdirSync(installed)).not.toContain("src");
     for (const file of readdirSync(join(installed, "dist"))) {
       if (file.endsWith(".js") || file.endsWith(".d.ts")) {
-        expect(readFileSync(join(installed, "dist", file), "utf8")).not.toMatch(
-          PRIVATE_IMPORT
-        );
+        expect(
+          privateImports(readFileSync(join(installed, "dist", file), "utf8"))
+        ).toEqual([]);
       }
     }
     writeFileSync(
@@ -154,6 +205,37 @@ step("inventory", async ({ workspaces, workspace }) => {
       }
     );
     expect(inventory).toContain("quirks.config.ts");
+    for (const directory of [consumer, standalone]) {
+      const config = join(directory, "quirks.config.ts");
+      writeFileSync(config, 'import "@foundry/quirks/prebuilt";');
+      expect(run(cli, ["list", "--dry"], directory)).not.toContain("[step]");
+      writeFileSync(
+        config,
+        'import { summarizeCodebase } from "@foundry/quirks/prebuilt"; summarizeCodebase({ name: "packed-summary" });'
+      );
+      expect(
+        run(cli, ["list", "--dry"], directory)
+          .split("\n")
+          .filter((line) => line.startsWith("[step]"))
+      ).toEqual(["[step] packed-summary"]);
+      const bin = join(directory, "bin");
+      mkdirSync(bin);
+      const codex = join(bin, "codex");
+      writeFileSync(codex, "#!/bin/sh\nexit 1\n");
+      chmodSync(codex, 0o755);
+      const result = execFileSync(
+        process.execPath,
+        [cli, "once", "packed-summary", "--dry", "--harness", "codex"],
+        {
+          cwd: directory,
+          encoding: "utf8",
+          env: { ...process.env, PATH: bin },
+          timeout: 10_000,
+        }
+      );
+      expect(result).toContain("[run] packed-summary complete");
+      expect(result).toContain("Summarize this codebase");
+    }
   } finally {
     rmSync(standalone, { force: true, recursive: true });
     rmSync(consumer, { force: true, recursive: true });

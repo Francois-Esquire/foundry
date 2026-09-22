@@ -31,13 +31,16 @@ function initial(snapshot: DashboardSnapshot): DashboardSelection | undefined {
   if (snapshot.triggers[0]) {
     return { id: snapshot.triggers[0].id, kind: "trigger" };
   }
-  return undefined;
+  const [definition] = snapshot.definitions;
+  return definition ? { id: definition.id, kind: "definition" } : undefined;
 }
 
 export function useDashboard(
   snapshot: DashboardSnapshot,
   onClose: () => void,
-  onShortcut?: (key: KeyEvent) => void
+  onShortcut?: (key: KeyEvent) => void,
+  blocked = false,
+  onLaunch?: (id: string) => void
 ) {
   const [selected, setSelected] = useState(() => initial(snapshot));
   const [pane, setPane] = useState<Pane>(
@@ -283,6 +286,9 @@ export function useDashboard(
     }
   }
   function commands(key: KeyEvent) {
+    if (key.name === "l" && selected?.kind === "definition") {
+      onLaunch?.(selected.id);
+    }
     if (key.name === "b" && pane === "details" && selected?.kind === "run") {
       inspect({ id: selected.id, kind: "run" });
     }
@@ -332,6 +338,9 @@ export function useDashboard(
     return false;
   }
   useKeyboard((key) => {
+    if (blocked) {
+      return;
+    }
     if (handleGlobalKey(key)) {
       return;
     }
@@ -374,6 +383,14 @@ export function useDashboard(
     select,
     selected,
     setQuery,
+    showRun(id: string) {
+      clearFilters();
+      setHelp(false);
+      setSearching(false);
+      select({ id, kind: "run" });
+      setTab("overview");
+      setExpanded((previous) => new Set([...previous, `run:${id}`]));
+    },
     tab,
     toggle,
     triggers,

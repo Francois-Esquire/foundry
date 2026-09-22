@@ -225,4 +225,119 @@ export const previewScenarios: readonly PreviewScenario[] = [
     label: "Narrow terminal",
     width: 70,
   },
+  {
+    frames: [
+      {
+        ...dashboardSnapshot,
+        definitions: [],
+        runs: [],
+        status: "Empty config loaded",
+        triggers: [],
+      },
+    ],
+    id: "empty-config",
+    label: "Empty config",
+  },
+  {
+    frames: [
+      {
+        ...dashboardSnapshot,
+        runs: [],
+        status: "Ready to launch",
+        triggers: [],
+      },
+    ],
+    id: "steps-only",
+    label: "Steps without triggers",
+  },
+  {
+    frames: [{ ...dashboardSnapshot, runs: [], status: "Watching triggers" }],
+    id: "no-runs",
+    label: "Triggers awaiting first run",
+  },
+  {
+    frames: [
+      {
+        ...dashboardSnapshot,
+        definitions: [
+          {
+            description: "Launch immediately with no arguments.",
+            id: "summary",
+            input: { fields: [] },
+            kind: "step",
+            name: "Summary",
+          },
+          {
+            description: "Try each supported argument control.",
+            id: "prototype",
+            input: {
+              fields: [
+                { label: "Title", name: "title", required: true, type: "text" },
+                {
+                  label: "Brief",
+                  name: "brief",
+                  required: true,
+                  type: "multiline",
+                },
+                {
+                  default: 1,
+                  label: "Variants",
+                  max: 5,
+                  min: 1,
+                  name: "count",
+                  type: "number",
+                },
+                {
+                  default: false,
+                  label: "Interactive",
+                  name: "interactive",
+                  type: "boolean",
+                },
+                {
+                  default: "gruvbox",
+                  label: "Theme",
+                  name: "theme",
+                  options: [
+                    { label: "Gruvbox", value: "gruvbox" },
+                    { label: "Neutral", value: "neutral" },
+                  ],
+                  type: "select",
+                },
+              ],
+            },
+            kind: "workflow",
+            name: "Prototype",
+          },
+        ],
+        runs: [],
+        triggers: [],
+      },
+    ],
+    id: "launch-form",
+    label: "Launch arguments",
+  },
+  {
+    frames: [
+      {
+        ...dashboardSnapshot,
+        definitions: [
+          {
+            description: "Preview a rejected dispatch.",
+            id: "unavailable",
+            input: {
+              fields: [
+                { label: "Task", name: "task", required: true, type: "text" },
+              ],
+            },
+            kind: "workflow",
+            name: "Unavailable workflow",
+          },
+        ],
+        runs: [],
+        triggers: [],
+      },
+    ],
+    id: "launch-error",
+    label: "Launch failure",
+  },
 ];

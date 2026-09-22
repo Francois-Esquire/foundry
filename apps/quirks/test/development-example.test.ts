@@ -4,17 +4,17 @@ import { Git, git } from "@foundry/workspaces/git";
 import { directory } from "@foundry/workspaces/node";
 import { describe, expect, it } from "vitest";
 import { bindAgents } from "~/agents";
-import {
-  develop,
-  findingsIn,
-  reviewInWorktree,
-  reviewSession,
-} from "~/builtins";
 import { CLAUDE_CODE, CODEX } from "~/harnesses";
 import { registry } from "~/lib/registry";
 import type { Reply } from "~/models/echo";
 import { mockModels } from "~/models/echo";
 import { echoGit } from "~/runtime";
+import {
+  develop,
+  findingsIn,
+  reviewInWorktree,
+  reviewSession,
+} from "../examples/development";
 
 import { seedRepository } from "./helpers/repository";
 

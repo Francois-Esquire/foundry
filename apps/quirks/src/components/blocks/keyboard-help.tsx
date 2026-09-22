@@ -20,6 +20,11 @@ export function KeyboardHelp({ active = true }: { readonly active?: boolean }) {
             value: "Move focus through the three dashboard panels",
           },
           { key: "c", value: "Focus Catalog" },
+          { key: "l on catalog", value: "Launch selected step or workflow" },
+          {
+            key: "Tab / Ctrl+Enter in forms",
+            value: "Move focus / submit arguments",
+          },
           { key: "h / click quirks", value: "Return to the dashboard" },
           { key: "↑ / ↓", value: "Select rows or scroll the inspector" },
           {
