@@ -1,0 +1,49 @@
+import { mkdtemp, realpath, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  directory,
+  InMemoryWorkspaceStore,
+  WorkspaceSystem,
+} from "@foundry/workspaces";
+import { onTestFinished } from "vitest";
+import { InMemoryArtifactStore } from "../../memory";
+import { artifactFileSystem, blobFiles } from "../../node";
+import type { EntryInputs } from "../../substrate";
+import { ArtifactSystem } from "../../system";
+
+export async function fixture(entries: EntryInputs = {}, files = false) {
+  const root = await realpath(
+    await mkdtemp(join(tmpdir(), "artifact-directory-"))
+  );
+  const store = new InMemoryArtifactStore();
+  const artifacts = new ArtifactSystem({
+    store,
+    ...(files ? { files: blobFiles(join(root, ".blobs")) } : {}),
+  });
+  const filesystem = artifactFileSystem({ artifacts, root });
+  const catalog = new InMemoryWorkspaceStore();
+  const system = new WorkspaceSystem({ store: catalog }).extend(
+    directory({ filesystem, source: "artifact" })
+  );
+  onTestFinished(async () => {
+    await system.closeAll();
+    await filesystem.close();
+    await rm(root, { force: true, recursive: true });
+  });
+  const artifact = await artifacts.create({
+    entries,
+    name: "Fixture",
+    type: "text/plain",
+  });
+  return {
+    artifact,
+    artifacts,
+    catalog,
+    filesystem,
+    load: () => system.load({ artifactId: artifact.id }),
+    root,
+    store,
+    system,
+  };
+}

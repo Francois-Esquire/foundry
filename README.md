@@ -53,6 +53,7 @@ normal side effects; read the [safety and limits](https://francois-esquire.githu
 | [Workflows](packages/workflows) | Steps, composition, and execution state. |
 | [Models](packages/models) | Model providers and coding-agent harness access. |
 | [Workspaces](packages/workspaces) | Directory inventories and Git operations. |
+| [Artifacts](packages/artifacts) | Versioned content, blob storage, and filesystem delivery. |
 
 Quirks is currently the only package configured for public npm releases. The
 shared libraries are private workspace packages bundled into it.

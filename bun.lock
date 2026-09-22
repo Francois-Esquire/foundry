@@ -89,6 +89,24 @@
         "vitest": "^4.1.9",
       },
     },
+    "packages/artifacts": {
+      "name": "@foundry/artifacts",
+      "version": "0.1.0",
+      "dependencies": {
+        "@foundry/core": "workspace:*",
+        "@foundry/lib": "workspace:*",
+        "@foundry/workspaces": "workspace:*",
+        "@noble/hashes": "^2.2.0",
+        "zod": "^4.4.3",
+      },
+      "devDependencies": {
+        "@foundry/tsconfig": "workspace:*",
+        "@types/bun": "1.3.14",
+        "@vitest/coverage-v8": "^4.1.9",
+        "typescript": "^6.0.3",
+        "vitest": "^4.1.9",
+      },
+    },
     "packages/core": {
       "name": "@foundry/core",
       "version": "0.1.0",
@@ -517,6 +535,8 @@
 
     "@foundry/agents": ["@foundry/agents@workspace:packages/agents"],
 
+    "@foundry/artifacts": ["@foundry/artifacts@workspace:packages/artifacts"],
+
     "@foundry/core": ["@foundry/core@workspace:packages/core"],
 
     "@foundry/docs": ["@foundry/docs@workspace:docs"],
@@ -671,7 +691,7 @@
 
     "@noble/curves": ["@noble/curves@1.9.7", "", { "dependencies": { "@noble/hashes": "1.8.0" } }, "sha512-gbKGcRUYIjA3/zCCNaWDciTMFI0dCkvou3TL8Zmy5Nc7sJ47a0jtOeZoTaMxkuqRo9cRhjOdZJXegxYE5FN/xw=="],
 
-    "@noble/hashes": ["@noble/hashes@1.8.0", "", {}, "sha512-jCs9ldd7NwzpgXDIf6P3+NrHh9/sD6CQdxHyjQI+h/6rDNo88ypBxxz45UDuZHz9r3tNz7N/VInSVoVdtXEI4A=="],
+    "@noble/hashes": ["@noble/hashes@2.4.0", "", {}, "sha512-X5XaVWZIBCT7HHZGm5I7ZQXDwLG+bGXuSrMQAW+7Zvl87h1kmc1ZB1VSRJcpUfoUrGQp4Fkoxm5kZ+Ms+aW+eA=="],
 
     "@nodable/entities": ["@nodable/entities@3.0.0", "", {}, "sha512-8L9xFeTYKhm49xfIypoe2W5wV1m/3Z58kT+7kR9A8OyFxcPduI4VmxaUMQyKYrRjUoLLSXv6EKKID5Tvj9cUVw=="],
 
@@ -3024,6 +3044,8 @@
     "@kwsites/file-exists/debug": ["debug@4.4.3", "", { "dependencies": { "ms": "^2.1.3" }, "peerDependencies": { "supports-color": "*" }, "optionalPeers": ["supports-color"] }, "sha512-RGwwWnwQvkVfavKVt22FGLw+xYSdzARwm0ru6DhTVA3umU5hZc28V3kO4stgYryrTlLpuvgI9GiijltAjNbcqA=="],
 
     "@mongodb-js/zstd/node-addon-api": ["node-addon-api@8.9.2", "", {}, "sha512-VijLXbi3UACN69I0JVXJsX4tjACjNoQDgv2gTF6sx2wWEi8tkSg2eX8p5gSIFi8z2+DL3oHmY6OyKce38SDolg=="],
+
+    "@noble/curves/@noble/hashes": ["@noble/hashes@1.8.0", "", {}, "sha512-jCs9ldd7NwzpgXDIf6P3+NrHh9/sD6CQdxHyjQI+h/6rDNo88ypBxxz45UDuZHz9r3tNz7N/VInSVoVdtXEI4A=="],
 
     "@opentui/core/marked": ["marked@17.0.1", "", { "bin": { "marked": "bin/marked.js" } }, "sha512-boeBdiS0ghpWcSwoNm/jJBwdpFaMnZWRzjA6SkUMYb40SVaN1x7mmfGKp0jvexGcx+7y2La5zRZsYFZI6Qpypg=="],
 
