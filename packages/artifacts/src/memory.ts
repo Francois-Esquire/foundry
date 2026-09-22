@@ -22,6 +22,24 @@ interface Records {
   contents: Map<ContentId, Content>;
 }
 
+/** A store's records as plain arrays: what a persistent host loads and saves. */
+export interface ArtifactRecords {
+  readonly artifacts: readonly Artifact[];
+  readonly blobs: readonly Blob[];
+  readonly contents: readonly Content[];
+}
+
+export interface InMemoryArtifactStoreOptions {
+  /**
+   * Awaited with the complete records before a write transaction's changes
+   * become visible. A rejection fails the transaction and keeps the previous
+   * records, so a host can make persistence part of the commit.
+   */
+  readonly commit?: (records: ArtifactRecords) => Promise<void>;
+  /** Starting records; cloned, so the caller keeps ownership. */
+  readonly records?: ArtifactRecords;
+}
+
 interface Transaction {
   active: boolean;
   readonly callbacks: (() => Promise<void>)[];
@@ -35,8 +53,27 @@ export class InMemoryArtifactStore implements ArtifactStore {
     contents: new Map(),
   };
   #pending: Promise<void> = Promise.resolve();
+  readonly #commit: InMemoryArtifactStoreOptions["commit"];
   // biome-ignore lint/style/useReadonlyClassProperties: Transaction setup assigns this field on a scoped instance.
   #transaction: Transaction | undefined;
+
+  constructor(options: InMemoryArtifactStoreOptions = {}) {
+    this.#commit = options.commit;
+    if (options.records) {
+      const { artifacts, blobs, contents } = structuredClone(options.records);
+      this.#records = {
+        artifacts: new Map(artifacts.map((row) => [row.id, row])),
+        blobs: new Map(blobs.map((row) => [row.id, row])),
+        contents: new Map(contents.map((row) => [row.id, row])),
+      };
+    }
+  }
+
+  /** A clone of every record, outside any transaction. */
+  async records(): Promise<ArtifactRecords> {
+    await this.#ready();
+    return recordsOf(this.#records);
+  }
 
   async transaction<T>(
     operation: (store: ArtifactStore) => Promise<T>,
@@ -67,6 +104,9 @@ export class InMemoryArtifactStore implements ArtifactStore {
     let result: T;
     try {
       result = await operation(scoped);
+      if (this.#commit && !transaction.readOnly) {
+        await this.#commit(recordsOf(scoped.#records));
+      }
       this.#records = scoped.#records;
     } finally {
       transaction.active = false;
@@ -294,6 +334,14 @@ export class InMemoryArtifactStore implements ArtifactStore {
     }
     return transaction;
   }
+}
+
+function recordsOf(records: Records): ArtifactRecords {
+  return structuredClone({
+    artifacts: [...records.artifacts.values()],
+    blobs: [...records.blobs.values()],
+    contents: [...records.contents.values()],
+  });
 }
 
 const compareIds = byCodeUnit((value: { id: string }) => value.id);

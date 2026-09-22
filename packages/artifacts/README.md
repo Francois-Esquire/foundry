@@ -217,7 +217,10 @@ canonical JSON, and Base64 helpers live in `@foundry/lib/digest`,
 `nextCursor`. Shared pagination helpers live in `@foundry/lib/pagination`.
 
 Persistent stores implement `ArtifactStore`; a SQLite adapter is not included in
-this repository. Neither the shared system nor the in-memory store imports Node
+this repository. `JsonArtifactStore` from `@foundry/artifacts/node` keeps every
+record in one JSON file, rewritten per commit under a `<path>.lock` file so
+several processes can share it. Pair it with `blobFiles` for bytes. It suits a
+local feed's scale, not a large catalogue. Neither the shared system nor the in-memory store imports Node
 or SQLite.
 
 ## Development

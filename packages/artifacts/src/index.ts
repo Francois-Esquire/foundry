@@ -30,7 +30,11 @@ export {
   InvalidArtifactInputError,
   StaleContentError,
 } from "./errors";
-export { InMemoryArtifactStore } from "./memory";
+export {
+  type ArtifactRecords,
+  InMemoryArtifactStore,
+  type InMemoryArtifactStoreOptions,
+} from "./memory";
 export type { ArtifactCursor } from "./pagination";
 export { artifactCursor, normalizeArtifactQuery } from "./pagination";
 export type { ArtifactId, BlobId, ContentId } from "./ref";
