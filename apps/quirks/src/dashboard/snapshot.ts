@@ -12,6 +12,7 @@ import { describeMonitor } from "~/monitor";
 import { cadence, clock, nextDue, weekdays } from "~/schedule";
 import type {
   DashboardSnapshot,
+  FeedEntrySnapshot,
   JsonValue,
   RunSnapshot,
   StepSnapshot,
@@ -172,12 +173,16 @@ function description(schedule: Schedule): string {
 }
 
 export interface SnapshotOptions {
+  /** Feed entries from every workspace, newest first. */
+  readonly feed?: readonly FeedEntrySnapshot[];
   readonly harnesses: readonly string[];
   readonly lastFinish: ReadonlyMap<string, number>;
   readonly now?: number;
   readonly root: string;
   readonly startedAt: number;
   readonly status: string;
+  /** This workspace's id, matching `FeedEntrySnapshot.workspace.id`. */
+  readonly workspaceId?: string;
 }
 
 /** Adapt runtime records into presentation data; components never access the registry or engine. */
@@ -244,6 +249,7 @@ export function dashboardSnapshot(
         kind,
         name: id,
       })),
+    feed: options.feed ?? [],
     harnesses: options.harnesses,
     mode: "live",
     root: options.root,
@@ -251,5 +257,6 @@ export function dashboardSnapshot(
     status: options.status,
     triggers,
     workspace: basename(options.root),
+    ...(options.workspaceId ? { workspaceId: options.workspaceId } : {}),
   };
 }

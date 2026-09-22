@@ -1,6 +1,7 @@
 import type { KeyEvent } from "@opentui/core";
 import { useKeyboard } from "@opentui/react";
 import { useCallback, useState } from "react";
+import type { DashboardViewKey } from "~/components/blocks/view-tabs";
 import {
   type DashboardSelection,
   type DashboardSnapshot,
@@ -35,13 +36,29 @@ function initial(snapshot: DashboardSnapshot): DashboardSelection | undefined {
   return definition ? { id: definition.id, kind: "definition" } : undefined;
 }
 
+/** Shift+D and Shift+F; plain `d` and `f` keep their pane meanings. */
+function viewShortcut(key: KeyEvent): DashboardViewKey | undefined {
+  const letter = key.shift ? key.name : undefined;
+  if (key.sequence === "D" || letter === "d") {
+    return "dashboard";
+  }
+  if (key.sequence === "F" || letter === "f") {
+    return "feed";
+  }
+  return undefined;
+}
+
 export function useDashboard(
   snapshot: DashboardSnapshot,
   onClose: () => void,
   onShortcut?: (key: KeyEvent) => void,
   blocked = false,
-  onLaunch?: (id: string) => void
+  onLaunch?: (id: string) => void,
+  onFeedKey?: (key: KeyEvent) => void,
+  /** The feed is taking typed text: every key but Ctrl+C goes to it. */
+  feedCapturesKeys = false
 ) {
+  const [view, setView] = useState<DashboardViewKey>("dashboard");
   const [selected, setSelected] = useState(() => initial(snapshot));
   const [pane, setPane] = useState<Pane>(
     () => initial(snapshot)?.kind ?? "trigger"
@@ -79,6 +96,7 @@ export function useDashboard(
   const goHome = useCallback(() => {
     setHelp(false);
     setSearching(false);
+    setView("dashboard");
     setPane(selected?.kind ?? "run");
   }, [selected?.kind]);
   const select = useCallback((selection: DashboardSelection) => {
@@ -337,8 +355,34 @@ export function useDashboard(
     }
     return false;
   }
+  /** Typing into the feed: every key but Ctrl+C belongs to it. */
+  function feedTakesKey(key: KeyEvent): boolean {
+    const interrupt = key.ctrl && key.name === "c";
+    return view === "feed" && feedCapturesKeys && !interrupt;
+  }
+  /** Tab switching, and every key while the Feed tab is showing. */
+  function handleViewKey(key: KeyEvent): boolean {
+    const target = viewShortcut(key);
+    if (target) {
+      setView(target);
+      return true;
+    }
+    if (view !== "feed") {
+      return false;
+    }
+    if (key.sequence === "?") {
+      setHelp(true);
+    } else {
+      onFeedKey?.(key);
+    }
+    return true;
+  }
   useKeyboard((key) => {
     if (blocked) {
+      return;
+    }
+    if (feedTakesKey(key)) {
+      onFeedKey?.(key);
       return;
     }
     if (handleGlobalKey(key)) {
@@ -358,6 +402,9 @@ export function useDashboard(
       return;
     }
     onShortcut?.(key);
+    if (handleViewKey(key)) {
+      return;
+    }
     navigate(key);
     commands(key);
   });
@@ -383,6 +430,7 @@ export function useDashboard(
     select,
     selected,
     setQuery,
+    setView,
     showRun(id: string) {
       clearFilters();
       setHelp(false);
@@ -394,5 +442,6 @@ export function useDashboard(
     tab,
     toggle,
     triggers,
+    view,
   };
 }

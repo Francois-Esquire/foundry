@@ -17,6 +17,7 @@ describe("parseArgs", () => {
   });
   it("defaults to the repo config and the home state dir", () => {
     expect(parseArgs([])).toEqual({
+      artifacts: join(homedir(), ".foundry", "artifacts"),
       command: "run",
       config: "./quirks.config.ts",
       dry: false,

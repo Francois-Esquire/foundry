@@ -7,11 +7,13 @@ import { Git, git } from "@foundry/workspaces/git";
 import { directory } from "@foundry/workspaces/node";
 import { nodeObserver } from "@foundry/workspaces/node/watch";
 import { bindAgents } from "~/agents";
+import { unboundFeed } from "~/feed/entry";
 import {
   availableExecutors,
   detectHarnesses,
   harnessModels,
 } from "~/harnesses";
+import { createLog } from "~/lib/log";
 import type { Primitives } from "~/lib/registry";
 import { registry } from "~/lib/registry";
 import { echoModels } from "~/models/echo";
@@ -68,7 +70,8 @@ export function bindRuntime(options: RuntimeOptions): Runtime {
       skills: (names) => skillsNamed(names, join(root, "skills")),
     }),
     executors,
-    log: print,
+    feed: unboundFeed,
+    log: createLog((_level, message) => print(message)),
     models,
     sessions,
     state,

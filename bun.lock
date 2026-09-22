@@ -25,6 +25,7 @@
       },
       "dependencies": {
         "@ai-sdk/provider": "4.0.7",
+        "@noble/hashes": "^2.2.0",
         "@opentui/core": "0.5.11",
         "@opentui/react": "0.5.11",
         "@parcel/watcher": "^2.5.1",
@@ -42,6 +43,7 @@
       },
       "devDependencies": {
         "@foundry/agents": "workspace:*",
+        "@foundry/artifacts": "workspace:*",
         "@foundry/core": "workspace:*",
         "@foundry/lib": "workspace:*",
         "@foundry/models": "workspace:*",

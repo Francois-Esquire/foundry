@@ -96,6 +96,8 @@ export { ModelManager } from "@foundry/models";
 export { WorkspaceSystem } from "@foundry/workspaces";
 export type { GitRun, GitSnapshot } from "@foundry/workspaces/git";
 export { Git, Worktree } from "@foundry/workspaces/git";
+export type { Feed, FeedKind, FeedPost, FeedQuestion } from "~/feed/entry";
+export type { Log, LogLevel } from "~/lib/log";
 export type {
   CalendarSlot,
   Primitives,

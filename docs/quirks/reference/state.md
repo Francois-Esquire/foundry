@@ -19,6 +19,20 @@ identified by a hash of its canonical filesystem path.
   sessions/<id>.json      retained agent conversations
 ```
 
+Feed entries live outside the per-workspace directories, in the Artifact store
+shared by every workspace (default `~/.foundry/artifacts`, set with `--artifacts`):
+
+```text
+~/.foundry/artifacts/
+  records.json            Artifacts and their Content versions
+  records.json.lock       pid holding the write lock during a commit
+  blobs/                  file bytes, one immutable file per blob
+```
+
+Writers take the lock, reload `records.json`, and replace it atomically, so
+concurrent Quirks processes do not lose each other's entries. `--dry` keeps the
+feed in memory.
+
 Quirks-owned JSON records carry `version: 1`. Session files use the underlying
 session store's format.
 

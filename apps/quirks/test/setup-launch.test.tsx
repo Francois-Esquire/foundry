@@ -39,6 +39,7 @@ async function click(id: string) {
 }
 const empty: DashboardSnapshot = {
   definitions: [],
+  feed: [],
   harnesses: [],
   mode: "snapshot",
   root: "/workspace",

@@ -1,6 +1,7 @@
 import { schedule, step, workflow } from "@foundry/quirks";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { createLog } from "~/lib/log";
 import type { CalendarSlot, Schedule } from "~/lib/registry";
 
 import { registry } from "~/lib/registry";
@@ -41,7 +42,7 @@ describe("factories", () => {
 
     const lines: string[] = [];
     registry.bind({
-      log: (line: string) => lines.push(line),
+      log: createLog((_level, line) => lines.push(line)),
     } as never);
     await expect(seen.create().run("hi")).resolves.toBe("hi");
     expect(lines).toEqual(["hi"]);

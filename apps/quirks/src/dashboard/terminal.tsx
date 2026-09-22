@@ -14,6 +14,7 @@ interface Screen {
   readonly entered: boolean;
   readonly error?: string;
   readonly hasConfig?: boolean;
+  readonly onAnswer?: (entryId: string, answer: string) => Promise<void>;
   readonly onLaunch?: (name: string, input: unknown) => Promise<string>;
   readonly setup?: {
     readonly path: string;
@@ -39,7 +40,7 @@ function DashboardApp({
   readonly onClose: () => void;
 }) {
   const theme = useTheme();
-  const { entered, snapshot, setup, error, hasConfig, onLaunch } =
+  const { entered, snapshot, setup, error, hasConfig, onAnswer, onLaunch } =
     useSyncExternalStore(store.subscribe, store.getSnapshot);
   if (error) {
     return <ConfigErrorView message={error} onClose={onClose} />;
@@ -57,6 +58,7 @@ function DashboardApp({
   if (entered && snapshot) {
     return (
       <DashboardView
+        onAnswer={onAnswer}
         onClose={onClose}
         onLaunch={onLaunch}
         snapshot={snapshot}
@@ -188,6 +190,9 @@ export async function openDashboard(
           },
         });
       });
+    },
+    setAnswerer(onAnswer: (entryId: string, answer: string) => Promise<void>) {
+      publish({ ...screen, onAnswer });
     },
     setLauncher(onLaunch: (name: string, input: unknown) => Promise<string>) {
       publish({ ...screen, onLaunch });

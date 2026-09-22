@@ -6,6 +6,8 @@ import type { RunRecord } from "@foundry/workflows/store";
 import { InMemoryOrchestratorStore } from "@foundry/workflows/store";
 import type { WorkflowState } from "@foundry/workflows/workflow";
 
+import type { FeedPublisher } from "~/feed/publish";
+import { feedRouter } from "~/feed/route";
 import { observeSteps } from "~/observe";
 import { loadRuns, saveRun } from "~/state/runs";
 
@@ -19,6 +21,8 @@ import { loadRuns, saveRun } from "~/state/runs";
  */
 
 export interface Engine {
+  /** Answer an open input entry; the run that asked resumes with it. */
+  answer(entryId: string, answer: string): Promise<void>;
   launch<O>(
     name: string,
     input: unknown,
@@ -43,6 +47,13 @@ export interface Engine {
 export type RegisterDefinitions = (orchestrator: OrchestratorType) => void;
 
 export interface EngineOptions {
+  /**
+   * Whether someone can answer `feed.ask` in this process (the dashboard).
+   * Otherwise a question cancels its run rather than pausing it forever.
+   */
+  readonly askable?: boolean;
+  /** Writes entries steps post; without one, posts are dropped. */
+  readonly feed?: FeedPublisher;
   readonly print: (line: string) => void;
   /** Workspace state dir. Omit for in-memory, which `--dry` always is. */
   readonly state?: string;
@@ -50,7 +61,7 @@ export interface EngineOptions {
 
 export async function startEngine(
   register: RegisterDefinitions,
-  { print, state }: EngineOptions
+  { askable = false, feed, print, state }: EngineOptions
 ): Promise<Engine> {
   const store = new InMemoryOrchestratorStore(
     state === undefined ? {} : { snapshot: loadRuns(state, print) }
@@ -62,6 +73,13 @@ export async function startEngine(
   await orchestrator.setup();
   register(orchestrator);
   await orchestrator.start();
+  const router = feed
+    ? feedRouter({ askable, feed, orchestrator, print })
+    : undefined;
+  // A crashed dashboard never cancelled its open questions; nothing can answer them now.
+  await feed
+    ?.cancelAbandoned()
+    .catch((error: unknown) => print(`[feed] ${String(error)}`));
 
   // Runs this process dispatched and has not written yet. Persisting is not
   // the run: a failed write warns and the value still returns.
@@ -82,6 +100,12 @@ export async function startEngine(
   };
 
   const engine: Engine = {
+    answer(entryId, answer) {
+      if (!router) {
+        return Promise.reject(new Error("The feed is not available."));
+      }
+      return router.answer(entryId, answer);
+    },
     async launch<O>(name: string, input: unknown, triggerId?: string) {
       if (stopping) {
         throw new Error("engine is stopping");
@@ -95,13 +119,20 @@ export async function startEngine(
       );
       active.set(dispatched.id, () => dispatched.workflow.state);
       unsaved.add(dispatched.id);
-      const observed = observeSteps(name, dispatched.workflow, print);
+      const routed = router?.observe(name, dispatched.id);
+      const observed = observeSteps(
+        name,
+        dispatched.workflow,
+        print,
+        routed?.onEvent
+      );
       // The queue handle settles once its side effects are applied; the
       // workflow's own result carries the typed value.
       const complete = async () => {
         await dispatched.result();
         const settled = await dispatched.workflow.result();
         await observed;
+        await routed?.settled();
         active.delete(dispatched.id);
         save(dispatched.id);
         if (settled.status !== "complete") {
@@ -138,6 +169,8 @@ export async function startEngine(
 
     async stop(options) {
       stopping = true;
+      // A paused run cannot resume in a later process; say so on its entry.
+      await router?.cancelOpen();
       await Promise.allSettled([...dispatching]);
       if (options?.cancel) {
         await Promise.all(

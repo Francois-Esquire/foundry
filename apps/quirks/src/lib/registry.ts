@@ -13,6 +13,10 @@ import { Workflow } from "@foundry/workflows/workflow";
 import type { WorkspaceSystem } from "@foundry/workspaces";
 import type { Git, git } from "@foundry/workspaces/git";
 import type { directory } from "@foundry/workspaces/node";
+import type { Feed } from "~/feed/entry";
+import { askFeed, FEED_POST_EVENT, feedPayload } from "~/feed/entry";
+import type { Log } from "~/lib/log";
+import { createLog } from "~/lib/log";
 import type { MonitorInput, MonitorSpec } from "~/monitor";
 import type { DefinitionOptions } from "./inputs";
 
@@ -58,7 +62,14 @@ export interface Primitives {
   };
   /** Detected harnesses in preference order; may be empty for deterministic work. */
   readonly executors: readonly TurnExecutorRef[];
-  readonly log: (line: string) => void;
+  /**
+   * Publish an article to the feed: a result or milestone worth reading on
+   * its own. Entries are Artifacts in the shared store, attributed to this
+   * workspace, run and step.
+   */
+  readonly feed: Feed;
+  /** Log any values into this run's logs; `log.warn(...)` etc. pick a level. */
+  readonly log: Log;
   readonly models: ModelManager;
   /** Session storage: disk-backed in the CLI, in memory under --dry. */
   readonly sessions: SessionStore;
@@ -120,10 +131,18 @@ class RegisteredStep<I, O> extends Step<I, O> {
     return this.#body(
       {
         ...primitives,
-        log: (line) => {
-          context.step.log("info", line);
-          primitives.log(line);
+        feed: {
+          ask: (question) => askFeed(context.suspend.bind(context), question),
+          post: (entry) =>
+            context.emit(
+              FEED_POST_EVENT,
+              feedPayload(entry, primitives.workspace.root)
+            ),
         },
+        log: createLog((level, message) => {
+          context.step.log(level, message);
+          primitives.log[level](message);
+        }),
         signal: context.step.signal,
       },
       input

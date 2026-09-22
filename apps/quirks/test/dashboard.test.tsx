@@ -925,3 +925,119 @@ test("clicking quirks and the h shortcut return home without losing run selectio
   await click(ui, "nav:home");
   expect(ui.captureCharFrame()).toBe(before);
 });
+
+/** Markdown highlighting settles asynchronously after the first frame. */
+async function frameWith(
+  ui: Awaited<ReturnType<typeof testRender>>,
+  text: string
+): Promise<string> {
+  const deadline = Date.now() + 3000;
+  for (;;) {
+    await flush(ui);
+    const frame = ui.captureCharFrame();
+    if (frame.includes(text) || Date.now() > deadline) {
+      return frame;
+    }
+    await sleep(25);
+  }
+}
+
+test("switches tabs with Shift+D / Shift+F and filters the feed by workspace", async () => {
+  const ui = await render();
+  let frame = ui.captureCharFrame();
+  expect(frame).toContain("Dashboard  3");
+  expect(frame).toContain("Feed  4");
+
+  await act(async () => ui.mockInput.pressKey("F"));
+  frame = await frameWith(ui, "The docs workflow rewrote");
+  // Only the open question carries the pending marker.
+  expect(frame).toContain("› ! Merge the docs update?");
+  expect(frame).not.toContain("! Codebase summary");
+  for (const label of [
+    "Feed · All workspaces",
+    "needs input · foundry · 14:33",
+    "Codebase summary",
+    "Docs updated",
+    "Workspace set up: foundry",
+    "Needs your input",
+    "1 merge",
+    "2 hold",
+  ]) {
+    expect(frame).toContain(label);
+  }
+
+  await act(async () => ui.mockInput.pressKey("w"));
+  await flush(ui);
+  frame = ui.captureCharFrame();
+  expect(frame).toContain("Feed · This workspace · foundry");
+  expect(frame).not.toContain("Docs updated");
+
+  await act(async () => ui.mockInput.pressArrow("down"));
+  await act(async () => ui.mockInput.pressEnter());
+  frame = await frameWith(ui, "Quirks is a local runner");
+  expect(frame).toContain("Entry · ↑↓ scroll · Esc entries");
+  expect(frame).toContain("media/walkthrough.mp4");
+
+  await act(async () => ui.mockInput.pressKey("D"));
+  await flush(ui);
+  expect(ui.captureCharFrame()).toContain("3 Runs");
+});
+
+test("answers an open question from the feed with a number key", async () => {
+  const answers: [string, string][] = [];
+  const answer = (id: string, value: string) => {
+    answers.push([id, value]);
+    return Promise.resolve();
+  };
+  closed = false;
+  setup = await testRender(
+    <DashboardView
+      onAnswer={answer}
+      onClose={close}
+      snapshot={dashboardSnapshot}
+    />,
+    { exitOnCtrlC: false, height: 40, kittyKeyboard: true, width: 120 }
+  );
+  const ui = setup;
+  await flush(ui);
+  await act(async () => ui.mockInput.pressKey("F"));
+  await flush(ui);
+  expect(ui.captureCharFrame()).toContain("1-2 answer");
+  await act(async () => ui.mockInput.pressKey("2"));
+  await flush(ui);
+  expect(answers).toEqual([["feed-merge", "hold"]]);
+});
+
+test("types a free-text answer without triggering dashboard keys", async () => {
+  const answers: string[] = [];
+  const question = {
+    ...dashboardSnapshot.feed[0],
+    id: "feed-note",
+    input: { choices: [], status: "open" as const },
+    title: "Anything to add?",
+  } as DashboardSnapshot["feed"][number];
+  const answer = (_id: string, value: string) => {
+    answers.push(value);
+    return Promise.resolve();
+  };
+  closed = false;
+  setup = await testRender(
+    <DashboardView
+      onAnswer={answer}
+      onClose={close}
+      snapshot={{ ...dashboardSnapshot, feed: [question] }}
+    />,
+    { exitOnCtrlC: false, height: 40, kittyKeyboard: true, width: 120 }
+  );
+  const ui = setup;
+  await flush(ui);
+  await act(async () => ui.mockInput.pressKey("F"));
+  await act(async () => ui.mockInput.pressKey("a"));
+  await flush(ui);
+  expect(ui.captureCharFrame()).toContain("Enter send · Esc cancel");
+  await act(async () => ui.mockInput.typeText("quite a lot"));
+  await act(async () => ui.mockInput.pressEnter());
+  await flush(ui);
+  expect(answers).toEqual(["quite a lot"]);
+  expect(ui.captureCharFrame()).not.toContain("Quit Quirks?");
+});

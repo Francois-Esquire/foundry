@@ -14,7 +14,8 @@ import type { Workflow } from "@foundry/workflows/workflow";
 export async function observeSteps<I, O, X extends BaseContext>(
   name: string,
   workflow: Workflow<I, O, X>,
-  print: (line: string) => void
+  print: (line: string) => void,
+  onEvent?: (event: ChannelEvent) => void
 ): Promise<void> {
   const rootDepth = workflow.root.path.length;
   const reader = workflow.root.channelStream.getReader();
@@ -35,6 +36,7 @@ export async function observeSteps<I, O, X extends BaseContext>(
       if (value._tag !== "event") {
         continue;
       }
+      onEvent?.(value.event);
       const line = describe(name, value.event);
       if (line) {
         print(`[step] ${line}`);

@@ -4,9 +4,12 @@ import { dashboardSnapshot } from "~/dashboard/snapshot";
 import { openDashboard } from "~/dashboard/terminal";
 import type { Engine } from "~/engine";
 import { startEngine } from "~/engine";
+import { registerSetupStep, SETUP_STEP, type SetupInput } from "~/feed/setup";
+import { type FeedStore, openFeed } from "~/feed/store";
 import { launchInput } from "~/lib/inputs";
 import { registry } from "~/lib/registry";
 import { createConfig } from "~/onboarding/config";
+import type { SetupDraft } from "~/onboarding/templates";
 import { runSchedulesUntilStopped } from "~/run-loop";
 import type { Runtime } from "~/runtime";
 import { bindRuntime } from "~/runtime";
@@ -31,6 +34,8 @@ export async function runInteractive(
     status = line;
   };
   let runtime: Runtime | undefined;
+  let feed: FeedStore | undefined;
+  let createdDraft: SetupDraft | undefined;
   let engine: Engine | undefined;
   let loop: Promise<void> | undefined;
   let refresh: ReturnType<typeof setInterval> | undefined;
@@ -49,6 +54,7 @@ export async function runInteractive(
     if (!(hasConfig || controller.signal.aborted)) {
       hasConfig = await terminal.onboard(configPath, async (draft) => {
         await createConfig(configPath, draft);
+        createdDraft = draft;
         try {
           await loadConfiguration(configPath, print);
         } catch (error) {
@@ -75,13 +81,15 @@ export async function runInteractive(
       root: workspace.root,
       state,
     });
+    feed = openFeed(args.dry ? undefined : resolve(args.artifacts), workspace);
     engine = await startEngine(
       (orchestrator) => {
         for (const register of registry.definitions.values()) {
           register(orchestrator);
         }
+        registerSetupStep(orchestrator);
       },
-      { print, state }
+      { askable: true, feed: feed.publisher, print, state }
     );
     if (controller.signal.aborted) {
       return;
@@ -101,17 +109,24 @@ export async function runInteractive(
     const harnesses = runtime.primitives.executors.map(
       (executor) => executor.harness
     );
+    const readFeed = feed.read;
     const update = async () =>
       terminal.update(
         dashboardSnapshot(await runningEngine.runs(), {
+          feed: await readFeed(),
           harnesses,
           lastFinish,
           root: workspace.root,
           startedAt,
           status: args.dry ? `dry · ${status}` : status,
+          workspaceId: workspace.id,
         }),
         hasConfig
       );
+    terminal.setAnswerer(async (entryId, answer) => {
+      await runningEngine.answer(entryId, answer);
+      await update();
+    });
     terminal.setLauncher(async (name, input) => {
       if (!registry.definitions.has(name) || registry.monitors.has(name)) {
         throw new Error("This definition is not available for manual launch.");
@@ -125,6 +140,10 @@ export async function runInteractive(
       );
       await update();
       return launched.id;
+    });
+    postSetupMilestone(runningEngine, print, createdDraft, {
+      configPath,
+      root: workspace.root,
     });
     status = hasConfig
       ? "Config loaded"
@@ -192,4 +211,20 @@ export async function runInteractive(
       }
     }
   }
+}
+
+/** Onboarding's feed entry comes from a real Run, like every other entry. */
+function postSetupMilestone(
+  engine: Engine,
+  print: (line: string) => void,
+  draft: SetupDraft | undefined,
+  context: Omit<SetupInput, "draft">
+): void {
+  if (!draft) {
+    return;
+  }
+  const input: SetupInput = { ...context, draft };
+  engine
+    .run(SETUP_STEP, input)
+    .catch((error: unknown) => print(`[feed] ${String(error)}`));
 }

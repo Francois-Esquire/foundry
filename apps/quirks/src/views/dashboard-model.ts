@@ -65,9 +65,43 @@ export interface RunSnapshot {
   readonly triggerId?: string;
 }
 
+export interface FeedMediaSnapshot {
+  /** Loaded for images only, which the reader draws inline. */
+  readonly bytes?: Uint8Array;
+  readonly kind: "image" | "video" | "audio" | "file";
+  readonly name: string;
+  /** Path inside the entry, as the markdown references it. */
+  readonly path: string;
+}
+
+export interface FeedEntrySnapshot {
+  /** Markdown article, starting with the entry's title as a heading. */
+  readonly body: string;
+  readonly definition: string;
+  readonly id: string;
+  /** Set on `input` entries: a paused run waiting for this answer. */
+  readonly input?: {
+    readonly answer?: string;
+    readonly choices: readonly string[];
+    readonly status: "open" | "answered" | "cancelled";
+  };
+  readonly kind: "result" | "milestone" | "input";
+  readonly media: readonly FeedMediaSnapshot[];
+  /** Display time, formatted by the host. */
+  readonly posted: string;
+  /** ISO time of the first post; entries sort newest first by it. */
+  readonly postedAt: string;
+  readonly run: string;
+  readonly step: string;
+  readonly title: string;
+  readonly workspace: { readonly id: string; readonly name: string };
+}
+
 /** Presentation data only. No runtime handles, stores, or API clients. */
 export interface DashboardSnapshot {
   readonly definitions: readonly DefinitionSnapshot[];
+  /** Entries from every workspace, newest first; the view filters by workspace. */
+  readonly feed: readonly FeedEntrySnapshot[];
   readonly harnesses: readonly string[];
   readonly mode: "snapshot" | "live";
   readonly root: string;
@@ -75,6 +109,8 @@ export interface DashboardSnapshot {
   readonly status: string;
   readonly triggers: readonly TriggerSnapshot[];
   readonly workspace: string;
+  /** This workspace's feed id, so the view can offer "this workspace". */
+  readonly workspaceId?: string;
 }
 
 export type DashboardSelection =

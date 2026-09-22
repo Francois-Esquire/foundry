@@ -1,7 +1,9 @@
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 export interface Args {
+  /** Shared Artifact store; the feed lives here. Defaults beside the state root. */
+  readonly artifacts: string;
   readonly command: string | undefined;
   readonly config: string;
   readonly dry: boolean;
@@ -13,30 +15,40 @@ export interface Args {
   readonly target: string | undefined;
 }
 
+/** Flags that take the next argument; a later occurrence wins. */
+const VALUE_FLAGS = {
+  "--artifacts": "artifacts",
+  "--config": "config",
+  "--input": "inputJson",
+  "--state": "state",
+} as const;
+type ValueFlag = keyof typeof VALUE_FLAGS;
+
+function isValueFlag(arg: string): arg is ValueFlag {
+  return Object.hasOwn(VALUE_FLAGS, arg);
+}
+
 export function parseArgs(argv: readonly string[]): Args {
   const positional: string[] = [];
   const only: string[] = [];
+  const values: Partial<Record<(typeof VALUE_FLAGS)[ValueFlag], string>> = {};
   let dry = false;
-  let config = "./quirks.config.ts";
-  let state = join(homedir(), ".foundry", "quirks");
-  let inputJson: string | undefined;
 
   const argumentsIterator = argv.values();
   for (const arg of argumentsIterator) {
     if (arg === "--dry") {
       dry = true;
-    } else if (arg === "--config") {
-      config = argumentsIterator.next().value ?? config;
-    } else if (arg === "--state") {
-      state = argumentsIterator.next().value ?? state;
-    } else if (arg === "--input") {
-      inputJson = argumentsIterator.next().value;
+    } else if (isValueFlag(arg)) {
+      const { value } = argumentsIterator.next();
+      if (value !== undefined) {
+        values[VALUE_FLAGS[arg]] = value;
+      }
     } else if (arg === "--harness") {
       const id = argumentsIterator.next().value;
       if (id) {
         only.push(id);
       }
-    } else if (arg !== undefined) {
+    } else {
       positional.push(arg);
     }
   }
@@ -44,5 +56,18 @@ export function parseArgs(argv: readonly string[]): Args {
   const [requested = "run", name, target] = positional;
   const command =
     argv.includes("--help") || argv.includes("-h") ? "help" : requested;
-  return { command, config, dry, inputJson, name, only, state, target };
+  const state = values.state ?? join(homedir(), ".foundry", "quirks");
+  return {
+    // `~/.foundry/quirks` → `~/.foundry/artifacts`: a custom --state keeps
+    // its feed beside it rather than in the user's home.
+    artifacts: values.artifacts ?? join(dirname(resolve(state)), "artifacts"),
+    command,
+    config: values.config ?? "./quirks.config.ts",
+    dry,
+    inputJson: values.inputJson,
+    name,
+    only,
+    state,
+    target,
+  };
 }

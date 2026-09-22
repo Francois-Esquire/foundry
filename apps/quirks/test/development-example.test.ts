@@ -4,7 +4,9 @@ import { Git, git } from "@foundry/workspaces/git";
 import { directory } from "@foundry/workspaces/node";
 import { describe, expect, it } from "vitest";
 import { bindAgents } from "~/agents";
+import { unboundFeed } from "~/feed/entry";
 import { CLAUDE_CODE, CODEX } from "~/harnesses";
+import { createLog } from "~/lib/log";
 import { registry } from "~/lib/registry";
 import type { Reply } from "~/models/echo";
 import { mockModels } from "~/models/echo";
@@ -44,7 +46,8 @@ function bind(reply: Reply, options: BindOptions = {}) {
       skills: () => Promise.resolve([]),
     }),
     executors,
-    log: options.log ?? (() => undefined),
+    feed: unboundFeed,
+    log: createLog((_level, message) => options.log?.(message)),
     models,
     sessions,
     workspace: { root: process.cwd() },

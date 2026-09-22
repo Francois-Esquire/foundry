@@ -4,6 +4,7 @@
     "apps/quirks": {
       "ignoreDependencies": [
         "@browser-ai/transformers-js",
+        "@noble/hashes",
         "ai-sdk-provider-claude-code",
         "ai-sdk-provider-codex-cli",
         "ignore",

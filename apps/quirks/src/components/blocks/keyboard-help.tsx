@@ -11,6 +11,19 @@ export function KeyboardHelp({ active = true }: { readonly active?: boolean }) {
     >
       <KeyValue
         items={[
+          { key: "Shift+D / Shift+F", value: "Show the Dashboard / Feed tab" },
+          {
+            key: "↑ / ↓ · Enter in Feed",
+            value: "Select an entry · read it; Esc returns to the list",
+          },
+          {
+            key: "w / x in Feed",
+            value: "Cycle workspace filter / show all workspaces",
+          },
+          {
+            key: "1-9 / a in Feed",
+            value: "Answer a question by choice / type a free-text answer",
+          },
           {
             key: "1 / 2 / 3",
             value: "Focus Triggers / Catalog / Runs",

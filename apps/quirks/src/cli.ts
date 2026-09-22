@@ -8,6 +8,7 @@ import { plugin } from "bun";
 import type { Args } from "~/args";
 import { parseArgs } from "~/args";
 import { startEngine } from "~/engine";
+import { openFeed } from "~/feed/store";
 import { install, launchdPlan, uninstall } from "~/launchd";
 import { registry } from "~/lib/registry";
 import { describeMonitor } from "~/monitor";
@@ -37,11 +38,13 @@ const USAGE = `quirks — programmable local behaviors
 
   --config <path>    config module (default: ./quirks.config.ts, optional)
   --state <dir>      state root (default: ~/.foundry/quirks)
+  --artifacts <dir>  artifact store holding the feed (default: artifacts/ beside the state root)
   --dry              echo every model turn and git mutation instead of running them
   --harness <id>     use only this harness (claude-code | codex); repeatable
 
 Each workspace (the config's directory) gets <state>/<id>/ holding
-workspace.json, runs/, schedules/, locks/ and sessions/. --dry disables Quirks state persistence; custom code still runs.`;
+workspace.json, runs/, schedules/, locks/ and sessions/. Feed entries from every
+workspace share the artifact store. --dry disables Quirks state persistence; custom code still runs.`;
 
 type Engine = Awaited<ReturnType<typeof startEngine>>;
 type Schedule = NonNullable<ReturnType<typeof registry.schedules.get>>;
@@ -310,13 +313,17 @@ async function main(): Promise<void> {
     `[harnesses] ${runtime.primitives.executors.map((e) => e.harness).join(", ")}`
   );
 
+  const feed = openFeed(
+    args.dry ? undefined : resolve(args.artifacts),
+    workspace
+  );
   const engine = await startEngine(
     (orchestrator) => {
       for (const register of registry.definitions.values()) {
         register(orchestrator);
       }
     },
-    { print, state: stateDir }
+    { feed: feed.publisher, print, state: stateDir }
   );
   const restored = new Set((await engine.runs()).map((record) => record.id));
 
