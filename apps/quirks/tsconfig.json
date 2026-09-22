@@ -6,8 +6,10 @@
     "paths": {
       "~/*": ["./src/*"],
       "@foundry/quirks": ["./src/lib/index.ts"]
-    }
+    },
+    "jsx": "react-jsx",
+    "jsxImportSource": "@opentui/react"
   },
-  "include": ["src/**/*", "test/**/*"],
+  "include": ["src/**/*", "test/**/*", "preview/**/*"],
   "exclude": ["node_modules", "dist"]
 }

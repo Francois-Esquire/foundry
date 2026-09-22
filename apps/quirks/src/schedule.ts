@@ -122,7 +122,11 @@ export async function tick(
   const start = now();
   let status: ScheduleHistory["lastStatus"] = "failed";
   try {
-    const value = await engine.run(schedule.workflow, schedule.input);
+    const value = await engine.run(
+      schedule.workflow,
+      schedule.input,
+      schedule.name
+    );
     status = "complete";
     return { value };
   } finally {

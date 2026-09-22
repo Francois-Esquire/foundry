@@ -167,6 +167,7 @@ export function detector(
   const file = (state: string) => join(state, "monitors", `${name}.json`);
 
   return async (primitives, input) => {
+    primitives.signal?.throwIfAborted();
     if (input !== null) {
       const handled = await handler(primitives, {
         kind: "ws",
@@ -187,15 +188,22 @@ export function detector(
       observed =
         spec.kind === "files"
           ? await observeFiles(primitives, spec, previous)
-          : await observeHttp(spec, previous, options.fetch ?? fetch);
+          : await observeHttp(
+              spec,
+              previous,
+              options.fetch ?? fetch,
+              primitives.signal
+            );
     } catch (error) {
       primitives.log(`[monitor] ${name} poll failed: ${String(error)}`);
       return { changed: false };
     }
+    primitives.signal?.throwIfAborted();
     if (observed.change === undefined) {
       return { changed: false };
     }
     const handled = await handler(primitives, observed.change);
+    primitives.signal?.throwIfAborted();
     if (primitives.state === undefined) {
       memory = observed.state;
     } else {
@@ -256,12 +264,14 @@ async function observeFiles(
 async function observeHttp(
   spec: HttpMonitor,
   previous: unknown,
-  fetchImpl: Fetch
+  fetchImpl: Fetch,
+  signal?: AbortSignal
 ): Promise<Observation> {
   const response = await fetchImpl(spec.url, {
     body: spec.body,
     headers: spec.headers,
     method: spec.method,
+    signal,
   });
   if (!response.ok) {
     throw new Error(`HTTP ${String(response.status)}`);

@@ -7,6 +7,7 @@ import type { SessionStore } from "@foundry/agents/session";
 import type { ModelManager, TurnExecutorRef } from "@foundry/models";
 import type { DefinitionGraphBuilder } from "@foundry/workflows/definitions";
 import type { Orchestrator } from "@foundry/workflows/orchestrator";
+import type { StepContext } from "@foundry/workflows/step";
 import { Step } from "@foundry/workflows/step";
 import { Workflow } from "@foundry/workflows/workflow";
 import type { WorkspaceSystem } from "@foundry/workspaces";
@@ -61,6 +62,8 @@ export interface Primitives {
   readonly models: ModelManager;
   /** Session storage: disk-backed in the CLI, in memory under --dry. */
   readonly sessions: SessionStore;
+  /** Aborted when this step is cancelled. Pass to cancellable work such as fetch. */
+  readonly signal?: AbortSignal;
   /** The workspace state dir; `undefined` under `--dry`, when nothing persists. */
   readonly state?: string;
   /** The config's directory (or the cwd without one): what a files monitor watches by default. */
@@ -112,8 +115,19 @@ class RegisteredStep<I, O> extends Step<I, O> {
     this.#body = body;
   }
 
-  protected execute(input: I): Promise<O> {
-    return this.#body(registry.primitives(), input);
+  protected execute(input: I, context: StepContext<I, O>): Promise<O> {
+    const primitives = registry.primitives();
+    return this.#body(
+      {
+        ...primitives,
+        log: (line) => {
+          context.step.log("info", line);
+          primitives.log(line);
+        },
+        signal: context.step.signal,
+      },
+      input
+    );
   }
 }
 
@@ -142,6 +156,7 @@ export type Register = (orchestrator: Orchestrator) => void;
 
 class Registry {
   readonly definitions = new Map<string, Register>();
+  readonly definitionKinds = new Map<string, "step" | "workflow">();
   readonly schedules = new Map<string, Schedule>();
   readonly agents = new Map<string, AgentSpec>();
   /** Keyed like the step and schedule a monitor registers under the same name. */
@@ -161,6 +176,7 @@ class Registry {
     this.#add(name, (orchestrator) => {
       orchestrator.register(name, step.factory());
     });
+    this.definitionKinds.set(name, "step");
     return step;
   }
 
@@ -169,6 +185,7 @@ class Registry {
     this.#add(name, (orchestrator) => {
       orchestrator.register(name, workflow.factory());
     });
+    this.definitionKinds.set(name, "workflow");
     return workflow;
   }
 
@@ -214,6 +231,7 @@ class Registry {
   /** Tests only: forget everything a previous config registered. */
   reset(): void {
     this.definitions.clear();
+    this.definitionKinds.clear();
     this.schedules.clear();
     this.agents.clear();
     this.monitors.clear();

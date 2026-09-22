@@ -41,6 +41,8 @@ export function parseArgs(argv: readonly string[]): Args {
     }
   }
 
-  const [command, name, target] = positional;
+  const [requested = "run", name, target] = positional;
+  const command =
+    argv.includes("--help") || argv.includes("-h") ? "help" : requested;
   return { command, config, dry, inputJson, name, only, state, target };
 }

@@ -10,6 +10,8 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
+import { inspectDashboard } from "./helpers/terminal";
+
 const PACKAGE_ROOT = resolve(import.meta.dirname, "..");
 const PRIVATE_IMPORT =
   /(?:from\s*|import\s*\()\s*["'](@foundry\/[^"']+|~\/[^"']+)["']/;
@@ -29,7 +31,7 @@ function run(command: string, args: string[], cwd: string): string {
   }
 }
 
-test("the tarball installs and shares the library registry with the CLI", () => {
+test("the tarball installs and shares the library registry with the CLI", async () => {
   const consumer = mkdtempSync(join(tmpdir(), "quirks-package-"));
   const standalone = mkdtempSync(join(tmpdir(), "quirks-global-"));
   try {
@@ -107,7 +109,13 @@ step(123, async () => true);
       consumer
     );
     const cli = join(consumer, "node_modules/.bin/quirks");
-    expect(run("bun", [cli], consumer)).toContain(
+    for (const command of [[], ["run"]]) {
+      const terminal = await inspectDashboard(cli, consumer, command);
+      expect(terminal.code).toBe(0);
+      expect(terminal.output).toContain("Triggers");
+      expect(terminal.output).toContain("Runs");
+    }
+    expect(run("bun", [cli, "--help"], consumer)).toContain(
       "programmable local behaviors"
     );
     expect(run("bun", [cli, "list", "--dry"], consumer)).toContain(

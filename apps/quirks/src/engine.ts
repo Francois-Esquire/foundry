@@ -4,6 +4,7 @@ import type { Orchestrator as OrchestratorType } from "@foundry/workflows/orches
 import { Orchestrator } from "@foundry/workflows/orchestrator";
 import type { RunRecord } from "@foundry/workflows/store";
 import { InMemoryOrchestratorStore } from "@foundry/workflows/store";
+import type { WorkflowState } from "@foundry/workflows/workflow";
 
 import { observeSteps } from "~/observe";
 import { loadRuns, saveRun } from "~/state/runs";
@@ -23,10 +24,10 @@ export interface Engine {
    * `unknown` because names, not types, address the registry — the caller
    * states the output type it expects.
    */
-  run<O>(name: string, input: unknown): Promise<O>;
+  run<O>(name: string, input: unknown, triggerId?: string): Promise<O>;
   /** Every Run this process dispatched. */
   runs(): Promise<readonly RunRecord[]>;
-  stop(): Promise<void>;
+  stop(options?: { readonly cancel?: boolean }): Promise<void>;
 }
 
 /**
@@ -60,6 +61,9 @@ export async function startEngine(
   // Runs this process dispatched and has not written yet. Persisting is not
   // the run: a failed write warns and the value still returns.
   const unsaved = new Set<string>();
+  const active = new Map<string, () => WorkflowState>();
+  const dispatching = new Set<Promise<unknown>>();
+  let stopping = false;
   const save = (runId: string) => {
     unsaved.delete(runId);
     if (state === undefined) {
@@ -73,8 +77,18 @@ export async function startEngine(
   };
 
   return {
-    async run<O>(name: string, input: unknown): Promise<O> {
-      const dispatched = await orchestrator.run<unknown, O>(name, input);
+    async run<O>(name: string, input: unknown, triggerId?: string): Promise<O> {
+      if (stopping) {
+        throw new Error("engine is stopping");
+      }
+      const dispatch = orchestrator.run<unknown, O>(name, input, {
+        extensions: triggerId === undefined ? {} : { triggerId },
+      });
+      dispatching.add(dispatch);
+      const dispatched = await dispatch.finally(() =>
+        dispatching.delete(dispatch)
+      );
+      active.set(dispatched.id, () => dispatched.workflow.state);
       unsaved.add(dispatched.id);
       const observed = observeSteps(name, dispatched.workflow, print);
       // The queue handle settles once its side effects are applied; the
@@ -82,6 +96,7 @@ export async function startEngine(
       await dispatched.result();
       const settled = await dispatched.workflow.result();
       await observed;
+      active.delete(dispatched.id);
       save(dispatched.id);
       if (settled.status !== "complete") {
         throw new Error(
@@ -94,11 +109,31 @@ export async function startEngine(
     },
 
     async runs() {
-      const page = await orchestrator.listRuns({});
-      return page.items;
+      return store.snapshot().runs.map((record) => {
+        const current = active.get(record.id)?.();
+        return current
+          ? {
+              ...record,
+              metadata: { ...record.metadata, workflow: current },
+              snapshot: current.tree ?? record.snapshot,
+            }
+          : record;
+      });
     },
 
-    async stop() {
+    async stop(options) {
+      stopping = true;
+      await Promise.allSettled([...dispatching]);
+      if (options?.cancel) {
+        await Promise.all(
+          store
+            .snapshot()
+            .runs.filter((run) =>
+              ["queued", "running", "suspended"].includes(run.status)
+            )
+            .map((run) => orchestrator.cancelRun(run.id))
+        );
+      }
       await orchestrator.drain();
       for (const runId of [...unsaved]) {
         save(runId);

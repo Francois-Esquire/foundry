@@ -6,9 +6,18 @@ import { describe, expect, it } from "vitest";
 import { parseArgs } from "~/args";
 
 describe("parseArgs", () => {
+  it("treats no command and explicit run identically, while help stays explicit", () => {
+    expect(parseArgs([])).toEqual(parseArgs(["run"]));
+    expect(parseArgs(["--dry", "--config", "/tmp/config.ts"])).toEqual(
+      parseArgs(["run", "--dry", "--config", "/tmp/config.ts"])
+    );
+    for (const flag of ["--help", "-h", "help"]) {
+      expect(parseArgs([flag]).command).toBe("help");
+    }
+  });
   it("defaults to the repo config and the home state dir", () => {
     expect(parseArgs([])).toEqual({
-      command: undefined,
+      command: "run",
       config: "./quirks.config.ts",
       dry: false,
       inputJson: undefined,

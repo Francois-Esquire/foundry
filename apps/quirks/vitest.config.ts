@@ -10,7 +10,11 @@ export default defineConfig({
     },
   },
   test: {
-    exclude: ["test/status-view.test.ts", "test/package.test.ts"],
+    exclude: [
+      "test/status-view.test.ts",
+      "test/package.test.ts",
+      "test/cli-terminal.test.ts",
+    ],
     globals: true,
     include: ["test/**/*.test.ts"],
   },

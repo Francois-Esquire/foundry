@@ -18,6 +18,14 @@ export async function observeSteps<I, O, X extends BaseContext>(
 ): Promise<void> {
   const rootDepth = workflow.root.path.length;
   const reader = workflow.root.channelStream.getReader();
+  const { signal } = workflow.root;
+  const cancel = () => {
+    reader.cancel().catch(() => undefined);
+  };
+  signal.addEventListener("abort", cancel, { once: true });
+  if (signal.aborted) {
+    cancel();
+  }
   try {
     for (;;) {
       const { done, value } = await reader.read();
@@ -36,6 +44,7 @@ export async function observeSteps<I, O, X extends BaseContext>(
       }
     }
   } finally {
+    signal.removeEventListener("abort", cancel);
     reader.releaseLock();
   }
 }

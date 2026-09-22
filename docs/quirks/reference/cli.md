@@ -6,21 +6,33 @@ description: Commands and flags for running and inspecting local Quirks behavior
 Use the globally installed command:
 
 ```sh
-quirks <command>
+quirks [command]
 ```
 
 | Command | Behavior |
 | --- | --- |
-| No command | Print usage. |
+| No command or `run` | Open the splash and live dashboard; Enter starts triggers. |
+| `help`, `--help`, `-h` | Print usage without loading configuration. |
 | `list` | List registered executable definitions, schedules, and monitors. |
 | `once <name>` | Dispatch a step, workflow, schedule, or polling monitor now. Print its result and exit. |
-| `run` | Keep configured schedules and live monitors active until stopped. |
 | `status` | Inspect recorded workspaces under the selected state root. |
 | `sessions` | List sessions for the current workspace, including message counts, update times, and summary presence. |
 | `launchd install <schedule>` | Write and load a macOS LaunchAgent for the named schedule or polling monitor. |
 | `launchd uninstall <schedule>` | Unload and remove that LaunchAgent. |
 
-A foreground `run` needs at least one registered schedule or monitor.
+The dashboard shows Triggers, Catalog, and Runs, including live steps and saved
+run history. It opens even when no triggers are configured. Click a row or press
+Enter for details; click the quirks title or press `h` to return to the dashboard.
+
+Press `q` or Ctrl+C for the quit dialog. A second Ctrl+C confirms, stopping
+triggers and cancelling active runs. Completed results and monitor checkpoints
+persist unless `--dry` is set. Interrupted runs cannot resume. Custom steps must
+honor their context's `signal` to stop external work; cancellation cannot undo
+side effects.
+
+When stdin or stdout is not a terminal, `quirks` and `quirks run` start immediately
+and emit plain text without a splash or dialog. SIGINT and SIGTERM stop new
+triggers and let active runs finish.
 
 | Flag | Default | Meaning |
 | --- | --- | --- |

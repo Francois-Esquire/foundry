@@ -36,9 +36,22 @@ schedule("count-hourly", { workflow: countFiles, input: null, at: "1h" });
 
 ```sh
 quirks once count-files
+quirks                 # same as quirks run
 quirks run
 quirks status
 ```
+
+In a terminal, `quirks` and `quirks run` open the Gruvbox splash, load your
+configuration and saved run history, then wait for Enter or a click. Enter opens
+the Triggers, Catalog, and Runs dashboard and starts schedules and monitors.
+An empty configuration still opens the dashboard. `quirks --help` prints usage.
+Piped or redirected runs use plain text and start immediately.
+
+Press `q` or Ctrl+C to open the quit dialog; Ctrl+C again confirms. Quitting stops
+triggers and cancels active runs. Saved results and monitor checkpoints remain;
+interrupted runs cannot resume. Custom steps receive `signal` in their context
+and should pass it to cancellable operations such as `fetch`. Cancellation does
+not undo side effects or forcibly stop custom work that ignores the signal.
 
 Deterministic steps need no agent harness. For model operations, install and
 authenticate Claude Code or Codex. The CLI resolves configuration imports of
@@ -61,3 +74,11 @@ are execution context, not security sandboxes.
 - [Contributing](https://francois-esquire.github.io/foundry/quirks/contributing/)
 
 Repository setup and documentation development commands are in the contributing guide.
+
+## Terminal UI development
+
+Run `bun run preview:ui` from this directory to open the interactive dashboard
+snapshot. See the [preview guide](preview/README.md) for the component structure,
+keyboard controls, and sample data. The live CLI uses the same components through
+`src/dashboard`, which adapts runtime records into presentation snapshots.
+From this directory, `bun run start` or `bun run start -- run` opens the live app.

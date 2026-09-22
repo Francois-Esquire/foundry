@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { existsSync, rmSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -10,13 +10,12 @@ import { parseArgs } from "~/args";
 import { startEngine } from "~/engine";
 import { install, launchdPlan, uninstall } from "~/launchd";
 import { registry } from "~/lib/registry";
-import { runLive } from "~/live";
 import { describeMonitor } from "~/monitor";
+import { runSchedulesUntilStopped } from "~/run-loop";
 import { bindRuntime } from "~/runtime";
-import { cadence, clock, runSchedules, tick, weekdays } from "~/schedule";
+import { cadence, clock, tick, weekdays } from "~/schedule";
 import { JsonSessionStore } from "~/sessions/json-store";
 import { sessionLines } from "~/sessions/list";
-import { writeJson } from "~/state/json";
 import { workspaceState } from "~/state/workspace";
 import { readStatus } from "~/status/model";
 import { statusText } from "~/status/text";
@@ -29,7 +28,8 @@ const print = (line: string) => {
 
 const USAGE = `quirks — programmable local behaviors
 
-  run                        run every configured schedule until stopped
+  [run]                      open the dashboard and start triggers after Enter
+  help, --help, -h            show this help
   once <name> [--input json] dispatch one workflow or schedule now, then exit
   list                       workflows, schedules, and when each is next due
   status                     every workspace under --state: loop, schedules, runs
@@ -49,7 +49,10 @@ type Engine = Awaited<ReturnType<typeof startEngine>>;
 type Schedule = NonNullable<ReturnType<typeof registry.schedules.get>>;
 type WorkspaceState = ReturnType<typeof workspaceState>;
 
-async function loadConfiguration(configPath: string): Promise<boolean> {
+async function loadConfiguration(
+  configPath: string,
+  log = print
+): Promise<boolean> {
   if (!existsSync(configPath)) {
     return false;
   }
@@ -74,7 +77,7 @@ async function loadConfiguration(configPath: string): Promise<boolean> {
     target: "bun",
   });
   await import(pathToFileURL(configPath).href);
-  print(`[config] ${configPath}`);
+  log(`[config] ${configPath}`);
   return true;
 }
 
@@ -95,7 +98,7 @@ function listRegistry(schedules: readonly Schedule[]): void {
   const { monitors } = registry;
   for (const key of registry.definitions.keys()) {
     if (!monitors.has(key)) {
-      print(`[workflow] ${key}`);
+      print(`[${registry.definitionKinds.get(key) ?? "workflow"}] ${key}`);
     }
   }
   for (const schedule of schedules) {
@@ -212,59 +215,6 @@ async function runOnce(
   throw new Error(`no workflow or schedule named "${name}"`);
 }
 
-async function runSchedulesUntilStopped(
-  engine: Engine,
-  schedules: readonly Schedule[],
-  workspace: WorkspaceState,
-  stateDir: string | undefined,
-  hasConfig: boolean,
-  configPath: string
-): Promise<void> {
-  if (schedules.length === 0) {
-    throw new Error("nothing scheduled; add schedule(...) to config");
-  }
-  const controller = new AbortController();
-  process.once("SIGINT", () => {
-    controller.abort();
-  });
-  const heartbeat =
-    stateDir === undefined ? undefined : join(stateDir, "heartbeat.json");
-  if (heartbeat !== undefined) {
-    writeJson(heartbeat, {
-      config: hasConfig ? configPath : null,
-      pid: process.pid,
-      startedAt: new Date().toISOString(),
-      version: 1,
-    });
-  }
-  // A ws monitor has nothing to poll; files monitors keep their poll as a
-  // net under the watcher.
-  const live = schedules.flatMap((schedule) => {
-    const spec = registry.monitors.get(schedule.name);
-    return spec === undefined || spec.kind === "http"
-      ? []
-      : [{ schedule, spec }];
-  });
-  const polled = schedules.filter(
-    (schedule) => registry.monitors.get(schedule.name)?.kind !== "ws"
-  );
-  const options = { print, signal: controller.signal, state: stateDir };
-  try {
-    await Promise.all([
-      runLive(engine, live, {
-        ...options,
-        root: workspace.root,
-        workspaces: registry.primitives().workspaces,
-      }),
-      runSchedules(engine, polled, options),
-    ]);
-  } finally {
-    if (heartbeat !== undefined) {
-      rmSync(heartbeat, { force: true });
-    }
-  }
-}
-
 async function dispatchRuntimeCommand(
   args: Args,
   engine: Engine,
@@ -304,8 +254,14 @@ async function printNewRuns(engine: Engine, restored: ReadonlySet<string>) {
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
-  if (!args.command) {
+  if (args.command === "help") {
     print(USAGE);
+    return;
+  }
+
+  if (args.command === "run" && process.stdout.isTTY && process.stdin.isTTY) {
+    const { runInteractive } = await import("~/dashboard/command");
+    await runInteractive(args, loadConfiguration);
     return;
   }
 
