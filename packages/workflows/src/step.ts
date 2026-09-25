@@ -513,6 +513,13 @@ export abstract class Step<
   get channelStream(): ReadableStream<ChannelMessage> {
     return this.#s.channels.stream;
   }
+  /**
+   * A fresh stream of this run's events and chunks: history, then live,
+   * ending when the run's scope closes. Open as many as needed.
+   */
+  subscribe(signal?: AbortSignal): ReadableStream<ChannelMessage> {
+    return this.#s.channels.subscribe(signal);
+  }
   /** @internal Effect execution substrate; omitted from the published declaration. */
   get executable(): Executable<I, X> {
     return this.#s.executable;
@@ -920,7 +927,7 @@ export abstract class Step<
    * Subscription closes automatically on abort.
    */
   get stream(): ReadableStream<ChunkPayload> {
-    return this.channels.chunksFor(this.name, this.signal);
+    return this.channels.chunksFor(this.name, this.signal, this.path);
   }
 
   /**
@@ -937,6 +944,7 @@ export abstract class Step<
     if (typeof value === "string") {
       this.#s.channels.chunks.push({
         at: new Date().toISOString(),
+        path: this.path,
         payload: { kind: "text", text: value },
         stepId: this.name,
       });
@@ -945,6 +953,7 @@ export abstract class Step<
     Step.#assertSerializable(value, `${this.name}.write`);
     this.#s.channels.chunks.push({
       at: new Date().toISOString(),
+      path: this.path,
       payload: { data: value, kind: "data" },
       stepId: this.name,
     });

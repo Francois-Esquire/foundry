@@ -10,7 +10,7 @@ import { createLog } from "~/lib/log";
 import { registry } from "~/lib/registry";
 import type { Reply } from "~/models/echo";
 import { mockModels } from "~/models/echo";
-import { echoGit } from "~/runtime";
+import { echoGit, unboundStream } from "~/runtime";
 import {
   develop,
   findingsIn,
@@ -40,7 +40,6 @@ function bind(reply: Reply, options: BindOptions = {}) {
   );
   registry.bind({
     agents: bindAgents({
-      executors,
       models,
       sessions,
       skills: () => Promise.resolve([]),
@@ -50,6 +49,7 @@ function bind(reply: Reply, options: BindOptions = {}) {
     log: createLog((_level, message) => options.log?.(message)),
     models,
     sessions,
+    stream: unboundStream,
     workspace: { root: process.cwd() },
     workspaces: {
       git: (root) =>

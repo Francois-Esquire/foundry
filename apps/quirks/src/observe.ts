@@ -5,8 +5,8 @@ import type { Workflow } from "@foundry/workflows/workflow";
 /**
  * Print step lifecycle as it happens. The Orchestrator's run journal only
  * carries Run-level frames, so the step tree is read from the workflow's own
- * channel stream. Resolves once the root step settles; the stream itself stays
- * open until the workflow is disposed.
+ * channel stream, through a subscription of its own so other readers can
+ * attach. Resolves once the root step settles, cancelling the subscription.
  *
  * The root path segment is the definition key; it is
  * replaced by the registered name so lines match the final `[run]` line.
@@ -18,7 +18,7 @@ export async function observeSteps<I, O, X extends BaseContext>(
   onEvent?: (event: ChannelEvent) => void
 ): Promise<void> {
   const rootDepth = workflow.root.path.length;
-  const reader = workflow.root.channelStream.getReader();
+  const reader = workflow.root.subscribe().getReader();
   const { signal } = workflow.root;
   const cancel = () => {
     reader.cancel().catch(() => undefined);
@@ -47,7 +47,7 @@ export async function observeSteps<I, O, X extends BaseContext>(
     }
   } finally {
     signal.removeEventListener("abort", cancel);
-    reader.releaseLock();
+    cancel();
   }
 }
 

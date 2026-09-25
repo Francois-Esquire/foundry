@@ -112,7 +112,7 @@ a new session is created. See [agents and sessions](/quirks/guides/agents-and-se
 | `sessionId` | Reuse this conversation across invocations. Omit for a new session. |
 | `executor` | Select a harness reference. Defaults to the first available executor. |
 | `cwd` | Set the harness working directory. Does not establish a security boundary. |
-| `compaction` | Enabled by default using the turn model to summarize history. Set `false` to disable it, or pass partial settings. |
+| `compaction` | Off by default. `true` summarizes older history with the turn model; partial settings turn it on and override individual values. |
 
 Compaction means continuity may include summaries rather than the complete
 original conversation.

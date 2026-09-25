@@ -28,10 +28,10 @@ import type { DefinitionOptions } from "./inputs";
 
 export interface SessionOptions {
   /**
-   * On by default, summarizing with the turn model. `false` turns it off;
-   * a partial object overrides individual settings (e.g. `keepTokens`).
+   * Off by default. `true` summarizes with the turn model; a partial object
+   * turns it on and overrides individual settings (e.g. `keepTokens`).
    */
-  readonly compaction?: false | Partial<CompactionSettings>;
+  readonly compaction?: boolean | Partial<CompactionSettings>;
   /** Sets the CLI harness working directory; not a security boundary. */
   readonly cwd?: string;
   /** Defaults to the first executor. */
@@ -49,6 +49,17 @@ export interface Workspaces {
   readonly git: (root: string) => Git;
   readonly load: DirectoryCatalogue["load"];
   readonly on: DirectoryCatalogue["on"];
+}
+
+/**
+ * Live output from a running step: strings stream as text, anything else as
+ * JSON data. Subscribers see it as it is written; the step's return value is
+ * still its result.
+ */
+export interface StepStream {
+  /** Drain a stream or async iterable into this step's output. */
+  pipe<T>(source: ReadableStream<T> | AsyncIterable<T>): Promise<void>;
+  write(value: unknown): void;
 }
 
 /** What a step body receives, bound by the CLI after config import. */
@@ -77,6 +88,8 @@ export interface Primitives {
   readonly signal?: AbortSignal;
   /** The workspace state dir; `undefined` under `--dry`, when nothing persists. */
   readonly state?: string;
+  /** This step's live output. Only valid inside a running step. */
+  readonly stream: StepStream;
   /** The config's directory (or the cwd without one): what a files monitor watches by default. */
   readonly workspace: { readonly root: string };
   readonly workspaces: Workspaces;
@@ -144,6 +157,10 @@ class RegisteredStep<I, O> extends Step<I, O> {
           primitives.log[level](message);
         }),
         signal: context.step.signal,
+        stream: {
+          pipe: (source) => context.pipe(source),
+          write: (value) => context.write(value),
+        },
       },
       input
     );

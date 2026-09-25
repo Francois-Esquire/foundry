@@ -1,5 +1,7 @@
 import { Effect, Exit, Option, PubSub, Schema, Scope, Stream } from "effect";
 
+import { MessageLog } from "./channel-log";
+
 import type { JsonValue } from "./execution-records";
 import type { SnapshotState, StepStatus } from "./snapshot";
 import { Snapshot } from "./snapshot";
@@ -142,7 +144,10 @@ export type ChunkPayload<S = unknown> =
 /** A chunk from a step's output stream. */
 export interface ChannelChunk<S = unknown> {
   readonly at: string;
+  /** The writing step's path; unlike `stepId`, unique within the run. */
+  readonly path: readonly string[];
   readonly payload: ChunkPayload<S>;
+  /** The writing step's name. */
   readonly stepId: string;
 }
 
@@ -170,6 +175,7 @@ export class Channels<S = unknown> {
   readonly chunks: PubSubChannel<ChannelChunk<S>>;
   /** Unified ReadableStream of events and chunks. */
   readonly stream: ReadableStream<ChannelMessage<S>>;
+  readonly #log: MessageLog<ChannelMessage<S>>;
   /** Live Snapshot this Channels projects into — single source of status. */
   readonly #snapshot: Snapshot;
   /**
@@ -185,10 +191,12 @@ export class Channels<S = unknown> {
     chunks: PubSubChannel<ChannelChunk<S>>;
     stream: ReadableStream<ChannelMessage<S>>;
     snapshot: Snapshot;
+    log: MessageLog<ChannelMessage<S>>;
   }) {
     this.events = args.events;
     this.chunks = args.chunks;
     this.stream = args.stream;
+    this.#log = args.log;
     this.#snapshot = args.snapshot;
   }
 
@@ -261,11 +269,13 @@ export class Channels<S = unknown> {
       > | null = null;
       let closed = false;
       const buffer: ChannelMessage<Chunk>[] = [];
+      const log = new MessageLog<ChannelMessage<Chunk>>();
 
       const enqueue = (msg: ChannelMessage<Chunk>): void => {
         if (closed) {
           return;
         }
+        log.record(msg);
         if (controller) {
           try {
             controller.enqueue(msg);
@@ -294,6 +304,7 @@ export class Channels<S = unknown> {
       yield* Effect.addFinalizer(() =>
         Effect.sync(() => {
           closed = true;
+          log.close();
           if (controller) {
             try {
               controller.close();
@@ -325,13 +336,22 @@ export class Channels<S = unknown> {
         },
       });
 
-      return new Channels<Chunk>({ chunks, events, snapshot, stream });
+      return new Channels<Chunk>({ chunks, events, log, snapshot, stream });
     });
   }
 
   /** Returns this (shared per Run). */
   fork(): this {
     return this;
+  }
+
+  /**
+   * A fresh stream of every event and chunk in the run: history first, then
+   * live, ending when the run's scope closes. Any number may be open, unlike
+   * the single-reader {@link stream}.
+   */
+  subscribe(signal?: AbortSignal): ReadableStream<ChannelMessage<S>> {
+    return this.#log.subscribe(signal);
   }
 
   // ── Event emitters ──
@@ -625,7 +645,8 @@ export class Channels<S = unknown> {
    */
   chunksFor(
     stepId: string,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    path?: readonly string[]
   ): ReadableStream<ChunkPayload<S>> {
     const { pubsub } = this.chunks;
     const scope = Effect.runSync(Scope.make());
@@ -674,7 +695,10 @@ export class Channels<S = unknown> {
               if (closed) {
                 return;
               }
-              if (next.stepId !== stepId) {
+              const matches = path
+                ? samePath(next.path, path)
+                : next.stepId === stepId;
+              if (!matches) {
                 continue;
               }
               try {
@@ -688,4 +712,8 @@ export class Channels<S = unknown> {
       },
     });
   }
+}
+
+function samePath(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((segment, i) => segment === b[i]);
 }

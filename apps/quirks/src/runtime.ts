@@ -9,12 +9,14 @@ import { nodeObserver } from "@foundry/workspaces/node/watch";
 import { bindAgents } from "~/agents";
 import { unboundFeed } from "~/feed/entry";
 import {
+  allowedExecutors,
   availableExecutors,
   detectHarnesses,
   harnessModels,
+  selectedHarnesses,
 } from "~/harnesses";
 import { createLog } from "~/lib/log";
-import type { Primitives } from "~/lib/registry";
+import type { Primitives, StepStream } from "~/lib/registry";
 import { registry } from "~/lib/registry";
 import { echoModels } from "~/models/echo";
 import { JsonSessionStore } from "~/sessions/json-store";
@@ -44,13 +46,11 @@ export interface Runtime {
 
 export function bindRuntime(options: RuntimeOptions): Runtime {
   const { dry, only, state, root, print } = options;
-  const harnesses = detectHarnesses();
-  const detected = availableExecutors(harnesses);
-  const executors =
-    only.length === 0
-      ? detected
-      : detected.filter((executor) => only.includes(executor.harness));
-
+  const harnesses = selectedHarnesses(detectHarnesses(), only);
+  // `--dry` echoes every allowed harness, so it works with none installed.
+  const executors = dry
+    ? allowedExecutors(only)
+    : availableExecutors(harnesses);
   const models: ModelManager = dry
     ? echoModels(executors, print)
     : harnessModels(harnesses);
@@ -64,7 +64,6 @@ export function bindRuntime(options: RuntimeOptions): Runtime {
   );
   const primitives: Primitives = {
     agents: bindAgents({
-      executors,
       models,
       sessions,
       skills: (names) => skillsNamed(names, join(root, "skills")),
@@ -75,6 +74,7 @@ export function bindRuntime(options: RuntimeOptions): Runtime {
     models,
     sessions,
     state,
+    stream: unboundStream,
     workspace: { root },
     workspaces: {
       git: (_root) => Git.at(_root, dry ? { run: echoGit(print) } : {}),
@@ -97,6 +97,18 @@ export function bindRuntime(options: RuntimeOptions): Runtime {
     primitives,
   };
 }
+
+/** Outside a step there is no stream to write to. */
+export const unboundStream: StepStream = {
+  pipe() {
+    return Promise.reject(
+      new Error("stream.pipe can only be called inside a running step")
+    );
+  },
+  write() {
+    throw new Error("stream.write can only be called inside a running step");
+  },
+};
 
 /** Prints the git it would run and runs nothing. */
 export function echoGit(print: (line: string) => void): GitRun {

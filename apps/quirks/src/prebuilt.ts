@@ -1,4 +1,5 @@
 import { generateText } from "ai";
+import { selectExecutor } from "./harnesses";
 import { agent, step } from "./lib/index";
 import type { DefinitionOptions } from "./lib/inputs";
 import type { Primitives } from "./lib/registry";
@@ -21,14 +22,7 @@ async function ask(
   prompt: string,
   cwd = context.workspace.root
 ) {
-  const executor = options.harness
-    ? context.executors.find((item) => item.harness === options.harness)
-    : context.executors[0];
-  if (!executor) {
-    throw new Error(
-      `No available executor${options.harness ? ` for ${options.harness}` : ""}. Install Codex or Claude Code, or select an installed --harness.`
-    );
-  }
+  const executor = selectExecutor(context.models, options.harness);
   const timeout = AbortSignal.timeout(options.timeoutMs ?? 120_000);
   const { text } = await generateText({
     abortSignal: context.signal
@@ -185,12 +179,7 @@ export function reviewSession(options: PrebuiltOptions = {}) {
   return step(
     name,
     async (context, input: { sessionId: string }) => {
-      const executor = options.harness
-        ? context.executors.find((item) => item.harness === options.harness)
-        : context.executors[0];
-      if (!executor) {
-        throw new Error("No executor available for the review session.");
-      }
+      const executor = selectExecutor(context.models, options.harness);
       const session = await context.agents.session(reviewer, {
         cwd: context.workspace.root,
         executor,

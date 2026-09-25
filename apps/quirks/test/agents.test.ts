@@ -18,7 +18,6 @@ describe("agent sessions", () => {
     const seen: string[] = [];
     registry.bind({
       agents: bindAgents({
-        executors,
         models: mockModels(executors, ({ prompt }) => {
           seen.push(prompt);
           return "noted";

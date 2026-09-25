@@ -40,6 +40,7 @@ describe("Channels.stream — multiplexed ChannelMessage", () => {
           );
           channels.chunks.push({
             at,
+            path: ["root"],
             payload: { kind: "text", text: "hello" },
             stepId: "root",
           });
@@ -54,6 +55,7 @@ describe("Channels.stream — multiplexed ChannelMessage", () => {
           );
           channels.chunks.push({
             at,
+            path: ["root"],
             payload: { data: { x: 1 }, kind: "data" },
             stepId: "root",
           });
@@ -112,6 +114,7 @@ describe("Channels.chunksFor — ChunkPayload (value-only)", () => {
           const reader = stream.getReader();
           channels.chunks.push({
             at: new Date().toISOString(),
+            path: ["alpha"],
             payload: { kind: "text", text: "hi" },
             stepId: "alpha",
           });
@@ -149,16 +152,19 @@ describe("Channels.chunksFor — filters by stepId", () => {
 
           channels.chunks.push({
             at: new Date().toISOString(),
+            path: ["alpha"],
             payload: { kind: "text", text: "alpha-1" },
             stepId: "alpha",
           });
           channels.chunks.push({
             at: new Date().toISOString(),
+            path: ["beta"],
             payload: { kind: "text", text: "ignored" },
             stepId: "beta",
           });
           channels.chunks.push({
             at: new Date().toISOString(),
+            path: ["alpha"],
             payload: { kind: "text", text: "alpha-2" },
             stepId: "alpha",
           });

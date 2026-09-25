@@ -87,6 +87,7 @@ describe("Channels — Snapshot bridge (publish-then-read-snapshot ordering)", (
           const channels = yield* Channels.make(snap);
           channels.chunks.push({
             at: at(0),
+            path: ["id-1"],
             payload: { kind: "text", text: "hello" },
             stepId: "id-1",
           });
@@ -269,11 +270,13 @@ describe("Channels.chunksFor — stepId filter + signal close", () => {
 
           channels.chunks.push({
             at: at(0),
+            path: ["step-B"],
             payload: { kind: "text", text: "wrong-step" },
             stepId: "step-B",
           });
           channels.chunks.push({
             at: at(1),
+            path: ["step-A"],
             payload: { kind: "text", text: "right-step" },
             stepId: "step-A",
           });
@@ -347,6 +350,7 @@ describe("Channels.stream — multiplexed events + chunks", () => {
           });
           channels.chunks.push({
             at: at(1),
+            path: ["id"],
             payload: { kind: "text", text: "x" },
             stepId: "id",
           });

@@ -58,6 +58,63 @@ export const CODEX: TurnExecutorRef = {
   provider: "codex",
 };
 
+/** Detection narrowed to `--harness`; an empty selection keeps every harness. */
+export function selectedHarnesses(
+  available: HarnessAvailability,
+  only: readonly string[]
+): HarnessAvailability {
+  if (only.length === 0) {
+    return available;
+  }
+  return {
+    claudeCode: available.claudeCode && only.includes(CLAUDE_CODE.harness),
+    codex: only.includes(CODEX.harness) ? available.codex : null,
+  };
+}
+
+/** Every CLI harness `--harness` allows, installed or not: what `--dry` echoes. */
+export function allowedExecutors(
+  only: readonly string[]
+): readonly TurnExecutorRef[] {
+  return [CLAUDE_CODE, CODEX].filter(
+    (executor) => only.length === 0 || only.includes(executor.harness)
+  );
+}
+
+/**
+ * The route for a turn, chosen from what the model manager has registered
+ * rather than from what is on PATH: the named harness, or the first
+ * available one in registration order.
+ */
+export function selectExecutor(
+  models: ModelManager,
+  harness?: string
+): TurnExecutorRef {
+  const candidates = models
+    .list()
+    .filter(
+      (registered) =>
+        registered.models.some((entry) => (entry.kind ?? "text") === "text") &&
+        (harness === undefined || registered.harness === harness)
+    );
+  const provider = candidates.find((candidate) => candidate.available);
+  if (!provider) {
+    throw new Error(
+      harness === undefined
+        ? "No harness is available. Install Codex or Claude Code, or register a model provider."
+        : `The ${harness} harness is not available${candidates.length > 0 ? " on this machine" : ""}. Install it, choose another harness, or register a provider for it.`
+    );
+  }
+  // Keep each CLI harness's established default rather than its first model.
+  const preferred = [CLAUDE_CODE, CODEX].find(
+    (executor) => executor.provider === provider.id
+  )?.model;
+  const model = provider.models.some((entry) => entry.id === preferred)
+    ? preferred
+    : undefined;
+  return models.resolveTextExecutor(model, provider.id, provider.harness);
+}
+
 /** Only the harnesses actually on this machine, in preference order. */
 export function availableExecutors(
   available: HarnessAvailability

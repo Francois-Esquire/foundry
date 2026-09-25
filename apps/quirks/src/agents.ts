@@ -3,9 +3,10 @@ import { createAgentPreset } from "@foundry/agents/agents/index";
 import type { SessionStore } from "@foundry/agents/session";
 import { createModelSummarizer } from "@foundry/agents/session";
 import type { Skill } from "@foundry/agents/skills";
-import type { ModelManager, TurnExecutorRef } from "@foundry/models";
+import type { ModelManager } from "@foundry/models";
 import { observeAgentTurn } from "@foundry/models";
 
+import { selectExecutor } from "~/harnesses";
 import type { Primitives, SessionOptions } from "~/lib/registry";
 
 /**
@@ -21,14 +22,13 @@ import type { Primitives, SessionOptions } from "~/lib/registry";
  */
 
 export interface AgentsOptions {
-  readonly executors: readonly TurnExecutorRef[];
   readonly models: ModelManager;
   readonly sessions: SessionStore;
   readonly skills: (names: string[]) => Promise<Skill[]>;
 }
 
 export function bindAgents(options: AgentsOptions): Primitives["agents"] {
-  const { models, executors, sessions, skills } = options;
+  const { models, sessions, skills } = options;
   const surface = {
     model: (id?: string) => models.model(id),
     observe: observeAgentTurn,
@@ -38,10 +38,7 @@ export function bindAgents(options: AgentsOptions): Primitives["agents"] {
 
   return {
     session(agent: AgentSpec, session: SessionOptions = {}) {
-      const executor = session.executor ?? executors[0];
-      if (!executor) {
-        throw new Error("no executor available");
-      }
+      const executor = session.executor ?? selectExecutor(models);
       const model = models.model(
         agent.model ?? executor.model,
         executor.provider,
@@ -51,14 +48,15 @@ export function bindAgents(options: AgentsOptions): Primitives["agents"] {
         ...(session.sessionId === undefined
           ? {}
           : { sessionId: session.sessionId }),
-        ...(session.compaction === false
-          ? {}
-          : {
+        // Off unless asked for: compaction rewrites history the caller owns.
+        ...(session.compaction
+          ? {
               compaction: {
                 summarizer: createModelSummarizer({ model }),
-                ...session.compaction,
+                ...(session.compaction === true ? {} : session.compaction),
               },
-            }),
+            }
+          : {}),
         model,
       });
     },

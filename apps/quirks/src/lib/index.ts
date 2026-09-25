@@ -102,6 +102,7 @@ export type {
   CalendarSlot,
   Primitives,
   SessionOptions,
+  StepStream,
   Weekday,
   Workspaces,
 } from "~/lib/registry";

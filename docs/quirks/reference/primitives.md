@@ -14,6 +14,7 @@ The CLI binds a `Primitives` object after configuration registration.
 | `agents.session(spec, options)` | Open an agent conversation using the runtime session store. |
 | `sessions` | Disk-backed session storage in normal CLI execution; in memory under `--dry`. |
 | `state` | This workspace's state directory, or `undefined` under `--dry`. |
+| `stream.write(value)` / `stream.pipe(source)` | Stream live output from the step: strings as text, other values as JSON data. The step's return value is still its result. |
 | `feed.post(entry)` | Publish a result or milestone to the [feed](#feed). Only valid inside a running step. |
 | `feed.ask(question)` | Pause the run on a question in the feed and resume with the answer. See [questions](#questions). |
 | `log(...values)` | Log any values into the run's logs; `log.debug`, `log.warn`, and `log.error` pick a level. |

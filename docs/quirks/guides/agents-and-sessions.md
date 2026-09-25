@@ -39,9 +39,10 @@ The harness runs the agentic loop; Quirks decides where that loop belongs within
 a larger behavior. Declaring `agent` does not start a conversation. Opening a
 session with a stable ID connects the agent to retained messages.
 
-Omit `sessionId` for a new conversation. Compaction is on by default and may
-replace older history with a summary. Use `compaction: false` to disable it, or
-partial settings to adjust it. `executor` selects a detected harness; `cwd`
+Omit `sessionId` for a new conversation. Compaction is off by default; pass
+`compaction: true` to let it replace older history with a summary, or partial
+settings to adjust it. `executor` selects a harness route (by default the first
+available harness); `cwd`
 sets its working directory. Neither a directory nor a review prompt enforces
 read-only access.
 

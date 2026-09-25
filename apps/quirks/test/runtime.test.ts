@@ -24,7 +24,10 @@ it("exposes directory cataloguing and dry-run Git through Workspaces", async () 
     root,
   });
   try {
-    expect(runtime.primitives.executors).toEqual([]);
+    // Nothing is installed, yet --dry still echoes every harness.
+    expect(
+      runtime.primitives.executors.map((executor) => executor.harness)
+    ).toEqual(["claude-code", "codex"]);
     await writeFile(join(root, "notes.md"), "initial");
     const workspaces: Workspaces = runtime.primitives.workspaces;
     const { load } = workspaces;

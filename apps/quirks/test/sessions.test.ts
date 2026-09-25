@@ -25,7 +25,6 @@ function bind(sessions: SessionStore) {
   );
   registry.bind({
     agents: bindAgents({
-      executors,
       models,
       sessions,
       skills: () => Promise.resolve([]),

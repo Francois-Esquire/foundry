@@ -1,4 +1,5 @@
 import { Config } from "@foundry/lib/config";
+import type { ChannelMessage } from "@foundry/workflows/channels";
 import { contributeQueueConfig } from "@foundry/workflows/config";
 import type { Orchestrator as OrchestratorType } from "@foundry/workflows/orchestrator";
 import { Orchestrator } from "@foundry/workflows/orchestrator";
@@ -37,6 +38,14 @@ export interface Engine {
   /** Every Run this process dispatched. */
   runs(): Promise<readonly RunRecord[]>;
   stop(options?: { readonly cancel?: boolean }): Promise<void>;
+  /**
+   * A live run's events and chunks from its start, then as they happen;
+   * `undefined` once the run is no longer held by this process.
+   */
+  stream(
+    runId: string,
+    signal?: AbortSignal
+  ): ReadableStream<ChannelMessage> | undefined;
 }
 
 /**
@@ -85,6 +94,10 @@ export async function startEngine(
   // the run: a failed write warns and the value still returns.
   const unsaved = new Set<string>();
   const active = new Map<string, () => WorkflowState>();
+  const subscribers = new Map<
+    string,
+    (signal?: AbortSignal) => ReadableStream<ChannelMessage>
+  >();
   const dispatching = new Set<Promise<unknown>>();
   let stopping = false;
   const save = (runId: string) => {
@@ -118,6 +131,9 @@ export async function startEngine(
         dispatching.delete(dispatch)
       );
       active.set(dispatched.id, () => dispatched.workflow.state);
+      subscribers.set(dispatched.id, (signal) =>
+        dispatched.workflow.root.subscribe(signal)
+      );
       unsaved.add(dispatched.id);
       const routed = router?.observe(name, dispatched.id);
       const observed = observeSteps(
@@ -134,6 +150,7 @@ export async function startEngine(
         await observed;
         await routed?.settled();
         active.delete(dispatched.id);
+        subscribers.delete(dispatched.id);
         save(dispatched.id);
         if (settled.status !== "complete") {
           throw new Error(
@@ -187,6 +204,10 @@ export async function startEngine(
         save(runId);
       }
       await orchestrator.stop();
+    },
+
+    stream(runId, signal) {
+      return subscribers.get(runId)?.(signal);
     },
   };
   return engine;

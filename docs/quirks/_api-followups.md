@@ -41,3 +41,20 @@ The release generator rebuilds both changelogs from Git history. Give the author
 `first-release.md` introduction an explicit input to release generation before
 expecting it in npm or GitHub release notes. Decide whether the package changelog
 should continue carrying the entire repository's history.
+
+## Run stream retention
+
+`step.subscribe()` replays a run's events and chunks from its start, so each
+run keeps that history in memory until its scope closes. Dispatched runs are
+not disposed when they settle; they live until the engine stops. Decide
+whether settled runs should be disposed (or their history trimmed) once hosts
+have read what they need, especially for long-lived dashboards streaming agent
+output.
+
+## Executors after model-routed harness selection
+
+Harness selection now goes through the model manager (`selectExecutor`), and
+`--dry` echoes every allowed harness. `Primitives.executors` still lists the
+detected CLI harnesses (or the dry ones) but nothing in Quirks requires it.
+Decide whether to remove it or replace it with a harness listing derived from
+the model manager.
