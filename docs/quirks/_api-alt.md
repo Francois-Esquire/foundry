@@ -1,9 +1,8 @@
 # Quirks API
 
 Maintainer note, excluded from the Blume site. The public API for
-`quirks.config.ts` as shaped in the API workshop. It replaces the API
-catalogued in [`_api-workshop.md`](./_api-workshop.md). Earlier rounds of the
-workshop are in [`_api-alt-history.md`](./_api-alt-history.md).
+`quirks.config.ts`. The library is being rebuilt to match it; where the code
+differs from this document, this document wins.
 
 This is the outermost API: what an author writes. How the library implements
 it is free to change.
