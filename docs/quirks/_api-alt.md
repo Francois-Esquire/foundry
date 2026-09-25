@@ -149,7 +149,7 @@ monitor("https://tracker.example.com/issues/latest")
 
 | Word | Kind | Shape | Purpose |
 | --- | --- | --- | --- |
-| `agent` | definition | `agent({ prompt, skills?, model?, harness?, … })` | Who does model work, with its default context. |
+| `agent` | definition | `agent({ prompt, model?, provider?, skills? })` | Who does model work, with its default context. |
 | `workspace` | definition | `workspace({ path })` | Another directory to work on. The config's own is implicit. |
 | `sandbox` | definition | `sandbox({ image, mount?, resources? })` or `sandbox({ files })` | An isolated place to run commands. |
 | `artifact` | definition | `artifact({ name, type })` | A versioned output. |
@@ -165,6 +165,10 @@ same thing on the spot (see [Context](#context)).
   version to the same artifact.
 - **A declared workspace is a directory preset.** It has no state, feed, or
   dashboard entry of its own.
+- **A sandbox mounts workspaces read/write.** The config's own directory and
+  any declared workspace it uses mount read/write. Host configuration folders
+  (`~/.foundry`, `~/.claude`, `~/.codex`) mount read-only. Nothing else is
+  mounted.
 
 ## Context
 
@@ -201,13 +205,13 @@ Quirks decorations.
 | `workspaces` | `WorkspaceSystem` (`@foundry/workspaces`, with `directory()` and `git()`) |
 | `sandboxes` | The containers registry (`createContainers` in `@foundry/sandbox`) |
 | `artifacts` | `ArtifactSystem` (`@foundry/artifacts`) |
-| `agents` | Sessions (`createSessionHarness` and a session store in `@foundry/agents`; no single class yet) |
+| `agents` | Sessions (`createAgentPreset(spec).createSession()` returns a `SessionHarness`; a `SessionStore` persists them; no single class yet) |
 
 What Quirks adds to each of these keys:
 
 - **Scoped to the run.** What a run starts or opens is attributed to it and
   closed when the run settles.
-- **Composed defaults.** The working directory and harness come from the
+- **Composed defaults.** The working directory and the model come from the
   scope (see [Composition](#composition)), overridable per call. Sessions are
   not inherited; see [Sessions](#sessions).
 - **Definitions accepted.** Anywhere one of these keys takes a spec or an id, it also
@@ -453,7 +457,7 @@ override any part of it.
 | Layer | Supplies |
 | --- | --- |
 | 1. Config | The work directory (the config's directory) and its residency: one folder per config under `~/.foundry`, keyed by the config's location |
-| 2. Definition | The definition's own defaults, e.g. an agent's prompt, skills, model, harness |
+| 2. Definition | The definition's own defaults, e.g. an agent's prompt, skills, model, provider |
 | 3. Workflow | The run |
 | 4. Step | The step's stream, log, and signal |
 | 5. Call | Options passed at the call, e.g. `agents.session(reviewer, { cwd })` |
@@ -474,12 +478,36 @@ nothing in between.
   ```
 
 - **Across runs, the same way.** A session reference is a small serializable
-  handle (its id and harness key), stored in the config's residency. To reuse
+  handle (its id, and the model and provider it opened with), stored in the
+  config's residency. To reuse
   one in a later run, a step returns it so it is recorded, and the next run
   passes it back. The docs teach it as a pattern.
-- **Harnesses.** A session belongs to the harness that created it. Each session
-  records a key for its harness (a hash of the harness metadata). Continuing
-  on a different harness starts a new session and logs a warning.
+- **Providers.** A session belongs to the provider that opened it. Continuing
+  it with an agent whose provider differs starts a new session and logs a
+  warning.
+
+### Agents, models, and providers
+
+There is no harness concept in the API. The provider is the harness.
+
+- **One models instance per config.** Built when the config loads, with the
+  config's providers registered. It owns credentials, defaults, and
+  availability. Authors never see it.
+- **`model` and `provider` pick the runtime.** `provider: "codex"` runs
+  Codex, `provider: "claude-code"` runs Claude Code, and no provider runs the
+  built-in harness with the config's default model. Future providers (Pi)
+  slot in the same way. Model ids are catalog ids, e.g.
+  `anthropic/claude-sonnet-4.6`. Availability is checked at load.
+- **The workspace binds the model.** When a session opens, the composed
+  working directory is handed to the provider. A CLI provider runs in that
+  directory. This is how a session works in a worktree or another workspace.
+- **Phase 1 runs in normal space.** No agent runs inside a sandbox yet. See
+  [Open](#open).
+
+```ts
+const reviewer = agent({ prompt: "Review without editing.", provider: "codex" });
+const drafter = agent({ prompt: "Draft the page.", model: "anthropic/claude-sonnet-4.6" });
+```
 
 ## Mapping to `@foundry/workflows`
 
@@ -510,13 +538,18 @@ nothing in between.
 - **Shortcuts.** One-call helpers on top of the context: loading a workspace,
   a sandbox handler that returns a sandbox already started, mounted, and scoped
   to the run, or calling an agent directly with its presets.
-- **Harness CLIs inside a sandbox.** Claude Code, Codex, and future harnesses
-  such as Pi must run authenticated inside a sandbox. The approach is not
-  decided. Today Quirks only detects `claude` and `codex` on the host's `PATH`
-  (`apps/quirks/src/harnesses.ts`) and relies on each CLI's own login.
+- **Agents inside a sandbox (phase 2).** Today an agent wraps a sandbox; no
+  architecture invokes an agent in one. Phase 2 installs the image, the CLIs,
+  and Foundry's own library into the sandbox and drives the providers from
+  inside. Host configuration folders (`~/.foundry`, `~/.claude`, `~/.codex`)
+  mount read-only from phase 1 on, so the CLIs are already logged in when
+  that lands.
+- **Skills.** `skills: ["code-review"]` is a placeholder for a proper skills
+  setup: where skills live, how they are named, and how they load into a
+  session. Deferred; the field stays named as is until then.
 - **Feed shape.** `feed.post` and `feed.ask` may change.
 - **Prebuilt sessions, possibly.** The context may also carry sessions that
   are already set up, ready to use without calling `agents.session(…)`.
 - **Package features not yet exposed.** `bail(error)` versus throw, `RetryPolicy`,
-  pause and skip, step hooks. Until then, a throw retries under the default
-  policy.
+  pause and skip, step hooks. The package has no default retry: until a
+  policy is exposed, a throw fails the step.
