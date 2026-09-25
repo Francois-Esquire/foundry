@@ -158,7 +158,7 @@ monitor("https://tracker.example.com/issues/latest")
 | `workspace` | definition | `workspace({ path })` | Another directory to work on. The config's own is implicit. |
 | `sandbox` | definition | `sandbox({ image, mount?, resources? })` or `sandbox({ files })` | An isolated place to run commands. |
 | `artifact` | definition | `artifact({ name, type })` | A versioned output. |
-| `skills` | definition | `skills.load()` or `skills.add(glob).add(glob)` | A set of skills for a session. |
+| `skills` | definition | `skills.load().add(glob).pick(...names)` | A set of skills for a session. |
 | `step` | work | `step(name?).input(s).output(s).do(fn)` | One unit of work. |
 | `workflow` | work | `workflow(name?, tree)` or `workflow(name?).input(s).do(fn)` | Setup plus a tree of steps. |
 | `schedule` | trigger | `schedule(definition).at(slot)` or `.every(interval)` | Runs a step or workflow on a clock. |
@@ -177,12 +177,14 @@ same thing on the spot (see [Context](#context)).
   mounted.
 - **Skills are a set, built by chaining.** `skills.load()` with no arguments
   loads the global and workspace skills. `.add(glob)` appends a folder of
-  skills; calls chain. The result is what an agent's `skills` field takes,
-  through the skills tool.
+  skills. `.pick(...names)` narrows a set to the named skills. Calls chain,
+  and each returns a new set. The result is what an agent's `skills` field
+  takes, through the skills tool.
 
   ```ts
-  const base = skills.load();
-  const review = skills.load().add("./skills/review/*");
+  const skillset = skills.load();
+  const baseSkills = skillset.pick("caveman", "unslop");
+  const review = skillset.add("./skills/review/*");
   const reviewer = agent({ prompt: "Review without editing.", skills: review });
   ```
 
