@@ -32,6 +32,10 @@ it is free to change.
    `@foundry/agents`, `@foundry/workspaces`, `@foundry/sandbox`, and
    `@foundry/artifacts` do the work. Where their APIs differ from this one,
    this one wins and the package is adapted under it.
+7. **Wired by default.** Cancellation, streaming, the working directory, and
+   the run's session reach every agent, sandbox, and workspace a step opens
+   without the author connecting them. Authored code never builds plumbing.
+   See [Wired by default](#wired-by-default). Non-negotiable.
 
 ## A complete config
 
@@ -45,12 +49,13 @@ companion skill teaches the common patterns.
 
 ```ts
 import {
-  agent, artifact, monitor, sandbox, schedule, step, workflow, workspace,
+  agent, artifact, monitor, sandbox, schedule, skills, step, workflow, workspace,
 } from "@foundry/quirks";
 import { z } from "zod";
 
 // Definitions
-const reviewer = agent({ prompt: "Review without editing.", skills: ["code-review"] });
+const reviewing = skills.load().add("./skills/review/*");
+const reviewer = agent({ prompt: "Review without editing.", skills: reviewing });
 const implementer = agent({ prompt: "Implement the task. Keep changes small." });
 const site = workspace({ path: "../marketing-site" });
 const box = sandbox({ image: "docker.io/oven/bun:1-slim", mount: "." });
@@ -149,10 +154,11 @@ monitor("https://tracker.example.com/issues/latest")
 
 | Word | Kind | Shape | Purpose |
 | --- | --- | --- | --- |
-| `agent` | definition | `agent({ prompt, model?, provider?, skills? })` | Who does model work, with its default context. |
+| `agent` | definition | `agent({ prompt, model?, provider?, skills? })` | Who does model work, with its default context. `skills` takes a skill set. |
 | `workspace` | definition | `workspace({ path })` | Another directory to work on. The config's own is implicit. |
 | `sandbox` | definition | `sandbox({ image, mount?, resources? })` or `sandbox({ files })` | An isolated place to run commands. |
 | `artifact` | definition | `artifact({ name, type })` | A versioned output. |
+| `skills` | definition | `skills.load()` or `skills.add(glob).add(glob)` | A set of skills for a session. |
 | `step` | work | `step(name?).input(s).output(s).do(fn)` | One unit of work. |
 | `workflow` | work | `workflow(name?, tree)` or `workflow(name?).input(s).do(fn)` | Setup plus a tree of steps. |
 | `schedule` | trigger | `schedule(definition).at(slot)` or `.every(interval)` | Runs a step or workflow on a clock. |
@@ -169,6 +175,16 @@ same thing on the spot (see [Context](#context)).
   any declared workspace it uses mount read/write. Host configuration folders
   (`~/.foundry`, `~/.claude`, `~/.codex`) mount read-only. Nothing else is
   mounted.
+- **Skills are a set, built by chaining.** `skills.load()` with no arguments
+  loads the global and workspace skills. `.add(glob)` appends a folder of
+  skills; calls chain. The result is what an agent's `skills` field takes,
+  through the skills tool.
+
+  ```ts
+  const base = skills.load();
+  const review = skills.load().add("./skills/review/*");
+  const reviewer = agent({ prompt: "Review without editing.", skills: review });
+  ```
 
 ## Context
 
@@ -486,6 +502,35 @@ nothing in between.
   it with an agent whose provider differs starts a new session and logs a
   warning.
 
+### Wired by default
+
+Every step runs inside one run, and the run owns one session, one stream,
+and one cancellation. Anything a step opens through the context is attached
+to them when it is created. The author writes the work; the wiring is
+already there.
+
+- **Cancellation propagates.** Cancelling a step aborts its agent turns,
+  sandbox commands, and requests. `signal` is still in the context for
+  connecting things Quirks does not own, such as a raw `fetch`. Nothing
+  Quirks owns needs it passed.
+- **Streaming is built in.** Every step has a stream. An agent session opened
+  in a step writes its turns to that stream without a `pipe` call. `stream`
+  is in the context for the author's own output.
+- **The stream is tappable and steerable.** A host watching the run's stream
+  (the TUI, the dashboard) can raise a suspension on a running step and hand
+  the author's agent a prompt. This is a user-invoked steer, not authored
+  code. The mechanism belongs to the run, so it works for any step.
+- **The working directory flows.** A session or sandbox opened in a step
+  inherits the step's working directory. In a worktree callback, that is the
+  worktree.
+- **One session per run.** `run.session` is the run's own session. Agents
+  opened in the run are attributed to it, and a host reads the run through
+  it.
+
+Authored code should read nothing like the current library. A step that
+opens an agent and returns its reply is three lines, and all three are about
+the work.
+
 ### Agents, models, and providers
 
 There is no harness concept in the API. The provider is the harness.
@@ -544,9 +589,13 @@ const drafter = agent({ prompt: "Draft the page.", model: "anthropic/claude-sonn
   inside. Host configuration folders (`~/.foundry`, `~/.claude`, `~/.codex`)
   mount read-only from phase 1 on, so the CLIs are already logged in when
   that lands.
-- **Skills.** `skills: ["code-review"]` is a placeholder for a proper skills
-  setup: where skills live, how they are named, and how they load into a
-  session. Deferred; the field stays named as is until then.
+- **Skills.** The `skills` word gives the shape (`load`, `add`, a set an
+  agent takes). Still open: where global and workspace skills live, how a
+  glob is named in the catalog, and how the set loads into a CLI provider
+  versus the built-in harness.
+- **Steering from the stream.** The suspension a host raises on a running
+  step needs a shape: what the agent receives, how the step resumes, and how
+  it is recorded for replay.
 - **Feed shape.** `feed.post` and `feed.ask` may change.
 - **Prebuilt sessions, possibly.** The context may also carry sessions that
   are already set up, ready to use without calling `agents.session(…)`.
