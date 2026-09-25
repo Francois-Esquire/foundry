@@ -1,7 +1,13 @@
 import type {
   CompactionSettings,
   SessionHarness,
+  SessionStreamOptions,
 } from "@foundry/agents/harness";
+import type {
+  SessionInput,
+  SessionMessage,
+  SessionStream,
+} from "@foundry/agents/session";
 import type { Git } from "@foundry/workspaces/git";
 import type { Log } from "~/lib/log";
 
@@ -87,7 +93,21 @@ export interface SessionOptions {
   readonly session?: SessionRef | Session;
 }
 
-export type Session = SessionHarness & { readonly ref: SessionRef };
+export type SessionReply = SessionMessage & { readonly text: string };
+
+/**
+ * A session, pre-wired: every turn is aborted with the step and its text
+ * lands on the step's stream. `harness` is the package object underneath.
+ */
+export interface Session {
+  generate(
+    input: SessionInput,
+    options?: SessionStreamOptions
+  ): Promise<SessionReply>;
+  readonly harness: SessionHarness;
+  readonly ref: SessionRef;
+  stream(input: SessionInput, options?: SessionStreamOptions): SessionStream;
+}
 
 export interface Agents {
   session(agent: AgentDefinition, options?: SessionOptions): Promise<Session>;

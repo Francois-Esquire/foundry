@@ -6,6 +6,7 @@ const INTERNAL = [
   "core",
   "lib",
   "models",
+  "sandbox",
   "workflows",
   "workspaces",
 ];
