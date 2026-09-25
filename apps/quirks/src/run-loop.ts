@@ -1,8 +1,8 @@
 import { rmSync } from "node:fs";
 import { join } from "node:path";
 import type { Engine } from "~/engine";
-import type { Schedule } from "~/lib/registry";
-import { registry } from "~/lib/registry";
+import { catalog } from "~/lib/catalog";
+import type { Schedule } from "~/lib/triggers";
 import { runLive } from "~/live";
 import { runSchedules } from "~/schedule";
 import { writeJson } from "~/state/json";
@@ -39,21 +39,25 @@ export async function runSchedulesUntilStopped(
   // A ws monitor has nothing to poll; files monitors keep their poll as a
   // net under the watcher.
   const live = schedules.flatMap((schedule) => {
-    const spec = registry.monitors.get(schedule.name);
+    const spec = catalog.monitors.get(schedule.name);
     return spec === undefined || spec.kind === "http"
       ? []
       : [{ schedule, spec }];
   });
   const polled = schedules.filter(
-    (schedule) => registry.monitors.get(schedule.name)?.kind !== "ws"
+    (schedule) => catalog.monitors.get(schedule.name)?.kind !== "ws"
   );
+  const { host } = catalog.bindings();
+  if (!host) {
+    throw new Error("the runtime has no workspace catalogue for live monitors");
+  }
   const options = { print, signal: controller.signal, state: stateDir };
   try {
     await Promise.all([
       runLive(engine, live, {
         ...options,
         root: workspace.root,
-        workspaces: registry.primitives().workspaces,
+        workspaces: host.catalogue,
       }),
       runSchedules(engine, polled, options),
     ]);

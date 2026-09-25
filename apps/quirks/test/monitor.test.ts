@@ -13,38 +13,58 @@ import { WorkspaceSystem } from "@foundry/workspaces";
 import { git } from "@foundry/workspaces/git";
 import { directory } from "@foundry/workspaces/node";
 import { afterEach, describe, expect, it } from "vitest";
-import type { Primitives } from "~/lib/registry";
-import { registry } from "~/lib/registry";
-import type { Change, Fetch, MonitorSpec } from "~/monitor";
+
+import { unbound } from "~/lib/bindings";
+import { catalog } from "~/lib/catalog";
+import { createLog } from "~/lib/log";
+import type { Catalogue } from "~/lib/managers/workspaces";
+import { runs } from "~/lib/run-scope";
+import type { Change, Fetch, MonitorContext, MonitorSpec } from "~/monitor";
 import { detector, resolveMonitor } from "~/monitor";
 import { isRecord, readJson } from "~/state/json";
+
+import { launch } from "./helpers/launch";
+import { monitorContext } from "./helpers/monitor";
 
 const SHA_256_HEX_PATTERN = /^[0-9a-f]{64}$/;
 const SHA_256_HEX_PATTERN_2 = /^[0-9a-f]{64}$/;
 const ALREADY_REGISTERED_PATTERN = /already registered/;
 
-afterEach(() => {
-  registry.reset();
+const catalogues: Catalogue[] = [];
+
+afterEach(async () => {
+  catalog.reset();
+  runs.clear();
+  await Promise.all(catalogues.splice(0).map((open) => open.closeAll()));
 });
 
-function primitivesIn(root: string, state?: string) {
+/** Bind a host over `root`: what a files detector needs to read the tree. */
+function hostIn(root: string, state?: string) {
   const lines: string[] = [];
+  const log = createLog((_level, message) => lines.push(message));
   const catalogue = new WorkspaceSystem().extend(directory(), git());
-  const primitives: Primitives = {
-    log: (line: string) => lines.push(line),
-    state,
-    workspace: { root },
-    workspaces: { load: (ref: { path: string }) => catalogue.load(ref) },
-  } as never;
-  return { lines, primitives };
+  catalogues.push(catalogue);
+  catalog.bind({
+    agents: () => unbound("agents"),
+    artifacts: () => unbound("artifacts"),
+    host: { catalogue, ...(state === undefined ? {} : { state }) },
+    log,
+    root,
+    sandboxes: () => unbound("sandboxes"),
+    workspaces: () => unbound("workspaces"),
+  });
+  return { context: monitorContext(log), lines };
 }
 
 function recorder() {
   const changes: Change[] = [];
+  const contexts: MonitorContext[] = [];
   return {
     changes,
-    handler: (_: Primitives, change: Change) => {
-      changes.push(change);
+    contexts,
+    handler: (context: MonitorContext) => {
+      changes.push(context.change);
+      contexts.push(context);
       return Promise.resolve(changes.length);
     },
   };
@@ -74,11 +94,11 @@ describe("files detector", () => {
     writeFileSync(join(root, "a.md"), "one\n");
     writeFileSync(join(root, "sub", "b.md"), "two\n");
     writeFileSync(join(root, "c.txt"), "ignored\n");
-    const { primitives } = primitivesIn(root);
-    const { changes, handler } = recorder();
+    const { context } = hostIn(root);
+    const { changes, contexts, handler } = recorder();
     const detect = detector("m", spec, handler);
 
-    await expect(detect(primitives, null)).resolves.toEqual({
+    await expect(detect(context)).resolves.toEqual({
       changed: true,
       handled: 1,
     });
@@ -90,12 +110,16 @@ describe("files detector", () => {
     expect(
       changes[0]?.kind === "files" && changes[0].added.map((f) => f.path)
     ).toEqual(["a.md", "sub/b.md"]);
+    // The handler sees the diff as `files` beside the step context.
+    expect(contexts[0]?.files).toBe(changes[0]);
+    expect(contexts[0]?.input).toEqual({});
+    expect(typeof contexts[0]?.log).toBe("function");
 
-    await expect(detect(primitives, null)).resolves.toEqual({ changed: false });
+    await expect(detect(context)).resolves.toEqual({ changed: false });
     expect(changes).toHaveLength(1);
 
     writeFileSync(join(root, "a.md"), "one more\n");
-    await detect(primitives, null);
+    await detect(context);
     expect(changes[1]).toMatchObject({
       added: [],
       modified: [{ path: "a.md" }],
@@ -103,7 +127,7 @@ describe("files detector", () => {
     });
 
     rmSync(join(root, "sub", "b.md"));
-    await detect(primitives, null);
+    await detect(context);
     const removed = changes[2]?.kind === "files" ? changes[2].removed : [];
     expect(removed).toHaveLength(1);
     expect(removed[0]?.path).toBe("sub/b.md");
@@ -116,11 +140,7 @@ describe("files detector", () => {
     writeFileSync(join(root, "a.md"), "one\n");
 
     const first = recorder();
-    await detector(
-      "m",
-      spec,
-      first.handler
-    )(primitivesIn(root, state).primitives, null);
+    await detector("m", spec, first.handler)(hostIn(root, state).context);
     const stored = readJson(join(state, "monitors", "m.json"));
     const files =
       isRecord(stored) && isRecord(stored.files) ? stored.files : {};
@@ -128,11 +148,11 @@ describe("files detector", () => {
 
     const second = recorder();
     const detect = detector("m", spec, second.handler);
-    await expect(
-      detect(primitivesIn(root, state).primitives, null)
-    ).resolves.toEqual({ changed: false });
+    await expect(detect(hostIn(root, state).context)).resolves.toEqual({
+      changed: false,
+    });
     writeFileSync(join(root, "a.md"), "two\n");
-    await detect(primitivesIn(root, state).primitives, null);
+    await detect(hostIn(root, state).context);
     expect(second.changes[0]).toMatchObject({ modified: [{ path: "a.md" }] });
   });
 
@@ -142,11 +162,11 @@ describe("files detector", () => {
       mkdirSync(join(root, "empty.md"));
       writeFileSync(join(root, "a.md"), "one\n");
       symlinkSync("a.md", join(root, "link.md"));
-      const { primitives } = primitivesIn(root);
+      const { context } = hostIn(root);
       const { changes, handler } = recorder();
       const detect = detector("m", spec, handler);
 
-      await expect(detect(primitives, null)).resolves.toEqual({
+      await expect(detect(context)).resolves.toEqual({
         changed: true,
         handled: 1,
       });
@@ -163,12 +183,36 @@ describe("files detector", () => {
       });
       rmSync(join(root, "empty.md"), { recursive: true });
       rmSync(join(root, "link.md"));
-      await expect(detect(primitives, null)).resolves.toEqual({
+      await expect(detect(context)).resolves.toEqual({
         changed: false,
       });
     } finally {
       rmSync(root, { force: true, recursive: true });
     }
+  });
+
+  it("runs as the registered step with an empty poll input", async () => {
+    const root = mkdtempSync(join(tmpdir(), "quirks-mon-"));
+    writeFileSync(join(root, "guide.md"), "one\n");
+    const { changes, contexts, handler } = recorder();
+    monitor("guides", handler, "**/*.md");
+    hostIn(root);
+    const guides = catalog.definitions.get("guides");
+    if (!guides) {
+      throw new Error("expected the detector step");
+    }
+
+    await expect(launch(guides)).resolves.toEqual({
+      changed: true,
+      handled: 1,
+    });
+    expect(changes[0]).toMatchObject({
+      added: [{ path: "guide.md" }],
+      kind: "files",
+    });
+    expect(contexts[0]?.input).toEqual({});
+    expect(contexts[0]?.run.path).toEqual(["guides"]);
+    await expect(launch(guides)).resolves.toEqual({ changed: false });
   });
 });
 
@@ -205,11 +249,11 @@ describe("http detector", () => {
           : body,
       url: "https://example.test/releases",
     };
-    const { primitives } = primitivesIn("/nowhere");
-    const { changes, handler } = recorder();
+    const { context } = hostIn("/nowhere");
+    const { changes, contexts, handler } = recorder();
     const detect = detector("r", spec, handler, { fetch });
 
-    await expect(detect(primitives, null)).resolves.toEqual({
+    await expect(detect(context)).resolves.toEqual({
       changed: true,
       handled: 1,
     });
@@ -220,10 +264,15 @@ describe("http detector", () => {
       status: 200,
     });
     expect(calls[0]?.headers).toEqual({ Authorization: "Bearer x" });
+    // The handler can read the polled body again as a standard Response.
+    await expect(contexts[0]?.response?.json()).resolves.toEqual({
+      seen: 1,
+      tags: ["v1"],
+    });
 
-    await expect(detect(primitives, null)).resolves.toEqual({ changed: false });
+    await expect(detect(context)).resolves.toEqual({ changed: false });
 
-    await detect(primitives, null);
+    await detect(context);
     expect(changes[1]).toMatchObject({
       current: ["v1", "v2"],
       previous: ["v1"],
@@ -240,18 +289,18 @@ describe("http detector", () => {
       json("a"),
     ]);
     const spec: MonitorSpec = { kind: "http", url: "https://example.test" };
-    const { primitives, lines } = primitivesIn("/nowhere");
+    const { context, lines } = hostIn("/nowhere");
     const { changes, handler } = recorder();
     const detect = detector("r", spec, handler, { fetch });
 
-    await detect(primitives, null);
-    await expect(detect(primitives, null)).resolves.toEqual({ changed: false });
-    await expect(detect(primitives, null)).resolves.toEqual({ changed: false });
+    await detect(context);
+    await expect(detect(context)).resolves.toEqual({ changed: false });
+    await expect(detect(context)).resolves.toEqual({ changed: false });
     expect(lines).toEqual([
       "[monitor] r poll failed: Error: HTTP 500",
       "[monitor] r poll failed: Error: offline",
     ]);
-    await expect(detect(primitives, null)).resolves.toEqual({ changed: false });
+    await expect(detect(context)).resolves.toEqual({ changed: false });
     expect(changes).toHaveLength(1);
   });
 });
@@ -262,31 +311,33 @@ describe("monitor factory", () => {
   it("routes a glob to files and a URL to http, one step and one schedule each", () => {
     monitor("guides", handler, "**/CLAUDE.md");
     monitor("releases", handler, "https://example.test/releases");
-    expect(registry.monitors.get("guides")).toEqual({
+    expect(catalog.monitors.get("guides")).toEqual({
       glob: "**/CLAUDE.md",
       kind: "files",
     });
-    expect(registry.monitors.get("releases")).toEqual({
+    expect(catalog.monitors.get("releases")).toEqual({
       kind: "http",
       url: "https://example.test/releases",
     });
-    expect(registry.definitions.has("guides")).toBe(true);
-    expect(registry.schedules.get("guides")).toMatchObject({
+    expect(catalog.definitions.has("guides")).toBe(true);
+    expect(catalog.schedules.get("guides")).toMatchObject({
       input: null,
       kind: "monitor",
       trigger: { kind: "interval", ms: 60_000 },
       workflow: "guides",
     });
+    // Detectors are internal: they never appear as launchable entries.
+    expect(catalog.entries()).toEqual([]);
   });
 
   it("takes the object forms with their cadence", () => {
     monitor("a", handler, { every: "30s", glob: "*.md" });
     monitor("b", handler, { every: { hour: 9 }, url: "https://x.test" });
-    expect(registry.schedules.get("a")?.trigger).toEqual({
+    expect(catalog.schedules.get("a")?.trigger).toEqual({
       kind: "interval",
       ms: 30_000,
     });
-    expect(registry.schedules.get("b")?.trigger).toEqual({
+    expect(catalog.schedules.get("b")?.trigger).toEqual({
       kind: "calendar",
       slot: { hour: 9, minute: 0 },
     });
@@ -303,17 +354,17 @@ describe("monitor factory", () => {
       url: "ws://x.test",
     });
     monitor("w", handler, "ws://x.test");
-    expect(registry.schedules.get("w")).toMatchObject({
+    expect(catalog.schedules.get("w")).toMatchObject({
       kind: "monitor",
       trigger: { kind: "interval", ms: 60_000 },
     });
   });
 
   it("refuses a taken name", () => {
-    step("taken", () => Promise.resolve(null));
+    step("taken").do(() => null);
     expect(() => {
       monitor("taken", handler, "*.md");
     }).toThrow(ALREADY_REGISTERED_PATTERN);
-    expect(registry.schedules.has("taken")).toBe(false);
+    expect(catalog.schedules.has("taken")).toBe(false);
   });
 });

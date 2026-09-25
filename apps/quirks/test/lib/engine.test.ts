@@ -12,12 +12,12 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { startEngine } from "~/engine";
 import { openFeed } from "~/feed/store";
+import { unbound } from "~/lib/bindings";
+import { step } from "~/lib/builder";
+import { catalog } from "~/lib/catalog";
 import { createLog } from "~/lib/log";
-import { unbound } from "~/lib2/bindings";
-import { step } from "~/lib2/builder";
-import { catalog } from "~/lib2/catalog";
-import { runs } from "~/lib2/run-scope";
-import { registerCatalog } from "~/lib2/tree";
+import { runs } from "~/lib/run-scope";
+import { registerCatalog } from "~/lib/tree";
 import type { FeedEntrySnapshot } from "~/views/dashboard-model";
 
 let root: string;

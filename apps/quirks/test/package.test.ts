@@ -98,7 +98,7 @@ test("the tarball installs and shares the library registry with the CLI", async 
     writeFileSync(
       join(consumer, "package.json"),
       JSON.stringify({
-        dependencies: { "@foundry/quirks": `file:${archive}` },
+        dependencies: { "@foundry/quirks": `file:${archive}`, zod: "^4.4.3" },
         name: "quirks-package-consumer",
         private: true,
         type: "module",
@@ -127,19 +127,20 @@ test("the tarball installs and shares the library registry with the CLI", async 
       join(consumer, "quirks.config.ts"),
       `
 import { step, workflow } from "@foundry/quirks";
-const greet = step("packed-greet", async (_context, name: string) => ({ greeting: "Hello " + name }));
-workflow<string, { greeting: string }>("packed-workflow", (graph) => {
-  graph.step("greet", greet, ({ input }) => input).output(({ greet }) => greet);
-});
+import { z } from "zod";
+const named = z.object({ name: z.string() });
+const greet = step("packed-greet").input(named).do(({ input }) => ({ greeting: \`Hello \${input.name}\` }));
+workflow("packed-workflow").input(named).do(({ input }) => greet({}, { name: input.name }));
 `
     );
     writeFileSync(
       join(consumer, "types.ts"),
       `
 import { step } from "@foundry/quirks";
-step("typed", async (_context, input: string) => input.length);
+import { z } from "zod";
+step("typed").input(z.object({ text: z.string() })).do(({ input }) => input.text.length);
 // @ts-expect-error Step names must be strings.
-step(123, async () => true);
+step(123);
 `
     );
     run(
@@ -175,7 +176,14 @@ step(123, async () => true);
     expect(
       run(
         "bun",
-        [cli, "once", "packed-workflow", "--dry", "--input", '"tarball"'],
+        [
+          cli,
+          "once",
+          "packed-workflow",
+          "--dry",
+          "--input",
+          '{"name":"tarball"}',
+        ],
         consumer
       )
     ).toContain("Hello tarball");
@@ -186,11 +194,7 @@ step(123, async () => true);
       join(standalone, "quirks.config.ts"),
       `
 import { step } from "@foundry/quirks";
-step("inventory", async ({ workspaces, workspace }) => {
-  const directory = await workspaces.load({ path: workspace.root });
-  const { entries } = await directory.refresh();
-  return { paths: entries.filter(entry => entry.type === "file").map(file => file.path) };
-});
+step("inventory").do(async ({ workspaces }) => ({ paths: await workspaces.current.files() }));
 `
     );
     expect(run(cli, ["list", "--dry"], standalone)).toContain("inventory");

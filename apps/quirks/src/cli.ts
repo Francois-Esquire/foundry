@@ -10,7 +10,9 @@ import { parseArgs } from "~/args";
 import { startEngine } from "~/engine";
 import { openFeed } from "~/feed/store";
 import { install, launchdPlan, uninstall } from "~/launchd";
-import { registry } from "~/lib/registry";
+import { catalog } from "~/lib/catalog";
+import { registerCatalog } from "~/lib/tree";
+import type { Schedule } from "~/lib/triggers";
 import { describeMonitor } from "~/monitor";
 import { runSchedulesUntilStopped } from "~/run-loop";
 import { bindRuntime } from "~/runtime";
@@ -47,7 +49,6 @@ workspace.json, runs/, schedules/, locks/ and sessions/. Feed entries from every
 workspace share the artifact store. --dry disables Quirks state persistence; custom code still runs.`;
 
 type Engine = Awaited<ReturnType<typeof startEngine>>;
-type Schedule = NonNullable<ReturnType<typeof registry.schedules.get>>;
 type WorkspaceState = ReturnType<typeof workspaceState>;
 
 async function loadConfiguration(
@@ -106,11 +107,9 @@ async function showStatus(
 }
 
 function listRegistry(schedules: readonly Schedule[]): void {
-  const { monitors } = registry;
-  for (const key of registry.definitions.keys()) {
-    if (!monitors.has(key)) {
-      print(`[${registry.definitionKinds.get(key) ?? "workflow"}] ${key}`);
-    }
+  const { monitors } = catalog;
+  for (const entry of catalog.entries()) {
+    print(`[${entry.kind}] ${entry.name}`);
   }
   for (const schedule of schedules) {
     const { trigger } = schedule;
@@ -155,11 +154,11 @@ function manageLaunchd(
   if (process.platform !== "darwin") {
     throw new Error("launchd is macOS only");
   }
-  const schedule = registry.schedules.get(target);
+  const schedule = catalog.schedules.get(target);
   if (!schedule) {
     throw new Error(`no schedule named "${target}"`);
   }
-  if (registry.monitors.get(target)?.kind === "ws") {
+  if (catalog.monitors.get(target)?.kind === "ws") {
     throw new Error(
       `"${target}" is a ws monitor, which is live-only; use \`quirks run\``
     );
@@ -205,7 +204,7 @@ async function runOnce(
   inputJson: string | undefined,
   stateDir: string | undefined
 ): Promise<void> {
-  const schedule = registry.schedules.get(name);
+  const schedule = catalog.schedules.get(name);
   const input: unknown =
     inputJson === undefined ? schedule?.input : JSON.parse(inputJson);
   if (schedule) {
@@ -219,7 +218,7 @@ async function runOnce(
     }
     return;
   }
-  if (registry.definitions.has(name)) {
+  if (catalog.definitions.has(name)) {
     print(JSON.stringify(await engine.run<unknown>(name, input), null, 2));
     return;
   }
@@ -297,34 +296,31 @@ async function main(): Promise<void> {
     workspace.touch(hasConfig ? configPath : null);
   }
 
-  const schedules = [...registry.schedules.values()];
+  const schedules = [...catalog.schedules.values()];
   if (await handleNonRuntimeCommand(args, workspace, schedules, configPath)) {
     return;
   }
-
-  const runtime = bindRuntime({
-    dry: args.dry,
-    only: args.only,
-    print,
-    root: workspace.root,
-    state: stateDir,
-  });
-  print(
-    `[harnesses] ${runtime.primitives.executors.map((e) => e.harness).join(", ")}`
-  );
 
   const feed = openFeed(
     args.dry ? undefined : resolve(args.artifacts),
     workspace
   );
-  const engine = await startEngine(
-    (orchestrator) => {
-      for (const register of registry.definitions.values()) {
-        register(orchestrator);
-      }
-    },
-    { feed: feed.publisher, print, state: stateDir }
-  );
+  const runtime = bindRuntime({
+    artifacts: feed.artifacts,
+    dry: args.dry,
+    only: args.only,
+    print,
+    root: workspace.root,
+    state: stateDir,
+    workspaceId: workspace.id,
+  });
+  print(`[harnesses] ${runtime.harnesses.join(", ")}`);
+
+  const engine = await startEngine(registerCatalog, {
+    feed: feed.publisher,
+    print,
+    state: stateDir,
+  });
   const restored = new Set((await engine.runs()).map((record) => record.id));
 
   try {

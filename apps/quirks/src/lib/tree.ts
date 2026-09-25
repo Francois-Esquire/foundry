@@ -107,7 +107,7 @@ async function runBody(
 }
 
 /** One package Step per locked node, children first. */
-export function materialize(
+function materialize(
   node: LockedNode,
   key: string,
   scope: RunScope,

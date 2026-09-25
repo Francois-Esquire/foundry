@@ -148,8 +148,10 @@ monitor("https://tracker.example.com/issues/latest")
   .do(async ({ response }) => ship({}, { task: (await response.json()).title }));
 ```
 
-`.text` on a reply does not exist yet; today it is
-`reply.parts.flatMap(…).join("\n")`.
+The trigger lines use the fluent forms (`schedule(def).at(…)`,
+`monitor(source).do(…)`). Phase 1 kept the named factories,
+`schedule(name, { at, workflow })` and `monitor(name, handler, source)`;
+the fluent forms land with the trigger redesign.
 
 ## Top-level words
 
@@ -690,6 +692,12 @@ const drafter = agent({ prompt: "Draft the page.", model: "anthropic/claude-sonn
 - **Steering from the stream.** The host-side calls (`steer`, `pause`,
   `resume`) need their final shape and how they surface in the TUI and
   dashboard.
+- **After phase 1.** The ledger is in memory (no replay across a restart);
+  `ask.approval` returns `{ approved }` without a note; the default provider
+  is the first available CLI harness; `sandbox({ files })` is not
+  implemented; a monitor's handler returning a locked node does not start
+  it yet. Triggers keep `schedule(name, { at, input, workflow })` and
+  `monitor(name, handler, source)` until the identity spike lands.
 
 ### Advanced patterns, later
 

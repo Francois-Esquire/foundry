@@ -63,6 +63,6 @@ function setupArticle({ configPath, draft, root }: SetupInput): string {
     `- **First step:** \`${draft.name}\``,
     `- **Harness:** ${harness}`,
     "",
-    `Launch \`${draft.name}\` from the Catalog on the Dashboard tab. Steps that call \`feed.post\` publish here.`,
+    `Launch \`${draft.name}\` from the Catalog on the Dashboard tab. Steps that call \`report\` publish here.`,
   ].join("\n");
 }

@@ -2,10 +2,10 @@ import { InMemorySessionStore } from "@foundry/agents/session";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { CLAUDE_CODE, CODEX } from "~/harnesses";
-import type { ManagerArgs } from "~/lib2/bindings";
-import { agentsManager } from "~/lib2/managers/agents";
-import { RunScope, runs } from "~/lib2/run-scope";
-import type { AgentDefinition } from "~/lib2/types";
+import type { ManagerArgs } from "~/lib/bindings";
+import { agentsManager } from "~/lib/managers/agents";
+import { RunScope, runs } from "~/lib/run-scope";
+import type { AgentDefinition } from "~/lib/types";
 import { mockModels } from "~/models/echo";
 
 afterEach(() => {

@@ -47,7 +47,7 @@ export function renderConfig(draft: SetupDraft): string {
     ...(draft.instructions.trim()
       ? { instructions: draft.instructions.trim() }
       : {}),
-    ...(draft.harness === "auto" ? {} : { harness: draft.harness }),
+    ...(draft.harness === "auto" ? {} : { provider: draft.harness }),
   };
   const properties = Object.entries(options)
     .map(([key, value]) => `  ${key}: ${JSON.stringify(value)},`)

@@ -1,80 +1,120 @@
 import { schedule, step, workflow } from "@foundry/quirks";
 import { afterEach, describe, expect, it } from "vitest";
+import { z } from "zod";
 
+import { unbound } from "~/lib/bindings";
+import { catalog } from "~/lib/catalog";
 import { createLog } from "~/lib/log";
-import type { CalendarSlot, Schedule } from "~/lib/registry";
-
-import { registry } from "~/lib/registry";
+import { runs } from "~/lib/run-scope";
+import type { CalendarSlot, Schedule } from "~/lib/triggers";
 import { nextDue, parseEvery, runSchedules } from "~/schedule";
+
+import { launch } from "./helpers/launch";
 
 const NOT_BOUND_PATTERN = /not bound/;
 const CALENDAR_SLOT_PATTERN = /calendar slot/;
 const CALENDAR_SLOT_PATTERN_2 = /calendar slot/;
 const CADENCE_PATTERN = /cadence/;
 const ALREADY_REGISTERED_PATTERN = /already registered/;
+const ONLY_NAMED_PATTERN = /only a named step or workflow/;
+
+const text = z.object({ text: z.string() });
+
+function bindLog(lines: string[]) {
+  catalog.bind({
+    agents: () => unbound("agents"),
+    artifacts: () => unbound("artifacts"),
+    log: createLog((_level, line) => lines.push(line)),
+    root: process.cwd(),
+    sandboxes: () => unbound("sandboxes"),
+    workspaces: () => unbound("workspaces"),
+  });
+}
 
 afterEach(() => {
-  registry.reset();
+  catalog.reset();
+  runs.clear();
 });
 
-describe("factories", () => {
-  it("register by name and hand back the definition", () => {
-    const shout = step("shout", (_, input: string) =>
-      Promise.resolve(input.toUpperCase())
-    );
-    expect(registry.definitions.has("shout")).toBe(true);
-    expect(shout.definitionKey).toBe("shout");
+describe("definitions", () => {
+  it("register by name and list in the catalog with their kind", () => {
+    const shout = step("shout")
+      .input(text)
+      .do(({ input }) => input.text.toUpperCase());
+    expect(catalog.definitions.get("shout")).toBe(shout);
+    expect(shout.name).toBe("shout");
+    workflow("loud", shout({}, { text: "hi" }));
+    expect(catalog.entries().map((entry) => [entry.kind, entry.name])).toEqual([
+      ["step", "shout"],
+      ["workflow", "loud"],
+    ]);
   });
 
   it("refuse a duplicate name across steps and workflows", () => {
-    step("x", () => Promise.resolve(null));
-    expect(() => workflow("x", () => undefined)).toThrow(
+    step("x").do(() => null);
+    expect(() => workflow("x", step().do(() => 1)({}))).toThrow(
       ALREADY_REGISTERED_PATTERN
     );
   });
 
-  it("run a step body against the bound primitives, only once bound", async () => {
-    const seen = step("seen", ({ log }, input: string) => {
-      log(input);
-      return Promise.resolve(input);
-    });
-    await expect(seen.create().run("hi")).rejects.toThrow(NOT_BOUND_PATTERN);
+  it("run a step body against the bound runtime, only once bound", async () => {
+    const seen = step("seen")
+      .input(text)
+      .do(({ input, log }) => {
+        log(input.text);
+        return input.text;
+      });
+    await expect(launch(seen, { text: "hi" })).rejects.toThrow(
+      NOT_BOUND_PATTERN
+    );
 
     const lines: string[] = [];
-    registry.bind({
-      log: createLog((_level, line) => lines.push(line)),
-    } as never);
-    await expect(seen.create().run("hi")).resolves.toBe("hi");
+    bindLog(lines);
+    await expect(launch(seen, { text: "hi" })).resolves.toBe("hi");
     expect(lines).toEqual(["hi"]);
   });
 
-  it("compose registered steps into a workflow graph", async () => {
-    registry.bind({ log: () => undefined } as never);
-    const shout = step("shout", (_, input: string) =>
-      Promise.resolve(input.toUpperCase())
-    );
-    const twice = workflow<string, string>("twice", (graph) => {
-      graph
-        .step("a", shout, ({ input }) => input)
-        .step("b", shout, ({ a }) => `${a}!`)
-        .output(({ b }) => b);
-    });
-    expect(twice.definitionKey).toBe("twice");
-    await expect(twice.create().run("hey")).resolves.toBe("HEY!");
+  it("compose steps into a workflow whose parent consumes its child", async () => {
+    bindLog([]);
+    const shout = step("shout")
+      .input(text)
+      .do(({ input }) => input.text.toUpperCase());
+    const bang = step()
+      .input(z.object({ a: z.string() }))
+      .do(({ input }) => `${input.a}!`);
+    const twice = workflow("twice")
+      .input(text)
+      .do(({ input }) => bang({ a: shout({}, input) }));
+    expect(twice.name).toBe("twice");
+    await expect(launch(twice, { text: "hey" })).resolves.toBe("HEY!");
   });
 
-  it("schedule a handle or a name", () => {
-    const shout = step("shout", (_, input: string) => Promise.resolve(input));
-    schedule("s1", { at: "6h", input: "a", workflow: shout });
-    schedule("s2", { at: "30m", input: "b", workflow: "shout" });
-    expect(registry.schedules.get("s1")).toMatchObject({
+  it("hand a body without an input schema an empty object, never null", async () => {
+    bindLog([]);
+    const bare = step("bare").do(({ input }) => input);
+    await expect(launch(bare)).resolves.toEqual({});
+    await expect(launch(bare, null)).resolves.toEqual({});
+  });
+
+  it("schedule a definition or a name", () => {
+    const shout = step("shout")
+      .input(text)
+      .do(({ input }) => input.text);
+    schedule("s1", { at: "6h", input: { text: "a" }, workflow: shout });
+    schedule("s2", { at: "30m", input: { text: "b" }, workflow: "shout" });
+    expect(catalog.schedules.get("s1")).toEqual({
+      input: { text: "a" },
+      name: "s1",
       trigger: { kind: "interval", ms: 6 * 3_600_000 },
       workflow: "shout",
     });
-    expect(registry.schedules.get("s2")?.trigger).toEqual({
+    expect(catalog.schedules.get("s2")?.trigger).toEqual({
       kind: "interval",
       ms: 1_800_000,
     });
+    expect(() => {
+      schedule("s3", { at: "1h", workflow: step().do(() => 1) });
+    }).toThrow(ONLY_NAMED_PATTERN);
   });
 
   it("schedule a calendar slot, minute defaulting to 0", () => {
@@ -83,7 +123,7 @@ describe("factories", () => {
       input: null,
       workflow: "w",
     });
-    expect(registry.schedules.get("s3")?.trigger).toEqual({
+    expect(catalog.schedules.get("s3")?.trigger).toEqual({
       kind: "calendar",
       slot: { hour: 9, minute: 0, weekday: "mon" },
     });

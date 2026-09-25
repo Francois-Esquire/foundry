@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { Ledger } from "~/lib2/ledger";
-import { RunScope, raceAbort, runs } from "~/lib2/run-scope";
+import { Ledger } from "~/lib/ledger";
+import { RunScope, raceAbort, runs } from "~/lib/run-scope";
 
 describe("RunScope", () => {
   it("registers itself while live and forgets itself on settle", async () => {

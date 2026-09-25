@@ -12,6 +12,7 @@ import { observeAgentTurn } from "@foundry/models";
 
 import type { ManagerArgs } from "../bindings";
 import type { Frame } from "../run-scope";
+import { current } from "../run-scope";
 import type {
   AgentDefinition,
   Agents,
@@ -133,8 +134,10 @@ async function openSession(
       : undefined;
   const provider = definition.provider ?? fallback?.provider;
   const modelId = definition.model ?? fallback?.model;
+  // A worktree callback narrows the working directory through the async
+  // store; a session opened inside it runs there unless the call says otherwise.
   const model = deps.models.model(modelId, provider, {
-    workingDirectory: options.cwd ?? cwd,
+    workingDirectory: options.cwd ?? current.getStore()?.cwd ?? cwd,
   });
 
   const id = sessionIdFor(recorded, wanted, provider, deps.warn);

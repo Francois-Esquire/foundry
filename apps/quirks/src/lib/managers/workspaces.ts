@@ -48,7 +48,7 @@ export function repositoryRoot(start: string): string | undefined {
 }
 
 /** Forward everything; run a worktree callback under its own working directory. */
-export function wrapGit(target: Git): Git {
+function wrapGit(target: Git): Git {
   return new Proxy(target, {
     get(object, property) {
       if (property === "withWorktree") {

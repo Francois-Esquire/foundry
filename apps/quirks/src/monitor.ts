@@ -3,7 +3,11 @@ import { join } from "node:path";
 
 import { globToRegExp } from "@foundry/lib/glob";
 
-import type { CalendarSlot, Primitives, StepBody } from "~/lib/registry";
+import type { HostBindings } from "~/lib/bindings";
+import { catalog } from "~/lib/catalog";
+import type { StepFn } from "~/lib/definition";
+import type { CalendarSlot } from "~/lib/triggers";
+import type { Context } from "~/lib/types";
 
 import { isRecord, readJson, writeJson } from "~/state/json";
 
@@ -78,13 +82,24 @@ export interface WsChange {
 
 export type Change = FileChange | HttpChange | WsChange;
 
-export type MonitorHandler = (
-  primitives: Primitives,
-  change: Change
-) => Promise<unknown>;
+/** `{}` is a poll; a message is what live mode hands a ws monitor. */
+export interface MonitorInput {
+  readonly message?: unknown;
+}
 
-/** `null` is a poll; a message is what live mode hands a ws monitor. */
-export type MonitorInput = null | { readonly message: unknown };
+/**
+ * What a monitor's handler receives: the step context plus what changed.
+ * `files` for a glob, `response` (a fresh `Response` over the polled body)
+ * for HTTP, `message` for a socket. `change` carries the diff detail.
+ */
+export interface MonitorContext extends Context<MonitorInput> {
+  readonly change: Change;
+  readonly files?: FileChange;
+  readonly message?: unknown;
+  readonly response?: Response;
+}
+
+export type MonitorHandler = (context: MonitorContext) => unknown;
 
 export interface Detection {
   readonly changed: boolean;
@@ -147,7 +162,33 @@ export interface DetectorOptions {
 /** One tick's reading: the change to hand on (none when nothing moved) and the state to keep. */
 interface Observation {
   readonly change: Change | undefined;
+  /** For HTTP: the polled body as a `Response` the handler can read. */
+  readonly response?: Response;
   readonly state: Record<string, unknown>;
+}
+
+function requireHost(name: string): HostBindings {
+  const { host } = catalog.bindings();
+  if (!host) {
+    throw new Error(
+      `monitor "${name}" needs a host with a workspace catalogue`
+    );
+  }
+  return host;
+}
+
+function handlerContext(
+  context: Context<MonitorInput>,
+  change: Change,
+  response?: Response
+): MonitorContext {
+  return {
+    ...context,
+    change,
+    ...(change.kind === "files" ? { files: change } : {}),
+    ...(change.kind === "ws" ? { message: change.message } : {}),
+    ...(response === undefined ? {} : { response }),
+  };
 }
 
 /**
@@ -162,52 +203,47 @@ export function detector(
   spec: MonitorSpec,
   handler: MonitorHandler,
   options: DetectorOptions = {}
-): StepBody<MonitorInput, Detection> {
+): StepFn<MonitorInput, Detection> {
   let memory: unknown;
   const file = (state: string) => join(state, "monitors", `${name}.json`);
 
-  return async (primitives, input) => {
-    primitives.signal?.throwIfAborted();
-    if (input !== null) {
-      const handled = await handler(primitives, {
-        kind: "ws",
-        message: input.message,
-      });
+  return async (context) => {
+    const { input, log, signal } = context;
+    signal.throwIfAborted();
+    if (input.message !== undefined) {
+      const change: WsChange = { kind: "ws", message: input.message };
+      const handled = await handler(handlerContext(context, change));
       return { changed: true, handled };
     }
     if (spec.kind === "ws") {
-      primitives.log(`[monitor] ${name} is live-only; run \`quirks run\``);
+      log(`[monitor] ${name} is live-only; run \`quirks run\``);
       return { changed: false };
     }
+    const host = requireHost(name);
     const previous =
-      primitives.state === undefined
-        ? memory
-        : readJson(file(primitives.state));
+      host.state === undefined ? memory : readJson(file(host.state));
     let observed: Observation;
     try {
       observed =
         spec.kind === "files"
-          ? await observeFiles(primitives, spec, previous)
-          : await observeHttp(
-              spec,
-              previous,
-              options.fetch ?? fetch,
-              primitives.signal
-            );
+          ? await observeFiles(host, catalog.bindings().root, spec, previous)
+          : await observeHttp(spec, previous, options.fetch ?? fetch, signal);
     } catch (error) {
-      primitives.log(`[monitor] ${name} poll failed: ${String(error)}`);
+      log(`[monitor] ${name} poll failed: ${String(error)}`);
       return { changed: false };
     }
-    primitives.signal?.throwIfAborted();
+    signal.throwIfAborted();
     if (observed.change === undefined) {
       return { changed: false };
     }
-    const handled = await handler(primitives, observed.change);
-    primitives.signal?.throwIfAborted();
-    if (primitives.state === undefined) {
+    const handled = await handler(
+      handlerContext(context, observed.change, observed.response)
+    );
+    signal.throwIfAborted();
+    if (host.state === undefined) {
       memory = observed.state;
     } else {
-      writeJson(file(primitives.state), { version: 1, ...observed.state });
+      writeJson(file(host.state), { version: 1, ...observed.state });
     }
     return { changed: true, handled };
   };
@@ -223,13 +259,12 @@ function storedFiles(state: unknown): Map<string, string> {
 }
 
 async function observeFiles(
-  primitives: Primitives,
+  host: HostBindings,
+  root: string,
   spec: FileMonitor,
   previous: unknown
 ): Promise<Observation> {
-  const workspace = await primitives.workspaces.load({
-    path: spec.root ?? primitives.workspace.root,
-  });
+  const workspace = await host.catalogue.load({ path: spec.root ?? root });
   const { entries } = await workspace.refresh();
   const pattern = globToRegExp(spec.glob);
   const current = new Map(
@@ -296,6 +331,10 @@ async function observeHttp(
             previous: last?.current,
             status: response.status,
           },
+    response: new Response(text, {
+      headers: response.headers,
+      status: response.status,
+    }),
     state: { current, hash },
   };
 }

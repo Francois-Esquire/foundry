@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import type { Primitives } from "~/lib/registry";
+import { createLog } from "~/lib/log";
 import type { Socket } from "~/live";
 import { attachSocket, readMessage } from "~/live";
 import type { Change, WsMonitor } from "~/monitor";
 import { detector } from "~/monitor";
+
+import { monitorContext } from "./helpers/monitor";
 
 describe("ws pipeline", () => {
   type Listener = (event: { readonly data?: unknown }) => void;
@@ -65,29 +67,26 @@ describe("ws pipeline", () => {
 
 describe("ws detector", () => {
   const lines: string[] = [];
-  const primitives: Primitives = {
-    log: (line: string) => lines.push(line),
-    workspace: { root: "/nowhere" },
-  } as never;
+  const log = createLog((_level, message) => lines.push(message));
   const changes: Change[] = [];
-  const detect = detector(
-    "feed",
-    { kind: "ws", url: "ws://x" },
-    (_, change) => {
-      changes.push(change);
-      return Promise.resolve("ok");
-    }
-  );
+  const messages: unknown[] = [];
+  const detect = detector("feed", { kind: "ws", url: "ws://x" }, (context) => {
+    changes.push(context.change);
+    messages.push(context.message);
+    return "ok";
+  });
 
   it("is live-only under a poll and handles a message as a change", async () => {
-    await expect(detect(primitives, null)).resolves.toEqual({ changed: false });
+    await expect(detect(monitorContext(log))).resolves.toEqual({
+      changed: false,
+    });
     expect(lines).toEqual(["[monitor] feed is live-only; run `quirks run`"]);
     expect(changes).toEqual([]);
 
-    await expect(detect(primitives, { message: { n: 1 } })).resolves.toEqual({
-      changed: true,
-      handled: "ok",
-    });
+    await expect(
+      detect(monitorContext(log, { message: { n: 1 } }))
+    ).resolves.toEqual({ changed: true, handled: "ok" });
     expect(changes).toEqual([{ kind: "ws", message: { n: 1 } }]);
+    expect(messages).toEqual([{ n: 1 }]);
   });
 });

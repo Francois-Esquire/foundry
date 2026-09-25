@@ -33,12 +33,12 @@ export interface SandboxesDeps {
   readonly root: string;
 }
 
-export const WORKSPACE_TARGET = "/workspace";
-export const HOST_CONFIG_DIRS = [".foundry", ".claude", ".codex"] as const;
+const WORKSPACE_TARGET = "/workspace";
+const HOST_CONFIG_DIRS = [".foundry", ".claude", ".codex"] as const;
 const KIND = "sandboxes.start";
 
 /** The host directory a spec's `mount` refers to. */
-export function mountSource(spec: SandboxSpec, root: string): string {
+function mountSource(spec: SandboxSpec, root: string): string {
   if (spec.mount === undefined || spec.mount === ".") {
     return root;
   }

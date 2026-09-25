@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 import { install, launchdPlan, uninstall } from "~/launchd";
-import type { Schedule, Trigger } from "~/lib/registry";
+import type { Schedule, Trigger } from "~/lib/triggers";
 
 const homes: string[] = [];
 

@@ -13,17 +13,17 @@ import { directory } from "@foundry/workspaces/node";
 import { nodeObserver } from "@foundry/workspaces/node/watch";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import type { ManagerArgs } from "~/lib2/bindings";
-import { artifactIdFor, artifactsManager } from "~/lib2/managers/artifacts";
+import type { ManagerArgs } from "~/lib/bindings";
+import { artifactIdFor, artifactsManager } from "~/lib/managers/artifacts";
 import {
   allowedMountRoots,
   constraintsFor,
   sandboxesManager,
-} from "~/lib2/managers/sandboxes";
-import { skillResolver } from "~/lib2/managers/skills";
-import { repositoryRoot, workspacesManager } from "~/lib2/managers/workspaces";
-import { skills } from "~/lib2/resources";
-import { current, RunScope, runs } from "~/lib2/run-scope";
+} from "~/lib/managers/sandboxes";
+import { skillResolver } from "~/lib/managers/skills";
+import { repositoryRoot, workspacesManager } from "~/lib/managers/workspaces";
+import { skills } from "~/lib/resources";
+import { current, RunScope, runs } from "~/lib/run-scope";
 import { seedRepository } from "./../helpers/repository";
 
 const NOT_A_REPOSITORY = /not a git repository/;

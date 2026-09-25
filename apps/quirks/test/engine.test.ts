@@ -1,14 +1,20 @@
-import { workflow } from "@foundry/quirks";
+import { step, workflow } from "@foundry/quirks";
 import { Step } from "@foundry/workflows/step";
 import { afterEach, describe, expect, it } from "vitest";
+import { z } from "zod";
 
 import { startEngine } from "~/engine";
-import { registry } from "~/lib/registry";
+import { unbound } from "~/lib/bindings";
+import { catalog } from "~/lib/catalog";
+import { createLog } from "~/lib/log";
+import { runs } from "~/lib/run-scope";
+import { registerCatalog } from "~/lib/tree";
 
 const RUN_EXPLODE_FAILED_PATTERN = /run "explode" failed/;
 
 afterEach(() => {
-  registry.reset();
+  catalog.reset();
+  runs.clear();
 });
 
 class Shout extends Step<string, string> {
@@ -55,11 +61,11 @@ describe("startEngine", () => {
 
     await engine.run<string>("shout", "one");
     await engine.run<string>("shout", "two");
-    const runs = await engine.runs();
+    const records = await engine.runs();
 
-    expect(runs).toHaveLength(2);
-    expect(runs.every((run) => run.step === "shout")).toBe(true);
-    expect(runs.every((run) => run.status === "complete")).toBe(true);
+    expect(records).toHaveLength(2);
+    expect(records.every((run) => run.step === "shout")).toBe(true);
+    expect(records.every((run) => run.status === "complete")).toBe(true);
     await engine.stop();
   });
 
@@ -84,23 +90,31 @@ describe("startEngine", () => {
 
   it("prints step start and complete lines with the path, in order", async () => {
     const { lines, print } = collector();
-    const shout = new Shout();
-    workflow<string, string>("twice", (graph) => {
-      graph
-        .step("a", shout, ({ input }) => input)
-        .step("b", shout, ({ a }) => `${a}!`)
-        .output(({ b }) => b);
+    catalog.bind({
+      agents: () => unbound("agents"),
+      artifacts: () => unbound("artifacts"),
+      log: createLog(() => undefined),
+      root: process.cwd(),
+      sandboxes: () => unbound("sandboxes"),
+      workspaces: () => unbound("workspaces"),
     });
-    const engine = await startEngine(
-      (orchestrator) => {
-        for (const register of registry.definitions.values()) {
-          register(orchestrator);
-        }
-      },
-      { print }
-    );
+    const text = z.object({ text: z.string() });
+    const shout = step()
+      .input(text)
+      .do(({ input }) => input.text.toUpperCase());
+    const join = step()
+      .input(z.object({ a: z.string(), b: z.string() }))
+      .do(({ input }) => `${input.a}${input.b}`);
+    workflow("twice")
+      .input(text)
+      .do(({ input }) =>
+        join({ a: shout({}, input), b: shout({}, { text: "!" }) })
+      );
+    const engine = await startEngine(registerCatalog, { print });
 
-    await expect(engine.run<string>("twice", "hey")).resolves.toBe("HEY!");
+    await expect(engine.run<string>("twice", { text: "hey" })).resolves.toBe(
+      "HEY!"
+    );
     expect(lines).toEqual([
       "[step] twice started",
       "[step] twice.a started",

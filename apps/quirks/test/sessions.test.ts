@@ -4,49 +4,53 @@ import { join } from "node:path";
 import type { SessionPart, SessionStore } from "@foundry/agents/session";
 import { agent, step } from "@foundry/quirks";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
-import { bindAgents } from "~/agents";
 import { CLAUDE_CODE } from "~/harnesses";
-import { registry } from "~/lib/registry";
-import { mockModels } from "~/models/echo";
+import { catalog } from "~/lib/catalog";
+import { runs } from "~/lib/run-scope";
 import { JsonSessionStore } from "~/sessions/json-store";
 import { sessionLines } from "~/sessions/list";
 
-afterEach(() => {
-  registry.reset();
+import type { MockBindings } from "./helpers/bindings";
+import { bindMock } from "./helpers/bindings";
+import { launch } from "./helpers/launch";
+
+let mock: MockBindings | undefined;
+
+afterEach(async () => {
+  catalog.reset();
+  runs.clear();
   vi.useRealTimers();
+  await mock?.dispose();
+  mock = undefined;
 });
 
-const executors = [CLAUDE_CODE];
+const text = z.object({ text: z.string() });
 
 function bind(sessions: SessionStore) {
-  const models = mockModels(executors, ({ prompt }) =>
-    prompt.includes("Summarize") ? "the gist" : "noted"
+  mock = bindMock(
+    ({ prompt }) => (prompt.includes("Summarize") ? "the gist" : "noted"),
+    { executors: [CLAUDE_CODE], sessions }
   );
-  registry.bind({
-    agents: bindAgents({
-      models,
-      sessions,
-      skills: () => Promise.resolve([]),
-    }),
-    executors,
-    log: () => undefined,
-    sessions,
-  } as never);
 }
 
 describe("JsonSessionStore", () => {
   it("survives a new process: a fresh store over the same dir sees the turns", async () => {
     const dir = mkdtempSync(join(tmpdir(), "quirks-sessions-"));
     bind(new JsonSessionStore(dir));
-    const reviewer = agent("reviewer", { prompt: "Review." });
-    const ask = step("ask", async ({ agents }, input: string) => {
-      const session = await agents.session(reviewer, { sessionId: "nightly" });
-      await session.generate(input);
-      return null;
-    });
-    await ask.create().run("first");
-    await ask.create().run("second");
+    const reviewer = agent({ prompt: "Review." });
+    const ask = step("ask")
+      .input(text)
+      .do(async ({ agents, input }) => {
+        const session = await agents.session(reviewer, {
+          session: { id: "nightly" },
+        });
+        await session.generate(input.text);
+        return session.ref.id;
+      });
+    await expect(launch(ask, { text: "first" })).resolves.toBe("nightly");
+    await expect(launch(ask, { text: "second" })).resolves.toBe("nightly");
 
     const reopened = new JsonSessionStore(dir);
     const [record] = reopened.sessions();
@@ -65,20 +69,22 @@ describe("JsonSessionStore", () => {
     const dir = mkdtempSync(join(tmpdir(), "quirks-sessions-"));
     const store = new JsonSessionStore(dir);
     bind(store);
-    const chatty = agent("chatty", { prompt: "Talk." });
-    const ask = step("ask", async ({ agents }, input: string) => {
-      const session = await agents.session(chatty, {
-        compaction: {
-          keepTokens: 20,
-          model: { contextWindow: 400, id: "opus", maxOutputTokens: 50 },
-        },
-        sessionId: "long",
+    const chatty = agent({ prompt: "Talk." });
+    const ask = step("ask")
+      .input(text)
+      .do(async ({ agents, input }) => {
+        const session = await agents.session(chatty, {
+          compaction: {
+            keepTokens: 20,
+            model: { contextWindow: 400, id: "opus", maxOutputTokens: 50 },
+          },
+          session: { id: "long" },
+        });
+        await session.generate(input.text);
+        return null;
       });
-      await session.generate(input);
-      return null;
-    });
     for (let i = 0; i < 12; i += 1) {
-      await ask.create().run(`turn ${String(i)} ${"x".repeat(200)}`);
+      await launch(ask, { text: `turn ${String(i)} ${"x".repeat(200)}` });
     }
 
     const all = await store.listMessages("long");
@@ -94,30 +100,30 @@ describe("sessionLines", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     const dir = mkdtempSync(join(tmpdir(), "quirks-sessions-"));
     const store = new JsonSessionStore(dir);
-    const text: SessionPart[] = [{ text: "hi", type: "text" }];
+    const parts: SessionPart[] = [{ text: "hi", type: "text" }];
 
     vi.setSystemTime(new Date("2026-09-10T10:00:00.000Z"));
     await store.createSession({ id: "older" });
     await store.appendMessage({
-      parts: text,
+      parts,
       role: "user",
       sessionId: "older",
     });
     const reply = await store.appendMessage({
-      parts: text,
+      parts,
       role: "assistant",
       sessionId: "older",
     });
     await store.summarize({
       messageId: reply.id,
       sessionId: "older",
-      summary: { parts: text },
+      summary: { parts },
     });
 
     vi.setSystemTime(new Date("2026-09-10T11:00:00.000Z"));
     await store.createSession({ id: "newer" });
     await store.appendMessage({
-      parts: text,
+      parts,
       role: "user",
       sessionId: "newer",
     });

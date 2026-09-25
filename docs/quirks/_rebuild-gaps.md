@@ -1,8 +1,27 @@
 # Quirks rebuild: gap map
 
-Maintainer note, excluded from the Blume site. Roadmap step 2.1: what exists
-today against [`_api-alt.md`](./_api-alt.md). Surveyed 2026-09-25. Paths are
-under `apps/quirks/src` and `packages/`.
+Maintainer note, excluded from the Blume site. Roadmap step 2.1: what existed
+against [`_api-alt.md`](./_api-alt.md) when surveyed on 2026-09-25, and what
+phase 1 landed the same day. Paths are under `apps/quirks/src` and
+`packages/`.
+
+## Phase 1 landed
+
+`apps/quirks/src/lib` is the new authoring lib: `builder.ts` (step,
+workflow), `definition.ts` (lock forms), `tree.ts` (bound package Steps
+driven from the parent body, `factoryFor`, `registerCatalog`),
+`run-scope.ts` (run, frame, three abort layers, async context for the
+frame cwd), `ledger.ts` (replay-safe context calls), `context.ts` (ask,
+report, log, stream, signal, run), `catalog.ts`, `triggers.ts` (the named
+schedule and monitor factories over the new definitions), `schema.ts`
+(Standard Schema validation, JSON Schema to launch-form fields), and
+`managers/` (agents, workspaces, sandboxes, artifacts, skills). The old
+registry, `Primitives`, `feed`, `loopUntil`, `bindAgents`, and `skillsNamed`
+are gone. Tests live in `apps/quirks/test/lib/`.
+
+Status of the table below after phase 1: every "Missing" and "Different" row
+is done except the trigger shapes (named factories kept on purpose) and
+the residency key (unchanged, folded into the identity decision).
 
 ## Quirks surface today
 
@@ -73,6 +92,25 @@ and `mounts: [{ id, source, target, access }]` checked against
 place and throws if frozen; `revise()` freezes and adds a new one. Entries are
 `{ path: { bytes, mime? } }`. "Each run adds a version" means Quirks calls
 `revise`, and maps a definition to a stable `ArtifactId`.
+
+## Open after phase 1
+
+- **Ledger persistence.** The `(path, kind, occurrence)` record is in memory;
+  recovery after a restart does not replay it. Persist next to `saveRun`
+  when runs survive a process.
+- **Approval note.** `ask.approval` returns `{ approved }`; a note needs a
+  JSON suspension resolution and a dashboard field.
+- **Built-in provider.** The default is still the first available CLI
+  harness; no provider backs the built-in `@foundry/agents` harness.
+- **Steer and pause host API.** The frame table registers sessions; the
+  host calls and the `SessionHarness` "abort turn and queue a message"
+  operation are not built.
+- **`sandbox({ files })`.** Throws; only image sandboxes exist. The sandbox
+  runtime is microsandbox behind a dynamic import; no runtime under `--dry`.
+- **Monitor returning a locked node.** Not wired; part of the trigger
+  redesign with the identity spike.
+- **Prebuilt steps lost the Codex read-only sandbox policy** they passed
+  through `generateText`; the read-only instruction remains in the prompt.
 
 ## Decisions
 

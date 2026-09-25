@@ -1,11 +1,16 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { ArtifactSystem, InMemoryArtifactStore } from "@foundry/artifacts";
 import { schedule, step, workflow } from "@foundry/quirks";
 import { afterEach, expect, it } from "vitest";
+import { z } from "zod";
+
 import { dashboardSnapshot } from "~/dashboard/snapshot";
 import { startEngine } from "~/engine";
-import { registry } from "~/lib/registry";
+import { catalog } from "~/lib/catalog";
+import { runs } from "~/lib/run-scope";
+import { registerCatalog } from "~/lib/tree";
 import { bindRuntime } from "~/runtime";
 import { tick } from "~/schedule";
 
@@ -17,68 +22,100 @@ const options = {
   startedAt: 1000,
   status: "Ready",
 };
-const register: Parameters<typeof startEngine>[0] = (orchestrator) => {
-  for (const definition of registry.definitions.values()) {
-    definition(orchestrator);
-  }
-};
-afterEach(() => registry.reset());
+const text = z.object({ text: z.string() });
+const textFields = [
+  { label: "Text", name: "text", required: true, type: "text" },
+];
+
+function bind(root: string) {
+  return bindRuntime({
+    artifacts: new ArtifactSystem({ store: new InMemoryArtifactStore() }),
+    dry: true,
+    only: [],
+    print,
+    root,
+    workspaceId: "ws",
+  });
+}
+
+afterEach(() => {
+  catalog.reset();
+  runs.clear();
+});
 
 it("projects real nested runs, logs and trigger provenance, including restored history", async () => {
   const dir = mkdtempSync(join(tmpdir(), "quirks-dashboard-"));
-  const runtime = bindRuntime({ dry: true, only: [], print, root: dir });
-  const shout = step("shout", ({ log }, input: string) => {
-    log(`heard ${input}`);
-    return Promise.resolve(input.toUpperCase());
-  });
-  workflow<string, string>("twice", (graph) => {
-    graph
-      .step("first", shout, ({ input }) => input)
-      .step("second", shout, ({ first }) => `${first}!`)
-      .output(({ second }) => second);
-  });
-  schedule("hourly", { at: "1h", input: "hi", workflow: "twice" });
-  schedule("daily", { at: "1d", input: "other", workflow: "twice" });
-  let engine = await startEngine(register, { print, state: dir });
+  const runtime = bind(dir);
+  const shout = step("shout")
+    .input(text)
+    .do(({ input, log }) => {
+      log(`heard ${input.text}`);
+      return input.text.toUpperCase();
+    });
+  const bang = step()
+    .input(z.object({ first: z.string() }))
+    .do(({ input, log }) => {
+      log(`heard ${input.first}!`);
+      return `${input.first}!`;
+    });
+  workflow("twice")
+    .input(text)
+    .do(({ input }) => bang({ first: shout({}, input) }));
+  schedule("hourly", { at: "1h", input: { text: "hi" }, workflow: "twice" });
+  schedule("daily", { at: "1d", input: { text: "other" }, workflow: "twice" });
+  let engine = await startEngine(registerCatalog, { print, state: dir });
   try {
-    const scheduled = registry.schedules.get("hourly");
+    const scheduled = catalog.schedules.get("hourly");
     if (!scheduled) {
       throw new Error("missing fixture schedule");
     }
     await tick(engine, scheduled, { print, state: dir });
     const snapshot = dashboardSnapshot(await engine.runs(), options);
     expect(snapshot.mode).toBe("live");
+    // Anonymous `bang` is internal; the schema gives each entry its form.
     expect(snapshot.definitions).toEqual([
       {
         description: "Registered step",
         id: "shout",
+        input: { fields: textFields },
         kind: "step",
         name: "shout",
       },
       {
         description: "Registered workflow",
         id: "twice",
+        input: { fields: textFields },
         kind: "workflow",
         name: "twice",
       },
     ]);
+    expect(
+      snapshot.triggers.map((trigger) => [trigger.id, trigger.targetId])
+    ).toEqual([
+      ["hourly", "twice"],
+      ["daily", "twice"],
+    ]);
     expect(snapshot.runs[0]).toMatchObject({
       definitionId: "twice",
-      input: "hi",
+      input: { text: "hi" },
       result: "HI!",
       status: "complete",
       triggerId: "hourly",
     });
-    expect(snapshot.runs[0]?.steps[0]?.children).toMatchObject([
-      { name: "first", result: "HI", status: "complete" },
-      { name: "second", result: "HI!", status: "complete" },
+    expect(snapshot.runs[0]?.steps).toMatchObject([
+      {
+        children: [{ name: "first", result: "HI", status: "complete" }],
+        name: "twice",
+        result: "HI!",
+        status: "complete",
+      },
     ]);
     expect(snapshot.runs[0]?.logs?.map((entry) => entry.message)).toEqual([
       "heard hi",
       "heard HI!",
     ]);
     await engine.stop();
-    engine = await startEngine(register, { print, state: dir });
+    engine = await startEngine(registerCatalog, { print, state: dir });
     const restored = dashboardSnapshot(await engine.runs(), options);
     expect(restored.runs).toEqual(snapshot.runs);
   } finally {
@@ -89,25 +126,19 @@ it("projects real nested runs, logs and trigger provenance, including restored h
 });
 
 it("shows a running step and cancels it on shutdown without starting queued work", async () => {
-  const runtime = bindRuntime({
-    dry: true,
-    only: [],
-    print,
-    root: process.cwd(),
-  });
+  const runtime = bind(process.cwd());
   let announce: () => void = () => undefined;
   const started = new Promise<void>((resolve) => {
     announce = resolve;
   });
   let calls = 0;
   let aborted = false;
-  step(
-    "wait",
+  step("wait").do(
     ({ signal, log }) =>
       new Promise<void>((resolve) => {
         calls += 1;
         log("waiting");
-        signal?.addEventListener(
+        signal.addEventListener(
           "abort",
           () => {
             aborted = true;
@@ -118,13 +149,13 @@ it("shows a running step and cancels it on shutdown without starting queued work
         announce();
       })
   );
-  const engine = await startEngine(register, { print });
+  const engine = await startEngine(registerCatalog, { print });
   try {
-    const running = engine.run("wait", null, "watch");
+    const running = engine.run("wait", {}, "watch");
     const result = running.catch((error: unknown) => error);
     await started;
     const queued = engine
-      .run("wait", null, "other")
+      .run("wait", {}, "other")
       .catch((error: unknown) => error);
     const snapshot = dashboardSnapshot(await engine.runs(), options);
     expect(
@@ -138,9 +169,7 @@ it("shows a running step and cancels it on shutdown without starting queued work
     expect(
       (await engine.runs()).every((run) => run.status === "cancelled")
     ).toBe(true);
-    await expect(engine.run("wait", null)).rejects.toThrow(
-      "engine is stopping"
-    );
+    await expect(engine.run("wait", {})).rejects.toThrow("engine is stopping");
   } finally {
     await runtime.dispose();
   }

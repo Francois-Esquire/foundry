@@ -1,7 +1,7 @@
 import { Cron } from "croner";
 
 import type { Engine } from "~/engine";
-import type { CalendarSlot, Schedule, Trigger, Weekday } from "~/lib/registry";
+import type { CalendarSlot, Schedule, Trigger, Weekday } from "~/lib/triggers";
 import { acquireLock } from "~/state/locks";
 import type { ScheduleHistory } from "~/state/schedules";
 import { readLastFinish, writeScheduleHistory } from "~/state/schedules";

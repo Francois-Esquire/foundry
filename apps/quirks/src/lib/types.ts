@@ -128,7 +128,7 @@ export interface Workspaces {
   ): Promise<WorkspaceHandle>;
 }
 
-export interface ExecResult {
+interface ExecResult {
   readonly exitCode: number;
   readonly stderr: string;
   readonly stdout: string;

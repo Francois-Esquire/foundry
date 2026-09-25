@@ -1,5 +1,6 @@
 import type { Engine } from "~/engine";
-import type { Schedule, Workspaces } from "~/lib/registry";
+import type { Catalogue } from "~/lib/managers/workspaces";
+import type { Schedule } from "~/lib/triggers";
 import type { MonitorInput, MonitorSpec, WsMonitor } from "~/monitor";
 import type { LoopOptions } from "~/schedule";
 
@@ -62,7 +63,7 @@ export interface LiveMonitor {
 export interface LiveOptions extends LoopOptions {
   /** What a files monitor without `root` watches. */
   readonly root: string;
-  readonly workspaces: Pick<Workspaces, "load" | "on">;
+  readonly workspaces: Pick<Catalogue, "load" | "on">;
 }
 
 /**
@@ -85,7 +86,7 @@ export async function runLive(
       return;
     }
     if (busy.has(schedule.name)) {
-      if (input === null) {
+      if (input.message === undefined) {
         pending.add(schedule.name);
       }
       return;
@@ -98,7 +99,7 @@ export async function runLive(
     } finally {
       busy.delete(schedule.name);
       if (pending.delete(schedule.name)) {
-        fire(schedule, null);
+        fire(schedule, {});
       }
     }
   }
@@ -158,12 +159,12 @@ export async function runLive(
           closers.push(
             options.workspaces.on("change", ({ entry }) => {
               if (entry.workspaceId === workspace.id) {
-                fire(schedule, null);
+                fire(schedule, {});
               }
             })
           );
           // The checkpoint includes changes made before the subscription existed.
-          fire(schedule, null);
+          fire(schedule, {});
           print(`[monitor] ${schedule.name} watching ${root}`);
         } catch (error) {
           print(`[monitor] ${schedule.name} watcher failed: ${String(error)}`);

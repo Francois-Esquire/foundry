@@ -1,27 +1,30 @@
+import { ArtifactSystem, InMemoryArtifactStore } from "@foundry/artifacts";
 import { step } from "@foundry/quirks";
 import type { ChannelMessage } from "@foundry/workflows/channels";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { startEngine } from "~/engine";
-import { registry } from "~/lib/registry";
+import { catalog } from "~/lib/catalog";
+import { runs } from "~/lib/run-scope";
+import { registerCatalog } from "~/lib/tree";
 import { bindRuntime } from "~/runtime";
 
-const OUTSIDE_STEP = /inside a running step/;
-
 afterEach(() => {
-  registry.reset();
+  catalog.reset();
+  runs.clear();
 });
 
-describe("stream primitive", () => {
+describe("stream", () => {
   it("streams text and data from a step body to run subscribers", async () => {
     const runtime = bindRuntime({
+      artifacts: new ArtifactSystem({ store: new InMemoryArtifactStore() }),
       dry: true,
       only: [],
       print: () => undefined,
       root: process.cwd(),
+      workspaceId: "ws",
     });
-    registry.bind(runtime.primitives);
-    const counting = step("counting", async ({ stream: output }) => {
+    step("counting").do(async ({ stream: output }) => {
       output.write("one ");
       await output.pipe(
         (async function* () {
@@ -32,13 +35,10 @@ describe("stream primitive", () => {
       return "counted";
     });
 
-    const engine = await startEngine(
-      (orchestrator) => {
-        orchestrator.register("counting", counting.factory());
-      },
-      { print: () => undefined }
-    );
-    const launched = await engine.launch<string>("counting", undefined);
+    const engine = await startEngine(registerCatalog, {
+      print: () => undefined,
+    });
+    const launched = await engine.launch<string>("counting", {});
     const stream = engine.stream(launched.id);
     if (!stream) {
       throw new Error("expected a live run stream");
@@ -75,20 +75,6 @@ describe("stream primitive", () => {
     expect(chunks.every((chunk) => chunk.path.at(-1) === "counting")).toBe(
       true
     );
-    await runtime.dispose();
-  });
-
-  it("refuses to write outside a step", async () => {
-    const runtime = bindRuntime({
-      dry: true,
-      only: [],
-      print: () => undefined,
-      root: process.cwd(),
-    });
-    expect(() => runtime.primitives.stream.write("x")).toThrow(OUTSIDE_STEP);
-    await expect(
-      runtime.primitives.stream.pipe(new ReadableStream())
-    ).rejects.toThrow(OUTSIDE_STEP);
     await runtime.dispose();
   });
 });

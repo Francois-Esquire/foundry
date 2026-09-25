@@ -4,20 +4,23 @@ import { join } from "node:path";
 import { ArtifactSystem, InMemoryArtifactStore } from "@foundry/artifacts";
 import { step } from "@foundry/quirks";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { z } from "zod";
 import { formatCount } from "~/components/ui/count-badge";
 import { startEngine } from "~/engine";
 import { feedPayload } from "~/feed/entry";
 import { feedPublisher } from "~/feed/publish";
 import { feedReader, formatPosted } from "~/feed/read";
 import { registerSetupStep, SETUP_STEP } from "~/feed/setup";
+import type { FeedStore } from "~/feed/store";
 import { openFeed } from "~/feed/store";
+import { catalog } from "~/lib/catalog";
 import { createLog, formatLogValues } from "~/lib/log";
-import { registry } from "~/lib/registry";
+import { runs } from "~/lib/run-scope";
+import { registerCatalog } from "~/lib/tree";
 import { bindRuntime } from "~/runtime";
 import type { FeedEntrySnapshot } from "~/views/dashboard-model";
 
 const MISSING_TITLE = /feed entries need a title/;
-const OUTSIDE_STEP = /inside a running step/;
 const UNREADABLE_MEDIA = /cannot read media/;
 const NOT_A_CHOICE = /Choose one of: yes, no/;
 const NO_LONGER_WAITING = /no longer waiting/;
@@ -35,12 +38,25 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  registry.reset();
+  catalog.reset();
+  runs.clear();
   await rm(root, { force: true, recursive: true });
 });
 
 function workspace(id = "ws-a", path = join(root, "project")) {
   return { id, root: path };
+}
+
+/** A dry runtime over the feed's own artifact store, bound to the catalog. */
+function bind(store: FeedStore) {
+  return bindRuntime({
+    artifacts: store.artifacts,
+    dry: true,
+    only: [],
+    print: () => undefined,
+    root,
+    workspaceId: "ws-a",
+  });
 }
 
 describe("feed posts", () => {
@@ -61,18 +77,6 @@ describe("feed posts", () => {
         root
       ).media
     ).toEqual([join(root, "chart.png")]);
-  });
-
-  it("refuse to post outside a step", () => {
-    const runtime = bindRuntime({
-      dry: true,
-      only: [],
-      print: () => undefined,
-      root,
-    });
-    expect(() =>
-      runtime.primitives.feed.post({ key: "k", kind: "result", title: "T" })
-    ).toThrow(OUTSIDE_STEP);
   });
 });
 
@@ -173,39 +177,31 @@ describe("feed store", () => {
 });
 
 describe("engine", () => {
-  it("attributes a step's posts to its run and step before the run settles", async () => {
-    const runtime = bindRuntime({
-      dry: true,
-      only: [],
-      print: () => undefined,
-      root,
-    });
-    registry.bind(runtime.primitives);
-    const summarize = step("summarize", ({ feed }, input: string) => {
-      feed.post({
-        body: input,
-        key: "summary",
-        kind: "result",
-        title: "Summary",
-      });
-      return Promise.resolve(input);
-    });
+  it("attributes a step's reports to its run and step before the run settles", async () => {
     const store = openFeed(undefined, workspace());
-    const engine = await startEngine(
-      (orchestrator) => {
-        orchestrator.register("summarize", summarize.factory());
-      },
-      { feed: store.publisher, print: () => undefined }
-    );
+    const runtime = bind(store);
+    step("summarize")
+      .input(z.object({ text: z.string() }))
+      .do(({ input, report }) => {
+        report.result({ body: input.text, key: "summary", title: "Summary" });
+        return input.text;
+      });
+    const engine = await startEngine(registerCatalog, {
+      feed: store.publisher,
+      print: () => undefined,
+    });
 
-    const launched = await engine.launch<string>("summarize", "all good");
-    await launched.result;
+    const launched = await engine.launch<string>("summarize", {
+      text: "all good",
+    });
+    await expect(launched.result).resolves.toBe("all good");
     await engine.stop();
 
     const [entry] = await store.read();
     expect(entry).toMatchObject({
       body: "# Summary\n\nall good\n",
       definition: "summarize",
+      kind: "result",
       run: launched.id,
       step: "summarize",
     });
@@ -215,23 +211,20 @@ describe("engine", () => {
 
 describe("questions", () => {
   function askingStep() {
-    const runtime = bindRuntime({
-      dry: true,
-      only: [],
-      print: () => undefined,
-      root,
-    });
-    registry.bind(runtime.primitives);
-    const deploy = step("deploy", async ({ feed }, input: string) => {
-      const answer = await feed.ask({
-        body: `Deploy ${input}?`,
-        choices: ["yes", "no"],
-        key: "confirm",
-        title: "Deploy?",
+    const store = openFeed(undefined, workspace());
+    const runtime = bind(store);
+    step("deploy")
+      .input(z.object({ version: z.string() }))
+      .do(async ({ ask, input }) => {
+        const answer = await ask.question({
+          body: `Deploy ${input.version}?`,
+          choices: ["yes", "no"],
+          key: "confirm",
+          title: "Deploy?",
+        });
+        return `${input.version}:${answer}`;
       });
-      return `${input}:${answer}`;
-    });
-    return { deploy, runtime };
+    return { runtime, store };
   }
 
   async function openQuestion(read: () => Promise<FeedEntrySnapshot[]>) {
@@ -248,22 +241,22 @@ describe("questions", () => {
   }
 
   it("pause the run on an open entry and resume it with the answer", async () => {
-    const { deploy, runtime } = askingStep();
-    const store = openFeed(undefined, workspace());
-    const engine = await startEngine(
-      (orchestrator) => {
-        orchestrator.register("deploy", deploy.factory());
-      },
-      { askable: true, feed: store.publisher, print: () => undefined }
-    );
-    const launched = await engine.launch<string>("deploy", "v2");
+    const { runtime, store } = askingStep();
+    const engine = await startEngine(registerCatalog, {
+      askable: true,
+      feed: store.publisher,
+      print: () => undefined,
+    });
+    const launched = await engine.launch<string>("deploy", { version: "v2" });
     const question = await openQuestion(store.read);
     expect(question).toMatchObject({
-      input: { choices: ["yes", "no"], status: "open" },
+      input: { choices: ["yes", "no"], mode: "question", status: "open" },
       kind: "input",
       run: launched.id,
+      step: "deploy",
       title: "Deploy?",
     });
+    expect(question?.body).toContain("Deploy v2?");
     if (!question) {
       throw new Error("expected an open question");
     }
@@ -289,16 +282,15 @@ describe("questions", () => {
   });
 
   it("cancel the run when nothing in the process can answer", async () => {
-    const { deploy, runtime } = askingStep();
-    const store = openFeed(undefined, workspace());
+    const { runtime, store } = askingStep();
     const lines: string[] = [];
-    const engine = await startEngine(
-      (orchestrator) => {
-        orchestrator.register("deploy", deploy.factory());
-      },
-      { feed: store.publisher, print: (line) => lines.push(line) }
+    const engine = await startEngine(registerCatalog, {
+      feed: store.publisher,
+      print: (line) => lines.push(line),
+    });
+    await expect(engine.run("deploy", { version: "v2" })).rejects.toThrow(
+      CANCELLED
     );
-    await expect(engine.run("deploy", "v2")).rejects.toThrow(CANCELLED);
     const [entry] = await store.read();
     expect(entry?.input?.status).toBe("cancelled");
     expect(lines.join("\n")).toContain('"Deploy?" needs an answer');
@@ -307,15 +299,13 @@ describe("questions", () => {
   });
 
   it("mark open questions cancelled when the engine stops", async () => {
-    const { deploy, runtime } = askingStep();
-    const store = openFeed(undefined, workspace());
-    const engine = await startEngine(
-      (orchestrator) => {
-        orchestrator.register("deploy", deploy.factory());
-      },
-      { askable: true, feed: store.publisher, print: () => undefined }
-    );
-    const launched = await engine.launch<string>("deploy", "v2");
+    const { runtime, store } = askingStep();
+    const engine = await startEngine(registerCatalog, {
+      askable: true,
+      feed: store.publisher,
+      print: () => undefined,
+    });
+    const launched = await engine.launch<string>("deploy", { version: "v2" });
     launched.result.catch(() => undefined);
     await openQuestion(store.read);
     await engine.stop({ cancel: true });

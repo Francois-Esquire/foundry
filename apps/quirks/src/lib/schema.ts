@@ -11,7 +11,6 @@ import type { InputField } from "~/lib/inputs";
  * and degrade to one JSON field without it.
  */
 
-export type Schema<I = unknown, O = I> = StandardSchemaV1<I, O>;
 export type Output<S extends StandardSchemaV1> =
   StandardSchemaV1.InferOutput<S>;
 

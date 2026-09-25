@@ -1,6 +1,5 @@
 import { accessSync, constants } from "node:fs";
 import { basename, isAbsolute, resolve } from "node:path";
-import type { StepContext } from "@foundry/workflows/step";
 import { z } from "zod";
 
 /**
@@ -16,7 +15,7 @@ export const FEED_MEDIA_DIR = "media";
 export const FEED_POST_EVENT = "quirks.feed.post";
 
 const FEED_KINDS = ["result", "milestone"] as const;
-export type FeedKind = (typeof FEED_KINDS)[number];
+type FeedKind = (typeof FEED_KINDS)[number];
 /** `input` entries come only from `feed.ask`, never from `feed.post`. */
 export const FEED_ENTRY_KINDS = [...FEED_KINDS, "input"] as const;
 export type FeedEntryKind = (typeof FEED_ENTRY_KINDS)[number];
@@ -28,13 +27,12 @@ const MAX_CHOICES = 9;
 export const INPUT_STATUSES = ["open", "answered", "cancelled"] as const;
 export type InputStatus = (typeof INPUT_STATUSES)[number];
 
-export interface FeedArtifactLink {
+interface FeedArtifactLink {
   readonly artifactId: string;
   readonly contentId: string;
 }
 
 export const ASK_MODES = ["question", "approval"] as const;
-export type AskMode = (typeof ASK_MODES)[number];
 
 export interface FeedPost {
   /** A result that carries an artifact version. */
@@ -50,30 +48,6 @@ export interface FeedPost {
   /** Files copied into the entry under `media/`; relative paths resolve from the workspace root. */
   readonly media?: readonly string[];
   readonly title: string;
-}
-
-export interface FeedQuestion {
-  /** Markdown context for the question. */
-  readonly body?: string;
-  /** Offer these answers; without them the answer is free text. */
-  readonly choices?: readonly string[];
-  /** Names the question within its step, like a post's key. */
-  readonly key: string;
-  /** An approval is a hard block; a question is input. Defaults to question. */
-  readonly mode?: AskMode;
-  readonly title: string;
-}
-
-export interface Feed {
-  /**
-   * Post a question as an input entry and pause the run until it is answered
-   * from the dashboard. Other runs keep going meanwhile. When the run resumes
-   * the step body runs again from the start, and this call returns the answer
-   * instead of pausing, so work before it should be safe to repeat.
-   */
-  ask(question: FeedQuestion): Promise<string>;
-  /** Publish or update an entry. Only valid inside a running step. */
-  post(entry: FeedPost): void;
 }
 
 /** What crosses the channel: validated, with media paths made absolute. */
@@ -129,41 +103,4 @@ export const feedQuestionSchema = z.object({
 });
 export type FeedQuestionPayload = z.infer<typeof feedQuestionSchema>;
 
-/** Park the step until the dashboard answers; the answer must fit the question. */
-export async function askFeed(
-  suspend: StepContext["suspend"],
-  question: FeedQuestion
-): Promise<string> {
-  const parsed = feedQuestionSchema.safeParse(question);
-  if (!parsed.success) {
-    throw new Error(
-      `feed.ask: ${parsed.error.issues.map((issue) => issue.message).join("; ")}`
-    );
-  }
-  const request = parsed.data;
-  const answer = await suspend<unknown>({
-    kind: FEED_INPUT_KIND,
-    name: `feed.ask:${request.key}`,
-    reason: request.title,
-    request,
-  });
-  if (typeof answer !== "string") {
-    throw new Error("feed.ask: the answer was not text");
-  }
-  if (request.choices.length > 0 && !request.choices.includes(answer)) {
-    throw new Error(`feed.ask: "${answer}" is not one of the choices`);
-  }
-  return answer;
-}
-
 /** Outside a step there is no run to attribute an entry to. */
-export const unboundFeed: Feed = {
-  ask() {
-    return Promise.reject(
-      new Error("feed.ask can only be called inside a running step")
-    );
-  },
-  post() {
-    throw new Error("feed.post can only be called inside a running step");
-  },
-};

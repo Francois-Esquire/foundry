@@ -8,7 +8,7 @@ import {
   JSON_FIELD,
   SchemaError,
   validate,
-} from "~/lib2/schema";
+} from "~/lib/schema";
 
 const TYPED_INPUT_ISSUE = /typed input: n: /;
 

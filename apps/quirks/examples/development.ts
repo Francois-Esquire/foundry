@@ -1,20 +1,14 @@
-import type {
-  LoopUntilResult,
-  ModelManager,
-  TurnExecutorRef,
-  Worktree,
-} from "@foundry/quirks";
-import { agent, loopUntil, step, workflow } from "@foundry/quirks";
-import { generateText } from "ai";
+import { agent, step, workflow } from "@foundry/quirks";
+import { z } from "zod";
 
 /**
- * Example workflow compositions, written in the same dialect a configuration module
+ * Example compositions, written in the same dialect a configuration module
  * uses. If one of these cannot be said with the lib, the lib is missing
- * something — that is the point of writing them this way.
+ * something. That is the point of writing them this way.
  *
- * One-shot turns are a `generateText` against a CLI-harness model: the harness
- * runs its own agentic loop, so there is nothing to wrap. A turn that should
- * remember the last run goes through `agents.session()` instead.
+ * Every agent turn goes through `agents.session`: the working directory,
+ * cancellation, and streaming are wired by the context, so the steps below
+ * are about the work only.
  */
 
 const PASS = "PASS";
@@ -33,199 +27,90 @@ export function findingsIn(reviewText: string): readonly string[] {
   return lines;
 }
 
-// ── develop ──────────────────────────────────────────────────────────────
+const implementer = agent({
+  prompt:
+    "Implement the task in this working tree. Keep changes small and report what you changed.",
+});
 
-export interface DevelopInput {
-  readonly cwd: string;
-  readonly findings: readonly string[];
-  /** Threaded through input because the loop does not put it in context. */
-  readonly round: number;
-  readonly task: string;
-}
-
-export interface DevelopRoundOutput {
-  readonly findings: readonly string[];
-  readonly implemented: string;
-  readonly review: string;
-}
-
-interface TurnInput {
-  readonly cwd: string;
-  readonly prompt: string;
-}
-
-interface TurnOutput {
-  readonly text: string;
-}
-
-async function ask(
-  models: ModelManager,
-  executor: TurnExecutorRef,
-  input: TurnInput
-): Promise<TurnOutput> {
-  const { text } = await generateText({
-    model: models.model(executor.model, executor.provider, {
-      workingDirectory: input.cwd,
-    }),
-    prompt: input.prompt,
-  });
-  return { text };
-}
-
-function executorAt(executors: readonly TurnExecutorRef[], index: number) {
-  const executor = executors[index] ?? executors[0];
-  if (!executor) {
-    throw new Error("no executor available");
-  }
-  return executor;
-}
-
-const implement = step("implement", ({ models, executors }, input: TurnInput) =>
-  ask(models, executorAt(executors, 0), input)
-);
-
-/** A second harness reviews when there is one; otherwise the implementer does. */
-const review = step("review", ({ models, executors }, input: TurnInput) =>
-  ask(models, executorAt(executors, 1), input)
-);
-
-export const developRound = workflow<DevelopInput, DevelopRoundOutput>(
-  "develop-round",
-  (graph) => {
-    graph
-      .step("implement", implement, ({ input }) => ({
-        cwd: input.cwd,
-        prompt:
-          input.findings.length === 0
-            ? input.task
-            : `Round ${String(input.round)}. ${input.task}\n\nA review of your last round raised these; address them:\n${input.findings.join("\n")}`,
-      }))
-      .step("review", review, ({ input, implement: implementation }) => ({
-        cwd: input.cwd,
-        prompt: `Review the uncommitted changes in this working tree against the task: ${input.task}\n\nThe implementer reported:\n${implementation.text}\n\n${VERDICT_PROTOCOL}`,
-      }))
-      .output(({ implement: implementation, review: reviewResult }) => ({
-        findings: findingsIn(reviewResult.text),
-        implemented: implementation.text,
-        review: reviewResult.text,
-      }));
-  }
-);
-
-export type DevelopOutput = LoopUntilResult<DevelopRoundOutput>;
-
-export const develop = workflow<DevelopInput, DevelopOutput>(
-  "develop",
-  (graph) => {
-    graph
-      .step(
-        "loop",
-        loopUntil<DevelopInput, DevelopRoundOutput>({
-          body: developRound,
-          maxRounds: 5,
-          next: ({ output, round }, previous) => ({
-            ...previous,
-            findings: output.findings,
-            round: round + 1,
-          }),
-          until: ({ output }) => output.findings.length === 0,
-        }),
-        ({ input }) => input
-      )
-      .output(({ loop }) => loop);
-  }
-);
-
-// ── review ───────────────────────────────────────────────────────────────
-
-export interface ReviewInput {
-  readonly base: string;
-  readonly repository: string;
-}
-
-const reviewPrompt = (base: string) =>
-  `Review the code in this working tree, checked out from ${base}. Report what you would change, most important first.`;
-
-export interface ReviewOutput {
-  readonly reviews: readonly {
-    readonly harness: string;
-    readonly text: string;
-  }[];
-  readonly root: string;
-}
-
-/** Never catalogued as a Workspace: cataloguing hashes every file to reach the same snapshot. */
-async function worktreeStatus(
-  worktree: Worktree,
-  base: string
-): Promise<string> {
-  const status = await worktree.status();
-  const where = `[worktree] ${worktree.root}`;
-  if (status.kind === "none") {
-    return `${where}: no git`;
-  }
-  if (status.kind === "unavailable") {
-    return `${where}: ${status.reason}`;
-  }
-  const head = status.branch ?? `detached at ${base}`;
-  const tree =
-    status.paths.length === 0
-      ? "clean"
-      : `${String(status.paths.length)} changed`;
-  return `${where}: ${head} · ${tree}`;
-}
-
-/** One review per harness, concurrently, inside a throwaway worktree. */
-export const reviewInWorktree = step(
-  "review-in-worktree",
-  ({ models, executors, workspaces, log }, input: ReviewInput) =>
-    workspaces.git(input.repository).withWorktree(input, async (worktree) => {
-      log(`reviewing in ${worktree.root}`);
-      log(await worktreeStatus(worktree, input.base));
-      const reviews = await Promise.all(
-        executors.map(async (executor) => {
-          const { text } = await generateText({
-            model: models.model(executor.model, executor.provider, {
-              workingDirectory: worktree.root,
-            }),
-            prompt: reviewPrompt(input.base),
-          });
-          return { harness: executor.harness, text };
-        })
-      );
-      return { reviews, root: worktree.root } satisfies ReviewOutput;
-    })
-);
-
-// ── review-session ───────────────────────────────────────────────────────
-
-const reviewer = agent("reviewer", {
+const reviewer = agent({
   prompt:
     "You review code. Read only; never edit, commit, or run anything that changes the tree.",
 });
 
-export interface ReviewSessionOutput {
-  readonly sessionId: string;
-  readonly text: string;
-}
+// ── develop ──────────────────────────────────────────────────────────────
 
-/** One reviewer, one session per base, so a scheduled review remembers what it said last time. */
-export const reviewSession = step(
-  "review-session",
-  ({ agents, workspaces, log }, input: ReviewInput) =>
-    workspaces.git(input.repository).withWorktree(input, async (worktree) => {
-      const sessionId = `review-${input.base}`;
-      log(`reviewing in ${worktree.root} as ${sessionId}`);
+const task = z.object({
+  cwd: z.string().default("."),
+  task: z.string(),
+});
+
+export const implement = step("implement")
+  .input(task)
+  .output(z.string())
+  .do(async ({ agents, input }) => {
+    const session = await agents.session(implementer, { cwd: input.cwd });
+    return (await session.generate(input.task)).text;
+  });
+
+export const review = step("review")
+  .input(task.extend({ implemented: z.string() }))
+  .output(z.object({ findings: z.array(z.string()), text: z.string() }))
+  .do(async ({ agents, input }) => {
+    const session = await agents.session(reviewer, { cwd: input.cwd });
+    const { text } = await session.generate(
+      `Review the uncommitted changes in this working tree against the task: ${input.task}\n\nThe implementer reported:\n${input.implemented}\n\n${VERDICT_PROTOCOL}`
+    );
+    return { findings: [...findingsIn(text)], text };
+  });
+
+/** Implement, then review what was implemented. The reviewer runs last. */
+export const developRound = workflow("develop-round")
+  .input(task)
+  .do(({ input }) => review({ implemented: implement({}, input) }, input));
+
+// ── review ───────────────────────────────────────────────────────────────
+
+const revision = z.object({
+  base: z.string(),
+  repository: z.string(),
+});
+
+const reviewPrompt = (base: string) =>
+  `Review the code in this working tree, checked out from ${base}. Report what you would change, most important first.`;
+
+/**
+ * A review inside a throwaway worktree. The session opened in the callback
+ * runs in the worktree: the context narrows the working directory for it.
+ */
+export const reviewInWorktree = step("review-in-worktree")
+  .input(revision)
+  .do(async ({ agents, input, log, workspaces }) => {
+    const repository = await workspaces.load({ path: input.repository });
+    return repository.git.withWorktree(
+      { base: input.base },
+      async (worktree) => {
+        log(`reviewing in ${worktree.root}`);
+        const session = await agents.session(reviewer);
+        const { text } = await session.generate(reviewPrompt(input.base));
+        return { review: text, root: worktree.root };
+      }
+    );
+  });
+
+// ── review-session ───────────────────────────────────────────────────────
+
+/** One session per base, so a scheduled review remembers what it said last time. */
+export const reviewSession = step("review-session")
+  .input(revision)
+  .do(async ({ agents, input, workspaces }) => {
+    const repository = await workspaces.load({ path: input.repository });
+    return repository.git.withWorktree({ base: input.base }, async () => {
       const session = await agents.session(reviewer, {
-        cwd: worktree.root,
-        sessionId,
+        session: { id: `review-${input.base}` },
       });
-      const reply = await session.generate(
-        `${reviewPrompt(input.base)} If this session holds an earlier review of yours, say what changed since then and what still stands.`
+      const { text } = await session.generate(
+        `${reviewPrompt(input.base)} Only mention what changed since you last looked.`
       );
-      const text = reply.parts
-        .flatMap((part) => (part.type === "text" ? [part.text] : []))
-        .join("\n");
-      return { sessionId, text } satisfies ReviewSessionOutput;
-    })
-);
+      return { sessionId: session.ref.id, text };
+    });
+  });

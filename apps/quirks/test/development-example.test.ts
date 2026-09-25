@@ -1,76 +1,56 @@
-import { InMemorySessionStore } from "@foundry/agents/session";
-import { WorkspaceSystem } from "@foundry/workspaces";
-import { Git, git } from "@foundry/workspaces/git";
-import { directory } from "@foundry/workspaces/node";
-import { describe, expect, it } from "vitest";
-import { bindAgents } from "~/agents";
-import { unboundFeed } from "~/feed/entry";
-import { CLAUDE_CODE, CODEX } from "~/harnesses";
-import { createLog } from "~/lib/log";
-import { registry } from "~/lib/registry";
+import { existsSync } from "node:fs";
+import { rm } from "node:fs/promises";
+import { basename } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+
+import { catalog } from "~/lib/catalog";
+import { runs } from "~/lib/run-scope";
 import type { Reply } from "~/models/echo";
-import { mockModels } from "~/models/echo";
-import { echoGit, unboundStream } from "~/runtime";
 import {
-  develop,
+  developRound,
   findingsIn,
   reviewInWorktree,
   reviewSession,
 } from "../examples/development";
 
+import type { MockBindingOptions, MockBindings } from "./helpers/bindings";
+import { bindMock } from "./helpers/bindings";
+import { launch } from "./helpers/launch";
 import { seedRepository } from "./helpers/repository";
 
-const REVIEWING_IN_AS_REVIEW_MAIN_PATTERN =
-  /^reviewing in (.*) as review-main$/;
+type Call = Parameters<Reply>[0];
 
-const executors = [CLAUDE_CODE, CODEX];
+const WORKTREE_DIR = /^worktree-/;
 
-interface BindOptions {
-  /** Run git for real; the default echoes every mutation. */
-  readonly live?: boolean;
-  readonly log?: (line: string) => void;
-}
+let mock: MockBindings | undefined;
+const repositories: string[] = [];
 
-function bind(reply: Reply, options: BindOptions = {}) {
-  const models = mockModels(executors, reply);
-  const sessions = new InMemorySessionStore();
-  const catalogue = new WorkspaceSystem().extend(
-    directory(),
-    git(options.live ? {} : { run: echoGit(() => undefined) })
+afterEach(async () => {
+  catalog.reset();
+  runs.clear();
+  await mock?.dispose();
+  mock = undefined;
+  await Promise.all(
+    repositories
+      .splice(0)
+      .map((repository) => rm(repository, { force: true, recursive: true }))
   );
-  registry.bind({
-    agents: bindAgents({
-      models,
-      sessions,
-      skills: () => Promise.resolve([]),
-    }),
-    executors,
-    feed: unboundFeed,
-    log: createLog((_level, message) => options.log?.(message)),
-    models,
-    sessions,
-    stream: unboundStream,
-    workspace: { root: process.cwd() },
-    workspaces: {
-      git: (root) =>
-        Git.at(root, options.live ? {} : { run: echoGit(() => undefined) }),
-      load: (ref) => catalogue.load(ref),
-      on: (event, listener) => catalogue.on(event, listener),
-    },
-  });
-  return sessions;
+});
+
+function bind(reply: Reply, options: MockBindingOptions = {}) {
+  mock = bindMock(reply, options);
+  return mock;
 }
 
-/** Reviews (the second harness) reject until `rounds`, then pass. */
-function reviewsAfter(rounds: number): Reply {
-  let seen = 0;
-  return ({ executor }) => {
-    if (executor === CLAUDE_CODE) {
-      return "did the work";
-    }
-    seen += 1;
-    return seen >= rounds ? "PASS" : "still missing a test";
-  };
+async function freshRepository() {
+  const root = await seedRepository();
+  repositories.push(root);
+  return root;
+}
+
+/** Both agents share the default provider; the system prompt tells them apart. */
+function isReview(call: Call) {
+  return call.prompt.includes("You review code");
 }
 
 describe("findingsIn", () => {
@@ -86,83 +66,83 @@ describe("findingsIn", () => {
   });
 });
 
-describe("develop", () => {
-  const input = {
-    cwd: "/tmp/nowhere",
-    findings: [],
-    round: 1,
-    task: "add a health endpoint",
-  };
+describe("developRound", () => {
+  const input = { cwd: "/tmp/nowhere", task: "add a health endpoint" };
 
-  it("loops until a review passes", async () => {
-    bind(reviewsAfter(3));
-    const result = await develop.create().run(input);
-    expect(result).toMatchObject({ rounds: 3, settled: true });
-    expect(result.output.findings).toEqual([]);
+  it("implements, then reviews the report in the same directory", async () => {
+    const calls: Call[] = [];
+    bind((call) => {
+      calls.push(call);
+      return isReview(call) ? "PASS" : "did the work";
+    });
+    const result = await launch(developRound, input);
+    expect(result).toEqual({ findings: [], text: "PASS" });
+    expect(calls.map((call) => call.cwd)).toEqual([
+      "/tmp/nowhere",
+      "/tmp/nowhere",
+    ]);
+    expect(calls[0]?.prompt).toContain("add a health endpoint");
+    expect(calls[1]?.prompt).toContain(
+      "The implementer reported:\ndid the work"
+    );
   });
 
-  it("gives up unsettled when reviews never pass", async () => {
-    bind(reviewsAfter(99));
-    const result = await develop.create().run(input);
-    expect(result).toMatchObject({ rounds: 5, settled: false });
-    expect(result.output.findings).toEqual(["still missing a test"]);
+  it("reports the findings when the review does not pass", async () => {
+    bind((call) => (isReview(call) ? "still missing a test" : "did the work"));
+    await expect(launch(developRound, input)).resolves.toEqual({
+      findings: ["still missing a test"],
+      text: "still missing a test",
+    });
   });
 });
 
 describe("reviewInWorktree", () => {
-  it("asks every harness inside the worktree", async () => {
+  it("opens the session inside a worktree and removes it afterwards", async () => {
     const lines: string[] = [];
-    bind(({ executor, cwd }) => `${executor.harness} saw ${cwd ?? "nothing"}`, {
-      log: (line) => lines.push(line),
-    });
-    const result = await reviewInWorktree
-      .create()
-      .run({ base: "HEAD", repository: "/repo" });
-    expect(result.reviews.map((review) => review.harness)).toEqual([
-      "claude-code",
-      "codex",
-    ]);
-    expect(result.reviews[0]?.text).toBe(`claude-code saw ${result.root}`);
-    expect(lines[1]).toBe(`[worktree] ${result.root}: no git`);
-  });
-
-  it("logs a real worktree's git state without cataloguing it", async () => {
-    const repository = await seedRepository();
-    const lines: string[] = [];
-    bind(() => "PASS", {
+    bind(({ cwd }) => `saw ${cwd ?? "nothing"}`, {
       live: true,
       log: (line) => lines.push(line),
     });
-    const result = await reviewInWorktree
-      .create()
-      .run({ base: "main", repository });
-    expect(result.reviews).toHaveLength(2);
-    expect(lines[1]).toBe(
-      `[worktree] ${result.root}: detached at main · clean`
+    const result = await launch<{ review: string; root: string }>(
+      reviewInWorktree,
+      { base: "main", repository: await freshRepository() }
     );
+    expect(result.root).not.toBe(repositories[0]);
+    expect(lines).toEqual([`reviewing in ${result.root}`]);
+    expect(result.review).toBe(`saw ${result.root}`);
+    expect(existsSync(result.root)).toBe(false);
   });
 });
 
 describe("reviewSession", () => {
-  const input = { base: "main", repository: "/repo" };
-
   it("confines the session's turn to the worktree", async () => {
-    const lines: string[] = [];
-    bind(({ cwd }) => `saw ${cwd ?? "nothing"}`, {
-      log: (line) => lines.push(line),
+    const calls: Call[] = [];
+    bind(
+      (call) => {
+        calls.push(call);
+        return `saw ${call.cwd ?? "nothing"}`;
+      },
+      { live: true }
+    );
+    const result = await launch(reviewSession, {
+      base: "main",
+      repository: await freshRepository(),
     });
-    const result = await reviewSession.create().run(input);
-    const root = lines[0]?.replace(REVIEWING_IN_AS_REVIEW_MAIN_PATTERN, "$1");
+    expect(calls).toHaveLength(1);
+    // The turn ran in the temporary worktree, not the repository itself.
+    expect(basename(calls[0]?.cwd ?? "")).toMatch(WORKTREE_DIR);
+    expect(calls[0]?.cwd).not.toBe(repositories[0]);
     expect(result).toEqual({
       sessionId: "review-main",
-      text: `saw ${root ?? ""}`,
+      text: `saw ${calls[0]?.cwd ?? ""}`,
     });
   });
 
   it("keeps the review under one session across runs", async () => {
-    const sessions = bind(() => "looks fine");
-    await reviewSession.create().run(input);
-    await reviewSession.create().run(input);
+    const { sessions } = bind(() => "looks fine", { live: true });
+    const input = { base: "main", repository: await freshRepository() };
+    await launch(reviewSession, input);
+    await launch(reviewSession, input);
     const messages = await sessions.listMessages("review-main");
     expect(messages.map((message) => message.role)).toEqual([
       "user",

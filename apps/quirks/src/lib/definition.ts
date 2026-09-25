@@ -9,7 +9,7 @@ import type { Context, SetupContext } from "./types";
  * definition locks many times; each lock is its own node.
  */
 
-export type Children = Readonly<Record<string, LockedNode>>;
+type Children = Readonly<Record<string, LockedNode>>;
 
 export type StepFn<I, O> = (context: Context<I>) => O | Promise<O>;
 export type SetupFn<I> = (

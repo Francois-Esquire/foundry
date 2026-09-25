@@ -13,7 +13,7 @@ import type { SessionRef } from "./types";
  * which is also how a worktree callback narrows the working directory.
  */
 
-export interface Closable {
+interface Closable {
   close(): Promise<void> | void;
 }
 
@@ -159,13 +159,4 @@ export function raceAbort<T>(frame: Frame, work: Promise<T>): Promise<T> {
       frame.signal.removeEventListener("abort", onAbort);
     });
   });
-}
-
-/** The frame a manager call is running in. */
-export function requireCurrent(what: string): Current {
-  const store = current.getStore();
-  if (!store) {
-    throw new Error(`${what} can only be called inside a running step`);
-  }
-  return store;
 }

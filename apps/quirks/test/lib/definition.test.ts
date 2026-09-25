@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 
-import { step, workflow } from "~/lib2/builder";
-import { catalog } from "~/lib2/catalog";
-import { isLockedNode } from "~/lib2/definition";
+import { step, workflow } from "~/lib/builder";
+import { catalog } from "~/lib/catalog";
+import { isLockedNode } from "~/lib/definition";
 
 const ALREADY_REGISTERED = /already registered/;
 const CHILD_AND_INPUT = /both a child and an input key/;
@@ -114,7 +114,7 @@ describe("definitions and locking", () => {
       kind: "step",
       name: "typed",
     });
-    expect(entry?.fields).toEqual([
+    expect(entry?.input.fields).toEqual([
       { label: "N", name: "n", required: true, type: "number" },
     ]);
   });

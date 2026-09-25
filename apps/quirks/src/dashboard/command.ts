@@ -6,8 +6,9 @@ import type { Engine } from "~/engine";
 import { startEngine } from "~/engine";
 import { registerSetupStep, SETUP_STEP, type SetupInput } from "~/feed/setup";
 import { type FeedStore, openFeed } from "~/feed/store";
-import { launchInput } from "~/lib/inputs";
-import { registry } from "~/lib/registry";
+import { catalog } from "~/lib/catalog";
+import { inputFromFields, validate } from "~/lib/schema";
+import { registerCatalog } from "~/lib/tree";
 import { createConfig } from "~/onboarding/config";
 import type { SetupDraft } from "~/onboarding/templates";
 import { runSchedulesUntilStopped } from "~/run-loop";
@@ -58,7 +59,7 @@ export async function runInteractive(
         try {
           await loadConfiguration(configPath, print);
         } catch (error) {
-          registry.reset();
+          catalog.reset();
           throw new Error(
             `Config was created but could not load: ${String(error)}. Fix it and restart Quirks.`,
             { cause: error }
@@ -74,19 +75,19 @@ export async function runInteractive(
       hasConfig ? dirname(configPath) : process.cwd()
     );
     const state = args.dry ? undefined : workspace.dir;
+    feed = openFeed(args.dry ? undefined : resolve(args.artifacts), workspace);
     runtime = bindRuntime({
+      artifacts: feed.artifacts,
       dry: args.dry,
       only: args.only,
       print,
       root: workspace.root,
       state,
+      workspaceId: workspace.id,
     });
-    feed = openFeed(args.dry ? undefined : resolve(args.artifacts), workspace);
     engine = await startEngine(
       (orchestrator) => {
-        for (const register of registry.definitions.values()) {
-          register(orchestrator);
-        }
+        registerCatalog(orchestrator);
         registerSetupStep(orchestrator);
       },
       { askable: true, feed: feed.publisher, print, state }
@@ -94,7 +95,7 @@ export async function runInteractive(
     if (controller.signal.aborted) {
       return;
     }
-    const schedules = [...registry.schedules.values()];
+    const schedules = [...catalog.schedules.values()];
     const lastFinish = new Map(
       schedules.flatMap((schedule) => {
         const finish =
@@ -106,9 +107,7 @@ export async function runInteractive(
     );
     let startedAt = Date.now();
     const runningEngine = engine;
-    const harnesses = runtime.primitives.executors.map(
-      (executor) => executor.harness
-    );
+    const { harnesses } = runtime;
     const readFeed = feed.read;
     const update = async () =>
       terminal.update(
@@ -128,12 +127,23 @@ export async function runInteractive(
       await update();
     });
     terminal.setLauncher(async (name, input) => {
-      if (!registry.definitions.has(name) || registry.monitors.has(name)) {
+      const definition = catalog.definitions.get(name);
+      if (!definition || catalog.monitors.has(name)) {
         throw new Error("This definition is not available for manual launch.");
       }
+      const values =
+        typeof input === "object" && input !== null && !Array.isArray(input)
+          ? (input as Record<string, unknown>)
+          : {};
       const launched = await runningEngine.launch(
         name,
-        launchInput(registry.definitionOptions.get(name), input)
+        definition.input
+          ? await validate(
+              definition.input,
+              inputFromFields(values),
+              `"${name}" input`
+            )
+          : {}
       );
       launched.result.catch((error: unknown) =>
         print(`[run] ${String(error)}`)

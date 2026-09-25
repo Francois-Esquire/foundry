@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { Step } from "@foundry/workflows/step";
 import { describe, expect, it } from "vitest";
 import { startEngine } from "~/engine";
-import type { Schedule } from "~/lib/registry";
+import type { Schedule } from "~/lib/triggers";
 import { runSchedules, tick } from "~/schedule";
 import { acquireLock } from "~/state/locks";
 import { workspaceState } from "~/state/workspace";

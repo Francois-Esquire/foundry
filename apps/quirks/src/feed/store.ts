@@ -9,6 +9,8 @@ import type { FeedReader } from "~/feed/read";
 import { feedReader } from "~/feed/read";
 
 export interface FeedStore {
+  /** The shared store; declared artifacts live in it beside feed entries. */
+  readonly artifacts: Artifacts;
   readonly publisher: FeedPublisher;
   readonly read: FeedReader;
 }
@@ -31,6 +33,7 @@ export function openFeed(
           store: new JsonArtifactStore({ path: join(root, "records.json") }),
         });
   return {
+    artifacts,
     publisher: feedPublisher(artifacts, {
       id: workspace.id,
       name: basename(workspace.root),

@@ -12,6 +12,9 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { sleep, spawn } from "bun";
 
+/** Configs live in a tmpdir with no node_modules, so zod is imported by URL. */
+const ZOD = import.meta.resolve("zod");
+
 async function until(predicate: () => boolean) {
   const deadline = Date.now() + 8000;
   while (!predicate()) {
@@ -33,7 +36,7 @@ for (const command of [[], ["run"]]) {
       `
       import { writeFileSync } from "node:fs";
       import { schedule, step } from "@foundry/quirks";
-      const wait = step("waiting-step", ({ signal, log }) => new Promise(resolve => {
+      const wait = step("waiting-step").do(({ signal, log }) => new Promise(resolve => {
         writeFileSync(${JSON.stringify(started)}, "started");
         log("Waiting for cancellation");
         signal.addEventListener("abort", () => {
@@ -41,7 +44,7 @@ for (const command of [[], ["run"]]) {
           resolve(null);
         }, { once: true });
       }));
-      schedule("test-trigger", { workflow: wait, input: null, at: "1s" });
+      schedule("test-trigger", { at: "1s", workflow: wait });
     `
     );
     let output = "";
@@ -98,11 +101,11 @@ test("piped startup runs immediately and SIGTERM drains work with plain output",
     `
     import { writeFileSync } from "node:fs";
     import { step, schedule } from "@foundry/quirks";
-    const task = step("plain-step", async () => {
+    const task = step("plain-step").do(() => {
       writeFileSync(${JSON.stringify(marker)}, "ran");
       return "done";
     });
-    schedule("plain-trigger", { workflow: task, input: null, at: "1s" });
+    schedule("plain-trigger", { at: "1s", workflow: task });
   `
   );
   const child = spawn(
@@ -261,10 +264,12 @@ test("manual workflow launch uses typed arguments while scheduled runs continue"
     `
 import { writeFileSync, appendFileSync } from "node:fs";
 import { step, workflow, schedule } from "@foundry/quirks";
-const tick = step("tick", async () => { appendFileSync(${JSON.stringify(ticks)}, "tick\\n"); });
-schedule("heartbeat", { workflow: tick, input: null, at: "1s" });
-const echo = step("echo", async (_context, input) => { writeFileSync(${JSON.stringify(marker)}, JSON.stringify(input)); return input; });
-workflow("manual", (graph) => graph.step("echo", echo, ({ input }) => input).output(({ echo }) => echo), { input: { fields: [{ name: "message", label: "Message", type: "text", required: true }, { name: "enabled", label: "Enabled", type: "boolean", default: false }, { name: "count", label: "Count", type: "number", default: 0 }] } });
+import { z } from ${JSON.stringify(ZOD)};
+const tick = step("tick").do(() => { appendFileSync(${JSON.stringify(ticks)}, "tick\\n"); });
+schedule("heartbeat", { at: "1s", workflow: tick });
+const message = z.object({ message: z.string(), enabled: z.boolean().default(false), count: z.number().default(0) });
+const echo = step("echo").input(message).do(({ input }) => { writeFileSync(${JSON.stringify(marker)}, JSON.stringify(input)); return input; });
+workflow("manual").input(message).do(({ input }) => echo({}, input));
 `
   );
   const terminal = await openTestCli(config);

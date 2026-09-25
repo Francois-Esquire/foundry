@@ -26,9 +26,9 @@ import type {
  * identified by its position in the body.
  */
 
-export const ASK_NAME = "quirks.ask";
-export const APPROVE = "approve";
-export const REJECT = "reject";
+const ASK_NAME = "quirks.ask";
+const APPROVE = "approve";
+const REJECT = "reject";
 
 const questionSchema = z.object({
   body: z.string().default(""),

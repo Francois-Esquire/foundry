@@ -1,5 +1,6 @@
 import type { Log } from "~/lib/log";
 
+import type { Catalogue } from "./managers/workspaces";
 import type { Frame, RunScope } from "./run-scope";
 import type { Agents, Artifacts, Sandboxes, Workspaces } from "./types";
 
@@ -16,9 +17,17 @@ export interface ManagerArgs {
   readonly write: (value: unknown) => void;
 }
 
+/** Host-only facilities that never reach authored code. */
+export interface HostBindings {
+  readonly catalogue: Catalogue;
+  /** The workspace state dir; undefined under `--dry`. */
+  readonly state?: string;
+}
+
 export interface Bindings {
   readonly agents: (args: ManagerArgs) => Agents;
   readonly artifacts: (args: ManagerArgs) => Artifacts;
+  readonly host?: HostBindings;
   /** Host output for `log(...)`. */
   readonly log: Log;
   /** The config's directory. */

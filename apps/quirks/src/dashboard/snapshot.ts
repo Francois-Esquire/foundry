@@ -6,8 +6,8 @@ import type {
 import { StepSnapshotSchema } from "@foundry/workflows/snapshot";
 import type { RunRecord } from "@foundry/workflows/store";
 import { Option, Schema } from "effect";
-import type { Schedule } from "~/lib/registry";
-import { registry } from "~/lib/registry";
+import { catalog } from "~/lib/catalog";
+import type { Schedule } from "~/lib/triggers";
 import { describeMonitor } from "~/monitor";
 import { cadence, clock, nextDue, weekdays } from "~/schedule";
 import type {
@@ -160,7 +160,7 @@ function runSnapshot(record: RunRecord, now: number): RunSnapshot {
 }
 
 function description(schedule: Schedule): string {
-  const monitor = registry.monitors.get(schedule.name);
+  const monitor = catalog.monitors.get(schedule.name);
   if (monitor) {
     return describeMonitor(monitor);
   }
@@ -195,7 +195,7 @@ export function dashboardSnapshot(
     (a, b) => b.timestamps.createdAt - a.timestamps.createdAt
   );
   const runs = sorted.map((record) => runSnapshot(record, now));
-  const triggers = [...registry.schedules.values()].map(
+  const triggers = [...catalog.schedules.values()].map(
     (schedule): TriggerSnapshot => {
       const latest = sorted.find(
         (run) => run.extensions.triggerId === schedule.name
@@ -218,11 +218,11 @@ export function dashboardSnapshot(
         latest?.timestamps.failedAt ??
         options.lastFinish.get(schedule.name) ??
         options.startedAt;
-      const liveOnly = registry.monitors.get(schedule.name)?.kind === "ws";
+      const liveOnly = catalog.monitors.get(schedule.name)?.kind === "ws";
       return {
         configuration: json({
           input: schedule.input,
-          monitor: registry.monitors.get(schedule.name),
+          monitor: catalog.monitors.get(schedule.name),
           trigger: schedule.trigger,
         }),
         description: description(schedule),
@@ -238,17 +238,13 @@ export function dashboardSnapshot(
     }
   );
   return {
-    definitions: [...registry.definitionKinds]
-      .filter(([id]) => !registry.monitors.has(id))
-      .map(([id, kind]) => ({
-        ...registry.definitionOptions.get(id),
-        description:
-          registry.definitionOptions.get(id)?.description ??
-          `Registered ${kind}`,
-        id,
-        kind,
-        name: id,
-      })),
+    definitions: catalog.entries().map((entry) => ({
+      description: entry.description ?? `Registered ${entry.kind}`,
+      id: entry.name,
+      input: entry.input,
+      kind: entry.kind,
+      name: entry.name,
+    })),
     feed: options.feed ?? [],
     harnesses: options.harnesses,
     mode: "live",

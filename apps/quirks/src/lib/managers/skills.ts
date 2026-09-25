@@ -20,7 +20,7 @@ export interface SkillRoots {
   readonly workspace: string;
 }
 
-export const WORKSPACE_SKILLS_DIR = "skills";
+const WORKSPACE_SKILLS_DIR = "skills";
 const SKILL_MANIFEST = "SKILL.md";
 const MAX_DEPTH = 8;
 const SKIPPED = new Set(["node_modules", ".git"]);

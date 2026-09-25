@@ -9,7 +9,7 @@ import type { WorkflowState } from "@foundry/workflows/workflow";
 
 import type { FeedPublisher } from "~/feed/publish";
 import { feedRouter } from "~/feed/route";
-import { runs as runScopes } from "~/lib2/run-scope";
+import { runs as runScopes } from "~/lib/run-scope";
 import { observeSteps } from "~/observe";
 import { loadRuns, saveRun } from "~/state/runs";
 
