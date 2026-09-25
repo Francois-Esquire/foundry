@@ -51,6 +51,7 @@
     "@opentui/core": "0.5.11",
     "@opentui/react": "0.5.11",
     "@parcel/watcher": "^2.5.1",
+    "@standard-schema/spec": "1.1.0",
     "ai": "7.0.58",
     "ai-sdk-provider-claude-code": "4.0.1",
     "ai-sdk-provider-codex-cli": "2.1.2",
