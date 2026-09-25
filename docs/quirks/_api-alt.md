@@ -59,7 +59,7 @@ const reviewer = agent({ prompt: "Review without editing.", skills: reviewing })
 const implementer = agent({ prompt: "Implement the task. Keep changes small." });
 const site = workspace({ path: "../marketing-site" });
 const box = sandbox({ image: "docker.io/oven/bun:1-slim", mount: "." });
-const report = artifact({ name: "Weekly report", type: "text/markdown" });
+const weeklyReport = artifact({ name: "Weekly report", type: "text/markdown" });
 
 // Steps
 const review = step("review")
@@ -97,18 +97,19 @@ const implement = step()
 
 const publish = step()
   .input(z.object({ findings: z.string(), exitCode: z.number() }))
-  .do(async ({ input: { findings, exitCode }, artifacts, feed }) => {
-    const version = await artifacts.write(report, { "report.md": `${findings}\n\nTests: ${exitCode}` });
-    feed.post({ key: "weekly", kind: "result", title: "Weekly report", artifact: version });
+  .do(async ({ input: { findings, exitCode }, report }) => {
+    const version = await report.artifact(weeklyReport, {
+      "report.md": `${findings}\n\nTests: ${exitCode}`,
+    });
     return version.id;
   });
 
 // Asks first, so nothing before the ask repeats on resume.
 const approve = step()
   .input(z.object({ review: z.string() }))
-  .do(async ({ input: { review }, feed }) => {
-    const answer = await feed.ask({ key: "merge", title: "Merge it?", body: review, choices: ["yes", "no"] });
-    return answer === "yes";
+  .do(async ({ input: { review }, ask }) => {
+    const { approved } = await ask.approval({ title: "Merge it?", body: review });
+    return approved;
   });
 
 // Workflows
@@ -137,9 +138,9 @@ monitor("docs/**/*.md").do(({ files, log }) => log(files));
 
 monitor("https://status.example.com/api")
   .every("5m")
-  .do(async ({ response, feed }) => {
+  .do(async ({ response, report }) => {
     const { status } = await response.json();
-    feed.post({ key: "status", kind: "milestone", title: `Status: ${status}` });
+    report.milestone({ title: `Status: ${status}` });
   });
 
 monitor("https://tracker.example.com/issues/latest")
@@ -169,8 +170,8 @@ same thing on the spot (see [Context](#context)).
 
 - **A declared artifact keeps its identity across runs.** Each run adds a
   version to the same artifact.
-- **A declared workspace is a directory preset.** It has no state, feed, or
-  dashboard entry of its own.
+- **A declared workspace is a directory preset.** It has no state, reports,
+  or dashboard entry of its own.
 - **A sandbox mounts workspaces read/write.** The config's own directory and
   any declared workspace it uses mount read/write. Host configuration folders
   (`~/.foundry`, `~/.claude`, `~/.codex`) mount read-only. Nothing else is
@@ -194,7 +195,7 @@ The one object every step and workflow `.do` receives. Destructure what you
 need:
 
 ```ts
-step().do(async ({ input, agents, workspaces, sandboxes, artifacts, feed, log, stream, signal, run }) => …);
+step().do(async ({ input, agents, workspaces, sandboxes, artifacts, ask, report, log, stream, signal, run }) => …);
 ```
 
 A monitor's `.do` gets the same object, with `files` or `response` in place of
@@ -207,11 +208,12 @@ A monitor's `.do` gets the same object, with `files` or `response` in place of
 | `workspaces` | Directories: the config's own and any other. |
 | `sandboxes` | Isolated places to run commands. |
 | `artifacts` | Versioned outputs. |
-| `feed` | Posts and questions in the Feed tab. |
+| `ask` | Stop and ask a person: `ask.question(…)`, `ask.approval(…)`. |
+| `report` | Tell people what happened: `report.milestone(…)`, `report.result(…)`, `report.artifact(…)`. |
 | `log` | Run logs. |
 | `stream` | The step's live output. |
 | `signal` | Cancellation. Always present. |
-| `run` | This run: `{ id, session }`. |
+| `run` | The run scope: `{ id, session, signal, stream, path, abort() }`. The top layer; see [Layers of cancellation](#layers-of-cancellation). |
 
 ### Context keys backed by packages
 
@@ -275,15 +277,54 @@ const result = await env.exec(["bun", "test"]);
 ### artifacts
 
 ```ts
-const version = await artifacts.write(report, { "report.md": markdown });    // a definition: a new version
+const version = await artifacts.write(weeklyReport, { "report.md": markdown }); // a definition: a new version. report.artifact does this and posts it
 const page = await artifacts.create({ name: "Prototype", type: "text/html", entries }); // on the spot
 ```
 
-### feed, log, stream
+### ask
 
 ```ts
-feed.post({ key: "weekly", kind: "result", title: "Weekly report", artifact: version });
-const answer = await feed.ask({ key: "merge", title: "Merge it?", choices: ["yes", "no"] });
+const { approved, note } = await ask.approval({ title: "Merge it?", body: review });
+const answer = await ask.question({ title: "Which region?", choices: ["us", "eu"] });
+const free = await ask.question({ title: "Anything to add?" });          // free text
+```
+
+Both suspend the step until a person answers, and both are attributed to
+the run so a host can show what it is waiting on. They differ in weight:
+
+- **`approval` is a hard block.** The run shows as blocked. The answer is
+  `{ approved, note? }`. What a refusal means is the author's: return it,
+  branch on it, or throw.
+- **`question` is input.** The step waits, the run shows as waiting, and
+  siblings keep going. `choices` gives a pick list; without it the answer is
+  free text.
+
+Each call is identified by its position in the body (see
+[Writing replayable steps](#writing-replayable-steps)), so there is no key.
+An explicit `key` is optional, for updating the same entry across steps.
+
+### report
+
+```ts
+report.milestone({ title: "Tests green" });
+report.result({ title: "Summary", body: markdown });
+const version = await report.artifact(weeklyReport, { "report.md": markdown });
+```
+
+Reports are fire-and-forget and each becomes an entry on the run. A host
+renders them: an icon when a milestone lands, a status line when a step
+continues, a card for a result. They also serve as signals for anyone
+watching the run.
+
+- **`milestone`** marks progress. Title, optional body.
+- **`result`** carries an outcome in markdown, with optional media.
+- **`artifact`** takes an artifact definition and files, writes a new version
+  to that artifact, posts it, and returns the version. Authors never touch
+  versions directly; the artifact abstraction lives behind this call.
+
+### log, stream
+
+```ts
 
 log("reviewing", target);
 log.warn("slow response", ms);
@@ -297,13 +338,17 @@ await stream.pipe(session.stream(prompt));
 ```ts
 await fetch(url, { signal });                                   // cancelled with the step
 const lead = await agents.session(delegator, { session: run.session }); // the run's session
-log("run", run.id);
+log("run", run.id, "at", run.path);
+run.abort(new Error("unrecoverable"));                          // shut the whole run down
 ```
+
+`run` is the run scope itself, exposed for advanced patterns. Everyday code
+uses the step-scoped keys and never reads it.
 
 Removed from what authors see: `models`, `executors`, `sessions`, `state`, and
 the old `workspace` / `workspaces` pair. They remain internal.
 
-Pending changes to `feed` and `sandboxes` are listed under [Open](#open).
+Pending changes to `sandboxes` are listed under [Open](#open).
 
 ## Steps and workflows
 
@@ -417,7 +462,7 @@ have different durability:
 
 - **Steps are durable once finished.** A finished step returns its recorded
   result instead of running again.
-- **A suspended step is not finished.** After `feed.ask` resolves, the body
+- **A suspended step is not finished.** After an `ask` resolves, the body
   replays from the top with the answer in hand. Any effect before the ask runs
   again. Put the ask first, or in a step of its own, as `approve` does.
 - **Setup is not durable.** It runs every time the workflow is set up,
@@ -533,6 +578,52 @@ Authored code should read nothing like the current library. A step that
 opens an agent and returns its reply is three lines, and all three are about
 the work.
 
+#### Layers of cancellation
+
+| Layer | Signal | Fires when |
+| --- | --- | --- |
+| Run | `run.signal` | The whole run is cancelled, or any step calls `run.abort()`. Everything stops. |
+| Step | `signal` | This step is cancelled or paused, or its run is. |
+| Turn | internal | A host steers the agent mid-turn. Only the current turn stops. |
+
+Each layer derives from the one above. `run.abort(reason)` is the complete
+escape: it fails the run and aborts every step, session, and sandbox in it.
+
+#### Steering and pausing from the stream
+
+A host watching `run.stream` (the TUI, the dashboard) can act on a running
+step. Neither is authored code.
+
+- **Steer.** The step keeps running. The host hands a prompt to the agent
+  active in that step. The current turn is aborted, the prompt becomes the
+  next user message, and the session continues. The author's
+  `await session.generate(…)` resolves with the reply to the steered
+  conversation. The steer is written to the run stream and the session
+  transcript. Nothing replays.
+- **Pause.** The host parks the step. Its signal aborts what it opened, and
+  a suspension is recorded under the step's path, the same way `ask`
+  records one. Resuming, with or without a prompt, replays the body from the
+  top. A prompt supplied on resume is injected at the recorded turn.
+
+#### Writing replayable steps
+
+A step body may run more than once: after a pause, after an `ask`, or on
+recovery. The body must reach the same frame again and pick up the live
+values it had. Two rules make that automatic:
+
+1. **Open things through the context, in a fixed order.** Each
+   `agents.session(…)`, `sandboxes.start(…)`, and `ask.*(…)` in a body is
+   numbered by the order it is called. On replay, the same call at the same
+   position returns the recorded thing: the same session, with its transcript,
+   instead of a new one. Conditionals that change the order break this, as
+   with hooks.
+2. **Keep effects behind those calls.** Work that must not repeat goes into
+   an agent turn, a step of its own, or after the last suspension point.
+
+A session opened this way is recoverable from its own store: the step
+replays up to the frame, the session call returns the existing session, and
+the next turn continues where it left off.
+
 ### Agents, models, and providers
 
 There is no harness concept in the API. The provider is the harness.
@@ -567,7 +658,8 @@ const drafter = agent({ prompt: "Draft the page.", model: "anthropic/claude-sonn
 | Composition | Seed context: a parent's context forks into its children, and per-invocation context overrides create-time context. |
 | Keys | Step paths. Siblings read results with `ctx.resultOf(key)`. |
 | `stream` | `ctx.write` / `ctx.pipe`, or `yield` from an async generator body. Channels are per run, so any depth reaches the run's stream. |
-| `feed.ask` | A suspension (`suspendForApproval`), resumed by `(stepPath, name, occurrence)`. |
+| `ask.question`, `ask.approval` | A suspension (`suspendForApproval`), resumed by `(stepPath, name, occurrence)`. |
+| `report.*` | A run event on the stream plus a persisted entry; `report.artifact` calls `ArtifactSystem.revise`. |
 | Names | The Orchestrator registry. Recovery rebuilds runs by name. |
 | Persistence, resume | Per-run Snapshot, the queue, `orchestrator.recover()`. |
 | Workflow setup | **Differs.** The package makes the body a durable step; this API does not. |
@@ -579,7 +671,7 @@ const drafter = agent({ prompt: "Draft the page.", model: "anthropic/claude-sonn
 - **Race, branch, and loops.** After `.parallel`. `ship` used to retry
   implement → review up to three times.
 - **Durable setup.** To explore: an opt-in durable setup, and whether setup may
-  post to the feed or ask questions, which would repeat on every setup.
+  report or ask, which would repeat on every setup.
 - **Sandbox API.** The `@foundry/sandbox` surface is due to change. The
   `sandboxes` key follows it.
 - **Shortcuts.** One-call helpers on top of the context: loading a workspace,
@@ -595,10 +687,21 @@ const drafter = agent({ prompt: "Draft the page.", model: "anthropic/claude-sonn
   agent takes). Still open: where global and workspace skills live, how a
   glob is named in the catalog, and how the set loads into a CLI provider
   versus the built-in harness.
-- **Steering from the stream.** The suspension a host raises on a running
-  step needs a shape: what the agent receives, how the step resumes, and how
-  it is recorded for replay.
-- **Feed shape.** `feed.post` and `feed.ask` may change.
+- **Steering from the stream.** The host-side calls (`steer`, `pause`,
+  `resume`) need their final shape and how they surface in the TUI and
+  dashboard.
+
+### Advanced patterns, later
+
+- **Agentic loops by replay.** Two agents in one step: the second judges the
+  first's answer and, if it is not good enough, replays the step with more
+  context. This needs per-step metadata that survives replay (an attempt
+  count, a max, the context added so far). `@foundry/workflows` already
+  keeps per-step state in the Snapshot; expose a small slot of it as
+  `step.meta` or similar, and let a body request its own replay. Convention
+  gives replayability; this pattern uses it on purpose.
+- **Ask and report rendering.** How the host shows blocked versus waiting
+  runs, and how milestone, result, and artifact entries render.
 - **Prebuilt sessions, possibly.** The context may also carry sessions that
   are already set up, ready to use without calling `agents.session(…)`.
 - **Package features not yet exposed.** `bail(error)` versus throw, `RetryPolicy`,

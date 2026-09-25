@@ -105,3 +105,35 @@ Recorded 2026-09-25.
    reference is the session object in process; the store record carries the
    id plus the model and provider it opened with. Agents inside sandboxes
    are phase 2. Skills setup is deferred.
+
+## Implementation notes: run scope, steering, replay
+
+Agreed 2026-09-25. Internals for [Wired by default](./_api-alt.md#wired-by-default).
+
+- **Frame table per run.** Path → `{ abort controller, stream writer,
+  opened: sessions, sandboxes, occurrence counters }`. Everything a step
+  opens through the context registers here. This is what makes a host able
+  to find "the agent running in step X" with no authored code.
+- **Three abort layers.** Run controller → step controller (one per frame)
+  → turn controller (one per agent turn, internal). Each chains to its
+  parent. `run.abort(reason)` fails the run through the top one.
+- **Steer.** `run.steer(path, prompt)` (host API): find the frame's active
+  session, abort the turn controller, append the prompt as a user message,
+  let the session take its next turn. Write a `steer` event to the run
+  stream and the transcript. Needs a new operation on the agents
+  `SessionHarness`: abort the current turn and queue a message. Nothing
+  else in the packages.
+- **Pause.** `run.pause(path)`: abort the step controller, record a
+  suspension `(path, "steer", occurrence)` through the existing package
+  suspension. Resume replays; a prompt given on resume is injected at the
+  recorded turn. Uses `step.pause()` and the suspension record as they are.
+- **Replay-safe context calls.** Each frame counts calls to
+  `agents.session`, `sandboxes.start`, `feed.ask`, and `artifacts.*` in
+  order. The record for `(path, kind, occurrence)` stores what was created
+  (session id, container id, artifact version). On replay the same call
+  returns the recorded thing. This is the hook rule: fixed call order per
+  body. Sessions are therefore recoverable from the `SessionStore` without
+  the author holding an id.
+- **Stream scoping.** `stream` on the context is the run stream tagged with
+  the frame path (path-scoped chunks are in the uncommitted `channels.ts`
+  diff). `run.stream` is the untagged whole.
