@@ -70,6 +70,7 @@ export function feedReader(
       })
     );
     const entry = {
+      ...(feed.artifact ? { artifact: feed.artifact } : {}),
       body: body ? new TextDecoder().decode(body.blob) : `# ${feed.title}\n`,
       definition: feed.definition,
       id: artifact.id,
@@ -80,6 +81,9 @@ export function feedReader(
                 ? {}
                 : { answer: feed.input.answer }),
               choices: feed.input.choices,
+              ...(feed.input.mode === undefined
+                ? {}
+                : { mode: feed.input.mode }),
               status: feed.input.status,
             },
           }

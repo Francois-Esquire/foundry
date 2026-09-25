@@ -75,6 +75,11 @@ export interface FeedMediaSnapshot {
 }
 
 export interface FeedEntrySnapshot {
+  /** Set on results that carry an artifact version. */
+  readonly artifact?: {
+    readonly artifactId: string;
+    readonly contentId: string;
+  };
   /** Markdown article, starting with the entry's title as a heading. */
   readonly body: string;
   readonly definition: string;
@@ -83,6 +88,8 @@ export interface FeedEntrySnapshot {
   readonly input?: {
     readonly answer?: string;
     readonly choices: readonly string[];
+    /** An approval blocks its run; a question is input. */
+    readonly mode?: "question" | "approval";
     readonly status: "open" | "answered" | "cancelled";
   };
   readonly kind: "result" | "milestone" | "input";

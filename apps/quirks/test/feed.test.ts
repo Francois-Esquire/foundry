@@ -277,6 +277,7 @@ describe("questions", () => {
     expect(answered?.input).toEqual({
       answer: "yes",
       choices: ["yes", "no"],
+      mode: "question",
       status: "answered",
     });
     expect(answered?.body).toContain("> Answered: yes");
@@ -334,6 +335,7 @@ describe("abandoned questions", () => {
       body: `Context for ${key}`,
       choices: ["yes", "no"],
       key,
+      mode: "question" as const,
       title: key,
     });
     const source = { definition: "d", path: ["d"], runId: "rn-1" };

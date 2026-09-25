@@ -11,6 +11,7 @@ import { artifactIdSchema } from "@foundry/artifacts";
 import { classifyFile } from "@foundry/lib/file-classification";
 import { z } from "zod";
 import {
+  ASK_MODES,
   FEED_ENTRY_FILE,
   FEED_ENTRY_KINDS,
   FEED_ENTRY_TYPE,
@@ -61,6 +62,10 @@ export interface FeedPublisher {
 
 /** Provenance stored in each entry's Content metadata under `feed`. */
 export const feedMetadataSchema = z.object({
+  /** Present on results that carry an artifact version. */
+  artifact: z
+    .object({ artifactId: z.string(), contentId: z.string() })
+    .optional(),
   definition: z.string(),
   /** Present on `input` entries: the question's choices and whether it is settled. */
   input: z
@@ -69,6 +74,8 @@ export const feedMetadataSchema = z.object({
       /** The question's markdown, kept so the entry can be rewritten later. */
       body: z.string().optional(),
       choices: z.array(z.string()),
+      /** Approval blocks the run; a question is input. Absent on old entries. */
+      mode: z.enum(ASK_MODES).optional(),
       /** While open: the process that can answer it. */
       pid: z.number().int().optional(),
       status: z.enum(INPUT_STATUSES),
@@ -124,6 +131,7 @@ export function feedPublisher(
       ...Object.fromEntries(media),
     };
     const feed: FeedMetadata = {
+      ...(post.artifact ? { artifact: post.artifact } : {}),
       definition: source.definition,
       ...(post.input ? { input: post.input } : {}),
       key: post.key,
@@ -211,6 +219,7 @@ export function feedPublisher(
         ...state,
         body: question.body,
         choices: question.choices,
+        mode: question.mode,
         ...(state.status === "open" ? { pid } : {}),
       };
       return serialized(() =>
@@ -245,6 +254,7 @@ function entryId(
 }
 
 interface EntryDraft {
+  readonly artifact?: FeedMetadata["artifact"];
   readonly body: string;
   /** Identity within the step; hashed into the Artifact id. */
   readonly id: string;

@@ -28,7 +28,17 @@ const MAX_CHOICES = 9;
 export const INPUT_STATUSES = ["open", "answered", "cancelled"] as const;
 export type InputStatus = (typeof INPUT_STATUSES)[number];
 
+export interface FeedArtifactLink {
+  readonly artifactId: string;
+  readonly contentId: string;
+}
+
+export const ASK_MODES = ["question", "approval"] as const;
+export type AskMode = (typeof ASK_MODES)[number];
+
 export interface FeedPost {
+  /** A result that carries an artifact version. */
+  readonly artifact?: FeedArtifactLink;
   /** Markdown. Reference attached media as `media/<file name>`. */
   readonly body?: string;
   /**
@@ -49,6 +59,8 @@ export interface FeedQuestion {
   readonly choices?: readonly string[];
   /** Names the question within its step, like a post's key. */
   readonly key: string;
+  /** An approval is a hard block; a question is input. Defaults to question. */
+  readonly mode?: AskMode;
   readonly title: string;
 }
 
@@ -66,6 +78,9 @@ export interface Feed {
 
 /** What crosses the channel: validated, with media paths made absolute. */
 export const feedPostSchema = z.object({
+  artifact: z
+    .object({ artifactId: z.string().min(1), contentId: z.string().min(1) })
+    .optional(),
   body: z.string().default(""),
   key: z.string().trim().min(1, "feed entries need a key"),
   kind: z.enum(FEED_KINDS),
@@ -109,6 +124,7 @@ export const feedQuestionSchema = z.object({
     .max(MAX_CHOICES, `at most ${MAX_CHOICES} choices`)
     .default([]),
   key: z.string().trim().min(1, "questions need a key"),
+  mode: z.enum(ASK_MODES).default("question"),
   title: z.string().trim().min(1, "questions need a title"),
 });
 export type FeedQuestionPayload = z.infer<typeof feedQuestionSchema>;

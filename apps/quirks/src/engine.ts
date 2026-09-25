@@ -9,6 +9,7 @@ import type { WorkflowState } from "@foundry/workflows/workflow";
 
 import type { FeedPublisher } from "~/feed/publish";
 import { feedRouter } from "~/feed/route";
+import { runs as runScopes } from "~/lib2/run-scope";
 import { observeSteps } from "~/observe";
 import { loadRuns, saveRun } from "~/state/runs";
 
@@ -149,6 +150,8 @@ export async function startEngine(
         const settled = await dispatched.workflow.result();
         await observed;
         await routed?.settled();
+        // Close what the run opened through the context, if it used the new lib.
+        await runScopes.get(dispatched.id)?.settle();
         active.delete(dispatched.id);
         subscribers.delete(dispatched.id);
         save(dispatched.id);
