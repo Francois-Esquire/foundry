@@ -18,12 +18,16 @@ bun run --cwd=apps/quirks test:package
 
 The library lives in `apps/quirks/src/lib/`; the CLI entry is
 `apps/quirks/src/cli.ts`. One tsup build emits both entries with shared chunks so
-a configuration and the CLI use the same registry.
+a configuration and the CLI use the same registry. `bun run quirks` at the
+repository root runs the built `dist/cli.js`, so rebuild before checking CLI
+behavior.
 
-The default tests mock harness operations. Package checks separately install a
-tarball into a temporary consumer project and exercise the library, declarations,
-and CLI. They also load a config outside any project installation and run a
-deterministic step without harnesses on `PATH`. They require registry access.
+The default tests mock provider operations: `vitest` for the library and
+engine, `bun test` for the terminal views and source-position identity.
+Package checks separately install a tarball into a temporary consumer project
+and exercise the library, declarations, and CLI. They also load a config
+outside any project installation and run a deterministic step without
+providers on `PATH`. They require registry access.
 
 The [contributor guide](https://github.com/Francois-Esquire/foundry/blob/main/CONTRIBUTING.md)
 covers repository checks, changelog generation, and publishing. The packaged
@@ -43,9 +47,9 @@ installed *from* elsewhere and are managed by the CLI, not by hand.
 
 ## Documentation
 
-Blume and its configuration live in `packages/docs`. Quirks pages live directly
-in `packages/docs/quirks`; `blume.config.ts` selects the published content and
-`quirks/meta.ts` orders it.
+Blume and its configuration live in the top-level `docs/` package. Quirks
+pages live in `docs/quirks`; `blume.config.ts` selects the published content
+and `quirks/meta.ts` orders it.
 
 Most pages use Markdown. Pages with Mermaid diagrams, callouts, or pattern cards
 use MDX because Blume renders those components through its MDX pipeline. Internal
@@ -58,9 +62,17 @@ bun run docs:typecheck
 bun run docs:build
 ```
 
-The static site is generated in `packages/docs/dist/`. Blume's generated runtime
-lives in `packages/docs/.blume/`. Both are ignored by Git. Maintainer notes
-prefixed with `_`, such as `_api-alt.md` and `_rebuild-gaps.md`, stay outside the rendered site.
+The static site is generated in `docs/dist/`. Blume's generated runtime lives
+in `docs/.blume/`. Both are ignored by Git. Maintainer notes prefixed with `_`,
+such as `_api-alt.md` and `_rebuild-gaps.md`, stay outside the rendered site.
+Where a public page and the code disagree, the code wins and the page changes;
+where `_api-alt.md` and the code disagree, the difference is recorded under
+its open items.
+
+Every code sample on a public page loads: extract it into a scratch config
+with `zod` and `typescript` resolvable beside it, then run it with
+`bun run quirks -- --config <path> --dry list` and, where a step is named,
+`--dry once <name>`.
 
 CI publishes the built site to GitHub Pages after a successful documentation
 build on `main`. Pull requests only validate and build. The site lives at

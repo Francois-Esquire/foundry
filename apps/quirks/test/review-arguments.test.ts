@@ -7,13 +7,12 @@ import { CODEX } from "~/harnesses";
 import { catalog } from "~/lib/catalog";
 import { runs } from "~/lib/run-scope";
 import type { Reply } from "~/models/echo";
-import { reviewWithArguments } from "../examples/review-with-arguments";
+import { reviewWorktree as review } from "../examples/review-with-arguments";
 
 import type { MockBindings } from "./helpers/bindings";
 import { bindMock } from "./helpers/bindings";
 import { launch } from "./helpers/launch";
 
-const review = reviewWithArguments();
 let root: string;
 let checkout: string;
 let mock: MockBindings;

@@ -101,12 +101,10 @@ async function review({ agents, input, log, workspaces }: Context<Arguments>) {
   };
 }
 
-/** Opt in from a config; importing the example alone registers nothing. */
-export function reviewWithArguments() {
-  return step("review-worktree")
-    .describe(
-      "Choose a checkout, point at some code, and tune a read-only review."
-    )
-    .input(argumentsSchema)
-    .do(review);
-}
+/** Registered when this module loads, as a config or imported by one. */
+export const reviewWorktree = step("review-worktree")
+  .describe(
+    "Choose a checkout, point at some code, and tune a read-only review."
+  )
+  .input(argumentsSchema)
+  .do(review);
