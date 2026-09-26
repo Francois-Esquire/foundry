@@ -1,16 +1,20 @@
-import type { MonitorHandler, MonitorOptions } from "~/monitor";
-import { DEFAULT_EVERY, detector, resolveMonitor } from "~/monitor";
+import { createHash } from "node:crypto";
+
+import type { MonitorHandler, MonitorSpec } from "~/monitor";
+import { DEFAULT_EVERY, detector } from "~/monitor";
 import { parseAt } from "~/schedule";
+import { stableJson } from "~/state/json";
 
 import { step } from "./builder";
 import { catalog } from "./catalog";
-import type { AnyDefinition } from "./definition";
+import type { AnyDefinition, LockedNode } from "./definition";
+import { launchTarget } from "./launch";
 
 /**
- * Triggers, phase 1: the current named factories, pointed at the new
- * definitions. A schedule names a launchable definition; a monitor
- * registers a detector step under its own name plus a schedule that polls
- * it. The trigger redesign in `_api-alt.md` lands with the identity spike.
+ * Triggers. A schedule takes a definition, bare or locked, and a cadence; a
+ * monitor takes one source string and a handler. Neither has a name of its
+ * own: a schedule is known by its target and input, a monitor by its source.
+ * Those keys name the state files, the launchd label, and `once <key>`.
  */
 
 export type Weekday = "sun" | "mon" | "tue" | "wed" | "thu" | "fri" | "sat";
@@ -29,62 +33,120 @@ export type Trigger =
 
 export interface Schedule {
   readonly input: unknown;
-  /** Set when `monitor()` registered it; the step is a change detector. */
-  readonly kind?: "monitor";
-  readonly name: string;
+  /** Safe in a filename, a launchd label, and argv. */
+  readonly key: string;
+  readonly kind: "schedule" | "monitor";
+  /** For people: the target and its input, or the monitored source. */
+  readonly label: string;
   readonly trigger: Trigger;
   /** The launchable definition's name. */
   readonly workflow: string;
 }
 
-export interface ScheduleOptions {
-  /** An interval (`"30m" | "6h" | "1d"`) or a calendar slot (`{ weekday: "mon", hour: 9 }`). */
-  readonly at: string | CalendarSlot;
-  readonly input?: unknown;
-  readonly workflow: AnyDefinition | string;
+const KEY_SEPARATORS = /[^a-z0-9]+/g;
+const KEY_TRIM = /^-+|-+$/g;
+const KEY_MAX = 40;
+const HTTP_SOURCE = /^https?:\/\//;
+
+function slug(text: string): string {
+  const cleaned = text
+    .toLowerCase()
+    .replace(KEY_SEPARATORS, "-")
+    .replace(KEY_TRIM, "")
+    .slice(0, KEY_MAX)
+    .replace(KEY_TRIM, "");
+  return cleaned || "x";
 }
 
-export function schedule(name: string, options: ScheduleOptions): void {
-  const target =
-    typeof options.workflow === "string"
-      ? options.workflow
-      : options.workflow.name;
-  if (target === undefined) {
-    throw new Error(
-      `schedule "${name}": only a named step or workflow can be scheduled`
-    );
+function sha256(text: string): string {
+  return createHash("sha256").update(text).digest("hex");
+}
+
+/** Registration-order suffix for an exact duplicate key. */
+function uniqueKey(base: string): string {
+  if (!catalog.schedules.has(base)) {
+    return base;
   }
-  catalog.schedule({
-    input: options.input ?? null,
-    name,
-    trigger: parseAt(options.at),
-    workflow: target,
-  });
+  for (let n = 2; ; n += 1) {
+    const candidate = `${base}-${String(n)}`;
+    if (!catalog.schedules.has(candidate)) {
+      return candidate;
+    }
+  }
+}
+
+export interface ScheduleBuilder {
+  /** A calendar slot: `{ weekday: "fri", hour: 16 }`. */
+  at(slot: CalendarSlot): void;
+  /** An interval: `"30m" | "6h" | "1d"`. */
+  every(interval: string): void;
+}
+
+export function schedule(target: AnyDefinition | LockedNode): ScheduleBuilder {
+  const launch = launchTarget(target, "schedule()");
+  const register = (trigger: Trigger) => {
+    const hasInput = launch.input !== null;
+    const base = hasInput
+      ? `${slug(launch.workflow)}-${sha256(stableJson(launch.input)).slice(0, 8)}`
+      : slug(launch.workflow);
+    catalog.schedule({
+      input: launch.input,
+      key: uniqueKey(base),
+      kind: "schedule",
+      label: hasInput
+        ? `${launch.workflow} ${JSON.stringify(launch.input)}`
+        : launch.workflow,
+      trigger,
+      workflow: launch.workflow,
+    });
+  };
+  return {
+    at(slot) {
+      register(parseAt(slot));
+    },
+    every(interval) {
+      register(parseAt(interval));
+    },
+  };
+}
+
+export interface MonitorBuilder {
+  /** The handler; a locked node returned from it is started. */
+  do(handler: MonitorHandler): void;
+  /** Poll cadence; defaults to every minute. */
+  every(interval: string): MonitorBuilder;
 }
 
 /**
- * A schedule whose step is a change detector wrapping `handler`. A string is
- * a glob over the config's directory, an `http(s)://` URL polled every
- * minute, or a `ws(s)://` URL that is live under `run` only; the object
- * forms set root, cadence, request and `select`.
+ * One string: `http://` or `https://` is polled and fires when the body
+ * changes; anything else is a glob over the config's directory and fires
+ * when a matching file changes.
  */
-export function monitor(
-  name: string,
-  handler: MonitorHandler,
-  options: MonitorOptions
-): void {
-  if (catalog.definitions.has(name) || catalog.schedules.has(name)) {
-    throw new Error(`"${name}" already registered`);
+export function monitor(source: string): MonitorBuilder {
+  if (!source.trim()) {
+    throw new Error("monitor(): a source is required");
   }
-  const spec = resolveMonitor(options);
-  step(name).do(detector(name, spec, handler));
-  catalog.monitor(name, spec, {
-    input: null,
-    kind: "monitor",
-    name,
-    trigger: parseAt(
-      (spec.kind === "ws" ? undefined : spec.every) ?? DEFAULT_EVERY
-    ),
-    workflow: name,
+  const spec: MonitorSpec = HTTP_SOURCE.test(source)
+    ? { kind: "http", url: source }
+    : { glob: source, kind: "files" };
+  const build = (every: string): MonitorBuilder => ({
+    do(handler) {
+      const trigger = parseAt(every);
+      const key = uniqueKey(`${slug(source)}-${sha256(source).slice(0, 6)}`);
+      step(key).do(detector(key, spec, handler));
+      catalog.monitor(key, spec, {
+        input: null,
+        key,
+        kind: "monitor",
+        label: source,
+        trigger,
+        workflow: key,
+      });
+    },
+    every(interval) {
+      parseAt(interval);
+      return build(interval);
+    },
   });
+  return build(DEFAULT_EVERY);
 }

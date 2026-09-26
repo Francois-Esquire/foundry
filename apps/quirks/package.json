@@ -40,7 +40,7 @@
     "start": "bun run src/cli.ts",
     "test": "bun run test:unit && bun run test:tui",
     "test:package": "bun test test/package.test.ts",
-    "test:tui": "bun test test/status-view.test.ts test/dashboard.test.tsx test/cli-terminal.test.ts test/setup-launch.test.tsx",
+    "test:tui": "bun test test/status-view.test.ts test/dashboard.test.tsx test/cli-terminal.test.ts test/setup-launch.test.tsx test/identity.test.ts",
     "test:unit": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
@@ -81,10 +81,14 @@
     "vitest": "^4.1.9"
   },
   "peerDependencies": {
-    "@browser-ai/transformers-js": "^3.0.0"
+    "@browser-ai/transformers-js": "^3.0.0",
+    "typescript": ">=5.0.0"
   },
   "peerDependenciesMeta": {
     "@browser-ai/transformers-js": {
+      "optional": true
+    },
+    "typescript": {
       "optional": true
     }
   },

@@ -18,6 +18,7 @@ export default defineConfig({
       "test/status-view.test.ts",
       "test/package.test.ts",
       "test/cli-terminal.test.ts",
+      "test/identity.test.ts",
     ],
     globals: true,
     include: ["test/**/*.test.ts"],

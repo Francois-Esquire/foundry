@@ -22,7 +22,9 @@ function fakeHome() {
 
 const schedule: Schedule = {
   input: "hey",
-  name: "twice-hourly",
+  key: "twice-hourly",
+  kind: "schedule",
+  label: "twice hourly",
   trigger: { kind: "interval", ms: 3_600_000 },
   workflow: "twice",
 };

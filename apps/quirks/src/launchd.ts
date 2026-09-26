@@ -115,7 +115,7 @@ export function launchdPlan(
   schedule: Schedule,
   options: PlanOptions
 ): LaunchdPlan {
-  const label = `com.foundry.quirks.${schedule.name}`;
+  const label = `com.foundry.quirks.${schedule.key}`;
   // The CLI that is running now, whether that is src/cli.ts or dist/cli.js.
   const cli = resolve(process.argv[1] ?? "");
   const log = join(
@@ -123,7 +123,7 @@ export function launchdPlan(
     "Library",
     "Logs",
     "quirks",
-    `${schedule.name}.log`
+    `${schedule.key}.log`
   );
   const plist = plistFor({
     label,
@@ -133,7 +133,7 @@ export function launchdPlan(
       process.execPath,
       cli,
       "once",
-      schedule.name,
+      schedule.key,
       "--config",
       options.config,
       "--state",

@@ -1,5 +1,6 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 
+import type { CallSite } from "./identity";
 import { inputKeysOf } from "./schema";
 import type { Context, SetupContext } from "./types";
 
@@ -47,8 +48,12 @@ export interface Lockable<I, O> {
 
 interface Shared {
   readonly description?: string;
+  /** Set when `name` came from the config's `const`, not the call. */
+  readonly inferred?: boolean;
   readonly input?: StandardSchemaV1;
   readonly name?: string;
+  /** Where the config called the builder; only kept for nameless calls. */
+  readonly site?: CallSite;
 }
 
 /** The data of a step definition, without the lock forms. */

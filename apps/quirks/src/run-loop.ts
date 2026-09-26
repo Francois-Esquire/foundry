@@ -1,17 +1,13 @@
 import { rmSync } from "node:fs";
 import { join } from "node:path";
 import type { Engine } from "~/engine";
-import { catalog } from "~/lib/catalog";
 import type { Schedule } from "~/lib/triggers";
-import { runLive } from "~/live";
 import { runSchedules } from "~/schedule";
 import { writeJson } from "~/state/json";
-import type { Workspace as WorkspaceState } from "~/state/workspace";
 
 export async function runSchedulesUntilStopped(
   engine: Engine,
   schedules: readonly Schedule[],
-  workspace: WorkspaceState,
   stateDir: string | undefined,
   hasConfig: boolean,
   configPath: string,
@@ -36,31 +32,12 @@ export async function runSchedulesUntilStopped(
       version: 1,
     });
   }
-  // A ws monitor has nothing to poll; files monitors keep their poll as a
-  // net under the watcher.
-  const live = schedules.flatMap((schedule) => {
-    const spec = catalog.monitors.get(schedule.name);
-    return spec === undefined || spec.kind === "http"
-      ? []
-      : [{ schedule, spec }];
-  });
-  const polled = schedules.filter(
-    (schedule) => catalog.monitors.get(schedule.name)?.kind !== "ws"
-  );
-  const { host } = catalog.bindings();
-  if (!host) {
-    throw new Error("the runtime has no workspace catalogue for live monitors");
-  }
   const options = { print, signal: controller.signal, state: stateDir };
   try {
-    await Promise.all([
-      runLive(engine, live, {
-        ...options,
-        root: workspace.root,
-        workspaces: host.catalogue,
-      }),
-      runSchedules(engine, polled, options),
-    ]);
+    await runSchedules(engine, schedules, options);
+    // Nothing scheduled still means "run until stopped": the dashboard and
+    // manual launches live on this loop.
+    await untilAborted(controller.signal);
   } finally {
     controller.abort();
     process.removeListener("SIGINT", stop);
@@ -69,4 +46,13 @@ export async function runSchedulesUntilStopped(
       rmSync(heartbeat, { force: true });
     }
   }
+}
+
+function untilAborted(signal: AbortSignal): Promise<void> {
+  if (signal.aborted) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    signal.addEventListener("abort", () => resolve(), { once: true });
+  });
 }

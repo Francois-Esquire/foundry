@@ -29,6 +29,7 @@ function report(orphaned = false): StatusReport {
         },
         schedules: [
           {
+            key: "guides",
             kind: null,
             lastFinish: null,
             lastStatus: "complete",

@@ -58,14 +58,15 @@ it("projects real nested runs, logs and trigger provenance, including restored h
       log(`heard ${input.first}!`);
       return `${input.first}!`;
     });
-  workflow("twice")
+  const twice = workflow("twice")
     .input(text)
     .do(({ input }) => bang({ first: shout({}, input) }));
-  schedule("hourly", { at: "1h", input: { text: "hi" }, workflow: "twice" });
-  schedule("daily", { at: "1d", input: { text: "other" }, workflow: "twice" });
+  schedule(twice({}, { text: "hi" })).every("1h");
+  schedule(twice({}, { text: "other" })).every("1d");
+  const [hourly, daily] = [...catalog.schedules.keys()] as [string, string];
   let engine = await startEngine(registerCatalog, { print, state: dir });
   try {
-    const scheduled = catalog.schedules.get("hourly");
+    const scheduled = catalog.schedules.get(hourly);
     if (!scheduled) {
       throw new Error("missing fixture schedule");
     }
@@ -92,15 +93,15 @@ it("projects real nested runs, logs and trigger provenance, including restored h
     expect(
       snapshot.triggers.map((trigger) => [trigger.id, trigger.targetId])
     ).toEqual([
-      ["hourly", "twice"],
-      ["daily", "twice"],
+      [hourly, "twice"],
+      [daily, "twice"],
     ]);
     expect(snapshot.runs[0]).toMatchObject({
       definitionId: "twice",
       input: { text: "hi" },
       result: "HI!",
       status: "complete",
-      triggerId: "hourly",
+      triggerId: hourly,
     });
     expect(snapshot.runs[0]?.steps).toMatchObject([
       {

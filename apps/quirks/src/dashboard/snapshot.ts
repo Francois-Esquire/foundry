@@ -160,7 +160,7 @@ function runSnapshot(record: RunRecord, now: number): RunSnapshot {
 }
 
 function description(schedule: Schedule): string {
-  const monitor = catalog.monitors.get(schedule.name);
+  const monitor = catalog.monitors.get(schedule.key);
   if (monitor) {
     return describeMonitor(monitor);
   }
@@ -198,11 +198,11 @@ export function dashboardSnapshot(
   const triggers = [...catalog.schedules.values()].map(
     (schedule): TriggerSnapshot => {
       const latest = sorted.find(
-        (run) => run.extensions.triggerId === schedule.name
+        (run) => run.extensions.triggerId === schedule.key
       );
       const active = sorted.some(
         (run) =>
-          run.extensions.triggerId === schedule.name &&
+          run.extensions.triggerId === schedule.key &&
           ["queued", "running", "suspended"].includes(run.status)
       );
       let status: TriggerSnapshot["status"] =
@@ -216,22 +216,19 @@ export function dashboardSnapshot(
       const finished =
         latest?.timestamps.completedAt ??
         latest?.timestamps.failedAt ??
-        options.lastFinish.get(schedule.name) ??
+        options.lastFinish.get(schedule.key) ??
         options.startedAt;
-      const liveOnly = catalog.monitors.get(schedule.name)?.kind === "ws";
       return {
         configuration: json({
           input: schedule.input,
-          monitor: catalog.monitors.get(schedule.name),
+          monitor: catalog.monitors.get(schedule.key),
           trigger: schedule.trigger,
         }),
         description: description(schedule),
-        id: schedule.name,
-        kind: schedule.kind ?? "schedule",
-        name: schedule.name,
-        next: liveOnly
-          ? "On message"
-          : new Date(nextDue(schedule, finished)).toLocaleString(),
+        id: schedule.key,
+        kind: schedule.kind,
+        name: schedule.label,
+        next: new Date(nextDue(schedule, finished)).toLocaleString(),
         status,
         targetId: schedule.workflow,
       };

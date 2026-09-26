@@ -9,29 +9,57 @@ import type {
   WorkflowDefinition,
 } from "./definition";
 import { isLockedNode, lockable } from "./definition";
+import type { CallSite } from "./identity";
+import { bindingAt, callSite } from "./identity";
 import type { Output } from "./schema";
 
 /**
  * `step(name?).describe(text).input(schema).output(schema).do(fn)`.
  * Schemas come before the body so `do` is typed from them. A name makes the
- * definition launchable from outside the config; without one it is internal.
+ * definition launchable from outside the config. Without one, the top-level
+ * `const` it is assigned to names it; a definition made inside a function or
+ * inline stays internal.
  */
 
 type Empty = Record<string, never>;
 
+/** The name to register under: the given one, else the binding's, else none. */
+interface Identity {
+  readonly inferred?: boolean;
+  readonly name?: string;
+  readonly site?: CallSite;
+}
+
+function identify(
+  name: string | undefined,
+  site: CallSite | undefined
+): Identity {
+  if (name !== undefined) {
+    return { name };
+  }
+  if (site === undefined) {
+    return {};
+  }
+  const bound = bindingAt(site);
+  return bound === undefined ? { site } : { inferred: true, name: bound, site };
+}
+
 export class StepBuilder<I = Empty, O = unknown> {
   readonly #name: string | undefined;
+  readonly #site: CallSite | undefined;
   readonly #description: string | undefined;
   readonly #input: StandardSchemaV1 | undefined;
   readonly #output: StandardSchemaV1 | undefined;
 
   constructor(
     name?: string,
+    site?: CallSite,
     description?: string,
     input?: StandardSchemaV1,
     output?: StandardSchemaV1
   ) {
     this.#name = name;
+    this.#site = site;
     this.#description = description;
     this.#input = input;
     this.#output = output;
@@ -39,15 +67,33 @@ export class StepBuilder<I = Empty, O = unknown> {
 
   /** Shown in the catalog and the launch form. */
   describe(text: string): StepBuilder<I, O> {
-    return new StepBuilder(this.#name, text, this.#input, this.#output);
+    return new StepBuilder(
+      this.#name,
+      this.#site,
+      text,
+      this.#input,
+      this.#output
+    );
   }
 
   input<S extends StandardSchemaV1>(schema: S): StepBuilder<Output<S>, O> {
-    return new StepBuilder(this.#name, this.#description, schema, this.#output);
+    return new StepBuilder(
+      this.#name,
+      this.#site,
+      this.#description,
+      schema,
+      this.#output
+    );
   }
 
   output<S extends StandardSchemaV1>(schema: S): StepBuilder<I, Output<S>> {
-    return new StepBuilder(this.#name, this.#description, this.#input, schema);
+    return new StepBuilder(
+      this.#name,
+      this.#site,
+      this.#description,
+      this.#input,
+      schema
+    );
   }
 
   do(fn: StepFn<I, O>): StepDefinition<I, O> {
@@ -56,9 +102,9 @@ export class StepBuilder<I = Empty, O = unknown> {
         ? {}
         : { description: this.#description }),
       fn,
+      ...identify(this.#name, this.#site),
       ...(this.#input === undefined ? {} : { input: this.#input }),
       kind: "step",
-      ...(this.#name === undefined ? {} : { name: this.#name }),
       ...(this.#output === undefined ? {} : { output: this.#output }),
     });
     catalog.register(definition);
@@ -67,47 +113,62 @@ export class StepBuilder<I = Empty, O = unknown> {
 }
 
 export function step(name?: string): StepBuilder {
-  return new StepBuilder(name);
+  return new StepBuilder(name, name === undefined ? callSite() : undefined);
 }
 
 export class WorkflowBuilder<I = Empty> {
   readonly #name: string | undefined;
+  readonly #site: CallSite | undefined;
   readonly #description: string | undefined;
   readonly #input: StandardSchemaV1 | undefined;
 
-  constructor(name?: string, description?: string, input?: StandardSchemaV1) {
+  constructor(
+    name?: string,
+    site?: CallSite,
+    description?: string,
+    input?: StandardSchemaV1
+  ) {
     this.#name = name;
+    this.#site = site;
     this.#description = description;
     this.#input = input;
   }
 
   describe(text: string): WorkflowBuilder<I> {
-    return new WorkflowBuilder(this.#name, text, this.#input);
+    return new WorkflowBuilder(this.#name, this.#site, text, this.#input);
   }
 
   input<S extends StandardSchemaV1>(schema: S): WorkflowBuilder<Output<S>> {
-    return new WorkflowBuilder(this.#name, this.#description, schema);
+    return new WorkflowBuilder(
+      this.#name,
+      this.#site,
+      this.#description,
+      schema
+    );
   }
 
   /** Setup: prepares things and returns the tree. Not durable. */
   do(setup: SetupFn<I>): WorkflowDefinition<I> {
-    return finishWorkflow(this.#name, this.#description, this.#input, {
-      setup,
-    });
+    return finishWorkflow(
+      identify(this.#name, this.#site),
+      this.#description,
+      this.#input,
+      { setup }
+    );
   }
 }
 
 function finishWorkflow<I>(
-  name: string | undefined,
+  identity: Identity,
   description: string | undefined,
   input: StandardSchemaV1 | undefined,
   body: { setup: SetupFn<I> } | { tree: LockedNode }
 ): WorkflowDefinition<I> {
   const definition = lockable<WorkflowDefinition<I>>({
     ...(description === undefined ? {} : { description }),
+    ...identity,
     ...(input === undefined ? {} : { input }),
     kind: "workflow",
-    ...(name === undefined ? {} : { name }),
     setup: "setup" in body ? body.setup : undefined,
     tree: "tree" in body ? body.tree : undefined,
   });
@@ -125,12 +186,13 @@ export function workflow(
   second?: TreeArg
 ): WorkflowDefinition | WorkflowBuilder {
   const name = typeof first === "string" ? first : undefined;
+  const site = name === undefined ? callSite() : undefined;
   const tree = typeof first === "string" ? second : first;
   if (tree === undefined) {
-    return new WorkflowBuilder(name);
+    return new WorkflowBuilder(name, site);
   }
   if (typeof tree === "function") {
-    return finishWorkflow(name, undefined, undefined, {
+    return finishWorkflow(identify(name, site), undefined, undefined, {
       setup: () => tree(),
     });
   }
@@ -139,5 +201,5 @@ export function workflow(
       `workflow(${name ? `"${name}"` : ""}): expected a locked node or a function returning one`
     );
   }
-  return finishWorkflow(name, undefined, undefined, { tree });
+  return finishWorkflow(identify(name, site), undefined, undefined, { tree });
 }

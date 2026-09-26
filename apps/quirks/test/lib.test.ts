@@ -16,7 +16,9 @@ const CALENDAR_SLOT_PATTERN = /calendar slot/;
 const CALENDAR_SLOT_PATTERN_2 = /calendar slot/;
 const CADENCE_PATTERN = /cadence/;
 const ALREADY_REGISTERED_PATTERN = /already registered/;
-const ONLY_NAMED_PATTERN = /only a named step or workflow/;
+const SHOUT_KEY_PATTERN = /^shout-[0-9a-f]{8}$/;
+const WRAP_PATTERN = /wrap it in workflow/;
+const NO_NAME_PATTERN = /has no name/;
 
 const text = z.object({ text: z.string() });
 
@@ -96,49 +98,66 @@ describe("definitions", () => {
     await expect(launch(bare, null)).resolves.toEqual({});
   });
 
-  it("schedule a definition or a name", () => {
+  it("schedule a definition, bare or locked, keyed by target and input", () => {
     const shout = step("shout")
       .input(text)
       .do(({ input }) => input.text);
-    schedule("s1", { at: "6h", input: { text: "a" }, workflow: shout });
-    schedule("s2", { at: "30m", input: { text: "b" }, workflow: "shout" });
-    expect(catalog.schedules.get("s1")).toEqual({
+    schedule(shout({}, { text: "a" })).every("6h");
+    schedule(shout({}, { text: "a" })).every("30m");
+    schedule(shout({}, { text: "b" })).every("1h");
+    const keys = [...catalog.schedules.keys()];
+    expect(keys).toHaveLength(3);
+    const [first, second, third] = keys as [string, string, string];
+    expect(first).toMatch(SHOUT_KEY_PATTERN);
+    expect(second).toBe(`${first}-2`);
+    expect(third).toMatch(SHOUT_KEY_PATTERN);
+    expect(third).not.toBe(first);
+    expect(catalog.schedules.get(first)).toEqual({
       input: { text: "a" },
-      name: "s1",
+      key: first,
+      kind: "schedule",
+      label: 'shout {"text":"a"}',
       trigger: { kind: "interval", ms: 6 * 3_600_000 },
       workflow: "shout",
     });
-    expect(catalog.schedules.get("s2")?.trigger).toEqual({
-      kind: "interval",
-      ms: 1_800_000,
+  });
+
+  it("a bare target has the target's name as its key", () => {
+    const wave = step("wave").do(() => 1);
+    schedule(wave).every("1h");
+    expect(catalog.schedules.get("wave")).toMatchObject({
+      input: null,
+      key: "wave",
+      label: "wave",
+      workflow: "wave",
     });
-    expect(() => {
-      schedule("s3", { at: "1h", workflow: step().do(() => 1) });
-    }).toThrow(ONLY_NAMED_PATTERN);
+  });
+
+  it("refuses a tree with children and a nameless target", () => {
+    const shout = step("shout")
+      .input(text)
+      .do(({ input }) => input.text);
+    const say = step("say").do(() => "x");
+    expect(() => schedule(shout({ text: say({}) }))).toThrow(WRAP_PATTERN);
+    expect(() => schedule(step().do(() => 1))).toThrow(NO_NAME_PATTERN);
   });
 
   it("schedule a calendar slot, minute defaulting to 0", () => {
-    schedule("s3", {
-      at: { hour: 9, weekday: "mon" },
-      input: null,
-      workflow: "w",
-    });
-    expect(catalog.schedules.get("s3")?.trigger).toEqual({
+    const w = step("w").do(() => 1);
+    schedule(w).at({ hour: 9, weekday: "mon" });
+    expect(catalog.schedules.get("w")?.trigger).toEqual({
       kind: "calendar",
       slot: { hour: 9, minute: 0, weekday: "mon" },
     });
   });
 
   it("reject a calendar slot outside the clock", () => {
+    const w = step("w").do(() => 1);
     expect(() => {
-      schedule("bad", { at: { hour: 24 }, input: null, workflow: "w" });
+      schedule(w).at({ hour: 24 });
     }).toThrow(CALENDAR_SLOT_PATTERN);
     expect(() => {
-      schedule("bad", {
-        at: { hour: 1, minute: 60 },
-        input: null,
-        workflow: "w",
-      });
+      schedule(w).at({ hour: 1, minute: 60 });
     }).toThrow(CALENDAR_SLOT_PATTERN_2);
   });
 });
@@ -166,7 +185,9 @@ describe("cadence", () => {
     };
     const every: Schedule = {
       input: null,
-      name: "e",
+      key: "e",
+      kind: "schedule",
+      label: "e",
       trigger: { kind: "interval", ms: 10 },
       workflow: "w",
     };
@@ -189,7 +210,9 @@ describe("cadence", () => {
 describe("calendar", () => {
   const at = (slot: CalendarSlot): Schedule => ({
     input: null,
-    name: "c",
+    key: "c",
+    kind: "schedule",
+    label: "c",
     trigger: { kind: "calendar", slot },
     workflow: "w",
   });

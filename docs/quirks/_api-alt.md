@@ -148,10 +148,10 @@ monitor("https://tracker.example.com/issues/latest")
   .do(async ({ response }) => ship({}, { task: (await response.json()).title }));
 ```
 
-The trigger lines use the fluent forms (`schedule(def).at(…)`,
-`monitor(source).do(…)`). Phase 1 kept the named factories,
-`schedule(name, { at, workflow })` and `monitor(name, handler, source)`;
-the fluent forms land with the trigger redesign.
+Nameless steps such as `test` and `implement` take the name of the `const`
+they are assigned to, read from the config's source with the project's own
+`typescript` (an optional peer). A definition made inside a function or
+inline stays internal.
 
 ## Top-level words
 

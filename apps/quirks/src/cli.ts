@@ -117,13 +117,15 @@ function listRegistry(schedules: readonly Schedule[]): void {
       trigger.kind === "interval"
         ? `every ${cadence(trigger.ms)}`
         : `at ${weekdays(trigger.slot).join(",") || "daily"} ${clock(trigger.slot)}`;
-    const monitor = monitors.get(schedule.name);
-    if (monitor?.kind === "ws") {
-      print(`[monitor] ${schedule.name} ${describeMonitor(monitor)}`);
-    } else if (monitor) {
-      print(`[monitor] ${schedule.name} ${describeMonitor(monitor)} ${when}`);
+    const monitor = monitors.get(schedule.key);
+    if (monitor) {
+      print(`[monitor] ${schedule.key} ${describeMonitor(monitor)} ${when}`);
     } else {
-      print(`[schedule] ${schedule.name} → ${schedule.workflow} ${when}`);
+      const input =
+        schedule.input === null ? "" : ` ${JSON.stringify(schedule.input)}`;
+      print(
+        `[schedule] ${schedule.key} → ${schedule.workflow}${input} ${when}`
+      );
     }
   }
 }
@@ -157,11 +159,6 @@ function manageLaunchd(
   const schedule = catalog.schedules.get(target);
   if (!schedule) {
     throw new Error(`no schedule named "${target}"`);
-  }
-  if (catalog.monitors.get(target)?.kind === "ws") {
-    throw new Error(
-      `"${target}" is a ws monitor, which is live-only; use \`quirks run\``
-    );
   }
   const plan = launchdPlan(schedule, {
     config: configPath,
@@ -229,7 +226,6 @@ async function dispatchRuntimeCommand(
   args: Args,
   engine: Engine,
   schedules: readonly Schedule[],
-  workspace: WorkspaceState,
   stateDir: string | undefined,
   hasConfig: boolean,
   configPath: string
@@ -242,7 +238,6 @@ async function dispatchRuntimeCommand(
     await runSchedulesUntilStopped(
       engine,
       schedules,
-      workspace,
       stateDir,
       hasConfig,
       configPath
@@ -328,7 +323,6 @@ async function main(): Promise<void> {
       args,
       engine,
       schedules,
-      workspace,
       stateDir,
       hasConfig,
       configPath

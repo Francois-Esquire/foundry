@@ -1,7 +1,9 @@
 import { Cron } from "croner";
 
 import type { Engine } from "~/engine";
+import { isLaunch } from "~/lib/launch";
 import type { CalendarSlot, Schedule, Trigger, Weekday } from "~/lib/triggers";
+import { isRecord } from "~/state/json";
 import { acquireLock } from "~/state/locks";
 import type { ScheduleHistory } from "~/state/schedules";
 import { readLastFinish, writeScheduleHistory } from "~/state/schedules";
@@ -26,9 +28,10 @@ export function parseEvery(every: string): number {
 
 /** Milliseconds back to the largest unit that divides them: `30s`, `10m`, `6h`. */
 export function cadence(ms: number): string {
-  const match = Object.entries(UNITS)
-    .reverse()
-    .find(([, size]) => ms >= size && ms % size === 0);
+  // Largest unit first, so six hours reads `6h`, not `21600s`.
+  const match = Object.entries(UNITS).find(
+    ([, size]) => ms >= size && ms % size === 0
+  );
   return match ? `${String(ms / match[1])}${match[0]}` : `${String(ms)}ms`;
 }
 
@@ -110,31 +113,43 @@ export async function tick(
   const lock =
     options.state === undefined
       ? undefined
-      : acquireLock(options.state, schedule.name);
+      : acquireLock(options.state, schedule.key);
   if (typeof lock === "number") {
     options.print(
-      `[schedule] ${schedule.name} skipped: running as pid ${String(lock)}`
+      `[schedule] ${schedule.key} skipped: running as pid ${String(lock)}`
     );
     return undefined;
   }
 
-  options.print(`[schedule] ${schedule.name} → ${schedule.workflow}`);
+  options.print(`[schedule] ${schedule.key} → ${schedule.workflow}`);
   const start = now();
   let status: ScheduleHistory["lastStatus"] = "failed";
   try {
-    const value = await engine.run(
+    const detected = await engine.run(
       schedule.workflow,
       schedule.input,
-      schedule.name
+      schedule.key
     );
+    // A monitor's handler may hand back something to start; it runs as its
+    // own run, attributed to the monitor.
+    const launch =
+      schedule.kind === "monitor" &&
+      isRecord(detected) &&
+      isLaunch(detected.launch)
+        ? detected.launch
+        : undefined;
+    const value = launch
+      ? await engine.run(launch.workflow, launch.input, schedule.key)
+      : detected;
     status = "complete";
     return { value };
   } finally {
     try {
       const finish = now();
       if (options.state !== undefined) {
-        writeScheduleHistory(options.state, schedule.name, {
+        writeScheduleHistory(options.state, schedule.key, {
           kind: schedule.kind,
+          label: schedule.label,
           lastFinish: new Date(finish).toISOString(),
           lastStart: new Date(start).toISOString(),
           lastStatus: status,
@@ -175,9 +190,8 @@ export async function runSchedules(
   const last = new Map(
     schedules.map((schedule) => [
       schedule,
-      (state === undefined
-        ? undefined
-        : readLastFinish(state, schedule.name)) ?? now(),
+      (state === undefined ? undefined : readLastFinish(state, schedule.key)) ??
+        now(),
     ])
   );
   const aborted = () => options.signal.aborted;
@@ -199,7 +213,7 @@ export async function runSchedules(
     try {
       await tick(engine, schedule, { now, print: options.print, state });
     } catch (error) {
-      options.print(`[schedule] ${schedule.name} failed: ${String(error)}`);
+      options.print(`[schedule] ${schedule.key} failed: ${String(error)}`);
     }
     last.set(schedule, now());
   }

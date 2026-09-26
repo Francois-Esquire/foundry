@@ -27,3 +27,17 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
 export function hasCode(error: unknown, code: string): boolean {
   return error instanceof Error && "code" in error && error.code === code;
 }
+
+/** JSON with sorted keys, so equal values hash equal. `undefined` reads as null. */
+export function stableJson(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableJson).join(",")}]`;
+  }
+  if (isRecord(value)) {
+    const entries = Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`);
+    return `{${entries.join(",")}}`;
+  }
+  return value === undefined ? "null" : JSON.stringify(value);
+}

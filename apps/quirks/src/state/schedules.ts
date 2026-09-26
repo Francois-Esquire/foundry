@@ -3,10 +3,12 @@ import { join } from "node:path";
 
 import { isRecord, readJson, writeJson } from "~/state/json";
 
-/** `<workspace>/schedules/<name>.json`: the last tick and when the next is due. */
+/** `<workspace>/schedules/<key>.json`: the last tick and when the next is due. */
 export interface ScheduleHistory {
   /** Recorded so `status`, which never loads the config, can label a monitor. */
-  readonly kind?: "monitor";
+  readonly kind?: "schedule" | "monitor";
+  /** The trigger's label, for `status`; older files have none. */
+  readonly label?: string;
   readonly lastFinish: string;
   readonly lastStart: string;
   readonly lastStatus: "complete" | "failed";

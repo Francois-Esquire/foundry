@@ -5,19 +5,17 @@ import type { MonitorInput } from "~/monitor";
 
 /**
  * The context a detector body receives when called directly: `log` and
- * `signal` wired, every manager refusing. `{}` is a poll; a `message` is
- * what live mode hands a ws monitor.
+ * `signal` wired, every manager refusing.
  */
 export function monitorContext(
   log: Log,
-  input: MonitorInput = {},
   signal: AbortSignal = new AbortController().signal
 ): Context<MonitorInput> {
   return {
     agents: unbound("agents"),
     artifacts: unbound("artifacts"),
     ask: unbound("ask"),
-    input,
+    input: {},
     log,
     report: unbound("report"),
     run: unbound("run"),

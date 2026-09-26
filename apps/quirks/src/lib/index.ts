@@ -2,13 +2,9 @@ export type { Log, LogLevel } from "~/lib/log";
 export type {
   Change,
   FileChange,
-  FileMonitor,
   HttpChange,
-  HttpMonitor,
   MonitorContext,
   MonitorHandler,
-  WsChange,
-  WsMonitor,
 } from "~/monitor";
 // biome-ignore lint/performance/noBarrelFile: This is the public package entry point for configuration imports.
 export { step, workflow } from "./builder";
@@ -20,8 +16,9 @@ export type {
 export { agent, artifact, sandbox, skills, workspace } from "./resources";
 export type {
   CalendarSlot,
+  MonitorBuilder,
   Schedule,
-  ScheduleOptions,
+  ScheduleBuilder,
   Trigger,
   Weekday,
 } from "./triggers";

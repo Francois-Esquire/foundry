@@ -99,10 +99,8 @@ export async function runInteractive(
     const lastFinish = new Map(
       schedules.flatMap((schedule) => {
         const finish =
-          state === undefined
-            ? undefined
-            : readLastFinish(state, schedule.name);
-        return finish === undefined ? [] : [[schedule.name, finish] as const];
+          state === undefined ? undefined : readLastFinish(state, schedule.key);
+        return finish === undefined ? [] : [[schedule.key, finish] as const];
       })
     );
     let startedAt = Date.now();
@@ -189,7 +187,6 @@ export async function runInteractive(
     loop = runSchedulesUntilStopped(
       engine,
       schedules,
-      workspace,
       state,
       hasConfig,
       configPath,

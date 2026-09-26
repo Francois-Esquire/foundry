@@ -29,6 +29,7 @@ export interface WorkspaceStatus {
 }
 
 export interface ScheduleStatus {
+  readonly key: string;
   readonly kind: "monitor" | null;
   readonly lastFinish: string | null;
   readonly lastStatus: string | null;
@@ -110,10 +111,12 @@ function readSchedules(dir: string): ScheduleStatus[] {
         ? history[key]
         : null;
     return {
+      key: name,
       kind: field("kind") === "monitor" ? "monitor" : null,
       lastFinish: field("lastFinish"),
       lastStatus: field("lastStatus"),
-      name,
+      // Older history files carry no label; the key is the filename.
+      name: field("label") ?? name,
       nextDue: field("nextDue"),
       running: running.get(name) ?? null,
     };

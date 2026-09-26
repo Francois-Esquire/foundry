@@ -8,13 +8,16 @@ import type { Schedule } from "./triggers";
 
 /**
  * What the config registered. Named definitions are the catalog: the CLI,
- * the dashboard, and schedules launch them by name. Anonymous ones are
- * internal and never appear here. Schedules and monitors keep their names
- * in phase 1.
+ * the dashboard, and schedules launch them by name. A name is given to the
+ * builder or inferred from the top-level `const`; a definition with neither
+ * is internal and never appears here. Schedules and monitors are keyed by
+ * what they trigger and watch.
  */
 
 interface CatalogEntry {
   readonly description?: string;
+  /** The name came from the config's `const`. */
+  readonly inferred?: boolean;
   /** Launch-form fields; an empty list means no arguments. */
   readonly input: { readonly fields: readonly InputField[] };
   readonly inputSchema?: Record<string, unknown>;
@@ -22,9 +25,14 @@ interface CatalogEntry {
   readonly name: string;
 }
 
+function where(definition: AnyDefinition): string {
+  const { site } = definition;
+  return site ? ` (${site.file}:${String(site.line)})` : "";
+}
+
 class Catalog {
   readonly definitions = new Map<string, AnyDefinition>();
-  /** Keyed like the step and schedule a monitor registers under the same name. */
+  /** Keyed like the detector step and the schedule a monitor registers. */
   readonly monitors = new Map<string, MonitorSpec>();
   readonly schedules = new Map<string, Schedule>();
   readonly #counters = new Map<string, number>();
@@ -34,23 +42,30 @@ class Catalog {
     if (definition.name === undefined) {
       return;
     }
-    if (this.definitions.has(definition.name)) {
-      throw new Error(`"${definition.name}" already registered`);
+    const taken = this.definitions.get(definition.name);
+    if (taken) {
+      throw new Error(
+        `"${definition.name}" already registered${where(taken)}; ${
+          definition.inferred || taken.inferred
+            ? `the name comes from a const${where(definition)}; rename one or name it explicitly`
+            : `second registration${where(definition)}`
+        }`
+      );
     }
     this.definitions.set(definition.name, definition);
   }
 
   schedule(record: Schedule): void {
-    if (this.schedules.has(record.name)) {
-      throw new Error(`schedule "${record.name}" already registered`);
+    if (this.schedules.has(record.key)) {
+      throw new Error(`schedule "${record.key}" already registered`);
     }
-    this.schedules.set(record.name, record);
+    this.schedules.set(record.key, record);
   }
 
-  /** The detector step is already registered under `name`. */
-  monitor(name: string, spec: MonitorSpec, record: Schedule): void {
+  /** The detector step is already registered under `key`. */
+  monitor(key: string, spec: MonitorSpec, record: Schedule): void {
     this.schedule(record);
-    this.monitors.set(name, spec);
+    this.monitors.set(key, spec);
   }
 
   /** Registration-order ids for nameless resources, e.g. `agent#2`. */
@@ -72,6 +87,7 @@ class Catalog {
           ...(definition.description === undefined
             ? {}
             : { description: definition.description }),
+          ...(definition.inferred ? { inferred: true } : {}),
           input: { fields: fields ?? [] },
           ...(inputSchema === undefined ? {} : { inputSchema }),
           kind: definition.kind,

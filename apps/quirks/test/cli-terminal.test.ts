@@ -44,7 +44,7 @@ for (const command of [[], ["run"]]) {
           resolve(null);
         }, { once: true });
       }));
-      schedule("test-trigger", { at: "1s", workflow: wait });
+      schedule(wait).every("1s");
     `
     );
     let output = "";
@@ -105,7 +105,7 @@ test("piped startup runs immediately and SIGTERM drains work with plain output",
       writeFileSync(${JSON.stringify(marker)}, "ran");
       return "done";
     });
-    schedule("plain-trigger", { at: "1s", workflow: task });
+    schedule(task).every("1s");
   `
   );
   const child = spawn(
@@ -119,7 +119,7 @@ test("piped startup runs immediately and SIGTERM drains work with plain output",
     await until(() => child.exitCode !== null);
     expect(await child.exited).toBe(0);
     const text = await output;
-    expect(text).toContain("[schedule] plain-trigger");
+    expect(text).toContain("[schedule] plain-step → plain-step");
     expect(text).toContain("[run] plain-step complete");
     expect(text).not.toContain("\x1b[");
     expect(text).not.toContain("Press Enter");
@@ -266,7 +266,7 @@ import { writeFileSync, appendFileSync } from "node:fs";
 import { step, workflow, schedule } from "@foundry/quirks";
 import { z } from ${JSON.stringify(ZOD)};
 const tick = step("tick").do(() => { appendFileSync(${JSON.stringify(ticks)}, "tick\\n"); });
-schedule("heartbeat", { at: "1s", workflow: tick });
+schedule(tick).every("1s");
 const message = z.object({ message: z.string(), enabled: z.boolean().default(false), count: z.number().default(0) });
 const echo = step("echo").input(message).do(({ input }) => { writeFileSync(${JSON.stringify(marker)}, JSON.stringify(input)); return input; });
 workflow("manual").input(message).do(({ input }) => echo({}, input));

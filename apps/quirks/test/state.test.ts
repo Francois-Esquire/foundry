@@ -184,7 +184,9 @@ describe("locks", () => {
 describe("schedule state", () => {
   const schedule: Schedule = {
     input: "hi",
-    name: "s",
+    key: "s",
+    kind: "schedule",
+    label: "shout hi",
     trigger: { kind: "interval", ms: 10 },
     workflow: "shout",
   };
@@ -200,12 +202,15 @@ describe("schedule state", () => {
     const history = readJson(join(state, "schedules", "s.json"));
     expect(history.lastStatus).toBe("complete");
     expect(Object.keys(history).sort()).toEqual([
+      "kind",
+      "label",
       "lastFinish",
       "lastStart",
       "lastStatus",
       "nextDue",
       "version",
     ]);
+    expect(history.label).toBe("shout hi");
 
     await expect(
       tick(engine, { ...schedule, workflow: "explode" }, { print, state })
