@@ -66,6 +66,7 @@ describe("skills", () => {
     await mkdir(join(workspace, "extra", "review", "notes"), {
       recursive: true,
     });
+    await skill(join(tmp, "sibling", "skills", "shared"), "shared");
     const resolve = skillResolver({
       global: join(home, ".foundry", "skills"),
       workspace,
@@ -85,6 +86,17 @@ describe("skills", () => {
     await expect(names(skills.load().pick("nope"))).rejects.toThrow(
       UNKNOWN_SKILL
     );
+    // The static prefix resolves against the workspace, so a glob may leave
+    // it or be absolute; a pattern without a glob names one directory.
+    await expect(
+      names(skills.load().add("../sibling/skills/*"))
+    ).resolves.toEqual(["caveman", "shared", "unslop"]);
+    await expect(
+      names(skills.load().add(join(tmp, "sibling", "skills", "*")))
+    ).resolves.toEqual(["caveman", "shared", "unslop"]);
+    await expect(
+      names(skills.load().add("extra/review/deep").pick("deep-review"))
+    ).resolves.toEqual(["deep-review"]);
     const loaded = await resolve(skills.load());
     expect(loaded.find((entry) => entry.name === "unslop")?.instructions).toBe(
       "Use unslop."

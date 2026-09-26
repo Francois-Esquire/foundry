@@ -1,5 +1,5 @@
 import { readdir, readFile } from "node:fs/promises";
-import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, join, relative, resolve, sep } from "node:path";
 import type { Skill, SkillFile } from "@foundry/agents/skills";
 import { defineSkill } from "@foundry/agents/skills";
 import { globToRegExp } from "@foundry/lib/glob";
@@ -25,6 +25,7 @@ const SKILL_MANIFEST = "SKILL.md";
 const MAX_DEPTH = 8;
 const SKIPPED = new Set(["node_modules", ".git"]);
 const DOT_SLASH = /^\.\//;
+const GLOB_SEGMENT = /[*?{[]/;
 
 async function collectFiles(root: string): Promise<Record<string, SkillFile>> {
   const files: Record<string, SkillFile> = {};
@@ -108,12 +109,20 @@ async function loadRoots(roots: SkillRoots): Promise<Skill[]> {
   return found;
 }
 
+/**
+ * The directories a glob names. The static prefix before the first glob
+ * segment is resolved against the workspace, which is what lets `../x/*`
+ * and absolute patterns work, and only the tree beneath it is walked.
+ */
 async function addGlob(glob: string, roots: SkillRoots): Promise<Skill[]> {
-  const pattern = glob.replace(DOT_SLASH, "");
-  const base = isAbsolute(pattern) ? "/" : roots.workspace;
-  const matcher = globToRegExp(
-    isAbsolute(pattern) ? pattern.slice(1) : pattern
-  );
+  const segments = posix(glob).replace(DOT_SLASH, "").split("/");
+  const first = segments.findIndex((segment) => GLOB_SEGMENT.test(segment));
+  const fixed = first === -1 ? segments : segments.slice(0, first);
+  const base = resolve(roots.workspace, fixed.join("/") || ".");
+  if (first === -1) {
+    return skillsIn([base]);
+  }
+  const matcher = globToRegExp(segments.slice(first).join("/"));
   const dirs = (await directoriesUnder(base)).filter((dir) =>
     matcher.test(posix(relative(base, dir)))
   );
