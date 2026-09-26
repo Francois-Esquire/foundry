@@ -744,6 +744,30 @@ describe("lib2 through the engine", () => {
     await engine.stop();
   });
 
+  it("a launch with input the schema rejects fails at dispatch, parsing once", async () => {
+    let parsed = 0;
+    step("typed")
+      .input(
+        z.object({
+          n: z.string().transform((value) => {
+            parsed += 1;
+            return Number(value);
+          }),
+        })
+      )
+      .do(({ input }) => input.n);
+    const engine = await startEngine(registerCatalog, {
+      print: () => undefined,
+    });
+    await expect(engine.launch("typed", { n: 3 })).rejects.toThrow(
+      '"typed" input'
+    );
+    expect((await engine.runs()).length).toBe(0);
+    await expect(engine.run<number>("typed", { n: "2" })).resolves.toBe(2);
+    expect(parsed).toBe(1);
+    await engine.stop();
+  });
+
   it("cancels one run", async () => {
     step("wait").do(
       ({ signal }) =>

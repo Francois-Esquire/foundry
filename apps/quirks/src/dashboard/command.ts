@@ -7,7 +7,7 @@ import { startEngine } from "~/engine";
 import { registerSetupStep, SETUP_STEP, type SetupInput } from "~/feed/setup";
 import { type FeedStore, openFeed } from "~/feed/store";
 import { catalog } from "~/lib/catalog";
-import { inputFromFields, validate } from "~/lib/schema";
+import { inputFromFields } from "~/lib/schema";
 import { registerCatalog } from "~/lib/tree";
 import { createConfig } from "~/onboarding/config";
 import type { SetupDraft } from "~/onboarding/templates";
@@ -154,13 +154,12 @@ export async function runInteractive(
         typeof input === "object" && input !== null && !Array.isArray(input)
           ? (input as Record<string, unknown>)
           : {};
-      // Validate here so the form sees the error, but launch with the raw
-      // value: the factory parses once, and a transform must not run twice.
-      const raw = inputFromFields(values);
-      if (definition.input) {
-        await validate(definition.input, raw, `"${name}" input`);
-      }
-      const launched = await runningEngine.launch(name, raw);
+      // The factory is the one parser: it validates at dispatch, a bad value
+      // rejects the launch and the form shows that, and a transform runs once.
+      const launched = await runningEngine.launch(
+        name,
+        inputFromFields(values)
+      );
       launched.result.catch((error: unknown) =>
         print(`[run] ${String(error)}`)
       );
