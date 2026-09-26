@@ -123,6 +123,34 @@ place and throws if frozen; `revise()` freezes and adds a new one. Entries are
 `{ path: { bytes, mime? } }`. "Each run adds a version" means Quirks calls
 `revise`, and maps a definition to a stable `ArtifactId`.
 
+## Review fixes after phase 2
+
+An external review of the migration found eight issues; seven held against
+the code, one (`as never` closables in the agents manager) predated the
+phase 2 frame table. Landed, one commit each:
+
+- **A failing parallel sibling stops the run.** `driveParallel` aborts the
+  run scope on the first failure and awaits every sibling before the error
+  travels up; nothing executes after a run is reported failed.
+- **A rejected launch registers no scope.** Input is parsed before the
+  `RunScope` exists; a throwing setup removes it from the run table.
+- **Launch input is parsed once.** The root node carries `parsed: true`;
+  the dashboard validates for the form but hands the raw value to the engine.
+- **A sandbox mounts the step's working directory.** `"."` is the worktree
+  inside a worktree callback. Worktrees are cut under a quirks-owned home
+  (`<state>/worktrees`, or `<tmp>/quirks/worktrees` under `--dry`) and the
+  trusted mount roots are computed at first use from the config's directory,
+  that home, and every declared workspace. This settled the declared
+  workspace mount question in the API doc's favour.
+- **A schema without JSON Schema keeps its launch form** as one JSON field.
+- **Skill globs walk only beneath their static prefix**, so `../x/*` and
+  absolute patterns resolve and nothing enumerates the filesystem.
+- **Agent sessions are children of the run's session.** The run's record is
+  created on the first agent a run opens; fresh agent sessions carry it as
+  `parentSessionId`.
+- **Lock literals are typed from the schema's input**, and a child's output
+  is checked against the parent's key at the type level.
+
 ## Open after phase 2
 
 - **Built-in provider.** The default is still the first available CLI

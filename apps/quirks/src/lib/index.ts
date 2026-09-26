@@ -32,6 +32,8 @@ export type {
   ArtifactVersion,
   Ask,
   Context,
+  FilesSandbox,
+  ImageSandbox,
   Report,
   Run,
   Sandbox,
