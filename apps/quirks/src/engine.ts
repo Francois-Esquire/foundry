@@ -143,7 +143,11 @@ export async function startEngine(
   const extrasOf = (runId: string): RunExtras | undefined => {
     const scope = runScopes.get(runId);
     return scope
-      ? { ledger: scope.ledger.toJSON(), session: scope.session }
+      ? {
+          ledger: scope.ledger.toJSON(),
+          literals: Object.fromEntries(scope.literals),
+          session: scope.session,
+        }
       : undefined;
   };
   const save = (runId: string, extras = extrasOf(runId)) => {

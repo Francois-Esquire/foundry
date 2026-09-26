@@ -63,9 +63,13 @@ export const current = new AsyncLocalStorage<Current>();
 /** Every live run in this process, for hosts that steer or inspect. */
 export const runs = new Map<string, RunScope>();
 
+type Literal = Readonly<Record<string, unknown>>;
+
 /** What a parked run recorded before this process; consumed when its scope is rebuilt. */
 export interface RestoredScope {
   readonly ledger: Readonly<Record<string, unknown>>;
+  /** Each node's literal input by step path, as locked when the run started. */
+  readonly literals?: Readonly<Record<string, Literal>>;
   readonly session: SessionRef;
 }
 
@@ -83,6 +87,8 @@ export class RunScope {
   readonly frames = new Map<string, Frame>();
   readonly id: string;
   readonly ledger: Ledger;
+  /** Literal input by step path: recorded when the tree is first built, replayed on recovery. */
+  readonly literals = new Map<string, Literal>();
   readonly session: SessionRef;
   #root: Step | undefined;
 
@@ -93,7 +99,26 @@ export class RunScope {
     restored.delete(id);
     this.ledger = new Ledger(previous?.ledger);
     this.session = previous?.session ?? { id: crypto.randomUUID() };
+    for (const [key, literal] of Object.entries(previous?.literals ?? {})) {
+      this.literals.set(key, literal);
+    }
     runs.set(id, this);
+  }
+
+  /**
+   * The literal a node runs with. A recovered run keeps the input each
+   * node was locked with when it started, so a setup that computes values,
+   * or a config edited in between, does not change a step mid-run. A node
+   * without a record (new since the run started) takes and records `fresh`.
+   */
+  literal(path: readonly string[], fresh: Literal): Literal {
+    const key = path.join(".");
+    const recorded = this.literals.get(key);
+    if (recorded) {
+      return recorded;
+    }
+    this.literals.set(key, fresh);
+    return fresh;
   }
 
   /** Bind the root once materialized; package cancellation reaches the run layer. */

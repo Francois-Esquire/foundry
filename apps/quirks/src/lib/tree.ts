@@ -148,15 +148,25 @@ async function runBody(
     : output;
 }
 
-/** One package Step per locked node, children first. */
+/**
+ * One package Step per locked node, children first. Each node's literal is
+ * the one the run recorded for its path, so a recovered run executes
+ * against the input it started with, not what a rebuilt tree would give.
+ */
 function materialize(
-  node: LockedNode,
+  fresh: LockedNode,
   key: string,
   scope: RunScope,
-  bindings: Bindings
+  bindings: Bindings,
+  parent: readonly string[] = []
 ): Step<unknown, unknown> {
+  const path = [...parent, key];
+  const node: LockedNode = {
+    ...fresh,
+    literal: scope.literal(path, fresh.literal),
+  };
   const children = node.children.map(([childKey, child]) =>
-    materialize(child, childKey, scope, bindings)
+    materialize(child, childKey, scope, bindings, path)
   );
   return Step.create<unknown, unknown>({
     children,

@@ -211,6 +211,7 @@ describe("lib2 through the engine", () => {
     expect(saved.run.status).toBe("suspended");
     expect(saved.quirks).toEqual({
       ledger: recordedSession,
+      literals: { release: {} },
       session: { id: runSession },
     });
     expect((await feedOne.read())[0]?.input?.status).toBe("open");
@@ -647,6 +648,67 @@ describe("lib2 through the engine", () => {
       () => true
     );
     expect(existsSync(lock)).toBe(false);
+    await two.stop();
+    await rebound.dispose();
+  });
+
+  it("a recovered step runs with the input it was locked with, not a rebuilt one", async () => {
+    const state = join(root, "state");
+    const feedRoot = join(root, "feed");
+    let seed = 1;
+    const define = () => {
+      const tally = step("tally")
+        .input(z.object({ n: z.number() }))
+        .do(async ({ ask, input }) => {
+          await ask.approval({ title: "Count?" });
+          return input.n;
+        });
+      workflow("counting").do(() => tally({}, { n: seed }));
+    };
+    define();
+    const one = await startEngine(registerCatalog, {
+      askable: true,
+      feed: openFeed(feedRoot, { id: "ws", root }).publisher,
+      print: () => undefined,
+      state,
+    });
+    const launched = await one.launch<number>("counting", {});
+    launched.result.catch(() => undefined);
+    const feed = openFeed(feedRoot, { id: "ws", root });
+    const question = await openEntry(
+      feed.read,
+      (entry) => entry.input?.status === "open"
+    );
+    await one.stop();
+    const file = JSON.parse(
+      readFileSync(join(state, "runs", `${launched.id}.json`), "utf8")
+    ) as { quirks: { literals: Record<string, unknown> } };
+    expect(file.quirks.literals).toEqual({ counting: { n: 1 } });
+
+    // The setup would now lock a different value; the recovered run keeps its own.
+    seed = 2;
+    catalog.reset();
+    runs.clear();
+    define();
+    const rebound = bindMock(() => "ok", { root });
+    const two = await startEngine(registerCatalog, {
+      askable: true,
+      feed: openFeed(feedRoot, { id: "ws", root }).publisher,
+      print: () => undefined,
+      state,
+    });
+    if (!question) {
+      throw new Error("expected an open approval");
+    }
+    await two.answer(question.id, "approve");
+    const done = await openEntry(
+      async () =>
+        (await two.runs())
+          .filter((run) => run.id === launched.id && run.status === "complete")
+          .map((run) => ({ output: run.output })) as never,
+      () => true
+    );
+    expect((done as unknown as { output: number }).output).toBe(1);
     await two.stop();
     await rebound.dispose();
   });

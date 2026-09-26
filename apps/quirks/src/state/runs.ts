@@ -25,6 +25,10 @@ type Snapshot = ReturnType<InMemoryOrchestratorStore["snapshot"]>;
 /** The run scope's state, as it goes into the file. */
 export interface RunExtras {
   readonly ledger: Readonly<Record<string, unknown>>;
+  /** Each node's literal input by step path, as locked when the run started. */
+  readonly literals?: Readonly<
+    Record<string, Readonly<Record<string, unknown>>>
+  >;
   readonly session: { readonly id: string };
 }
 
@@ -145,8 +149,14 @@ export function loadRuns(
 function extrasOf(file: Record<string, unknown>): RunExtras {
   const quirks = isRecord(file.quirks) ? file.quirks : {};
   const session = isRecord(quirks.session) ? quirks.session : {};
+  const literals = Object.fromEntries(
+    Object.entries(isRecord(quirks.literals) ? quirks.literals : {}).filter(
+      (entry): entry is [string, Record<string, unknown>] => isRecord(entry[1])
+    )
+  );
   return {
     ledger: isRecord(quirks.ledger) ? quirks.ledger : {},
+    literals,
     session: {
       id: typeof session.id === "string" ? session.id : crypto.randomUUID(),
     },
