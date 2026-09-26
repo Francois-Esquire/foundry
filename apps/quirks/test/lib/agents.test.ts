@@ -65,6 +65,23 @@ describe("agents.session", () => {
     expect(a.written.join("")).toBe(reply.text);
   });
 
+  it("a fresh session belongs to the run's session in the store", async () => {
+    const a = args();
+    const d = deps();
+    const agents = agentsManager(d)(a);
+    const session = await agents.session(reviewer);
+    const stored = await d.sessions.getSession(session.ref.id);
+    expect(stored?.parentSessionId).toBe(a.scope.session.id);
+    expect(await d.sessions.getSession(a.scope.session.id)).not.toBeNull();
+    // Continuing a session by reference does not re-parent it.
+    const other = args();
+    const again = await agentsManager(d)(other).session(reviewer, { session });
+    expect(again.ref.id).toBe(session.ref.id);
+    expect((await d.sessions.getSession(session.ref.id))?.parentSessionId).toBe(
+      a.scope.session.id
+    );
+  });
+
   it("honours provider and cwd overrides", async () => {
     const a = args();
     const agents = agentsManager(deps())(a);

@@ -179,6 +179,19 @@ function sessionIdFor(
   return crypto.randomUUID();
 }
 
+async function adoptIntoRun(
+  store: SessionStore,
+  runSessionId: string,
+  id: string
+): Promise<void> {
+  if ((await store.getSession(runSessionId)) === null) {
+    await store.createSession({ id: runSessionId, title: "run" });
+  }
+  if ((await store.getSession(id)) === null) {
+    await store.createSession({ id, parentSessionId: runSessionId });
+  }
+}
+
 async function openSession(
   deps: AgentsDeps,
   { cwd, frame, scope, write }: ManagerArgs,
@@ -202,6 +215,12 @@ async function openSession(
   });
 
   const id = sessionIdFor(recorded, wanted, provider, deps.warn);
+  // A fresh session is a child of the run's own session, which is created
+  // in the store the first time the run needs it, so a host can read every
+  // agent the run opened through `run.session`.
+  if (id !== recorded?.id && id !== wanted?.id) {
+    await adoptIntoRun(deps.sessions, scope.session.id, id);
+  }
 
   const skills = await deps.skills(definition.skills);
   const spec: AgentSpec = {
