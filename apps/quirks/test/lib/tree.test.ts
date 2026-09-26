@@ -334,17 +334,15 @@ describe("trees", () => {
     expect(runs.get(observed?.id ?? "")).toBeDefined();
   });
 
-  it("a failing parallel sibling aborts the others before the run fails", async () => {
-    const seen: boolean[] = [];
-    const hang = step().do(
-      ({ signal }) =>
-        new Promise<string>((_resolve, reject) => {
-          signal.addEventListener("abort", () => {
-            seen.push(signal.aborted);
-            reject(signal.reason);
-          });
-        })
-    );
+  it("a failing parallel sibling aborts the others, and the run fails only once they have stopped", async () => {
+    const seen: string[] = [];
+    const hang = step().do(async ({ signal }) => {
+      // Ignores its signal for a moment: the run must not read as failed
+      // while this is still going.
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      seen.push(signal.aborted ? "stopped after the abort" : "ran");
+      return "late";
+    });
     const bail = step().do((): string => {
       throw new Error("boom");
     });
@@ -354,8 +352,8 @@ describe("trees", () => {
     const flow = workflow("fails", both.parallel({ a: hang({}), b: bail({}) }));
     const { wf } = await launch(flow);
     await expect(wf.run()).rejects.toThrow("boom");
-    // The sibling was aborted and had settled before the parent threw.
-    expect(seen).toEqual([true]);
+    // The sibling had finished before the failure was reported.
+    expect(seen).toEqual(["stopped after the abort"]);
     expect(wf.status).toBe("failed");
     expect(
       Object.entries(wf.state.steps)

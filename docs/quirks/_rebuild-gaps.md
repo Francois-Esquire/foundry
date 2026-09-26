@@ -167,8 +167,10 @@ round's parallel fix. Landed, one commit each:
   step. The step parks only after its attempt has settled: agent turns the
   harness committed after the abort now reject in the wrapper (`generate`,
   `stream`, and the stream's promises), so authored code cannot run on after
-  the run reads as suspended. A body that ignores its signal delays the
-  pause. Re-entry consumes the pause flag.
+  the run reads as suspended. Failure and cancellation wait for the attempt
+  the same way (third pass), so a slow sibling cannot act after the run
+  reads as failed. A body that ignores its signal delays the report.
+  Re-entry consumes the pause flag.
 - **An answer is written before the run goes on.** The run file is written
   on the Orchestrator's `resumed` event as well as `suspended`, so a crash
   after an answer finds a mid-flight run (skipped with the existing warning)
@@ -181,9 +183,11 @@ round's parallel fix. Landed, one commit each:
   and writes it with the run; a recovered scope hands those back.
 - **A monitor holds its launch until the tick has started it.** The launch
   rides in the monitor's state as `pending` and goes out again each tick
-  until acknowledged. Started is the delivery contract: a started run that
-  fails, or is cancelled at an approval under a launchd tick, is not started
-  again (acknowledging after success would relaunch it every tick).
+  until a start succeeds; a target that is no longer registered is
+  acknowledged and fails one tick (third pass). Started is the delivery
+  contract: a started run that fails, or is cancelled at an approval under
+  a launchd tick, is not started again (acknowledging after success would
+  relaunch it every tick).
 - **A definition passed to another does not take its const's name.** The
   AST pass follows callee positions only from the call up to the
   initializer; `workflow(step().do(…)({}))` names the workflow alone.
@@ -192,6 +196,9 @@ round's parallel fix. Landed, one commit each:
 - **The skill no longer calls `--dry once` safe anywhere.** `list` loads
   without running bodies; `once` runs them, and `--dry` substitutes only
   what Quirks owns.
+- **The factory is the one parser** (third pass). The dashboard launcher no
+  longer validates before launching; a bad value rejects the launch at
+  dispatch and the form shows that, and a transform runs once.
 
 The reviewer's structural point stands and is listed under open items:
 pause, persistence, and feed state each own a piece of the run lifecycle.

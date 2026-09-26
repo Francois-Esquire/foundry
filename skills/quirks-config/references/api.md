@@ -217,8 +217,10 @@ monitor("https://tracker.example.com/latest").every("10m")
   in one poll either batch into one input or wait for the author to pick.
   A returned bare definition is ignored; return `undefined` to do nothing.
   Started is delivered: the monitor holds the launch until a tick has
-  started it, and a started run that then fails or is cancelled is not
-  started again, any more than a schedule's run would be.
+  started it (a start that fails for now is retried next tick; a target no
+  longer registered is dropped after one), and a started run that then
+  fails or is cancelled is not started again, any more than a schedule's
+  run would be.
 - The first poll has no baseline: every matching file is `added`, or the
   first body counts as a change, so the handler runs once on first start.
 - Keys: a schedule is `slug(target)[-sha8(input)]`, a monitor
@@ -250,7 +252,8 @@ override outer ones.
   replay on resume), `k` cancels. A step parks once its attempt has stopped:
   agent turns, sandbox commands, and worktrees stop at the signal, so a body
   that waits on something else should honour `signal` or it delays the
-  pause until it returns. None of it is authored code.
+  pause, and likewise a failure or a cancel, until it returns. None of it
+  is authored code.
 
 ## CLI
 

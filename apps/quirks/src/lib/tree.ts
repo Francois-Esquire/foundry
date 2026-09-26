@@ -123,18 +123,20 @@ async function runBody(
     );
     output = await raceAbort(frame, attempt);
   } catch (error) {
+    // Whatever ended the attempt (a throw, a cancellation, a sibling's
+    // failure, a pause), the attempt has to stop before the step reports
+    // it, so nothing runs after the run reads as failed or suspended: owned
+    // calls reject at the abort, and a body that ignores its signal delays
+    // the report until it returns.
+    await attempt?.catch(() => undefined);
     const { paused } = frame;
     if (!paused) {
       throw error;
     }
     // A host parked this step: what it opened is aborted, and the step
-    // suspends instead of failing. The attempt has to stop first, so nothing
-    // runs after the run reads as suspended: owned calls reject at the
-    // abort, and a body that ignores its signal delays the pause until it
-    // returns. Resuming replays the body from the top. The name is unique
-    // per pause, so a later pause of the same step is never answered by an
-    // earlier resolution.
-    await attempt?.catch(() => undefined);
+    // suspends instead of failing. Resuming replays the body from the top.
+    // The name is unique per pause, so a later pause of the same step is
+    // never answered by an earlier resolution.
     frame.paused = undefined;
     return await ctx.suspend({
       kind: PAUSE_KIND,

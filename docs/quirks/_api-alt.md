@@ -516,9 +516,10 @@ monitor("https://status.example.com/api").every("5m").do(({ response }) => …);
 - If `fn` returns a locked node, the monitor starts it:
   `.do(async ({ response }) => ship({}, { task: (await response.json()).title }))`.
   Started is delivered: the launch rides in the monitor's state as pending
-  until the tick that started it acknowledges it, so a tick that dies in
-  between hands it out again; a started run that fails or is cancelled is
-  not started again.
+  until the tick has started it, so a tick that dies in between, or a start
+  that fails for now (a setup that threw), hands it out again next tick. A
+  target that is no longer registered fails one tick and is dropped. A
+  started run that fails or is cancelled is not started again.
 - WebSocket monitors are dropped.
 
 ## Composition
@@ -615,7 +616,8 @@ step. Neither is authored code.
   step that had not started yet parks as it enters. Owned calls reject at
   the abort, so a body cannot run on past a cut turn; a body waiting on
   something Quirks does not own should honour `signal`, or the pause waits
-  for it. Resuming, with or without a prompt, releases every pause under
+  for it. Failure and cancellation wait the same way: a run reads as failed
+  only once every body in it has stopped. Resuming, with or without a prompt, releases every pause under
   the step and replays the bodies from the top. A prompt supplied on resume
   leads the first turn of the recorded session in each parked step.
 
