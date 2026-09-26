@@ -178,20 +178,26 @@ describe("lib2 through the engine", () => {
     const runSession = scope?.session.id;
     expect(Object.keys(recordedSession ?? {})).toHaveLength(1);
     // Written when it parked, not only at stop: a crash leaves the file too.
+    interface ParkedFile {
+      run: { status: string };
+      suspensions: unknown[];
+    }
     const parked = await openEntry(
       async () =>
         (existsSync(join(state, "runs"))
-          ? readdirSync(join(state, "runs")).map((name) => ({
-              status: (
-                JSON.parse(readFileSync(join(state, "runs", name), "utf8")) as {
-                  run: { status: string };
-                }
-              ).run.status,
-            }))
+          ? readdirSync(join(state, "runs")).map(
+              (name) =>
+                JSON.parse(
+                  readFileSync(join(state, "runs", name), "utf8")
+                ) as ParkedFile
+            )
           : []) as never,
-      (entry) => (entry as unknown as { status: string }).status === "suspended"
+      (entry) => (entry as unknown as ParkedFile).run.status === "suspended"
     );
     expect(parked).toBeDefined();
+    // The suspension record must be in the file too, or the next process
+    // adopts a run it can never answer.
+    expect((parked as unknown as ParkedFile).suspensions).toHaveLength(1);
     await one.stop();
     await first.dispose();
     const [file] = readdirSync(join(state, "runs"));

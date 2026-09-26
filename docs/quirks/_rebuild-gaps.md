@@ -139,6 +139,20 @@ place and throws if frozen; `revise()` freezes and adds a new one. Entries are
 - **Identity for helper-made definitions.** A definition created inside a
   helper function is nameless by design; the AST pass could follow the
   caller's binding later if that proves common.
+- **A quit cancels parked runs.** The dashboard stops with `cancel: true`,
+  so recovery applies after a crash or a kill, not after a clean quit.
+  Leaving `suspended` out of that filter when a state dir is set would make
+  quit-then-reopen resume; one line, pending the call.
+- **An entry flips while no dashboard is up.** A non-askable process (a
+  launchd tick) skips a parked run but still sweeps its feed entry to
+  "cancelled" because its pid is dead; the next dashboard reopens it on
+  adopt. The entry reads "no longer waiting" in between.
+- **Resume prompt across processes.** A prompt given on resume is held on
+  the frame; a run adopted after a restart has no frame until its body
+  re-enters, so the prompt is dropped there. In-process it works.
+- **`k` cancels without confirming**, and a `schedule(x)` or
+  `monitor(x).every(…)` without its terminal call registers nothing and
+  says nothing. Both are dashboard and load-time polish.
 
 ## Decisions
 
