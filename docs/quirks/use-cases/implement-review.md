@@ -1,61 +1,83 @@
 ---
 title: Implement–Review Loop
-description: Compose implementation and review with a bounded stopping condition.
+description: Give implementation and review separate turns, and hand the branch between them.
 ---
 
 The repository example `apps/quirks/examples/development.ts` registers
-`implement`, `review`, `develop-round`, and `develop` when explicitly loaded. `develop` gives implementation to the first selected harness and
-review to the second, falling back to the first when only one is available.
-Findings feed into another round, up to five rounds.
+`implement`, `review`, `develop-round`, `review-in-worktree`, and
+`review-session` when loaded as the config. `develop-round` implements a task
+in the working tree, then has a second agent review the uncommitted changes
+against it; the reviewer's verdict comes back as findings.
 
 ```sh
-quirks once develop --config apps/quirks/examples/development.ts --dry \
-  --input '{"task":"Add a --json flag to list","cwd":".","round":1,"findings":[]}'
+quirks once develop-round --config apps/quirks/examples/development.ts --dry \
+  --input '{"task":"Add a --json flag to list"}'
 ```
 
-Remove `--dry` to perform real model operations. The current review parser accepts
-a standalone `PASS` line or an empty response as no findings. This is a model
-verdict; the example does not independently prove verification passed.
+Remove `--dry` to perform real model operations, in a checkout where you
+intend the agent to make changes. The review parser accepts a standalone
+`PASS` line as no findings. This is a model verdict; the example does not
+independently prove verification passed.
 
-## Compose your own loop
+## Compose your own round
 
-This smaller configuration makes the stopping condition visible:
+This configuration keeps the implementation off your working tree by cutting
+a worktree, and hands the branch, not the directory, to the review:
 
 ```ts
-import { agent, loopUntil, step, workflow } from "@foundry/quirks";
+import { agent, step, workflow } from "@foundry/quirks";
+import { z } from "zod";
 
-const implementer = agent("builder", { prompt: "Implement the requested change." });
-const reviewer = agent("verifier", {
-  prompt: "Review the change without editing. Reply exactly PASS if satisfied; otherwise report findings.",
+const implementer = agent({ prompt: "Implement the requested change. Commit when done." });
+const reviewer = agent({
+  prompt: "Review without editing. Reply exactly PASS if satisfied; otherwise list findings.",
 });
 
-const round = step("implementation-round", async ({ agents, executors, workspace }, task: string) => {
-  const implementation = await agents.session(implementer, { cwd: workspace.root });
-  await implementation.generate(task);
-  const review = await agents.session(reviewer, {
-    cwd: workspace.root, executor: executors[1] ?? executors[0],
+const implement = step("implement")
+  .input(z.object({ task: z.string() }))
+  .output(z.string())
+  .do(({ input: { task }, agents, workspaces, run }) => {
+    const branch = `task/${run.id.slice(3, 11)}`;
+    return workspaces.current.git.withWorktree({ base: "main", branch }, async () => {
+      const session = await agents.session(implementer);   // runs in the worktree
+      await session.generate(task);
+      return branch;
+    });
   });
-  const reply = await review.generate(`Review this task and its implementation: ${task}`);
-  return reply.parts.flatMap((part) => part.type === "text" ? [part.text] : []).join("\n");
-});
 
-workflow<string, { review: string; settled: boolean }>("implement-and-review", (graph) => {
-  graph.step("attempts", loopUntil({
-    body: round,
-    maxRounds: 3,
-    until: ({ output }) => output.trim() === "PASS",
-    next: ({ output }, task) => `${task}\nAddress this review:\n${output}`,
-  }), ({ input }) => input)
-    .output(({ attempts }) => ({ review: attempts.output, settled: attempts.settled }));
-});
+const review = step("review")
+  .input(z.object({ task: z.string(), branch: z.string() }))
+  .output(z.object({ branch: z.string(), findings: z.string(), passed: z.boolean() }))
+  .do(({ input: { task, branch }, agents, workspaces }) =>
+    workspaces.current.git.withWorktree({ base: branch }, async () => {
+      const session = await agents.session(reviewer);
+      const { text } = await session.generate(`Review branch ${branch} against main for this task: ${task}`);
+      return { branch, findings: text, passed: text.trim() === "PASS" };
+    })
+  );
+
+workflow("implement-and-review")
+  .input(z.object({ task: z.string() }))
+  .do(({ input: { task } }) => review({ branch: implement({}, { task }) }, { task }));
 ```
 
-Run `quirks once implement-and-review --input '"Describe your task here"'` in a
-checkout where you intend the harness to make changes. Add an ordinary step
-that runs your actual verification command, and incorporate its result into the
-stopping predicate when passing tests must govern completion.
+```sh
+quirks once implement-and-review --input '{"task":"Describe your task here"}'
+```
 
-To opt into independent reviews in a temporary checkout, add
-`reviewInWorktree()` from `@foundry/quirks/prebuilt` to your config, then use
+`implement` returns its branch; `review` takes it as the child `branch` and
+gets the task as a literal, so both arrive in its `input`. Each session opens
+inside a worktree callback and runs there without being told. The worktree is
+removed when the callback returns; the branch survives it.
+
+Loops are not available yet. To run another round, launch the workflow again
+with the findings appended to the task, from the dashboard or with `once`.
+Add an ordinary step that runs your verification command inside the worktree
+and include its exit code in the result when passing tests must govern
+completion; the [API reference](/quirks/reference/api#definitions) shows a
+sandbox doing that.
+
+For an independent review of any revision in a temporary checkout, add
+`reviewInWorktree()` from `@foundry/quirks/prebuilt` to your config and run
 `quirks once review-in-worktree --input '{"repository":".","base":"main"}'`.
 Worktree isolation is not a security sandbox.

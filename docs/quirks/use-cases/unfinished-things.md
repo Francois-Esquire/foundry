@@ -16,19 +16,22 @@ about privacy, relevance, and which suggestions deserve follow-up.
 ```ts
 import { agent, schedule, step } from "@foundry/quirks";
 
-const reader = agent("fragment-reader", {
+const reader = agent({
   prompt: "Read fragments/ without editing. Suggest connections grounded in specific files. Avoid repeating earlier suggestions.",
 });
-const revisit = step("revisit", async ({ agents, workspace, log }) => {
-  const session = await agents.session(reader, {
-    cwd: workspace.root, sessionId: "fragments",
-  });
+
+const revisit = step("revisit").do(async ({ agents, report }) => {
+  const session = await agents.session(reader);
   const reply = await session.generate("What unfinished ideas are worth looking at together this week?");
-  for (const part of reply.parts) if (part.type === "text") log(part.text);
-  return { session: "fragments" };
+  report.result({ title: "This week's connections", body: reply.text });
+  return session.ref;
 });
-schedule("weekly-fragments", { workflow: revisit, input: null, at: { weekday: "sun", hour: 10 } });
+
+schedule(revisit).at({ weekday: "sun", hour: 10 });
 ```
 
 The schedule creates a reason to return. It does not establish which fragments
-matter; that remains a judgment to inspect in the resulting suggestions.
+matter; that remains a judgment to inspect in the resulting suggestions. The
+step returns its session reference so a run's record shows which conversation
+it held; to continue that conversation next week, keep the reference the way
+the [persistent reviewer](/quirks/use-cases/persistent-reviewer) does.

@@ -5,18 +5,19 @@ description: Working patterns and grounded explorations of programmable behavior
 
 ## Available patterns
 
-These patterns use current APIs and include runnable configurations or opt-in example
-commands. Model operations require an authenticated harness.
+These patterns include configurations that load and run with the current
+library. Model operations require an installed, authenticated Claude Code or
+Codex CLI; `--dry` echoes them.
 
 <CardGroup cols={2}>
   <Card title="Repository Caretaker" href="/quirks/use-cases/repository-caretaker">
-    Observe instruction files and Git history, then investigate changes.
+    Observe instruction files, then investigate what changed.
   </Card>
   <Card title="Persistent Reviewer" href="/quirks/use-cases/persistent-reviewer">
     Revisit a repository with earlier findings in conversation history.
   </Card>
   <Card title="Implement–Review Loop" href="/quirks/use-cases/implement-review">
-    Give implementation and review separate turns and feed findings into another attempt.
+    Give implementation and review separate turns and hand the branch between them.
   </Card>
   <Card title="Release Watcher" href="/quirks/use-cases/release-watcher">
     Observe an external release feed and assess its relevance.

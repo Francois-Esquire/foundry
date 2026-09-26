@@ -16,19 +16,23 @@ unchanging taste profile.
 
 ```ts
 import { agent, step } from "@foundry/quirks";
+import { z } from "zod";
 
-const critic = agent("taste-critic", {
+const critic = agent({
   prompt: "Read decisions/ and cite accepted and rejected examples in critiques. Distinguish recorded preferences from your inference. Do not edit files.",
 });
-step("critique", async ({ agents, workspace }, proposal: string) => {
-  const session = await agents.session(critic, {
-    cwd: workspace.root, sessionId: "creative-decisions",
+
+step("critique")
+  .describe("Compare a proposal with the recorded decisions.")
+  .input(z.object({ proposal: z.string().describe("A file or a description") }))
+  .output(z.string())
+  .do(async ({ input: { proposal }, agents }) => {
+    const session = await agents.session(critic);
+    return (await session.generate(`Critique this proposal: ${proposal}`)).text;
   });
-  const reply = await session.generate(`Critique this proposal: ${proposal}`);
-  return { text: reply.parts.flatMap((part) => part.type === "text" ? [part.text] : []).join("\n") };
-});
 ```
 
-Use `quirks once critique --input '"Review proposals/poster.md"'` after supplying
-your files. Accepting a critique and changing the decision archive remain
-separate actions under your control.
+Use `quirks once critique --input '{"proposal":"proposals/poster.md"}'` after
+supplying your files, or launch it from the dashboard, where the schema
+becomes a one-field form. Accepting a critique and changing the decision
+archive remain separate actions under your control.
