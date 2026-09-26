@@ -3,7 +3,7 @@ import type {
   AgentDefinition,
   ArtifactDefinition,
   SandboxDefinition,
-  SandboxResources,
+  SandboxSpec,
   SkillOp,
   SkillSet,
   WorkspaceDefinition,
@@ -40,15 +40,10 @@ export function workspace(spec: {
   };
 }
 
-export function sandbox(
-  spec:
-    | {
-        readonly image: string;
-        readonly mount?: "." | WorkspaceDefinition;
-        readonly resources?: SandboxResources;
-      }
-    | { readonly files: Readonly<Record<string, string>> }
-): SandboxDefinition {
+export function sandbox(spec: SandboxSpec): SandboxDefinition {
+  if ("files" in spec && Object.keys(spec.files).length === 0) {
+    throw new Error("sandbox({ files }): give it at least one file");
+  }
   return { id: catalog.claimId("sandbox"), kind: "sandbox", ...spec };
 }
 

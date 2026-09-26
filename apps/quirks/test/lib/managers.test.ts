@@ -18,6 +18,7 @@ import { artifactIdFor, artifactsManager } from "~/lib/managers/artifacts";
 import {
   allowedMountRoots,
   constraintsFor,
+  guestFiles,
   sandboxesManager,
 } from "~/lib/managers/sandboxes";
 import { skillResolver } from "~/lib/managers/skills";
@@ -28,7 +29,6 @@ import { seedRepository } from "./../helpers/repository";
 
 const NOT_A_REPOSITORY = /not a git repository/;
 const UNKNOWN_SKILL = /unknown skill nope/;
-const FILES_UNSUPPORTED = /not supported yet/;
 
 let tmp: string;
 
@@ -263,14 +263,75 @@ describe("sandboxes", () => {
     expect(again.id).toBe(env.id);
     expect((await containers.list()).map((row) => row.id)).toEqual([env.id]);
 
-    await expect(
-      sandboxes.start({
-        files: { "a.txt": "x" },
-        id: "sandbox#1",
-        kind: "sandbox",
-      })
-    ).rejects.toThrow(FILES_UNSUPPORTED);
+    await a.scope.settle();
+    await containers.shutdown();
+  });
 
+  it("a files sandbox mounts nothing and seeds its files under /workspace", async () => {
+    const root = join(tmp, "project");
+    const home = join(tmp, "home");
+    await mkdir(root, { recursive: true });
+    await mkdir(home, { recursive: true });
+    const scratch = constraintsFor(
+      { files: { "a.txt": "x" }, image: "img:2" },
+      root,
+      home
+    );
+    expect(scratch).toEqual({
+      format: "foundry.sandbox.container/1",
+      image: "img:2",
+      mounts: [],
+      workdir: "/workspace",
+    });
+    expect(constraintsFor({ files: { "a.txt": "x" } }, root, home).image).toBe(
+      undefined
+    );
+    expect(guestFiles({ "/etc/motd": "hi", "a.txt": "x" })).toEqual({
+      "/etc/motd": "hi",
+      "/workspace/a.txt": "x",
+    });
+
+    const runtime = createFakeContainerRuntime();
+    const containers = createContainers({
+      allowedMountRoots: allowedMountRoots([root], home),
+      instanceLabel: "test",
+      runtime,
+      store: createMemoryContainerStore(),
+    });
+    const a = args(root);
+    const sandboxes = sandboxesManager({
+      containers: () => Promise.resolve(containers),
+      home,
+      root,
+    })(a);
+    const env = await sandboxes.start({
+      files: { "b.txt": "beta", "notes/a.txt": "alpha" },
+      id: "sandbox#1",
+      image: "img:2",
+      kind: "sandbox",
+    });
+    const [instance] = runtime.instances;
+    const written = new Map(
+      [...(instance?.files ?? [])].map(([path, bytes]) => [
+        path,
+        new TextDecoder().decode(bytes),
+      ])
+    );
+    expect(written.get("/workspace/notes/a.txt")).toBe("alpha");
+    expect(written.get("/workspace/b.txt")).toBe("beta");
+    expect(instance?.spec.mounts ?? []).toEqual([]);
+
+    // A recorded container that is gone (a new process) is started afresh.
+    await env.close();
+    await containers.remove(env.id);
+    await a.scope.enter(a.frame);
+    const fresh = await sandboxes.start({
+      files: { "b.txt": "beta" },
+      id: "sandbox#1",
+      image: "img:2",
+      kind: "sandbox",
+    });
+    expect(fresh.id).not.toBe(env.id);
     await a.scope.settle();
     await containers.shutdown();
   });

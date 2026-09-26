@@ -28,7 +28,12 @@ export class Ledger {
     return this.#entries.has(key);
   }
 
+  /** `undefined` forgets the key, so a stale record is replaced on the next set. */
   set(key: string, value: unknown): void {
+    if (value === undefined) {
+      this.#entries.delete(key);
+      return;
+    }
     this.#entries.set(key, value);
   }
 

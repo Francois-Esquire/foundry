@@ -6,6 +6,7 @@ import type { ModelManager } from "@foundry/models";
 import type { Containers } from "@foundry/sandbox/container/containers";
 import { createContainers } from "@foundry/sandbox/container/containers";
 import { createMemoryContainerStore } from "@foundry/sandbox/container/store";
+import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
 import { WorkspaceSystem } from "@foundry/workspaces";
 import type { GitRun } from "@foundry/workspaces/git";
 import { git } from "@foundry/workspaces/git";
@@ -81,19 +82,20 @@ export function bindRuntime(options: RuntimeOptions): Runtime {
     git(dry ? { run: echoGit(print) } : {})
   );
   let containers: Promise<Containers> | undefined;
+  // `--dry` echoes every command a sandbox would run, like git and the
+  // models, so a config with sandboxes runs end to end with nothing installed.
+  const runtime = () =>
+    dry
+      ? Promise.resolve(createFakeContainerRuntime({ exec: echoExec(print) }))
+      : import("@foundry/sandbox/container/microsandbox-runtime").then(
+          ({ createMicrosandboxRuntime }) => createMicrosandboxRuntime()
+        );
   const openContainers = () => {
-    if (dry) {
-      return Promise.reject(
-        new Error("sandboxes do not run under --dry; drop the flag to use one")
-      );
-    }
-    containers ??= import(
-      "@foundry/sandbox/container/microsandbox-runtime"
-    ).then(({ createMicrosandboxRuntime }) =>
+    containers ??= runtime().then((backend) =>
       createContainers({
         allowedMountRoots: allowedMountRoots([root], home),
         instanceLabel: `quirks-${workspaceId}`,
-        runtime: createMicrosandboxRuntime(),
+        runtime: backend as never,
         store: createMemoryContainerStore(),
       })
     );
@@ -136,6 +138,20 @@ export function bindRuntime(options: RuntimeOptions): Runtime {
       }
     },
     harnesses: executors.map((executor) => executor.harness),
+  };
+}
+
+/** Prints the command a sandbox would run and returns a clean exit. */
+function echoExec(print: (line: string) => void): (
+  command: readonly string[]
+) => {
+  exitCode: number;
+  stderr: string;
+  stdout: string;
+} {
+  return (command) => {
+    print(`[sandbox] ${command.join(" ")}`);
+    return { exitCode: 0, stderr: "", stdout: "" };
   };
 }
 

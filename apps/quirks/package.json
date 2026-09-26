@@ -82,10 +82,14 @@
   },
   "peerDependencies": {
     "@browser-ai/transformers-js": "^3.0.0",
+    "microsandbox": "0.6.18",
     "typescript": ">=5.0.0"
   },
   "peerDependenciesMeta": {
     "@browser-ai/transformers-js": {
+      "optional": true
+    },
+    "microsandbox": {
       "optional": true
     },
     "typescript": {

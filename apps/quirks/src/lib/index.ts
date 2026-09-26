@@ -37,6 +37,8 @@ export type {
   Sandbox,
   SandboxDefinition,
   Sandboxes,
+  SandboxResources,
+  SandboxSpec,
   Session,
   SessionRef,
   SessionReply,

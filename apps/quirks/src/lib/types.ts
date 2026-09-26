@@ -55,20 +55,30 @@ export interface SandboxResources {
   readonly memoryBytes?: number;
 }
 
-export type SandboxDefinition =
-  | {
-      readonly kind: "sandbox";
-      readonly id: string;
-      readonly image: string;
-      /** `"."` (the config's directory) or a declared workspace. */
-      readonly mount?: "." | WorkspaceDefinition;
-      readonly resources?: SandboxResources;
-    }
-  | {
-      readonly kind: "sandbox";
-      readonly id: string;
-      readonly files: Readonly<Record<string, string>>;
-    };
+/** An image with a workspace mounted read/write at `/workspace`. */
+export interface ImageSandbox {
+  readonly image: string;
+  /** `"."` (the config's directory) or a declared workspace. */
+  readonly mount?: "." | WorkspaceDefinition;
+  readonly resources?: SandboxResources;
+}
+
+/**
+ * A scratch sandbox seeded with files under `/workspace` instead of a
+ * mount; the image defaults to the runtime's.
+ */
+export interface FilesSandbox {
+  readonly files: Readonly<Record<string, string>>;
+  readonly image?: string;
+  readonly resources?: SandboxResources;
+}
+
+export type SandboxSpec = ImageSandbox | FilesSandbox;
+
+export type SandboxDefinition = SandboxSpec & {
+  readonly kind: "sandbox";
+  readonly id: string;
+};
 
 export interface ArtifactDefinition {
   readonly id: string;
@@ -138,12 +148,6 @@ export interface Sandbox {
   close(): Promise<void>;
   exec(argv: readonly string[]): Promise<ExecResult>;
   readonly id: string;
-}
-
-export interface SandboxSpec {
-  readonly image: string;
-  readonly mount?: "." | WorkspaceDefinition;
-  readonly resources?: SandboxResources;
 }
 
 export interface Sandboxes {

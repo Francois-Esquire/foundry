@@ -10,6 +10,7 @@ import type {
 import type { ManagerArgs } from "../bindings";
 import type { Frame } from "../run-scope";
 import type {
+  ImageSandbox,
   Sandbox,
   SandboxDefinition,
   Sandboxes,
@@ -20,8 +21,10 @@ import type {
  * Isolated places to run commands, over the containers registry. The mount
  * policy is fixed: the workspace the sandbox is for mounts read/write at
  * `/workspace`; the host's `~/.foundry`, `~/.claude`, and `~/.codex` mount
- * read-only under `/root`, when they exist; nothing else is mounted.
- * Commands are aborted with the step. Handles close when the run settles.
+ * read-only under `/root`, when they exist; nothing else is mounted. A
+ * `files` sandbox mounts no workspace: its files are copied under
+ * `/workspace` once it boots. Commands are aborted with the step. Handles
+ * close when the run settles.
  */
 
 export interface SandboxesDeps {
@@ -38,11 +41,23 @@ const HOST_CONFIG_DIRS = [".foundry", ".claude", ".codex"] as const;
 const KIND = "sandboxes.start";
 
 /** The host directory a spec's `mount` refers to. */
-function mountSource(spec: SandboxSpec, root: string): string {
+function mountSource(spec: ImageSandbox, root: string): string {
   if (spec.mount === undefined || spec.mount === ".") {
     return root;
   }
   return resolve(root, spec.mount.path);
+}
+
+/** Guest paths for a files sandbox: relative names land under `/workspace`. */
+export function guestFiles(
+  files: Readonly<Record<string, string>>
+): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(files).map(([path, content]) => [
+      path.startsWith("/") ? path : `${WORKSPACE_TARGET}/${path}`,
+      content,
+    ])
+  );
 }
 
 /** Host directories the registry may bind: the workspace and the config folders. */
@@ -75,14 +90,18 @@ export function constraintsFor(
   };
   return {
     format: CONTAINER_SANDBOX_CONSTRAINTS_FORMAT,
-    image: spec.image,
+    ...(spec.image === undefined ? {} : { image: spec.image }),
     mounts: [
-      {
-        access: "read-write",
-        id: "workspace",
-        source: mountSource(spec, root),
-        target: WORKSPACE_TARGET,
-      },
+      ...("files" in spec
+        ? []
+        : [
+            {
+              access: "read-write" as const,
+              id: "workspace",
+              source: mountSource(spec, root),
+              target: WORKSPACE_TARGET,
+            },
+          ]),
       ...HOST_CONFIG_DIRS.flatMap((dir) => {
         const source = join(home, dir);
         return existsSync(source)
@@ -130,21 +149,25 @@ export function sandboxesManager(
       return wrap(await containers.open(id, frame.signal), frame);
     },
     async start(sandbox: SandboxDefinition | SandboxSpec) {
-      if ("files" in sandbox) {
-        throw new Error(
-          "sandbox({ files }) is not supported yet; use an image"
-        );
-      }
       const { key } = scope.claim(frame, KIND);
       const containers = await deps.containers();
       const recorded = scope.ledger.get<string>(key);
       if (recorded !== undefined) {
-        return wrap(await containers.open(recorded, frame.signal), frame);
+        // A container never outlives the process that started it: a run
+        // adopted after a restart starts a fresh one under the same key.
+        try {
+          return wrap(await containers.open(recorded, frame.signal), frame);
+        } catch {
+          scope.ledger.set(key, undefined);
+        }
       }
       const container = await containers.start(
         constraintsFor(sandbox, deps.root, deps.home),
         frame.signal
       );
+      if ("files" in sandbox) {
+        await container.files.copyIn(guestFiles(sandbox.files));
+      }
       scope.ledger.set(key, container.id);
       return wrap(container, frame);
     },
