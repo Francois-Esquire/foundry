@@ -20,7 +20,10 @@ pieces of work; each step lands before the next starts.
       "Open" section and the gap map.
 3. **Companion skill.** A top-level `skills/` directory of project skills,
    installable with Vercel's `skills` CLI. The first skill helps an agent set
-   up a `quirks.config.ts`; written against the cleaned-up API.
+   up a `quirks.config.ts`; written against the cleaned-up API. Landed
+   2026-09-25 as `skills/quirks-config`: a procedure, an API reference, and
+   the hand-off patterns the API doc promises. Its eval loop (baselines,
+   description tuning) is a follow-up.
 4. **Docs and use cases.** A guided walkthrough, "The Software Factory": the
    software lifecycle as inputs, quirks, and outputs. Then walkthroughs for
    productivity and creativity. Further docs work stays an open bucket.

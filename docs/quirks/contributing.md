@@ -29,6 +29,18 @@ The [contributor guide](https://github.com/Francois-Esquire/foundry/blob/main/CO
 covers repository checks, changelog generation, and publishing. The packaged
 changelog currently contains repository-wide release history.
 
+## Skills
+
+Project skills for coding agents live in the top-level `skills/` directory, one
+folder per skill with a `SKILL.md`, laid out for the
+[skills CLI](https://github.com/vercel-labs/skills)
+(`npx skills add Francois-Esquire/foundry --skill quirks-config`). A skill is
+self-contained: an installed copy cannot read this repository, so
+`skills/quirks-config/references/api.md` restates the authoring API from
+`_api-alt.md`. A change to the API doc changes the skill in the same commit.
+The repository's own `.agents/skills` and `skills-lock.json` are skills
+installed *from* elsewhere and are managed by the CLI, not by hand.
+
 ## Documentation
 
 Blume and its configuration live in `packages/docs`. Quirks pages live directly
