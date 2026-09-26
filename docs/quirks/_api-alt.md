@@ -731,6 +731,15 @@ Pending decisions from the first library, still open against this API.
   rejects an id no echo provider serves. The public reference documents the
   ids that work; this document keeps the intent until a catalog resolves
   them.
+- **Invented session ids.** [Sessions](#sessions) says a session is never
+  looked up by an id the author invents. The code permits it:
+  `agents.session(def, { session: { id } })` takes any id and creates the
+  session in the store when it is new, and both the `reviewSession` prebuilt
+  and the development example rely on that for a conversation that continues
+  across scheduled runs. The public pages document the prebuilt's `sessionId`
+  input and teach the returned reference everywhere else; the companion
+  skill still lists the invented id as an anti-pattern. Decide whether the
+  library should refuse it or the document should allow it.
 - **`AgentSpec` fields Quirks does not wire.** `mcp`, `mesh`, and `tools` are
   accepted by the spec and ignored by the session runtime. Narrow the public
   type, reject them, or implement them.
