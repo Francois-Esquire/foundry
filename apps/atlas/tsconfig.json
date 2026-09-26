@@ -1,0 +1,9 @@
+{
+  "extends": "@foundry/tsconfig/base.json",
+  "compilerOptions": {
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "types": ["bun", "vite/client"],
+    "jsx": "react-jsx"
+  },
+  "include": ["src", "scripts", "test", "vite.config.ts"]
+}

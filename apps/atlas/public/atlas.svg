@@ -1,0 +1,9 @@
+<svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+  <title>Atlas</title>
+  <path
+    d="m4 8 8-4 8 4 8-4v20l-8 4-8-4-8 4Zm8-4v20m8-16v20"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2"
+  />
+</svg>

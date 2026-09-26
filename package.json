@@ -9,6 +9,7 @@
     "docs/"
   ],
   "scripts": {
+    "atlas": "bun run apps/atlas/dist/cli/atlas.js",
     "build": "turbo run build",
     "changelog": "bun run tooling/release/src/cli.ts changelog",
     "check": "ultracite check",
