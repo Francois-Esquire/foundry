@@ -35,7 +35,7 @@ interface FeedArtifactLink {
 export const ASK_MODES = ["question", "approval"] as const;
 
 /** A note is short: it rides along with an approval, it is not the report. */
-export const MAX_NOTE = 2000;
+const MAX_NOTE = 2000;
 
 /** What a host sends back: the choice or text, optionally with a note. */
 export type FeedAnswer =

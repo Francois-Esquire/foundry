@@ -11,6 +11,7 @@ import { Log, type LogEntry } from "../src/components/ui/log";
 import type { FeedAnswer } from "../src/feed/entry";
 import { DashboardView } from "../src/views/dashboard";
 import type { DashboardSnapshot } from "../src/views/dashboard-model";
+import type { RunActions } from "../src/views/run-actions";
 import { SplashView } from "../src/views/splash";
 import { type SplashState, summarizeConfig } from "../src/views/splash-model";
 
@@ -1093,4 +1094,122 @@ test("types a free-text answer without triggering dashboard keys", async () => {
   await flush(ui);
   expect(answers).toEqual(["quite a lot"]);
   expect(ui.captureCharFrame()).not.toContain("Quit Quirks?");
+});
+
+function recordingActions() {
+  const calls: unknown[][] = [];
+  const record =
+    (name: string) =>
+    (...args: unknown[]) => {
+      calls.push([name, ...args]);
+      return Promise.resolve();
+    };
+  const actions: RunActions = {
+    cancel: record("cancel"),
+    pause: record("pause"),
+    resume: record("resume"),
+    steer: record("steer"),
+  };
+  return { actions, calls };
+}
+
+test("run keys pause, steer, and cancel the selected step", async () => {
+  const { actions, calls } = recordingActions();
+  closed = false;
+  setup = await testRender(
+    <DashboardView
+      actions={actions}
+      onClose={close}
+      snapshot={dashboardSnapshot}
+    />,
+    { exitOnCtrlC: false, height: 40, kittyKeyboard: true, width: 120 }
+  );
+  const ui = setup;
+  await flush(ui);
+  // The running run is selected first; its root frame, keyed by the
+  // definition's name, is the target.
+  expect(ui.captureCharFrame()).toContain(
+    "s steer · p pause/resume · k cancel"
+  );
+  await act(async () => ui.mockInput.pressKey("p"));
+  await flush(ui);
+  expect(calls).toEqual([["pause", "run-104", "docs"]]);
+
+  // Steer opens a prompt; typing does not reach the dashboard keys.
+  await act(async () => ui.mockInput.pressKey("s"));
+  await flush(ui);
+  expect(ui.captureCharFrame()).toContain("steer docs ›");
+  await act(async () => ui.mockInput.typeText("stop and summarise"));
+  await flush(ui);
+  expect(ui.captureCharFrame()).not.toContain("Quit Quirks?");
+  await act(async () => ui.mockInput.pressEnter());
+  await flush(ui);
+  expect(calls.at(-1)).toEqual([
+    "steer",
+    "run-104",
+    "docs",
+    "stop and summarise",
+  ]);
+
+  // Esc drops a prompt without sending anything.
+  await act(async () => ui.mockInput.pressKey("s"));
+  await act(async () => ui.mockInput.typeText("nothing"));
+  await act(async () => ui.mockInput.pressEscape());
+  await flush(ui);
+  expect(ui.captureCharFrame()).not.toContain("steer docs ›");
+  await act(async () => ui.mockInput.pressKey("k"));
+  await flush(ui);
+  expect(calls.at(-1)).toEqual(["cancel", "run-104"]);
+});
+
+test("a paused step resumes with an optional prompt", async () => {
+  const { actions, calls } = recordingActions();
+  const paused = {
+    ...dashboardSnapshot,
+    runs: dashboardSnapshot.runs.map((run) =>
+      run.id === "run-104"
+        ? {
+            ...run,
+            status: "suspended" as const,
+            steps: run.steps.map((step) =>
+              step.id === "find"
+                ? { ...step, status: "suspended" as const }
+                : step
+            ),
+          }
+        : run
+    ),
+  };
+  closed = false;
+  setup = await testRender(
+    <DashboardView actions={actions} onClose={close} snapshot={paused} />,
+    { exitOnCtrlC: false, height: 40, kittyKeyboard: true, width: 120 }
+  );
+  const ui = setup;
+  await flush(ui);
+  await act(async () => ui.mockInput.pressKey("p"));
+  await flush(ui);
+  expect(ui.captureCharFrame()).toContain("resume docs · prompt optional ›");
+  await act(async () => ui.mockInput.pressEnter());
+  await flush(ui);
+  expect(calls).toEqual([["resume", "run-104", "docs", undefined]]);
+  await act(async () => ui.mockInput.pressKey("p"));
+  await act(async () => ui.mockInput.typeText("focus on the tests"));
+  await act(async () => ui.mockInput.pressEnter());
+  await flush(ui);
+  expect(calls.at(-1)).toEqual([
+    "resume",
+    "run-104",
+    "docs",
+    "focus on the tests",
+  ]);
+  // Without actions the keys and the footer hint are absent.
+  await ui.renderer.destroy();
+  closed = false;
+  setup = await testRender(
+    <DashboardView onClose={close} snapshot={paused} />,
+    { exitOnCtrlC: false, height: 40, kittyKeyboard: true, width: 120 }
+  );
+  await flush(setup);
+  expect(setup.captureCharFrame()).not.toContain("p pause/resume");
 });

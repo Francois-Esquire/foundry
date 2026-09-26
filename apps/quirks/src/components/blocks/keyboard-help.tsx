@@ -55,6 +55,11 @@ export function KeyboardHelp({ active = true }: { readonly active?: boolean }) {
           },
           { key: "Space", value: "Toggle run branch or selected JSON node" },
           {
+            key: "s / p / k on a run",
+            value:
+              "Steer the running agent / pause or resume the step / cancel the run",
+          },
+          {
             key: "a / e",
             value: "Jump to active step / failure within the run filter",
           },

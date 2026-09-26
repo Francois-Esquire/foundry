@@ -42,6 +42,48 @@ interface MockCall {
 /** Decides the text a mock model answers with. */
 export type Reply = (call: MockCall) => string;
 
+export interface MockOptions {
+  /**
+   * When it returns true the streamed turn sends its first word and then
+   * waits for the turn's abort signal before finishing, so a test can act
+   * on a turn that is still running.
+   */
+  readonly hold?: (call: MockCall) => boolean;
+}
+
+function heldStream(
+  output: string,
+  responseUsage: Generated["usage"],
+  abortSignal: AbortSignal | undefined
+): ReadableStream<unknown> {
+  const [first = "", ...rest] = output.split(" ");
+  return new ReadableStream({
+    start(controller) {
+      controller.enqueue({ id: "text-1", type: "text-start" });
+      controller.enqueue({ delta: first, id: "text-1", type: "text-delta" });
+      const finish = () => {
+        controller.enqueue({
+          delta: rest.length > 0 ? ` ${rest.join(" ")}` : "",
+          id: "text-1",
+          type: "text-delta",
+        });
+        controller.enqueue({ id: "text-1", type: "text-end" });
+        controller.enqueue({
+          finishReason: STOP,
+          type: "finish",
+          usage: responseUsage,
+        });
+        controller.close();
+      };
+      if (!abortSignal || abortSignal.aborted) {
+        finish();
+        return;
+      }
+      abortSignal.addEventListener("abort", finish, { once: true });
+    },
+  });
+}
+
 function promptText(prompt: Prompt): string {
   return prompt
     .flatMap((message) =>
@@ -54,7 +96,11 @@ function promptText(prompt: Prompt): string {
     .join("\n");
 }
 
-function mockProvider(executor: TurnExecutorRef, reply: Reply): Provider {
+function mockProvider(
+  executor: TurnExecutorRef,
+  reply: Reply,
+  mockOptions: MockOptions
+): Provider {
   return {
     available: true,
     harness: executor.harness,
@@ -62,12 +108,13 @@ function mockProvider(executor: TurnExecutorRef, reply: Reply): Provider {
     languageModel: (_modelId, options) => {
       const answer = (prompt: Prompt) => {
         const input = promptText(prompt);
-        const output = reply({
+        const call: MockCall = {
           cwd: options?.workingDirectory,
           executor,
           prompt: input,
-        });
-        return { output, usage: usage(input, output) };
+        };
+        const output = reply(call);
+        return { call, output, usage: usage(input, output) };
       };
       return new MockLanguageModelV4({
         doGenerate: ({ prompt }) => {
@@ -79,8 +126,13 @@ function mockProvider(executor: TurnExecutorRef, reply: Reply): Provider {
             warnings: [],
           });
         },
-        doStream: ({ prompt }) => {
-          const { output, usage: responseUsage } = answer(prompt);
+        doStream: ({ abortSignal, prompt }) => {
+          const { call, output, usage: responseUsage } = answer(prompt);
+          if (mockOptions.hold?.(call)) {
+            return Promise.resolve({
+              stream: heldStream(output, responseUsage, abortSignal) as never,
+            });
+          }
           return Promise.resolve({
             stream: simulateReadableStream({
               chunks: [
@@ -101,10 +153,13 @@ function mockProvider(executor: TurnExecutorRef, reply: Reply): Provider {
 
 export function mockModels(
   executors: readonly TurnExecutorRef[],
-  reply: Reply
+  reply: Reply,
+  options: MockOptions = {}
 ): ModelManager {
   return new ModelManager({
-    providers: executors.map((executor) => mockProvider(executor, reply)),
+    providers: executors.map((executor) =>
+      mockProvider(executor, reply, options)
+    ),
   });
 }
 

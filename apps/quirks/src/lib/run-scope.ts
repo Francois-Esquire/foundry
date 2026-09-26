@@ -17,8 +17,26 @@ interface Closable {
   close(): Promise<void> | void;
 }
 
+/** An agent session a step opened, and the turn it has in flight. */
+export interface LiveSession {
+  readonly ref: SessionRef;
+  /** A prompt a host handed in mid-turn; the next turn sends it. */
+  steer?: string;
+  /** The controller of the turn running now, if one is. */
+  turn?: AbortController;
+}
+
+/** Why a step is parked; a host asked for it. */
+interface Pause {
+  readonly reason: string;
+}
+
+/** The Suspension kind a paused step parks under; the feed never sees it. */
+export const PAUSE_KIND = "quirks.pause";
+
 export interface Frame {
-  readonly controller: AbortController;
+  /** Reissued when the body re-enters after a pause. */
+  controller: AbortController;
   /** Per-kind call counters, reset when the body (re)enters. */
   readonly counters: Map<string, number>;
   /** Children still running after this frame parked; awaited on re-entry. */
@@ -26,7 +44,12 @@ export interface Frame {
   readonly key: string;
   readonly opened: Set<Closable>;
   readonly path: readonly string[];
-  readonly signal: AbortSignal;
+  /** Set by `pause`, read once by the body wrapper as it turns the abort into a suspension. */
+  paused?: Pause;
+  /** A prompt given on resume; the first turn of a recorded session takes it. */
+  resumePrompt?: string;
+  readonly sessions: LiveSession[];
+  signal: AbortSignal;
 }
 
 export interface Current {
@@ -110,6 +133,23 @@ export class RunScope {
     if (existing) {
       return existing;
     }
+    const controller = this.#stepController();
+    const frame: Frame = {
+      controller,
+      counters: new Map(),
+      detached: [],
+      key,
+      opened: new Set(),
+      path,
+      sessions: [],
+      signal: controller.signal,
+    };
+    this.frames.set(key, frame);
+    return frame;
+  }
+
+  /** A step controller chained under the run's. */
+  #stepController(): AbortController {
     const controller = new AbortController();
     const propagate = () => controller.abort(this.controller.signal.reason);
     if (this.controller.signal.aborted) {
@@ -119,27 +159,54 @@ export class RunScope {
         once: true,
       });
     }
-    const frame: Frame = {
-      controller,
-      counters: new Map(),
-      detached: [],
-      key,
-      opened: new Set(),
-      path,
-      signal: controller.signal,
-    };
-    this.frames.set(key, frame);
-    return frame;
+    return controller;
   }
 
-  /** Called when a body starts an attempt: counters restart, stragglers settle. */
+  /**
+   * Called when a body starts an attempt: counters restart, stragglers
+   * settle, and a controller spent by a pause is replaced so the body can
+   * run again. A real abort is never replaced: the run's signal still fires.
+   */
   async enter(frame: Frame): Promise<void> {
     frame.counters.clear();
+    if (frame.signal.aborted && !this.controller.signal.aborted) {
+      frame.controller = this.#stepController();
+      frame.signal = frame.controller.signal;
+    }
     if (frame.detached.length > 0) {
       const pending = frame.detached;
       frame.detached = [];
       await Promise.allSettled(pending);
     }
+  }
+
+  /**
+   * Park a running step: its signal aborts what it opened, and the body
+   * wrapper records a suspension instead of a failure. `false` when no such
+   * step is running in this run.
+   */
+  pause(stepId: string, reason = "paused from the dashboard"): boolean {
+    const frame = this.frames.get(stepId);
+    if (!frame || frame.signal.aborted) {
+      return false;
+    }
+    frame.paused = { reason };
+    frame.controller.abort(new Error(reason));
+    return true;
+  }
+
+  /**
+   * Hand a prompt to the agent active in a step: its current turn stops and
+   * the prompt becomes the next user message. Throws when no turn is running.
+   */
+  steer(stepId: string, prompt: string): void {
+    const frame = this.frames.get(stepId);
+    const live = frame?.sessions.find((session) => session.turn !== undefined);
+    if (!(frame && live?.turn)) {
+      throw new Error(`no agent turn is running in "${stepId}"`);
+    }
+    live.steer = prompt;
+    live.turn.abort(new Error("steered"));
   }
 
   /** The n-th call of `kind` in this frame's current attempt, and its ledger key. */

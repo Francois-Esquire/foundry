@@ -6,6 +6,7 @@ import {
   type DashboardSelection,
   type DashboardSnapshot,
   flattenSteps,
+  type RunSnapshot,
   selectionKey,
 } from "./dashboard-model";
 import {
@@ -16,8 +17,15 @@ import {
   runRows,
   scopedRuns,
 } from "./dashboard-tree";
+import type { RunActions, RunPrompt } from "./run-actions";
 
-const INSPECTOR_TABS = ["overview", "input", "output", "logs"] as const;
+const INSPECTOR_TABS = [
+  "overview",
+  "input",
+  "output",
+  "logs",
+  "stream",
+] as const;
 export type InspectorTab = (typeof INSPECTOR_TABS)[number];
 const PANES = ["trigger", "definition", "run"] as const;
 type Pane = (typeof PANES)[number] | "details";
@@ -48,6 +56,25 @@ function viewShortcut(key: KeyEvent): DashboardViewKey | undefined {
   return undefined;
 }
 
+/**
+ * The step a run action applies to: the selected step, else the run's root,
+ * whose frame is keyed by the definition's name.
+ */
+function actionTarget(
+  run: RunSnapshot,
+  stepId: string | undefined
+): { readonly stepId: string; readonly status: string } {
+  if (stepId === undefined) {
+    return { status: run.status, stepId: run.definitionId };
+  }
+  const step = flattenSteps(run.steps).find(
+    (entry) => entry.step.id === stepId
+  );
+  return { status: step?.step.status ?? run.status, stepId };
+}
+
+const PAUSED = new Set(["suspended", "paused"]);
+
 export function useDashboard(
   snapshot: DashboardSnapshot,
   onClose: () => void,
@@ -56,7 +83,8 @@ export function useDashboard(
   onLaunch?: (id: string) => void,
   onFeedKey?: (key: KeyEvent) => void,
   /** The feed is taking typed text: every key but Ctrl+C goes to it. */
-  feedCapturesKeys = false
+  feedCapturesKeys = false,
+  actions?: RunActions
 ) {
   const [view, setView] = useState<DashboardViewKey>("dashboard");
   const [selected, setSelected] = useState(() => initial(snapshot));
@@ -84,6 +112,10 @@ export function useDashboard(
   const [quitting, setQuitting] = useState(false);
   const cancelQuit = useCallback(() => setQuitting(false), []);
   const [tab, setTab] = useState<InspectorTab>("overview");
+  const [prompt, setPrompt] = useState<RunPrompt>();
+  const [promptDraft, setPromptDraft] = useState("");
+  const [actionError, setActionError] = useState<string>();
+  const [actionBusy, setActionBusy] = useState(false);
   const triggers = snapshot.triggers.filter((item) =>
     matches(`${item.name} ${item.kind} ${item.status}`, queries.trigger)
   );
@@ -303,7 +335,64 @@ export function useDashboard(
         break;
     }
   }
+  /** Run an action, keeping its failure on screen instead of in the log. */
+  function act(work: () => Promise<void>) {
+    if (actionBusy) {
+      return;
+    }
+    setActionBusy(true);
+    setActionError(undefined);
+    work()
+      .catch((error: unknown) => {
+        setActionError(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => setActionBusy(false));
+  }
+  const cancelPrompt = useCallback(() => {
+    setPrompt(undefined);
+    setPromptDraft("");
+  }, []);
+  const submitPrompt = useCallback(() => {
+    if (!(prompt && actions)) {
+      return;
+    }
+    const text = promptDraft.trim();
+    if (prompt.kind === "steer" && !text) {
+      return;
+    }
+    const { kind, runId, stepId } = prompt;
+    setPrompt(undefined);
+    setPromptDraft("");
+    act(() =>
+      kind === "steer"
+        ? actions.steer(runId, stepId, text)
+        : actions.resume(runId, stepId, text || undefined)
+    );
+  }, [prompt, promptDraft, actions]);
+  function runCommands(key: KeyEvent) {
+    if (!(actions && selected?.kind === "run")) {
+      return;
+    }
+    const run = snapshot.runs.find((item) => item.id === selected.id);
+    if (!run) {
+      return;
+    }
+    const { status, stepId } = actionTarget(run, selected.stepId);
+    if (key.name === "k") {
+      act(() => actions.cancel(run.id));
+    }
+    if (key.name === "p" && status === "running") {
+      act(() => actions.pause(run.id, stepId));
+    }
+    if (key.name === "p" && PAUSED.has(status)) {
+      setPrompt({ kind: "resume", runId: run.id, stepId });
+    }
+    if (key.name === "s" && status === "running") {
+      setPrompt({ kind: "steer", runId: run.id, stepId });
+    }
+  }
   function commands(key: KeyEvent) {
+    runCommands(key);
     if (key.name === "l" && selected?.kind === "definition") {
       onLaunch?.(selected.id);
     }
@@ -377,28 +466,40 @@ export function useDashboard(
     }
     return true;
   }
-  useKeyboard((key) => {
-    if (blocked) {
-      return;
-    }
-    if (feedTakesKey(key)) {
-      onFeedKey?.(key);
-      return;
-    }
-    if (handleGlobalKey(key)) {
-      return;
-    }
+  /** The help and search overlays take every key while showing. */
+  function overlayTakesKey(key: KeyEvent): boolean {
     if (help) {
       if (key.name === "escape" || key.sequence === "?") {
         setHelp(false);
       }
-      return;
+      return true;
     }
     if (searching) {
       if (key.name === "escape") {
         setQuery("");
         setSearching(false);
       }
+      return true;
+    }
+    return false;
+  }
+  /** Keys owned by a text field or an overlay; true when the key is spent. */
+  function captured(key: KeyEvent): boolean {
+    if (feedTakesKey(key)) {
+      onFeedKey?.(key);
+      return true;
+    }
+    // A steer or resume prompt has the keys; only Esc and Ctrl+C belong here.
+    if (prompt && !(key.ctrl && key.name === "c")) {
+      if (key.name === "escape") {
+        cancelPrompt();
+      }
+      return true;
+    }
+    return handleGlobalKey(key) || overlayTakesKey(key);
+  }
+  useKeyboard((key) => {
+    if (blocked || captured(key)) {
       return;
     }
     onShortcut?.(key);
@@ -409,6 +510,9 @@ export function useDashboard(
     commands(key);
   });
   return {
+    actionBusy,
+    actionError,
+    cancelPrompt,
     cancelQuit,
     changeTab,
     clearFilters,
@@ -418,9 +522,11 @@ export function useDashboard(
     finishSearch,
     goHome,
     help,
-    inputActive: searching || help || quitting,
+    inputActive: searching || help || quitting || prompt !== undefined,
     inspect,
     pane,
+    prompt,
+    promptDraft,
     queries,
     query: pane === "details" ? "" : queries[pane],
     quitting,
@@ -429,6 +535,7 @@ export function useDashboard(
     searching,
     select,
     selected,
+    setPromptDraft,
     setQuery,
     setView,
     showRun(id: string) {
@@ -439,6 +546,7 @@ export function useDashboard(
       setTab("overview");
       setExpanded((previous) => new Set([...previous, `run:${id}`]));
     },
+    submitPrompt,
     tab,
     toggle,
     triggers,

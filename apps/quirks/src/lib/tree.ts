@@ -17,7 +17,7 @@ import type {
   WorkflowRecord,
 } from "./definition";
 import { rootLock } from "./definition";
-import { current, RunScope, raceAbort } from "./run-scope";
+import { current, PAUSE_KIND, RunScope, raceAbort } from "./run-scope";
 import { validate } from "./schema";
 
 /**
@@ -91,16 +91,35 @@ async function runBody(
   }
   const definition = node.definition as StepRecord<Input, unknown>;
   const store = { cwd: scope.cwd, frame, scope };
-  const output = await raceAbort(
-    frame,
-    current.run(store, () =>
-      Promise.resolve(
-        definition.fn(
-          buildContext({ bindings, ctx, cwd: scope.cwd, frame, input, scope })
+  let output: unknown;
+  try {
+    output = await raceAbort(
+      frame,
+      current.run(store, () =>
+        Promise.resolve(
+          definition.fn(
+            buildContext({ bindings, ctx, cwd: scope.cwd, frame, input, scope })
+          )
         )
       )
-    )
-  );
+    );
+  } catch (error) {
+    const { paused } = frame;
+    if (!paused) {
+      throw error;
+    }
+    // A host parked this step: what it opened is aborted, and the step
+    // suspends instead of failing. Resuming replays the body from the top.
+    // The name is unique per pause, so a later pause of the same step is
+    // never answered by an earlier resolution.
+    frame.paused = undefined;
+    return await ctx.suspend({
+      kind: PAUSE_KIND,
+      name: `quirks.pause:${crypto.randomUUID().slice(0, 8)}`,
+      reason: paused.reason,
+      request: {},
+    });
+  }
   return definition.output
     ? await validate(definition.output, output, `${where} output`)
     : output;

@@ -605,7 +605,16 @@ step. Neither is authored code.
 - **Pause.** The host parks the step. Its signal aborts what it opened, and
   a suspension is recorded under the step's path, the same way `ask`
   records one. Resuming, with or without a prompt, replays the body from the
-  top. A prompt supplied on resume is injected at the recorded turn.
+  top. A prompt supplied on resume leads the first turn of the recorded
+  session in that step.
+
+Two things are visible in a session's transcript afterwards, by design. A
+turn cut short by a steer or a pause is committed with the text it produced
+so far and reads as a complete assistant message; the providers have no
+"aborted" status. After a pause the replayed body sends its user message
+again, so the transcript reads user, partial assistant, user again, assistant.
+The dashboard drives all of this with `s`, `p`, and `k` on a selected run or
+step, and its Stream tab shows the `[steer]` and `[resume]` markers inline.
 
 #### Writing replayable steps
 

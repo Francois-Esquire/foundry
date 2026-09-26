@@ -16,10 +16,18 @@ import type { DashboardSnapshot } from "./dashboard-model";
 import type { CatalogSelection } from "./dashboard-tree";
 import { FeedView } from "./feed";
 import { LaunchView } from "./launch";
+import type { RunActions, RunPrompt } from "./run-actions";
 import { useDashboard } from "./use-dashboard";
 import { type AnswerHandler, type FeedState, useFeed } from "./use-feed";
 
-function footer(pane: string, tab: string, definition: boolean): string {
+const RUN_ACTIONS = "s steer · p pause/resume · k cancel";
+
+function footer(
+  pane: string,
+  tab: string,
+  definition: boolean,
+  run: boolean
+): string {
   if (pane === "details" && definition) {
     return "l launch · f filter runs · Esc catalog";
   }
@@ -27,26 +35,28 @@ function footer(pane: string, tab: string, definition: boolean): string {
     return "↑↓ select · l launch catalog item · f filter runs · / search";
   }
   if (pane === "run") {
-    return "↑↓ select · ←→ fold · a active · e failed · / search";
+    return `↑↓ select · ←→ fold · a active · e failed${run ? ` · ${RUN_ACTIONS}` : ""} · / search`;
   }
+  const controls = run ? ` · ${RUN_ACTIONS}` : "";
   if (tab === "logs") {
-    return "←→ tabs · ↑↓ scroll · f follow · b run";
+    return `←→ tabs · ↑↓ scroll · f follow${controls} · b run`;
   }
   if (tab === "input" || tab === "output") {
-    return "←→ tabs · ↑↓ browse · Space fold JSON · b run";
+    return `←→ tabs · ↑↓ browse · Space fold JSON${controls} · b run`;
   }
-  return "←→ tabs · ↑↓ scroll · b run";
+  return `←→ tabs · ↑↓ scroll${controls} · b run`;
 }
 
 function dashboardFooter(
   pane: string,
   tab: string,
   searching: boolean,
-  selected?: string
+  selected?: string,
+  actions = false
 ): string {
   return searching
     ? "Type to search · Enter apply · Esc clear"
-    : `${pane} · ${footer(pane, tab, selected === "definition")}`;
+    : `${pane} · ${footer(pane, tab, selected === "definition", actions && selected === "run")}`;
 }
 
 function feedFooter(feed: FeedState): string {
@@ -132,6 +142,76 @@ function DashboardSearch({
   );
 }
 
+/** One line of text for a steer or a resume prompt on a live step. */
+function PromptBar({
+  prompt,
+  draft,
+  onInput,
+  onSubmit,
+}: {
+  readonly prompt: RunPrompt;
+  readonly draft: string;
+  readonly onInput: (value: string) => void;
+  readonly onSubmit: () => void;
+}) {
+  const theme = useTheme();
+  const label =
+    prompt.kind === "steer"
+      ? `steer ${prompt.stepId} › `
+      : `resume ${prompt.stepId} · prompt optional › `;
+  return (
+    <box flexDirection="row" height={1}>
+      <text fg={theme.colors.foreground}>{label}</text>
+      <input
+        backgroundColor={theme.colors.muted}
+        cursorColor={theme.colors.primary}
+        flexGrow={1}
+        focused
+        focusedBackgroundColor={theme.colors.muted}
+        focusedTextColor={theme.colors.foreground}
+        onInput={onInput}
+        onSubmit={onSubmit}
+        textColor={theme.colors.foreground}
+        value={draft}
+      />
+    </box>
+  );
+}
+
+function footerFor(
+  ui: ReturnType<typeof useDashboard>,
+  feed: FeedState,
+  onFeed: boolean,
+  actions: boolean
+): string {
+  if (ui.prompt) {
+    return `${ui.prompt.kind} · type, then Enter send · Esc cancel`;
+  }
+  if (onFeed) {
+    return feedFooter(feed);
+  }
+  return dashboardFooter(
+    ui.pane,
+    ui.tab,
+    ui.searching,
+    ui.selected?.kind,
+    actions
+  );
+}
+
+function ActionStatus({
+  busy,
+  error,
+}: {
+  readonly busy: boolean;
+  readonly error?: string;
+}) {
+  if (busy) {
+    return <Text>Working…</Text>;
+  }
+  return error ? <Text>{error}</Text> : null;
+}
+
 /** The host owns snapshots, additional toolbar controls, and shutdown. */
 export function DashboardView({
   snapshot,
@@ -141,8 +221,11 @@ export function DashboardView({
   viewportWidth,
   onLaunch,
   onAnswer,
+  actions,
 }: {
   readonly snapshot: DashboardSnapshot;
+  /** Cancel, pause, resume, and steer live runs; absent in previews. */
+  readonly actions?: RunActions;
   /** Answer an open input entry; absent where nothing can resume the run. */
   readonly onAnswer?: AnswerHandler;
   readonly onClose: () => void;
@@ -190,7 +273,8 @@ export function DashboardView({
     Boolean(launchId),
     launch,
     feed.handleKey,
-    feed.answer.typing
+    feed.answer.typing,
+    actions
   );
   const cancelLaunch = useCallback(() => setLaunchId(undefined), []);
   const started = useCallback(
@@ -258,6 +342,7 @@ export function DashboardView({
       onTab={ui.changeTab}
       selection={ui.selected}
       snapshot={snapshot}
+      stream={actions?.stream}
       tab={ui.tab}
     />
   );
@@ -271,9 +356,8 @@ export function DashboardView({
   if (onFeed) {
     content = <FeedView feed={feed} inputActive={ui.inputActive} />;
   }
-  const footerText = onFeed
-    ? feedFooter(feed)
-    : dashboardFooter(ui.pane, ui.tab, ui.searching, ui.selected?.kind);
+  const footerText = footerFor(ui, feed, onFeed, actions !== undefined);
+
   return (
     <box
       backgroundColor={theme.colors.background}
@@ -306,11 +390,20 @@ export function DashboardView({
       )}
       {ui.help && <KeyboardHelp active={!ui.quitting} />}
       {!ui.help && content}
+      {ui.prompt && (
+        <PromptBar
+          draft={ui.promptDraft}
+          onInput={ui.setPromptDraft}
+          onSubmit={ui.submitPrompt}
+          prompt={ui.prompt}
+        />
+      )}
       {!ui.help && (
         <text fg={theme.colors.mutedForeground} wrapMode="none">
           {footerText}
         </text>
       )}
+      <ActionStatus busy={ui.actionBusy} error={ui.actionError} />
       <text fg={theme.colors.mutedForeground} wrapMode="none">
         {onFeed
           ? "? help · q / Ctrl+C quit"

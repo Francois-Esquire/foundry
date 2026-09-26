@@ -7,11 +7,13 @@ import { ConfigErrorView } from "~/views/config-error";
 import { DashboardView } from "~/views/dashboard";
 import type { DashboardSnapshot } from "~/views/dashboard-model";
 import { OnboardingView } from "~/views/onboarding";
+import type { RunActions } from "~/views/run-actions";
 import { SplashView } from "~/views/splash";
 import { summarizeConfig } from "~/views/splash-model";
 import type { AnswerHandler } from "~/views/use-feed";
 
 interface Screen {
+  readonly actions?: RunActions;
   readonly entered: boolean;
   readonly error?: string;
   readonly hasConfig?: boolean;
@@ -41,8 +43,16 @@ function DashboardApp({
   readonly onClose: () => void;
 }) {
   const theme = useTheme();
-  const { entered, snapshot, setup, error, hasConfig, onAnswer, onLaunch } =
-    useSyncExternalStore(store.subscribe, store.getSnapshot);
+  const {
+    actions,
+    entered,
+    snapshot,
+    setup,
+    error,
+    hasConfig,
+    onAnswer,
+    onLaunch,
+  } = useSyncExternalStore(store.subscribe, store.getSnapshot);
   if (error) {
     return <ConfigErrorView message={error} onClose={onClose} />;
   }
@@ -59,6 +69,7 @@ function DashboardApp({
   if (entered && snapshot) {
     return (
       <DashboardView
+        actions={actions}
         onAnswer={onAnswer}
         onClose={onClose}
         onLaunch={onLaunch}
@@ -197,6 +208,9 @@ export async function openDashboard(
     },
     setLauncher(onLaunch: (name: string, input: unknown) => Promise<string>) {
       publish({ ...screen, onLaunch });
+    },
+    setRunActions(runActions: RunActions) {
+      publish({ ...screen, actions: runActions });
     },
     update(snapshot: DashboardSnapshot, hasConfig = true) {
       publish({ ...screen, hasConfig, snapshot });

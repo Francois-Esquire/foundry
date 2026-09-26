@@ -8,6 +8,8 @@ import { RunScope, runs } from "~/lib/run-scope";
 import type { AgentDefinition } from "~/lib/types";
 import { mockModels } from "~/models/echo";
 
+const NO_TURN_PATTERN = /no agent turn is running/;
+
 afterEach(() => {
   runs.clear();
 });
@@ -114,5 +116,45 @@ describe("agents.session", () => {
     const session = await agents.session(reviewer);
     a.frame.controller.abort(new Error("step cancelled"));
     await expect(session.generate("hi")).rejects.toThrow("step cancelled");
+  });
+
+  it("a steer stops the running turn and the prompt becomes the next one", async () => {
+    const a = args();
+    const models = mockModels(
+      [CLAUDE_CODE],
+      ({ prompt }) => `reply to ${prompt.split("\n").at(-1) ?? ""}`,
+      { hold: ({ prompt }) => prompt.endsWith("count slowly") }
+    );
+    const agents = agentsManager({ ...deps(), models })(a);
+    const session = await agents.session(reviewer);
+    const turn = session.generate("count slowly");
+    // The turn is streaming its first word; hand the agent a new prompt.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    a.scope.steer(a.frame.key, "stop and summarise");
+    const reply = await turn;
+    expect(reply.text).toBe("reply to stop and summarise");
+    expect(a.written.join("")).toContain("[steer] stop and summarise");
+    // Nothing in flight afterwards, so a second steer has nothing to catch.
+    expect(() => a.scope.steer(a.frame.key, "again")).toThrow(NO_TURN_PATTERN);
+  });
+
+  it("a resume prompt rides on the first turn of the session that was parked", async () => {
+    const a = args();
+    const seen: string[] = [];
+    const models = mockModels([CLAUDE_CODE], ({ prompt }) => {
+      seen.push(prompt);
+      return "ok";
+    });
+    const agents = agentsManager({ ...deps(), models })(a);
+    await agents.session(reviewer);
+    // Replay: the same call returns the recorded session; the host left a prompt.
+    await a.scope.enter(a.frame);
+    a.frame.resumePrompt = "focus on the tests";
+    const session = await agents.session(reviewer);
+    await session.generate("continue the review");
+    await session.generate("and then?");
+    expect(seen[0]).toContain("focus on the tests\n\ncontinue the review");
+    expect(seen[1]).not.toContain("focus on the tests\n\nand then?");
+    expect(a.written.join("")).toContain("[resume] focus on the tests");
   });
 });

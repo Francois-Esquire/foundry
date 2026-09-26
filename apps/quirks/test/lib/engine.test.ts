@@ -25,6 +25,9 @@ import type { FeedEntrySnapshot } from "~/views/dashboard-model";
 
 import { bindMock } from "../helpers/bindings";
 
+const NOT_RUNNING_PATTERN = /not running here/;
+const CANCELLED_PATTERN = /cancelled/;
+
 let root: string;
 
 beforeEach(async () => {
@@ -304,5 +307,86 @@ describe("lib2 through the engine", () => {
     );
     expect(renamed.join("\n")).toContain("nothing here can resume it");
     await later.stop();
+  });
+
+  it("pauses a running step and resumes it with a prompt on the recorded session", async () => {
+    const prompts: string[] = [];
+    const mock = bindMock(
+      ({ prompt }) => {
+        prompts.push(prompt);
+        return "ok";
+      },
+      { root }
+    );
+    const reviewer = agent({ prompt: "Review." });
+    let release: () => void = () => undefined;
+    let gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const attempts: string[] = [];
+    step("review").do(async ({ agents, stream }) => {
+      const session = await agents.session(reviewer);
+      attempts.push(session.ref.id);
+      const reply = await session.generate("look at the tests");
+      stream.write("waiting\n");
+      await gate;
+      return reply.text;
+    });
+    const engine = await startEngine(registerCatalog, {
+      print: () => undefined,
+    });
+    const launched = await engine.launch<string>("review", {});
+    const status = async (wanted: string) =>
+      openEntry(
+        async () =>
+          (await engine.runs())
+            .filter((run) => run.id === launched.id)
+            .map((run) => ({ status: run.status })) as never,
+        (entry) => (entry as unknown as { status: string }).status === wanted
+      );
+    // Let the body reach its wait, then park it.
+    await openEntry(
+      async () => (attempts.length > 0 ? [{}] : []) as never,
+      () => true
+    );
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(engine.pause(launched.id, "review", "hold")).toBe(true);
+    expect(await status("suspended")).toBeDefined();
+    expect(engine.pause(launched.id, "review")).toBe(false);
+
+    // Resume with a prompt: the body replays, the session is the same one,
+    // and the prompt leads its first turn.
+    gate = Promise.resolve();
+    release();
+    await engine.resume(launched.id, "review", "focus on flaky ones");
+    await expect(launched.result).resolves.toBe("ok");
+    expect(attempts).toHaveLength(2);
+    expect(attempts[0]).toBe(attempts[1]);
+    expect(prompts).toHaveLength(2);
+    expect(prompts[1]).toContain("focus on flaky ones\n\nlook at the tests");
+    await expect(engine.resume(launched.id, "review", "again")).rejects.toThrow(
+      NOT_RUNNING_PATTERN
+    );
+    await engine.stop();
+    await mock.dispose();
+  });
+
+  it("cancels one run", async () => {
+    step("wait").do(
+      ({ signal }) =>
+        new Promise((_, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason), {
+            once: true,
+          });
+        })
+    );
+    const engine = await startEngine(registerCatalog, {
+      print: () => undefined,
+    });
+    const launched = await engine.launch("wait", {});
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await engine.cancel(launched.id);
+    await expect(launched.result).rejects.toThrow(CANCELLED_PATTERN);
+    await engine.stop();
   });
 });

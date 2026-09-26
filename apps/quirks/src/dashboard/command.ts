@@ -124,6 +124,27 @@ export async function runInteractive(
       await runningEngine.answer(entryId, answer);
       await update();
     });
+    terminal.setRunActions({
+      async cancel(runId) {
+        await runningEngine.cancel(runId);
+        await update();
+      },
+      async pause(runId, stepId) {
+        if (!runningEngine.pause(runId, stepId)) {
+          throw new Error("This step is not running in this process.");
+        }
+        await update();
+      },
+      async resume(runId, stepId, prompt) {
+        await runningEngine.resume(runId, stepId, prompt);
+        await update();
+      },
+      steer(runId, stepId, prompt) {
+        runningEngine.steer(runId, stepId, prompt);
+        return Promise.resolve();
+      },
+      stream: (runId, signal) => runningEngine.stream(runId, signal),
+    });
     terminal.setLauncher(async (name, input) => {
       const definition = catalog.definitions.get(name);
       if (!definition || catalog.monitors.has(name)) {

@@ -97,4 +97,24 @@ describe("Ledger", () => {
     expect(ledger.get<{ id: string }>(key)?.id).toBe("s1");
     expect(ledger.size).toBe(1);
   });
+
+  it("pause spends the step controller and re-entry reissues it", async () => {
+    const scope = new RunScope("run-pause", "/tmp");
+    const frame = scope.frame(["root", "step"]);
+    const before = frame.signal;
+    expect(scope.pause("root.step", "hold on")).toBe(true);
+    expect(before.aborted).toBe(true);
+    expect(frame.paused).toEqual({ reason: "hold on" });
+    // A second pause of an already-parked step is a no-op.
+    expect(scope.pause("root.step")).toBe(false);
+    expect(scope.pause("root.other")).toBe(false);
+    await scope.enter(frame);
+    expect(frame.signal).not.toBe(before);
+    expect(frame.signal.aborted).toBe(false);
+    // The run's abort still reaches the new controller.
+    scope.abort(new Error("all stop"));
+    expect(frame.signal.aborted).toBe(true);
+    await scope.enter(frame);
+    expect(frame.signal.aborted).toBe(true);
+  });
 });

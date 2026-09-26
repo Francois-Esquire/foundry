@@ -10,7 +10,7 @@ import type { WorkflowState } from "@foundry/workflows/workflow";
 import type { FeedAnswer } from "~/feed/entry";
 import type { FeedPublisher } from "~/feed/publish";
 import { feedRouter } from "~/feed/route";
-import { restoreScope, runs as runScopes } from "~/lib/run-scope";
+import { PAUSE_KIND, restoreScope, runs as runScopes } from "~/lib/run-scope";
 import { observeSteps } from "~/observe";
 import type { RunExtras } from "~/state/runs";
 import { loadRuns, saveRun } from "~/state/runs";
@@ -30,11 +30,23 @@ import { loadRuns, saveRun } from "~/state/runs";
 export interface Engine {
   /** Answer an open input entry; the run that asked resumes with it. */
   answer(entryId: string, answer: FeedAnswer): Promise<void>;
+  /** Cancel one run, wherever it is. */
+  cancel(runId: string): Promise<void>;
   launch<O>(
     name: string,
     input: unknown,
     triggerId?: string
   ): Promise<{ readonly id: string; readonly result: Promise<O> }>;
+  /**
+   * Park a running step: what it opened stops and the run shows as
+   * suspended. `false` when no such step is running here.
+   */
+  pause(runId: string, stepId: string, reason?: string): boolean;
+  /**
+   * Resume a paused step. The body replays from the top; a prompt goes to
+   * the first turn of the agent session it had open.
+   */
+  resume(runId: string, stepId: string, prompt?: string): Promise<void>;
   /**
    * Dispatch a registered definition and wait for its value. `input` is
    * `unknown` because names, not types, address the registry — the caller
@@ -43,6 +55,8 @@ export interface Engine {
   run<O>(name: string, input: unknown, triggerId?: string): Promise<O>;
   /** Every Run this process dispatched or adopted. */
   runs(): Promise<readonly RunRecord[]>;
+  /** Hand a prompt to the agent turn running in a step; it becomes the next message. */
+  steer(runId: string, stepId: string, prompt: string): void;
   stop(options?: { readonly cancel?: boolean }): Promise<void>;
   /**
    * A live run's events and chunks from its start, then as they happen;
@@ -208,12 +222,23 @@ export async function startEngine(
     ?.cancelAbandoned()
     .catch((error: unknown) => print(`[feed] ${String(error)}`));
 
+  const scopeOf = (runId: string) => {
+    const scope = runScopes.get(runId);
+    if (!scope) {
+      throw new Error(`run ${runId} is not running here`);
+    }
+    return scope;
+  };
+
   const engine: Engine = {
     answer(entryId, answer) {
       if (!router) {
         return Promise.reject(new Error("The feed is not available."));
       }
       return router.answer(entryId, answer);
+    },
+    async cancel(runId) {
+      await orchestrator.cancelRun(runId);
     },
     async launch<O>(name: string, input: unknown, triggerId?: string) {
       if (stopping) {
@@ -227,6 +252,34 @@ export async function startEngine(
         dispatching.delete(dispatch)
       );
       return { id: dispatched.id, result: track(name, dispatched) };
+    },
+    pause(runId, stepId, reason) {
+      return runScopes.get(runId)?.pause(stepId, reason) ?? false;
+    },
+    async resume(runId, stepId, prompt) {
+      const scope = scopeOf(runId);
+      const pending = await orchestrator.listSuspensions({
+        kind: PAUSE_KIND,
+        runId,
+        status: "pending",
+      });
+      // The root segment of a step path is the registered name here, but
+      // compare below it too, as the feed does, in case a host renames it.
+      const suspension = pending.items.find(
+        (item) =>
+          item.stepPath.join(".") === stepId ||
+          item.stepPath.slice(1).join(".") ===
+            stepId.split(".").slice(1).join(".")
+      );
+      if (!suspension) {
+        throw new Error(`"${stepId}" is not paused`);
+      }
+      const trimmed = prompt?.trim() || undefined;
+      const frame = scope.frames.get(stepId);
+      if (frame && trimmed !== undefined) {
+        frame.resumePrompt = trimmed;
+      }
+      await orchestrator.resolve(suspension.id, { prompt: trimmed ?? null });
     },
     async run<O>(name: string, input: unknown, triggerId?: string): Promise<O> {
       const launched = await this.launch<O>(name, input, triggerId);
@@ -244,6 +297,9 @@ export async function startEngine(
             }
           : record;
       });
+    },
+    steer(runId, stepId, prompt) {
+      scopeOf(runId).steer(stepId, prompt);
     },
 
     async stop(options) {

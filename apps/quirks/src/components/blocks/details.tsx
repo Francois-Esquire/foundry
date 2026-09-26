@@ -14,9 +14,11 @@ import type {
 } from "~/views/dashboard-model";
 import { selectionKey } from "~/views/dashboard-model";
 import { type CatalogSelection, scopedRuns } from "~/views/dashboard-tree";
+import type { RunActions } from "~/views/run-actions";
 import type { InspectorTab } from "~/views/use-dashboard";
 import { RunLogs } from "./run-logs";
 import { RunOverview, StepOverview } from "./run-overview";
+import { RunStream } from "./run-stream";
 import { ValueViewer } from "./value-viewer";
 
 function stepPath(
@@ -43,6 +45,7 @@ function RunInspector({
   tab,
   onTab,
   onInspect,
+  stream,
 }: {
   readonly run: RunSnapshot;
   readonly snapshot: DashboardSnapshot;
@@ -51,6 +54,7 @@ function RunInspector({
   readonly tab: InspectorTab;
   readonly onTab: (tab: InspectorTab) => void;
   readonly onInspect: (selection: DashboardSelection) => void;
+  readonly stream?: RunActions["stream"];
 }) {
   const path = stepPath(run.steps, selection.stepId);
   const step = path.at(-1);
@@ -103,6 +107,14 @@ function RunInspector({
       ),
       key: "logs",
       label: "Logs",
+    },
+    {
+      content:
+        tab === "stream" ? (
+          <RunStream runId={run.id} source={stream} stepId={step?.id} />
+        ) : null,
+      key: "stream",
+      label: "Stream",
     },
   ] as const;
   return (
@@ -216,6 +228,7 @@ export function DetailsBlock({
   onInspect,
   onFilter,
   onLaunch,
+  stream,
 }: {
   readonly snapshot: DashboardSnapshot;
   readonly selection?: DashboardSelection;
@@ -225,6 +238,7 @@ export function DetailsBlock({
   readonly onInspect: (selection: DashboardSelection) => void;
   readonly onFilter: (selection: CatalogSelection) => void;
   readonly onLaunch?: (id: string) => void;
+  readonly stream?: RunActions["stream"];
 }) {
   let content = (
     <Text>Select a schedule, monitor, definition, run, or step.</Text>
@@ -240,6 +254,7 @@ export function DetailsBlock({
         run={run}
         selection={selection}
         snapshot={snapshot}
+        stream={stream}
         tab={tab}
       />
     ) : (
