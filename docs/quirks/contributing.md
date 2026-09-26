@@ -48,7 +48,7 @@ bun run docs:build
 
 The static site is generated in `packages/docs/dist/`. Blume's generated runtime
 lives in `packages/docs/.blume/`. Both are ignored by Git. Maintainer notes
-prefixed with `_`, including `_api-followups.md`, stay outside the rendered site.
+prefixed with `_`, such as `_api-alt.md` and `_rebuild-gaps.md`, stay outside the rendered site.
 
 CI publishes the built site to GitHub Pages after a successful documentation
 build on `main`. Pull requests only validate and build. The site lives at

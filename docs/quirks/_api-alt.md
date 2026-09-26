@@ -159,7 +159,7 @@ inline stays internal.
 | --- | --- | --- | --- |
 | `agent` | definition | `agent({ prompt, model?, provider?, skills? })` | Who does model work, with its default context. `skills` takes a skill set. |
 | `workspace` | definition | `workspace({ path })` | Another directory to work on. The config's own is implicit. |
-| `sandbox` | definition | `sandbox({ image, mount?, resources? })` or `sandbox({ files })` | An isolated place to run commands. |
+| `sandbox` | definition | `sandbox({ image, mount?, resources? })` or `sandbox({ files, image? })` | An isolated place to run commands; the files form is a scratch sandbox seeded under `/workspace`. |
 | `artifact` | definition | `artifact({ name, type })` | A versioned output. |
 | `skills` | definition | `skills.load().add(glob).pick(...names)` | A set of skills for a session. |
 | `step` | work | `step(name?).input(s).output(s).do(fn)` | One unit of work. |
@@ -698,15 +698,32 @@ const drafter = agent({ prompt: "Draft the page.", model: "anthropic/claude-sonn
   agent takes). Still open: where global and workspace skills live, how a
   glob is named in the catalog, and how the set loads into a CLI provider
   versus the built-in harness.
-- **Steering from the stream.** The host-side calls (`steer`, `pause`,
-  `resume`) need their final shape and how they surface in the TUI and
-  dashboard.
-- **After phase 1.** The ledger is in memory (no replay across a restart);
-  `ask.approval` returns `{ approved }` without a note; the default provider
-  is the first available CLI harness; `sandbox({ files })` is not
-  implemented; a monitor's handler returning a locked node does not start
-  it yet. Triggers keep `schedule(name, { at, input, workflow })` and
-  `monitor(name, handler, source)` until the identity spike lands.
+- **Built-in provider.** The default provider is the first available CLI
+  harness; nothing backs the built-in `@foundry/agents` harness yet.
+- **Trigger targets with children.** `schedule(publish.parallel({ … }))`
+  and a monitor handler returning such a tree are refused; wrap the tree in
+  `workflow(name, tree)`. Lifting that needs anonymous trees to register.
+- **Recovery of running runs.** A run parked on an ask survives a restart;
+  a run that was mid-body when the process died does not, yet.
+
+### Follow-ups carried over
+
+Pending decisions from the first library, still open against this API.
+
+- **`AgentSpec` fields Quirks does not wire.** `mcp`, `mesh`, and `tools` are
+  accepted by the spec and ignored by the session runtime. Narrow the public
+  type, reject them, or implement them.
+- **Workspace identity in labels.** Launchd labels are
+  `com.foundry.quirks.<key>`; two projects with the same trigger key collide.
+  A retained session id shared across repositories has the same problem.
+- **Dry runs and launchd.** Decide whether `--dry` should also refuse launchd
+  mutations and temporary worktree directories.
+- **Run stream retention.** Settled runs keep their event and chunk history
+  in memory until the engine stops; long-lived dashboards streaming agent
+  output need a trim or a dispose.
+- **Release copy.** The authored `first-release.md` introduction needs an
+  explicit input to release generation, and the package changelog should
+  not carry the whole repository's history.
 
 ### Advanced patterns, later
 

@@ -16,8 +16,8 @@ pieces of work; each step lands before the next starts.
    2. Build the internals: the wrapper that drains children before the body,
       the context keys, composition, trigger state.
    3. Build the outermost API: the eight top-level words and the builder.
-   4. Redesign the library around them. Fold in the open items in
-      `_api-followups.md` as they come up.
+   4. Redesign the library around them. Open items live in the API doc's
+      "Open" section and the gap map.
 3. **Companion skill.** A top-level `skills/` directory of project skills,
    installable with Vercel's `skills` CLI. The first skill helps an agent set
    up a `quirks.config.ts`; written against the cleaned-up API.

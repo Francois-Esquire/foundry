@@ -1,9 +1,9 @@
 # Quirks rebuild: gap map
 
 Maintainer note, excluded from the Blume site. Roadmap step 2.1: what existed
-against [`_api-alt.md`](./_api-alt.md) when surveyed on 2026-09-25, and what
-phase 1 landed the same day. Paths are under `apps/quirks/src` and
-`packages/`.
+against [`_api-alt.md`](./_api-alt.md) when surveyed on 2026-09-25, what
+phase 1 landed the same day, and what phase 2 landed after it. Paths are
+under `apps/quirks/src` and `packages/`.
 
 ## Phase 1 landed
 
@@ -12,16 +12,43 @@ workflow), `definition.ts` (lock forms), `tree.ts` (bound package Steps
 driven from the parent body, `factoryFor`, `registerCatalog`),
 `run-scope.ts` (run, frame, three abort layers, async context for the
 frame cwd), `ledger.ts` (replay-safe context calls), `context.ts` (ask,
-report, log, stream, signal, run), `catalog.ts`, `triggers.ts` (the named
-schedule and monitor factories over the new definitions), `schema.ts`
+report, log, stream, signal, run), `catalog.ts`, `triggers.ts`, `schema.ts`
 (Standard Schema validation, JSON Schema to launch-form fields), and
 `managers/` (agents, workspaces, sandboxes, artifacts, skills). The old
 registry, `Primitives`, `feed`, `loopUntil`, `bindAgents`, and `skillsNamed`
 are gone. Tests live in `apps/quirks/test/lib/`.
 
-Status of the table below after phase 1: every "Missing" and "Different" row
-is done except the trigger shapes (named factories kept on purpose) and
-the residency key (unchanged, folded into the identity decision).
+Status of the table below after phase 2: every "Missing" and "Different" row
+is done. The residency key is unchanged (folded into the identity decision).
+
+## Phase 2 landed
+
+- **Triggers and identity.** `schedule(target).at(slot) / .every(interval)`
+  takes a definition, bare or locked with its input; `monitor(source)
+  .every?(interval).do(handler)` takes one string. A handler that returns a
+  childless locked node asks the tick to start it, attributed to the
+  monitor. Schedules are keyed by target and input, monitors by source; the
+  keys are filename- and launchd-safe and a label rides in the schedule
+  history for `status`. A nameless step or workflow takes the name of the
+  top-level `const` it is assigned to (`lib/identity.ts`: call site via
+  `Error.prepareStackTrace`, binding via the project's own `typescript`, an
+  optional peer). Definitions made inside functions or inline stay internal.
+  ws monitors, `select`, object monitor forms, and live file watching are
+  gone; globs are polled.
+- **Approval note.** `ask.approval` resolves to `{ approved, note? }`; the
+  dashboard takes the note after the choice.
+- **Recovery.** A run parked on an ask is written to its run file as it
+  parks, with its ledger and session id. The next askable process adopts
+  it, restores the scope, and keeps the question open; the answer replays
+  the body against the recorded sessions.
+- **Steer, pause, resume, cancel.** `engine.steer/pause/resume/cancel`, on
+  the frame table's live sessions and a pause suspension kind of its own;
+  the dashboard's `s`, `p`, `k` and a Stream tab. Verified against
+  claude-code and codex: both commit an aborted turn with its partial text
+  and continue the session.
+- **Sandboxes.** `--dry` runs sandboxes over the fake runtime and echoes
+  commands; `sandbox({ files, image? })` seeds a scratch sandbox under
+  `/workspace`; `microsandbox` is an optional peer.
 
 ## Quirks surface today
 
@@ -86,31 +113,32 @@ the `@foundry/workspaces/git` subpath only.
 list, shutdown, sweep }`. Specs need `format: "foundry.sandbox.container/1"`
 and `mounts: [{ id, source, target, access }]` checked against
 `allowedMountRoots`. Exec is `container.commands.exec(argv)`, not
-`container.exec`. `{ files }` exists only on the in-memory virtual system.
+`container.exec`. A `{ files }` sandbox is an image sandbox without a
+workspace mount, seeded through `container.files.copyIn`.
 
 **artifacts.** `write({ artifactId, changes })` mutates the active version in
 place and throws if frozen; `revise()` freezes and adds a new one. Entries are
 `{ path: { bytes, mime? } }`. "Each run adds a version" means Quirks calls
 `revise`, and maps a definition to a stable `ArtifactId`.
 
-## Open after phase 1
+## Open after phase 2
 
-- **Ledger persistence.** The `(path, kind, occurrence)` record is in memory;
-  recovery after a restart does not replay it. Persist next to `saveRun`
-  when runs survive a process.
-- **Approval note.** `ask.approval` returns `{ approved }`; a note needs a
-  JSON suspension resolution and a dashboard field.
 - **Built-in provider.** The default is still the first available CLI
   harness; no provider backs the built-in `@foundry/agents` harness.
-- **Steer and pause host API.** The frame table registers sessions; the
-  host calls and the `SessionHarness` "abort turn and queue a message"
-  operation are not built.
-- **`sandbox({ files })`.** Throws; only image sandboxes exist. The sandbox
-  runtime is microsandbox behind a dynamic import; no runtime under `--dry`.
-- **Monitor returning a locked node.** Not wired; part of the trigger
-  redesign with the identity spike.
 - **Prebuilt steps lost the Codex read-only sandbox policy** they passed
   through `generateText`; the read-only instruction remains in the prompt.
+- **Aborted turns read as complete.** `MessageStatus` has no "aborted"; a
+  steered or paused turn is committed with its partial text as a complete
+  assistant message. Cosmetic until the providers expose more.
+- **Recovery of running runs.** Only suspended runs are adopted after a
+  restart; a run that was mid-body when the process died is skipped with a
+  warning. Replaying it from the top with the ledger is the same mechanism
+  and a later step.
+- **`stream()` on a session is not steered.** A steer aborts a streamed turn
+  but the wrapper only re-issues the prompt for `generate()`.
+- **Identity for helper-made definitions.** A definition created inside a
+  helper function is nameless by design; the AST pass could follow the
+  caller's binding later if that proves common.
 
 ## Decisions
 
