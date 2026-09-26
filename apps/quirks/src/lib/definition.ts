@@ -13,9 +13,9 @@ import type { Context, SetupContext } from "./types";
 type Children = Readonly<Record<string, LockedNode>>;
 
 export type StepFn<I, O> = (context: Context<I>) => O | Promise<O>;
-export type SetupFn<I> = (
+export type SetupFn<I, O = unknown> = (
   context: SetupContext<I>
-) => LockedNode | Promise<LockedNode>;
+) => LockedNode<O> | Promise<LockedNode<O>>;
 
 export interface LockedNode<O = unknown> {
   /** Phantom: the node's output type. */
@@ -29,23 +29,51 @@ export interface LockedNode<O = unknown> {
   readonly parsed?: boolean;
 }
 
-/** What is left of `I` once children supply `K`; optional when nothing is. */
-type Literal<I, C> = Omit<I, keyof C>;
-type LiteralArgs<I, C> =
-  Record<string, never> extends Literal<I, C>
-    ? [input?: Literal<I, C>]
-    : [input: Literal<I, C>];
+/**
+ * What is left of the raw input `R` once children supply their keys;
+ * optional when nothing is. `R` is the schema's input type, so defaulted
+ * fields are optional and a transform's pre-image is what the literal takes.
+ */
+type Literal<R, C> = Omit<R, keyof C>;
+type LiteralArgs<R, C> =
+  Record<string, never> extends Literal<R, C>
+    ? [input?: Literal<R, C>]
+    : [input: Literal<R, C>];
 
-export interface Lockable<I, O> {
+/** A child node whose output must fit the parent's key; an untyped child passes. */
+type ChildFor<T, N> =
+  N extends LockedNode<infer O>
+    ? unknown extends O
+      ? N
+      : O extends T
+        ? N
+        : never
+    : never;
+
+/**
+ * The children a parent with raw input `R` accepts: every key declared, and
+ * every child's output assignable to its key. A parent without a schema
+ * (or with an index signature) accepts any children.
+ */
+type Accepts<R, C extends Children> = string extends keyof R
+  ? C
+  : {
+      readonly [K in keyof C]: K extends keyof R ? ChildFor<R[K], C[K]> : never;
+    };
+
+export interface Lockable<R, O> {
   parallel<C extends Children>(
-    children: C,
-    ...input: LiteralArgs<I, C>
+    children: C & Accepts<R, C>,
+    ...input: LiteralArgs<R, C>
   ): LockedNode<O>;
   series<C extends Children>(
-    children: C,
-    ...input: LiteralArgs<I, C>
+    children: C & Accepts<R, C>,
+    ...input: LiteralArgs<R, C>
   ): LockedNode<O>;
-  <C extends Children>(children: C, ...input: LiteralArgs<I, C>): LockedNode<O>;
+  <C extends Children>(
+    children: C & Accepts<R, C>,
+    ...input: LiteralArgs<R, C>
+  ): LockedNode<O>;
 }
 
 interface Shared {
@@ -58,9 +86,15 @@ interface Shared {
   readonly site?: CallSite;
 }
 
-/** The data of a step definition, without the lock forms. */
+/**
+ * The data of a step definition, without the lock forms. `O` is what a lock
+ * of it produces for a parent; the body's own return is validated through
+ * `output` first, so it is not typed here.
+ */
 export interface StepRecord<I = never, O = unknown> extends Shared {
-  readonly fn: StepFn<I, O>;
+  /** Phantom: the node's output type. */
+  readonly __output?: O;
+  readonly fn: StepFn<I, unknown>;
   readonly kind: "step";
   readonly output?: StandardSchemaV1;
 }
@@ -74,13 +108,20 @@ export interface WorkflowRecord<I = never> extends Shared {
 
 export type AnyDefinition = StepRecord | WorkflowRecord;
 
-export interface StepDefinition<I = Record<string, never>, O = unknown>
+/**
+ * `I` is the parsed input the body sees, `O` what the node produces for a
+ * parent, `R` the raw input a lock's literal takes (the schema's input type).
+ */
+export interface StepDefinition<I = Record<string, never>, O = unknown, R = I>
   extends StepRecord<I, O>,
-    Lockable<I, O> {}
+    Lockable<R, O> {}
 
-export interface WorkflowDefinition<I = Record<string, never>, O = unknown>
-  extends WorkflowRecord<I>,
-    Lockable<I, O> {}
+export interface WorkflowDefinition<
+  I = Record<string, never>,
+  O = unknown,
+  R = I,
+> extends WorkflowRecord<I>,
+    Lockable<R, O> {}
 
 export function isLockedNode(value: unknown): value is LockedNode {
   return (

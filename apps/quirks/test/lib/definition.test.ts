@@ -8,6 +8,7 @@ import { isLockedNode } from "~/lib/definition";
 const ALREADY_REGISTERED = /already registered/;
 const CHILD_AND_INPUT = /both a child and an input key/;
 const UNDECLARED_CHILD = /"other" is not an input key \(declared: findings\)/;
+const UNDECLARED_CHILD_TYPED = /"other" is not an input key/;
 const NOT_A_NODE = /not a locked node/;
 const EXPECTED_NODE = /expected a locked node/;
 
@@ -97,6 +98,57 @@ describe("definitions and locking", () => {
     expect(fromBuilder.setup).toBeDefined();
     expect(fromBuilder.input).toBeDefined();
     expect(() => workflow("d", {} as never)).toThrow(EXPECTED_NODE);
+  });
+
+  it("types a literal from the schema's input and checks children against it", () => {
+    const implement = step()
+      .input(z.object({ task: z.string() }))
+      .output(z.string())
+      .do(() => "branch");
+    const review = step()
+      .input(
+        z.object({
+          branch: z.string().optional(),
+          target: z.string().default("."),
+        })
+      )
+      .do(({ input }) => input.target);
+    const count = step().do(() => 1);
+    const publish = step()
+      .input(z.object({ exitCode: z.number(), findings: z.string() }))
+      .do(({ input }) => input);
+    const coerce = step()
+      .input(z.object({ n: z.string().transform(Number) }))
+      .do(({ input }) => input.n);
+
+    // Defaulted fields are optional; a child fills a key the literal then omits.
+    review({});
+    const chain = review({ branch: implement({}, { task: "t" }) });
+    expect(chain.children.map(([key]) => key)).toEqual(["branch"]);
+    // A transform's literal is its pre-image.
+    coerce({}, { n: "2" });
+    // Children are checked against the parent's keys by output type.
+    const weekly = publish.parallel({
+      exitCode: count({}),
+      findings: review({}),
+    });
+    expect(weekly.mode).toBe("parallel");
+    const named = workflow("typed-weekly", weekly);
+    expect(named.name).toBe("typed-weekly");
+
+    // @ts-expect-error a number-producing child for a string key
+    publish.parallel({ exitCode: count({}), findings: count({}) });
+    // @ts-expect-error a string-producing child for a number key
+    publish({ exitCode: implement({}, { task: "t" }), findings: review({}) });
+    expect(() =>
+      // @ts-expect-error a key the parent's input does not declare
+      publish({ exitCode: count({}), findings: review({}), other: count({}) })
+    ).toThrow(UNDECLARED_CHILD_TYPED);
+    // @ts-expect-error a required literal key is missing
+    implement({}, {});
+    // @ts-expect-error a transform takes its input type, not its output
+    coerce({}, { n: 2 });
+    expect(catalog.definitions.size).toBe(1);
   });
 
   it("carries describe, input, and output through the builder", () => {

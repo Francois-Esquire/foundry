@@ -13,6 +13,8 @@ import type { InputField } from "~/lib/inputs";
 
 export type Output<S extends StandardSchemaV1> =
   StandardSchemaV1.InferOutput<S>;
+/** What a schema accepts before parsing: defaults optional, transforms unapplied. */
+export type Input<S extends StandardSchemaV1> = StandardSchemaV1.InferInput<S>;
 
 export class SchemaError extends Error {
   readonly issues: readonly StandardSchemaV1.Issue[];

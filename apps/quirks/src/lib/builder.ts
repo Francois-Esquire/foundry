@@ -11,7 +11,7 @@ import type {
 import { isLockedNode, lockable } from "./definition";
 import type { CallSite } from "./identity";
 import { bindingAt, callSite } from "./identity";
-import type { Output } from "./schema";
+import type { Input, Output } from "./schema";
 
 /**
  * `step(name?).describe(text).input(schema).output(schema).do(fn)`.
@@ -22,6 +22,9 @@ import type { Output } from "./schema";
  */
 
 type Empty = Record<string, never>;
+
+/** What a node produces: the output schema's type, else the body's return. */
+type Produces<O, X> = unknown extends O ? X : O;
 
 /** The name to register under: the given one, else the binding's, else none. */
 interface Identity {
@@ -44,7 +47,12 @@ function identify(
   return bound === undefined ? { site } : { inferred: true, name: bound, site };
 }
 
-export class StepBuilder<I = Empty, O = unknown> {
+/**
+ * `I`: parsed input the body sees. `R`: raw input a literal takes. `Ret`:
+ * what the body must return (the output schema's input). `O`: what the node
+ * produces for its parent (the output schema's output).
+ */
+export class StepBuilder<I = Empty, R = Empty, Ret = unknown, O = unknown> {
   readonly #name: string | undefined;
   readonly #site: CallSite | undefined;
   readonly #description: string | undefined;
@@ -66,7 +74,7 @@ export class StepBuilder<I = Empty, O = unknown> {
   }
 
   /** Shown in the catalog and the launch form. */
-  describe(text: string): StepBuilder<I, O> {
+  describe(text: string): StepBuilder<I, R, Ret, O> {
     return new StepBuilder(
       this.#name,
       this.#site,
@@ -76,7 +84,9 @@ export class StepBuilder<I = Empty, O = unknown> {
     );
   }
 
-  input<S extends StandardSchemaV1>(schema: S): StepBuilder<Output<S>, O> {
+  input<S extends StandardSchemaV1>(
+    schema: S
+  ): StepBuilder<Output<S>, Input<S>, Ret, O> {
     return new StepBuilder(
       this.#name,
       this.#site,
@@ -86,7 +96,9 @@ export class StepBuilder<I = Empty, O = unknown> {
     );
   }
 
-  output<S extends StandardSchemaV1>(schema: S): StepBuilder<I, Output<S>> {
+  output<S extends StandardSchemaV1>(
+    schema: S
+  ): StepBuilder<I, R, Input<S>, Output<S>> {
     return new StepBuilder(
       this.#name,
       this.#site,
@@ -96,8 +108,8 @@ export class StepBuilder<I = Empty, O = unknown> {
     );
   }
 
-  do(fn: StepFn<I, O>): StepDefinition<I, O> {
-    const definition = lockable<StepDefinition<I, O>>({
+  do<X extends Ret>(fn: StepFn<I, X>): StepDefinition<I, Produces<O, X>, R> {
+    const definition = lockable<StepDefinition<I, Produces<O, X>, R>>({
       ...(this.#description === undefined
         ? {}
         : { description: this.#description }),
@@ -116,7 +128,7 @@ export function step(name?: string): StepBuilder {
   return new StepBuilder(name, name === undefined ? callSite() : undefined);
 }
 
-export class WorkflowBuilder<I = Empty> {
+export class WorkflowBuilder<I = Empty, R = Empty> {
   readonly #name: string | undefined;
   readonly #site: CallSite | undefined;
   readonly #description: string | undefined;
@@ -134,11 +146,13 @@ export class WorkflowBuilder<I = Empty> {
     this.#input = input;
   }
 
-  describe(text: string): WorkflowBuilder<I> {
+  describe(text: string): WorkflowBuilder<I, R> {
     return new WorkflowBuilder(this.#name, this.#site, text, this.#input);
   }
 
-  input<S extends StandardSchemaV1>(schema: S): WorkflowBuilder<Output<S>> {
+  input<S extends StandardSchemaV1>(
+    schema: S
+  ): WorkflowBuilder<Output<S>, Input<S>> {
     return new WorkflowBuilder(
       this.#name,
       this.#site,
@@ -148,8 +162,8 @@ export class WorkflowBuilder<I = Empty> {
   }
 
   /** Setup: prepares things and returns the tree. Not durable. */
-  do(setup: SetupFn<I>): WorkflowDefinition<I> {
-    return finishWorkflow(
+  do<O>(setup: SetupFn<I, O>): WorkflowDefinition<I, O, R> {
+    return finishWorkflow<I, O, R>(
       identify(this.#name, this.#site),
       this.#description,
       this.#input,
@@ -158,13 +172,13 @@ export class WorkflowBuilder<I = Empty> {
   }
 }
 
-function finishWorkflow<I>(
+function finishWorkflow<I, O, R = I>(
   identity: Identity,
   description: string | undefined,
   input: StandardSchemaV1 | undefined,
-  body: { setup: SetupFn<I> } | { tree: LockedNode }
-): WorkflowDefinition<I> {
-  const definition = lockable<WorkflowDefinition<I>>({
+  body: { setup: SetupFn<I, O> } | { tree: LockedNode<O> }
+): WorkflowDefinition<I, O, R> {
+  const definition = lockable<WorkflowDefinition<I, O, R>>({
     ...(description === undefined ? {} : { description }),
     ...identity,
     ...(input === undefined ? {} : { input }),
@@ -176,10 +190,13 @@ function finishWorkflow<I>(
   return definition;
 }
 
-type TreeArg = LockedNode | (() => LockedNode);
+type TreeArg<O = unknown> = LockedNode<O> | (() => LockedNode<O>);
 
-export function workflow(tree: TreeArg): WorkflowDefinition;
-export function workflow(name: string, tree: TreeArg): WorkflowDefinition;
+export function workflow<O>(tree: TreeArg<O>): WorkflowDefinition<Empty, O>;
+export function workflow<O>(
+  name: string,
+  tree: TreeArg<O>
+): WorkflowDefinition<Empty, O>;
 export function workflow(name?: string): WorkflowBuilder;
 export function workflow(
   first?: string | TreeArg,
