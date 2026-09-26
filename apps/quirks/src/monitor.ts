@@ -8,7 +8,7 @@ import { catalog } from "~/lib/catalog";
 import type { StepFn } from "~/lib/definition";
 import { isLockedNode } from "~/lib/definition";
 import type { Launch } from "~/lib/launch";
-import { launchTarget } from "~/lib/launch";
+import { isLaunch, launchTarget } from "~/lib/launch";
 import type { Context } from "~/lib/types";
 
 import { isRecord, readJson, stableJson, writeJson } from "~/state/json";
@@ -18,6 +18,12 @@ import { isRecord, readJson, stableJson, writeJson } from "~/state/json";
  * config's handler. Last-seen state lives in `<workspace>/monitors/<key>.json`
  * so a launchd tick knows what changed since the previous one; under `--dry`
  * it lives in the closure and dies with the process.
+ *
+ * A launch the handler asked for is written into that state as `pending`
+ * and handed back on every tick until the tick that started it
+ * acknowledges it, so a crash between the observation and the start does
+ * not lose the launch. Started is delivered: a target that then fails or is
+ * cancelled is not started again, any more than a schedule's run would be.
  */
 
 export type MonitorSpec =
@@ -123,6 +129,20 @@ function detection(key: string, handled: unknown): Detection {
   return { changed: true };
 }
 
+/** How each live detector clears its pending launch, by monitor key. */
+const acknowledgers = new Map<string, () => void>();
+
+/** The tick that started a monitor's launch calls this; the next tick polls again. */
+export function acknowledgeLaunch(key: string): void {
+  acknowledgers.get(key)?.();
+}
+
+function pendingLaunch(previous: unknown): Launch | undefined {
+  return isRecord(previous) && isLaunch(previous.pending)
+    ? previous.pending
+    : undefined;
+}
+
 /**
  * The step body a monitor registers: read what is there, diff it against the
  * last tick, run the handler only when something changed. State is written
@@ -137,13 +157,35 @@ export function detector(
 ): StepFn<MonitorInput, Detection> {
   let memory: unknown;
   const file = (state: string) => join(state, "monitors", `${key}.json`);
+  const stored = (state: string | undefined) =>
+    state === undefined ? memory : readJson(file(state));
+  const store = (state: string | undefined, value: Record<string, unknown>) => {
+    if (state === undefined) {
+      memory = value;
+    } else {
+      writeJson(file(state), { version: 1, ...value });
+    }
+  };
+  acknowledgers.set(key, () => {
+    const { state } = requireHost(key);
+    const previous = stored(state);
+    if (isRecord(previous) && "pending" in previous) {
+      const { pending: _, ...rest } = previous;
+      store(state, rest);
+    }
+  });
 
   return async (context) => {
     const { log, signal } = context;
     signal.throwIfAborted();
     const host = requireHost(key);
-    const previous =
-      host.state === undefined ? memory : readJson(file(host.state));
+    const previous = stored(host.state);
+    // A launch from an earlier tick that was never started goes out again
+    // before anything is polled.
+    const pending = pendingLaunch(previous);
+    if (pending) {
+      return { changed: true, launch: pending };
+    }
     let observed: Observation;
     try {
       observed =
@@ -162,12 +204,12 @@ export function detector(
       handlerContext(context, observed.change, observed.response)
     );
     signal.throwIfAborted();
-    if (host.state === undefined) {
-      memory = observed.state;
-    } else {
-      writeJson(file(host.state), { version: 1, ...observed.state });
-    }
-    return detection(key, handled);
+    const detected = detection(key, handled);
+    store(host.state, {
+      ...observed.state,
+      ...(detected.launch === undefined ? {} : { pending: detected.launch }),
+    });
+    return detected;
   };
 }
 

@@ -3,6 +3,7 @@ import { Cron } from "croner";
 import type { Engine } from "~/engine";
 import { isLaunch } from "~/lib/launch";
 import type { CalendarSlot, Schedule, Trigger, Weekday } from "~/lib/triggers";
+import { acknowledgeLaunch } from "~/monitor";
 import { isRecord } from "~/state/json";
 import { acquireLock } from "~/state/locks";
 import type { ScheduleHistory } from "~/state/schedules";
@@ -131,16 +132,25 @@ export async function tick(
       schedule.key
     );
     // A monitor's handler may hand back something to start; it runs as its
-    // own run, attributed to the monitor.
+    // own run, attributed to the monitor. The monitor holds the launch as
+    // pending until it has been started, so a tick that dies in between
+    // hands it out again; once started, it is the run's own to finish.
     const launch =
       schedule.kind === "monitor" &&
       isRecord(detected) &&
       isLaunch(detected.launch)
         ? detected.launch
         : undefined;
-    const value = launch
-      ? await engine.run(launch.workflow, launch.input, schedule.key)
-      : detected;
+    let value: unknown = detected;
+    if (launch) {
+      const started = await engine.launch(
+        launch.workflow,
+        launch.input,
+        schedule.key
+      );
+      acknowledgeLaunch(schedule.key);
+      value = await started.result;
+    }
     status = "complete";
     return { value };
   } finally {

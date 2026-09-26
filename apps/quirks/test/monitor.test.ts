@@ -15,14 +15,17 @@ import { directory } from "@foundry/workspaces/node";
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 
+import { startEngine } from "~/engine";
 import { unbound } from "~/lib/bindings";
 import { catalog } from "~/lib/catalog";
 import type { AnyDefinition } from "~/lib/definition";
 import { createLog } from "~/lib/log";
 import type { Catalogue } from "~/lib/managers/workspaces";
 import { runs } from "~/lib/run-scope";
+import { registerCatalog } from "~/lib/tree";
 import type { Change, Fetch, MonitorContext, MonitorSpec } from "~/monitor";
-import { detector } from "~/monitor";
+import { acknowledgeLaunch, detector } from "~/monitor";
+import { tick } from "~/schedule";
 import { isRecord, readJson } from "~/state/json";
 
 import { launch } from "./helpers/launch";
@@ -229,6 +232,75 @@ describe("files detector", () => {
       changed: true,
       launch: { input: { task: "guide.md" }, workflow: "ship" },
     });
+  });
+
+  it("hands a launch out again every tick until the tick that started it acknowledges", async () => {
+    const root = mkdtempSync(join(tmpdir(), "quirks-mon-"));
+    const state = mkdtempSync(join(tmpdir(), "quirks-mon-state-"));
+    writeFileSync(join(root, "guide.md"), "one\n");
+    const ship = step("ship")
+      .input(z.object({ task: z.string() }))
+      .do(({ input }) => input.task);
+    let handled = 0;
+    const detect = detector("m", spec, ({ files }) => {
+      handled += 1;
+      return ship({}, { task: files?.added[0]?.path ?? "" });
+    });
+    const { context } = hostIn(root, state);
+    const expected = {
+      changed: true,
+      launch: { input: { task: "guide.md" }, workflow: "ship" },
+    };
+    await expect(detect(context)).resolves.toEqual(expected);
+    expect(readJson(join(state, "monitors", "m.json"))).toMatchObject({
+      pending: expected.launch,
+    });
+    // Nothing changed, but the launch was never started: out it goes again,
+    // without asking the handler.
+    await expect(detect(context)).resolves.toEqual(expected);
+    expect(handled).toBe(1);
+    acknowledgeLaunch("m");
+    const stored = readJson(join(state, "monitors", "m.json"));
+    expect(isRecord(stored) && "pending" in stored).toBe(false);
+    await expect(detect(context)).resolves.toEqual({ changed: false });
+  });
+
+  it("a tick starts the launch once, and a target that fails is not started again", async () => {
+    const root = mkdtempSync(join(tmpdir(), "quirks-mon-"));
+    const state = mkdtempSync(join(tmpdir(), "quirks-mon-state-"));
+    writeFileSync(join(root, "guide.md"), "one\n");
+    let attempts = 0;
+    const ship = step("ship")
+      .input(z.object({ task: z.string() }))
+      .do(({ input }) => {
+        attempts += 1;
+        throw new Error(`cannot ship ${input.task}`);
+      });
+    monitor("**/*.md").do(({ files }) =>
+      ship({}, { task: files?.added[0]?.path ?? "" })
+    );
+    hostIn(root, state);
+    const [key] = [...catalog.monitors.keys()] as [string];
+    const schedule = catalog.schedules.get(key);
+    if (!schedule) {
+      throw new Error("expected the monitor's schedule");
+    }
+    const engine = await startEngine(registerCatalog, {
+      print: () => undefined,
+    });
+    await expect(
+      tick(engine, schedule, { print: () => undefined })
+    ).rejects.toThrow("cannot ship guide.md");
+    expect(attempts).toBe(1);
+    // Started is delivered: the file no longer holds the launch, and the
+    // next tick finds nothing changed.
+    const stored = readJson(join(state, "monitors", `${key}.json`));
+    expect(isRecord(stored) && "pending" in stored).toBe(false);
+    await expect(
+      tick(engine, schedule, { print: () => undefined })
+    ).resolves.toEqual({ value: { changed: false } });
+    expect(attempts).toBe(1);
+    await engine.stop();
   });
 
   it("refuses a tree with children from the handler", async () => {
