@@ -8,7 +8,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { globToRegExp } from "@foundry/lib/glob";
-import { monitor, step } from "@foundry/quirks";
+import { monitor, step, workflow } from "@foundry/quirks";
 import { WorkspaceSystem } from "@foundry/workspaces";
 import { git } from "@foundry/workspaces/git";
 import { directory } from "@foundry/workspaces/node";
@@ -331,6 +331,51 @@ describe("files detector", () => {
     await expect(
       tick(engine, schedule, { print: () => undefined })
     ).resolves.toEqual({ value: { changed: true } });
+    await engine.stop();
+  });
+
+  it("a launch whose start fails for now stays pending and goes out next tick", async () => {
+    const root = mkdtempSync(join(tmpdir(), "quirks-mon-"));
+    const state = mkdtempSync(join(tmpdir(), "quirks-mon-state-"));
+    writeFileSync(join(root, "guide.md"), "one\n");
+    let setups = 0;
+    const bodies: string[] = [];
+    const ship = step("ship").do(() => {
+      bodies.push("shipped");
+      return "shipped";
+    });
+    const flaky = workflow("flaky").do(() => {
+      setups += 1;
+      if (setups === 1) {
+        throw new Error("not yet");
+      }
+      return ship({});
+    });
+    let handled = 0;
+    monitor("**/*.md").do(() => {
+      handled += 1;
+      return flaky({});
+    });
+    hostIn(root, state);
+    const [key] = [...catalog.monitors.keys()] as [string];
+    const schedule = catalog.schedules.get(key);
+    if (!schedule) {
+      throw new Error("expected the monitor's schedule");
+    }
+    const engine = await startEngine(registerCatalog, {
+      print: () => undefined,
+    });
+    await expect(
+      tick(engine, schedule, { print: () => undefined })
+    ).rejects.toThrow("not yet");
+    expect(readJson(join(state, "monitors", `${key}.json`))).toMatchObject({
+      pending: { workflow: "flaky" },
+    });
+    await expect(
+      tick(engine, schedule, { print: () => undefined })
+    ).resolves.toEqual({ value: "shipped" });
+    expect(handled).toBe(1);
+    expect(bodies).toEqual(["shipped"]);
     await engine.stop();
   });
 

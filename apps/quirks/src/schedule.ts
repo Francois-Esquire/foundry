@@ -1,6 +1,7 @@
 import { Cron } from "croner";
 
 import type { Engine } from "~/engine";
+import { catalog } from "~/lib/catalog";
 import { isLaunch } from "~/lib/launch";
 import type { CalendarSlot, Schedule, Trigger, Weekday } from "~/lib/triggers";
 import { acknowledgeLaunch } from "~/monitor";
@@ -143,18 +144,22 @@ export async function tick(
         : undefined;
     let value: unknown = detected;
     if (launch) {
-      let started: Awaited<ReturnType<Engine["launch"]>>;
-      try {
-        started = await engine.launch(
-          launch.workflow,
-          launch.input,
-          schedule.key
-        );
-      } finally {
-        // Acknowledged whether or not the start took: a launch whose target
-        // is gone fails this tick instead of failing every tick after it.
+      // A target that no longer exists can never start: that launch is
+      // acknowledged and fails this tick, not every tick after it. Any other
+      // failure to start (a setup that threw) leaves the launch pending, so
+      // the next tick tries again.
+      if (!catalog.definitions.has(launch.workflow)) {
         acknowledgeLaunch(schedule.key);
+        throw new Error(
+          `${schedule.key}: launch target "${launch.workflow}" is not registered`
+        );
       }
+      const started = await engine.launch(
+        launch.workflow,
+        launch.input,
+        schedule.key
+      );
+      acknowledgeLaunch(schedule.key);
       value = await started.result;
     }
     status = "complete";
