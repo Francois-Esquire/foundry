@@ -303,6 +303,37 @@ describe("files detector", () => {
     await engine.stop();
   });
 
+  it("a pending launch whose target is gone fails one tick, not every tick", async () => {
+    const root = mkdtempSync(join(tmpdir(), "quirks-mon-"));
+    const state = mkdtempSync(join(tmpdir(), "quirks-mon-state-"));
+    writeFileSync(join(root, "guide.md"), "one\n");
+    monitor("**/*.md").do(() => undefined);
+    hostIn(root, state);
+    const [key] = [...catalog.monitors.keys()] as [string];
+    const schedule = catalog.schedules.get(key);
+    if (!schedule) {
+      throw new Error("expected the monitor's schedule");
+    }
+    mkdirSync(join(state, "monitors"), { recursive: true });
+    writeFileSync(
+      join(state, "monitors", `${key}.json`),
+      JSON.stringify({ pending: { input: null, workflow: "gone" }, version: 1 })
+    );
+    const engine = await startEngine(registerCatalog, {
+      print: () => undefined,
+    });
+    await expect(
+      tick(engine, schedule, { print: () => undefined })
+    ).rejects.toThrow();
+    const stored = readJson(join(state, "monitors", `${key}.json`));
+    expect(isRecord(stored) && "pending" in stored).toBe(false);
+    // The next tick polls: the first sight of the file is a change, handled quietly.
+    await expect(
+      tick(engine, schedule, { print: () => undefined })
+    ).resolves.toEqual({ value: { changed: true } });
+    await engine.stop();
+  });
+
   it("refuses a tree with children from the handler", async () => {
     const root = mkdtempSync(join(tmpdir(), "quirks-mon-"));
     writeFileSync(join(root, "guide.md"), "one\n");

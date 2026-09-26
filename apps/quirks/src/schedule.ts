@@ -143,12 +143,18 @@ export async function tick(
         : undefined;
     let value: unknown = detected;
     if (launch) {
-      const started = await engine.launch(
-        launch.workflow,
-        launch.input,
-        schedule.key
-      );
-      acknowledgeLaunch(schedule.key);
+      let started: Awaited<ReturnType<Engine["launch"]>>;
+      try {
+        started = await engine.launch(
+          launch.workflow,
+          launch.input,
+          schedule.key
+        );
+      } finally {
+        // Acknowledged whether or not the start took: a launch whose target
+        // is gone fails this tick instead of failing every tick after it.
+        acknowledgeLaunch(schedule.key);
+      }
       value = await started.result;
     }
     status = "complete";
