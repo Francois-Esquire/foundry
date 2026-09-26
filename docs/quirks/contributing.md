@@ -69,12 +69,6 @@ Where a public page and the code disagree, the code wins and the page changes;
 where `_api-alt.md` and the code disagree, the difference is recorded under
 its open items.
 
-Model ids appear in prose only on `reference/models.md`, which pairs each
-documented agent role with a model. A sample may copy an id from that table;
-`apps/quirks/test/models-doc.test.ts` checks that every id in the table is one
-the provider tables in `@foundry/models` serve, and that every `model:` in a
-sample is in the table.
-
 Every code sample on a public page loads: extract it into a scratch config
 with `zod` and `typescript` resolvable beside it, then run it with
 `bun run quirks -- --config <path> --dry list` and, where a step is named,

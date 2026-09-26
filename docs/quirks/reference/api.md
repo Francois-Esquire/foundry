@@ -37,7 +37,7 @@ the spot.
 
 ```ts
 const reviewer = agent({ prompt: "Review without editing.", provider: "codex" });
-const drafter = agent({ prompt: "Draft the page.", model: "sonnet" });
+const drafter = agent({ prompt: "Draft the page.", provider: "claude-code" });
 const site = workspace({ path: "../marketing-site" });          // relative to the config
 const box = sandbox({ image: "docker.io/oven/bun:1-slim", mount: "." });
 const scratch = sandbox({ files: { "main.py": "print(1)" } });  // seeded under /workspace
@@ -47,11 +47,10 @@ const reviewing = skills.load().add("./skills/review/*").pick("caveman");
 
 - **`agent`.** `prompt` is required and should state limits ("read only").
   `provider` is `"codex"` or `"claude-code"`; omitted means the first
-  installed CLI, Claude Code before Codex. `model` names a model the
-  provider serves; [Models](/quirks/reference/models) pairs each documented
-  role with one. It does not pick the provider; an id the provider does not
-  know is passed through with a warning, and `--dry` rejects it. `skills`
-  takes a skill set.
+  installed CLI, Claude Code before Codex. `model` is optional: omit it for
+  the provider's default, or set an id the provider serves. It does not pick
+  the provider; an id the provider does not know is passed through with a
+  warning, and `--dry` rejects it. `skills` takes a skill set.
 - **`workspace`.** A directory preset. It has no state or dashboard entry of
   its own. A sandbox may mount it.
 - **`sandbox`.** The image form mounts a workspace read/write at `/workspace`.

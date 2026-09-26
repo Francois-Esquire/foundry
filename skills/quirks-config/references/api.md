@@ -46,7 +46,7 @@ the spot.
 
 ```ts
 const reviewer = agent({ prompt: "Review without editing.", provider: "codex" });
-const drafter = agent({ prompt: "Draft the page.", model: "sonnet" });
+const drafter = agent({ prompt: "Draft the page.", provider: "claude-code" });
 const site = workspace({ path: "../marketing-site" });          // relative to the config
 const box = sandbox({ image: "docker.io/oven/bun:1-slim", mount: "." });
 const scratch = sandbox({ files: { "main.py": "print(1)" } });  // seeded under /workspace
@@ -56,10 +56,9 @@ const reviewing = skills.load().add("./skills/review/*").pick("caveman");
 
 - `agent.prompt` is required and should state limits ("read only").
   `provider` is `"codex"` or `"claude-code"`; omitted means the first
-  installed CLI. `model` names a model the provider serves (`sonnet`, `opus`,
-  `haiku`, `fable` for Claude Code; `gpt-5.5` for Codex); it does not pick
-  the provider, and an unknown id is passed through with a warning. Prefer
-  omitting `model`; name one only when the role needs a specific model.
+  installed CLI. `model` is optional: omit it for the provider's default, or
+  set an id the provider serves. It does not pick the provider, and an
+  unknown id is passed through with a warning.
 - `sandbox` with `image` mounts a workspace read/write at `/workspace`.
   `mount` is `"."` (the default): the step's working directory, which is the
   config's directory or, inside a worktree callback, the worktree. Or a
