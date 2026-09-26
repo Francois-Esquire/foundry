@@ -25,6 +25,8 @@ export interface LockedNode<O = unknown> {
   readonly kind: "node";
   readonly literal: Readonly<Record<string, unknown>>;
   readonly mode: "series" | "parallel";
+  /** Set on a launch root: the literal is already parsed input. */
+  readonly parsed?: boolean;
 }
 
 /** What is left of `I` once children supply `K`; optional when nothing is. */
@@ -137,7 +139,14 @@ export function rootLock(
   definition: AnyDefinition,
   literal: Readonly<Record<string, unknown>>
 ): LockedNode {
-  return { children: [], definition, kind: "node", literal, mode: "series" };
+  return {
+    children: [],
+    definition,
+    kind: "node",
+    literal,
+    mode: "series",
+    parsed: true,
+  };
 }
 
 /** Attach the lock forms to a record, making it callable. */

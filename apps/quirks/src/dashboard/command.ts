@@ -154,16 +154,13 @@ export async function runInteractive(
         typeof input === "object" && input !== null && !Array.isArray(input)
           ? (input as Record<string, unknown>)
           : {};
-      const launched = await runningEngine.launch(
-        name,
-        definition.input
-          ? await validate(
-              definition.input,
-              inputFromFields(values),
-              `"${name}" input`
-            )
-          : {}
-      );
+      // Validate here so the form sees the error, but launch with the raw
+      // value: the factory parses once, and a transform must not run twice.
+      const raw = inputFromFields(values);
+      if (definition.input) {
+        await validate(definition.input, raw, `"${name}" input`);
+      }
+      const launched = await runningEngine.launch(name, raw);
       launched.result.catch((error: unknown) =>
         print(`[run] ${String(error)}`)
       );

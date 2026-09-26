@@ -17,7 +17,8 @@ import type {
   WorkflowRecord,
 } from "./definition";
 import { rootLock } from "./definition";
-import { current, PAUSE_KIND, RunScope, raceAbort } from "./run-scope";
+import type { Frame } from "./run-scope";
+import { current, PAUSE_KIND, RunScope, raceAbort, runs } from "./run-scope";
 import { validate } from "./schema";
 
 /**
@@ -45,20 +46,34 @@ async function driveSeries(
   return results;
 }
 
+/**
+ * Run the children together. The first failure fails the parent, and with it
+ * the run, so the siblings are aborted through the run scope and awaited
+ * before the error travels up: nothing keeps executing after the run has
+ * been reported failed, and the scope settles after every body has stopped.
+ */
 async function driveParallel(
   children: readonly Step[],
-  detach: (runs: readonly Promise<unknown>[]) => void
+  scope: RunScope,
+  frame: Frame
 ): Promise<Record<string, unknown>> {
-  const runs = children.map((child) => child.run());
-  // Fail fast, but never leave a sibling's rejection unobserved.
-  for (const run of runs) {
+  const pending = children.map((child) => child.run());
+  for (const run of pending) {
     run.catch(() => undefined);
   }
-  detach(runs);
-  const values = await Promise.all(runs);
-  return Object.fromEntries(
-    children.map((child, index) => [child.name, values[index]])
-  );
+  frame.detached = pending;
+  try {
+    const values = await Promise.all(pending);
+    return Object.fromEntries(
+      children.map((child, index) => [child.name, values[index]])
+    );
+  } catch (error) {
+    scope.abort(error);
+    await Promise.allSettled(pending);
+    throw error;
+  } finally {
+    frame.detached = [];
+  }
 }
 
 async function runBody(
@@ -72,15 +87,14 @@ async function runBody(
   await scope.enter(frame);
   const results =
     node.mode === "parallel"
-      ? await driveParallel(ctx.children, (runs) => {
-          frame.detached = runs;
-        })
+      ? await driveParallel(ctx.children, scope, frame)
       : await driveSeries(ctx.children);
-  frame.detached = [];
   const merged: Input = { ...results, ...node.literal };
   const where = describe(node.definition, key);
+  // A root's literal was parsed at launch; parsing it again would feed a
+  // transform its own output.
   const input = (
-    node.definition.input
+    node.definition.input && !node.parsed
       ? await validate(node.definition.input, merged, `${where} input`)
       : merged
   ) as Input;
@@ -165,19 +179,26 @@ export function factoryFor(
   const name = requireName(definition);
   return async (rawInput, execution) => {
     const bound = bindings();
-    const scope = new RunScope(
-      execution?.runId ?? crypto.randomUUID(),
-      bound.root
-    );
+    // Parse before a scope exists: a rejected launch must leave nothing in
+    // the run table.
     const input = (
       definition.input
         ? await validate(definition.input, rawInput ?? {}, `"${name}" input`)
         : (rawInput ?? {})
     ) as Input;
-    const node = await rootNode(definition, name, input, scope, bound);
-    const root = materialize(node, name, scope, bindings());
-    scope.attach(root);
-    return root;
+    const scope = new RunScope(
+      execution?.runId ?? crypto.randomUUID(),
+      bound.root
+    );
+    try {
+      const node = await rootNode(definition, name, input, scope, bound);
+      const root = materialize(node, name, scope, bindings());
+      scope.attach(root);
+      return root;
+    } catch (error) {
+      runs.delete(scope.id);
+      throw error;
+    }
   };
 }
 

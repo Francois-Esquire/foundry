@@ -334,6 +334,66 @@ describe("trees", () => {
     expect(runs.get(observed?.id ?? "")).toBeDefined();
   });
 
+  it("a failing parallel sibling aborts the others before the run fails", async () => {
+    const seen: boolean[] = [];
+    const hang = step().do(
+      ({ signal }) =>
+        new Promise<string>((_resolve, reject) => {
+          signal.addEventListener("abort", () => {
+            seen.push(signal.aborted);
+            reject(signal.reason);
+          });
+        })
+    );
+    const bail = step().do((): string => {
+      throw new Error("boom");
+    });
+    const both = step()
+      .input(z.object({ a: z.string(), b: z.string() }))
+      .do(({ input }) => input);
+    const flow = workflow("fails", both.parallel({ a: hang({}), b: bail({}) }));
+    const { wf } = await launch(flow);
+    await expect(wf.run()).rejects.toThrow("boom");
+    // The sibling was aborted and had settled before the parent threw.
+    expect(seen).toEqual([true]);
+    expect(wf.status).toBe("failed");
+    expect(
+      Object.entries(wf.state.steps)
+        .map(([key, state]) => [key, state.status])
+        .sort()
+    ).toEqual([
+      ["fails", "failed"],
+      ["fails.a", "failed"],
+      ["fails.b", "failed"],
+    ]);
+  });
+
+  it("a rejected launch registers no run scope", async () => {
+    const typed = step("typed")
+      .input(z.object({ n: z.number() }))
+      .do(({ input }) => input.n);
+    await expect(
+      factoryFor(typed, () => bindings)({ n: "x" }, undefined)
+    ).rejects.toThrow(TYPED_INPUT);
+    const broken = workflow("broken").do(() => {
+      throw new Error("no tree today");
+    });
+    await expect(
+      factoryFor(broken, () => bindings)({}, undefined)
+    ).rejects.toThrow("no tree today");
+    expect(runs.size).toBe(0);
+  });
+
+  it("parses launch input once, so a transform sees the raw value", async () => {
+    const coerce = step("coerce")
+      .input(z.object({ n: z.string().transform(Number) }))
+      .do(({ input }) => ({ n: input.n, type: typeof input.n }));
+    await expect((await launch(coerce, { n: "2" })).wf.run()).resolves.toEqual({
+      n: 2,
+      type: "number",
+    });
+  });
+
   it("refuses to launch an anonymous definition", () => {
     const anonymous = step().do(() => 1);
     expect(() => factoryFor(anonymous, () => bindings)).toThrow(ONLY_NAMED);
