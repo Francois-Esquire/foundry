@@ -36,9 +36,9 @@ Small behaviors can stay small. Start with one deterministic step:
 ```ts
 import { step } from "@foundry/quirks";
 
-step("inspect", async ({ workspaces, workspace }) => {
-  const directory = await workspaces.add({ path: workspace.root });
-  const { files } = await directory.refresh();
+step("inspect").do(async ({ workspaces, log }) => {
+  const files = await workspaces.current.files();
+  log(files.length, "files");
   return { files: files.length };
 });
 ```
@@ -47,8 +47,8 @@ The step does not need model judgment. Other behaviors can combine deterministic
 operations with a coding agent, retain a conversation across runs, or react when
 a source changes.
 
-Save it as `quirks.config.ts` and use `quirks once inspect`. The
-[five factories](/quirks/concepts) let that function grow into something that
+Save it as `quirks.config.ts` and run `quirks once inspect`. The
+[nine words](/quirks/concepts) let that function grow into something that
 composes work, observes change, remembers, and returns.
 
 [Build your first behavior](/quirks/start-here) · [Explore use cases](/quirks/use-cases)

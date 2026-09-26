@@ -7,15 +7,19 @@ should happen, what should be watched, when it should run, and where an agent
 may participate. Run it once, keep it active in a terminal, or let launchd invoke
 it on a schedule.
 
-Five factories compose ordinary code, model turns, and retained conversations:
-`step`, `workflow`, `agent`, `schedule`, and `monitor`.
+Nine words compose ordinary code, model turns, and retained conversations:
+`step`, `workflow`, `agent`, `workspace`, `sandbox`, `artifact`, `skills`,
+`schedule`, and `monitor`.
 
 ## Start small
 
-Requires Bun 1.3.14 or newer:
+`@foundry/quirks` is not on npm yet. It requires Bun 1.3.14 or newer and runs
+from this repository:
 
 ```sh
-bun add --global @foundry/quirks
+bun run quirks -- --help                 # from the repository root
+cd apps/quirks && bun run build          # then, from anywhere:
+bun /path/to/foundry/apps/quirks/dist/cli.js --config ./quirks.config.ts list
 ```
 
 Create `quirks.config.ts`:
@@ -24,45 +28,47 @@ Create `quirks.config.ts`:
 import { readdir } from "node:fs/promises";
 import { schedule, step } from "@foundry/quirks";
 
-const countFiles = step("count-files", async ({ workspace, log }) => {
-  const entries = await readdir(workspace.root, { withFileTypes: true });
+const countFiles = step("count-files").do(async ({ workspaces, log }) => {
+  const entries = await readdir(workspaces.current.root, { withFileTypes: true });
   const files = entries.filter((entry) => entry.isFile()).length;
   log(`${files} files at the workspace root`);
   return { files };
 });
 
-schedule("count-hourly", { workflow: countFiles, input: null, at: "1h" });
+schedule(countFiles).every("1h");
 ```
 
 ```sh
 quirks once count-files
 quirks                 # same as quirks run
-quirks run
 quirks status
 ```
 
-In a terminal, `quirks` and `quirks run` open the Gruvbox splash, load your
+In a terminal, `quirks` and `quirks run` open the splash, load your
 configuration and saved run history, then wait for Enter or a click. Enter opens
 the Triggers, Catalog, and Runs dashboard and starts schedules and monitors.
 A missing config opens a guided setup for Developer/code review, Design/prototype,
 or Product/codebase summary. It creates only your selected prebuilt step.
-A valid empty configuration opens the dashboard directly; nothing registers by default. `quirks --help` prints usage.
-Piped or redirected runs use plain text and start immediately.
+A valid empty configuration opens the dashboard directly; nothing registers by
+default. `quirks --help` prints usage. Piped or redirected runs use plain text
+and start immediately.
 
-Press `q` or Ctrl+C to open the quit dialog; Ctrl+C again confirms. Quitting stops
-triggers and cancels active runs. Saved results and monitor checkpoints remain;
-interrupted runs cannot resume. Custom steps receive `signal` in their context
-and should pass it to cancellable operations such as `fetch`. Cancellation does
-not undo side effects or forcibly stop custom work that ignores the signal.
+Press `q` or Ctrl+C to open the quit dialog; Ctrl+C again confirms. Quitting
+stops triggers and cancels queued and running runs. A run parked on a question
+or a pause is kept, with its question open, and is picked up by the next
+dashboard that starts with the same state root. Custom steps receive `signal`
+in their context and should pass it to work Quirks does not own, such as
+`fetch`. Cancellation does not undo side effects.
 
 Deterministic steps need no agent harness. For model operations, install and
 authenticate Claude Code or Codex. The CLI resolves configuration imports of
-`@foundry/quirks` and `@foundry/quirks/prebuilt` to its own installation, including when installed globally.
+`@foundry/quirks` and `@foundry/quirks/prebuilt` to its own installation; a
+schema library such as `zod` must resolve from the config's directory.
 
-State is saved to disk between invocations. `--dry` substitutes supplied model
-and Git operations and disables Quirks state persistence; it does not contain
-custom code, monitor I/O, or launchd installation and removal. Working directories
-are execution context, not security sandboxes.
+State is saved to disk between invocations. `--dry` echoes agent turns, git
+mutations, and sandbox commands instead of running them and writes no state;
+it does not contain custom code, monitor I/O, or launchd installation and
+removal. Working directories are execution context, not security sandboxes.
 
 ## Start with a prebuilt step
 
@@ -71,12 +77,9 @@ import { summarizeCodebase } from "@foundry/quirks/prebuilt";
 summarizeCodebase();
 ```
 
-Press `2` for Catalog, Enter for details, then `l` or click Launch. Steps and
-workflows with declared arguments open a form; argument-free definitions start
+Press `2` for Catalog, Enter for details, then `l` or click Launch. A step with
+an `.input(schema)` opens a form derived from the schema; one without launches
 immediately. The dashboard selects the new run while triggers continue running.
-Custom definitions declare fields in the third `step`/`workflow` argument:
-`{ input: { fields: [] } }` explicitly means no arguments. See the configuration
-reference for text, multiline, number, boolean, and choice fields.
 
 ## Documentation
 
@@ -84,7 +87,7 @@ reference for text, multiline, number, boolean, and choice fields.
 - [Start Here](https://francois-esquire.github.io/foundry/quirks/start-here/)
 - [Concepts](https://francois-esquire.github.io/foundry/quirks/concepts/)
 - [Use Cases](https://francois-esquire.github.io/foundry/quirks/use-cases/)
-- [API reference](https://francois-esquire.github.io/foundry/quirks/reference/api)
+- [API reference](https://francois-esquire.github.io/foundry/quirks/reference/api/)
 - [CLI reference](https://francois-esquire.github.io/foundry/quirks/reference/cli/)
 - [Safety and Limits](https://francois-esquire.github.io/foundry/quirks/safety-and-limits/)
 - [Contributing](https://francois-esquire.github.io/foundry/quirks/contributing/)
