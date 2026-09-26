@@ -208,6 +208,11 @@ export async function startEngine(
       const settled = await dispatched.workflow.result();
       await observed;
       await routed?.settled();
+      // A run that ends without its answer (cancelled, or failed by a
+      // sibling) takes its question with it: the entry follows the run.
+      if (settled.status !== "complete") {
+        await router?.close(dispatched.id);
+      }
       // Close what the run opened through the context; its ledger is read
       // first, since settling forgets the scope.
       const extras = extrasOf(dispatched.id);

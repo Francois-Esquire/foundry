@@ -713,6 +713,37 @@ describe("lib2 through the engine", () => {
     await rebound.dispose();
   });
 
+  it("cancelling a parked run closes its question", async () => {
+    step("release").do(
+      async ({ ask }) => (await ask.approval({ title: "Go?" })).approved
+    );
+    const store = openFeed(undefined, { id: "ws", root });
+    const engine = await startEngine(registerCatalog, {
+      askable: true,
+      feed: store.publisher,
+      print: () => undefined,
+    });
+    const launched = await engine.launch<boolean>("release", {});
+    const question = await openEntry(
+      store.read,
+      (entry) => entry.input?.status === "open"
+    );
+    if (!question) {
+      throw new Error("expected an open approval");
+    }
+    await engine.cancel(launched.id);
+    await expect(launched.result).rejects.toThrow(CANCELLED_PATTERN);
+    const closed = await openEntry(
+      store.read,
+      (entry) => entry.id === question.id && entry.input?.status === "cancelled"
+    );
+    expect(closed).toBeDefined();
+    await expect(engine.answer(question.id, "approve")).rejects.toThrow(
+      "no longer waiting"
+    );
+    await engine.stop();
+  });
+
   it("cancels one run", async () => {
     step("wait").do(
       ({ signal }) =>

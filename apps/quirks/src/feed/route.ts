@@ -35,6 +35,8 @@ export interface FeedRouter {
   answer(entryId: string, answer: FeedAnswer): Promise<void>;
   /** Mark every open question cancelled: nothing in this process can answer it now. */
   cancelOpen(): Promise<void>;
+  /** A run ended without answering these: its open questions are marked cancelled. */
+  close(runId: string): Promise<void>;
   /** Handle one run's channel events; `settled` awaits the writes they caused. */
   observe(
     definition: string,
@@ -63,6 +65,18 @@ export function feedRouter(options: {
   function warn(title: string) {
     return (error: unknown) =>
       print(`[feed] ${title} not published: ${String(error)}`);
+  }
+
+  function cancel(questions: readonly OpenQuestion[]): Promise<unknown> {
+    return Promise.all(
+      questions.map((question) =>
+        feed
+          .publishInput(question.question, question.source, {
+            status: "cancelled",
+          })
+          .catch(warn(question.question.title))
+      )
+    );
   }
 
   function ask(question: OpenQuestion): Promise<unknown> {
@@ -156,15 +170,17 @@ export function feedRouter(options: {
     async cancelOpen() {
       const questions = [...open.values()];
       open.clear();
-      await Promise.all(
-        questions.map((question) =>
-          feed
-            .publishInput(question.question, question.source, {
-              status: "cancelled",
-            })
-            .catch(warn(question.question.title))
-        )
+      await cancel(questions);
+    },
+
+    async close(runId) {
+      const questions = [...open].filter(
+        ([, question]) => question.source.runId === runId
       );
+      for (const [id] of questions) {
+        open.delete(id);
+      }
+      await cancel(questions.map(([, question]) => question));
     },
 
     observe(definition, runId) {
