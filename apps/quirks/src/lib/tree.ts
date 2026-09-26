@@ -1,3 +1,4 @@
+import { isSuspendSignal } from "@foundry/workflows/executable";
 import type {
   Orchestrator,
   RunExecutionContext,
@@ -47,7 +48,9 @@ async function driveSeries(
 }
 
 /**
- * Run the children together. The first failure fails the parent, and with it
+ * Run the children together. A child that parks (an ask, a pause) parks the
+ * parent with it; the siblings keep running detached and the parent's
+ * re-entry awaits them. The first real failure fails the parent, and with it
  * the run, so the siblings are aborted through the run scope and awaited
  * before the error travels up: nothing keeps executing after the run has
  * been reported failed, and the scope settles after every body has stopped.
@@ -64,15 +67,18 @@ async function driveParallel(
   frame.detached = pending;
   try {
     const values = await Promise.all(pending);
+    frame.detached = [];
     return Object.fromEntries(
       children.map((child, index) => [child.name, values[index]])
     );
   } catch (error) {
+    if (isSuspendSignal(error)) {
+      throw error;
+    }
     scope.abort(error);
     await Promise.allSettled(pending);
-    throw error;
-  } finally {
     frame.detached = [];
+    throw error;
   }
 }
 

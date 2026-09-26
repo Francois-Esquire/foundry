@@ -11,11 +11,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { InMemorySessionStore } from "@foundry/agents/session";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { z } from "zod";
 
 import { startEngine } from "~/engine";
 import { openFeed } from "~/feed/store";
 import { unbound } from "~/lib/bindings";
-import { step } from "~/lib/builder";
+import { step, workflow } from "~/lib/builder";
 import { catalog } from "~/lib/catalog";
 import { createLog } from "~/lib/log";
 import { agent } from "~/lib/resources";
@@ -481,6 +482,46 @@ describe("lib2 through the engine", () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
     await engine.cancel(launched.id);
     await expect(launched.result).rejects.toThrow(CANCELLED_PATTERN);
+    await engine.stop();
+  });
+
+  it("a parallel child that asks parks the run and its sibling finishes", async () => {
+    const sibling: string[] = [];
+    step("asks").do(async ({ ask }) =>
+      (await ask.approval({ title: "Go?" })).approved ? "yes" : "no"
+    );
+    step("slow").do(async ({ signal }) => {
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      sibling.push(signal.aborted ? "aborted" : "done");
+      return "slow";
+    });
+    const both = step("both")
+      .input(z.object({ a: z.string(), b: z.string() }))
+      .do(({ input }) => `${input.a}+${input.b}`);
+    const asks = catalog.definitions.get("asks");
+    const slow = catalog.definitions.get("slow");
+    if (!(asks && slow)) {
+      throw new Error("expected both children");
+    }
+    workflow("pair", both.parallel({ a: asks({}), b: slow({}) }));
+    const store = openFeed(undefined, { id: "ws", root });
+    const engine = await startEngine(registerCatalog, {
+      askable: true,
+      feed: store.publisher,
+      print: () => undefined,
+    });
+    const launched = await engine.launch<string>("pair", {});
+    const question = await openEntry(
+      store.read,
+      (entry) => entry.input?.status === "open"
+    );
+    if (!question) {
+      throw new Error("expected an open approval");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(sibling).toEqual(["done"]);
+    await engine.answer(question.id, "approve");
+    await expect(launched.result).resolves.toBe("yes+slow");
     await engine.stop();
   });
 });
