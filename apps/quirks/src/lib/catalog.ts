@@ -3,7 +3,7 @@ import type { MonitorSpec } from "~/monitor";
 
 import type { Bindings } from "./bindings";
 import type { AnyDefinition } from "./definition";
-import { fieldsFromSchema, jsonSchemaOf } from "./schema";
+import { fieldsFromSchema, JSON_INPUT_FIELD, jsonSchemaOf } from "./schema";
 import type { Schedule } from "./triggers";
 
 /**
@@ -83,14 +83,18 @@ class Catalog {
       .filter((definition) => !this.monitors.has(definition.name as string))
       .map((definition) => {
         const schema = definition.input;
-        const fields = schema ? fieldsFromSchema(schema) : undefined;
+        // No schema: no arguments. A schema the library cannot describe as
+        // JSON Schema still takes input, as one JSON field.
+        const fields = schema
+          ? (fieldsFromSchema(schema) ?? [JSON_INPUT_FIELD])
+          : [];
         const inputSchema = schema ? jsonSchemaOf(schema) : undefined;
         return {
           ...(definition.description === undefined
             ? {}
             : { description: definition.description }),
           ...(definition.inferred ? { inferred: true } : {}),
-          input: { fields: fields ?? [] },
+          input: { fields },
           ...(inputSchema === undefined ? {} : { inputSchema }),
           kind: definition.kind,
           name: definition.name as string,

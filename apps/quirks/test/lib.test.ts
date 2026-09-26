@@ -1,4 +1,5 @@
 import { schedule, step, workflow } from "@foundry/quirks";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 
@@ -6,6 +7,7 @@ import { unbound } from "~/lib/bindings";
 import { catalog } from "~/lib/catalog";
 import { createLog } from "~/lib/log";
 import { runs } from "~/lib/run-scope";
+import { JSON_INPUT_FIELD } from "~/lib/schema";
 import type { CalendarSlot, Schedule } from "~/lib/triggers";
 import { nextDue, parseEvery, runSchedules } from "~/schedule";
 
@@ -49,6 +51,29 @@ describe("definitions", () => {
     expect(catalog.entries().map((entry) => [entry.kind, entry.name])).toEqual([
       ["step", "shout"],
       ["workflow", "loud"],
+    ]);
+  });
+
+  it("a schema without a JSON Schema still takes input, as one JSON field", () => {
+    const opaque: StandardSchemaV1<{ n: number }> = {
+      "~standard": {
+        validate: (value) =>
+          typeof value === "object" && value !== null && "n" in value
+            ? { value: value as { n: number } }
+            : { issues: [{ message: "expected { n }" }] },
+        vendor: "test",
+        version: 1,
+      },
+    };
+    step("opaque")
+      .input(opaque)
+      .do(({ input }) => input.n);
+    step("bare").do(() => 1);
+    expect(
+      catalog.entries().map((entry) => [entry.name, entry.input.fields])
+    ).toEqual([
+      ["opaque", [JSON_INPUT_FIELD]],
+      ["bare", []],
     ]);
   });
 

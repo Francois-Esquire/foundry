@@ -162,10 +162,20 @@ function fieldFrom(
 
 export const JSON_FIELD = "$json";
 
+/** The one field a launch form shows when it cannot describe the schema's shape. */
+export const JSON_INPUT_FIELD: InputField = {
+  label: "Input (JSON)",
+  name: JSON_FIELD,
+  required: true,
+  type: "multiline",
+};
+
 /**
  * Launch-form fields for a schema: one per property of a flat object of
  * strings, numbers, booleans, and string enums. Anything else becomes a
- * single JSON field. `undefined` when the schema exposes no JSON Schema.
+ * single JSON field. `undefined` when the schema exposes no JSON Schema;
+ * the caller decides what that means, since a schema without a form
+ * representation still takes input.
  */
 export function fieldsFromSchema(
   schema: StandardSchemaV1
@@ -174,12 +184,7 @@ export function fieldsFromSchema(
   if (!json) {
     return undefined;
   }
-  const jsonField: InputField = {
-    label: "Input (JSON)",
-    name: JSON_FIELD,
-    required: true,
-    type: "multiline",
-  };
+  const jsonField = JSON_INPUT_FIELD;
   if (json.type !== "object" || !isRecord(json.properties)) {
     return [jsonField];
   }
