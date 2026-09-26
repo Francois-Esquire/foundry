@@ -112,26 +112,29 @@ async function runBody(
   const definition = node.definition as StepRecord<Input, unknown>;
   const store = { cwd: scope.cwd, frame, scope };
   let output: unknown;
+  let attempt: Promise<unknown> | undefined;
   try {
-    output = await raceAbort(
-      frame,
-      current.run(store, () =>
-        Promise.resolve(
-          definition.fn(
-            buildContext({ bindings, ctx, cwd: scope.cwd, frame, input, scope })
-          )
+    attempt = current.run(store, () =>
+      Promise.resolve(
+        definition.fn(
+          buildContext({ bindings, ctx, cwd: scope.cwd, frame, input, scope })
         )
       )
     );
+    output = await raceAbort(frame, attempt);
   } catch (error) {
     const { paused } = frame;
     if (!paused) {
       throw error;
     }
     // A host parked this step: what it opened is aborted, and the step
-    // suspends instead of failing. Resuming replays the body from the top.
-    // The name is unique per pause, so a later pause of the same step is
-    // never answered by an earlier resolution.
+    // suspends instead of failing. The attempt has to stop first, so nothing
+    // runs after the run reads as suspended: owned calls reject at the
+    // abort, and a body that ignores its signal delays the pause until it
+    // returns. Resuming replays the body from the top. The name is unique
+    // per pause, so a later pause of the same step is never answered by an
+    // earlier resolution.
+    await attempt?.catch(() => undefined);
     frame.paused = undefined;
     return await ctx.suspend({
       kind: PAUSE_KIND,

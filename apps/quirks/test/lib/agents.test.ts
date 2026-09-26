@@ -135,6 +135,31 @@ describe("agents.session", () => {
     await expect(session.generate("hi")).rejects.toThrow("step cancelled");
   });
 
+  it("a turn cut short by the step's abort does not return to the body", async () => {
+    const a = args();
+    const models = mockModels(
+      [CLAUDE_CODE],
+      ({ prompt }) => `reply to ${prompt}`,
+      {
+        hold: ({ prompt }) => prompt.endsWith("slowly"),
+      }
+    );
+    const agents = agentsManager({ ...deps(), models })(a);
+    const session = await agents.session(reviewer);
+    const turn = session.generate("count slowly");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    a.frame.controller.abort(new Error("paused"));
+    await expect(turn).rejects.toThrow("paused");
+
+    const b = args();
+    const streaming = agentsManager({ ...deps(), models })(b);
+    const streamed = (await streaming.session(reviewer)).stream("speak slowly");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    b.frame.controller.abort(new Error("paused"));
+    await expect(streamed.message).rejects.toThrow("paused");
+    await expect(streamed.text).rejects.toThrow("paused");
+  });
+
   it("a steer stops the running turn and the prompt becomes the next one", async () => {
     const a = args();
     const models = mockModels(

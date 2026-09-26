@@ -116,6 +116,19 @@ function wrap(
     write(`\n[resume] ${prompt}\n`);
     return `${prompt}\n\n${input}`;
   };
+  /**
+   * A turn cut short by the step's abort is committed by the harness and
+   * resolves as if complete; the check afterwards is what keeps authored
+   * code from running on after a pause or a cancellation.
+   */
+  const settled = <T>(value: Promise<T>): Promise<T> => {
+    const checked = value.then((result) => {
+      check();
+      return result;
+    });
+    checked.catch(() => undefined);
+    return checked;
+  };
   return {
     async generate(input, options): Promise<SessionReply> {
       check();
@@ -129,8 +142,8 @@ function wrap(
       } finally {
         end(turn);
       }
+      check();
       while (live.steer !== undefined) {
-        check();
         const prompt = live.steer;
         live.steer = undefined;
         write(`\n[steer] ${prompt}\n`);
@@ -140,6 +153,7 @@ function wrap(
         } finally {
           end(next);
         }
+        check();
       }
       return { ...message, text: textOf(message) };
     },
@@ -153,7 +167,16 @@ function wrap(
         turnOptions(turn, options)
       );
       stream.message.finally(() => end(turn)).catch(() => undefined);
-      return stream;
+      return {
+        async *[Symbol.asyncIterator]() {
+          yield* stream;
+          check();
+        },
+        message: settled(stream.message),
+        outcome: settled(stream.outcome),
+        text: settled(stream.text),
+        usage: settled(stream.usage),
+      };
     },
   };
 }

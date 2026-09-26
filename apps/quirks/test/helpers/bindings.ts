@@ -13,13 +13,15 @@ import { catalog } from "~/lib/catalog";
 import { createLog } from "~/lib/log";
 import { agentsManager } from "~/lib/managers/agents";
 import { workspacesManager } from "~/lib/managers/workspaces";
-import type { Reply } from "~/models/echo";
+import type { MockOptions, Reply } from "~/models/echo";
 import { mockModels } from "~/models/echo";
 import { echoGit } from "~/runtime";
 
 export interface MockBindingOptions {
   /** Executors the mock models answer for; the first is the default. */
   readonly executors?: readonly TurnExecutorRef[];
+  /** Turns to hold open until their signal fires; see `MockOptions`. */
+  readonly hold?: MockOptions["hold"];
   /** Run git for real; the default echoes every mutation. */
   readonly live?: boolean;
   readonly log?: (line: string) => void;
@@ -48,7 +50,11 @@ export function bindMock(
 ): MockBindings {
   const executors = options.executors ?? [CLAUDE_CODE, CODEX];
   const [first = CLAUDE_CODE] = executors;
-  const models = mockModels(executors, reply);
+  const models = mockModels(
+    executors,
+    reply,
+    options.hold === undefined ? {} : { hold: options.hold }
+  );
   const sessions = options.sessions ?? new InMemorySessionStore();
   const root = options.root ?? process.cwd();
   const gitOptions = options.live ? {} : { run: echoGit(() => undefined) };

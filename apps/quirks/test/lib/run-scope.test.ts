@@ -117,4 +117,29 @@ describe("Ledger", () => {
     await scope.enter(frame);
     expect(frame.signal.aborted).toBe(true);
   });
+
+  it("pause parks the subtree and a step entering under it parks at once", async () => {
+    const scope = new RunScope("run-subtree", "/tmp");
+    const root = scope.frame(["flow"]);
+    const child = scope.frame(["flow", "a"]);
+    const other = scope.frame(["other"]);
+    expect(scope.pause("flow", "hold")).toBe(true);
+    expect(root.signal.aborted).toBe(true);
+    expect(child.signal.aborted).toBe(true);
+    expect(child.paused).toEqual({ reason: "hold" });
+    expect(other.signal.aborted).toBe(false);
+    // A sibling that had not started yet inherits the pause when it enters.
+    const late = scope.frame(["flow", "b"]);
+    expect(late.signal.aborted).toBe(false);
+    await scope.enter(late);
+    expect(late.paused).toEqual({ reason: "hold" });
+    expect(late.signal.aborted).toBe(true);
+    // Re-entry consumes the pause and reissues the controller, root first.
+    await scope.enter(root);
+    expect(root.paused).toBeUndefined();
+    expect(root.signal.aborted).toBe(false);
+    await scope.enter(child);
+    expect(child.paused).toBeUndefined();
+    expect(child.signal.aborted).toBe(false);
+  });
 });

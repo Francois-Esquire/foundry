@@ -419,12 +419,20 @@ describe("lib2 through the engine", () => {
       release = resolve;
     });
     const attempts: string[] = [];
-    step("review").do(async ({ agents, stream }) => {
+    step("review").do(async ({ agents, signal, stream }) => {
       const session = await agents.session(reviewer);
       attempts.push(session.ref.id);
       const reply = await session.generate("look at the tests");
       stream.write("waiting\n");
-      await gate;
+      // The step parks only once its attempt stops, so the wait honours the signal.
+      await Promise.race([
+        gate,
+        new Promise((_, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason), {
+            once: true,
+          });
+        }),
+      ]);
       return reply.text;
     });
     const engine = await startEngine(registerCatalog, {
@@ -466,6 +474,58 @@ describe("lib2 through the engine", () => {
     await mock.dispose();
   });
 
+  it("pausing a workflow root parks its running child, and nothing runs after the cut turn", async () => {
+    const mock = bindMock(
+      ({ prompt }) => `reply to ${prompt.split("\n").at(-1) ?? ""}`,
+      { hold: ({ prompt }) => prompt.endsWith("count slowly"), root }
+    );
+    const reviewer = agent({ prompt: "Review." });
+    const after: string[] = [];
+    let turns = 0;
+    let stop: (() => void) | undefined;
+    const started = new Promise<void>((resolve) => {
+      stop = resolve;
+    });
+    const child = step("child").do(async ({ agents, signal }) => {
+      const session = await agents.session(reviewer);
+      turns += 1;
+      const turn = session.generate(turns === 1 ? "count slowly" : "again");
+      if (turns === 1) {
+        // The mock holds this turn until its signal fires.
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        stop?.();
+      }
+      const reply = await turn;
+      after.push(signal.aborted ? "ran while aborted" : "ran");
+      return reply.text;
+    });
+    const parent = step("parent")
+      .input(z.object({ text: z.string() }))
+      .do(({ input }) => input.text.toUpperCase());
+    workflow("flow", parent({ text: child({}) }));
+    const engine = await startEngine(registerCatalog, {
+      print: () => undefined,
+    });
+    const launched = await engine.launch<string>("flow", {});
+    await started;
+    expect(engine.pause(launched.id, "flow", "hold")).toBe(true);
+    const parked = await openEntry(
+      async () =>
+        (await engine.runs())
+          .filter((run) => run.id === launched.id && run.status === "suspended")
+          .map(() => ({})) as never,
+      () => true
+    );
+    expect(parked).toBeDefined();
+    expect(after).toEqual([]);
+    await engine.resume(launched.id, "flow");
+    await expect(launched.result).resolves.toBe("REPLY TO AGAIN");
+    expect(after).toEqual(["ran"]);
+    expect(turns).toBe(2);
+    await engine.stop();
+    await mock.dispose();
+  });
+
   it("cancels one run", async () => {
     step("wait").do(
       ({ signal }) =>
@@ -487,10 +547,10 @@ describe("lib2 through the engine", () => {
 
   it("a parallel child that asks parks the run and its sibling finishes", async () => {
     const sibling: string[] = [];
-    step("asks").do(async ({ ask }) =>
+    const asks = step("asks").do(async ({ ask }) =>
       (await ask.approval({ title: "Go?" })).approved ? "yes" : "no"
     );
-    step("slow").do(async ({ signal }) => {
+    const slow = step("slow").do(async ({ signal }) => {
       await new Promise((resolve) => setTimeout(resolve, 30));
       sibling.push(signal.aborted ? "aborted" : "done");
       return "slow";
@@ -498,11 +558,6 @@ describe("lib2 through the engine", () => {
     const both = step("both")
       .input(z.object({ a: z.string(), b: z.string() }))
       .do(({ input }) => `${input.a}+${input.b}`);
-    const asks = catalog.definitions.get("asks");
-    const slow = catalog.definitions.get("slow");
-    if (!(asks && slow)) {
-      throw new Error("expected both children");
-    }
     workflow("pair", both.parallel({ a: asks({}), b: slow({}) }));
     const store = openFeed(undefined, { id: "ws", root });
     const engine = await startEngine(registerCatalog, {

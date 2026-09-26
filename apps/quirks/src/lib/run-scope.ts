@@ -163,15 +163,24 @@ export class RunScope {
   }
 
   /**
-   * Called when a body starts an attempt: counters restart, stragglers
-   * settle, and a controller spent by a pause is replaced so the body can
-   * run again. A real abort is never replaced: the run's signal still fires.
+   * Called when a body starts an attempt: counters restart, a pause that
+   * parked this frame is consumed, stragglers settle, and a controller spent
+   * by a pause is replaced so the body can run again. A real abort is never
+   * replaced: the run's signal still fires. A step entering under an
+   * ancestor that is still paused parks at once, so a subtree pause holds
+   * for steps that had not started when it was requested.
    */
   async enter(frame: Frame): Promise<void> {
     frame.counters.clear();
+    frame.paused = undefined;
     if (frame.signal.aborted && !this.controller.signal.aborted) {
       frame.controller = this.#stepController();
       frame.signal = frame.controller.signal;
+    }
+    const ancestor = this.#pausedAncestor(frame);
+    if (ancestor) {
+      frame.paused = ancestor;
+      frame.controller.abort(new Error(ancestor.reason));
     }
     if (frame.detached.length > 0) {
       const pending = frame.detached;
@@ -180,19 +189,43 @@ export class RunScope {
     }
   }
 
+  #pausedAncestor(frame: Frame): Pause | undefined {
+    for (let depth = frame.path.length - 1; depth > 0; depth -= 1) {
+      const paused = this.frames.get(
+        frame.path.slice(0, depth).join(".")
+      )?.paused;
+      if (paused) {
+        return paused;
+      }
+    }
+    return undefined;
+  }
+
   /**
-   * Park a running step: its signal aborts what it opened, and the body
-   * wrapper records a suspension instead of a failure. `false` when no such
-   * step is running in this run.
+   * Park a step and everything under it: each live frame in the subtree has
+   * its signal aborted, which stops what it opened, and its body wrapper
+   * records a suspension instead of a failure. `false` when nothing in that
+   * subtree is running in this run.
    */
   pause(stepId: string, reason = "paused from the dashboard"): boolean {
-    const frame = this.frames.get(stepId);
-    if (!frame || frame.signal.aborted) {
-      return false;
+    let parked = false;
+    for (const frame of this.subtree(stepId)) {
+      if (frame.signal.aborted) {
+        continue;
+      }
+      frame.paused = { reason };
+      frame.controller.abort(new Error(reason));
+      parked = true;
     }
-    frame.paused = { reason };
-    frame.controller.abort(new Error(reason));
-    return true;
+    return parked;
+  }
+
+  /** The frame at `stepId` and every frame beneath it. */
+  subtree(stepId: string): readonly Frame[] {
+    const prefix = `${stepId}.`;
+    return [...this.frames.values()].filter(
+      (frame) => frame.key === stepId || frame.key.startsWith(prefix)
+    );
   }
 
   /**

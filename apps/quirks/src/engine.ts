@@ -269,23 +269,29 @@ export async function startEngine(
         runId,
         status: "pending",
       });
-      // The root segment of a step path is the registered name here, but
-      // compare below it too, as the feed does, in case a host renames it.
-      const suspension = pending.items.find(
+      // A pause parks a subtree, so a resume releases every pause at or
+      // under the step. The root segment of a step path is the registered
+      // name here, but compare below it too, as the feed does, in case a
+      // host renames it.
+      const below = stepId.split(".").slice(1).join(".");
+      const under = (path: string, wanted: string) =>
+        path === wanted || (wanted !== "" && path.startsWith(`${wanted}.`));
+      const parked = pending.items.filter(
         (item) =>
-          item.stepPath.join(".") === stepId ||
-          item.stepPath.slice(1).join(".") ===
-            stepId.split(".").slice(1).join(".")
+          under(item.stepPath.join("."), stepId) ||
+          under(item.stepPath.slice(1).join("."), below)
       );
-      if (!suspension) {
+      if (parked.length === 0) {
         throw new Error(`"${stepId}" is not paused`);
       }
       const trimmed = prompt?.trim() || undefined;
-      const frame = scope.frames.get(stepId);
-      if (frame && trimmed !== undefined) {
-        frame.resumePrompt = trimmed;
+      for (const suspension of parked) {
+        const frame = scope.frames.get(suspension.stepPath.join("."));
+        if (frame && trimmed !== undefined) {
+          frame.resumePrompt = trimmed;
+        }
+        await orchestrator.resolve(suspension.id, { prompt: trimmed ?? null });
       }
-      await orchestrator.resolve(suspension.id, { prompt: trimmed ?? null });
     },
     async run<O>(name: string, input: unknown, triggerId?: string): Promise<O> {
       const launched = await this.launch<O>(name, input, triggerId);
