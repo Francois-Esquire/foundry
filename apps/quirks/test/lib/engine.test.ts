@@ -526,6 +526,131 @@ describe("lib2 through the engine", () => {
     await mock.dispose();
   });
 
+  it("writes the answer to the run file before the run goes on", async () => {
+    const state = join(root, "state");
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    step("gated").do(async ({ ask, signal }) => {
+      const { approved } = await ask.approval({ title: "Go?" });
+      await Promise.race([
+        gate,
+        new Promise((_, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason), {
+            once: true,
+          });
+        }),
+      ]);
+      return approved;
+    });
+    const store = openFeed(undefined, { id: "ws", root });
+    const engine = await startEngine(registerCatalog, {
+      askable: true,
+      feed: store.publisher,
+      print: () => undefined,
+      state,
+    });
+    const launched = await engine.launch<boolean>("gated", {});
+    const question = await openEntry(
+      store.read,
+      (entry) => entry.input?.status === "open"
+    );
+    if (!question) {
+      throw new Error("expected an open approval");
+    }
+    const file = join(state, "runs", `${launched.id}.json`);
+    const read = () =>
+      JSON.parse(readFileSync(file, "utf8")) as {
+        run: { status: string };
+        suspensions: { status: string }[];
+      };
+    expect(read().run.status).toBe("suspended");
+    await engine.answer(question.id, "approve");
+    // The body is still held at its gate; the file already says the
+    // question is answered and the run is under way.
+    const moved = await openEntry(
+      async () => (read().run.status === "suspended" ? [] : [{}]) as never,
+      () => true
+    );
+    expect(moved).toBeDefined();
+    expect(read().suspensions.map((item) => item.status)).toEqual(["resolved"]);
+    release?.();
+    await expect(launched.result).resolves.toBe(true);
+    expect(read().run.status).toBe("complete");
+    await engine.stop();
+  });
+
+  it("adopting a parked run claims it: the file names the new owner and a lock is held", async () => {
+    const state = join(root, "state");
+    const feedRoot = join(root, "feed");
+    const define = () =>
+      step("release").do(
+        async ({ ask }) => (await ask.approval({ title: "Go?" })).approved
+      );
+    define();
+    const one = await startEngine(registerCatalog, {
+      askable: true,
+      feed: openFeed(feedRoot, { id: "ws", root }).publisher,
+      print: () => undefined,
+      state,
+    });
+    const launched = await one.launch<boolean>("release", {});
+    launched.result.catch(() => undefined);
+    const feedOne = openFeed(feedRoot, { id: "ws", root });
+    const question = await openEntry(
+      feedOne.read,
+      (entry) => entry.input?.status === "open"
+    );
+    await one.stop();
+
+    catalog.reset();
+    runs.clear();
+    define();
+    const rebound = bindMock(() => "ok", { root });
+    const two = await startEngine(registerCatalog, {
+      askable: true,
+      feed: openFeed(feedRoot, { id: "ws", root }).publisher,
+      print: () => undefined,
+      state,
+    });
+    const file = join(state, "runs", `${launched.id}.json`);
+    const lock = join(state, "locks", `run-${launched.id}`);
+    expect(JSON.parse(readFileSync(file, "utf8")).pid).toBe(process.pid);
+    expect(readFileSync(lock, "utf8")).toBe(String(process.pid));
+
+    // A second process that finds the same file cannot take the run too.
+    const lines: string[] = [];
+    const three = await startEngine(registerCatalog, {
+      askable: true,
+      print: (line) => lines.push(line),
+      state,
+    });
+    expect((await three.runs()).map((run) => run.id)).not.toContain(
+      launched.id
+    );
+    expect(lines.join("\n")).toContain(
+      `run is suspended in pid ${String(process.pid)}`
+    );
+    await three.stop();
+    expect(existsSync(lock)).toBe(true);
+
+    if (!question) {
+      throw new Error("expected an open approval");
+    }
+    await two.answer(question.id, "approve");
+    await openEntry(
+      async () =>
+        (await two.runs())
+          .filter((run) => run.id === launched.id && run.status === "complete")
+          .map(() => ({})) as never,
+      () => true
+    );
+    expect(existsSync(lock)).toBe(false);
+    await two.stop();
+    await rebound.dispose();
+  });
+
   it("cancels one run", async () => {
     step("wait").do(
       ({ signal }) =>

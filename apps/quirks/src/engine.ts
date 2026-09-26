@@ -158,12 +158,27 @@ export async function startEngine(
     }
   };
   // A parked run is written as soon as it parks, so a crash or a quit while
-  // it waits leaves a file the next process can adopt.
+  // it waits leaves a file the next process can adopt. It is written again
+  // as soon as its answer is in, before the run goes on: a crash after that
+  // finds a run that was mid-flight, which is skipped, not a stale question
+  // that would be asked again over work already done.
+  const held = (runId: string) => unsaved.has(runId) || active.has(runId);
   orchestrator.on("suspended", (payload) => {
-    if (unsaved.has(payload.runId) || active.has(payload.runId)) {
+    if (held(payload.runId)) {
       save(payload.runId);
     }
   });
+  orchestrator.on("resumed", (payload) => {
+    if (held(payload.runId)) {
+      save(payload.runId);
+    }
+  });
+  // Ownership of adopted runs; released once a run settles or the process stops.
+  const locks = new Map(loaded?.locks ?? []);
+  const release = (runId: string) => {
+    locks.get(runId)?.release();
+    locks.delete(runId);
+  };
 
   /** Follow a run to its end: print its steps, route its posts, write it back. */
   const track = <O>(
@@ -196,6 +211,7 @@ export async function startEngine(
       active.delete(dispatched.id);
       subscribers.delete(dispatched.id);
       save(dispatched.id, extras);
+      release(dispatched.id);
       if (settled.status !== "complete") {
         throw new Error(
           settled.status === "failed"
@@ -221,6 +237,8 @@ export async function startEngine(
     }
     print(`[run] ${record.step} recovered ${runId}`);
     track(record.step, dispatched);
+    // The file now names this process as the owner.
+    save(runId);
     await router?.adopt(record.step, runId);
   }
   // A crashed dashboard never cancelled its open questions; nothing can answer them now.
@@ -340,6 +358,9 @@ export async function startEngine(
         save(runId);
       }
       await orchestrator.stop();
+      for (const runId of [...locks.keys()]) {
+        release(runId);
+      }
     },
 
     stream(runId, signal) {

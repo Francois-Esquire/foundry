@@ -5,7 +5,8 @@ import type { RunRecord } from "@foundry/workflows/store";
 import { InMemoryOrchestratorStore } from "@foundry/workflows/store";
 
 import { isRecord, writeJson } from "~/state/json";
-import { alive } from "~/state/locks";
+import type { Lock } from "~/state/locks";
+import { acquireLock, alive } from "~/state/locks";
 
 /**
  * One file per Run under `<workspace>/runs/`, so two ticks that overlap never
@@ -14,7 +15,9 @@ import { alive } from "~/state/locks";
  * queue a Run references does not validate — plus what the run scope
  * recorded: the ledger of things the run's steps opened, and the run's
  * session. Those let a parked run replay in a later process and find the
- * same sessions and artifacts.
+ * same sessions and artifacts. A process that adopts a parked run holds
+ * `locks/run-<id>` for as long as it owns the run, so two processes never
+ * both resume it.
  */
 
 type Snapshot = ReturnType<InMemoryOrchestratorStore["snapshot"]>;
@@ -68,6 +71,8 @@ export interface LoadOptions {
 }
 
 export interface LoadedRuns {
+  /** The ownership lock of each adopted run; released when the run settles or the process stops. */
+  readonly locks: ReadonlyMap<string, Lock>;
   /** Parked runs this process adopted, with what their scopes recorded. */
   readonly recovered: ReadonlyMap<string, RunExtras>;
   readonly snapshot: Snapshot;
@@ -76,9 +81,10 @@ export interface LoadedRuns {
 /**
  * Every readable Run as one store snapshot. Each file is validated alone so
  * one bad file costs one Run, not the start. A settled Run always loads. A
- * suspended Run loads when `recover` accepts it and the process that wrote
- * it is gone; the Orchestrator then parks it again, ready for its answer.
- * Queued and running Runs never load: nothing can pick them up mid-flight.
+ * suspended Run loads when `recover` accepts it, the process that wrote it
+ * is gone, and its lock is free; the Orchestrator then parks it again, ready
+ * for its answer. Queued and running Runs never load: nothing can pick them
+ * up mid-flight.
  */
 export function loadRuns(
   dir: string,
@@ -88,16 +94,18 @@ export function loadRuns(
   const runs = join(dir, "runs");
   const parts: Snapshot[] = [];
   const recovered = new Map<string, RunExtras>();
+  const locks = new Map<string, Lock>();
   if (existsSync(runs)) {
     for (const entry of readdirSync(runs).sort()) {
       if (!entry.endsWith(".json")) {
         continue;
       }
       try {
-        const read = readRun(join(runs, entry), options.recover);
+        const read = readRun(dir, join(runs, entry), options.recover);
         parts.push(read.snapshot);
         if (read.recovered) {
           recovered.set(read.recovered.id, read.recovered.extras);
+          locks.set(read.recovered.id, read.recovered.lock);
         }
       } catch (error) {
         warn(`[state] skipped runs/${entry}: ${message(error)}`);
@@ -117,6 +125,7 @@ export function loadRuns(
   };
   try {
     return {
+      locks,
       recovered,
       snapshot: new InMemoryOrchestratorStore({
         snapshot: assembled,
@@ -126,7 +135,10 @@ export function loadRuns(
     warn(
       `[state] runs/ disagree with each other, starting empty: ${message(error)}`
     );
-    return { recovered: new Map(), snapshot: EMPTY };
+    for (const lock of locks.values()) {
+      lock.release();
+    }
+    return { locks: new Map(), recovered: new Map(), snapshot: EMPTY };
   }
 }
 
@@ -142,10 +154,15 @@ function extrasOf(file: Record<string, unknown>): RunExtras {
 }
 
 function readRun(
+  dir: string,
   path: string,
   recover: LoadOptions["recover"]
 ): {
-  readonly recovered?: { readonly extras: RunExtras; readonly id: string };
+  readonly recovered?: {
+    readonly extras: RunExtras;
+    readonly id: string;
+    readonly lock: Lock;
+  };
   readonly snapshot: Snapshot;
 } {
   const file: unknown = JSON.parse(readFileSync(path, "utf8"));
@@ -179,8 +196,14 @@ function readRun(
   if (owner !== undefined && owner !== process.pid && alive(owner)) {
     throw new Error(`run is suspended in pid ${String(owner)}`);
   }
+  // The claim is the lock, not the pid in the file: two processes reading
+  // the same dead pid cannot both win it.
+  const lock = acquireLock(dir, `run-${run.id}`);
+  if (typeof lock === "number") {
+    throw new Error(`run is suspended in pid ${String(lock)}`);
+  }
   return {
-    recovered: { extras: extrasOf(file), id: run.id },
+    recovered: { extras: extrasOf(file), id: run.id, lock },
     snapshot,
   };
 }
