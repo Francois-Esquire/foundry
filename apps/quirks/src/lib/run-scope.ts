@@ -40,20 +40,36 @@ export const current = new AsyncLocalStorage<Current>();
 /** Every live run in this process, for hosts that steer or inspect. */
 export const runs = new Map<string, RunScope>();
 
+/** What a parked run recorded before this process; consumed when its scope is rebuilt. */
+export interface RestoredScope {
+  readonly ledger: Readonly<Record<string, unknown>>;
+  readonly session: SessionRef;
+}
+
+const restored = new Map<string, RestoredScope>();
+
+/** The engine hands over a recovered run's state before the Orchestrator rebuilds it. */
+export function restoreScope(runId: string, state: RestoredScope): void {
+  restored.set(runId, state);
+}
+
 export class RunScope {
   readonly controller = new AbortController();
   /** The config's directory. */
   readonly cwd: string;
   readonly frames = new Map<string, Frame>();
   readonly id: string;
-  readonly ledger = new Ledger();
+  readonly ledger: Ledger;
   readonly session: SessionRef;
   #root: Step | undefined;
 
   constructor(id: string, cwd: string) {
     this.id = id;
     this.cwd = cwd;
-    this.session = { id: crypto.randomUUID() };
+    const previous = restored.get(id);
+    restored.delete(id);
+    this.ledger = new Ledger(previous?.ledger);
+    this.session = previous?.session ?? { id: crypto.randomUUID() };
     runs.set(id, this);
   }
 

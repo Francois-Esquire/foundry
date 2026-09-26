@@ -1,11 +1,16 @@
 /**
  * What a frame created, by position. A body replays from the top after a
  * suspension, so the n-th call of a kind in a frame must return the same
- * thing it created the first time. Keys are `path|kind|occurrence`; the
- * prefix keeps them ready for `claimEffect` when persistence lands.
+ * thing it created the first time. Keys are `path|kind|occurrence`. Values
+ * are JSON: the ledger is written into the run's file when the run parks,
+ * and read back when a later process adopts it.
  */
 export class Ledger {
-  readonly #entries = new Map<string, unknown>();
+  readonly #entries: Map<string, unknown>;
+
+  constructor(entries: Readonly<Record<string, unknown>> = {}) {
+    this.#entries = new Map(Object.entries(entries));
+  }
 
   static key(
     path: readonly string[],
@@ -29,5 +34,10 @@ export class Ledger {
 
   get size(): number {
     return this.#entries.size;
+  }
+
+  /** For the run file. */
+  toJSON(): Record<string, unknown> {
+    return Object.fromEntries(this.#entries);
   }
 }

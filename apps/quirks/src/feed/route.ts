@@ -26,6 +26,11 @@ interface OpenQuestion {
 }
 
 export interface FeedRouter {
+  /**
+   * Take over the open questions of a run recovered from a previous process:
+   * their entries are republished as ours, so they stay open and answerable.
+   */
+  adopt(definition: string, runId: string): Promise<void>;
   /** Answer an open input entry, resuming the run that asked. */
   answer(entryId: string, answer: FeedAnswer): Promise<void>;
   /** Mark every open question cancelled: nothing in this process can answer it now. */
@@ -86,6 +91,30 @@ export function feedRouter(options: {
   }
 
   return {
+    async adopt(definition, runId) {
+      const pending = await orchestrator.listSuspensions({
+        kind: FEED_INPUT_KIND,
+        runId,
+        status: "pending",
+      });
+      for (const suspension of pending.items) {
+        const question = feedQuestionSchema.safeParse(suspension.request);
+        if (!question.success) {
+          continue;
+        }
+        await ask({
+          name: suspension.name,
+          occurrence: suspension.occurrence ?? 0,
+          question: question.data,
+          source: {
+            definition,
+            path: [definition, ...suspension.stepPath.slice(1)],
+            runId,
+          },
+        });
+      }
+    },
+
     async answer(entryId, answer) {
       const question = open.get(entryId);
       if (!question) {

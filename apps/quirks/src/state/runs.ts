@@ -1,18 +1,29 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import type { RunRecord } from "@foundry/workflows/store";
 import { InMemoryOrchestratorStore } from "@foundry/workflows/store";
 
 import { isRecord, writeJson } from "~/state/json";
+import { alive } from "~/state/locks";
 
 /**
  * One file per Run under `<workspace>/runs/`, so two ticks that overlap never
  * write the same file. Each holds everything the store needs to hydrate that
  * Run standalone — including its queue row, because a snapshot without the
- * queue a Run references does not validate.
+ * queue a Run references does not validate — plus what the run scope
+ * recorded: the ledger of things the run's steps opened, and the run's
+ * session. Those let a parked run replay in a later process and find the
+ * same sessions and artifacts.
  */
 
 type Snapshot = ReturnType<InMemoryOrchestratorStore["snapshot"]>;
+
+/** The run scope's state, as it goes into the file. */
+export interface RunExtras {
+  readonly ledger: Readonly<Record<string, unknown>>;
+  readonly session: { readonly id: string };
+}
 
 const TERMINAL = new Set(["complete", "failed", "cancelled"]);
 const EMPTY: Snapshot = {
@@ -24,7 +35,12 @@ const EMPTY: Snapshot = {
   version: 1,
 };
 
-export function saveRun(dir: string, snapshot: Snapshot, runId: string): void {
+export function saveRun(
+  dir: string,
+  snapshot: Snapshot,
+  runId: string,
+  extras?: RunExtras
+): void {
   const run = snapshot.runs.find((record) => record.id === runId);
   if (!run) {
     throw new Error(`run ${runId} is not in the store`);
@@ -35,27 +51,54 @@ export function saveRun(dir: string, snapshot: Snapshot, runId: string): void {
     jobs: snapshot.jobs.filter((job) => job.id === jobId),
     pid: process.pid,
     queue: snapshot.queues.find((queue) => queue.id === run.queueId),
+    ...(extras === undefined ? {} : { quirks: extras }),
     run,
     suspensions: snapshot.suspensions.filter((s) => s.runId === runId),
-    version: 1,
+    version: 2,
   });
 }
 
+export interface LoadOptions {
+  /**
+   * Whether a parked run may be taken over here: its definition is
+   * registered and this process can answer what it is waiting for. Without
+   * this, only settled runs load.
+   */
+  readonly recover?: (run: RunRecord) => boolean;
+}
+
+export interface LoadedRuns {
+  /** Parked runs this process adopted, with what their scopes recorded. */
+  readonly recovered: ReadonlyMap<string, RunExtras>;
+  readonly snapshot: Snapshot;
+}
+
 /**
- * Every readable, terminal Run as one store snapshot. Each file is validated
- * alone so one bad file costs one Run, not the start; a non-terminal Run is
- * skipped too, since the Orchestrator would try to resume it.
+ * Every readable Run as one store snapshot. Each file is validated alone so
+ * one bad file costs one Run, not the start. A settled Run always loads. A
+ * suspended Run loads when `recover` accepts it and the process that wrote
+ * it is gone; the Orchestrator then parks it again, ready for its answer.
+ * Queued and running Runs never load: nothing can pick them up mid-flight.
  */
-export function loadRuns(dir: string, warn: (line: string) => void): Snapshot {
+export function loadRuns(
+  dir: string,
+  warn: (line: string) => void,
+  options: LoadOptions = {}
+): LoadedRuns {
   const runs = join(dir, "runs");
   const parts: Snapshot[] = [];
+  const recovered = new Map<string, RunExtras>();
   if (existsSync(runs)) {
     for (const entry of readdirSync(runs).sort()) {
       if (!entry.endsWith(".json")) {
         continue;
       }
       try {
-        parts.push(readRun(join(runs, entry)));
+        const read = readRun(join(runs, entry), options.recover);
+        parts.push(read.snapshot);
+        if (read.recovered) {
+          recovered.set(read.recovered.id, read.recovered.extras);
+        }
       } catch (error) {
         warn(`[state] skipped runs/${entry}: ${message(error)}`);
       }
@@ -73,16 +116,38 @@ export function loadRuns(dir: string, warn: (line: string) => void): Snapshot {
     version: 1,
   };
   try {
-    return new InMemoryOrchestratorStore({ snapshot: assembled }).snapshot();
+    return {
+      recovered,
+      snapshot: new InMemoryOrchestratorStore({
+        snapshot: assembled,
+      }).snapshot(),
+    };
   } catch (error) {
     warn(
       `[state] runs/ disagree with each other, starting empty: ${message(error)}`
     );
-    return EMPTY;
+    return { recovered: new Map(), snapshot: EMPTY };
   }
 }
 
-function readRun(path: string): Snapshot {
+function extrasOf(file: Record<string, unknown>): RunExtras {
+  const quirks = isRecord(file.quirks) ? file.quirks : {};
+  const session = isRecord(quirks.session) ? quirks.session : {};
+  return {
+    ledger: isRecord(quirks.ledger) ? quirks.ledger : {},
+    session: {
+      id: typeof session.id === "string" ? session.id : crypto.randomUUID(),
+    },
+  };
+}
+
+function readRun(
+  path: string,
+  recover: LoadOptions["recover"]
+): {
+  readonly recovered?: { readonly extras: RunExtras; readonly id: string };
+  readonly snapshot: Snapshot;
+} {
   const file: unknown = JSON.parse(readFileSync(path, "utf8"));
   if (!isRecord(file)) {
     throw new Error("not a run file");
@@ -97,11 +162,27 @@ function readRun(path: string): Snapshot {
       version: 1,
     },
   }).snapshot();
-  const status = snapshot.runs[0]?.status;
-  if (status === undefined || !TERMINAL.has(status)) {
-    throw new Error(`run is ${status ?? "missing"}, not settled`);
+  const [run] = snapshot.runs;
+  if (run === undefined) {
+    throw new Error("run is missing");
   }
-  return snapshot;
+  if (TERMINAL.has(run.status)) {
+    return { snapshot };
+  }
+  if (run.status !== "suspended") {
+    throw new Error(`run is ${run.status}, not settled`);
+  }
+  if (!recover?.(run)) {
+    throw new Error("run is suspended; nothing here can resume it");
+  }
+  const owner = typeof file.pid === "number" ? file.pid : undefined;
+  if (owner !== undefined && owner !== process.pid && alive(owner)) {
+    throw new Error(`run is suspended in pid ${String(owner)}`);
+  }
+  return {
+    recovered: { extras: extrasOf(file), id: run.id },
+    snapshot,
+  };
 }
 
 function message(error: unknown): string {

@@ -10,17 +10,21 @@ import type { WorkflowState } from "@foundry/workflows/workflow";
 import type { FeedAnswer } from "~/feed/entry";
 import type { FeedPublisher } from "~/feed/publish";
 import { feedRouter } from "~/feed/route";
-import { runs as runScopes } from "~/lib/run-scope";
+import { restoreScope, runs as runScopes } from "~/lib/run-scope";
 import { observeSteps } from "~/observe";
+import type { RunExtras } from "~/state/runs";
 import { loadRuns, saveRun } from "~/state/runs";
 
 /**
  * The execution engine: a real Orchestrator over the in-memory store.
  *
  * Every workflow is dispatched as a Run through the queue, so Runs, Jobs and
- * frames all exist and are inspectable. Given a state dir, the store hydrates
- * from `runs/*.json` at start and each Run is written back once it settles;
- * without one, nothing survives the process.
+ * frames all exist and be inspectable. Given a state dir, the store hydrates
+ * from `runs/*.json` at start and each Run is written back when it parks and
+ * once it settles; without one, nothing survives the process. A Run parked
+ * on a question is adopted by the next process that can answer it: the
+ * Orchestrator re-parks it, its scope gets the ledger it recorded, and its
+ * question stays open on the feed.
  */
 
 export interface Engine {
@@ -37,7 +41,7 @@ export interface Engine {
    * states the output type it expects.
    */
   run<O>(name: string, input: unknown, triggerId?: string): Promise<O>;
-  /** Every Run this process dispatched. */
+  /** Every Run this process dispatched or adopted. */
   runs(): Promise<readonly RunRecord[]>;
   stop(options?: { readonly cancel?: boolean }): Promise<void>;
   /**
@@ -59,8 +63,9 @@ export type RegisterDefinitions = (orchestrator: OrchestratorType) => void;
 
 export interface EngineOptions {
   /**
-   * Whether someone can answer `feed.ask` in this process (the dashboard).
-   * Otherwise a question cancels its run rather than pausing it forever.
+   * Whether someone can answer `ask` in this process (the dashboard).
+   * Otherwise a question cancels its run rather than pausing it forever, and
+   * parked runs from earlier processes are left for a process that can.
    */
   readonly askable?: boolean;
   /** Writes entries steps post; without one, posts are dropped. */
@@ -74,11 +79,27 @@ export async function startEngine(
   register: RegisterDefinitions,
   { askable = false, feed, print, state }: EngineOptions
 ): Promise<Engine> {
-  const store = new InMemoryOrchestratorStore(
-    state === undefined ? {} : { snapshot: loadRuns(state, print) }
-  );
   const config = new Config();
   contributeQueueConfig(config, { concurrency: 1, defaultName: "quirks" });
+  // The store is built before the Orchestrator that registers definitions,
+  // and a recovered run whose definition is gone would fail the start. So
+  // the names are collected first; the callback only ever registers.
+  const registered = new Set<string>();
+  register({
+    register: (name: string) => registered.add(name),
+  } as unknown as OrchestratorType);
+  const loaded =
+    state === undefined
+      ? undefined
+      : loadRuns(state, print, {
+          recover: (run) => askable && registered.has(run.step),
+        });
+  for (const [runId, extras] of loaded?.recovered ?? []) {
+    restoreScope(runId, extras);
+  }
+  const store = new InMemoryOrchestratorStore(
+    loaded === undefined ? {} : { snapshot: loaded.snapshot }
+  );
 
   const orchestrator = new Orchestrator({ config, store });
   await orchestrator.setup();
@@ -87,13 +108,10 @@ export async function startEngine(
   const router = feed
     ? feedRouter({ askable, feed, orchestrator, print })
     : undefined;
-  // A crashed dashboard never cancelled its open questions; nothing can answer them now.
-  await feed
-    ?.cancelAbandoned()
-    .catch((error: unknown) => print(`[feed] ${String(error)}`));
 
-  // Runs this process dispatched and has not written yet. Persisting is not
-  // the run: a failed write warns and the value still returns.
+  // Runs this process dispatched or adopted and has not written since they
+  // last changed. Persisting is not the run: a failed write warns and the
+  // value still returns.
   const unsaved = new Set<string>();
   const active = new Map<string, () => WorkflowState>();
   const subscribers = new Map<
@@ -102,17 +120,93 @@ export async function startEngine(
   >();
   const dispatching = new Set<Promise<unknown>>();
   let stopping = false;
-  const save = (runId: string) => {
+  const extrasOf = (runId: string): RunExtras | undefined => {
+    const scope = runScopes.get(runId);
+    return scope
+      ? { ledger: scope.ledger.toJSON(), session: scope.session }
+      : undefined;
+  };
+  const save = (runId: string, extras = extrasOf(runId)) => {
     unsaved.delete(runId);
     if (state === undefined) {
       return;
     }
     try {
-      saveRun(state, store.snapshot(), runId);
+      saveRun(state, store.snapshot(), runId, extras);
     } catch (error) {
       print(`[state] run ${runId} not saved: ${String(error)}`);
     }
   };
+  // A parked run is written as soon as it parks, so a crash or a quit while
+  // it waits leaves a file the next process can adopt.
+  orchestrator.on("suspended", (payload) => {
+    if (unsaved.has(payload.runId) || active.has(payload.runId)) {
+      save(payload.runId);
+    }
+  });
+
+  /** Follow a run to its end: print its steps, route its posts, write it back. */
+  const track = <O>(
+    name: string,
+    dispatched: Awaited<ReturnType<typeof orchestrator.run<unknown, O>>>
+  ): Promise<O> => {
+    active.set(dispatched.id, () => dispatched.workflow.state);
+    subscribers.set(dispatched.id, (signal) =>
+      dispatched.workflow.root.subscribe(signal)
+    );
+    unsaved.add(dispatched.id);
+    const routed = router?.observe(name, dispatched.id);
+    const observed = observeSteps(
+      name,
+      dispatched.workflow,
+      print,
+      routed?.onEvent
+    );
+    // The queue handle settles once its side effects are applied; the
+    // workflow's own result carries the typed value.
+    const complete = async () => {
+      await dispatched.result();
+      const settled = await dispatched.workflow.result();
+      await observed;
+      await routed?.settled();
+      // Close what the run opened through the context; its ledger is read
+      // first, since settling forgets the scope.
+      const extras = extrasOf(dispatched.id);
+      await runScopes.get(dispatched.id)?.settle();
+      active.delete(dispatched.id);
+      subscribers.delete(dispatched.id);
+      save(dispatched.id, extras);
+      if (settled.status !== "complete") {
+        throw new Error(
+          settled.status === "failed"
+            ? `run "${name}" failed: ${settled.error.message}`
+            : `run "${name}" was cancelled: ${settled.reason ?? "no reason"}`
+        );
+      }
+      return settled.value;
+    };
+    const result = complete();
+    // The host may attach after the first snapshot refresh.
+    result.catch(() => undefined);
+    return result;
+  };
+
+  // Adopt what the store recovered: follow each parked run and keep its
+  // question open under this process before abandoned entries are swept.
+  for (const runId of loaded?.recovered.keys() ?? []) {
+    const dispatched = await orchestrator.get(runId);
+    const record = store.snapshot().runs.find((run) => run.id === runId);
+    if (!(dispatched && record)) {
+      continue;
+    }
+    print(`[run] ${record.step} recovered ${runId}`);
+    track(record.step, dispatched);
+    await router?.adopt(record.step, runId);
+  }
+  // A crashed dashboard never cancelled its open questions; nothing can answer them now.
+  await feed
+    ?.cancelAbandoned()
+    .catch((error: unknown) => print(`[feed] ${String(error)}`));
 
   const engine: Engine = {
     answer(entryId, answer) {
@@ -132,43 +226,7 @@ export async function startEngine(
       const dispatched = await dispatch.finally(() =>
         dispatching.delete(dispatch)
       );
-      active.set(dispatched.id, () => dispatched.workflow.state);
-      subscribers.set(dispatched.id, (signal) =>
-        dispatched.workflow.root.subscribe(signal)
-      );
-      unsaved.add(dispatched.id);
-      const routed = router?.observe(name, dispatched.id);
-      const observed = observeSteps(
-        name,
-        dispatched.workflow,
-        print,
-        routed?.onEvent
-      );
-      // The queue handle settles once its side effects are applied; the
-      // workflow's own result carries the typed value.
-      const complete = async () => {
-        await dispatched.result();
-        const settled = await dispatched.workflow.result();
-        await observed;
-        await routed?.settled();
-        // Close what the run opened through the context, if it used the new lib.
-        await runScopes.get(dispatched.id)?.settle();
-        active.delete(dispatched.id);
-        subscribers.delete(dispatched.id);
-        save(dispatched.id);
-        if (settled.status !== "complete") {
-          throw new Error(
-            settled.status === "failed"
-              ? `run "${name}" failed: ${settled.error.message}`
-              : `run "${name}" was cancelled: ${settled.reason ?? "no reason"}`
-          );
-        }
-        return settled.value;
-      };
-      const result = complete();
-      // The host may attach after the first snapshot refresh.
-      result.catch(() => undefined);
-      return { id: dispatched.id, result };
+      return { id: dispatched.id, result: track(name, dispatched) };
     },
     async run<O>(name: string, input: unknown, triggerId?: string): Promise<O> {
       const launched = await this.launch<O>(name, input, triggerId);
@@ -190,8 +248,12 @@ export async function startEngine(
 
     async stop(options) {
       stopping = true;
-      // A paused run cannot resume in a later process; say so on its entry.
-      await router?.cancelOpen();
+      // With a state dir a parked run is written and adopted by the next
+      // process that can answer; without one, nothing can resume it, so its
+      // entry says so.
+      if (state === undefined || options?.cancel) {
+        await router?.cancelOpen();
+      }
       await Promise.allSettled([...dispatching]);
       if (options?.cancel) {
         await Promise.all(
