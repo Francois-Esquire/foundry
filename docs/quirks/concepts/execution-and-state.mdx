@@ -1,22 +1,23 @@
 ---
 title: Execution and state
-description: Fresh processes can share continuity without a resident daemon.
+description: Fresh processes share continuity without a resident daemon, and a parked run outlives the process that parked it.
 ---
 
 Each command starts a fresh process. First, importing `quirks.config.ts`
-registers definitions. Then the CLI binds the resources step bodies receive,
-including models, workspaces, sessions, and logging. Finally it dispatches work.
+registers definitions. Then the CLI binds the runtime step bodies receive:
+providers, workspaces, sandboxes, artifacts, sessions, and logging. Finally it
+dispatches work.
 
-“Register, then bind” means describing work before choosing its runtime resources.
+“Register, then bind” means describing work before choosing its runtime.
 It lets one config support inspection, real execution, and dry substitutions.
-Factory calls do not execute step bodies. Ordinary code at module scope still
-runs during import, even for inspection commands.
+Calling a word does not execute a step body. Ordinary code at module scope
+still runs during import, even for inspection commands.
 
 ```mermaid
 flowchart LR
     C[Import config] --> D[Register definitions]
-    D --> B[Bind runtime resources]
-    B --> H[Hydrate settled history]
+    D --> B[Bind runtime]
+    B --> H[Load history, adopt parked runs]
     H --> R[Dispatch work]
     R --> P[Persist outcomes]
     P --> E[Exit]
@@ -24,8 +25,8 @@ flowchart LR
 
 | Mode | Lifetime |
 | --- | --- |
-| `quirks once <name>` | Dispatch one definition or schedule and exit. |
-| `quirks run` | Keep a foreground process active for schedules and live monitors. |
+| `quirks once <name-or-key>` | Dispatch one definition, schedule, or monitor and exit. Cannot answer a question. |
+| `quirks` | Keep the dashboard active for schedules, monitors, launches, and answers. |
 | launchd | Start a fresh `once` process for each scheduled tick. |
 
 ```mermaid
@@ -43,11 +44,24 @@ sequenceDiagram
 launchd owns the clock. Quirks owns execution and continuity. Nothing remains
 resident between its launchd ticks.
 
-State belongs to the configuration directory. A named agent session can reuse
-conversation history after the previous process exits. A file monitor can
-compare today's checksums with yesterday's successful observation. The directory
-catalogue itself is in memory and is rebuilt for each runtime.
+State belongs to the configuration directory. A session continued by
+reference reuses its conversation after the previous process exits. A file
+monitor compares today's digests with the last handled observation. A
+declared artifact gains a version per run.
 
-This is disk-backed continuity, not automatic recovery of interrupted work.
-See [state](/quirks/reference/state) for hydration and locks, and
-[safety and limits](/quirks/safety-and-limits) for dry-run boundaries.
+## What a restart keeps
+
+A run parked on a question or a pause is written to disk as it parks, with
+the sessions and sandboxes each step opened, the input each step was locked
+with, and the run's own session. A quit, a crash, or a kill does not lose it.
+The next dashboard that starts with the same state root and still registers
+the step adopts the run, keeps its question open, and on the answer replays
+the step body against the recorded sessions.
+
+A run that was mid-body when the process stopped is not resumed. Finished
+steps keep their recorded results, but nothing picks the run up; `status`
+shows it as orphaned. This is the boundary today: parked work survives,
+running work does not.
+
+See [state](/quirks/reference/state) for the layout and the adoption rules,
+and [safety and limits](/quirks/safety-and-limits) for dry-run boundaries.

@@ -1,31 +1,61 @@
 ---
 title: Composition
-description: Reuse small definitions inside larger graphs.
+description: Build a definition once, lock it into a tree as often as needed.
 ---
 
-`step` returns a reusable unit of work. `workflow` returns a graph that can also
-be used as a node in another graph. Input mappers connect the workflow input and
-earlier node outputs to the next operation.
+A definition has two phases. Build: `step(name).input(schema).output(schema).do(fn)`
+shapes it, and nothing is in a graph yet. Lock: calling it,
+`review({}, { target: "." })`, makes one node with these children and this
+literal input. One definition can be locked many times; each lock is its own
+node.
 
-Start with named steps and mapped outputs. Add concurrency only when the work
-can happen independently.
+```ts
+const weekly = workflow(
+  "weekly",
+  publish.parallel({
+    findings: review({}, { target: "packages" }),
+    exitCode: test({}),
+  })
+);
+```
 
-| Graph operation | Use |
+```text
+weekly (publish)
+├─ findings   review { target: "packages" }
+└─ exitCode   test
+```
+
+| Call | Children run |
 | --- | --- |
-| `step` | Place a step or workflow at a named node. |
-| `sequence` | Chain definitions in order. |
-| `parallel` | Run named branches and collect their results. |
-| `race` | Select the first completed branch. |
-| `branch` | Choose between two definitions using a predicate. |
-| `output` | Select the graph's returned value. |
+| `publish(children, input?)` | In key order. |
+| `publish.series(children, input?)` | In key order, written out. |
+| `publish.parallel(children, input?)` | Together. |
 
-`loopUntil` wraps a definition in bounded repetition. It returns the last output,
-the number of rounds, and whether its stopping predicate succeeded. Exhausting
-the round limit does not mean the work passed verification.
+The rules that follow from this shape:
 
-Deterministic and agentic steps use the same graph. An implementation turn can
-be followed by a test command, then a review turn. Make actual test results part
-of the stopping condition when correctness depends on them.
+- **Children first, input second.** An object of locked nodes keyed by name,
+  then literal values for the step's own input. The two merge into the
+  parent's `input`; a key in both is an error when the config loads.
+- **Keys name steps.** `findings` and `exitCode` are the children's names in
+  the dashboard, in logs, on resume, and in the parent's schema.
+- **The parent runs last** and declares its children's results in `.input()`
+  like any other input. Each child's output is checked against its key at
+  lock.
+- **Siblings are independent.** Data flows only from a child to its parent.
+  A step that needs another's result takes it as a child, which is how a
+  chain reads: `approve({ review: review({ branch: implement({}, { task }) }) })`.
+- **A workflow is a name around a tree.** `workflow("weekly", tree)` makes the
+  tree launchable and schedulable. `workflow("ship").input(schema).do(setup)`
+  builds the tree from input. A workflow is a definition too: `weekly({})`
+  locks it, which is what a monitor handler returns to start it.
+- **Setup is not durable.** A workflow's `.do` runs on every setup, including
+  after a restart, and returns the tree. Anything it must keep goes into a
+  step as input, which the run records.
 
-Continue with [a working graph](/quirks/guides/workflows), or see the
-[exact combinator shapes](/quirks/reference/api).
+Deterministic and agentic steps share the tree. An implementation turn in a
+worktree can hand its branch to a review turn, which hands its findings to an
+approval. Series and parallel are the two combinators today; race, branch,
+and loops are not available yet.
+
+Continue with [a working tree](/quirks/guides/workflows), or see the
+[API reference](/quirks/reference/api#locking-and-trees).
