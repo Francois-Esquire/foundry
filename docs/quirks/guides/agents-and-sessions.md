@@ -1,50 +1,73 @@
 ---
 title: Give an agent continuity
-description: Reuse one conversation across separate CLI invocations.
+description: Open a session in a step, then continue the same conversation in a later run.
 ---
 
-Install and authenticate Claude Code or Codex before running model turns. Quirks
-detects `claude` and `codex` on `PATH`. Harness authentication belongs to those
-CLIs.
+Install and authenticate Claude Code or Codex before running model turns.
+Quirks detects `claude` and `codex` on `PATH` and prefers Claude Code when
+both are present; `--harness` narrows the choice. Authentication belongs to
+those CLIs.
 
 ```ts
 import { agent, step } from "@foundry/quirks";
+import { z } from "zod";
 
-const reviewer = agent("project-reviewer", {
+const reviewer = agent({
   prompt: "Review this repository without editing. Compare with earlier findings.",
 });
 
-step("review-project", async ({ agents, workspace }, request: string) => {
-  const session = await agents.session(reviewer, {
-    sessionId: "project-review",
-    cwd: workspace.root,
-  });
-  const reply = await session.generate(request);
-  return { text: reply.parts
-    .flatMap((part) => part.type === "text" ? [part.text] : []).join("\n") };
+const sessionRef = z.object({
+  id: z.string(),
+  model: z.string().optional(),
+  provider: z.string().optional(),
 });
+
+step("review-project")
+  .input(z.object({ request: z.string(), session: sessionRef.optional() }))
+  .do(async ({ input, agents }) => {
+    const session = await agents.session(reviewer, input.session ? { session: input.session } : {});
+    const reply = await session.generate(input.request);
+    return { text: reply.text, session: session.ref };
+  });
 ```
 
 ```sh
-quirks once review-project --input '"Review the repository and remember unresolved findings."'
-quirks once review-project --input '"Compare this revision with your earlier findings."'
+quirks once review-project --input '{"request":"Review the repository and remember unresolved findings."}'
+quirks once review-project --input '{"request":"Compare this revision with your earlier findings.","session":{"id":"<id from the first result>","provider":"claude-code"}}'
 quirks sessions
 ```
 
-The second invocation loads the same conversation from disk. Inspect its reply
-and the session's message count to see that continuity. The model may still miss
-changes or misinterpret history.
+The first run opens a fresh session and returns its reference beside the
+reply. The second passes that reference back and continues the same
+conversation from disk. `sessions` lists it with its message count. The model
+may still miss changes or misinterpret history.
 
-The harness runs the agentic loop; Quirks decides where that loop belongs within
-a larger behavior. Declaring `agent` does not start a conversation. Opening a
-session with a stable ID connects the agent to retained messages.
+## How sessions behave
 
-Omit `sessionId` for a new conversation. Compaction is off by default; pass
-`compaction: true` to let it replace older history with a summary, or partial
-settings to adjust it. `executor` selects a harness route (by default the first
-available harness); `cwd`
-sets its working directory. Neither a directory nor a review prompt enforces
-read-only access.
+- **Fresh by default.** Every `agents.session(def)` starts a new session.
+  Continue one by reference, `{ session }`, never by an id you invented.
+  Within a step the object works; across steps and runs the small
+  `session.ref` handle does, as above. A ref belongs to the provider that
+  opened it; continuing it with an agent on another provider starts a new
+  session and logs a warning.
+- **Replay returns the same session.** After a question, a pause, or a
+  restart, a step body runs again from the top. The n-th `agents.session`
+  call in the body returns the session it opened the first time, with its
+  transcript, so keep those calls in a fixed order.
+- **Wired by default.** The session runs in the step's working directory,
+  which is the config's directory or, inside a worktree callback, the
+  worktree. Its turns write to the step's stream and stop when the step is
+  cancelled or paused. Pass `{ cwd }` only to leave that default.
+- **Compaction is off.** `{ compaction: true }` lets older history be
+  replaced by a summary made with the turn model; partial settings adjust
+  it.
 
-See [session options](/quirks/reference/api) and
+`agent` declares who does the work: a prompt, optionally a `provider`
+(`codex` or `claude-code`) and a `model` the provider serves. Declaring one
+starts nothing; opening a session does. Neither a directory nor a review
+prompt enforces read-only access.
+
+From the dashboard, `s` on a running step hands the agent a prompt mid-turn
+and `p` parks the step; neither needs authored code. See the
+[API reference](/quirks/reference/api#context) and
 [safety and limits](/quirks/safety-and-limits).

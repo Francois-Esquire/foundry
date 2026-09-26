@@ -1,69 +1,86 @@
 ---
 title: React to change and recur
-description: Observe files and network sources, then choose when work returns.
+description: Observe files and HTTP sources, then choose when work returns.
 ---
 
-A schedule decides when work runs. A monitor checks a source and decides whether
-its handler should run. Begin with deterministic detection:
+A schedule decides when work runs. A monitor checks a source and runs its
+handler when something changed. Begin with deterministic detection:
 
 ```ts
 import { monitor } from "@foundry/quirks";
 
-monitor("instruction-drift", async ({ log }, change) => {
-  if (change.kind === "files") {
-    log(JSON.stringify(change));
-  }
-}, { glob: "**/{AGENTS,CLAUDE}.md", every: "30s" });
+monitor("**/{AGENTS,CLAUDE}.md")
+  .every("30s")
+  .do(({ files, log }) => log(files));
 ```
 
 ```sh
-quirks once instruction-drift
-quirks run
+quirks list
+quirks once <the monitor key list printed>
+quirks
 ```
 
-The first observation reports existing matching files as added. Later
-observations compare checksums with the last successfully handled snapshot.
-Add an agent session when investigating the meaning of a change needs judgment;
-the [caretaker pattern](/quirks/use-cases/repository-caretaker) does this.
+A monitor has no name of its own. `list` prints its key, derived from the
+source, such as `agents-claude-md-1a2b3c`; `once <key>` polls it once. The
+first poll has no baseline, so every matching file arrives as `added`; later
+polls compare digests with the last observation and report `added`,
+`modified`, and `removed`. A glob that matches nothing fires nothing. The
+observation is recorded after the handler resolves, so a handler that throws
+sees the same change next tick.
+
+Add an agent session when judging what a change means; the
+[caretaker pattern](/quirks/use-cases/repository-caretaker) does this.
 
 ## Network sources
 
-These complete handlers log changes. Replace the illustrative URLs with your
-sources before running them:
+Replace the illustrative URL with your source before running it:
 
 ```ts
-monitor("release-feed", async ({ log }, change) => {
-  if (change.kind === "http") log(JSON.stringify(change.current));
-}, { url: "https://example.com/releases.json", every: "1h" });
-
-monitor("live-events", async ({ log }, change) => {
-  if (change.kind === "ws") log(JSON.stringify(change.message));
-}, { url: "wss://example.com/events" });
+monitor("https://example.com/releases.json")
+  .every("1h")
+  .do(async ({ response, log }) => log(await response.json()));
 ```
 
-HTTP compares parsed values. `select` can narrow the value being compared.
-WebSocket monitors deliver each message under `quirks run`; they do not
-deduplicate, persist, or replay messages. Both still perform network I/O under
-`--dry`.
+An HTTP monitor fires when the body changes: each poll hashes the body, as
+stable JSON when it parses, as text otherwise, and compares it with the last
+hash. A body that carries noise such as a timestamp fires every poll; read
+`response` and return early when nothing you care about changed. Monitors
+still perform their network I/O under `--dry`.
+
+## A monitor that starts a workflow
+
+A handler that returns a locked node starts it, attributed to the monitor:
+
+```ts
+monitor("https://tracker.example.com/issues/latest")
+  .every("10m")
+  .do(async ({ response }) => ship({}, { task: (await response.json()).title }));
+```
+
+The target is a named step or workflow, locked without children. Return
+`undefined` to do nothing this tick. The launch is held until a tick has
+started it, so a crash in between does not lose it.
 
 ## Choose a cadence
 
-For the `inspect` handle in [Start Here](/quirks/start-here), either schedule is valid:
+For the `inspect` step from [Start Here](/quirks/start-here), either form is
+valid:
 
 ```ts
-schedule("inspect-often", { workflow: inspect, input: null, at: "30m" });
-schedule("inspect-monday", {
-  workflow: inspect, input: null, at: { weekday: "mon", hour: 9, minute: 30 },
-});
+schedule(inspect).every("30m");
+schedule(inspect).at({ weekday: "mon", hour: 9, minute: 30 });
 ```
 
-Import `schedule` alongside `step`. Calendar times are machine-local.
-Foreground intervals count from completion and do not queue missed ticks.
-Schedule locks skip overlapping executions held by a live process. Direct
-`once <workflow>` does not take a schedule lock.
+Import `schedule` alongside `step`. An interval is an integer with `s`, `m`,
+`h`, or `d`. Calendar times are machine-local; `weekday` is a day or an
+array, omitted for every day. A schedule's key is its target's name, with a
+short hash of the input when a locked node carries one; the two above share
+a target and no input, so the second is keyed `inspect-2`.
 
-File monitors use native notifications during foreground execution, with polling
-as a fallback. Events arriving while a monitor is busy are dropped. Polling can
-detect remaining file differences later; WebSocket messages have no such recovery.
+Foreground intervals count from completion and do not queue missed ticks. A
+tick takes a lock for its key, so an overlapping tick from another live
+process skips instead of doubling up; `once <step-name>` takes no lock.
+Globs are polled on the monitor's cadence, one minute by default; there is no
+live file watching.
 
 For macOS scheduling between processes, continue to [launchd](/quirks/guides/launchd).

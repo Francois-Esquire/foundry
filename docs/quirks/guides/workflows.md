@@ -1,43 +1,85 @@
 ---
 title: Compose a workflow
-description: Connect inputs and outputs before adding concurrency.
+description: Hand one step's result to another, run independent work together, and give a workflow input.
 ---
 
 Save this as its own configuration, or replace the first guide's definitions:
 
 ```ts
 import { step, workflow } from "@foundry/quirks";
+import { z } from "zod";
 
-const greet = step("greet-person", async (_resources, name: string) => ({
-  message: `Hello ${name}`,
-}));
-const measure = step("measure-message", async (_resources, text: string) => ({
-  length: text.length,
-}));
+const greet = step("greet")
+  .input(z.object({ name: z.string() }))
+  .output(z.string())
+  .do(({ input: { name } }) => `Hello ${name}`);
 
-workflow<string, { message: string; length: number }>("greeting-report", (graph) => {
-  graph
-    .step("greeting", greet, ({ input }) => input)
-    .step("measurement", measure, ({ greeting }) => greeting.message)
-    .output(({ greeting, measurement }) => ({
-      message: greeting.message,
-      length: measurement.length,
-    }));
-});
+const measure = step("measure")
+  .input(z.object({ text: z.string() }))
+  .do(({ input: { text } }) => ({ text, length: text.length }));
+
+workflow("greeting-report", measure({ text: greet({}, { name: "Ada" }) }));
 ```
 
 ```sh
-quirks once greeting-report --input '"Ada"'
+quirks once greeting-report
 ```
 
-`measurement` depends on `greeting`. Its input mapper makes that relationship
-explicit. A workflow handle can replace a step handle in a larger graph.
+`measure` takes `greet` as a child under the key `text`. The child runs first;
+its result arrives in the parent's `input.text`; the parent returns
+`{ text: "Hello Ada", length: 9 }`, which is the workflow's result. In logs and
+the dashboard the child is `greeting-report.text`: keys name steps, so choose
+keys that read well.
 
-For independent work, use `parallel` with named definitions. Use `branch` when
-one predicate should select a path, and `race` when the first completed branch
-is the desired result. See the [combinator reference](/quirks/reference/api)
-for their call shapes.
+The parent declares its children in `.input()` like any other input, and each
+child's output is checked against its key when the config loads. A child
+whose `.output()` does not fit, or a key the parent does not declare, is an
+error before anything runs.
 
-When one attempt should inform another, use `loopUntil` with a round limit and
-an explicit stopping predicate. The [implement-review pattern](/quirks/use-cases/implement-review)
+## Independent work runs together
+
+Children in key order is the default. `.parallel` runs them together:
+
+```ts
+const shout = step("shout")
+  .input(z.object({ name: z.string() }))
+  .output(z.string())
+  .do(({ input: { name } }) => `HELLO ${name.toUpperCase()}`);
+
+const both = step("both")
+  .input(z.object({ plain: z.string(), loud: z.string() }))
+  .do(({ input }) => input);
+
+workflow("greet-twice", both.parallel({
+  plain: greet({}, { name: "Ada" }),
+  loud: shout({}, { name: "Ada" }),
+}));
+```
+
+Siblings never see each other. Data flows only from a child to its parent, so
+a step that needs another's result takes it as a child. If a parallel sibling
+fails, the others are stopped and the run fails; if one parks on a question,
+the others finish and the parent waits.
+
+## A workflow with input
+
+To take input at launch, put the tree in a setup function:
+
+```ts
+workflow("greet-anyone")
+  .input(z.object({ name: z.string() }))
+  .do(({ input: { name } }) => measure({ text: greet({}, { name }) }));
+```
+
+```sh
+quirks once greet-anyone --input '{"name":"Grace"}'
+```
+
+Setup receives `{ input, log, run }` and returns the tree. It is not durable:
+it runs again whenever the run is set up, including after a restart, so it
+prepares and returns rather than doing work. Anything it must keep goes into
+a step as input, which the run records.
+
+Series and parallel are the two combinators today. Race, branch, and loops
+are not available yet. The [implement-review pattern](/quirks/use-cases/implement-review)
 shows how model work fits into this composition.
