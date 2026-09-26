@@ -29,8 +29,8 @@ export function QuitDialog({
         launch.
       </text>
       <text fg={theme.colors.warning}>
-        Interrupted runs cannot resume. Active work is cancelled; saved results
-        remain available.
+        Running steps are cancelled. Runs waiting on an answer, or paused, are
+        kept and resume on the next launch.
       </text>
       {preview && (
         <text fg={theme.colors.mutedForeground}>

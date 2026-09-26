@@ -33,10 +33,11 @@ question, a number key picks that choice, or `a` opens a text field for a
 free-text answer.
 
 Press `q` or Ctrl+C for the quit dialog. A second Ctrl+C confirms, stopping
-triggers and cancelling active runs. Completed results and monitor checkpoints
-persist unless `--dry` is set. Interrupted runs cannot resume. Custom steps must
-honor their context's `signal` to stop external work; cancellation cannot undo
-side effects.
+triggers and cancelling running steps. A run waiting on an answer, or paused,
+is kept and resumes on the next launch when its step is still defined.
+Completed results and monitor checkpoints persist unless `--dry` is set; under
+`--dry` parked runs are cancelled too. Custom steps must honor their context's
+`signal` to stop external work; cancellation cannot undo side effects.
 
 When stdin or stdout is not a terminal, `quirks` and `quirks run` start immediately
 and emit plain text without a splash or dialog. SIGINT and SIGTERM stop new

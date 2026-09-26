@@ -259,6 +259,94 @@ describe("lib2 through the engine", () => {
     await second.dispose();
   });
 
+  it("a quit that cancels running work keeps a parked run for the next process", async () => {
+    const state = join(root, "state");
+    const feedRoot = join(root, "feed");
+    let held: (() => void) | undefined;
+    const define = () => {
+      step("release").do(async ({ ask }) => {
+        const { approved } = await ask.approval({ title: "Release v2" });
+        return approved;
+      });
+      step("linger").do(
+        ({ signal }) =>
+          new Promise<void>((resolve, reject) => {
+            held = resolve;
+            signal.addEventListener("abort", () => reject(signal.reason), {
+              once: true,
+            });
+          })
+      );
+    };
+
+    // Process one: one run parked on an approval, one mid-body; the
+    // dashboard quits with `cancel`.
+    define();
+    const first = bindMock(() => "ok", { root });
+    const feedOne = openFeed(feedRoot, { id: "ws", root });
+    const one = await startEngine(registerCatalog, {
+      askable: true,
+      feed: feedOne.publisher,
+      print: () => undefined,
+      state,
+    });
+    const parked = await one.launch<boolean>("release", {});
+    parked.result.catch(() => undefined);
+    const running = await one.launch<void>("linger", {});
+    const lingered = running.result.catch((error: unknown) => error);
+    const question = await openEntry(
+      feedOne.read,
+      (entry) => entry.input?.status === "open"
+    );
+    if (!question) {
+      throw new Error("expected an open approval");
+    }
+    await one.stop({ cancel: true });
+    await first.dispose();
+    expect(held).toBeDefined();
+    expect(await lingered).toBeInstanceOf(Error);
+    const statuses = new Map(
+      (await one.runs()).map((run) => [run.id, run.status])
+    );
+    expect(statuses.get(running.id)).toBe("cancelled");
+    expect(statuses.get(parked.id)).toBe("suspended");
+    expect(
+      (await feedOne.read()).find((entry) => entry.id === question.id)?.input
+        ?.status
+    ).toBe("open");
+
+    // Process two: the parked run is adopted; the cancelled one is not.
+    catalog.reset();
+    runs.clear();
+    define();
+    const second = bindMock(() => "ok", { root });
+    const feedTwo = openFeed(feedRoot, { id: "ws", root });
+    const lines: string[] = [];
+    const two = await startEngine(registerCatalog, {
+      askable: true,
+      feed: feedTwo.publisher,
+      print: (line) => lines.push(line),
+      state,
+    });
+    expect(lines).toContain(`[run] release recovered ${parked.id}`);
+    expect(lines).not.toContain(`[run] linger recovered ${running.id}`);
+    await two.answer(question.id, "reject");
+    const done = await openEntry(
+      async () =>
+        (await two.runs()).map((run) => ({
+          id: run.id,
+          status: run.status,
+        })) as never,
+      (entry) => {
+        const run = entry as unknown as { id: string; status: string };
+        return run.id === parked.id && run.status === "complete";
+      }
+    );
+    expect(done).toBeDefined();
+    await two.stop();
+    await second.dispose();
+  });
+
   it("leaves a parked run alone when this process cannot answer or the step is gone", async () => {
     const state = join(root, "state");
     const feedRoot = join(root, "feed");

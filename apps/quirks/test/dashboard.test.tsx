@@ -478,7 +478,7 @@ test("quit defaults to cancel and restores the selected step", async () => {
   const frame = ui.captureCharFrame();
   expect(frame).toContain("Quit Quirks?");
   expect(frame).toContain("Quitting stops schedules and monitoring");
-  expect(frame).toContain("Interrupted runs cannot resume.");
+  expect(frame).toContain("Running steps are cancelled.");
   expect(frame).toContain("Preview only:");
   expect(closed).toBe(false);
   await press(ui, "RETURN");

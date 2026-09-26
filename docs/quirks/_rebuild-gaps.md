@@ -40,7 +40,9 @@ is done. The residency key is unchanged (folded into the identity decision).
 - **Recovery.** A run parked on an ask is written to its run file as it
   parks, with its ledger and session id. The next askable process adopts
   it, restores the scope, and keeps the question open; the answer replays
-  the body against the recorded sessions.
+  the body against the recorded sessions. A clean quit of the dashboard
+  keeps parked runs too: `stop({ cancel })` cancels only queued and running
+  runs when a state dir is set, everything without one (`--dry`).
 - **Steer, pause, resume, cancel.** `engine.steer/pause/resume/cancel`, on
   the frame table's live sessions and a pause suspension kind of its own;
   the dashboard's `s`, `p`, `k` and a Stream tab. Verified against
@@ -139,10 +141,6 @@ place and throws if frozen; `revise()` freezes and adds a new one. Entries are
 - **Identity for helper-made definitions.** A definition created inside a
   helper function is nameless by design; the AST pass could follow the
   caller's binding later if that proves common.
-- **A quit cancels parked runs.** The dashboard stops with `cancel: true`,
-  so recovery applies after a crash or a kill, not after a clean quit.
-  Leaving `suspended` out of that filter when a state dir is set would make
-  quit-then-reopen resume; one line, pending the call.
 - **An entry flips while no dashboard is up.** A non-askable process (a
   launchd tick) skips a parked run but still sweeps its feed entry to
   "cancelled" because its pid is dead; the next dashboard reopens it on

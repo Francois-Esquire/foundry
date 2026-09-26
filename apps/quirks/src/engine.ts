@@ -57,6 +57,12 @@ export interface Engine {
   runs(): Promise<readonly RunRecord[]>;
   /** Hand a prompt to the agent turn running in a step; it becomes the next message. */
   steer(runId: string, stepId: string, prompt: string): void;
+  /**
+   * Settle and write what this process holds. `cancel` stops work that
+   * cannot outlive the process: queued and running runs, and, without a
+   * state dir, parked ones too. With a state dir a parked run keeps its
+   * question and is adopted by the next process that can answer.
+   */
   stop(options?: { readonly cancel?: boolean }): Promise<void>;
   /**
    * A live run's events and chunks from its start, then as they happen;
@@ -305,19 +311,21 @@ export async function startEngine(
     async stop(options) {
       stopping = true;
       // With a state dir a parked run is written and adopted by the next
-      // process that can answer; without one, nothing can resume it, so its
-      // entry says so.
-      if (state === undefined || options?.cancel) {
+      // process that can answer, so a quit keeps it and its open question.
+      // Without one, nothing can resume it, so its entry says so.
+      const parkedSurvive = state !== undefined;
+      if (!parkedSurvive) {
         await router?.cancelOpen();
       }
       await Promise.allSettled([...dispatching]);
       if (options?.cancel) {
+        const doomed = parkedSurvive
+          ? ["queued", "running"]
+          : ["queued", "running", "suspended"];
         await Promise.all(
           store
             .snapshot()
-            .runs.filter((run) =>
-              ["queued", "running", "suspended"].includes(run.status)
-            )
+            .runs.filter((run) => doomed.includes(run.status))
             .map((run) => orchestrator.cancelRun(run.id))
         );
       }

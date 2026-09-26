@@ -703,8 +703,9 @@ const drafter = agent({ prompt: "Draft the page.", model: "anthropic/claude-sonn
 - **Trigger targets with children.** `schedule(publish.parallel({ … }))`
   and a monitor handler returning such a tree are refused; wrap the tree in
   `workflow(name, tree)`. Lifting that needs anonymous trees to register.
-- **Recovery of running runs.** A run parked on an ask survives a restart;
-  a run that was mid-body when the process died does not, yet.
+- **Recovery of running runs.** A run parked on an ask survives a quit, a
+  crash, or a kill; a run that was mid-body when the process stopped does
+  not, yet.
 
 ### Follow-ups carried over
 
