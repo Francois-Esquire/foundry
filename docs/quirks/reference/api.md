@@ -48,10 +48,10 @@ const reviewing = skills.load().add("./skills/review/*").pick("caveman");
 - **`agent`.** `prompt` is required and should state limits ("read only").
   `provider` is `"codex"` or `"claude-code"`; omitted means the first
   installed CLI, Claude Code before Codex. `model` names a model the
-  provider serves: `sonnet`, `opus`, `haiku`, or `fable` through Claude Code,
-  `gpt-5.5` through Codex. It does not pick the provider; an id the provider
-  does not know is passed through with a warning, and `--dry` rejects it.
-  `skills` takes a skill set.
+  provider serves; [Models](/quirks/reference/models) pairs each documented
+  role with one. It does not pick the provider; an id the provider does not
+  know is passed through with a warning, and `--dry` rejects it. `skills`
+  takes a skill set.
 - **`workspace`.** A directory preset. It has no state or dashboard entry of
   its own. A sandbox may mount it.
 - **`sandbox`.** The image form mounts a workspace read/write at `/workspace`.

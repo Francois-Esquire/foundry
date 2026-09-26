@@ -58,7 +58,8 @@ const reviewing = skills.load().add("./skills/review/*").pick("caveman");
   `provider` is `"codex"` or `"claude-code"`; omitted means the first
   installed CLI. `model` names a model the provider serves (`sonnet`, `opus`,
   `haiku`, `fable` for Claude Code; `gpt-5.5` for Codex); it does not pick
-  the provider, and an unknown id is passed through with a warning.
+  the provider, and an unknown id is passed through with a warning. Prefer
+  omitting `model`; name one only when the role needs a specific model.
 - `sandbox` with `image` mounts a workspace read/write at `/workspace`.
   `mount` is `"."` (the default): the step's working directory, which is the
   config's directory or, inside a worktree callback, the worktree. Or a
