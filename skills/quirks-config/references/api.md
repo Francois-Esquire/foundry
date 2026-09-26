@@ -46,7 +46,7 @@ the spot.
 
 ```ts
 const reviewer = agent({ prompt: "Review without editing.", provider: "codex" });
-const drafter = agent({ prompt: "Draft the page.", model: "anthropic/claude-sonnet-4.6" });
+const drafter = agent({ prompt: "Draft the page.", model: "sonnet" });
 const site = workspace({ path: "../marketing-site" });          // relative to the config
 const box = sandbox({ image: "docker.io/oven/bun:1-slim", mount: "." });
 const scratch = sandbox({ files: { "main.py": "print(1)" } });  // seeded under /workspace
@@ -56,7 +56,9 @@ const reviewing = skills.load().add("./skills/review/*").pick("caveman");
 
 - `agent.prompt` is required and should state limits ("read only").
   `provider` is `"codex"` or `"claude-code"`; omitted means the first
-  installed CLI. `model` is a catalog id; it does not pick the runtime.
+  installed CLI. `model` names a model the provider serves (`sonnet`, `opus`,
+  `haiku`, `fable` for Claude Code; `gpt-5.5` for Codex); it does not pick
+  the provider, and an unknown id is passed through with a warning.
 - `sandbox` with `image` mounts a workspace read/write at `/workspace`.
   `mount` is `"."` (the default): the step's working directory, which is the
   config's directory or, inside a worktree callback, the worktree. Or a
@@ -262,6 +264,7 @@ quirks [--config ./quirks.config.ts] [--dry] [--state ~/.foundry/quirks]
 quirks list                       # named steps, workflows, schedule keys, monitor keys
 quirks once <name-or-key> [--input '{"target":"src"}']
 quirks status                     # every workspace under --state
+quirks sessions                   # this workspace's agent sessions
 quirks launchd install <key>      # macOS agent for one schedule or monitor
 ```
 

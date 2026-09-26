@@ -35,7 +35,7 @@ explicit. A workflow handle can replace a step handle in a larger graph.
 
 For independent work, use `parallel` with named definitions. Use `branch` when
 one predicate should select a path, and `race` when the first completed branch
-is the desired result. See the [combinator reference](/quirks/reference/factories#workflowname-define)
+is the desired result. See the [combinator reference](/quirks/reference/api)
 for their call shapes.
 
 When one attempt should inform another, use `loopUntil` with a round limit and

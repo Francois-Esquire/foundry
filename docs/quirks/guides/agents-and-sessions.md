@@ -46,5 +46,5 @@ available harness); `cwd`
 sets its working directory. Neither a directory nor a review prompt enforces
 read-only access.
 
-See [session options](/quirks/reference/factories#session-options) and
+See [session options](/quirks/reference/api) and
 [safety and limits](/quirks/safety-and-limits).

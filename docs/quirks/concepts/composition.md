@@ -28,4 +28,4 @@ be followed by a test command, then a review turn. Make actual test results part
 of the stopping condition when correctness depends on them.
 
 Continue with [a working graph](/quirks/guides/workflows), or see the
-[exact combinator shapes](/quirks/reference/factories#workflowname-define).
+[exact combinator shapes](/quirks/reference/api).

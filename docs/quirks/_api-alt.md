@@ -724,6 +724,13 @@ const drafter = agent({ prompt: "Draft the page.", model: "anthropic/claude-sonn
 
 Pending decisions from the first library, still open against this API.
 
+- **Model ids.** This document gives vendor-prefixed catalog ids
+  (`anthropic/claude-sonnet-4.6`). Today the CLI providers serve their own
+  ids (`sonnet`, `opus`, `haiku`, `fable`; `gpt-5.5`), a `model` without a
+  `provider` goes to the first available provider unchanged, and `--dry`
+  rejects an id no echo provider serves. The public reference documents the
+  ids that work; this document keeps the intent until a catalog resolves
+  them.
 - **`AgentSpec` fields Quirks does not wire.** `mcp`, `mesh`, and `tools` are
   accepted by the spec and ignored by the session runtime. Narrow the public
   type, reject them, or implement them.

@@ -84,7 +84,7 @@ reference for text, multiline, number, boolean, and choice fields.
 - [Start Here](https://francois-esquire.github.io/foundry/quirks/start-here/)
 - [Concepts](https://francois-esquire.github.io/foundry/quirks/concepts/)
 - [Use Cases](https://francois-esquire.github.io/foundry/quirks/use-cases/)
-- [API reference](https://francois-esquire.github.io/foundry/quirks/reference/factories/)
+- [API reference](https://francois-esquire.github.io/foundry/quirks/reference/api)
 - [CLI reference](https://francois-esquire.github.io/foundry/quirks/reference/cli/)
 - [Safety and Limits](https://francois-esquire.github.io/foundry/quirks/safety-and-limits/)
 - [Contributing](https://francois-esquire.github.io/foundry/quirks/contributing/)
