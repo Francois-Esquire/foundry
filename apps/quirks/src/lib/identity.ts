@@ -81,9 +81,9 @@ function parserFor(file: string): Parser | null {
 /** Top-level `const` bindings of one file: identifier by initializer span. */
 interface Binding {
   readonly end: number;
+  readonly initializer: TS.Node;
   readonly name: string;
-  /** Spans of functions inside the initializer; a call in one is not this binding. */
-  readonly nested: readonly (readonly [number, number])[];
+  readonly source: TS.SourceFile;
   readonly start: number;
 }
 
@@ -127,8 +127,9 @@ function topLevelBindings(ts: Parser, source: TS.SourceFile): Binding[] {
       }
       result.push({
         end: initializer.end,
+        initializer,
         name: (name as TS.Identifier).text,
-        nested: nestedFunctions(ts, source, initializer),
+        source,
         start: initializer.getStart(source),
       });
     }
@@ -136,33 +137,59 @@ function topLevelBindings(ts: Parser, source: TS.SourceFile): Binding[] {
   return result;
 }
 
-function nestedFunctions(
+/** The innermost call expression whose span holds the offset, under `root`. */
+function callAt(
   ts: Parser,
   source: TS.SourceFile,
-  root: TS.Node
-): (readonly [number, number])[] {
-  const functionKinds = new Set([
-    ts.SyntaxKind.ArrowFunction,
-    ts.SyntaxKind.ClassDeclaration,
-    ts.SyntaxKind.ClassExpression,
-    ts.SyntaxKind.Constructor,
-    ts.SyntaxKind.FunctionDeclaration,
-    ts.SyntaxKind.FunctionExpression,
-    ts.SyntaxKind.GetAccessor,
-    ts.SyntaxKind.MethodDeclaration,
-    ts.SyntaxKind.SetAccessor,
-  ]);
-  const spans: (readonly [number, number])[] = [];
+  root: TS.Node,
+  offset: number
+): TS.Node | undefined {
+  let found: TS.Node | undefined;
   const visit = (node: TS.Node): void => {
-    if (functionKinds.has(node.kind)) {
-      spans.push([node.getStart(source), node.end]);
+    if (offset < node.getStart(source) || offset >= node.end) {
       return;
+    }
+    if (node.kind === ts.SyntaxKind.CallExpression) {
+      found = node;
     }
     node.forEachChild(visit);
   };
-  // The initializer may itself be the function: `const make = () => step()`.
   visit(root);
-  return spans;
+  return found;
+}
+
+/**
+ * Whether `call` is the initializer's own definition: every step from the
+ * call up to the initializer goes through a callee position (`x` in
+ * `x(...)`, `x.y`, `(x)`, `x as T`, `x!`, `await x`). A call reached
+ * through an argument list is a definition passed to another one, and a
+ * call inside a function body belongs to whoever calls that function;
+ * neither takes the const's name.
+ */
+function owns(ts: Parser, call: TS.Node, initializer: TS.Node): boolean {
+  const calleeKinds = new Set([
+    ts.SyntaxKind.AsExpression,
+    ts.SyntaxKind.AwaitExpression,
+    ts.SyntaxKind.CallExpression,
+    ts.SyntaxKind.ElementAccessExpression,
+    ts.SyntaxKind.NonNullExpression,
+    ts.SyntaxKind.ParenthesizedExpression,
+    ts.SyntaxKind.PropertyAccessExpression,
+    ts.SyntaxKind.SatisfiesExpression,
+    ts.SyntaxKind.TypeAssertionExpression,
+  ]);
+  let node = call;
+  while (node !== initializer) {
+    const { parent } = node;
+    if (!(parent && calleeKinds.has(parent.kind))) {
+      return false;
+    }
+    if ((parent as { expression?: TS.Node }).expression !== node) {
+      return false;
+    }
+    node = parent;
+  }
+  return true;
 }
 
 function offsetOf(text: string, line: number, column: number): number {
@@ -195,14 +222,16 @@ function textOf(file: string): string {
 }
 
 /**
- * The top-level `const` whose initializer contains the call, or `undefined`
- * for a call inside a function, an inline argument, or a file TypeScript
- * cannot read. Call-site columns are one-based in some runtimes and
- * zero-based in others; a one-column tolerance covers both.
+ * The top-level `const` whose initializer *is* this call, or `undefined`
+ * for a call inside a function, a call passed as an argument to another
+ * definition, or a file TypeScript cannot read. Call-site columns are
+ * one-based in some runtimes and zero-based in others; the call's own span
+ * holds either, and a one-column tolerance covers the initializer's edge.
  */
 export function bindingAt(site: CallSite): string | undefined {
   const found = bindingsOf(site.file);
-  if (!found) {
+  const ts = parserFor(site.file);
+  if (!(found && ts)) {
     return undefined;
   }
   const offset = offsetOf(textOf(site.file), site.line, site.column);
@@ -212,10 +241,8 @@ export function bindingAt(site: CallSite): string | undefined {
   if (!match) {
     return undefined;
   }
-  const inFunction = match.nested.some(
-    ([start, end]) => offset + 1 >= start && offset - 1 < end
-  );
-  return inFunction ? undefined : match.name;
+  const call = callAt(ts, match.source, match.initializer, offset);
+  return call && owns(ts, call, match.initializer) ? match.name : undefined;
 }
 
 /** Whether a TypeScript parser is reachable from `file`. */

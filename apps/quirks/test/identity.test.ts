@@ -97,6 +97,28 @@ try {
   expect(module.failure).not.toContain("install typescript");
 });
 
+test("a definition passed to another inside one initializer stays nameless", async () => {
+  const dir = configDir();
+  const module = await load(
+    dir,
+    `
+export const job = workflow(step().do(() => 42)({}));
+export const named = workflow("named-flow", step().do(() => 1)({}));
+export const chained = step()
+  .describe("wrapped in parentheses and a cast")
+  .do(() => 3) as unknown as { name?: string };
+export const names = [job.name, named.name, chained.name];
+`
+  );
+  expect(module.names).toEqual(["job", "named-flow", "chained"]);
+  expect(
+    catalog
+      .entries()
+      .map((entry) => entry.name)
+      .sort()
+  ).toEqual(["chained", "job", "named-flow"]);
+});
+
 test("two files binding the same const name collide with both positions", async () => {
   const dir = configDir();
   await load(dir, "export const shared = step().do(() => 1);\n", "one");
