@@ -1,0 +1,6 @@
+{
+  "name": "@deps/beta",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "@deps/leaf",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

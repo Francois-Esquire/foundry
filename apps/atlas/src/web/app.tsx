@@ -1,23 +1,16 @@
 import { useEffect, useState } from "react";
+import Atlas from "./Atlas";
+import { loadAtlas } from "./load-atlas";
+import type { AtlasData } from "./types";
 
 export function App() {
-  const [manifest, setManifest] = useState<string>();
+  const [data, setData] = useState<AtlasData>();
   const [error, setError] = useState<string>();
   useEffect(() => {
     const controller = new AbortController();
     const load = async () => {
       try {
-        const response = await fetch("/data/manifest.json", {
-          signal: controller.signal,
-        });
-        if (!response.ok) {
-          throw new Error(
-            response.status === 404
-              ? "No generated output yet. Analysis is not connected in this scaffold."
-              : "The manifest could not be loaded."
-          );
-        }
-        setManifest(await response.text());
+        setData(await loadAtlas(controller.signal));
       } catch (cause) {
         if (!controller.signal.aborted) {
           setError(
@@ -30,15 +23,14 @@ export function App() {
     return () => controller.abort();
   }, []);
 
-  // Mount the renderer here when it arrives, consuming the library's own data shapes.
+  if (data) {
+    return <Atlas data={data} />;
+  }
   return (
-    <main>
+    <main style={{ padding: "8vw" }}>
       <h1>Atlas</h1>
       {error ? <p role="status">{error}</p> : null}
-      {manifest === undefined && !error ? (
-        <p role="status">Loading manifest…</p>
-      ) : null}
-      {manifest === undefined ? null : <pre>{manifest}</pre>}
+      {error ? null : <p role="status">Loading workspace…</p>}
     </main>
   );
 }

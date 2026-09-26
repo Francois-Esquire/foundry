@@ -1,0 +1,7 @@
+{
+  "name": "@l/plug-b",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

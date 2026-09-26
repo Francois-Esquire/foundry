@@ -15,22 +15,32 @@
     "clean": "rm -rf dist .cache .turbo coverage",
     "dev": "bun scripts/dev.ts",
     "start": "bun src/cli/index.ts",
-    "test": "bun test test",
-    "test:watch": "bun test --watch test",
+    "test": "vitest run && bun test test/atlas.test.ts",
+    "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "d3-contour": "^4.0.2",
+    "dependency-cruiser": "^17.0.1",
+    "ignore": "^7.0.6",
+    "picocolors": "^1.1.1",
     "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "react-dom": "19.3.0",
+    "string-width": "^8.2.2",
+    "three": "^0.185.1",
+    "ts-morph": "^26.0.0",
+    "typescript": "^6.0.3"
   },
   "devDependencies": {
     "@foundry/tsconfig": "workspace:*",
     "@types/bun": "1.3.14",
+    "@types/d3-contour": "^3.0.6",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.2.7",
+    "@types/three": "^0.185.4",
     "@vitejs/plugin-react": "5.2.0",
-    "typescript": "^6.0.3",
-    "vite": "8.2.2"
+    "vite": "8.2.2",
+    "vitest": "^4.1.9"
   },
   "engines": {
     "bun": ">=1.3.14"

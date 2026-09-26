@@ -1,0 +1,7 @@
+{
+  "name": "traffic-fixture",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ]
+}

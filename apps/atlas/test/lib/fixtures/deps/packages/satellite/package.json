@@ -1,0 +1,6 @@
+{
+  "name": "@deps/satellite",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

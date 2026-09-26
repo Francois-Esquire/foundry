@@ -1,0 +1,7 @@
+{
+  "name": "@c/impl",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

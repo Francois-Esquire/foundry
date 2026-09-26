@@ -11,6 +11,7 @@ Paths default to the current working directory.
   --state <path>       State root (default: ~/.foundry/atlas)
   --port <number>      Local port (default: 4173; 0 chooses a free port)
   --no-open            Do not open the browser
+  --history            Include Git history when scanning
   --help, -h           Show this help
 `;
 
@@ -20,6 +21,7 @@ export function parseArguments(args: string[], cwd = process.cwd()) {
     args,
     options: {
       help: { short: "h", type: "boolean" },
+      history: { type: "boolean" },
       "no-open": { type: "boolean" },
       port: { default: "4173", type: "string" },
       state: { type: "string" },
@@ -40,6 +42,7 @@ export function parseArguments(args: string[], cwd = process.cwd()) {
   return {
     command,
     help: values.help ?? false,
+    history: values.history ?? false,
     open: !values["no-open"],
     port,
     state: values.state,

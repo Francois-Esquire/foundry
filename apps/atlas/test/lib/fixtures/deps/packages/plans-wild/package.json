@@ -1,0 +1,7 @@
+{
+  "name": "@deps/plans-wild",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts"
+  }
+}

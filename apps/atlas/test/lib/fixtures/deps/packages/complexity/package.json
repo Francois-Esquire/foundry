@@ -1,0 +1,6 @@
+{
+  "name": "@deps/complexity",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

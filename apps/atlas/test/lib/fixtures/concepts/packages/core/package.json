@@ -1,0 +1,7 @@
+{
+  "name": "@c/core",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

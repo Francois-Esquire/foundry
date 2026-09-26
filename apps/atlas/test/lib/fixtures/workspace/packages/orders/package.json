@@ -1,0 +1,8 @@
+{
+  "name": "@repo/orders",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts",
+    "./testing": "./src/testing.ts"
+  }
+}

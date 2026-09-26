@@ -1,0 +1,6 @@
+{
+  "name": "@deps/keeper",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

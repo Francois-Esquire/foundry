@@ -1,0 +1,4 @@
+{
+  // Project reference used by fold-plan metadata detection tests.
+  "references": [{ "path": "../leaf" }]
+}

@@ -1,0 +1,6 @@
+{
+  "name": "@traffic/runtime",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

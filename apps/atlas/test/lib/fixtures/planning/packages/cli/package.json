@@ -1,0 +1,13 @@
+{
+  "name": "@p/cli",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "true"
+  },
+  "dependencies": {
+    "@p/store": "workspace:*"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "name": "@deps/leaf-user",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@deps/leaf": "workspace:*"
+  }
+}

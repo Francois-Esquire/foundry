@@ -1,0 +1,7 @@
+{
+  "name": "@o/db",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

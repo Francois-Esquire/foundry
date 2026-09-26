@@ -1,0 +1,7 @@
+{
+  "name": "@deps/plans-pub",
+  "private": false,
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

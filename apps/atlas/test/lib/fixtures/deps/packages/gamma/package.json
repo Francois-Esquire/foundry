@@ -1,0 +1,6 @@
+{
+  "name": "@deps/gamma",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

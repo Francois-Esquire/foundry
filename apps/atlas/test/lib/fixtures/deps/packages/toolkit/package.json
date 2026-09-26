@@ -1,0 +1,6 @@
+{
+  "name": "@deps/toolkit",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

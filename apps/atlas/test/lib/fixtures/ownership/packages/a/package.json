@@ -1,0 +1,7 @@
+{
+  "name": "@w/a",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

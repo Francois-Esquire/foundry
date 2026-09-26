@@ -1,0 +1,13 @@
+{
+  "name": "@p/core",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "true"
+  },
+  "dependencies": {
+    "@p/util": "workspace:*"
+  }
+}

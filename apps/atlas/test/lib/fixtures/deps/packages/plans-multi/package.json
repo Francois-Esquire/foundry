@@ -1,0 +1,7 @@
+{
+  "name": "@deps/plans-multi",
+  "exports": {
+    ".": "./src/index.ts",
+    "./extra": "./src/extra.ts"
+  }
+}

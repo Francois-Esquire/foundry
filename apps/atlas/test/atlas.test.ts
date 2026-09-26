@@ -1,14 +1,28 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import {
+  cp,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawn } from "bun";
 import { parseArguments } from "../src/cli/args";
 import { resolveWorkspace } from "../src/cli/workspace";
+import type { SemanticsHistoryManifest } from "../src/lib/semantics-history-types";
+import type { SemanticsManifest } from "../src/lib/semantics-types";
 import { startServer } from "../src/server/server";
+import { loadAtlas } from "../src/web/load-atlas";
+import { loadInternals } from "../src/web/load-internals";
 
 const directories: string[] = [];
 const SERVER_URL = /Atlas: (http:\/\/\S+)/;
+const BUNDLED_ASSET = /(?:src|href)="([^"]+\.(?:js|css))"/g;
 afterEach(async () => {
   for (const directory of directories.splice(0)) {
     await rm(directory, { force: true, recursive: true });
@@ -77,7 +91,23 @@ test("server preserves generated file bytes and serves public assets without exp
   const request = (path: string, init?: RequestInit) =>
     fetch(new URL(path, server.url), init);
   try {
-    expect((await request("/")).status).toBe(200);
+    const page = await request("/");
+    expect(page.status).toBe(200);
+    const assets = [...(await page.text()).matchAll(BUNDLED_ASSET)];
+    expect(assets).toHaveLength(2);
+    for (const [, asset] of assets) {
+      if (!asset) {
+        throw new Error("Missing bundled asset path.");
+      }
+      const response = await request(asset);
+      expect(response.status).toBe(200);
+      expect(await response.bytes()).toEqual(
+        new Uint8Array(await readFile(join(webRoot, asset)))
+      );
+    }
+    expect(await (await request("/atlas/two-masted-brig.glb")).bytes()).toEqual(
+      new Uint8Array(await readFile(join(webRoot, "atlas/two-masted-brig.glb")))
+    );
     expect((await request("/atlas.svg")).headers.get("content-type")).toContain(
       "image/svg+xml"
     );
@@ -107,7 +137,7 @@ test("server preserves generated file bytes and serves public assets without exp
   }
 });
 
-test("built CLI resolves the caller workspace and fails clearly at the unconnected library", async () => {
+test("built CLI scans an external workspace and the web loaders consume its saved evidence", async () => {
   const { workspace, directory } = await fixture();
   const cli = resolve(import.meta.dirname, "../dist/cli/atlas.js");
   const help = spawn([process.execPath, cli, "--help"], {
@@ -117,15 +147,131 @@ test("built CLI resolves the caller workspace and fails clearly at the unconnect
   });
   expect(await help.exited).toBe(0);
   expect(await new Response(help.stdout).text()).toContain("atlas scan");
-  const scan = spawn(
-    [process.execPath, cli, "scan", "--state", join(directory, "state")],
+  await cp(
+    resolve(import.meta.dirname, "lib/fixtures/semantics"),
+    workspace.root,
+    { recursive: true }
+  );
+  const runScan = async () => {
+    const child = spawn(
+      [process.execPath, cli, "scan", "--state", join(directory, "state")],
+      { cwd: workspace.root, stderr: "pipe", stdout: "pipe" }
+    );
+    const [code, stderr] = await Promise.all([
+      child.exited,
+      new Response(child.stderr).text(),
+      new Response(child.stdout).text(),
+    ]);
+    expect(code, stderr).toBe(0);
+    return JSON.parse(
+      await readFile(join(workspace.output, "manifest.json"), "utf8")
+    ) as SemanticsManifest;
+  };
+  const first = await runScan();
+  expect(first.schemaVersion).toBe(3);
+  expect(first.generation.packageFailures).toBe(0);
+  expect(first.generation.packagesAnalyzed).toBeGreaterThan(0);
+  const second = await runScan();
+  expect(second.generation.packagesAnalyzed).toBe(0);
+  expect(second.generation.packagesReused).toBe(
+    first.generation.packagesAnalyzed
+  );
+  const pkg = second.packages.find(
+    (candidate) => candidate.status === "complete"
+  );
+  if (!pkg) {
+    throw new Error("The fixture did not produce a complete package.");
+  }
+  const filename = `${pkg.id.replaceAll("/", "__")}.json`;
+  expect(
+    await readFile(join(workspace.output, "manifests", filename), "utf8")
+  ).toBe(
+    await readFile(join(workspace.root, pkg.path, "package.json"), "utf8")
+  );
+  // Rendering uses the saved output even after the source workspace is removed.
+  await rm(workspace.root, { recursive: true });
+  const server = startServer({ output: workspace.output, port: 0 });
+  const nativeFetch = globalThis.fetch;
+  const fetchFromServer: typeof fetch = Object.assign(
+    (input: Parameters<typeof fetch>[0], init?: RequestInit) =>
+      nativeFetch(
+        typeof input === "string" ? new URL(input, server.url) : input,
+        init
+      ),
+    { preconnect: nativeFetch.preconnect }
+  );
+  globalThis.fetch = fetchFromServer;
+  try {
+    const atlas = await loadAtlas();
+    expect(atlas.territories.map((territory) => territory.id)).toContain(
+      pkg.id
+    );
+    const { signal } = new AbortController();
+    const evidence = await loadInternals(pkg.id, second.generatedAt, signal);
+    expect(evidence.architecture?.review).toBeDefined();
+    await expect(
+      loadInternals(pkg.id, "outdated-survey", signal)
+    ).rejects.toThrow("survey changed");
+    await rm(join(workspace.output, "internals", filename));
+    await expect(
+      loadInternals(pkg.id, second.generatedAt, signal)
+    ).rejects.toThrow("404");
+    await rm(join(workspace.output, "manifest.json"));
+    await expect(loadAtlas()).rejects.toThrow("Run atlas scan");
+  } finally {
+    globalThis.fetch = nativeFetch;
+    server.stop(true);
+  }
+}, 60_000);
+
+test("built CLI includes Git history when requested", async () => {
+  const { workspace, directory } = await fixture();
+  await cp(
+    resolve(import.meta.dirname, "lib/fixtures/semantics"),
+    workspace.root,
+    { recursive: true }
+  );
+  const git = (args: string[]) =>
+    execFileSync("git", args, { cwd: workspace.root, stdio: "pipe" });
+  git(["init", "-q"]);
+  git(["add", "."]);
+  git([
+    "-c",
+    "user.name=Atlas fixture",
+    "-c",
+    "user.email=atlas@example.test",
+    "-c",
+    "commit.gpgsign=false",
+    "commit",
+    "-qm",
+    "Initial fixture",
+  ]);
+  const child = spawn(
+    [
+      process.execPath,
+      resolve(import.meta.dirname, "../dist/cli/atlas.js"),
+      "scan",
+      "--history",
+      "--state",
+      join(directory, "state"),
+    ],
     { cwd: workspace.root, stderr: "pipe", stdout: "pipe" }
   );
-  expect(await scan.exited).toBe(1);
-  expect(await new Response(scan.stderr).text()).toContain(
-    "analysis is not connected"
-  );
-});
+  const [code, stderr] = await Promise.all([
+    child.exited,
+    new Response(child.stderr).text(),
+    new Response(child.stdout).text(),
+  ]);
+  expect(code, stderr).toBe(0);
+  const manifest = JSON.parse(
+    await readFile(join(workspace.output, "history/manifest.json"), "utf8")
+  ) as SemanticsHistoryManifest;
+  expect(manifest.generation.failedSnapshots).toBe(0);
+  expect(manifest.generation.successfulSnapshots).toBeGreaterThan(0);
+  expect(
+    await readFile(join(workspace.output, "history/entities.json"), "utf8")
+  ).toContain("packages");
+}, 60_000);
 
 test("source and built CLI serve generated files from an external workspace", async () => {
   const { workspace, directory } = await fixture();

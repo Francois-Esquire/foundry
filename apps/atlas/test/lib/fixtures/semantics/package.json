@@ -1,0 +1,11 @@
+{
+  "name": "semantics-root",
+  "private": true,
+  "workspaces": {
+    "packages": [
+      "apps/*",
+      "packages/*",
+      "tooling/*"
+    ]
+  }
+}

@@ -1,10 +1,10 @@
 #!/usr/bin/env bun
 import { resolve } from "node:path";
 import { file } from "bun";
-import { generate } from "../lib/generate";
 import { startServer } from "../server/server";
 import { HELP, parseArguments } from "./args";
 import { openBrowser } from "./browser";
+import { scan } from "./scan";
 import { resolveWorkspace } from "./workspace";
 
 async function main() {
@@ -15,10 +15,7 @@ async function main() {
   }
   const workspace = await resolveWorkspace(args.target, args.state);
   if (args.command !== "serve") {
-    await generate({
-      ...workspace,
-      onProgress: (message) => process.stderr.write(`${message}\n`),
-    });
+    await scan(workspace, args.history);
     process.stdout.write(`Output saved to ${workspace.output}\n`);
   }
   if (args.command === "scan") {

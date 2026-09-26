@@ -1,0 +1,6 @@
+{
+  "name": "@traffic/mixed",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

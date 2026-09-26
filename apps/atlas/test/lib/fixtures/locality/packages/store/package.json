@@ -1,0 +1,7 @@
+{
+  "name": "@l/store",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

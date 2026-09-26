@@ -1,0 +1,6 @@
+{
+  "name": "@deps/plans-star",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

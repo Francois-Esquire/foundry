@@ -1,0 +1,6 @@
+{
+  "name": "@deps/logger",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "@deps/metrics",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

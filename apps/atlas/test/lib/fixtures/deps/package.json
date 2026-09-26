@@ -1,0 +1,7 @@
+{
+  "name": "deps-fixture",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ]
+}

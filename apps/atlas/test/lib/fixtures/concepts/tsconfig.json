@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "skipLibCheck": true,
+    "baseUrl": ".",
+    "paths": {
+      "@c/core": ["packages/core/src/index.ts"],
+      "@c/impl": ["packages/impl/src/index.ts"]
+    }
+  }
+}

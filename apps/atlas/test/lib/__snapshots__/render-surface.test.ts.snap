@@ -1,0 +1,1046 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`surface report > anchored fold candidate: text 1`] = `
+"SEMANTIC SURFACE
+════════════════
+Target  @deps/satellite
+Path    packages/satellite
+
+◇ Behaves as an internal subsystem of @deps/parent
+  Fold plan blocked: Source package is an anchored boundary: Intentional
+  subsystem boundary.
+
+◆ ANCHORED
+  Intentional subsystem boundary
+┌─ Anchor ─────────────────────────────────────────────────────────────┐
+│ An anchor is declared intent: this boundary stays as it is. Analysis │
+│ still runs and signals still fire; only folding this package away is │
+│ blocked.                                                             │
+└──────────────────────────────────────────────────────────────────────┘
+
+SUMMARY
+  3 total symbols
+  3 module exports
+  3 package-public
+  2 externally used
+
+  Declared package surface  100.0%  3 of 3
+  External surface           66.7%  2 of 3
+  Export utilization         66.7%  2 of 3
+
+  ┌─ Reading the surface ratios ─────────────────────────────────────────────┐
+  │ Declared package surface: the share of all symbols reachable through the │
+  │ package entrypoints. High means most of the package is public by         │
+  │ declaration.                                                             │
+  │                                                                          │
+  │ External surface: the share of all symbols another package actually      │
+  │ uses. This approximates how much responsibility crosses the boundary.    │
+  │                                                                          │
+  │ Export utilization: of the package-public symbols, how many are used     │
+  │ outside. Low means the declared surface is wider than its consumers      │
+  │ need.                                                                    │
+  └──────────────────────────────────────────────────────────────────────────┘
+
+SIGNALS
+  ◇ single-consumer · concentrated-consumption · one-way-satellite
+    narrowly-consumed
+    @deps/parent is the only consumer, and this package does not depend back on
+    it.
+
+  ┌─ What these signals mean ────────────────────────────────────────────────┐
+  │ single-consumer: exactly one package consumes this one.                  │
+  │ concentrated-consumption: one consumer holds most of the external        │
+  │ references.                                                              │
+  │ one-way-satellite: a single consumer, and this package does not depend   │
+  │ back on it.                                                              │
+  │ narrowly-consumed: the primary consumer holds 80% or more of references. │
+  └──────────────────────────────────────────────────────────────────────────┘
+
+CONSUMERS
+  @deps/parent  100.0%  2 symbols · 2 references
+
+  1.00 consumer packages per symbol
+
+OPPORTUNITIES
+  ◇ INTERNALIZE SYMBOLS
+    1 unused external export · evidence confidence 100.0%
+    • 1 plan-ready
+  recalibrate
+
+  ◇ FOLD CANDIDATE
+    @deps/satellite currently behaves primarily as an internal subsystem of
+    @deps/parent; consider folding it in while preserving internal module
+    boundaries.
+    • consumer packages 1
+    • reference concentration 100.0%
+    • surface concentration 100.0%
+    • average symbol distribution 1
+    • one way dependency yes
+  @deps/satellite → @deps/parent
+    evidence confidence 100.0%
+  ■ BLOCKED
+    • Source package is an anchored boundary: Intentional subsystem boundary.
+
+  PRESERVE SHARED BOUNDARY ELIGIBILITY
+  ✕ minimum-consumers  expected 3 · actual 1
+  ✕ primary-reference-share  expected < 0.8 · actual 1
+
+  Result  NOT ELIGIBLE
+
+  ┌─ Reading opportunities ────────────────────────────────────────────────┐
+  │ An opportunity is a structural pattern that passed every hard gate for │
+  │ its operation. Evidence confidence measures how strongly the observed  │
+  │ facts match that pattern; it is not a probability that the change is a │
+  │ good idea, and nothing here acts on it.                                │
+  │                                                                        │
+  │ Eligibility blocks list the gates a package-level operation failed, so │
+  │ an absent opportunity stays explainable.                               │
+  └────────────────────────────────────────────────────────────────────────┘
+
+MOST DISTRIBUTED
+  launchSatellite  1
+    function · 1 reference · value usage · public access
+  SatelliteState   1
+    interface · 1 reference · type usage · public access"
+`;
+
+exports[`surface report > compact density 1`] = `
+"SEMANTIC SURFACE
+════════════════
+Target  @deps/satellite
+Path    packages/satellite
+
+◇ Behaves as an internal subsystem of @deps/parent
+  Fold plan blocked: Source package is an anchored boundary: Intentional
+  subsystem boundary.
+
+◆ ANCHORED
+  Intentional subsystem boundary
+
+SUMMARY
+  3 total symbols
+  3 module exports
+  3 package-public
+  2 externally used
+
+  Declared package surface  100.0%  3 of 3
+  External surface           66.7%  2 of 3
+  Export utilization         66.7%  2 of 3
+
+SIGNALS
+  ◇ single-consumer · concentrated-consumption · one-way-satellite
+    narrowly-consumed
+
+OPPORTUNITIES
+  ◇ INTERNALIZE SYMBOLS
+    1 unused external export · evidence confidence 100.0%
+
+  ◇ FOLD CANDIDATE
+    @deps/satellite currently behaves primarily as an internal subsystem of
+    @deps/parent; consider folding it in while preserving internal module
+    boundaries.
+  @deps/satellite → @deps/parent
+    evidence confidence 100.0%
+  ■ BLOCKED
+    • Source package is an anchored boundary: Intentional subsystem boundary."
+`;
+
+exports[`surface report > expanded density 1`] = `
+"SEMANTIC SURFACE
+════════════════
+Target  @repo/orders
+Path    packages/orders
+
+◇ 1 of 8 public symbols unused outside the package
+  1 plan-ready.
+
+SUMMARY
+  9 total symbols
+  8 module exports
+  8 package-public
+  7 externally used
+
+  Declared package surface  88.9%  8 of 9
+  External surface          77.8%  7 of 9
+  Export utilization        87.5%  7 of 8
+
+  ┌─ Reading the surface ratios ─────────────────────────────────────────────┐
+  │ Declared package surface: the share of all symbols reachable through the │
+  │ package entrypoints. High means most of the package is public by         │
+  │ declaration.                                                             │
+  │                                                                          │
+  │ External surface: the share of all symbols another package actually      │
+  │ uses. This approximates how much responsibility crosses the boundary.    │
+  │                                                                          │
+  │ Export utilization: of the package-public symbols, how many are used     │
+  │ outside. Low means the declared surface is wider than its consumers      │
+  │ need.                                                                    │
+  └──────────────────────────────────────────────────────────────────────────┘
+
+SIGNALS
+  ◇ broadly-consumed
+    @repo/checkout holds 57.1% of external references across 3 consumer
+    packages; each used symbol reaches 1.29 of them on average.
+    • broadly-consumed: consumer packages 3 · primary consumer share 57.1%
+      average symbol distribution 1.29
+  ◇ foundation-like
+    3 packages depend on this one and it depends on 0; changes here reach 100.0%
+    of workspace packages.
+    • foundation-like: fan in 3 · fan out 0 · dependent reach 100.0%
+      dependency reach 0.0%
+
+  ┌─ What these signals mean ────────────────────────────────────────────────┐
+  │ broadly-consumed: three or more consumers and no single one holds 80% of │
+  │ references.                                                              │
+  │ foundation-like: widely depended on, depends on little; changes here     │
+  │ reach far downstream.                                                    │
+  └──────────────────────────────────────────────────────────────────────────┘
+
+CONSUMERS
+  @repo/checkout  57.1%  4 symbols · 8 references
+  @repo/web       21.4%  3 symbols · 3 references
+  @repo/billing   21.4%  2 symbols · 3 references
+
+  1.29 consumer packages per symbol
+
+  @repo/checkout → @repo/orders
+    4 symbols · 8 references · both usage
+  createOrder  3
+  Order        3
+  OrderParser  1
+  Store        1
+
+  @repo/web → @repo/orders
+    3 symbols · 3 references · both usage
+  makeTestOrder  1
+  ORDER_LIMIT    1
+  OrderStatus    1
+
+  @repo/billing → @repo/orders
+    2 symbols · 3 references · both usage
+  Order        2
+  createOrder  1
+
+OPPORTUNITIES
+  ◇ INTERNALIZE SYMBOLS
+    1 unused external export · evidence confidence 100.0%
+    • 1 plan-ready
+  normalizeOrder
+
+  ◇ PRESERVE SHARED BOUNDARY
+    @repo/orders exposes independently consumed surface across 3 packages; the
+    existing package boundary appears meaningful.
+    • consumer packages 3
+    • reference concentration 57.1%
+    • average symbol distribution 1.29
+
+  FOLD PACKAGE ELIGIBILITY
+  ✕ single-consumer  expected 1 · actual 3
+
+  Result  NOT ELIGIBLE
+
+  ┌─ Reading opportunities ────────────────────────────────────────────────┐
+  │ An opportunity is a structural pattern that passed every hard gate for │
+  │ its operation. Evidence confidence measures how strongly the observed  │
+  │ facts match that pattern; it is not a probability that the change is a │
+  │ good idea, and nothing here acts on it.                                │
+  │                                                                        │
+  │ Eligibility blocks list the gates a package-level operation failed, so │
+  │ an absent opportunity stays explainable.                               │
+  └────────────────────────────────────────────────────────────────────────┘
+
+MOST DISTRIBUTED
+  Order          2
+    interface · 5 references · type usage · public access
+  createOrder    2
+    function · 4 references · value usage · public access
+  makeTestOrder  1
+    function · 1 reference · value usage · public access
+  ORDER_LIMIT    1
+    variable · 1 reference · value usage · deep access
+  OrderParser    1
+    class · 1 reference · value usage · public access
+
+DEPENDENCY GRAVITY
+  fan-in 3 · fan-out 0 packages
+  transitive 3 dependents · 0 dependencies
+  reach 100.0% dependents · 0.0% dependencies
+
+BOUNDARY INTERACTIONS
+  incoming  3 packages · 5 module edges · 9 import sites · 7 symbols · 14 references
+  outgoing  0 packages
+
+CHURN
+  unavailable (not git repository)
+
+CONCEPTS
+  4 seeds · 4 cross-package families · 1 implementation
+  0 implementation-split · 0 reference-distributed · 0 representation-concentrated
+  most distributed: Order · 3 packages · 4 modules
+  centers: 1 aligned · 0 distributed · 0 divergent · 3 insufficient evidence
+  locality: 2 local · 0 single-package · 1 cross-package · 0 behavior-light · 0 parallel implementations
+
+LOCAL COMPLEXITY
+  5 functions analyzed
+
+  Decisions   p50 0 · p90 0 · p95 0 · max 0
+  Nesting     p50 0 · p90 0 · p95 0 · max 0
+  Parameters  p50 1 · p90 1 · p95 1 · max 1
+  Statements  p50 1 · p90 1 · p95 1 · max 1
+
+OPERATORS
+  internalize-export   1 candidate · 1 plan-ready · mutation supported
+  fold-package         no opportunity · mutation unsupported"
+`;
+
+exports[`surface report > fold candidate: text 1`] = `
+"SEMANTIC SURFACE
+════════════════
+Target  @deps/satellite
+Path    packages/satellite
+
+◇ Behaves as an internal subsystem of @deps/parent
+  Fold plan ready across 1 file.
+
+SUMMARY
+  3 total symbols
+  3 module exports
+  3 package-public
+  2 externally used
+
+  Declared package surface  100.0%  3 of 3
+  External surface           66.7%  2 of 3
+  Export utilization         66.7%  2 of 3
+
+  ┌─ Reading the surface ratios ─────────────────────────────────────────────┐
+  │ Declared package surface: the share of all symbols reachable through the │
+  │ package entrypoints. High means most of the package is public by         │
+  │ declaration.                                                             │
+  │                                                                          │
+  │ External surface: the share of all symbols another package actually      │
+  │ uses. This approximates how much responsibility crosses the boundary.    │
+  │                                                                          │
+  │ Export utilization: of the package-public symbols, how many are used     │
+  │ outside. Low means the declared surface is wider than its consumers      │
+  │ need.                                                                    │
+  └──────────────────────────────────────────────────────────────────────────┘
+
+SIGNALS
+  ◇ single-consumer · concentrated-consumption · one-way-satellite
+    narrowly-consumed
+    @deps/parent is the only consumer, and this package does not depend back on
+    it.
+
+  ┌─ What these signals mean ────────────────────────────────────────────────┐
+  │ single-consumer: exactly one package consumes this one.                  │
+  │ concentrated-consumption: one consumer holds most of the external        │
+  │ references.                                                              │
+  │ one-way-satellite: a single consumer, and this package does not depend   │
+  │ back on it.                                                              │
+  │ narrowly-consumed: the primary consumer holds 80% or more of references. │
+  └──────────────────────────────────────────────────────────────────────────┘
+
+CONSUMERS
+  @deps/parent  100.0%  2 symbols · 2 references
+
+  1.00 consumer packages per symbol
+
+OPPORTUNITIES
+  ◇ INTERNALIZE SYMBOLS
+    1 unused external export · evidence confidence 100.0%
+    • 1 plan-ready
+  recalibrate
+
+  ◇ FOLD CANDIDATE
+    @deps/satellite currently behaves primarily as an internal subsystem of
+    @deps/parent; consider folding it in while preserving internal module
+    boundaries.
+    • consumer packages 1
+    • reference concentration 100.0%
+    • surface concentration 100.0%
+    • average symbol distribution 1
+    • one way dependency yes
+  @deps/satellite → @deps/parent
+    evidence confidence 100.0%
+  Plan ready · 1 file · 2 consumed / 3 public
+
+  PRESERVE SHARED BOUNDARY ELIGIBILITY
+  ✕ minimum-consumers  expected 3 · actual 1
+  ✕ primary-reference-share  expected < 0.8 · actual 1
+
+  Result  NOT ELIGIBLE
+
+  ┌─ Reading opportunities ────────────────────────────────────────────────┐
+  │ An opportunity is a structural pattern that passed every hard gate for │
+  │ its operation. Evidence confidence measures how strongly the observed  │
+  │ facts match that pattern; it is not a probability that the change is a │
+  │ good idea, and nothing here acts on it.                                │
+  │                                                                        │
+  │ Eligibility blocks list the gates a package-level operation failed, so │
+  │ an absent opportunity stays explainable.                               │
+  └────────────────────────────────────────────────────────────────────────┘
+
+MOST DISTRIBUTED
+  launchSatellite  1
+    function · 1 reference · value usage · public access
+  SatelliteState   1
+    interface · 1 reference · type usage · public access"
+`;
+
+exports[`surface report > hub: text 1`] = `
+"SEMANTIC SURFACE
+════════════════
+Target  @traffic/hub
+Path    packages/hub
+
+◇ 3 of 10 public symbols unused outside the package
+  3 unsupported: exposed only through an \`export *\` statement.
+
+SUMMARY
+  10 total symbols
+  10 module exports
+  10 package-public
+   7 externally used
+
+  Declared package surface  100.0%  10 of 10
+  External surface           70.0%  7 of 10
+  Export utilization         70.0%  7 of 10
+
+  ┌─ Reading the surface ratios ─────────────────────────────────────────────┐
+  │ Declared package surface: the share of all symbols reachable through the │
+  │ package entrypoints. High means most of the package is public by         │
+  │ declaration.                                                             │
+  │                                                                          │
+  │ External surface: the share of all symbols another package actually      │
+  │ uses. This approximates how much responsibility crosses the boundary.    │
+  │                                                                          │
+  │ Export utilization: of the package-public symbols, how many are used     │
+  │ outside. Low means the declared surface is wider than its consumers      │
+  │ need.                                                                    │
+  └──────────────────────────────────────────────────────────────────────────┘
+
+SIGNALS
+  ◇ broadly-consumed
+    @traffic/mixed holds 58.3% of external references across 4 consumer
+    packages; each used symbol reaches 1.29 of them on average.
+  ◇ high-fan-in · foundation-like
+    4 packages depend on this one and it depends on 0; changes here reach 80.0%
+    of workspace packages.
+
+  ┌─ What these signals mean ────────────────────────────────────────────────┐
+  │ broadly-consumed: three or more consumers and no single one holds 80% of │
+  │ references.                                                              │
+  │ high-fan-in: many packages depend on this one.                           │
+  │ foundation-like: widely depended on, depends on little; changes here     │
+  │ reach far downstream.                                                    │
+  └──────────────────────────────────────────────────────────────────────────┘
+
+CONSUMERS
+  @traffic/mixed    58.3%  4 symbols · 7 references
+  @traffic/overlap  16.7%  2 symbols · 2 references
+  @traffic/typed    16.7%  2 symbols · 2 references
+  @traffic/runtime   8.3%  1 symbol · 1 reference
+
+  1.29 consumer packages per symbol
+
+OPPORTUNITIES
+  ◇ INTERNALIZE SYMBOLS
+    3 unused external exports · evidence confidence 100.0%
+    • 0 plan-ready · 3 unsupported
+    • unsupported: star-export 3
+  DELTA
+  Gamma
+  LIMIT
+
+  ◇ PRESERVE SHARED BOUNDARY
+    @traffic/hub exposes independently consumed surface across 4 packages; the
+    existing package boundary appears meaningful.
+    • consumer packages 4
+    • reference concentration 58.3%
+    • average symbol distribution 1.29
+
+  FOLD PACKAGE ELIGIBILITY
+  ✕ single-consumer  expected 1 · actual 4
+
+  Result  NOT ELIGIBLE
+
+  ┌─ Reading opportunities ─────────────────────────────────────────────────┐
+  │ An opportunity is a structural pattern that passed every hard gate for  │
+  │ its operation. Evidence confidence measures how strongly the observed   │
+  │ facts match that pattern; it is not a probability that the change is a  │
+  │ good idea, and nothing here acts on it.                                 │
+  │                                                                         │
+  │ Eligibility blocks list the gates a package-level operation failed, so  │
+  │ an absent opportunity stays explainable.                                │
+  │                                                                         │
+  │ star-export: exposed only through an \`export *\` statement. Selective    │
+  │ internalization would mean rewriting that star export as named exports. │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+MOST DISTRIBUTED
+  Bar    2
+    function · 4 references · value usage · public access
+  Foo    2
+    interface · 2 references · type usage · public access
+  Qux    1
+    class · 2 references · both usage · public access
+  Alpha  1
+    function · 1 reference · value usage · public access
+  Baz    1
+    function · 1 reference · value usage · public access"
+`;
+
+exports[`surface report > markdown 1`] = `
+"# SEMANTIC SURFACE
+
+|  |  |
+| --- | --- |
+| Target | @deps/satellite |
+| Path | packages/satellite |
+
+**◇ Behaves as an internal subsystem of @deps/parent**\\
+Fold plan blocked: Source package is an anchored boundary: Intentional subsystem boundary.
+
+**◆ ANCHORED**\\
+Intentional subsystem boundary
+
+> **Anchor**
+>
+> An anchor is declared intent: this boundary stays as it is. Analysis still runs and signals still fire; only folding this package away is blocked.
+
+## SUMMARY
+
+\`\`\`
+3 total symbols
+3 module exports
+3 package-public
+2 externally used
+\`\`\`
+
+|  | Share |  |
+| --- | ---: | --- |
+| Declared package surface | 100.0% | 3 of 3 |
+| External surface | 66.7% | 2 of 3 |
+| Export utilization | 66.7% | 2 of 3 |
+
+> **Reading the surface ratios**
+>
+> Declared package surface: the share of all symbols reachable through the package entrypoints. High means most of the package is public by declaration.
+>
+> External surface: the share of all symbols another package actually uses. This approximates how much responsibility crosses the boundary.
+>
+> Export utilization: of the package-public symbols, how many are used outside. Low means the declared surface is wider than its consumers need.
+
+## SIGNALS
+
+**◇ single-consumer · concentrated-consumption · one-way-satellite · narrowly-consumed**\\
+@deps/parent is the only consumer, and this package does not depend back on it.
+
+> **What these signals mean**
+>
+> single-consumer: exactly one package consumes this one.
+> concentrated-consumption: one consumer holds most of the external references.
+> one-way-satellite: a single consumer, and this package does not depend back on it.
+> narrowly-consumed: the primary consumer holds 80% or more of references.
+
+## CONSUMERS
+
+|  | Share |  |
+| --- | ---: | --- |
+| @deps/parent | 100.0% | 2 symbols · 2 references |
+
+1.00 consumer packages per symbol
+
+## OPPORTUNITIES
+
+**◇ INTERNALIZE SYMBOLS**\\
+1 unused external export · evidence confidence 100.0%
+
+- 1 plan-ready
+
+* recalibrate
+
+**◇ FOLD CANDIDATE**\\
+@deps/satellite currently behaves primarily as an internal subsystem of @deps/parent; consider folding it in while preserving internal module boundaries.
+
+- consumer packages 1
+- reference concentration 100.0%
+- surface concentration 100.0%
+- average symbol distribution 1
+- one way dependency yes
+
+@deps/satellite → @deps/parent\\
+evidence confidence 100.0%
+
+**■ BLOCKED**
+
+- Source package is an anchored boundary: Intentional subsystem boundary.
+
+**PRESERVE SHARED BOUNDARY ELIGIBILITY**
+
+- [ ] minimum-consumers  expected 3 · actual 1
+- [ ] primary-reference-share  expected < 0.8 · actual 1
+
+Result: **NOT ELIGIBLE**
+
+> **Reading opportunities**
+>
+> An opportunity is a structural pattern that passed every hard gate for its operation. Evidence confidence measures how strongly the observed facts match that pattern; it is not a probability that the change is a good idea, and nothing here acts on it.
+>
+> Eligibility blocks list the gates a package-level operation failed, so an absent opportunity stays explainable.
+
+## MOST DISTRIBUTED
+
+|  | Value |  |
+| --- | ---: | --- |
+| launchSatellite | 1 | function · 1 reference · value usage · public access |
+| SatelliteState | 1 | interface · 1 reference · type usage · public access |
+"
+`;
+
+exports[`surface report > package with consumers: text 1`] = `
+"SEMANTIC SURFACE
+════════════════
+Target  @repo/orders
+Path    packages/orders
+
+◇ 1 of 8 public symbols unused outside the package
+  1 plan-ready.
+
+SUMMARY
+  9 total symbols
+  8 module exports
+  8 package-public
+  7 externally used
+
+  Declared package surface  88.9%  8 of 9
+  External surface          77.8%  7 of 9
+  Export utilization        87.5%  7 of 8
+
+  ┌─ Reading the surface ratios ─────────────────────────────────────────────┐
+  │ Declared package surface: the share of all symbols reachable through the │
+  │ package entrypoints. High means most of the package is public by         │
+  │ declaration.                                                             │
+  │                                                                          │
+  │ External surface: the share of all symbols another package actually      │
+  │ uses. This approximates how much responsibility crosses the boundary.    │
+  │                                                                          │
+  │ Export utilization: of the package-public symbols, how many are used     │
+  │ outside. Low means the declared surface is wider than its consumers      │
+  │ need.                                                                    │
+  └──────────────────────────────────────────────────────────────────────────┘
+
+SIGNALS
+  ◇ broadly-consumed
+    @repo/checkout holds 57.1% of external references across 3 consumer
+    packages; each used symbol reaches 1.29 of them on average.
+  ◇ foundation-like
+    3 packages depend on this one and it depends on 0; changes here reach 100.0%
+    of workspace packages.
+
+  ┌─ What these signals mean ────────────────────────────────────────────────┐
+  │ broadly-consumed: three or more consumers and no single one holds 80% of │
+  │ references.                                                              │
+  │ foundation-like: widely depended on, depends on little; changes here     │
+  │ reach far downstream.                                                    │
+  └──────────────────────────────────────────────────────────────────────────┘
+
+CONSUMERS
+  @repo/checkout  57.1%  4 symbols · 8 references
+  @repo/web       21.4%  3 symbols · 3 references
+  @repo/billing   21.4%  2 symbols · 3 references
+
+  1.29 consumer packages per symbol
+
+OPPORTUNITIES
+  ◇ INTERNALIZE SYMBOLS
+    1 unused external export · evidence confidence 100.0%
+    • 1 plan-ready
+  normalizeOrder
+
+  ◇ PRESERVE SHARED BOUNDARY
+    @repo/orders exposes independently consumed surface across 3 packages; the
+    existing package boundary appears meaningful.
+    • consumer packages 3
+    • reference concentration 57.1%
+    • average symbol distribution 1.29
+
+  FOLD PACKAGE ELIGIBILITY
+  ✕ single-consumer  expected 1 · actual 3
+
+  Result  NOT ELIGIBLE
+
+  ┌─ Reading opportunities ────────────────────────────────────────────────┐
+  │ An opportunity is a structural pattern that passed every hard gate for │
+  │ its operation. Evidence confidence measures how strongly the observed  │
+  │ facts match that pattern; it is not a probability that the change is a │
+  │ good idea, and nothing here acts on it.                                │
+  │                                                                        │
+  │ Eligibility blocks list the gates a package-level operation failed, so │
+  │ an absent opportunity stays explainable.                               │
+  └────────────────────────────────────────────────────────────────────────┘
+
+MOST DISTRIBUTED
+  Order          2
+    interface · 5 references · type usage · public access
+  createOrder    2
+    function · 4 references · value usage · public access
+  makeTestOrder  1
+    function · 1 reference · value usage · public access
+  ORDER_LIMIT    1
+    variable · 1 reference · value usage · deep access
+  OrderParser    1
+    class · 1 reference · value usage · public access"
+`;
+
+exports[`surface report > shared boundary: text 1`] = `
+"SEMANTIC SURFACE
+════════════════
+Target  @deps/shared
+Path    packages/shared
+
+◇ All 5 public symbols used outside the package, across 4 consumer packages
+
+SUMMARY
+  5 total symbols
+  5 module exports
+  5 package-public
+  5 externally used
+
+  Declared package surface  100.0%  5 of 5
+  External surface          100.0%  5 of 5
+  Export utilization        100.0%  5 of 5
+
+  ┌─ Reading the surface ratios ─────────────────────────────────────────────┐
+  │ Declared package surface: the share of all symbols reachable through the │
+  │ package entrypoints. High means most of the package is public by         │
+  │ declaration.                                                             │
+  │                                                                          │
+  │ External surface: the share of all symbols another package actually      │
+  │ uses. This approximates how much responsibility crosses the boundary.    │
+  │                                                                          │
+  │ Export utilization: of the package-public symbols, how many are used     │
+  │ outside. Low means the declared surface is wider than its consumers      │
+  │ need.                                                                    │
+  └──────────────────────────────────────────────────────────────────────────┘
+
+SIGNALS
+  ◇ distributed-consumption · shared-hub · broadly-consumed
+    @deps/parent holds 37.5% of external references across 4 consumer packages;
+    each used symbol reaches 1.20 of them on average.
+  ◇ high-fan-in · foundation-like
+    4 packages depend on this one and it depends on 0; changes here reach 20.0%
+    of workspace packages.
+
+  ┌─ What these signals mean ────────────────────────────────────────────────┐
+  │ distributed-consumption: references spread across several consumers.     │
+  │ shared-hub: many consumers each using a broad slice of the surface.      │
+  │ broadly-consumed: three or more consumers and no single one holds 80% of │
+  │ references.                                                              │
+  │ high-fan-in: many packages depend on this one.                           │
+  │ foundation-like: widely depended on, depends on little; changes here     │
+  │ reach far downstream.                                                    │
+  └──────────────────────────────────────────────────────────────────────────┘
+
+CONSUMERS
+  @deps/parent  37.5%  3 symbols · 3 references
+  @deps/alpha   25.0%  1 symbol · 2 references
+  @deps/beta    25.0%  1 symbol · 2 references
+  @deps/gamma   12.5%  1 symbol · 1 reference
+
+  1.20 consumer packages per symbol
+
+OPPORTUNITIES
+  ◇ PRESERVE SHARED BOUNDARY
+    @deps/shared exposes independently consumed surface across 4 packages; the
+    existing package boundary appears meaningful.
+    • consumer packages 4
+    • reference concentration 37.5%
+    • average symbol distribution 1.20
+
+  FOLD PACKAGE ELIGIBILITY
+  ✕ single-consumer  expected 1 · actual 4
+
+  Result  NOT ELIGIBLE
+
+  ┌─ Reading opportunities ────────────────────────────────────────────────┐
+  │ An opportunity is a structural pattern that passed every hard gate for │
+  │ its operation. Evidence confidence measures how strongly the observed  │
+  │ facts match that pattern; it is not a probability that the change is a │
+  │ good idea, and nothing here acts on it.                                │
+  │                                                                        │
+  │ Eligibility blocks list the gates a package-level operation failed, so │
+  │ an absent opportunity stays explainable.                               │
+  └────────────────────────────────────────────────────────────────────────┘
+
+MOST DISTRIBUTED
+  sharedRun     2
+    function · 3 references · value usage · public access
+  SharedMode    1
+    type · 2 references · type usage · public access
+  SHARED_LIMIT  1
+    variable · 1 reference · value usage · public access
+  SharedConfig  1
+    interface · 1 reference · type usage · public access
+  sharedInit    1
+    function · 1 reference · value usage · public access"
+`;
+
+exports[`surface report > terminal, narrow, ascii 1`] = `
+"SEMANTIC SURFACE
+================
+Target  @deps/satellite
+Path    packages/satellite
+
+* Behaves as an internal subsystem of @deps/parent
+  Fold plan blocked: Source package is an anchored
+  boundary: Intentional subsystem boundary.
+
+[anchor] ANCHORED
+  Intentional subsystem boundary
++- Anchor ---------------------------------------------+
+| An anchor is declared intent: this boundary stays as |
+| it is. Analysis still runs and signals still fire;   |
+| only folding this package away is blocked.           |
++------------------------------------------------------+
+
+SUMMARY
+  3 total symbols
+  3 module exports
+  3 package-public
+  2 externally used
+
+  Declared package surface  ############  100.0%  3 of 3
+  External surface          ########----   66.7%  2 of 3
+  Export utilization        ########----   66.7%  2 of 3
+
+  +- Reading the surface ratios ------------------------+
+  | Declared package surface: the share of all symbols  |
+  | reachable through the package entrypoints. High     |
+  | means most of the package is public by declaration. |
+  |                                                     |
+  | External surface: the share of all symbols another  |
+  | package actually uses. This approximates how much   |
+  | responsibility crosses the boundary.                |
+  |                                                     |
+  | Export utilization: of the package-public symbols,  |
+  | how many are used outside. Low means the declared   |
+  | surface is wider than its consumers need.           |
+  +-----------------------------------------------------+
+
+SIGNALS
+  * single-consumer · concentrated-consumption
+    one-way-satellite · narrowly-consumed
+    @deps/parent is the only consumer, and this package does
+    not depend back on it.
+
+  +- What these signals mean ----------------------------+
+  | single-consumer: exactly one package consumes this   |
+  | one.                                                 |
+  | concentrated-consumption: one consumer holds most of |
+  | the external references.                             |
+  | one-way-satellite: a single consumer, and this       |
+  | package does not depend back on it.                  |
+  | narrowly-consumed: the primary consumer holds 80% or |
+  | more of references.                                  |
+  +------------------------------------------------------+
+
+CONSUMERS
+  @deps/parent  ############  100.0%  2 symbols · 2 references
+
+  1.00 consumer packages per symbol
+
+OPPORTUNITIES
+  * INTERNALIZE SYMBOLS
+    1 unused external export · evidence confidence 100.0%
+    - 1 plan-ready
+  recalibrate
+
+  * FOLD CANDIDATE
+    @deps/satellite currently behaves primarily as an
+    internal subsystem of @deps/parent; consider folding it
+    in while preserving internal module boundaries.
+    - consumer packages 1
+    - reference concentration 100.0%
+    - surface concentration 100.0%
+    - average symbol distribution 1
+    - one way dependency yes
+  @deps/satellite -> @deps/parent
+    evidence confidence 100.0%
+  [x] BLOCKED
+    - Source package is an anchored boundary: Intentional
+      subsystem boundary.
+
+  PRESERVE SHARED BOUNDARY ELIGIBILITY
+  -- minimum-consumers  expected 3 · actual 1
+  -- primary-reference-share  expected < 0.8 · actual 1
+
+  Result  NOT ELIGIBLE
+
+  +- Reading opportunities ------------------------------+
+  | An opportunity is a structural pattern that passed   |
+  | every hard gate for its operation. Evidence          |
+  | confidence measures how strongly the observed facts  |
+  | match that pattern; it is not a probability that the |
+  | change is a good idea, and nothing here acts on it.  |
+  |                                                      |
+  | Eligibility blocks list the gates a package-level    |
+  | operation failed, so an absent opportunity stays     |
+  | explainable.                                         |
+  +------------------------------------------------------+
+
+MOST DISTRIBUTED
+  launchSatellite  ############  1
+    function · 1 reference · value usage · public access
+  SatelliteState   ############  1
+    interface · 1 reference · type usage · public access"
+`;
+
+exports[`surface report > terminal, wide, unicode 1`] = `
+"SEMANTIC SURFACE
+════════════════
+Target  @repo/orders
+Path    packages/orders
+
+◇ 1 of 8 public symbols unused outside the package
+  1 plan-ready.
+
+SUMMARY
+  9 total symbols
+  8 module exports
+  8 package-public
+  7 externally used
+
+  Declared package surface  ███████████████████████████░░░  88.9%  8 of 9
+  External surface          ███████████████████████░░░░░░░  77.8%  7 of 9
+  Export utilization        ██████████████████████████░░░░  87.5%  7 of 8
+
+  ┌─ Reading the surface ratios ─────────────────────────────────────────────────────────────────────────────────────┐
+  │ Declared package surface: the share of all symbols reachable through the package entrypoints. High means most of │
+  │ the package is public by declaration.                                                                            │
+  │                                                                                                                  │
+  │ External surface: the share of all symbols another package actually uses. This approximates how much             │
+  │ responsibility crosses the boundary.                                                                             │
+  │                                                                                                                  │
+  │ Export utilization: of the package-public symbols, how many are used outside. Low means the declared surface is  │
+  │ wider than its consumers need.                                                                                   │
+  └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+SIGNALS
+  ◇ broadly-consumed
+    @repo/checkout holds 57.1% of external references across 3 consumer packages; each used symbol reaches 1.29 of them
+    on average.
+  ◇ foundation-like
+    3 packages depend on this one and it depends on 0; changes here reach 100.0% of workspace packages.
+
+  ┌─ What these signals mean ──────────────────────────────────────────────────────────────────┐
+  │ broadly-consumed: three or more consumers and no single one holds 80% of references.       │
+  │ foundation-like: widely depended on, depends on little; changes here reach far downstream. │
+  └────────────────────────────────────────────────────────────────────────────────────────────┘
+
+CONSUMERS
+  @repo/checkout  █████████████████░░░░░░░░░░░░░  57.1%  4 symbols · 8 references
+  @repo/web       ██████░░░░░░░░░░░░░░░░░░░░░░░░  21.4%  3 symbols · 3 references
+  @repo/billing   ██████░░░░░░░░░░░░░░░░░░░░░░░░  21.4%  2 symbols · 3 references
+
+  1.29 consumer packages per symbol
+
+OPPORTUNITIES
+  ◇ INTERNALIZE SYMBOLS
+    1 unused external export · evidence confidence 100.0%
+    • 1 plan-ready
+  normalizeOrder
+
+  ◇ PRESERVE SHARED BOUNDARY
+    @repo/orders exposes independently consumed surface across 3 packages; the existing package boundary appears
+    meaningful.
+    • consumer packages 3
+    • reference concentration 57.1%
+    • average symbol distribution 1.29
+
+  FOLD PACKAGE ELIGIBILITY
+  ✕ single-consumer  expected 1 · actual 3
+
+  Result  NOT ELIGIBLE
+
+  ┌─ Reading opportunities ─────────────────────────────────────────────────────────────────────────────────────────┐
+  │ An opportunity is a structural pattern that passed every hard gate for its operation. Evidence confidence       │
+  │ measures how strongly the observed facts match that pattern; it is not a probability that the change is a good  │
+  │ idea, and nothing here acts on it.                                                                              │
+  │                                                                                                                 │
+  │ Eligibility blocks list the gates a package-level operation failed, so an absent opportunity stays explainable. │
+  └─────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+MOST DISTRIBUTED
+  Order          ██████████████████████████████  2
+    interface · 5 references · type usage · public access
+  createOrder    ██████████████████████████████  2
+    function · 4 references · value usage · public access
+  makeTestOrder  ███████████████░░░░░░░░░░░░░░░  1
+    function · 1 reference · value usage · public access
+  ORDER_LIMIT    ███████████████░░░░░░░░░░░░░░░  1
+    variable · 1 reference · value usage · deep access
+  OrderParser    ███████████████░░░░░░░░░░░░░░░  1
+    class · 1 reference · value usage · public access"
+`;
+
+exports[`surface report > zero consumers: text 1`] = `
+"SEMANTIC SURFACE
+════════════════
+Target  @deps/leaf-user
+Path    packages/leaf-user
+
+◇ No workspace package consumes this one
+  1 plan-ready.
+
+SUMMARY
+  1 total symbols
+  1 module exports
+  1 package-public
+  0 externally used
+
+  Declared package surface  100.0%  1 of 1
+  External surface            0.0%  0 of 1
+  Export utilization          0.0%  0 of 1
+
+  ┌─ Reading the surface ratios ─────────────────────────────────────────────┐
+  │ Declared package surface: the share of all symbols reachable through the │
+  │ package entrypoints. High means most of the package is public by         │
+  │ declaration.                                                             │
+  │                                                                          │
+  │ External surface: the share of all symbols another package actually      │
+  │ uses. This approximates how much responsibility crosses the boundary.    │
+  │                                                                          │
+  │ Export utilization: of the package-public symbols, how many are used     │
+  │ outside. Low means the declared surface is wider than its consumers      │
+  │ need.                                                                    │
+  └──────────────────────────────────────────────────────────────────────────┘
+
+SIGNALS
+  ◇ leaf-like
+    0 packages depend on this one and it depends on 1; changes here reach 0.0%
+    of workspace packages.
+
+  ┌─ What these signals mean ─────────────────────────────────────┐
+  │ leaf-like: at most one dependent and one or two dependencies. │
+  └───────────────────────────────────────────────────────────────┘
+
+DEPENDS ON
+  @deps/leaf  1 module edge
+
+OPPORTUNITIES
+  ◇ INTERNALIZE SYMBOLS
+    1 unused external export · evidence confidence 100.0%
+    • 1 plan-ready
+  leafDepth
+
+  ┌─ Reading opportunities ────────────────────────────────────────────────┐
+  │ An opportunity is a structural pattern that passed every hard gate for │
+  │ its operation. Evidence confidence measures how strongly the observed  │
+  │ facts match that pattern; it is not a probability that the change is a │
+  │ good idea, and nothing here acts on it.                                │
+  │                                                                        │
+  │ Eligibility blocks list the gates a package-level operation failed, so │
+  │ an absent opportunity stays explainable.                               │
+  └────────────────────────────────────────────────────────────────────────┘"
+`;

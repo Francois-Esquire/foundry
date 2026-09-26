@@ -2,7 +2,8 @@
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "workspaces": {
     "apps/atlas": {
-      "entry": ["scripts/*.ts"]
+      "entry": ["scripts/*.ts", "src/lib/semantics-worker.ts"],
+      "ignore": ["test/lib/fixtures/**"]
     },
     "apps/quirks": {
       "ignoreDependencies": [

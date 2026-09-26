@@ -1,0 +1,6 @@
+{
+  "name": "@traffic/hub",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

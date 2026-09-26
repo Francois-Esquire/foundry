@@ -1,0 +1,9 @@
+{
+  "name": "concepts-root",
+  "private": true,
+  "workspaces": {
+    "packages": [
+      "packages/*"
+    ]
+  }
+}

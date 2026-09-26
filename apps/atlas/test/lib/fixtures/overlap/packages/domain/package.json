@@ -1,0 +1,7 @@
+{
+  "name": "@o/domain",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

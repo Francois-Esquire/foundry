@@ -1,0 +1,6 @@
+{
+  "name": "@deps/shared",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

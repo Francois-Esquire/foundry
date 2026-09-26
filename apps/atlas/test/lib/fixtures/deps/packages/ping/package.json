@@ -1,0 +1,6 @@
+{
+  "name": "@deps/ping",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

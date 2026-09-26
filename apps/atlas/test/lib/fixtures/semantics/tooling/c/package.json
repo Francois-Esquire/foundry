@@ -1,0 +1,7 @@
+{
+  "name": "@s/c",
+  "private": true,
+  "dependencies": {
+    "@s/b": "workspace:*"
+  }
+}

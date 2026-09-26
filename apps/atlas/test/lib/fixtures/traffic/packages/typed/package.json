@@ -1,0 +1,6 @@
+{
+  "name": "@traffic/typed",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "name": "@p/store",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "true"
+  },
+  "dependencies": {
+    "@p/core": "workspace:*",
+    "@p/util": "workspace:*"
+  }
+}
