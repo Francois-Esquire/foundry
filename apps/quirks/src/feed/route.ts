@@ -4,9 +4,11 @@ import type { Orchestrator } from "@foundry/workflows/orchestrator";
 import {
   FEED_INPUT_KIND,
   FEED_POST_EVENT,
+  type FeedAnswer,
   type FeedQuestionPayload,
   feedPostSchema,
   feedQuestionSchema,
+  readAnswer,
 } from "~/feed/entry";
 import type { FeedPublisher } from "~/feed/publish";
 
@@ -25,7 +27,7 @@ interface OpenQuestion {
 
 export interface FeedRouter {
   /** Answer an open input entry, resuming the run that asked. */
-  answer(entryId: string, answer: string): Promise<void>;
+  answer(entryId: string, answer: FeedAnswer): Promise<void>;
   /** Mark every open question cancelled: nothing in this process can answer it now. */
   cancelOpen(): Promise<void>;
   /** Handle one run's channel events; `settled` awaits the writes they caused. */
@@ -89,8 +91,9 @@ export function feedRouter(options: {
       if (!question) {
         throw new Error("This question is no longer waiting for an answer.");
       }
+      const { choice, note } = readAnswer(answer);
       const { choices } = question.question;
-      if (choices.length > 0 && !choices.includes(answer)) {
+      if (choices.length > 0 && !choices.includes(choice)) {
         throw new Error(`Choose one of: ${choices.join(", ")}`);
       }
       const pending = await orchestrator.listSuspensions({
@@ -105,11 +108,17 @@ export function feedRouter(options: {
         open.delete(entryId);
         throw new Error("This question is no longer waiting for an answer.");
       }
-      await orchestrator.resolve(suspension.id, answer);
+      // The step reads a plain choice or `{ choice, note }`; keep the plain
+      // form when there is no note so older resolutions stay comparable.
+      await orchestrator.resolve(
+        suspension.id,
+        note === undefined ? choice : { choice, note }
+      );
       open.delete(entryId);
       await feed
         .publishInput(question.question, question.source, {
-          answer,
+          answer: choice,
+          ...(note === undefined ? {} : { note }),
           status: "answered",
         })
         .catch(warn(question.question.title));

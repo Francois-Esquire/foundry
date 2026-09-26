@@ -5,7 +5,7 @@ import type {
 } from "@foundry/artifacts";
 import { isGoodContent } from "@foundry/artifacts";
 import { classifyFile } from "@foundry/lib/file-classification";
-
+import type { z } from "zod";
 import { FEED_ENTRY_FILE, FEED_ENTRY_TYPE } from "~/feed/entry";
 import { feedMetadataSchema } from "~/feed/publish";
 import type {
@@ -74,20 +74,7 @@ export function feedReader(
       body: body ? new TextDecoder().decode(body.blob) : `# ${feed.title}\n`,
       definition: feed.definition,
       id: artifact.id,
-      ...(feed.input
-        ? {
-            input: {
-              ...(feed.input.answer === undefined
-                ? {}
-                : { answer: feed.input.answer }),
-              choices: feed.input.choices,
-              ...(feed.input.mode === undefined
-                ? {}
-                : { mode: feed.input.mode }),
-              status: feed.input.status,
-            },
-          }
-        : {}),
+      ...(feed.input ? { input: inputSnapshot(feed.input) } : {}),
       kind: feed.kind,
       media,
       postedAt: artifact.createdAt.toISOString(),
@@ -137,4 +124,19 @@ export function formatPosted(at: Date, now: Date): string {
     month: "short",
   });
   return `${day} ${time}`;
+}
+
+type FeedInput = NonNullable<z.infer<typeof feedMetadataSchema>["input"]>;
+
+/** The input entry's state, without undefined keys so snapshots compare equal. */
+function inputSnapshot(
+  input: FeedInput
+): NonNullable<FeedEntrySnapshot["input"]> {
+  return {
+    ...(input.answer === undefined ? {} : { answer: input.answer }),
+    choices: input.choices,
+    ...(input.mode === undefined ? {} : { mode: input.mode }),
+    ...(input.note === undefined ? {} : { note: input.note }),
+    status: input.status,
+  };
 }

@@ -99,9 +99,9 @@ function AnswerSection({
   const theme = useTheme();
   const choose = useCallback(
     (choice: string) => {
-      answer.submit(choice).catch(() => undefined);
+      answer.choose(choice);
     },
-    [answer.submit]
+    [answer.choose]
   );
   const { input } = entry;
   if (!input) {
@@ -111,6 +111,7 @@ function AnswerSection({
     return (
       <text fg={theme.colors.success} flexShrink={0} paddingTop={1}>
         ✓ Answered: <strong>{input.answer ?? ""}</strong>
+        {input.note ? ` — ${input.note}` : ""}
       </text>
     );
   }
@@ -127,18 +128,12 @@ function AnswerSection({
     </text>
   );
   let control = elsewhere;
-  if (input.choices.length > 0) {
-    control = (
-      <Choices
-        choices={input.choices}
-        enabled={answer.question !== undefined}
-        onChoose={choose}
-      />
-    );
-  } else if (answer.typing) {
+  if (answer.typing) {
     control = (
       <box flexDirection="row" height={1}>
-        <text fg={theme.colors.foreground}>› </text>
+        <text fg={theme.colors.foreground}>
+          {answer.choosing ? `${answer.choosing} · note › ` : "› "}
+        </text>
         <input
           backgroundColor={theme.colors.muted}
           cursorColor={theme.colors.primary}
@@ -152,6 +147,14 @@ function AnswerSection({
           value={answer.draft}
         />
       </box>
+    );
+  } else if (input.choices.length > 0) {
+    control = (
+      <Choices
+        choices={input.choices}
+        enabled={answer.question !== undefined}
+        onChoose={choose}
+      />
     );
   } else if (answer.question) {
     control = (
@@ -172,7 +175,11 @@ function AnswerSection({
       {control}
       {input.choices.length > 0 && elsewhere}
       {answer.typing && (
-        <text fg={theme.colors.mutedForeground}>Enter send · Esc cancel</text>
+        <text fg={theme.colors.mutedForeground}>
+          {answer.choosing
+            ? "note optional · Enter send · Esc cancel"
+            : "Enter send · Esc cancel"}
+        </text>
       )}
       {answer.sending && <text fg={theme.colors.info}>Sending…</text>}
       {answer.error && <text fg={theme.colors.error}>{answer.error}</text>}

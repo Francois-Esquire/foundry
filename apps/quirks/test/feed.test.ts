@@ -22,6 +22,7 @@ import type { FeedEntrySnapshot } from "~/views/dashboard-model";
 
 const MISSING_TITLE = /feed entries need a title/;
 const UNREADABLE_MEDIA = /cannot read media/;
+const NOTE_TOO_LONG = /under 2000/;
 const NOT_A_CHOICE = /Choose one of: yes, no/;
 const NO_LONGER_WAITING = /no longer waiting/;
 const CANCELLED = /cancelled/;
@@ -264,6 +265,12 @@ describe("questions", () => {
     await expect(engine.answer(question.id, "maybe")).rejects.toThrow(
       NOT_A_CHOICE
     );
+    await expect(
+      engine.answer(question.id, { choice: "maybe", note: "x" })
+    ).rejects.toThrow(NOT_A_CHOICE);
+    await expect(
+      engine.answer(question.id, { choice: "yes", note: "n".repeat(2001) })
+    ).rejects.toThrow(NOTE_TOO_LONG);
     await engine.answer(question.id, "yes");
     await expect(launched.result).resolves.toBe("v2:yes");
     const [answered] = await store.read();

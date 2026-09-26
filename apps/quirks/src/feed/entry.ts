@@ -34,6 +34,30 @@ interface FeedArtifactLink {
 
 export const ASK_MODES = ["question", "approval"] as const;
 
+/** A note is short: it rides along with an approval, it is not the report. */
+export const MAX_NOTE = 2000;
+
+/** What a host sends back: the choice or text, optionally with a note. */
+export type FeedAnswer =
+  | string
+  | { readonly choice: string; readonly note?: string };
+
+/** The answer's parts, trimmed; throws on an empty choice or an oversized note. */
+export function readAnswer(answer: FeedAnswer): {
+  readonly choice: string;
+  readonly note?: string;
+} {
+  const choice = (typeof answer === "string" ? answer : answer.choice).trim();
+  if (!choice) {
+    throw new Error("An answer is required.");
+  }
+  const note = typeof answer === "string" ? undefined : answer.note?.trim();
+  if (note !== undefined && note.length > MAX_NOTE) {
+    throw new Error(`Keep the note under ${String(MAX_NOTE)} characters.`);
+  }
+  return note ? { choice, note } : { choice };
+}
+
 export interface FeedPost {
   /** A result that carries an artifact version. */
   readonly artifact?: FeedArtifactLink;

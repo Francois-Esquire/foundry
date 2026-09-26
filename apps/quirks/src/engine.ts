@@ -7,6 +7,7 @@ import type { RunRecord } from "@foundry/workflows/store";
 import { InMemoryOrchestratorStore } from "@foundry/workflows/store";
 import type { WorkflowState } from "@foundry/workflows/workflow";
 
+import type { FeedAnswer } from "~/feed/entry";
 import type { FeedPublisher } from "~/feed/publish";
 import { feedRouter } from "~/feed/route";
 import { runs as runScopes } from "~/lib/run-scope";
@@ -24,7 +25,7 @@ import { loadRuns, saveRun } from "~/state/runs";
 
 export interface Engine {
   /** Answer an open input entry; the run that asked resumes with it. */
-  answer(entryId: string, answer: string): Promise<void>;
+  answer(entryId: string, answer: FeedAnswer): Promise<void>;
   launch<O>(
     name: string,
     input: unknown,

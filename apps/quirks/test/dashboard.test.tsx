@@ -8,6 +8,7 @@ import { dashboardSnapshot } from "../preview/snapshot";
 import { PreviewStartup } from "../preview/startup";
 import { JSONView } from "../src/components/ui/json";
 import { Log, type LogEntry } from "../src/components/ui/log";
+import type { FeedAnswer } from "../src/feed/entry";
 import { DashboardView } from "../src/views/dashboard";
 import type { DashboardSnapshot } from "../src/views/dashboard-model";
 import { SplashView } from "../src/views/splash";
@@ -984,8 +985,8 @@ test("switches tabs with Shift+D / Shift+F and filters the feed by workspace", a
 });
 
 test("answers an open question from the feed with a number key", async () => {
-  const answers: [string, string][] = [];
-  const answer = (id: string, value: string) => {
+  const answers: [string, FeedAnswer][] = [];
+  const answer = (id: string, value: FeedAnswer) => {
     answers.push([id, value]);
     return Promise.resolve();
   };
@@ -1008,15 +1009,67 @@ test("answers an open question from the feed with a number key", async () => {
   expect(answers).toEqual([["feed-merge", "hold"]]);
 });
 
+test("an approval takes an optional note after the choice", async () => {
+  const answers: FeedAnswer[] = [];
+  const approval = {
+    ...dashboardSnapshot.feed[0],
+    id: "feed-release",
+    input: {
+      choices: ["approve", "reject"],
+      mode: "approval" as const,
+      status: "open" as const,
+    },
+    title: "Release v2?",
+  } as DashboardSnapshot["feed"][number];
+  const answer = (_id: string, value: FeedAnswer) => {
+    answers.push(value);
+    return Promise.resolve();
+  };
+  closed = false;
+  setup = await testRender(
+    <DashboardView
+      onAnswer={answer}
+      onClose={close}
+      snapshot={{ ...dashboardSnapshot, feed: [approval] }}
+    />,
+    { exitOnCtrlC: false, height: 40, kittyKeyboard: true, width: 120 }
+  );
+  const ui = setup;
+  await flush(ui);
+  await act(async () => ui.mockInput.pressKey("F"));
+  await act(async () => ui.mockInput.pressKey("1"));
+  await flush(ui);
+  expect(ui.captureCharFrame()).toContain("approve · note");
+  expect(answers).toEqual([]);
+  await act(async () => ui.mockInput.typeText("ship after the docs land"));
+  await act(async () => ui.mockInput.pressEnter());
+  await flush(ui);
+  expect(answers).toEqual([
+    { choice: "approve", note: "ship after the docs land" },
+  ]);
+
+  // Esc drops the held choice; a second number key with an empty note sends
+  // the bare choice.
+  await act(async () => ui.mockInput.pressKey("2"));
+  await act(async () => ui.mockInput.pressEscape());
+  await act(async () => ui.mockInput.pressKey("2"));
+  await act(async () => ui.mockInput.pressEnter());
+  await flush(ui);
+  expect(answers).toEqual([
+    { choice: "approve", note: "ship after the docs land" },
+    { choice: "reject" },
+  ]);
+});
+
 test("types a free-text answer without triggering dashboard keys", async () => {
-  const answers: string[] = [];
+  const answers: FeedAnswer[] = [];
   const question = {
     ...dashboardSnapshot.feed[0],
     id: "feed-note",
     input: { choices: [], status: "open" as const },
     title: "Anything to add?",
   } as DashboardSnapshot["feed"][number];
-  const answer = (_id: string, value: string) => {
+  const answer = (_id: string, value: FeedAnswer) => {
     answers.push(value);
     return Promise.resolve();
   };

@@ -90,6 +90,8 @@ export interface FeedEntrySnapshot {
     readonly choices: readonly string[];
     /** An approval blocks its run; a question is input. */
     readonly mode?: "question" | "approval";
+    /** Given with the answer to an approval. */
+    readonly note?: string;
     readonly status: "open" | "answered" | "cancelled";
   };
   readonly kind: "result" | "milestone" | "input";

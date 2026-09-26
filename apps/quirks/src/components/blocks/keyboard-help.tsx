@@ -22,7 +22,8 @@ export function KeyboardHelp({ active = true }: { readonly active?: boolean }) {
           },
           {
             key: "1-9 / a in Feed",
-            value: "Answer a question by choice / type a free-text answer",
+            value:
+              "Answer by choice (an approval then takes an optional note) / type a free-text answer",
           },
           {
             key: "1 / 2 / 3",

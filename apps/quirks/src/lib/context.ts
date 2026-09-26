@@ -47,10 +47,37 @@ interface AskArgs {
   readonly scope: RunScope;
 }
 
+interface Answered {
+  readonly choice: string;
+  readonly note?: string;
+}
+
+/** A resolution is the choice, or the choice with a note. */
+function answered(resolution: unknown, mode: string): Answered {
+  if (typeof resolution === "string") {
+    return { choice: resolution };
+  }
+  if (
+    typeof resolution === "object" &&
+    resolution !== null &&
+    "choice" in resolution &&
+    typeof resolution.choice === "string"
+  ) {
+    const note =
+      "note" in resolution && typeof resolution.note === "string"
+        ? resolution.note
+        : undefined;
+    return note
+      ? { choice: resolution.choice, note }
+      : { choice: resolution.choice };
+  }
+  throw new Error(`ask.${mode}: the answer was not text`);
+}
+
 async function suspendFor(
   { ctx, frame, scope }: AskArgs,
   raw: z.input<typeof questionSchema>
-): Promise<string> {
+): Promise<Answered> {
   const parsed = questionSchema.safeParse(raw);
   if (!parsed.success) {
     throw new Error(
@@ -64,7 +91,7 @@ async function suspendFor(
   };
   // Each ask gets its own suspension name, so a name-level resolution can
   // never answer a different ask in the same body.
-  const answer = await ctx.suspend<unknown>({
+  const resolution = await ctx.suspend<unknown>({
     kind: FEED_INPUT_KIND,
     name: parsed.data.key
       ? `${ASK_NAME}:${parsed.data.key}`
@@ -72,11 +99,11 @@ async function suspendFor(
     reason: request.title,
     request,
   });
-  if (typeof answer !== "string") {
-    throw new Error(`ask.${raw.mode}: the answer was not text`);
-  }
-  if (request.choices.length > 0 && !request.choices.includes(answer)) {
-    throw new Error(`ask.${raw.mode}: "${answer}" is not one of the choices`);
+  const answer = answered(resolution, raw.mode);
+  if (request.choices.length > 0 && !request.choices.includes(answer.choice)) {
+    throw new Error(
+      `ask.${raw.mode}: "${answer.choice}" is not one of the choices`
+    );
   }
   return answer;
 }
@@ -89,10 +116,13 @@ function buildAsk(args: AskArgs): Ask {
         choices: [APPROVE, REJECT],
         mode: "approval",
       });
-      return { approved: answer === APPROVE };
+      return {
+        approved: answer.choice === APPROVE,
+        ...(answer.note === undefined ? {} : { note: answer.note }),
+      };
     },
-    question(question: Question): Promise<string> {
-      return suspendFor(args, {
+    async question(question: Question): Promise<string> {
+      const answer = await suspendFor(args, {
         ...(question.body === undefined ? {} : { body: question.body }),
         ...(question.choices === undefined
           ? {}
@@ -101,6 +131,7 @@ function buildAsk(args: AskArgs): Ask {
         mode: "question",
         title: question.title,
       });
+      return answer.choice;
     },
   };
 }

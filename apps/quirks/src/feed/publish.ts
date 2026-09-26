@@ -42,6 +42,8 @@ interface FeedSource {
 
 interface InputState {
   readonly answer?: string;
+  /** A note given with the answer, when the host offered one. */
+  readonly note?: string;
   readonly status: InputStatus;
 }
 
@@ -76,6 +78,7 @@ export const feedMetadataSchema = z.object({
       choices: z.array(z.string()),
       /** Approval blocks the run; a question is input. Absent on old entries. */
       mode: z.enum(ASK_MODES).optional(),
+      note: z.string().optional(),
       /** While open: the process that can answer it. */
       pid: z.number().int().optional(),
       status: z.enum(INPUT_STATUSES),
@@ -278,7 +281,8 @@ function inputLine(input: FeedMetadata["input"]): string {
   const choices =
     input.choices.length > 0 ? `\n\nChoices: ${input.choices.join(" · ")}` : "";
   if (input.status === "answered") {
-    return `> Answered: ${input.answer ?? ""}${choices}`;
+    const note = input.note ? ` — ${input.note}` : "";
+    return `> Answered: ${input.answer ?? ""}${note}${choices}`;
   }
   if (input.status === "cancelled") {
     return `> No longer waiting: the run stopped before an answer.${choices}`;

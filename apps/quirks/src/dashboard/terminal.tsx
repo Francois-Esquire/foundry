@@ -9,12 +9,13 @@ import type { DashboardSnapshot } from "~/views/dashboard-model";
 import { OnboardingView } from "~/views/onboarding";
 import { SplashView } from "~/views/splash";
 import { summarizeConfig } from "~/views/splash-model";
+import type { AnswerHandler } from "~/views/use-feed";
 
 interface Screen {
   readonly entered: boolean;
   readonly error?: string;
   readonly hasConfig?: boolean;
-  readonly onAnswer?: (entryId: string, answer: string) => Promise<void>;
+  readonly onAnswer?: AnswerHandler;
   readonly onLaunch?: (name: string, input: unknown) => Promise<string>;
   readonly setup?: {
     readonly path: string;
@@ -191,7 +192,7 @@ export async function openDashboard(
         });
       });
     },
-    setAnswerer(onAnswer: (entryId: string, answer: string) => Promise<void>) {
+    setAnswerer(onAnswer: AnswerHandler) {
       publish({ ...screen, onAnswer });
     },
     setLauncher(onLaunch: (name: string, input: unknown) => Promise<string>) {

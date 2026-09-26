@@ -1,37 +1,48 @@
 import type { KeyEvent } from "@opentui/core";
 import { useCallback, useState } from "react";
+import type { FeedAnswer } from "~/feed/entry";
 import type { FeedEntrySnapshot } from "./dashboard-model";
 import { ALL_WORKSPACES, feedScopes, scopedFeed } from "./feed-model";
 
 export type FeedFocus = "list" | "reader";
-export type AnswerHandler = (entryId: string, answer: string) => Promise<void>;
+export type AnswerHandler = (
+  entryId: string,
+  answer: FeedAnswer
+) => Promise<void>;
 const CHOICE_KEY = /^[1-9]$/;
 
 /**
  * Answering the selected input entry: number keys pick a choice; without
- * choices, `a` opens a text field. The entry flips to answered on the next
- * snapshot, which also closes the field.
+ * choices, `a` opens a text field. On an approval the number key opens the
+ * field for an optional note first; Enter sends the choice with it. The
+ * entry flips to answered on the next snapshot, which also closes the field.
  */
 function useAnswer(entry?: FeedEntrySnapshot, onAnswer?: AnswerHandler) {
   const [typing, setTyping] = useState(false);
   const [draft, setDraft] = useState("");
+  /** The approval choice waiting on its note. */
+  const [choosing, setChoosing] = useState<string>();
   const [sending, setSending] = useState<string>();
   const [failure, setFailure] = useState<{ id: string; message: string }>();
   const question =
     onAnswer && entry?.input?.status === "open" ? entry : undefined;
   const choices = question?.input?.choices ?? [];
+  const approval = question?.input?.mode === "approval";
 
   const submit = useCallback(
-    async (answer: string) => {
-      const text = answer.trim();
-      if (!(question && onAnswer && text) || sending) {
+    async (answer: FeedAnswer) => {
+      const choice = (
+        typeof answer === "string" ? answer : answer.choice
+      ).trim();
+      if (!(question && onAnswer && choice) || sending) {
         return;
       }
       setSending(question.id);
       setFailure(undefined);
       try {
-        await onAnswer(question.id, text);
+        await onAnswer(question.id, answer);
         setTyping(false);
+        setChoosing(undefined);
         setDraft("");
       } catch (error) {
         setFailure({
@@ -45,9 +56,27 @@ function useAnswer(entry?: FeedEntrySnapshot, onAnswer?: AnswerHandler) {
     [question, onAnswer, sending]
   );
 
+  /** A choice: sent at once, or held for a note on an approval. */
+  const choose = useCallback(
+    (choice: string) => {
+      if (approval) {
+        setChoosing(choice);
+        setTyping(true);
+        return;
+      }
+      submit(choice).catch(() => undefined);
+    },
+    [approval, submit]
+  );
+
   const submitDraft = useCallback(() => {
-    submit(draft).catch(() => undefined);
-  }, [submit, draft]);
+    const note = draft.trim();
+    const answer: FeedAnswer =
+      choosing === undefined
+        ? draft
+        : { choice: choosing, ...(note ? { note } : {}) };
+    submit(answer).catch(() => undefined);
+  }, [submit, draft, choosing]);
 
   function handleKey(key: KeyEvent): boolean {
     if (!question) {
@@ -57,13 +86,15 @@ function useAnswer(entry?: FeedEntrySnapshot, onAnswer?: AnswerHandler) {
       // The text field has the keys; only Esc belongs to the feed.
       if (key.name === "escape") {
         setTyping(false);
+        setChoosing(undefined);
+        setDraft("");
       }
       return true;
     }
     if (choices.length > 0 && CHOICE_KEY.test(key.sequence)) {
       const choice = choices[Number(key.sequence) - 1];
       if (choice !== undefined) {
-        submit(choice).catch(() => undefined);
+        choose(choice);
       }
       return true;
     }
@@ -75,6 +106,9 @@ function useAnswer(entry?: FeedEntrySnapshot, onAnswer?: AnswerHandler) {
   }
 
   return {
+    choose,
+    /** Set while an approval choice waits for its optional note. */
+    choosing: typing ? choosing : undefined,
     draft,
     error: failure?.id === entry?.id ? failure?.message : undefined,
     handleKey,

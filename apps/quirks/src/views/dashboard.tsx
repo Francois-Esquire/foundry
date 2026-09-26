@@ -52,7 +52,9 @@ function dashboardFooter(
 function feedFooter(feed: FeedState): string {
   const { answer } = feed;
   if (answer.typing) {
-    return "answer · type, then Enter send · Esc cancel";
+    return answer.choosing
+      ? `${answer.choosing} · add a note or leave it empty, then Enter send · Esc cancel`
+      : "answer · type, then Enter send · Esc cancel";
   }
   const choices = answer.question?.input?.choices.length ?? 0;
   let respond = "";

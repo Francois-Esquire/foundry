@@ -58,12 +58,12 @@ describe("lib2 through the engine", () => {
   it("parks on an approval, resumes on the answer, and settles the run scope", async () => {
     step("release").do(async ({ ask, report, run }) => {
       report.milestone({ title: "Ready to release" });
-      const { approved } = await ask.approval({
+      const { approved, note } = await ask.approval({
         body: "Ship v2?",
         title: "Release v2",
       });
       report.result({ body: approved ? "shipped" : "held", title: "Outcome" });
-      return { approved, run: run.id };
+      return { approved, note, run: run.id };
     });
     const store = openFeed(undefined, { id: "ws", root });
     const engine = await startEngine(registerCatalog, {
@@ -72,10 +72,11 @@ describe("lib2 through the engine", () => {
       print: () => undefined,
     });
 
-    const launched = await engine.launch<{ approved: boolean; run: string }>(
-      "release",
-      {}
-    );
+    const launched = await engine.launch<{
+      approved: boolean;
+      note?: string;
+      run: string;
+    }>("release", {});
     const question = await openEntry(
       store.read,
       (entry) => entry.input?.status === "open"
@@ -96,9 +97,13 @@ describe("lib2 through the engine", () => {
       throw new Error("expected an open approval");
     }
 
-    await engine.answer(question.id, "approve");
+    await engine.answer(question.id, {
+      choice: "approve",
+      note: "after the docs land",
+    });
     await expect(launched.result).resolves.toEqual({
       approved: true,
+      note: "after the docs land",
       run: launched.id,
     });
     expect(runs.has(launched.id)).toBe(false);
@@ -113,6 +118,7 @@ describe("lib2 through the engine", () => {
       answer: "approve",
       choices: ["approve", "reject"],
       mode: "approval",
+      note: "after the docs land",
       status: "answered",
     });
     await engine.stop();
