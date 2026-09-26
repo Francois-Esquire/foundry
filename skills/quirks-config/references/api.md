@@ -57,12 +57,11 @@ const reviewing = skills.load().add("./skills/review/*").pick("caveman");
 - `agent.prompt` is required and should state limits ("read only").
   `provider` is `"codex"` or `"claude-code"`; omitted means the first
   installed CLI. `model` is a catalog id; it does not pick the runtime.
-- `sandbox` with `image` mounts the config's directory read/write at
-  `/workspace`. `mount` is `"."` (the default) or a declared workspace. Today
-  the mount must lie inside the config's directory; a declared workspace
-  outside it fails at run time with `escapes the trusted host roots`. The API
-  intends declared workspaces to mount too; until that lands, keep the config
-  in the directory a sandbox should see. `~/.foundry`, `~/.claude`,
+- `sandbox` with `image` mounts a workspace read/write at `/workspace`.
+  `mount` is `"."` (the default): the step's working directory, which is the
+  config's directory or, inside a worktree callback, the worktree. Or a
+  declared workspace: `mount: site`. Any other host path is refused at run
+  time with `escapes the trusted host roots`. `~/.foundry`, `~/.claude`,
   `~/.codex` mount read-only when they exist. The `files` form mounts nothing
   and copies the files under `/workspace` after boot.
 - `skills.load()` is the global and workspace skills; `.add(glob)` appends a

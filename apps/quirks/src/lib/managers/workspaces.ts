@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import type { WorkspaceSystem } from "@foundry/workspaces";
 import type { git } from "@foundry/workspaces/git";
@@ -30,6 +30,12 @@ export interface WorkspacesDeps {
   readonly gitOptions?: GitOptions;
   /** The config's directory. */
   readonly root: string;
+  /**
+   * Where worktrees are cut when the caller names no `home`. Quirks owns it
+   * so sandboxes may mount what is inside; the OS temp dir would not be
+   * trusted.
+   */
+  readonly worktreeHome?: string;
 }
 
 /** The nearest enclosing directory with a `.git`, or undefined. */
@@ -48,19 +54,27 @@ export function repositoryRoot(start: string): string | undefined {
 }
 
 /** Forward everything; run a worktree callback under its own working directory. */
-function wrapGit(target: Git): Git {
+function wrapGit(target: Git, worktreeHome: string | undefined): Git {
   return new Proxy(target, {
     get(object, property) {
       if (property === "withWorktree") {
-        const withWorktree: Git["withWorktree"] = (options, body) =>
-          object.withWorktree(options, (worktree) => {
-            const store = current.getStore();
-            return store
-              ? current.run({ ...store, cwd: worktree.root }, () =>
-                  body(worktree)
-                )
-              : body(worktree);
-          });
+        const withWorktree: Git["withWorktree"] = (options, body) => {
+          const home = options.home ?? worktreeHome;
+          if (home !== undefined) {
+            mkdirSync(home, { recursive: true });
+          }
+          return object.withWorktree(
+            home === undefined ? options : { ...options, home },
+            (worktree) => {
+              const store = current.getStore();
+              return store
+                ? current.run({ ...store, cwd: worktree.root }, () =>
+                    body(worktree)
+                  )
+                : body(worktree);
+            }
+          );
+        };
         return withWorktree;
       }
       const value = Reflect.get(object, property, object);
@@ -72,7 +86,8 @@ function wrapGit(target: Git): Git {
 function handle(
   root: string,
   loaded: () => Promise<Loaded>,
-  gitOf: () => Git | undefined
+  gitOf: () => Git | undefined,
+  worktreeHome: string | undefined
 ): WorkspaceHandle {
   return {
     async files() {
@@ -86,7 +101,7 @@ function handle(
           `${root} is not a git repository; workspaces.*.git needs one`
         );
       }
-      return wrapGit(found);
+      return wrapGit(found, worktreeHome);
     },
     root,
   };
@@ -107,7 +122,8 @@ export function workspacesManager(
     () =>
       repositoryRoot(deps.root)
         ? Git.at(deps.root, deps.gitOptions ?? {})
-        : undefined
+        : undefined,
+    deps.worktreeHome
   );
   return () => ({
     current: currentHandle,
@@ -116,7 +132,8 @@ export function workspacesManager(
       return handle(
         workspace.root,
         () => Promise.resolve(workspace),
-        () => workspace.git
+        () => workspace.git,
+        deps.worktreeHome
       );
     },
   });

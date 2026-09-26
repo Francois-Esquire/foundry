@@ -141,13 +141,6 @@ place and throws if frozen; `revise()` freezes and adds a new one. Entries are
 - **Identity for helper-made definitions.** A definition created inside a
   helper function is nameless by design; the AST pass could follow the
   caller's binding later if that proves common.
-- **Sandbox mounts of declared workspaces.** The API doc says a declared
-  workspace a sandbox uses mounts read/write. The runtime trusts only the
-  config's directory (`allowedMountRoots([root])`), so
-  `sandbox({ mount: workspace({ path: "../x" }) })` is refused at run time
-  with `escapes the trusted host roots`. Either widen the trusted roots to
-  declared workspaces or narrow the doc; the skill teaches today's behavior
-  and names the intent. Found by the companion skill's evals.
 - **`once` at an ask prints a stack trace.** A non-askable process cancels
   the run at its first `ask` by design, but the CLI surfaces it as
   `run "x" was cancelled: no reason` with a Bun stack trace and exit 1. A

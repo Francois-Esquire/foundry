@@ -156,12 +156,13 @@ why they exist lets you design around them instead of hitting them.
 - **`signal` is for what Quirks does not own.** Agent turns, sandbox commands,
   and worktrees are already cancelled with the step. Pass `signal` to a raw
   `fetch` or child process.
-- **Sandboxes mount only the config's directory.** `mount: "."` is the
-  config's directory; a declared workspace works only if it sits inside it.
-  Anything else fails at run time with `escapes the trusted host roots`. This
-  is one more reason the config belongs at the root of the project it tests.
-  `sandboxes.start` needs the optional `microsandbox` peer; the `files` form
-  seeds a scratch container under `/workspace` with no mount.
+- **Sandboxes mount the step's working directory.** `mount: "."` is the
+  config's directory, or the worktree when the sandbox starts inside a
+  worktree callback. `mount: someWorkspace` mounts a declared workspace.
+  Nothing else is mountable; any other path fails at run time with `escapes
+  the trusted host roots`. `sandboxes.start` needs the optional
+  `microsandbox` peer; the `files` form seeds a scratch container under
+  `/workspace` with no mount.
 
 ## What a good config looks like
 

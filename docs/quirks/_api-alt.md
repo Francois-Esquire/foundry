@@ -174,10 +174,11 @@ same thing on the spot (see [Context](#context)).
   version to the same artifact.
 - **A declared workspace is a directory preset.** It has no state, reports,
   or dashboard entry of its own.
-- **A sandbox mounts workspaces read/write.** The config's own directory and
-  any declared workspace it uses mount read/write. Host configuration folders
-  (`~/.foundry`, `~/.claude`, `~/.codex`) mount read-only. Nothing else is
-  mounted.
+- **A sandbox mounts workspaces read/write.** `mount: "."` is the step's
+  working directory: the config's own directory, or the worktree inside a
+  worktree callback. `mount: site` is a declared workspace. Host
+  configuration folders (`~/.foundry`, `~/.claude`, `~/.codex`) mount
+  read-only. Nothing else is mounted.
 - **Skills are a set, built by chaining.** `skills.load()` with no arguments
   loads the global and workspace skills. `.add(glob)` appends a folder of
   skills. `.pick(...names)` narrows a set to the named skills. Calls chain,

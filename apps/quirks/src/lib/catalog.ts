@@ -35,6 +35,8 @@ class Catalog {
   /** Keyed like the detector step and the schedule a monitor registers. */
   readonly monitors = new Map<string, MonitorSpec>();
   readonly schedules = new Map<string, Schedule>();
+  /** Paths of declared workspaces, as written; sandboxes may mount them. */
+  readonly workspaces = new Set<string>();
   readonly #counters = new Map<string, number>();
   #bindings: Bindings | undefined;
 
@@ -112,6 +114,7 @@ class Catalog {
     this.definitions.clear();
     this.schedules.clear();
     this.monitors.clear();
+    this.workspaces.clear();
     this.#counters.clear();
     this.#bindings = undefined;
   }

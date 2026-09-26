@@ -127,6 +127,30 @@ describe("workspaces", () => {
     }
   });
 
+  it("cuts worktrees under the quirks-owned home when the caller names none", async () => {
+    const repo = await seedRepository();
+    const catalogue = new WorkspaceSystem().extend(
+      directory({ observer: nodeObserver }),
+      git()
+    );
+    const worktreeHome = join(tmp, "state", "worktrees");
+    try {
+      const workspaces = workspacesManager({
+        catalogue,
+        root: repo,
+        worktreeHome,
+      })(args(repo));
+      const root = await workspaces.current.git.withWorktree(
+        { base: "main" },
+        (worktree) => Promise.resolve(worktree.root)
+      );
+      expect(root.startsWith(realpathSync(worktreeHome))).toBe(true);
+    } finally {
+      await catalogue.closeAll();
+      await rm(repo, { force: true, recursive: true });
+    }
+  });
+
   it("refuses git outside a repository with a clear message", () => {
     const catalogue = new WorkspaceSystem().extend(
       directory({ observer: nodeObserver }),
@@ -192,7 +216,8 @@ describe("sandboxes", () => {
     } as const;
     await mkdir(join(tmp, "site"), { recursive: true });
 
-    const plain = constraintsFor({ image: "img:1" }, root, home);
+    const dirs = { cwd: root, root };
+    const plain = constraintsFor({ image: "img:1" }, dirs, home);
     expect(plain).toEqual({
       format: "foundry.sandbox.container/1",
       image: "img:1",
@@ -214,11 +239,21 @@ describe("sandboxes", () => {
     });
     const sized = constraintsFor(
       { image: "img:1", mount: site, resources: { cpus: 2 } },
-      root,
+      dirs,
       home
     );
     expect(sized.mounts?.[0]?.source).toBe(join(tmp, "site"));
     expect(sized.resources).toEqual({ cpus: 2 });
+    // "." is the step's working directory; a declared workspace stays
+    // relative to the config's directory.
+    const inWorktree = { cwd: join(tmp, "wt"), root };
+    expect(
+      constraintsFor({ image: "img:1" }, inWorktree, home).mounts?.[0]?.source
+    ).toBe(join(tmp, "wt"));
+    expect(
+      constraintsFor({ image: "img:1", mount: site }, inWorktree, home)
+        .mounts?.[0]?.source
+    ).toBe(join(tmp, "site"));
     // Only host folders that exist are allowed; the registry canonicalizes them.
     expect(allowedMountRoots([root, join(tmp, "site")], home)).toEqual([
       root,
@@ -267,6 +302,44 @@ describe("sandboxes", () => {
     await containers.shutdown();
   });
 
+  it("a sandbox started inside a worktree callback mounts the worktree", async () => {
+    const root = join(tmp, "project");
+    const home = join(tmp, "home");
+    const worktreeHome = join(tmp, "state", "worktrees");
+    const worktree = join(worktreeHome, "worktree-abc");
+    await mkdir(root, { recursive: true });
+    await mkdir(home, { recursive: true });
+    await mkdir(worktree, { recursive: true });
+    const containers = createContainers({
+      allowedMountRoots: allowedMountRoots([root, worktreeHome], home),
+      instanceLabel: "test",
+      runtime: createFakeContainerRuntime(),
+      store: createMemoryContainerStore(),
+    });
+    const manager = sandboxesManager({
+      containers: () => Promise.resolve(containers),
+      home,
+      root,
+    });
+    const a = args(root);
+    const sandboxes = manager(a);
+    const env = await current.run(
+      { cwd: worktree, frame: a.frame, scope: a.scope },
+      () => sandboxes.start({ image: "img:1" })
+    );
+    const [row] = await containers.list();
+    const spec = JSON.parse(row?.spec ?? "{}") as {
+      mounts?: readonly { id: string; source: string }[];
+    };
+    // The registry accepted the mount, so the worktree home is trusted.
+    expect(spec.mounts?.find((mount) => mount.id === "workspace")?.source).toBe(
+      worktree
+    );
+    await env.close();
+    await a.scope.settle();
+    await containers.shutdown();
+  });
+
   it("a files sandbox mounts nothing and seeds its files under /workspace", async () => {
     const root = join(tmp, "project");
     const home = join(tmp, "home");
@@ -274,7 +347,7 @@ describe("sandboxes", () => {
     await mkdir(home, { recursive: true });
     const scratch = constraintsFor(
       { files: { "a.txt": "x" }, image: "img:2" },
-      root,
+      { cwd: root, root },
       home
     );
     expect(scratch).toEqual({
@@ -283,9 +356,10 @@ describe("sandboxes", () => {
       mounts: [],
       workdir: "/workspace",
     });
-    expect(constraintsFor({ files: { "a.txt": "x" } }, root, home).image).toBe(
-      undefined
-    );
+    expect(
+      constraintsFor({ files: { "a.txt": "x" } }, { cwd: root, root }, home)
+        .image
+    ).toBe(undefined);
     expect(guestFiles({ "/etc/motd": "hi", "a.txt": "x" })).toEqual({
       "/etc/motd": "hi",
       "/workspace/a.txt": "x",

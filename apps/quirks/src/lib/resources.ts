@@ -33,6 +33,7 @@ export function workspace(spec: {
   if (!spec.path.trim()) {
     throw new Error("workspace(): a path is required");
   }
+  catalog.workspaces.add(spec.path);
   return {
     id: catalog.claimId("workspace"),
     kind: "workspace",

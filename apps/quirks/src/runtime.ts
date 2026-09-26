@@ -1,5 +1,6 @@
-import { homedir } from "node:os";
-import { join } from "node:path";
+import { mkdirSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { InMemorySessionStore } from "@foundry/agents/session";
 import type { Artifacts } from "@foundry/artifacts";
 import type { ModelManager } from "@foundry/models";
@@ -90,10 +91,18 @@ export function bindRuntime(options: RuntimeOptions): Runtime {
       : import("@foundry/sandbox/container/microsandbox-runtime").then(
           ({ createMicrosandboxRuntime }) => createMicrosandboxRuntime()
         );
+  // Worktrees are cut here so a sandbox opened inside one may mount it.
+  const worktreeHome = join(state ?? join(tmpdir(), "quirks"), "worktrees");
+  // Resolved at first use, after the config has declared its workspaces.
   const openContainers = () => {
+    mkdirSync(worktreeHome, { recursive: true });
+    const declared = [...catalog.workspaces].map((path) => resolve(root, path));
     containers ??= runtime().then((backend) =>
       createContainers({
-        allowedMountRoots: allowedMountRoots([root], home),
+        allowedMountRoots: allowedMountRoots(
+          [root, worktreeHome, ...declared],
+          home
+        ),
         instanceLabel: `quirks-${workspaceId}`,
         runtime: backend as never,
         store: createMemoryContainerStore(),
@@ -119,6 +128,7 @@ export function bindRuntime(options: RuntimeOptions): Runtime {
       catalogue,
       ...(dry ? { gitOptions: { run: echoGit(print) } } : {}),
       root,
+      worktreeHome,
     }),
   };
   catalog.bind(bindings);

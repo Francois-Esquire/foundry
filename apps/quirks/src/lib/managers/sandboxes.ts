@@ -9,6 +9,7 @@ import type {
 
 import type { ManagerArgs } from "../bindings";
 import type { Frame } from "../run-scope";
+import { current } from "../run-scope";
 import type {
   ImageSandbox,
   Sandbox,
@@ -21,7 +22,9 @@ import type {
  * Isolated places to run commands, over the containers registry. The mount
  * policy is fixed: the workspace the sandbox is for mounts read/write at
  * `/workspace`; the host's `~/.foundry`, `~/.claude`, and `~/.codex` mount
- * read-only under `/root`, when they exist; nothing else is mounted. A
+ * read-only under `/root`, when they exist; nothing else is mounted. `"."`
+ * is the step's working directory, so a sandbox started inside a worktree
+ * callback mounts the worktree, the same way a session runs there. A
  * `files` sandbox mounts no workspace: its files are copied under
  * `/workspace` once it boots. Commands are aborted with the step. Handles
  * close when the run settles.
@@ -40,12 +43,20 @@ const WORKSPACE_TARGET = "/workspace";
 const HOST_CONFIG_DIRS = [".foundry", ".claude", ".codex"] as const;
 const KIND = "sandboxes.start";
 
+/** Where a sandbox's mounts resolve from. */
+export interface MountDirs {
+  /** The step's working directory: the config's, or a worktree inside a callback. */
+  readonly cwd: string;
+  /** The config's directory; declared workspace paths are relative to it. */
+  readonly root: string;
+}
+
 /** The host directory a spec's `mount` refers to. */
-function mountSource(spec: ImageSandbox, root: string): string {
+function mountSource(spec: ImageSandbox, dirs: MountDirs): string {
   if (spec.mount === undefined || spec.mount === ".") {
-    return root;
+    return dirs.cwd;
   }
-  return resolve(root, spec.mount.path);
+  return resolve(dirs.root, spec.mount.path);
 }
 
 /** Guest paths for a files sandbox: relative names land under `/workspace`. */
@@ -60,7 +71,11 @@ export function guestFiles(
   );
 }
 
-/** Host directories the registry may bind: the workspace and the config folders. */
+/**
+ * Host directories the registry may bind: the workspaces (the config's
+ * directory, the worktree home, declared workspaces) and the config folders.
+ * Only directories that exist: the registry canonicalizes every root.
+ */
 export function allowedMountRoots(
   roots: readonly string[],
   home: string
@@ -68,16 +83,14 @@ export function allowedMountRoots(
   return [
     ...new Set([
       ...roots.map((root) => resolve(root)),
-      ...HOST_CONFIG_DIRS.map((dir) => join(home, dir)).filter((dir) =>
-        existsSync(dir)
-      ),
+      ...HOST_CONFIG_DIRS.map((dir) => join(home, dir)),
     ]),
-  ];
+  ].filter((dir) => existsSync(dir));
 }
 
 export function constraintsFor(
   spec: SandboxSpec,
-  root: string,
+  dirs: MountDirs,
   home: string
 ): ContainerSandboxConstraints {
   const resources = {
@@ -98,7 +111,7 @@ export function constraintsFor(
             {
               access: "read-write" as const,
               id: "workspace",
-              source: mountSource(spec, root),
+              source: mountSource(spec, dirs),
               target: WORKSPACE_TARGET,
             },
           ]),
@@ -162,7 +175,11 @@ export function sandboxesManager(
         }
       }
       const container = await containers.start(
-        constraintsFor(sandbox, deps.root, deps.home),
+        constraintsFor(
+          sandbox,
+          { cwd: current.getStore()?.cwd ?? deps.root, root: deps.root },
+          deps.home
+        ),
         frame.signal
       );
       if ("files" in sandbox) {
