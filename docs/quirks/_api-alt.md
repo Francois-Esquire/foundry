@@ -472,8 +472,10 @@ have different durability:
   including on resume, and builds the tree again.
 
 Setup becomes durable only by passing it into a step as input. A step's input
-is recorded with that step. Anything else setup creates (a started sandbox, an
-open session) is created again on the next setup.
+is recorded with that step when the run starts, and a run recovered in a later
+process keeps it, whatever setup would compute then. Anything else setup
+creates (a started sandbox, an open session) is created again on the next
+setup.
 
 This differs from `@foundry/workflows`, where a workflow's body is itself a
 durable step. It is deliberate: setup stays a place to prepare, not work to be
@@ -513,6 +515,10 @@ monitor("https://status.example.com/api").every("5m").do(({ response }) => …);
   today's default interval.
 - If `fn` returns a locked node, the monitor starts it:
   `.do(async ({ response }) => ship({}, { task: (await response.json()).title }))`.
+  Started is delivered: the launch rides in the monitor's state as pending
+  until the tick that started it acknowledges it, so a tick that dies in
+  between hands it out again; a started run that fails or is cancelled is
+  not started again.
 - WebSocket monitors are dropped.
 
 ## Composition
@@ -603,11 +609,15 @@ step. Neither is authored code.
   `await session.generate(…)` resolves with the reply to the steered
   conversation. The steer is written to the run stream and the session
   transcript. Nothing replays.
-- **Pause.** The host parks the step. Its signal aborts what it opened, and
-  a suspension is recorded under the step's path, the same way `ask`
-  records one. Resuming, with or without a prompt, replays the body from the
-  top. A prompt supplied on resume leads the first turn of the recorded
-  session in that step.
+- **Pause.** The host parks the step and everything under it. Each live
+  step's signal aborts what it opened, and once its attempt has stopped a
+  suspension is recorded under its path, the same way `ask` records one; a
+  step that had not started yet parks as it enters. Owned calls reject at
+  the abort, so a body cannot run on past a cut turn; a body waiting on
+  something Quirks does not own should honour `signal`, or the pause waits
+  for it. Resuming, with or without a prompt, releases every pause under
+  the step and replays the bodies from the top. A prompt supplied on resume
+  leads the first turn of the recorded session in each parked step.
 
 Two things are visible in a session's transcript afterwards, by design. A
 turn cut short by a steer or a pause is committed with the text it produced

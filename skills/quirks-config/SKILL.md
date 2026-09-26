@@ -76,9 +76,14 @@ one before it, so writing them in order keeps types flowing forward.
    `monitor("docs/**/*.md").do(…)`, `monitor("https://…").every("5m").do(…)`.
    A monitor handler that returns a locked node starts it.
 7. **Verify by loading.** Run the two commands below and read the output.
-   `list` prints every named step, workflow, schedule key, and monitor key.
-   `once` runs one of them; under `--dry` every agent turn, git mutation, and
-   sandbox command is echoed instead of executed, so it is safe anywhere.
+   `list` loads the config and prints every named step, workflow, schedule
+   key, and monitor key; no step body runs. `once` runs one of them, and
+   `--dry` changes only what Quirks owns: agent turns, git mutations through
+   `workspaces`, and sandbox commands are echoed instead of executed, and
+   nothing is written under `~/.foundry`. The step bodies themselves still
+   execute, so a raw `fetch`, a file write, or a child process in a body
+   happens for real. Read the bodies before running `once` on a config you
+   did not write.
    `once` has nobody to answer an `ask`: when a run reaches one it prints
    `needs an answer; run quirks to answer questions from the dashboard`, then
    `run "x" was cancelled` with a stack trace and exit 1. That is the

@@ -151,7 +151,58 @@ phase 2 frame table. Landed, one commit each:
 - **Lock literals are typed from the schema's input**, and a child's output
   is checked against the parent's key at the type level.
 
+## Second review after phase 2
+
+A second external review of phase 2 (through `1d81282`) found nine more;
+all nine held. Verifying them also surfaced a regression from the first
+round's parallel fix. Landed, one commit each:
+
+- **A parallel child that parks no longer aborts its siblings.** The
+  parallel driver treated a child's `SuspendSignal` as a failure and aborted
+  the run scope; suspensions now pass through, the sibling finishes, and the
+  parent parks with the child. Regression from `68d7431`.
+- **A pause parks the subtree and waits for the attempt to stop.** Pausing a
+  step aborts every live frame at or under it, a step entering under a
+  paused ancestor parks at once, and resume releases every pause under the
+  step. The step parks only after its attempt has settled: agent turns the
+  harness committed after the abort now reject in the wrapper (`generate`,
+  `stream`, and the stream's promises), so authored code cannot run on after
+  the run reads as suspended. A body that ignores its signal delays the
+  pause. Re-entry consumes the pause flag.
+- **An answer is written before the run goes on.** The run file is written
+  on the Orchestrator's `resumed` event as well as `suspended`, so a crash
+  after an answer finds a mid-flight run (skipped with the existing warning)
+  rather than a stale question asked again over work already done.
+- **Adoption claims the run.** The run file is rewritten with the adopting
+  pid at once, and `locks/run-<id>` (created `wx`) is held until the run
+  settles or the process stops.
+- **A recovered step runs with the input it was locked with.** The scope
+  records every node's literal by step path when the tree is first built
+  and writes it with the run; a recovered scope hands those back.
+- **A monitor holds its launch until the tick has started it.** The launch
+  rides in the monitor's state as `pending` and goes out again each tick
+  until acknowledged. Started is the delivery contract: a started run that
+  fails, or is cancelled at an approval under a launchd tick, is not started
+  again (acknowledging after success would relaunch it every tick).
+- **A definition passed to another does not take its const's name.** The
+  AST pass follows callee positions only from the call up to the
+  initializer; `workflow(step().do(…)({}))` names the workflow alone.
+- **A run that ends unanswered closes its question.** The router closes a
+  run's open entries when it settles as anything but complete.
+- **The skill no longer calls `--dry once` safe anywhere.** `list` loads
+  without running bodies; `once` runs them, and `--dry` substitutes only
+  what Quirks owns.
+
+The reviewer's structural point stands and is listed under open items:
+pause, persistence, and feed state each own a piece of the run lifecycle.
+
 ## Open after phase 2
+
+- **One owner for the run lifecycle.** Pause (frame table), persistence
+  (engine save on `suspended`/`resumed`/settle), and feed state (router
+  `open` map) each react to run transitions separately. The fixes above keep
+  them consistent case by case; a single lifecycle hook in the engine that
+  every transition passes through would make the next case free.
 
 - **Built-in provider.** The default is still the first available CLI
   harness; no provider backs the built-in `@foundry/agents` harness.

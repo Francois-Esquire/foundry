@@ -216,6 +216,9 @@ monitor("https://tracker.example.com/latest").every("10m")
   starts it, attributed to the monitor. One node per tick: several new files
   in one poll either batch into one input or wait for the author to pick.
   A returned bare definition is ignored; return `undefined` to do nothing.
+  Started is delivered: the monitor holds the launch until a tick has
+  started it, and a started run that then fails or is cancelled is not
+  started again, any more than a schedule's run would be.
 - The first poll has no baseline: every matching file is `added`, or the
   first body counts as a change, so the handler runs once on first start.
 - Keys: a schedule is `slug(target)[-sha8(input)]`, a monitor
@@ -235,14 +238,19 @@ override outer ones.
   and `ask.*` are numbered by call order and return the recorded thing on
   replay. Keep their order fixed; keep effects behind them.
 - **Workflow setup is not durable.** It runs on every setup and rebuilds the
-  tree. Pass what it must keep into a step as input.
+  tree. Pass what it must keep into a step as input: a run records the
+  input each step was locked with when it started, and a recovered run
+  keeps those, whatever setup would compute now.
 - **Sessions are fresh by default.** Continue one by reference (`{ session }`),
   never by an invented id. Across runs, return `session.ref` and pass it back.
 - **A run owns one session, one stream, one cancellation.** Everything opened
   through the context is attached to them.
 - **Hosts can steer and pause.** The dashboard's `s` hands a prompt to the
-  agent mid-turn, `p` parks the step (its body replays on resume), `k`
-  cancels. None of it is authored code.
+  agent mid-turn, `p` parks the step and everything under it (the bodies
+  replay on resume), `k` cancels. A step parks once its attempt has stopped:
+  agent turns, sandbox commands, and worktrees stop at the signal, so a body
+  that waits on something else should honour `signal` or it delays the
+  pause until it returns. None of it is authored code.
 
 ## CLI
 
