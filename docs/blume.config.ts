@@ -2,7 +2,13 @@ import { defineConfig } from "blume";
 
 export default defineConfig({
   content: {
-    include: ["index.md", "quirks/**/*.md", "quirks/**/*.mdx"],
+    include: [
+      "index.md",
+      "quirks/**/*.md",
+      "quirks/**/*.mdx",
+      "atlas/**/*.md",
+      "atlas/**/*.mdx",
+    ],
     root: ".",
   },
   deployment: {
@@ -12,6 +18,12 @@ export default defineConfig({
   },
   description: "Documentation for Foundry's local developer tools.",
   github: { owner: "Francois-Esquire", repo: "foundry" },
+  navigation: {
+    tabs: [
+      { label: "Quirks", path: "/quirks" },
+      { label: "Atlas", path: "/atlas" },
+    ],
+  },
   theme: {
     accent: "gray", // a named preset or any CSS color
     fonts: {
