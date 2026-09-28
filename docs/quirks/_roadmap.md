@@ -25,7 +25,9 @@ pieces of work; each step lands before the next starts.
    the hand-off patterns the API doc promises. Its eval loop (baselines,
    description tuning) is a follow-up.
 4. **Docs and use cases.** A guided walkthrough, "The Software Factory": the
-   software lifecycle as inputs, quirks, and outputs. Then walkthroughs for
-   productivity and creativity. Further docs work stays an open bucket.
+   software lifecycle as inputs, quirks, and outputs. Landed 2026-09-28 as
+   `walkthroughs/software-factory.mdx`, built on the complete config below.
+   Then walkthroughs for productivity and creativity, still open. Further
+   docs work stays an open bucket.
 5. **Branding, last.** Bring the brand into the docs on top of step 4. Done
    together with the maintainer, not ahead of time.

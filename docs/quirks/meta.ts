@@ -7,6 +7,7 @@ export default defineMeta({
     "start-here",
     "concepts",
     "guides",
+    "walkthroughs",
     "use-cases",
     "reference",
     "safety-and-limits",

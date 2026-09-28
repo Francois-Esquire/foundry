@@ -51,4 +51,4 @@ Save it as `quirks.config.ts` and run `quirks once inspect`. The
 [nine words](/quirks/concepts) let that function grow into something that
 composes work, observes change, remembers, and returns.
 
-[Build your first behavior](/quirks/start-here) · [Explore use cases](/quirks/use-cases)
+[Build your first behavior](/quirks/start-here) · [Walk through the Software Factory](/quirks/walkthroughs/software-factory) · [Explore use cases](/quirks/use-cases)
