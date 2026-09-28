@@ -39,6 +39,7 @@ function cli(config: string, ...args: string[]) {
   );
 }
 
+// Allow three CLI processes, each bounded by the helper's 10-second timeout.
 it("missing, empty, and import-only configs register no implicit definitions", async () => {
   const dir = await mkdtemp(join(tmpdir(), "quirks-config-"));
   try {
@@ -51,9 +52,10 @@ it("missing, empty, and import-only configs register no implicit definitions", a
   } finally {
     await rm(dir, { force: true, recursive: true });
   }
-});
+}, 35_000);
 
 for (const starter of STARTERS) {
+  // Each starter is loaded and then executed in separate CLI processes.
   it(`generates a loadable ${starter.label} config with only the selected step`, async () => {
     const dir = await mkdtemp(join(tmpdir(), "quirks-starter-"));
     try {
@@ -80,7 +82,7 @@ for (const starter of STARTERS) {
     } finally {
       await rm(dir, { force: true, recursive: true });
     }
-  });
+  }, 25_000);
 }
 
 it("never overwrites a config, including concurrent creation", async () => {

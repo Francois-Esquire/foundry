@@ -1,6 +1,7 @@
 import {
   cpSync,
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
@@ -54,8 +55,25 @@ import type { WorkspaceReport } from "../../src/lib/workspace-types";
 import { WORKSPACE_SCHEMA_VERSION } from "../../src/lib/workspace-types";
 import { hashTree } from "./helpers/planning-fixture";
 
-const fixture = join(import.meta.dirname, "fixtures", "semantics");
+let fixture: string;
 const now = new Date("2027-01-01T00:00:00Z");
+
+beforeAll(() => {
+  fixture = realpathSync(mkdtempSync(join(tmpdir(), "semantics-fixture-")));
+  cpSync(join(import.meta.dirname, "fixtures", "semantics"), fixture, {
+    recursive: true,
+  });
+  // Generated output is ignored by Git, so create this discovery fixture here.
+  mkdirSync(join(fixture, "packages", "dist"), { recursive: true });
+  writeFileSync(
+    join(fixture, "packages", "dist", "index.ts"),
+    "export const generated = true;\n"
+  );
+});
+
+afterAll(() => {
+  rmSync(fixture, { force: true, recursive: true });
+});
 
 /** In-process seams: the canonical analysis with the fixture tsconfig, no worker. */
 const inProcessLocal: SemanticsLocalAnalyzer = (unit, context) =>
