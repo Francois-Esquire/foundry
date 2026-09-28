@@ -13,6 +13,8 @@ describe("portable base64", () => {
     for (let index = 0; index < bytes.length; index += 1) {
       bytes[index] = index % 251;
     }
-    expect(base64ToBytes(bytesToBase64(bytes))).toEqual(bytes);
+    const decoded = base64ToBytes(bytesToBase64(bytes));
+    expect(decoded).toHaveLength(bytes.length);
+    expect(decoded.every((byte, index) => byte === bytes[index])).toBe(true);
   });
 });

@@ -13,5 +13,7 @@ removing one, inspect the build and run
 tarball in an isolated consumer and exercises the CLI.
 
 The `evlog` exception covers imports in the bundled models and workflows code.
+The `@ai-sdk/provider` exception covers model types referenced by the published
+declarations; those generated imports are absent in a fresh checkout.
 The `@foundry/core` development dependency supplies transitive pagination types
 to the declaration bundler through the explicit mappings in `tsup.config.ts`.
