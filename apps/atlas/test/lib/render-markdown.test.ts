@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
-
-import type { BlockView } from "../../src/lib/render";
-
-import { createMarkdownRenderer } from "../../src/lib/render";
+import { createMarkdownRenderer } from "../../src/lib/render/markdown";
+import type { BlockView } from "../../src/lib/render/views";
 
 const markdown = createMarkdownRenderer();
 

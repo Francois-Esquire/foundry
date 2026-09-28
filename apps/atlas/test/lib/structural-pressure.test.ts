@@ -1,4 +1,4 @@
-import * as path from "node:path";
+import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 import { analyzeSurface } from "../../src/lib/analyze";
@@ -617,7 +617,7 @@ describe("rendering", () => {
   });
 
   it("stays silent on a fixture without pressure and attaches to the report", async () => {
-    const root = path.join(import.meta.dirname, "fixtures", "traffic");
+    const root = join(import.meta.dirname, "fixtures", "traffic");
     const hub = await analyzeSurface({ root, target: "@traffic/hub" });
     expect(hub.schemaVersion).toBe(35);
     expect(hub.structuralPressure).toEqual({
@@ -630,7 +630,7 @@ describe("rendering", () => {
   });
 
   it("classifies module roles syntactically: the barrel aggregates, core declares", async () => {
-    const root = path.join(import.meta.dirname, "fixtures", "traffic");
+    const root = join(import.meta.dirname, "fixtures", "traffic");
     const hub = await analyzeSurface({ root, target: "@traffic/hub" });
     const roles = Object.fromEntries(
       hub.dependencyGravity.modules.map((m) => [m.node.id, m.role])

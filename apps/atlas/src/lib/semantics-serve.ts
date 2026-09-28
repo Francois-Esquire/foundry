@@ -1,7 +1,7 @@
-import * as fs from "node:fs";
-import * as http from "node:http";
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import * as path from "node:path";
+import { extname, join, resolve as pathResolve, posix, sep } from "node:path";
 
 // V12.0 static server: GET files beneath one directory (`.foundry/` by
 // default), nothing else. No analysis, no API, no fallback routing; a path
@@ -63,19 +63,16 @@ export function resolveServedFile(
   if (decoded.includes("\0")) {
     return undefined;
   }
-  const base = fs.realpathSync(root);
-  const resolved = path.resolve(
-    base,
-    `.${path.posix.normalize(`/${decoded}`)}`
-  );
-  if (resolved !== base && !resolved.startsWith(base + path.sep)) {
+  const base = realpathSync(root);
+  const resolved = pathResolve(base, `.${posix.normalize(`/${decoded}`)}`);
+  if (resolved !== base && !resolved.startsWith(base + sep)) {
     return undefined;
   }
-  if (!fs.existsSync(resolved)) {
+  if (!existsSync(resolved)) {
     return undefined;
   }
-  const real = fs.realpathSync(resolved);
-  if (real !== base && !real.startsWith(base + path.sep)) {
+  const real = realpathSync(resolved);
+  if (real !== base && !real.startsWith(base + sep)) {
     return undefined;
   }
   return real;
@@ -84,8 +81,8 @@ export function resolveServedFile(
 export function createSemanticsServer(
   options: SemanticsServerOptions
 ): SemanticsServer {
-  const root = path.resolve(options.root);
-  const app = options.app === undefined ? undefined : path.resolve(options.app);
+  const root = pathResolve(options.root);
+  const app = options.app === undefined ? undefined : pathResolve(options.app);
   const host = options.host ?? DEFAULT_SEMANTICS_HOST;
   const port = options.port ?? DEFAULT_SEMANTICS_PORT;
 
@@ -95,8 +92,7 @@ export function createSemanticsServer(
       const file = resolveServedFile(app, url);
       if (
         file !== undefined &&
-        (!fs.statSync(file).isDirectory() ||
-          fs.existsSync(path.join(file, "index.html")))
+        (!statSync(file).isDirectory() || existsSync(join(file, "index.html")))
       ) {
         return { base: app, file };
       }
@@ -105,12 +101,16 @@ export function createSemanticsServer(
     return file === undefined ? undefined : { base: root, file };
   };
 
-  const server = http.createServer((request, response) => {
-    const send = (status: number, type: string, body: string | Buffer) => {
+  const server = createServer((request, response) => {
+    const send = (
+      status: number,
+      currentType: string,
+      body: string | Buffer
+    ) => {
       response.writeHead(status, {
         "Cache-Control": "no-cache",
         "Content-Length": Buffer.byteLength(body),
-        "Content-Type": type,
+        "Content-Type": currentType,
       });
       response.end(request.method === "HEAD" ? undefined : body);
     };
@@ -124,11 +124,11 @@ export function createSemanticsServer(
       return;
     }
     const { file, base } = hit;
-    if (fs.statSync(file).isDirectory()) {
-      const index = path.join(file, "index.html");
-      if (fs.existsSync(index) && fs.statSync(index).isFile()) {
-        send(200, "text/html; charset=utf-8", fs.readFileSync(index));
-      } else if (file === fs.realpathSync(base)) {
+    if (statSync(file).isDirectory()) {
+      const index = join(file, "index.html");
+      if (existsSync(index) && statSync(index).isFile()) {
+        send(200, "text/html; charset=utf-8", readFileSync(index));
+      } else if (file === realpathSync(base)) {
         send(200, "text/plain; charset=utf-8", MISSING_INDEX);
       } else {
         send(404, "text/plain; charset=utf-8", "Not Found\n");
@@ -136,27 +136,27 @@ export function createSemanticsServer(
       return;
     }
     const type =
-      MIME[path.extname(file).toLowerCase()] ?? "application/octet-stream";
-    send(200, type, fs.readFileSync(file));
+      MIME[extname(file).toLowerCase()] ?? "application/octet-stream";
+    send(200, type, readFileSync(file));
   });
 
   return {
     close: () =>
-      new Promise((resolve, reject) => {
+      new Promise((complete2, reject) => {
         server.close((error) => {
           if (error) {
             reject(error);
           } else {
-            resolve();
+            complete2();
           }
         });
       }),
     listen: () =>
-      new Promise((resolve, reject) => {
+      new Promise((complete, reject) => {
         server.once("error", reject);
         server.listen(port, host, () => {
           const address = server.address() as AddressInfo;
-          resolve({
+          complete({
             host: address.address,
             port: address.port,
             url: `http://${address.address}:${address.port}`,

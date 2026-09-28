@@ -1,5 +1,5 @@
-import * as fs from "node:fs";
-import * as path from "node:path";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { assembleSurfaceReport } from "./assemble";
 import { analyzePackageLocal } from "./package-local";
 import type { PackageLocalReport } from "./package-local-types";
@@ -37,7 +37,7 @@ if (stage === "local") {
     throw new Error("--stage local needs --target");
   }
   const report = analyzePackageLocal({ root, target });
-  fs.writeFileSync(out, JSON.stringify(report));
+  writeFileSync(out, JSON.stringify(report));
 } else if (stage === "derive") {
   const locals = args.get("locals");
   const now = args.get("now");
@@ -48,29 +48,29 @@ if (stage === "local") {
   if (profile !== "full" && profile !== "temporal") {
     throw new Error(`Unknown analysis profile: ${profile}`);
   }
-  const files = JSON.parse(fs.readFileSync(locals, "utf8")) as string[];
+  const files = JSON.parse(readFileSync(locals, "utf8")) as string[];
   const reports = files.map(
-    (file) => JSON.parse(fs.readFileSync(file, "utf8")) as PackageLocalReport
+    (file) => JSON.parse(readFileSync(file, "utf8")) as PackageLocalReport
   );
   const derivation = await deriveWorkspaceSurface(reports, {
     now: new Date(now),
     profile,
     root,
   });
-  fs.mkdirSync(out, { recursive: true });
+  mkdirSync(out, { recursive: true });
   for (const local of reports) {
     const derived = derivation.packages[local.package.path];
     if (derived === undefined) {
       continue;
     }
     const id = local.package.name ?? local.package.path;
-    fs.writeFileSync(
-      path.join(out, `${encodePackageFile(id)}.json`),
+    writeFileSync(
+      join(out, `${encodePackageFile(id)}.json`),
       JSON.stringify(assembleSurfaceReport(local, derived))
     );
   }
-  fs.writeFileSync(
-    path.join(out, "derivation.json"),
+  writeFileSync(
+    join(out, "derivation.json"),
     JSON.stringify({
       diagnostics: derivation.diagnostics,
       timing: derivation.timing,

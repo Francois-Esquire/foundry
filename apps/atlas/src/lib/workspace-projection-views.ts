@@ -76,7 +76,7 @@ const ALL_ROLES: ConceptDirectionRole[] = [
 ];
 
 /** Every preset, spelled out: which canonical edges it keeps. */
-export const GRAPH_PRESETS: Record<WorkspaceGraphPreset, PresetSpec> = {
+const GRAPH_PRESETS: Record<WorkspaceGraphPreset, PresetSpec> = {
   "architecture-overview": {
     dependency: true,
     edgeSource:
@@ -269,6 +269,8 @@ function conceptCountOf(edge: WorkspaceGraphProjectionEdge): number {
       return edge.concepts.count;
     case "review":
       return edge.reviews.reviewed;
+    default:
+      throw new Error("Unexpected edge.kind.");
   }
 }
 
@@ -509,7 +511,7 @@ function matrixOf(
           directions.map((d) => d.to),
           "package"
         ),
-        metricLabel: `concepts declared in row and ${metric.metric === "usage" ? "used" : metric.metric === "behavior" ? "behaved" : metric.metric === "conversion" ? "converted" : metric.metric === "representation" ? "represented" : "implemented"} in column`,
+        metricLabel: `concepts declared in row and ${resolveMetricLabel(metric)} in column`,
         rows: axis(
           directions.map((d) => d.from),
           "package"
@@ -517,7 +519,7 @@ function matrixOf(
       };
     }
     case "boundary-concept-load": {
-      const boundaries = workspace.boundaries.boundaries;
+      const { boundaries } = workspace.boundaries;
       const value = (id: string): { value: number; entityIds?: string[] } => {
         const boundary = lookup.boundaryById.get(id);
         const load = lookup.loadByBoundary.get(id);
@@ -544,6 +546,8 @@ function matrixOf(
             return { value: load?.roles.semanticUse ?? 0 };
           case "conversion":
             return { value: load?.roles.conversion ?? 0 };
+          default:
+            throw new Error("Unexpected metric.metric.");
         }
       };
       const cells = boundaries
@@ -579,6 +583,8 @@ function matrixOf(
               return review.disposition === "preserve-current";
             case "insufficientEvidence":
               return review.disposition === "insufficient-evidence";
+            default:
+              throw new Error("Unexpected metric.metric.");
           }
         })();
         if (!counted) {
@@ -609,7 +615,28 @@ function matrixOf(
         ),
       };
     }
+    default:
+      throw new Error("Unexpected metric.kind.");
   }
+}
+
+function resolveMetricLabel(metric: {
+  kind: "package-direction";
+  metric: ConceptDirectionRole;
+}): "used" | "behaved" | "converted" | "represented" | "implemented" {
+  if (metric.metric === "usage") {
+    return "used";
+  }
+  if (metric.metric === "behavior") {
+    return "behaved";
+  }
+  if (metric.metric === "conversion") {
+    return "converted";
+  }
+  if (metric.metric === "representation") {
+    return "represented";
+  }
+  return "implemented";
 }
 
 export function projectWorkspaceMatrix(
@@ -712,6 +739,8 @@ function rankEntries(
           value: values[query.metric],
         };
       });
+    default:
+      throw new Error("Unexpected query.kind.");
   }
 }
 
@@ -803,42 +832,12 @@ export function queryWorkspace(
   switch (query.kind) {
     case "overview":
       return { kind: "overview", result: projectWorkspaceOverview(context) };
-    case "package": {
-      const id = resolve(query.id, "package");
-      if (typeof id !== "string") {
-        return id;
-      }
-      const result = projectWorkspacePackage(context, id, query.detail);
-      if (result === undefined) {
-        return { kind: "not-found", query };
-      }
-      return query.detail === "summary"
-        ? { kind: "package-summary", result: summarizeWorkspacePackage(result) }
-        : { kind: "package", result };
-    }
-    case "concept": {
-      const id = resolve(query.id, "concept");
-      if (typeof id !== "string") {
-        return id;
-      }
-      const result = projectWorkspaceConcept(context, id, query.detail);
-      if (result === undefined) {
-        return { kind: "not-found", query };
-      }
-      return query.detail === "summary"
-        ? { kind: "concept-summary", result: summarizeWorkspaceConcept(result) }
-        : { kind: "concept", result };
-    }
-    case "boundary": {
-      const id = resolve(query.id, "boundary");
-      if (typeof id !== "string") {
-        return id;
-      }
-      const result = projectWorkspaceBoundary(context, id, query.detail);
-      return result === undefined
-        ? { kind: "not-found", query }
-        : { kind: "boundary", result };
-    }
+    case "package":
+      return queryPackage(context, query, resolve);
+    case "concept":
+      return queryConcept(context, query, resolve);
+    case "boundary":
+      return queryBoundary(context, query, resolve);
     case "pattern": {
       const id = resolve(query.id, "pattern");
       if (typeof id !== "string") {
@@ -899,5 +898,64 @@ export function queryWorkspace(
           ...(query.kinds !== undefined && { kinds: query.kinds }),
         }),
       };
+    default:
+      throw new Error("Unexpected query.kind.");
   }
+}
+function queryPackage(
+  context: WorkspaceProjectionContext,
+  query: Extract<WorkspaceQuery, { kind: "package" }>,
+  resolve: (
+    text: string,
+    kind: "package" | "concept" | "boundary" | "pattern" | "review"
+  ) => string | WorkspaceQueryResult
+): WorkspaceQueryResult {
+  const id = resolve(query.id, "package");
+  if (typeof id !== "string") {
+    return id;
+  }
+  const result = projectWorkspacePackage(context, id, query.detail);
+  if (result === undefined) {
+    return { kind: "not-found", query };
+  }
+  return query.detail === "summary"
+    ? { kind: "package-summary", result: summarizeWorkspacePackage(result) }
+    : { kind: "package", result };
+}
+function queryConcept(
+  context: WorkspaceProjectionContext,
+  query: Extract<WorkspaceQuery, { kind: "concept" }>,
+  resolve: (
+    text: string,
+    kind: "package" | "concept" | "boundary" | "pattern" | "review"
+  ) => string | WorkspaceQueryResult
+): WorkspaceQueryResult {
+  const id = resolve(query.id, "concept");
+  if (typeof id !== "string") {
+    return id;
+  }
+  const result = projectWorkspaceConcept(context, id, query.detail);
+  if (result === undefined) {
+    return { kind: "not-found", query };
+  }
+  return query.detail === "summary"
+    ? { kind: "concept-summary", result: summarizeWorkspaceConcept(result) }
+    : { kind: "concept", result };
+}
+function queryBoundary(
+  context: WorkspaceProjectionContext,
+  query: Extract<WorkspaceQuery, { kind: "boundary" }>,
+  resolve: (
+    text: string,
+    kind: "package" | "concept" | "boundary" | "pattern" | "review"
+  ) => string | WorkspaceQueryResult
+): WorkspaceQueryResult {
+  const id = resolve(query.id, "boundary");
+  if (typeof id !== "string") {
+    return id;
+  }
+  const result = projectWorkspaceBoundary(context, id, query.detail);
+  return result === undefined
+    ? { kind: "not-found", query }
+    : { kind: "boundary", result };
 }

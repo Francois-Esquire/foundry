@@ -48,6 +48,8 @@ function subjectLine(action: StructuralAction): string {
       return `${subject.consumer} → ${subject.provider}${subject.conceptId === undefined ? "" : ` for ${subject.conceptId}`}`;
     case "package":
       return subject.packageId;
+    default:
+      throw new Error("Unexpected subject.kind.");
   }
 }
 
@@ -77,11 +79,7 @@ export function renderOperatorDecomposition(
     "",
     operator.kind,
     `operator ${operator.id}`,
-    ...(operator.placement.current?.package === undefined
-      ? []
-      : [
-          `${operator.placement.current.package}${operator.placement.target?.package === undefined ? "" : ` → ${operator.placement.target.package}`}`,
-        ]),
+    ...resolveLines(operator),
   ];
   for (const group of decomposition.groups) {
     const body: string[] = [];
@@ -157,6 +155,15 @@ export function renderOperatorDecomposition(
     );
   }
   return lines.join("\n");
+}
+
+function resolveLines(operator: ArchitecturalOperator): string[] {
+  if (operator.placement.current?.package === undefined) {
+    return [];
+  }
+  return [
+    `${operator.placement.current.package}${operator.placement.target?.package === undefined ? "" : ` → ${operator.placement.target.package}`}`,
+  ];
 }
 
 export function renderStructuralActionDefinitions(

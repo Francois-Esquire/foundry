@@ -1,12 +1,35 @@
-import type { ArchitecturalReviewDisposition } from "./types";
 import type {
+  ArchitecturalReviewDisposition,
+  ConceptIdentity,
+  ConceptOverlapShape,
+  RecenteringScenarioKind,
+  ScenarioEvidenceConfidence,
+  ScenarioImpactStatus,
+  ScenarioImpactUncertaintyKind,
+  ScenarioStatus,
+  ScenarioStructuralChangeKind,
+} from "./types";
+import type {
+  WorkspaceBoundaryConceptLoad,
   WorkspaceConceptDirection,
+  WorkspaceConceptEvolutionContext,
   WorkspaceConceptPlacement,
+  WorkspacePackageConceptRoleSummary,
 } from "./workspace-concepts-types";
+import type {
+  WorkspacePackageGraphAnalysis,
+  WorkspacePackageGraphEdge,
+} from "./workspace-graph-types";
 import { reviewGravityCenter } from "./workspace-patterns";
 import type {
+  WorkspaceBoundaryPattern,
+  WorkspaceBoundaryPatternKind,
+  WorkspaceEvolutionaryPattern,
+  WorkspacePackagePairPattern,
+  WorkspacePackageRoleProfile,
   WorkspacePatternEvidence,
   WorkspaceReviewContext,
+  WorkspaceReviewPattern,
 } from "./workspace-patterns-types";
 import type {
   ArchitecturalRoleProjection,
@@ -40,11 +63,17 @@ import type {
 import { WORKSPACE_PROJECTION_SCHEMA_VERSION } from "./workspace-projection-types";
 import type {
   WorkspaceArchitecturalReview,
+  WorkspaceBoundary,
   WorkspaceConcept,
+  WorkspaceConceptBehaviorPackage,
+  WorkspacePackage,
+  WorkspaceRecenteringFinding,
   WorkspaceRecenteringScenario,
   WorkspaceReport,
 } from "./workspace-types";
 import { WORKSPACE_SCHEMA_VERSION } from "./workspace-types";
+
+const shortPattern = /^@[^/]+\//;
 
 // V9.4 projection layer, part one: the context (indexes over V9.0–V9.3),
 // the focused entity projections, name resolution, and the search index.
@@ -53,7 +82,13 @@ import { WORKSPACE_SCHEMA_VERSION } from "./workspace-types";
 // functions of the context: no UI state, no terminal width, no randomness.
 
 export function byId(a: string, b: string): number {
-  return a < b ? -1 : a > b ? 1 : 0;
+  if (a < b) {
+    return -1;
+  }
+  if (a > b) {
+    return 1;
+  }
+  return 0;
 }
 
 export function sorted(values: Iterable<string>): string[] {
@@ -61,7 +96,7 @@ export function sorted(values: Iterable<string>): string[] {
 }
 
 export function short(id: string): string {
-  return id.replace(/^@[^/]+\//, "");
+  return id.replace(shortPattern, "");
 }
 
 export function boundaryIdOf(from: string, to: string): string {
@@ -97,7 +132,7 @@ function ratio(count: number, total: number): number | null {
 // ---------------------------------------------------------------------------
 // CONTEXT
 
-export const PATTERN_FAMILY_PREFIX = {
+const PATTERN_FAMILY_PREFIX = {
   boundary: "boundary:",
   concept: "concept:",
   evolutionary: "evolutionary:",
@@ -301,7 +336,7 @@ function buildLookup(
   patterns: WorkspacePatternIndexEntry[]
 ): WorkspaceProjectionLookup {
   const { graph, concepts } = context;
-  const recentering = workspace.architecture.recentering;
+  const { recentering } = workspace.architecture;
   return {
     boundaryById: new Map(
       workspace.boundaries.boundaries.map((b) => [b.id, b])
@@ -341,7 +376,7 @@ function buildLookup(
 export function createWorkspaceProjectionContext(
   workspace: WorkspaceReport
 ): WorkspaceProjectionContext {
-  const intelligence = workspace.intelligence;
+  const { intelligence } = workspace;
   const graph = intelligence?.graph;
   const concepts = intelligence?.concepts;
   const patterns = intelligence?.patterns;
@@ -367,7 +402,7 @@ export function createWorkspaceProjectionContext(
 export function projectionCoverage(
   context: WorkspaceProjectionContext
 ): ProjectionCoverage {
-  const coverage = context.workspace.ingestion.coverage;
+  const { coverage } = context.workspace.ingestion;
   return {
     certainty: context.graph.certainty,
     missingPackages: coverage.missingPackages,
@@ -432,13 +467,13 @@ const DIRECTION_ROLES: Record<
   "semantic-to-usage": "usage",
 };
 
-export function directionRoleOf(
+function directionRoleOf(
   kind: WorkspaceConceptDirection["kind"]
 ): ConceptDirectionRole {
   return DIRECTION_ROLES[kind];
 }
 
-export function staticDirectionOf(path: {
+function staticDirectionOf(path: {
   forward: number | null;
   reverse: number | null;
   usageOnly: boolean;
@@ -628,7 +663,7 @@ export function projectWorkspaceOverview(
       strength: b.strength,
     }))
     .sort(bySummary);
-  const reviews = workspace.architecture.recentering.reviews;
+  const { reviews } = workspace.architecture.recentering;
   const dispositions = (d: ArchitecturalReviewDisposition) =>
     reviews.filter((r) => r.disposition === d).length;
   const limitations = new Map<string, WorkspaceLimitationProjection>();
@@ -753,7 +788,7 @@ export function projectWorkspacePackage(
       },
     ];
   });
-  const reviewPatterns = patterns.reviewPatterns;
+  const { reviewPatterns } = patterns;
   const declaring = reviewPatterns.find(
     (r) => r.scope === "package" && r.id === id
   );
@@ -799,7 +834,91 @@ export function projectWorkspacePackage(
       )
     );
   }
-  const projection: WorkspacePackageProjection = {
+  const projection: WorkspacePackageProjection = projectWorkspacePackageEntries(
+    pkg,
+    id,
+    node,
+    boundaries,
+    cautions,
+    summary,
+    profile,
+    context,
+    incoming,
+    outgoing,
+    index,
+    declaring,
+    gravity,
+    reviewDirections,
+    roles
+  );
+  if (detail !== "evidence") {
+    return projection;
+  }
+  const refs: ProjectionEvidenceRef[] = [];
+  if (node !== undefined) {
+    refs.push({ entityIds: [id], kind: "package-node", source: "graph" });
+  }
+  for (const role of profile?.roles ?? []) {
+    refs.push({
+      entityIds: role.support.concepts,
+      kind: role.kind,
+      source: "pattern",
+      value: role.support.conceptCount,
+    });
+    refs.push(...refsOf(role.support.observations));
+  }
+  for (const d of [...incoming, ...outgoing]) {
+    refs.push({
+      entityIds: [d.id],
+      kind: "direction",
+      source: "concept",
+      value: d.count,
+    });
+  }
+  for (const b of boundaries) {
+    refs.push({
+      entityIds: [b.boundaryId],
+      kind: "boundary",
+      source: "workspace",
+    });
+  }
+  projectWorkspacePackageR(declaring, gravity, refs);
+  return { ...projection, evidenceRefs: refs };
+}
+
+function projectWorkspacePackageEntries(
+  pkg: WorkspacePackage,
+  id: string,
+  node: WorkspacePackageGraphAnalysis | undefined,
+  boundaries: {
+    boundaryId: string;
+    conceptCount: number;
+    direction: "outgoing" | "incoming";
+    from: string;
+    importSites: number;
+    moduleEdges: number;
+    patterns: WorkspaceBoundaryPatternKind[];
+    seam: boolean;
+    severedPairs: number | null;
+    to: string;
+  }[],
+  cautions: WorkspaceLimitationProjection[],
+  summary: WorkspacePackageConceptRoleSummary | undefined,
+  profile: WorkspacePackageRoleProfile | undefined,
+  context: WorkspaceProjectionContext,
+  incoming: ConceptDirectionProjection[],
+  outgoing: ConceptDirectionProjection[],
+  index: WorkspaceProjectionIndex,
+  declaring: WorkspaceReviewPattern | undefined,
+  gravity: WorkspaceReviewPattern | undefined,
+  reviewDirections: {
+    from: string;
+    reviews: WorkspaceReviewContextProjection;
+    to: string;
+  }[],
+  roles: ArchitecturalRoleProjection[]
+): WorkspacePackageProjection {
+  return {
     analyzed: pkg.analyzed,
     anchored: pkg.anchored,
     name: pkg.name,
@@ -834,33 +953,7 @@ export function projectWorkspacePackage(
     }),
     boundaries: boundaries.sort((a, b) => byId(a.boundaryId, b.boundaryId)),
     cautions,
-    concepts: {
-      behaviorCenters: summary?.behaviorCenters ?? 0,
-      conversionsOwned: profile?.counts.conversionsOwned ?? 0,
-      declared: summary?.declaredConcepts ?? 0,
-      declaredCrossPackage: profile?.counts.declaredCrossPackage ?? 0,
-      evolutionCenters: summary?.evolutionCenters ?? 0,
-      foreign: {
-        behaved: profile?.counts.foreignBehaved ?? 0,
-        converted: profile?.counts.foreignConverted ?? 0,
-        implemented: profile?.counts.foreignImplemented ?? 0,
-        represented: profile?.counts.foreignRepresented ?? 0,
-        sources: profile?.counts.foreignSources ?? 0,
-        used: profile?.counts.foreignUsed ?? 0,
-      },
-      implementationCenters: summary?.implementationCenters ?? 0,
-      participating: summary?.participating ?? {
-        behaving: 0,
-        converting: 0,
-        implementing: 0,
-        representing: 0,
-        total: 0,
-        using: 0,
-      },
-      representationCenters: summary?.representationCenters ?? 0,
-      semanticCenters: summary?.semanticCenters ?? 0,
-      usageCenters: summary?.usageCenters ?? 0,
-    },
+    concepts: projectWorkspacePackageEntriesEntries(summary, profile),
     coverage: projectionCoverage(context),
     incomingDirections: incoming,
     outgoingDirections: outgoing,
@@ -877,37 +970,72 @@ export function projectWorkspacePackage(
     },
     roles,
   };
-  if (detail !== "evidence") {
-    return projection;
-  }
-  const refs: ProjectionEvidenceRef[] = [];
-  if (node !== undefined) {
-    refs.push({ entityIds: [id], kind: "package-node", source: "graph" });
-  }
-  for (const role of profile?.roles ?? []) {
-    refs.push({
-      entityIds: role.support.concepts,
-      kind: role.kind,
-      source: "pattern",
-      value: role.support.conceptCount,
-    });
-    refs.push(...refsOf(role.support.observations));
-  }
-  for (const d of [...incoming, ...outgoing]) {
-    refs.push({
-      entityIds: [d.id],
-      kind: "direction",
-      source: "concept",
-      value: d.count,
-    });
-  }
-  for (const b of boundaries) {
-    refs.push({
-      entityIds: [b.boundaryId],
-      kind: "boundary",
-      source: "workspace",
-    });
-  }
+}
+
+function projectWorkspacePackageEntriesEntries(
+  summary: WorkspacePackageConceptRoleSummary | undefined,
+  profile: WorkspacePackageRoleProfile | undefined
+): {
+  declared: number;
+  declaredCrossPackage: number;
+  semanticCenters: number;
+  implementationCenters: number;
+  behaviorCenters: number;
+  representationCenters: number;
+  usageCenters: number;
+  evolutionCenters: number;
+  participating: {
+    total: number;
+    implementing: number;
+    behaving: number;
+    representing: number;
+    using: number;
+    converting: number;
+  };
+  foreign: {
+    implemented: number;
+    behaved: number;
+    represented: number;
+    used: number;
+    converted: number;
+    sources: number;
+  };
+  conversionsOwned: number;
+} {
+  return {
+    behaviorCenters: summary?.behaviorCenters ?? 0,
+    conversionsOwned: profile?.counts.conversionsOwned ?? 0,
+    declared: summary?.declaredConcepts ?? 0,
+    declaredCrossPackage: profile?.counts.declaredCrossPackage ?? 0,
+    evolutionCenters: summary?.evolutionCenters ?? 0,
+    foreign: {
+      behaved: profile?.counts.foreignBehaved ?? 0,
+      converted: profile?.counts.foreignConverted ?? 0,
+      implemented: profile?.counts.foreignImplemented ?? 0,
+      represented: profile?.counts.foreignRepresented ?? 0,
+      sources: profile?.counts.foreignSources ?? 0,
+      used: profile?.counts.foreignUsed ?? 0,
+    },
+    implementationCenters: summary?.implementationCenters ?? 0,
+    participating: summary?.participating ?? {
+      behaving: 0,
+      converting: 0,
+      implementing: 0,
+      representing: 0,
+      total: 0,
+      using: 0,
+    },
+    representationCenters: summary?.representationCenters ?? 0,
+    semanticCenters: summary?.semanticCenters ?? 0,
+    usageCenters: summary?.usageCenters ?? 0,
+  };
+}
+
+function projectWorkspacePackageR(
+  declaring: WorkspaceReviewPattern | undefined,
+  gravity: WorkspaceReviewPattern | undefined,
+  refs: ProjectionEvidenceRef[]
+) {
   for (const r of [declaring, gravity]) {
     if (r !== undefined) {
       refs.push({
@@ -922,7 +1050,6 @@ export function projectWorkspacePackage(
       });
     }
   }
-  return { ...projection, evidenceRefs: refs };
 }
 
 export function summarizeWorkspacePackage(
@@ -961,9 +1088,9 @@ function largestShare(
   rows: { package: string; count: number }[]
 ): ProjectionShare | null {
   const total = rows.reduce((sum, r) => sum + r.count, 0);
-  const top = [...rows].sort(
+  const [top] = [...rows].sort(
     (a, b) => b.count - a.count || byId(a.package, b.package)
-  )[0];
+  );
   if (top === undefined || top.count === 0) {
     return null;
   }
@@ -1051,12 +1178,14 @@ export function projectWorkspaceConcept(
         };
   const overlaps = placement.relationships.overlaps.map((rel) => {
     const overlap = lookup.overlapById.get(rel.pair);
-    const other =
-      overlap === undefined
-        ? undefined
-        : overlap.left.id === rel.other
-          ? overlap.left
-          : overlap.right;
+    let other: ConceptIdentity | undefined;
+    if (overlap === undefined) {
+      other = undefined;
+    } else if (overlap.left.id === rel.other) {
+      other = overlap.left;
+    } else {
+      other = overlap.right;
+    }
     const pair = lookup.pairTopologyById.get(rel.pair);
     return {
       bidirectionalConversion: rel.bidirectionalConversion,
@@ -1112,8 +1241,131 @@ export function projectWorkspaceConcept(
       };
     });
   const review = projectWorkspaceReview(context, id);
-  const evolution = placement.evolution;
-  const projection: WorkspaceConceptProjection = {
+  const { evolution } = placement;
+  const projection: WorkspaceConceptProjection = projectWorkspaceConceptEntries(
+    placement,
+    canonical,
+    referenceShare,
+    behaviorShare,
+    sum,
+    overlaps,
+    evolution,
+    finding,
+    scenarios,
+    review,
+    index,
+    id
+  );
+  if (detail !== "evidence") {
+    return projection;
+  }
+  const refs: ProjectionEvidenceRef[] = [
+    { entityIds: [id], kind: "concept", source: "workspace" },
+    ...placement.presence.roles.map((r) => ({
+      entityIds: [r.package],
+      kind: "package-role",
+      source: "concept" as const,
+      value: r.roles.join(","),
+    })),
+    ...placement.topology.edges.flatMap((e) =>
+      e.evidence.map((ev) => ({
+        entityIds: ev.entities,
+        kind: ev.kind,
+        source: "concept" as const,
+        ...(ev.value !== undefined && { value: ev.value }),
+      }))
+    ),
+    ...overlaps.map((o) => ({
+      entityIds: [o.pair],
+      kind: "overlap",
+      source: "workspace" as const,
+    })),
+    ...(evolution?.strongMemberCouplings ?? []).map((c) => ({
+      entityIds: [c.id],
+      kind: "coupling",
+      source: "workspace" as const,
+      value: c.coChangeCommits,
+    })),
+    ...(index.patternsByConcept[id] ?? []).map((p) => ({
+      entityIds: [p],
+      kind: "pattern",
+      source: "pattern" as const,
+    })),
+  ];
+  if (finding !== undefined) {
+    refs.push({
+      entityIds: [finding.id],
+      kind: "finding",
+      source: "v8-review",
+    });
+  }
+  if (review !== undefined) {
+    refs.push({
+      entityIds: [review.findingId],
+      kind: "review",
+      source: "v8-review",
+      value: review.disposition,
+    });
+  }
+  return { ...projection, evidenceRefs: refs };
+}
+
+function projectWorkspaceConceptEntries(
+  placement: WorkspaceConceptPlacement,
+  canonical: WorkspaceConcept,
+  referenceShare: ProjectionShare | null,
+  behaviorShare: ProjectionShare | null,
+  sum: (key: keyof WorkspaceConceptBehaviorPackage) => number,
+  overlaps: {
+    path?:
+      | {
+          directEdge: string | null;
+          forward: number | null;
+          reverse: number | null;
+        }
+      | undefined;
+    bidirectionalConversion: boolean;
+    conversions: {
+      direction: "outgoing" | "incoming";
+      function: string;
+      package: string | null;
+    }[];
+    crossPackage: boolean;
+    other: string;
+    otherName: string;
+    otherPackage: string;
+    pair: string;
+    shapes: ConceptOverlapShape[];
+  }[],
+  evolution: WorkspaceConceptEvolutionContext | undefined,
+  finding: WorkspaceRecenteringFinding | undefined,
+  scenarios: {
+    impact?:
+      | {
+          certainty: { certain: number; conditional: number; unknown: number };
+          changes: ScenarioStructuralChangeKind[];
+          status: ScenarioImpactStatus;
+          uncertainties: ScenarioImpactUncertaintyKind[];
+          unmeasuredEdges: string[];
+        }
+      | undefined;
+    confidence: ScenarioEvidenceConfidence;
+    constraints: (
+      | "anchor"
+      | "representation-boundary"
+      | "structural-conformance-unknown"
+      | "public-contract"
+    )[];
+    id: string;
+    kind: RecenteringScenarioKind;
+    proposedCenter: string;
+    status: ScenarioStatus;
+  }[],
+  review: WorkspaceReviewProjection | undefined,
+  index: WorkspaceProjectionIndex,
+  id: string
+): WorkspaceConceptProjection {
+  return {
     concept: placement.concept,
     coverage: placement.coverage,
     ...(placement.centers !== undefined && {
@@ -1277,58 +1529,6 @@ export function projectWorkspaceConcept(
     ),
     patterns: index.patternsByConcept[id] ?? [],
   };
-  if (detail !== "evidence") {
-    return projection;
-  }
-  const refs: ProjectionEvidenceRef[] = [
-    { entityIds: [id], kind: "concept", source: "workspace" },
-    ...placement.presence.roles.map((r) => ({
-      entityIds: [r.package],
-      kind: "package-role",
-      source: "concept" as const,
-      value: r.roles.join(","),
-    })),
-    ...placement.topology.edges.flatMap((e) =>
-      e.evidence.map((ev) => ({
-        entityIds: ev.entities,
-        kind: ev.kind,
-        source: "concept" as const,
-        ...(ev.value !== undefined && { value: ev.value }),
-      }))
-    ),
-    ...overlaps.map((o) => ({
-      entityIds: [o.pair],
-      kind: "overlap",
-      source: "workspace" as const,
-    })),
-    ...(evolution?.strongMemberCouplings ?? []).map((c) => ({
-      entityIds: [c.id],
-      kind: "coupling",
-      source: "workspace" as const,
-      value: c.coChangeCommits,
-    })),
-    ...(index.patternsByConcept[id] ?? []).map((p) => ({
-      entityIds: [p],
-      kind: "pattern",
-      source: "pattern" as const,
-    })),
-  ];
-  if (finding !== undefined) {
-    refs.push({
-      entityIds: [finding.id],
-      kind: "finding",
-      source: "v8-review",
-    });
-  }
-  if (review !== undefined) {
-    refs.push({
-      entityIds: [review.findingId],
-      kind: "review",
-      source: "v8-review",
-      value: review.disposition,
-    });
-  }
-  return { ...projection, evidenceRefs: refs };
 }
 
 export function summarizeWorkspaceConcept(
@@ -1421,7 +1621,70 @@ export function projectWorkspaceBoundary(
       )
     );
   }
-  const projection: WorkspaceBoundaryProjection = {
+  const projection: WorkspaceBoundaryProjection =
+    projectWorkspaceBoundaryEntries(
+      id,
+      load,
+      concepts,
+      boundary,
+      layer,
+      pattern,
+      edge,
+      lookup,
+      evolution,
+      cautions,
+      context
+    );
+  if (detail !== "evidence") {
+    return projection;
+  }
+  const refs: ProjectionEvidenceRef[] = [
+    { entityIds: [id], kind: "boundary", source: "workspace" },
+  ];
+  if (edge !== undefined) {
+    refs.push({ entityIds: [id], kind: "package-edge", source: "graph" });
+  }
+  if (concepts.length > 0) {
+    refs.push({
+      entityIds: concepts,
+      kind: "boundary-concepts",
+      source: "concept",
+      value: concepts.length,
+    });
+  }
+  if (pattern !== undefined) {
+    refs.push(...refsOf(pattern.support.observations));
+  }
+  if (evolution !== undefined) {
+    refs.push({
+      entityIds: evolution.couplings,
+      kind: "couplings",
+      source: "workspace",
+      value: evolution.coChangeCommits,
+    });
+  }
+  return { ...projection, evidenceRefs: refs };
+}
+
+// ---------------------------------------------------------------------------
+// PATTERN
+
+type Structure = WorkspacePatternProjection["structure"];
+
+function projectWorkspaceBoundaryEntries(
+  id: string,
+  load: WorkspaceBoundaryConceptLoad | undefined,
+  concepts: string[],
+  boundary: WorkspaceBoundary,
+  layer: (pkg: string) => number | null,
+  pattern: WorkspaceBoundaryPattern | undefined,
+  edge: WorkspacePackageGraphEdge | undefined,
+  lookup: WorkspaceProjectionLookup,
+  evolution: WorkspaceEvolutionaryPattern | undefined,
+  cautions: WorkspaceLimitationProjection[],
+  context: WorkspaceProjectionContext
+): WorkspaceBoundaryProjection {
+  return {
     boundaryId: id,
     concepts: {
       behavior: load?.roles.behavior ?? 0,
@@ -1486,41 +1749,7 @@ export function projectWorkspaceBoundary(
     cautions,
     coverage: projectionCoverage(context),
   };
-  if (detail !== "evidence") {
-    return projection;
-  }
-  const refs: ProjectionEvidenceRef[] = [
-    { entityIds: [id], kind: "boundary", source: "workspace" },
-  ];
-  if (edge !== undefined) {
-    refs.push({ entityIds: [id], kind: "package-edge", source: "graph" });
-  }
-  if (concepts.length > 0) {
-    refs.push({
-      entityIds: concepts,
-      kind: "boundary-concepts",
-      source: "concept",
-      value: concepts.length,
-    });
-  }
-  if (pattern !== undefined) {
-    refs.push(...refsOf(pattern.support.observations));
-  }
-  if (evolution !== undefined) {
-    refs.push({
-      entityIds: evolution.couplings,
-      kind: "couplings",
-      source: "workspace",
-      value: evolution.coChangeCommits,
-    });
-  }
-  return { ...projection, evidenceRefs: refs };
 }
-
-// ---------------------------------------------------------------------------
-// PATTERN
-
-type Structure = WorkspacePatternProjection["structure"];
 
 function patternDetail(
   context: WorkspaceProjectionContext,
@@ -1558,50 +1787,11 @@ function patternDetail(
     }
     case "package-pair": {
       const pair = lookup.pairPatternById.get(entry.sourceId);
-      return {
-        structure: {
-          behavior: pair?.conceptRoles.behavior ?? [],
-          conversion: pair?.conceptRoles.conversion ?? [],
-          conversionPairs: pair?.conversionPairs ?? [],
-          couplings: pair?.evolution.couplings ?? [],
-          directEdge: pair?.graph.directEdge ?? null,
-          from: pair?.from ?? "",
-          implementation: pair?.conceptRoles.implementation ?? [],
-          representation: pair?.conceptRoles.representation ?? [],
-          staticForward: pair?.graph.forward ?? null,
-          staticReverse: pair?.graph.reverse ?? null,
-          to: pair?.to ?? "",
-          usage: pair?.conceptRoles.usage ?? [],
-          usageOnly: pair?.graph.usageOnly ?? false,
-        },
-        ...(pair?.reviews !== undefined && {
-          reviews: projectReviewContext(pair.reviews),
-        }),
-        headline: `${short(pair?.from ?? "")} → ${short(pair?.to ?? "")} · ${entry.kinds.join(", ")} · ${entry.conceptCount} concepts`,
-        observations: pair?.support.observations ?? [],
-      };
+      return patternDetailEntries2(pair, entry);
     }
     case "boundary": {
       const boundary = lookup.boundaryPatternById.get(entry.sourceId);
-      return {
-        headline: `${short(boundary?.from ?? "")}→${short(boundary?.to ?? "")} · ${entry.kinds.join(", ")} · ${entry.conceptCount} concepts · ${boundary?.graph.importSites ?? boundary?.graph.moduleEdges ?? 0} ${boundary?.graph.importSites === null ? "module edges" : "import sites"}`,
-        observations: boundary?.support.observations ?? [],
-        structure: {
-          alternativeRoutes: boundary?.graph.alternativeRoutes ?? 0,
-          behavior: boundary?.roleLoad.behavior ?? 0,
-          conversion: boundary?.roleLoad.conversion ?? 0,
-          couplings: boundary?.evolution.couplings ?? [],
-          from: boundary?.from ?? "",
-          implementation: boundary?.roleLoad.implementation ?? 0,
-          importSites: boundary?.graph.importSites ?? null,
-          moduleEdges: boundary?.graph.moduleEdges ?? 0,
-          representation: boundary?.roleLoad.representation ?? 0,
-          seam: boundary?.graph.seam ?? false,
-          semanticUse: boundary?.roleLoad.semanticUse ?? 0,
-          severedPairs: boundary?.graph.severedPairs ?? 0,
-          to: boundary?.to ?? "",
-        },
-      };
+      return patternDetailEntries(boundary, entry);
     }
     case "concept": {
       const pattern = patterns.conceptPatterns.find(
@@ -1631,7 +1821,72 @@ function patternDetail(
         },
       };
     }
+    default:
+      throw new Error("Unexpected entry.family.");
   }
+}
+
+function patternDetailEntries2(
+  pair: WorkspacePackagePairPattern | undefined,
+  entry: WorkspacePatternIndexEntry
+): {
+  structure: Structure;
+  reviews?: WorkspaceReviewContextProjection;
+  observations: WorkspacePatternEvidence[];
+  headline: string;
+} {
+  return {
+    structure: {
+      behavior: pair?.conceptRoles.behavior ?? [],
+      conversion: pair?.conceptRoles.conversion ?? [],
+      conversionPairs: pair?.conversionPairs ?? [],
+      couplings: pair?.evolution.couplings ?? [],
+      directEdge: pair?.graph.directEdge ?? null,
+      from: pair?.from ?? "",
+      implementation: pair?.conceptRoles.implementation ?? [],
+      representation: pair?.conceptRoles.representation ?? [],
+      staticForward: pair?.graph.forward ?? null,
+      staticReverse: pair?.graph.reverse ?? null,
+      to: pair?.to ?? "",
+      usage: pair?.conceptRoles.usage ?? [],
+      usageOnly: pair?.graph.usageOnly ?? false,
+    },
+    ...(pair?.reviews !== undefined && {
+      reviews: projectReviewContext(pair.reviews),
+    }),
+    headline: `${short(pair?.from ?? "")} → ${short(pair?.to ?? "")} · ${entry.kinds.join(", ")} · ${entry.conceptCount} concepts`,
+    observations: pair?.support.observations ?? [],
+  };
+}
+
+function patternDetailEntries(
+  boundary: WorkspaceBoundaryPattern | undefined,
+  entry: WorkspacePatternIndexEntry
+): {
+  structure: Structure;
+  reviews?: WorkspaceReviewContextProjection;
+  observations: WorkspacePatternEvidence[];
+  headline: string;
+} {
+  return {
+    headline: `${short(boundary?.from ?? "")}→${short(boundary?.to ?? "")} · ${entry.kinds.join(", ")} · ${entry.conceptCount} concepts · ${boundary?.graph.importSites ?? boundary?.graph.moduleEdges ?? 0} ${boundary?.graph.importSites === null ? "module edges" : "import sites"}`,
+    observations: boundary?.support.observations ?? [],
+    structure: {
+      alternativeRoutes: boundary?.graph.alternativeRoutes ?? 0,
+      behavior: boundary?.roleLoad.behavior ?? 0,
+      conversion: boundary?.roleLoad.conversion ?? 0,
+      couplings: boundary?.evolution.couplings ?? [],
+      from: boundary?.from ?? "",
+      implementation: boundary?.roleLoad.implementation ?? 0,
+      importSites: boundary?.graph.importSites ?? null,
+      moduleEdges: boundary?.graph.moduleEdges ?? 0,
+      representation: boundary?.roleLoad.representation ?? 0,
+      seam: boundary?.graph.seam ?? false,
+      semanticUse: boundary?.roleLoad.semanticUse ?? 0,
+      severedPairs: boundary?.graph.severedPairs ?? 0,
+      to: boundary?.to ?? "",
+    },
+  };
 }
 
 export function projectWorkspacePattern(
@@ -1721,6 +1976,8 @@ function matches(
       return keys.some((k) => k.startsWith(needle));
     case "contains":
       return keys.some((k) => k.includes(needle));
+    default:
+      throw new Error("Unexpected mode.");
   }
 }
 

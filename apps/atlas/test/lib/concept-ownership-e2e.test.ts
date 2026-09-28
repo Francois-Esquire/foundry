@@ -1,4 +1,4 @@
-import * as path from "node:path";
+import { join } from "node:path";
 
 import { beforeAll, describe, expect, it } from "vitest";
 import { analyzeSurface } from "../../src/lib/analyze";
@@ -10,7 +10,7 @@ import type {
   SurfaceReport,
 } from "../../src/lib/types";
 
-const root = path.join(import.meta.dirname, "fixtures", "ownership");
+const root = join(import.meta.dirname, "fixtures", "ownership");
 const now = new Date("2027-01-01T00:00:00Z");
 
 let report: SurfaceReport;
@@ -76,7 +76,7 @@ describe("centers", () => {
       "@w/b",
       "@w/c",
     ]);
-    const a = store.candidates[0];
+    const [a] = store.candidates;
     expect(a?.roles).toEqual([
       "semantic-center",
       "implementation-center",

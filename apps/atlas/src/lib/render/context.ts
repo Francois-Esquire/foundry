@@ -1,4 +1,4 @@
-export type RenderFormat = "terminal" | "text" | "markdown";
+type RenderFormat = "terminal" | "text" | "markdown";
 export type RenderDensity = "compact" | "normal" | "expanded";
 
 /**

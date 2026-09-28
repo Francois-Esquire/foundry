@@ -30,6 +30,13 @@ import { createWorkspaceProjectionContext } from "../../src/lib/workspace-projec
 import type { Spec } from "./helpers/workspace-builder";
 import { workspace } from "./helpers/workspace-builder";
 
+const expectedTextPattern = /\.ts:\d+/;
+const expectedTextPattern2 = /should |recommend/;
+const forbiddenPattern =
+  /^(apply|execute|write|patch|filesToMove|importEdits|score|priority|rank|effort|line|column|file|replacement|ast|edit|edits)$/i;
+const expectedTextPattern3 =
+  /^operator:rehome-behavior:.*\/relocate-behavior-responsibility:.*@governing:@c\/app→@c\/core$/;
+
 const A = "packages/core/src/a.ts#A";
 const B = "packages/store/src/b.ts#B";
 const IFACE = "packages/core/src/iface.ts#Iface";
@@ -339,9 +346,7 @@ describe("rehome-behavior decomposition", () => {
     );
     expect(two).toEqual(one);
     expect(one.actions.map((a) => a.id)).toHaveLength(4);
-    expect(one.actions.map((a) => a.id)[0]).toMatch(
-      /^operator:rehome-behavior:.*\/relocate-behavior-responsibility:.*@governing:@c\/app→@c\/core$/
-    );
+    expect(one.actions.map((a) => a.id)[0]).toMatch(expectedTextPattern3);
   });
 });
 
@@ -547,7 +552,7 @@ describe("redirect-dependency, preserve-boundary, move", () => {
       "redirect-concept-dependency",
     ]);
     expect(kinds(d)).not.toContain("remove-boundary-participation");
-    const redirect = d.actions[1];
+    const [, redirect] = d.actions;
     expect(redirect?.subject).toEqual({
       consumer: "@c/app",
       kind: "dependency",
@@ -792,13 +797,12 @@ describe("catalog and vocabulary", () => {
     for (const { decomposition } of built) {
       walk(decomposition);
     }
-    const forbidden =
-      /^(apply|execute|write|patch|filesToMove|importEdits|score|priority|rank|effort|line|column|file|replacement|ast|edit|edits)$/i;
+    const forbidden = forbiddenPattern;
     expect([...keys].filter((key) => forbidden.test(key))).toEqual([]);
     for (const { operator, decomposition } of built) {
       const text = renderOperatorDecomposition(operator, decomposition);
-      expect(text).not.toMatch(/should |recommend/);
-      expect(text).not.toMatch(/\.ts:\d+/);
+      expect(text).not.toMatch(expectedTextPattern2);
+      expect(text).not.toMatch(expectedTextPattern);
     }
   });
 });

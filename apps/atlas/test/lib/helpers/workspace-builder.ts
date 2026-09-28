@@ -7,14 +7,14 @@ import { WORKSPACE_SCHEMA_VERSION } from "../../../src/lib/workspace-types";
 // exactly the canonical sections those analyzers read; the rest of the
 // report is irrelevant to them. Shared by the concept and pattern suites.
 
-export interface Participation {
+interface Participation {
   conversions?: number;
   implementations?: number;
   references?: number;
   representations?: number;
 }
 
-export interface Behavior {
+interface Behavior {
   contractBehaviors?: number;
   conversionBehaviors?: number;
   implementationBehaviors?: number;
@@ -47,7 +47,7 @@ export interface ConceptSpec {
   participation?: Record<string, Participation>;
 }
 
-export interface OverlapSpec {
+interface OverlapSpec {
   bidirectional?: boolean;
   /** `function@file:from>to` */
   conversions?: string[];
@@ -55,7 +55,7 @@ export interface OverlapSpec {
   right: string;
 }
 
-export interface CouplingSpec {
+interface CouplingSpec {
   commits?: number;
   context?: "source-source" | "source-test";
   left: string;

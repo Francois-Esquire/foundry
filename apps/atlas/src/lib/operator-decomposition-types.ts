@@ -33,33 +33,33 @@ export type StructuralActionGroupKind =
   | "preservation"
   | "verification";
 
-export interface ConceptActionSubject {
+interface ConceptActionSubject {
   conceptId: string;
   kind: "concept";
 }
 
-export interface SymbolActionSubject {
+interface SymbolActionSubject {
   kind: "symbol";
   package: string;
   symbolId: string;
 }
 
 /** A concept's behavior in one role; never "the behavior of package B". */
-export interface BehaviorActionSubject {
+interface BehaviorActionSubject {
   conceptId: string;
   kind: "behavior";
   role: "governing" | "implementation" | "conversion";
 }
 
 /** Concept-scoped unless the operator itself targets the whole boundary. */
-export interface BoundaryActionSubject {
+interface BoundaryActionSubject {
   boundaryId: string;
   conceptId?: string;
   kind: "boundary";
 }
 
 /** What a package exposes of a concept or symbol; the seam later export planning refines. */
-export interface ExposureActionSubject {
+interface ExposureActionSubject {
   conceptId?: string;
   kind: "exposure";
   package: string;
@@ -67,14 +67,14 @@ export interface ExposureActionSubject {
 }
 
 /** One consumer's dependency on a provider, for one concept when known. */
-export interface DependencyActionSubject {
+interface DependencyActionSubject {
   conceptId?: string;
   consumer: string;
   kind: "dependency";
   provider: string;
 }
 
-export interface PackageActionSubject {
+interface PackageActionSubject {
   kind: "package";
   packageId: string;
 }
@@ -88,11 +88,11 @@ export type StructuralActionSubject =
   | DependencyActionSubject
   | PackageActionSubject;
 
-export type StructuralActionSubjectKind = StructuralActionSubject["kind"];
+type StructuralActionSubjectKind = StructuralActionSubject["kind"];
 
 export type StructuralLocation = OperatorLocation;
 
-export interface StructuralActionIntent {
+interface StructuralActionIntent {
   group: StructuralActionGroupKind;
   summary: string;
 }
@@ -164,7 +164,7 @@ export interface OperatorDecompositionGap {
   kind: OperatorDecompositionGapKind;
 }
 
-export type CoverageStatus = "covered" | "implicit" | "uncovered";
+type CoverageStatus = "covered" | "implicit" | "uncovered";
 
 export interface PreservationCoverage {
   coveredByActions: string[];
@@ -187,7 +187,7 @@ export interface ExpectedEffectCoverage {
   status: "covered" | "unresolved";
 }
 
-export interface DecompositionFingerprint {
+interface DecompositionFingerprint {
   facts: string[];
   hash: string;
 }
@@ -232,10 +232,7 @@ export interface StructuralActionDefinition {
   supportedSubjects: StructuralActionSubjectKind[];
 }
 
-export type OperatorDecompositionValidationStatus =
-  | "valid"
-  | "invalid"
-  | "stale";
+type OperatorDecompositionValidationStatus = "valid" | "invalid" | "stale";
 
 export interface OperatorDecompositionValidation {
   /** Fingerprint over the same facts read now; absent when a fact no longer resolves. */

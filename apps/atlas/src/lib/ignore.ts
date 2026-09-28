@@ -1,5 +1,5 @@
-import * as fs from "node:fs";
-import * as path from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { join, relative } from "node:path";
 
 import ignore from "ignore";
 
@@ -29,9 +29,9 @@ export function createIgnorer(root: string): Ignorer {
   const rulesAt = (dir: string): ignore.Ignore | null => {
     let found = rules.get(dir);
     if (found === undefined) {
-      const file = path.join(root, dir, ".gitignore");
-      found = fs.existsSync(file)
-        ? ignore().add(fs.readFileSync(file, "utf8"))
+      const file = join(root, dir, ".gitignore");
+      found = existsSync(file)
+        ? ignore().add(readFileSync(file, "utf8"))
         : null;
       rules.set(dir, found);
     }
@@ -50,26 +50,40 @@ export function createIgnorer(root: string): Ignorer {
     const cut = trimmed.lastIndexOf("/");
     const parent = cut === -1 ? "" : trimmed.slice(0, cut);
     let verdict = parent !== "" && ignores(`${parent}/`);
-    for (let dir = parent; !verdict; ) {
-      const file = rulesAt(dir);
-      if (file !== null) {
-        const result = file.test(dir === "" ? rel : rel.slice(dir.length + 1));
-        if (result.ignored || result.unignored) {
-          verdict = result.ignored;
-          break;
-        }
-      }
-      if (dir === "") {
-        break;
-      }
-      const up = dir.lastIndexOf("/");
-      dir = up === -1 ? "" : dir.slice(0, up);
-    }
+    const visitDir = () => {
+      verdict = ignoresDir(parent, verdict, rulesAt, rel);
+    };
+    visitDir();
     decided.set(rel, verdict);
     return verdict;
   };
 
   return { ignores };
+}
+
+function ignoresDir(
+  parent: string,
+  initialVerdict: boolean,
+  rulesAt: (dir: string) => ignore.Ignore | null,
+  rel: string
+) {
+  let verdict = initialVerdict;
+  for (let dir = parent; !verdict; ) {
+    const file = rulesAt(dir);
+    if (file !== null) {
+      const result = file.test(dir === "" ? rel : rel.slice(dir.length + 1));
+      if (result.ignored || result.unignored) {
+        verdict = result.ignored;
+        break;
+      }
+    }
+    if (dir === "") {
+      break;
+    }
+    const up = dir.lastIndexOf("/");
+    dir = up === -1 ? "" : dir.slice(0, up);
+  }
+  return verdict;
 }
 
 /** `ignores` for an absolute path under `root`. */
@@ -78,5 +92,5 @@ export function ignoresAbsolute(
   root: string,
   file: string
 ): boolean {
-  return ignorer.ignores(toPosix(path.relative(root, file)));
+  return ignorer.ignores(toPosix(relative(root, file)));
 }

@@ -20,7 +20,10 @@ export function adjacency(
 export class Reachability {
   private readonly memo = new Map<string, Set<string>>();
 
-  constructor(private readonly out: Map<string, Set<string>>) {}
+  private readonly out: Map<string, Set<string>>;
+  constructor(out: Map<string, Set<string>>) {
+    this.out = out;
+  }
 
   /** True when a path exists from a to b or from b to a. */
   connected(a: string, b: string): boolean {

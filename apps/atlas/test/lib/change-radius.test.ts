@@ -1,5 +1,5 @@
-import * as os from "node:os";
-import * as path from "node:path";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
@@ -11,7 +11,9 @@ import type { CommitChange, GitHistory } from "../../src/lib/git-history";
 import { renderRadius } from "../../src/lib/report";
 import type { WorkspaceModuleGraph } from "../../src/lib/types";
 
-const ROOT = path.join(os.tmpdir(), "semantic-surface-radius-fixture");
+const expectedTextPattern = /risk|blast|cross-cutting/i;
+
+const ROOT = join(tmpdir(), "semantic-surface-radius-fixture");
 const A1 = "packages/a/src/a1.ts";
 const A2 = "packages/a/src/a2.ts";
 const A3 = "packages/a/src/a3.ts";
@@ -22,7 +24,7 @@ const C1 = "packages/c/src/c1.ts";
 const ALL = [A1, A2, A3, AT, AC, B1, C1];
 
 const boundary: Boundary = {
-  dir: path.join(ROOT, "packages/a"),
+  dir: join(ROOT, "packages/a"),
   explicitlyPublishable: false,
   exportSubpaths: null,
   packageName: "@fixture/a",
@@ -325,7 +327,7 @@ describe("change radius", () => {
     expect(text).toContain(
       "WIDEST COMMITS\n\n  c01  2026-01-02\n    files       3 (3 source · 0 test · 0 config)\n    packages    3\n    boundaries  1"
     );
-    expect(text).not.toMatch(/risk|blast|cross-cutting/i);
+    expect(text).not.toMatch(expectedTextPattern);
   });
 });
 

@@ -11,6 +11,7 @@ import type {
   ResponsibilityAmbiguityReason,
   ResponsibilityCandidate,
   ResponsibilityConceptEntry,
+  ResponsibilityEvidenceKind,
   ResponsibilityJoin,
   ResponsibilityJoinReason,
   ResponsibilityLabelBasis,
@@ -26,10 +27,14 @@ import type {
 import { INTERNAL_RESPONSIBILITY_SCHEMA_VERSION } from "./internal-responsibility-types";
 import type {
   InternalModuleEdge,
+  InternalModuleNode,
   InternalModuleRole,
   InternalPackageTopology,
 } from "./internal-topology-types";
-import type { PackageLocalReport } from "./package-local-types";
+import type {
+  PackageLocalConceptSeed,
+  PackageLocalReport,
+} from "./package-local-types";
 import type {
   SymbolLocalityFinding,
   SymbolLocalityReport,
@@ -202,22 +207,8 @@ export function analyzeInternalResponsibilities(
   // Atomic units: nontrivial cycles, else single primary modules.
   const unitOf = new Map<string, string>();
   const units: ResponsibilityUnit[] = [];
-  for (const cycle of topology.cycles) {
-    const id = `cycle:${cycle.id}`;
-    const modules = [...cycle.modules].sort((a, b) => a.localeCompare(b));
-    units.push({ cycle: cycle.id, id, kind: "cycle", modules });
-    for (const module of modules) {
-      unitOf.set(module, id);
-    }
-  }
-  for (const module of primaryModules) {
-    if (unitOf.has(module)) {
-      continue;
-    }
-    const id = `module:${module}`;
-    units.push({ id, kind: "module", modules: [module] });
-    unitOf.set(module, id);
-  }
+  analyzeInternalResponsibilitiesCycle(topology, units, unitOf);
+  analyzeInternalResponsibilitiesModule(primaryModules, unitOf, units);
   units.sort((a, b) => a.id.localeCompare(b.id));
   const unitById = new Map(units.map((unit) => [unit.id, unit]));
 
@@ -240,76 +231,60 @@ export function analyzeInternalResponsibilities(
     const directory = directoryOf(a);
     return directory === directoryOf(b) && !aboveRegions(directory);
   };
-  for (const edge of primaryEdges) {
-    if (isConnector(edge.source)) {
-      continue;
-    }
-    const sourceUnit = unitOf.get(edge.source);
-    if (sourceUnit === undefined) {
-      continue;
-    }
-    const touched = new Set<string>();
-    for (const symbol of edge.symbols) {
-      const finding = localizedFinding(symbol.symbolId);
-      if (finding === undefined) {
+  const visitKey = () => {
+    for (const key of [...pairs.keys()].sort((a, b) => a.localeCompare(b))) {
+      const evidence = pairs.get(key);
+      if (evidence === undefined) {
         continue;
       }
-      const partner =
-        symbol.mediated && symbol.declarationModule !== undefined
-          ? symbol.declarationModule
-          : edge.target;
-      const partnerUnit = unitOf.get(partner);
-      if (
-        partnerUnit === undefined ||
-        partnerUnit === sourceUnit ||
-        isConnector(partner)
-      ) {
+      const reasons: ResponsibilityJoinReason[] = [];
+      if (evidence.concepts.size > 0) {
+        reasons.push("concept-flow");
+      }
+      if (evidence.directorySymbols.size > 0) {
+        reasons.push("directory-dependency");
+      }
+      if (reasons.length === 0) {
         continue;
       }
-      const evidence = evidenceFor(sourceUnit, partnerUnit);
-      if (!touched.has(partnerUnit)) {
-        touched.add(partnerUnit);
-        evidence.edges += 1;
-      }
-      evidence.localized.add(finding.symbolId);
-      if (finding.conceptSeed) {
-        evidence.concepts.add(finding.symbolId);
-      }
-      if (sameDirectoryBelowRoot(edge.source, partner)) {
-        evidence.directorySymbols.add(finding.symbolId);
-      }
+      const [left, right] = key.split("\n") as [string, string];
+      groups.union(left, right);
+      joinedUnits.add(left);
+      joinedUnits.add(right);
+      joins.push({
+        left,
+        reasons,
+        right,
+        symbols: sorted([...evidence.concepts, ...evidence.directorySymbols]),
+      });
     }
-  }
+  };
+  analyzeInternalResponsibilitiesEdge(
+    primaryEdges,
+    isConnector,
+    unitOf,
+    localizedFinding,
+    evidenceFor,
+    sameDirectoryBelowRoot
+  );
 
   const groups = new Groups(units.map((unit) => unit.id));
   const joins: ResponsibilityJoin[] = [];
   const joinedUnits = new Set<string>();
-  for (const key of [...pairs.keys()].sort((a, b) => a.localeCompare(b))) {
-    const evidence = pairs.get(key);
-    if (evidence === undefined) {
-      continue;
+  const visitEdge4 = () => {
+    for (const edge of primaryEdges) {
+      if (!(primary.has(edge.source) && primary.has(edge.target))) {
+        continue;
+      }
+      if (edge.source === edge.target) {
+        continue;
+      }
+      const symbols = edgeLocalized(edge);
+      noteNeighbor(edge.source, edge.target, symbols);
+      noteNeighbor(edge.target, edge.source, symbols);
     }
-    const reasons: ResponsibilityJoinReason[] = [];
-    if (evidence.concepts.size > 0) {
-      reasons.push("concept-flow");
-    }
-    if (evidence.directorySymbols.size > 0) {
-      reasons.push("directory-dependency");
-    }
-    if (reasons.length === 0) {
-      continue;
-    }
-    const [left, right] = key.split("\n") as [string, string];
-    groups.union(left, right);
-    joinedUnits.add(left);
-    joinedUnits.add(right);
-    joins.push({
-      left,
-      reasons,
-      right,
-      symbols: sorted([...evidence.concepts, ...evidence.directorySymbols]),
-    });
-  }
+  };
+  visitKey();
 
   // Localized-symbol neighbors per module, either direction, both
   // non-connector; used for bridge detection and affinities.
@@ -320,7 +295,7 @@ export function analyzeInternalResponsibilities(
   const noteNeighbor = (
     module: string,
     partner: string,
-    symbols: SymbolLocalityFinding[]
+    groupSymbols: SymbolLocalityFinding[]
   ) => {
     const byPartner =
       localizedNeighbors.get(module) ??
@@ -334,7 +309,7 @@ export function analyzeInternalResponsibilities(
       symbols: new Set<string>(),
     };
     entry.edges += 1;
-    for (const symbol of symbols) {
+    for (const symbol of groupSymbols) {
       entry.symbols.add(symbol.symbolId);
       if (symbol.conceptSeed) {
         entry.concept = true;
@@ -347,21 +322,55 @@ export function analyzeInternalResponsibilities(
     edge.symbols
       .map((symbol) => localizedFinding(symbol.symbolId))
       .filter((finding) => finding !== undefined);
-  for (const edge of primaryEdges) {
-    if (!(primary.has(edge.source) && primary.has(edge.target))) {
-      continue;
-    }
-    if (edge.source === edge.target) {
-      continue;
-    }
-    const symbols = edgeLocalized(edge);
-    noteNeighbor(edge.source, edge.target, symbols);
-    noteNeighbor(edge.target, edge.source, symbols);
-  }
+  visitEdge4();
 
   // Unclaimed single modules: a bridge with localized neighbors in several
   // groups is unresolved; the rest fall back to their shared directory.
+  const visitUnit2 = () => {
+    for (const unit of unclaimed) {
+      const module = unit.modules[0] ?? "";
+      const roles = rolesOf.get(module) ?? [];
+      if (roles.includes("bridge")) {
+        const candidates = neighborGroups(module, true).filter(
+          (candidate) => candidate.region !== unit.id
+        );
+        if (candidates.length >= 2) {
+          unresolved.push({ candidates, module, reason: "bridge", roles });
+          unresolvedModules.add(module);
+          continue;
+        }
+      }
+      const directory = directoryOf(module);
+      if (aboveRegions(directory)) {
+        continue;
+      }
+      const list = fallbackByDirectory.get(directory) ?? [];
+      list.push(unit);
+      fallbackByDirectory.set(directory, list);
+    }
+  };
   const unresolved: ResponsibilityAmbiguity[] = [];
+  const visitDirectory = () => {
+    for (const directory of sorted(fallbackByDirectory.keys())) {
+      const list = fallbackByDirectory.get(directory) ?? [];
+      if (list.length < 2) {
+        continue;
+      }
+      const [first, ...rest] = list;
+      if (first === undefined) {
+        continue;
+      }
+      for (const unit of rest) {
+        groups.union(first.id, unit.id);
+        joins.push({
+          left: first.id,
+          reasons: ["directory-fallback"],
+          right: unit.id,
+          symbols: [],
+        });
+      }
+    }
+  };
   const unresolvedModules = new Set<string>();
   const unclaimed = units.filter(
     (unit) =>
@@ -372,6 +381,25 @@ export function analyzeInternalResponsibilities(
   const groupOfModule = (module: string): string | undefined => {
     const unit = unitOf.get(module);
     return unit === undefined ? undefined : groups.find(unit);
+  };
+  const visitUnit3 = () => {
+    for (const unit of units) {
+      const connectorUnit =
+        unit.kind === "module" && isConnector(unit.modules[0] ?? "");
+      if (connectorUnit) {
+        continue;
+      }
+      if (unit.modules.some((module) => unresolvedModules.has(module))) {
+        continue;
+      }
+      const group = groups.find(unit.id);
+      const list = membersByGroup.get(group) ?? [];
+      list.push(...unit.modules);
+      membersByGroup.set(group, list);
+      for (const module of unit.modules) {
+        statusOf.set(module, "assigned");
+      }
+    }
   };
   /** Placed by construction: inside a cycle unit, or a non-connector module not left unresolved. */
   const placeable = (module: string) =>
@@ -411,115 +439,39 @@ export function analyzeInternalResponsibilities(
     );
   };
   const fallbackByDirectory = new Map<string, ResponsibilityUnit[]>();
-  for (const unit of unclaimed) {
-    const module = unit.modules[0] ?? "";
-    const roles = rolesOf.get(module) ?? [];
-    if (roles.includes("bridge")) {
-      const candidates = neighborGroups(module, true).filter(
-        (candidate) => candidate.region !== unit.id
-      );
-      if (candidates.length >= 2) {
-        unresolved.push({ candidates, module, reason: "bridge", roles });
-        unresolvedModules.add(module);
-        continue;
-      }
-    }
-    const directory = directoryOf(module);
-    if (aboveRegions(directory)) {
-      continue;
-    }
-    const list = fallbackByDirectory.get(directory) ?? [];
-    list.push(unit);
-    fallbackByDirectory.set(directory, list);
-  }
-  for (const directory of sorted(fallbackByDirectory.keys())) {
-    const list = fallbackByDirectory.get(directory) ?? [];
-    if (list.length < 2) {
-      continue;
-    }
-    const [first, ...rest] = list;
-    if (first === undefined) {
-      continue;
-    }
-    for (const unit of rest) {
-      groups.union(first.id, unit.id);
-      joins.push({
-        left: first.id,
-        reasons: ["directory-fallback"],
-        right: unit.id,
-        symbols: [],
-      });
-    }
-  }
+  visitUnit2();
+  visitDirectory();
 
   // Base regions from non-connector units, then connector attachment.
   const membersByGroup = new Map<string, string[]>();
   const statusOf = new Map<string, "assigned" | "attached">();
-  for (const unit of units) {
-    const connectorUnit =
-      unit.kind === "module" && isConnector(unit.modules[0] ?? "");
-    if (connectorUnit) {
-      continue;
-    }
-    if (unit.modules.some((module) => unresolvedModules.has(module))) {
-      continue;
-    }
-    const group = groups.find(unit.id);
-    const list = membersByGroup.get(group) ?? [];
-    list.push(...unit.modules);
-    membersByGroup.set(group, list);
-    for (const module of unit.modules) {
-      statusOf.set(module, "assigned");
-    }
-  }
+  visitUnit3();
   const attachedByGroup = new Map<string, string[]>();
   const ambiguityReason = (
     roles: InternalModuleRole[]
-  ): ResponsibilityAmbiguityReason =>
-    roles.includes("aggregator")
-      ? "aggregator"
-      : roles.includes("high-fan-in")
-        ? "distributed-primitive"
-        : "wide-dependent";
-  for (const unit of units) {
-    if (unit.kind !== "module") {
-      continue;
+  ): ResponsibilityAmbiguityReason => {
+    if (roles.includes("aggregator")) {
+      return "aggregator";
     }
-    const module = unit.modules[0] ?? "";
-    if (!isConnector(module)) {
-      continue;
+    if (roles.includes("high-fan-in")) {
+      return "distributed-primitive";
     }
-    const roles = rolesOf.get(module) ?? [];
-    const localized = neighborGroups(module, true);
-    const candidates =
-      localized.length > 0 ? localized : neighborGroups(module, false);
-    if (candidates.length === 1) {
-      const group = candidates[0]?.region ?? unit.id;
-      const list = attachedByGroup.get(group) ?? [];
-      list.push(module);
-      attachedByGroup.set(group, list);
-      statusOf.set(module, "attached");
-    } else if (candidates.length === 0) {
-      membersByGroup.set(unit.id, [module]);
-      statusOf.set(module, "assigned");
-    } else {
-      unresolved.push({
-        candidates,
-        module,
-        reason: ambiguityReason(roles),
-        roles,
-      });
-      unresolvedModules.add(module);
-    }
-  }
+    return "wide-dependent";
+  };
+  analyzeInternalResponsibilitiesUnit(
+    units,
+    isConnector,
+    rolesOf,
+    neighborGroups,
+    attachedByGroup,
+    statusOf,
+    membersByGroup,
+    unresolved,
+    ambiguityReason,
+    unresolvedModules
+  );
 
   // Region membership and identity.
-  interface Draft {
-    attached: string[];
-    group: string;
-    modules: string[];
-    units: string[];
-  }
   const drafts: Draft[] = [];
   for (const [group, members] of membersByGroup) {
     const attached = (attachedByGroup.get(group) ?? []).sort((a, b) =>
@@ -544,18 +496,9 @@ export function analyzeInternalResponsibilities(
     drafts.map((draft) => [draft.group, regionId(draft.modules)])
   );
   const regionOfModule = new Map<string, string>();
-  for (const draft of drafts) {
-    const id = idByGroup.get(draft.group) ?? draft.group;
-    for (const module of draft.modules) {
-      regionOfModule.set(module, id);
-    }
-  }
+  analyzeInternalResponsibilitiesDraft(drafts, idByGroup, regionOfModule);
   const renameGroup = (group: string) => idByGroup.get(group) ?? group;
-  for (const ambiguity of unresolved) {
-    for (const candidate of ambiguity.candidates) {
-      candidate.region = renameGroup(candidate.region);
-    }
-  }
+  analyzeInternalResponsibilitiesAmbiguity(unresolved, renameGroup);
 
   // Module-indexed evidence: concepts, behavior, localized symbols.
   const seedsByModule = new Map<string, string[]>();
@@ -569,60 +512,34 @@ export function analyzeInternalResponsibilities(
     const seed = seedById.get(conceptId);
     return seed === undefined ? undefined : relative(seed.file);
   };
-  interface Participation {
-    kinds: ConceptRelationshipKind[];
-    module: string;
-  }
   const participantsByConcept = new Map<string, Participation[]>();
   const participationByModule = new Map<string, Set<string>>();
-  for (const entry of report.conceptParticipation) {
-    const module = relative(entry.module);
-    if (!primary.has(module) || module === seedModule(entry.conceptId)) {
-      continue;
-    }
-    const list = participantsByConcept.get(entry.conceptId) ?? [];
-    list.push({
-      kinds: Object.keys(
-        entry.relationships
-      ).sort() as ConceptRelationshipKind[],
-      module,
-    });
-    participantsByConcept.set(entry.conceptId, list);
-    const set = participationByModule.get(module) ?? new Set<string>();
-    set.add(entry.conceptId);
-    participationByModule.set(module, set);
-  }
+  analyzeInternalResponsibilitiesEntry(
+    report,
+    relative,
+    primary,
+    seedModule,
+    participantsByConcept,
+    participationByModule
+  );
   const statementsByModule = new Map<string, number>();
   const conceptOwnedByModule = new Map<string, number>();
   const ownersByModule = new Map<string, Set<string>>();
-  for (const fn of report.localComplexity.functions) {
-    const module = relative(fn.file);
-    statementsByModule.set(
-      module,
-      (statementsByModule.get(module) ?? 0) + fn.metrics.statements
-    );
-    if (fn.ownerSymbolId !== undefined && seedById.has(fn.ownerSymbolId)) {
-      conceptOwnedByModule.set(
-        module,
-        (conceptOwnedByModule.get(module) ?? 0) + fn.metrics.statements
-      );
-      const owners = ownersByModule.get(module) ?? new Set<string>();
-      owners.add(fn.ownerSymbolId);
-      ownersByModule.set(module, owners);
-    }
-  }
+  analyzeInternalResponsibilitiesFn(
+    report,
+    relative,
+    statementsByModule,
+    seedById,
+    conceptOwnedByModule,
+    ownersByModule
+  );
   const declaredFindingsByModule = new Map<string, SymbolLocalityFinding[]>();
   const consumedFindingsByModule = new Map<string, SymbolLocalityFinding[]>();
-  for (const finding of locality.symbols) {
-    const list = declaredFindingsByModule.get(finding.declaration.module) ?? [];
-    list.push(finding);
-    declaredFindingsByModule.set(finding.declaration.module, list);
-    for (const consumer of finding.consumerModules) {
-      const consumed = consumedFindingsByModule.get(consumer) ?? [];
-      consumed.push(finding);
-      consumedFindingsByModule.set(consumer, consumed);
-    }
-  }
+  analyzeInternalResponsibilitiesFinding(
+    locality,
+    declaredFindingsByModule,
+    consumedFindingsByModule
+  );
   const localizedDeclared = (module: string) =>
     (declaredFindingsByModule.get(module) ?? []).filter(
       (finding) => localizedFinding(finding.symbolId) !== undefined
@@ -665,255 +582,74 @@ export function analyzeInternalResponsibilities(
     a: ResponsibilityConceptEntry,
     b: ResponsibilityConceptEntry
   ) => b.modules - a.modules || a.conceptId.localeCompare(b.conceptId);
-
-  const regions: ResponsibilityRegion[] = drafts.map((draft) => {
-    const id = idByGroup.get(draft.group) ?? draft.group;
-    const inside = new Set(draft.modules);
-    const directories = sorted(draft.modules.map(directoryOf));
-    const pathRegions = sorted(draft.modules.map(pathRegionOf));
-    const directoryCounts = new Map<string, number>();
-    for (const module of draft.modules) {
-      const directory = directoryOf(module);
-      directoryCounts.set(directory, (directoryCounts.get(directory) ?? 0) + 1);
-    }
-    const [dominant] = [...directoryCounts.entries()].sort(
-      (a, b) => b[1] - a[1] || a[0].localeCompare(b[0])
-    );
-    const dominantDirectory = {
-      id: dominant?.[0] ?? ".",
-      modules: dominant?.[1] ?? 0,
-      share: share(dominant?.[1] ?? 0, draft.modules.length),
-    };
-    const agreement: ResponsibilityPathAgreement =
-      pathRegions.length > 1
-        ? "spans-path-regions"
-        : draft.modules.length ===
-            (primaryModulesByPathRegion.get(pathRegions[0] ?? "") ?? 0)
-          ? "matches-path-region"
-          : "within-path-region";
-
-    let internalEdges = 0;
-    let inboundEdges = 0;
-    let outboundEdges = 0;
+  const visitEdge3 = () => {
     for (const edge of primaryEdges) {
-      const from = inside.has(edge.source);
-      const to = inside.has(edge.target);
-      if (from && to) {
-        internalEdges += 1;
-      } else if (to) {
-        inboundEdges += 1;
-      } else if (from) {
-        outboundEdges += 1;
+      const from = pathRegionOf(edge.source);
+      const to = pathRegionOf(edge.target);
+      if (from === to) {
+        continue;
       }
-    }
-    const layers = draft.modules.map(
-      (module) => moduleById.get(module)?.layer ?? 0
-    );
-    const roles: Partial<Record<InternalModuleRole, number>> = {};
-    for (const module of draft.modules) {
-      for (const role of rolesOf.get(module) ?? []) {
-        roles[role] = (roles[role] ?? 0) + 1;
+      const key = `${from}\n${to}`;
+      const draft = pathSeamDrafts.get(key) ?? {
+        acrossResponsibilities: 0,
+        from,
+        moduleEdges: 0,
+        to,
+        unresolved: 0,
+        withinResponsibility: 0,
+      };
+      draft.moduleEdges += 1;
+      const source = regionOfModule.get(edge.source);
+      const target = regionOfModule.get(edge.target);
+      if (source === undefined || target === undefined) {
+        draft.unresolved += 1;
+      } else if (source === target) {
+        draft.withinResponsibility += 1;
+      } else {
+        draft.acrossResponsibilities += 1;
       }
+      pathSeamDrafts.set(key, draft);
     }
+  };
 
-    const declaredSeeds = draft.modules.flatMap(
-      (module) => seedsByModule.get(module) ?? []
-    );
-    const declared = declaredSeeds
-      .map((conceptId) => conceptEntry(conceptId, inside))
-      .filter((entry) => entry !== undefined)
-      .filter((entry) => entry.modules > 0)
-      .sort(byParticipantsThenId);
-    const referencedIds = new Set<string>();
-    for (const module of draft.modules) {
-      for (const conceptId of participationByModule.get(module) ?? []) {
-        if (inside.has(seedModule(conceptId) ?? "")) {
-          continue;
-        }
-        if (localizedFinding(conceptId) === undefined) {
-          continue;
-        }
-        referencedIds.add(conceptId);
-      }
-    }
-    const referenced = [...referencedIds]
-      .map((conceptId) => conceptEntry(conceptId, inside))
-      .filter((entry) => entry !== undefined)
-      .sort(byParticipantsThenId);
-
-    const statements = draft.modules.map((module) => ({
-      module,
-      statements: statementsByModule.get(module) ?? 0,
-    }));
-    const mass = statements.reduce((sum, entry) => sum + entry.statements, 0);
-    const dominantModules = statements
-      .filter((entry) => entry.statements > 0)
-      .sort(
-        (a, b) =>
-          b.statements - a.statements || a.module.localeCompare(b.module)
-      )
-      .slice(0, config.internalResponsibilities.report.topModules)
-      .map((entry) => ({ ...entry, share: share(entry.statements, mass) }));
-    const conceptOwners = sorted(
-      draft.modules.flatMap((module) => [...(ownersByModule.get(module) ?? [])])
-    );
-
-    const declaredFindings = draft.modules.flatMap(
-      (module) => declaredFindingsByModule.get(module) ?? []
-    );
-    const local = declaredFindings.filter((finding) =>
-      finding.consumerModules.every((consumer) => inside.has(consumer))
-    ).length;
-    const consumedOutside = new Set<string>();
-    const distributedConsumed = new Set<string>();
-    for (const module of draft.modules) {
-      for (const finding of consumedFindingsByModule.get(module) ?? []) {
-        if (inside.has(finding.declaration.module)) {
-          continue;
-        }
-        consumedOutside.add(finding.symbolId);
-        if (finding.distribution === "package-distributed") {
-          distributedConsumed.add(finding.symbolId);
-        }
-      }
-    }
-
-    const evidence: ResponsibilityRegion["evidence"] = [];
-    const joinsHere = joins.filter(
-      (join) => groups.find(join.left) === draft.group
-    );
-    const joinsByReason = zeroRecord(JOIN_REASONS);
-    for (const join of joinsHere) {
-      for (const reason of join.reasons) {
-        joinsByReason[reason] += 1;
-      }
-    }
-    if (
-      (directories.length === 1 && !aboveRegions(directories[0] ?? ".")) ||
-      joinsByReason["directory-dependency"] > 0 ||
-      joinsByReason["directory-fallback"] > 0
-    ) {
-      evidence.push("path");
-    }
-    if (internalEdges > 0) {
-      evidence.push("dependency");
-    }
-    const cycles = sorted(
-      draft.units
-        .map((unit) => unitById.get(unit)?.cycle)
-        .filter((cycle) => cycle !== undefined)
-    );
-    if (cycles.length > 0) {
-      evidence.push("cycle");
-    }
-    if (declared.length > 0 || joinsByReason["concept-flow"] > 0) {
-      evidence.push("concept");
-    }
-    if (mass > 0) {
-      evidence.push("behavior");
-    }
-    if (local > 0) {
-      evidence.push("symbol-flow");
-    }
-    if (inboundEdges > 0 || outboundEdges > 0) {
-      evidence.push("seam");
-    }
-
-    let label: string;
-    let labelBasis: ResponsibilityLabelBasis;
-    const [topConcept] = declared;
-    if (directories.length === 1 && !aboveRegions(directories[0] ?? ".")) {
-      label = directories[0] ?? ".";
-      labelBasis = "directory";
-    } else if (topConcept === undefined) {
-      const [top] = [...draft.modules].sort(
-        (a, b) =>
-          (moduleById.get(b)?.fanIn ?? 0) - (moduleById.get(a)?.fanIn ?? 0) ||
-          a.localeCompare(b)
-      );
-      label = top ?? id;
-      labelBasis = "module";
-    } else {
-      label = topConcept.name;
-      labelBasis = "concept";
-    }
-
-    return {
-      attached: draft.attached,
-      behavior: {
-        bearingModules: statements.filter((entry) => entry.statements > 0)
-          .length,
-        conceptOwnedMass: draft.modules.reduce(
-          (sum, module) => sum + (conceptOwnedByModule.get(module) ?? 0),
-          0
-        ),
-        conceptOwners,
-        dominantModules,
-        mass,
-      },
-      concepts: { declared, referenced },
-      construction: {
-        joins: joinsHere.sort(
-          (a, b) =>
-            a.left.localeCompare(b.left) || a.right.localeCompare(b.right)
-        ),
-        joinsByReason,
-      },
-      evidence,
-      id,
-      label,
-      labelBasis,
-      modules: draft.modules,
-      path: { agreement, directories, dominantDirectory, pathRegions },
-      symbols: {
-        behaviorDisagreesWithUsage: declaredFindings.filter(
-          (finding) => finding.behavior.agreesWithUsage === false
-        ).length,
-        consumedFromOutside: consumedOutside.size,
-        crossing: declaredFindings.length - local,
-        declared: declaredFindings.length,
-        distributedConsumed: distributedConsumed.size,
-        local,
-      },
-      topology: {
-        cycles,
-        dependencySinks: roles["dependency-sink"] ?? 0,
-        dependencySources: roles["dependency-source"] ?? 0,
-        inboundEdges,
-        internalEdges,
-        layerSpan: {
-          max: layers.length === 0 ? 0 : Math.max(...layers),
-          min: layers.length === 0 ? 0 : Math.min(...layers),
-        },
-        outboundEdges,
-        roles: Object.fromEntries(
-          Object.entries(roles).sort(([a], [b]) => a.localeCompare(b))
-        ),
-      },
-      units: draft.units,
-    };
-  });
+  const regions: ResponsibilityRegion[] = drafts.map((draft) =>
+    analyzeInternalResponsibilitiesEntries(
+      idByGroup,
+      draft,
+      directoryOf,
+      pathRegionOf,
+      primaryModulesByPathRegion,
+      primaryEdges,
+      moduleById,
+      rolesOf,
+      seedsByModule,
+      conceptEntry,
+      byParticipantsThenId,
+      participationByModule,
+      seedModule,
+      localizedFinding,
+      statementsByModule,
+      config,
+      ownersByModule,
+      declaredFindingsByModule,
+      consumedFindingsByModule,
+      joins,
+      groups,
+      aboveRegions,
+      unitById,
+      conceptOwnedByModule
+    )
+  );
   const regionById = new Map(regions.map((region) => [region.id, region]));
 
   // Relationships between responsibilities, from primary edges whose
   // endpoints are both placed.
-  interface RelationshipDraft {
-    edges: InternalModuleEdge[];
-    from: string;
-    to: string;
-  }
   const relationshipDrafts = new Map<string, RelationshipDraft>();
-  for (const edge of primaryEdges) {
-    const from = regionOfModule.get(edge.source);
-    const to = regionOfModule.get(edge.target);
-    if (from === undefined || to === undefined || from === to) {
-      continue;
-    }
-    const key = `${from}\n${to}`;
-    const draft = relationshipDrafts.get(key) ?? { edges: [], from, to };
-    draft.edges.push(edge);
-    relationshipDrafts.set(key, draft);
-  }
+  analyzeInternalResponsibilitiesEdge2(
+    primaryEdges,
+    regionOfModule,
+    relationshipDrafts
+  );
   const relationships: ResponsibilityRelationship[] = [
     ...relationshipDrafts.values(),
   ]
@@ -1006,33 +742,7 @@ export function analyzeInternalResponsibilities(
 
   // Path seams against responsibility membership.
   const pathSeamDrafts = new Map<string, ResponsibilityPathSeamComparison>();
-  for (const edge of primaryEdges) {
-    const from = pathRegionOf(edge.source);
-    const to = pathRegionOf(edge.target);
-    if (from === to) {
-      continue;
-    }
-    const key = `${from}\n${to}`;
-    const draft = pathSeamDrafts.get(key) ?? {
-      acrossResponsibilities: 0,
-      from,
-      moduleEdges: 0,
-      to,
-      unresolved: 0,
-      withinResponsibility: 0,
-    };
-    draft.moduleEdges += 1;
-    const source = regionOfModule.get(edge.source);
-    const target = regionOfModule.get(edge.target);
-    if (source === undefined || target === undefined) {
-      draft.unresolved += 1;
-    } else if (source === target) {
-      draft.withinResponsibility += 1;
-    } else {
-      draft.acrossResponsibilities += 1;
-    }
-    pathSeamDrafts.set(key, draft);
-  }
+  visitEdge3();
   const pathSeams = [...pathSeamDrafts.values()].sort(
     (a, b) =>
       b.moduleEdges - a.moduleEdges ||
@@ -1053,14 +763,18 @@ export function analyzeInternalResponsibilities(
       const unresolvedConsumers = finding.consumerModules.filter(
         (consumer) => !regionOfModule.has(consumer)
       ).length;
-      const symbolLocality: ResponsibilitySymbolLocality =
-        declarationRegion === undefined || consumerRegions.length === 0
-          ? "unplaced"
-          : consumerRegions.length === 1 &&
-              consumerRegions[0] === declarationRegion &&
-              unresolvedConsumers === 0
-            ? "responsibility-local"
-            : "responsibility-crossing";
+      let symbolLocality: ResponsibilitySymbolLocality;
+      if (declarationRegion === undefined || consumerRegions.length === 0) {
+        symbolLocality = "unplaced";
+      } else if (
+        consumerRegions.length === 1 &&
+        consumerRegions[0] === declarationRegion &&
+        unresolvedConsumers === 0
+      ) {
+        symbolLocality = "responsibility-local";
+      } else {
+        symbolLocality = "responsibility-crossing";
+      }
       return {
         conceptSeed: finding.conceptSeed,
         kind: finding.kind,
@@ -1082,28 +796,13 @@ export function analyzeInternalResponsibilities(
         ? "unresolved"
         : (statusOf.get(module) ?? "assigned");
       const affinityTallies = new Map<string, ResponsibilityAffinity>();
-      for (const [partner, entry] of localizedNeighbors.get(module) ?? []) {
-        if (entry.symbols.size === 0) {
-          continue;
-        }
-        const partnerRegion = regionOfModule.get(partner);
-        if (partnerRegion === undefined || partnerRegion === region) {
-          continue;
-        }
-        const affinity = affinityTallies.get(partnerRegion) ?? {
-          edges: 0,
-          kinds: [],
-          region: partnerRegion,
-        };
-        affinity.edges += entry.edges;
-        if (!affinity.kinds.includes("dependency")) {
-          affinity.kinds.push("dependency");
-        }
-        if (entry.concept && !affinity.kinds.includes("concept")) {
-          affinity.kinds.push("concept");
-        }
-        affinityTallies.set(partnerRegion, affinity);
-      }
+      collectEntries(
+        localizedNeighbors,
+        module,
+        regionOfModule,
+        region,
+        affinityTallies
+      );
       const affinities = [...affinityTallies.values()]
         .map((affinity) => ({ ...affinity, kinds: [...affinity.kinds].sort() }))
         .sort((a, b) => b.edges - a.edges || a.region.localeCompare(b.region));
@@ -1267,6 +966,704 @@ export function analyzeInternalResponsibilities(
   };
 }
 
+function analyzeInternalResponsibilitiesEntries(
+  idByGroup: Map<string, string>,
+  draft: Draft,
+  directoryOf: (module: string) => string,
+  pathRegionOf: (module: string) => string,
+  primaryModulesByPathRegion: Map<string, number>,
+  primaryEdges: InternalModuleEdge[],
+  moduleById: Map<string, InternalModuleNode>,
+  rolesOf: Map<string, InternalModuleRole[]>,
+  seedsByModule: Map<string, string[]>,
+  conceptEntry: (
+    conceptId: string,
+    inside: Set<string>
+  ) => ResponsibilityConceptEntry | undefined,
+  byParticipantsThenId: (
+    a: ResponsibilityConceptEntry,
+    b: ResponsibilityConceptEntry
+  ) => number,
+  participationByModule: Map<string, Set<string>>,
+  seedModule: (conceptId: string) => string | undefined,
+  localizedFinding: (
+    symbolId: string | undefined
+  ) => SymbolLocalityFinding | undefined,
+  statementsByModule: Map<string, number>,
+  config: AnalysisConfig,
+  ownersByModule: Map<string, Set<string>>,
+  declaredFindingsByModule: Map<string, SymbolLocalityFinding[]>,
+  consumedFindingsByModule: Map<string, SymbolLocalityFinding[]>,
+  joins: ResponsibilityJoin[],
+  groups: Groups,
+  aboveRegions: (directory: string) => boolean,
+  unitById: Map<string, ResponsibilityUnit>,
+  conceptOwnedByModule: Map<string, number>
+): {
+  attached: string[];
+  behavior: {
+    bearingModules: number;
+    conceptOwnedMass: number;
+    conceptOwners: string[];
+    dominantModules: { share: number; module: string; statements: number }[];
+    mass: number;
+  };
+  concepts: {
+    declared: ResponsibilityConceptEntry[];
+    referenced: ResponsibilityConceptEntry[];
+  };
+  construction: {
+    joins: ResponsibilityJoin[];
+    joinsByReason: Record<ResponsibilityJoinReason, number>;
+  };
+  evidence: ResponsibilityEvidenceKind[];
+  id: string;
+  label: string;
+  labelBasis: ResponsibilityLabelBasis;
+  modules: string[];
+  path: {
+    agreement: ResponsibilityPathAgreement;
+    directories: string[];
+    dominantDirectory: { id: string; modules: number; share: number };
+    pathRegions: string[];
+  };
+  symbols: {
+    behaviorDisagreesWithUsage: number;
+    consumedFromOutside: number;
+    crossing: number;
+    declared: number;
+    distributedConsumed: number;
+    local: number;
+  };
+  topology: {
+    cycles: string[];
+    dependencySinks: number;
+    dependencySources: number;
+    inboundEdges: number;
+    internalEdges: number;
+    layerSpan: { max: number; min: number };
+    outboundEdges: number;
+    roles: { [k: string]: number };
+  };
+  units: string[];
+} {
+  const id = idByGroup.get(draft.group) ?? draft.group;
+  const inside = new Set(draft.modules);
+  const directories = sorted(draft.modules.map(directoryOf));
+  const pathRegions = sorted(draft.modules.map(pathRegionOf));
+  const directoryCounts = new Map<string, number>();
+  const visitModule3 = (module: string) => {
+    const directory = directoryOf(module);
+    directoryCounts.set(directory, (directoryCounts.get(directory) ?? 0) + 1);
+  };
+  for (const module of draft.modules) {
+    visitModule3(module);
+  }
+  const [dominant] = [...directoryCounts.entries()].sort(
+    (a, b) => b[1] - a[1] || a[0].localeCompare(b[0])
+  );
+  const dominantDirectory = {
+    id: dominant?.[0] ?? ".",
+    modules: dominant?.[1] ?? 0,
+    share: share(dominant?.[1] ?? 0, draft.modules.length),
+  };
+
+  const agreement: ResponsibilityPathAgreement =
+    analyzeInternalResponsibilitiesEntriesEntries(
+      pathRegions,
+      draft,
+      primaryModulesByPathRegion
+    );
+
+  let internalEdges = 0;
+  let inboundEdges = 0;
+  let outboundEdges = 0;
+  const visitEdge = () => {
+    for (const edge of primaryEdges) {
+      const from = inside.has(edge.source);
+      const to = inside.has(edge.target);
+      if (from && to) {
+        internalEdges += 1;
+      } else if (to) {
+        inboundEdges += 1;
+      } else if (from) {
+        outboundEdges += 1;
+      }
+    }
+  };
+  visitEdge();
+  const layers = draft.modules.map(
+    (module) => moduleById.get(module)?.layer ?? 0
+  );
+  const roles: Partial<Record<InternalModuleRole, number>> = {};
+  analyzeInternalResponsibilitiesEntriesModule(draft, rolesOf, roles);
+
+  const declaredSeeds = draft.modules.flatMap(
+    (module) => seedsByModule.get(module) ?? []
+  );
+  const declared = declaredSeeds
+    .map((conceptId) => conceptEntry(conceptId, inside))
+    .filter((entry) => entry !== undefined)
+    .filter((entry) => entry.modules > 0)
+    .sort(byParticipantsThenId);
+  const referencedIds = new Set<string>();
+  const visitModule = () => {
+    for (const module of draft.modules) {
+      for (const conceptId of participationByModule.get(module) ?? []) {
+        if (inside.has(seedModule(conceptId) ?? "")) {
+          continue;
+        }
+        if (localizedFinding(conceptId) === undefined) {
+          continue;
+        }
+        referencedIds.add(conceptId);
+      }
+    }
+  };
+  visitModule();
+  const referenced = [...referencedIds]
+    .map((conceptId) => conceptEntry(conceptId, inside))
+    .filter((entry) => entry !== undefined)
+    .sort(byParticipantsThenId);
+
+  const statements = draft.modules.map((module) => ({
+    module,
+    statements: statementsByModule.get(module) ?? 0,
+  }));
+  const mass = statements.reduce((sum, entry) => sum + entry.statements, 0);
+  const dominantModules = statements
+    .filter((entry) => entry.statements > 0)
+    .sort(
+      (a, b) => b.statements - a.statements || a.module.localeCompare(b.module)
+    )
+    .slice(0, config.internalResponsibilities.report.topModules)
+    .map((entry) => ({ ...entry, share: share(entry.statements, mass) }));
+  const conceptOwners = sorted(
+    draft.modules.flatMap((module) => [...(ownersByModule.get(module) ?? [])])
+  );
+
+  const declaredFindings = draft.modules.flatMap(
+    (module) => declaredFindingsByModule.get(module) ?? []
+  );
+  const local = declaredFindings.filter((finding) =>
+    finding.consumerModules.every((consumer) => inside.has(consumer))
+  ).length;
+  const consumedOutside = new Set<string>();
+  const distributedConsumed = new Set<string>();
+  const visitModule2 = () => {
+    for (const module of draft.modules) {
+      for (const finding of consumedFindingsByModule.get(module) ?? []) {
+        if (inside.has(finding.declaration.module)) {
+          continue;
+        }
+        consumedOutside.add(finding.symbolId);
+        if (finding.distribution === "package-distributed") {
+          distributedConsumed.add(finding.symbolId);
+        }
+      }
+    }
+  };
+  visitModule2();
+
+  const evidence: ResponsibilityRegion["evidence"] = [];
+  const joinsHere = joins.filter(
+    (join) => groups.find(join.left) === draft.group
+  );
+  const joinsByReason = zeroRecord(JOIN_REASONS);
+  analyzeInternalResponsibilitiesEntriesJoin(joinsHere, joinsByReason);
+  analyzeInternalResponsibilitiesEntriesEntries3(
+    directories,
+    aboveRegions,
+    joinsByReason,
+    evidence
+  );
+  if (internalEdges > 0) {
+    evidence.push("dependency");
+  }
+  const cycles = sorted(
+    draft.units
+      .map((unit) => unitById.get(unit)?.cycle)
+      .filter((cycle) => cycle !== undefined)
+  );
+  if (cycles.length > 0) {
+    evidence.push("cycle");
+  }
+  if (declared.length > 0 || joinsByReason["concept-flow"] > 0) {
+    evidence.push("concept");
+  }
+  if (mass > 0) {
+    evidence.push("behavior");
+  }
+  if (local > 0) {
+    evidence.push("symbol-flow");
+  }
+  if (inboundEdges > 0 || outboundEdges > 0) {
+    evidence.push("seam");
+  }
+
+  const [topConcept] = declared;
+  const {
+    label,
+    labelBasis,
+  }: { label: string; labelBasis: ResponsibilityLabelBasis } =
+    analyzeInternalResponsibilitiesEntriesEntries2(
+      directories,
+      aboveRegions,
+      topConcept,
+      draft,
+      moduleById,
+      id
+    );
+
+  return {
+    attached: draft.attached,
+    behavior: {
+      bearingModules: statements.filter((entry) => entry.statements > 0).length,
+      conceptOwnedMass: draft.modules.reduce(
+        (sum, module) => sum + (conceptOwnedByModule.get(module) ?? 0),
+        0
+      ),
+      conceptOwners,
+      dominantModules,
+      mass,
+    },
+    concepts: { declared, referenced },
+    construction: {
+      joins: joinsHere.sort(
+        (a, b) => a.left.localeCompare(b.left) || a.right.localeCompare(b.right)
+      ),
+      joinsByReason,
+    },
+    evidence,
+    id,
+    label,
+    labelBasis,
+    modules: draft.modules,
+    path: { agreement, directories, dominantDirectory, pathRegions },
+    symbols: {
+      behaviorDisagreesWithUsage: declaredFindings.filter(
+        (finding) => finding.behavior.agreesWithUsage === false
+      ).length,
+      consumedFromOutside: consumedOutside.size,
+      crossing: declaredFindings.length - local,
+      declared: declaredFindings.length,
+      distributedConsumed: distributedConsumed.size,
+      local,
+    },
+    topology: {
+      cycles,
+      dependencySinks: roles["dependency-sink"] ?? 0,
+      dependencySources: roles["dependency-source"] ?? 0,
+      inboundEdges,
+      internalEdges,
+      layerSpan: {
+        max: layers.length === 0 ? 0 : Math.max(...layers),
+        min: layers.length === 0 ? 0 : Math.min(...layers),
+      },
+      outboundEdges,
+      roles: Object.fromEntries(
+        Object.entries(roles).sort(([a], [b]) => a.localeCompare(b))
+      ),
+    },
+    units: draft.units,
+  };
+}
+
+function analyzeInternalResponsibilitiesEntriesEntries3(
+  directories: string[],
+  aboveRegions: (directory: string) => boolean,
+  joinsByReason: Record<ResponsibilityJoinReason, number>,
+  evidence: (
+    | "path"
+    | "dependency"
+    | "cycle"
+    | "concept"
+    | "behavior"
+    | "symbol-flow"
+    | "seam"
+  )[]
+) {
+  if (
+    (directories.length === 1 && !aboveRegions(directories[0] ?? ".")) ||
+    joinsByReason["directory-dependency"] > 0 ||
+    joinsByReason["directory-fallback"] > 0
+  ) {
+    evidence.push("path");
+  }
+}
+
+function analyzeInternalResponsibilitiesEntriesEntries2(
+  directories: string[],
+  aboveRegions: (directory: string) => boolean,
+  topConcept: ResponsibilityConceptEntry | undefined,
+  draft: Draft,
+  moduleById: Map<string, InternalModuleNode>,
+  id: string
+): { label: string; labelBasis: ResponsibilityLabelBasis } {
+  let label: string;
+  let labelBasis: ResponsibilityLabelBasis;
+  if (directories.length === 1 && !aboveRegions(directories[0] ?? ".")) {
+    label = directories[0] ?? ".";
+    labelBasis = "directory";
+  } else if (topConcept === undefined) {
+    const [top] = [...draft.modules].sort(
+      (a, b) =>
+        (moduleById.get(b)?.fanIn ?? 0) - (moduleById.get(a)?.fanIn ?? 0) ||
+        a.localeCompare(b)
+    );
+    label = top ?? id;
+    labelBasis = "module";
+  } else {
+    label = topConcept.name;
+    labelBasis = "concept";
+  }
+  return { label, labelBasis };
+}
+
+function analyzeInternalResponsibilitiesEntriesJoin(
+  joinsHere: ResponsibilityJoin[],
+  joinsByReason: Record<ResponsibilityJoinReason, number>
+) {
+  for (const join of joinsHere) {
+    for (const reason of join.reasons) {
+      joinsByReason[reason] += 1;
+    }
+  }
+}
+
+function analyzeInternalResponsibilitiesEntriesModule(
+  draft: Draft,
+  rolesOf: Map<string, InternalModuleRole[]>,
+  roles: Partial<Record<InternalModuleRole, number>>
+) {
+  for (const module of draft.modules) {
+    for (const role of rolesOf.get(module) ?? []) {
+      roles[role] = (roles[role] ?? 0) + 1;
+    }
+  }
+}
+
+function analyzeInternalResponsibilitiesEntriesEntries(
+  pathRegions: string[],
+  draft: Draft,
+  primaryModulesByPathRegion: Map<string, number>
+): ResponsibilityPathAgreement {
+  let agreement: ResponsibilityPathAgreement;
+  if (pathRegions.length > 1) {
+    agreement = "spans-path-regions";
+  } else if (
+    draft.modules.length ===
+    (primaryModulesByPathRegion.get(pathRegions[0] ?? "") ?? 0)
+  ) {
+    agreement = "matches-path-region";
+  } else {
+    agreement = "within-path-region";
+  }
+  return agreement;
+}
+
+function analyzeInternalResponsibilitiesEdge2(
+  primaryEdges: InternalModuleEdge[],
+  regionOfModule: Map<string, string>,
+  relationshipDrafts: Map<string, RelationshipDraft>
+) {
+  for (const edge of primaryEdges) {
+    const from = regionOfModule.get(edge.source);
+    const to = regionOfModule.get(edge.target);
+    if (from === undefined || to === undefined || from === to) {
+      continue;
+    }
+    const key = `${from}\n${to}`;
+    const draft = relationshipDrafts.get(key) ?? { edges: [], from, to };
+    draft.edges.push(edge);
+    relationshipDrafts.set(key, draft);
+  }
+}
+
+function analyzeInternalResponsibilitiesFinding(
+  locality: SymbolLocalityReport,
+  declaredFindingsByModule: Map<string, SymbolLocalityFinding[]>,
+  consumedFindingsByModule: Map<string, SymbolLocalityFinding[]>
+) {
+  for (const finding of locality.symbols) {
+    const list = declaredFindingsByModule.get(finding.declaration.module) ?? [];
+    list.push(finding);
+    declaredFindingsByModule.set(finding.declaration.module, list);
+    for (const consumer of finding.consumerModules) {
+      const consumed = consumedFindingsByModule.get(consumer) ?? [];
+      consumed.push(finding);
+      consumedFindingsByModule.set(consumer, consumed);
+    }
+  }
+}
+
+function analyzeInternalResponsibilitiesFn(
+  report: PackageLocalReport,
+  relative: (rootRelative: string) => string,
+  statementsByModule: Map<string, number>,
+  seedById: Map<string, PackageLocalConceptSeed>,
+  conceptOwnedByModule: Map<string, number>,
+  ownersByModule: Map<string, Set<string>>
+) {
+  for (const fn of report.localComplexity.functions) {
+    const module = relative(fn.file);
+    statementsByModule.set(
+      module,
+      (statementsByModule.get(module) ?? 0) + fn.metrics.statements
+    );
+    if (fn.ownerSymbolId !== undefined && seedById.has(fn.ownerSymbolId)) {
+      conceptOwnedByModule.set(
+        module,
+        (conceptOwnedByModule.get(module) ?? 0) + fn.metrics.statements
+      );
+      const owners = ownersByModule.get(module) ?? new Set<string>();
+      owners.add(fn.ownerSymbolId);
+      ownersByModule.set(module, owners);
+    }
+  }
+}
+
+function analyzeInternalResponsibilitiesEntry(
+  report: PackageLocalReport,
+  relative: (rootRelative: string) => string,
+  primary: Set<string>,
+  seedModule: (conceptId: string) => string | undefined,
+  participantsByConcept: Map<string, Participation[]>,
+  participationByModule: Map<string, Set<string>>
+) {
+  for (const entry of report.conceptParticipation) {
+    const module = relative(entry.module);
+    if (!primary.has(module) || module === seedModule(entry.conceptId)) {
+      continue;
+    }
+    const list = participantsByConcept.get(entry.conceptId) ?? [];
+    list.push({
+      kinds: Object.keys(
+        entry.relationships
+      ).sort() as ConceptRelationshipKind[],
+      module,
+    });
+    participantsByConcept.set(entry.conceptId, list);
+    const set = participationByModule.get(module) ?? new Set<string>();
+    set.add(entry.conceptId);
+    participationByModule.set(module, set);
+  }
+}
+
+function analyzeInternalResponsibilitiesAmbiguity(
+  unresolved: ResponsibilityAmbiguity[],
+  renameGroup: (group: string) => string
+) {
+  for (const ambiguity of unresolved) {
+    for (const candidate of ambiguity.candidates) {
+      candidate.region = renameGroup(candidate.region);
+    }
+  }
+}
+
+function analyzeInternalResponsibilitiesDraft(
+  drafts: Draft[],
+  idByGroup: Map<string, string>,
+  regionOfModule: Map<string, string>
+) {
+  for (const draft of drafts) {
+    const id = idByGroup.get(draft.group) ?? draft.group;
+    for (const module of draft.modules) {
+      regionOfModule.set(module, id);
+    }
+  }
+}
+
+function analyzeInternalResponsibilitiesModule(
+  primaryModules: string[],
+  unitOf: Map<string, string>,
+  units: ResponsibilityUnit[]
+) {
+  for (const module of primaryModules) {
+    if (unitOf.has(module)) {
+      continue;
+    }
+    const id = `module:${module}`;
+    units.push({ id, kind: "module", modules: [module] });
+    unitOf.set(module, id);
+  }
+}
+
+function analyzeInternalResponsibilitiesCycle(
+  topology: InternalPackageTopology,
+  units: ResponsibilityUnit[],
+  unitOf: Map<string, string>
+) {
+  for (const cycle of topology.cycles) {
+    const id = `cycle:${cycle.id}`;
+    const modules = [...cycle.modules].sort((a, b) => a.localeCompare(b));
+    units.push({ cycle: cycle.id, id, kind: "cycle", modules });
+    for (const module of modules) {
+      unitOf.set(module, id);
+    }
+  }
+}
+
+function analyzeInternalResponsibilitiesEdge(
+  primaryEdges: InternalModuleEdge[],
+  isConnector: (module: string) => boolean,
+  unitOf: Map<string, string>,
+  localizedFinding: (
+    symbolId: string | undefined
+  ) => SymbolLocalityFinding | undefined,
+  evidenceFor: (a: string, b: string) => PairEvidence,
+  sameDirectoryBelowRoot: (a: string, b: string) => boolean
+) {
+  for (const edge of primaryEdges) {
+    if (isConnector(edge.source)) {
+      continue;
+    }
+    const sourceUnit = unitOf.get(edge.source);
+    if (sourceUnit === undefined) {
+      continue;
+    }
+    const touched = new Set<string>();
+    analyzeInternalResponsibilitiesEdgeSymbol(
+      edge,
+      localizedFinding,
+      unitOf,
+      sourceUnit,
+      isConnector,
+      evidenceFor,
+      touched,
+      sameDirectoryBelowRoot
+    );
+  }
+}
+
+function analyzeInternalResponsibilitiesEdgeSymbol(
+  edge: InternalModuleEdge,
+  localizedFinding: (
+    symbolId: string | undefined
+  ) => SymbolLocalityFinding | undefined,
+  unitOf: Map<string, string>,
+  sourceUnit: string,
+  isConnector: (module: string) => boolean,
+  evidenceFor: (a: string, b: string) => PairEvidence,
+  touched: Set<string>,
+  sameDirectoryBelowRoot: (a: string, b: string) => boolean
+) {
+  for (const symbol of edge.symbols) {
+    const finding = localizedFinding(symbol.symbolId);
+    if (finding === undefined) {
+      continue;
+    }
+    const partner =
+      symbol.mediated && symbol.declarationModule !== undefined
+        ? symbol.declarationModule
+        : edge.target;
+    const partnerUnit = unitOf.get(partner);
+    if (
+      partnerUnit === undefined ||
+      partnerUnit === sourceUnit ||
+      isConnector(partner)
+    ) {
+      continue;
+    }
+    const evidence = evidenceFor(sourceUnit, partnerUnit);
+    if (!touched.has(partnerUnit)) {
+      touched.add(partnerUnit);
+      evidence.edges += 1;
+    }
+    evidence.localized.add(finding.symbolId);
+    if (finding.conceptSeed) {
+      evidence.concepts.add(finding.symbolId);
+    }
+    if (sameDirectoryBelowRoot(edge.source, partner)) {
+      evidence.directorySymbols.add(finding.symbolId);
+    }
+  }
+}
+
+function analyzeInternalResponsibilitiesUnit(
+  units: ResponsibilityUnit[],
+  isConnector: (module: string) => boolean,
+  rolesOf: Map<string, InternalModuleRole[]>,
+  neighborGroups: (
+    module: string,
+    localizedOnly: boolean
+  ) => ResponsibilityCandidate[],
+  attachedByGroup: Map<string, string[]>,
+  statusOf: Map<string, "assigned" | "attached">,
+  membersByGroup: Map<string, string[]>,
+  unresolved: ResponsibilityAmbiguity[],
+  ambiguityReason: (
+    roles: InternalModuleRole[]
+  ) => ResponsibilityAmbiguityReason,
+  unresolvedModules: Set<string>
+) {
+  for (const unit of units) {
+    if (unit.kind !== "module") {
+      continue;
+    }
+    const module = unit.modules[0] ?? "";
+    if (!isConnector(module)) {
+      continue;
+    }
+    const roles = rolesOf.get(module) ?? [];
+    const localized = neighborGroups(module, true);
+    const candidates =
+      localized.length > 0 ? localized : neighborGroups(module, false);
+    if (candidates.length === 1) {
+      const group = candidates[0]?.region ?? unit.id;
+      const list = attachedByGroup.get(group) ?? [];
+      list.push(module);
+      attachedByGroup.set(group, list);
+      statusOf.set(module, "attached");
+    } else if (candidates.length === 0) {
+      membersByGroup.set(unit.id, [module]);
+      statusOf.set(module, "assigned");
+    } else {
+      unresolved.push({
+        candidates,
+        module,
+        reason: ambiguityReason(roles),
+        roles,
+      });
+      unresolvedModules.add(module);
+    }
+  }
+}
+
+function collectEntries(
+  localizedNeighbors: Map<
+    string,
+    Map<string, { edges: number; symbols: Set<string>; concept: boolean }>
+  >,
+  module: string,
+  regionOfModule: Map<string, string>,
+  region: string | undefined,
+  affinityTallies: Map<string, ResponsibilityAffinity>
+) {
+  for (const [partner, entry] of localizedNeighbors.get(module) ?? []) {
+    if (entry.symbols.size === 0) {
+      continue;
+    }
+    const partnerRegion = regionOfModule.get(partner);
+    if (partnerRegion === undefined || partnerRegion === region) {
+      continue;
+    }
+    const affinity = affinityTallies.get(partnerRegion) ?? {
+      edges: 0,
+      kinds: [],
+      region: partnerRegion,
+    };
+    affinity.edges += entry.edges;
+    if (!affinity.kinds.includes("dependency")) {
+      affinity.kinds.push("dependency");
+    }
+    if (entry.concept && !affinity.kinds.includes("concept")) {
+      affinity.kinds.push("concept");
+    }
+    affinityTallies.set(partnerRegion, affinity);
+  }
+}
+
 export function getResponsibilityRegion(
   report: InternalResponsibilityReport,
   id: string
@@ -1313,4 +1710,19 @@ export function getResponsibilityRelationship(
   return report.relationships.find(
     (relationship) => relationship.from === from && relationship.to === to
   );
+}
+interface RelationshipDraft {
+  edges: InternalModuleEdge[];
+  from: string;
+  to: string;
+}
+interface Participation {
+  kinds: ConceptRelationshipKind[];
+  module: string;
+}
+interface Draft {
+  attached: string[];
+  group: string;
+  modules: string[];
+  units: string[];
 }

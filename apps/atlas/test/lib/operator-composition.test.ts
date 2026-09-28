@@ -30,6 +30,12 @@ import { createWorkspaceProjectionContext } from "../../src/lib/workspace-projec
 import type { Spec } from "./helpers/workspace-builder";
 import { workspace } from "./helpers/workspace-builder";
 
+const expectedTextPattern = /\.ts:\d+/;
+const expectedTextPattern2 = /should |recommend|optimi[sz]/;
+const forbiddenPattern =
+  /^(apply|execute|write|patch|filesToMove|importEdits|score|priority|rank|effort|optimal|line|column|file|replacement|ast|edit|edits|selected|selection)$/i;
+const expectedTextPattern3 = /^composition:[0-9a-f]{16}$/;
+
 const A = "packages/core/src/a.ts#A";
 const B = "packages/store/src/b.ts#B";
 const IFACE = "packages/core/src/iface.ts#Iface";
@@ -596,7 +602,7 @@ describe("conflicts", () => {
     if (relocate === undefined) {
       throw new Error("no relocate action");
     }
-    const effect = relocate.expectedEffects[0];
+    const [effect] = relocate.expectedEffects;
     if (effect === undefined) {
       throw new Error("no effect");
     }
@@ -743,8 +749,8 @@ describe("status, identity, serialization", () => {
     );
     const later = context(
       spec({
-        concepts: spec().concepts.map((c) =>
-          c.id === A ? { ...c, package: "@c/store" } : c
+        concepts: spec().concepts.map((continent) =>
+          continent.id === A ? { ...continent, package: "@c/store" } : continent
         ),
       })
     );
@@ -830,7 +836,7 @@ describe("status, identity, serialization", () => {
       ctx
     );
     expect(JSON.stringify(two)).toBe(JSON.stringify(one));
-    expect(one.id).toMatch(/^composition:[0-9a-f]{16}$/);
+    expect(one.id).toMatch(expectedTextPattern3);
     const moved = composeArchitecturalOperators(
       ops.map((o, i) =>
         i === 1
@@ -906,14 +912,13 @@ describe("status, identity, serialization", () => {
     for (const composition of built) {
       walk(composition);
     }
-    const forbidden =
-      /^(apply|execute|write|patch|filesToMove|importEdits|score|priority|rank|effort|optimal|line|column|file|replacement|ast|edit|edits|selected|selection)$/i;
+    const forbidden = forbiddenPattern;
     expect([...keys].filter((key) => forbidden.test(key))).toEqual([]);
     for (const composition of built) {
       const text = renderOperatorComposition(composition);
       expect(text).toContain("OPERATOR COMPOSITION");
-      expect(text).not.toMatch(/should |recommend|optimi[sz]/);
-      expect(text).not.toMatch(/\.ts:\d+/);
+      expect(text).not.toMatch(expectedTextPattern2);
+      expect(text).not.toMatch(expectedTextPattern);
     }
   });
 });

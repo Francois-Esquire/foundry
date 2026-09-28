@@ -20,7 +20,7 @@ import { validateReductionPlan } from "./validate";
 // operator is named for the transformation it performs, the opportunity for
 // the structural finding.
 
-export type OperatorId = "internalize-export" | "fold-package";
+type OperatorId = "internalize-export" | "fold-package";
 
 export interface StructuralOperator {
   apply?: (

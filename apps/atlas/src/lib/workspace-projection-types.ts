@@ -76,7 +76,7 @@ import type {
  */
 export const WORKSPACE_PROJECTION_SCHEMA_VERSION = 1;
 
-export type WorkspaceProjectionScope =
+type WorkspaceProjectionScope =
   | "workspace"
   | "package"
   | "concept"
@@ -95,7 +95,7 @@ export type ProjectionEntityKind =
   | "coupling"
   | "overlap";
 
-export type ProjectionEvidenceSource =
+type ProjectionEvidenceSource =
   | "workspace"
   | "graph"
   | "concept"
@@ -121,7 +121,7 @@ export interface ProjectionCoverage {
 }
 
 /** Headline → support → detail → evidence disclosure for one statement. */
-export interface ProjectionInsight {
+interface ProjectionInsight {
   detail?: string[];
   evidenceRefs: ProjectionEvidenceRef[];
   headline: string;
@@ -169,7 +169,7 @@ export interface WorkspaceProjectionLookup {
   seamIds: Set<string>;
 }
 
-export type WorkspacePatternFamily =
+type WorkspacePatternFamily =
   | "package-role"
   | "package-pair"
   | "boundary"
@@ -207,7 +207,7 @@ export interface WorkspaceProjectionIndex {
 // ---------------------------------------------------------------------------
 // OVERVIEW
 
-export interface ProjectionSummary {
+interface ProjectionSummary {
   count: number;
   entityId: string;
   entityKind: ProjectionEntityKind;
@@ -215,7 +215,7 @@ export interface ProjectionSummary {
   strength?: WorkspacePatternEvidenceStrength;
 }
 
-export interface WorkspaceReviewTotals {
+interface WorkspaceReviewTotals {
   credibleAlternatives: number;
   dominatedBaselines: number;
   insufficientEvidence: number;
@@ -298,7 +298,7 @@ export interface ConceptDirectionProjection {
   to: string;
 }
 
-export interface BoundarySummaryProjection {
+interface BoundarySummaryProjection {
   boundaryId: string;
   conceptCount: number;
   direction: "outgoing" | "incoming";
@@ -453,7 +453,7 @@ export interface WorkspaceConceptSummaryProjection {
   shapes: WorkspaceConceptShape[];
 }
 
-export interface ConceptParticipationProjection {
+interface ConceptParticipationProjection {
   contractBehaviors: number;
   conversionBehaviors: number;
   conversions: number;
@@ -469,7 +469,7 @@ export interface ConceptParticipationProjection {
   testBehaviors: number;
 }
 
-export interface ConceptEdgeProjection {
+interface ConceptEdgeProjection {
   alternativeRoutes: number;
   from: string;
   fromDeclared: boolean;
@@ -823,7 +823,7 @@ export type WorkspaceGraphProjectionEdge =
   | WorkspaceDirectionEdgeProjection
   | WorkspaceReviewEdgeProjection;
 
-export interface WorkspaceGraphProjectionGroup {
+interface WorkspaceGraphProjectionGroup {
   id: string;
   kind: "layer" | "component";
   members: string[];
@@ -892,15 +892,15 @@ export interface WorkspaceConceptGraphProjection {
 // ---------------------------------------------------------------------------
 // MATRIX
 
-export type WorkspaceMatrixKind =
+type WorkspaceMatrixKind =
   | "package-concept-roles"
   | "package-direction"
   | "boundary-concept-load"
   | "review";
 
-export type PackageDirectionMetric = ConceptDirectionRole;
+type PackageDirectionMetric = ConceptDirectionRole;
 
-export type BoundaryLoadMetric =
+type BoundaryLoadMetric =
   | "concepts"
   | "importSites"
   | "moduleEdges"
@@ -911,7 +911,7 @@ export type BoundaryLoadMetric =
   | "semanticUse"
   | "conversion";
 
-export type ReviewMatrixMetric =
+type ReviewMatrixMetric =
   | "reviewed"
   | "credibleAlternatives"
   | "dominatedBaselines"
@@ -951,7 +951,7 @@ export interface WorkspaceMatrixProjection {
 // ---------------------------------------------------------------------------
 // RANKED LISTS
 
-export type PackageRankMetric =
+type PackageRankMetric =
   | "declaredConcepts"
   | "semanticCenters"
   | "implementationCenters"
@@ -966,7 +966,7 @@ export type PackageRankMetric =
   | "dependentReach"
   | "dependencyReach";
 
-export type BoundaryRankMetric =
+type BoundaryRankMetric =
   | "concepts"
   | "importSites"
   | "moduleEdges"
@@ -975,7 +975,7 @@ export type BoundaryRankMetric =
   | "implementationConcepts"
   | "conceptsPerImportSite";
 
-export type ConceptRankMetric =
+type ConceptRankMetric =
   | "packages"
   | "boundaries"
   | "responsibilityLayerSpan"

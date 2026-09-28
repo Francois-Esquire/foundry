@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import * as fs from "node:fs";
-import * as path from "node:path";
+import { readdirSync, readFileSync } from "node:fs";
+import { join, relative } from "node:path";
 import { operatorFingerprint } from "../../../src/lib/architectural-operator";
 import type { ArchitecturalOperator } from "../../../src/lib/operator-types";
 import { OPERATOR_SCHEMA_VERSION } from "../../../src/lib/operator-types";
@@ -10,7 +10,7 @@ import type { Spec } from "./workspace-builder";
 // workspace facts that describe test/fixtures/planning, a manual internalize
 // operator, and a tree hash for the no-write guarantee.
 
-export const planningRoot = path.join(
+export const planningRoot = join(
   import.meta.dirname,
   "..",
   "fixtures",
@@ -165,14 +165,14 @@ export function openOperator(
 export function hashTree(dir: string): Map<string, string> {
   const hashes = new Map<string, string>();
   const walk = (current: string) => {
-    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
-      const full = path.join(current, entry.name);
+    for (const entry of readdirSync(current, { withFileTypes: true })) {
+      const full = join(current, entry.name);
       if (entry.isDirectory()) {
         walk(full);
       } else {
         hashes.set(
-          path.relative(dir, full),
-          createHash("sha256").update(fs.readFileSync(full)).digest("hex")
+          relative(dir, full),
+          createHash("sha256").update(readFileSync(full)).digest("hex")
         );
       }
     }

@@ -13,7 +13,7 @@ import type {
 
 export const PACKAGE_LOCAL_REPORT_SCHEMA_VERSION = 6;
 
-export interface PackageLocalIdentity {
+interface PackageLocalIdentity {
   boundaryType: "package" | "directory";
   /** Declared entrypoints resolved to owned TypeScript sources. */
   entrypoints: { entrypoint: string; file: string }[];
@@ -25,7 +25,7 @@ export interface PackageLocalIdentity {
   path: string;
 }
 
-export interface PackageLocalSourceFile {
+interface PackageLocalSourceFile {
   kind: FileKind;
   /** Repository-relative posix path. */
   path: string;
@@ -42,7 +42,7 @@ export interface PackageLocalSymbol {
   startLine: number;
 }
 
-export type PackageLocalImportKind =
+type PackageLocalImportKind =
   | "named"
   | "type"
   | "default"
@@ -89,7 +89,7 @@ export interface PackageLocalImport {
   uses?: PackageLocalBindingUses;
 }
 
-export interface PackageLocalNamespaceMember {
+interface PackageLocalNamespaceMember {
   name: string;
   occurrences: number;
 }

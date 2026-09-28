@@ -47,6 +47,8 @@ function subjectLine(action: ComposedStructuralAction): string {
       return `${subject.consumer} → ${subject.provider}${subject.conceptId === undefined ? "" : ` for ${subject.conceptId}`}`;
     case "package":
       return subject.packageId;
+    default:
+      throw new Error("Unexpected subject.kind.");
   }
 }
 
@@ -129,12 +131,7 @@ export function renderOperatorComposition(
     ),
     "",
     "Conflicts",
-    ...(composition.conflicts.length === 0
-      ? ["  none"]
-      : composition.conflicts.map(
-          (c) =>
-            `  ${c.kind}: ${c.detail}${c.actions.length === 0 ? "" : ` ${c.actions.map(ref).join(" ")}`} (${c.operators.join(", ")})`
-        )),
+    ...resolveRenderOperatorComposition(composition, ref),
     ...section(
       "Preserve",
       composition.preservations.map(
@@ -187,4 +184,17 @@ export function renderOperatorComposition(
     );
   }
   return lines.join("\n");
+}
+
+function resolveRenderOperatorComposition(
+  composition: OperatorComposition,
+  ref: (id: string) => string
+): string[] {
+  if (composition.conflicts.length === 0) {
+    return ["  none"];
+  }
+  return composition.conflicts.map(
+    (c) =>
+      `  ${c.kind}: ${c.detail}${c.actions.length === 0 ? "" : ` ${c.actions.map(ref).join(" ")}`} (${c.operators.join(", ")})`
+  );
 }

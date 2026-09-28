@@ -17,6 +17,11 @@ import type {
   ScenarioImpactAnalysis,
 } from "../../src/lib/types";
 
+const expectedTextPattern = /counterfactual/;
+const expectedTextPattern2 = /churn will|coupling will disappear/;
+const expectedTextPattern3 = /no new module/;
+const expectedTextPattern4 = /re-?export(s|ed)? from/i;
+
 const A = "@t/a";
 const B = "@t/b";
 const C = "@t/c";
@@ -280,7 +285,7 @@ describe("semantic rehome", () => {
       (state) => state.from === C
     );
     expect(consumer?.outcome).toBe("uncertain");
-    expect(JSON.stringify(item)).not.toMatch(/re-?export(s|ed)? from/i);
+    expect(JSON.stringify(item)).not.toMatch(expectedTextPattern4);
   });
 
   it("adds the edge the old home would need to reach its contract", () => {
@@ -763,7 +768,8 @@ describe("representation and implementation", () => {
     );
     const { scenarios } = generateRecenteringScenarios(source.scenario);
     const formalize = scenarios.find(
-      (item) => item.kind === "formalize-representation-boundary"
+      (candidateItem) =>
+        candidateItem.kind === "formalize-representation-boundary"
     );
     if (formalize === undefined) {
       // Folded into the baseline: the code already matches the boundary.
@@ -776,7 +782,7 @@ describe("representation and implementation", () => {
     ]);
     expect(kinds(item)).toContain("representation-boundary-added");
     expect(item.impact.surface.surfaceCautions.join(" ")).toMatch(
-      /no new module/
+      expectedTextPattern3
     );
   });
 
@@ -875,7 +881,7 @@ describe("representation and implementation", () => {
     expect(item.impact.locality.current.sourcePackages).toEqual([B, C]);
     expect(item.impact.locality.predicted.sourcePackages).toEqual([A, C]);
     const adapter = item.impact.behavior.predictedByPackage.find(
-      (row) => row.package === C
+      (candidateRow) => candidateRow.package === C
     );
     expect(adapter).toMatchObject({ governing: 0, implementation: 1 });
     expect(item.impact.behavior.governingBehaviorRelocated).toBe(8);
@@ -909,9 +915,7 @@ describe("history", () => {
     expect(item.uncertainties).toContainEqual(
       expect.objectContaining({ kind: "historical-future-assumption" })
     );
-    expect(JSON.stringify(item)).not.toMatch(
-      /churn will|coupling will disappear/
-    );
+    expect(JSON.stringify(item)).not.toMatch(expectedTextPattern2);
   });
 
   it("records an affected hotspot without claiming complexity improves", () => {
@@ -945,7 +949,7 @@ describe("intent and evidence completeness", () => {
     });
     expect(kinds(item)).toContain("semantic-center-change");
     expect(kinds(item)).toContain("anchor-constraint");
-    expect(item.constraints[0]?.consequence).toMatch(/counterfactual/);
+    expect(item.constraints[0]?.consequence).toMatch(expectedTextPattern);
   });
 
   it("marks an anchored destination constrained, not incompatible", () => {

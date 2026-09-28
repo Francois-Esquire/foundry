@@ -15,6 +15,10 @@ import type {
 } from "./internal-rewiring-types";
 import { count, plural } from "./render/format";
 
+const wordsPattern = /([A-Z])/g;
+const variantPattern = /^(partial|full):/;
+const shortIdPattern = /^responsibility:/;
+
 // V13.5 CLI view of the architecture review. Disposition counts, dominance
 // and tradeoff frequencies, then one section per disposition with the
 // families themselves: every scenario with the dimensions it changes, raw
@@ -49,7 +53,7 @@ const DISPOSITION_LABELS: Record<FamilyReviewDisposition, string> = {
 };
 
 function shortId(id: string | undefined): string {
-  return id === undefined ? "—" : id.replace(/^responsibility:/, "");
+  return id === undefined ? "—" : id.replace(shortIdPattern, "");
 }
 
 function symbolName(id: string): string {
@@ -62,13 +66,13 @@ function label(scenario: InternalRewiringScenario | undefined): string {
     return "—";
   }
   const variant = scenario.rationale.facts
-    .map((f) => /^(partial|full):/.exec(f)?.[1])
+    .map((f) => variantPattern.exec(f)?.[1])
     .find((v) => v !== undefined);
   return `${KIND_LABELS[scenario.kind]}${variant === undefined ? "" : ` (${variant})`}`;
 }
 
 function subjectLines(family: ScenarioFamilyReview): string[] {
-  const subject = family.subject;
+  const { subject } = family;
   if (subject.kind === "symbol-group") {
     const ids = subject.symbolIds ?? [];
     const names = ids.slice(0, 4).map(symbolName).join(", ");
@@ -107,20 +111,24 @@ function measureText(m: ReviewMeasure): string {
     return `${count(m.after)} optional`;
   }
   if (m.name === "cycleRisk") {
-    return m.delta < 0
-      ? "leaves its cycle"
-      : m.delta > 0
-        ? "potential new cycle"
-        : "cycle unchanged";
+    if (m.delta < 0) {
+      return "leaves its cycle";
+    }
+    if (m.delta > 0) {
+      return "potential new cycle";
+    }
+    return "cycle unchanged";
   }
   if (m.name === "conventionMatch") {
-    return m.after === 2
-      ? "matches convention"
-      : m.after === 0
-        ? "differs from convention"
-        : "no decisive convention";
+    if (m.after === 2) {
+      return "matches convention";
+    }
+    if (m.after === 0) {
+      return "differs from convention";
+    }
+    return "no decisive convention";
   }
-  const words = m.name.replace(/([A-Z])/g, " $1").toLowerCase();
+  const words = m.name.replace(wordsPattern, " $1").toLowerCase();
   return m.before === m.after
     ? `${words} ${count(m.after)}`
     : `${words} ${count(m.before)} → ${count(m.after)}`;
@@ -159,28 +167,7 @@ function scenarioLines(
       `      proposed                   ${scenario.proposed.scope}${scenario.proposed.responsibility === undefined ? "" : ` ${shortId(scenario.proposed.responsibility)}`} · ${target}`
     );
   }
-  if (reviewed.status === "preservation" && scenario !== undefined) {
-    const c = scenario.current;
-    lines.push(
-      `      keeps                      ${[
-        c.scope === undefined ? undefined : `scope ${c.scope}`,
-        c.roles === undefined
-          ? undefined
-          : Object.entries(c.roles)
-              .map(([role, n]) => `${count(n)} ${role}`)
-              .join(", "),
-        c.consumerModules !== undefined &&
-        c.consumerResponsibilities !== undefined
-          ? `${plural(c.consumerModules, "consumer")} in ${plural(c.consumerResponsibilities.length, "responsibility")}`
-          : undefined,
-        c.compositionRoles === undefined
-          ? undefined
-          : `composition: ${c.compositionRoles.join(", ")}`,
-      ]
-        .filter((part) => part !== undefined)
-        .join(" · ")}`
-    );
-  }
+  scenarioLinesEntries(reviewed, scenario, lines);
   for (const d of reviewed.effects) {
     const line = dimensionLine(d);
     if (line !== undefined) {
@@ -203,6 +190,35 @@ function scenarioLines(
     );
   }
   return lines;
+}
+
+function scenarioLinesEntries(
+  reviewed: ReviewedRewiringScenario,
+  scenario: InternalRewiringScenario | undefined,
+  lines: string[]
+) {
+  if (reviewed.status === "preservation" && scenario !== undefined) {
+    const c = scenario.current;
+    lines.push(
+      `      keeps                      ${[
+        c.scope === undefined ? undefined : `scope ${c.scope}`,
+        c.roles === undefined
+          ? undefined
+          : Object.entries(c.roles)
+              .map(([role, n]) => `${count(n)} ${role}`)
+              .join(", "),
+        c.consumerModules !== undefined &&
+        c.consumerResponsibilities !== undefined
+          ? `${plural(c.consumerModules, "consumer")} in ${plural(c.consumerResponsibilities.length, "responsibility")}`
+          : undefined,
+        c.compositionRoles === undefined
+          ? undefined
+          : `composition: ${c.compositionRoles.join(", ")}`,
+      ]
+        .filter((part) => part !== undefined)
+        .join(" · ")}`
+    );
+  }
 }
 
 function familyLines(
@@ -245,7 +261,12 @@ export function renderPackageArchitectureReview(
   rewiring: InternalRewiringReport,
   config: AnalysisConfig = ANALYSIS_CONFIG
 ): string {
-  const byId = new Map(rewiring.scenarios.map((s) => [s.id, s]));
+  const byId = new Map(
+    rewiring.scenarios.map((scenarioReview2) => [
+      scenarioReview2.id,
+      scenarioReview2,
+    ])
+  );
   const { summary } = review;
   const limits = config.internalReview.report;
   const lines: string[] = [];
@@ -291,8 +312,8 @@ export function renderPackageArchitectureReview(
   lines.push(
     `Closure      ${Object.entries(summary.closureByStatus)
       .map(
-        ([size, statuses]) =>
-          `${size}: ${
+        ([currentSize, statuses]) =>
+          `${currentSize}: ${
             Object.entries(statuses)
               .map(([k, n]) => `${k} ${count(n)}`)
               .join(", ") || "—"
@@ -362,7 +383,7 @@ export function renderPackageArchitectureReview(
   }
 
   const complex = review.subjects
-    .filter((s) => s.complex)
+    .filter((scenarioReview) => scenarioReview.complex)
     .sort(
       (a, b) =>
         b.complexity.nondominatedAlternatives -
@@ -373,12 +394,15 @@ export function renderPackageArchitectureReview(
   if (complex.length > 0) {
     lines.push("");
     lines.push(`COMPLEX REVIEW SUBJECTS (${count(complex.length)})`);
-    for (const subject of complex.slice(0, limits.topSubjects)) {
-      const c = subject.complexity;
-      lines.push(
-        `  ${subject.subject.key} · ${count(c.families)} ${c.families === 1 ? "family" : "families"} · ${count(c.nondominatedAlternatives)} of ${plural(c.alternatives, "alternative")} nondominated · ${plural(c.changingDimensions, "dimension")} changing${c.largestClosure === undefined ? "" : ` · largest closure ${c.largestClosure}`}${c.scopeGroups === undefined ? "" : ` · ${plural(c.scopeGroups, "scope group")}`}`
-      );
-    }
+    const visitSubject = () => {
+      for (const subject of complex.slice(0, limits.topSubjects)) {
+        const c = subject.complexity;
+        lines.push(
+          `  ${subject.subject.key} · ${count(c.families)} ${c.families === 1 ? "family" : "families"} · ${count(c.nondominatedAlternatives)} of ${plural(c.alternatives, "alternative")} nondominated · ${plural(c.changingDimensions, "dimension")} changing${c.largestClosure === undefined ? "" : ` · largest closure ${c.largestClosure}`}${c.scopeGroups === undefined ? "" : ` · ${plural(c.scopeGroups, "scope group")}`}`
+        );
+      }
+    };
+    visitSubject();
   }
 
   const insufficient = summary.insufficientEvidenceReasons.slice(0, 5);

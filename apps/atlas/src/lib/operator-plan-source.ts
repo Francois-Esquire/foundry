@@ -1,13 +1,15 @@
-import * as path from "node:path";
+import { posix } from "node:path";
 import type {
   ExportDeclaration,
+  Identifier,
   ImportDeclaration,
+  ImportSpecifier,
+  Symbol as MorphSymbol,
   Project,
   SourceFile,
 } from "ts-morph";
-
 import { Node, SyntaxKind } from "ts-morph";
-import { classifyFile } from "./churn";
+import { classifyFile } from "./file-kind";
 import type {
   PlannedClosureDependency,
   PlannedDependencyClass,
@@ -27,13 +29,15 @@ import {
 import type { EntrypointContext, ResolvedRoute } from "./plan";
 import { buildEntrypointContexts, resolveRoute } from "./plan";
 import { topLevelDeclarations } from "./symbols";
-import type { ChurnFileKind } from "./types";
+import type { ChurnFileKind, FileKind } from "./types";
+
+const targetPattern = /\.tsx?$/;
 
 // Source queries the planner asks of the shared project: who imports a
 // declaration, what a declaration needs, how a package exposes it. Every
 // function reads the AST and returns plain data; none manipulates it.
 
-export type ImportSiteForm = "import" | "reexport" | "star-reexport";
+type ImportSiteForm = "import" | "reexport" | "star-reexport";
 
 /** One import or re-export declaration that binds a symbol from another module. */
 export interface ImportSite {
@@ -157,112 +161,7 @@ export function importSitesOf(
     if (names.length === 0) {
       continue;
     }
-    for (const { file, declaration } of entries) {
-      if (file === symbol.sourceFile) {
-        continue;
-      }
-      const rel = relativeFile(context, file);
-      const specifier = declaration.getModuleSpecifierValue() ?? "";
-      const base = {
-        file: rel,
-        ...(packageOfFile(context, rel) !== undefined && {
-          package: packageOfFile(context, rel),
-        }),
-        fileKind: classifyFile(rel),
-        resolvedFile: relativeFile(context, targetFile),
-        specifier,
-        viaPackage: isPackageSpecifier(specifier),
-      };
-      if (Node.isImportDeclaration(declaration)) {
-        const named = declaration.getNamedImports();
-        const bound = named
-          .filter((n) => names.includes(n.getName()))
-          .map((n) => n.getName())
-          .sort((a, b) => a.localeCompare(b));
-        const others = named
-          .filter((n) => !names.includes(n.getName()))
-          .map((n) => n.getName())
-          .sort((a, b) => a.localeCompare(b));
-        if (bound.length > 0) {
-          const typeOnly =
-            declaration.isTypeOnly() ||
-            named
-              .filter((n) => names.includes(n.getName()))
-              .every((n) => n.isTypeOnly());
-          sites.push({
-            ...base,
-            form: "import",
-            kind: typeOnly ? "type" : "named",
-            names: bound,
-            otherNames: others,
-            typeOnly,
-          });
-        }
-        if (
-          declaration.getDefaultImport() !== undefined &&
-          names.includes("default")
-        ) {
-          sites.push({
-            ...base,
-            form: "import",
-            kind: "default",
-            names: ["default"],
-            otherNames: others,
-            typeOnly: declaration.isTypeOnly(),
-          });
-        }
-        const namespace = declaration.getNamespaceImport();
-        if (namespace !== undefined) {
-          const used = namespaceUses(file, namespace.getText(), names);
-          if (used.length > 0) {
-            sites.push({
-              ...base,
-              form: "import",
-              kind: "namespace",
-              names: used,
-              otherNames: [],
-              typeOnly: declaration.isTypeOnly(),
-            });
-          }
-        }
-      } else {
-        const named = declaration.getNamedExports();
-        if (named.length === 0) {
-          sites.push({
-            ...base,
-            form: "star-reexport",
-            kind: "named",
-            names,
-            otherNames: [],
-            typeOnly: declaration.isTypeOnly(),
-          });
-          continue;
-        }
-        const bound = named
-          .filter((n) => names.includes(n.getName()))
-          .map((n) => n.getName())
-          .sort((a, b) => a.localeCompare(b));
-        if (bound.length === 0) {
-          continue;
-        }
-        const typeOnly =
-          declaration.isTypeOnly() ||
-          named
-            .filter((n) => names.includes(n.getName()))
-            .every((n) => n.isTypeOnly());
-        sites.push({
-          ...base,
-          form: "reexport",
-          kind: typeOnly ? "type" : "named",
-          names: bound,
-          otherNames: named
-            .filter((n) => !names.includes(n.getName()))
-            .map((n) => n.getName())
-            .sort((a, b) => a.localeCompare(b)),
-          typeOnly,
-        });
-      }
-    }
+    importSitesOfEntries(entries, symbol, context, targetFile, names, sites);
   }
   return sites.sort(
     (a, b) =>
@@ -270,6 +169,194 @@ export function importSitesOf(
       a.specifier.localeCompare(b.specifier) ||
       a.kind.localeCompare(b.kind)
   );
+}
+
+function importSitesOfEntries(
+  entries: {
+    file: SourceFile;
+    declaration: ImportDeclaration | ExportDeclaration;
+  }[],
+  symbol: LocatedSymbol,
+  context: OperatorPlanningContext,
+  targetFile: SourceFile,
+  names: string[],
+  sites: ImportSite[]
+) {
+  for (const { file, declaration } of entries) {
+    if (file === symbol.sourceFile) {
+      continue;
+    }
+    const rel = relativeFile(context, file);
+    const specifier = declaration.getModuleSpecifierValue() ?? "";
+    const base = {
+      file: rel,
+      ...(packageOfFile(context, rel) !== undefined && {
+        package: packageOfFile(context, rel),
+      }),
+      fileKind: classifyFile(rel),
+      resolvedFile: relativeFile(context, targetFile),
+      specifier,
+      viaPackage: isPackageSpecifier(specifier),
+    };
+    if (Node.isImportDeclaration(declaration)) {
+      importSitesOfEntriesEntries3(declaration, names, sites, base, file);
+    } else {
+      const named = declaration.getNamedExports();
+      if (named.length === 0) {
+        sites.push({
+          ...base,
+          form: "star-reexport",
+          kind: "named",
+          names,
+          otherNames: [],
+          typeOnly: declaration.isTypeOnly(),
+        });
+        continue;
+      }
+      const bound = named
+        .filter((n) => names.includes(n.getName()))
+        .map((n) => n.getName())
+        .sort((a, b) => a.localeCompare(b));
+      if (bound.length === 0) {
+        continue;
+      }
+      const typeOnly =
+        declaration.isTypeOnly() ||
+        named
+          .filter((n) => names.includes(n.getName()))
+          .every((n) => n.isTypeOnly());
+      sites.push({
+        ...base,
+        form: "reexport",
+        kind: typeOnly ? "type" : "named",
+        names: bound,
+        otherNames: named
+          .filter((n) => !names.includes(n.getName()))
+          .map((n) => n.getName())
+          .sort((a, b) => a.localeCompare(b)),
+        typeOnly,
+      });
+    }
+  }
+}
+
+function importSitesOfEntriesEntries3(
+  declaration: ImportDeclaration,
+  names: string[],
+  sites: ImportSite[],
+  base: {
+    fileKind: FileKind;
+    resolvedFile: string;
+    specifier: string;
+    viaPackage: boolean;
+    package?: string | undefined;
+    file: string;
+  },
+  file: SourceFile
+) {
+  const named = declaration.getNamedImports();
+  const bound = named
+    .filter((n) => names.includes(n.getName()))
+    .map((n) => n.getName())
+    .sort((a, b) => a.localeCompare(b));
+  const others = named
+    .filter((n) => !names.includes(n.getName()))
+    .map((n) => n.getName())
+    .sort((a, b) => a.localeCompare(b));
+  importSitesOfEntriesEntries(
+    bound,
+    declaration,
+    named,
+    names,
+    sites,
+    base,
+    others
+  );
+  if (
+    declaration.getDefaultImport() !== undefined &&
+    names.includes("default")
+  ) {
+    sites.push({
+      ...base,
+      form: "import",
+      kind: "default",
+      names: ["default"],
+      otherNames: others,
+      typeOnly: declaration.isTypeOnly(),
+    });
+  }
+  const namespace = declaration.getNamespaceImport();
+  importSitesOfEntriesEntries2(
+    namespace,
+    file,
+    names,
+    sites,
+    base,
+    declaration
+  );
+}
+
+function importSitesOfEntriesEntries2(
+  namespace: Identifier | undefined,
+  file: SourceFile,
+  names: string[],
+  sites: ImportSite[],
+  base: {
+    fileKind: FileKind;
+    resolvedFile: string;
+    specifier: string;
+    viaPackage: boolean;
+    package?: string | undefined;
+    file: string;
+  },
+  declaration: ImportDeclaration
+) {
+  if (namespace !== undefined) {
+    const used = namespaceUses(file, namespace.getText(), names);
+    if (used.length > 0) {
+      sites.push({
+        ...base,
+        form: "import",
+        kind: "namespace",
+        names: used,
+        otherNames: [],
+        typeOnly: declaration.isTypeOnly(),
+      });
+    }
+  }
+}
+
+function importSitesOfEntriesEntries(
+  bound: string[],
+  declaration: ImportDeclaration,
+  named: ImportSpecifier[],
+  names: string[],
+  sites: ImportSite[],
+  base: {
+    fileKind: FileKind;
+    resolvedFile: string;
+    specifier: string;
+    viaPackage: boolean;
+    package?: string | undefined;
+    file: string;
+  },
+  others: string[]
+) {
+  if (bound.length > 0) {
+    const typeOnly =
+      declaration.isTypeOnly() ||
+      named
+        .filter((n) => names.includes(n.getName()))
+        .every((n) => n.isTypeOnly());
+    sites.push({
+      ...base,
+      form: "import",
+      kind: typeOnly ? "type" : "named",
+      names: bound,
+      otherNames: others,
+      typeOnly,
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -303,7 +390,7 @@ function isTypeDeclaration(node: Node): boolean {
 }
 
 /** The top-level declaration of `file` that contains `node`, or undefined for nested and foreign nodes. */
-export function topLevelOwner(file: SourceFile, node: Node): Node | undefined {
+function topLevelOwner(file: SourceFile, node: Node): Node | undefined {
   if (node.getSourceFile() !== file) {
     return undefined;
   }
@@ -431,98 +518,16 @@ export function movementClosure(
     }
   };
 
-  while (queue.length > 0) {
-    const current = queue.shift();
-    if (current === undefined) {
-      break;
-    }
-    const scanned = scanRoot(current);
-    for (const identifier of scanned.getDescendantsOfKind(
-      SyntaxKind.Identifier
-    )) {
-      const symbol = identifier.getSymbol();
-      if (symbol === undefined) {
-        continue;
-      }
-      const binding = importBindingOf(identifier);
-      const typePosition = isTypePosition(identifier, scanned);
-      if (binding !== undefined) {
-        const target = binding.declaration.getModuleSpecifierSourceFile();
-        const specifier = binding.declaration.getModuleSpecifierValue();
-        const typeOnly = binding.typeOnly || typePosition;
-        if (
-          target === undefined ||
-          target.isInNodeModules() ||
-          target.isDeclarationFile()
-        ) {
-          noteExternal(
-            specifier,
-            identifier.getText(),
-            "external",
-            undefined,
-            typeOnly
-          );
-          continue;
-        }
-        const targetRel = relativeFile(context, target);
-        const resolved = symbol.getAliasedSymbol() ?? symbol;
-        const declaration = resolved.getDeclarations()[0];
-        const declarationFile =
-          declaration === undefined
-            ? targetRel
-            : relativeFile(context, declaration.getSourceFile());
-        const pkg = packageOfFile(context, declarationFile);
-        const name =
-          declaration !== undefined && Node.hasName(declaration)
-            ? declaration.getName()
-            : identifier.getText();
-        const cls: PlannedDependencyClass =
-          pkg === undefined
-            ? "external"
-            : pkg === input.sourcePackage
-              ? "import-from-source-package"
-              : pkg === input.targetPackage
-                ? "import-from-target-package"
-                : "import-from-third-package";
-        noteExternal(
-          `${declarationFile}#${name}`,
-          name,
-          cls,
-          pkg,
-          typeOnly ||
-            (declaration !== undefined && isTypeDeclaration(declaration))
-        );
-        continue;
-      }
-      for (const declaration of symbol.getDeclarations()) {
-        if (declaration.getSourceFile() !== file) {
-          continue;
-        }
-        const owner = topLevelOwner(file, declaration);
-        if (owner === undefined || moving.has(owner)) {
-          continue;
-        }
-        if (
-          scanned.containsRange(declaration.getStart(), declaration.getEnd())
-        ) {
-          continue;
-        }
-        if (exportedNamesOf(file, owner).length > 0) {
-          noteExternal(
-            `${fileRel}#${nameOf(owner)}`,
-            nameOf(owner),
-            "import-from-source-package",
-            input.sourcePackage,
-            typePosition || isTypeDeclaration(owner)
-          );
-          continue;
-        }
-        moving.add(owner);
-        internal.push(owner);
-        queue.push(owner);
-      }
-    }
-  }
+  movementClosureEntries(
+    queue,
+    noteExternal,
+    context,
+    input,
+    file,
+    moving,
+    fileRel,
+    internal
+  );
 
   const shared: string[] = [];
   const remaining = topLevelDeclarations(file).filter((d) => !moving.has(d));
@@ -558,6 +563,188 @@ export function movementClosure(
     },
     internalNodes: internal,
   };
+}
+
+function movementClosureEntries(
+  queue: Node[],
+  noteExternal: (
+    id: string,
+    name: string,
+    cls: PlannedDependencyClass,
+    pkg: string | undefined,
+    typeOnly: boolean
+  ) => void,
+  context: OperatorPlanningContext,
+  input: MovementClosureInput,
+  file: SourceFile,
+  moving: Set<Node>,
+  fileRel: string,
+  internal: Node[]
+) {
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (current === undefined) {
+      break;
+    }
+    const scanned = scanRoot(current);
+    movementClosureEntriesIdentifier(
+      scanned,
+      noteExternal,
+      context,
+      input,
+      file,
+      moving,
+      fileRel,
+      internal,
+      queue
+    );
+  }
+}
+
+function movementClosureEntriesIdentifier(
+  scanned: Node,
+  noteExternal: (
+    id: string,
+    name: string,
+    cls: PlannedDependencyClass,
+    pkg: string | undefined,
+    typeOnly: boolean
+  ) => void,
+  context: OperatorPlanningContext,
+  input: MovementClosureInput,
+  file: SourceFile,
+  moving: Set<Node>,
+  fileRel: string,
+  internal: Node[],
+  queue: Node[]
+) {
+  for (const identifier of scanned.getDescendantsOfKind(
+    SyntaxKind.Identifier
+  )) {
+    const symbol = identifier.getSymbol();
+    if (symbol === undefined) {
+      continue;
+    }
+    const binding = importBindingOf(identifier);
+    const typePosition = isTypePosition(identifier, scanned);
+    if (binding !== undefined) {
+      const target = binding.declaration.getModuleSpecifierSourceFile();
+      const specifier = binding.declaration.getModuleSpecifierValue();
+      const typeOnly = binding.typeOnly || typePosition;
+      if (
+        target === undefined ||
+        target.isInNodeModules() ||
+        target.isDeclarationFile()
+      ) {
+        noteExternal(
+          specifier,
+          identifier.getText(),
+          "external",
+          undefined,
+          typeOnly
+        );
+        continue;
+      }
+      const targetRel = relativeFile(context, target);
+      const resolved = symbol.getAliasedSymbol() ?? symbol;
+      const [declaration] = resolved.getDeclarations();
+      const declarationFile =
+        declaration === undefined
+          ? targetRel
+          : relativeFile(context, declaration.getSourceFile());
+      const pkg = packageOfFile(context, declarationFile);
+      const name =
+        declaration !== undefined && Node.hasName(declaration)
+          ? declaration.getName()
+          : identifier.getText();
+
+      const cls: PlannedDependencyClass =
+        movementClosureEntriesIdentifierEntries(pkg, input);
+      noteExternal(
+        `${declarationFile}#${name}`,
+        name,
+        cls,
+        pkg,
+        typeOnly ||
+          (declaration !== undefined && isTypeDeclaration(declaration))
+      );
+      continue;
+    }
+    movementClosureEntriesIdentifierDeclaration(
+      symbol,
+      file,
+      moving,
+      scanned,
+      noteExternal,
+      fileRel,
+      input,
+      typePosition,
+      internal,
+      queue
+    );
+  }
+}
+
+function movementClosureEntriesIdentifierEntries(
+  pkg: string | undefined,
+  input: MovementClosureInput
+): PlannedDependencyClass {
+  let cls: PlannedDependencyClass;
+  if (pkg === undefined) {
+    cls = "external";
+  } else if (pkg === input.sourcePackage) {
+    cls = "import-from-source-package";
+  } else if (pkg === input.targetPackage) {
+    cls = "import-from-target-package";
+  } else {
+    cls = "import-from-third-package";
+  }
+  return cls;
+}
+
+function movementClosureEntriesIdentifierDeclaration(
+  symbol: MorphSymbol,
+  file: SourceFile,
+  moving: Set<Node>,
+  scanned: Node,
+  noteExternal: (
+    id: string,
+    name: string,
+    cls: PlannedDependencyClass,
+    pkg: string | undefined,
+    typeOnly: boolean
+  ) => void,
+  fileRel: string,
+  input: MovementClosureInput,
+  typePosition: boolean,
+  internal: Node[],
+  queue: Node[]
+) {
+  for (const declaration of symbol.getDeclarations()) {
+    if (declaration.getSourceFile() !== file) {
+      continue;
+    }
+    const owner = topLevelOwner(file, declaration);
+    if (owner === undefined || moving.has(owner)) {
+      continue;
+    }
+    if (scanned.containsRange(declaration.getStart(), declaration.getEnd())) {
+      continue;
+    }
+    if (exportedNamesOf(file, owner).length > 0) {
+      noteExternal(
+        `${fileRel}#${nameOf(owner)}`,
+        nameOf(owner),
+        "import-from-source-package",
+        input.sourcePackage,
+        typePosition || isTypeDeclaration(owner)
+      );
+      continue;
+    }
+    moving.add(owner);
+    internal.push(owner);
+    queue.push(owner);
+  }
 }
 
 /** Top-level declarations of `file` that are neither roots nor closure internals. */
@@ -601,7 +788,7 @@ const entrypointCache = new WeakMap<
   { contexts: EntrypointContext[]; unresolved: string[] }
 >();
 
-export function entrypointContexts(
+function entrypointContexts(
   context: OperatorPlanningContext,
   pkg: OperatorPlanningPackage
 ): { contexts: EntrypointContext[]; unresolved: string[] } {
@@ -659,8 +846,8 @@ export function exposureRoutes(
 
 /** Relative import specifier from `fromFile` to `toFile`, both root-relative, extension dropped. */
 export function relativeSpecifier(fromFile: string, toFile: string): string {
-  const target = toFile.replace(/\.tsx?$/, "");
-  let relative = path.posix.relative(path.posix.dirname(fromFile), target);
+  const target = toFile.replace(targetPattern, "");
+  let relative = posix.relative(posix.dirname(fromFile), target);
   if (!relative.startsWith(".")) {
     relative = `./${relative}`;
   }
@@ -752,42 +939,62 @@ export function cyclesThrough(
   }
   const cycles: string[][] = [];
   const seen = new Set<string>();
+  cyclesThroughEdge(added, seen, cycles, adjacency);
+  return cycles.sort((a, b) => a.join("|").localeCompare(b.join("|")));
+}
+
+function cyclesThroughEdge(
+  added: { from: string; to: string }[],
+  seen: Set<string>,
+  cycles: string[][],
+  adjacency: Map<string, Set<string>>
+) {
   for (const edge of added) {
     // A path from edge.to back to edge.from closes a cycle through the edge.
     const stack: string[][] = [[edge.to]];
     const visited = new Set<string>([edge.to]);
-    while (stack.length > 0) {
-      const pathSoFar = stack.pop();
-      if (pathSoFar === undefined) {
-        break;
+    cyclesThroughEdgeEntries(stack, edge, seen, cycles, adjacency, visited);
+  }
+}
+
+function cyclesThroughEdgeEntries(
+  stack: string[][],
+  edge: { from: string; to: string },
+  seen: Set<string>,
+  cycles: string[][],
+  adjacency: Map<string, Set<string>>,
+  visited: Set<string>
+) {
+  while (stack.length > 0) {
+    const pathSoFar = stack.pop();
+    if (pathSoFar === undefined) {
+      break;
+    }
+    const last = pathSoFar.at(-1);
+    if (last === undefined) {
+      continue;
+    }
+    if (last === edge.from) {
+      const cycle = [...pathSoFar];
+      const key = [...cycle].sort((a, b) => a.localeCompare(b)).join("|");
+      if (!seen.has(key)) {
+        seen.add(key);
+        cycles.push(cycle);
       }
-      const last = pathSoFar[pathSoFar.length - 1];
-      if (last === undefined) {
-        continue;
-      }
-      if (last === edge.from) {
-        const cycle = [...pathSoFar];
-        const key = [...cycle].sort((a, b) => a.localeCompare(b)).join("|");
-        if (!seen.has(key)) {
-          seen.add(key);
-          cycles.push(cycle);
-        }
-        continue;
-      }
-      for (const next of [...(adjacency.get(last) ?? [])].sort((a, b) =>
-        a.localeCompare(b)
-      )) {
-        if (next === edge.from) {
-          stack.push([...pathSoFar, next]);
-          continue;
-        }
-        if (visited.has(next)) {
-          continue;
-        }
-        visited.add(next);
+      continue;
+    }
+    for (const next of [...(adjacency.get(last) ?? [])].sort((a, b) =>
+      a.localeCompare(b)
+    )) {
+      if (next === edge.from) {
         stack.push([...pathSoFar, next]);
+        continue;
       }
+      if (visited.has(next)) {
+        continue;
+      }
+      visited.add(next);
+      stack.push([...pathSoFar, next]);
     }
   }
-  return cycles.sort((a, b) => a.join("|").localeCompare(b.join("|")));
 }

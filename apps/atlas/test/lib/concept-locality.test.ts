@@ -789,15 +789,16 @@ describe("traversal and independence", () => {
   });
 
   it("does not move behavioral participants when ownership centers change", () => {
-    const plain = analyzeConceptBehavioralLocality(source(participants))
-      .concepts[0];
-    const recentered = analyzeConceptBehavioralLocality(
+    const [plain] = analyzeConceptBehavioralLocality(
+      source(participants)
+    ).concepts;
+    const [recentered] = analyzeConceptBehavioralLocality(
       source(
         participants,
         {},
         { behavior: "@t/c", implementations: ["@t/b"], usage: "@t/c" }
       )
-    ).concepts[0];
+    ).concepts;
     expect(recentered?.behavior).toEqual(plain?.behavior);
     expect(recentered?.traversal).toEqual(plain?.traversal);
     expect(recentered?.shape).toEqual(plain?.shape);
@@ -805,10 +806,12 @@ describe("traversal and independence", () => {
 
   it("orders modules, packages, and distances deterministically", () => {
     const reversed = [...participants].reverse();
-    const forward = analyzeConceptBehavioralLocality(source(participants))
-      .concepts[0];
-    const backward = analyzeConceptBehavioralLocality(source(reversed))
-      .concepts[0];
+    const [forward] = analyzeConceptBehavioralLocality(
+      source(participants)
+    ).concepts;
+    const [backward] = analyzeConceptBehavioralLocality(
+      source(reversed)
+    ).concepts;
     expect(backward).toEqual(forward);
     expect(forward?.behavior.byModule.map((row) => row.module)).toEqual([
       A,

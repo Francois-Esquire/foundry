@@ -1,11 +1,11 @@
 import { displayWidth, padDisplay } from "./width";
 
 /** Width tiers; the only place a renderer compares against a column count. */
-export const WIDTH = { narrow: 70, wide: 110 } as const;
+const WIDTH = { narrow: 70, wide: 110 } as const;
 
-export type WidthTier = "narrow" | "normal" | "wide";
+type WidthTier = "narrow" | "normal" | "wide";
 
-export function widthTier(width: number): WidthTier {
+function widthTier(width: number): WidthTier {
   if (width < WIDTH.narrow) {
     return "narrow";
   }

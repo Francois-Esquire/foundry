@@ -1,8 +1,6 @@
-import * as path from "node:path";
-import type { Project, Type } from "ts-morph";
-
+import { relative } from "node:path";
+import type { Project, SourceFile, Type } from "ts-morph";
 import { Node, SyntaxKind, ts } from "ts-morph";
-
 import type { Boundary } from "./boundary";
 import { ownerBoundary, toPosix } from "./boundary";
 import type { AnalysisConfig } from "./config";
@@ -29,6 +27,11 @@ import type {
   ConceptShape,
   FileChangeCouplingPair,
 } from "./types";
+
+const stablePropertyNamePattern = /^(__@[^@]+)@\d+$/;
+const nameTokensPattern = /([A-Z]+)([A-Z][a-z])/g;
+const nameTokensPattern2 = /([a-z0-9])([A-Z])/g;
+const nameTokensPattern3 = /[_-]+/g;
 
 export interface ConceptOverlapSource {
   boundary: Boundary;
@@ -64,9 +67,9 @@ const DIMENSION_ORDER: ConceptOverlapDimension[] = [
 /** Split camelCase, PascalCase, snake_case, and kebab-case into lowercase tokens. */
 export function nameTokens(name: string): string[] {
   return name
-    .replace(/[_-]+/g, " ")
-    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
-    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
+    .replace(nameTokensPattern3, " ")
+    .replace(nameTokensPattern2, "$1 $2")
+    .replace(nameTokensPattern, "$1 $2")
     .toLowerCase()
     .split(" ")
     .filter((token) => token !== "");
@@ -120,7 +123,7 @@ export function assessOverlap(
     });
   }
 
-  const structure = facts.structure;
+  const { structure } = facts;
   // Base Error properties are shared by every error; only own properties
   // say anything about the pair.
   const meaningfulShared =
@@ -162,20 +165,7 @@ export function assessOverlap(
     });
   }
 
-  if (
-    facts.usage !== undefined &&
-    (facts.usage.sharedConsumers.length > 0 ||
-      facts.usage.sharedModules.length > 0)
-  ) {
-    evidence.push({
-      dimension: "usage",
-      kind: "shared-consumer",
-      value:
-        facts.usage.sharedConsumers.length > 0
-          ? facts.usage.sharedConsumers
-          : facts.usage.sharedModules,
-    });
-  }
+  assessOverlapEntries(facts, evidence);
 
   if (
     facts.distributionContext !== undefined &&
@@ -210,6 +200,64 @@ export function assessOverlap(
   const shapes: ConceptOverlapShape[] = [];
   // Mutual assignability of `{ status }` with `{ status }` is not equivalence
   // of ideas; the shape has to carry enough own properties to mean something.
+  const { nearEquivalent, projectionLike } = collectNearEquivalent(
+    meaningfulShared,
+    policy,
+    facts,
+    structure,
+    shapes,
+    hasConversion
+  );
+  assessOverlapEntries3(
+    propertyGate,
+    assignable,
+    nearEquivalent,
+    projectionLike,
+    shapes
+  );
+
+  const forward = new Set(
+    facts.conversions.map((item) => `${item.from}>${item.to}`)
+  );
+  const bidirectionalConversion = facts.conversions.some((item) =>
+    forward.has(`${item.to}>${item.from}`)
+  );
+
+  return assessOverlapEntries2(
+    facts,
+    dimensions,
+    evidence,
+    shapes,
+    structure,
+    bidirectionalConversion
+  );
+}
+
+function collectNearEquivalent(
+  meaningfulShared: number,
+  policy: {
+    name: { genericTokens: string[]; minJaccard: number };
+    properties: {
+      commonNames: string[];
+      minSharedProperties: number;
+      minJaccard: number;
+      errorBaseNames: string[];
+    };
+    generation: { maxIndexFanout: number };
+    conversion: { wrappers: string[] };
+    shapes: {
+      nearEquivalentMinJaccard: number;
+      minSharedProperties: number;
+      projectionMinSubsetShare: number;
+    };
+    gates: { minEvidenceDimensions: number };
+    report: { topCandidates: number };
+  },
+  facts: OverlapFacts,
+  structure: ConceptPropertyOverlap | undefined,
+  shapes: ConceptOverlapShape[],
+  hasConversion: boolean
+) {
   const nearEquivalent =
     meaningfulShared >= policy.shapes.minSharedProperties &&
     (facts.assignability === "both" ||
@@ -246,17 +294,29 @@ export function assessOverlap(
   if (hasConversion) {
     shapes.push("conversion-pair");
   }
+  return { nearEquivalent, projectionLike };
+}
+
+function assessOverlapEntries3(
+  propertyGate: boolean,
+  assignable: boolean,
+  nearEquivalent: boolean,
+  projectionLike: boolean,
+  shapes: ConceptOverlapShape[]
+) {
   if ((propertyGate || assignable) && !nearEquivalent && !projectionLike) {
     shapes.push("structurally-overlapping");
   }
+}
 
-  const forward = new Set(
-    facts.conversions.map((item) => `${item.from}>${item.to}`)
-  );
-  const bidirectionalConversion = facts.conversions.some((item) =>
-    forward.has(`${item.to}>${item.from}`)
-  );
-
+function assessOverlapEntries2(
+  facts: OverlapFacts,
+  dimensions: ConceptOverlapDimension[],
+  evidence: ConceptOverlapEvidence[],
+  shapes: ConceptOverlapShape[],
+  structure: ConceptPropertyOverlap | undefined,
+  bidirectionalConversion: boolean
+): ConceptOverlapCandidate | undefined {
   return {
     crossPackage: facts.left.package !== facts.right.package,
     dimensions,
@@ -279,6 +339,26 @@ export function assessOverlap(
       temporalContext: facts.temporalContext,
     }),
   };
+}
+
+function assessOverlapEntries(
+  facts: OverlapFacts,
+  evidence: ConceptOverlapEvidence[]
+) {
+  if (
+    facts.usage !== undefined &&
+    (facts.usage.sharedConsumers.length > 0 ||
+      facts.usage.sharedModules.length > 0)
+  ) {
+    evidence.push({
+      dimension: "usage",
+      kind: "shared-consumer",
+      value:
+        facts.usage.sharedConsumers.length > 0
+          ? facts.usage.sharedConsumers
+          : facts.usage.sharedModules,
+    });
+  }
 }
 
 export function sortCandidates(
@@ -330,7 +410,7 @@ function seedKindOf(node: Node): ConceptSeedKind | undefined {
  * symbols with the same name apart.
  */
 function stablePropertyName(name: string): string {
-  return name.replace(/^(__@[^@]+)@\d+$/, "$1");
+  return name.replace(stablePropertyNamePattern, "$1");
 }
 
 function syntaxProperties(node: Node): string[] {
@@ -388,37 +468,6 @@ function unwrap(type: Type, wrappers: Set<string>): Type {
 }
 
 /**
- * Overlap candidates between the target's seeds and any type-like declaration
- * in the workspace. Pairs come from four deterministic indexes (name tokens,
- * property names, converter signatures, coupled declaration files); only
- * proposed pairs are compared, and the pure gate decides. Families are never
- * merged: a strong candidate is still two families plus one candidate.
- */
-export function analyzeConceptOverlap(
-  source: ConceptOverlapSource,
-  config: AnalysisConfig = ANALYSIS_CONFIG
-): ConceptOverlapReport {
-  const { boundary } = source;
-  const target = boundary.packageName ?? boundary.relPath;
-  const familyIds = new Set(
-    source.conceptInventory.families.map((family) => family.seed.id)
-  );
-  const seedTargets = new Map<ts.Node, string[]>();
-  for (const symbol of source.symbols) {
-    if (familyIds.has(symbol.id)) {
-      seedTargets.set(symbol.node.compilerNode, [target]);
-    }
-  }
-  const index = buildConceptOverlapIndex(
-    source.project,
-    boundary.root,
-    seedTargets,
-    config
-  );
-  return analyzeConceptOverlapFromIndex(index, source, config);
-}
-
-/**
  * The workspace half of overlap analysis, built once and shared by every
  * target: every type-like declaration with its name-token and property
  * indexes, every converter signature, and the shape/assignability caches.
@@ -468,67 +517,18 @@ export function buildConceptOverlapIndex(
           file.getFilePath().includes("/node_modules/")
         )
     );
-
-  for (const file of files) {
-    const filePath = file.getFilePath();
-    const relFile = toPosix(path.relative(root, filePath));
-    const owner = ownerBoundary(root, filePath);
-    const nodes: Node[] = [
-      ...file.getInterfaces(),
-      ...file.getTypeAliases(),
-      ...file.getClasses(),
-      ...file.getEnums(),
-    ];
-    for (const node of nodes) {
-      const kind = seedKindOf(node);
-      if (kind === undefined || !Node.hasName(node)) {
-        continue;
-      }
-      const name = node.getName();
-      const id = `${relFile}#${name}`;
-      const declaration: Declaration = {
-        identity: {
-          file: relFile,
-          id,
-          inTarget: false,
-          kind,
-          name,
-          package: owner,
-        },
-        keyTokens: keyTokens(name, generic),
-        node,
-        seedOf: seedTargets.get(node.compilerNode) ?? [],
-        syntaxProperties: syntaxProperties(node),
-      };
-      declarations.push(declaration);
-      byNode.set(node.compilerNode, declaration);
-      const inFile = byFile.get(relFile);
-      if (inFile === undefined) {
-        byFile.set(relFile, [declaration]);
-      } else {
-        inFile.push(declaration);
-      }
-      for (const token of declaration.keyTokens) {
-        const bucket = nameIndex.get(token);
-        if (bucket === undefined) {
-          nameIndex.set(token, [declaration]);
-        } else {
-          bucket.push(declaration);
-        }
-      }
-      for (const property of declaration.syntaxProperties) {
-        if (common.has(property)) {
-          continue;
-        }
-        const bucket = propertyIndex.get(property);
-        if (bucket === undefined) {
-          propertyIndex.set(property, [declaration]);
-        } else {
-          bucket.push(declaration);
-        }
-      }
-    }
-  }
+  buildConceptOverlapIndexFile(
+    files,
+    root,
+    generic,
+    seedTargets,
+    declarations,
+    byNode,
+    byFile,
+    nameIndex,
+    common,
+    propertyIndex
+  );
 
   const declarationOfType = (type: Type): Declaration | undefined => {
     const inner = unwrap(type, wrappers);
@@ -552,43 +552,19 @@ export function buildConceptOverlapIndex(
     if (to === undefined) {
       return;
     }
-    for (const parameter of parameters) {
-      const from = declarationOfType(parameter.getType());
-      if (from === undefined || from === to) {
-        continue;
-      }
-      if (from.seedOf.length === 0 && to.seedOf.length === 0) {
-        continue;
-      }
-      const key = `${from.identity.id}|${to.identity.id}`;
-      const conversion: ConceptConversion = {
-        file: relFile,
-        from: from.identity.id,
-        function: label,
-        to: to.identity.id,
-      };
-      const list = conversionIndex.get(key);
-      if (list === undefined) {
-        conversionIndex.set(key, [conversion]);
-      } else {
-        list.push(conversion);
-      }
-      for (const [a, b] of [
-        [from, to],
-        [to, from],
-      ] as const) {
-        const partners = conversionPartners.get(a);
-        if (partners === undefined) {
-          conversionPartners.set(a, new Set([b]));
-        } else {
-          partners.add(b);
-        }
-      }
-    }
+    recordConversionParameter(
+      parameters,
+      declarationOfType,
+      to,
+      relFile,
+      label,
+      conversionIndex,
+      conversionPartners
+    );
   };
 
   for (const file of files) {
-    const relFile = toPosix(path.relative(root, file.getFilePath()));
+    const relFile = toPosix(relative(root, file.getFilePath()));
     for (const fn of file.getFunctions()) {
       const name = fn.getName();
       if (name === undefined) {
@@ -596,20 +572,7 @@ export function buildConceptOverlapIndex(
       }
       recordConversion(name, relFile, fn.getParameters(), fn.getReturnType());
     }
-    for (const cls of file.getClasses()) {
-      const className = cls.getName();
-      if (className === undefined) {
-        continue;
-      }
-      for (const method of cls.getMethods()) {
-        recordConversion(
-          `${className}.${method.getName()}`,
-          relFile,
-          method.getParameters(),
-          method.getReturnType()
-        );
-      }
-    }
+    buildConceptOverlapIndexCls(file, recordConversion, relFile);
     for (const variable of file.getVariableDeclarations()) {
       const initializer = variable.getInitializer();
       if (
@@ -654,10 +617,12 @@ export function buildConceptOverlapIndex(
     if (type.isObject()) {
       return true;
     }
-    const flags = type.compilerType.flags;
+    const { flags } = type.compilerType;
+    // biome-ignore lint/suspicious/noBitwiseOperators: TypeScript exposes these properties as bit flags.
     if (flags & ts.TypeFlags.Union) {
       return type.getUnionTypes().every(objectLike);
     }
+    // biome-ignore lint/suspicious/noBitwiseOperators: TypeScript exposes these properties as bit flags.
     if (flags & ts.TypeFlags.Intersection) {
       return type.getIntersectionTypes().every(objectLike);
     }
@@ -678,7 +643,7 @@ export function buildConceptOverlapIndex(
       const properties = type
         .getProperties()
         .map((property) => {
-          const propertyDeclaration = property.getDeclarations()[0];
+          const [propertyDeclaration] = property.getDeclarations();
           const propertyType = property.getTypeAtLocation(declaration.node);
           return {
             callable: propertyType.getCallSignatures().length > 0,
@@ -720,6 +685,178 @@ export function buildConceptOverlapIndex(
   };
 }
 
+function buildConceptOverlapIndexCls(
+  file: SourceFile,
+  recordConversion: (
+    label: string,
+    relFile: string,
+    parameters: Node[],
+    returnType: Type
+  ) => void,
+  relFile: string
+) {
+  for (const cls of file.getClasses()) {
+    const className = cls.getName();
+    if (className === undefined) {
+      continue;
+    }
+    for (const method of cls.getMethods()) {
+      recordConversion(
+        `${className}.${method.getName()}`,
+        relFile,
+        method.getParameters(),
+        method.getReturnType()
+      );
+    }
+  }
+}
+
+function buildConceptOverlapIndexFile(
+  files: SourceFile[],
+  root: string,
+  generic: Set<string>,
+  seedTargets: Map<ts.Node, string[]>,
+  declarations: Declaration[],
+  byNode: Map<unknown, Declaration>,
+  byFile: Map<string, Declaration[]>,
+  nameIndex: Map<string, Declaration[]>,
+  common: Set<string>,
+  propertyIndex: Map<string, Declaration[]>
+) {
+  for (const file of files) {
+    const filePath = file.getFilePath();
+    const relFile = toPosix(relative(root, filePath));
+    const owner = ownerBoundary(root, filePath);
+    const nodes: Node[] = [
+      ...file.getInterfaces(),
+      ...file.getTypeAliases(),
+      ...file.getClasses(),
+      ...file.getEnums(),
+    ];
+    buildConceptOverlapIndexFileNode(
+      nodes,
+      relFile,
+      owner,
+      generic,
+      seedTargets,
+      declarations,
+      byNode,
+      byFile,
+      nameIndex,
+      common,
+      propertyIndex
+    );
+  }
+}
+
+function buildConceptOverlapIndexFileNode(
+  nodes: Node<ts.Node>[],
+  relFile: string,
+  owner: string,
+  generic: Set<string>,
+  seedTargets: Map<ts.Node, string[]>,
+  declarations: Declaration[],
+  byNode: Map<unknown, Declaration>,
+  byFile: Map<string, Declaration[]>,
+  nameIndex: Map<string, Declaration[]>,
+  common: Set<string>,
+  propertyIndex: Map<string, Declaration[]>
+) {
+  for (const node of nodes) {
+    const kind = seedKindOf(node);
+    if (kind === undefined || !Node.hasName(node)) {
+      continue;
+    }
+    const name = node.getName();
+    const id = `${relFile}#${name}`;
+    const declaration: Declaration = {
+      identity: {
+        file: relFile,
+        id,
+        inTarget: false,
+        kind,
+        name,
+        package: owner,
+      },
+      keyTokens: keyTokens(name, generic),
+      node,
+      seedOf: seedTargets.get(node.compilerNode) ?? [],
+      syntaxProperties: syntaxProperties(node),
+    };
+    declarations.push(declaration);
+    byNode.set(node.compilerNode, declaration);
+    const inFile = byFile.get(relFile);
+    if (inFile === undefined) {
+      byFile.set(relFile, [declaration]);
+    } else {
+      inFile.push(declaration);
+    }
+    for (const token of declaration.keyTokens) {
+      const bucket = nameIndex.get(token);
+      if (bucket === undefined) {
+        nameIndex.set(token, [declaration]);
+      } else {
+        bucket.push(declaration);
+      }
+    }
+    for (const property of declaration.syntaxProperties) {
+      if (common.has(property)) {
+        continue;
+      }
+      const bucket = propertyIndex.get(property);
+      if (bucket === undefined) {
+        propertyIndex.set(property, [declaration]);
+      } else {
+        bucket.push(declaration);
+      }
+    }
+  }
+}
+
+function recordConversionParameter(
+  parameters: Node<ts.Node>[],
+  declarationOfType: (type: Type) => Declaration | undefined,
+  to: Declaration,
+  relFile: string,
+  label: string,
+  conversionIndex: Map<string, ConceptConversion[]>,
+  conversionPartners: Map<Declaration, Set<Declaration>>
+) {
+  for (const parameter of parameters) {
+    const from = declarationOfType(parameter.getType());
+    if (from === undefined || from === to) {
+      continue;
+    }
+    if (from.seedOf.length === 0 && to.seedOf.length === 0) {
+      continue;
+    }
+    const key = `${from.identity.id}|${to.identity.id}`;
+    const conversion: ConceptConversion = {
+      file: relFile,
+      from: from.identity.id,
+      function: label,
+      to: to.identity.id,
+    };
+    const list = conversionIndex.get(key);
+    if (list === undefined) {
+      conversionIndex.set(key, [conversion]);
+    } else {
+      list.push(conversion);
+    }
+    for (const [a, b] of [
+      [from, to],
+      [to, from],
+    ] as const) {
+      const partners = conversionPartners.get(a);
+      if (partners === undefined) {
+        conversionPartners.set(a, new Set([b]));
+      } else {
+        partners.add(b);
+      }
+    }
+  }
+}
+
 /** Overlap candidates for one target against a prebuilt workspace index. */
 export function analyzeConceptOverlapFromIndex(
   index: ConceptOverlapIndex,
@@ -757,16 +894,20 @@ export function analyzeConceptOverlapFromIndex(
 
   const couplingByFile = new Map<string, FileChangeCouplingPair[]>();
   if (source.changeCoupling.available) {
-    for (const pair of source.changeCoupling.filePairs) {
-      for (const file of [pair.left, pair.right]) {
-        const list = couplingByFile.get(file);
-        if (list === undefined) {
-          couplingByFile.set(file, [pair]);
-        } else {
-          list.push(pair);
+    const { filePairs } = source.changeCoupling;
+    const visitPair = () => {
+      for (const pair of filePairs) {
+        for (const file of [pair.left, pair.right]) {
+          const list = couplingByFile.get(file);
+          if (list === undefined) {
+            couplingByFile.set(file, [pair]);
+          } else {
+            list.push(pair);
+          }
         }
       }
-    }
+    };
+    visitPair();
   }
 
   const familyMembers = (family: ConceptFamily | undefined): Set<string> =>
@@ -833,45 +974,17 @@ export function analyzeConceptOverlapFromIndex(
     pairs.set(key, [a, b]);
   };
 
-  for (const seed of seeds) {
-    for (const token of seed.keyTokens) {
-      const bucket = nameIndex.get(token) ?? [];
-      if (bucket.length > policy.generation.maxIndexFanout) {
-        continue;
-      }
-      for (const other of bucket) {
-        propose(seed, other, "name");
-      }
-    }
-    const sharedCounts = new Map<Declaration, number>();
-    for (const property of seed.syntaxProperties) {
-      if (common.has(property)) {
-        continue;
-      }
-      const bucket = propertyIndex.get(property) ?? [];
-      if (bucket.length > policy.generation.maxIndexFanout) {
-        continue;
-      }
-      for (const other of bucket) {
-        sharedCounts.set(other, (sharedCounts.get(other) ?? 0) + 1);
-      }
-    }
-    for (const [other, count] of sharedCounts) {
-      if (count >= policy.properties.minSharedProperties) {
-        propose(seed, other, "property");
-      }
-    }
-    for (const other of conversionPartners.get(seed) ?? []) {
-      propose(seed, other, "conversion");
-    }
-    for (const pair of couplingByFile.get(seed.identity.file) ?? []) {
-      const otherFile =
-        pair.left === seed.identity.file ? pair.right : pair.left;
-      for (const other of byFile.get(otherFile) ?? []) {
-        propose(seed, other, "temporal");
-      }
-    }
-  }
+  analyzeConceptOverlapFromIndexSeed(
+    seeds,
+    nameIndex,
+    policy,
+    propose,
+    common,
+    propertyIndex,
+    conversionPartners,
+    couplingByFile,
+    byFile
+  );
 
   const errorBase = new Set(policy.properties.errorBaseNames);
 
@@ -908,71 +1021,17 @@ export function analyzeConceptOverlapFromIndex(
       facts.name = affinity;
     }
 
-    if (leftShape !== undefined && rightShape !== undefined) {
-      const rightByName = new Map(
-        rightShape.properties.map((property) => [property.name, property])
-      );
-      const shared: string[] = [];
-      const compatibleShared: string[] = [];
-      const leftOnly: string[] = [];
-      for (const property of leftShape.properties) {
-        const match = rightByName.get(property.name);
-        if (match === undefined) {
-          leftOnly.push(property.name);
-          continue;
-        }
-        shared.push(property.name);
-        if (property.typeFingerprint === match.typeFingerprint) {
-          compatibleShared.push(property.name);
-          continue;
-        }
-        const leftType = typeOf(left)
-          .getProperty(property.name)
-          ?.getTypeAtLocation(left.node);
-        const rightType = typeOf(right)
-          .getProperty(property.name)
-          ?.getTypeAtLocation(right.node);
-        if (
-          leftType !== undefined &&
-          rightType !== undefined &&
-          (assignable(leftType, rightType) || assignable(rightType, leftType))
-        ) {
-          compatibleShared.push(property.name);
-        }
-      }
-      const sharedSet = new Set(shared);
-      const rightOnly = rightShape.properties
-        .map((property) => property.name)
-        .filter((name) => !sharedSet.has(name));
-      const baseShared =
-        isErrorLike(left) && isErrorLike(right)
-          ? shared.filter((name) => errorBase.has(name))
-          : [];
-      facts.structure = {
-        baseShared: baseShared.map(stablePropertyName),
-        compatibleShared: compatibleShared.map(stablePropertyName),
-        jaccard: jaccard(
-          shared.length,
-          leftShape.properties.length,
-          rightShape.properties.length
-        ),
-        leftOnly: leftOnly.map(stablePropertyName),
-        rightOnly: rightOnly.map(stablePropertyName),
-        shared: shared.map(stablePropertyName),
-        sharedOverLeft: shared.length / leftShape.properties.length,
-        sharedOverRight: shared.length / rightShape.properties.length,
-      };
-      const leftToRight = assignable(typeOf(left), typeOf(right));
-      const rightToLeft = assignable(typeOf(right), typeOf(left));
-      facts.assignability =
-        leftToRight && rightToLeft
-          ? "both"
-          : leftToRight
-            ? "left-to-right"
-            : rightToLeft
-              ? "right-to-left"
-              : "neither";
-    }
+    compareEntries(
+      leftShape,
+      rightShape,
+      typeOf,
+      left,
+      right,
+      assignable,
+      isErrorLike,
+      errorBase,
+      facts
+    );
 
     const leftFamily = familyById.get(left.identity.id);
     const rightFamily = familyById.get(right.identity.id);
@@ -1024,28 +1083,7 @@ export function analyzeConceptOverlapFromIndex(
       };
     }
 
-    if (left.identity.file !== right.identity.file) {
-      const pair = (couplingByFile.get(left.identity.file) ?? []).find(
-        (item) =>
-          item.left === right.identity.file ||
-          item.right === right.identity.file
-      );
-      if (pair !== undefined) {
-        const leftIsLeft = pair.left === left.identity.file;
-        facts.temporalContext = {
-          coChangeCommits: pair.coChangeCommits,
-          context: pair.context,
-          jaccard: pair.jaccard,
-          leftConditional: leftIsLeft
-            ? pair.leftConditional
-            : pair.rightConditional,
-          rightConditional: leftIsLeft
-            ? pair.rightConditional
-            : pair.leftConditional,
-          staticPath: pair.staticPath,
-        };
-      }
-    }
+    compareEntries2(left, right, couplingByFile, facts);
     return facts;
   };
 
@@ -1082,4 +1120,280 @@ export function analyzeConceptOverlapFromIndex(
     },
     target,
   };
+}
+
+function analyzeConceptOverlapFromIndexSeed(
+  seeds: Declaration[],
+  nameIndex: Map<string, Declaration[]>,
+  policy: {
+    name: { genericTokens: string[]; minJaccard: number };
+    properties: {
+      commonNames: string[];
+      minSharedProperties: number;
+      minJaccard: number;
+      errorBaseNames: string[];
+    };
+    generation: { maxIndexFanout: number };
+    conversion: { wrappers: string[] };
+    shapes: {
+      nearEquivalentMinJaccard: number;
+      minSharedProperties: number;
+      projectionMinSubsetShare: number;
+    };
+    gates: { minEvidenceDimensions: number };
+    report: { topCandidates: number };
+  },
+  propose: (
+    left: Declaration,
+    right: Declaration,
+    generator: "conversion" | "name" | "property" | "temporal"
+  ) => void,
+  common: Set<string>,
+  propertyIndex: Map<string, Declaration[]>,
+  conversionPartners: Map<Declaration, Set<Declaration>>,
+  couplingByFile: Map<string, FileChangeCouplingPair[]>,
+  byFile: Map<string, Declaration[]>
+) {
+  for (const seed of seeds) {
+    analyzeConceptOverlapFromIndexSeedToken(seed, nameIndex, policy, propose);
+    const sharedCounts = new Map<Declaration, number>();
+    analyzeConceptOverlapFromIndexSeedProperty(
+      seed,
+      common,
+      propertyIndex,
+      policy,
+      sharedCounts
+    );
+    for (const [other, count] of sharedCounts) {
+      if (count >= policy.properties.minSharedProperties) {
+        propose(seed, other, "property");
+      }
+    }
+    for (const other of conversionPartners.get(seed) ?? []) {
+      propose(seed, other, "conversion");
+    }
+    for (const pair of couplingByFile.get(seed.identity.file) ?? []) {
+      const otherFile =
+        pair.left === seed.identity.file ? pair.right : pair.left;
+      for (const other of byFile.get(otherFile) ?? []) {
+        propose(seed, other, "temporal");
+      }
+    }
+  }
+}
+
+function analyzeConceptOverlapFromIndexSeedToken(
+  seed: Declaration,
+  nameIndex: Map<string, Declaration[]>,
+  policy: {
+    name: { genericTokens: string[]; minJaccard: number };
+    properties: {
+      commonNames: string[];
+      minSharedProperties: number;
+      minJaccard: number;
+      errorBaseNames: string[];
+    };
+    generation: { maxIndexFanout: number };
+    conversion: { wrappers: string[] };
+    shapes: {
+      nearEquivalentMinJaccard: number;
+      minSharedProperties: number;
+      projectionMinSubsetShare: number;
+    };
+    gates: { minEvidenceDimensions: number };
+    report: { topCandidates: number };
+  },
+  propose: (
+    left: Declaration,
+    right: Declaration,
+    generator: "conversion" | "name" | "property" | "temporal"
+  ) => void
+) {
+  for (const token of seed.keyTokens) {
+    const bucket = nameIndex.get(token) ?? [];
+    if (bucket.length > policy.generation.maxIndexFanout) {
+      continue;
+    }
+    for (const other of bucket) {
+      propose(seed, other, "name");
+    }
+  }
+}
+
+function analyzeConceptOverlapFromIndexSeedProperty(
+  seed: Declaration,
+  common: Set<string>,
+  propertyIndex: Map<string, Declaration[]>,
+  policy: {
+    name: { genericTokens: string[]; minJaccard: number };
+    properties: {
+      commonNames: string[];
+      minSharedProperties: number;
+      minJaccard: number;
+      errorBaseNames: string[];
+    };
+    generation: { maxIndexFanout: number };
+    conversion: { wrappers: string[] };
+    shapes: {
+      nearEquivalentMinJaccard: number;
+      minSharedProperties: number;
+      projectionMinSubsetShare: number;
+    };
+    gates: { minEvidenceDimensions: number };
+    report: { topCandidates: number };
+  },
+  sharedCounts: Map<Declaration, number>
+) {
+  for (const property of seed.syntaxProperties) {
+    if (common.has(property)) {
+      continue;
+    }
+    const bucket = propertyIndex.get(property) ?? [];
+    if (bucket.length > policy.generation.maxIndexFanout) {
+      continue;
+    }
+    for (const other of bucket) {
+      sharedCounts.set(other, (sharedCounts.get(other) ?? 0) + 1);
+    }
+  }
+}
+
+function compareEntries2(
+  left: Declaration,
+  right: Declaration,
+  couplingByFile: Map<string, FileChangeCouplingPair[]>,
+  facts: OverlapFacts
+) {
+  if (left.identity.file !== right.identity.file) {
+    const pair = (couplingByFile.get(left.identity.file) ?? []).find(
+      (item) =>
+        item.left === right.identity.file || item.right === right.identity.file
+    );
+    if (pair !== undefined) {
+      const leftIsLeft = pair.left === left.identity.file;
+      facts.temporalContext = {
+        coChangeCommits: pair.coChangeCommits,
+        context: pair.context,
+        jaccard: pair.jaccard,
+        leftConditional: leftIsLeft
+          ? pair.leftConditional
+          : pair.rightConditional,
+        rightConditional: leftIsLeft
+          ? pair.rightConditional
+          : pair.leftConditional,
+        staticPath: pair.staticPath,
+      };
+    }
+  }
+}
+
+function compareEntries(
+  leftShape: ConceptShape | undefined,
+  rightShape: ConceptShape | undefined,
+  typeOf: (declaration: Declaration) => Type,
+  left: Declaration,
+  right: Declaration,
+  assignable: (from: Type, to: Type) => boolean,
+  isErrorLike: (declaration: Declaration) => boolean,
+  errorBase: Set<string>,
+  facts: OverlapFacts
+) {
+  if (leftShape !== undefined && rightShape !== undefined) {
+    const rightByName = new Map(
+      rightShape.properties.map((property) => [property.name, property])
+    );
+    const shared: string[] = [];
+    const compatibleShared: string[] = [];
+    const leftOnly: string[] = [];
+    compareProperty(
+      leftShape,
+      rightByName,
+      leftOnly,
+      shared,
+      compatibleShared,
+      typeOf,
+      left,
+      right,
+      assignable
+    );
+    const sharedSet = new Set(shared);
+    const rightOnly = rightShape.properties
+      .map((property) => property.name)
+      .filter((name) => !sharedSet.has(name));
+    const baseShared =
+      isErrorLike(left) && isErrorLike(right)
+        ? shared.filter((name) => errorBase.has(name))
+        : [];
+    facts.structure = {
+      baseShared: baseShared.map(stablePropertyName),
+      compatibleShared: compatibleShared.map(stablePropertyName),
+      jaccard: jaccard(
+        shared.length,
+        leftShape.properties.length,
+        rightShape.properties.length
+      ),
+      leftOnly: leftOnly.map(stablePropertyName),
+      rightOnly: rightOnly.map(stablePropertyName),
+      shared: shared.map(stablePropertyName),
+      sharedOverLeft: shared.length / leftShape.properties.length,
+      sharedOverRight: shared.length / rightShape.properties.length,
+    };
+    const leftToRight = assignable(typeOf(left), typeOf(right));
+    const rightToLeft = assignable(typeOf(right), typeOf(left));
+    facts.assignability = resolveCompareEntries(leftToRight, rightToLeft);
+  }
+}
+
+function resolveCompareEntries(
+  leftToRight: boolean,
+  rightToLeft: boolean
+): ConceptAssignability | undefined {
+  if (leftToRight && rightToLeft) {
+    return "both";
+  }
+  if (leftToRight) {
+    return "left-to-right";
+  }
+  if (rightToLeft) {
+    return "right-to-left";
+  }
+  return "neither";
+}
+
+function compareProperty(
+  leftShape: ConceptShape,
+  rightByName: Map<string, ConceptShape["properties"][number]>,
+  leftOnly: string[],
+  shared: string[],
+  compatibleShared: string[],
+  typeOf: (declaration: Declaration) => Type,
+  left: Declaration,
+  right: Declaration,
+  assignable: (from: Type, to: Type) => boolean
+) {
+  for (const property of leftShape.properties) {
+    const match = rightByName.get(property.name);
+    if (match === undefined) {
+      leftOnly.push(property.name);
+      continue;
+    }
+    shared.push(property.name);
+    if (property.typeFingerprint === match.typeFingerprint) {
+      compatibleShared.push(property.name);
+      continue;
+    }
+    const leftType = typeOf(left)
+      .getProperty(property.name)
+      ?.getTypeAtLocation(left.node);
+    const rightType = typeOf(right)
+      .getProperty(property.name)
+      ?.getTypeAtLocation(right.node);
+    if (
+      leftType !== undefined &&
+      rightType !== undefined &&
+      (assignable(leftType, rightType) || assignable(rightType, leftType))
+    ) {
+      compatibleShared.push(property.name);
+    }
+  }
 }

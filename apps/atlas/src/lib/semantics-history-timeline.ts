@@ -2,19 +2,22 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
 import type {
-  CheckpointStrategy,
   SemanticsHistoryCommit,
   SemanticsHistoryConfig,
   TemporalModuleLineage,
   TemporalPathSegment,
 } from "./semantics-history-types";
 
+const statusPattern = /^\n/;
+const hashPattern = /\n$/;
+const isModulePathPattern = /\.tsx?$/;
+
 // V12.3 timeline facts: first-parent commits with TypeScript file events,
 // deterministic checkpoint selection, and module lineage replayed from the
 // renames Git reports. Read-only Git, no checkout.
 
 const run = promisify(execFile);
-const MAX_BUFFER = 1 << 28;
+const MAX_BUFFER = 2 ** 28;
 
 /** Rename detection threshold passed to `git log -M`; recorded in the manifest. */
 export const RENAME_DETECTION = "-M50%";
@@ -28,8 +31,8 @@ async function git(root: string, args: string[]): Promise<string> {
   return stdout;
 }
 
-export function isModulePath(file: string): boolean {
-  return /\.tsx?$/.test(file) && !file.endsWith(".d.ts");
+function isModulePath(file: string): boolean {
+  return isModulePathPattern.test(file) && !file.endsWith(".d.ts");
 }
 
 const RANGE = /^(\d+)([ymd])$/;
@@ -78,7 +81,7 @@ export function parseTimelineLog(output: string): SemanticsHistoryCommit[] {
       continue;
     }
     const parents = parentList
-      .replace(/\n$/, "")
+      .replace(hashPattern, "")
       .split(" ")
       .filter((p) => p !== "");
     const commit: SemanticsHistoryCommit = {
@@ -91,37 +94,48 @@ export function parseTimelineLog(output: string): SemanticsHistoryCommit[] {
     };
     const renamed: [string, string][] = [];
     let index = 3;
-    while (index < tokens.length) {
-      const token = tokens[index]?.replace(/^\n/, "") ?? "";
-      index += 1;
-      const match = NUMSTAT.exec(token);
-      if (match === null) {
-        continue;
-      }
-      const [, additions, deletions, inlinePath] = match;
-      commit.changedFiles += 1;
-      if (additions !== "-") {
-        commit.additions += Number(additions);
-      }
-      if (deletions !== "-") {
-        commit.deletions += Number(deletions);
-      }
-      if (inlinePath !== "") {
-        continue;
-      }
-      const previous = tokens[index] ?? "";
-      const next = tokens[index + 1] ?? "";
-      index += 2;
-      if (isModulePath(previous) || isModulePath(next)) {
-        renamed.push([previous, next]);
-      }
-    }
+    index = parseTimelineLogEntries(index, tokens, commit, renamed);
     if (renamed.length > 0) {
       commit.renamed = renamed;
     }
     commits.push(commit);
   }
   return commits;
+}
+
+function parseTimelineLogEntries(
+  initialIndex: number,
+  tokens: string[],
+  commit: SemanticsHistoryCommit,
+  renamed: [string, string][]
+): number {
+  let index = initialIndex;
+  while (index < tokens.length) {
+    const token = tokens[index]?.replace(statusPattern, "") ?? "";
+    index += 1;
+    const match = NUMSTAT.exec(token);
+    if (match === null) {
+      continue;
+    }
+    const [, additions, deletions, inlinePath] = match;
+    commit.changedFiles += 1;
+    if (additions !== "-") {
+      commit.additions += Number(additions);
+    }
+    if (deletions !== "-") {
+      commit.deletions += Number(deletions);
+    }
+    if (inlinePath !== "") {
+      continue;
+    }
+    const previous = tokens[index] ?? "";
+    const next = tokens[index + 1] ?? "";
+    index += 2;
+    if (isModulePath(previous) || isModulePath(next)) {
+      renamed.push([previous, next]);
+    }
+  }
+  return index;
 }
 
 /**
@@ -135,34 +149,13 @@ export function parseStatusLog(
   const byHash = new Map<string, { added: string[]; removed: string[] }>();
   for (const chunk of output.split("\x01").slice(1)) {
     const tokens = chunk.split("\0");
-    const hash = tokens[0]?.replace(/\n$/, "");
+    const hash = tokens[0]?.replace(hashPattern, "");
     if (hash === undefined || hash === "") {
       continue;
     }
     const entry = { added: [] as string[], removed: [] as string[] };
     let index = 1;
-    while (index < tokens.length) {
-      const status = tokens[index]?.replace(/^\n/, "") ?? "";
-      index += 1;
-      if (status === "") {
-        continue;
-      }
-      const code = status[0];
-      if (code === "R" || code === "C") {
-        index += 2;
-        continue;
-      }
-      const file = tokens[index] ?? "";
-      index += 1;
-      if (!isModulePath(file)) {
-        continue;
-      }
-      if (code === "A") {
-        entry.added.push(file);
-      } else if (code === "D") {
-        entry.removed.push(file);
-      }
-    }
+    index = parseStatusLogEntries(index, tokens, entry);
     byHash.set(hash, entry);
   }
   return byHash;
@@ -183,6 +176,37 @@ export interface Timeline {
   headTimestamp: string;
   /** Module paths present in the tree at the oldest commit's parent, when it has one. */
   seed: string[];
+}
+
+function parseStatusLogEntries(
+  initialIndex: number,
+  tokens: string[],
+  entry: { added: string[]; removed: string[] }
+): number {
+  let index = initialIndex;
+  while (index < tokens.length) {
+    const status = tokens[index]?.replace(statusPattern, "") ?? "";
+    index += 1;
+    if (status === "") {
+      continue;
+    }
+    const [code] = status;
+    if (code === "R" || code === "C") {
+      index += 2;
+      continue;
+    }
+    const file = tokens[index] ?? "";
+    index += 1;
+    if (!isModulePath(file)) {
+      continue;
+    }
+    if (code === "A") {
+      entry.added.push(file);
+    } else if (code === "D") {
+      entry.removed.push(file);
+    }
+  }
+  return index;
 }
 
 /**
@@ -241,13 +265,13 @@ export async function collectTimeline(
     if (added.length > 0) {
       commit.added = added;
     } else {
-      delete commit.added;
+      commit.added = undefined;
     }
     if (removed.length > 0) {
       commit.removed = removed;
     }
   }
-  const oldest = commits[0];
+  const [oldest] = commits;
   const parent = oldest?.parents[0];
   const seed =
     parent === undefined
@@ -301,7 +325,7 @@ export function selectCheckpoints(
       byMonth.set(monthKey(commit.timestamp), commit.hash);
     }
     picked = [...byMonth.values()];
-    if (picked[picked.length - 1] !== head.hash) {
+    if (picked.at(-1) !== head.hash) {
       picked.push(head.hash);
     }
     picked = picked.slice(-count);
@@ -369,7 +393,7 @@ export function buildLineage(
     if (state === undefined) {
       return undefined;
     }
-    const segment = state.segments[state.segments.length - 1];
+    const segment = state.segments.at(-1);
     if (segment !== undefined) {
       segment.until = until;
     }
@@ -381,42 +405,12 @@ export function buildLineage(
   }
   const wanted = new Set(checkpoints);
   const snapshots = new Map<string, Map<string, LineageState>>();
-  for (const commit of commits) {
-    for (const [previous, next] of commit.renamed ?? []) {
-      if (!isModulePath(next)) {
-        close(previous, commit.hash);
-        continue;
-      }
-      close(next, commit.hash);
-      if (!isModulePath(previous)) {
-        open(next, commit.hash);
-        continue;
-      }
-      let state = close(previous, commit.hash);
-      if (state === undefined) {
-        state = open(previous);
-        close(previous, commit.hash);
-      }
-      state.segments.push({ path: next, since: commit.hash });
-      live.set(next, state);
-    }
-    for (const path of commit.removed ?? []) {
-      close(path, commit.hash);
-    }
-    for (const path of commit.added ?? []) {
-      if (!live.has(path)) {
-        open(path, commit.hash);
-      }
-    }
-    if (wanted.has(commit.hash)) {
-      snapshots.set(commit.hash, new Map(live));
-    }
-  }
+  buildLineageCommit(commits, close, open, live, wanted, snapshots);
   // Merge lineages sharing a final path, oldest segments first.
   const byId = new Map<string, TemporalModuleLineage>();
   const idOf = new Map<LineageState, string>();
   for (const state of all) {
-    const id = state.segments[state.segments.length - 1]?.path ?? "";
+    const id = state.segments.at(-1)?.path ?? "";
     idOf.set(state, id);
     const existing = byId.get(id);
     if (existing === undefined) {
@@ -439,9 +433,52 @@ export function buildLineage(
   };
 }
 
-/** Which strategy names the CLI and config accept. */
-export const CHECKPOINT_STRATEGIES: readonly CheckpointStrategy[] = [
-  "monthly",
-  "evenly-spaced",
-  "every-n-commits",
-];
+function buildLineageCommit(
+  commits: SemanticsHistoryCommit[],
+  close: (path: string, until: string) => LineageState | undefined,
+  open: (path: string, since?: string) => LineageState,
+  live: Map<string, LineageState>,
+  wanted: Set<string>,
+  snapshots: Map<string, Map<string, LineageState>>
+) {
+  for (const commit of commits) {
+    buildLineageCommitEntries(commit, close, open, live);
+    for (const path of commit.removed ?? []) {
+      close(path, commit.hash);
+    }
+    for (const path of commit.added ?? []) {
+      if (!live.has(path)) {
+        open(path, commit.hash);
+      }
+    }
+    if (wanted.has(commit.hash)) {
+      snapshots.set(commit.hash, new Map(live));
+    }
+  }
+}
+
+function buildLineageCommitEntries(
+  commit: SemanticsHistoryCommit,
+  close: (path: string, until: string) => LineageState | undefined,
+  open: (path: string, since?: string) => LineageState,
+  live: Map<string, LineageState>
+) {
+  for (const [previous, next] of commit.renamed ?? []) {
+    if (!isModulePath(next)) {
+      close(previous, commit.hash);
+      continue;
+    }
+    close(next, commit.hash);
+    if (!isModulePath(previous)) {
+      open(next, commit.hash);
+      continue;
+    }
+    let state = close(previous, commit.hash);
+    if (state === undefined) {
+      state = open(previous);
+      close(previous, commit.hash);
+    }
+    state.segments.push({ path: next, since: commit.hash });
+    live.set(next, state);
+  }
+}

@@ -1,8 +1,10 @@
 import type {
   OperatorExecutionPlan,
   OperatorExecutionPlanValidation,
+  PlannedRelocation,
   PlannedSourceState,
   PlannedTransformation,
+  PlannedVerificationStep,
 } from "./operator-plan-types";
 import type { OperatorFact } from "./operator-types";
 
@@ -117,7 +119,7 @@ export function renderOperatorExecutionPlan(
       "Relocations",
       plan.relocations.map(
         (r) =>
-          `${r.granularity}/${r.strategy} ${r.sourceModule ?? r.sourcePackage} → ${r.targetModule ?? `${r.targetPackage} (unresolved)`}${r.targetResolution === undefined ? "" : ` via ${r.targetResolution}`}: ${r.members.map((m) => `${m.symbolId.split("#").pop() ?? m.symbolId} (${m.role})`).join(", ")}${r.closure === undefined ? "" : `; needs ${r.closure.externalDependencies.length === 0 ? "nothing" : r.closure.externalDependencies.map((x) => `${x.name} (${x.class}${x.typeOnly ? ", type" : ""})`).join(", ")}${r.closure.requiredInternalSymbols.length === 0 ? "" : `; moves with ${r.closure.requiredInternalSymbols.map((s) => s.split("#").pop() ?? s).join(", ")}`}${r.closure.complete ? "" : `; shares ${r.closure.sharedInternalSymbols.map((s) => s.split("#").pop() ?? s).join(", ")}`}`}`
+          `${r.granularity}/${r.strategy} ${r.sourceModule ?? r.sourcePackage} → ${r.targetModule ?? `${r.targetPackage} (unresolved)`}${r.targetResolution === undefined ? "" : ` via ${r.targetResolution}`}: ${r.members.map((m) => `${m.symbolId.split("#").pop() ?? m.symbolId} (${m.role})`).join(", ")}${resolveLines(r)}`
       )
     ),
     ...section(
@@ -158,7 +160,7 @@ export function renderOperatorExecutionPlan(
       "Verify",
       plan.verification.map(
         (v) =>
-          `${v.kind} ${v.scope.join(", ")} → ${fact(v.expected)}${v.dependsOn.length === 0 ? "" : ` (after ${v.dependsOn.length} step${v.dependsOn.length === 1 ? "" : "s"})`}`
+          `${v.kind} ${v.scope.join(", ")} → ${fact(v.expected)}${resolveLines2(v)}`
       )
     ),
     ...section("Forms", [
@@ -185,4 +187,29 @@ export function renderOperatorExecutionPlan(
     );
   }
   return lines.join("\n");
+}
+
+function resolveLines2(v: PlannedVerificationStep): string {
+  if (v.dependsOn.length === 0) {
+    return "";
+  }
+  return ` (after ${v.dependsOn.length} step${v.dependsOn.length === 1 ? "" : "s"})`;
+}
+
+function resolveLines(r: PlannedRelocation): string {
+  if (r.closure === undefined) {
+    return "";
+  }
+  return `; needs ${describeClosureDependencies(r.closure)}${r.closure.requiredInternalSymbols.length === 0 ? "" : `; moves with ${r.closure.requiredInternalSymbols.map((s) => s.split("#").pop() ?? s).join(", ")}`}${r.closure.complete ? "" : `; shares ${r.closure.sharedInternalSymbols.map((s) => s.split("#").pop() ?? s).join(", ")}`}`;
+}
+
+function describeClosureDependencies(
+  closure: NonNullable<PlannedRelocation["closure"]>
+): string {
+  if (closure.externalDependencies.length === 0) {
+    return "nothing";
+  }
+  return closure.externalDependencies
+    .map((x) => `${x.name} (${x.class}${x.typeOnly ? ", type" : ""})`)
+    .join(", ");
 }

@@ -13,6 +13,8 @@ import type {
   FunctionComplexity,
 } from "../../src/lib/types";
 
+const expectedTextPattern = /refactor|risk|score/i;
+
 interface FileOptions {
   commitPercentile?: number;
   commits?: number;
@@ -496,6 +498,6 @@ describe("hotspot eligibility", () => {
     expect(text).toContain(
       "    Signals\n      frequent-change\n      branch-heavy\n      deep-control-flow\n      architecturally-central"
     );
-    expect(text).not.toMatch(/refactor|risk|score/i);
+    expect(text).not.toMatch(expectedTextPattern);
   });
 });

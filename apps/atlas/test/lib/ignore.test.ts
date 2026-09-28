@@ -1,13 +1,18 @@
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
+import {
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, relative } from "node:path";
 
 import { afterAll, describe, expect, it } from "vitest";
-
-import { createProject } from "../../src/lib/analyze";
 import { resolveBoundary, toPosix } from "../../src/lib/boundary";
 import { collectCrossBoundaryEdges } from "../../src/lib/dependencies";
 import { createIgnorer } from "../../src/lib/ignore";
+import { createProject } from "../../src/lib/project";
 import {
   DEFAULT_SEMANTICS_CONFIG,
   discoverSemanticsUnits,
@@ -17,21 +22,19 @@ const tempRoots: string[] = [];
 
 afterAll(() => {
   for (const dir of tempRoots) {
-    fs.rmSync(dir, { force: true, recursive: true });
+    rmSync(dir, { force: true, recursive: true });
   }
 });
 
 function fixture(files: Record<string, string>): string {
-  const root = fs.mkdtempSync(
-    path.join(os.tmpdir(), "semantic-surface-ignore-")
-  );
+  const root = mkdtempSync(join(tmpdir(), "semantic-surface-ignore-"));
   tempRoots.push(root);
   for (const [file, content] of Object.entries(files)) {
-    const target = path.join(root, file);
-    fs.mkdirSync(path.dirname(target), { recursive: true });
-    fs.writeFileSync(target, content);
+    const target = join(root, file);
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, content);
   }
-  return fs.realpathSync(root);
+  return realpathSync(root);
 }
 
 describe("createIgnorer", () => {
@@ -86,7 +89,7 @@ describe("gitignored files stay out of the analysis", () => {
   it("keeps them out of the ts-morph project", () => {
     const files = createProject(root)
       .getSourceFiles()
-      .map((file) => toPosix(path.relative(root, file.getFilePath())))
+      .map((file) => toPosix(relative(root, file.getFilePath())))
       .sort();
     expect(files).toEqual([
       "packages/app/src/main.ts",

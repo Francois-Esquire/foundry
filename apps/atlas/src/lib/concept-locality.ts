@@ -1,6 +1,6 @@
-import { classifyFile } from "./churn";
 import type { AnalysisConfig } from "./config";
 import { ANALYSIS_CONFIG } from "./config";
+import { classifyFile } from "./file-kind";
 import type { GravityBoundary } from "./gravity";
 import { workspacePackages } from "./gravity";
 import type {
@@ -62,7 +62,7 @@ export function assessLocality(
 ): ConceptBehavioralLocality {
   const policy = config.behavioralLocality;
   const { behavior, span, traversal, halo } = facts;
-  const source = behavior.source;
+  const { source } = behavior;
   // A class seed's own members are not attributed as behavior (V7.3 counts
   // members of implementing classes only), so little behavior on a class
   // says nothing about how light it is.
@@ -70,28 +70,13 @@ export function assessLocality(
     facts.concept.kind !== "class" &&
     halo.modules >= policy.behaviorLight.minReferenceModules;
 
-  let primary: BehavioralLocalityShape;
-  if (source < policy.support.minSourceBehaviors) {
-    primary = broad ? "behavior-light" : "insufficient-evidence";
-  } else if (source <= policy.behaviorLight.maxSourceBehaviors && broad) {
-    primary = "behavior-light";
-  } else if (span.sourcePackageCount <= 1) {
-    primary =
-      span.sourceModuleCount >= policy.singlePackageDistributed.minModules
-        ? "single-package-distributed"
-        : "local";
-  } else {
-    const gate = policy.crossPackageDistributed;
-    const breadth =
-      (traversal.maxModuleDistance ?? 0) >= gate.minTraversalDistance ||
-      traversal.disconnectedPackagePairs > 0 ||
-      traversal.disconnectedModules > 0;
-    primary =
-      span.sourceModuleCount >= gate.minModules &&
-      (span.sourcePackageCount >= gate.minPackages || breadth)
-        ? "cross-package-distributed"
-        : "cross-package-localized";
-  }
+  const primaryShape: BehavioralLocalityShape = assessLocalityEntries(
+    source,
+    policy,
+    broad,
+    span,
+    traversal
+  );
 
   const modifiers: BehavioralLocalityModifier[] = [];
   const implementationPackages = new Set(
@@ -123,9 +108,9 @@ export function assessLocality(
   // A one-function `local` is trivially local; sparseness matters only
   // where the shape claims spread.
   const claimsSpread =
-    primary === "single-package-distributed" ||
-    primary === "cross-package-localized" ||
-    primary === "cross-package-distributed";
+    primaryShape === "single-package-distributed" ||
+    primaryShape === "cross-package-localized" ||
+    primaryShape === "cross-package-distributed";
   if (claimsSpread && source < policy.support.sparseSourceBehaviors) {
     cautions.push({
       detail: `${source} source behaviors; below ${policy.support.sparseSourceBehaviors} the shape rests on little`,
@@ -165,7 +150,7 @@ export function assessLocality(
     foreignSourceBehavior: _foreign,
     ...measured
   } = facts;
-  return { ...measured, cautions, shape: { modifiers, primary } };
+  return { ...measured, cautions, shape: { modifiers, primary: primaryShape } };
 }
 
 interface Reach {
@@ -177,10 +162,12 @@ interface Reach {
 class Distances {
   private readonly memo = new Map<string, Map<string, Reach>>();
 
-  constructor(
-    private readonly out: Map<string, Set<string>>,
-    private readonly aggregators: Set<string>
-  ) {}
+  private readonly out: Map<string, Set<string>>;
+  private readonly aggregators: Set<string>;
+  constructor(out: Map<string, Set<string>>, aggregators: Set<string>) {
+    this.out = out;
+    this.aggregators = aggregators;
+  }
 
   between(from: string, to: string): Reach | undefined {
     return this.from(from).get(to);
@@ -216,6 +203,53 @@ class Distances {
     this.memo.set(start, reach);
     return reach;
   }
+}
+
+function assessLocalityEntries(
+  source: number,
+  policy: {
+    support: { minSourceBehaviors: number; sparseSourceBehaviors: number };
+    behaviorLight: { maxSourceBehaviors: number; minReferenceModules: number };
+    singlePackageDistributed: { minModules: number };
+    crossPackageDistributed: {
+      minPackages: number;
+      minModules: number;
+      minTraversalDistance: number;
+    };
+    parallelImplementations: { minPackages: number };
+    report: {
+      topConcepts: number;
+      topModules: number;
+      topExternalCompanions: number;
+    };
+  },
+  broad: boolean,
+  span: ConceptBehaviorSpan,
+  traversal: ConceptTraversalContext
+): BehavioralLocalityShape {
+  let primaryShape: BehavioralLocalityShape;
+  if (source < policy.support.minSourceBehaviors) {
+    primaryShape = broad ? "behavior-light" : "insufficient-evidence";
+  } else if (source <= policy.behaviorLight.maxSourceBehaviors && broad) {
+    primaryShape = "behavior-light";
+  } else if (span.sourcePackageCount <= 1) {
+    primaryShape =
+      span.sourceModuleCount >= policy.singlePackageDistributed.minModules
+        ? "single-package-distributed"
+        : "local";
+  } else {
+    const gate = policy.crossPackageDistributed;
+    const breadth =
+      (traversal.maxModuleDistance ?? 0) >= gate.minTraversalDistance ||
+      traversal.disconnectedPackagePairs > 0 ||
+      traversal.disconnectedModules > 0;
+    primaryShape =
+      span.sourceModuleCount >= gate.minModules &&
+      (span.sourcePackageCount >= gate.minPackages || breadth)
+        ? "cross-package-distributed"
+        : "cross-package-localized";
+  }
+  return primaryShape;
 }
 
 function adjacencyOf(
@@ -438,11 +472,11 @@ function primary(rows: { name: string; share: number | null }[]): {
   name?: string;
   share: number | null;
 } {
-  const best = [...rows]
+  const [best] = [...rows]
     .filter((row) => row.share !== null && row.share > 0)
     .sort(
       (a, b) => (b.share ?? 0) - (a.share ?? 0) || a.name.localeCompare(b.name)
-    )[0];
+    );
   return best === undefined
     ? { share: null }
     : { name: best.name, share: best.share };
@@ -560,17 +594,23 @@ export function analyzeConceptBehavioralLocality(
 
   let temporal: TemporalIndex | undefined;
   if (source.changeCoupling.available && source.hotspots.available) {
+    const { filePairs } = source.changeCoupling;
     const pairsByFile: TemporalIndex["pairsByFile"] = new Map();
-    for (const pair of source.changeCoupling.filePairs) {
-      for (const file of [pair.left, pair.right]) {
-        const list = pairsByFile.get(file);
-        if (list === undefined) {
-          pairsByFile.set(file, [pair]);
-        } else {
-          list.push(pair);
+    const visitPair = (
+      currentPairsByFile: Map<string, FileChangeCouplingPair[]>
+    ) => {
+      for (const pair of filePairs) {
+        for (const file of [pair.left, pair.right]) {
+          const list = currentPairsByFile.get(file);
+          if (list === undefined) {
+            currentPairsByFile.set(file, [pair]);
+          } else {
+            list.push(pair);
+          }
         }
       }
-    }
+    };
+    visitPair(pairsByFile);
     temporal = {
       aggregators,
       hotspots: new Map(
@@ -619,31 +659,34 @@ export function analyzeConceptBehavioralLocality(
         ...item,
         roles: [item.role],
       }));
+    const visitConversion = () => {
+      for (const conversion of conversionsBySeed.get(family.seed.id) ?? []) {
+        const match = participants.find(
+          (item) =>
+            item.file === conversion.file && item.symbol === conversion.function
+        );
+        if (match !== undefined) {
+          if (!match.roles.includes("conversion")) {
+            match.roles.push("conversion");
+          }
+          continue;
+        }
+        const pkg = packageOf.get(conversion.file);
+        participants.push({
+          file: conversion.file,
+          kind: classifyFile(conversion.file),
+          member: "function",
+          package: pkg ?? "<root>",
+          role: "contract",
+          roles: ["contract", "conversion"],
+          symbol: conversion.function,
+        });
+      }
+    };
     // One function converting to two partners is still one participant.
     // A converter V7.3 did not attribute (its signature wraps the concept in
     // a Promise or array, which V7.2 looks through) joins as one.
-    for (const conversion of conversionsBySeed.get(family.seed.id) ?? []) {
-      const match = participants.find(
-        (item) =>
-          item.file === conversion.file && item.symbol === conversion.function
-      );
-      if (match !== undefined) {
-        if (!match.roles.includes("conversion")) {
-          match.roles.push("conversion");
-        }
-        continue;
-      }
-      const pkg = packageOf.get(conversion.file);
-      participants.push({
-        file: conversion.file,
-        kind: classifyFile(conversion.file),
-        member: "function",
-        package: pkg ?? "<root>",
-        role: "contract",
-        roles: ["contract", "conversion"],
-        symbol: conversion.function,
-      });
-    }
+    visitConversion();
     const behavior = behaviorMap(participants, roles);
     const sourceRows = behavior.byModule.filter((row) => row.kind === "source");
     const sourceModules = sourceRows.map((row) => row.module);

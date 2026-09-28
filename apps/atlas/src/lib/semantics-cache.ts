@@ -1,11 +1,22 @@
-import * as fs from "node:fs";
-import * as path from "node:path";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, join, relative } from "node:path";
 
 import type { PackageLocalReport } from "./package-local-types";
 import { PACKAGE_LOCAL_REPORT_SCHEMA_VERSION } from "./package-local-types";
 import { encodePackageFile } from "./semantics";
 import { SEMANTIC_STAGE_VERSIONS } from "./semantics-stages";
 import type { SurfaceReport } from "./types";
+
+const listCachedPackagesPattern = /__/g;
 
 // Package cache under `.foundry/cache/semantics/`. Disposable reuse
 // material, never truth: an entry is used only when its kind, identity,
@@ -47,7 +58,7 @@ export interface WorkspaceInputsMeta {
   files: Record<string, string>;
 }
 
-export type CacheMissReason =
+type CacheMissReason =
   | "cache-missing"
   | "cache-corrupt"
   | "cache-schema-changed"
@@ -65,8 +76,8 @@ function packageFiles(
   const encoded = encodePackageFile(id);
   const suffix = kind === "package-local" ? ".local" : "";
   return {
-    meta: path.join(dir, "packages", `${encoded}${suffix}.meta.json`),
-    payload: path.join(dir, "packages", `${encoded}${suffix}.json`),
+    meta: join(dir, "packages", `${encoded}${suffix}.meta.json`),
+    payload: join(dir, "packages", `${encoded}${suffix}.json`),
   };
 }
 
@@ -77,15 +88,15 @@ function schemaFor(kind: CacheEntryKind): number {
 }
 
 function readJson(file: string): unknown {
-  return JSON.parse(fs.readFileSync(file, "utf8"));
+  return JSON.parse(readFileSync(file, "utf8"));
 }
 
 /** Whole file or nothing: written beside the target, then renamed over it. */
 export function writeJsonAtomic(file: string, value: unknown): void {
-  fs.mkdirSync(path.dirname(file), { recursive: true });
+  mkdirSync(dirname(file), { recursive: true });
   const tmp = `${file}.tmp-${process.pid}`;
-  fs.writeFileSync(tmp, JSON.stringify(value));
-  fs.renameSync(tmp, file);
+  writeFileSync(tmp, JSON.stringify(value));
+  renameSync(tmp, file);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -120,7 +131,7 @@ export function lookupPackage<T>(
   fingerprint: string
 ): CacheLookup<T> {
   const files = packageFiles(dir, id, kind);
-  if (!fs.existsSync(files.meta)) {
+  if (!existsSync(files.meta)) {
     return { hit: false, reason: "cache-missing" };
   }
   let meta: CachedPackageMeta;
@@ -143,7 +154,7 @@ export function lookupPackage<T>(
   if (meta.packageId !== id || meta.fingerprint !== fingerprint) {
     return { hit: false, meta, reason: "fingerprint-changed" };
   }
-  if (!fs.existsSync(files.payload)) {
+  if (!existsSync(files.payload)) {
     return { hit: false, meta, reason: "cache-missing" };
   }
   try {
@@ -178,7 +189,7 @@ export function readCachedPackage(
   kind: CacheEntryKind
 ): PackageLocalReport | SurfaceReport | undefined {
   const files = packageFiles(dir, id, kind);
-  if (!fs.existsSync(files.payload)) {
+  if (!existsSync(files.payload)) {
     return undefined;
   }
   try {
@@ -198,13 +209,13 @@ export function cacheStatistics(dir: string): {
   bytes: number;
   localBytes: number;
 } {
-  const packages = path.join(dir, "packages");
+  const packages = join(dir, "packages");
   const stats = { bytes: 0, localBytes: 0, localEntries: 0, packageEntries: 0 };
-  if (!fs.existsSync(packages)) {
+  if (!existsSync(packages)) {
     return stats;
   }
-  for (const file of fs.readdirSync(packages)) {
-    const size = fs.statSync(path.join(packages, file)).size;
+  for (const file of readdirSync(packages)) {
+    const { size } = statSync(join(packages, file));
     stats.bytes += size;
     const local = file.includes(".local.");
     if (local) {
@@ -236,7 +247,7 @@ export function storePackage(dir: string, entry: StorePackageOptions): void {
     analyzedAt: entry.analyzedAt,
     cacheSchemaVersion: SEMANTICS_CACHE_SCHEMA_VERSION,
     components: entry.components,
-    file: path.relative(dir, files.payload),
+    file: relative(dir, files.payload),
     fingerprint: entry.fingerprint,
     kind: entry.kind,
     packageId: entry.id,
@@ -266,27 +277,28 @@ export function listCachedPackages(
   dir: string,
   kind: CacheEntryKind = "package-report"
 ): string[] {
-  const packages = path.join(dir, "packages");
-  if (!fs.existsSync(packages)) {
+  const packages = join(dir, "packages");
+  if (!existsSync(packages)) {
     return [];
   }
   const suffix = kind === "package-local" ? ".local.meta.json" : ".meta.json";
-  return fs
-    .readdirSync(packages)
+  return readdirSync(packages)
     .filter(
       (file) =>
         file.endsWith(suffix) &&
         (kind === "package-local" || !file.endsWith(".local.meta.json"))
     )
-    .map((file) => file.slice(0, -suffix.length).replace(/__/g, "/"))
+    .map((file) =>
+      file.slice(0, -suffix.length).replace(listCachedPackagesPattern, "/")
+    )
     .sort();
 }
 
 export function removePackage(dir: string, id: string): void {
   for (const kind of ["package-local", "package-report"] as const) {
     const files = packageFiles(dir, id, kind);
-    fs.rmSync(files.payload, { force: true });
-    fs.rmSync(files.meta, { force: true });
+    rmSync(files.payload, { force: true });
+    rmSync(files.meta, { force: true });
   }
 }
 
@@ -295,8 +307,8 @@ const INPUTS_FILE = "workspace-inputs.json";
 export function readWorkspaceInputsMeta(
   dir: string
 ): WorkspaceInputsMeta | undefined {
-  const file = path.join(dir, INPUTS_FILE);
-  if (!fs.existsSync(file)) {
+  const file = join(dir, INPUTS_FILE);
+  if (!existsSync(file)) {
     return undefined;
   }
   try {
@@ -328,7 +340,7 @@ export function storeWorkspaceInputsMeta(
     cacheSchemaVersion: SEMANTICS_CACHE_SCHEMA_VERSION,
     files: Object.fromEntries(files),
   };
-  writeJsonAtomic(path.join(dir, INPUTS_FILE), meta);
+  writeJsonAtomic(join(dir, INPUTS_FILE), meta);
 }
 
 // ---------------------------------------------------------------------------
@@ -353,9 +365,9 @@ function alive(pid: number): boolean {
  * over; a live holder fails this build before it touches anything.
  */
 export function acquireCacheLock(dir: string): () => void {
-  const file = path.join(dir, "lock.json");
-  fs.mkdirSync(dir, { recursive: true });
-  if (fs.existsSync(file)) {
+  const file = join(dir, "lock.json");
+  mkdirSync(dir, { recursive: true });
+  if (existsSync(file)) {
     let holder: LockFile | undefined;
     try {
       holder = readJson(file) as LockFile;
@@ -381,7 +393,7 @@ export function acquireCacheLock(dir: string): () => void {
     try {
       const current = readJson(file) as LockFile;
       if (current.pid === process.pid) {
-        fs.rmSync(file, { force: true });
+        rmSync(file, { force: true });
       }
     } catch {
       // already gone

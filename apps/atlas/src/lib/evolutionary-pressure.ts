@@ -263,7 +263,7 @@ function centralization(ctx: Context): Verdict {
       evidence("hotspot", "hotspot", hotspotFiles.has(seam), seam),
       evidence("coupling", "crossPackagePairs", crossPairs.length, seam)
     );
-    const strongest = crossPairs[0];
+    const [strongest] = crossPairs;
     if (strongest !== undefined) {
       evolutionary.push(
         evidence(
@@ -369,7 +369,7 @@ function leafTension(ctx: Context): ArchitecturalTension | undefined {
     return undefined;
   }
   const min = ctx.policy.coupling.minPackageCommits;
-  const pair = ctx.recurringPackagePairs[0];
+  const [pair] = ctx.recurringPackagePairs;
   const combination = ctx.radius.summary.packageCombinations.find(
     (c) => c.packages.length === 2 && c.commits >= min
   );

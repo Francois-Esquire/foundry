@@ -1,5 +1,5 @@
-import * as fs from "node:fs";
-import * as path from "node:path";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { join, relative } from "node:path";
 import {
   expandPattern,
   resolveBoundary,
@@ -49,13 +49,13 @@ export interface WorkspaceInputs {
 
 // Type aliases, not interfaces: the cache stores components as
 // `Record<string, string>`, and only an alias gets the implicit index signature.
-// eslint-disable-next-line @typescript-eslint/consistent-type-definitions
-export type PackageFingerprintComponents = {
+// biome-ignore lint/style/useConsistentTypeDefinitions: Cache components require the implicit Record<string, string> index signature of a type alias.
+type PackageFingerprintComponents = {
   analysis: string;
-  config: string;
   clock: string;
-  sources: string;
+  config: string;
   history: string;
+  sources: string;
 };
 
 export interface PackageFingerprint {
@@ -65,7 +65,7 @@ export interface PackageFingerprint {
 }
 
 function hashFile(file: string): string {
-  return sha1(fs.readFileSync(file, "utf8"));
+  return sha1(readFileSync(file, "utf8"));
 }
 
 function hashPairs(pairs: Iterable<[string, string]>): string {
@@ -74,11 +74,11 @@ function hashPairs(pairs: Iterable<[string, string]>): string {
 
 /** Manifests of every workspace package plus the root's: names, entries, exports, owners. */
 function workspaceManifests(root: string): string[] {
-  const manifests = [path.join(root, "package.json")];
+  const manifests = [join(root, "package.json")];
   for (const pattern of workspacePatterns(root)) {
     for (const dir of expandPattern(root, pattern)) {
-      const manifest = path.join(dir, "package.json");
-      if (fs.existsSync(manifest)) {
+      const manifest = join(dir, "package.json");
+      if (existsSync(manifest)) {
         manifests.push(manifest);
       }
     }
@@ -91,7 +91,7 @@ async function cruisedModules(
   root: string,
   units: SemanticsWorkspaceUnit[]
 ): Promise<string[]> {
-  const first = units[0];
+  const [first] = units;
   if (first === undefined) {
     return [];
   }
@@ -121,18 +121,18 @@ export async function collectWorkspaceInputs(
   const profile = options.profile ?? "full";
   const candidates = new Set<string>();
   for (const file of workspaceSourceFiles(root)) {
-    candidates.add(toPosix(path.relative(root, file)));
+    candidates.add(toPosix(relative(root, file)));
   }
   for (const module of await cruisedModules(root, units)) {
     candidates.add(module);
   }
   for (const manifest of workspaceManifests(root)) {
-    candidates.add(toPosix(path.relative(root, manifest)));
+    candidates.add(toPosix(relative(root, manifest)));
   }
   const files = new Map<string, string>();
   for (const rel of [...candidates].sort()) {
-    const absolute = path.join(root, rel);
-    if (fs.existsSync(absolute) && fs.statSync(absolute).isFile()) {
+    const absolute = join(root, rel);
+    if (existsSync(absolute) && statSync(absolute).isFile()) {
       files.set(rel, hashFile(absolute));
     }
   }
@@ -184,8 +184,8 @@ export function packageFingerprint(
   };
 }
 
-// eslint-disable-next-line @typescript-eslint/consistent-type-definitions
-export type PackageLocalFingerprintComponents = {
+// biome-ignore lint/style/useConsistentTypeDefinitions: Cache components require the implicit Record<string, string> index signature of a type alias.
+type PackageLocalFingerprintComponents = {
   /** `packageLocalAnalysis` stage fingerprint: local report schema and analysis policy. */
   analysis: string;
   /** sha1 over the sorted (path, sha1) pairs of the package's own sources and manifest. */
@@ -213,12 +213,12 @@ export function packageLocalFingerprint(
   const boundary = resolveBoundary(root, unit.path);
   const files = new Map<string, string>();
   const inputs = packageSourceFiles(root, boundary).map((file) =>
-    toPosix(path.relative(root, file))
+    toPosix(relative(root, file))
   );
   inputs.push(unit.manifestPath);
   for (const rel of inputs.sort()) {
-    const absolute = path.join(root, rel);
-    if (!fs.existsSync(absolute)) {
+    const absolute = join(root, rel);
+    if (!existsSync(absolute)) {
       continue;
     }
     files.set(rel, known.get(rel) ?? hashFile(absolute));

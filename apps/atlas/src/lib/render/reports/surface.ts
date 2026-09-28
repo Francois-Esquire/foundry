@@ -32,6 +32,8 @@ import {
 import { signalBlocks, signalNames } from "./signals";
 import { verdict } from "./verdict";
 
+const churnPattern = /-/g;
+
 /**
  * Default report: what is this → what stands out → who consumes it → what
  * could change → supporting detail. Every line reads a report field; the
@@ -106,38 +108,47 @@ function header(report: SurfaceReport, density: RenderDensity): SectionView {
 }
 
 function summary(report: SurfaceReport, density: RenderDensity): SectionView {
-  const { summary } = report;
+  const { summary: reportSummary2 } = report;
   return {
     blocks: [
       {
         kind: "funnel",
         stages: [
-          { label: "total symbols", value: summary.totalSymbols },
-          { label: "module exports", value: summary.moduleExportedSymbols },
-          { label: "package-public", value: summary.packagePublicSymbols },
-          { label: "externally used", value: summary.externallyUsedSymbols },
+          { label: "total symbols", value: reportSummary2.totalSymbols },
+          {
+            label: "module exports",
+            value: reportSummary2.moduleExportedSymbols,
+          },
+          {
+            label: "package-public",
+            value: reportSummary2.packagePublicSymbols,
+          },
+          {
+            label: "externally used",
+            value: reportSummary2.externallyUsedSymbols,
+          },
         ],
       },
       text(""),
       {
         items: [
           {
-            denominator: summary.totalSymbols,
+            denominator: reportSummary2.totalSymbols,
             label: "Declared package surface",
-            numerator: summary.packagePublicSymbols,
-            value: summary.declaredSurfaceRatio,
+            numerator: reportSummary2.packagePublicSymbols,
+            value: reportSummary2.declaredSurfaceRatio,
           },
           {
-            denominator: summary.totalSymbols,
+            denominator: reportSummary2.totalSymbols,
             label: "External surface",
-            numerator: summary.externallyUsedSymbols,
-            value: summary.externalSurfaceRatio,
+            numerator: reportSummary2.externallyUsedSymbols,
+            value: reportSummary2.externalSurfaceRatio,
           },
           {
-            denominator: summary.packagePublicSymbols,
+            denominator: reportSummary2.packagePublicSymbols,
             label: "Export utilization",
-            numerator: summary.externallyUsedSymbols,
-            value: summary.exportUtilization,
+            numerator: reportSummary2.externallyUsedSymbols,
+            value: reportSummary2.exportUtilization,
           },
         ],
         kind: "ratio",
@@ -277,7 +288,129 @@ function opportunities(
     report.opportunities.filter((item) => item.operation === operation);
 
   const internalize = byOperation("internalize-symbol");
-  const first = internalize[0];
+  const [first] = internalize;
+  opportunitiesEntries(
+    first,
+    report,
+    blocks,
+    internalize,
+    compact,
+    density,
+    config
+  );
+  const visitFold = () => {
+    for (const fold of byOperation("fold-package")) {
+      if (blocks.length > 0) {
+        blocks.push(text(""));
+      }
+      blocks.push(
+        {
+          kind: "signal",
+          summary: fold.summary,
+          title: "FOLD CANDIDATE",
+          tone: "emphasis",
+          ...(!compact && { evidence: evidenceLines(fold) }),
+        },
+        {
+          from: fold.subject.name,
+          kind: "edge",
+          label: `evidence confidence ${percent(fold.evidenceConfidence)}`,
+          to: fold.target?.name ?? "?",
+        }
+      );
+      for (const caution of fold.cautions) {
+        blocks.push({
+          kind: "signal",
+          summary: caution.detail,
+          title: "CAUTION",
+          tone: "caution",
+        });
+      }
+      const plan = report.plans.find(
+        (candidate) =>
+          candidate.operation === "fold-package" &&
+          candidate.source.package === fold.subject.id
+      );
+      if (plan?.status === "blocked") {
+        blocks.push({
+          evidence: plan.blockers.map((blocker) => blocker.detail),
+          kind: "signal",
+          title: "BLOCKED",
+          tone: "blocked",
+        });
+      } else if (plan !== undefined) {
+        const scale = plan.intelligence?.scale;
+        blocks.push(
+          text(
+            `Plan ${plan.status}` +
+              (scale === undefined
+                ? ""
+                : ` · ${plural(scale.files.total, "file")} · ${scale.symbols.externallyUsed} consumed / ${scale.symbols.packagePublic} public`)
+          )
+        );
+      }
+    }
+  };
+
+  visitFold();
+
+  for (const preserve of byOperation("preserve-shared-boundary")) {
+    if (blocks.length > 0) {
+      blocks.push(text(""));
+    }
+    blocks.push({
+      kind: "signal",
+      summary: preserve.summary,
+      title: "PRESERVE SHARED BOUNDARY",
+      tone: "neutral",
+      ...(!compact && { evidence: evidenceLines(preserve) }),
+    });
+  }
+
+  if (!compact) {
+    for (const ineligible of report.ineligibleOperations) {
+      if (blocks.length > 0) {
+        blocks.push(text(""));
+      }
+      blocks.push({
+        checks: ineligible.failedGates.map((gate) => ({
+          label: `${gate.gate}  expected ${String(gate.expected)} · actual ${String(gate.actual)}`,
+          passed: false,
+        })),
+        kind: "gate",
+        result: "NOT ELIGIBLE",
+        title: `${ineligible.operation.replace(churnPattern, " ").toUpperCase()} ELIGIBILITY`,
+      });
+    }
+  }
+
+  if (blocks.length === 0) {
+    return undefined;
+  }
+  if (!compact) {
+    const blockers = blockerDefinitions(
+      report.plans.flatMap((plan) =>
+        plan.blockers.map((blocker) => blocker.reason)
+      )
+    );
+    blocks.push(text(""), {
+      kind: "note",
+      lines: paragraphs([...OPPORTUNITIES, ...blockers]),
+      title: "Reading opportunities",
+    });
+  }
+  return { blocks, title: "OPPORTUNITIES" };
+}
+
+function opportunitiesEntries(
+  first: ReductionOpportunity | undefined,
+  report: SurfaceReport,
+  blocks: BlockView[],
+  internalize: ReductionOpportunity[],
+  compact: boolean,
+  density: RenderDensity,
+  config: AnalysisConfig
+) {
   if (first !== undefined) {
     const ready = planStatusCount(report, "ready");
     const blocked = planStatusCount(report, "blocked");
@@ -318,105 +451,6 @@ function opportunities(
       });
     }
   }
-
-  for (const fold of byOperation("fold-package")) {
-    if (blocks.length > 0) {
-      blocks.push(text(""));
-    }
-    blocks.push(
-      {
-        kind: "signal",
-        summary: fold.summary,
-        title: "FOLD CANDIDATE",
-        tone: "emphasis",
-        ...(!compact && { evidence: evidenceLines(fold) }),
-      },
-      {
-        from: fold.subject.name,
-        kind: "edge",
-        label: `evidence confidence ${percent(fold.evidenceConfidence)}`,
-        to: fold.target?.name ?? "?",
-      }
-    );
-    for (const caution of fold.cautions) {
-      blocks.push({
-        kind: "signal",
-        summary: caution.detail,
-        title: "CAUTION",
-        tone: "caution",
-      });
-    }
-    const plan = report.plans.find(
-      (candidate) =>
-        candidate.operation === "fold-package" &&
-        candidate.source.package === fold.subject.id
-    );
-    if (plan?.status === "blocked") {
-      blocks.push({
-        evidence: plan.blockers.map((blocker) => blocker.detail),
-        kind: "signal",
-        title: "BLOCKED",
-        tone: "blocked",
-      });
-    } else if (plan !== undefined) {
-      const scale = plan.intelligence?.scale;
-      blocks.push(
-        text(
-          `Plan ${plan.status}` +
-            (scale === undefined
-              ? ""
-              : ` · ${plural(scale.files.total, "file")} · ${scale.symbols.externallyUsed} consumed / ${scale.symbols.packagePublic} public`)
-        )
-      );
-    }
-  }
-
-  for (const preserve of byOperation("preserve-shared-boundary")) {
-    if (blocks.length > 0) {
-      blocks.push(text(""));
-    }
-    blocks.push({
-      kind: "signal",
-      summary: preserve.summary,
-      title: "PRESERVE SHARED BOUNDARY",
-      tone: "neutral",
-      ...(!compact && { evidence: evidenceLines(preserve) }),
-    });
-  }
-
-  if (!compact) {
-    for (const ineligible of report.ineligibleOperations) {
-      if (blocks.length > 0) {
-        blocks.push(text(""));
-      }
-      blocks.push({
-        checks: ineligible.failedGates.map((gate) => ({
-          label: `${gate.gate}  expected ${String(gate.expected)} · actual ${String(gate.actual)}`,
-          passed: false,
-        })),
-        kind: "gate",
-        result: "NOT ELIGIBLE",
-        title: `${ineligible.operation.replace(/-/g, " ").toUpperCase()} ELIGIBILITY`,
-      });
-    }
-  }
-
-  if (blocks.length === 0) {
-    return undefined;
-  }
-  if (!compact) {
-    const blockers = blockerDefinitions(
-      report.plans.flatMap((plan) =>
-        plan.blockers.map((blocker) => blocker.reason)
-      )
-    );
-    blocks.push(text(""), {
-      kind: "note",
-      lines: paragraphs([...OPPORTUNITIES, ...blockers]),
-      title: "Reading opportunities",
-    });
-  }
-  return { blocks, title: "OPPORTUNITIES" };
 }
 
 function usedSymbols(report: SurfaceReport): SurfaceSymbol[] {
@@ -486,12 +520,12 @@ function totalsLine(label: string, totals: BoundaryInteractionTotals): string {
 }
 
 function boundaries(report: SurfaceReport): SectionView {
-  const { summary } = report.boundaryInteractions;
+  const { summary: reportSummary } = report.boundaryInteractions;
   return {
     blocks: [
       text(
-        totalsLine("incoming", summary.incoming),
-        totalsLine("outgoing", summary.outgoing)
+        totalsLine("incoming", reportSummary.incoming),
+        totalsLine("outgoing", reportSummary.outgoing)
       ),
     ],
     title: "BOUNDARY INTERACTIONS",
@@ -499,34 +533,37 @@ function boundaries(report: SurfaceReport): SectionView {
 }
 
 function pressure(report: SurfaceReport): SectionView | undefined {
-  const { signals, boundaries } = report.structuralPressure;
-  if (signals.length === 0 && boundaries.length === 0) {
+  const { signals: pressureSignals, boundaries: pressureBoundaries } =
+    report.structuralPressure;
+  if (pressureSignals.length === 0 && pressureBoundaries.length === 0) {
     return undefined;
   }
-  const lines: string[] = signals.map((signal) => signal.kind);
-  if (boundaries.length > 0) {
-    if (signals.length > 0) {
+  const lines: string[] = pressureSignals.map((signal) => signal.kind);
+  if (pressureBoundaries.length > 0) {
+    if (pressureSignals.length > 0) {
       lines.push("");
     }
-    lines.push(plural(boundaries.length, "boundary-pressure signal"));
+    lines.push(plural(pressureBoundaries.length, "boundary-pressure signal"));
   }
   return { blocks: [text(...lines)], title: "STRUCTURAL PRESSURE" };
 }
 
 function churn(report: SurfaceReport): SectionView {
-  const { churn } = report;
-  if (!churn.available) {
+  const { churn: currentChurn } = report;
+  if (!currentChurn.available) {
     return {
-      blocks: [text(`unavailable (${churn.reason.replace(/-/g, " ")})`)],
+      blocks: [
+        text(`unavailable (${currentChurn.reason.replace(churnPattern, " ")})`),
+      ],
       title: "CHURN",
     };
   }
-  const { summary, history, target } = churn;
+  const { summary: currentSummary5, history, target } = currentChurn;
   return {
     blocks: [
       text(
-        `${plural(summary.filesAnalyzed, "file")} · ${plural(summary.commits, "commit")} in ${windowLabel(history.windowDays)}${history.historyComplete ? "" : " (shallow clone)"}`,
-        `${count(summary.linesChanged)} lines changed · ${plural(summary.authors, "author")}`,
+        `${plural(currentSummary5.filesAnalyzed, "file")} · ${plural(currentSummary5.commits, "commit")} in ${windowLabel(history.windowDays)}${history.historyComplete ? "" : " (shallow clone)"}`,
+        `${count(currentSummary5.linesChanged)} lines changed · ${plural(currentSummary5.authors, "author")}`,
         `last changed ${ago(target.daysSinceLastChange)}`
       ),
     ],
@@ -535,18 +572,18 @@ function churn(report: SurfaceReport): SectionView {
 }
 
 function hotspots(report: SurfaceReport): SectionView | undefined {
-  const { hotspots } = report;
-  if (!hotspots.available) {
+  const { hotspots: currentHotspots } = report;
+  if (!currentHotspots.available) {
     return undefined;
   }
-  const top = hotspots.files[0];
+  const [top] = currentHotspots.files;
   if (top === undefined) {
     return { blocks: [text("none under current policy")], title: "HOTSPOTS" };
   }
   return {
     blocks: [
       text(
-        `${plural(hotspots.summary.hotspots, "source file")} of ${hotspots.summary.eligibleSourceFiles}`,
+        `${plural(currentHotspots.summary.hotspots, "source file")} of ${currentHotspots.summary.eligibleSourceFiles}`,
         `highest: ${top.file} · ${plural(top.evolution.commits, "commit")} · ${percent(top.evolution.commitPercentile)} commit percentile`
       ),
     ],
@@ -555,12 +592,12 @@ function hotspots(report: SurfaceReport): SectionView | undefined {
 }
 
 function coupling(report: SurfaceReport): SectionView | undefined {
-  const coupling = report.changeCoupling;
-  if (!coupling.available) {
+  const currentCoupling = report.changeCoupling;
+  if (!currentCoupling.available) {
     return undefined;
   }
-  const { summary } = coupling;
-  if (summary.filePairs === 0 && summary.packagePairs === 0) {
+  const { summary: currentSummary4 } = currentCoupling;
+  if (currentSummary4.filePairs === 0 && currentSummary4.packagePairs === 0) {
     return {
       blocks: [text("no strong pairs under current policy")],
       title: "CHANGE COUPLING",
@@ -569,8 +606,8 @@ function coupling(report: SurfaceReport): SectionView | undefined {
   return {
     blocks: [
       text(
-        `${plural(summary.filePairs, "strong file pair")} · ${summary.crossPackagePairs} cross-package · ${plural(summary.packagePairs, "package pair")}`,
-        `${summary.filePairsWithoutStaticEdge} strong file ${summary.filePairsWithoutStaticEdge === 1 ? "pair has" : "pairs have"} no static dependency`
+        `${plural(currentSummary4.filePairs, "strong file pair")} · ${currentSummary4.crossPackagePairs} cross-package · ${plural(currentSummary4.packagePairs, "package pair")}`,
+        `${currentSummary4.filePairsWithoutStaticEdge} strong file ${currentSummary4.filePairsWithoutStaticEdge === 1 ? "pair has" : "pairs have"} no static dependency`
       ),
     ],
     title: "CHANGE COUPLING",
@@ -578,16 +615,16 @@ function coupling(report: SurfaceReport): SectionView | undefined {
 }
 
 function radius(report: SurfaceReport): SectionView | undefined {
-  const radius = report.changeRadius;
-  if (!radius.available || radius.summary.commits === 0) {
+  const currentRadius = report.changeRadius;
+  if (!currentRadius.available || currentRadius.summary.commits === 0) {
     return undefined;
   }
-  const { summary } = radius;
+  const { summary: currentSummary3 } = currentRadius;
   return {
     blocks: [
       text(
-        `packages/commit p50 ${summary.packages.p50} · p90 ${summary.packages.p90} · max ${summary.packages.max}`,
-        `cross-package commits ${percent(summary.crossPackageRate)} · boundary-crossing ${percent(summary.boundaryCrossingRate)}`
+        `packages/commit p50 ${currentSummary3.packages.p50} · p90 ${currentSummary3.packages.p90} · max ${currentSummary3.packages.max}`,
+        `cross-package commits ${percent(currentSummary3.crossPackageRate)} · boundary-crossing ${percent(currentSummary3.boundaryCrossingRate)}`
       ),
     ],
     title: "CHANGE RADIUS",
@@ -595,55 +632,58 @@ function radius(report: SurfaceReport): SectionView | undefined {
 }
 
 function evolution(report: SurfaceReport): SectionView | undefined {
-  const evolution = report.evolutionaryPressure;
-  if (!evolution.available) {
+  const currentEvolution = report.evolutionaryPressure;
+  if (!currentEvolution.available) {
     return undefined;
   }
   const lines: string[] = [];
-  if (evolution.historicalSupport === "insufficient") {
+  if (currentEvolution.historicalSupport === "insufficient") {
     lines.push(
-      `insufficient history (${plural(evolution.support.eligibleRadiusCommits, "eligible commit")})`
+      `insufficient history (${plural(currentEvolution.support.eligibleRadiusCommits, "eligible commit")})`
     );
     return { blocks: [text(...lines)], title: "EVOLUTIONARY PRESSURE" };
   }
-  if (evolution.reinforced.length === 0 && evolution.tensions.length === 0) {
+  if (
+    currentEvolution.reinforced.length === 0 &&
+    currentEvolution.tensions.length === 0
+  ) {
     lines.push("no reinforced static pressure under current policy");
   }
-  if (evolution.reinforced.length > 0) {
+  if (currentEvolution.reinforced.length > 0) {
     lines.push("reinforced");
-    for (const signal of evolution.reinforced) {
+    for (const signal of currentEvolution.reinforced) {
       lines.push(`  ${signal.staticSignal}`);
     }
   }
-  if (evolution.tensions.length > 0) {
+  if (currentEvolution.tensions.length > 0) {
     lines.push("tensions");
-    for (const kind of new Set(evolution.tensions.map((t) => t.kind))) {
+    for (const kind of new Set(currentEvolution.tensions.map((t) => t.kind))) {
       lines.push(`  ${kind}`);
     }
   }
   lines.push("history");
   lines.push(
-    `  ${plural(evolution.support.eligibleRadiusCommits, "eligible commit")}`
+    `  ${plural(currentEvolution.support.eligibleRadiusCommits, "eligible commit")}`
   );
   return { blocks: [text(...lines)], title: "EVOLUTIONARY PRESSURE" };
 }
 
 function concepts(report: SurfaceReport): SectionView | undefined {
-  const { summary, families } = report.conceptInventory;
-  if (summary.seeds === 0) {
+  const { summary: currentSummary2, families } = report.conceptInventory;
+  if (currentSummary2.seeds === 0) {
     return undefined;
   }
   const lines: string[] = [];
   lines.push(
-    `${plural(summary.seeds, "seed")} · ${summary.crossPackageFamilies} cross-package ${summary.crossPackageFamilies === 1 ? "family" : "families"} · ${plural(summary.implementations, "implementation")}`
+    `${plural(currentSummary2.seeds, "seed")} · ${currentSummary2.crossPackageFamilies} cross-package ${currentSummary2.crossPackageFamilies === 1 ? "family" : "families"} · ${plural(currentSummary2.implementations, "implementation")}`
   );
-  const distribution = report.conceptInventory.distribution;
+  const { distribution } = report.conceptInventory;
   if (distribution !== undefined) {
     lines.push(
       `${distribution.implementationSplit} implementation-split · ${distribution.referenceDistributed} reference-distributed · ${distribution.representationConcentrated} representation-concentrated${distribution.temporallyCoupled > 0 ? ` · ${distribution.temporallyCoupled} with co-changing members` : ""}`
     );
   }
-  const top = families[0];
+  const [top] = families;
   if (top !== undefined && top.distribution.moduleCount > 1) {
     lines.push(
       `most distributed: ${top.seed.name} · ${plural(top.distribution.packageCount, "package")} · ${plural(top.distribution.moduleCount, "module")}`
@@ -683,19 +723,19 @@ function distributionLine(label: string, aggregate: MetricAggregate): string {
 }
 
 function complexity(report: SurfaceReport): SectionView | undefined {
-  const { summary } = report.localComplexity;
-  if (summary.functionsAnalyzed === 0) {
+  const { summary: currentSummary } = report.localComplexity;
+  if (currentSummary.functionsAnalyzed === 0) {
     return undefined;
   }
   return {
     blocks: [
       text(
-        `${plural(summary.functionsAnalyzed, "function")} analyzed`,
+        `${plural(currentSummary.functionsAnalyzed, "function")} analyzed`,
         "",
-        distributionLine("Decisions", summary.decisions),
-        distributionLine("Nesting", summary.nesting),
-        distributionLine("Parameters", summary.parameters),
-        distributionLine("Statements", summary.statements)
+        distributionLine("Decisions", currentSummary.decisions),
+        distributionLine("Nesting", currentSummary.nesting),
+        distributionLine("Parameters", currentSummary.parameters),
+        distributionLine("Statements", currentSummary.statements)
       ),
     ],
     title: "LOCAL COMPLEXITY",
@@ -704,16 +744,19 @@ function complexity(report: SurfaceReport): SectionView | undefined {
 
 function operators(report: SurfaceReport): SectionView {
   const lines = report.operators.map((operator) => {
-    const counts =
-      operator.opportunities === 0
-        ? "no opportunity"
-        : `${plural(operator.opportunities, "candidate")} · ${operator.plans.ready} plan-ready` +
-          (operator.plans.blocked > 0
-            ? ` · ${operator.plans.blocked} blocked`
-            : "") +
-          (operator.plans.unsupported > 0
-            ? ` · ${operator.plans.unsupported} unsupported`
-            : "");
+    let counts: string;
+    if (operator.opportunities === 0) {
+      counts = "no opportunity";
+    } else {
+      counts =
+        `${plural(operator.opportunities, "candidate")} · ${operator.plans.ready} plan-ready` +
+        (operator.plans.blocked > 0
+          ? ` · ${operator.plans.blocked} blocked`
+          : "") +
+        (operator.plans.unsupported > 0
+          ? ` · ${operator.plans.unsupported} unsupported`
+          : "");
+    }
     return `${operator.id.padEnd(20)} ${counts} · mutation ${operator.capabilities.apply ? "supported" : "unsupported"}`;
   });
   return { blocks: [text(...lines)], title: "OPERATORS" };

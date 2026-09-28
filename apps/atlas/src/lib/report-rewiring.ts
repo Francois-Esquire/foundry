@@ -2,11 +2,17 @@ import type { AnalysisConfig } from "./config";
 import { ANALYSIS_CONFIG } from "./config";
 import type {
   BeforeAfter,
+  CurrentArrangement,
+  InternalRewiringEffects,
   InternalRewiringReport,
   InternalRewiringScenario,
   InternalRewiringScenarioKind,
+  ProposedArrangement,
 } from "./internal-rewiring-types";
 import { count, plural } from "./render/format";
+
+const proposedPartsPattern = /^responsibility-local:responsibility:/;
+const shortIdPattern = /^responsibility:/;
 
 // V13.4 CLI view of internal rewiring scenarios. Counts by kind and family,
 // composition evidence, then one section per scenario shape with the
@@ -33,7 +39,7 @@ const KIND_LABELS: Record<InternalRewiringScenarioKind, string> = {
 };
 
 function shortId(id: string | undefined): string {
-  return id === undefined ? "—" : id.replace(/^responsibility:/, "");
+  return id === undefined ? "—" : id.replace(shortIdPattern, "");
 }
 
 function symbolName(id: string): string {
@@ -52,7 +58,7 @@ function responsibilities(value: number): string {
 }
 
 function subjectLine(scenario: InternalRewiringScenario): string {
-  const subject = scenario.subject;
+  const { subject } = scenario;
   if (subject.kind === "symbol-group") {
     const ids = subject.symbolIds ?? [];
     const names = ids.slice(0, 4).map(symbolName).join(", ");
@@ -75,19 +81,14 @@ function renderScenario(
   lines.push(`  ${KIND_LABELS[scenario.kind].toUpperCase()}`);
   lines.push(`  ${subjectLine(scenario)}`);
   const currentParts = [
-    current.moduleStatus === undefined
-      ? undefined
-      : `declaring module ${current.moduleStatus}${current.responsibility === undefined ? "" : ` in ${shortId(current.responsibility)}`}`,
+    resolveCurrentParts(current),
     current.scope === undefined ? undefined : `scope ${current.scope}`,
     current.roles === undefined
       ? undefined
       : Object.entries(current.roles)
           .map(([role, n]) => `${count(n)} ${role}`)
           .join(", "),
-    current.consumerResponsibilities !== undefined &&
-    current.consumerModules !== undefined
-      ? `${plural(current.consumerModules, "consumer")} in ${responsibilities(current.consumerResponsibilities.length)}${(current.unresolvedConsumers ?? 0) > 0 ? ` (+${count(current.unresolvedConsumers ?? 0)} unresolved)` : ""}`
-      : undefined,
+    resolveCurrentParts2(current),
     current.scopeGroups === undefined
       ? undefined
       : plural(current.scopeGroups.length, "scope group"),
@@ -100,24 +101,14 @@ function renderScenario(
   ].filter((part): part is string => part !== undefined);
   lines.push(`    current    ${currentParts.join(" · ")}`);
   const proposedParts = [
-    proposed.scope === "unchanged"
-      ? "unchanged"
-      : `${proposed.scope}${proposed.responsibility === undefined ? "" : ` ${shortId(proposed.responsibility)}`}`,
-    proposed.separated === undefined
-      ? undefined
-      : `separate ${proposed.separated
-          .map((g) =>
-            "role" in g
-              ? `${count(g.symbolIds.length)} ${g.role}`
-              : `${count(g.symbolIds.length)} ${g.key.replace(/^responsibility-local:responsibility:/, "local to ")}`
-          )
-          .join(", ")}`,
+    resolveProposedParts(proposed),
+    resolveProposedParts2(proposed),
     proposed.remainder === undefined
       ? undefined
       : `keep ${proposed.remainder
           .map(
             (g) =>
-              `${count(g.symbolIds.length)} ${g.key.replace(/^responsibility-local:responsibility:/, "local to ")}`
+              `${count(g.symbolIds.length)} ${g.key.replace(proposedPartsPattern, "local to ")}`
           )
           .join(", ")}`,
     proposed.surface === undefined
@@ -126,15 +117,70 @@ function renderScenario(
     proposed.collapse === undefined
       ? undefined
       : `${proposed.collapse.consumer} depends on ${proposed.collapse.providers.join(", ")} directly`,
-    proposed.candidateModules.length > 0
-      ? `existing: ${proposed.candidateModules
-          .map((c) => `${c.module} (${c.evidence.join(", ")})`)
-          .join("; ")}`
-      : proposed.scope === "unchanged"
-        ? undefined
-        : "no existing target module",
+    resolveProposedParts3(proposed),
   ].filter((part): part is string => part !== undefined);
   lines.push(`    proposed   ${proposedParts.join(" · ")}`);
+  renderScenarioEntries(scenario, effects, lines);
+}
+
+function resolveProposedParts3(
+  proposed: ProposedArrangement
+): string | undefined {
+  if (proposed.candidateModules.length > 0) {
+    return `existing: ${proposed.candidateModules
+      .map((c) => `${c.module} (${c.evidence.join(", ")})`)
+      .join("; ")}`;
+  }
+  if (proposed.scope === "unchanged") {
+    return undefined;
+  }
+  return "no existing target module";
+}
+
+function resolveProposedParts2(
+  proposed: ProposedArrangement
+): string | undefined {
+  if (proposed.separated === undefined) {
+    return undefined;
+  }
+  return `separate ${proposed.separated
+    .map((g) =>
+      "role" in g
+        ? `${count(g.symbolIds.length)} ${g.role}`
+        : `${count(g.symbolIds.length)} ${g.key.replace(proposedPartsPattern, "local to ")}`
+    )
+    .join(", ")}`;
+}
+
+function resolveProposedParts(proposed: ProposedArrangement): string {
+  if (proposed.scope === "unchanged") {
+    return "unchanged";
+  }
+  return `${proposed.scope}${proposed.responsibility === undefined ? "" : ` ${shortId(proposed.responsibility)}`}`;
+}
+
+function resolveCurrentParts2(current: CurrentArrangement): string | undefined {
+  if (
+    current.consumerResponsibilities !== undefined &&
+    current.consumerModules !== undefined
+  ) {
+    return `${plural(current.consumerModules, "consumer")} in ${responsibilities(current.consumerResponsibilities.length)}${(current.unresolvedConsumers ?? 0) > 0 ? ` (+${count(current.unresolvedConsumers ?? 0)} unresolved)` : ""}`;
+  }
+  return undefined;
+}
+
+function resolveCurrentParts(current: CurrentArrangement): string | undefined {
+  if (current.moduleStatus === undefined) {
+    return undefined;
+  }
+  return `declaring module ${current.moduleStatus}${current.responsibility === undefined ? "" : ` in ${shortId(current.responsibility)}`}`;
+}
+
+function renderScenarioEntries(
+  scenario: InternalRewiringScenario,
+  effects: InternalRewiringEffects,
+  lines: string[]
+) {
   if (scenario.kind !== "preserve-current") {
     const b = effects.responsibilityBoundaries;
     const effectParts = [
@@ -156,12 +202,7 @@ function renderScenario(
       effects.conventions.alignment,
     ].filter((part): part is string => part !== undefined);
     lines.push(`    effects    ${effectParts.join(" · ")}`);
-    if (scenario.closure !== undefined) {
-      const c = scenario.closure;
-      lines.push(
-        `    closure    ${c.size}${c.required.length > 0 ? ` · ${plural(c.required.length, "required")}` : ""}${c.optional.length > 0 ? ` · ${plural(c.optional.length, "optional")}` : ""}${c.blockers.length > 0 ? ` · ${plural(c.blockers.length, "blocker")}` : ""}`
-      );
-    }
+    renderScenarioEntriesEntries(scenario, lines);
     lines.push(`    evidence   ${scenario.rationale.facts.join(" · ")}`);
     if (scenario.preservations.length > 0) {
       lines.push(`    preserves  ${scenario.preservations.join(", ")}`);
@@ -171,6 +212,18 @@ function renderScenario(
         `    uncertain  ${scenario.uncertainties.map((u) => u.reason).join(", ")}`
       );
     }
+  }
+}
+
+function renderScenarioEntriesEntries(
+  scenario: InternalRewiringScenario,
+  lines: string[]
+) {
+  if (scenario.closure !== undefined) {
+    const c = scenario.closure;
+    lines.push(
+      `    closure    ${c.size}${c.required.length > 0 ? ` · ${plural(c.required.length, "required")}` : ""}${c.optional.length > 0 ? ` · ${plural(c.optional.length, "optional")}` : ""}${c.blockers.length > 0 ? ` · ${plural(c.blockers.length, "blocker")}` : ""}`
+    );
   }
 }
 

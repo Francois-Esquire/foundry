@@ -1,7 +1,15 @@
 import { execFileSync } from "node:child_process";
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
+import {
+  cpSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { assembleSurfaceReport } from "../../src/lib/assemble";
@@ -23,33 +31,37 @@ import type { SurfaceReport } from "../../src/lib/types";
 import { deriveWorkspaceSurface } from "../../src/lib/workspace-derive";
 import { analyzeWorkspaceSurfaces } from "../../src/lib/workspace-surface";
 
+const expectedTextPattern = /derived facts belong to packages\/b/;
+const expectedTextPattern2 = /^\d{4}-\d{2}-\d{2}T/;
+const foreignPattern = /^(packages|tooling|libraries|services)\//;
+
 // V12.6 package-local invariance on the semantics fixture. The package-local
 // report is what a package *is*; nothing about consumers, neighbours, Git,
 // or the clock may reach it. Each test perturbs one of those and expects the
 // serialized report to stay byte-identical.
 
-const fixture = path.join(import.meta.dirname, "fixtures", "semantics");
+const fixture = join(import.meta.dirname, "fixtures", "semantics");
 const now = new Date("2027-01-01T00:00:00Z");
 const tempRoots: string[] = [];
 
 afterAll(() => {
   for (const dir of tempRoots) {
-    fs.rmSync(dir, { force: true, recursive: true });
+    rmSync(dir, { force: true, recursive: true });
   }
 });
 
 function copyFixture(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "package-local-"));
-  fs.cpSync(fixture, dir, { recursive: true });
-  const root = fs.realpathSync(dir);
+  const dir = mkdtempSync(join(tmpdir(), "package-local-"));
+  cpSync(fixture, dir, { recursive: true });
+  const root = realpathSync(dir);
   tempRoots.push(root);
   return root;
 }
 
 function write(root: string, file: string, text: string): void {
-  const target = path.join(root, file);
-  fs.mkdirSync(path.dirname(target), { recursive: true });
-  fs.writeFileSync(target, text);
+  const target = join(root, file);
+  mkdirSync(dirname(target), { recursive: true });
+  writeFileSync(target, text);
 }
 
 function local(root: string, target: string): string {
@@ -95,6 +107,7 @@ describe("package-local report", () => {
     write(
       busy,
       "apps/a/src/index.ts",
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: This fixture contains literal template syntax for the analyzer to inspect.
       'import type { Shape } from "@s/b";\n\nimport { area, perimeter } from "@s/b";\n\nexport function describe(shape: Shape): string {\n  return `${String(area(shape))}/${String(perimeter(shape))}`;\n}\n'
     );
     write(
@@ -150,7 +163,7 @@ describe("package-local report", () => {
     write(
       root,
       "packages/b/src/shape.ts",
-      `${fs.readFileSync(path.join(root, "packages/b/src/shape.ts"), "utf8")}\nexport const unit = 1;\n`
+      `${readFileSync(join(root, "packages/b/src/shape.ts"), "utf8")}\nexport const unit = 1;\n`
     );
     expect(local(root, "packages/b")).not.toBe(before);
   });
@@ -201,11 +214,10 @@ describe("package-local report", () => {
       expect(field in report.summary).toBe(scope === "package-local");
     }
     const foreign = strings.filter(
-      (s) =>
-        /^(packages|tooling|libraries|services)\//.test(s) || s.includes(root)
+      (s) => foreignPattern.test(s) || s.includes(root)
     );
     expect(foreign).toEqual([]);
-    expect(strings.filter((s) => /^\d{4}-\d{2}-\d{2}T/.test(s))).toEqual([]);
+    expect(strings.filter((s) => expectedTextPattern2.test(s))).toEqual([]);
     // the import of @s/b is recorded as an address, never a resolution
     const external = report.imports.filter((i) => i.scope === "external");
     expect(external.length).toBeGreaterThan(0);
@@ -417,7 +429,7 @@ describe("assembly", () => {
       throw new Error("packages/b not derived");
     }
     expect(() => assembleSurfaceReport(localA, derivedB)).toThrow(
-      /derived facts belong to packages\/b/
+      expectedTextPattern
     );
   });
 });

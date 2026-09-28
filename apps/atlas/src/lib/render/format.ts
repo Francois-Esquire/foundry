@@ -1,9 +1,10 @@
+const metricLabelPattern = /([a-z])([A-Z])/g;
 export function percent(value: number): string {
   return `${(value * 100).toFixed(1)}%`;
 }
 
-export function plural(count: number, noun: string): string {
-  return `${count} ${noun}${count === 1 ? "" : "s"}`;
+export function plural(itemCount: number, noun: string): string {
+  return `${itemCount} ${noun}${itemCount === 1 ? "" : "s"}`;
 }
 
 export function count(value: number): string {
@@ -25,8 +26,8 @@ export function windowLabel(windowDays: number | null): string {
 }
 
 /** `primaryConsumerShare` → `primary consumer share`. */
-export function metricLabel(metric: string): string {
-  return metric.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase();
+function metricLabel(metric: string): string {
+  return metric.replace(metricLabelPattern, "$1 $2").toLowerCase();
 }
 
 const SHARE_METRIC =

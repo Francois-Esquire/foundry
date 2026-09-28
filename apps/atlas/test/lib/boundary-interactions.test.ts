@@ -1,12 +1,12 @@
-import * as path from "node:path";
+import { join } from "node:path";
 
 import { beforeAll, describe, expect, it } from "vitest";
 import { analyzeSurface } from "../../src/lib/analyze";
 import { renderBoundaries, renderReport } from "../../src/lib/report";
 import type { BoundaryInteraction, SurfaceReport } from "../../src/lib/types";
 
-const traffic = path.join(import.meta.dirname, "fixtures", "traffic");
-const deps = path.join(import.meta.dirname, "fixtures", "deps");
+const traffic = join(import.meta.dirname, "fixtures", "traffic");
+const deps = join(import.meta.dirname, "fixtures", "deps");
 
 function boundaryFrom(
   report: SurfaceReport,

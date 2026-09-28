@@ -2,7 +2,6 @@ import type {
   ArchitecturalOperator,
   OperatorDefinition,
   OperatorFact,
-  OperatorFromScenarioResult,
   OperatorValidation,
 } from "./operator-types";
 
@@ -46,6 +45,8 @@ function subjectLine(operator: ArchitecturalOperator): string[] {
       return [`package ${subject.packageId}`];
     case "boundary":
       return [`boundary ${subject.boundaryId}`];
+    default:
+      throw new Error("Unexpected subject.kind.");
   }
 }
 
@@ -139,25 +140,6 @@ export function renderOperator(
   return lines.join("\n");
 }
 
-export function renderOperatorFromScenario(
-  result: OperatorFromScenarioResult,
-  validation?: OperatorValidation
-): string {
-  if (result.status === "created") {
-    return renderOperator(result.operator, validation);
-  }
-  return [
-    ...heading("OPERATOR"),
-    "",
-    "unsupported",
-    `scenario ${result.scenarioId}`,
-    ...(result.scenarioKind === undefined
-      ? []
-      : [`kind ${result.scenarioKind}`]),
-    result.reason,
-  ].join("\n");
-}
-
 export function renderOperatorDefinitions(
   definitions: OperatorDefinition[]
 ): string {
@@ -165,7 +147,7 @@ export function renderOperatorDefinitions(
   for (const definition of definitions) {
     lines.push(
       "",
-      `${definition.kind}${definition.executable ? "  (executable via " + (definition.legacyOperatorId ?? "?") + ")" : ""}`,
+      `${definition.kind}${definition.executable ? `  (executable via ${definition.legacyOperatorId ?? "?"})` : ""}`,
       `  ${definition.summary}`,
       `  subjects ${definition.supportedSubjects.join(", ")}`,
       `  requires ${definition.requiredFields.join(", ")}`,

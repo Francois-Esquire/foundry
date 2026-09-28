@@ -23,7 +23,7 @@ export interface WorkspaceStrongComponent {
   size: number;
 }
 
-export interface WorkspaceTopology {
+interface WorkspaceTopology {
   /** Packages whose removal disconnects the weak package graph. */
   articulationPackages: string[];
   connectedComponents: number;
@@ -98,7 +98,7 @@ export interface WorkspaceModuleGraphAnalysis extends WorkspaceNodeGraphFacts {
 }
 
 /** Independent edge weights; never combined. Null when the boundary lacks the fact. */
-export interface WorkspaceEdgeWeights {
+interface WorkspaceEdgeWeights {
   distinctSymbols: number | null;
   importSites: number | null;
   moduleEdges: number;
@@ -124,7 +124,7 @@ export interface WorkspacePackageGraphEdge {
   weights: WorkspaceEdgeWeights;
 }
 
-export type WorkspaceGraphEvidenceKind =
+type WorkspaceGraphEvidenceKind =
   | "dependency-edge"
   | "boundary"
   | "reachability"
@@ -133,7 +133,7 @@ export type WorkspaceGraphEvidenceKind =
   | "cycle"
   | "anchor";
 
-export interface WorkspaceGraphEvidence {
+interface WorkspaceGraphEvidence {
   entities: string[];
   kind: WorkspaceGraphEvidenceKind;
   value?: number | string | boolean;
@@ -211,7 +211,7 @@ export interface WorkspaceLayerAnalysis {
   packageLayers: WorkspaceLayer[];
 }
 
-export interface WorkspaceCycleAnalysis {
+interface WorkspaceCycleAnalysis {
   largestModuleCycle: number;
   moduleCycles: number;
   moduleStrongComponents: WorkspaceStrongComponent[];
@@ -219,7 +219,7 @@ export interface WorkspaceCycleAnalysis {
   packageStrongComponents: WorkspaceStrongComponent[];
 }
 
-export interface WorkspaceReachabilitySummary {
+interface WorkspaceReachabilitySummary {
   longestModuleChains: string[][];
   /**
    * Longest dependency paths on the condensation, source to sink, up to
@@ -233,7 +233,7 @@ export interface WorkspaceReachabilitySummary {
   packagePairsUnreachable: number;
 }
 
-export type WorkspaceGraphCautionKind =
+type WorkspaceGraphCautionKind =
   | "partial-coverage"
   | "module-graph-cross-package-only"
   | "usage-only-edges"
@@ -245,7 +245,7 @@ export interface WorkspaceGraphCaution {
   kind: WorkspaceGraphCautionKind;
 }
 
-export interface WorkspaceGraphSummary {
+interface WorkspaceGraphSummary {
   components: number;
   corridors: number;
   cycles: number;

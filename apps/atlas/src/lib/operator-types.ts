@@ -26,24 +26,24 @@ export type ArchitecturalOperatorKind =
   | "redirect-dependency"
   | "preserve-boundary";
 
-export interface SymbolOperatorSubject {
+interface SymbolOperatorSubject {
   kind: "symbol";
   name: string;
   package: string;
   symbolId: string;
 }
 
-export interface ConceptOperatorSubject {
+interface ConceptOperatorSubject {
   conceptId: string;
   kind: "concept";
 }
 
-export interface PackageOperatorSubject {
+interface PackageOperatorSubject {
   kind: "package";
   packageId: string;
 }
 
-export interface BoundaryOperatorSubject {
+interface BoundaryOperatorSubject {
   /** `${from}→${to}` */
   boundaryId: string;
   from: string;
@@ -52,7 +52,7 @@ export interface BoundaryOperatorSubject {
 }
 
 /** A concept's behavior as it sits in specific packages. */
-export interface BehaviorOperatorSubject {
+interface BehaviorOperatorSubject {
   conceptId: string;
   kind: "behavior";
   packages: string[];
@@ -65,12 +65,9 @@ export type OperatorSubject =
   | BoundaryOperatorSubject
   | BehaviorOperatorSubject;
 
-export type OperatorSubjectKind = OperatorSubject["kind"];
+type OperatorSubjectKind = OperatorSubject["kind"];
 
-export type OperatorIntentSource =
-  | "manual"
-  | "architectural-review"
-  | "existing-plan";
+type OperatorIntentSource = "manual" | "architectural-review" | "existing-plan";
 
 /** The free-form reason never carries authority; the structured operator does. */
 export interface OperatorIntent {
@@ -92,7 +89,7 @@ export interface OperatorPlacement {
   target?: OperatorLocation;
 }
 
-export type OperatorEvidenceSource =
+type OperatorEvidenceSource =
   | "surface"
   | "workspace"
   | "concept"
@@ -180,17 +177,14 @@ export interface OperatorVerificationRequirement {
   kind: OperatorVerificationKind;
 }
 
-export type OperatorConstraintKind =
+type OperatorConstraintKind =
   | "anchor"
   | "public-contract"
   | "representation-boundary"
   | "structural-conformance-unknown"
   | "coverage-incomplete";
 
-export type OperatorConstraintEffect =
-  | "informational"
-  | "constraining"
-  | "blocking";
+type OperatorConstraintEffect = "informational" | "constraining" | "blocking";
 
 export interface OperatorConstraint {
   detail: string;
@@ -243,12 +237,6 @@ export interface OperatorDefinition {
   verificationKinds: OperatorVerificationKind[];
 }
 
-export interface OperatorCatalog {
-  definitions: OperatorDefinition[];
-  instances: ArchitecturalOperator[];
-  schemaVersion: typeof OPERATOR_SCHEMA_VERSION;
-}
-
 /** V8.2 scenario kind → V11.0 operator kind, or the exact gap. */
 export interface ScenarioOperatorMapping {
   gap?: string;
@@ -256,18 +244,14 @@ export interface ScenarioOperatorMapping {
   scenarioKind: RecenteringScenarioKind;
 }
 
-export type OperatorValidationStatus =
-  | "valid"
-  | "blocked"
-  | "stale"
-  | "unsupported";
+type OperatorValidationStatus = "valid" | "blocked" | "stale" | "unsupported";
 
 export interface OperatorPreconditionResult extends OperatorPrecondition {
   actual: OperatorFact;
   holds: boolean;
 }
 
-export interface OperatorConstraintResult extends OperatorConstraint {
+interface OperatorConstraintResult extends OperatorConstraint {
   /** The constraint decided the status. */
   decisive: boolean;
 }

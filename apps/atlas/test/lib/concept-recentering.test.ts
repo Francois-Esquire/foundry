@@ -64,7 +64,7 @@ function profile(
   byPackage.sort((x, y) => y.strong - x.strong);
   const strong = byPackage.reduce((sum, row) => sum + row.strong, 0);
   const weak = byPackage.reduce((sum, row) => sum + row.weak, 0);
-  const top = byPackage[0];
+  const [top] = byPackage;
   return {
     byKind,
     byPackage,

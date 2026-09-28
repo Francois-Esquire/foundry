@@ -21,6 +21,7 @@ function resolveAlias(
 ): ts.Symbol | undefined {
   let current = symbol;
   for (let hops = 0; hops < 32; hops += 1) {
+    // biome-ignore lint/suspicious/noBitwiseOperators: TypeScript exposes these properties as bit flags.
     if (!(current.flags & ts.SymbolFlags.Alias)) {
       return current;
     }
@@ -36,7 +37,7 @@ function resolveAlias(
 /**
  * The node `findReferencesAsNodes` would return for this span. ts-morph's
  * `DocumentSpan.getNode` compares each node's width against the span's
- * *end* offset, so it returns the deepest node starting at `start` unless
+ *end* offset, so it returns the deepest node starting at `start` unless
  * some ancestor's width happens to equal `start + width`, in which case that
  * ancestor wins (an `import { A, B }` list, say). The published usage
  * numbers were measured under that rule; reproduce it exactly, and change
@@ -128,20 +129,10 @@ export function indexWorkspaceReferences<K>(
         candidates.push(resolved);
       }
       let keys: K[] | undefined;
-      for (const candidate of candidates) {
-        for (const declaration of candidate.declarations ?? []) {
-          const found = byDeclaration.get(declaration);
-          if (found === undefined) {
-            continue;
-          }
-          keys ??= [];
-          for (const key of found) {
-            if (!keys.includes(key)) {
-              keys.push(key);
-            }
-          }
-        }
-      }
+      const visitCandidate = () => {
+        keys = recordCandidate<K>(candidates, byDeclaration, keys);
+      };
+      visitCandidate();
       if (keys === undefined) {
         return;
       }
@@ -157,7 +148,7 @@ export function indexWorkspaceReferences<K>(
     };
 
     const visitIdentifier = (identifier: ts.Identifier) => {
-      const parent = identifier.parent;
+      const { parent } = identifier;
       if (
         ts.isShorthandPropertyAssignment(parent) &&
         parent.name === identifier
@@ -202,4 +193,27 @@ export function indexWorkspaceReferences<K>(
     walk(compilerFile);
   }
   return references;
+}
+
+function recordCandidate<K>(
+  candidates: ts.Symbol[],
+  byDeclaration: Map<ts.Node, K[]>,
+  initialKeys: K[] | undefined
+) {
+  let keys = initialKeys;
+  for (const candidate of candidates) {
+    for (const declaration of candidate.declarations ?? []) {
+      const found = byDeclaration.get(declaration);
+      if (found === undefined) {
+        continue;
+      }
+      keys ??= [];
+      for (const key of found) {
+        if (!keys.includes(key)) {
+          keys.push(key);
+        }
+      }
+    }
+  }
+  return keys;
 }

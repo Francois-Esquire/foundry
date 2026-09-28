@@ -94,7 +94,7 @@ export const SEMANTIC_STAGE_VERSIONS: Record<
 };
 
 /** Direct inputs of each stage; the analyzer's real data flow, nothing implied. */
-export const SEMANTIC_STAGE_DEPENDENCIES: Record<
+const SEMANTIC_STAGE_DEPENDENCIES: Record<
   SemanticStage,
   readonly SemanticStage[]
 > = {

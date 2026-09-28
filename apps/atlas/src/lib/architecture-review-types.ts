@@ -50,7 +50,7 @@ export type EffectDirection =
 export type EffectCertainty = "measured" | "conditional" | "unresolved";
 
 /** Which direction of a measure reads as no worse when two scenarios are compared; `none` is evidence only. */
-export type MeasureComparison = "lower" | "higher" | "none";
+type MeasureComparison = "lower" | "higher" | "none";
 
 export interface ReviewMeasure {
   after: number;
@@ -77,14 +77,14 @@ export type DimensionComparison =
   | "mixed"
   | "incomparable";
 
-export interface ScenarioPreservationStatus {
+interface ScenarioPreservationStatus {
   kept: RewiringPreservation[];
   missing: RewiringPreservation[];
   /** Architectural preservations asserted by a preservation scenario of the family. */
   required: RewiringPreservation[];
 }
 
-export interface ScenarioUncertaintyStatus {
+interface ScenarioUncertaintyStatus {
   conditionalDimensions: ReviewDimension[];
   reasons: ScenarioUncertaintyReason[];
   /** Recorded limitations that do not change any comparison. */
@@ -169,7 +169,7 @@ export interface ScenarioFamilyReview {
   tradeoffs: ScenarioTradeoff[];
 }
 
-export interface SubjectComplexity {
+interface SubjectComplexity {
   alternatives: number;
   /** Distinct comparison dimensions any alternative changes. */
   changingDimensions: number;
@@ -246,7 +246,7 @@ export interface PackageArchitectureReviewSummary {
   unresolvedDimensions: Partial<Record<ReviewDimension, number>>;
 }
 
-export interface PackageArchitectureReviewPolicy {
+interface PackageArchitectureReviewPolicy {
   /** Preservations a preservation scenario can require of every alternative. */
   architecturalPreservations: RewiringPreservation[];
   certainty: Record<EffectCertainty, string>;

@@ -27,7 +27,9 @@ import type {
 } from "./operator-types";
 import { OPERATOR_SCHEMA_VERSION } from "./operator-types";
 import type {
+  ArchitecturalScenarioReview,
   InternalizeSymbolPlan,
+  RecenteringScenario,
   RecenteringScenarioKind,
   ScenarioImpactAnalysis,
   ScenarioPlacement,
@@ -138,7 +140,7 @@ function placementPackages(
 }
 
 /** One deterministic read per precondition kind; the same reader serves building and validation. */
-export function readOperatorFact(
+function readOperatorFact(
   context: OperatorContext,
   kind: OperatorPreconditionKind,
   entityIds: string[]
@@ -194,6 +196,8 @@ export function readOperatorFact(
     }
     case "distinct-placement":
       return first !== second;
+    default:
+      throw new Error("Unexpected kind.");
   }
 }
 
@@ -210,11 +214,11 @@ function factLine(
 }
 
 export function operatorFingerprint(facts: string[]): OperatorFingerprint {
-  const canonical = [...facts].sort(byId);
+  const canonicalFacts = [...facts].sort(byId);
   return {
-    facts: canonical,
+    facts: canonicalFacts,
     hash: createHash("sha256")
-      .update(JSON.stringify(canonical))
+      .update(JSON.stringify(canonicalFacts))
       .digest("hex")
       .slice(0, 16),
   };
@@ -238,6 +242,8 @@ function subjectId(subject: OperatorSubject): string {
       return subject.packageId;
     case "boundary":
       return subject.boundaryId;
+    default:
+      throw new Error("Unexpected subject.kind.");
   }
 }
 
@@ -377,7 +383,7 @@ function canonical(
         byId(a.kind, b.kind) ||
         byId(a.entityIds.join(","), b.entityIds.join(","))
     );
-  const verification = [...parts.verification].sort(
+  const verificationSteps = [...parts.verification].sort(
     (a, b) =>
       byId(a.kind, b.kind) ||
       byId(JSON.stringify(a.expected), JSON.stringify(b.expected))
@@ -394,7 +400,7 @@ function canonical(
     preservations,
     schemaVersion: OPERATOR_SCHEMA_VERSION,
     subject: parts.subject,
-    verification,
+    verification: verificationSteps,
   };
 }
 
@@ -411,7 +417,7 @@ function assemble(
     fingerprint,
     status: "draft",
   };
-  const status = validateArchitecturalOperator(draft, context).status;
+  const { status } = validateArchitecturalOperator(draft, context);
   return { ...draft, status: status === "stale" ? "draft" : status };
 }
 
@@ -442,19 +448,21 @@ function coverageConstraint(
   involved: string[],
   blockingWhenUnanalyzed: boolean
 ): OperatorConstraint[] {
-  const coverage = context.projection.workspace.ingestion.coverage;
+  const { coverage } = context.projection.workspace.ingestion;
   if (coverage.complete) {
     return [];
   }
   const unanalyzed = sorted(
     involved.filter((id) => packageOf(context, id)?.analyzed !== true)
   );
-  const effect =
-    unanalyzed.length === 0
-      ? "informational"
-      : blockingWhenUnanalyzed
-        ? "blocking"
-        : "constraining";
+  let effect: "informational" | "blocking" | "constraining";
+  if (unanalyzed.length === 0) {
+    effect = "informational";
+  } else if (blockingWhenUnanalyzed) {
+    effect = "blocking";
+  } else {
+    effect = "constraining";
+  }
   const detail =
     unanalyzed.length === 0
       ? `workspace coverage is partial (${coverage.packagesAnalyzed} of ${coverage.packagesKnown} packages analyzed)`
@@ -863,14 +871,12 @@ export function createPreserveBoundaryOperator(
   input: PreserveBoundaryInput
 ): ArchitecturalOperator {
   const pkg = requirePackage(context, input.packageId);
-  const anchorReason = pkg.anchorReason;
-  const anchored = pkg.anchored;
+  const { anchorReason } = pkg;
+  const { anchored } = pkg;
   return assemble(context, {
     constraints: [
       {
-        detail: anchored
-          ? `${input.packageId} is anchored${anchorReason === undefined ? "" : `: ${anchorReason}`}`
-          : `${input.packageId} is not anchored; this operator records the intent explicitly`,
+        detail: resolveDetail(anchored, input, anchorReason),
         effect: "informational",
         entityIds: [input.packageId],
         kind: "anchor",
@@ -911,7 +917,7 @@ export function createPreserveBoundaryOperator(
   });
 }
 
-export type MoveSubject =
+type MoveSubject =
   | { kind: "concept"; conceptId: string }
   | { kind: "symbol"; symbolId: string; name: string; package: string };
 
@@ -919,6 +925,17 @@ export interface MoveInput {
   reason?: string;
   subject: MoveSubject;
   to: string;
+}
+
+function resolveDetail(
+  anchored: boolean,
+  input: PreserveBoundaryInput,
+  anchorReason: string | undefined
+): string {
+  if (anchored) {
+    return `${input.packageId} is anchored${anchorReason === undefined ? "" : `: ${anchorReason}`}`;
+  }
+  return `${input.packageId} is not anchored; this operator records the intent explicitly`;
 }
 
 export function createMoveOperator(
@@ -1157,7 +1174,7 @@ function validateInternalize(
       const holds = family(p.kind).every((f) => f.holds);
       return {
         ...p,
-        actual: p.kind === "public-surface-state" ? holds : holds ? [] : null,
+        actual: resolveActual(p, holds),
         holds,
       };
     });
@@ -1189,6 +1206,19 @@ const CHANGE_DIMENSION: Partial<
   "semantic-center-change": "ownership",
   "surface-relocation": "surface",
 };
+
+function resolveActual(
+  p: OperatorPrecondition,
+  holds: boolean
+): boolean | never[] | null {
+  if (p.kind === "public-surface-state") {
+    return holds;
+  }
+  if (holds) {
+    return [];
+  }
+  return null;
+}
 
 function effectsFromImpact(
   impact: ScenarioImpactAnalysis
@@ -1263,6 +1293,8 @@ function preservationsFromImpact(
         ];
       case "anchor":
         return [{ entityIds: vector.intent.anchorsPreserved, kind: "anchor" }];
+      default:
+        throw new Error("Unexpected entry.kind.");
     }
   });
 }
@@ -1317,6 +1349,8 @@ function scenarioConstraints(
           kind: "structural-conformance-unknown",
         });
         break;
+      default:
+        throw new Error("Unexpected constraint.kind.");
     }
   }
   if (
@@ -1416,34 +1450,17 @@ export function createOperatorFromScenario(
     };
   }
   const conceptRef = ref("concept", conceptId);
-  const provenance: OperatorEvidenceRef[] = [
-    ref("scenario", scenarioId),
-    ...(impact === undefined ? [] : [ref("impact", scenarioId)]),
-    ...(review === undefined ? [] : [ref("review", review.findingId)]),
-  ];
-  const intent = intentOf(
-    "architectural-review",
-    options.reason ??
-      `${scenario.kind} scenario selected from the ${review?.disposition ?? "unreviewed"} review of ${scenario.subject.name}`,
-    {
-      scenarioId,
-      ...(review !== undefined && { reviewId: review.findingId }),
-    }
-  );
-  const expectedEffects = impact === undefined ? [] : effectsFromImpact(impact);
-  const preservations =
-    impact === undefined
-      ? [
-          ...(scenario.preservedResponsibilities.includes("semantic-contract")
-            ? [
-                {
-                  entityIds: [scenario.proposed.semanticCenter],
-                  kind: "semantic-center" as const,
-                },
-              ]
-            : []),
-        ]
-      : preservationsFromImpact(impact);
+  const {
+    provenance,
+    expectedEffects,
+    intent,
+  }: {
+    provenance: OperatorEvidenceRef[];
+    expectedEffects: OperatorExpectedEffect[];
+    intent: OperatorIntent;
+  } = collectProvenance(scenarioId, impact, review, options, scenario);
+  let preservations: OperatorPreservation[];
+  preservations = createOperatorFromScenarioEntries(impact, scenario);
   const evidence = [conceptRef, ...provenance];
   const anchorFacts = (pkgs: string[]) =>
     pkgs.map((pkg) =>
@@ -1521,7 +1538,7 @@ export function createOperatorFromScenario(
     "domain-behavior"
   );
   const from = currentBehavior.filter((pkg) => !proposedBehavior.includes(pkg));
-  const target = proposedBehavior[0];
+  const [target] = proposedBehavior;
   if (
     from.length === 0 ||
     target === undefined ||
@@ -1537,7 +1554,7 @@ export function createOperatorFromScenario(
       status: "unsupported",
     };
   }
-  const semanticCenter = scenario.current.semanticCenter;
+  const { semanticCenter } = scenario.current;
   const operator = assemble(context, {
     constraints: scenarioConstraints(context, source, "rehome-behavior", [
       ...from,
@@ -1589,6 +1606,53 @@ export function createOperatorFromScenario(
     }),
   });
   return { operator, status: "created" };
+}
+
+function collectProvenance(
+  scenarioId: string,
+  impact: ScenarioImpactAnalysis | undefined,
+  review: ArchitecturalScenarioReview | undefined,
+  options: { reason?: string },
+  scenario: RecenteringScenario
+) {
+  const provenance: OperatorEvidenceRef[] = [
+    ref("scenario", scenarioId),
+    ...(impact === undefined ? [] : [ref("impact", scenarioId)]),
+    ...(review === undefined ? [] : [ref("review", review.findingId)]),
+  ];
+  const intent = intentOf(
+    "architectural-review",
+    options.reason ??
+      `${scenario.kind} scenario selected from the ${review?.disposition ?? "unreviewed"} review of ${scenario.subject.name}`,
+    {
+      scenarioId,
+      ...(review !== undefined && { reviewId: review.findingId }),
+    }
+  );
+  const expectedEffects = impact === undefined ? [] : effectsFromImpact(impact);
+  return { expectedEffects, intent, provenance };
+}
+
+function createOperatorFromScenarioEntries(
+  impact: ScenarioImpactAnalysis | undefined,
+  scenario: RecenteringScenario
+): OperatorPreservation[] {
+  let preservations: OperatorPreservation[];
+  if (impact === undefined) {
+    preservations = [
+      ...(scenario.preservedResponsibilities.includes("semantic-contract")
+        ? [
+            {
+              entityIds: [scenario.proposed.semanticCenter],
+              kind: "semantic-center" as const,
+            },
+          ]
+        : []),
+    ];
+  } else {
+    preservations = preservationsFromImpact(impact);
+  }
+  return preservations;
 }
 
 // ---------------------------------------------------------------------------

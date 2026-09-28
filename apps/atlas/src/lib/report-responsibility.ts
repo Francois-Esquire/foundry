@@ -6,6 +6,8 @@ import type {
 } from "./internal-responsibility-types";
 import { count, percent, plural } from "./render/format";
 
+const shortIdPattern = /^responsibility:/;
+
 // V13.2 CLI view of internal responsibility regions. Counts, the largest
 // regions, where paths and responsibilities disagree, the strongest
 // relationships, and what stayed unresolved; the JSON carries every region.
@@ -21,7 +23,7 @@ const EVIDENCE_KINDS: ResponsibilityRegion["evidence"] = [
 ];
 
 function shortId(id: string): string {
-  return id.replace(/^responsibility:/, "");
+  return id.replace(shortIdPattern, "");
 }
 
 export function renderInternalResponsibilities(
@@ -115,7 +117,10 @@ export function renderInternalResponsibilities(
   }
   const split = [...splitPathRegions.entries()]
     .filter(([, regions]) => regions.length > 1)
-    .sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]));
+    .sort(
+      (leftEntry, b) =>
+        b[1].length - leftEntry[1].length || leftEntry[0].localeCompare(b[0])
+    );
   if (split.length > 0) {
     lines.push("");
     lines.push(
@@ -156,9 +161,9 @@ export function renderInternalResponsibilities(
       `  ${count(u.aggregator)} aggregator · ${count(u["distributed-primitive"])} distributed primitive · ${count(u["wide-dependent"])} wide dependent · ${count(u.bridge)} bridge`
     );
     const ranked = [...report.unresolved].sort(
-      (a, b) =>
-        b.candidates.length - a.candidates.length ||
-        a.module.localeCompare(b.module)
+      (leftEntry2, b) =>
+        b.candidates.length - leftEntry2.candidates.length ||
+        leftEntry2.module.localeCompare(b.module)
     );
     for (const ambiguity of ranked.slice(0, limits.topRegions)) {
       lines.push(

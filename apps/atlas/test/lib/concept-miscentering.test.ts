@@ -15,6 +15,8 @@ import type {
   RecenteringBehaviorProfile,
 } from "../../src/lib/types";
 
+const expectedTextPattern = /move|relocat|should/;
+
 const A = "@t/a";
 const B = "@t/b";
 const C = "@t/c";
@@ -60,7 +62,7 @@ function profile(
   byPackage.sort((x, y) => y.strong - x.strong);
   const strong = byPackage.reduce((sum, row) => sum + row.strong, 0);
   const weak = byPackage.reduce((sum, row) => sum + row.weak, 0);
-  const top = byPackage[0];
+  const [top] = byPackage;
   return {
     byKind,
     byPackage,
@@ -209,7 +211,7 @@ describe("external gravity", () => {
     expect(finding?.evidenceConfidence).toBeGreaterThan(0.5);
     expect(finding?.evidenceConfidence).toBeLessThanOrEqual(1);
     expect(finding?.summary).toContain("gravity points to @t/b");
-    expect(finding?.summary).not.toMatch(/move|relocat|should/);
+    expect(finding?.summary).not.toMatch(expectedTextPattern);
   });
 
   it("never emits on consumption alone: behavior stays home, outcome usage-only", () => {

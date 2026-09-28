@@ -3,9 +3,16 @@ import { ANALYSIS_CONFIG } from "./config";
 import { distribution } from "./internal-topology";
 import type {
   InternalConsumedSymbol,
+  InternalDirectoryNode,
+  InternalModuleNode,
+  InternalModuleRole,
   InternalPackageTopology,
+  InternalSymbolConsumer,
 } from "./internal-topology-types";
-import type { PackageLocalReport } from "./package-local-types";
+import type {
+  PackageLocalReport,
+  PackageLocalSymbol,
+} from "./package-local-types";
 import type {
   ArchitecturalScope,
   ArchitecturalScopeKind,
@@ -16,6 +23,7 @@ import type {
   LocalityShare,
   RegionShare,
   SymbolDistributionShape,
+  SymbolLocalityEvidence,
   SymbolLocalityFinding,
   SymbolLocalityLimitation,
   SymbolLocalityReport,
@@ -179,7 +187,7 @@ export function analyzeSymbolLocality(
       }
       common = common.slice(0, depth);
     }
-    return common[common.length - 1] ?? ".";
+    return common.at(-1) ?? ".";
   };
 
   const primaryModules = topology.modules
@@ -293,319 +301,66 @@ export function analyzeSymbolLocality(
 
   // Bare namespace imports between primary modules: the consumer names the
   // module, not a symbol, so any symbol declared or forwarded there may be
+  const visitSite = () => {
+    for (const site of report.imports) {
+      if (site.kind !== "namespace" || site.members !== undefined) {
+        continue;
+      }
+      if (site.scope !== "internal" || site.targetModule === undefined) {
+        continue;
+      }
+      const source = relative(site.sourceModule);
+      const target = relative(site.targetModule);
+      if (source === target) {
+        continue;
+      }
+      if (
+        !(moduleById.get(source)?.primary && moduleById.get(target)?.primary)
+      ) {
+        continue;
+      }
+      bareNamespaceSites += 1;
+      bareNamespaceTargets.add(target);
+    }
+  };
   // under-counted.
   const bareNamespaceTargets = new Set<string>();
-  let bareNamespaceSites = 0;
-  for (const site of report.imports) {
-    if (site.kind !== "namespace" || site.members !== undefined) {
-      continue;
-    }
-    if (site.scope !== "internal" || site.targetModule === undefined) {
-      continue;
-    }
-    const source = relative(site.sourceModule);
-    const target = relative(site.targetModule);
-    if (source === target) {
-      continue;
-    }
-    if (!(moduleById.get(source)?.primary && moduleById.get(target)?.primary)) {
-      continue;
-    }
-    bareNamespaceSites += 1;
-    bareNamespaceTargets.add(target);
-  }
-  let unresolvedDefaultImportSites = 0;
-  for (const edge of topology.edges) {
-    if (!edge.primary) {
-      continue;
-    }
-    for (const symbol of edge.symbols) {
-      if (symbol.name === "default" && symbol.symbolId === undefined) {
-        unresolvedDefaultImportSites += symbol.importSites;
+  const visitEdge = () => {
+    for (const edge of topology.edges) {
+      if (!edge.primary) {
+        continue;
+      }
+      for (const symbol of edge.symbols) {
+        if (symbol.name === "default" && symbol.symbolId === undefined) {
+          unresolvedDefaultImportSites += symbol.importSites;
+        }
       }
     }
-  }
+  };
+  let bareNamespaceSites = 0;
+  visitSite();
+  let unresolvedDefaultImportSites = 0;
+  visitEdge();
 
   const findings: SymbolLocalityFinding[] = [];
-  for (const consumed of topology.consumedSurface) {
-    const declared = symbolById.get(consumed.symbolId);
-    const declaration = moduleById.get(consumed.declarationModule);
-    if (declared === undefined || declaration === undefined) {
-      continue;
-    }
-    const consumers = consumed.consumers;
-    const consumerIds = consumers.map((c) => c.module);
-    const directoryOf = (module: string) =>
-      moduleById.get(module)?.directory ?? ".";
-    const regionOf = (module: string) => moduleById.get(module)?.region ?? ".";
-
-    const totals: Tally = {
-      bindingOccurrences: consumed.bindingOccurrences,
-      importSites: consumed.importSites + consumed.namespaceSites,
-      modules: consumers.length,
-    };
-    const [dominantModule] = toShares(
-      tally(consumers, (module) => module),
-      totals,
-      byBindingsThenSites
-    );
-    const [dominantDirectory] = toShares(
-      tally(consumers, directoryOf),
-      totals,
-      byModulesThenSites
-    );
-    const regions: RegionShare[] = toShares(
-      tally(consumers, regionOf),
-      totals,
-      byModulesThenSites
-    ).map((entry) => ({
-      ...entry,
-      significant: entry.share >= policy.significantShareThreshold,
-    }));
-    const [topRegion] = regions;
-    if (
-      dominantModule === undefined ||
-      dominantDirectory === undefined ||
-      topRegion === undefined
-    ) {
-      continue;
-    }
-    const dominantRegion =
-      topRegion.share >= policy.dominantShareThreshold ? topRegion : undefined;
-    const significantRegions = regions.filter((r) => r.significant).length;
-    // Two significant regions that together would be dominant are a split;
-    // two significant regions over a long tail are a distribution.
-    const split =
-      dominantRegion === undefined &&
-      significantRegions === 2 &&
-      topRegion.share + (regions[1]?.share ?? 0) >=
-        policy.dominantShareThreshold;
-
-    const commonDirectory = commonAncestor(consumerIds.map(directoryOf));
-    const commonScope: ArchitecturalScopeRef =
-      consumers.length === 1
-        ? scopeRef("module", consumerIds[0] ?? "")
-        : regions.length > 1
-          ? scopeRef("package", packageId)
-          : aboveRegions(commonDirectory)
-            ? scopeRef("region", topRegion.id)
-            : scopeRef("directory", commonDirectory);
-    const declarationDirectory = declaration.directory;
-    // The root and a technical root are one level: `src/types.ts` is not
-    // below consumers whose common directory is `.` only because a
-    // `scripts/` sits beside `src/`.
-    const directoryRelationship: DirectoryRelationship =
-      declarationDirectory === commonDirectory ||
-      (aboveRegions(declarationDirectory) && aboveRegions(commonDirectory))
-        ? "same"
-        : lineageOf(commonDirectory).includes(declarationDirectory)
-          ? "ancestor"
-          : lineageOf(declarationDirectory).includes(commonDirectory)
-            ? "descendant"
-            : "disjoint";
-
-    const distributionShape: SymbolDistributionShape =
-      consumers.length === 1
-        ? "module-localized"
-        : consumed.consumerDirectories.length === 1
-          ? "directory-localized"
-          : regions.length === 1
-            ? "region-localized"
-            : dominantRegion !== undefined || split
-              ? "multi-region"
-              : "package-distributed";
-
-    let placement: DeclarationPlacement;
-    if (consumers.length < policy.minimumConsumers) {
-      placement = "unclear";
-    } else if (distributionShape === "package-distributed") {
-      placement = "distributed";
-    } else if (split || dominantRegion === undefined) {
-      placement = "split";
-    } else if (declaration.region === dominantRegion.id) {
-      switch (directoryRelationship) {
-        case "same":
-          placement = "aligned";
-          break;
-        case "ancestor":
-          placement = "broader-than-consumers";
-          break;
-        case "descendant":
-          placement =
-            significantRegions >= 2 ? "narrower-than-consumers" : "aligned";
-          break;
-        case "disjoint":
-          placement = "cross-directory";
-          break;
-      }
-    } else {
-      placement =
-        directoryRelationship === "ancestor"
-          ? "broader-than-consumers"
-          : "cross-region";
-    }
-
-    const crossRegion = consumers.filter(
-      (c) => regionOf(c.module) !== declaration.region
-    );
-    const crossed = [
-      ...new Set(
-        crossRegion.map((c) => `${regionOf(c.module)}→${declaration.region}`)
-      ),
-    ].sort((a, b) => a.localeCompare(b));
-
-    const layers = consumerIds.map((id) => moduleById.get(id)?.layer ?? 0);
-    const cycleCounts = new Map<string, number>();
-    let bridges = 0;
-    let aggregators = 0;
-    for (const id of consumerIds) {
-      const cycle = moduleById.get(id)?.cycle;
-      if (cycle !== undefined) {
-        cycleCounts.set(cycle, (cycleCounts.get(cycle) ?? 0) + 1);
-      }
-      const roles = rolesOf.get(id) ?? [];
-      if (roles.includes("bridge")) {
-        bridges += 1;
-      }
-      if (roles.includes("aggregator")) {
-        aggregators += 1;
-      }
-    }
-    const [topCycle] = [...cycleCounts.entries()].sort(
-      (a, b) => b[1] - a[1] || a[0].localeCompare(b[0])
-    );
-
-    const declarationFunctions = functionsBySymbol.get(consumed.symbolId) ?? 0;
-    const declarationShape: DeclarationShape =
-      declarationFunctions > 0
-        ? "behavior"
-        : declared.kind === "interface" || declared.kind === "type"
-          ? "contract"
-          : "value";
-    const statementsByRegion = new Map<string, number>();
-    let consumerStatements = 0;
-    for (const id of consumerIds) {
-      const statements = statementsByModule.get(id) ?? 0;
-      consumerStatements += statements;
-      const region = regionOf(id);
-      statementsByRegion.set(
-        region,
-        (statementsByRegion.get(region) ?? 0) + statements
-      );
-    }
-    const [topBehaviorRegion] = [...statementsByRegion.entries()]
-      .filter(([, statements]) => statements > 0)
-      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-    const dominantBehaviorRegion =
-      topBehaviorRegion === undefined
-        ? undefined
-        : {
-            id: topBehaviorRegion[0],
-            share: share(topBehaviorRegion[1], consumerStatements),
-          };
-
-    const typeOnly = consumers.filter(
-      (c) => c.typeOnlySites === c.importSites + c.namespaceSites
-    ).length;
-    const usage: SymbolUsage =
-      typeOnly === consumers.length
-        ? "type"
-        : consumers.every((c) => c.typeOnlySites === 0)
-          ? "value"
-          : "both";
-
-    const limitations: SymbolLocalityLimitation[] = [];
-    if (consumers.length === 1) {
-      limitations.push("single-consumer");
-    }
-    if (consumers.some((c) => c.namespaceSites > 0)) {
-      limitations.push("namespace-member-derived");
-    }
-    if (
-      bareNamespaceTargets.has(consumed.declarationModule) ||
-      consumers.some(
-        (c) => c.via !== undefined && bareNamespaceTargets.has(c.via)
-      )
-    ) {
-      limitations.push("namespace-bare-use");
-    }
-
-    findings.push({
-      commonDirectory: {
-        depth: directoryById.get(commonDirectory)?.depth ?? 0,
-        path: commonDirectory,
-      },
-      commonScope,
-      conceptSeed: seedKinds.has(declared.kind),
-      consumerModules: consumerIds,
-      consumers: {
-        bindingOccurrences: consumed.bindingOccurrences,
-        directories: consumed.consumerDirectories.length,
-        importSites: consumed.importSites,
-        mediated: consumers.filter((c) => c.via !== undefined).length,
-        modules: consumers.length,
-        namespaceSites: consumed.namespaceSites,
-        regions: regions.length,
-        typeOnly,
-      },
-      declaration: {
-        depth: directoryById.get(declarationDirectory)?.depth ?? 0,
-        directory: declarationDirectory,
-        module: declaration.id,
-        region: declaration.region,
-        scope: scopeRef("directory", declarationDirectory),
-      },
-      directoryRelationship,
-      dominantDirectory,
-      dominantModule,
-      exported: declared.exported,
-      kind: declared.kind,
-      name: consumed.name,
-      packagePublic: declared.packagePublic,
-      symbolId: consumed.symbolId,
-      topRegion,
-      usage,
-      ...(dominantRegion !== undefined && { dominantRegion }),
-      behavior: {
-        consumerStatements,
-        declarationFunctions,
-        declarationShape,
-        ...(dominantBehaviorRegion !== undefined && {
-          agreesWithUsage: dominantBehaviorRegion.id === topRegion.id,
-          dominantBehaviorRegion,
-        }),
-      },
-      distribution: distributionShape,
-      evidence:
-        consumers.length === 1
-          ? "limited"
-          : limitations.length > 0
-            ? "partial"
-            : "complete",
-      limitations,
-      placement,
-      regions,
-      seams: {
-        crossed,
-        crossRegionConsumers: crossRegion.length,
-        crossRegionShare: share(crossRegion.length, consumers.length),
-      },
-      significantRegions,
-      structure: {
-        consumerComponents: consumerComponents(consumerIds),
-        layerSpan: { max: Math.max(...layers), min: Math.min(...layers) },
-        ...(topCycle !== undefined && {
-          cycle: {
-            consumerShare: share(topCycle[1], consumers.length),
-            declarationMember: declaration.cycle === topCycle[0],
-            id: topCycle[0],
-          },
-        }),
-        aggregatorConsumerShare: share(aggregators, consumers.length),
-        bridgeConsumerShare: share(bridges, consumers.length),
-      },
-    });
-  }
+  analyzeSymbolLocalityConsumed(
+    topology,
+    symbolById,
+    moduleById,
+    policy,
+    commonAncestor,
+    packageId,
+    aboveRegions,
+    lineageOf,
+    rolesOf,
+    functionsBySymbol,
+    statementsByModule,
+    bareNamespaceTargets,
+    findings,
+    directoryById,
+    seedKinds,
+    consumerComponents
+  );
 
   const summary: SymbolLocalitySummary = {
     anonymousDefaultExports: report.defaultExports.filter(
@@ -669,6 +424,344 @@ export function analyzeSymbolLocality(
   };
 }
 
+function analyzeSymbolLocalityConsumed(
+  topology: InternalPackageTopology,
+  symbolById: Map<string, PackageLocalSymbol>,
+  moduleById: Map<string, InternalModuleNode>,
+  policy: {
+    dominantShareThreshold: number;
+    significantShareThreshold: number;
+    minimumConsumers: number;
+    report: { topSymbols: number };
+  },
+  commonAncestor: (directories: string[]) => string,
+  packageId: string,
+  aboveRegions: (directory: string) => boolean,
+  lineageOf: (directory: string) => string[],
+  rolesOf: Map<string, InternalModuleRole[]>,
+  functionsBySymbol: Map<string, number>,
+  statementsByModule: Map<string, number>,
+  bareNamespaceTargets: Set<string>,
+  findings: SymbolLocalityFinding[],
+  directoryById: Map<string, InternalDirectoryNode>,
+  seedKinds: Set<string>,
+  consumerComponents: (consumers: string[]) => number
+) {
+  const visitConsumed = (consumed: InternalConsumedSymbol) =>
+    resolveVisitConsumed(
+      symbolById,
+      moduleById,
+      policy,
+      commonAncestor,
+      packageId,
+      aboveRegions,
+      lineageOf,
+      rolesOf,
+      statementsByModule,
+      functionsBySymbol,
+      bareNamespaceTargets,
+      findings,
+      directoryById,
+      seedKinds,
+      consumerComponents,
+      consumed
+    );
+  for (const consumed of topology.consumedSurface) {
+    visitConsumed(consumed);
+  }
+}
+
+function analyzeSymbolLocalityConsumedEntries7(
+  directoryById: Map<string, InternalDirectoryNode>,
+  commonDirectory: string,
+  commonScope: ArchitecturalScopeRef,
+  seedKinds: Set<string>,
+  declared: PackageLocalSymbol,
+  consumerIds: string[],
+  consumed: InternalConsumedSymbol,
+  consumers: InternalSymbolConsumer[],
+  regions: RegionShare[],
+  typeOnly: number,
+  declarationDirectory: string,
+  declaration: InternalModuleNode,
+  directoryRelationship: DirectoryRelationship,
+  dominantDirectory: LocalityShare,
+  dominantModule: LocalityShare,
+  topRegion: RegionShare,
+  usage: SymbolUsage,
+  dominantRegion: RegionShare | undefined,
+  consumerStatements: number,
+  declarationFunctions: number,
+  declarationShape: DeclarationShape,
+  dominantBehaviorRegion: { id: string; share: number } | undefined,
+  distributionShape: SymbolDistributionShape,
+  limitations: SymbolLocalityLimitation[],
+  placement: DeclarationPlacement,
+  crossed: string[],
+  crossRegion: InternalSymbolConsumer[],
+  significantRegions: number,
+  consumerComponents: (consumers: string[]) => number,
+  layers: number[],
+  topCycle: [string, number] | undefined,
+  aggregators: number,
+  bridges: number
+): SymbolLocalityFinding {
+  return {
+    commonDirectory: {
+      depth: directoryById.get(commonDirectory)?.depth ?? 0,
+      path: commonDirectory,
+    },
+    commonScope,
+    conceptSeed: seedKinds.has(declared.kind),
+    consumerModules: consumerIds,
+    consumers: {
+      bindingOccurrences: consumed.bindingOccurrences,
+      directories: consumed.consumerDirectories.length,
+      importSites: consumed.importSites,
+      mediated: consumers.filter((c) => c.via !== undefined).length,
+      modules: consumers.length,
+      namespaceSites: consumed.namespaceSites,
+      regions: regions.length,
+      typeOnly,
+    },
+    declaration: {
+      depth: directoryById.get(declarationDirectory)?.depth ?? 0,
+      directory: declarationDirectory,
+      module: declaration.id,
+      region: declaration.region,
+      scope: scopeRef("directory", declarationDirectory),
+    },
+    directoryRelationship,
+    dominantDirectory,
+    dominantModule,
+    exported: declared.exported,
+    kind: declared.kind,
+    name: consumed.name,
+    packagePublic: declared.packagePublic,
+    symbolId: consumed.symbolId,
+    topRegion,
+    usage,
+    ...(dominantRegion !== undefined && { dominantRegion }),
+    behavior: {
+      consumerStatements,
+      declarationFunctions,
+      declarationShape,
+      ...(dominantBehaviorRegion !== undefined && {
+        agreesWithUsage: dominantBehaviorRegion.id === topRegion.id,
+        dominantBehaviorRegion,
+      }),
+    },
+    distribution: distributionShape,
+    evidence: resolveEvidence(consumers, limitations),
+    limitations,
+    placement,
+    regions,
+    seams: {
+      crossed,
+      crossRegionConsumers: crossRegion.length,
+      crossRegionShare: share(crossRegion.length, consumers.length),
+    },
+    significantRegions,
+    structure: {
+      consumerComponents: consumerComponents(consumerIds),
+      layerSpan: { max: Math.max(...layers), min: Math.min(...layers) },
+      ...(topCycle !== undefined && {
+        cycle: {
+          consumerShare: share(topCycle[1], consumers.length),
+          declarationMember: declaration.cycle === topCycle[0],
+          id: topCycle[0],
+        },
+      }),
+      aggregatorConsumerShare: share(aggregators, consumers.length),
+      bridgeConsumerShare: share(bridges, consumers.length),
+    },
+  };
+}
+
+function analyzeSymbolLocalityConsumedEntries6(
+  typeOnly: number,
+  consumers: InternalSymbolConsumer[]
+): SymbolUsage {
+  let usage: SymbolUsage;
+  if (typeOnly === consumers.length) {
+    usage = "type";
+  } else if (consumers.every((c) => c.typeOnlySites === 0)) {
+    usage = "value";
+  } else {
+    usage = "both";
+  }
+  return usage;
+}
+
+function analyzeSymbolLocalityConsumedEntries5(
+  declarationFunctions: number,
+  declared: PackageLocalSymbol
+): DeclarationShape {
+  let declarationShape: DeclarationShape;
+  if (declarationFunctions > 0) {
+    declarationShape = "behavior";
+  } else if (declared.kind === "interface" || declared.kind === "type") {
+    declarationShape = "contract";
+  } else {
+    declarationShape = "value";
+  }
+  return declarationShape;
+}
+
+function analyzeSymbolLocalityConsumedEntries4(
+  declarationDirectory: string,
+  commonDirectory: string,
+  aboveRegions: (directory: string) => boolean,
+  lineageOf: (directory: string) => string[]
+): DirectoryRelationship {
+  let directoryRelationship: DirectoryRelationship;
+  if (
+    declarationDirectory === commonDirectory ||
+    (aboveRegions(declarationDirectory) && aboveRegions(commonDirectory))
+  ) {
+    directoryRelationship = "same";
+  } else if (lineageOf(commonDirectory).includes(declarationDirectory)) {
+    directoryRelationship = "ancestor";
+  } else if (lineageOf(declarationDirectory).includes(commonDirectory)) {
+    directoryRelationship = "descendant";
+  } else {
+    directoryRelationship = "disjoint";
+  }
+  return directoryRelationship;
+}
+
+function analyzeSymbolLocalityConsumedEntries3(
+  consumers: InternalSymbolConsumer[],
+  consumerIds: string[],
+  regions: RegionShare[],
+  packageId: string,
+  aboveRegions: (directory: string) => boolean,
+  commonDirectory: string,
+  topRegion: RegionShare
+): ArchitecturalScopeRef {
+  let commonScope: ArchitecturalScopeRef;
+  if (consumers.length === 1) {
+    commonScope = scopeRef("module", consumerIds[0] ?? "");
+  } else if (regions.length > 1) {
+    commonScope = scopeRef("package", packageId);
+  } else if (aboveRegions(commonDirectory)) {
+    commonScope = scopeRef("region", topRegion.id);
+  } else {
+    commonScope = scopeRef("directory", commonDirectory);
+  }
+  return commonScope;
+}
+
+function analyzeSymbolLocalityConsumedId(
+  consumerIds: string[],
+  moduleById: Map<string, InternalModuleNode>,
+  cycleCounts: Map<string, number>,
+  rolesOf: Map<string, InternalModuleRole[]>,
+  initialBridges: number,
+  initialAggregators: number
+) {
+  let aggregators = initialAggregators;
+  let bridges = initialBridges;
+  for (const id of consumerIds) {
+    const cycle = moduleById.get(id)?.cycle;
+    if (cycle !== undefined) {
+      cycleCounts.set(cycle, (cycleCounts.get(cycle) ?? 0) + 1);
+    }
+    const roles = rolesOf.get(id) ?? [];
+    if (roles.includes("bridge")) {
+      bridges += 1;
+    }
+    if (roles.includes("aggregator")) {
+      aggregators += 1;
+    }
+  }
+  return { aggregators, bridges };
+}
+
+function analyzeSymbolLocalityConsumedEntries2(
+  consumers: InternalSymbolConsumer[],
+  consumed: InternalConsumedSymbol,
+  regions: RegionShare[],
+  dominantRegion: RegionShare | undefined,
+  split: boolean
+): SymbolDistributionShape {
+  let distributionShape: SymbolDistributionShape;
+  if (consumers.length === 1) {
+    distributionShape = "module-localized";
+  } else if (consumed.consumerDirectories.length === 1) {
+    distributionShape = "directory-localized";
+  } else if (regions.length === 1) {
+    distributionShape = "region-localized";
+  } else if (dominantRegion !== undefined || split) {
+    distributionShape = "multi-region";
+  } else {
+    distributionShape = "package-distributed";
+  }
+  return distributionShape;
+}
+
+function analyzeSymbolLocalityConsumedEntries(
+  consumers: InternalSymbolConsumer[],
+  policy: {
+    dominantShareThreshold: number;
+    significantShareThreshold: number;
+    minimumConsumers: number;
+    report: { topSymbols: number };
+  },
+  distributionShape: SymbolDistributionShape,
+  split: boolean,
+  dominantRegion: RegionShare | undefined,
+  declaration: InternalModuleNode,
+  directoryRelationship: DirectoryRelationship,
+  significantRegions: number
+): DeclarationPlacement {
+  let placement: DeclarationPlacement;
+  if (consumers.length < policy.minimumConsumers) {
+    placement = "unclear";
+  } else if (distributionShape === "package-distributed") {
+    placement = "distributed";
+  } else if (split || dominantRegion === undefined) {
+    placement = "split";
+  } else if (declaration.region === dominantRegion.id) {
+    switch (directoryRelationship) {
+      case "same":
+        placement = "aligned";
+        break;
+      case "ancestor":
+        placement = "broader-than-consumers";
+        break;
+      case "descendant":
+        placement =
+          significantRegions >= 2 ? "narrower-than-consumers" : "aligned";
+        break;
+      case "disjoint":
+        placement = "cross-directory";
+        break;
+      default:
+        throw new Error("Unexpected directoryRelationship.");
+    }
+  } else {
+    placement =
+      directoryRelationship === "ancestor"
+        ? "broader-than-consumers"
+        : "cross-region";
+  }
+  return placement;
+}
+
+function resolveEvidence(
+  consumers: InternalSymbolConsumer[],
+  limitations: SymbolLocalityLimitation[]
+): SymbolLocalityEvidence {
+  if (consumers.length === 1) {
+    return "limited";
+  }
+  if (limitations.length > 0) {
+    return "partial";
+  }
+  return "complete";
+}
+
 export function getSymbolLocality(
   report: SymbolLocalityReport,
   symbolId: string
@@ -698,4 +791,241 @@ export function getSymbolsByDistribution(
   shape: SymbolDistributionShape
 ): SymbolLocalityFinding[] {
   return report.symbols.filter((finding) => finding.distribution === shape);
+}
+function resolveVisitConsumed(
+  symbolById: Map<string, PackageLocalSymbol>,
+  moduleById: Map<string, InternalModuleNode>,
+  policy: {
+    dominantShareThreshold: number;
+    significantShareThreshold: number;
+    minimumConsumers: number;
+    report: { topSymbols: number };
+  },
+  commonAncestor: (directories: string[]) => string,
+  packageId: string,
+  aboveRegions: (directory: string) => boolean,
+  lineageOf: (directory: string) => string[],
+  rolesOf: Map<string, InternalModuleRole[]>,
+  statementsByModule: Map<string, number>,
+  functionsBySymbol: Map<string, number>,
+  bareNamespaceTargets: Set<string>,
+  findings: SymbolLocalityFinding[],
+  directoryById: Map<string, InternalDirectoryNode>,
+  seedKinds: Set<string>,
+  consumerComponents: (consumers: string[]) => number,
+  consumed: InternalConsumedSymbol
+) {
+  const declared = symbolById.get(consumed.symbolId);
+  const declaration = moduleById.get(consumed.declarationModule);
+  if (declared === undefined || declaration === undefined) {
+    return;
+  }
+  const { consumers } = consumed;
+  const consumerIds = consumers.map((c) => c.module);
+  const directoryOf = (module: string) =>
+    moduleById.get(module)?.directory ?? ".";
+  const regionOf = (module: string) => moduleById.get(module)?.region ?? ".";
+
+  const totals: Tally = {
+    bindingOccurrences: consumed.bindingOccurrences,
+    importSites: consumed.importSites + consumed.namespaceSites,
+    modules: consumers.length,
+  };
+  const [dominantModule] = toShares(
+    tally(consumers, (module) => module),
+    totals,
+    byBindingsThenSites
+  );
+  const [dominantDirectory] = toShares(
+    tally(consumers, directoryOf),
+    totals,
+    byModulesThenSites
+  );
+  const regions: RegionShare[] = toShares(
+    tally(consumers, regionOf),
+    totals,
+    byModulesThenSites
+  ).map((entry) => ({
+    ...entry,
+    significant: entry.share >= policy.significantShareThreshold,
+  }));
+  const [topRegion] = regions;
+  if (
+    dominantModule === undefined ||
+    dominantDirectory === undefined ||
+    topRegion === undefined
+  ) {
+    return;
+  }
+  const dominantRegion =
+    topRegion.share >= policy.dominantShareThreshold ? topRegion : undefined;
+  const significantRegions = regions.filter((r) => r.significant).length;
+  // Two significant regions that together would be dominant are a split;
+  // two significant regions over a long tail are a distribution.
+  const split =
+    dominantRegion === undefined &&
+    significantRegions === 2 &&
+    topRegion.share + (regions[1]?.share ?? 0) >= policy.dominantShareThreshold;
+
+  const commonDirectory = commonAncestor(consumerIds.map(directoryOf));
+
+  const commonScope: ArchitecturalScopeRef =
+    analyzeSymbolLocalityConsumedEntries3(
+      consumers,
+      consumerIds,
+      regions,
+      packageId,
+      aboveRegions,
+      commonDirectory,
+      topRegion
+    );
+  const declarationDirectory = declaration.directory;
+  // The root and a technical root are one level: `src/types.ts` is not
+  // below consumers whose common directory is `.` only because a
+  // `scripts/` sits beside `src/`.
+
+  const directoryRelationship: DirectoryRelationship =
+    analyzeSymbolLocalityConsumedEntries4(
+      declarationDirectory,
+      commonDirectory,
+      aboveRegions,
+      lineageOf
+    );
+
+  const distributionShape: SymbolDistributionShape =
+    analyzeSymbolLocalityConsumedEntries2(
+      consumers,
+      consumed,
+      regions,
+      dominantRegion,
+      split
+    );
+
+  const placement: DeclarationPlacement = analyzeSymbolLocalityConsumedEntries(
+    consumers,
+    policy,
+    distributionShape,
+    split,
+    dominantRegion,
+    declaration,
+    directoryRelationship,
+    significantRegions
+  );
+
+  const crossRegion = consumers.filter(
+    (c) => regionOf(c.module) !== declaration.region
+  );
+  const crossed = [
+    ...new Set(
+      crossRegion.map((c) => `${regionOf(c.module)}→${declaration.region}`)
+    ),
+  ].sort((a, b) => a.localeCompare(b));
+
+  const layers = consumerIds.map((id) => moduleById.get(id)?.layer ?? 0);
+  const cycleCounts = new Map<string, number>();
+  let bridges = 0;
+  let aggregators = 0;
+  ({ bridges, aggregators } = analyzeSymbolLocalityConsumedId(
+    consumerIds,
+    moduleById,
+    cycleCounts,
+    rolesOf,
+    bridges,
+    aggregators
+  ));
+  const [topCycle] = [...cycleCounts.entries()].sort(
+    (a, b) => b[1] - a[1] || a[0].localeCompare(b[0])
+  );
+  const visitId = (id: string) => {
+    const statements = statementsByModule.get(id) ?? 0;
+    consumerStatements += statements;
+    const region = regionOf(id);
+    statementsByRegion.set(
+      region,
+      (statementsByRegion.get(region) ?? 0) + statements
+    );
+  };
+
+  const declarationFunctions = functionsBySymbol.get(consumed.symbolId) ?? 0;
+
+  const declarationShape: DeclarationShape =
+    analyzeSymbolLocalityConsumedEntries5(declarationFunctions, declared);
+  const statementsByRegion = new Map<string, number>();
+  let consumerStatements = 0;
+  for (const id of consumerIds) {
+    visitId(id);
+  }
+  const [topBehaviorRegion] = [...statementsByRegion.entries()]
+    .filter(([, statements]) => statements > 0)
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  const dominantBehaviorRegion =
+    topBehaviorRegion === undefined
+      ? undefined
+      : {
+          id: topBehaviorRegion[0],
+          share: share(topBehaviorRegion[1], consumerStatements),
+        };
+
+  const typeOnly = consumers.filter(
+    (c) => c.typeOnlySites === c.importSites + c.namespaceSites
+  ).length;
+
+  const usage: SymbolUsage = analyzeSymbolLocalityConsumedEntries6(
+    typeOnly,
+    consumers
+  );
+
+  const limitations: SymbolLocalityLimitation[] = [];
+  if (consumers.length === 1) {
+    limitations.push("single-consumer");
+  }
+  if (consumers.some((c) => c.namespaceSites > 0)) {
+    limitations.push("namespace-member-derived");
+  }
+  if (
+    bareNamespaceTargets.has(consumed.declarationModule) ||
+    consumers.some(
+      (c) => c.via !== undefined && bareNamespaceTargets.has(c.via)
+    )
+  ) {
+    limitations.push("namespace-bare-use");
+  }
+
+  findings.push(
+    analyzeSymbolLocalityConsumedEntries7(
+      directoryById,
+      commonDirectory,
+      commonScope,
+      seedKinds,
+      declared,
+      consumerIds,
+      consumed,
+      consumers,
+      regions,
+      typeOnly,
+      declarationDirectory,
+      declaration,
+      directoryRelationship,
+      dominantDirectory,
+      dominantModule,
+      topRegion,
+      usage,
+      dominantRegion,
+      consumerStatements,
+      declarationFunctions,
+      declarationShape,
+      dominantBehaviorRegion,
+      distributionShape,
+      limitations,
+      placement,
+      crossed,
+      crossRegion,
+      significantRegions,
+      consumerComponents,
+      layers,
+      topCycle,
+      aggregators,
+      bridges
+    )
+  );
 }

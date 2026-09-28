@@ -1,11 +1,12 @@
 import { execFileSync } from "node:child_process";
-import * as fs from "node:fs";
-import * as path from "node:path";
+import { readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { resolve, sep } from "node:path";
 import type { Project, SourceFile } from "ts-morph";
 
 import { Node, ts } from "ts-morph";
-import { analyzeSurface, createProject } from "./analyze";
+import { analyzeSurface } from "./analyze";
 import { findRepoRoot } from "./boundary";
+import { createProject } from "./project";
 import type {
   InternalizeSymbolPlan,
   MutationResult,
@@ -53,7 +54,7 @@ function dirtyPlannedFiles(root: string, files: string[]): string[] {
 
 /** Error-severity diagnostic counts per file+code for files under `dir`. */
 function diagnosticCounts(project: Project, dir: string): Map<string, number> {
-  const prefix = dir.endsWith(path.sep) ? dir : dir + path.sep;
+  const prefix = dir.endsWith(sep) ? dir : dir + sep;
   const counts = new Map<string, number>();
   for (const file of project.getSourceFiles()) {
     if (!file.getFilePath().startsWith(prefix)) {
@@ -278,8 +279,8 @@ export async function applyReductionPlan(
     });
   }
 
-  const root = fs.realpathSync(
-    options.root ? path.resolve(options.root) : findRepoRoot(process.cwd())
+  const root = realpathSync(
+    options.root ? resolve(options.root) : findRepoRoot(process.cwd())
   );
   const analyzeOptions = {
     root,
@@ -318,16 +319,16 @@ export async function applyReductionPlan(
 
   const originals = new Map<string, string>();
   for (const file of changedFiles) {
-    originals.set(file, fs.readFileSync(path.resolve(root, file), "utf8"));
+    originals.set(file, readFileSync(resolve(root, file), "utf8"));
   }
 
   const project = createProject(root, options.tsconfig);
-  const boundaryDir = path.resolve(root, plan.target.path);
+  const boundaryDir = resolve(root, plan.target.path);
   const baseline = diagnosticCounts(project, boundaryDir);
 
   const editedFiles: SourceFile[] = [];
   for (const route of freshPlan.publicRoutes) {
-    const file = project.getSourceFile(path.resolve(root, route.file));
+    const file = project.getSourceFile(resolve(root, route.file));
     if (file === undefined) {
       return result(plan, "blocked", plan.predictedDelta, {
         blockers: [
@@ -353,6 +354,54 @@ export async function applyReductionPlan(
     return result(plan, "preview", plan.predictedDelta, { changedFiles });
   }
 
+  const verification: VerificationResult = await collectIntroduced(
+    editedFiles,
+    baseline,
+    project,
+    boundaryDir,
+    analyzeOptions,
+    plan,
+    before
+  );
+
+  if (verification.status === "fail") {
+    for (const [file, content] of originals) {
+      writeFileSync(resolve(root, file), content);
+    }
+    return result(plan, "rolled-back", plan.predictedDelta, {
+      blockers: [
+        {
+          detail:
+            "Post-mutation verification failed; all planned files were restored to their pre-mutation contents.",
+          reason: "verification-failed",
+        },
+      ],
+      changedFiles,
+      observedDelta: verification.observedDelta,
+      verification,
+    });
+  }
+
+  return result(plan, "applied", plan.predictedDelta, {
+    changedFiles,
+    observedDelta: verification.observedDelta,
+    verification,
+  });
+}
+
+async function collectIntroduced(
+  editedFiles: SourceFile[],
+  baseline: Map<string, number>,
+  project: Project,
+  boundaryDir: string,
+  analyzeOptions: {
+    tsconfig?: string | undefined;
+    root: string;
+    target: string;
+  },
+  plan: InternalizeSymbolPlan,
+  before: SurfaceReport
+) {
   for (const file of editedFiles) {
     file.saveSync();
   }
@@ -381,28 +430,5 @@ export async function applyReductionPlan(
         ? "pass"
         : "fail",
   };
-
-  if (verification.status === "fail") {
-    for (const [file, content] of originals) {
-      fs.writeFileSync(path.resolve(root, file), content);
-    }
-    return result(plan, "rolled-back", plan.predictedDelta, {
-      blockers: [
-        {
-          detail:
-            "Post-mutation verification failed; all planned files were restored to their pre-mutation contents.",
-          reason: "verification-failed",
-        },
-      ],
-      changedFiles,
-      observedDelta: verification.observedDelta,
-      verification,
-    });
-  }
-
-  return result(plan, "applied", plan.predictedDelta, {
-    changedFiles,
-    observedDelta: verification.observedDelta,
-    verification,
-  });
+  return verification;
 }

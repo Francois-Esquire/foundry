@@ -10,10 +10,7 @@ import type { FileKind, ModuleRole } from "./types";
  */
 export const SEMANTICS_HISTORY_SCHEMA_VERSION = 1;
 
-export type CheckpointStrategy =
-  | "monthly"
-  | "evenly-spaced"
-  | "every-n-commits";
+type CheckpointStrategy = "monthly" | "evenly-spaced" | "every-n-commits";
 
 export interface SemanticsHistoryConfig {
   /** Upper bound on selected checkpoints; HEAD always counts as one. */
@@ -72,7 +69,7 @@ export interface TemporalModuleLineage {
   segments: TemporalPathSegment[];
 }
 
-export interface TemporalPackageLineage {
+interface TemporalPackageLineage {
   /** Checkpoints where the package was discovered, oldest first. */
   checkpoints: string[];
   id: string;
@@ -126,7 +123,7 @@ export interface TemporalModuleState {
  */
 export type TemporalModuleDependency = [number, number, 0 | 1, 0 | 1];
 
-export interface TemporalConceptCenters {
+interface TemporalConceptCenters {
   behavior?: string;
   implementations?: string[];
   representation?: string;
@@ -145,13 +142,13 @@ export interface TemporalConceptState {
   packages: string[];
 }
 
-export interface TemporalBoundaryState {
+interface TemporalBoundaryState {
   from: string;
   moduleEdges: number;
   to: string;
 }
 
-export interface TemporalCoverage {
+interface TemporalCoverage {
   failed: { id: string; error: string }[];
   rootsMissing: string[];
   rootsScanned: string[];
@@ -225,7 +222,7 @@ export interface TemporalSnapshotDelta {
 // ---------------------------------------------------------------------------
 // MANIFEST
 
-export type SemanticsHistorySnapshotStatus = "complete" | "failed";
+type SemanticsHistorySnapshotStatus = "complete" | "failed";
 
 export interface SemanticsHistorySnapshotRef {
   bytes?: number;

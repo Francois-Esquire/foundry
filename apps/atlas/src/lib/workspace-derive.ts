@@ -1,5 +1,5 @@
-import * as fs from "node:fs";
-import * as path from "node:path";
+import { realpathSync } from "node:fs";
+import { resolve } from "node:path";
 import type { Project, ts } from "ts-morph";
 
 import { Node } from "ts-morph";
@@ -151,8 +151,8 @@ export async function deriveWorkspaceSurface(
   options: DeriveWorkspaceOptions = {}
 ): Promise<WorkspaceSurfaceDerivation> {
   const started = performance.now();
-  const root = fs.realpathSync(
-    options.root ? path.resolve(options.root) : findRepoRoot(process.cwd())
+  const root = realpathSync(
+    options.root ? resolve(options.root) : findRepoRoot(process.cwd())
   );
   const config = options.config ?? ANALYSIS_CONFIG;
   const profile = options.profile ?? "full";
@@ -265,26 +265,29 @@ export async function deriveWorkspaceSurface(
 
   done = lap();
   // The monolithic analyzer resolved a seed's overlap node through a map
+  const visitState = () => {
+    for (const state of states) {
+      const target = state.boundary.packageName ?? state.boundary.relPath;
+      const seedIds = new Set(state.group.states.map((seed) => seed.seed.id));
+      const lastNodeById = new Map<string, ts.Node>();
+      for (const symbol of state.collected) {
+        if (seedIds.has(symbol.id)) {
+          lastNodeById.set(symbol.id, symbol.node.compilerNode);
+        }
+      }
+      for (const node of lastNodeById.values()) {
+        const list = seedTargets.get(node) ?? [];
+        list.push(target);
+        seedTargets.set(node, list);
+      }
+    }
+  };
   // keyed by symbol id over every collected symbol, so the last symbol with
   // that id won regardless of kind: a function declared after a same-named
   // interface hid the interface from overlap generation. Reproduced as-is
   // (V12.6 changes no analyzer result); a fix belongs with a policy bump.
   const seedTargets = new Map<ts.Node, string[]>();
-  for (const state of states) {
-    const target = state.boundary.packageName ?? state.boundary.relPath;
-    const seedIds = new Set(state.group.states.map((seed) => seed.seed.id));
-    const lastNodeById = new Map<string, ts.Node>();
-    for (const symbol of state.collected) {
-      if (seedIds.has(symbol.id)) {
-        lastNodeById.set(symbol.id, symbol.node.compilerNode);
-      }
-    }
-    for (const node of lastNodeById.values()) {
-      const list = seedTargets.get(node) ?? [];
-      list.push(target);
-      seedTargets.set(node, list);
-    }
-  }
+  visitState();
   const overlapIndex = buildConceptOverlapIndex(
     project,
     root,

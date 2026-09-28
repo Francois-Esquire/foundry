@@ -1,7 +1,14 @@
 import { execFileSync } from "node:child_process";
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
+import {
+  appendFileSync,
+  cpSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
@@ -55,6 +62,14 @@ import {
 } from "./helpers/planning-fixture";
 import type { Spec } from "./helpers/workspace-builder";
 import { workspace } from "./helpers/workspace-builder";
+
+const expectedTextPattern =
+  /writeFileSync|saveSync|rmSync|mkdirSync|renameSync|--fix|--write/;
+const expectedTextPattern2 = /score|confidence|priority|effort|rank/i;
+const expectedTextPattern3 = /apply|write|patch|mutated/i;
+const expectedTextPattern4 = /^verify-public-surface:/;
+const expectedTextPattern5 = /^auth:[0-9a-f]{16}$/;
+const expectedTextPattern6 = /^[0-9a-f]{64}$/;
 
 const OK_STATUS = "packages/store/src/status-factory.ts#okStatus";
 const CIRCLE = "packages/store/src/shape-impl.ts#Circle";
@@ -176,8 +191,8 @@ function withPreservation(
 }
 
 function copyFixture(): { dir: string; planning: OperatorPlanningContext } {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "semantic-surface-ready-"));
-  fs.cpSync(root, dir, { recursive: true });
+  const dir = mkdtempSync(join(tmpdir(), "semantic-surface-ready-"));
+  cpSync(root, dir, { recursive: true });
   return {
     dir,
     planning: createOperatorPlanningContext({
@@ -217,10 +232,10 @@ describe("an authorized internalize (§95, §4, §41–43, §47)", () => {
       "restore:packages/core/src/index.ts",
       "restore:packages/core/src/internal-user.ts",
     ]);
-    expect(r.rollback.files.every((f) => /^[0-9a-f]{64}$/.test(f.hash))).toBe(
-      true
-    );
-    expect(r.fingerprint.hash).toMatch(/^auth:[0-9a-f]{16}$/);
+    expect(
+      r.rollback.files.every((f) => expectedTextPattern6.test(f.hash))
+    ).toBe(true);
+    expect(r.fingerprint.hash).toMatch(expectedTextPattern5);
     expect(r.schemaVersion).toBe(OPERATOR_READINESS_SCHEMA_VERSION);
     expect(r.policyVersion).toBe(OPERATOR_READINESS_POLICY_VERSION);
   });
@@ -243,7 +258,7 @@ describe("an authorized internalize (§95, §4, §41–43, §47)", () => {
     expect(
       r.verification.steps.find((s) => s.kind === "verify-public-surface")
         ?.query
-    ).toMatch(/^verify-public-surface:/);
+    ).toMatch(expectedTextPattern4);
     expect(r.verification.assertions[0]).toMatchObject({
       before: "package-public",
       dimension: "surface",
@@ -285,17 +300,17 @@ describe("source state (§6–10, §96–97)", () => {
   });
 
   afterAll(() => {
-    fs.rmSync(copy, { force: true, recursive: true });
+    rmSync(copy, { force: true, recursive: true });
   });
 
   it("is stale when a planned file changes and current when an unrelated one does", () => {
     const p = planned([internalize(HELPER, "@p/core")], copied);
     expect(assess(p, { planning: copied }).authorization).toBe("authorized");
-    fs.appendFileSync(path.join(copy, "packages/util/src/clamp.ts"), "\n//\n");
+    appendFileSync(join(copy, "packages/util/src/clamp.ts"), "\n//\n");
     const still = assess(p, { planning: copied });
     expect(still.authorization).toBe("authorized");
     expect(still.sourceState.unchanged).toBe(true);
-    fs.appendFileSync(path.join(copy, "packages/core/src/index.ts"), "\n//\n");
+    appendFileSync(join(copy, "packages/core/src/index.ts"), "\n//\n");
     const stale = assess(p, { planning: copied });
     expect(stale.authorization).toBe("stale");
     expect(stale.sourceState.staleFiles).toEqual([
@@ -318,7 +333,7 @@ describe("source state (§6–10, §96–97)", () => {
       expect(r.cautions.map((c) => c.kind)).toContain("planned-file-dirty");
       expect(r.authorization).toBe("authorized");
     } finally {
-      fs.rmSync(dir, { force: true, recursive: true });
+      rmSync(dir, { force: true, recursive: true });
     }
   });
 
@@ -335,8 +350,10 @@ describe("completeness (§11–14, §98–99)", () => {
     const p = planned([internalize(HELPER, "@p/core")]);
     const tampered: OperatorExecutionPlan = {
       ...p.plan,
-      realizations: p.plan.realizations.map((r, i) =>
-        i === 0 ? { ...r, status: "partial", transformations: [] } : r
+      realizations: p.plan.realizations.map((realization, i) =>
+        i === 0
+          ? { ...realization, status: "partial", transformations: [] }
+          : realization
       ),
     };
     const r = assess(p, {}, tampered);
@@ -576,8 +593,8 @@ describe("verification baseline (§34–43, §85, §112–116)", () => {
   it("refuses when the required typecheck already fails and accepts an exact allowance (§112–113)", () => {
     const { dir } = copyFixture();
     try {
-      fs.appendFileSync(
-        path.join(dir, "packages/core/src/panel.ts"),
+      appendFileSync(
+        join(dir, "packages/core/src/panel.ts"),
         '\nexport const broken: number = "x";\n'
       );
       const planning = createOperatorPlanningContext({
@@ -618,8 +635,8 @@ describe("verification baseline (§34–43, §85, §112–116)", () => {
         "allowed-baseline-failure"
       );
 
-      fs.appendFileSync(
-        path.join(dir, "packages/core/src/registry.ts"),
+      appendFileSync(
+        join(dir, "packages/core/src/registry.ts"),
         '\nexport const alsoBroken: number = "y";\n'
       );
       const again = createOperatorPlanningContext({
@@ -643,7 +660,7 @@ describe("verification baseline (§34–43, §85, §112–116)", () => {
         "baseline-verification-failed",
       ]);
     } finally {
-      fs.rmSync(dir, { force: true, recursive: true });
+      rmSync(dir, { force: true, recursive: true });
     }
   });
 
@@ -668,13 +685,13 @@ describe("verification baseline (§34–43, §85, §112–116)", () => {
   it("refuses when a required verification step cannot run here (§115)", () => {
     const { dir } = copyFixture();
     try {
-      const manifest = path.join(dir, "packages/core/package.json");
-      const parsed = JSON.parse(fs.readFileSync(manifest, "utf8")) as Record<
+      const manifest = join(dir, "packages/core/package.json");
+      const parsed = JSON.parse(readFileSync(manifest, "utf8")) as Record<
         string,
         unknown
       >;
-      delete parsed.scripts;
-      fs.writeFileSync(manifest, JSON.stringify(parsed, null, 2));
+      parsed.scripts = undefined;
+      writeFileSync(manifest, JSON.stringify(parsed, null, 2));
       const planning = createOperatorPlanningContext({
         root: dir,
         tsconfig: "tsconfig.json",
@@ -688,7 +705,7 @@ describe("verification baseline (§34–43, §85, §112–116)", () => {
       ).toBe("skipped");
       expect(r.verification.executable).toBe(false);
     } finally {
-      fs.rmSync(dir, { force: true, recursive: true });
+      rmSync(dir, { force: true, recursive: true });
     }
   });
 
@@ -810,7 +827,7 @@ describe("graphs and composition (§15–16, §72–73, §119–121)", () => {
 
   it("blocks a transformation graph with a dangling dependency (§120)", () => {
     const p = planned([internalize(HELPER, "@p/core")]);
-    const first = p.plan.transformations[0];
+    const [first] = p.plan.transformations;
     if (first === undefined) {
       throw new Error("no transformation");
     }
@@ -856,7 +873,7 @@ describe("graphs and composition (§15–16, §72–73, §119–121)", () => {
 describe("rollback (§47–52, §102–104)", () => {
   it("blocks a transformation whose original bytes cannot be snapshotted (§102)", () => {
     const p = planned([internalize(HELPER, "@p/core")]);
-    const first = p.plan.transformations[0];
+    const [first] = p.plan.transformations;
     if (first === undefined) {
       throw new Error("no transformation");
     }
@@ -1016,9 +1033,7 @@ describe("guarantees (§74, §125–127, §143)", () => {
   it("carries no apply, write, patch, or mutated field", () => {
     const r = assess(planned([internalize(HELPER, "@p/core")]));
     const keys = [...keysOf(r, new Set())];
-    expect(keys.filter((k) => /apply|write|patch|mutated/i.test(k))).toEqual(
-      []
-    );
+    expect(keys.filter((k) => expectedTextPattern3.test(k))).toEqual([]);
   });
 
   it("carries no score, confidence, priority, effort, or rank", () => {
@@ -1026,9 +1041,7 @@ describe("guarantees (§74, §125–127, §143)", () => {
       capabilities: permissive,
     });
     const keys = [...keysOf(r, new Set())];
-    expect(
-      keys.filter((k) => /score|confidence|priority|effort|rank/i.test(k))
-    ).toEqual([]);
+    expect(keys.filter((k) => expectedTextPattern2.test(k))).toEqual([]);
   });
 
   it("never calls a write in its own source", () => {
@@ -1037,13 +1050,11 @@ describe("guarantees (§74, §125–127, §143)", () => {
       "mutation-capabilities.ts",
       "report-readiness.ts",
     ]) {
-      const text = fs.readFileSync(
-        path.join(import.meta.dirname, "../../src/lib", name),
+      const text = readFileSync(
+        join(import.meta.dirname, "../../src/lib", name),
         "utf8"
       );
-      expect(text).not.toMatch(
-        /writeFileSync|saveSync|rmSync|mkdirSync|renameSync|--fix|--write/
-      );
+      expect(text).not.toMatch(expectedTextPattern);
     }
   });
 });

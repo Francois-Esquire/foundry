@@ -3,10 +3,13 @@ import { ANALYSIS_CONFIG } from "./config";
 import type {
   ArchitecturalRoleFinding,
   ArchitecturalScopeClass,
+  PrimitiveConventionPolicy,
   PrimitiveConventionReport,
   PrimitiveModuleFinding,
 } from "./primitive-convention-types";
 import { count, percent, plural } from "./render/format";
+
+const shortIdPattern = /^responsibility:/;
 
 // V13.3 CLI view of primitive and convention intelligence. Distributions,
 // the role × scope matrix, package-wide primitives, mixed-scope modules,
@@ -23,7 +26,7 @@ const SCOPE_COLUMNS: { scope: ArchitecturalScopeClass; label: string }[] = [
 ];
 
 function shortId(id: string | undefined): string {
-  return id === undefined ? "—" : id.replace(/^responsibility:/, "");
+  return id === undefined ? "—" : id.replace(shortIdPattern, "");
 }
 
 function responsibilities(value: number): string {
@@ -213,35 +216,58 @@ export function renderPrimitiveConventions(
   if (microscope.length > 0) {
     lines.push("");
     lines.push("MODULE MICROSCOPE");
-    for (const module of microscope) {
-      lines.push("");
-      lines.push(`  ${module.module}`);
-      lines.push(
-        `    V13.2  ${module.status}${module.ambiguity === undefined ? "" : ` · ${module.ambiguity}`}${module.responsibility === undefined ? "" : ` · ${shortId(module.responsibility)}`}`
-      );
-      lines.push(`    ROLES  ${distribution(module.roles, policy.roles)}`);
-      lines.push(`    SCOPES ${distribution(module.scopes, policy.scopes)}`);
-      if (module.responsibilities.length > 0) {
-        lines.push(
-          `    SERVES ${module.responsibilities
-            .slice(0, 6)
-            .map((entry) => `${shortId(entry.id)} (${count(entry.symbols)})`)
-            .join(", ")}${module.responsibilities.length > 6 ? ", …" : ""}`
-        );
-      }
-      const symbols = report.symbols
-        .filter(
-          (symbol) =>
-            symbol.declaration.module === module.module && symbol.exported
-        )
-        .sort(byReach)
-        .slice(0, limits.topSymbols);
-      for (const symbol of symbols) {
-        lines.push(
-          `      ${pad(symbol.name, 28)} ${pad(symbol.primaryRole, 15)} ${pad(symbol.scope, 22)} ${responsibilities(symbol.consumers.responsibilities.length)}${symbol.served === undefined ? "" : ` → ${shortId(symbol.served.responsibility)}`}`
-        );
-      }
-    }
+    renderPrimitiveConventionsModule(
+      microscope,
+      lines,
+      policy,
+      report,
+      byReach,
+      limits
+    );
   }
   return lines.join("\n");
+}
+
+function renderPrimitiveConventionsModule(
+  microscope: PrimitiveModuleFinding[],
+  lines: string[],
+  policy: PrimitiveConventionPolicy,
+  report: PrimitiveConventionReport,
+  byReach: (a: ArchitecturalRoleFinding, b: ArchitecturalRoleFinding) => number,
+  limits: {
+    topSymbols: number;
+    topModules: number;
+    topConventions: number;
+    microscopeModules: number;
+  }
+) {
+  for (const module of microscope) {
+    lines.push("");
+    lines.push(`  ${module.module}`);
+    lines.push(
+      `    V13.2  ${module.status}${module.ambiguity === undefined ? "" : ` · ${module.ambiguity}`}${module.responsibility === undefined ? "" : ` · ${shortId(module.responsibility)}`}`
+    );
+    lines.push(`    ROLES  ${distribution(module.roles, policy.roles)}`);
+    lines.push(`    SCOPES ${distribution(module.scopes, policy.scopes)}`);
+    if (module.responsibilities.length > 0) {
+      lines.push(
+        `    SERVES ${module.responsibilities
+          .slice(0, 6)
+          .map((entry) => `${shortId(entry.id)} (${count(entry.symbols)})`)
+          .join(", ")}${module.responsibilities.length > 6 ? ", …" : ""}`
+      );
+    }
+    const symbols = report.symbols
+      .filter(
+        (symbol) =>
+          symbol.declaration.module === module.module && symbol.exported
+      )
+      .sort(byReach)
+      .slice(0, limits.topSymbols);
+    for (const symbol of symbols) {
+      lines.push(
+        `      ${pad(symbol.name, 28)} ${pad(symbol.primaryRole, 15)} ${pad(symbol.scope, 22)} ${responsibilities(symbol.consumers.responsibilities.length)}${symbol.served === undefined ? "" : ` → ${shortId(symbol.served.responsibility)}`}`
+      );
+    }
+  }
 }

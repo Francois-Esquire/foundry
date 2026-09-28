@@ -14,7 +14,7 @@ import type { WorkspaceGraphCertainty } from "./workspace-graph-types";
  * recommendation. A single concept observation is never a pattern.
  */
 
-export type WorkspacePatternEvidenceSource =
+type WorkspacePatternEvidenceSource =
   | "workspace-graph"
   | "workspace-concepts"
   | "boundary"
@@ -215,7 +215,7 @@ export interface WorkspaceBoundaryPattern {
   to: string;
 }
 
-export type WorkspaceConceptPatternKind =
+type WorkspaceConceptPatternKind =
   | "parallel-contract-implementations"
   | "cross-package-conversion-projection"
   | "shared-semantic-primitive"
@@ -268,10 +268,7 @@ export interface WorkspaceEvolutionaryPattern {
  * `gravity-center`: the finding's strongest observed center other than the
  * declaring package. `direction`: declaring package → gravity center.
  */
-export type WorkspaceReviewPatternScope =
-  | "package"
-  | "gravity-center"
-  | "direction";
+type WorkspaceReviewPatternScope = "package" | "gravity-center" | "direction";
 
 export interface WorkspaceReviewPattern {
   entityIds: string[];
@@ -285,7 +282,7 @@ export interface WorkspaceReviewPattern {
 }
 
 /** Analyzer blind spots; diagnostics, never architecture. */
-export type WorkspaceCoveragePatternKind =
+type WorkspaceCoveragePatternKind =
   | "structural-conformance-gap"
   | "partial-package-coverage"
   | "cross-package-module-graph-gap"
@@ -300,7 +297,7 @@ export interface WorkspaceCoveragePattern {
   kind: WorkspaceCoveragePatternKind;
 }
 
-export type WorkspaceArchitectureStatementKind =
+type WorkspaceArchitectureStatementKind =
   | "semantic-upstream-consumption"
   | "downstream-implementation-convergence"
   | "consumption-concentration"
@@ -325,7 +322,7 @@ export interface WorkspacePatternThreshold {
   value: number;
 }
 
-export interface WorkspacePatternSummary {
+interface WorkspacePatternSummary {
   boundaryPatterns: number;
   conceptPatterns: number;
   coveragePatterns: number;
@@ -339,7 +336,7 @@ export interface WorkspacePatternSummary {
   strong: number;
 }
 
-export type WorkspacePatternCautionKind =
+type WorkspacePatternCautionKind =
   | "partial-coverage"
   | "lower-bound-support"
   | "sparse-review-coverage"

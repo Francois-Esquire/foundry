@@ -108,7 +108,7 @@ function intentProfile(source: ProfileSource): ArchitecturalIntentProfile {
 }
 
 function signalsFor(
-  source: ProfileSource,
+  _source: ProfileSource,
   gravity: ArchitecturalGravityProfile,
   surface: ArchitecturalSurfaceProfile,
   config: AnalysisConfig

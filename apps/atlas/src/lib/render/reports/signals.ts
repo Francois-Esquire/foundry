@@ -188,6 +188,8 @@ function pressureFact(signal: StructuralPressureSignal): string {
     case "internal-structure-pressure":
       sentence = when`module chains ${m("maxModuleDepth")} deep against package depth ${m("packageDepth")}; ${m("topInternalModule")} has fan-in ${m("topInternalModuleFanIn")}; ${m("branchHeavyFunctions")} branch-heavy functions`;
       break;
+    default:
+      throw new Error("Unexpected signal.kind.");
   }
   return `${signal.kind}: ${sentence ?? rawLine(signal.evidence)}`;
 }
@@ -197,12 +199,15 @@ function boundaryFact(boundary: BoundaryPressureSignal): string {
   const head = when`from ${boundary.from} into ${boundary.to}, ${m("references")} references over ${m("symbols")} symbols`;
   const concentrated = when`, ${m("destinationConcentration")} into ${m("topDestinationModule")}`;
   const broad = when`, across ${m("destinationModules")} destination modules`;
-  const body =
-    head === undefined
-      ? rawLine(boundary.evidence)
-      : head +
-        (boundary.shape === "broad" ? (broad ?? "") : (concentrated ?? "")) +
-        ` (${boundary.shape})`;
+  let body: string;
+  if (head === undefined) {
+    body = rawLine(boundary.evidence);
+  } else {
+    body =
+      head +
+      (boundary.shape === "broad" ? (broad ?? "") : (concentrated ?? "")) +
+      ` (${boundary.shape})`;
+  }
   return `boundary-pressure: ${body}`;
 }
 

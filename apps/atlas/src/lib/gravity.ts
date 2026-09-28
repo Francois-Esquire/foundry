@@ -78,7 +78,7 @@ function finishOrder(graph: Adjacency): string[] {
       { index: 0, neighbors: [...(graph.out.get(root) ?? [])], node: root },
     ];
     while (stack.length > 0) {
-      const frame = stack[stack.length - 1];
+      const frame = stack.at(-1);
       if (frame === undefined) {
         break;
       }
@@ -116,23 +116,26 @@ export interface Condensation {
 export function condense(graph: Adjacency): Condensation {
   const componentOf = new Map<string, string>();
   const size = new Map<string, number>();
-  for (const seed of finishOrder(graph).reverse()) {
-    if (componentOf.has(seed)) {
-      continue;
-    }
-    const members = [seed];
-    componentOf.set(seed, seed);
-    for (const current of members) {
-      for (const next of graph.into.get(current) ?? []) {
-        if (componentOf.has(next)) {
-          continue;
-        }
-        componentOf.set(next, seed);
-        members.push(next);
+  const visitSeed = () => {
+    for (const seed of finishOrder(graph).reverse()) {
+      if (componentOf.has(seed)) {
+        continue;
       }
+      const members = [seed];
+      componentOf.set(seed, seed);
+      for (const current of members) {
+        for (const next of graph.into.get(current) ?? []) {
+          if (componentOf.has(next)) {
+            continue;
+          }
+          componentOf.set(next, seed);
+          members.push(next);
+        }
+      }
+      size.set(seed, members.length);
     }
-    size.set(seed, members.length);
-  }
+  };
+  visitSeed();
   const out = new Map<string, Set<string>>();
   const into = new Map<string, Set<string>>();
   for (const component of size.keys()) {
@@ -167,7 +170,7 @@ export function longestPathLengths(
   for (const start of adjacency.keys()) {
     const stack = [start];
     while (stack.length > 0) {
-      const node = stack[stack.length - 1];
+      const node = stack.at(-1);
       if (node === undefined || memo.has(node)) {
         stack.pop();
         continue;

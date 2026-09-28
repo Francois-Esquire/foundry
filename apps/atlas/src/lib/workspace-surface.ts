@@ -1,5 +1,5 @@
-import * as fs from "node:fs";
-import * as path from "node:path";
+import { realpathSync } from "node:fs";
+import { resolve } from "node:path";
 import { assembleSurfaceReport } from "./assemble";
 import { findRepoRoot } from "./boundary";
 import type { AnalysisConfig } from "./config";
@@ -35,8 +35,8 @@ export interface WorkspaceSurfaces {
 export async function analyzeWorkspaceSurfaces(
   options: AnalyzeWorkspaceSurfacesOptions
 ): Promise<WorkspaceSurfaces> {
-  const root = fs.realpathSync(
-    options.root ? path.resolve(options.root) : findRepoRoot(process.cwd())
+  const root = realpathSync(
+    options.root ? resolve(options.root) : findRepoRoot(process.cwd())
   );
   const locals = options.targets.map(
     (target) =>

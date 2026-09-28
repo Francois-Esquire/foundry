@@ -71,7 +71,7 @@ function foldOpportunity(
   dependencies: SurfaceDependencies,
   config: AnalysisConfig
 ): ReductionOpportunity | undefined {
-  const primary = dependencies.incoming[0];
+  const [primary] = dependencies.incoming;
   if (primary === undefined) {
     return undefined;
   }
@@ -164,7 +164,7 @@ function preserveGates(
   config: AnalysisConfig
 ): FailedGate[] {
   const failed: FailedGate[] = [];
-  const gates = config.opportunities.preserveSharedBoundary.gates;
+  const { gates } = config.opportunities.preserveSharedBoundary;
   if (dependencies.consumerPackages < gates.minConsumers) {
     failed.push({
       actual: dependencies.consumerPackages,
@@ -192,7 +192,7 @@ function preserveOpportunity(
   config: AnalysisConfig
 ): ReductionOpportunity | undefined {
   const { incoming } = dependencies;
-  const primary = incoming[0];
+  const [primary] = incoming;
   if (primary === undefined) {
     return undefined;
   }

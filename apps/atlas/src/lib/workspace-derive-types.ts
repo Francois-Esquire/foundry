@@ -67,7 +67,7 @@ export interface WorkspaceDerivedPackageFacts {
   usage: Record<string, ExternalUsage>;
 }
 
-export interface WorkspaceDerivationDiagnostic {
+interface WorkspaceDerivationDiagnostic {
   message: string;
   package: string;
 }

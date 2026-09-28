@@ -1,6 +1,6 @@
-import { classifyFile } from "./churn";
 import type { AnalysisConfig } from "./config";
 import { ANALYSIS_CONFIG } from "./config";
+import { classifyFile } from "./file-kind";
 import type {
   BoundaryInteraction,
   BoundaryPressureSignal,
@@ -324,7 +324,7 @@ function boundarySignal(
   boundary: BoundaryInteraction,
   gates: Gates["boundary"]
 ): BoundaryPressureSignal | undefined {
-  const references = boundary.symbols.references;
+  const { references } = boundary.symbols;
   const volume =
     boundary.importSites >= gates.minImportSites ||
     (references !== null && references >= gates.minReferences);
@@ -385,9 +385,22 @@ function boundarySignal(
   return {
     evidence,
     from: boundary.from,
-    shape: broad && concentrated ? "mixed" : broad ? "broad" : "concentrated",
+    shape: resolveShape(broad, concentrated),
     to: boundary.to,
   };
+}
+
+function resolveShape(
+  broad: boolean,
+  concentrated: boolean
+): "broad" | "concentrated" | "mixed" {
+  if (broad && concentrated) {
+    return "mixed";
+  }
+  if (broad) {
+    return "broad";
+  }
+  return "concentrated";
 }
 
 /**

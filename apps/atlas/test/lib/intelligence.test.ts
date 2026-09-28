@@ -1,4 +1,4 @@
-import * as path from "node:path";
+import { join } from "node:path";
 
 import { beforeAll, describe, expect, it } from "vitest";
 import { analyzeSurface } from "../../src/lib/analyze";
@@ -13,7 +13,7 @@ import type {
 } from "../../src/lib/types";
 import { planFingerprint } from "../../src/lib/validate";
 
-const root = path.join(import.meta.dirname, "fixtures", "deps");
+const root = join(import.meta.dirname, "fixtures", "deps");
 
 let satellite: SurfaceReport;
 let leaf: SurfaceReport;
@@ -59,7 +59,7 @@ function internalizePlanOf(
 
 describe("fold plan scale", () => {
   it("measures a tiny fold exactly", () => {
-    const intelligence = foldPlanOf(leaf).intelligence;
+    const { intelligence } = foldPlanOf(leaf);
     expect(intelligence?.scale).toEqual({
       files: { config: 0, other: 0, source: 1, test: 0, total: 1 },
       imports: { moduleEdges: 1, sites: 1 },
@@ -74,7 +74,7 @@ describe("fold plan scale", () => {
 
   it("measures a multi-file fold", () => {
     const plan = foldPlanOf(contract);
-    const intelligence = plan.intelligence;
+    const { intelligence } = plan;
     expect(intelligence?.scale.files.total).toBe(2);
     expect(intelligence?.scale.symbols.packagePublic).toBe(
       contract.summary.packagePublicSymbols
@@ -108,10 +108,7 @@ describe("surface ratios", () => {
         unusedExternalExports: 0,
       },
     };
-    const surface = buildPlanIntelligence(
-      foldPlanOf(satellite),
-      doctored
-    ).surface;
+    const { surface } = buildPlanIntelligence(foldPlanOf(satellite), doctored);
     expect(surface.consumedSurfaceRatio).toBeNull();
     expect(surface.unusedExternalSurfaceRatio).toBeNull();
   });
@@ -161,7 +158,7 @@ describe("intent context", () => {
 
 describe("internalization intelligence", () => {
   it("measures plan scale and route burden", () => {
-    const intelligence = internalizePlanOf(plans, "PlanBeta").intelligence;
+    const { intelligence } = internalizePlanOf(plans, "PlanBeta");
     expect(intelligence?.scale.files.total).toBe(1);
     expect(intelligence?.surface.publicRoutes).toEqual({
       supported: 1,
@@ -175,10 +172,7 @@ describe("internalization intelligence", () => {
   });
 
   it("counts unsupported routes on an unsupported plan", () => {
-    const intelligence = internalizePlanOf(
-      plans,
-      "PlanDirectUsed"
-    ).intelligence;
+    const { intelligence } = internalizePlanOf(plans, "PlanDirectUsed");
     expect(intelligence?.surface.publicRoutes?.unsupported).toBeGreaterThan(0);
   });
 });

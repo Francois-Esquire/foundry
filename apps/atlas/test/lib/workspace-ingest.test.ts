@@ -3,6 +3,8 @@ import { renderWorkspaceReport } from "../../src/lib/report-workspace";
 import type { SurfaceReport } from "../../src/lib/types";
 import { ingestWorkspaceReports } from "../../src/lib/workspace-ingest";
 
+const pathPattern = /^@\w+\//;
+
 // Synthetic package reports carrying only the sections workspace ingestion
 // reads. The builder fills every required section with an empty-but-valid
 // shape, so each test states just the facts it is about.
@@ -86,7 +88,7 @@ function identity(
 function interaction(
   from: string,
   to: string,
-  edge: Edge,
+  moduleEdge6: Edge,
   destination: boolean
 ) {
   return {
@@ -94,14 +96,14 @@ function interaction(
     concentration: { destinationModuleShare: 1, sourceModuleShare: 1 },
     destinationModules: [],
     from,
-    importSites: edge.importSites,
-    moduleEdges: edge.edges.length,
+    importSites: moduleEdge6.importSites,
+    moduleEdges: moduleEdge6.edges.length,
     sourceModules: [],
     surfaceCoverage: destination ? 0.5 : null,
     symbols: {
-      distinct: edge.distinct ?? 1,
-      packagePublic: destination ? (edge.distinct ?? 1) : null,
-      references: destination ? edge.importSites * 2 : null,
+      distinct: moduleEdge6.distinct ?? 1,
+      packagePublic: destination ? (moduleEdge6.distinct ?? 1) : null,
+      references: destination ? moduleEdge6.importSites * 2 : null,
       referencesPerSymbol: null,
     },
     to,
@@ -109,13 +111,13 @@ function interaction(
       bothSymbols: 0,
       namespace: "value",
       typeOnlySymbols: 0,
-      valueOnlySymbols: edge.distinct ?? 1,
+      valueOnlySymbols: moduleEdge6.distinct ?? 1,
     },
   };
 }
 
 function report(name: string, options: Options = {}): SurfaceReport {
-  const path = options.path ?? `packages/${name.replace(/^@\w+\//, "")}`;
+  const path = options.path ?? `packages/${name.replace(pathPattern, "")}`;
   const owner = options.owner ?? name;
   const seeds = options.seeds ?? [];
   const history =
@@ -155,11 +157,11 @@ function report(name: string, options: Options = {}): SurfaceReport {
       },
     },
     boundaryInteractions: {
-      incoming: (options.incoming ?? []).map((edge) =>
-        interaction(edge.package, name, edge, true)
+      incoming: (options.incoming ?? []).map((moduleEdge5) =>
+        interaction(moduleEdge5.package, name, moduleEdge5, true)
       ),
-      outgoing: (options.outgoing ?? []).map((edge) =>
-        interaction(name, edge.package, edge, false)
+      outgoing: (options.outgoing ?? []).map((moduleEdge4) =>
+        interaction(name, moduleEdge4.package, moduleEdge4, false)
       ),
       summary: {},
       target: name,
@@ -329,24 +331,27 @@ function report(name: string, options: Options = {}): SurfaceReport {
       averageSymbolDistribution: 0,
       consumerPackages: (options.incoming ?? []).length,
       dependencyPackages: (options.outgoing ?? []).length,
-      incoming: (options.incoming ?? []).map((edge) => ({
-        importSites: edge.importSites,
-        moduleEdges: edge.edges.map(([fromFile, toFile]) => ({
+      incoming: (options.incoming ?? []).map((moduleEdge3) => ({
+        importSites: moduleEdge3.importSites,
+        moduleEdges: moduleEdge3.edges.map(([fromFile, toFile]) => ({
           fromFile,
           toFile,
         })),
-        package: edge.package,
+        package: moduleEdge3.package,
         referenceShare: 1,
-        references: edge.importSites * 2,
+        references: moduleEdge3.importSites * 2,
         surfaceShare: 1,
         symbols: [],
-        symbolsUsed: edge.distinct ?? 1,
+        symbolsUsed: moduleEdge3.distinct ?? 1,
         usageNamespace: "value",
       })),
-      outgoing: (options.outgoing ?? []).map((edge) => ({
-        moduleEdges: edge.edges.length,
-        modules: edge.edges.map(([fromFile, toFile]) => ({ fromFile, toFile })),
-        package: edge.package,
+      outgoing: (options.outgoing ?? []).map((moduleEdge2) => ({
+        moduleEdges: moduleEdge2.edges.length,
+        modules: moduleEdge2.edges.map(([fromFile, toFile]) => ({
+          fromFile,
+          toFile,
+        })),
+        package: moduleEdge2.package,
       })),
       shapeSignals: [],
     },
@@ -838,7 +843,7 @@ describe("re-centering artifacts", () => {
       report(A, artifacts),
       report("@w/a-dir", { owner: A, path: "packages/a/src", ...artifacts }),
     ]);
-    const recentering = ws.architecture.recentering;
+    const { recentering } = ws.architecture;
     expect(recentering.findings).toHaveLength(1);
     expect(recentering.findings[0]?.provenance.observedBy).toEqual([
       A,

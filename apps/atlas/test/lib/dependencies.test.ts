@@ -1,10 +1,10 @@
-import * as path from "node:path";
+import { join } from "node:path";
 
 import { beforeAll, describe, expect, it } from "vitest";
 import { analyzeSurface } from "../../src/lib/analyze";
 import type { SurfaceReport } from "../../src/lib/types";
 
-const root = path.join(import.meta.dirname, "fixtures", "deps");
+const root = join(import.meta.dirname, "fixtures", "deps");
 
 let shared: SurfaceReport;
 let satellite: SurfaceReport;
@@ -80,7 +80,7 @@ describe("incoming dependencies", () => {
       "sharedInit",
       "sharedRun",
     ]);
-    const sharedRun = consumer(shared, "@deps/alpha").symbols[0];
+    const [sharedRun] = consumer(shared, "@deps/alpha").symbols;
     expect(sharedRun).toMatchObject({
       references: 2,
       symbolName: "sharedRun",

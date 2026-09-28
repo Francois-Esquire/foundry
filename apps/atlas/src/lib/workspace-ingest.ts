@@ -1,12 +1,15 @@
 import { createHash } from "node:crypto";
-
 import type {
   ChurnHistoryInfo,
+  ConceptAssignability,
+  ConceptBehavioralLocality,
   ConceptIdentity,
   ConceptOverlapCandidate,
+  ConceptOwnershipAnalysis,
   ConceptPropertyOverlap,
   FileChangeCouplingPair,
   PackageChangeCoupling,
+  RecenteringStatus,
   StaticRelation,
   SurfaceReport,
 } from "./types";
@@ -40,7 +43,6 @@ import type {
   WorkspaceReportSource,
   WorkspaceScenarioImpact,
 } from "./workspace-types";
-
 import {
   SUPPORTED_PACKAGE_SCHEMAS,
   WORKSPACE_SCHEMA_VERSION,
@@ -60,7 +62,7 @@ import {
 // ---------------------------------------------------------------------------
 // LOAD + VALIDATE
 
-export type WorkspaceValidation =
+type WorkspaceValidation =
   | { ok: true; report: SurfaceReport }
   | { ok: false; kind: WorkspaceDiagnosticKind; detail: string };
 
@@ -92,7 +94,7 @@ const REQUIRED_SECTIONS = [
  * tuning sweep writes. Anything else is rejected with a reason; nothing is
  * reinterpreted.
  */
-export function validateWorkspaceInput(
+function validateWorkspaceInput(
   value: unknown,
   supportedSchemas: readonly number[] = SUPPORTED_PACKAGE_SCHEMAS
 ): WorkspaceValidation {
@@ -122,7 +124,7 @@ export function validateWorkspaceInput(
       ok: false,
     };
   }
-  const target = candidate.target;
+  const { target } = candidate;
   if (!isRecord(target) || typeof target.path !== "string") {
     return {
       detail: "target.path is missing",
@@ -146,7 +148,13 @@ export function validateWorkspaceInput(
 // IDENTIFY
 
 function compare(a: string, b: string): number {
-  return a < b ? -1 : a > b ? 1 : 0;
+  if (a < b) {
+    return -1;
+  }
+  if (a > b) {
+    return 1;
+  }
+  return 0;
 }
 
 function sorted<T extends string>(values: Iterable<T>): T[] {
@@ -160,7 +168,7 @@ function hash(facts: unknown): string {
     .slice(0, 16);
 }
 
-export function packageIdOf(report: SurfaceReport): string {
+function packageIdOf(report: SurfaceReport): string {
   return report.target.name ?? report.target.path;
 }
 
@@ -191,7 +199,7 @@ function windowIdOf(history: WorkspaceReportSource["history"]): string {
     : hash([history.windowDays, history.since ?? null, history.analyzedAt]);
 }
 
-export function reportFingerprint(report: SurfaceReport): string {
+function reportFingerprint(report: SurfaceReport): string {
   return hash({
     boundaries: report.boundaryInteractions.summary,
     families: report.conceptInventory.summary,
@@ -261,10 +269,12 @@ class Ledger {
 class Table<T> {
   readonly entries = new Map<string, Observed<T>>();
 
-  constructor(
-    readonly entity: WorkspaceEntityKind,
-    readonly ledger: Ledger
-  ) {}
+  readonly entity: WorkspaceEntityKind;
+  readonly ledger: Ledger;
+  constructor(entity: WorkspaceEntityKind, ledger: Ledger) {
+    this.entity = entity;
+    this.ledger = ledger;
+  }
 
   /** Records an observation; `reconcile` runs only for a second observation of the same id. */
   observe(
@@ -391,16 +401,20 @@ function orientOverlap(candidate: ConceptOverlapCandidate): {
   const reversed = compare(candidate.left.id, candidate.right.id) > 0;
   const left = reversed ? candidate.right : candidate.left;
   const right = reversed ? candidate.left : candidate.right;
-  const assignability =
-    candidate.assignability === undefined
-      ? undefined
-      : reversed
-        ? candidate.assignability === "left-to-right"
-          ? "right-to-left"
-          : candidate.assignability === "right-to-left"
-            ? "left-to-right"
-            : candidate.assignability
-        : candidate.assignability;
+  let assignability: ConceptAssignability | undefined;
+  if (candidate.assignability === undefined) {
+    assignability = undefined;
+  } else if (reversed) {
+    if (candidate.assignability === "left-to-right") {
+      assignability = "right-to-left";
+    } else if (candidate.assignability === "right-to-left") {
+      assignability = "left-to-right";
+    } else {
+      ({ assignability } = candidate);
+    }
+  } else {
+    ({ assignability } = candidate);
+  }
   const structure =
     candidate.structure === undefined
       ? undefined
@@ -527,7 +541,7 @@ function mergePackage(t: Tables, report: SurfaceReport): string {
 }
 
 function mergeGraph(t: Tables, report: SurfaceReport, self: string): void {
-  const ledger = t.modules.ledger;
+  const { ledger } = t.modules;
   for (const module of report.dependencyGravity.modules) {
     const value: Omit<WorkspaceModuleNode, "provenance"> = {
       id: module.node.id,
@@ -675,7 +689,7 @@ function canonicalBoundary(
 }
 
 function mergeBoundaries(t: Tables, report: SurfaceReport, self: string): void {
-  const ledger = t.boundaries.ledger;
+  const { ledger } = t.boundaries;
   const interactions = [
     ...report.boundaryInteractions.incoming.map((i) => ({
       interaction: i,
@@ -798,7 +812,7 @@ function mergeConceptObservation(
 }
 
 function mergeConcepts(t: Tables, report: SurfaceReport, self: string): void {
-  const ledger = t.concepts.ledger;
+  const { ledger } = t.concepts;
   const ownership = new Map(
     report.conceptOwnership.concepts.map((c) => [c.concept.id, c])
   );
@@ -817,8 +831,66 @@ function mergeConcepts(t: Tables, report: SurfaceReport, self: string): void {
       f.id,
     ])
   );
+  mergeConceptsFamily(
+    report,
+    t,
+    self,
+    ownership,
+    locality,
+    status,
+    findings,
+    ledger
+  );
+  for (const candidate of report.conceptOverlap.candidates) {
+    for (const side of [candidate.left, candidate.right]) {
+      if (side.inTarget) {
+        continue;
+      }
+      mentionPackage(t, self, side.package);
+      t.concepts.observe(
+        side.id,
+        self,
+        conceptStub(side, self, "overlap-partner"),
+        mergeConceptObservation
+      );
+    }
+    const { id, value } = orientOverlap(candidate);
+    t.overlaps.observe(
+      id,
+      self,
+      { ...value, verified: false },
+      (existing, incoming, by) => {
+        const { verified: _v, ...existingFacts } = existing;
+        const { verified: _w, ...incomingFacts } = incoming;
+        const verified = crossCheck(
+          ledger,
+          "overlap",
+          id,
+          "evidence",
+          [
+            { sourcePackage: by[0], value: existingFacts },
+            { sourcePackage: by[1], value: incomingFacts },
+          ],
+          "unresolved"
+        );
+        return { ...existing, verified };
+      }
+    );
+  }
+}
+
+function mergeConceptsFamily(
+  report: SurfaceReport,
+  t: Tables,
+  self: string,
+  ownership: Map<string, ConceptOwnershipAnalysis>,
+  locality: Map<string, ConceptBehavioralLocality>,
+  status: Map<string, RecenteringStatus>,
+  findings: Map<string, string>,
+  ledger: Ledger
+) {
   for (const family of report.conceptInventory.families) {
-    const seed = family.seed;
+    const { seed } = family;
     const identity: ConceptIdentity = {
       file: seed.declaration.file,
       id: seed.id,
@@ -942,42 +1014,6 @@ function mergeConcepts(t: Tables, report: SurfaceReport, self: string): void {
       return mergeConceptObservation(existing, incoming);
     });
   }
-  for (const candidate of report.conceptOverlap.candidates) {
-    for (const side of [candidate.left, candidate.right]) {
-      if (side.inTarget) {
-        continue;
-      }
-      mentionPackage(t, self, side.package);
-      t.concepts.observe(
-        side.id,
-        self,
-        conceptStub(side, self, "overlap-partner"),
-        mergeConceptObservation
-      );
-    }
-    const { id, value } = orientOverlap(candidate);
-    t.overlaps.observe(
-      id,
-      self,
-      { ...value, verified: false },
-      (existing, incoming, by) => {
-        const { verified: _v, ...existingFacts } = existing;
-        const { verified: _w, ...incomingFacts } = incoming;
-        const verified = crossCheck(
-          ledger,
-          "overlap",
-          id,
-          "evidence",
-          [
-            { sourcePackage: by[0], value: existingFacts },
-            { sourcePackage: by[1], value: incomingFacts },
-          ],
-          "unresolved"
-        );
-        return { ...existing, verified };
-      }
-    );
-  }
 }
 
 function mergeEvolution(
@@ -987,7 +1023,7 @@ function mergeEvolution(
   windowId: string,
   packageOf: (file: string) => string | undefined
 ): void {
-  const ledger = t.churn.ledger;
+  const { ledger } = t.churn;
   if (report.churn.available) {
     for (const file of report.churn.files) {
       const owner = packageOf(file.file);
@@ -1014,7 +1050,7 @@ function mergeEvolution(
         observations: [observation],
       };
       t.churn.observe(file.file, self, value, (existing, incoming, by) => {
-        const previous = existing.observations[0];
+        const [previous] = existing.observations;
         const sameWindow = previous?.window === windowId;
         crossCheck(
           ledger,
@@ -1060,34 +1096,38 @@ function mergeEvolution(
     }
   }
   if (report.changeCoupling.available) {
-    for (const raw of report.changeCoupling.filePairs) {
-      const { reversed, pair } = orientPair<FileChangeCouplingPair>(raw);
-      const id = `${pair.left}|${pair.right}`;
-      const value: Omit<WorkspaceCouplingPair, "provenance"> = {
-        coChangeCommits: pair.coChangeCommits,
-        context: pair.context,
-        id,
-        jaccard: pair.jaccard,
-        left: pair.left,
-        leftCommits: pair.leftCommits,
-        leftConditional: pair.leftConditional,
-        leftPackage: reversed ? raw.rightPackage : raw.leftPackage,
-        right: pair.right,
-        rightCommits: pair.rightCommits,
-        rightConditional: pair.rightConditional,
-        rightPackage: reversed ? raw.leftPackage : raw.rightPackage,
-        scope: pair.scope,
-        staticPath: pair.staticPath,
-        staticRelation: pair.staticRelation,
-        ...(pair.lastCoChangedAt !== undefined && {
-          lastCoChangedAt: pair.lastCoChangedAt,
-        }),
-        verified: false,
-      };
-      t.couplings.observe(id, self, value, (existing, incoming, by) =>
-        reconcilePair("coupling", existing, incoming, by)
-      );
-    }
+    const { filePairs } = report.changeCoupling;
+    const visitRaw = () => {
+      for (const raw of filePairs) {
+        const { reversed, pair } = orientPair<FileChangeCouplingPair>(raw);
+        const id = `${pair.left}|${pair.right}`;
+        const value: Omit<WorkspaceCouplingPair, "provenance"> = {
+          coChangeCommits: pair.coChangeCommits,
+          context: pair.context,
+          id,
+          jaccard: pair.jaccard,
+          left: pair.left,
+          leftCommits: pair.leftCommits,
+          leftConditional: pair.leftConditional,
+          leftPackage: reversed ? raw.rightPackage : raw.leftPackage,
+          right: pair.right,
+          rightCommits: pair.rightCommits,
+          rightConditional: pair.rightConditional,
+          rightPackage: reversed ? raw.leftPackage : raw.rightPackage,
+          scope: pair.scope,
+          staticPath: pair.staticPath,
+          staticRelation: pair.staticRelation,
+          ...(pair.lastCoChangedAt !== undefined && {
+            lastCoChangedAt: pair.lastCoChangedAt,
+          }),
+          verified: false,
+        };
+        t.couplings.observe(id, self, value, (existing, incoming, by) =>
+          reconcilePair("coupling", existing, incoming, by)
+        );
+      }
+    };
+    visitRaw();
     for (const raw of report.changeCoupling.packagePairs) {
       const { pair } = orientPair(raw);
       const id = `${pair.left}|${pair.right}`;
@@ -1111,7 +1151,7 @@ function mergeEvolution(
     }
   }
   if (report.changeRadius.available) {
-    const summary = report.changeRadius.summary;
+    const { summary } = report.changeRadius;
     t.radius.observe(self, self, {
       boundariesP50: summary.boundaries.p50,
       boundaryCrossingRate: summary.boundaryCrossingRate,
@@ -1151,7 +1191,7 @@ function mergeArchitecture(
   report: SurfaceReport,
   self: string
 ): void {
-  const ledger = t.findings.ledger;
+  const { ledger } = t.findings;
   const pressure = report.evolutionaryPressure;
   t.architecture.observe(self, self, {
     anchored: report.anchor !== undefined,
@@ -1347,61 +1387,52 @@ export function ingestWorkspaceReports(
   // LOAD + VALIDATE
   const accepted: SurfaceReport[] = [];
   let rejected = 0;
-  for (const input of inputs) {
-    const validation = validateWorkspaceInput(input, supported);
-    if (validation.ok) {
-      accepted.push(validation.report);
-    } else {
-      rejected += 1;
-      ledger.diagnostic(validation.kind, validation.detail);
-    }
-  }
+  rejected = ingestWorkspaceReportsInput(
+    inputs,
+    supported,
+    accepted,
+    rejected,
+    ledger
+  );
 
   // IDENTIFY: one report per target; identical duplicates collapse,
   // differing duplicates make the target ambiguous and are all rejected.
   const byTarget = new Map<string, SurfaceReport[]>();
+  const visitId = () => {
+    for (const id of sorted(byTarget.keys())) {
+      const group = byTarget.get(id) ?? [];
+      const fingerprints = new Set(group.map(reportFingerprint));
+      if (fingerprints.size > 1) {
+        rejected += group.length;
+        ledger.diagnostic(
+          "ambiguous-target",
+          `${group.length} differing reports for ${id}; all rejected`,
+          id
+        );
+        continue;
+      }
+      const [first, ...rest] = group;
+      if (first === undefined) {
+        continue;
+      }
+      reports.push(first);
+      duplicates += rest.length;
+      for (const _extra of rest) {
+        ledger.diagnostic("duplicate-source", "identical report ignored", id);
+      }
+    }
+  };
   for (const report of accepted) {
     const id = packageIdOf(report);
     byTarget.set(id, [...(byTarget.get(id) ?? []), report]);
   }
   let duplicates = 0;
   const reports: SurfaceReport[] = [];
-  for (const id of sorted(byTarget.keys())) {
-    const group = byTarget.get(id) ?? [];
-    const fingerprints = new Set(group.map(reportFingerprint));
-    if (fingerprints.size > 1) {
-      rejected += group.length;
-      ledger.diagnostic(
-        "ambiguous-target",
-        `${group.length} differing reports for ${id}; all rejected`,
-        id
-      );
-      continue;
-    }
-    const [first, ...rest] = group;
-    if (first === undefined) {
-      continue;
-    }
-    reports.push(first);
-    duplicates += rest.length;
-    for (const _extra of rest) {
-      ledger.diagnostic("duplicate-source", "identical report ignored", id);
-    }
-  }
+  visitId();
 
   const sources = reports.map(sourceOf);
   const policies = new Set<number>();
-  for (const source of sources) {
-    if (source.policyVersion === undefined) {
-      ledger.diagnostic(
-        "unknown-policy",
-        `schema ${source.schemaVersion} report carries no policyVersion`,
-        source.package
-      );
-    } else {
-      policies.add(source.policyVersion);
-    }
-  }
+  ingestWorkspaceReportsSource(sources, ledger, policies);
   if (policies.size > 1) {
     ledger.diagnostic(
       "mixed-policy",
@@ -1425,54 +1456,33 @@ export function ingestWorkspaceReports(
     mergeEvolution(t, report, self, windowId, packageOf);
     mergeArchitecture(t, report, self);
   }
+  const visitEntries = () => {
+    for (const { id, entry } of t.reviews.sortedValues()) {
+      const missing = entry.value.scenarios
+        .map((s) => s.scenarioId)
+        .filter((scenarioId) => !scenarioIds.has(scenarioId));
+      entry.value.resolved = findingIds.has(id) && missing.length === 0;
+      if (!entry.value.resolved) {
+        ledger.diagnostic(
+          "broken-reference",
+          `review ${id} refers to ${findingIds.has(id) ? `missing scenarios ${missing.join(", ")}` : "a missing finding"}`
+        );
+      }
+    }
+  };
 
   // Cross-report references.
   const findingIds = new Set(t.findings.entries.keys());
   const scenarioIds = new Set(t.scenarios.entries.keys());
-  for (const { id, entry } of t.scenarios.sortedValues()) {
-    entry.value.resolved = findingIds.has(entry.value.findingId);
-    if (!entry.value.resolved) {
-      ledger.diagnostic(
-        "broken-reference",
-        `scenario ${id} refers to missing finding ${entry.value.findingId}`
-      );
-    }
-  }
-  for (const { id, entry } of t.impacts.sortedValues()) {
-    entry.value.resolved = scenarioIds.has(id);
-    if (!entry.value.resolved) {
-      ledger.diagnostic(
-        "broken-reference",
-        `impact refers to missing scenario ${id}`
-      );
-    }
-  }
-  for (const { id, entry } of t.reviews.sortedValues()) {
-    const missing = entry.value.scenarios
-      .map((s) => s.scenarioId)
-      .filter((scenarioId) => !scenarioIds.has(scenarioId));
-    entry.value.resolved = findingIds.has(id) && missing.length === 0;
-    if (!entry.value.resolved) {
-      ledger.diagnostic(
-        "broken-reference",
-        `review ${id} refers to ${findingIds.has(id) ? `missing scenarios ${missing.join(", ")}` : "a missing finding"}`
-      );
-    }
-  }
+  ingestWorkspaceReportsEntries(t, findingIds, ledger);
+  ingestWorkspaceReportsEntries2(t, scenarioIds, ledger);
+  visitEntries();
 
   // Coverage.
   const populations = new Set(
     reports.map((r) => r.dependencyGravity.population.packages)
   );
-  let population: number | undefined;
-  if (populations.size === 1) {
-    [population] = populations;
-  } else if (populations.size > 1) {
-    ledger.diagnostic(
-      "population-mismatch",
-      `reports disagree on workspace package count: ${[...populations].sort((a, b) => a - b).join(", ")}`
-    );
-  }
+  const population = ingestWorkspaceReportsEntries3(populations, ledger);
   const analyzed = sorted(sources.map((s) => s.package));
   const known = sorted(t.packages.entries.keys());
   const missing = known.filter((name) => !t.packages.get(name)?.value.analyzed);
@@ -1501,7 +1511,7 @@ export function ingestWorkspaceReports(
       // candidates of one report is still one observation.
       observations: [
         ...new Map(
-          entry.value.observations.map((o) => [`${o.source} ${o.role}`, o])
+          entry.value.observations.map((o) => [`${o.source}\0${o.role}`, o])
         ).values(),
       ].sort((a, b) => compare(a.source, b.source) || compare(a.role, b.role)),
       overlaps: sorted(overlapsByConcept.get(id) ?? []),
@@ -1628,4 +1638,90 @@ export function ingestWorkspaceReports(
     },
     workspaceSchemaVersion: WORKSPACE_SCHEMA_VERSION,
   };
+}
+
+function ingestWorkspaceReportsEntries3(
+  populations: Set<number>,
+  ledger: Ledger
+): number | undefined {
+  if (populations.size === 1) {
+    return populations.values().next().value;
+  }
+  if (populations.size > 1) {
+    ledger.diagnostic(
+      "population-mismatch",
+      `reports disagree on workspace package count: ${[...populations].sort((a, b) => a - b).join(", ")}`
+    );
+  }
+  return undefined;
+}
+
+function ingestWorkspaceReportsEntries2(
+  t: Tables,
+  scenarioIds: Set<string>,
+  ledger: Ledger
+) {
+  for (const { id, entry } of t.impacts.sortedValues()) {
+    entry.value.resolved = scenarioIds.has(id);
+    if (!entry.value.resolved) {
+      ledger.diagnostic(
+        "broken-reference",
+        `impact refers to missing scenario ${id}`
+      );
+    }
+  }
+}
+
+function ingestWorkspaceReportsEntries(
+  t: Tables,
+  findingIds: Set<string>,
+  ledger: Ledger
+) {
+  for (const { id, entry } of t.scenarios.sortedValues()) {
+    entry.value.resolved = findingIds.has(entry.value.findingId);
+    if (!entry.value.resolved) {
+      ledger.diagnostic(
+        "broken-reference",
+        `scenario ${id} refers to missing finding ${entry.value.findingId}`
+      );
+    }
+  }
+}
+
+function ingestWorkspaceReportsSource(
+  sources: WorkspaceReportSource[],
+  ledger: Ledger,
+  policies: Set<number>
+) {
+  for (const source of sources) {
+    if (source.policyVersion === undefined) {
+      ledger.diagnostic(
+        "unknown-policy",
+        `schema ${source.schemaVersion} report carries no policyVersion`,
+        source.package
+      );
+    } else {
+      policies.add(source.policyVersion);
+    }
+  }
+}
+
+function ingestWorkspaceReportsInput(
+  inputs: readonly unknown[],
+  supported: readonly number[],
+  accepted: SurfaceReport[],
+  initialRejected: number,
+  ledger: Ledger
+) {
+  let rejected = initialRejected;
+  for (const input of inputs) {
+    const validation = validateWorkspaceInput(input, supported);
+    if (validation.ok) {
+      accepted.push(validation.report);
+    } else {
+      rejected += 1;
+      ledger.diagnostic(validation.kind, validation.detail);
+    }
+  }
+  return rejected;
 }

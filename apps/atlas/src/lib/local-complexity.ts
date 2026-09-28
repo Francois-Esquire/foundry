@@ -1,8 +1,6 @@
-import * as path from "node:path";
-import type { ParameterDeclaration, Project } from "ts-morph";
-
+import { relative } from "node:path";
+import type { ParameterDeclaration, ParameteredNode, Project } from "ts-morph";
 import { Node, SyntaxKind } from "ts-morph";
-
 import type { Boundary } from "./boundary";
 import { boundaryContains, toPosix } from "./boundary";
 import type { AnalysisConfig } from "./config";
@@ -150,7 +148,7 @@ export function booleanParameterCounts(
     if (file.isDeclarationFile()) {
       continue;
     }
-    const relFile = toPosix(path.relative(boundary.root, file.getFilePath()));
+    const relFile = toPosix(relative(boundary.root, file.getFilePath()));
     file.forEachDescendant((node) => {
       if (functionKind(node) === undefined || bodyOf(node) === undefined) {
         return;
@@ -279,6 +277,31 @@ function measure(
   decisions: AnalysisConfig["localComplexity"]["decisions"]
 ): void {
   const kind = node.getKind();
+  measureEntries(kind, node, metrics, decisions);
+
+  const loopField = LOOP_FIELDS[kind];
+  if (loopField !== undefined) {
+    metrics.loops[loopField] += 1;
+    metrics.loops.total += 1;
+    metrics.decisions.loops += 1;
+    metrics.decisions.controlFlow += 1;
+    metrics.decisions.total += 1;
+  }
+  const exitField = EXIT_FIELDS[kind];
+  if (exitField !== undefined) {
+    metrics.exits[exitField] += 1;
+  }
+  if (STATEMENT_KINDS.has(kind)) {
+    metrics.statements += 1;
+  }
+}
+
+function measureEntries(
+  kind: SyntaxKind,
+  node: Node,
+  metrics: LocalComplexityMetrics,
+  decisions: { countLogicalOperators: boolean; countNullishCoalescing: boolean }
+) {
   if (kind === SyntaxKind.IfStatement) {
     if (isElseIf(node)) {
       metrics.decisions.elseIfs += 1;
@@ -287,7 +310,18 @@ function measure(
     }
     metrics.decisions.controlFlow += 1;
     metrics.decisions.total += 1;
-  } else if (kind === SyntaxKind.ConditionalExpression) {
+  } else {
+    measureEntriesEntries(kind, metrics, node, decisions);
+  }
+}
+
+function measureEntriesEntries(
+  kind: SyntaxKind,
+  metrics: LocalComplexityMetrics,
+  node: Node,
+  decisions: { countLogicalOperators: boolean; countNullishCoalescing: boolean }
+) {
+  if (kind === SyntaxKind.ConditionalExpression) {
     metrics.decisions.ternaries += 1;
     metrics.decisions.expression += 1;
     metrics.decisions.total += 1;
@@ -327,22 +361,6 @@ function measure(
   } else if (kind === SyntaxKind.YieldExpression) {
     metrics.async.yields += 1;
   }
-
-  const loopField = LOOP_FIELDS[kind];
-  if (loopField !== undefined) {
-    metrics.loops[loopField] += 1;
-    metrics.loops.total += 1;
-    metrics.decisions.loops += 1;
-    metrics.decisions.controlFlow += 1;
-    metrics.decisions.total += 1;
-  }
-  const exitField = EXIT_FIELDS[kind];
-  if (exitField !== undefined) {
-    metrics.exits[exitField] += 1;
-  }
-  if (STATEMENT_KINDS.has(kind)) {
-    metrics.statements += 1;
-  }
 }
 
 function nearestRank(sorted: number[], quantile: number): number {
@@ -353,7 +371,7 @@ function nearestRank(sorted: number[], quantile: number): number {
 export function distribution(values: number[]): MetricDistribution {
   const sorted = [...values].sort((a, b) => a - b);
   return {
-    max: sorted[sorted.length - 1] ?? 0,
+    max: sorted.at(-1) ?? 0,
     p50: nearestRank(sorted, 0.5),
     p90: nearestRank(sorted, 0.9),
     p95: nearestRank(sorted, 0.95),
@@ -413,7 +431,7 @@ export function analyzeLocalComplexity(
   const functions: FunctionComplexity[] = [];
 
   for (const file of files) {
-    const relFile = toPosix(path.relative(boundary.root, file.getFilePath()));
+    const relFile = toPosix(relative(boundary.root, file.getFilePath()));
     const stack: Frame[] = [];
 
     const createRecord = (
@@ -424,18 +442,7 @@ export function analyzeLocalComplexity(
       const name = functionName(node);
       const metrics = emptyMetrics();
       if (Node.isParametered(node)) {
-        for (const parameter of node.getParameters()) {
-          metrics.parameters.total += 1;
-          if (parameter.hasQuestionToken()) {
-            metrics.parameters.optional += 1;
-          }
-          if (parameter.getInitializer() !== undefined) {
-            metrics.parameters.defaulted += 1;
-          }
-          if (parameter.isRestParameter()) {
-            metrics.parameters.rest += 1;
-          }
-        }
+        createRecordParameter(node, metrics);
         metrics.parameters.boolean = booleanParameters(node);
       }
       metrics.async.async = Node.isAsyncable(node) && node.isAsync();
@@ -478,13 +485,7 @@ export function analyzeLocalComplexity(
         if (bodyOf(node) === undefined) {
           return; // overload/abstract signature
         }
-        for (const [index, frame] of stack.entries()) {
-          frame.record.metrics.callbacks.nestedFunctions += 1;
-          const depth = stack.length - index;
-          if (depth > frame.record.metrics.callbacks.maxDepth) {
-            frame.record.metrics.callbacks.maxDepth = depth;
-          }
-        }
+        analyzeLocalComplexityEntries(stack);
         const record = createRecord(node, kind);
         functions.push(record);
         stack.push({ controlDepth: 0, record });
@@ -492,7 +493,7 @@ export function analyzeLocalComplexity(
         stack.pop();
         return;
       }
-      const frame = stack[stack.length - 1];
+      const frame = stack.at(-1);
       if (frame === undefined) {
         node.forEachChild(visit);
         return;
@@ -521,4 +522,32 @@ export function analyzeLocalComplexity(
       a.name.localeCompare(b.name)
   );
   return { functions, summary: summarize(functions) };
+}
+
+function createRecordParameter(
+  node: ParameteredNode,
+  metrics: LocalComplexityMetrics
+) {
+  for (const parameter of node.getParameters()) {
+    metrics.parameters.total += 1;
+    if (parameter.hasQuestionToken()) {
+      metrics.parameters.optional += 1;
+    }
+    if (parameter.getInitializer() !== undefined) {
+      metrics.parameters.defaulted += 1;
+    }
+    if (parameter.isRestParameter()) {
+      metrics.parameters.rest += 1;
+    }
+  }
+}
+
+function analyzeLocalComplexityEntries(stack: Frame[]) {
+  for (const [index, frame] of stack.entries()) {
+    frame.record.metrics.callbacks.nestedFunctions += 1;
+    const depth = stack.length - index;
+    if (depth > frame.record.metrics.callbacks.maxDepth) {
+      frame.record.metrics.callbacks.maxDepth = depth;
+    }
+  }
 }

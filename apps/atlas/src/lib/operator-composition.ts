@@ -43,6 +43,9 @@ import type {
   ArchitecturalOperator,
   OperatorContext,
   OperatorExpectedEffect,
+  OperatorFact,
+  OperatorValidation,
+  OperatorVerificationKind,
 } from "./operator-types";
 import { byId, sorted } from "./workspace-projection";
 
@@ -146,6 +149,8 @@ function subjectIdOf(operator: ArchitecturalOperator): string {
       return subject.boundaryId;
     case "package":
       return subject.packageId;
+    default:
+      throw new Error("Unexpected subject.kind.");
   }
 }
 
@@ -164,11 +169,13 @@ function currentPackages(operator: ArchitecturalOperator): string[] {
 
 function packageOf(action: StructuralAction): string | undefined {
   const { subject } = action;
-  return subject.kind === "exposure"
-    ? subject.package
-    : subject.kind === "package"
-      ? subject.packageId
-      : undefined;
+  if (subject.kind === "exposure") {
+    return subject.package;
+  }
+  if (subject.kind === "package") {
+    return subject.packageId;
+  }
+  return undefined;
 }
 
 function exposureId(action: StructuralAction): string | undefined {
@@ -251,6 +258,31 @@ function intake(
   const sortedOperators = [...byOperator.values()].sort((a, b) =>
     byId(a.id, b.id)
   );
+  intakeOperator(sortedOperators, context, out, records);
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// Action merge
+
+interface SourcedAction {
+  action: StructuralAction;
+  operatorId: string;
+}
+
+const STATUS_STRENGTH: Record<StructuralActionStatus, number> = {
+  blocked: 0,
+  conditional: 2,
+  required: 1,
+  unsupported: 3,
+};
+
+function intakeOperator(
+  sortedOperators: ArchitecturalOperator[],
+  context: OperatorContext,
+  out: Intake,
+  records: Map<string, OperatorDecomposition>
+) {
   for (const operator of sortedOperators) {
     const validation = validateArchitecturalOperator(operator, context);
     if (validation.status === "stale") {
@@ -271,39 +303,13 @@ function intake(
     }
 
     let decomposition = records.get(operator.id);
-    if (validation.status === "stale") {
-      // The record was built on facts that moved; only its absence is shown.
-      decomposition = decomposeArchitecturalOperator(operator, context);
-    } else {
-      let behind: string | undefined;
-      if (decomposition === undefined) {
-        behind = "missing";
-      } else if (
-        decomposition.operatorFingerprint !== operator.fingerprint.hash
-      ) {
-        behind = "behind its operator";
-      } else if (decomposition.status === "stale") {
-        behind = "recorded stale";
-      } else {
-        const check = validateOperatorDecomposition(
-          decomposition,
-          operator,
-          context
-        );
-        if (check.status === "stale") {
-          behind = "facts moved";
-        } else if (check.status === "invalid") {
-          out.unsupported.push(operator.id);
-          out.problems.push(
-            `${operator.id}: decomposition is invalid: ${check.problems.join("; ")}`
-          );
-        }
-      }
-      if (behind !== undefined) {
-        decomposition = decomposeArchitecturalOperator(operator, context);
-        out.redecomposed.push(`${operator.id} (${behind})`);
-      }
-    }
+    decomposition = intakeOperatorEntries(
+      validation,
+      decomposition,
+      operator,
+      context,
+      out
+    );
     decomposition ??= decomposeArchitecturalOperator(operator, context);
     if (
       decomposition.status === "unsupported" &&
@@ -322,30 +328,58 @@ function intake(
     }
     out.inputs.push({ decomposition, operator });
   }
-  return out;
 }
 
-// ---------------------------------------------------------------------------
-// Action merge
-
-export interface SourcedAction {
-  action: StructuralAction;
-  operatorId: string;
+function intakeOperatorEntries(
+  validation: OperatorValidation,
+  initialDecomposition: OperatorDecomposition | undefined,
+  operator: ArchitecturalOperator,
+  context: OperatorContext,
+  out: Intake
+): OperatorDecomposition | undefined {
+  let decomposition = initialDecomposition;
+  if (validation.status === "stale") {
+    // The record was built on facts that moved; only its absence is shown.
+    decomposition = decomposeArchitecturalOperator(operator, context);
+  } else {
+    let behind: string | undefined;
+    if (decomposition === undefined) {
+      behind = "missing";
+    } else if (
+      decomposition.operatorFingerprint !== operator.fingerprint.hash
+    ) {
+      behind = "behind its operator";
+    } else if (decomposition.status === "stale") {
+      behind = "recorded stale";
+    } else {
+      const check = validateOperatorDecomposition(
+        decomposition,
+        operator,
+        context
+      );
+      if (check.status === "stale") {
+        behind = "facts moved";
+      } else if (check.status === "invalid") {
+        out.unsupported.push(operator.id);
+        out.problems.push(
+          `${operator.id}: decomposition is invalid: ${check.problems.join("; ")}`
+        );
+      }
+    }
+    if (behind !== undefined) {
+      decomposition = decomposeArchitecturalOperator(operator, context);
+      out.redecomposed.push(`${operator.id} (${behind})`);
+    }
+  }
+  return decomposition;
 }
-
-const STATUS_STRENGTH: Record<StructuralActionStatus, number> = {
-  blocked: 0,
-  conditional: 2,
-  required: 1,
-  unsupported: 3,
-};
 
 /**
  * One action from equivalent actions: preconditions, preserved invariants,
  * effects, and evidence are unions; the status is the strongest. The
  * first source (by action id) supplies the wording.
  */
-export function mergeStructuralActions(
+function mergeStructuralActions(
   id: string,
   sources: SourcedAction[]
 ): ComposedStructuralAction {
@@ -452,7 +486,7 @@ function mergeDependencies(
       if (before === undefined || after === undefined || before === after) {
         continue;
       }
-      const key = `${before} ${after}`;
+      const key = `${before}\0${after}`;
       const entry = merged.get(key);
       if (entry === undefined) {
         merged.set(key, {
@@ -632,14 +666,14 @@ function inferDependencies(
   actions: ComposedStructuralAction[],
   explicit: ComposedActionDependency[]
 ): ComposedActionDependency[] {
-  const known = new Set(explicit.map((d) => `${d.before} ${d.after}`));
+  const known = new Set(explicit.map((d) => `${d.before}\0${d.after}`));
   const inferred: ComposedActionDependency[] = [];
   for (const rule of INFERENCE_RULES) {
     for (const [before, after] of rule.edges(actions)) {
       if (before.id === after.id) {
         continue;
       }
-      const key = `${before.id} ${after.id}`;
+      const key = `${before.id}\0${after.id}`;
       if (known.has(key)) {
         continue;
       }
@@ -703,54 +737,69 @@ function operatorConflicts(inputs: Input[], acc: Conflicts): void {
   const relocating = (kind: ArchitecturalOperator["kind"]): boolean =>
     kind === "rehome-concept" || kind === "move";
   for (let i = 0; i < inputs.length; i += 1) {
-    for (let j = i + 1; j < inputs.length; j += 1) {
-      const a = inputs[i]?.operator;
-      const b = inputs[j]?.operator;
-      if (a === undefined || b === undefined) {
-        continue;
-      }
-      const concept = conceptOf(a);
-      if (concept === undefined || concept !== conceptOf(b)) {
-        continue;
-      }
-      const ta = a.placement.target?.package;
-      const tb = b.placement.target?.package;
-      const sameFamily =
-        (relocating(a.kind) && relocating(b.kind)) ||
-        (a.kind === "rehome-behavior" && b.kind === "rehome-behavior");
-      if (sameFamily && ta !== undefined && tb !== undefined && ta !== tb) {
-        acc.add(
-          "target-conflict",
-          [a.id, b.id],
-          [],
-          [concept, ta, tb],
-          `${concept}: ${a.kind} places it in ${ta}, ${b.kind} in ${tb}; both cannot be its final home`
-        );
-      }
-      for (const [center, behavior] of [
-        [a, b],
-        [b, a],
-      ]) {
-        if (
-          center?.kind !== "rehome-concept" ||
-          behavior?.kind !== "rehome-behavior"
-        ) {
-          continue;
-        }
-        const target = center.placement.target?.package;
-        if (
-          target !== undefined &&
-          currentPackages(behavior).includes(target)
-        ) {
-          acc.add(
-            "operator-intent-conflict",
-            [center.id, behavior.id],
-            [],
-            [concept, target],
-            `${concept}: the semantic center moves into ${target} while governing behavior consolidates out of ${target}`
-          );
-        }
-      }
+    operatorConflictsJ(i, inputs, relocating, acc);
+  }
+}
+
+function operatorConflictsJ(
+  i: number,
+  inputs: Input[],
+  relocating: (kind: ArchitecturalOperator["kind"]) => boolean,
+  acc: Conflicts
+) {
+  for (let j = i + 1; j < inputs.length; j += 1) {
+    const a = inputs[i]?.operator;
+    const b = inputs[j]?.operator;
+    if (a === undefined || b === undefined) {
+      continue;
+    }
+    const concept = conceptOf(a);
+    if (concept === undefined || concept !== conceptOf(b)) {
+      continue;
+    }
+    const ta = a.placement.target?.package;
+    const tb = b.placement.target?.package;
+    const sameFamily =
+      (relocating(a.kind) && relocating(b.kind)) ||
+      (a.kind === "rehome-behavior" && b.kind === "rehome-behavior");
+    if (sameFamily && ta !== undefined && tb !== undefined && ta !== tb) {
+      acc.add(
+        "target-conflict",
+        [a.id, b.id],
+        [],
+        [concept, ta, tb],
+        `${concept}: ${a.kind} places it in ${ta}, ${b.kind} in ${tb}; both cannot be its final home`
+      );
+    }
+    operatorConflictsJEntries(a, b, acc, concept);
+  }
+}
+
+function operatorConflictsJEntries(
+  a: ArchitecturalOperator,
+  b: ArchitecturalOperator,
+  acc: Conflicts,
+  concept: string
+) {
+  for (const [center, behavior] of [
+    [a, b],
+    [b, a],
+  ]) {
+    if (
+      center?.kind !== "rehome-concept" ||
+      behavior?.kind !== "rehome-behavior"
+    ) {
+      continue;
+    }
+    const target = center.placement.target?.package;
+    if (target !== undefined && currentPackages(behavior).includes(target)) {
+      acc.add(
+        "operator-intent-conflict",
+        [center.id, behavior.id],
+        [],
+        [concept, target],
+        `${concept}: the semantic center moves into ${target} while governing behavior consolidates out of ${target}`
+      );
     }
   }
 }
@@ -816,31 +865,34 @@ export function detectActionConflicts(
       );
     }
   }
-  for (const action of actions) {
-    if (action.sourceOperators.length < 2) {
-      continue;
-    }
-    for (const group of index(
-      action.expectedEffects,
-      (e) => `${e.dimension}:${e.change}`
-    ).values()) {
-      const states = group.map(stateOf);
-      if (
-        !states.some((a, i) =>
-          states.some((b, j) => i < j && sameEndpoint(a, b))
-        )
-      ) {
+  const visitAction2 = () => {
+    for (const action of actions) {
+      if (action.sourceOperators.length < 2) {
         continue;
       }
-      acc.add(
-        "action-effect-conflict",
-        action.sourceOperators,
-        [action.id],
-        [subjectKey(action.subject)],
-        `${action.kind} on ${subjectKey(action.subject)} is expected to yield ${uniq(states.map((s) => `${s.from}→${s.to}`)).join(" and ")}; the operators describe different states`
-      );
+      for (const group of index(
+        action.expectedEffects,
+        (e) => `${e.dimension}:${e.change}`
+      ).values()) {
+        const states = group.map(stateOf);
+        if (
+          !states.some((a, i) =>
+            states.some((b, j) => i < j && sameEndpoint(a, b))
+          )
+        ) {
+          continue;
+        }
+        acc.add(
+          "action-effect-conflict",
+          action.sourceOperators,
+          [action.id],
+          [subjectKey(action.subject)],
+          `${action.kind} on ${subjectKey(action.subject)} is expected to yield ${uniq(states.map((s) => `${s.from}→${s.to}`)).join(" and ")}; the operators describe different states`
+        );
+      }
     }
-  }
+  };
+  visitAction2();
   return acc.list;
 }
 
@@ -947,6 +999,8 @@ function preservationConflicts(
         case "implementation-split":
         case "runtime-behavior":
           break;
+        default:
+          throw new Error("Unexpected preservation.kind.");
       }
       for (const hit of hits) {
         const cross = hit.sourceOperators.some((o) => o !== operator.id);
@@ -1002,15 +1056,16 @@ function composePreservations(
       const hits = contradictions.filter(
         (c) => c.preservationId === entry.preservationId
       );
-      const status: CompositionPreservation["status"] = hits.some(
-        (c) => c.cross
-      )
-        ? "conflicted"
-        : coverageActions.length > 0
-          ? "covered"
-          : hits.length > 0
-            ? "uncovered"
-            : "implicit";
+      let status: CompositionPreservation["status"];
+      if (hits.some((c) => c.cross)) {
+        status = "conflicted";
+      } else if (coverageActions.length > 0) {
+        status = "covered";
+      } else if (hits.length > 0) {
+        status = "uncovered";
+      } else {
+        status = "implicit";
+      }
       return {
         ...entry,
         coverageActions: sorted(coverageActions),
@@ -1042,7 +1097,7 @@ function composeEffects(
   for (const { operator } of inputs) {
     const subject = subjectIdOf(operator);
     for (const effect of operator.expectedEffects) {
-      const key = `${effect.dimension} ${effect.change} ${subject}`;
+      const key = `${effect.dimension}\0${effect.change}\0${subject}`;
       let entry = groups.get(key);
       if (entry === undefined) {
         entry = {
@@ -1127,7 +1182,7 @@ function composeVerification(
     const own = actions.filter((a) => a.sourceOperators.includes(operator.id));
     const coverage = coverVerification(operator, own);
     for (const requirement of operator.verification) {
-      const key = `${requirement.kind} ${JSON.stringify(requirement.expected)}`;
+      const key = `${requirement.kind}\0${JSON.stringify(requirement.expected)}`;
       let group = groups.get(key);
       if (group === undefined) {
         group = {
@@ -1172,13 +1227,28 @@ function composeVerification(
       subject !== undefined && (bySubject.get(subject)?.length ?? 0) > 1;
     return {
       ...entry,
-      status: conflicting
-        ? "conflicting"
-        : entry.relatedActions.length === 0
-          ? "unresolved"
-          : "compatible",
+      status: resolveStatus(conflicting, entry),
     };
   });
+}
+
+function resolveStatus(
+  conflicting: boolean,
+  entry: {
+    relatedActions: string[];
+    requiredByOperators: string[];
+    expected: OperatorFact;
+    kind: OperatorVerificationKind;
+    status: "compatible" | "conflicting" | "unresolved";
+  }
+): "compatible" | "conflicting" | "unresolved" {
+  if (conflicting) {
+    return "conflicting";
+  }
+  if (entry.relatedActions.length === 0) {
+    return "unresolved";
+  }
+  return "compatible";
 }
 
 // ---------------------------------------------------------------------------
@@ -1217,12 +1287,14 @@ function composeGaps(
         );
       }
       const kinds = uniq(candidates.map((a) => a.kind));
-      const status: CompositionGapResolution["status"] =
-        candidates.length === 0
-          ? "unresolved"
-          : kinds.length > 1
-            ? "conflicted"
-            : "resolved";
+      let status: CompositionGapResolution["status"];
+      if (candidates.length === 0) {
+        status = "unresolved";
+      } else if (kinds.length > 1) {
+        status = "conflicted";
+      } else {
+        status = "resolved";
+      }
       resolutions.push({
         gapId: id,
         resolvedByActions: uniq(candidates.map((a) => a.id)),
@@ -1278,7 +1350,7 @@ function compositionFingerprint(inputs: Input[]): {
 // Entry points
 
 /** Actions on a dependency loop: peel sources and sinks until only loops remain. */
-export function cycleMembers(
+function cycleMembers(
   actions: StructuralAction[],
   dependencies: StructuralActionDependency[]
 ): string[] {
@@ -1378,18 +1450,20 @@ export function composeArchitecturalOperators(
     conflicts.list.length > 0 ||
     verification.some((v) => v.status === "conflicting") ||
     resolutions.some((r) => r.status === "conflicted");
-  const status: OperatorCompositionStatus =
-    taken.stale.length > 0
-      ? "stale"
-      : taken.unsupported.length > 0
-        ? "unsupported"
-        : conflicted
-          ? "conflicted"
-          : taken.blocked.length > 0
-            ? "blocked"
-            : unresolved.length > 0
-              ? "partial"
-              : "complete";
+  let status: OperatorCompositionStatus;
+  if (taken.stale.length > 0) {
+    status = "stale";
+  } else if (taken.unsupported.length > 0) {
+    status = "unsupported";
+  } else if (conflicted) {
+    status = "conflicted";
+  } else if (taken.blocked.length > 0) {
+    status = "blocked";
+  } else if (unresolved.length > 0) {
+    status = "partial";
+  } else {
+    status = "complete";
+  }
   return {
     actions,
     conflicts: sortConflicts(conflicts.list),
@@ -1481,34 +1555,47 @@ export function validateOperatorComposition(
     );
   }
   const sourceIds = new Set(fresh.actions.flatMap((a) => a.sourceActions));
-  for (const action of composition.actions) {
-    for (const source of action.sourceActions) {
-      if (!sourceIds.has(source)) {
+  const visitAction = () => {
+    for (const action of composition.actions) {
+      for (const source of action.sourceActions) {
+        if (!sourceIds.has(source)) {
+          problems.push(
+            `${action.id}: source action ${source} is not in any decomposition`
+          );
+        }
+      }
+    }
+  };
+  visitAction();
+  const visitShared = () => {
+    for (const shared of composition.sharedActions) {
+      if (shared.sourceActions.length < 2) {
+        problems.push(`${shared.mergedActionId}: shared action has one source`);
+      }
+      if (!actionIds.has(shared.mergedActionId)) {
         problems.push(
-          `${action.id}: source action ${source} is not in any decomposition`
+          `${shared.mergedActionId}: shared action is not an action`
         );
       }
     }
-  }
-  for (const shared of composition.sharedActions) {
-    if (shared.sourceActions.length < 2) {
-      problems.push(`${shared.mergedActionId}: shared action has one source`);
-    }
-    if (!actionIds.has(shared.mergedActionId)) {
-      problems.push(`${shared.mergedActionId}: shared action is not an action`);
-    }
-  }
+  };
+  visitShared();
   const gapIds = new Set(composition.resolutions.map((r) => r.gapId));
-  for (const { operator, decomposition } of fresh.operators.map((id) => ({
-    decomposition: decompositions.find((d) => d.operatorId === id),
-    operator: id,
-  }))) {
-    for (const gap of decomposition?.unresolved ?? []) {
-      if (!gapIds.has(`${operator}/${gap.kind}:${gap.entities.join(",")}`)) {
-        problems.push(`gap ${gap.kind} of ${operator} has no resolution entry`);
+  const visitEntries = () => {
+    for (const { operator, decomposition } of fresh.operators.map((id) => ({
+      decomposition: decompositions.find((d) => d.operatorId === id),
+      operator: id,
+    }))) {
+      for (const gap of decomposition?.unresolved ?? []) {
+        if (!gapIds.has(`${operator}/${gap.kind}:${gap.entities.join(",")}`)) {
+          problems.push(
+            `gap ${gap.kind} of ${operator} has no resolution entry`
+          );
+        }
       }
     }
-  }
+  };
+  visitEntries();
 
   const parts: (keyof OperatorComposition)[] = [
     "actions",

@@ -1,7 +1,20 @@
 import { execFile } from "node:child_process";
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
+import {
+  copyFileSync,
+  existsSync,
+  linkSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  type Stats,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { basename, dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import {
   ANALYSIS_POLICY_VERSION,
@@ -85,6 +98,9 @@ import {
 import type { WorkspaceReport } from "./workspace-types";
 import { WORKSPACE_SCHEMA_VERSION } from "./workspace-types";
 
+const decodePackageFilePattern = /__/g;
+const encodePackageFilePattern = /\//g;
+
 // V12.0 materializer. Orchestrates the canonical analyzers — package
 // analysis (in a worker process per unit), V9 ingestion and intelligence,
 // V9.4 projections — and writes the results as one static dataset. No
@@ -116,7 +132,7 @@ export type SemanticsDeriver = (
   context: { root: string; now: Date; profile?: AnalysisProfile }
 ) => Promise<{ reports: SurfaceReport[]; timing?: WorkspaceDerivationTiming }>;
 
-export type SemanticsProgressEvent =
+type SemanticsProgressEvent =
   | { kind: "phase"; phase: SemanticsPhase; detail?: string }
   /** The invalidation plan, emitted once fingerprints are known and before any analysis. */
   | { kind: "plan"; invalidations: SemanticsInvalidation[] }
@@ -155,7 +171,7 @@ export interface SemanticsGenerateOptions {
 }
 
 const execFileAsync = promisify(execFile);
-const WORKER = path.join(
+const WORKER = join(
   import.meta.dirname,
   import.meta.filename.endsWith(".ts")
     ? "semantics-worker.ts"
@@ -167,8 +183,8 @@ export const spawnLocalAnalyzer: SemanticsLocalAnalyzer = async (
   unit,
   { root }
 ) => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "semantics-worker-"));
-  const out = path.join(dir, "local.json");
+  const dir = mkdtempSync(join(tmpdir(), "semantics-worker-"));
+  const out = join(dir, "local.json");
   try {
     await execFileAsync(
       "bun",
@@ -185,9 +201,9 @@ export const spawnLocalAnalyzer: SemanticsLocalAnalyzer = async (
       ],
       { cwd: root, maxBuffer: 64 * 1024 * 1024 }
     );
-    return JSON.parse(fs.readFileSync(out, "utf8")) as PackageLocalReport;
+    return JSON.parse(readFileSync(out, "utf8")) as PackageLocalReport;
   } finally {
-    fs.rmSync(dir, { force: true, recursive: true });
+    rmSync(dir, { force: true, recursive: true });
   }
 };
 
@@ -199,16 +215,16 @@ export const spawnDeriver: SemanticsDeriver = async (
   locals,
   { root, now, profile }
 ) => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "semantics-derive-"));
-  const out = path.join(dir, "reports");
+  const dir = mkdtempSync(join(tmpdir(), "semantics-derive-"));
+  const out = join(dir, "reports");
   try {
     const files = locals.map((local, index) => {
-      const file = path.join(dir, `local-${index}.json`);
-      fs.writeFileSync(file, JSON.stringify(local));
+      const file = join(dir, `local-${index}.json`);
+      writeFileSync(file, JSON.stringify(local));
       return file;
     });
-    const list = path.join(dir, "locals.json");
-    fs.writeFileSync(list, JSON.stringify(files));
+    const list = join(dir, "locals.json");
+    writeFileSync(list, JSON.stringify(files));
     await execFileAsync(
       "bun",
       [
@@ -231,25 +247,25 @@ export const spawnDeriver: SemanticsDeriver = async (
     const reports = locals.map((local) => {
       const id = local.package.name ?? local.package.path;
       return JSON.parse(
-        fs.readFileSync(path.join(out, `${encodePackageFile(id)}.json`), "utf8")
+        readFileSync(join(out, `${encodePackageFile(id)}.json`), "utf8")
       ) as SurfaceReport;
     });
     const derivation = JSON.parse(
-      fs.readFileSync(path.join(out, "derivation.json"), "utf8")
+      readFileSync(join(out, "derivation.json"), "utf8")
     ) as { timing: WorkspaceDerivationTiming };
     return { reports, timing: derivation.timing };
   } finally {
-    fs.rmSync(dir, { force: true, recursive: true });
+    rmSync(dir, { force: true, recursive: true });
   }
 };
 
 /** `@foundry/db` → `@foundry__db`; reversible because npm names never contain `__`. */
 export function encodePackageFile(id: string): string {
-  return id.replace(/\//g, "__");
+  return id.replace(encodePackageFilePattern, "__");
 }
 
 export function decodePackageFile(file: string): string {
-  return file.replace(/__/g, "/");
+  return file.replace(decodePackageFilePattern, "/");
 }
 
 const FILES = {
@@ -295,40 +311,42 @@ function edgeShardFile(id: string): string {
 class Writer {
   readonly files: { file: string; bytes: number; reused: boolean }[] = [];
 
-  constructor(
-    readonly dir: string,
-    readonly previous: string | undefined
-  ) {}
+  readonly dir: string;
+  readonly previous: string | undefined;
+  constructor(dir: string, previous: string | undefined) {
+    this.dir = dir;
+    this.previous = previous;
+  }
 
   write(file: string, value: unknown): void {
-    const target = path.join(this.dir, file);
-    fs.mkdirSync(path.dirname(target), { recursive: true });
+    const target = join(this.dir, file);
+    mkdirSync(dirname(target), { recursive: true });
     const text = Buffer.from(JSON.stringify(value));
     const reused = this.previous !== undefined && this.link(file, text, target);
     if (!reused) {
-      fs.writeFileSync(target, text);
+      writeFileSync(target, text);
     }
     this.files.push({ bytes: text.byteLength, file, reused });
   }
 
   private link(file: string, text: Buffer, target: string): boolean {
-    const old = path.join(this.previous ?? "", file);
-    let stat: fs.Stats;
+    const old = join(this.previous ?? "", file);
+    let stat: Stats;
     try {
-      stat = fs.statSync(old);
+      stat = statSync(old);
     } catch {
       return false;
     }
     if (!stat.isFile() || stat.size !== text.byteLength) {
       return false;
     }
-    if (!fs.readFileSync(old).equals(text)) {
+    if (!readFileSync(old).equals(text)) {
       return false;
     }
     try {
-      fs.linkSync(old, target);
+      linkSync(old, target);
     } catch {
-      fs.copyFileSync(old, target);
+      copyFileSync(old, target);
     }
     return true;
   }
@@ -345,7 +363,8 @@ export async function mapBounded<T, R>(
     { length: Math.max(1, Math.min(limit, items.length)) },
     async () => {
       for (;;) {
-        const index = next++;
+        const index = next;
+        next += 1;
         if (index >= items.length) {
           return;
         }
@@ -383,29 +402,7 @@ export function moduleConceptRoles(
     entry[role].add(concept);
   };
   for (const report of reports) {
-    for (const family of report.conceptInventory.families) {
-      const id = family.seed.id;
-      add(family.seed.declaration.file, "declared", id);
-      for (const rep of family.representations) {
-        add(
-          rep.file,
-          rep.relationship === "implementation"
-            ? "implementation"
-            : "representation",
-          id
-        );
-      }
-      for (const evidence of family.evidence) {
-        if (
-          evidence.kind !== "declaration" &&
-          evidence.kind !== "implements" &&
-          evidence.kind !== "extends" &&
-          evidence.kind !== "alias"
-        ) {
-          add(evidence.file, "usage", id);
-        }
-      }
-    }
+    moduleConceptRolesFamily(report, add);
     for (const locality of report.conceptBehavioralLocality.concepts) {
       for (const module of locality.behavior.byModule) {
         add(module.module, "behavior", locality.concept.id);
@@ -419,6 +416,35 @@ export function moduleConceptRoles(
     }
   }
   return roles;
+}
+
+function moduleConceptRolesFamily(
+  report: SurfaceReport,
+  add: (file: string, role: ConceptRole, concept: string) => void
+) {
+  for (const family of report.conceptInventory.families) {
+    const { id } = family.seed;
+    add(family.seed.declaration.file, "declared", id);
+    for (const rep of family.representations) {
+      add(
+        rep.file,
+        rep.relationship === "implementation"
+          ? "implementation"
+          : "representation",
+        id
+      );
+    }
+    for (const evidence of family.evidence) {
+      if (
+        evidence.kind !== "declaration" &&
+        evidence.kind !== "implements" &&
+        evidence.kind !== "extends" &&
+        evidence.kind !== "alias"
+      ) {
+        add(evidence.file, "usage", id);
+      }
+    }
+  }
 }
 
 function sortedList(values: Set<string> | undefined): string[] {
@@ -675,7 +701,7 @@ function componentCause(
 }
 
 /** Inputs whose hash differs from the previous build's record, sorted. */
-export function changedWorkspaceInputs(
+function changedWorkspaceInputs(
   previous: Record<string, string> | undefined,
   files: Map<string, string>
 ): string[] {
@@ -820,11 +846,11 @@ const WORKSPACE_STAGES = [
 ] as const;
 
 export function rootName(root: string): string | undefined {
-  const file = path.join(root, "package.json");
-  if (!fs.existsSync(file)) {
+  const file = join(root, "package.json");
+  if (!existsSync(file)) {
     return undefined;
   }
-  const parsed = JSON.parse(fs.readFileSync(file, "utf8")) as {
+  const parsed = JSON.parse(readFileSync(file, "utf8")) as {
     name?: unknown;
   };
   return typeof parsed.name === "string" ? parsed.name : undefined;
@@ -833,35 +859,37 @@ export function rootName(root: string): string | undefined {
 /** Swap `tmp` into place; the previous directory survives if the rename fails. */
 export function replaceDirectory(tmp: string, final: string): void {
   const old = `${final}.old-${process.pid}`;
-  const had = fs.existsSync(final);
+  const had = existsSync(final);
   if (had) {
-    fs.renameSync(final, old);
+    renameSync(final, old);
   }
   try {
-    fs.renameSync(tmp, final);
+    renameSync(tmp, final);
   } catch (error) {
     if (had) {
-      fs.renameSync(old, final);
+      renameSync(old, final);
     }
     throw error;
   }
   if (had) {
-    fs.rmSync(old, { force: true, recursive: true });
+    rmSync(old, { force: true, recursive: true });
   }
 }
 
 export async function generateSemantics(
   options: SemanticsGenerateOptions
 ): Promise<SemanticsGenerationResult> {
-  const root = fs.realpathSync(path.resolve(options.root));
-  const config = options.config ?? loadSemanticsConfig(root);
-  const now = options.now ?? startOfUtcDay(new Date());
-  const mode = options.mode ?? "full";
-  const dryRun = options.dryRun === true;
-  const concurrency = Math.max(1, options.concurrency ?? 2);
-  const analyzeLocal = options.analyzeLocal ?? spawnLocalAnalyzer;
-  const derive = options.derive ?? spawnDeriver;
-  const progress = options.onProgress ?? (() => undefined);
+  const root = realpathSync(resolve(options.root));
+  const {
+    progress,
+    config,
+    dryRun,
+    now,
+    mode,
+    concurrency,
+    analyzeLocal,
+    derive,
+  } = collectConfig(options, root);
   const startedAt = new Date();
   const started = performance.now();
   const phases: SemanticsPhaseTiming[] = [];
@@ -884,14 +912,14 @@ export async function generateSemantics(
     }
   };
 
-  const output = path.resolve(root, config.output);
-  const cacheDir = path.resolve(root, options.cache ?? DEFAULT_SEMANTICS_CACHE);
+  const output = resolve(root, config.output);
+  const cacheDir = resolve(root, options.cache ?? DEFAULT_SEMANTICS_CACHE);
   const release = dryRun ? () => undefined : acquireCacheLock(cacheDir);
   const tmp = `${output}.tmp-${process.pid}`;
-  const previous = fs.existsSync(output) ? output : undefined;
+  const previous = existsSync(output) ? output : undefined;
   if (!dryRun) {
-    fs.rmSync(tmp, { force: true, recursive: true });
-    fs.mkdirSync(tmp, { recursive: true });
+    rmSync(tmp, { force: true, recursive: true });
+    mkdirSync(tmp, { recursive: true });
   }
   const writer = new Writer(tmp, previous);
 
@@ -928,23 +956,29 @@ export async function generateSemantics(
       ...plans.map((plan) => plan.report.invalidation),
     ];
     const discovered = new Set(discovery.units.map((unit) => unit.id));
-    for (const id of new Set([
-      ...listCachedPackages(cacheDir, "package-local"),
-      ...listCachedPackages(cacheDir, "package-report"),
-    ])) {
-      if (discovered.has(id)) {
-        continue;
+    const visitId = (
+      currentDiscovered: Set<string>,
+      currentInvalidations2: SemanticsInvalidation[]
+    ) => {
+      for (const id of new Set([
+        ...listCachedPackages(cacheDir, "package-local"),
+        ...listCachedPackages(cacheDir, "package-report"),
+      ])) {
+        if (currentDiscovered.has(id)) {
+          continue;
+        }
+        currentInvalidations2.push({
+          id,
+          kind: "package-report",
+          reason: { cause: "package-removed", type: "direct" },
+          status: "remove",
+        });
+        if (!dryRun) {
+          removePackage(cacheDir, id);
+        }
       }
-      invalidations.push({
-        id,
-        kind: "package-report",
-        reason: { cause: "package-removed", type: "direct" },
-        status: "remove",
-      });
-      if (!dryRun) {
-        removePackage(cacheDir, id);
-      }
-    }
+    };
+    visitId(discovered, invalidations);
     const recomputeLocal = plans.filter(
       (p) => p.local.invalidation.status === "recompute"
     );
@@ -952,22 +986,32 @@ export async function generateSemantics(
       (p) => p.report.invalidation.status === "recompute"
     );
     // Derivation reads every package, so one invalidated report derives all.
+    const visitStage = (
+      currentInvalidations: SemanticsInvalidation[],
+      currentRecomputeLocal: UnitPlan[],
+      currentRecomputeReports: UnitPlan[],
+      currentDeriving: boolean
+    ) => {
+      for (const stage of WORKSPACE_STAGES) {
+        currentInvalidations.push({
+          id: stage,
+          kind: "workspace-stage",
+          reason: {
+            source: (stage === "workspaceDerivation"
+              ? currentRecomputeLocal
+              : currentRecomputeReports
+            ).map((p) => p.unit.id),
+            type: "dependency",
+          },
+          status:
+            stage === "workspaceDerivation" && !currentDeriving
+              ? "reuse"
+              : "recompute",
+        });
+      }
+    };
     const deriving = recomputeReports.length > 0;
-    for (const stage of WORKSPACE_STAGES) {
-      invalidations.push({
-        id: stage,
-        kind: "workspace-stage",
-        reason: {
-          source: (stage === "workspaceDerivation"
-            ? recomputeLocal
-            : recomputeReports
-          ).map((p) => p.unit.id),
-          type: "dependency",
-        },
-        status:
-          stage === "workspaceDerivation" && !deriving ? "reuse" : "recompute",
-      });
-    }
+    visitStage(invalidations, recomputeLocal, recomputeReports, deriving);
     progress({ invalidations, kind: "plan" });
 
     if (dryRun) {
@@ -984,7 +1028,7 @@ export async function generateSemantics(
         files: 0,
         invalidations,
         largest: [],
-        manifest: path.join(output, FILES.manifest),
+        manifest: join(output, FILES.manifest),
         missingPackages: [],
         mode,
         modules: 0,
@@ -1208,7 +1252,7 @@ export async function generateSemantics(
     const workspaceName = rootName(root);
     const ingested = await timed("ingest", undefined, () =>
       ingestWorkspaceReports(reports, {
-        root: workspaceName ?? path.basename(root),
+        root: workspaceName ?? basename(root),
       })
     );
     const workspace = await timed("intelligence", undefined, () =>
@@ -1266,7 +1310,6 @@ export async function generateSemantics(
         }
       }
     });
-
     const byPackage = new Map<string, SemanticsModuleRecord[]>();
     for (const module of modules) {
       (
@@ -1373,56 +1416,32 @@ export async function generateSemantics(
     const reportsReused = count((o) => o.reportSource, "reused");
     const artifactsReused = writer.files.filter((f) => f.reused).length;
     const finishedAt = new Date();
-    const manifest: SemanticsManifest = {
-      counts: {
-        boundaries: workspace.boundaries.boundaries.length,
-        concepts: concepts.concepts.length,
-        modules: modules.length,
-        packages: workspace.packages.packages.length,
-        patterns: context.index.patterns.length,
-      },
-      coverage: partial ? "partial" : "complete",
-      discovery: {
-        directoriesInspected: discovery.directoriesInspected,
-        rootsMissing: discovery.rootsMissing,
-        rootsScanned: discovery.rootsScanned,
-        unitsAnalyzed: packages.length - failures,
-        unitsDiscovered: discovery.units.length,
-        unitsSkipped: discovery.skipped,
-      },
-      files: FILES,
-      generatedAt: finishedAt.toISOString(),
-      generation: {
-        artifactsGenerated: writer.files.length - artifactsReused,
-        artifactsReused,
-        command: options.command ?? "generateSemantics",
-        concurrency,
-        derived: deriving,
-        finishedAt: finishedAt.toISOString(),
-        mode,
-        packageFailures: failures,
-        packagesAnalyzed: analyzed,
-        packagesReused: reused,
-        partial,
-        phases,
-        startedAt: startedAt.toISOString(),
-        totalDurationMs: Math.round(performance.now() - started),
-      },
+    const manifest: SemanticsManifest = generateSemanticsEntries(
+      workspace,
+      concepts,
+      modules,
+      context,
+      partial,
+      discovery,
       packages,
-      roots: config.roots,
-      schemaVersion: SEMANTICS_DATASET_SCHEMA_VERSION,
-      versions: {
-        packagePolicy: ANALYSIS_POLICY_VERSION,
-        packageSchema: reports[0]?.schemaVersion ?? 35,
-        projectionSchema: WORKSPACE_PROJECTION_SCHEMA_VERSION,
-        workspaceIntelligencePolicy: WORKSPACE_INTELLIGENCE_POLICY_VERSION,
-        workspaceSchema: WORKSPACE_SCHEMA_VERSION,
-      },
-      workspace: {
-        ...(workspaceName !== undefined && { name: workspaceName }),
-        root: path.basename(root),
-      },
-    };
+      failures,
+      finishedAt,
+      writer,
+      artifactsReused,
+      options,
+      concurrency,
+      deriving,
+      mode,
+      analyzed,
+      reused,
+      phases,
+      startedAt,
+      started,
+      config,
+      reports,
+      workspaceName,
+      root
+    );
     writer.write(FILES.manifest, manifest);
 
     const written = new Set(writer.files.map((f) => f.file));
@@ -1454,7 +1473,7 @@ export async function generateSemantics(
       largest: [...writer.files]
         .sort((a, b) => b.bytes - a.bytes || a.file.localeCompare(b.file))
         .slice(0, 5),
-      manifest: path.join(output, FILES.manifest),
+      manifest: join(output, FILES.manifest),
       missingPackages: workspace.ingestion.coverage.missingPackages,
       mode,
       modules: modules.length,
@@ -1476,9 +1495,108 @@ export async function generateSemantics(
       },
     };
   } catch (error) {
-    fs.rmSync(tmp, { force: true, recursive: true });
+    rmSync(tmp, { force: true, recursive: true });
     throw error;
   } finally {
     release();
   }
+}
+
+function collectConfig(options: SemanticsGenerateOptions, root: string) {
+  const config = options.config ?? loadSemanticsConfig(root);
+  const now = options.now ?? startOfUtcDay(new Date());
+  const mode = options.mode ?? "full";
+  const dryRun = options.dryRun === true;
+  const concurrency = Math.max(1, options.concurrency ?? 2);
+  const analyzeLocal = options.analyzeLocal ?? spawnLocalAnalyzer;
+  const derive = options.derive ?? spawnDeriver;
+  const progress = options.onProgress ?? (() => undefined);
+  return {
+    analyzeLocal,
+    concurrency,
+    config,
+    derive,
+    dryRun,
+    mode,
+    now,
+    progress,
+  };
+}
+
+function generateSemanticsEntries(
+  workspace: WorkspaceReport,
+  concepts: SemanticsConceptIndex,
+  modules: SemanticsModuleRecord[],
+  context: WorkspaceProjectionContext,
+  partial: boolean,
+  discovery: SemanticsDiscovery,
+  packages: SemanticsManifestPackage[],
+  failures: number,
+  finishedAt: Date,
+  writer: Writer,
+  artifactsReused: number,
+  options: SemanticsGenerateOptions,
+  concurrency: number,
+  deriving: boolean,
+  mode: SemanticsGenerationMode,
+  analyzed: number,
+  reused: number,
+  phases: SemanticsPhaseTiming[],
+  startedAt: Date,
+  started: number,
+  config: SemanticsConfig,
+  reports: SurfaceReport[],
+  workspaceName: string | undefined,
+  root: string
+): SemanticsManifest {
+  return {
+    counts: {
+      boundaries: workspace.boundaries.boundaries.length,
+      concepts: concepts.concepts.length,
+      modules: modules.length,
+      packages: workspace.packages.packages.length,
+      patterns: context.index.patterns.length,
+    },
+    coverage: partial ? "partial" : "complete",
+    discovery: {
+      directoriesInspected: discovery.directoriesInspected,
+      rootsMissing: discovery.rootsMissing,
+      rootsScanned: discovery.rootsScanned,
+      unitsAnalyzed: packages.length - failures,
+      unitsDiscovered: discovery.units.length,
+      unitsSkipped: discovery.skipped,
+    },
+    files: FILES,
+    generatedAt: finishedAt.toISOString(),
+    generation: {
+      artifactsGenerated: writer.files.length - artifactsReused,
+      artifactsReused,
+      command: options.command ?? "generateSemantics",
+      concurrency,
+      derived: deriving,
+      finishedAt: finishedAt.toISOString(),
+      mode,
+      packageFailures: failures,
+      packagesAnalyzed: analyzed,
+      packagesReused: reused,
+      partial,
+      phases,
+      startedAt: startedAt.toISOString(),
+      totalDurationMs: Math.round(performance.now() - started),
+    },
+    packages,
+    roots: config.roots,
+    schemaVersion: SEMANTICS_DATASET_SCHEMA_VERSION,
+    versions: {
+      packagePolicy: ANALYSIS_POLICY_VERSION,
+      packageSchema: reports[0]?.schemaVersion ?? 35,
+      projectionSchema: WORKSPACE_PROJECTION_SCHEMA_VERSION,
+      workspaceIntelligencePolicy: WORKSPACE_INTELLIGENCE_POLICY_VERSION,
+      workspaceSchema: WORKSPACE_SCHEMA_VERSION,
+    },
+    workspace: {
+      ...(workspaceName !== undefined && { name: workspaceName }),
+      root: basename(root),
+    },
+  };
 }

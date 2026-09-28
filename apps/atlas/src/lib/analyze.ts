@@ -2,12 +2,6 @@ import type { AnalyzeSurfaceOptions, SurfaceReport } from "./types";
 
 import { analyzeWorkspaceSurfaces } from "./workspace-surface";
 
-export {
-  createProject,
-  packageSourceFiles,
-  workspaceSourceFiles,
-} from "./project";
-
 /**
  * One package's report. Since V12.6 a single-target call into the batch
  * path: package-local analysis of the target, one workspace derivation for
@@ -24,7 +18,7 @@ export async function analyzeSurface(
     ...(options.now !== undefined && { now: options.now }),
     ...(options.profile !== undefined && { profile: options.profile }),
   });
-  const report = reports[0];
+  const [report] = reports;
   if (report === undefined) {
     throw new Error(`no report for ${options.target}`);
   }

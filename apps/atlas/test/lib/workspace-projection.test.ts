@@ -28,6 +28,14 @@ import { WORKSPACE_SCHEMA_VERSION } from "../../src/lib/workspace-types";
 import type { ConceptSpec, Spec } from "./helpers/workspace-builder";
 import { workspace } from "./helpers/workspace-builder";
 
+const expectedTextPattern = /schema 4/;
+const expectedTextPattern2 = /analyzeWorkspace/;
+const expectedTextPattern3 = /"score"|hub|recommend/;
+const expectedTextPattern4 = /"(x|y|color|width|height|font|weight)":/;
+const expectedTextPattern5 = /"weight"|"strength":\s*\d/;
+const expectedTextPattern6 = /should|recommend|move behavior|refactor/i;
+const expectedTextPattern7 = /"center":/;
+
 const STORE = "A/store.ts#ModuleStore";
 
 /** `n` concepts declared in `pkg`, each implemented and behaved in `impl`. */
@@ -306,7 +314,7 @@ describe("concept projection", () => {
     const ctx = context();
     const store = must(projectWorkspaceConcept(ctx, STORE), "store");
     const text = JSON.stringify(store);
-    expect(text).not.toMatch(/"center":/);
+    expect(text).not.toMatch(expectedTextPattern7);
     expect(store.centers?.semantic).not.toBe(store.centers?.usage);
     expect(store.centers?.usage).not.toBe(store.centers?.behavior);
     const summary = summarizeWorkspaceConcept(store);
@@ -328,9 +336,7 @@ describe("concept projection", () => {
     expect(store.recentering?.review?.disposition).toBe(
       "insufficient-evidence"
     );
-    expect(JSON.stringify(store)).not.toMatch(
-      /should|recommend|move behavior|refactor/i
-    );
+    expect(JSON.stringify(store)).not.toMatch(expectedTextPattern6);
     expect(store.evidenceRefs).toEqual(
       expect.arrayContaining([
         {
@@ -396,7 +402,7 @@ describe("boundary projection", () => {
     });
     expect(ua.patterns.kinds).toEqual([]);
     expect(xa.cautions).toEqual([]);
-    expect(JSON.stringify(xa)).not.toMatch(/"weight"|"strength":\s*\d/);
+    expect(JSON.stringify(xa)).not.toMatch(expectedTextPattern5);
   });
 });
 
@@ -408,9 +414,7 @@ describe("graph projections", () => {
     expect(graph.edges.map((e) => e.id)).toEqual(["U→A", "U→X", "X→A", "X→B"]);
     expect(graph.edges.every((e) => e.kind === "dependency")).toBe(true);
     expect(graph.groups.some((g) => g.kind === "layer")).toBe(true);
-    expect(JSON.stringify(graph)).not.toMatch(
-      /"(x|y|color|width|height|font|weight)":/
-    );
+    expect(JSON.stringify(graph)).not.toMatch(expectedTextPattern4);
     expect(graph.metadata).toMatchObject({
       preset: "dependency-topology",
       scope: "workspace",
@@ -712,17 +716,19 @@ describe("coverage, determinism, and non-inference", () => {
         entry.kinds
       );
     }
-    expect(JSON.stringify(overview)).not.toMatch(/"score"|hub|recommend/);
+    expect(JSON.stringify(overview)).not.toMatch(expectedTextPattern3);
   });
 
   it("refuses a workspace without attached intelligence or from another schema", () => {
     expect(() => createWorkspaceProjectionContext(workspace(spec()))).toThrow(
-      /analyzeWorkspace/
+      expectedTextPattern2
     );
     const stale = {
       ...analyzeWorkspace(workspace(spec())),
       workspaceSchemaVersion: 4,
     };
-    expect(() => createWorkspaceProjectionContext(stale)).toThrow(/schema 4/);
+    expect(() => createWorkspaceProjectionContext(stale)).toThrow(
+      expectedTextPattern
+    );
   });
 });

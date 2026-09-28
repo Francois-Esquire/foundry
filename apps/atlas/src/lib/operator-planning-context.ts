@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import * as fs from "node:fs";
-import * as path from "node:path";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { join, posix, relative, resolve } from "node:path";
 import type { Project, SourceFile } from "ts-morph";
 
 import { Node } from "ts-morph";
@@ -79,11 +79,11 @@ interface Manifest {
 }
 
 function readManifest(dir: string): Manifest | undefined {
-  const file = path.join(dir, "package.json");
-  if (!fs.existsSync(file)) {
+  const file = join(dir, "package.json");
+  if (!existsSync(file)) {
     return undefined;
   }
-  return JSON.parse(fs.readFileSync(file, "utf8")) as Manifest;
+  return JSON.parse(readFileSync(file, "utf8")) as Manifest;
 }
 
 function packageDirs(root: string): string[] {
@@ -95,7 +95,7 @@ function packageDirs(root: string): string[] {
 function sharedSourceDir(
   entrypoints: BoundaryEntrypoint[]
 ): string | undefined {
-  const dirs = new Set(entrypoints.map((e) => path.posix.dirname(e.file)));
+  const dirs = new Set(entrypoints.map((e) => posix.dirname(e.file)));
   if (dirs.size !== 1) {
     return undefined;
   }
@@ -106,7 +106,7 @@ function sharedSourceDir(
 export function createOperatorPlanningContext(
   options: OperatorPlanningContextOptions
 ): OperatorPlanningContext {
-  const root = fs.realpathSync(path.resolve(options.root));
+  const root = realpathSync(resolve(options.root));
   const project = createProject(root, options.tsconfig);
   const packages = new Map<string, OperatorPlanningPackage>();
   const wanted =
@@ -120,8 +120,8 @@ export function createOperatorPlanningContext(
     if (wanted !== undefined && !wanted.has(id)) {
       continue;
     }
-    const real = fs.realpathSync(dir);
-    const relPath = toPosix(path.relative(root, real));
+    const real = realpathSync(dir);
+    const relPath = toPosix(relative(root, real));
     const boundary = resolveBoundary(root, relPath);
     const entrypoints = boundaryEntrypoints(boundary);
     packages.set(id, {
@@ -150,7 +150,7 @@ export function createOperatorPlanningContext(
     }
     const owner = ownerBoundary(root, file.getFilePath());
     if (packages.has(owner)) {
-      moduleIndex.set(toPosix(path.relative(root, file.getFilePath())), owner);
+      moduleIndex.set(toPosix(relative(root, file.getFilePath())), owner);
     }
   }
   return { moduleIndex, packages, project, root };
@@ -160,14 +160,14 @@ export function relativeFile(
   context: OperatorPlanningContext,
   file: SourceFile
 ): string {
-  return toPosix(path.relative(context.root, file.getFilePath()));
+  return toPosix(relative(context.root, file.getFilePath()));
 }
 
 export function sourceFileOf(
   context: OperatorPlanningContext,
   file: string
 ): SourceFile | undefined {
-  return context.project.getSourceFile(path.resolve(context.root, file));
+  return context.project.getSourceFile(resolve(context.root, file));
 }
 
 /** Resolve a `<file>#<Name>` id to its single top-level declaration. Overloads count once; kinds that merge do not. */
@@ -186,7 +186,8 @@ export function locateSymbol(
     return { detail: `${file} is not in the project`, status: "missing" };
   }
   const matches = topLevelDeclarations(sourceFile).filter(
-    (node) => Node.hasName(node) && node.getName() === name
+    (candidateNode) =>
+      Node.hasName(candidateNode) && candidateNode.getName() === name
   );
   const kinds = [...new Set(matches.map(kindOf))].sort((a, b) =>
     a.localeCompare(b)
@@ -244,7 +245,7 @@ export function exportedNamesOf(file: SourceFile, node: Node): string[] {
   return names.get(node) ?? [];
 }
 
-export function isExported(file: SourceFile, node: Node): boolean {
+function isExported(file: SourceFile, node: Node): boolean {
   return exportedNamesOf(file, node).length > 0;
 }
 
@@ -260,9 +261,9 @@ export function hashFile(
   context: OperatorPlanningContext,
   file: string
 ): string {
-  const absolute = path.resolve(context.root, file);
-  if (!fs.existsSync(absolute)) {
+  const absolute = resolve(context.root, file);
+  if (!existsSync(absolute)) {
     return "missing";
   }
-  return createHash("sha256").update(fs.readFileSync(absolute)).digest("hex");
+  return createHash("sha256").update(readFileSync(absolute)).digest("hex");
 }

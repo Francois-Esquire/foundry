@@ -1,5 +1,5 @@
-import * as os from "node:os";
-import * as path from "node:path";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
@@ -11,7 +11,9 @@ import type { CommitChange, GitHistory } from "../../src/lib/git-history";
 import { renderCoupling } from "../../src/lib/report";
 import type { WorkspaceModuleGraph } from "../../src/lib/types";
 
-const ROOT = path.join(os.tmpdir(), "semantic-surface-coupling-fixture");
+const expectedTextPattern = /merge|move|missing dependency/i;
+
+const ROOT = join(tmpdir(), "semantic-surface-coupling-fixture");
 const A = "packages/a/src/a.ts";
 const B = "packages/a/src/b.ts";
 const C = "packages/a/src/c.ts";
@@ -19,7 +21,7 @@ const X = "packages/b/src/x.ts";
 const Y = "packages/b/src/y.ts";
 
 const boundary: Boundary = {
-  dir: path.join(ROOT, "packages/a"),
+  dir: join(ROOT, "packages/a"),
   explicitlyPublishable: false,
   exportSubpaths: null,
   packageName: "@fixture/a",
@@ -416,7 +418,7 @@ describe("change coupling", () => {
     expect(text).toContain("right → left           100.0%");
     expect(text).toContain("static relation        left → right");
     expect(text).not.toContain("TEMPORALLY COUPLED WITHOUT STATIC EDGE");
-    expect(text).not.toMatch(/merge|move|missing dependency/i);
+    expect(text).not.toMatch(expectedTextPattern);
   });
 });
 

@@ -1,6 +1,8 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
+const tokenPattern = /^\n/;
+
 const run = promisify(execFile);
 
 // Git history collector: one repository-wide `git log` turned into a
@@ -9,7 +11,7 @@ const run = promisify(execFile);
 // dates — when a change landed in this history, which is also what
 // `--since` filters on.
 
-export interface CommitFileChange {
+interface CommitFileChange {
   /** null for binary changes (Git reports no line counts). */
   additions: number | null;
   deletions: number | null;
@@ -27,7 +29,7 @@ export interface CommitChange {
   timestamp: string;
 }
 
-export type GitHistoryUnavailableReason =
+type GitHistoryUnavailableReason =
   | "git-unavailable"
   | "not-git-repository"
   /** The analysis profile chose not to read Git (V12.3 temporal checkpoints). */
@@ -58,7 +60,7 @@ export type GitHistory =
     };
 
 /** Large repositories exceed Node's 1 MB default (this one logs ~2 MB). */
-const MAX_BUFFER = 1 << 28;
+const MAX_BUFFER = 2 ** 28;
 
 async function git(root: string, args: string[]): Promise<string> {
   const { stdout } = await run("git", args, {
@@ -92,7 +94,7 @@ export function parseGitLog(output: string): CommitChange[] {
     const files: CommitFileChange[] = [];
     let index = 3;
     while (index < tokens.length) {
-      const token = tokens[index]?.replace(/^\n/, "") ?? "";
+      const token = tokens[index]?.replace(tokenPattern, "") ?? "";
       index += 1;
       const match = NUMSTAT.exec(token);
       if (match === null) {
@@ -138,7 +140,7 @@ export async function collectGitHistory(
       await git(root, ["rev-parse", "--is-inside-work-tree"])
     ).trim();
   } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
+    const { code } = error as NodeJS.ErrnoException;
     return {
       analyzedAt,
       available: false,

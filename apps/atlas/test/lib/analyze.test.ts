@@ -1,11 +1,11 @@
-import * as path from "node:path";
+import { join } from "node:path";
 
 import { beforeAll, describe, expect, it } from "vitest";
 import { analyzeSurface } from "../../src/lib/analyze";
 import { canonicalizeSemanticsArtifact } from "../../src/lib/semantics-equivalence";
 import type { SurfaceReport, SurfaceSymbol } from "../../src/lib/types";
 
-const root = path.join(import.meta.dirname, "fixtures", "workspace");
+const root = join(import.meta.dirname, "fixtures", "workspace");
 /** Churn recency is measured against a clock; pin it so runs compare equal. */
 const now = new Date("2027-01-01T00:00:00Z");
 

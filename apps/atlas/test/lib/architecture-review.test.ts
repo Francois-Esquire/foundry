@@ -1,6 +1,12 @@
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
+import {
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, posix } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import {
   getNondominatedScenarios,
@@ -30,6 +36,14 @@ import { analyzePrimitiveConventions } from "../../src/lib/primitive-convention"
 import { renderPackageArchitectureReview } from "../../src/lib/report-review";
 import { analyzeSymbolLocality } from "../../src/lib/symbol-locality";
 
+const expectedTextPattern = /severity|critical|debt|recommend/i;
+const expectedTextPattern2 =
+  /dominance {3}colocate primitive is dominated by|no scenario dominates/;
+const expectedTextPattern3 = /"exactPath"/;
+const expectedTextPattern4 =
+  /collapse-indirection: no contract, adapter, or implementation role/;
+const specifierPattern = /\.tsx?$/;
+
 // V13.5 review. The dominance rules are exercised on synthetic scenario
 // families built over a real report's shell, one rule per fixture; the
 // preservation, composition-root, convention-outlier, indirection, and
@@ -39,18 +53,18 @@ const tempRoots: string[] = [];
 
 afterAll(() => {
   for (const dir of tempRoots) {
-    fs.rmSync(dir, { force: true, recursive: true });
+    rmSync(dir, { force: true, recursive: true });
   }
 });
 
 function workspace(files: Record<string, string>): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "review-"));
-  const root = fs.realpathSync(dir);
+  const dir = mkdtempSync(join(tmpdir(), "review-"));
+  const root = realpathSync(dir);
   tempRoots.push(root);
   const write = (file: string, text: string) => {
-    const target = path.join(root, file);
-    fs.mkdirSync(path.dirname(target), { recursive: true });
-    fs.writeFileSync(target, text);
+    const target = join(root, file);
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, text);
   };
   write(
     "package.json",
@@ -61,7 +75,7 @@ function workspace(files: Record<string, string>): string {
     JSON.stringify({ exports: { ".": "./src/index.ts" }, name: "@f/p" })
   );
   for (const [file, text] of Object.entries(files)) {
-    write(path.join("packages/p", file), text);
+    write(join("packages/p", file), text);
   }
   return root;
 }
@@ -99,9 +113,9 @@ function reviewOf(files: Record<string, string>): {
 }
 
 function importOf(from: string, to: string, names: string): string {
-  let specifier = path.posix.relative(
-    path.posix.dirname(from),
-    to.replace(/\.tsx?$/, "")
+  let specifier = posix.relative(
+    posix.dirname(from),
+    to.replace(specifierPattern, "")
   );
   if (!specifier.startsWith(".")) {
     specifier = `./${specifier}`;
@@ -200,11 +214,7 @@ function synthetic(
     proposed: {
       candidateModules: [],
       exactPath: "deferred",
-      scope: preserving
-        ? kind === "preserve-current"
-          ? "unchanged"
-          : "package-wide"
-        : "responsibility-local",
+      scope: resolveScope(preserving, kind),
     },
     provenance: {
       locality: [],
@@ -232,12 +242,25 @@ const moved: Partial<Effects> = {
   },
 };
 
+function resolveScope(
+  preserving: boolean,
+  kind: InternalRewiringScenarioKind
+): "unchanged" | "package-wide" | "responsibility-local" {
+  if (preserving) {
+    if (kind === "preserve-current") {
+      return "unchanged";
+    }
+    return "package-wide";
+  }
+  return "responsibility-local";
+}
+
 function familyOf(...scenarios: InternalRewiringScenario[]): {
   rewiring: InternalRewiringReport;
   review: PackageArchitectureReview;
   id: string;
 } {
-  const first = scenarios[0];
+  const [first] = scenarios;
   if (first === undefined) {
     throw new Error("empty family");
   }
@@ -936,9 +959,7 @@ describe("indirection", () => {
     const adapter = family(review, "src/adapter.ts");
     expect(adapter.disposition).toBe("insufficient-evidence");
     expect(adapter.scenarios).toEqual([]);
-    expect(adapter.missingEvidence.join(" ")).toMatch(
-      /collapse-indirection: no contract, adapter, or implementation role/
-    );
+    expect(adapter.missingEvidence.join(" ")).toMatch(expectedTextPattern4);
     expect(review.summary.insufficientEvidenceReasons[0]?.count).toBe(1);
     expect(getReviewsByDisposition(review, "insufficient-evidence")).toContain(
       adapter
@@ -1029,8 +1050,8 @@ describe("independence", () => {
       scenarios: [...a.scenarios].reverse(),
     };
     expect(JSON.stringify(reviewPackageArchitecture(reversed))).toBe(left);
-    expect(left).not.toContain(os.tmpdir());
-    expect(left).not.toMatch(/"exactPath"/);
+    expect(left).not.toContain(tmpdir());
+    expect(left).not.toMatch(expectedTextPattern3);
   });
 
   it("answers the query helpers and renders", () => {
@@ -1053,10 +1074,8 @@ describe("independence", () => {
     expect(text).toContain("MODULE src/bootstrap.ts");
     expect(text).toContain("preservation required · requires composition-role");
     expect(text).toContain("CREDIBLE ALTERNATIVES");
-    expect(text).toMatch(
-      /dominance {3}colocate primitive is dominated by|no scenario dominates/
-    );
-    expect(text).not.toMatch(/severity|critical|debt|recommend/i);
+    expect(text).toMatch(expectedTextPattern2);
+    expect(text).not.toMatch(expectedTextPattern);
   });
 
   it("runs through the library entry point", () => {

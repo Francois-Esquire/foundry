@@ -1,28 +1,32 @@
 import { execFileSync } from "node:child_process";
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
+import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 
 import { afterAll, describe, expect, it } from "vitest";
 import { analyzeSurface } from "../../src/lib/analyze";
 import type { Boundary } from "../../src/lib/boundary";
-import { analyzeChurn, classifyFile } from "../../src/lib/churn";
+import { analyzeChurn } from "../../src/lib/churn";
 import type { AnalysisConfig } from "../../src/lib/config";
 import { ANALYSIS_CONFIG } from "../../src/lib/config";
+import { classifyFile } from "../../src/lib/file-kind";
 import type { GitHistory } from "../../src/lib/git-history";
 import { collectGitHistory, parseGitLog } from "../../src/lib/git-history";
 import { renderChurn, renderReport } from "../../src/lib/report";
+
+const expectedTextPattern = /hotspot/i;
+const expectedTextPattern2 = /@example\.com/;
 
 const tempRoots: string[] = [];
 
 afterAll(() => {
   for (const dir of tempRoots) {
-    fs.rmSync(dir, { force: true, recursive: true });
+    rmSync(dir, { force: true, recursive: true });
   }
 });
 
 function tempDir(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "semantic-surface-churn-"));
+  const dir = mkdtempSync(join(tmpdir(), "semantic-surface-churn-"));
   tempRoots.push(dir);
   return dir;
 }
@@ -52,9 +56,9 @@ interface CommitOptions {
 /** Commit with deterministic author and committer dates. */
 function commit(dir: string, options: CommitOptions): string {
   for (const [file, content] of Object.entries(options.files ?? {})) {
-    const target = path.join(dir, file);
-    fs.mkdirSync(path.dirname(target), { recursive: true });
-    fs.writeFileSync(target, content);
+    const target = join(dir, file);
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, content);
   }
   for (const file of options.remove ?? []) {
     git(dir, ["rm", "-q", file]);
@@ -84,7 +88,7 @@ const NOW = new Date("2026-06-01T00:00:00Z");
 
 function boundaryOf(root: string, relPath = "pkg"): Boundary {
   return {
-    dir: path.join(root, relPath),
+    dir: join(root, relPath),
     explicitlyPublishable: false,
     exportSubpaths: null,
     packageName: "@fixture/pkg",
@@ -461,7 +465,7 @@ describe("churn analysis", () => {
       date: "2026-01-01T00:00:00Z",
       files: { "pkg/a.ts": "a\n" },
     });
-    fs.writeFileSync(path.join(dir, ".git", "shallow"), `${head}\n`);
+    writeFileSync(join(dir, ".git", "shallow"), `${head}\n`);
     expect(git(dir, ["rev-parse", "--is-shallow-repository"]).trim()).toBe(
       "true"
     );
@@ -499,15 +503,15 @@ describe("churn analysis", () => {
       "MOST FREQUENTLY CHANGED\n\n  pkg/a.ts\n    2 commits · 3 lines changed · 2 authors"
     );
     expect(text).toContain("primary author share 50.0%");
-    expect(text).not.toMatch(/@example\.com/);
-    expect(text).not.toMatch(/hotspot/i);
+    expect(text).not.toMatch(expectedTextPattern2);
+    expect(text).not.toMatch(expectedTextPattern);
   });
 });
 
 describe("analyzeSurface outside Git", () => {
   it("still builds the report and marks churn unavailable", async () => {
     const dir = tempDir();
-    fs.cpSync(path.join(import.meta.dirname, "fixtures", "traffic"), dir, {
+    cpSync(join(import.meta.dirname, "fixtures", "traffic"), dir, {
       recursive: true,
     });
     const report = await analyzeSurface({ root: dir, target: "@traffic/hub" });
@@ -539,7 +543,7 @@ describe("analyzeSurface outside Git", () => {
 
   it("attaches churn when the root is a repository", async () => {
     const dir = tempDir();
-    fs.cpSync(path.join(import.meta.dirname, "fixtures", "traffic"), dir, {
+    cpSync(join(import.meta.dirname, "fixtures", "traffic"), dir, {
       recursive: true,
     });
     git(dir, ["init", "-q"]);

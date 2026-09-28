@@ -1,10 +1,10 @@
-import * as path from "node:path";
+import { join } from "node:path";
 
 import { beforeAll, describe, expect, it } from "vitest";
 import { analyzeSurface } from "../../src/lib/analyze";
 import { ANALYSIS_CONFIG } from "../../src/lib/config";
-import type { BlockView } from "../../src/lib/render";
-import { buildSurfaceView } from "../../src/lib/render";
+import { buildSurfaceView } from "../../src/lib/render/reports/surface";
+import type { BlockView } from "../../src/lib/render/views";
 import type {
   FileHotspot,
   StructuralPressureSignal,
@@ -20,7 +20,7 @@ let report: SurfaceReport;
 beforeAll(async () => {
   const base = await analyzeSurface({
     now: new Date("2027-01-01T00:00:00Z"),
-    root: path.join(import.meta.dirname, "fixtures", "workspace"),
+    root: join(import.meta.dirname, "fixtures", "workspace"),
     target: "packages/orders",
     tsconfig: "tsconfig.json",
   });
@@ -171,7 +171,7 @@ describe("signal groups", () => {
   });
 
   it("state pressure facts from the signal's own evidence", () => {
-    const pressure = signals("normal")[2];
+    const [, , pressure] = signals("normal");
     expect(pressure).toMatchObject({
       evidence: [
         "centralization-pressure: 246 references from 4 packages, 55.3% landing in packages/orders/src/manager.ts",
@@ -182,7 +182,7 @@ describe("signal groups", () => {
   });
 
   it("promote history facts analysis already gated, grouping tensions by kind", () => {
-    const history = signals("normal")[3];
+    const [, , , history] = signals("normal");
     expect(history).toMatchObject({
       evidence: [
         "hotspots: 3 source files of 42 change often and carry complexity; highest packages/orders/src/manager.ts (38 commits)",
@@ -200,7 +200,7 @@ describe("signal groups", () => {
       expect(block).not.toHaveProperty("summary");
       expect(block).not.toHaveProperty("evidence");
     }
-    const pressure = signals("expanded")[2];
+    const [, , pressure] = signals("expanded");
     expect(pressure?.kind === "signal" && pressure.evidence?.at(-1)).toBe(
       "boundary-pressure @repo/checkout into @repo/orders: references 191 · symbols 23 · top destination module packages/orders/src/manager.ts · destination concentration 59.6%"
     );

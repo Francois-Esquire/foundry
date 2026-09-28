@@ -12,6 +12,12 @@ import type {
 } from "./helpers/workspace-builder";
 import { workspace } from "./helpers/workspace-builder";
 
+const expectedTextPattern =
+  /shouldMove|recommendedTarget|"fix"|recommend|should /i;
+const expectedTextPattern2 = /Score"|score"|health|confidence"/i;
+const expectedTextPattern3 = /universal|every package|always/i;
+const expectedTextPattern4 = /Row|Record|persistence/;
+
 function analyze(spec: Spec): WorkspaceArchitecturalPatterns {
   const ws = workspace(spec);
   const graph = analyzeWorkspaceGraph(ws);
@@ -129,7 +135,7 @@ describe("package roles", () => {
       "conversion-center",
     ]);
     expect(rolesOf(patterns, "X")[0]?.sourcePackages).toEqual(["A", "B"]);
-    expect(JSON.stringify(patterns)).not.toMatch(/Row|Record|persistence/);
+    expect(JSON.stringify(patterns)).not.toMatch(expectedTextPattern4);
   });
 
   it("names a consumption center without semantic ownership", () => {
@@ -540,7 +546,7 @@ describe("coverage and hygiene", () => {
 
   it("caps strength and speaks in lower bounds under partial coverage", () => {
     const patterns = analyze({ ...base, missing: ["C"] });
-    const role = rolesOf(patterns, "X")[0];
+    const [role] = rolesOf(patterns, "X");
     expect(role).toMatchObject({
       coverage: "partial",
       kind: "implementation-center",
@@ -553,9 +559,7 @@ describe("coverage and hygiene", () => {
       entities: ["C"],
       kind: "partial-package-coverage",
     });
-    expect(JSON.stringify(patterns)).not.toMatch(
-      /universal|every package|always/i
-    );
+    expect(JSON.stringify(patterns)).not.toMatch(expectedTextPattern3);
   });
 
   it("keeps foreign-only concepts out of ownership roles while counting their conversions", () => {
@@ -690,10 +694,8 @@ describe("coverage and hygiene", () => {
         })),
       })
     );
-    expect(text).not.toMatch(/Score"|score"|health|confidence"/i);
-    expect(text).not.toMatch(
-      /shouldMove|recommendedTarget|"fix"|recommend|should /i
-    );
+    expect(text).not.toMatch(expectedTextPattern2);
+    expect(text).not.toMatch(expectedTextPattern);
   });
 
   it("attaches under the workspace intelligence stamp", () => {

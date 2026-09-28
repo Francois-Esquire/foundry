@@ -1,4 +1,4 @@
-import * as path from "node:path";
+import { join } from "node:path";
 
 import { beforeAll, describe, expect, it } from "vitest";
 import { analyzeSurface } from "../../src/lib/analyze";
@@ -9,7 +9,9 @@ import {
 } from "../../src/lib/report";
 import type { FunctionComplexity, SurfaceReport } from "../../src/lib/types";
 
-const root = path.join(import.meta.dirname, "fixtures", "deps");
+const expectedTextPattern = /Decisions {3}p50 \d+ · p90 \d+ · p95 \d+ · max 6/;
+
+const root = join(import.meta.dirname, "fixtures", "deps");
 
 let report: SurfaceReport;
 
@@ -324,9 +326,7 @@ describe("rendering", () => {
     const rendered = renderReport(report);
     expect(rendered).toContain("LOCAL COMPLEXITY");
     expect(rendered).toContain("25 functions analyzed");
-    expect(rendered).toMatch(
-      /Decisions {3}p50 \d+ · p90 \d+ · p95 \d+ · max 6/
-    );
+    expect(rendered).toMatch(expectedTextPattern);
   });
 
   it("renders the focused complexity view", () => {

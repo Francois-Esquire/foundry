@@ -49,7 +49,7 @@ export type ArchitecturalScopeClass =
   | "unplaced"
   | "unclear";
 
-export type RoleEvidenceKind =
+type RoleEvidenceKind =
   | "declaration-kind"
   | "initializer"
   | "members"
@@ -110,7 +110,7 @@ export type PlacementColocationShape =
   | "with-types"
   | "without-types";
 
-export interface SymbolPlacement {
+interface SymbolPlacement {
   /** Some consumer reaches the symbol through a re-export chain (V13.1 mediated). */
   aggregatorExposed: boolean;
   /** Module basename without extension; observed, never a classifier. */

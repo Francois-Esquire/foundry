@@ -21,6 +21,9 @@ import type {
   ScenarioStructuralChange,
 } from "../../src/lib/types";
 
+const forbiddenPattern =
+  /score|weight|fitness|rating|rank|execute|apply|filesToMove|recommend/i;
+
 const A = "@t/a";
 const B = "@t/b";
 const C = "@t/c";
@@ -238,7 +241,7 @@ function analysis(
         behavioralBoundaryEdges: metric(
           1,
           edges,
-          edges === 1 ? "certain" : added.length > 0 ? "conditional" : "certain"
+          resolveBehavioralBoundaryEdges(edges, added)
         ),
         current: {
           behavioralBoundaryEdges: 1,
@@ -316,6 +319,19 @@ function analysis(
   };
 }
 
+function resolveBehavioralBoundaryEdges(
+  edges: number,
+  added: string[]
+): "certain" | "conditional" {
+  if (edges === 1) {
+    return "certain";
+  }
+  if (added.length > 0) {
+    return "conditional";
+  }
+  return "certain";
+}
+
 function reduction(edge: string, sites: number): BoundaryReduction {
   return {
     certainty: "conditional",
@@ -367,7 +383,7 @@ describe("architectural scenario review", () => {
     expect(result.dominated).toEqual([]);
     expect(statusOf(result, "rehome-semantic-center").status).toBe("viable");
     expect(result.viable).toEqual([baseline().scenarioId, alt.scenarioId]);
-    const comparison = result.comparisons[0];
+    const [comparison] = result.comparisons;
     expect(comparison?.result).toBe("tradeoff");
     expect(
       comparison?.dimensions.find((row) => row.dimension === "locality")
@@ -725,8 +741,7 @@ describe("architectural scenario review", () => {
       keys.add(key);
       return value;
     });
-    const forbidden =
-      /score|weight|fitness|rating|rank|execute|apply|filesToMove|recommend/i;
+    const forbidden = forbiddenPattern;
     expect(
       [...keys].filter(
         (key) => forbidden.test(key) || key === "implement" || key === "plan"

@@ -1,7 +1,14 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import * as fs from "node:fs";
-import * as path from "node:path";
+import {
+  accessSync,
+  constants,
+  existsSync,
+  readFileSync,
+  realpathSync,
+  statSync,
+} from "node:fs";
+import { dirname, join, posix, relative, resolve, sep } from "node:path";
 
 import { ts } from "ts-morph";
 
@@ -11,7 +18,10 @@ import {
   DEFAULT_MUTATION_CAPABILITIES,
   lookupCapability,
 } from "./mutation-capabilities";
-import type { OperatorComposition } from "./operator-composition-types";
+import type {
+  CompositionPreservation,
+  OperatorComposition,
+} from "./operator-composition-types";
 import {
   comparePlans,
   planOperatorComposition,
@@ -20,10 +30,13 @@ import {
 import {
   cyclesThrough,
   hasSideEffects,
+  type PackageImportEdge,
   packageImportEdges,
 } from "./operator-plan-source";
 import type {
   OperatorExecutionPlan,
+  OperatorPlanBlocker,
+  OperatorPlanFileHash,
   PlannedTransformation,
   PlannedVerificationKind,
 } from "./operator-plan-types";
@@ -53,10 +66,12 @@ import type {
   ReadinessConsistency,
   ReadinessConstraintCheck,
   ReadinessConstraintKind,
+  ReadinessConstraintResult,
   ReadinessConstraintStatus,
   ReadinessFileState,
   ReadinessIntentCoverage,
   ReadinessMutationCapability,
+  ReadinessPreservationResult,
   ReadinessPreservationState,
   ReadinessPreservationStatus,
   ReadinessRealizability,
@@ -64,6 +79,7 @@ import type {
   ReadinessRiskKind,
   ReadinessRollbackContract,
   ReadinessSourceState,
+  ReadinessUnsupportedForm,
   ReadinessVerificationStatus,
   ReadinessVerificationStep,
   RollbackFile,
@@ -80,6 +96,10 @@ import type {
   OperatorFact,
   OperatorVerificationKind,
 } from "./operator-types";
+import type { WorkspaceCoverage } from "./workspace-types";
+
+const extractFailuresPattern = /\s+/g;
+const gitDirtyPattern = /^.* -> /;
 
 // V11.4 readiness assessment. Reads the plan, the repository, and the
 // mutator's capability registry; runs read-only baseline checks; answers
@@ -104,7 +124,7 @@ export interface OperatorReadinessContext {
 }
 
 /** Packages that must be analyzed before a mutation of this kind is authorized. */
-export const MUTATION_COVERAGE_REQUIREMENTS: MutationCoverageRequirement[] = [
+const MUTATION_COVERAGE_REQUIREMENTS: MutationCoverageRequirement[] = [
   { kind: "internalize", requiredPackages: "subject-only" },
   { kind: "move", requiredPackages: "source-target-consumers" },
   { kind: "rehome-concept", requiredPackages: "source-target-consumers" },
@@ -113,7 +133,7 @@ export const MUTATION_COVERAGE_REQUIREMENTS: MutationCoverageRequirement[] = [
   { kind: "preserve-boundary", requiredPackages: "all-participating" },
 ];
 
-export const V12_CONTRACT: string[] = [
+const V12_CONTRACT: string[] = [
   "V12 revalidates the authorization fingerprint immediately before the first write and aborts on any mismatch.",
   "V12 executes the authorized transformations only; it adds none, changes no destination, and chooses no compatibility strategy.",
   "V12 executes the plan as one transaction: a failed verification restores every snapshotted byte, deletes every created file, and recreates every deleted one.",
@@ -160,7 +180,13 @@ function hash16(parts: unknown[]): string {
 }
 
 function byId(a: string, b: string): number {
-  return a < b ? -1 : a > b ? 1 : 0;
+  if (a < b) {
+    return -1;
+  }
+  if (a > b) {
+    return 1;
+  }
+  return 0;
 }
 
 function uniq(values: string[]): string[] {
@@ -168,7 +194,7 @@ function uniq(values: string[]): string[] {
 }
 
 function isManifest(file: string): boolean {
-  return path.posix.basename(file) === "package.json";
+  return posix.basename(file) === "package.json";
 }
 
 function names(t: PlannedTransformation): string[] {
@@ -280,19 +306,12 @@ function gitDirty(root: string, enabled: boolean): string[] | undefined {
       })
         .toString()
         .trim();
-    const top = fs.realpathSync(run(["rev-parse", "--show-toplevel"]));
+    const top = realpathSync(run(["rev-parse", "--show-toplevel"]));
     return run(["status", "--porcelain", "--untracked-files=all"])
       .split("\n")
       .filter((line) => line.length > 3)
-      .map((line) =>
-        line
-          .slice(3)
-          .trim()
-          .replace(/^.* -> /, "")
-      )
-      .map((file) =>
-        path.relative(root, path.join(top, file)).split(path.sep).join("/")
-      )
+      .map((line) => line.slice(3).trim().replace(gitDirtyPattern, ""))
+      .map((file) => relative(root, join(top, file)).split(sep).join("/"))
       .filter((file) => !file.startsWith("../"));
   } catch {
     return undefined;
@@ -307,12 +326,7 @@ function sourceState(a: Assessment): ReadinessSourceState {
       actual,
       expected: f.hash,
       file: f.file,
-      status:
-        actual === f.hash
-          ? "unchanged"
-          : actual === "missing"
-            ? "missing"
-            : "changed",
+      status: resolveStatus(actual, f),
     };
   });
   const fingerprinted = new Set(states.map((s) => s.file));
@@ -366,6 +380,19 @@ function sourceState(a: Assessment): ReadinessSourceState {
     unchanged: states.every((s) => s.status === "unchanged"),
     unexpectedFiles,
   };
+}
+
+function resolveStatus(
+  actual: string,
+  f: OperatorPlanFileHash
+): "unchanged" | "missing" | "changed" {
+  if (actual === f.hash) {
+    return "unchanged";
+  }
+  if (actual === "missing") {
+    return "missing";
+  }
+  return "changed";
 }
 
 // ---------------------------------------------------------------------------
@@ -505,42 +532,45 @@ function consistency(a: Assessment): ReadinessConsistency {
 
   let noDestination = true;
   const moves = plan.transformations.filter((t) => MOVE_KINDS.has(t.kind));
-  for (const m of moves) {
-    const key = m.subject?.symbolId ?? m.subject?.moduleId;
-    const other = moves.find(
-      (o) =>
-        o !== m &&
-        (o.subject?.symbolId ?? o.subject?.moduleId) === key &&
-        o.after?.module !== m.after?.module
-    );
-    if (other !== undefined && key !== undefined) {
-      noDestination = false;
-      findings.block(
-        "transformation-conflict",
-        [m.id, other.id],
-        `${key} moves to both ${m.after?.module ?? "?"} and ${other.after?.module ?? "?"}`
+  const visitM2 = () => {
+    for (const m of moves) {
+      const key = m.subject?.symbolId ?? m.subject?.moduleId;
+      const other = moves.find(
+        (o) =>
+          o !== m &&
+          (o.subject?.symbolId ?? o.subject?.moduleId) === key &&
+          o.after?.module !== m.after?.module
       );
-    }
-    if (
-      m.kind === "move-symbol" &&
-      m.after?.module !== undefined &&
-      !a.created.includes(m.after.module) &&
-      m.subject?.symbolId !== undefined
-    ) {
-      const located = locateSymbol(
-        context.planning,
-        `${m.after.module}#${symbolName(m.subject.symbolId)}`
-      );
-      if (located.status !== "missing") {
+      if (other !== undefined && key !== undefined) {
         noDestination = false;
         findings.block(
           "transformation-conflict",
-          [m.id, m.after.module],
-          `${m.after.module} already declares ${symbolName(m.subject.symbolId)}; the move would collide`
+          [m.id, other.id],
+          `${key} moves to both ${m.after?.module ?? "?"} and ${other.after?.module ?? "?"}`
         );
       }
+      if (
+        m.kind === "move-symbol" &&
+        m.after?.module !== undefined &&
+        !a.created.includes(m.after.module) &&
+        m.subject?.symbolId !== undefined
+      ) {
+        const located = locateSymbol(
+          context.planning,
+          `${m.after.module}#${symbolName(m.subject.symbolId)}`
+        );
+        if (located.status !== "missing") {
+          noDestination = false;
+          findings.block(
+            "transformation-conflict",
+            [m.id, m.after.module],
+            `${m.after.module} already declares ${symbolName(m.subject.symbolId)}; the move would collide`
+          );
+        }
+      }
     }
-  }
+  };
+  visitM2();
 
   let noImports = true;
   const imports = plan.transformations.filter((t) => IMPORT_KINDS.has(t.kind));
@@ -589,42 +619,45 @@ function consistency(a: Assessment): ReadinessConsistency {
   const manifests = plan.transformations.filter(
     (t) => t.kind === "update-package-dependency"
   );
-  for (const m of manifests) {
-    const dependency = m.after?.dependency;
-    if (dependency === undefined) {
-      continue;
-    }
-    const clash = manifests.find(
-      (o) =>
-        o !== m &&
-        o.file === m.file &&
-        o.after?.dependency?.package === dependency.package &&
-        o.after.dependency.declared !== dependency.declared
-    );
-    if (clash !== undefined) {
-      noManifests = false;
-      findings.block(
-        "transformation-conflict",
-        [m.id, clash.id],
-        `${m.file} both adds and removes the dependency on ${dependency.package}`
+  const visitM = () => {
+    for (const m of manifests) {
+      const dependency = m.after?.dependency;
+      if (dependency === undefined) {
+        continue;
+      }
+      const clash = manifests.find(
+        (o) =>
+          o !== m &&
+          o.file === m.file &&
+          o.after?.dependency?.package === dependency.package &&
+          o.after.dependency.declared !== dependency.declared
       );
-    }
-    const pkg = [...context.planning.packages.values()].find(
-      (p) => p.manifest === m.file
-    );
-    if (pkg === undefined) {
-      continue;
-    }
-    const declared = pkg.dependencies.includes(dependency.package);
-    if (declared === dependency.declared && m.status !== "conditional") {
-      noManifests = false;
-      findings.block(
-        "transformation-conflict",
-        [m.id, m.file],
-        `${m.file} ${declared ? "already declares" : "does not declare"} ${dependency.package}; the manifest change no longer applies`
+      if (clash !== undefined) {
+        noManifests = false;
+        findings.block(
+          "transformation-conflict",
+          [m.id, clash.id],
+          `${m.file} both adds and removes the dependency on ${dependency.package}`
+        );
+      }
+      const pkg = [...context.planning.packages.values()].find(
+        (p) => p.manifest === m.file
       );
+      if (pkg === undefined) {
+        continue;
+      }
+      const declared = pkg.dependencies.includes(dependency.package);
+      if (declared === dependency.declared && m.status !== "conditional") {
+        noManifests = false;
+        findings.block(
+          "transformation-conflict",
+          [m.id, m.file],
+          `${m.file} ${declared ? "already declares" : "does not declare"} ${dependency.package}; the manifest change no longer applies`
+        );
+      }
     }
-  }
+  };
+  visitM();
 
   let noCoverage = plan.conflicts.length === 0;
   for (const c of plan.conflicts) {
@@ -634,18 +667,21 @@ function consistency(a: Assessment): ReadinessConsistency {
       `${c.kind}: ${c.detail}`
     );
   }
-  for (const r of plan.realizations) {
-    for (const id of r.transformations) {
-      if (!idSet.has(id)) {
-        noCoverage = false;
-        findings.block(
-          "transformation-conflict",
-          [r.actionId, id],
-          `realization of ${r.actionId} names ${id}, which the plan does not contain`
-        );
+  const visitR4 = () => {
+    for (const r of plan.realizations) {
+      for (const id of r.transformations) {
+        if (!idSet.has(id)) {
+          noCoverage = false;
+          findings.block(
+            "transformation-conflict",
+            [r.actionId, id],
+            `realization of ${r.actionId} names ${id}, which the plan does not contain`
+          );
+        }
       }
     }
-  }
+  };
+  visitR4();
 
   const problems =
     a.fresh === undefined ? ["no fresh plan"] : comparePlans(plan, a.fresh);
@@ -711,6 +747,22 @@ function movedEntities(t: PlannedTransformation): string[] {
 function preservationChecks(a: Assessment): void {
   const { plan, context, findings } = a;
   const moves = plan.transformations.filter((t) => MOVE_KINDS.has(t.kind));
+  preservationChecksKind(context, findings, moves, plan);
+  for (const op of a.operators.values()) {
+    for (const c of op.constraints) {
+      if (c.kind === "anchor" && c.effect === "blocking") {
+        findings.block("anchor-violation", c.entityIds, c.detail);
+      }
+    }
+  }
+}
+
+function preservationChecksKind(
+  context: OperatorReadinessContext,
+  findings: Findings,
+  moves: PlannedTransformation[],
+  plan: OperatorExecutionPlan
+) {
   for (const kind of [
     "anchor",
     "representation-boundary",
@@ -724,24 +776,7 @@ function preservationChecks(a: Assessment): void {
       continue;
     }
     const violated: string[] = [];
-    for (const p of preservations) {
-      for (const m of moves) {
-        if (overlapping(movedEntities(m), p.entityIds)) {
-          violated.push(`${p.preservationId}←${m.id}`);
-        }
-      }
-      if (kind === "implementation-split") {
-        for (const r of plan.relocations) {
-          if (
-            r.conceptId !== undefined &&
-            p.entityIds.includes(r.conceptId) &&
-            r.members.some((m) => m.role === "implementation")
-          ) {
-            violated.push(`${p.preservationId}←${r.actionId}`);
-          }
-        }
-      }
-    }
+    preservationChecksKindP(preservations, moves, violated, kind, plan);
     const entities = uniq(violated);
     findings.check(
       kind,
@@ -759,10 +794,30 @@ function preservationChecks(a: Assessment): void {
       );
     }
   }
-  for (const op of a.operators.values()) {
-    for (const c of op.constraints) {
-      if (c.kind === "anchor" && c.effect === "blocking") {
-        findings.block("anchor-violation", c.entityIds, c.detail);
+}
+
+function preservationChecksKindP(
+  preservations: CompositionPreservation[],
+  moves: PlannedTransformation[],
+  violated: string[],
+  kind: string,
+  plan: OperatorExecutionPlan
+) {
+  for (const p of preservations) {
+    for (const m of moves) {
+      if (overlapping(movedEntities(m), p.entityIds)) {
+        violated.push(`${p.preservationId}←${m.id}`);
+      }
+    }
+    if (kind === "implementation-split") {
+      for (const r of plan.relocations) {
+        if (
+          r.conceptId !== undefined &&
+          p.entityIds.includes(r.conceptId) &&
+          r.members.some((m) => m.role === "implementation")
+        ) {
+          violated.push(`${p.preservationId}←${r.actionId}`);
+        }
       }
     }
   }
@@ -793,62 +848,60 @@ function surfaceChecks(a: Assessment): void {
   );
   const unresolved: string[] = [];
   const breaking: string[] = [];
-  for (const r of removals) {
-    const symbol = r.subject?.symbolId;
-    // Only a compatibility export at the old route, or a new export in the
-    // same barrel, keeps the old path alive; an export in the target's
-    // barrel is the new path, not the old one.
-    const preservedElsewhere = compat.some(
-      (c) =>
-        (c.kind === "preserve-compatibility-export" || c.file === r.file) &&
-        (c.subject?.symbolId === symbol ||
-          overlapping(c.after?.names ?? [], r.before?.names ?? []))
-    );
-    if (preservedElsewhere) {
-      continue;
-    }
-    const operators = operatorsOf(a, r);
-    const intended = operators.some(
-      (op) =>
-        op.kind === "internalize" ||
-        !op.preservations.some(
-          (p) =>
-            (p.kind === "consumer-import-path" ||
-              p.kind === "public-contract") &&
-            (symbol === undefined || p.entityIds.includes(symbol))
-        )
-    );
-    if (intended) {
-      breaking.push(r.id);
-    } else {
-      unresolved.push(r.id);
-    }
-  }
-  for (const r of plan.relocations) {
-    if (r.strategy === "breaking-relocation") {
-      unresolved.push(r.actionId);
-    }
-    if (r.strategy === "unresolved") {
-      findings.block(
-        "plan-incomplete",
-        [r.actionId],
-        `${r.actionId} has no surface strategy yet`
+  const visitR2 = () => {
+    for (const r of removals) {
+      const symbol = r.subject?.symbolId;
+      // Only a compatibility export at the old route, or a new export in the
+      // same barrel, keeps the old path alive; an export in the target's
+      // barrel is the new path, not the old one.
+      const preservedElsewhere = compat.some(
+        (c) =>
+          (c.kind === "preserve-compatibility-export" || c.file === r.file) &&
+          (c.subject?.symbolId === symbol ||
+            overlapping(c.after?.names ?? [], r.before?.names ?? []))
       );
+      if (preservedElsewhere) {
+        continue;
+      }
+      const operators = operatorsOf(a, r);
+      const intended = operators.some(
+        (op) =>
+          op.kind === "internalize" ||
+          !op.preservations.some(
+            (p) =>
+              (p.kind === "consumer-import-path" ||
+                p.kind === "public-contract") &&
+              (symbol === undefined || p.entityIds.includes(symbol))
+          )
+      );
+      if (intended) {
+        breaking.push(r.id);
+      } else {
+        unresolved.push(r.id);
+      }
     }
-  }
+  };
+  visitR2();
+  const visitR3 = () => {
+    for (const r of plan.relocations) {
+      if (r.strategy === "breaking-relocation") {
+        unresolved.push(r.actionId);
+      }
+      if (r.strategy === "unresolved") {
+        findings.block(
+          "plan-incomplete",
+          [r.actionId],
+          `${r.actionId} has no surface strategy yet`
+        );
+      }
+    }
+  };
+  visitR3();
   findings.check(
     "public-surface",
-    removals.length === 0 && plan.relocations.length === 0
-      ? "not-applicable"
-      : unresolved.length === 0
-        ? "pass"
-        : "fail",
+    resolveSurfaceChecks(removals, plan, unresolved),
     uniq([...unresolved, ...breaking]),
-    unresolved.length === 0
-      ? breaking.length === 0
-        ? "every removed exposure is re-established by a compatibility export or the plan touches no entrypoint"
-        : `${breaking.length} exposure(s) leave the public surface by operator intent`
-      : `${unresolved.length} exposure(s) disappear without operator intent or compatibility export`
+    resolveSurfaceChecks2(unresolved, breaking)
   );
   for (const id of unresolved) {
     findings.block(
@@ -900,9 +953,36 @@ function surfaceChecks(a: Assessment): void {
   }
 }
 
+function resolveSurfaceChecks2(
+  unresolved: string[],
+  breaking: string[]
+): string {
+  if (unresolved.length === 0) {
+    if (breaking.length === 0) {
+      return "every removed exposure is re-established by a compatibility export or the plan touches no entrypoint";
+    }
+    return `${breaking.length} exposure(s) leave the public surface by operator intent`;
+  }
+  return `${unresolved.length} exposure(s) disappear without operator intent or compatibility export`;
+}
+
+function resolveSurfaceChecks(
+  removals: PlannedTransformation[],
+  plan: OperatorExecutionPlan,
+  unresolved: string[]
+): ReadinessConstraintResult {
+  if (removals.length === 0 && plan.relocations.length === 0) {
+    return "not-applicable";
+  }
+  if (unresolved.length === 0) {
+    return "pass";
+  }
+  return "fail";
+}
+
 function dependencyChecks(a: Assessment): void {
   const { plan, context, findings } = a;
-  const planning = context.planning;
+  const { planning } = context;
 
   const mismatched = plan.transformations.filter(
     (t) =>
@@ -970,21 +1050,26 @@ function dependencyChecks(a: Assessment): void {
     return from === undefined || to === undefined ? [] : [{ from, to }];
   });
   const missing: string[] = [];
-  for (const t of plan.transformations) {
-    if (!IMPORT_KINDS.has(t.kind)) {
-      continue;
+  const visitT = () => {
+    for (const t of plan.transformations) {
+      if (!IMPORT_KINDS.has(t.kind)) {
+        continue;
+      }
+      const from = packageOfFile(planning, t.file);
+      const to = t.after?.package;
+      if (from === undefined || to === undefined || from === to) {
+        continue;
+      }
+      const declared =
+        planning.packages.get(from)?.dependencies.includes(to) ?? false;
+      if (
+        !(declared || addedEdges.some((e) => e.from === from && e.to === to))
+      ) {
+        missing.push(`${from}→${to}`);
+      }
     }
-    const from = packageOfFile(planning, t.file);
-    const to = t.after?.package;
-    if (from === undefined || to === undefined || from === to) {
-      continue;
-    }
-    const declared =
-      planning.packages.get(from)?.dependencies.includes(to) ?? false;
-    if (!(declared || addedEdges.some((e) => e.from === from && e.to === to))) {
-      missing.push(`${from}→${to}`);
-    }
-  }
+  };
+  visitT();
   const removals = plan.transformations.filter(
     (t) =>
       t.kind === "update-package-dependency" &&
@@ -993,26 +1078,111 @@ function dependencyChecks(a: Assessment): void {
   );
   const stillImported: string[] = [];
   const edges = packageImportEdges(planning);
-  for (const t of removals) {
-    const from = [...planning.packages.values()].find(
-      (p) => p.manifest === t.file
-    )?.id;
-    const to = t.after?.dependency?.package;
-    if (from === undefined || to === undefined) {
-      continue;
+  const visitT2 = () => {
+    for (const t of removals) {
+      const from = [...planning.packages.values()].find(
+        (p) => p.manifest === t.file
+      )?.id;
+      const to = t.after?.dependency?.package;
+      if (from === undefined || to === undefined) {
+        continue;
+      }
+      const sites =
+        edges.find((e) => e.from === from && e.to === to)?.sites ?? 0;
+      const rewritten = plan.transformations.filter(
+        (x) =>
+          IMPORT_KINDS.has(x.kind) &&
+          packageOfFile(planning, x.file) === from &&
+          x.before?.package === to &&
+          x.after?.package !== to
+      ).length;
+      if (sites > rewritten) {
+        stillImported.push(`${from}→${to}`);
+      }
     }
-    const sites = edges.find((e) => e.from === from && e.to === to)?.sites ?? 0;
-    const rewritten = plan.transformations.filter(
-      (x) =>
-        IMPORT_KINDS.has(x.kind) &&
-        packageOfFile(planning, x.file) === from &&
-        x.before?.package === to &&
-        x.after?.package !== to
-    ).length;
-    if (sites > rewritten) {
-      stillImported.push(`${from}→${to}`);
+  };
+  visitT2();
+  collectCycles(findings, missing, stillImported, edges, addedEdges, plan);
+
+  const moduleCycles: string[] = [];
+  const visitR = () => {
+    for (const r of plan.relocations) {
+      if (
+        r.sourceModule === undefined ||
+        r.targetModule === undefined ||
+        r.closure === undefined ||
+        a.created.includes(r.targetModule)
+      ) {
+        continue;
+      }
+      const needsSource = r.closure.externalDependencies.some(
+        (d) =>
+          d.class === "import-from-source-package" &&
+          d.id.startsWith(`${r.sourceModule ?? ""}#`)
+      );
+      if (!needsSource) {
+        continue;
+      }
+      const target = sourceFileOf(planning, r.targetModule);
+      const source = sourceFileOf(planning, r.sourceModule);
+      if (target === undefined || source === undefined) {
+        continue;
+      }
+      const imports = target
+        .getImportDeclarations()
+        .some((d) => d.getModuleSpecifierSourceFile() === source);
+      if (imports) {
+        moduleCycles.push(`${r.sourceModule}↔${r.targetModule}`);
+      }
     }
+  };
+  visitR();
+  const deletedTargets = plan.transformations.filter(
+    (t) =>
+      IMPORT_KINDS.has(t.kind) &&
+      t.after?.module !== undefined &&
+      a.deleted.includes(t.after.module)
+  );
+  findings.check(
+    "module-cycle",
+    resolveDependencyChecks2(plan, deletedTargets, moduleCycles),
+    uniq([...moduleCycles, ...deletedTargets.map((t) => t.id)]),
+    moduleCycles.length === 0 && deletedTargets.length === 0
+      ? "no relocation closes a module cycle and no import lands on a deleted module"
+      : `${moduleCycles.length} module cycle(s); ${deletedTargets.length} import(s) land on a deleted module`
+  );
+  for (const cycle of uniq(moduleCycles)) {
+    findings.block(
+      "dependency-cycle",
+      cycle.split("↔"),
+      `the moved declarations still need ${cycle.split("↔")[0] ?? ""} while ${cycle.split("↔")[1] ?? ""} already imports it: a module cycle`
+    );
   }
+  for (const t of deletedTargets) {
+    findings.block(
+      "transformation-conflict",
+      [t.id],
+      `${t.file} would import ${t.after?.module ?? ""}, which the plan deletes`
+    );
+  }
+  if (moduleCycles.length > 0) {
+    findings.risk(
+      "module-cycle-change",
+      uniq(moduleCycles.flatMap((c) => c.split("↔"))),
+      "the relocation would close a module cycle",
+      true
+    );
+  }
+}
+
+function collectCycles(
+  findings: Findings,
+  missing: string[],
+  stillImported: string[],
+  edges: PackageImportEdge[],
+  addedEdges: { from: string; to: string }[],
+  plan: OperatorExecutionPlan
+) {
   findings.check(
     "package-dependency",
     missing.length === 0 && stillImported.length === 0 ? "pass" : "fail",
@@ -1044,11 +1214,7 @@ function dependencyChecks(a: Assessment): void {
   );
   findings.check(
     "package-cycle",
-    addedEdges.length === 0 && planCycle.length === 0
-      ? "not-applicable"
-      : cycles.length === 0 && planCycle.length === 0
-        ? "pass"
-        : "fail",
+    resolveDependencyChecks(addedEdges, planCycle, cycles),
     uniq([...cycles.flat(), ...planCycle.flatMap((b) => b.entities)]),
     cycles.length === 0 && planCycle.length === 0
       ? "the added package edges close no cycle"
@@ -1072,77 +1238,34 @@ function dependencyChecks(a: Assessment): void {
       true
     );
   }
+}
 
-  const moduleCycles: string[] = [];
-  for (const r of plan.relocations) {
-    if (
-      r.sourceModule === undefined ||
-      r.targetModule === undefined ||
-      r.closure === undefined ||
-      a.created.includes(r.targetModule)
-    ) {
-      continue;
-    }
-    const needsSource = r.closure.externalDependencies.some(
-      (d) =>
-        d.class === "import-from-source-package" &&
-        d.id.startsWith(`${r.sourceModule ?? ""}#`)
-    );
-    if (!needsSource) {
-      continue;
-    }
-    const target = sourceFileOf(planning, r.targetModule);
-    const source = sourceFileOf(planning, r.sourceModule);
-    if (target === undefined || source === undefined) {
-      continue;
-    }
-    const imports = target
-      .getImportDeclarations()
-      .some((d) => d.getModuleSpecifierSourceFile() === source);
-    if (imports) {
-      moduleCycles.push(`${r.sourceModule}↔${r.targetModule}`);
-    }
+function resolveDependencyChecks2(
+  plan: OperatorExecutionPlan,
+  deletedTargets: PlannedTransformation[],
+  moduleCycles: string[]
+): ReadinessConstraintResult {
+  if (plan.relocations.length === 0 && deletedTargets.length === 0) {
+    return "not-applicable";
   }
-  const deletedTargets = plan.transformations.filter(
-    (t) =>
-      IMPORT_KINDS.has(t.kind) &&
-      t.after?.module !== undefined &&
-      a.deleted.includes(t.after.module)
-  );
-  findings.check(
-    "module-cycle",
-    plan.relocations.length === 0 && deletedTargets.length === 0
-      ? "not-applicable"
-      : moduleCycles.length === 0 && deletedTargets.length === 0
-        ? "pass"
-        : "fail",
-    uniq([...moduleCycles, ...deletedTargets.map((t) => t.id)]),
-    moduleCycles.length === 0 && deletedTargets.length === 0
-      ? "no relocation closes a module cycle and no import lands on a deleted module"
-      : `${moduleCycles.length} module cycle(s); ${deletedTargets.length} import(s) land on a deleted module`
-  );
-  for (const cycle of uniq(moduleCycles)) {
-    findings.block(
-      "dependency-cycle",
-      cycle.split("↔"),
-      `the moved declarations still need ${cycle.split("↔")[0] ?? ""} while ${cycle.split("↔")[1] ?? ""} already imports it: a module cycle`
-    );
+  if (moduleCycles.length === 0 && deletedTargets.length === 0) {
+    return "pass";
   }
-  for (const t of deletedTargets) {
-    findings.block(
-      "transformation-conflict",
-      [t.id],
-      `${t.file} would import ${t.after?.module ?? ""}, which the plan deletes`
-    );
+  return "fail";
+}
+
+function resolveDependencyChecks(
+  addedEdges: { from: string; to: string }[],
+  planCycle: OperatorPlanBlocker[],
+  cycles: string[][]
+): ReadinessConstraintResult {
+  if (addedEdges.length === 0 && planCycle.length === 0) {
+    return "not-applicable";
   }
-  if (moduleCycles.length > 0) {
-    findings.risk(
-      "module-cycle-change",
-      uniq(moduleCycles.flatMap((c) => c.split("↔"))),
-      "the relocation would close a module cycle",
-      true
-    );
+  if (cycles.length === 0 && planCycle.length === 0) {
+    return "pass";
   }
+  return "fail";
 }
 
 function sideEffectChecks(a: Assessment): string[] {
@@ -1158,11 +1281,7 @@ function sideEffectChecks(a: Assessment): string[] {
   });
   findings.check(
     "side-effects",
-    modules.length === 0
-      ? "not-applicable"
-      : affected.length === 0
-        ? "pass"
-        : "fail",
+    resolveSideEffectChecks(modules, affected),
     affected,
     affected.length === 0
       ? "no moved declaration leaves a module with top-level execution"
@@ -1184,6 +1303,19 @@ function sideEffectChecks(a: Assessment): string[] {
   return affected;
 }
 
+function resolveSideEffectChecks(
+  modules: string[],
+  affected: string[]
+): ReadinessConstraintResult {
+  if (modules.length === 0) {
+    return "not-applicable";
+  }
+  if (affected.length === 0) {
+    return "pass";
+  }
+  return "fail";
+}
+
 function subjectPackages(op: ArchitecturalOperator): string[] {
   const { subject } = op;
   switch (subject.kind) {
@@ -1199,6 +1331,8 @@ function subjectPackages(op: ArchitecturalOperator): string[] {
       return op.placement.current?.package === undefined
         ? []
         : [op.placement.current.package];
+    default:
+      throw new Error("Unexpected subject.kind.");
   }
 }
 
@@ -1246,13 +1380,15 @@ function requiredPackages(
       return uniq(
         context.facts.projection.workspace.packages.packages.map((p) => p.id)
       );
+    default:
+      throw new Error("Unexpected scope.");
   }
 }
 
 function coverageChecks(a: Assessment): void {
   const { context, findings } = a;
   const known = context.facts.projection.workspace.packages.packages;
-  const coverage = context.facts.projection.workspace.ingestion.coverage;
+  const { coverage } = context.facts.projection.workspace.ingestion;
   const unanalyzed: string[] = [];
   for (const op of a.operators.values()) {
     const scope =
@@ -1269,11 +1405,7 @@ function coverageChecks(a: Assessment): void {
     "coverage",
     missing.length === 0 ? "pass" : "fail",
     missing,
-    missing.length === 0
-      ? coverage.complete
-        ? "every workspace package is analyzed"
-        : "every package the operators require is analyzed; workspace coverage is partial elsewhere"
-      : `${missing.join(", ")} must be analyzed for this operator kind and are not`
+    resolveCoverageChecks(missing, coverage)
   );
   for (const pkg of missing) {
     findings.block(
@@ -1303,22 +1435,41 @@ const CONFORMANCE_BLOCKING_KINDS = new Set<ArchitecturalOperatorKind>([
   "move",
 ]);
 
+function resolveCoverageChecks(
+  missing: string[],
+  coverage: WorkspaceCoverage
+): string {
+  if (missing.length === 0) {
+    if (coverage.complete) {
+      return "every workspace package is analyzed";
+    }
+    return "every package the operators require is analyzed; workspace coverage is partial elsewhere";
+  }
+  return `${missing.join(", ")} must be analyzed for this operator kind and are not`;
+}
+
 function conformanceChecks(a: Assessment): void {
   const { findings } = a;
   const blocking: string[] = [];
   const observed: string[] = [];
-  for (const op of a.operators.values()) {
-    for (const c of op.constraints) {
-      if (c.kind !== "structural-conformance-unknown") {
-        continue;
-      }
-      if (c.effect === "blocking" || CONFORMANCE_BLOCKING_KINDS.has(op.kind)) {
-        blocking.push(...c.entityIds);
-      } else {
-        observed.push(...c.entityIds);
+  const visitOp = () => {
+    for (const op of a.operators.values()) {
+      for (const c of op.constraints) {
+        if (c.kind !== "structural-conformance-unknown") {
+          continue;
+        }
+        if (
+          c.effect === "blocking" ||
+          CONFORMANCE_BLOCKING_KINDS.has(op.kind)
+        ) {
+          blocking.push(...c.entityIds);
+        } else {
+          observed.push(...c.entityIds);
+        }
       }
     }
-  }
+  };
+  visitOp();
   for (const b of a.plan.blockers) {
     if (b.kind === "structural-conformance-unknown") {
       blocking.push(...b.entities);
@@ -1327,17 +1478,9 @@ function conformanceChecks(a: Assessment): void {
   const entities = uniq([...blocking, ...observed]);
   findings.check(
     "structural-conformance",
-    entities.length === 0
-      ? "not-applicable"
-      : blocking.length === 0
-        ? "pass"
-        : "fail",
+    resolveConformanceChecks(entities, blocking),
     entities,
-    entities.length === 0
-      ? "no operator depends on unobserved interface conformance"
-      : blocking.length === 0
-        ? "conformance is unobserved but the operator kind does not depend on it"
-        : `${uniq(blocking).join(", ")} may have unseen structural implementations the relocation would miss`
+    resolveConformanceChecks2(entities, blocking)
   );
   for (const entity of uniq(blocking)) {
     findings.block(
@@ -1361,6 +1504,32 @@ function conformanceChecks(a: Assessment): void {
       blocking.length > 0
     );
   }
+}
+
+function resolveConformanceChecks2(
+  entities: string[],
+  blocking: string[]
+): string {
+  if (entities.length === 0) {
+    return "no operator depends on unobserved interface conformance";
+  }
+  if (blocking.length === 0) {
+    return "conformance is unobserved but the operator kind does not depend on it";
+  }
+  return `${uniq(blocking).join(", ")} may have unseen structural implementations the relocation would miss`;
+}
+
+function resolveConformanceChecks(
+  entities: string[],
+  blocking: string[]
+): ReadinessConstraintResult {
+  if (entities.length === 0) {
+    return "not-applicable";
+  }
+  if (blocking.length === 0) {
+    return "pass";
+  }
+  return "fail";
 }
 
 function carryPlanBlockers(a: Assessment): void {
@@ -1400,6 +1569,8 @@ function carryPlanBlockers(a: Assessment): void {
           `${b.kind}: ${b.detail}`
         );
         break;
+      default:
+        throw new Error("Unexpected b.kind.");
     }
   }
   if (plan.status === "stale" && !findings.has("source-stale")) {
@@ -1436,6 +1607,59 @@ function realizability(
   const unsupported: ReadinessRealizability["unsupportedSyntaxForms"] = [];
   const supportedForms = new Set<string>();
   let supported = 0;
+  supported = realizabilityT(
+    plan,
+    registry,
+    matrix,
+    unsupported,
+    findings,
+    supported,
+    supportedForms
+  );
+  const closures = plan.relocations.map((r) => ({
+    actionId: r.actionId,
+    complete: r.closure?.complete ?? r.granularity !== "unresolved",
+    sharedInternalSymbols: r.closure?.sharedInternalSymbols ?? [],
+  }));
+  for (const c of closures) {
+    if (!c.complete) {
+      findings.block(
+        "plan-incomplete",
+        [c.actionId, ...c.sharedInternalSymbols],
+        `${c.actionId}: the movement closure is incomplete (${c.sharedInternalSymbols.join(", ") || "unresolved target"})`
+      );
+    }
+  }
+  return {
+    closures: closures.sort((x, y) => byId(x.actionId, y.actionId)),
+    mutationCapabilities: [...matrix.values()].sort(
+      (x, y) =>
+        byId(x.transformationKind, y.transformationKind) || byId(x.form, y.form)
+    ),
+    realizable:
+      unsupported.length === 0 &&
+      closures.every((c) => c.complete) &&
+      sideEffectModules.length === 0,
+    sideEffectModules,
+    supportedSyntaxForms: uniq([...supportedForms]),
+    supportedTransformations: supported,
+    unsupportedSyntaxForms: unsupported.sort((x, y) =>
+      byId(x.transformationId, y.transformationId)
+    ),
+    unsupportedTransformations: unsupported.length,
+  };
+}
+
+function realizabilityT(
+  plan: OperatorExecutionPlan,
+  registry: MutationCapabilityRegistry,
+  matrix: Map<string, ReadinessMutationCapability>,
+  unsupported: ReadinessUnsupportedForm[],
+  findings: Findings,
+  initialSupported: number,
+  supportedForms: Set<string>
+) {
+  let supported = initialSupported;
   for (const t of plan.transformations) {
     const form = t.form ?? "(none)";
     const lookup = lookupCapability(registry, t.kind, t.form);
@@ -1490,38 +1714,7 @@ function realizability(
     supported += 1;
     supportedForms.add(form);
   }
-  const closures = plan.relocations.map((r) => ({
-    actionId: r.actionId,
-    complete: r.closure?.complete ?? r.granularity !== "unresolved",
-    sharedInternalSymbols: r.closure?.sharedInternalSymbols ?? [],
-  }));
-  for (const c of closures) {
-    if (!c.complete) {
-      findings.block(
-        "plan-incomplete",
-        [c.actionId, ...c.sharedInternalSymbols],
-        `${c.actionId}: the movement closure is incomplete (${c.sharedInternalSymbols.join(", ") || "unresolved target"})`
-      );
-    }
-  }
-  return {
-    closures: closures.sort((x, y) => byId(x.actionId, y.actionId)),
-    mutationCapabilities: [...matrix.values()].sort(
-      (x, y) =>
-        byId(x.transformationKind, y.transformationKind) || byId(x.form, y.form)
-    ),
-    realizable:
-      unsupported.length === 0 &&
-      closures.every((c) => c.complete) &&
-      sideEffectModules.length === 0,
-    sideEffectModules,
-    supportedSyntaxForms: uniq([...supportedForms]),
-    supportedTransformations: supported,
-    unsupportedSyntaxForms: unsupported.sort((x, y) =>
-      byId(x.transformationId, y.transformationId)
-    ),
-    unsupportedTransformations: unsupported.length,
-  };
+  return supported;
 }
 
 // ---------------------------------------------------------------------------
@@ -1555,14 +1748,7 @@ function preservation(a: Assessment): ReadinessPreservationStatus {
         );
       }
       return {
-        detail:
-          status === "violated"
-            ? "a planned transformation moves what this preservation keeps"
-            : status === "transformed"
-              ? "carried out by a transformation"
-              : status === "proven"
-                ? "proven by a verification step"
-                : "no transformation and no proof",
+        detail: resolveDetail(status),
         kind: p.kind,
         preservationId: p.preservationId,
         status,
@@ -1599,6 +1785,25 @@ interface ManifestScripts {
   scripts?: Record<string, string>;
 }
 
+function resolveDetail(
+  status: ReadinessPreservationResult
+):
+  | "a planned transformation moves what this preservation keeps"
+  | "carried out by a transformation"
+  | "proven by a verification step"
+  | "no transformation and no proof" {
+  if (status === "violated") {
+    return "a planned transformation moves what this preservation keeps";
+  }
+  if (status === "transformed") {
+    return "carried out by a transformation";
+  }
+  if (status === "proven") {
+    return "proven by a verification step";
+  }
+  return "no transformation and no proof";
+}
+
 function hasScript(
   a: Assessment,
   pkg: string,
@@ -1609,7 +1814,7 @@ function hasScript(
     return undefined;
   }
   const manifest = JSON.parse(
-    fs.readFileSync(path.join(entry.dir, "package.json"), "utf8")
+    readFileSync(join(entry.dir, "package.json"), "utf8")
   ) as ManifestScripts;
   return manifest.scripts?.[script] === undefined
     ? undefined
@@ -1689,6 +1894,8 @@ function resolveSteps(a: Assessment): ReadinessVerificationStep[] {
           query: `${step.kind}:${step.scope.join(",")}`,
         });
         break;
+      default:
+        throw new Error("Unexpected step.kind.");
     }
   }
   const ids = new Set(steps.map((s) => s.id));
@@ -1742,24 +1949,24 @@ function extractFailures(
         const match = TSC_LINE.exec(line.trim());
         return match === null
           ? []
-          : [`${path.posix.join(cwd, match[1] ?? "")}|${match[2] ?? ""}`];
+          : [`${posix.join(cwd, match[1] ?? "")}|${match[2] ?? ""}`];
       })
     );
   }
   return uniq(
     lines
       .filter((line) => FAILURE_LINE.test(line))
-      .map((line) => line.trim().replace(/\s+/g, " "))
+      .map((line) => line.trim().replace(extractFailuresPattern, " "))
   );
 }
 
-export function spawnRunner(
+function spawnRunner(
   command: ReadinessCommand,
   root: string
 ): { exitCode: number; output: string } {
   try {
     const output = execFileSync(command.executable, command.args, {
-      cwd: path.resolve(root, command.cwd),
+      cwd: resolve(root, command.cwd),
       env: { ...process.env, CI: "1" },
       maxBuffer: 64 * 1024 * 1024,
       stdio: ["ignore", "pipe", "pipe"],
@@ -1800,6 +2007,18 @@ function baseline(
   const allowances = a.context.allowances ?? [];
   const runner = a.context.runner ?? spawnRunner;
   const checks: ReadinessBaselineCheck[] = [];
+  baselineStep(steps, checks, a, runner, allowances, findings);
+  return checks;
+}
+
+function baselineStep(
+  steps: ReadinessVerificationStep[],
+  checks: ReadinessBaselineCheck[],
+  a: Assessment,
+  runner: ReadinessCommandRunner,
+  allowances: VerificationBaselineAllowance[],
+  findings: Findings
+) {
   for (const step of steps) {
     if (step.kind !== "typecheck" && step.kind !== "tests") {
       continue;
@@ -1826,12 +2045,8 @@ function baseline(
         step.kind,
         step.command.cwd
       );
-      const failures =
-        ran.exitCode === 0
-          ? []
-          : extracted.length > 0
-            ? extracted
-            : [`exit ${ran.exitCode}`];
+
+      const failures: string[] = baselineStepEntries(ran, extracted);
       result = { exitCode: ran.exitCode, failures };
     }
     if (result.exitCode === 0) {
@@ -1874,7 +2089,21 @@ function baseline(
       `${step.kind} over ${step.scope.join(", ")} already fails (${result.failures.length} failure(s) without allowance); post-mutation failures could not be attributed`
     );
   }
-  return checks;
+}
+
+function baselineStepEntries(
+  ran: { exitCode: number; output: string },
+  extracted: string[]
+): string[] {
+  let failures: string[];
+  if (ran.exitCode === 0) {
+    failures = [];
+  } else if (extracted.length > 0) {
+    failures = extracted;
+  } else {
+    failures = [`exit ${ran.exitCode}`];
+  }
+  return failures;
 }
 
 function assertions(a: Assessment): ReadinessArchitecturalAssertion[] {
@@ -1979,25 +2208,25 @@ function verification(
 
 function readable(absolute: string): boolean {
   try {
-    fs.accessSync(absolute, fs.constants.R_OK);
-    return fs.statSync(absolute).isFile();
+    accessSync(absolute, constants.R_OK);
+    return statSync(absolute).isFile();
   } catch {
     return false;
   }
 }
 
 function writableAncestor(absolute: string): boolean {
-  let dir = path.dirname(absolute);
+  let dir = dirname(absolute);
   for (;;) {
-    if (fs.existsSync(dir)) {
+    if (existsSync(dir)) {
       try {
-        fs.accessSync(dir, fs.constants.W_OK);
+        accessSync(dir, constants.W_OK);
         return true;
       } catch {
         return false;
       }
     }
-    const parent = path.dirname(dir);
+    const parent = dirname(dir);
     if (parent === dir) {
       return false;
     }
@@ -2007,7 +2236,7 @@ function writableAncestor(absolute: string): boolean {
 
 function rollback(a: Assessment): ReadinessRollbackContract {
   const { plan, context, findings } = a;
-  const root = context.planning.root;
+  const { root } = context.planning;
   const files: RollbackFile[] = [];
   const seen = new Set<string>();
   const add = (file: string, action: RollbackFile["action"]) => {
@@ -2015,7 +2244,7 @@ function rollback(a: Assessment): ReadinessRollbackContract {
       return;
     }
     seen.add(file);
-    const absolute = path.resolve(root, file);
+    const absolute = resolve(root, file);
     const hash = hashFile(context.planning, file);
     if (action === "delete") {
       const absent = hash === "missing";
@@ -2025,13 +2254,7 @@ function rollback(a: Assessment): ReadinessRollbackContract {
         file,
         hash: "absent",
         restorable: ok,
-        ...(ok
-          ? {}
-          : {
-              detail: absent
-                ? "no writable ancestor directory"
-                : "the file already exists, so deleting it would not restore the prior state",
-            }),
+        ...resolveAdd(ok, absent),
       });
       return;
     }
@@ -2042,14 +2265,7 @@ function rollback(a: Assessment): ReadinessRollbackContract {
       file,
       hash,
       restorable: ok,
-      ...(ok
-        ? {}
-        : {
-            detail:
-              hash === "missing"
-                ? "the file does not exist, so its bytes cannot be snapshotted"
-                : "the file or its directory is not accessible for restore",
-          }),
+      ...resolveAdd2(ok, hash),
     });
   };
   for (const file of a.deleted) {
@@ -2088,6 +2304,29 @@ function rollback(a: Assessment): ReadinessRollbackContract {
     files: files.filter((f) => !isManifest(f.file)),
     manifests: files.filter((f) => isManifest(f.file)),
     strategy: complete ? "byte-snapshot" : "unsupported",
+  };
+}
+
+function resolveAdd2(ok: boolean, hash: string): { detail?: string } {
+  if (ok) {
+    return {};
+  }
+  return {
+    detail:
+      hash === "missing"
+        ? "the file does not exist, so its bytes cannot be snapshotted"
+        : "the file or its directory is not accessible for restore",
+  };
+}
+
+function resolveAdd(ok: boolean, absent: boolean): { detail?: string } {
+  if (ok) {
+    return {};
+  }
+  return {
+    detail: absent
+      ? "no writable ancestor directory"
+      : "the file already exists, so deleting it would not restore the prior state",
   };
 }
 

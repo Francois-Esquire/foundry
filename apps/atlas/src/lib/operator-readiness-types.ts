@@ -34,11 +34,7 @@ export type MutationAuthorization =
   | "blocked"
   | "unsupported";
 
-export type ReadinessFileStatus =
-  | "unchanged"
-  | "changed"
-  | "missing"
-  | "unexpected";
+type ReadinessFileStatus = "unchanged" | "changed" | "missing" | "unexpected";
 
 export interface ReadinessFileState {
   actual: string;
@@ -48,7 +44,7 @@ export interface ReadinessFileState {
   status: ReadinessFileStatus;
 }
 
-export interface ReadinessGitState {
+interface ReadinessGitState {
   available: boolean;
   /** Planned files with uncommitted changes whose bytes still match the plan. */
   plannedDirty: string[];
@@ -149,7 +145,7 @@ export interface ReadinessMutationCapability {
   transformationKind: PlannedTransformationKind;
 }
 
-export interface ReadinessClosureState {
+interface ReadinessClosureState {
   actionId: string;
   complete: boolean;
   sharedInternalSymbols: string[];
@@ -195,7 +191,7 @@ export interface ReadinessCommand {
   expectedExitCode: number;
 }
 
-export type ReadinessVerificationMode = "command" | "analyzer" | "unresolvable";
+type ReadinessVerificationMode = "command" | "analyzer" | "unresolvable";
 
 export interface ReadinessVerificationStep {
   command?: ReadinessCommand;
@@ -221,11 +217,7 @@ export interface VerificationBaselineAllowance {
   provenance: string;
 }
 
-export type ReadinessBaselineStatus =
-  | "pass"
-  | "allowed-failure"
-  | "fail"
-  | "skipped";
+type ReadinessBaselineStatus = "pass" | "allowed-failure" | "fail" | "skipped";
 
 export interface ReadinessCommandResult {
   exitCode: number;
@@ -260,7 +252,7 @@ export interface ReadinessVerificationStatus {
   steps: ReadinessVerificationStep[];
 }
 
-export type RollbackAction = "restore" | "delete" | "recreate";
+type RollbackAction = "restore" | "delete" | "recreate";
 
 export interface RollbackFile {
   /** What rollback does: restore edited bytes, delete a created file, recreate a deleted one. */
@@ -324,7 +316,7 @@ export interface ReadinessBlocker {
   kind: ReadinessBlockerKind;
 }
 
-export type ReadinessCautionKind =
+type ReadinessCautionKind =
   | "planned-file-dirty"
   | "unplanned-files-dirty"
   | "allowed-baseline-failure"
@@ -370,7 +362,7 @@ export interface MutationAuthorizationFingerprint {
 }
 
 /** Wall-clock measurements; outside every fingerprint and never compared. */
-export interface ReadinessTimings {
+interface ReadinessTimings {
   baselineMs: number;
   sourceMs: number;
   structuralMs: number;

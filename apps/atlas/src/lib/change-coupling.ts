@@ -1,7 +1,7 @@
 import type { Boundary } from "./boundary";
-import { classifyFile } from "./churn";
 import type { AnalysisConfig } from "./config";
 import { ANALYSIS_CONFIG } from "./config";
+import { classifyFile } from "./file-kind";
 import type { GitHistory } from "./git-history";
 import {
   eligibleCommits,
@@ -73,10 +73,12 @@ function ratio(numerator: number, denominator: number): number {
 class StaticGraph {
   private readonly reach: Reachability;
 
-  constructor(
-    private readonly edges: Set<string>,
-    private readonly measured: Set<string>
-  ) {
+  private readonly edges: Set<string>;
+  private readonly measured: Set<string>;
+  constructor(edges: Set<string>, measured: Set<string>) {
+    this.edges = edges;
+    this.measured = measured;
+
     this.reach = new Reachability(
       adjacency([...edges].map((edge) => edge.split(PAIR) as [string, string]))
     );

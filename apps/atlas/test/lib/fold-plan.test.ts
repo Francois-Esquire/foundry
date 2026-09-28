@@ -1,4 +1,4 @@
-import * as path from "node:path";
+import { join } from "node:path";
 
 import { beforeAll, describe, expect, it } from "vitest";
 import { analyzeSurface } from "../../src/lib/analyze";
@@ -6,7 +6,7 @@ import { buildFoldPackagePlan } from "../../src/lib/fold-plan";
 import { renderPlan, renderReport } from "../../src/lib/report";
 import type { FoldPackagePlan, SurfaceReport } from "../../src/lib/types";
 
-const root = path.join(import.meta.dirname, "fixtures", "deps");
+const root = join(import.meta.dirname, "fixtures", "deps");
 
 let satellite: SurfaceReport;
 let contract: SurfaceReport;

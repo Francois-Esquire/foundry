@@ -66,7 +66,7 @@ export interface WorkspaceProvenance {
   observedBy: string[];
 }
 
-export interface WorkspaceHistoryWindow {
+interface WorkspaceHistoryWindow {
   analyzedAt: string;
   commitsAnalyzed: number;
   since?: string;
@@ -87,13 +87,13 @@ export interface WorkspaceReportSource {
   target: string;
 }
 
-export interface WorkspaceIdentity {
+interface WorkspaceIdentity {
   packageCount: number;
   reportCount: number;
   root?: string;
 }
 
-export interface WorkspacePackageSurface {
+interface WorkspacePackageSurface {
   consumerPackages: number;
   dependencyPackages: number;
   exportUtilization: number;
@@ -117,11 +117,11 @@ export interface WorkspacePackage {
   surface?: WorkspacePackageSurface;
 }
 
-export interface WorkspacePackageIndex {
+interface WorkspacePackageIndex {
   packages: WorkspacePackage[];
 }
 
-export interface WorkspaceGraphNode {
+interface WorkspaceGraphNode {
   analyzed: boolean;
   anchored: boolean;
   package: string;
@@ -167,21 +167,21 @@ export interface WorkspaceModuleEdge {
   typeOnly?: boolean;
 }
 
-export interface WorkspaceGraph {
+interface WorkspaceGraph {
   dependencyEdges: WorkspaceDependencyEdge[];
   moduleEdges: WorkspaceModuleEdge[];
   modules: WorkspaceModuleNode[];
   packages: WorkspaceGraphNode[];
 }
 
-export type WorkspaceConceptAnalysis = "seed-report" | "foreign-only";
+type WorkspaceConceptAnalysis = "seed-report" | "foreign-only";
 
-export interface WorkspaceConceptObservation {
+interface WorkspaceConceptObservation {
   role: "seed" | "overlap-partner";
   source: string;
 }
 
-export interface WorkspaceConceptDistribution {
+interface WorkspaceConceptDistribution {
   moduleCount: number;
   packages: string[];
   primaryPackage?: string;
@@ -191,7 +191,7 @@ export interface WorkspaceConceptDistribution {
 }
 
 /** One package's V7.3 participation counts; `behaviors` is left to locality, which separates source from test. */
-export interface WorkspaceConceptParticipation {
+interface WorkspaceConceptParticipation {
   conversions: number;
   implementations: number;
   package: string;
@@ -199,7 +199,7 @@ export interface WorkspaceConceptParticipation {
   representations: number;
 }
 
-export interface WorkspaceConceptOwnership {
+interface WorkspaceConceptOwnership {
   alignment: OwnershipAlignment;
   center: ConceptOwnershipCenter;
   /** Sorted by package. */
@@ -217,7 +217,7 @@ export interface WorkspaceConceptBehaviorPackage {
   testBehaviors: number;
 }
 
-export interface WorkspaceConceptLocality {
+interface WorkspaceConceptLocality {
   anchored: boolean;
   /** Sorted by package. */
   behavior: WorkspaceConceptBehaviorPackage[];
@@ -232,7 +232,7 @@ export interface WorkspaceConceptLocality {
 }
 
 /** V6 history the seed report attached to the family's own members. Ids resolve into `evolution`. */
-export interface WorkspaceConceptEvolution {
+interface WorkspaceConceptEvolution {
   /** Canonical coupling pair ids (`left|right`, files sorted) between two member files. */
   couplings: string[];
   /** Behavior modules that are V6.1 hotspots in the seed report. */
@@ -280,7 +280,7 @@ export interface WorkspaceConceptOverlap {
   verified: boolean;
 }
 
-export interface WorkspaceConceptIndex {
+interface WorkspaceConceptIndex {
   /** Declaring package → concept ids, both sorted. */
   byPackage: Record<string, string[]>;
   concepts: WorkspaceConcept[];
@@ -333,11 +333,11 @@ export interface WorkspaceBoundary {
   verified: boolean;
 }
 
-export interface WorkspaceBoundaryIndex {
+interface WorkspaceBoundaryIndex {
   boundaries: WorkspaceBoundary[];
 }
 
-export interface WorkspaceChurnObservation {
+interface WorkspaceChurnObservation {
   additions: number;
   commits: number;
   deletions: number;
@@ -423,7 +423,7 @@ export interface WorkspacePackageRadius {
   provenance: WorkspaceProvenance;
 }
 
-export interface WorkspaceEvolutionIndex {
+interface WorkspaceEvolutionIndex {
   churn: WorkspaceFileChurn[];
   couplings: WorkspaceCouplingPair[];
   hotspots: WorkspaceHotspot[];
@@ -503,14 +503,14 @@ export interface WorkspaceArchitecturalReview {
   viable: string[];
 }
 
-export interface WorkspaceRecenteringIndex {
+interface WorkspaceRecenteringIndex {
   findings: WorkspaceRecenteringFinding[];
   impacts: WorkspaceScenarioImpact[];
   reviews: WorkspaceArchitecturalReview[];
   scenarios: WorkspaceRecenteringScenario[];
 }
 
-export interface WorkspaceArchitectureIndex {
+interface WorkspaceArchitectureIndex {
   packages: WorkspacePackageArchitecture[];
   recentering: WorkspaceRecenteringIndex;
 }
@@ -580,7 +580,7 @@ export interface WorkspaceObservationDensity {
   two: number;
 }
 
-export interface WorkspaceIngestionDiagnostics {
+interface WorkspaceIngestionDiagnostics {
   canonical: Record<WorkspaceEntityKind, number>;
   canonicalBoundaries: number;
   canonicalConcepts: number;
@@ -618,7 +618,7 @@ export interface WorkspaceReport {
  * `WORKSPACE_INTELLIGENCE_POLICY_VERSION`, the thresholds these layers were
  * computed under; independent of the package `ANALYSIS_POLICY_VERSION`.
  */
-export interface WorkspaceIntelligence {
+interface WorkspaceIntelligence {
   concepts?: WorkspaceConceptIntelligence;
   graph?: WorkspaceGraphAnalysis;
   patterns?: WorkspaceArchitecturalPatterns;

@@ -1,4 +1,4 @@
-import * as path from "node:path";
+import { relative as pathRelative } from "node:path";
 import type { Project, SourceFile } from "ts-morph";
 
 import { Node } from "ts-morph";
@@ -92,7 +92,7 @@ export function collectModuleRoles(
     if (!boundaryContains(boundary, absolute)) {
       continue;
     }
-    const relative = toPosix(path.relative(boundary.root, absolute));
+    const relative = toPosix(pathRelative(boundary.root, absolute));
     roles.set(relative, roleOf(file, entrypoints.has(relative)));
   }
   return roles;

@@ -1,6 +1,12 @@
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
+import {
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, posix } from "node:path";
 
 import { afterAll, describe, expect, it } from "vitest";
 import { runInternalAnalysis } from "../../src/lib/internal-analysis";
@@ -26,6 +32,17 @@ import { analyzePrimitiveConventions } from "../../src/lib/primitive-convention"
 import { renderInternalRewiring } from "../../src/lib/report-rewiring";
 import { analyzeSymbolLocality } from "../../src/lib/symbol-locality";
 
+const expectedTextPattern =
+  /no contract, adapter, or implementation role \(CoreAdapter: implementation\)/;
+const expectedTextPattern2 = /already reaches the target scope/;
+const expectedTextPattern3 = /ordinary dependency/;
+const expectedTextPattern4 = /construction, registration/;
+const expectedTextPattern5 = /^partial: separate 1 of 3/;
+const expectedTextPattern6 = /:responsibility:.*$/;
+const expectedTextPattern7 = /^follows colocate-primitive:/;
+const expectedTextPattern8 = /"exactPath":"(?!deferred")/;
+const specifierPattern = /\.tsx?$/;
+
 // V13.4 rewiring scenarios on synthetic packages. Each fixture is one
 // package in a throwaway workspace. The high-fan cutoff floors at 3, so a
 // root module with dependents in three directories is a connector and
@@ -38,7 +55,7 @@ const tempRoots: string[] = [];
 
 afterAll(() => {
   for (const dir of tempRoots) {
-    fs.rmSync(dir, { force: true, recursive: true });
+    rmSync(dir, { force: true, recursive: true });
   }
 });
 
@@ -46,13 +63,13 @@ function workspace(
   files: Record<string, string>,
   extra: Record<string, string> = {}
 ): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rewiring-"));
-  const root = fs.realpathSync(dir);
+  const dir = mkdtempSync(join(tmpdir(), "rewiring-"));
+  const root = realpathSync(dir);
   tempRoots.push(root);
   const write = (file: string, text: string) => {
-    const target = path.join(root, file);
-    fs.mkdirSync(path.dirname(target), { recursive: true });
-    fs.writeFileSync(target, text);
+    const target = join(root, file);
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, text);
   };
   write(
     "package.json",
@@ -63,7 +80,7 @@ function workspace(
     JSON.stringify({ exports: { ".": "./src/index.ts" }, name: "@f/p" })
   );
   for (const [file, text] of Object.entries(files)) {
-    write(path.join("packages/p", file), text);
+    write(join("packages/p", file), text);
   }
   for (const [file, text] of Object.entries(extra)) {
     write(file, text);
@@ -103,9 +120,9 @@ function rewiringOf(
 }
 
 function importOf(from: string, to: string, names: string): string {
-  let specifier = path.posix.relative(
-    path.posix.dirname(from),
-    to.replace(/\.tsx?$/, "")
+  let specifier = posix.relative(
+    posix.dirname(from),
+    to.replace(specifierPattern, "")
   );
   if (!specifier.startsWith(".")) {
     specifier = `./${specifier}`;
@@ -124,11 +141,11 @@ function kindsFor(
     throw new Error(`no family: ${key}`);
   }
   return family.scenarioIds.map((scenarioId) => {
-    const scenario = getRewiringScenario(report, scenarioId);
-    if (scenario === undefined) {
+    const rewiringScenario = getRewiringScenario(report, scenarioId);
+    if (rewiringScenario === undefined) {
       throw new Error(`no scenario: ${scenarioId}`);
     }
-    return scenario.kind;
+    return rewiringScenario.kind;
   });
 }
 
@@ -217,7 +234,7 @@ describe("hub", () => {
     expect(report.schemaVersion).toBe(INTERNAL_REWIRING_SCHEMA_VERSION);
     expect(report.policy.ranking).toBe("none");
     expect(report.policy.targets).toContain("exact paths deferred");
-    expect(JSON.stringify(report)).not.toMatch(/"exactPath":"(?!deferred")/);
+    expect(JSON.stringify(report)).not.toMatch(expectedTextPattern8);
     expect(regionA).not.toBe("");
     expect(regionB).not.toBe("");
   });
@@ -311,7 +328,7 @@ describe("hub", () => {
       id("src/shared.ts", "Partial"),
     ]);
     expect(redirect.effects.dependencies.edgesRetargeted).toBe(2);
-    expect(redirect.rationale.facts[0]).toMatch(/^follows colocate-primitive:/);
+    expect(redirect.rationale.facts[0]).toMatch(expectedTextPattern7);
   });
 
   it("demotes a symbol declared in another placed responsibility and flags its public exposure", () => {
@@ -399,7 +416,7 @@ describe("hub", () => {
     expect(
       split.proposed.remainder?.map(
         (g) =>
-          `${g.key.replace(/:responsibility:.*$/, "")} ${g.symbolIds.length}`
+          `${g.key.replace(expectedTextPattern6, "")} ${g.symbolIds.length}`
       )
     ).toEqual([
       "package-wide 2",
@@ -414,7 +431,7 @@ describe("hub", () => {
         "cross-responsibility-contract",
       ])
     );
-    expect(split.rationale.facts[1]).toMatch(/^partial: separate 1 of 3/);
+    expect(split.rationale.facts[1]).toMatch(expectedTextPattern5);
     const candidate = report.candidates.find(
       (c) =>
         c.subject.key === "src/shared.ts" &&
@@ -434,7 +451,7 @@ describe("hub", () => {
     );
     expect(candidate?.eligibility.eligible).toBe(false);
     expect(candidate?.eligibility.missingEvidence[0]).toMatch(
-      /construction, registration/
+      expectedTextPattern4
     );
     expect(report.summary.composition.wideDependents).toEqual({
       roots: 0,
@@ -885,7 +902,7 @@ describe("responsibility surfaces", () => {
         c.kind === "promote-primitive"
     );
     expect(candidate?.eligibility.eligible).toBe(false);
-    expect(candidate?.eligibility.reasons[0]).toMatch(/ordinary dependency/);
+    expect(candidate?.eligibility.reasons[0]).toMatch(expectedTextPattern3);
     expect(getScenariosByKind(report, "promote-primitive")).toEqual([]);
   });
 });
@@ -990,9 +1007,7 @@ describe("cycle guard and closure size", () => {
       ],
       size: "large",
     });
-    expect(demote.effects.cycles.detail).toMatch(
-      /already reaches the target scope/
-    );
+    expect(demote.effects.cycles.detail).toMatch(expectedTextPattern2);
     expect(demote.effects.cycles).toMatchObject({
       membership: [],
       outcome: "potential-new-cycle",
@@ -1062,7 +1077,7 @@ describe("indirection", () => {
     );
     expect(candidate?.eligibility.eligible).toBe(false);
     expect(candidate?.eligibility.missingEvidence.join(" ")).toMatch(
-      /no contract, adapter, or implementation role \(CoreAdapter: implementation\)/
+      expectedTextPattern
     );
   });
 });

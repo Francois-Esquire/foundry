@@ -1,16 +1,17 @@
 import { createHash } from "node:crypto";
-import * as path from "node:path";
-
+import { posix } from "node:path";
+import type { SourceFile } from "ts-morph";
 import { Node, SyntaxKind } from "ts-morph";
 import { classifyFile } from "./file-kind";
 import { composeArchitecturalOperators } from "./operator-composition";
 import type {
   ComposedStructuralAction,
+  CompositionPreservation,
   OperatorComposition,
 } from "./operator-composition-types";
 import { layers } from "./operator-decomposition";
 import type { OperatorDecomposition } from "./operator-decomposition-types";
-import type { ImportSite } from "./operator-plan-source";
+import type { ExposureRoutes, ImportSite } from "./operator-plan-source";
 import {
   cyclesThrough,
   exposureRoutes,
@@ -35,8 +36,10 @@ import type {
   OperatorPlanTarget,
   PlannedArchitecturalDelta,
   PlannedBehaviorMember,
+  PlannedBehaviorMemberRole,
   PlannedDeltaDimension,
   PlannedImportRewrite,
+  PlannedMovementClosure,
   PlannedMovementGranularity,
   PlannedPreservation,
   PlannedRelocation,
@@ -72,6 +75,7 @@ import type {
   OperatorFact,
 } from "./operator-types";
 import { topLevelDeclarations } from "./symbols";
+import type { ConceptFamily, PublicExposureRoute } from "./types";
 import { byId, sorted } from "./workspace-projection";
 
 // V11.3 planner: walks a composition's actions in graph order and resolves
@@ -184,7 +188,7 @@ class Assembly {
       input.before ?? null,
       input.after ?? null,
     ])}`;
-    const status = input.status ?? actionStatus(input.action);
+    const resultStatus3 = input.status ?? actionStatus(input.action);
     const existing = this.transformations.get(id);
     const preserves = uniq([
       ...input.action.preserves,
@@ -207,12 +211,12 @@ class Assembly {
           kind: p.kind,
         })),
         preserves,
-        status,
+        status: resultStatus3,
       });
     } else {
       existing.actions = uniq([...existing.actions, input.action.id]);
       existing.preserves = uniq([...existing.preserves, ...preserves]);
-      existing.status = strongerStatus(existing.status, status);
+      existing.status = strongerStatus(existing.status, resultStatus3);
       for (const e of input.action.evidence) {
         if (
           !existing.evidence.some(
@@ -230,7 +234,7 @@ class Assembly {
     if (input.form !== undefined) {
       this.form(input.form);
     }
-    if (status === "unsupported" && input.form !== undefined) {
+    if (resultStatus3 === "unsupported" && input.form !== undefined) {
       this.unsupportedForms.add(input.form);
     }
     const transformation = this.transformations.get(id);
@@ -430,6 +434,8 @@ function conceptOf(action: ComposedStructuralAction): string | undefined {
     case "symbol":
     case "package":
       return undefined;
+    default:
+      throw new Error("Unexpected subject.kind.");
   }
 }
 
@@ -495,48 +501,14 @@ function behaviorMembers(
     if (sourceFile === undefined) {
       continue;
     }
-    for (const declaration of topLevelDeclarations(sourceFile)) {
-      if (!Node.hasName(declaration)) {
-        continue;
-      }
-      let role: PlannedBehaviorMember["role"] | undefined;
-      let source: PlannedBehaviorMember["source"] | undefined;
-      if (Node.isClassDeclaration(declaration)) {
-        const implementsConcept = declaration
-          .getImplements()
-          .some((clause) => referencesSymbol(clause, concept.node));
-        if (implementsConcept) {
-          role = "implementation";
-          source = "behavior-participant";
-        }
-      } else if (Node.isFunctionDeclaration(declaration)) {
-        if (referencesSymbol(declaration.getReturnTypeNode(), concept.node)) {
-          role = "factory";
-          source = "behavior-participant";
-        }
-      } else if (Node.isVariableDeclaration(declaration)) {
-        const initializer = declaration.getInitializer();
-        if (
-          initializer !== undefined &&
-          (Node.isArrowFunction(initializer) ||
-            Node.isFunctionExpression(initializer)) &&
-          referencesSymbol(initializer.getReturnTypeNode(), concept.node)
-        ) {
-          role = "factory";
-          source = "behavior-participant";
-        }
-      }
-      if (role === undefined || source === undefined) {
-        continue;
-      }
-      const id = `${file}#${declaration.getName()}`;
-      const located = locateSymbol(planner.context, id);
-      if (located.status !== "located") {
-        continue;
-      }
-      members.push({ role, source, symbolId: id });
-      symbols.push(located.symbol);
-    }
+    behaviorMembersDeclaration(
+      sourceFile,
+      concept,
+      file,
+      planner,
+      members,
+      symbols
+    );
   }
   return { members, symbols };
 }
@@ -549,6 +521,91 @@ interface TargetResolution {
   isNew: boolean;
   module?: string;
   rule: string;
+}
+
+function behaviorMembersDeclaration(
+  sourceFile: SourceFile,
+  concept: LocatedSymbol,
+  file: string,
+  planner: Planner,
+  members: PlannedBehaviorMember[],
+  symbols: LocatedSymbol[]
+) {
+  for (const declaration of topLevelDeclarations(sourceFile)) {
+    if (!Node.hasName(declaration)) {
+      continue;
+    }
+
+    const {
+      role,
+      source,
+    }: {
+      role: PlannedBehaviorMember["role"] | undefined;
+      source: PlannedBehaviorMember["source"] | undefined;
+    } = behaviorMembersDeclarationEntries(
+      declaration,
+      concept,
+      undefined,
+      undefined
+    );
+    if (role === undefined || source === undefined) {
+      continue;
+    }
+    const id = `${file}#${declaration.getName()}`;
+    const located = locateSymbol(planner.context, id);
+    if (located.status !== "located") {
+      continue;
+    }
+    members.push({ role, source, symbolId: id });
+    symbols.push(located.symbol);
+  }
+}
+
+function behaviorMembersDeclarationEntries(
+  declaration: Node & { getName(): string; getNameNode(): Node },
+  concept: LocatedSymbol,
+  initialRole: PlannedBehaviorMemberRole | undefined,
+  initialSource:
+    | "concept-declaration"
+    | "behavior-participant"
+    | "representation"
+    | undefined
+): {
+  role: PlannedBehaviorMemberRole | undefined;
+  source:
+    | "concept-declaration"
+    | "behavior-participant"
+    | "representation"
+    | undefined;
+} {
+  let source = initialSource;
+  let role = initialRole;
+  if (Node.isClassDeclaration(declaration)) {
+    const implementsConcept = declaration
+      .getImplements()
+      .some((clause) => referencesSymbol(clause, concept.node));
+    if (implementsConcept) {
+      role = "implementation";
+      source = "behavior-participant";
+    }
+  } else if (Node.isFunctionDeclaration(declaration)) {
+    if (referencesSymbol(declaration.getReturnTypeNode(), concept.node)) {
+      role = "factory";
+      source = "behavior-participant";
+    }
+  } else if (Node.isVariableDeclaration(declaration)) {
+    const initializer = declaration.getInitializer();
+    if (
+      initializer !== undefined &&
+      (Node.isArrowFunction(initializer) ||
+        Node.isFunctionExpression(initializer)) &&
+      referencesSymbol(initializer.getReturnTypeNode(), concept.node)
+    ) {
+      role = "factory";
+      source = "behavior-participant";
+    }
+  }
+  return { role, source };
 }
 
 function resolveTargetModule(
@@ -592,38 +649,13 @@ function resolveTargetModule(
               (f) => f.seed.id === input.conceptId
             );
     if (family !== undefined) {
-      const counts = new Map<string, number>();
-      for (const rep of family.representations) {
-        if (!inTarget(rep.file) || entrypointFiles.has(rep.file)) {
-          continue;
-        }
-        counts.set(rep.file, (counts.get(rep.file) ?? 0) + 1);
-      }
-      const candidates = [...counts.keys()].sort(byId);
-      if (candidates.length === 1) {
-        return {
-          candidates,
-          isNew: false,
-          module: candidates[0],
-          rule: "representation-module",
-        };
-      }
-      if (candidates.length > 1) {
-        const max = Math.max(...counts.values());
-        const top = candidates.filter((c) => counts.get(c) === max);
-        if (top.length === 1) {
-          return {
-            candidates,
-            isNew: false,
-            module: top[0],
-            rule: "representation-module",
-          };
-        }
-        return {
-          candidates,
-          isNew: false,
-          rule: "representation-modules-tie",
-        };
+      const resolution = resolveRepresentationModule(
+        family,
+        inTarget,
+        entrypointFiles
+      );
+      if (resolution !== undefined) {
+        return resolution;
       }
     }
   }
@@ -657,11 +689,8 @@ function resolveTargetModule(
   }
   // 4. A new module mirroring the source module's path under the target's source dir.
   if (input.target.sourceDir !== undefined) {
-    const sourceDir = input.source.sourceDir;
-    const relative =
-      sourceDir !== undefined && input.sourceFile.startsWith(`${sourceDir}/`)
-        ? input.sourceFile.slice(sourceDir.length + 1)
-        : path.posix.basename(input.sourceFile);
+    const { sourceDir } = input.source;
+    const relative = resolveTargetModuleEntries(sourceDir, input);
     const candidate = `${input.target.sourceDir}/${relative}`;
     if (sourceFileOf(context, candidate) === undefined) {
       return {
@@ -693,6 +722,35 @@ interface RelocationInput {
   target: OperatorPlanningPackage;
 }
 
+function resolveTargetModuleEntries(
+  sourceDir: string | undefined,
+  input: {
+    conceptId?: string;
+    concept?: LocatedSymbol;
+    target: OperatorPlanningPackage;
+    source: OperatorPlanningPackage;
+    sourceFile: string;
+  }
+) {
+  return sourceDir !== undefined && input.sourceFile.startsWith(`${sourceDir}/`)
+    ? input.sourceFile.slice(sourceDir.length + 1)
+    : posix.basename(input.sourceFile);
+}
+
+function resolveTargetModuleRep(
+  family: ConceptFamily,
+  inTarget: (file: string) => boolean,
+  entrypointFiles: Set<string>,
+  counts: Map<string, number>
+) {
+  for (const rep of family.representations) {
+    if (!inTarget(rep.file) || entrypointFiles.has(rep.file)) {
+      continue;
+    }
+    counts.set(rep.file, (counts.get(rep.file) ?? 0) + 1);
+  }
+}
+
 function realizeRelocation(planner: Planner, input: RelocationInput): void {
   const { acc, context } = planner;
   const { action } = input;
@@ -705,6 +763,34 @@ function realizeRelocation(planner: Planner, input: RelocationInput): void {
   const movingFiles = new Set(byFile.keys());
   const records: PlannedRelocation[] = [];
 
+  realizeRelocationEntries(
+    byFile,
+    acc,
+    context,
+    input,
+    planner,
+    action,
+    records,
+    movingFiles
+  );
+  if (input.conceptId !== undefined) {
+    const list = acc.relocationsByConcept.get(input.conceptId) ?? [];
+    list.push(...records);
+    acc.relocationsByConcept.set(input.conceptId, list);
+  }
+  acc.relocations.push(...records);
+}
+
+function realizeRelocationEntries(
+  byFile: Map<string, LocatedSymbol[]>,
+  acc: Assembly,
+  context: OperatorPlanningContext,
+  input: RelocationInput,
+  planner: Planner,
+  action: ComposedStructuralAction,
+  records: PlannedRelocation[],
+  movingFiles: Set<string>
+) {
   for (const [file, symbols] of [...byFile].sort(([a], [b]) => byId(a, b))) {
     const sourceFile = symbols[0]?.sourceFile;
     if (sourceFile === undefined) {
@@ -716,13 +802,10 @@ function realizeRelocation(planner: Planner, input: RelocationInput): void {
       sourcePackage: input.source.id,
       targetPackage: input.target.id,
     });
-    const resolution = resolveTargetModule(planner, {
-      ...(input.conceptId !== undefined && { conceptId: input.conceptId }),
-      ...(input.concept !== undefined && { concept: input.concept }),
-      source: input.source,
-      sourceFile: file,
-      target: input.target,
-    });
+    const resolution = resolveTargetModule(
+      planner,
+      realizeRelocationEntriesEntries2(input, file)
+    );
     const moving = new Set<Node>([
       ...symbols.map((s) => s.node),
       ...internalNodes,
@@ -730,21 +813,14 @@ function realizeRelocation(planner: Planner, input: RelocationInput): void {
     const remaining = remainingDeclarations(sourceFile, moving);
     const sideEffects = hasSideEffects(sourceFile);
     let granularity: PlannedMovementGranularity = "unresolved";
-    const record: PlannedRelocation = {
-      actionId: action.id,
-      ...(input.conceptId !== undefined && { conceptId: input.conceptId }),
-      members: input.members.filter((m) => m.symbolId.startsWith(`${file}#`)),
-      sourceModule: file,
-      sourcePackage: input.source.id,
-      targetPackage: input.target.id,
-      ...(resolution.module !== undefined && {
-        targetModule: resolution.module,
-      }),
+    const record: PlannedRelocation = realizeRelocationEntriesEntries3(
+      action,
+      input,
+      file,
+      resolution,
       closure,
-      granularity,
-      strategy: "unresolved",
-      targetResolution: resolution.rule,
-    };
+      granularity
+    );
     records.push(record);
 
     if (resolution.module === undefined) {
@@ -778,11 +854,7 @@ function realizeRelocation(planner: Planner, input: RelocationInput): void {
     }
     const targetModule = resolution.module;
     const wholeModule = remaining.length === 0 && resolution.isNew;
-    granularity = wholeModule
-      ? "module"
-      : resolution.isNew
-        ? "new-module"
-        : "symbol";
+    granularity = resolveRealizeRelocationEntries(wholeModule, resolution);
 
     const targetFile = sourceFileOf(context, targetModule);
     if (targetFile !== undefined) {
@@ -819,94 +891,35 @@ function realizeRelocation(planner: Planner, input: RelocationInput): void {
       symbolId,
       ...(input.conceptId !== undefined && { conceptId: input.conceptId }),
     });
-    let created: PlannedTransformation | undefined;
-    if (resolution.isNew && !wholeModule) {
-      created = acc.add({
+
+    const created: PlannedTransformation | undefined =
+      realizeRelocationEntriesEntries4(
+        resolution,
+        wholeModule,
+        undefined,
+        acc,
         action,
-        after: { module: targetModule, package: input.target.id },
-        detail: `create ${targetModule} in ${input.target.id} for ${symbols.map((s) => s.name).join(", ")} (mirrors ${file}; no existing module holds the concept)`,
-        file: targetModule,
-        form: "new-module",
-        kind: "create-module",
-        subject: { moduleId: targetModule, packageId: input.target.id },
-      });
-    }
+        targetModule,
+        input,
+        symbols,
+        file
+      );
     const moves: PlannedTransformation[] = [];
-    if (wholeModule) {
-      const move = acc.add({
-        action,
-        after: { module: targetModule, package: input.target.id },
-        before: { module: file, package: input.source.id },
-        detail: `move ${file} whole to ${targetModule}: every declaration belongs to the relocation`,
-        file,
-        form: "module-move",
-        kind: "move-module",
-        subject: {
-          moduleId: file,
-          packageId: input.source.id,
-          ...(input.conceptId !== undefined && { conceptId: input.conceptId }),
-        },
-      });
-      moves.push(move);
-    } else {
-      for (const node of [...symbols.map((s) => s.node), ...internalNodes]) {
-        const name = Node.hasName(node) ? node.getName() : "";
-        const symbolId = `${file}#${name}`;
-        const isRoot = symbols.some((s) => s.node === node);
-        const move = acc.add({
-          action,
-          after: {
-            module: targetModule,
-            names: [name],
-            package: input.target.id,
-            ...(isRoot && { exportForm: "named-export" as const }),
-          },
-          before: {
-            module: file,
-            names: [name],
-            package: input.source.id,
-            ...(exportedNamesOf(sourceFile, node).length > 0 && {
-              exportForm: "named-export" as const,
-            }),
-          },
-          detail: isRoot
-            ? `move the declaration of ${name} from ${file} to ${targetModule}`
-            : `move the module-local ${name} with the declarations that need it (not exported; nothing else in ${file} uses it)`,
-          file,
-          form: isRoot ? "symbol-move" : "internal-symbol-move",
-          kind: "move-symbol",
-          subject: subject(symbolId),
-        });
-        moves.push(move);
-        if (created !== undefined) {
-          acc.depend(
-            created.id,
-            move.id,
-            "requires",
-            "the module exists before code lands in it"
-          );
-        }
-      }
-      if (remaining.length === 0) {
-        const remove = acc.add({
-          action,
-          before: { module: file, package: input.source.id },
-          detail: `${file} holds nothing once its declarations move`,
-          file,
-          form: "empty-module",
-          kind: "delete-empty-module",
-          subject: { moduleId: file, packageId: input.source.id },
-        });
-        for (const move of moves) {
-          acc.depend(
-            move.id,
-            remove.id,
-            "requires",
-            "the module empties before it goes"
-          );
-        }
-      }
-    }
+    realizeRelocationEntriesEntries(
+      wholeModule,
+      acc,
+      action,
+      targetModule,
+      input,
+      file,
+      moves,
+      symbols,
+      internalNodes,
+      sourceFile,
+      subject,
+      created,
+      remaining
+    );
     for (const symbol of symbols) {
       acc.land(symbol.id, {
         file: targetModule,
@@ -916,134 +929,351 @@ function realizeRelocation(planner: Planner, input: RelocationInput): void {
     }
 
     // Closure: what the moved code imports from where it lands.
-    for (const dependency of closure.externalDependencies) {
-      switch (dependency.class) {
-        case "import-from-target-package":
-        case "external":
-          break;
-        case "import-from-source-package": {
-          const located = locateSymbol(context, dependency.id);
-          const exposed =
-            located.status === "located" &&
-            exposureRoutes(context, input.source, located.symbol).routes
-              .length > 0;
-          if (!exposed && located.status === "located") {
-            acc.block(
-              "package-export-strategy-unresolved",
-              [action.id],
-              [dependency.id],
-              `the moved code needs ${dependency.name} from ${input.source.id}, which no entrypoint of ${input.source.id} exposes; exposing it widens the surface, a separate intent`
-            );
-          }
+    realizeRelocationEntriesDependency(
+      closure,
+      context,
+      input,
+      acc,
+      action,
+      moves
+    );
+
+    // Import sites: target-package importers become local; what stays behind
+    // in the source imports the target; consumers belong to redirect actions.
+    realizeRelocationEntriesSymbol(
+      symbols,
+      context,
+      movingFiles,
+      acc,
+      input,
+      planner,
+      action,
+      moves,
+      targetModule
+    );
+  }
+}
+
+function realizeRelocationEntriesEntries4(
+  resolution: TargetResolution,
+  wholeModule: boolean,
+  initialCreated: PlannedTransformation | undefined,
+  acc: Assembly,
+  action: ComposedStructuralAction,
+  targetModule: string,
+  input: RelocationInput,
+  symbols: LocatedSymbol[],
+  file: string
+) {
+  let created = initialCreated;
+  if (resolution.isNew && !wholeModule) {
+    created = acc.add({
+      action,
+      after: { module: targetModule, package: input.target.id },
+      detail: `create ${targetModule} in ${input.target.id} for ${symbols.map((s) => s.name).join(", ")} (mirrors ${file}; no existing module holds the concept)`,
+      file: targetModule,
+      form: "new-module",
+      kind: "create-module",
+      subject: { moduleId: targetModule, packageId: input.target.id },
+    });
+  }
+  return created;
+}
+
+function realizeRelocationEntriesEntries3(
+  action: ComposedStructuralAction,
+  input: RelocationInput,
+  file: string,
+  resolution: TargetResolution,
+  closure: PlannedMovementClosure,
+  granularity: PlannedRelocation["granularity"]
+): PlannedRelocation {
+  return {
+    actionId: action.id,
+    ...(input.conceptId !== undefined && { conceptId: input.conceptId }),
+    members: input.members.filter((m) => m.symbolId.startsWith(`${file}#`)),
+    sourceModule: file,
+    sourcePackage: input.source.id,
+    targetPackage: input.target.id,
+    ...(resolution.module !== undefined && {
+      targetModule: resolution.module,
+    }),
+    closure,
+    granularity,
+    strategy: "unresolved",
+    targetResolution: resolution.rule,
+  };
+}
+
+function realizeRelocationEntriesEntries2(
+  input: RelocationInput,
+  file: string
+): {
+  conceptId?: string;
+  concept?: LocatedSymbol;
+  target: OperatorPlanningPackage;
+  source: OperatorPlanningPackage;
+  sourceFile: string;
+} {
+  return {
+    ...(input.conceptId !== undefined && { conceptId: input.conceptId }),
+    ...(input.concept !== undefined && { concept: input.concept }),
+    source: input.source,
+    sourceFile: file,
+    target: input.target,
+  };
+}
+
+function realizeRelocationEntriesDependency(
+  closure: PlannedMovementClosure,
+  context: OperatorPlanningContext,
+  input: RelocationInput,
+  acc: Assembly,
+  action: ComposedStructuralAction,
+  moves: PlannedTransformation[]
+) {
+  for (const dependency of closure.externalDependencies) {
+    switch (dependency.class) {
+      case "import-from-target-package":
+      case "external":
+        break;
+      case "import-from-source-package": {
+        const located = locateSymbol(context, dependency.id);
+        const exposed =
+          located.status === "located" &&
+          exposureRoutes(context, input.source, located.symbol).routes.length >
+            0;
+        if (!exposed && located.status === "located") {
+          acc.block(
+            "package-export-strategy-unresolved",
+            [action.id],
+            [dependency.id],
+            `the moved code needs ${dependency.name} from ${input.source.id}, which no entrypoint of ${input.source.id} exposes; exposing it widens the surface, a separate intent`
+          );
+        }
+        for (const move of moves) {
+          acc.edge(
+            input.target.id,
+            input.source.id,
+            !dependency.typeOnly,
+            move.id,
+            action.id
+          );
+        }
+        break;
+      }
+      case "import-from-third-package":
+        if (dependency.package !== undefined) {
           for (const move of moves) {
             acc.edge(
               input.target.id,
-              input.source.id,
+              dependency.package,
               !dependency.typeOnly,
               move.id,
               action.id
             );
           }
-          break;
         }
-        case "import-from-third-package":
-          if (dependency.package !== undefined) {
-            for (const move of moves) {
-              acc.edge(
-                input.target.id,
-                dependency.package,
-                !dependency.typeOnly,
-                move.id,
-                action.id
-              );
-            }
-          }
-          break;
-        case "move-with":
-          break;
-      }
+        break;
+      case "move-with":
+        break;
+      default:
+        throw new Error("Unexpected dependency.class.");
     }
+  }
+}
 
-    // Import sites: target-package importers become local; what stays behind
-    // in the source imports the target; consumers belong to redirect actions.
-    for (const symbol of symbols) {
-      for (const site of importSitesOf(context, symbol)) {
-        if (movingFiles.has(site.file)) {
-          acc.form("co-moved-import");
-          continue;
-        }
-        if (site.form !== "import") {
-          continue;
-        }
-        if (site.package === input.target.id) {
-          const local = rewriteSite(planner, {
-            action,
-            moves,
-            site,
-            specifier:
-              site.file === targetModule
-                ? undefined
-                : relativeSpecifier(site.file, targetModule),
-            symbol,
-            toPackage: input.target.id,
-          });
-          // A split import keeps its declaration for the other names; the edge stays.
-          if (local !== undefined && site.otherNames.length === 0) {
-            acc.removeSite(
-              input.target.id,
-              input.source.id,
-              local.id,
-              action.id
-            );
-          }
-        } else if (site.package === input.source.id) {
-          const root = rootEntrypoint(input.target);
-          if (root === undefined) {
-            acc.block(
-              "package-export-strategy-unresolved",
-              [action.id],
-              [input.target.id],
-              `${input.target.id} declares no TypeScript entrypoint; ${site.file} cannot import ${symbol.name} from it`
-            );
-            continue;
-          }
-          const inward = inwardRedirect(
-            planner,
-            input.source.id,
-            input.target.id,
-            input.conceptId
-          );
-          const rewrite = rewriteSite(planner, {
-            action,
-            moves,
-            site,
-            specifier: root.entrypoint,
-            symbol,
-            toPackage: input.target.id,
-          });
-          if (inward !== undefined && rewrite !== undefined) {
-            acc.link(inward.id, rewrite.id);
-            rewrite.actions = uniq([...rewrite.actions, inward.id]);
-          }
-          if (rewrite !== undefined) {
-            acc.edge(
-              input.source.id,
-              input.target.id,
-              !site.typeOnly,
-              rewrite.id,
-              action.id
-            );
-          }
-        }
+function realizeRelocationEntriesSymbol(
+  symbols: LocatedSymbol[],
+  context: OperatorPlanningContext,
+  movingFiles: Set<string>,
+  acc: Assembly,
+  input: RelocationInput,
+  planner: Planner,
+  action: ComposedStructuralAction,
+  moves: PlannedTransformation[],
+  targetModule: string
+) {
+  for (const symbol of symbols) {
+    realizeRelocationEntriesSymbolSite(
+      context,
+      symbol,
+      movingFiles,
+      acc,
+      input,
+      planner,
+      action,
+      moves,
+      targetModule
+    );
+  }
+}
+
+function realizeRelocationEntriesSymbolSite(
+  context: OperatorPlanningContext,
+  symbol: LocatedSymbol,
+  movingFiles: Set<string>,
+  acc: Assembly,
+  input: RelocationInput,
+  planner: Planner,
+  action: ComposedStructuralAction,
+  moves: PlannedTransformation[],
+  targetModule: string
+) {
+  const visitSite = (site: ImportSite) =>
+    resolveVisitSite(
+      movingFiles,
+      acc,
+      input,
+      planner,
+      action,
+      moves,
+      targetModule,
+      symbol,
+      site
+    );
+  for (const site of importSitesOf(context, symbol)) {
+    visitSite(site);
+  }
+}
+
+function realizeRelocationEntriesEntries(
+  wholeModule: boolean,
+  acc: Assembly,
+  action: ComposedStructuralAction,
+  targetModule: string,
+  input: RelocationInput,
+  file: string,
+  moves: PlannedTransformation[],
+  symbols: LocatedSymbol[],
+  internalNodes: Node[],
+  sourceFile: SourceFile,
+  subject: (symbolId: string) => {
+    conceptId?: string | undefined;
+    symbolId: string;
+  },
+  created: PlannedTransformation | undefined,
+  remaining: Node[]
+) {
+  if (wholeModule) {
+    const move = acc.add({
+      action,
+      after: { module: targetModule, package: input.target.id },
+      before: { module: file, package: input.source.id },
+      detail: `move ${file} whole to ${targetModule}: every declaration belongs to the relocation`,
+      file,
+      form: "module-move",
+      kind: "move-module",
+      subject: {
+        moduleId: file,
+        packageId: input.source.id,
+        ...(input.conceptId !== undefined && { conceptId: input.conceptId }),
+      },
+    });
+    moves.push(move);
+  } else {
+    realizeRelocationEntriesEntriesNode(
+      symbols,
+      internalNodes,
+      file,
+      acc,
+      action,
+      targetModule,
+      input,
+      sourceFile,
+      subject,
+      moves,
+      created
+    );
+    if (remaining.length === 0) {
+      const remove = acc.add({
+        action,
+        before: { module: file, package: input.source.id },
+        detail: `${file} holds nothing once its declarations move`,
+        file,
+        form: "empty-module",
+        kind: "delete-empty-module",
+        subject: { moduleId: file, packageId: input.source.id },
+      });
+      for (const move of moves) {
+        acc.depend(
+          move.id,
+          remove.id,
+          "requires",
+          "the module empties before it goes"
+        );
       }
     }
   }
-  if (input.conceptId !== undefined) {
-    const list = acc.relocationsByConcept.get(input.conceptId) ?? [];
-    list.push(...records);
-    acc.relocationsByConcept.set(input.conceptId, list);
+}
+
+function realizeRelocationEntriesEntriesNode(
+  symbols: LocatedSymbol[],
+  internalNodes: Node[],
+  file: string,
+  acc: Assembly,
+  action: ComposedStructuralAction,
+  targetModule: string,
+  input: RelocationInput,
+  sourceFile: SourceFile,
+  subject: (symbolId: string) => {
+    conceptId?: string | undefined;
+    symbolId: string;
+  },
+  moves: PlannedTransformation[],
+  created: PlannedTransformation | undefined
+) {
+  for (const node of [...symbols.map((s) => s.node), ...internalNodes]) {
+    const name = Node.hasName(node) ? node.getName() : "";
+    const symbolId = `${file}#${name}`;
+    const isRoot = symbols.some((s) => s.node === node);
+    const move = acc.add({
+      action,
+      after: {
+        module: targetModule,
+        names: [name],
+        package: input.target.id,
+        ...(isRoot && { exportForm: "named-export" as const }),
+      },
+      before: {
+        module: file,
+        names: [name],
+        package: input.source.id,
+        ...(exportedNamesOf(sourceFile, node).length > 0 && {
+          exportForm: "named-export" as const,
+        }),
+      },
+      detail: isRoot
+        ? `move the declaration of ${name} from ${file} to ${targetModule}`
+        : `move the module-local ${name} with the declarations that need it (not exported; nothing else in ${file} uses it)`,
+      file,
+      form: isRoot ? "symbol-move" : "internal-symbol-move",
+      kind: "move-symbol",
+      subject: subject(symbolId),
+    });
+    moves.push(move);
+    if (created !== undefined) {
+      acc.depend(
+        created.id,
+        move.id,
+        "requires",
+        "the module exists before code lands in it"
+      );
+    }
   }
-  acc.relocations.push(...records);
+}
+
+function resolveRealizeRelocationEntries(
+  wholeModule: boolean,
+  resolution: TargetResolution
+): PlannedMovementGranularity {
+  if (wholeModule) {
+    return "module";
+  }
+  if (resolution.isNew) {
+    return "new-module";
+  }
+  return "symbol";
 }
 
 function inwardRedirect(
@@ -1100,13 +1330,7 @@ function rewriteSite(
       specifier: site.specifier,
       ...(site.package !== undefined && { package: site.package }),
     },
-    detail: supported
-      ? input.specifier === undefined
-        ? `${site.file}: ${site.names.join(", ")} is declared here after the move; drop the import from "${site.specifier}"`
-        : `${site.file}: import ${site.names.join(", ")} from "${input.specifier}" instead of "${site.specifier}"${site.otherNames.length === 0 ? "" : ` (${site.otherNames.join(", ")} stay on the old import)`}`
-      : site.kind === "namespace"
-        ? `${site.file}: ${site.names.map((n) => `${site.specifier}.${n}`).join(", ")} is reached through a namespace import; no exact rewrite splits a namespace`
-        : `${site.file}: default import of ${symbol.name} has no exact named rewrite`,
+    detail: resolveDetail(supported, input, site, symbol),
     file: site.file,
     kind,
     subject: { symbolId: symbol.id },
@@ -1142,6 +1366,24 @@ function rewriteSite(
   return transformation;
 }
 
+function resolveDetail(
+  supported: boolean,
+  input: RewriteInput,
+  site: ImportSite,
+  symbol: LocatedSymbol
+): string {
+  if (supported) {
+    if (input.specifier === undefined) {
+      return `${site.file}: ${site.names.join(", ")} is declared here after the move; drop the import from "${site.specifier}"`;
+    }
+    return `${site.file}: import ${site.names.join(", ")} from "${input.specifier}" instead of "${site.specifier}"${site.otherNames.length === 0 ? "" : ` (${site.otherNames.join(", ")} stay on the old import)`}`;
+  }
+  if (site.kind === "namespace") {
+    return `${site.file}: ${site.names.map((n) => `${site.specifier}.${n}`).join(", ")} is reached through a namespace import; no exact rewrite splits a namespace`;
+  }
+  return `${site.file}: default import of ${symbol.name} has no exact named rewrite`;
+}
+
 // ---------------------------------------------------------------------------
 // Exposure
 
@@ -1163,7 +1405,7 @@ function realizeExposure(
     );
     return;
   }
-  const conceptId = action.subject.conceptId;
+  const { conceptId } = action.subject;
   if (conceptId === undefined && action.subject.symbolId === undefined) {
     const root = rootEntrypoint(target);
     acc.add({
@@ -1198,26 +1440,14 @@ function realizeExposure(
     (l) => ({ module: l.file, symbol: l.symbol })
   );
   if (symbols.length === 0) {
-    const id = action.subject.symbolId ?? conceptId;
-    const symbol = id === undefined ? undefined : symbolOf(planner, id, action);
+    const symbol = resolveExistingExposure(
+      planner,
+      action,
+      target,
+      conceptId,
+      action.subject.symbolId
+    );
     if (symbol === undefined) {
-      return;
-    }
-    if (symbol.package !== target.id) {
-      const relocation =
-        conceptId === undefined
-          ? undefined
-          : acc.relocationsByConcept.get(conceptId);
-      // The relocation carries its own gap or blocker; nothing lands, so nothing is exposed.
-      if (relocation !== undefined && relocation.length > 0) {
-        return;
-      }
-      acc.block(
-        "source-state-mismatch",
-        [action.id],
-        [symbol.id],
-        `${symbol.name} is declared in ${symbol.package ?? "?"}, not ${target.id}`
-      );
       return;
     }
     symbols.push({ module: symbol.file, symbol });
@@ -1243,6 +1473,28 @@ function realizeExposure(
     return;
   }
   acc.filesRead.add(root.file);
+  realizeExposureEntries(
+    symbols,
+    root,
+    acc,
+    action,
+    target,
+    conceptId,
+    entryFile,
+    context
+  );
+}
+
+function realizeExposureEntries(
+  symbols: { symbol: LocatedSymbol; module: string }[],
+  root: { entrypoint: string; file: string },
+  acc: Assembly,
+  action: ComposedStructuralAction,
+  target: OperatorPlanningPackage,
+  conceptId: string | undefined,
+  entryFile: SourceFile,
+  context: OperatorPlanningContext
+) {
   for (const { symbol, module } of symbols) {
     const typeOnly = symbol.kind === "interface" || symbol.kind === "type";
     if (module === root.file) {
@@ -1310,22 +1562,97 @@ function realizeExposure(
         ...(conceptId !== undefined && { conceptId }),
       },
     });
-    if (acc.landed(symbol.id)) {
-      for (const t of acc.transformations.values()) {
-        if (
-          (t.kind === "move-symbol" || t.kind === "move-module") &&
-          t.subject?.symbolId === symbol.id
-        ) {
-          acc.depend(
-            t.id,
-            exported.id,
-            "requires",
-            "the entrypoint exports what the module declares"
-          );
-        }
+    realizeExposureEntriesEntries(acc, symbol, exported);
+  }
+}
+
+function realizeExposureEntriesEntries(
+  acc: Assembly,
+  symbol: LocatedSymbol,
+  exported: PlannedTransformation
+) {
+  if (acc.landed(symbol.id)) {
+    for (const t of acc.transformations.values()) {
+      if (
+        (t.kind === "move-symbol" || t.kind === "move-module") &&
+        t.subject?.symbolId === symbol.id
+      ) {
+        acc.depend(
+          t.id,
+          exported.id,
+          "requires",
+          "the entrypoint exports what the module declares"
+        );
       }
     }
   }
+}
+function resolveRepresentationModule(
+  family: Parameters<typeof resolveTargetModuleRep>[0],
+  inTarget: (file: string) => boolean,
+  entrypointFiles: Set<string>
+): TargetResolution | undefined {
+  const counts = new Map<string, number>();
+  resolveTargetModuleRep(family, inTarget, entrypointFiles, counts);
+  const candidates = [...counts.keys()].sort(byId);
+  if (candidates.length === 1) {
+    return {
+      candidates,
+      isNew: false,
+      module: candidates[0],
+      rule: "representation-module",
+    };
+  }
+  if (candidates.length > 1) {
+    const max = Math.max(...counts.values());
+    const top = candidates.filter((c) => counts.get(c) === max);
+    if (top.length === 1) {
+      return {
+        candidates,
+        isNew: false,
+        module: top[0],
+        rule: "representation-module",
+      };
+    }
+    return {
+      candidates,
+      isNew: false,
+      rule: "representation-modules-tie",
+    };
+  }
+  return undefined;
+}
+function resolveExistingExposure(
+  planner: Planner,
+  action: ComposedStructuralAction,
+  target: OperatorPlanningPackage,
+  conceptId: string | undefined,
+  symbolId: string | undefined
+): LocatedSymbol | undefined {
+  const { acc } = planner;
+  const id = symbolId ?? conceptId;
+  const symbol = id === undefined ? undefined : symbolOf(planner, id, action);
+  if (symbol === undefined) {
+    return;
+  }
+  if (symbol.package !== target.id) {
+    const relocation =
+      conceptId === undefined
+        ? undefined
+        : acc.relocationsByConcept.get(conceptId);
+    // The relocation carries its own gap or blocker; nothing lands, so nothing is exposed.
+    if (relocation !== undefined && relocation.length > 0) {
+      return;
+    }
+    acc.block(
+      "source-state-mismatch",
+      [action.id],
+      [symbol.id],
+      `${symbol.name} is declared in ${symbol.package ?? "?"}, not ${target.id}`
+    );
+    return;
+  }
+  return symbol;
 }
 
 // ---------------------------------------------------------------------------
@@ -1385,36 +1712,42 @@ function realizeCompatibility(
     );
     return;
   }
+  const originalConceptId = action.subject.conceptId;
+  realizeCompatibilityEntries(
+    exposure,
+    symbol,
+    current,
+    acc,
+    action,
+    typeOnly,
+    root,
+    originalConceptId,
+    target
+  );
+  for (const r of acc.relocationsByConcept.get(symbol.id) ?? []) {
+    r.strategy = "compatibility-reexport";
+  }
+}
+
+function realizeCompatibilityEntries(
+  exposure: ExposureRoutes,
+  symbol: LocatedSymbol,
+  current: OperatorPlanningPackage,
+  acc: Assembly,
+  action: ComposedStructuralAction,
+  typeOnly: boolean,
+  root: { entrypoint: string; file: string },
+  originalConceptId: string | undefined,
+  target: OperatorPlanningPackage
+) {
   for (const { route } of exposure.routes) {
     const file = route.kind === "star-export" ? symbol.file : route.file;
-    const before: PlannedSourceState =
-      route.kind === "star-export"
-        ? {
-            exportForm: "named-export",
-            module: symbol.file,
-            names: [symbol.name],
-            package: current.id,
-          }
-        : route.kind === "named-export" || route.kind === "subpath-export"
-          ? {
-              exportForm: "named-export",
-              module: route.file,
-              names: [route.exportedName],
-              package: current.id,
-            }
-          : {
-              exportForm:
-                route.kind === "type-export"
-                  ? "type-reexport"
-                  : "named-reexport",
-              module: route.file,
-              names: [route.exportedName],
-              package: current.id,
-              specifier:
-                route.chain[1] === undefined
-                  ? undefined
-                  : relativeSpecifier(route.file, route.chain[1]),
-            };
+
+    const before: PlannedSourceState = realizeCompatibilityEntriesEntries(
+      route,
+      symbol,
+      current
+    );
     const transformation = acc.add({
       action,
       after: {
@@ -1432,8 +1765,8 @@ function realizeCompatibility(
       kind: "preserve-compatibility-export",
       subject: {
         symbolId: symbol.id,
-        ...(action.subject.conceptId !== undefined && {
-          conceptId: action.subject.conceptId,
+        ...(originalConceptId !== undefined && {
+          conceptId: originalConceptId,
         }),
       },
     });
@@ -1452,9 +1785,42 @@ function realizeCompatibility(
       }
     }
   }
-  for (const r of acc.relocationsByConcept.get(symbol.id) ?? []) {
-    r.strategy = "compatibility-reexport";
+}
+
+function realizeCompatibilityEntriesEntries(
+  route: PublicExposureRoute,
+  symbol: LocatedSymbol,
+  current: OperatorPlanningPackage
+): PlannedSourceState {
+  let before: PlannedSourceState;
+  if (route.kind === "star-export") {
+    before = {
+      exportForm: "named-export",
+      module: symbol.file,
+      names: [symbol.name],
+      package: current.id,
+    };
+  } else if (route.kind === "named-export" || route.kind === "subpath-export") {
+    before = {
+      exportForm: "named-export",
+      module: route.file,
+      names: [route.exportedName],
+      package: current.id,
+    };
+  } else {
+    before = {
+      exportForm:
+        route.kind === "type-export" ? "type-reexport" : "named-reexport",
+      module: route.file,
+      names: [route.exportedName],
+      package: current.id,
+      specifier:
+        route.chain[1] === undefined
+          ? undefined
+          : relativeSpecifier(route.file, route.chain[1]),
+    };
   }
+  return before;
 }
 
 // ---------------------------------------------------------------------------
@@ -1514,6 +1880,33 @@ function realizeInternalize(
       `${external.map((s) => s.file).join(", ")} still import ${symbol.name} from ${pkg.id}; the operator's external-usage precondition no longer holds`
     );
   }
+  realizeInternalizeEntries(
+    exposure,
+    landing,
+    acc,
+    action,
+    symbol,
+    pkg,
+    planner,
+    sites
+  );
+  if (landing !== undefined) {
+    for (const r of acc.relocationsByConcept.get(symbol.id) ?? []) {
+      r.strategy = "target-public-old-internal";
+    }
+  }
+}
+
+function realizeInternalizeEntries(
+  exposure: ExposureRoutes,
+  landing: Landing | undefined,
+  acc: Assembly,
+  action: ComposedStructuralAction,
+  symbol: LocatedSymbol,
+  pkg: OperatorPlanningPackage,
+  planner: Planner,
+  sites: ImportSite[]
+) {
   for (const { route } of exposure.routes) {
     if (route.kind === "star-export") {
       if (landing !== undefined) {
@@ -1527,25 +1920,7 @@ function realizeInternalize(
         });
         continue;
       }
-      acc.add({
-        action,
-        before: {
-          exportForm: "star-export",
-          module: route.file,
-          names: [symbol.name],
-          package: pkg.id,
-          specifier:
-            route.chain[1] === undefined
-              ? undefined
-              : relativeSpecifier(route.file, route.chain[1]),
-        },
-        detail: `${route.file}: ${symbol.name} is exposed through \`${route.statement ?? "export *"}\`; taking one name out of a star export has no exact rewrite`,
-        file: route.file,
-        form: "star-export",
-        kind: "remove-export",
-        status: "unsupported",
-        subject: { symbolId: symbol.id },
-      });
+      acc.add(realizeInternalizeEntriesEntries2(action, route, symbol, pkg));
       acc.block(
         "unsupported-export-form",
         [action.id],
@@ -1582,28 +1957,21 @@ function realizeInternalize(
       continue;
     }
     if (route.kind === "named-reexport" || route.kind === "type-export") {
-      const chainNext = route.chain[1];
+      const [, chainNext] = route.chain;
       const specifier =
         chainNext === undefined
           ? undefined
           : relativeSpecifier(route.file, chainNext);
-      const transformation = acc.add({
-        action,
-        after: { module: route.file, names: [], package: pkg.id },
-        before: {
-          exportForm:
-            route.kind === "type-export" ? "type-reexport" : "named-reexport",
-          module: route.file,
-          package: pkg.id,
-          ...(specifier !== undefined && { specifier }),
-          names: [route.exportedName],
-        },
-        detail: `${route.file}: drop \`${route.exportedName}\` from \`${route.statement ?? ""}\`${landing === undefined ? `; ${symbol.file} keeps its own export for internal use` : ""}`,
-        file: route.file,
-        form: route.kind === "type-export" ? "type-reexport" : "named-reexport",
-        kind: "rewrite-reexport",
-        subject: { symbolId: symbol.id },
-      });
+      const transformation = acc.add(
+        realizeInternalizeEntriesEntries(
+          action,
+          route,
+          pkg,
+          specifier,
+          landing,
+          symbol
+        )
+      );
       internalImporters(planner, action, pkg, symbol, sites, transformation);
       continue;
     }
@@ -1623,11 +1991,60 @@ function realizeInternalize(
       `${symbol.name} is exposed through ${route.kind} in ${route.file}`
     );
   }
-  if (landing !== undefined) {
-    for (const r of acc.relocationsByConcept.get(symbol.id) ?? []) {
-      r.strategy = "target-public-old-internal";
-    }
-  }
+}
+
+function realizeInternalizeEntriesEntries2(
+  action: ComposedStructuralAction,
+  route: PublicExposureRoute,
+  symbol: LocatedSymbol,
+  pkg: OperatorPlanningPackage
+): TransformationInput {
+  return {
+    action,
+    before: {
+      exportForm: "star-export",
+      module: route.file,
+      names: [symbol.name],
+      package: pkg.id,
+      specifier:
+        route.chain[1] === undefined
+          ? undefined
+          : relativeSpecifier(route.file, route.chain[1]),
+    },
+    detail: `${route.file}: ${symbol.name} is exposed through \`${route.statement ?? "export *"}\`; taking one name out of a star export has no exact rewrite`,
+    file: route.file,
+    form: "star-export",
+    kind: "remove-export",
+    status: "unsupported",
+    subject: { symbolId: symbol.id },
+  };
+}
+
+function realizeInternalizeEntriesEntries(
+  action: ComposedStructuralAction,
+  route: PublicExposureRoute,
+  pkg: OperatorPlanningPackage,
+  specifier: string | undefined,
+  landing: Landing | undefined,
+  symbol: LocatedSymbol
+): TransformationInput {
+  return {
+    action,
+    after: { module: route.file, names: [], package: pkg.id },
+    before: {
+      exportForm:
+        route.kind === "type-export" ? "type-reexport" : "named-reexport",
+      module: route.file,
+      package: pkg.id,
+      ...(specifier !== undefined && { specifier }),
+      names: [route.exportedName],
+    },
+    detail: `${route.file}: drop \`${route.exportedName}\` from \`${route.statement ?? ""}\`${landing === undefined ? `; ${symbol.file} keeps its own export for internal use` : ""}`,
+    file: route.file,
+    form: route.kind === "type-export" ? "type-reexport" : "named-reexport",
+    kind: "rewrite-reexport",
+    subject: { symbolId: symbol.id },
+  };
 }
 
 /** Package-internal modules importing through the entrypoint get a module import before the exposure goes. */
@@ -1679,7 +2096,7 @@ function realizeRedirect(
   const consumer = packageOf(planner, action.subject.consumer);
   const provider = packageOf(planner, action.subject.provider);
   const target = packageOf(planner, action.target?.package);
-  const conceptId = action.subject.conceptId;
+  const { conceptId } = action.subject;
   if (
     consumer === undefined ||
     provider === undefined ||
@@ -1738,7 +2155,7 @@ function realizeRedirect(
     return;
   }
   if (movedSymbols.length === 0) {
-    const routes = exposureRoutes(context, target, concept).routes;
+    const { routes } = exposureRoutes(context, target, concept);
     if (concept.package !== target.id && routes.length === 0) {
       acc.block(
         "package-export-strategy-unresolved",
@@ -1761,58 +2178,22 @@ function realizeRedirect(
   }
   const inTarget = consumer.id === target.id;
   let any = false;
-  for (const symbol of symbols) {
-    for (const site of importSitesOf(context, symbol)) {
-      if (site.form !== "import" || site.package !== consumer.id) {
-        continue;
-      }
-      const resolvedPackage = packageOfFile(context, site.resolvedFile);
-      if (
-        resolvedPackage !== provider.id &&
-        !(resolvedPackage === undefined && site.viaPackage)
-      ) {
-        continue;
-      }
-      any = true;
-      const landing = acc.landingIn(symbol.id, target.id);
-      const specifier =
-        inTarget && landing !== undefined
-          ? site.file === landing.file
-            ? undefined
-            : relativeSpecifier(site.file, landing.file)
-          : root.entrypoint;
-      const rewrite = rewriteSite(planner, {
-        action,
-        site,
-        specifier,
-        symbol,
-        toPackage: target.id,
-      });
-      if (rewrite === undefined) {
-        continue;
-      }
-      if (site.otherNames.length === 0) {
-        acc.removeSite(consumer.id, provider.id, rewrite.id, action.id);
-      }
-      if (!inTarget) {
-        acc.edge(consumer.id, target.id, !site.typeOnly, rewrite.id, action.id);
-      }
-      for (const t of acc.transformations.values()) {
-        if (
-          t.kind === "add-export" &&
-          t.subject?.symbolId === symbol.id &&
-          t.after?.package === target.id
-        ) {
-          acc.depend(
-            t.id,
-            rewrite.id,
-            "requires",
-            "consumers import what the target exposes"
-          );
-        }
-      }
-    }
-  }
+  const visitSymbol = () => {
+    any = realizeRedirectSymbol(
+      symbols,
+      context,
+      consumer,
+      provider,
+      any,
+      acc,
+      target,
+      inTarget,
+      root,
+      planner,
+      action
+    );
+  };
+  visitSymbol();
   if (any) {
     return;
   }
@@ -1849,6 +2230,127 @@ function realizeRedirect(
   });
 }
 
+function realizeRedirectSymbol(
+  symbols: LocatedSymbol[],
+  context: OperatorPlanningContext,
+  consumer: OperatorPlanningPackage,
+  provider: OperatorPlanningPackage,
+  initialAny: boolean,
+  acc: Assembly,
+  target: OperatorPlanningPackage,
+  inTarget: boolean,
+  root: { entrypoint: string; file: string },
+  planner: Planner,
+  action: ComposedStructuralAction
+) {
+  let any = initialAny;
+  for (const symbol of symbols) {
+    any = realizeRedirectSymbolSite(
+      context,
+      symbol,
+      consumer,
+      provider,
+      any,
+      acc,
+      target,
+      inTarget,
+      root,
+      planner,
+      action
+    );
+  }
+  return any;
+}
+
+function realizeRedirectSymbolSite(
+  context: OperatorPlanningContext,
+  symbol: LocatedSymbol,
+  consumer: OperatorPlanningPackage,
+  provider: OperatorPlanningPackage,
+  initialAny: boolean,
+  acc: Assembly,
+  target: OperatorPlanningPackage,
+  inTarget: boolean,
+  root: { entrypoint: string; file: string },
+  planner: Planner,
+  action: ComposedStructuralAction
+) {
+  let any = initialAny;
+  for (const site of importSitesOf(context, symbol)) {
+    if (site.form !== "import" || site.package !== consumer.id) {
+      continue;
+    }
+    const resolvedPackage = packageOfFile(context, site.resolvedFile);
+    if (
+      resolvedPackage !== provider.id &&
+      !(resolvedPackage === undefined && site.viaPackage)
+    ) {
+      continue;
+    }
+    any = true;
+    const landing = acc.landingIn(symbol.id, target.id);
+
+    const specifier: string | undefined = realizeRedirectSymbolSiteEntries(
+      inTarget,
+      landing,
+      site,
+      undefined,
+      root
+    );
+    const rewrite = rewriteSite(planner, {
+      action,
+      site,
+      specifier,
+      symbol,
+      toPackage: target.id,
+    });
+    if (rewrite === undefined) {
+      continue;
+    }
+    if (site.otherNames.length === 0) {
+      acc.removeSite(consumer.id, provider.id, rewrite.id, action.id);
+    }
+    if (!inTarget) {
+      acc.edge(consumer.id, target.id, !site.typeOnly, rewrite.id, action.id);
+    }
+    for (const t of acc.transformations.values()) {
+      if (
+        t.kind === "add-export" &&
+        t.subject?.symbolId === symbol.id &&
+        t.after?.package === target.id
+      ) {
+        acc.depend(
+          t.id,
+          rewrite.id,
+          "requires",
+          "consumers import what the target exposes"
+        );
+      }
+    }
+  }
+  return any;
+}
+
+function realizeRedirectSymbolSiteEntries(
+  inTarget: boolean,
+  landing: Landing | undefined,
+  site: ImportSite,
+  initialSpecifier: string | undefined,
+  root: { entrypoint: string; file: string }
+): string | undefined {
+  let specifier = initialSpecifier;
+  if (inTarget && landing !== undefined) {
+    if (site.file === landing.file) {
+      specifier = undefined;
+    } else {
+      specifier = relativeSpecifier(site.file, landing.file);
+    }
+  } else {
+    specifier = root.entrypoint;
+  }
+  return specifier;
+}
+
 // ---------------------------------------------------------------------------
 // Preservation-only actions
 
@@ -1858,12 +2360,14 @@ function realizeVerifyOnly(
 ): void {
   const { acc } = planner;
   const { subject } = action;
-  const pkgId =
-    subject.kind === "package"
-      ? subject.packageId
-      : subject.kind === "boundary"
-        ? subject.boundaryId.split("→")[0]
-        : (action.current?.package ?? action.target?.package);
+  let pkgId: string | undefined;
+  if (subject.kind === "package") {
+    pkgId = subject.packageId;
+  } else if (subject.kind === "boundary") {
+    [pkgId] = subject.boundaryId.split("→");
+  } else {
+    pkgId = action.current?.package ?? action.target?.package;
+  }
   const pkg = packageOf(planner, pkgId);
   acc.add({
     action,
@@ -1933,33 +2437,52 @@ function settleStrategies(planner: Planner): void {
       continue;
     }
     r.strategy = "direct-relocation";
-    for (const member of members) {
-      for (const { route } of exposureRoutes(context, sourcePackage, member)
-        .routes) {
-        if (route.kind !== "named-reexport" && route.kind !== "type-export") {
-          continue;
-        }
-        acc.add({
-          action,
-          after: { module: route.file, names: [], package: r.sourcePackage },
-          before: {
-            exportForm:
-              route.kind === "type-export" ? "type-reexport" : "named-reexport",
-            module: route.file,
-            names: [route.exportedName],
-            package: r.sourcePackage,
-          },
-          detail: `${route.file}: drop \`${route.exportedName}\` from \`${route.statement ?? ""}\`; ${outside.length === 0 ? `nothing outside ${r.sourcePackage} imports it from here` : "every outside importer is redirected"}`,
-          file: route.file,
-          form:
-            route.kind === "type-export" ? "type-reexport" : "named-reexport",
-          kind: "rewrite-reexport",
-          subject: {
-            symbolId: member.id,
-            ...(r.conceptId !== undefined && { conceptId: r.conceptId }),
-          },
-        });
+    settleStrategiesMember(
+      members,
+      context,
+      sourcePackage,
+      acc,
+      action,
+      r,
+      outside
+    );
+  }
+}
+
+function settleStrategiesMember(
+  members: LocatedSymbol[],
+  context: OperatorPlanningContext,
+  sourcePackage: OperatorPlanningPackage,
+  acc: Assembly,
+  action: ComposedStructuralAction,
+  r: PlannedRelocation,
+  outside: ImportSite[]
+) {
+  for (const member of members) {
+    for (const { route } of exposureRoutes(context, sourcePackage, member)
+      .routes) {
+      if (route.kind !== "named-reexport" && route.kind !== "type-export") {
+        continue;
       }
+      acc.add({
+        action,
+        after: { module: route.file, names: [], package: r.sourcePackage },
+        before: {
+          exportForm:
+            route.kind === "type-export" ? "type-reexport" : "named-reexport",
+          module: route.file,
+          names: [route.exportedName],
+          package: r.sourcePackage,
+        },
+        detail: `${route.file}: drop \`${route.exportedName}\` from \`${route.statement ?? ""}\`; ${outside.length === 0 ? `nothing outside ${r.sourcePackage} imports it from here` : "every outside importer is redirected"}`,
+        file: route.file,
+        form: route.kind === "type-export" ? "type-reexport" : "named-reexport",
+        kind: "rewrite-reexport",
+        subject: {
+          symbolId: member.id,
+          ...(r.conceptId !== undefined && { conceptId: r.conceptId }),
+        },
+      });
     }
   }
 }
@@ -1971,6 +2494,67 @@ function finalizeManifests(planner: Planner): void {
   const { acc, context } = planner;
   const edges = packageImportEdges(context);
   const existing = new Map(edges.map((e) => [`${e.from}→${e.to}`, e]));
+  finalizeManifestsAdded(acc, context, planner);
+  // Removals: only when every import site carrying the edge is rewritten away.
+  for (const [id, removed] of [...acc.removedSites].sort(([a], [b]) =>
+    byId(a, b)
+  )) {
+    const edge = existing.get(id);
+    if (edge === undefined || removed.count < edge.sites) {
+      continue;
+    }
+    if (acc.addedEdges.some((e) => `${e.from}→${e.to}` === id)) {
+      continue;
+    }
+    const from = context.packages.get(edge.from);
+    if (from?.dependencies.includes(edge.to) !== true) {
+      continue;
+    }
+    const rewrites = removed.transformations
+      .map((tid) => acc.transformations.get(tid))
+      .filter(
+        (transformation2): transformation2 is PlannedTransformation =>
+          transformation2 !== undefined
+      );
+    const action = planner.composition.actions.find((a) =>
+      removed.actions.includes(a.id)
+    );
+    if (action === undefined) {
+      continue;
+    }
+    const t = acc.add({
+      action,
+      after: {
+        dependency: { declared: false, package: edge.to },
+        package: from.id,
+      },
+      before: {
+        dependency: { declared: true, package: edge.to },
+        package: from.id,
+      },
+      detail: `${from.manifest}: ${edge.to} can leave the dependencies once the ${edge.sites} import${edge.sites === 1 ? "" : "s"} carrying it are rewritten; nothing else in ${from.id} imports it`,
+      file: from.manifest,
+      form: "manifest-dependency-removal",
+      kind: "update-package-dependency",
+      status: "conditional",
+      subject: { packageId: from.id },
+    });
+    for (const r of rewrites) {
+      acc.depend(
+        r.id,
+        t.id,
+        "requires",
+        "imports leave before the dependency does"
+      );
+    }
+  }
+}
+
+function finalizeManifestsAdded(
+  acc: Assembly,
+  context: OperatorPlanningContext,
+  planner: Planner
+) {
   for (const added of [...acc.addedEdges].sort(
     (a, b) => byId(a.from, b.from) || byId(a.to, b.to)
   )) {
@@ -2015,56 +2599,6 @@ function finalizeManifests(planner: Planner): void {
         acc.link(other, t.id);
       }
       t.actions = uniq([...t.actions, ...added.actions]);
-    }
-  }
-  // Removals: only when every import site carrying the edge is rewritten away.
-  for (const [id, removed] of [...acc.removedSites].sort(([a], [b]) =>
-    byId(a, b)
-  )) {
-    const edge = existing.get(id);
-    if (edge === undefined || removed.count < edge.sites) {
-      continue;
-    }
-    if (acc.addedEdges.some((e) => `${e.from}→${e.to}` === id)) {
-      continue;
-    }
-    const from = context.packages.get(edge.from);
-    if (from?.dependencies.includes(edge.to) !== true) {
-      continue;
-    }
-    const rewrites = removed.transformations
-      .map((tid) => acc.transformations.get(tid))
-      .filter((t): t is PlannedTransformation => t !== undefined);
-    const action = planner.composition.actions.find((a) =>
-      removed.actions.includes(a.id)
-    );
-    if (action === undefined) {
-      continue;
-    }
-    const t = acc.add({
-      action,
-      after: {
-        dependency: { declared: false, package: edge.to },
-        package: from.id,
-      },
-      before: {
-        dependency: { declared: true, package: edge.to },
-        package: from.id,
-      },
-      detail: `${from.manifest}: ${edge.to} can leave the dependencies once the ${edge.sites} import${edge.sites === 1 ? "" : "s"} carrying it are rewritten; nothing else in ${from.id} imports it`,
-      file: from.manifest,
-      form: "manifest-dependency-removal",
-      kind: "update-package-dependency",
-      status: "conditional",
-      subject: { packageId: from.id },
-    });
-    for (const r of rewrites) {
-      acc.depend(
-        r.id,
-        t.id,
-        "requires",
-        "imports leave before the dependency does"
-      );
     }
   }
 }
@@ -2216,6 +2750,14 @@ function finalizeDependencies(planner: Planner): void {
   const { layer } = layers(composition.actions, composition.dependencies);
   const depth = (t: PlannedTransformation) =>
     Math.max(...t.actions.map((id) => layer.get(id) ?? 0));
+  finalizeDependenciesDep(composition, acc, depth);
+}
+
+function finalizeDependenciesDep(
+  composition: OperatorComposition,
+  acc: Assembly,
+  depth: (t: PlannedTransformation) => number
+) {
   for (const dep of composition.dependencies) {
     const before = acc.byAction.get(dep.before);
     const after = acc.byAction.get(dep.after);
@@ -2266,6 +2808,8 @@ function isCleanup(t: PlannedTransformation): boolean {
     case "update-test-import":
     case "verify-only":
       return false;
+    default:
+      throw new Error("Unexpected t.kind.");
   }
 }
 
@@ -2337,21 +2881,21 @@ function realizations(planner: Planner): StructuralActionRealization[] {
     const unsupported = ids.some(
       (id) => acc.transformations.get(id)?.status === "unsupported"
     );
-    let status: StructuralActionRealization["status"] = "realized";
+    let resultStatus2: StructuralActionRealization["status"] = "realized";
     let detail: string | undefined;
     if (blocked.length > 0 || unsupported) {
-      status = "blocked";
+      resultStatus2 = "blocked";
       detail = blocked[0]?.detail ?? "a transformation has no exact form";
     } else if (gaps.length > 0) {
-      status = "partial";
+      resultStatus2 = "partial";
       detail = gaps[0]?.detail;
     } else if (ids.length === 0) {
-      status = "partial";
+      resultStatus2 = "partial";
       detail = "no transformation realizes the action";
     }
     return {
       actionId: action.id,
-      status,
+      status: resultStatus2,
       transformations: ids,
       ...(detail !== undefined && { detail }),
     };
@@ -2494,8 +3038,58 @@ function buildVerification(planner: Planner): PlannedVerificationStep[] {
       case "delete-empty-module":
       case "verify-only":
         break;
+      default:
+        throw new Error("Unexpected t.kind.");
     }
   }
+  buildVerificationP(composition, v, context, acc);
+  const visitReq = () => {
+    for (const req of composition.verification) {
+      switch (req.kind) {
+        case "typecheck":
+          v.add("typecheck", packages, true, source);
+          break;
+        case "tests":
+          v.add("tests", packages, true, source);
+          break;
+        case "public-surface":
+          break;
+        case "anchor-preserved":
+          v.add(
+            "verify-anchor",
+            Array.isArray(req.expected) ? req.expected : packages,
+            true,
+            []
+          );
+          break;
+        case "concept-center":
+        case "behavior-location":
+        case "dependency-edge":
+        case "boundary-interaction":
+          v.add("analyze-workspace", packages, req.expected, source);
+          break;
+        default:
+          throw new Error("Unexpected req.kind.");
+      }
+    }
+  };
+  visitReq();
+  if (source.length > 0) {
+    v.add("typecheck", packages, true, source);
+    v.add("tests", packages, true, source);
+    for (const p of packages) {
+      v.add("analyze-package", [p], true, source);
+    }
+  }
+  return v.ordered();
+}
+
+function buildVerificationP(
+  composition: OperatorComposition,
+  v: Verification,
+  context: OperatorPlanningContext,
+  acc: Assembly
+) {
   for (const p of composition.preservations) {
     if (p.kind === "anchor") {
       v.add("verify-anchor", p.entityIds, true, []);
@@ -2514,67 +3108,43 @@ function buildVerification(planner: Planner): PlannedVerificationStep[] {
       }
     }
     // A path is kept when the concept it names never left its home.
-    if (p.kind === "consumer-import-path" || p.kind === "public-contract") {
-      for (const conceptId of uniq(
-        composition.actions.flatMap((a) => conceptOf(a) ?? [])
-      )) {
-        const located = locateSymbol(context, conceptId);
-        if (
-          located.status !== "located" ||
-          acc.landed(conceptId) ||
-          located.symbol.package === undefined
-        ) {
-          continue;
-        }
-        const step = v.add(
-          "verify-public-surface",
-          [located.symbol.package, conceptId],
-          "package-public",
-          []
+    buildVerificationPEntries(p, composition, context, acc, v);
+  }
+}
+
+function buildVerificationPEntries(
+  p: CompositionPreservation,
+  composition: OperatorComposition,
+  context: OperatorPlanningContext,
+  acc: Assembly,
+  v: Verification
+) {
+  if (p.kind === "consumer-import-path" || p.kind === "public-contract") {
+    for (const conceptId of uniq(
+      composition.actions.flatMap((a) => conceptOf(a) ?? [])
+    )) {
+      const located = locateSymbol(context, conceptId);
+      if (
+        located.status !== "located" ||
+        acc.landed(conceptId) ||
+        located.symbol.package === undefined
+      ) {
+        continue;
+      }
+      const step = v.add(
+        "verify-public-surface",
+        [located.symbol.package, conceptId],
+        "package-public",
+        []
+      );
+      if (step !== undefined) {
+        acc.proofs.set(
+          p.preservationId,
+          uniq([...(acc.proofs.get(p.preservationId) ?? []), step.id])
         );
-        if (step !== undefined) {
-          acc.proofs.set(
-            p.preservationId,
-            uniq([...(acc.proofs.get(p.preservationId) ?? []), step.id])
-          );
-        }
       }
     }
   }
-  for (const req of composition.verification) {
-    switch (req.kind) {
-      case "typecheck":
-        v.add("typecheck", packages, true, source);
-        break;
-      case "tests":
-        v.add("tests", packages, true, source);
-        break;
-      case "public-surface":
-        break;
-      case "anchor-preserved":
-        v.add(
-          "verify-anchor",
-          Array.isArray(req.expected) ? req.expected : packages,
-          true,
-          []
-        );
-        break;
-      case "concept-center":
-      case "behavior-location":
-      case "dependency-edge":
-      case "boundary-interaction":
-        v.add("analyze-workspace", packages, req.expected, source);
-        break;
-    }
-  }
-  if (source.length > 0) {
-    v.add("typecheck", packages, true, source);
-    v.add("tests", packages, true, source);
-    for (const p of packages) {
-      v.add("analyze-package", [p], true, source);
-    }
-  }
-  return v.ordered();
 }
 
 function preservations(
@@ -2617,6 +3187,8 @@ function preservations(
             return (
               s.kind === "analyze-package" || s.kind === "analyze-workspace"
             );
+          default:
+            throw new Error("Unexpected p.kind.");
         }
       })
       .map((s) => s.id);
@@ -2624,15 +3196,17 @@ function preservations(
       ...proof,
       ...(acc.proofs.get(p.preservationId) ?? []),
     ]);
-    const status: PlannedPreservation["status"] =
-      transformations.length > 0
-        ? "transformed"
-        : verification.length > 0
-          ? "proven"
-          : "unproven";
+    let resultStatus: PlannedPreservation["status"];
+    if (transformations.length > 0) {
+      resultStatus = "transformed";
+    } else if (verification.length > 0) {
+      resultStatus = "proven";
+    } else {
+      resultStatus = "unproven";
+    }
     return {
       preservationId: p.preservationId,
-      status,
+      status: resultStatus,
       transformations,
       verification,
     };
@@ -2730,14 +3304,16 @@ function carryCompositionState(planner: Planner): void {
         []
     );
     for (const c of constraints) {
-      const kind: OperatorPlanBlockerKind =
-        c.kind === "anchor"
-          ? "anchor-violation"
-          : c.kind === "coverage-incomplete"
-            ? "coverage-incomplete"
-            : c.kind === "structural-conformance-unknown"
-              ? "structural-conformance-unknown"
-              : "unsupported-realization";
+      let kind: OperatorPlanBlockerKind;
+      if (c.kind === "anchor") {
+        kind = "anchor-violation";
+      } else if (c.kind === "coverage-incomplete") {
+        kind = "coverage-incomplete";
+      } else if (c.kind === "structural-conformance-unknown") {
+        kind = "structural-conformance-unknown";
+      } else {
+        kind = "unsupported-realization";
+      }
       acc.block(kind, [action.id], c.entityIds, c.detail);
     }
     if (constraints.length === 0) {
@@ -2780,6 +3356,8 @@ function packageOfOperator(
       return subject.packages[0];
     case "concept":
       return operator.placement.current?.package;
+    default:
+      throw new Error("Unexpected subject.kind.");
   }
 }
 
@@ -2859,14 +3437,20 @@ function targetsOf(
       return {
         file,
         ...(pkg !== undefined && { package: pkg }),
-        kind: isManifest(file)
-          ? "manifest"
-          : isTestFile(file)
-            ? "test"
-            : "source",
+        kind: resolveKind(file),
         transformations: ids.sort(byId),
       };
     });
+}
+
+function resolveKind(file: string): "manifest" | "test" | "source" {
+  if (isManifest(file)) {
+    return "manifest";
+  }
+  if (isTestFile(file)) {
+    return "test";
+  }
+  return "source";
 }
 
 function diagnostics(
@@ -2932,77 +3516,7 @@ export function planOperatorComposition(
       a.kind === "relocate-behavior-responsibility"
   );
   const rest = composition.actions.filter((a) => !placement.includes(a));
-  for (const action of placement) {
-    if (action.status === "unsupported") {
-      continue;
-    }
-    const source = packageOf(planner, action.current?.package);
-    const target = packageOf(planner, action.target?.package);
-    const conceptId = conceptOf(action);
-    if (
-      source === undefined ||
-      target === undefined ||
-      conceptId === undefined
-    ) {
-      acc.block(
-        "source-state-mismatch",
-        [action.id],
-        [action.current?.package ?? "?", action.target?.package ?? "?"],
-        `${action.current?.package ?? "?"} or ${action.target?.package ?? "?"} is not a workspace package`
-      );
-      continue;
-    }
-    const concept = symbolOf(planner, conceptId, action);
-    if (concept === undefined) {
-      continue;
-    }
-    if (action.kind === "relocate-semantic-declaration") {
-      if (concept.package !== source.id) {
-        acc.block(
-          "source-state-mismatch",
-          [action.id],
-          [concept.id],
-          `${concept.name} is declared in ${concept.package ?? "?"}, not ${source.id}`
-        );
-        continue;
-      }
-      realizeRelocation(planner, {
-        action,
-        concept,
-        conceptId,
-        members: [
-          {
-            role: "governing",
-            source: "concept-declaration",
-            symbolId: concept.id,
-          },
-        ],
-        source,
-        symbols: [concept],
-        target,
-      });
-    } else {
-      const { members, symbols } = behaviorMembers(planner, concept, source);
-      if (members.length === 0) {
-        acc.gap(
-          "behavior-members-unresolved",
-          [action.id],
-          [conceptId, source.id],
-          `no class in ${source.id} implements ${concept.name} and no function returns it; the governing behavior cannot be named from the sources`
-        );
-        continue;
-      }
-      realizeRelocation(planner, {
-        action,
-        concept,
-        conceptId,
-        members,
-        source,
-        symbols,
-        target,
-      });
-    }
-  }
+  planOperatorCompositionAction(placement, planner, acc);
   for (const action of rest) {
     if (action.status === "unsupported") {
       continue;
@@ -3029,6 +3543,8 @@ export function planOperatorComposition(
       case "preserve-anchor-boundary":
         realizeVerifyOnly(planner, action);
         break;
+      default:
+        throw new Error("Unexpected action.kind.");
     }
   }
   settleStrategies(planner);
@@ -3119,6 +3635,18 @@ export function planOperatorComposition(
     ),
     verification,
   };
+}
+
+function planOperatorCompositionAction(
+  placement: ComposedStructuralAction[],
+  planner: Planner,
+  acc: Assembly
+) {
+  const visitAction = (action: ComposedStructuralAction) =>
+    resolveVisitAction(planner, acc, action);
+  for (const action of placement) {
+    visitAction(action);
+  }
 }
 
 /** Convenience for one operator: composes it alone, then plans the composition. */
@@ -3236,4 +3764,149 @@ export function validateOperatorExecutionPlan(
     problems,
     status: problems.length === 0 ? "valid" : "invalid",
   };
+}
+function resolveVisitAction(
+  planner: Planner,
+  acc: Assembly,
+  action: ComposedStructuralAction
+) {
+  if (action.status === "unsupported") {
+    return;
+  }
+  const source = packageOf(planner, action.current?.package);
+  const target = packageOf(planner, action.target?.package);
+  const conceptId = conceptOf(action);
+  if (source === undefined || target === undefined || conceptId === undefined) {
+    acc.block(
+      "source-state-mismatch",
+      [action.id],
+      [action.current?.package ?? "?", action.target?.package ?? "?"],
+      `${action.current?.package ?? "?"} or ${action.target?.package ?? "?"} is not a workspace package`
+    );
+    return;
+  }
+  const concept = symbolOf(planner, conceptId, action);
+  if (concept === undefined) {
+    return;
+  }
+  if (action.kind === "relocate-semantic-declaration") {
+    if (concept.package !== source.id) {
+      acc.block(
+        "source-state-mismatch",
+        [action.id],
+        [concept.id],
+        `${concept.name} is declared in ${concept.package ?? "?"}, not ${source.id}`
+      );
+      return;
+    }
+    realizeRelocation(planner, {
+      action,
+      concept,
+      conceptId,
+      members: [
+        {
+          role: "governing",
+          source: "concept-declaration",
+          symbolId: concept.id,
+        },
+      ],
+      source,
+      symbols: [concept],
+      target,
+    });
+  } else {
+    const { members, symbols } = behaviorMembers(planner, concept, source);
+    if (members.length === 0) {
+      acc.gap(
+        "behavior-members-unresolved",
+        [action.id],
+        [conceptId, source.id],
+        `no class in ${source.id} implements ${concept.name} and no function returns it; the governing behavior cannot be named from the sources`
+      );
+      return;
+    }
+    realizeRelocation(planner, {
+      action,
+      concept,
+      conceptId,
+      members,
+      source,
+      symbols,
+      target,
+    });
+  }
+}
+function resolveVisitSite(
+  movingFiles: Set<string>,
+  acc: Assembly,
+  input: RelocationInput,
+  planner: Planner,
+  action: ComposedStructuralAction,
+  moves: PlannedTransformation[],
+  targetModule: string,
+  symbol: LocatedSymbol,
+  site: ImportSite
+) {
+  if (movingFiles.has(site.file)) {
+    acc.form("co-moved-import");
+    return;
+  }
+  if (site.form !== "import") {
+    return;
+  }
+  if (site.package === input.target.id) {
+    const local = rewriteSite(planner, {
+      action,
+      moves,
+      site,
+      specifier:
+        site.file === targetModule
+          ? undefined
+          : relativeSpecifier(site.file, targetModule),
+      symbol,
+      toPackage: input.target.id,
+    });
+    // A split import keeps its declaration for the other names; the edge stays.
+    if (local !== undefined && site.otherNames.length === 0) {
+      acc.removeSite(input.target.id, input.source.id, local.id, action.id);
+    }
+  } else if (site.package === input.source.id) {
+    const root = rootEntrypoint(input.target);
+    if (root === undefined) {
+      acc.block(
+        "package-export-strategy-unresolved",
+        [action.id],
+        [input.target.id],
+        `${input.target.id} declares no TypeScript entrypoint; ${site.file} cannot import ${symbol.name} from it`
+      );
+      return;
+    }
+    const inward = inwardRedirect(
+      planner,
+      input.source.id,
+      input.target.id,
+      input.conceptId
+    );
+    const rewrite = rewriteSite(planner, {
+      action,
+      moves,
+      site,
+      specifier: root.entrypoint,
+      symbol,
+      toPackage: input.target.id,
+    });
+    if (inward !== undefined && rewrite !== undefined) {
+      acc.link(inward.id, rewrite.id);
+      rewrite.actions = uniq([...rewrite.actions, inward.id]);
+    }
+    if (rewrite !== undefined) {
+      acc.edge(
+        input.source.id,
+        input.target.id,
+        !site.typeOnly,
+        rewrite.id,
+        action.id
+      );
+    }
+  }
 }

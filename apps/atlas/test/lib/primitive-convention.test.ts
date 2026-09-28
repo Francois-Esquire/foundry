@@ -1,7 +1,13 @@
 import { execFileSync } from "node:child_process";
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
+import {
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, posix } from "node:path";
 
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { analyzeInternalResponsibilities } from "../../src/lib/internal-responsibility";
@@ -23,6 +29,8 @@ import { PRIMITIVE_CONVENTION_SCHEMA_VERSION } from "../../src/lib/primitive-con
 import { renderPrimitiveConventions } from "../../src/lib/report-primitive";
 import { analyzeSymbolLocality } from "../../src/lib/symbol-locality";
 
+const specifierPattern = /\.tsx?$/;
+
 // V13.3 primitive roles, responsibility scopes, module shapes, and placement
 // conventions on synthetic packages. Each fixture is one package in a
 // throwaway workspace; the high-fan cutoff floors at 3, so a module with
@@ -33,7 +41,7 @@ const tempRoots: string[] = [];
 
 afterAll(() => {
   for (const dir of tempRoots) {
-    fs.rmSync(dir, { force: true, recursive: true });
+    rmSync(dir, { force: true, recursive: true });
   }
 });
 
@@ -41,13 +49,13 @@ function workspace(
   files: Record<string, string>,
   extra: Record<string, string> = {}
 ): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "primitive-"));
-  const root = fs.realpathSync(dir);
+  const dir = mkdtempSync(join(tmpdir(), "primitive-"));
+  const root = realpathSync(dir);
   tempRoots.push(root);
   const write = (file: string, text: string) => {
-    const target = path.join(root, file);
-    fs.mkdirSync(path.dirname(target), { recursive: true });
-    fs.writeFileSync(target, text);
+    const target = join(root, file);
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, text);
   };
   write(
     "package.json",
@@ -58,7 +66,7 @@ function workspace(
     JSON.stringify({ exports: { ".": "./src/index.ts" }, name: "@f/p" })
   );
   for (const [file, text] of Object.entries(files)) {
-    write(path.join("packages/p", file), text);
+    write(join("packages/p", file), text);
   }
   for (const [file, text] of Object.entries(extra)) {
     write(file, text);
@@ -92,9 +100,9 @@ function primitivesOf(
 
 /** `import { names } from "<relative>"` from one package-relative file to another. */
 function importOf(from: string, to: string, names: string): string {
-  let specifier = path.posix.relative(
-    path.posix.dirname(from),
-    to.replace(/\.tsx?$/, "")
+  let specifier = posix.relative(
+    posix.dirname(from),
+    to.replace(specifierPattern, "")
   );
   if (!specifier.startsWith(".")) {
     specifier = `./${specifier}`;
@@ -541,17 +549,16 @@ function conventionFixture(): Record<string, string> {
     files[`src/${dir}/impl.ts`] =
       `export interface Port${dir} { run(): void }\n` +
       `export class Impl${dir} implements Port${dir} { run(): void {} }\n`;
-    files[`src/${dir}/use.ts`] =
-      importOf(
-        `src/${dir}/use.ts`,
-        `src/${dir}/impl.ts`,
-        `Port${dir}, Impl${dir}`
-      ) + `export const use${dir}: Port${dir} = new Impl${dir}();\n`;
+    files[`src/${dir}/use.ts`] = `${importOf(
+      `src/${dir}/use.ts`,
+      `src/${dir}/impl.ts`,
+      `Port${dir}, Impl${dir}`
+    )}export const use${dir}: Port${dir} = new Impl${dir}();\n`;
   }
   files["src/f/schema.ts"] =
     'import { z } from "zod";\nexport const OnlySchema = z.object({});\n';
   files["src/f/use.ts"] =
-    (files["src/f/use.ts"] ?? "") +
+    files["src/f/use.ts"] +
     importOf("src/f/use.ts", "src/f/schema.ts", "OnlySchema") +
     "export const parsed = OnlySchema.parse({});\n";
   return files;
@@ -727,7 +734,7 @@ describe("independence", () => {
     );
     expect(shuffled).toBe(first);
     expect(first).not.toContain(root);
-    expect(first).not.toContain(os.tmpdir());
+    expect(first).not.toContain(tmpdir());
   });
 
   it("leaves its inputs untouched", () => {

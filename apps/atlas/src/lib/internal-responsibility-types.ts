@@ -274,7 +274,7 @@ export interface InternalResponsibilitySummary {
 }
 
 /** The definitions the regions were computed under. */
-export interface InternalResponsibilityPolicy {
+interface InternalResponsibilityPolicy {
   attachment: "a connector joins the one region its localized-symbol edges reach, else the one region any edge reaches; several regions leave it unresolved";
   bridge: "a bridge-role module with no join and localized-symbol edges into several regions is unresolved";
   connectorRoles: InternalModuleRole[];

@@ -1,7 +1,14 @@
 import { execFileSync } from "node:child_process";
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
+import {
+  appendFileSync,
+  cpSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { afterAll, describe, expect, it } from "vitest";
 import { analyzeSurface } from "../../src/lib/analyze";
@@ -20,14 +27,16 @@ import type {
 } from "../../src/lib/types";
 import { validateReductionPlan } from "../../src/lib/validate";
 
-const fixtureRoot = path.join(import.meta.dirname, "fixtures", "deps");
+const expectedTextPattern = /PlanBeta[,\s}]/;
+
+const fixtureRoot = join(import.meta.dirname, "fixtures", "deps");
 
 const tempRoots: string[] = [];
 
 function tempFixture(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "semantic-surface-op-"));
+  const dir = mkdtempSync(join(tmpdir(), "semantic-surface-op-"));
   tempRoots.push(dir);
-  fs.cpSync(fixtureRoot, dir, { recursive: true });
+  cpSync(fixtureRoot, dir, { recursive: true });
   const git = (...args: string[]) =>
     execFileSync("git", args, { cwd: dir, stdio: "ignore" });
   git("init", "-q");
@@ -52,7 +61,7 @@ function gitStatus(dir: string): string {
 
 afterAll(() => {
   for (const dir of tempRoots) {
-    fs.rmSync(dir, { force: true, recursive: true });
+    rmSync(dir, { force: true, recursive: true });
   }
 });
 
@@ -199,8 +208,8 @@ describe("plan validation", () => {
     const root = tempFixture();
     const before = await analyzeSurface({ root, target: "@deps/plans" });
     const plan = internalizePlan(before, "PlanAlpha");
-    fs.writeFileSync(
-      path.join(root, "packages/parent/src/uses-plans.ts"),
+    writeFileSync(
+      join(root, "packages/parent/src/uses-plans.ts"),
       'import type { PlanAlpha } from "@deps/plans";\n\nexport type PlanAlphaAlias = PlanAlpha;\n'
     );
     const after = await analyzeSurface({ root, target: "@deps/plans" });
@@ -217,8 +226,8 @@ describe("plan validation", () => {
     const root = tempFixture();
     const before = await analyzeSurface({ root, target: "@deps/satellite" });
     const plan = foldPlan(before);
-    fs.writeFileSync(
-      path.join(root, "packages/contract/src/uses-satellite.ts"),
+    writeFileSync(
+      join(root, "packages/contract/src/uses-satellite.ts"),
       'import { launchSatellite } from "@deps/satellite";\n\nexport const relaunch = () => launchSatellite();\n'
     );
     const after = await analyzeSurface({ root, target: "@deps/satellite" });
@@ -259,20 +268,17 @@ describe("apply internalize-export", () => {
       totalSymbols: 0,
       unusedExternalExports: -1,
     });
-    const index = fs.readFileSync(
-      path.join(root, "packages/plans/src/index.ts"),
+    const index = readFileSync(
+      join(root, "packages/plans/src/index.ts"),
       "utf8"
     );
     expect(index).toContain("PlanBetaExtra");
-    expect(index).not.toMatch(/PlanBeta[,\s}]/);
+    expect(index).not.toMatch(expectedTextPattern);
     // the module export and its internal consumer survive untouched
-    const bar = fs.readFileSync(
-      path.join(root, "packages/plans/src/bar.ts"),
-      "utf8"
-    );
+    const bar = readFileSync(join(root, "packages/plans/src/bar.ts"), "utf8");
     expect(bar).toContain("export interface PlanBeta");
     expect(
-      fs.readFileSync(path.join(root, "packages/plans/src/internal.ts"), "utf8")
+      readFileSync(join(root, "packages/plans/src/internal.ts"), "utf8")
     ).toContain('from "./bar"');
   });
 
@@ -283,8 +289,8 @@ describe("apply internalize-export", () => {
     const mutation = await applyReductionPlan(plan, { root, write: true });
     expect(mutation.status).toBe("applied");
     expect(mutation.verification?.status).toBe("pass");
-    const index = fs.readFileSync(
-      path.join(root, "packages/plans/src/index.ts"),
+    const index = readFileSync(
+      join(root, "packages/plans/src/index.ts"),
       "utf8"
     );
     expect(index).not.toContain("export interface PlanDirect {");
@@ -316,22 +322,22 @@ describe("apply internalize-export", () => {
     const root = tempFixture();
     const report = await analyzeSurface({ root, target: "@deps/plans" });
     const plan = internalizePlan(report, "PlanAlpha");
-    const index = path.join(root, "packages/plans/src/index.ts");
-    fs.appendFileSync(index, "// local edit\n");
+    const index = join(root, "packages/plans/src/index.ts");
+    appendFileSync(index, "// local edit\n");
     const mutation = await applyReductionPlan(plan, { root, write: true });
     expect(mutation.status).toBe("blocked");
     expect(mutation.blockers?.map((blocker) => blocker.reason)).toContain(
       "dirty-working-tree"
     );
-    expect(fs.readFileSync(index, "utf8")).toContain("// local edit");
+    expect(readFileSync(index, "utf8")).toContain("// local edit");
   });
 
   it("rolls back byte-for-byte when verification fails", async () => {
     const root = tempFixture();
     const report = await analyzeSurface({ root, target: "@deps/plans" });
     const plan = internalizePlan(report, "PlanAlpha");
-    const index = path.join(root, "packages/plans/src/index.ts");
-    const original = fs.readFileSync(index, "utf8");
+    const index = join(root, "packages/plans/src/index.ts");
+    const original = readFileSync(index, "utf8");
     // the fingerprint covers input facts, not the derived delta — a wrong
     // prediction passes validation and must be caught by verification
     const lying: InternalizeSymbolPlan = {
@@ -341,7 +347,7 @@ describe("apply internalize-export", () => {
     const mutation = await applyReductionPlan(lying, { root, write: true });
     expect(mutation.status).toBe("rolled-back");
     expect(mutation.verification?.status).toBe("fail");
-    expect(fs.readFileSync(index, "utf8")).toBe(original);
+    expect(readFileSync(index, "utf8")).toBe(original);
     expect(gitStatus(root)).toBe("");
     const rendered = renderMutation(mutation);
     expect(rendered).toContain("VERIFICATION FAILED");

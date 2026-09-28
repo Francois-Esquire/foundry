@@ -1,5 +1,7 @@
 import type { OperatorPlanReadiness } from "./operator-readiness-types";
 
+const linesPattern = /-/g;
+
 // Text view over a readiness record. Reads the record only; derives nothing.
 
 function heading(title: string): string[] {
@@ -114,7 +116,7 @@ export function renderOperatorPlanReadiness(
     ),
     "",
     "Authorization",
-    `  ${r.authorization.toUpperCase().replace(/-/g, " ")}`,
+    `  ${r.authorization.toUpperCase().replace(linesPattern, " ")}`,
     "",
     "Fingerprint",
     `  ${r.fingerprint.hash}`,

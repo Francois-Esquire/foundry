@@ -1,14 +1,15 @@
-import { classifyFile } from "./churn";
 import { findMiscenteredConcepts } from "./concept-miscentering";
 import { analyzeScenarioImpacts } from "./concept-scenario-impact";
 import { analyzeArchitecturalReviews } from "./concept-scenario-review";
 import { analyzeRecenteringScenarios } from "./concept-scenarios";
 import type { AnalysisConfig } from "./config";
 import { ANALYSIS_CONFIG } from "./config";
+import { classifyFile } from "./file-kind";
 import type {
   BoundaryInteraction,
   ConceptBehavioralLocality,
   ConceptBehaviorParticipant,
+  ConceptConversion,
   ConceptDistributionShape,
   ConceptFamily,
   ConceptIdentity,
@@ -29,6 +30,7 @@ import type {
   RecenteringHistoricalContext,
   RecenteringIntentContext,
   RecenteringLocalityContext,
+  RecenteringStatus,
   RecenteringTension,
   RepresentationBoundaryContext,
   SurfaceReport,
@@ -132,14 +134,14 @@ export interface RecenteringFacts {
  * Only the first three are strong enough to make the partner's package a
  * supporting-family center.
  */
-export type RelatedFamilyRelation =
+type RelatedFamilyRelation =
   | "conversion"
   | "near-equivalent"
   | "projection"
   | "structural"
   | "name";
 
-export interface RelatedFamily {
+interface RelatedFamily {
   bidirectional: boolean;
   concept: ConceptIdentity;
   /** Packages declaring converters between the two, from V7.3. */
@@ -193,54 +195,7 @@ export function assessRecentering(
   ) => row.byKind.conversion + row.byKind.return;
 
   const tensions: Tension[] = [];
-  for (const tension of facts.ownershipTensions) {
-    switch (tension.kind) {
-      case "seed-vs-behavior":
-        tensions.push({
-          dimension: "behavior",
-          kind: "semantic-vs-behavior",
-          package: tension.observedPackage,
-          source: "concept-ownership",
-          strong:
-            strongIn(tension.observedPackage) >=
-            policy.candidates.minStrongBehaviors,
-          value: tension.value,
-        });
-        break;
-      case "seed-vs-representation":
-        tensions.push({
-          dimension: "representation",
-          kind: "semantic-vs-representation",
-          package: tension.observedPackage,
-          source: "concept-ownership",
-          strong: true,
-          value: tension.value,
-        });
-        break;
-      case "seed-vs-evolution":
-        tensions.push({
-          dimension: "evolution",
-          kind: "semantic-vs-evolution",
-          package: tension.observedPackage,
-          source: "concept-ownership",
-          strong: false,
-          value: tension.value,
-        });
-        break;
-      case "anchor-vs-observed-center":
-        tensions.push({
-          dimension: "intent",
-          kind: "anchor-conflict",
-          package: tension.observedPackage,
-          source: "anchor",
-          strong: false,
-          value: tension.value,
-        });
-        break;
-      case "usage-vs-semantic-center":
-        break;
-    }
-  }
+  assessRecenteringTension(facts, tensions, strongIn, policy);
 
   const strongPackages = behavior.byPackage.filter((row) => row.strong > 0);
   const distributed = locality.shape === "cross-package-distributed";
@@ -253,43 +208,23 @@ export function assessRecentering(
   // strong behavior that is neither two modules plus satellites nor
   // mostly parameter consumption.
   const genuinelySpread = distributed && !concentrated && !broadlyUsed;
-  if (
-    genuinelySpread &&
-    behavior.strong >= policy.candidates.minStrongBehaviors &&
-    behavior.strongModules >= policy.scatter.minStrongModules &&
-    strongPackages.length >= policy.scatter.minStrongPackages
-  ) {
-    tensions.push({
-      dimension: "locality",
-      kind: "behavioral-scatter",
-      source: "concept-locality",
-      strong: true,
-      value: strongPackages.map((row) => row.package),
-    });
-  }
+  assessRecenteringEntries7(
+    genuinelySpread,
+    behavior,
+    policy,
+    strongPackages,
+    tensions
+  );
 
-  const implementationCenters = facts.placement.implementationCenters;
-  if (implementationCenters.length > 0) {
-    const supporting = behavior.byPackage.filter(
-      (row) =>
-        row.package !== seed &&
-        !implementationCenters.includes(row.package) &&
-        contractStrongIn(row) > 0
-    );
-    const total = supporting.reduce(
-      (sum, row) => sum + contractStrongIn(row),
-      0
-    );
-    if (total >= policy.implementationScatter.minSupportingBehaviors) {
-      tensions.push({
-        dimension: "implementation",
-        kind: "implementation-scatter",
-        source: "concept-ownership",
-        strong: false,
-        value: supporting.map((row) => row.package),
-      });
-    }
-  }
+  const { implementationCenters } = facts.placement;
+  assessRecenteringEntries(
+    implementationCenters,
+    behavior,
+    seed,
+    contractStrongIn,
+    policy,
+    tensions
+  );
 
   const friction = facts.boundaries.filter(
     (boundary) =>
@@ -312,35 +247,7 @@ export function assessRecentering(
   }
 
   const primary = behavior.primaryStrongPackage;
-  if (
-    primary !== undefined &&
-    primary !== seed &&
-    behavior.strong >= policy.candidates.minStrongBehaviors &&
-    (behavior.primaryStrongShare ?? 0) >=
-      policy.dependencyMisalignment.minStrongShare
-  ) {
-    const total = facts.seedImportSites.reduce(
-      (sum, row) => sum + row.importSites,
-      0
-    );
-    const fromPrimary =
-      facts.seedImportSites.find((row) => row.package === primary)
-        ?.importSites ?? 0;
-    const importShare = share(fromPrimary, total);
-    if (
-      importShare !== null &&
-      importShare >= policy.dependencyMisalignment.minSeedImportSiteShare
-    ) {
-      tensions.push({
-        dimension: "dependency",
-        kind: "dependency-misalignment",
-        package: primary,
-        source: "boundary-interaction",
-        strong: false,
-        value: importShare,
-      });
-    }
-  }
+  assessRecenteringEntries2(primary, seed, behavior, policy, facts, tensions);
 
   const crossCouplings = facts.history?.crossPackageCouplings ?? [];
   if (crossCouplings.length >= policy.temporal.minCrossPackageCouplings) {
@@ -372,14 +279,7 @@ export function assessRecentering(
     (item) => item.kind === "semantic-vs-representation"
   )?.package;
   const shapes: RecenteringCandidateShape[] = [];
-  if (
-    strongBehaviorAt !== undefined &&
-    (pointsAt("semantic-vs-representation", strongBehaviorAt) ||
-      pointsAt("semantic-vs-evolution", strongBehaviorAt) ||
-      pointsAt("dependency-misalignment", strongBehaviorAt))
-  ) {
-    shapes.push("mis-centered");
-  }
+  assessRecenteringEntries8(strongBehaviorAt, pointsAt, shapes);
   if (has("behavioral-scatter")) {
     shapes.push("behaviorally-scattered");
   }
@@ -387,89 +287,48 @@ export function assessRecentering(
     behavior.strong >= policy.candidates.minStrongBehaviors
       ? behavior.primaryStrongPackage
       : undefined;
-  if (
-    representationAt !== undefined &&
-    (strongPrimaryAt === representationAt ||
-      facts.placement.evolutionCenter === representationAt)
-  ) {
-    shapes.push("representation-drift");
-  }
-  if (
-    has("implementation-scatter") ||
-    (implementationCenters.length > 0 &&
-      !implementationCenters.includes(seed) &&
-      strongBehaviorAt !== undefined &&
-      implementationCenters.includes(strongBehaviorAt))
-  ) {
-    shapes.push("implementation-drift");
-  }
-  if (
-    genuinelySpread &&
-    friction.some((boundary) =>
-      crossCouplings.some(
-        (pair) =>
-          (pair.leftPackage === boundary.from &&
-            pair.rightPackage === boundary.to) ||
-          (pair.leftPackage === boundary.to &&
-            pair.rightPackage === boundary.from)
-      )
-    )
-  ) {
-    shapes.push("boundary-strained");
-  }
-
-  const dimensions = [...new Set(tensions.map((item) => item.dimension))];
-  const strongTensions = tensions.filter((item) => item.strong);
-  const eligible =
-    dimensions.length >= policy.candidates.minEvidenceDimensions &&
-    shapes.length > 0;
-  const status: RecenteringCandidate["status"] = eligible
-    ? facts.intent.seedAnchored
-      ? "protected"
-      : "candidate"
-    : "insufficient-evidence";
-  if (status === "protected") {
-    shapes.push("intent-protected");
-  }
-
-  const cautions: RecenteringCaution[] = [];
-  if (behavior.weak > behavior.strong) {
-    cautions.push({
-      detail: `${behavior.weak} source behaviors accept or construct the concept beside ${behavior.strong} that implement, convert, or return it`,
-      kind: "parameter-consumer-dominated",
-    });
-  }
-  if (behavior.strong < policy.candidates.minStrongBehaviors) {
-    cautions.push({
-      detail: `${behavior.strong} strong source behaviors; below ${policy.candidates.minStrongBehaviors} no behavior tension is strong`,
-      kind: "sparse-strong-behavior",
-    });
-  }
-  if (
-    distributed &&
-    concentrated &&
-    behavior.strong >= policy.candidates.minStrongBehaviors
-  ) {
-    cautions.push({
-      detail: `two modules hold ${Math.round((behavior.topTwoStrongModuleShare ?? 0) * 100)}% of strong source behavior; the distributed shape rests on small satellites`,
-      kind: "behaviorally-concentrated",
-    });
-  }
+  assessRecenteringEntries10(representationAt, strongPrimaryAt, facts, shapes);
+  assessRecenteringEntries6(
+    has,
+    implementationCenters,
+    seed,
+    strongBehaviorAt,
+    shapes
+  );
+  const {
+    cautions,
+    dimensions,
+    strongTensions,
+    status,
+  }: {
+    cautions: RecenteringCaution[];
+    dimensions: RecenteringDimension[];
+    strongTensions: Tension[];
+    status: RecenteringCandidate["status"];
+  } = collectDimensions(
+    genuinelySpread,
+    friction,
+    crossCouplings,
+    shapes,
+    tensions,
+    policy,
+    facts,
+    behavior
+  );
+  assessRecenteringEntries9(
+    distributed,
+    concentrated,
+    behavior,
+    policy,
+    cautions
+  );
   if (facts.intent.representationBoundaries.length > 0) {
     cautions.push({
       detail: `${facts.intent.representationBoundaries.length} overlap partner(s) with converters in another package; a semantic/persistence split may be intentional`,
       kind: "representation-boundary",
     });
   }
-  for (const caution of facts.localityCautions) {
-    if (
-      caution.kind === "test-heavy-behavior" ||
-      caution.kind === "structural-conformance-unobserved" ||
-      caution.kind === "target-scoped-history"
-    ) {
-      cautions.push({ detail: caution.detail, kind: caution.kind });
-    }
-  }
+  assessRecenteringCaution(facts, cautions);
 
   const evidence: RecenteringEvidence[] = [
     {
@@ -479,21 +338,7 @@ export function assessRecentering(
       value: facts.alignment,
     },
   ];
-  for (const [kind, pkg] of [
-    ["representation-center", facts.placement.representationCenter],
-    ["usage-center", facts.placement.usageCenter],
-    ["evolution-center", facts.placement.evolutionCenter],
-  ] as const) {
-    if (pkg !== undefined && pkg !== seed) {
-      evidence.push({
-        dimension: "ownership",
-        kind,
-        package: pkg,
-        source: "concept-ownership",
-        value: pkg,
-      });
-    }
-  }
+  assessRecenteringEntries4(facts, seed, evidence);
   if (implementationCenters.length > 0) {
     evidence.push({
       dimension: "implementation",
@@ -525,6 +370,170 @@ export function assessRecentering(
       value: behavior.weak,
     }
   );
+  collectDetails(primary, evidence, behavior, locality, facts, friction, seed);
+  for (const pkg of facts.intent.anchoredObservedPackages) {
+    evidence.push({
+      dimension: "intent",
+      kind: "observed-package-anchored",
+      package: pkg,
+      source: "anchor",
+      value: true,
+    });
+  }
+  for (const context of facts.intent.representationBoundaries) {
+    evidence.push({
+      dimension: "representation",
+      kind: "representation-boundary",
+      source: "concept-overlap",
+      value: context.converterPackages,
+    });
+  }
+
+  return {
+    behavior,
+    currentPlacement: facts.placement,
+    dimensions,
+    evidence,
+    id: facts.concept.id,
+    locality,
+    shapes,
+    strongTensions: strongTensions.map((item) => item.kind),
+    subject: { concept: facts.concept, kind: "concept-family" },
+    tensions: tensions.map((item) => item.kind),
+    ...(facts.history !== undefined && { history: facts.history }),
+    cautions,
+    intent: facts.intent,
+    status,
+  };
+}
+
+export interface ClassifiedParticipant {
+  kind: RecenteringBehaviorEvidenceKind;
+  participant: ConceptBehaviorParticipant;
+}
+
+const KEY = "\n";
+
+function collectDimensions(
+  genuinelySpread: boolean,
+  friction: RecenteringBoundaryUse[],
+  crossCouplings: {
+    left: string;
+    right: string;
+    leftPackage: string;
+    rightPackage: string;
+    coChangeCommits: number;
+  }[],
+  shapes: RecenteringCandidateShape[],
+  tensions: Tension[],
+  policy: {
+    candidates: { minEvidenceDimensions: number; minStrongBehaviors: number };
+    scatter: {
+      minStrongModules: number;
+      minStrongPackages: number;
+      maxTopTwoModuleShare: number;
+      maxWeakShare: number;
+    };
+    implementationScatter: { minSupportingBehaviors: number };
+    boundaryFriction: {
+      minImportSites: number;
+      minSourceModules: number;
+      minForeignReturnBehaviors: number;
+    };
+    dependencyMisalignment: {
+      minStrongShare: number;
+      minSeedImportSiteShare: number;
+    };
+    temporal: { minCrossPackageCouplings: number };
+    report: { topCandidates: number };
+    miscentering: {
+      gravity: {
+        weights: {
+          "behavioral-locality": number;
+          "symbol-distribution": number;
+          "consumer-gravity": number;
+        };
+      };
+      minEvidenceFamilies: number;
+      minFamilyShare: number;
+      external: { minAlternativeGravity: number; minMismatch: number };
+      split: { maxTopGravity: number; minShare: number; minPackages: number };
+      drift: { minForeignShare: number; minForeignBehaviors: number };
+      report: { topFindings: number };
+    };
+    scenarios: {
+      minObservedCenterShare: number;
+      minSupportingFamilies: number;
+      maxScenariosPerFinding: number;
+      allowWeakRehome: boolean;
+      report: { topFindings: number; topScenariosPerFinding: number };
+    };
+    impact: {
+      boundary: { requireExclusiveConceptContributionForElimination: boolean };
+      report: { topFindings: number; topScenariosPerFinding: number };
+    };
+    review: {
+      dominance: { requireCertainEvidence: boolean };
+      report: { topFindings: number; topScenariosPerFinding: number };
+    };
+  },
+  facts: RecenteringFacts,
+  behavior: RecenteringBehaviorProfile
+) {
+  if (
+    genuinelySpread &&
+    friction.some((boundary) =>
+      crossCouplings.some(
+        (pair) =>
+          (pair.leftPackage === boundary.from &&
+            pair.rightPackage === boundary.to) ||
+          (pair.leftPackage === boundary.to &&
+            pair.rightPackage === boundary.from)
+      )
+    )
+  ) {
+    shapes.push("boundary-strained");
+  }
+
+  const dimensions = [...new Set(tensions.map((item) => item.dimension))];
+  const strongTensions = tensions.filter((item) => item.strong);
+  const eligible =
+    dimensions.length >= policy.candidates.minEvidenceDimensions &&
+    shapes.length > 0;
+
+  const status: RecenteringCandidate["status"] = assessRecenteringEntries3(
+    eligible,
+    facts
+  );
+  if (status === "protected") {
+    shapes.push("intent-protected");
+  }
+
+  const cautions: RecenteringCaution[] = [];
+  if (behavior.weak > behavior.strong) {
+    cautions.push({
+      detail: `${behavior.weak} source behaviors accept or construct the concept beside ${behavior.strong} that implement, convert, or return it`,
+      kind: "parameter-consumer-dominated",
+    });
+  }
+  if (behavior.strong < policy.candidates.minStrongBehaviors) {
+    cautions.push({
+      detail: `${behavior.strong} strong source behaviors; below ${policy.candidates.minStrongBehaviors} no behavior tension is strong`,
+      kind: "sparse-strong-behavior",
+    });
+  }
+  return { cautions, dimensions, status, strongTensions };
+}
+
+function collectDetails(
+  primary: string | undefined,
+  evidence: RecenteringEvidence[],
+  behavior: RecenteringBehaviorProfile,
+  locality: RecenteringLocalityContext,
+  facts: RecenteringFacts,
+  friction: RecenteringBoundaryUse[],
+  seed: string
+) {
   if (primary !== undefined) {
     evidence.push({
       dimension: "behavior",
@@ -605,6 +614,217 @@ export function assessRecentering(
       value: facts.seedIncomingEdgeShare,
     });
   }
+  assessRecenteringEntries5(facts, evidence);
+  if (facts.intent.seedAnchored) {
+    evidence.push({
+      dimension: "intent",
+      kind: "seed-package-anchored",
+      package: seed,
+      source: "anchor",
+      value: facts.intent.anchorReason ?? true,
+    });
+  }
+}
+
+function assessRecenteringEntries10(
+  representationAt: string | undefined,
+  strongPrimaryAt: string | undefined,
+  facts: RecenteringFacts,
+  shapes: RecenteringCandidateShape[]
+) {
+  if (
+    representationAt !== undefined &&
+    (strongPrimaryAt === representationAt ||
+      facts.placement.evolutionCenter === representationAt)
+  ) {
+    shapes.push("representation-drift");
+  }
+}
+
+function assessRecenteringEntries9(
+  distributed: boolean,
+  concentrated: boolean,
+  behavior: RecenteringBehaviorProfile,
+  policy: {
+    candidates: { minEvidenceDimensions: number; minStrongBehaviors: number };
+    scatter: {
+      minStrongModules: number;
+      minStrongPackages: number;
+      maxTopTwoModuleShare: number;
+      maxWeakShare: number;
+    };
+    implementationScatter: { minSupportingBehaviors: number };
+    boundaryFriction: {
+      minImportSites: number;
+      minSourceModules: number;
+      minForeignReturnBehaviors: number;
+    };
+    dependencyMisalignment: {
+      minStrongShare: number;
+      minSeedImportSiteShare: number;
+    };
+    temporal: { minCrossPackageCouplings: number };
+    report: { topCandidates: number };
+    miscentering: {
+      gravity: {
+        weights: {
+          "behavioral-locality": number;
+          "symbol-distribution": number;
+          "consumer-gravity": number;
+        };
+      };
+      minEvidenceFamilies: number;
+      minFamilyShare: number;
+      external: { minAlternativeGravity: number; minMismatch: number };
+      split: { maxTopGravity: number; minShare: number; minPackages: number };
+      drift: { minForeignShare: number; minForeignBehaviors: number };
+      report: { topFindings: number };
+    };
+    scenarios: {
+      minObservedCenterShare: number;
+      minSupportingFamilies: number;
+      maxScenariosPerFinding: number;
+      allowWeakRehome: boolean;
+      report: { topFindings: number; topScenariosPerFinding: number };
+    };
+    impact: {
+      boundary: { requireExclusiveConceptContributionForElimination: boolean };
+      report: { topFindings: number; topScenariosPerFinding: number };
+    };
+    review: {
+      dominance: { requireCertainEvidence: boolean };
+      report: { topFindings: number; topScenariosPerFinding: number };
+    };
+  },
+  cautions: RecenteringCaution[]
+) {
+  if (
+    distributed &&
+    concentrated &&
+    behavior.strong >= policy.candidates.minStrongBehaviors
+  ) {
+    cautions.push({
+      detail: `two modules hold ${Math.round((behavior.topTwoStrongModuleShare ?? 0) * 100)}% of strong source behavior; the distributed shape rests on small satellites`,
+      kind: "behaviorally-concentrated",
+    });
+  }
+}
+
+function assessRecenteringEntries8(
+  strongBehaviorAt: string | undefined,
+  pointsAt: (kind: RecenteringTension, pkg: string | undefined) => boolean,
+  shapes: RecenteringCandidateShape[]
+) {
+  if (
+    strongBehaviorAt !== undefined &&
+    (pointsAt("semantic-vs-representation", strongBehaviorAt) ||
+      pointsAt("semantic-vs-evolution", strongBehaviorAt) ||
+      pointsAt("dependency-misalignment", strongBehaviorAt))
+  ) {
+    shapes.push("mis-centered");
+  }
+}
+
+function assessRecenteringEntries7(
+  genuinelySpread: boolean,
+  behavior: RecenteringBehaviorProfile,
+  policy: {
+    candidates: { minEvidenceDimensions: number; minStrongBehaviors: number };
+    scatter: {
+      minStrongModules: number;
+      minStrongPackages: number;
+      maxTopTwoModuleShare: number;
+      maxWeakShare: number;
+    };
+    implementationScatter: { minSupportingBehaviors: number };
+    boundaryFriction: {
+      minImportSites: number;
+      minSourceModules: number;
+      minForeignReturnBehaviors: number;
+    };
+    dependencyMisalignment: {
+      minStrongShare: number;
+      minSeedImportSiteShare: number;
+    };
+    temporal: { minCrossPackageCouplings: number };
+    report: { topCandidates: number };
+    miscentering: {
+      gravity: {
+        weights: {
+          "behavioral-locality": number;
+          "symbol-distribution": number;
+          "consumer-gravity": number;
+        };
+      };
+      minEvidenceFamilies: number;
+      minFamilyShare: number;
+      external: { minAlternativeGravity: number; minMismatch: number };
+      split: { maxTopGravity: number; minShare: number; minPackages: number };
+      drift: { minForeignShare: number; minForeignBehaviors: number };
+      report: { topFindings: number };
+    };
+    scenarios: {
+      minObservedCenterShare: number;
+      minSupportingFamilies: number;
+      maxScenariosPerFinding: number;
+      allowWeakRehome: boolean;
+      report: { topFindings: number; topScenariosPerFinding: number };
+    };
+    impact: {
+      boundary: { requireExclusiveConceptContributionForElimination: boolean };
+      report: { topFindings: number; topScenariosPerFinding: number };
+    };
+    review: {
+      dominance: { requireCertainEvidence: boolean };
+      report: { topFindings: number; topScenariosPerFinding: number };
+    };
+  },
+  strongPackages: {
+    package: string;
+    strong: number;
+    weak: number;
+    byKind: Record<RecenteringBehaviorEvidenceKind, number>;
+  }[],
+  tensions: Tension[]
+) {
+  if (
+    genuinelySpread &&
+    behavior.strong >= policy.candidates.minStrongBehaviors &&
+    behavior.strongModules >= policy.scatter.minStrongModules &&
+    strongPackages.length >= policy.scatter.minStrongPackages
+  ) {
+    tensions.push({
+      dimension: "locality",
+      kind: "behavioral-scatter",
+      source: "concept-locality",
+      strong: true,
+      value: strongPackages.map((row) => row.package),
+    });
+  }
+}
+
+function assessRecenteringEntries6(
+  has: (kind: RecenteringTension) => boolean,
+  implementationCenters: string[],
+  seed: string,
+  strongBehaviorAt: string | undefined,
+  shapes: RecenteringCandidateShape[]
+) {
+  if (
+    has("implementation-scatter") ||
+    (implementationCenters.length > 0 &&
+      !implementationCenters.includes(seed) &&
+      strongBehaviorAt !== undefined &&
+      implementationCenters.includes(strongBehaviorAt))
+  ) {
+    shapes.push("implementation-drift");
+  }
+}
+
+function assessRecenteringEntries5(
+  facts: RecenteringFacts,
+  evidence: RecenteringEvidence[]
+) {
   if (facts.history !== undefined) {
     evidence.push({
       dimension: "evolution",
@@ -623,57 +843,341 @@ export function assessRecentering(
       });
     }
   }
-  if (facts.intent.seedAnchored) {
-    evidence.push({
-      dimension: "intent",
-      kind: "seed-package-anchored",
-      package: seed,
-      source: "anchor",
-      value: facts.intent.anchorReason ?? true,
-    });
-  }
-  for (const pkg of facts.intent.anchoredObservedPackages) {
-    evidence.push({
-      dimension: "intent",
-      kind: "observed-package-anchored",
-      package: pkg,
-      source: "anchor",
-      value: true,
-    });
-  }
-  for (const context of facts.intent.representationBoundaries) {
-    evidence.push({
-      dimension: "representation",
-      kind: "representation-boundary",
-      source: "concept-overlap",
-      value: context.converterPackages,
-    });
-  }
-
-  return {
-    behavior,
-    currentPlacement: facts.placement,
-    dimensions,
-    evidence,
-    id: facts.concept.id,
-    locality,
-    shapes,
-    strongTensions: strongTensions.map((item) => item.kind),
-    subject: { concept: facts.concept, kind: "concept-family" },
-    tensions: tensions.map((item) => item.kind),
-    ...(facts.history !== undefined && { history: facts.history }),
-    cautions,
-    intent: facts.intent,
-    status,
-  };
 }
 
-export interface ClassifiedParticipant {
-  kind: RecenteringBehaviorEvidenceKind;
-  participant: ConceptBehaviorParticipant;
+function assessRecenteringEntries4(
+  facts: RecenteringFacts,
+  seed: string,
+  evidence: RecenteringEvidence[]
+) {
+  for (const [kind, pkg] of [
+    ["representation-center", facts.placement.representationCenter],
+    ["usage-center", facts.placement.usageCenter],
+    ["evolution-center", facts.placement.evolutionCenter],
+  ] as const) {
+    if (pkg !== undefined && pkg !== seed) {
+      evidence.push({
+        dimension: "ownership",
+        kind,
+        package: pkg,
+        source: "concept-ownership",
+        value: pkg,
+      });
+    }
+  }
 }
 
-const KEY = "\n";
+function assessRecenteringCaution(
+  facts: RecenteringFacts,
+  cautions: RecenteringCaution[]
+) {
+  for (const caution of facts.localityCautions) {
+    if (
+      caution.kind === "test-heavy-behavior" ||
+      caution.kind === "structural-conformance-unobserved" ||
+      caution.kind === "target-scoped-history"
+    ) {
+      cautions.push({ detail: caution.detail, kind: caution.kind });
+    }
+  }
+}
+
+function assessRecenteringEntries3(
+  eligible: boolean,
+  facts: RecenteringFacts
+): RecenteringStatus {
+  let status: RecenteringStatus;
+  if (eligible) {
+    if (facts.intent.seedAnchored) {
+      status = "protected";
+    } else {
+      status = "candidate";
+    }
+  } else {
+    status = "insufficient-evidence";
+  }
+  return status;
+}
+
+function assessRecenteringEntries2(
+  primary: string | undefined,
+  seed: string,
+  behavior: RecenteringBehaviorProfile,
+  policy: {
+    candidates: { minEvidenceDimensions: number; minStrongBehaviors: number };
+    scatter: {
+      minStrongModules: number;
+      minStrongPackages: number;
+      maxTopTwoModuleShare: number;
+      maxWeakShare: number;
+    };
+    implementationScatter: { minSupportingBehaviors: number };
+    boundaryFriction: {
+      minImportSites: number;
+      minSourceModules: number;
+      minForeignReturnBehaviors: number;
+    };
+    dependencyMisalignment: {
+      minStrongShare: number;
+      minSeedImportSiteShare: number;
+    };
+    temporal: { minCrossPackageCouplings: number };
+    report: { topCandidates: number };
+    miscentering: {
+      gravity: {
+        weights: {
+          "behavioral-locality": number;
+          "symbol-distribution": number;
+          "consumer-gravity": number;
+        };
+      };
+      minEvidenceFamilies: number;
+      minFamilyShare: number;
+      external: { minAlternativeGravity: number; minMismatch: number };
+      split: { maxTopGravity: number; minShare: number; minPackages: number };
+      drift: { minForeignShare: number; minForeignBehaviors: number };
+      report: { topFindings: number };
+    };
+    scenarios: {
+      minObservedCenterShare: number;
+      minSupportingFamilies: number;
+      maxScenariosPerFinding: number;
+      allowWeakRehome: boolean;
+      report: { topFindings: number; topScenariosPerFinding: number };
+    };
+    impact: {
+      boundary: { requireExclusiveConceptContributionForElimination: boolean };
+      report: { topFindings: number; topScenariosPerFinding: number };
+    };
+    review: {
+      dominance: { requireCertainEvidence: boolean };
+      report: { topFindings: number; topScenariosPerFinding: number };
+    };
+  },
+  facts: RecenteringFacts,
+  tensions: Tension[]
+) {
+  if (
+    primary !== undefined &&
+    primary !== seed &&
+    behavior.strong >= policy.candidates.minStrongBehaviors &&
+    (behavior.primaryStrongShare ?? 0) >=
+      policy.dependencyMisalignment.minStrongShare
+  ) {
+    const total = facts.seedImportSites.reduce(
+      (sum, row) => sum + row.importSites,
+      0
+    );
+    const fromPrimary =
+      facts.seedImportSites.find((row) => row.package === primary)
+        ?.importSites ?? 0;
+    const importShare = share(fromPrimary, total);
+    if (
+      importShare !== null &&
+      importShare >= policy.dependencyMisalignment.minSeedImportSiteShare
+    ) {
+      tensions.push({
+        dimension: "dependency",
+        kind: "dependency-misalignment",
+        package: primary,
+        source: "boundary-interaction",
+        strong: false,
+        value: importShare,
+      });
+    }
+  }
+}
+
+function assessRecenteringEntries(
+  implementationCenters: string[],
+  behavior: RecenteringBehaviorProfile,
+  seed: string,
+  contractStrongIn: (
+    row: RecenteringBehaviorProfile["byPackage"][number]
+  ) => number,
+  policy: {
+    candidates: { minEvidenceDimensions: number; minStrongBehaviors: number };
+    scatter: {
+      minStrongModules: number;
+      minStrongPackages: number;
+      maxTopTwoModuleShare: number;
+      maxWeakShare: number;
+    };
+    implementationScatter: { minSupportingBehaviors: number };
+    boundaryFriction: {
+      minImportSites: number;
+      minSourceModules: number;
+      minForeignReturnBehaviors: number;
+    };
+    dependencyMisalignment: {
+      minStrongShare: number;
+      minSeedImportSiteShare: number;
+    };
+    temporal: { minCrossPackageCouplings: number };
+    report: { topCandidates: number };
+    miscentering: {
+      gravity: {
+        weights: {
+          "behavioral-locality": number;
+          "symbol-distribution": number;
+          "consumer-gravity": number;
+        };
+      };
+      minEvidenceFamilies: number;
+      minFamilyShare: number;
+      external: { minAlternativeGravity: number; minMismatch: number };
+      split: { maxTopGravity: number; minShare: number; minPackages: number };
+      drift: { minForeignShare: number; minForeignBehaviors: number };
+      report: { topFindings: number };
+    };
+    scenarios: {
+      minObservedCenterShare: number;
+      minSupportingFamilies: number;
+      maxScenariosPerFinding: number;
+      allowWeakRehome: boolean;
+      report: { topFindings: number; topScenariosPerFinding: number };
+    };
+    impact: {
+      boundary: { requireExclusiveConceptContributionForElimination: boolean };
+      report: { topFindings: number; topScenariosPerFinding: number };
+    };
+    review: {
+      dominance: { requireCertainEvidence: boolean };
+      report: { topFindings: number; topScenariosPerFinding: number };
+    };
+  },
+  tensions: Tension[]
+) {
+  if (implementationCenters.length > 0) {
+    const supporting = behavior.byPackage.filter(
+      (row) =>
+        row.package !== seed &&
+        !implementationCenters.includes(row.package) &&
+        contractStrongIn(row) > 0
+    );
+    const total = supporting.reduce(
+      (sum, row) => sum + contractStrongIn(row),
+      0
+    );
+    if (total >= policy.implementationScatter.minSupportingBehaviors) {
+      tensions.push({
+        dimension: "implementation",
+        kind: "implementation-scatter",
+        source: "concept-ownership",
+        strong: false,
+        value: supporting.map((row) => row.package),
+      });
+    }
+  }
+}
+
+function assessRecenteringTension(
+  facts: RecenteringFacts,
+  tensions: Tension[],
+  strongIn: (pkg: string) => number,
+  policy: {
+    candidates: { minEvidenceDimensions: number; minStrongBehaviors: number };
+    scatter: {
+      minStrongModules: number;
+      minStrongPackages: number;
+      maxTopTwoModuleShare: number;
+      maxWeakShare: number;
+    };
+    implementationScatter: { minSupportingBehaviors: number };
+    boundaryFriction: {
+      minImportSites: number;
+      minSourceModules: number;
+      minForeignReturnBehaviors: number;
+    };
+    dependencyMisalignment: {
+      minStrongShare: number;
+      minSeedImportSiteShare: number;
+    };
+    temporal: { minCrossPackageCouplings: number };
+    report: { topCandidates: number };
+    miscentering: {
+      gravity: {
+        weights: {
+          "behavioral-locality": number;
+          "symbol-distribution": number;
+          "consumer-gravity": number;
+        };
+      };
+      minEvidenceFamilies: number;
+      minFamilyShare: number;
+      external: { minAlternativeGravity: number; minMismatch: number };
+      split: { maxTopGravity: number; minShare: number; minPackages: number };
+      drift: { minForeignShare: number; minForeignBehaviors: number };
+      report: { topFindings: number };
+    };
+    scenarios: {
+      minObservedCenterShare: number;
+      minSupportingFamilies: number;
+      maxScenariosPerFinding: number;
+      allowWeakRehome: boolean;
+      report: { topFindings: number; topScenariosPerFinding: number };
+    };
+    impact: {
+      boundary: { requireExclusiveConceptContributionForElimination: boolean };
+      report: { topFindings: number; topScenariosPerFinding: number };
+    };
+    review: {
+      dominance: { requireCertainEvidence: boolean };
+      report: { topFindings: number; topScenariosPerFinding: number };
+    };
+  }
+) {
+  for (const tension of facts.ownershipTensions) {
+    switch (tension.kind) {
+      case "seed-vs-behavior":
+        tensions.push({
+          dimension: "behavior",
+          kind: "semantic-vs-behavior",
+          package: tension.observedPackage,
+          source: "concept-ownership",
+          strong:
+            strongIn(tension.observedPackage) >=
+            policy.candidates.minStrongBehaviors,
+          value: tension.value,
+        });
+        break;
+      case "seed-vs-representation":
+        tensions.push({
+          dimension: "representation",
+          kind: "semantic-vs-representation",
+          package: tension.observedPackage,
+          source: "concept-ownership",
+          strong: true,
+          value: tension.value,
+        });
+        break;
+      case "seed-vs-evolution":
+        tensions.push({
+          dimension: "evolution",
+          kind: "semantic-vs-evolution",
+          package: tension.observedPackage,
+          source: "concept-ownership",
+          strong: false,
+          value: tension.value,
+        });
+        break;
+      case "anchor-vs-observed-center":
+        tensions.push({
+          dimension: "intent",
+          kind: "anchor-conflict",
+          package: tension.observedPackage,
+          source: "anchor",
+          strong: false,
+          value: tension.value,
+        });
+        break;
+      case "usage-vs-semantic-center":
+        break;
+      default:
+        throw new Error("Unexpected tension.kind.");
+    }
+  }
+}
 
 /**
  * Behavior evidence kind per participant, read from the family's evidence
@@ -709,7 +1213,7 @@ export function classifyParticipants(
       return { kind: "conversion", participant };
     }
     const base = participant.symbol.split(".")[0] ?? participant.symbol;
-    const lines = participant.lines;
+    const { lines } = participant;
     const kinds = new Set(
       (index.get(`${participant.file}${KEY}${base}`) ?? [])
         .filter(
@@ -774,7 +1278,7 @@ function profileOf(
     .sort((a, b) => b - a)
     .slice(0, 2)
     .reduce((sum, count) => sum + count, 0);
-  const top = byPackage[0];
+  const [top] = byPackage;
   return {
     byKind,
     byPackage,
@@ -855,7 +1359,7 @@ export function analyzeRecenteringCandidates(
   source: RecenteringCandidateSource,
   config: AnalysisConfig = ANALYSIS_CONFIG
 ): RecenteringCandidateReport {
-  const target = source.conceptOwnership.target;
+  const { target } = source.conceptOwnership;
   const ownershipBySeed = new Map(
     source.conceptOwnership.concepts.map((item) => [item.concept.id, item])
   );
@@ -892,7 +1396,106 @@ export function analyzeRecenteringCandidates(
 
   const emitted: RecenteringCandidate[] = [];
   const collected: RecenteringFacts[] = [];
-  for (const family of source.conceptInventory.families) {
+  analyzeRecenteringCandidatesFamily(
+    source,
+    ownershipBySeed,
+    localityBySeed,
+    overlapBySeed,
+    target,
+    incomingByPackage,
+    outgoingByPackage,
+    incomingEdgeShare,
+    config,
+    anchored,
+    collected,
+    emitted
+  );
+
+  const support = (item: RecenteringCandidate) =>
+    (item.history?.hotspotModules ?? 0) +
+    (item.history?.crossPackageCouplings.length ?? 0);
+  emitted.sort(
+    (a, b) =>
+      b.strongTensions.length - a.strongTensions.length ||
+      b.dimensions.length - a.dimensions.length ||
+      b.behavior.strong - a.behavior.strong ||
+      support(b) - support(a) ||
+      a.subject.concept.name.localeCompare(b.subject.concept.name)
+  );
+
+  const byShape: RecenteringCandidateSummary["byShape"] = {
+    "behaviorally-scattered": 0,
+    "boundary-strained": 0,
+    "implementation-drift": 0,
+    "intent-protected": 0,
+    "mis-centered": 0,
+    "representation-drift": 0,
+  };
+  const byTension: RecenteringCandidateSummary["byTension"] = {
+    "anchor-conflict": 0,
+    "behavioral-scatter": 0,
+    "boundary-friction": 0,
+    "dependency-misalignment": 0,
+    "implementation-scatter": 0,
+    "semantic-vs-behavior": 0,
+    "semantic-vs-evolution": 0,
+    "semantic-vs-representation": 0,
+    "temporal-misalignment": 0,
+  };
+  for (const item of emitted) {
+    for (const shape of item.shapes) {
+      byShape[shape] += 1;
+    }
+    for (const tension of new Set(item.tensions)) {
+      byTension[tension] += 1;
+    }
+  }
+  const count = (status: RecenteringCandidate["status"]) =>
+    emitted.filter((item) => item.status === status).length;
+  const miscentered = findMiscenteredConcepts(target, collected, config);
+  const scenarios = analyzeRecenteringScenarios(
+    target,
+    miscentered,
+    collected,
+    config
+  );
+  const impacts = analyzeScenarioImpacts(
+    { facts: collected, miscentered, scenarios },
+    config
+  );
+  return {
+    candidates: emitted,
+    impacts,
+    miscentered,
+    reviews: analyzeArchitecturalReviews({ impacts, scenarios }, config),
+    scenarios,
+    summary: {
+      byShape,
+      byTension,
+      candidates: count("candidate"),
+      evaluated: source.conceptInventory.families.length,
+      insufficientEvidence: count("insufficient-evidence"),
+      protected: count("protected"),
+    },
+    target,
+  };
+}
+
+function analyzeRecenteringCandidatesFamily(
+  source: RecenteringCandidateSource,
+  ownershipBySeed: Map<string, ConceptOwnershipAnalysis>,
+  localityBySeed: Map<string, ConceptBehavioralLocality>,
+  overlapBySeed: Map<string, ConceptOverlapCandidate[]>,
+  target: string,
+  incomingByPackage: Map<string, BoundaryInteraction>,
+  outgoingByPackage: Map<string, BoundaryInteraction>,
+  incomingEdgeShare: Map<string, number>,
+  config: AnalysisConfig,
+  anchored: Set<string>,
+  collected: RecenteringFacts[],
+  emitted: RecenteringCandidate[]
+) {
+  const visitFamily = (family: ConceptFamily) => {
     const ownership = ownershipBySeed.get(family.seed.id);
     const locality = localityBySeed.get(family.seed.id);
     if (ownership === undefined || locality === undefined) {
@@ -907,25 +1510,15 @@ export function analyzeRecenteringCandidates(
     );
 
     const overlaps = overlapBySeed.get(family.seed.id) ?? [];
-    const conversions = overlaps.flatMap((candidate) => candidate.conversions);
+    const conversions = overlaps.flatMap(
+      (overlapCandidate2) => overlapCandidate2.conversions
+    );
     const participants = [...ownership.behavior.participants];
-    for (const conversion of conversions) {
-      const attributed = participants.some(
-        (item) =>
-          item.file === conversion.file && item.symbol === conversion.function
-      );
-      if (attributed) {
-        continue;
-      }
-      participants.push({
-        file: conversion.file,
-        kind: classifyFile(conversion.file),
-        member: "function",
-        package: packageOfModule.get(conversion.file) ?? "<root>",
-        role: "contract",
-        symbol: conversion.function,
-      });
-    }
+    analyzeRecenteringCandidatesFamilyConversion(
+      conversions,
+      participants,
+      packageOfModule
+    );
     const classified = classifyParticipants(family, participants, conversions);
     const behavior = profileOf(classified);
 
@@ -1009,35 +1602,16 @@ export function analyzeRecenteringCandidates(
         to: edge.to,
       };
     };
-    for (const edge of locality.span.boundaryEdges) {
-      if (edge.to === target) {
-        const interaction = incomingByPackage.get(edge.from);
-        if (interaction === undefined) {
-          continue;
-        }
-        boundaries.push(
-          boundaryUse(
-            edge,
-            interaction,
-            foreignConceptModules(edge.from),
-            targetConceptModules
-          )
-        );
-      } else if (edge.from === target) {
-        const interaction = outgoingByPackage.get(edge.to);
-        if (interaction === undefined) {
-          continue;
-        }
-        boundaries.push(
-          boundaryUse(
-            edge,
-            interaction,
-            targetConceptModules,
-            foreignConceptModules(edge.to)
-          )
-        );
-      }
-    }
+    analyzeRecenteringCandidatesFamilyEdge(
+      locality,
+      target,
+      incomingByPackage,
+      boundaries,
+      boundaryUse,
+      foreignConceptModules,
+      targetConceptModules,
+      outgoingByPackage
+    );
 
     const seedImportSites = source.boundaryInteractions.incoming
       .map((interaction) => ({
@@ -1187,18 +1761,18 @@ export function analyzeRecenteringCandidates(
         package: row.package,
         share: row.share,
       })),
-      relatedFamilies: overlaps.map((candidate) => {
+      relatedFamilies: overlaps.map((overlapCandidate) => {
         const other =
-          candidate.left.id === family.seed.id
-            ? candidate.right
-            : candidate.left;
+          overlapCandidate.left.id === family.seed.id
+            ? overlapCandidate.right
+            : overlapCandidate.left;
         return {
-          bidirectional: candidate.bidirectionalConversion,
+          bidirectional: overlapCandidate.bidirectionalConversion,
           concept: other,
           converterPackages:
             ownership.overlap.find((context) => context.other.id === other.id)
               ?.conversionPackages ?? [],
-          relation: relationOf(candidate),
+          relation: relationOf(overlapCandidate),
         };
       }),
       representationShares: distribution.representations.packages.map(
@@ -1221,74 +1795,78 @@ export function analyzeRecenteringCandidates(
     if (candidate !== undefined) {
       emitted.push(candidate);
     }
+  };
+  for (const family of source.conceptInventory.families) {
+    visitFamily(family);
   }
+}
 
-  const support = (item: RecenteringCandidate) =>
-    (item.history?.hotspotModules ?? 0) +
-    (item.history?.crossPackageCouplings.length ?? 0);
-  emitted.sort(
-    (a, b) =>
-      b.strongTensions.length - a.strongTensions.length ||
-      b.dimensions.length - a.dimensions.length ||
-      b.behavior.strong - a.behavior.strong ||
-      support(b) - support(a) ||
-      a.subject.concept.name.localeCompare(b.subject.concept.name)
-  );
-
-  const byShape: RecenteringCandidateSummary["byShape"] = {
-    "behaviorally-scattered": 0,
-    "boundary-strained": 0,
-    "implementation-drift": 0,
-    "intent-protected": 0,
-    "mis-centered": 0,
-    "representation-drift": 0,
-  };
-  const byTension: RecenteringCandidateSummary["byTension"] = {
-    "anchor-conflict": 0,
-    "behavioral-scatter": 0,
-    "boundary-friction": 0,
-    "dependency-misalignment": 0,
-    "implementation-scatter": 0,
-    "semantic-vs-behavior": 0,
-    "semantic-vs-evolution": 0,
-    "semantic-vs-representation": 0,
-    "temporal-misalignment": 0,
-  };
-  for (const item of emitted) {
-    for (const shape of item.shapes) {
-      byShape[shape] += 1;
+function analyzeRecenteringCandidatesFamilyConversion(
+  conversions: ConceptConversion[],
+  participants: ConceptBehaviorParticipant[],
+  packageOfModule: Map<string, string>
+) {
+  for (const conversion of conversions) {
+    const attributed = participants.some(
+      (item) =>
+        item.file === conversion.file && item.symbol === conversion.function
+    );
+    if (attributed) {
+      continue;
     }
-    for (const tension of new Set(item.tensions)) {
-      byTension[tension] += 1;
+    participants.push({
+      file: conversion.file,
+      kind: classifyFile(conversion.file),
+      member: "function",
+      package: packageOfModule.get(conversion.file) ?? "<root>",
+      role: "contract",
+      symbol: conversion.function,
+    });
+  }
+}
+
+function analyzeRecenteringCandidatesFamilyEdge(
+  locality: ConceptBehavioralLocality,
+  target: string,
+  incomingByPackage: Map<string, BoundaryInteraction>,
+  boundaries: RecenteringBoundaryUse[],
+  boundaryUse: (
+    edge: { from: string; to: string },
+    interaction: BoundaryInteraction,
+    importing: Set<string>,
+    imported: Set<string>
+  ) => RecenteringBoundaryUse,
+  foreignConceptModules: (pkg: string) => Set<string>,
+  targetConceptModules: Set<string>,
+  outgoingByPackage: Map<string, BoundaryInteraction>
+) {
+  for (const edge of locality.span.boundaryEdges) {
+    if (edge.to === target) {
+      const interaction = incomingByPackage.get(edge.from);
+      if (interaction === undefined) {
+        continue;
+      }
+      boundaries.push(
+        boundaryUse(
+          edge,
+          interaction,
+          foreignConceptModules(edge.from),
+          targetConceptModules
+        )
+      );
+    } else if (edge.from === target) {
+      const interaction = outgoingByPackage.get(edge.to);
+      if (interaction === undefined) {
+        continue;
+      }
+      boundaries.push(
+        boundaryUse(
+          edge,
+          interaction,
+          targetConceptModules,
+          foreignConceptModules(edge.to)
+        )
+      );
     }
   }
-  const count = (status: RecenteringCandidate["status"]) =>
-    emitted.filter((item) => item.status === status).length;
-  const miscentered = findMiscenteredConcepts(target, collected, config);
-  const scenarios = analyzeRecenteringScenarios(
-    target,
-    miscentered,
-    collected,
-    config
-  );
-  const impacts = analyzeScenarioImpacts(
-    { facts: collected, miscentered, scenarios },
-    config
-  );
-  return {
-    candidates: emitted,
-    impacts,
-    miscentered,
-    reviews: analyzeArchitecturalReviews({ impacts, scenarios }, config),
-    scenarios,
-    summary: {
-      byShape,
-      byTension,
-      candidates: count("candidate"),
-      evaluated: source.conceptInventory.families.length,
-      insufficientEvidence: count("insufficient-evidence"),
-      protected: count("protected"),
-    },
-    target,
-  };
 }

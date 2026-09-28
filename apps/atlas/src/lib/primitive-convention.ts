@@ -2,7 +2,9 @@ import type { AnalysisConfig } from "./config";
 import { ANALYSIS_CONFIG } from "./config";
 import type {
   InternalResponsibilityReport,
+  ResponsibilityAmbiguityReason,
   ResponsibilityModuleEvidence,
+  ResponsibilityRegion,
   ResponsibilitySymbolContext,
 } from "./internal-responsibility-types";
 import type { InternalPackageTopology } from "./internal-topology-types";
@@ -38,7 +40,11 @@ import type {
   SymbolLocalityFinding,
   SymbolLocalityReport,
 } from "./symbol-locality-types";
-import type { SymbolKind } from "./types";
+import type {
+  ConceptRelationshipKind,
+  ConceptSeedKind,
+  SymbolKind,
+} from "./types";
 
 // V13.3 primitive and convention intelligence. A pure function of one
 // package's local report, topology, locality, and responsibility regions:
@@ -298,7 +304,7 @@ export function analyzePrimitiveConventions(
   config: AnalysisConfig = ANALYSIS_CONFIG
 ): PrimitiveConventionReport {
   const policy = config.primitiveConventions;
-  const root = responsibilities.package.root;
+  const { root } = responsibilities.package;
   const prefix = root === "" || root === "." ? "" : `${root}/`;
   const packageRelative = (file: string) =>
     file.startsWith(prefix) ? file.slice(prefix.length) : file;
@@ -341,18 +347,7 @@ export function analyzePrimitiveConventions(
     string,
     { statements: number; functions: number }
   >();
-  for (const fn of report.localComplexity.functions) {
-    if (fn.ownerSymbolId === undefined) {
-      continue;
-    }
-    const entry = statementsByOwner.get(fn.ownerSymbolId) ?? {
-      functions: 0,
-      statements: 0,
-    };
-    entry.statements += fn.metrics.statements;
-    entry.functions += 1;
-    statementsByOwner.set(fn.ownerSymbolId, entry);
-  }
+  analyzePrimitiveConventionsFn(report, statementsByOwner);
 
   const seedKind = new Map(
     report.conceptSeeds.map((seed) => [seed.id, seed.kind])
@@ -360,49 +355,61 @@ export function analyzePrimitiveConventions(
   // The universe is the primary modules' top-level declarations, as in
   // V13.1 and V13.2: tests, stories, and fixtures are not architecture.
   const facts: SymbolFacts[] = report.symbols
-    .map<SymbolFacts | undefined>((symbol) => {
+    .flatMap<SymbolFacts>((symbol) => {
       const declaration = declarationById.get(symbol.id);
       const module = packageRelative(symbol.declarationFile);
       if (declaration === undefined || !moduleEvidence.has(module)) {
-        return;
+        return [];
       }
       const owned = statementsByOwner.get(symbol.id);
-      return {
-        context: contextById.get(symbol.id),
-        declaration,
-        finding: findingById.get(symbol.id),
-        functions: owned?.functions ?? 0,
-        module,
-        statements: owned?.statements ?? 0,
-        symbol,
-      };
+      return [
+        {
+          context: contextById.get(symbol.id),
+          declaration,
+          finding: findingById.get(symbol.id),
+          functions: owned?.functions ?? 0,
+          module,
+          statements: owned?.statements ?? 0,
+          symbol,
+        },
+      ];
     })
-    .filter((entry): entry is SymbolFacts => entry !== undefined)
     .sort((a, b) => a.symbol.id.localeCompare(b.symbol.id));
+  const visitEntry2 = () => {
+    for (const entry of facts) {
+      for (const concept of entry.declaration.concepts) {
+        const r = concept.relationships;
+        if (
+          (r.implements ?? 0) > 0 ||
+          ((r.extends ?? 0) > 0 && entry.symbol.kind === "class")
+        ) {
+          const list = implementersOf.get(concept.conceptId) ?? [];
+          list.push(entry.symbol.id);
+          implementersOf.set(concept.conceptId, list);
+        }
+      }
+    }
+  };
   const factsById = new Map(facts.map((entry) => [entry.symbol.id, entry]));
 
   // Which seeds are implemented by some local declaration, and by whom: the
   // consumer-side half of contract evidence. A class extending a seed
   // implements it; an interface extending one merely derives from it.
   const implementersOf = new Map<string, string[]>();
-  for (const entry of facts) {
-    for (const concept of entry.declaration.concepts) {
-      const r = concept.relationships;
-      if (
-        (r.implements ?? 0) > 0 ||
-        ((r.extends ?? 0) > 0 && entry.symbol.kind === "class")
-      ) {
-        const list = implementersOf.get(concept.conceptId) ?? [];
-        list.push(entry.symbol.id);
-        implementersOf.set(concept.conceptId, list);
-      }
-    }
-  }
+  visitEntry2();
 
   const isSchemaLibrary = (specifier: string) =>
     policy.schemaLibraries.some(
       (library) => specifier === library || specifier.startsWith(`${library}/`)
     );
+  const visitEntries = () => {
+    changed = analyzePrimitiveConventionsEntries3(
+      changed,
+      facts,
+      schemaSymbols,
+      isSchemaLibrary
+    );
+  };
   const hasCallableMembers = (declaration: PackageLocalDeclaration) =>
     (declaration.members?.methods ?? 0) > 0;
   const isContractSeed = (id: string) => {
@@ -410,7 +417,7 @@ export function analyzePrimitiveConventions(
     if (target === undefined) {
       return false;
     }
-    const kind = target.symbol.kind;
+    const { kind } = target.symbol;
     return (
       (kind === "interface" || kind === "class" || kind === "type") &&
       (hasCallableMembers(target.declaration) ||
@@ -424,326 +431,34 @@ export function analyzePrimitiveConventions(
   const roleOf = new Map<string, RoleResult>();
   const schemaSymbols = new Set<string>();
   let changed = true;
-  while (changed) {
-    changed = false;
-    for (const entry of facts) {
-      const { declaration, symbol } = entry;
-      if (symbol.kind !== "variable" || schemaSymbols.has(symbol.id)) {
-        continue;
-      }
-      if (
-        declaration.initializer !== "call" ||
-        declaration.callee === undefined
-      ) {
-        continue;
-      }
-      const callee = declaration.callee;
-      if (
-        (callee.specifier !== undefined && isSchemaLibrary(callee.specifier)) ||
-        (callee.symbolId !== undefined && schemaSymbols.has(callee.symbolId))
-      ) {
-        schemaSymbols.add(symbol.id);
-        changed = true;
-      }
-    }
-  }
+  visitEntries();
 
-  const classifyRuntime = (entry: SymbolFacts): RoleResult => {
-    const { symbol, declaration } = entry;
-    const roles: ArchitecturalRole[] = [];
-    const evidence: RoleEvidence[] = [];
-    const add = (
-      role: ArchitecturalRole,
-      kind: RoleEvidence["kind"],
-      detail: string
-    ) => {
-      if (!roles.includes(role)) {
-        roles.push(role);
-      }
-      evidence.push({ detail, kind, role });
-    };
-    const concepts = declaration.concepts;
-    const relationship = (
-      kind: keyof PackageLocalDeclaration["concepts"][number]["relationships"]
-    ) => concepts.filter((c) => (c.relationships[kind] ?? 0) > 0);
-    const isFunction =
-      symbol.kind === "function" ||
-      (symbol.kind === "variable" && declaration.initializer === "function");
+  const classifyRuntime = (entry: SymbolFacts): RoleResult =>
+    resolveClassifyRuntime(
+      isContractSeed,
+      hasCallableMembers,
+      seedKind,
+      policy,
+      schemaSymbols,
+      factsById,
+      entry
+    );
 
-    if (symbol.kind === "enum") {
-      add("constant", "declaration-kind", "enum");
-      return { evidence, roles };
-    }
-    if (symbol.kind === "class") {
-      const implemented = [
-        ...relationship("implements"),
-        ...relationship("extends"),
-      ];
-      if (declaration.abstract === true) {
-        add("contract", "declaration-kind", "abstract class");
-      }
-      if (implemented.length > 0) {
-        add(
-          "implementation",
-          "concept-relationship",
-          `implements/extends ${sorted(implemented.map((c) => c.conceptId)).join(", ")}`
-        );
-        const held = relationship("property-type").filter(
-          (c) =>
-            !implemented.some((i) => i.conceptId === c.conceptId) &&
-            isContractSeed(c.conceptId)
-        );
-        if (held.length > 0) {
-          add(
-            "adapter",
-            "concept-relationship",
-            `holds ${sorted(held.map((c) => c.conceptId)).join(", ")} as property type`
-          );
-        }
-      }
-      if (roles.length === 0) {
-        if (hasCallableMembers(declaration) || entry.functions > 0) {
-          add(
-            "behavior",
-            "members",
-            `${declaration.members?.methods ?? 0} methods`
-          );
-        } else {
-          add("value", "members", "data-only class");
-        }
-      }
-      return { evidence, roles };
-    }
-    if (isFunction) {
-      // Construction alone is not a factory (a thrower constructs errors),
-      // nor is a return type alone (a getter returns an instance): the
-      // function must construct what it returns, or be named as a factory
-      // and do one of the two.
-      const constructs = relationship("constructs").filter(
-        (c) => seedKind.get(c.conceptId) === "class"
-      );
-      const returns = relationship("return-type").filter((c) =>
-        seedKind.has(c.conceptId)
-      );
-      const constructsAndReturns = constructs.filter((c) =>
-        returns.some((r) => r.conceptId === c.conceptId)
-      );
-      const named = FACTORY_NAME.test(symbol.name);
-      if (constructsAndReturns.length > 0) {
-        add(
-          "factory",
-          "concept-relationship",
-          `constructs and returns ${sorted(constructsAndReturns.map((c) => c.conceptId)).join(", ")}`
-        );
-      } else if (named && (constructs.length > 0 || returns.length > 0)) {
-        add(
-          "factory",
-          "concept-relationship",
-          constructs.length > 0
-            ? `constructs ${sorted(constructs.map((c) => c.conceptId)).join(", ")}`
-            : `returns ${sorted(returns.map((c) => c.conceptId)).join(", ")}`
-        );
-        evidence.push({ detail: symbol.name, kind: "naming", role: "factory" });
-      }
-      if (roles.length === 0) {
-        const consumers = entry.finding?.consumers.modules ?? 0;
-        if (
-          concepts.length === 0 &&
-          declaration.jsx !== true &&
-          consumers >= policy.utility.minimumConsumers &&
-          entry.statements <= policy.utility.maximumStatements
-        ) {
-          add(
-            "utility",
-            "behavior",
-            `${entry.statements} statements, no concept relationship`
-          );
-          evidence.push({
-            detail: `${consumers} consumer modules`,
-            kind: "usage",
-            role: "utility",
-          });
-        } else {
-          add(
-            "behavior",
-            "declaration-kind",
-            symbol.kind === "function" ? "function" : "function-valued const"
-          );
-        }
-      }
-      return { evidence, roles };
-    }
-    if (symbol.kind === "variable") {
-      const initializer = declaration.initializer ?? "none";
-      if (schemaSymbols.has(symbol.id)) {
-        const callee = declaration.callee;
-        add(
-          "schema",
-          "schema-library",
-          callee?.specifier === undefined
-            ? `${callee?.name ?? "?"} chains a schema`
-            : `${callee.name} from ${callee.specifier}`
-        );
-        return { evidence, roles };
-      }
-      const annotation = declaration.annotation;
-      const annotated =
-        annotation === undefined ? undefined : factsById.get(annotation);
-      if (
-        initializer === "object" &&
-        annotation !== undefined &&
-        isContractSeed(annotation)
-      ) {
-        add(
-          "implementation",
-          "annotation",
-          `object annotated with contract ${annotation}`
-        );
-        return { evidence, roles };
-      }
-      if (
-        initializer === "literal" ||
-        initializer === "array" ||
-        initializer === "object"
-      ) {
-        const configurationByAnnotation =
-          annotated !== undefined &&
-          CONFIGURATION_NAME.test(annotated.symbol.name);
-        const configurationByName = CONFIGURATION_NAME.test(symbol.name);
-        if (
-          initializer !== "literal" &&
-          (configurationByAnnotation || configurationByName)
-        ) {
-          add(
-            "configuration",
-            configurationByAnnotation ? "annotation" : "naming",
-            configurationByAnnotation
-              ? `annotated with ${annotation}`
-              : symbol.name
-          );
-        }
-        add(
-          "constant",
-          "initializer",
-          `${initializer}${declaration.asConst === true ? " as const" : ""}`
-        );
-        return { evidence, roles };
-      }
-      add("value", "initializer", initializer);
-      return { evidence, roles };
-    }
-    return { evidence, roles };
-  };
-
-  for (const entry of facts) {
-    if (
-      entry.symbol.kind === "variable" ||
-      entry.symbol.kind === "function" ||
-      entry.symbol.kind === "class" ||
-      entry.symbol.kind === "enum"
-    ) {
-      roleOf.set(entry.symbol.id, classifyRuntime(entry));
-    }
-  }
+  analyzePrimitiveConventionsEntry2(facts, roleOf, classifyRuntime);
 
   // Configuration values name their contract: the annotated type of a
   // configuration constant is itself configuration.
   const configurationTypes = new Set<string>();
-  for (const entry of facts) {
-    const result = roleOf.get(entry.symbol.id);
-    if (
-      result?.roles.includes("configuration") &&
-      entry.declaration.annotation !== undefined
-    ) {
-      configurationTypes.add(entry.declaration.annotation);
-    }
-  }
+  analyzePrimitiveConventionsEntry3(facts, roleOf, configurationTypes);
 
-  const classifyType = (entry: SymbolFacts): RoleResult => {
-    const { symbol, declaration } = entry;
-    const roles: ArchitecturalRole[] = [];
-    const evidence: RoleEvidence[] = [];
-    const add = (
-      role: ArchitecturalRole,
-      kind: RoleEvidence["kind"],
-      detail: string
-    ) => {
-      if (!roles.includes(role)) {
-        roles.push(role);
-      }
-      evidence.push({ detail, kind, role });
-    };
-    const dataOnly = !hasCallableMembers(declaration);
-    const derivedFromSeed = declaration.concepts.filter(
-      (c) =>
-        (c.relationships.extends ?? 0) > 0 || (c.relationships.alias ?? 0) > 0
+  const classifyType = (entry: SymbolFacts): RoleResult =>
+    resolveClassifyType(
+      hasCallableMembers,
+      implementersOf,
+      schemaSymbols,
+      configurationTypes,
+      entry
     );
-    const implementers = implementersOf.get(symbol.id) ?? [];
-    if (symbol.kind === "type") {
-      const shape = declaration.aliasShape ?? "other";
-      if (shape === "brand") {
-        add("identifier", "alias-shape", "branded primitive");
-        return { evidence, roles };
-      }
-      if (shape === "scalar" && IDENTIFIER_NAME.test(symbol.name)) {
-        add("identifier", "alias-shape", "scalar alias");
-        evidence.push({
-          detail: symbol.name,
-          kind: "naming",
-          role: "identifier",
-        });
-        return { evidence, roles };
-      }
-      const schemaQueries = (declaration.typeQueries ?? []).filter((id) =>
-        schemaSymbols.has(id)
-      );
-      if (schemaQueries.length > 0) {
-        add(
-          "representation",
-          "type-query",
-          `derived from ${schemaQueries.join(", ")}`
-        );
-        return { evidence, roles };
-      }
-    }
-    if (symbol.kind === "interface" || symbol.kind === "type") {
-      if (!dataOnly) {
-        add(
-          "contract",
-          "members",
-          `${declaration.members?.methods ?? 0} callable members`
-        );
-        return { evidence, roles };
-      }
-      if (implementers.length > 0 && symbol.kind === "interface") {
-        add(
-          "contract",
-          "concept-relationship",
-          `implemented by ${implementers.length}`
-        );
-        return { evidence, roles };
-      }
-      if (configurationTypes.has(symbol.id)) {
-        add("configuration", "annotation", "annotates a configuration value");
-        return { evidence, roles };
-      }
-      if (CONFIGURATION_NAME.test(symbol.name)) {
-        add("configuration", "naming", symbol.name);
-        return { evidence, roles };
-      }
-      if (derivedFromSeed.length > 0) {
-        add(
-          "representation",
-          "concept-relationship",
-          `derived from ${sorted(derivedFromSeed.map((c) => c.conceptId)).join(", ")}`
-        );
-        return { evidence, roles };
-      }
-      add("type", "declaration-kind", symbol.kind);
-      return { evidence, roles };
-    }
-    return { evidence, roles };
-  };
 
   for (const entry of facts) {
     if (entry.symbol.kind === "interface" || entry.symbol.kind === "type") {
@@ -762,27 +477,11 @@ export function analyzePrimitiveConventions(
   const regionRoot = new Map<string, string>();
   for (const region of responsibilities.regions) {
     const below = region.path.directories.filter((d) => !aboveRegions(d));
-    const shallowest = (
+    const [shallowest] = (
       below.length > 0 ? below : region.path.directories
-    ).sort((a, b) => depthOf(a) - depthOf(b) || a.localeCompare(b))[0];
+    ).sort((a, b) => depthOf(a) - depthOf(b) || a.localeCompare(b));
     regionRoot.set(region.id, shallowest ?? ROOT_DIRECTORY);
   }
-
-  interface Classified {
-    consumerResponsibilities: string[];
-    facts: SymbolFacts;
-    limitations: PrimitiveLimitation[];
-    moduleEvidence?: ResponsibilityModuleEvidence;
-    namingDisagrees?: ArchitecturalRole;
-    primaryRole: ArchitecturalRole;
-    roleEvidence: RoleEvidence[];
-    roles: ArchitecturalRole[];
-    scope: ArchitecturalScopeClass;
-    scopeEvidence: ScopeEvidence;
-    served?: { responsibility: string; declarationAgrees: boolean };
-    unresolvedConsumers: number;
-  }
-
   const classified: Classified[] = facts.map((entry) => {
     const result = roleOf.get(entry.symbol.id) ?? { evidence: [], roles: [] };
     const roles =
@@ -793,72 +492,51 @@ export function analyzePrimitiveConventions(
       ROLE_PRECEDENCE.find((role) => roles.includes(role)) ?? "unknown";
     const evidence = [...result.evidence];
     let namingDisagrees: ArchitecturalRole | undefined;
-    for (const hint of NAMING_HINTS) {
-      if (
-        !(
-          hint.kinds.includes(entry.symbol.kind) &&
-          hint.pattern.test(entry.symbol.name)
-        )
-      ) {
-        continue;
+    const visitHint = () => {
+      for (const hint of NAMING_HINTS) {
+        if (
+          !(
+            hint.kinds.includes(entry.symbol.kind) &&
+            hint.pattern.test(entry.symbol.name)
+          )
+        ) {
+          continue;
+        }
+        if (
+          !evidence.some((e) => e.kind === "naming" && e.role === hint.role)
+        ) {
+          evidence.push({
+            detail: entry.symbol.name,
+            kind: "naming",
+            role: hint.role,
+          });
+        }
+        if (
+          !roles.includes(hint.role) &&
+          primaryRole !== "unknown" &&
+          namingDisagrees === undefined
+        ) {
+          namingDisagrees = hint.role;
+        }
       }
-      if (!evidence.some((e) => e.kind === "naming" && e.role === hint.role)) {
-        evidence.push({
-          detail: entry.symbol.name,
-          kind: "naming",
-          role: hint.role,
-        });
-      }
-      if (
-        !roles.includes(hint.role) &&
-        primaryRole !== "unknown" &&
-        namingDisagrees === undefined
-      ) {
-        namingDisagrees = hint.role;
-      }
-    }
+    };
+    visitHint();
 
     const module = moduleEvidence.get(entry.module);
     const placed = module?.region !== undefined;
     const limitations: PrimitiveLimitation[] = [];
-    let scope: ArchitecturalScopeClass;
-    let scopeEvidence: ScopeEvidence;
-    let served: Classified["served"];
     const consumerResponsibilities = entry.context?.consumerRegions ?? [];
     const unresolvedConsumers = entry.context?.unresolvedConsumers ?? 0;
-    if (!entry.symbol.exported) {
-      scope = "module-local";
-      scopeEvidence = "structural";
-      limitations.push("intra-module-usage-unmeasured");
-    } else if (entry.context === undefined) {
-      scope = "unclear";
-      scopeEvidence = "none";
-      limitations.push("no-internal-consumers");
-    } else if (consumerResponsibilities.length === 0) {
-      scope = placed ? "unclear" : "unplaced";
-      scopeEvidence = "none";
-      if (unresolvedConsumers > 0) {
-        limitations.push("unresolved-consumers");
-      }
-    } else {
-      const count = consumerResponsibilities.length;
-      if (count >= packageWideThreshold) {
-        scope = "package-wide";
-      } else if (count >= 2) {
-        scope = "cross-responsibility";
-      } else {
-        scope = "responsibility-local";
-        const responsibility = consumerResponsibilities[0] ?? "";
-        served = {
-          declarationAgrees: module?.region === responsibility,
-          responsibility,
-        };
-      }
-      scopeEvidence = unresolvedConsumers > 0 ? "partial" : "complete";
-      if (unresolvedConsumers > 0) {
-        limitations.push("unresolved-consumers");
-      }
-    }
+    const { scope, scopeEvidence, served } = analyzePrimitiveConventionsEntries(
+      entry,
+      limitations,
+      consumerResponsibilities,
+      placed,
+      unresolvedConsumers,
+      packageWideThreshold,
+      undefined,
+      module
+    );
     if (entry.symbol.exported && !placed) {
       limitations.push("declaration-unplaced");
     }
@@ -887,6 +565,23 @@ export function analyzePrimitiveConventions(
 
   // Modules: composition over exported classified symbols.
   const byModule = new Map<string, Classified[]>();
+  const visitEntries2 = () => {
+    for (const [directory, list] of modulesByDirectory) {
+      const contributing = list.filter(
+        (c) => c.finding.composition.roles !== "none"
+      );
+      if (contributing.length === 0) {
+        continue;
+      }
+      const role = contributing[0]?.dedicatedRole;
+      if (
+        role !== undefined &&
+        contributing.every((c) => c.dedicatedRole === role)
+      ) {
+        dedicatedDirectory.set(directory, role);
+      }
+    }
+  };
   for (const entry of classified) {
     const list = byModule.get(entry.facts.module) ?? [];
     list.push(entry);
@@ -904,206 +599,36 @@ export function analyzePrimitiveConventions(
     }
     return undefined;
   };
-  const responsibilitiesServed = (entry: Classified): string[] =>
-    entry.scope === "responsibility-local"
-      ? [entry.served?.responsibility ?? ""]
-      : entry.scope === "cross-responsibility" || entry.scope === "package-wide"
-        ? entry.consumerResponsibilities
-        : [];
-
-  interface ModuleComposition {
-    dedicatedRole?: ArchitecturalRole;
-    exportsBehavior: boolean;
-    exportsTypes: boolean;
-    finding: PrimitiveModuleFinding;
-  }
+  const responsibilitiesServed = (entry: Classified): string[] => {
+    if (entry.scope === "responsibility-local") {
+      return [entry.served?.responsibility ?? ""];
+    }
+    if (
+      entry.scope === "cross-responsibility" ||
+      entry.scope === "package-wide"
+    ) {
+      return entry.consumerResponsibilities;
+    }
+    return [];
+  };
   const compositions = new Map<string, ModuleComposition>();
   const isAggregator = (module: string) =>
     report.moduleRoles[module]?.kind === "aggregator" ||
     (moduleEvidence.get(module)?.roles ?? []).includes("aggregator");
 
-  for (const module of sorted([...byModule.keys(), ...moduleEvidence.keys()])) {
-    const entries = byModule.get(module) ?? [];
-    const exported = entries.filter((e) => e.facts.symbol.exported);
-    const classifiedExported = exported.filter(
-      (e) => e.primaryRole !== "unknown"
-    );
-    const roles: Partial<Record<ArchitecturalRole, number>> = {};
-    const scopes: Partial<Record<ArchitecturalScopeClass, number>> = {};
-    for (const entry of entries) {
-      increment(roles, entry.primaryRole);
-      increment(scopes, entry.scope);
-    }
-    const roleCounts = new Map<ArchitecturalRole, number>();
-    for (const entry of classifiedExported) {
-      roleCounts.set(
-        entry.primaryRole,
-        (roleCounts.get(entry.primaryRole) ?? 0) + 1
-      );
-    }
-    const dominant = [...roleCounts.entries()].sort(
-      (a, b) =>
-        b[1] - a[1] ||
-        ROLE_PRECEDENCE.indexOf(a[0]) - ROLE_PRECEDENCE.indexOf(b[0])
-    )[0];
-    const dominantShare =
-      dominant === undefined
-        ? 0
-        : share(dominant[1], classifiedExported.length);
-    const rolesShape: PrimitiveModuleFinding["composition"]["roles"] =
-      classifiedExported.length === 0
-        ? "none"
-        : dominantShare >= policy.dedicatedRoleShare
-          ? "single-role"
-          : "mixed-role";
-    const groups = new Set<string>();
-    for (const entry of exported) {
-      const group = scopeGroupOf(entry);
-      if (group !== undefined) {
-        groups.add(group);
-      }
-    }
-    const scopesShape: PrimitiveModuleFinding["composition"]["scopes"] =
-      groups.size === 0
-        ? "none"
-        : groups.size === 1
-          ? "single-scope"
-          : "mixed-scope";
-    const served = new Map<string, number>();
-    for (const entry of exported) {
-      for (const id of responsibilitiesServed(entry)) {
-        served.set(id, (served.get(id) ?? 0) + 1);
-      }
-    }
-    const responsibilityList = [...served.entries()]
-      .map(([id, symbols]) => ({ id, symbols }))
-      .sort((a, b) => b.symbols - a.symbols || a.id.localeCompare(b.id));
-    const localGroups = new Set(
-      exported
-        .filter((e) => e.scope === "responsibility-local")
-        .map((e) => e.served?.responsibility ?? "")
-    ).size;
-    const countScope = (scope: ArchitecturalScopeClass) =>
-      exported.filter((e) => e.scope === scope).length;
-    const hubRoles = (candidates: ArchitecturalRole[]) => {
-      const members = exported.filter((e) =>
-        candidates.includes(e.primaryRole)
-      );
-      const regions = new Set(members.flatMap(responsibilitiesServed));
-      return (
-        members.length >= policy.hub.minimumSymbols &&
-        regions.size >= policy.hub.minimumResponsibilities
-      );
-    };
-    const shapes: PrimitiveModuleShape[] = [];
-    if (isAggregator(module)) {
-      shapes.push("aggregator");
-    } else {
-      if (hubRoles(PRIMITIVE_ROLES)) {
-        shapes.push("primitive-hub");
-      }
-      if (hubRoles(["contract"])) {
-        shapes.push("contract-hub");
-      }
-      if (hubRoles(["configuration"])) {
-        shapes.push("configuration-hub");
-      }
-      const executable = classifiedExported.filter((e) =>
-        EXECUTABLE_ROLES.includes(e.primaryRole)
-      ).length;
-      if (
-        classifiedExported.length > 0 &&
-        share(executable, classifiedExported.length) >=
-          policy.dedicatedRoleShare
-      ) {
-        shapes.push("implementation-module");
-      }
-    }
-    const colocations: ColocationPattern[] = [];
-    const has = (predicate: (e: Classified) => boolean) =>
-      entries.some(predicate);
-    const contracts = entries.filter((e) => e.roles.includes("contract"));
-    if (
-      contracts.some((contract) =>
-        (implementersOf.get(contract.facts.symbol.id) ?? []).some(
-          (id) => factsById.get(id)?.module === module
-        )
-      )
-    ) {
-      colocations.push("contract+implementation");
-    }
-    if (
-      has(
-        (e) =>
-          e.facts.symbol.kind === "type" &&
-          (e.facts.declaration.typeQueries ?? []).some(
-            (id) =>
-              schemaSymbols.has(id) && factsById.get(id)?.module === module
-          )
-      )
-    ) {
-      colocations.push("schema+type");
-    }
-    const exportsBehavior = exported.some((e) =>
-      EXECUTABLE_ROLES.includes(e.primaryRole)
-    );
-    const exportsTypes = exported.some((e) =>
-      TYPE_FAMILY.includes(e.primaryRole)
-    );
-    if (exportsTypes && exportsBehavior) {
-      colocations.push("type+behavior");
-    }
-    if (exported.some((e) => e.primaryRole === "constant") && exportsBehavior) {
-      colocations.push("constant+behavior");
-    }
-    const evidence = moduleEvidence.get(module);
-    const basename = basenameOf(module);
-    const finding: PrimitiveModuleFinding = {
-      basename,
-      directory: evidence?.directory ?? directoryOf(module),
-      module,
-      pathRegion: evidence?.pathRegion ?? ROOT_DIRECTORY,
-      ...(evidence?.region !== undefined && {
-        responsibility: evidence.region,
-      }),
-      status: evidence?.status ?? "unresolved",
-      ...(ambiguityByModule.has(module) && {
-        ambiguity: ambiguityByModule.get(module),
-      }),
-      colocations,
-      composition: {
-        roles: rolesShape,
-        scopes: scopesShape,
-        ...(dominant !== undefined && {
-          dominantRole: { role: dominant[0], share: dominantShare },
-        }),
-        scopeGroups: groups.size,
-      },
-      exportedSymbols: exported.length,
-      fragmentation: {
-        crossResponsibility: countScope("cross-responsibility"),
-        localGroups,
-        packageWide: countScope("package-wide"),
-        unclear: countScope("unclear"),
-        unplaced: countScope("unplaced"),
-      },
-      responsibilities: responsibilityList,
-      roleBasename: policy.roleBasenames.includes(basename),
-      roles: sortedPartial(roles),
-      scopes: sortedPartial(scopes),
-      shapes,
-      symbols: entries.length,
-      unresolvedSymbols: countScope("unplaced") + countScope("unclear"),
-    };
-    compositions.set(module, {
-      finding,
-      ...(rolesShape === "single-role" &&
-        dominant !== undefined && { dedicatedRole: dominant[0] }),
-      exportsBehavior,
-      exportsTypes,
-    });
-  }
-
+  analyzePrimitiveConventionsEntries4(
+    byModule,
+    moduleEvidence,
+    policy,
+    scopeGroupOf,
+    responsibilitiesServed,
+    isAggregator,
+    implementersOf,
+    factsById,
+    schemaSymbols,
+    ambiguityByModule,
+    compositions
+  );
   // A directory is dedicated to a role when every module in it that exports
   // classified symbols is dedicated to that same role.
   const dedicatedDirectory = new Map<string, ArchitecturalRole>();
@@ -1113,26 +638,12 @@ export function analyzePrimitiveConventions(
     list.push(composition);
     modulesByDirectory.set(composition.finding.directory, list);
   }
-  for (const [directory, list] of modulesByDirectory) {
-    const contributing = list.filter(
-      (c) => c.finding.composition.roles !== "none"
-    );
-    if (contributing.length === 0) {
-      continue;
-    }
-    const role = contributing[0]?.dedicatedRole;
-    if (
-      role !== undefined &&
-      contributing.every((c) => c.dedicatedRole === role)
-    ) {
-      dedicatedDirectory.set(directory, role);
-    }
-  }
+  visitEntries2();
 
   const placementOf = (
     entry: Classified
   ): ArchitecturalRoleFinding["placement"] => {
-    const module = entry.facts.module;
+    const { module } = entry.facts;
     const composition = compositions.get(module);
     const directory = composition?.finding.directory ?? directoryOf(module);
     const moduleShape: PlacementModuleShape =
@@ -1143,30 +654,28 @@ export function analyzePrimitiveConventions(
       entry.scope === "responsibility-local"
         ? entry.served?.responsibility
         : entry.moduleEvidence?.region;
-    let directoryShape: PlacementDirectoryShape;
-    if (aboveRegions(directory)) {
-      directoryShape = "package-root";
-    } else if (dedicatedDirectory.get(directory) === entry.primaryRole) {
-      directoryShape = "dedicated-role-directory";
-    } else if (relative === undefined) {
-      directoryShape = "no-responsibility";
-    } else if (
-      !(regionById.get(relative)?.path.directories.includes(directory) ?? false)
-    ) {
-      directoryShape = "outside-responsibility";
-    } else if (regionRoot.get(relative) === directory) {
-      directoryShape = "responsibility-root";
-    } else {
-      directoryShape = "inside-responsibility";
-    }
+    const directoryShape: PlacementDirectoryShape = placementOfEntries(
+      aboveRegions,
+      directory,
+      dedicatedDirectory,
+      entry,
+      relative,
+      regionById,
+      regionRoot
+    );
     const behaviorFamily = EXECUTABLE_ROLES.includes(entry.primaryRole);
-    const colocation: PlacementColocationShape = behaviorFamily
-      ? composition?.exportsTypes === true
-        ? "with-types"
-        : "without-types"
-      : composition?.exportsBehavior === true
-        ? "with-behavior"
-        : "without-behavior";
+    let colocation: PlacementColocationShape;
+    if (behaviorFamily) {
+      if (composition?.exportsTypes === true) {
+        colocation = "with-types";
+      } else {
+        colocation = "without-types";
+      }
+    } else if (composition?.exportsBehavior === true) {
+      colocation = "with-behavior";
+    } else {
+      colocation = "without-behavior";
+    }
     return {
       aggregatorExposed: (entry.facts.finding?.consumers.mediated ?? 0) > 0,
       basename: basenameOf(module),
@@ -1251,15 +760,18 @@ export function analyzePrimitiveConventions(
         s.scope === "cross-responsibility" ||
         s.scope === "package-wide")
   );
-  const valueOf = (
+  const currentValueOf = (
     symbol: ArchitecturalRoleFinding,
     dimension: ConventionDimension
-  ) =>
-    dimension === "module"
-      ? symbol.placement.module
-      : dimension === "directory"
-        ? symbol.placement.directory
-        : symbol.placement.colocation;
+  ) => {
+    if (dimension === "module") {
+      return symbol.placement.module;
+    }
+    if (dimension === "directory") {
+      return symbol.placement.directory;
+    }
+    return symbol.placement.colocation;
+  };
   const conventions: PlacementConvention[] = [];
   const conventionGroups: ConventionGroup[] = [];
   const groupKeys = new Map<
@@ -1285,134 +797,19 @@ export function analyzePrimitiveConventions(
       groupKeys.set(key, group);
     }
   }
-  for (const group of [...groupKeys.values()].sort(
-    (a, b) =>
-      ROLE_PRECEDENCE.indexOf(a.role) - ROLE_PRECEDENCE.indexOf(b.role) ||
-      a.scope.localeCompare(b.scope)
-  )) {
-    const dimensions = {} as ConventionGroup["dimensions"];
-    for (const dimension of DIMENSIONS) {
-      const byValue = new Map<string, ArchitecturalRoleFinding[]>();
-      for (const member of group.members) {
-        const value = valueOf(member, dimension);
-        const list = byValue.get(value) ?? [];
-        list.push(member);
-        byValue.set(value, list);
-      }
-      const values = [...byValue.entries()]
-        .map(([value, members]) => ({ symbols: members.length, value }))
-        .sort(
-          (a, b) => b.symbols - a.symbols || a.value.localeCompare(b.value)
-        );
-      const qualifying = values.filter(
-        (v) => v.symbols >= policy.conventions.minimumSupport
-      );
-      const ids: string[] = [];
-      for (const { value } of qualifying) {
-        const members = byValue.get(value) ?? [];
-        const others = group.members.filter(
-          (m) => valueOf(m, dimension) !== value
-        );
-        const basenames = new Map<string, number>();
-        for (const member of members) {
-          basenames.set(
-            member.placement.basename,
-            (basenames.get(member.placement.basename) ?? 0) + 1
-          );
-        }
-        const responsibilityIds = sorted(
-          members.flatMap((m) =>
-            m.scope === "responsibility-local"
-              ? [m.served?.responsibility ?? ""]
-              : m.consumers.responsibilities
-          )
-        );
-        const id = `${group.role}/${group.scope}/${dimension}=${value}`;
-        ids.push(id);
-        conventions.push({
-          dimension,
-          exceptions: {
-            symbolIds: sorted(others.map((m) => m.symbolId)),
-            symbols: others.length,
-          },
-          id,
-          provenance: {
-            basenames: [...basenames.entries()]
-              .map(([basename, count]) => ({ basename, symbols: count }))
-              .sort(
-                (a, b) =>
-                  b.symbols - a.symbols || a.basename.localeCompare(b.basename)
-              )
-              .slice(0, policy.report.topConventions),
-          },
-          role: group.role,
-          scope: group.scope,
-          support: {
-            moduleIds: sorted(members.map((m) => m.declaration.module)),
-            modules: new Set(members.map((m) => m.declaration.module)).size,
-            responsibilities: responsibilityIds.length,
-            responsibilityIds,
-            symbolIds: sorted(members.map((m) => m.symbolId)),
-            symbols: members.length,
-          },
-          value,
-        });
-      }
-      dimensions[dimension] = {
-        conventions: ids,
-        status:
-          qualifying.length === 0
-            ? "insufficient-evidence"
-            : qualifying.length === 1
-              ? "convention"
-              : "competing",
-        values,
-      };
-    }
-    conventionGroups.push({
-      dimensions,
-      role: group.role,
-      scope: group.scope,
-      symbols: group.members.length,
-    });
-  }
+  analyzePrimitiveConventionsGroup(
+    groupKeys,
+    currentValueOf,
+    policy,
+    conventions,
+    conventionGroups
+  );
   conventions.sort(
     (a, b) => b.support.symbols - a.support.symbols || a.id.localeCompare(b.id)
   );
 
   const unresolved: PrimitiveAmbiguity[] = [];
-  for (const entry of classified) {
-    const id = entry.facts.symbol.id;
-    if (entry.primaryRole === "unknown") {
-      unresolved.push({
-        detail: entry.facts.symbol.kind,
-        reason: "no-role-evidence",
-        symbolId: id,
-      });
-    }
-    if (entry.namingDisagrees !== undefined) {
-      unresolved.push({
-        detail: `name suggests ${entry.namingDisagrees}; structure says ${entry.primaryRole}`,
-        reason: "naming-disagrees",
-        symbolId: id,
-      });
-    }
-    if (entry.scope === "unclear") {
-      unresolved.push({
-        detail:
-          entry.facts.context === undefined
-            ? entry.facts.symbol.packagePublic
-              ? "package-public, no internal consumer"
-              : "exported, no internal consumer"
-            : `${entry.unresolvedConsumers} unresolved consumers`,
-        reason:
-          entry.facts.context === undefined
-            ? "no-internal-consumers"
-            : "no-placed-consumers",
-        symbolId: id,
-      });
-    }
-  }
+  analyzePrimitiveConventionsEntry(classified, unresolved);
   unresolved.sort(
     (a, b) =>
       a.symbolId.localeCompare(b.symbolId) ||
@@ -1472,6 +869,896 @@ export function analyzePrimitiveConventions(
     symbols,
     unresolved,
   };
+}
+
+function analyzePrimitiveConventionsEntries4(
+  byModule: Map<string, Classified[]>,
+  moduleEvidence: Map<string, ResponsibilityModuleEvidence>,
+  policy: {
+    schemaLibraries: string[];
+    packageWide: {
+      minimumResponsibilities: number;
+      responsibilityShare: number;
+    };
+    dedicatedRoleShare: number;
+    hub: { minimumSymbols: number; minimumResponsibilities: number };
+    utility: { maximumStatements: number; minimumConsumers: number };
+    conventions: { minimumSupport: number };
+    roleBasenames: string[];
+    report: {
+      topSymbols: number;
+      topModules: number;
+      topConventions: number;
+      microscopeModules: number;
+    };
+  },
+  scopeGroupOf: (entry: Classified) => string | undefined,
+  responsibilitiesServed: (entry: Classified) => string[],
+  isAggregator: (module: string) => boolean,
+  implementersOf: Map<string, string[]>,
+  factsById: Map<string, SymbolFacts>,
+  schemaSymbols: Set<string>,
+  ambiguityByModule: Map<string, ResponsibilityAmbiguityReason>,
+  compositions: Map<string, ModuleComposition>
+) {
+  for (const module of sorted([...byModule.keys(), ...moduleEvidence.keys()])) {
+    analyzePrimitiveConventionsEntries4Entries3(
+      byModule,
+      module,
+      policy,
+      scopeGroupOf,
+      responsibilitiesServed,
+      isAggregator,
+      implementersOf,
+      factsById,
+      schemaSymbols,
+      moduleEvidence,
+      ambiguityByModule,
+      compositions
+    );
+  }
+}
+
+function analyzePrimitiveConventionsEntries4Entries3(
+  byModule: Map<string, Classified[]>,
+  module: string,
+  policy: {
+    schemaLibraries: string[];
+    packageWide: {
+      minimumResponsibilities: number;
+      responsibilityShare: number;
+    };
+    dedicatedRoleShare: number;
+    hub: { minimumSymbols: number; minimumResponsibilities: number };
+    utility: { maximumStatements: number; minimumConsumers: number };
+    conventions: { minimumSupport: number };
+    roleBasenames: string[];
+    report: {
+      topSymbols: number;
+      topModules: number;
+      topConventions: number;
+      microscopeModules: number;
+    };
+  },
+  scopeGroupOf: (entry: Classified) => string | undefined,
+  responsibilitiesServed: (entry: Classified) => string[],
+  isAggregator: (module: string) => boolean,
+  implementersOf: Map<string, string[]>,
+  factsById: Map<string, SymbolFacts>,
+  schemaSymbols: Set<string>,
+  moduleEvidence: Map<string, ResponsibilityModuleEvidence>,
+  ambiguityByModule: Map<string, ResponsibilityAmbiguityReason>,
+  compositions: Map<string, ModuleComposition>
+) {
+  const entries = byModule.get(module) ?? [];
+  const exported = entries.filter((e) => e.facts.symbol.exported);
+  const classifiedExported = exported.filter(
+    (e) => e.primaryRole !== "unknown"
+  );
+  const roles: Partial<Record<ArchitecturalRole, number>> = {};
+  const scopes: Partial<Record<ArchitecturalScopeClass, number>> = {};
+  for (const entry of entries) {
+    increment(roles, entry.primaryRole);
+    increment(scopes, entry.scope);
+  }
+  const roleCounts = new Map<ArchitecturalRole, number>();
+  for (const entry of classifiedExported) {
+    roleCounts.set(
+      entry.primaryRole,
+      (roleCounts.get(entry.primaryRole) ?? 0) + 1
+    );
+  }
+  const [dominant] = [...roleCounts.entries()].sort(
+    (a, b) =>
+      b[1] - a[1] ||
+      ROLE_PRECEDENCE.indexOf(a[0]) - ROLE_PRECEDENCE.indexOf(b[0])
+  );
+  const dominantShare =
+    dominant === undefined ? 0 : share(dominant[1], classifiedExported.length);
+
+  const rolesShape: PrimitiveModuleFinding["composition"]["roles"] =
+    analyzePrimitiveConventionsEntries4Entries(
+      classifiedExported,
+      dominantShare,
+      policy
+    );
+  const groups = new Set<string>();
+  analyzePrimitiveConventionsEntries4Entry(exported, scopeGroupOf, groups);
+
+  const scopesShape: PrimitiveModuleFinding["composition"]["scopes"] =
+    analyzePrimitiveConventionsEntries4Entries2(groups);
+  const served = new Map<string, number>();
+  analyzePrimitiveConventionsEntries4Entry2(
+    exported,
+    responsibilitiesServed,
+    served
+  );
+  const responsibilityList = [...served.entries()]
+    .map(([id, groupSymbols]) => ({ id, symbols: groupSymbols }))
+    .sort((a, b) => b.symbols - a.symbols || a.id.localeCompare(b.id));
+  const localGroups = new Set(
+    exported
+      .filter((e) => e.scope === "responsibility-local")
+      .map((e) => e.served?.responsibility ?? "")
+  ).size;
+  const countScope = (scope: ArchitecturalScopeClass) =>
+    exported.filter((e) => e.scope === scope).length;
+  const hubRoles = (candidates: ArchitecturalRole[]) => {
+    const members = exported.filter((e) => candidates.includes(e.primaryRole));
+    const regions = new Set(members.flatMap(responsibilitiesServed));
+    return (
+      members.length >= policy.hub.minimumSymbols &&
+      regions.size >= policy.hub.minimumResponsibilities
+    );
+  };
+  const shapes: PrimitiveModuleShape[] = [];
+  analyzePrimitiveConventionsEntries2(
+    isAggregator,
+    module,
+    shapes,
+    hubRoles,
+    classifiedExported,
+    policy
+  );
+  const colocations: ColocationPattern[] = [];
+  const has = (predicate: (e: Classified) => boolean) =>
+    entries.some(predicate);
+  const contracts = entries.filter((e) => e.roles.includes("contract"));
+  if (
+    contracts.some((contract) =>
+      (implementersOf.get(contract.facts.symbol.id) ?? []).some(
+        (id) => factsById.get(id)?.module === module
+      )
+    )
+  ) {
+    colocations.push("contract+implementation");
+  }
+  if (
+    has(
+      (e) =>
+        e.facts.symbol.kind === "type" &&
+        (e.facts.declaration.typeQueries ?? []).some(
+          (id) => schemaSymbols.has(id) && factsById.get(id)?.module === module
+        )
+    )
+  ) {
+    colocations.push("schema+type");
+  }
+  const exportsBehavior = exported.some((e) =>
+    EXECUTABLE_ROLES.includes(e.primaryRole)
+  );
+  const exportsTypes = exported.some((e) =>
+    TYPE_FAMILY.includes(e.primaryRole)
+  );
+  if (exportsTypes && exportsBehavior) {
+    colocations.push("type+behavior");
+  }
+  if (exported.some((e) => e.primaryRole === "constant") && exportsBehavior) {
+    colocations.push("constant+behavior");
+  }
+  const evidence = moduleEvidence.get(module);
+  const basename = basenameOf(module);
+  const finding: PrimitiveModuleFinding = {
+    basename,
+    directory: evidence?.directory ?? directoryOf(module),
+    module,
+    pathRegion: evidence?.pathRegion ?? ROOT_DIRECTORY,
+    ...(evidence?.region !== undefined && {
+      responsibility: evidence.region,
+    }),
+    status: evidence?.status ?? "unresolved",
+    ...(ambiguityByModule.has(module) && {
+      ambiguity: ambiguityByModule.get(module),
+    }),
+    colocations,
+    composition: {
+      roles: rolesShape,
+      scopes: scopesShape,
+      ...(dominant !== undefined && {
+        dominantRole: { role: dominant[0], share: dominantShare },
+      }),
+      scopeGroups: groups.size,
+    },
+    exportedSymbols: exported.length,
+    fragmentation: {
+      crossResponsibility: countScope("cross-responsibility"),
+      localGroups,
+      packageWide: countScope("package-wide"),
+      unclear: countScope("unclear"),
+      unplaced: countScope("unplaced"),
+    },
+    responsibilities: responsibilityList,
+    roleBasename: policy.roleBasenames.includes(basename),
+    roles: sortedPartial(roles),
+    scopes: sortedPartial(scopes),
+    shapes,
+    symbols: entries.length,
+    unresolvedSymbols: countScope("unplaced") + countScope("unclear"),
+  };
+  compositions.set(module, {
+    finding,
+    ...(rolesShape === "single-role" &&
+      dominant !== undefined && { dedicatedRole: dominant[0] }),
+    exportsBehavior,
+    exportsTypes,
+  });
+}
+
+function analyzePrimitiveConventionsEntries4Entries2(
+  groups: Set<string>
+): "single-scope" | "mixed-scope" | "none" {
+  let scopesShape: "single-scope" | "mixed-scope" | "none";
+  if (groups.size === 0) {
+    scopesShape = "none";
+  } else if (groups.size === 1) {
+    scopesShape = "single-scope";
+  } else {
+    scopesShape = "mixed-scope";
+  }
+  return scopesShape;
+}
+
+function analyzePrimitiveConventionsEntries4Entry2(
+  exported: Classified[],
+  responsibilitiesServed: (entry: Classified) => string[],
+  served: Map<string, number>
+) {
+  for (const entry of exported) {
+    for (const id of responsibilitiesServed(entry)) {
+      served.set(id, (served.get(id) ?? 0) + 1);
+    }
+  }
+}
+
+function analyzePrimitiveConventionsEntries4Entry(
+  exported: Classified[],
+  scopeGroupOf: (entry: Classified) => string | undefined,
+  groups: Set<string>
+) {
+  for (const entry of exported) {
+    const group = scopeGroupOf(entry);
+    if (group !== undefined) {
+      groups.add(group);
+    }
+  }
+}
+
+function analyzePrimitiveConventionsEntries4Entries(
+  classifiedExported: Classified[],
+  dominantShare: number,
+  policy: {
+    schemaLibraries: string[];
+    packageWide: {
+      minimumResponsibilities: number;
+      responsibilityShare: number;
+    };
+    dedicatedRoleShare: number;
+    hub: { minimumSymbols: number; minimumResponsibilities: number };
+    utility: { maximumStatements: number; minimumConsumers: number };
+    conventions: { minimumSupport: number };
+    roleBasenames: string[];
+    report: {
+      topSymbols: number;
+      topModules: number;
+      topConventions: number;
+      microscopeModules: number;
+    };
+  }
+): "single-role" | "mixed-role" | "none" {
+  let rolesShape: "single-role" | "mixed-role" | "none";
+  if (classifiedExported.length === 0) {
+    rolesShape = "none";
+  } else if (dominantShare >= policy.dedicatedRoleShare) {
+    rolesShape = "single-role";
+  } else {
+    rolesShape = "mixed-role";
+  }
+  return rolesShape;
+}
+
+function analyzePrimitiveConventionsEntry3(
+  facts: SymbolFacts[],
+  roleOf: Map<string, RoleResult>,
+  configurationTypes: Set<string>
+) {
+  for (const entry of facts) {
+    const result = roleOf.get(entry.symbol.id);
+    if (
+      result?.roles.includes("configuration") &&
+      entry.declaration.annotation !== undefined
+    ) {
+      configurationTypes.add(entry.declaration.annotation);
+    }
+  }
+}
+
+function analyzePrimitiveConventionsEntry2(
+  facts: SymbolFacts[],
+  roleOf: Map<string, RoleResult>,
+  classifyRuntime: (entry: SymbolFacts) => RoleResult
+) {
+  for (const entry of facts) {
+    if (
+      entry.symbol.kind === "variable" ||
+      entry.symbol.kind === "function" ||
+      entry.symbol.kind === "class" ||
+      entry.symbol.kind === "enum"
+    ) {
+      roleOf.set(entry.symbol.id, classifyRuntime(entry));
+    }
+  }
+}
+
+function analyzePrimitiveConventionsFn(
+  report: PackageLocalReport,
+  statementsByOwner: Map<string, { statements: number; functions: number }>
+) {
+  for (const fn of report.localComplexity.functions) {
+    if (fn.ownerSymbolId === undefined) {
+      continue;
+    }
+    const entry = statementsByOwner.get(fn.ownerSymbolId) ?? {
+      functions: 0,
+      statements: 0,
+    };
+    entry.statements += fn.metrics.statements;
+    entry.functions += 1;
+    statementsByOwner.set(fn.ownerSymbolId, entry);
+  }
+}
+
+function analyzePrimitiveConventionsEntries3(
+  initialChanged: boolean,
+  facts: SymbolFacts[],
+  schemaSymbols: Set<string>,
+  isSchemaLibrary: (specifier: string) => boolean
+): boolean {
+  let changed = initialChanged;
+  while (changed) {
+    changed = false;
+    for (const entry of facts) {
+      const { declaration, symbol } = entry;
+      if (symbol.kind !== "variable" || schemaSymbols.has(symbol.id)) {
+        continue;
+      }
+      if (
+        declaration.initializer !== "call" ||
+        declaration.callee === undefined
+      ) {
+        continue;
+      }
+      const { callee } = declaration;
+      if (
+        (callee.specifier !== undefined && isSchemaLibrary(callee.specifier)) ||
+        (callee.symbolId !== undefined && schemaSymbols.has(callee.symbolId))
+      ) {
+        schemaSymbols.add(symbol.id);
+        changed = true;
+      }
+    }
+  }
+  return changed;
+}
+
+function classifyRuntimeEntries5(
+  roles: ArchitecturalRole[],
+  hasCallableMembers: (declaration: PackageLocalDeclaration) => boolean,
+  declaration: PackageLocalDeclaration,
+  entry: SymbolFacts,
+  add: (
+    role: ArchitecturalRole,
+    kind: RoleEvidence["kind"],
+    detail: string
+  ) => void
+) {
+  if (roles.length === 0) {
+    if (hasCallableMembers(declaration) || entry.functions > 0) {
+      add(
+        "behavior",
+        "members",
+        `${declaration.members?.methods ?? 0} methods`
+      );
+    } else {
+      add("value", "members", "data-only class");
+    }
+  }
+}
+
+function classifyRuntimeEntries4(
+  implemented: {
+    conceptId: string;
+    relationships: Partial<Record<ConceptRelationshipKind, number>>;
+  }[],
+  add: (
+    role: ArchitecturalRole,
+    kind: RoleEvidence["kind"],
+    detail: string
+  ) => void,
+  relationship: (
+    kind: keyof PackageLocalDeclaration["concepts"][number]["relationships"]
+  ) => {
+    conceptId: string;
+    relationships: Partial<Record<ConceptRelationshipKind, number>>;
+  }[],
+  isContractSeed: (id: string) => boolean
+) {
+  if (implemented.length > 0) {
+    add(
+      "implementation",
+      "concept-relationship",
+      `implements/extends ${sorted(implemented.map((c) => c.conceptId)).join(", ")}`
+    );
+    const held = relationship("property-type").filter(
+      (c) =>
+        !implemented.some((i) => i.conceptId === c.conceptId) &&
+        isContractSeed(c.conceptId)
+    );
+    if (held.length > 0) {
+      add(
+        "adapter",
+        "concept-relationship",
+        `holds ${sorted(held.map((c) => c.conceptId)).join(", ")} as property type`
+      );
+    }
+  }
+}
+
+function classifyRuntimeEntries3(
+  initializer: "object" | "array" | "literal",
+  configurationByAnnotation: boolean,
+  configurationByName: boolean,
+  add: (
+    role: ArchitecturalRole,
+    kind: RoleEvidence["kind"],
+    detail: string
+  ) => void,
+  annotation: string | undefined,
+  symbol: PackageLocalSymbol
+) {
+  if (
+    initializer !== "literal" &&
+    (configurationByAnnotation || configurationByName)
+  ) {
+    add(
+      "configuration",
+      configurationByAnnotation ? "annotation" : "naming",
+      configurationByAnnotation ? `annotated with ${annotation}` : symbol.name
+    );
+  }
+}
+
+function classifyRuntimeEntries2(
+  roles: ArchitecturalRole[],
+  entry: SymbolFacts,
+  concepts: {
+    conceptId: string;
+    relationships: Partial<Record<ConceptRelationshipKind, number>>;
+  }[],
+  declaration: PackageLocalDeclaration,
+  policy: {
+    schemaLibraries: string[];
+    packageWide: {
+      minimumResponsibilities: number;
+      responsibilityShare: number;
+    };
+    dedicatedRoleShare: number;
+    hub: { minimumSymbols: number; minimumResponsibilities: number };
+    utility: { maximumStatements: number; minimumConsumers: number };
+    conventions: { minimumSupport: number };
+    roleBasenames: string[];
+    report: {
+      topSymbols: number;
+      topModules: number;
+      topConventions: number;
+      microscopeModules: number;
+    };
+  },
+  add: (
+    role: ArchitecturalRole,
+    kind: RoleEvidence["kind"],
+    detail: string
+  ) => void,
+  evidence: RoleEvidence[],
+  symbol: PackageLocalSymbol
+) {
+  if (roles.length === 0) {
+    const consumers = entry.finding?.consumers.modules ?? 0;
+    if (
+      concepts.length === 0 &&
+      declaration.jsx !== true &&
+      consumers >= policy.utility.minimumConsumers &&
+      entry.statements <= policy.utility.maximumStatements
+    ) {
+      add(
+        "utility",
+        "behavior",
+        `${entry.statements} statements, no concept relationship`
+      );
+      evidence.push({
+        detail: `${consumers} consumer modules`,
+        kind: "usage",
+        role: "utility",
+      });
+    } else {
+      add(
+        "behavior",
+        "declaration-kind",
+        symbol.kind === "function" ? "function" : "function-valued const"
+      );
+    }
+  }
+}
+
+function classifyRuntimeEntries(
+  constructsAndReturns: {
+    conceptId: string;
+    relationships: Partial<Record<ConceptRelationshipKind, number>>;
+  }[],
+  add: (
+    role: ArchitecturalRole,
+    kind: RoleEvidence["kind"],
+    detail: string
+  ) => void,
+  named: boolean,
+  constructs: {
+    conceptId: string;
+    relationships: Partial<Record<ConceptRelationshipKind, number>>;
+  }[],
+  returns: {
+    conceptId: string;
+    relationships: Partial<Record<ConceptRelationshipKind, number>>;
+  }[],
+  evidence: RoleEvidence[],
+  symbol: PackageLocalSymbol
+) {
+  if (constructsAndReturns.length > 0) {
+    add(
+      "factory",
+      "concept-relationship",
+      `constructs and returns ${sorted(constructsAndReturns.map((c) => c.conceptId)).join(", ")}`
+    );
+  } else if (named && (constructs.length > 0 || returns.length > 0)) {
+    add(
+      "factory",
+      "concept-relationship",
+      constructs.length > 0
+        ? `constructs ${sorted(constructs.map((c) => c.conceptId)).join(", ")}`
+        : `returns ${sorted(returns.map((c) => c.conceptId)).join(", ")}`
+    );
+    evidence.push({ detail: symbol.name, kind: "naming", role: "factory" });
+  }
+}
+
+function analyzePrimitiveConventionsEntries2(
+  isAggregator: (module: string) => boolean,
+  module: string,
+  shapes: PrimitiveModuleShape[],
+  hubRoles: (candidates: ArchitecturalRole[]) => boolean,
+  classifiedExported: Classified[],
+  policy: {
+    schemaLibraries: string[];
+    packageWide: {
+      minimumResponsibilities: number;
+      responsibilityShare: number;
+    };
+    dedicatedRoleShare: number;
+    hub: { minimumSymbols: number; minimumResponsibilities: number };
+    utility: { maximumStatements: number; minimumConsumers: number };
+    conventions: { minimumSupport: number };
+    roleBasenames: string[];
+    report: {
+      topSymbols: number;
+      topModules: number;
+      topConventions: number;
+      microscopeModules: number;
+    };
+  }
+) {
+  if (isAggregator(module)) {
+    shapes.push("aggregator");
+  } else {
+    if (hubRoles(PRIMITIVE_ROLES)) {
+      shapes.push("primitive-hub");
+    }
+    if (hubRoles(["contract"])) {
+      shapes.push("contract-hub");
+    }
+    if (hubRoles(["configuration"])) {
+      shapes.push("configuration-hub");
+    }
+    const executable = classifiedExported.filter((e) =>
+      EXECUTABLE_ROLES.includes(e.primaryRole)
+    ).length;
+    if (
+      classifiedExported.length > 0 &&
+      share(executable, classifiedExported.length) >= policy.dedicatedRoleShare
+    ) {
+      shapes.push("implementation-module");
+    }
+  }
+}
+
+function analyzePrimitiveConventionsEntries(
+  entry: SymbolFacts,
+  limitations: PrimitiveLimitation[],
+  consumerResponsibilities: string[],
+  placed: boolean,
+  unresolvedConsumers: number,
+  packageWideThreshold: number,
+  initialServed:
+    | { responsibility: string; declarationAgrees: boolean }
+    | undefined,
+  module: ResponsibilityModuleEvidence | undefined
+): {
+  scope: ArchitecturalScopeClass;
+  scopeEvidence: ScopeEvidence;
+  served: { responsibility: string; declarationAgrees: boolean } | undefined;
+} {
+  let served = initialServed;
+  let scope: ArchitecturalScopeClass;
+  let scopeEvidence: ScopeEvidence;
+  if (!entry.symbol.exported) {
+    scope = "module-local";
+    scopeEvidence = "structural";
+    limitations.push("intra-module-usage-unmeasured");
+  } else if (entry.context === undefined) {
+    scope = "unclear";
+    scopeEvidence = "none";
+    limitations.push("no-internal-consumers");
+  } else if (consumerResponsibilities.length === 0) {
+    scope = placed ? "unclear" : "unplaced";
+    scopeEvidence = "none";
+    if (unresolvedConsumers > 0) {
+      limitations.push("unresolved-consumers");
+    }
+  } else {
+    const count = consumerResponsibilities.length;
+    if (count >= packageWideThreshold) {
+      scope = "package-wide";
+    } else if (count >= 2) {
+      scope = "cross-responsibility";
+    } else {
+      scope = "responsibility-local";
+      const responsibility = consumerResponsibilities[0] ?? "";
+      served = {
+        declarationAgrees: module?.region === responsibility,
+        responsibility,
+      };
+    }
+    scopeEvidence = unresolvedConsumers > 0 ? "partial" : "complete";
+    if (unresolvedConsumers > 0) {
+      limitations.push("unresolved-consumers");
+    }
+  }
+  return { scope, scopeEvidence, served };
+}
+
+function analyzePrimitiveConventionsGroup(
+  groupKeys: Map<
+    string,
+    {
+      role: ArchitecturalRole;
+      scope: ArchitecturalScopeClass | "any";
+      members: ArchitecturalRoleFinding[];
+    }
+  >,
+  currentValueOf: (
+    symbol: ArchitecturalRoleFinding,
+    dimension: ConventionDimension
+  ) =>
+    | PlacementModuleShape
+    | PlacementDirectoryShape
+    | PlacementColocationShape,
+  policy: {
+    schemaLibraries: string[];
+    packageWide: {
+      minimumResponsibilities: number;
+      responsibilityShare: number;
+    };
+    dedicatedRoleShare: number;
+    hub: { minimumSymbols: number; minimumResponsibilities: number };
+    utility: { maximumStatements: number; minimumConsumers: number };
+    conventions: { minimumSupport: number };
+    roleBasenames: string[];
+    report: {
+      topSymbols: number;
+      topModules: number;
+      topConventions: number;
+      microscopeModules: number;
+    };
+  },
+  conventions: PlacementConvention[],
+  conventionGroups: ConventionGroup[]
+) {
+  for (const group of [...groupKeys.values()].sort(
+    (a, b) =>
+      ROLE_PRECEDENCE.indexOf(a.role) - ROLE_PRECEDENCE.indexOf(b.role) ||
+      a.scope.localeCompare(b.scope)
+  )) {
+    const dimensions = {} as ConventionGroup["dimensions"];
+    for (const dimension of DIMENSIONS) {
+      const byValue = new Map<string, ArchitecturalRoleFinding[]>();
+      for (const member of group.members) {
+        const value = currentValueOf(member, dimension);
+        const list = byValue.get(value) ?? [];
+        list.push(member);
+        byValue.set(value, list);
+      }
+      const values = [...byValue.entries()]
+        .map(([value, members]) => ({ symbols: members.length, value }))
+        .sort(
+          (a, b) => b.symbols - a.symbols || a.value.localeCompare(b.value)
+        );
+      const qualifying = values.filter(
+        (v) => v.symbols >= policy.conventions.minimumSupport
+      );
+      const ids: string[] = [];
+      for (const { value } of qualifying) {
+        const members = byValue.get(value) ?? [];
+        const others = group.members.filter(
+          (m) => currentValueOf(m, dimension) !== value
+        );
+        const basenames = new Map<string, number>();
+        for (const member of members) {
+          basenames.set(
+            member.placement.basename,
+            (basenames.get(member.placement.basename) ?? 0) + 1
+          );
+        }
+        const responsibilityIds = sorted(
+          members.flatMap((m) =>
+            m.scope === "responsibility-local"
+              ? [m.served?.responsibility ?? ""]
+              : m.consumers.responsibilities
+          )
+        );
+        const id = `${group.role}/${group.scope}/${dimension}=${value}`;
+        ids.push(id);
+        conventions.push({
+          dimension,
+          exceptions: {
+            symbolIds: sorted(others.map((m) => m.symbolId)),
+            symbols: others.length,
+          },
+          id,
+          provenance: {
+            basenames: [...basenames.entries()]
+              .map(([basename, count]) => ({ basename, symbols: count }))
+              .sort(
+                (a, b) =>
+                  b.symbols - a.symbols || a.basename.localeCompare(b.basename)
+              )
+              .slice(0, policy.report.topConventions),
+          },
+          role: group.role,
+          scope: group.scope,
+          support: {
+            moduleIds: sorted(members.map((m) => m.declaration.module)),
+            modules: new Set(members.map((m) => m.declaration.module)).size,
+            responsibilities: responsibilityIds.length,
+            responsibilityIds,
+            symbolIds: sorted(members.map((m) => m.symbolId)),
+            symbols: members.length,
+          },
+          value,
+        });
+      }
+      dimensions[dimension] = {
+        conventions: ids,
+        status: resolveStatus(qualifying),
+        values,
+      };
+    }
+    conventionGroups.push({
+      dimensions,
+      role: group.role,
+      scope: group.scope,
+      symbols: group.members.length,
+    });
+  }
+}
+
+function resolveStatus(
+  qualifying: { symbols: number; value: string }[]
+): ConventionStatus {
+  if (qualifying.length === 0) {
+    return "insufficient-evidence";
+  }
+  if (qualifying.length === 1) {
+    return "convention";
+  }
+  return "competing";
+}
+
+function analyzePrimitiveConventionsEntry(
+  classified: Classified[],
+  unresolved: PrimitiveAmbiguity[]
+) {
+  for (const entry of classified) {
+    const { id } = entry.facts.symbol;
+    if (entry.primaryRole === "unknown") {
+      unresolved.push({
+        detail: entry.facts.symbol.kind,
+        reason: "no-role-evidence",
+        symbolId: id,
+      });
+    }
+    if (entry.namingDisagrees !== undefined) {
+      unresolved.push({
+        detail: `name suggests ${entry.namingDisagrees}; structure says ${entry.primaryRole}`,
+        reason: "naming-disagrees",
+        symbolId: id,
+      });
+    }
+    if (entry.scope === "unclear") {
+      unresolved.push({
+        detail: resolveDetail(entry),
+        reason:
+          entry.facts.context === undefined
+            ? "no-internal-consumers"
+            : "no-placed-consumers",
+        symbolId: id,
+      });
+    }
+  }
+}
+
+function resolveDetail(entry: Classified): string {
+  if (entry.facts.context === undefined) {
+    if (entry.facts.symbol.packagePublic) {
+      return "package-public, no internal consumer";
+    }
+    return "exported, no internal consumer";
+  }
+  return `${entry.unresolvedConsumers} unresolved consumers`;
+}
+
+function placementOfEntries(
+  aboveRegions: (directory: string) => boolean,
+  directory: string,
+  dedicatedDirectory: Map<string, ArchitecturalRole>,
+  entry: Classified,
+  relative: string | undefined,
+  regionById: Map<string, ResponsibilityRegion>,
+  regionRoot: Map<string, string>
+): PlacementDirectoryShape {
+  let directoryShape: PlacementDirectoryShape;
+  if (aboveRegions(directory)) {
+    directoryShape = "package-root";
+  } else if (dedicatedDirectory.get(directory) === entry.primaryRole) {
+    directoryShape = "dedicated-role-directory";
+  } else if (relative === undefined) {
+    directoryShape = "no-responsibility";
+  } else if (
+    !(regionById.get(relative)?.path.directories.includes(directory) ?? false)
+  ) {
+    directoryShape = "outside-responsibility";
+  } else if (regionRoot.get(relative) === directory) {
+    directoryShape = "responsibility-root";
+  } else {
+    directoryShape = "inside-responsibility";
+  }
+  return directoryShape;
 }
 
 function summarize(
@@ -1545,21 +1832,24 @@ function summarize(
   const unresolvedByShape = zeroRecord(MODULE_SHAPES);
   let explained = 0;
   let mixedScope = 0;
-  for (const module of modules) {
-    if (!unresolvedModules.has(module.module)) {
-      continue;
+  const visitModule = () => {
+    for (const module of modules) {
+      if (!unresolvedModules.has(module.module)) {
+        continue;
+      }
+      const isMixed = module.composition.scopes === "mixed-scope";
+      if (isMixed) {
+        mixedScope += 1;
+      }
+      for (const shape of module.shapes) {
+        unresolvedByShape[shape] += 1;
+      }
+      if (isMixed || module.shapes.length > 0) {
+        explained += 1;
+      }
     }
-    const isMixed = module.composition.scopes === "mixed-scope";
-    if (isMixed) {
-      mixedScope += 1;
-    }
-    for (const shape of module.shapes) {
-      unresolvedByShape[shape] += 1;
-    }
-    if (isMixed || module.shapes.length > 0) {
-      explained += 1;
-    }
-  }
+  };
+  visitModule();
   const byAmbiguity = zeroRecord(AMBIGUITY_REASONS);
   for (const entry of unresolved) {
     byAmbiguity[entry.reason] += 1;
@@ -1640,4 +1930,327 @@ export function getConventions(
   return report.conventions.filter(
     (convention) => convention.role === role && convention.scope === scope
   );
+}
+interface ModuleComposition {
+  dedicatedRole?: ArchitecturalRole;
+  exportsBehavior: boolean;
+  exportsTypes: boolean;
+  finding: PrimitiveModuleFinding;
+}
+interface Classified {
+  consumerResponsibilities: string[];
+  facts: SymbolFacts;
+  limitations: PrimitiveLimitation[];
+  moduleEvidence?: ResponsibilityModuleEvidence;
+  namingDisagrees?: ArchitecturalRole;
+  primaryRole: ArchitecturalRole;
+  roleEvidence: RoleEvidence[];
+  roles: ArchitecturalRole[];
+  scope: ArchitecturalScopeClass;
+  scopeEvidence: ScopeEvidence;
+  served?: { responsibility: string; declarationAgrees: boolean };
+  unresolvedConsumers: number;
+}
+function resolveClassifyType(
+  hasCallableMembers: (declaration: PackageLocalDeclaration) => boolean,
+  implementersOf: Map<string, string[]>,
+  schemaSymbols: Set<string>,
+  configurationTypes: Set<string>,
+  entry: SymbolFacts
+): RoleResult {
+  const { symbol, declaration } = entry;
+  const roles: ArchitecturalRole[] = [];
+  const evidence: RoleEvidence[] = [];
+  const add = (
+    role: ArchitecturalRole,
+    kind: RoleEvidence["kind"],
+    detail: string
+  ) => {
+    if (!roles.includes(role)) {
+      roles.push(role);
+    }
+    evidence.push({ detail, kind, role });
+  };
+  const dataOnly = !hasCallableMembers(declaration);
+  const derivedFromSeed = declaration.concepts.filter(
+    (c) =>
+      (c.relationships.extends ?? 0) > 0 || (c.relationships.alias ?? 0) > 0
+  );
+  const implementers = implementersOf.get(symbol.id) ?? [];
+  if (symbol.kind === "type") {
+    const aliasRole = classifyAliasRole(
+      entry,
+      schemaSymbols,
+      add,
+      evidence,
+      roles
+    );
+    if (aliasRole !== undefined) {
+      return aliasRole;
+    }
+  }
+  if (symbol.kind === "interface" || symbol.kind === "type") {
+    if (!dataOnly) {
+      add(
+        "contract",
+        "members",
+        `${declaration.members?.methods ?? 0} callable members`
+      );
+      return { evidence, roles };
+    }
+    if (implementers.length > 0 && symbol.kind === "interface") {
+      add(
+        "contract",
+        "concept-relationship",
+        `implemented by ${implementers.length}`
+      );
+      return { evidence, roles };
+    }
+    if (configurationTypes.has(symbol.id)) {
+      add("configuration", "annotation", "annotates a configuration value");
+      return { evidence, roles };
+    }
+    if (CONFIGURATION_NAME.test(symbol.name)) {
+      add("configuration", "naming", symbol.name);
+      return { evidence, roles };
+    }
+    if (derivedFromSeed.length > 0) {
+      add(
+        "representation",
+        "concept-relationship",
+        `derived from ${sorted(derivedFromSeed.map((c) => c.conceptId)).join(", ")}`
+      );
+      return { evidence, roles };
+    }
+    add("type", "declaration-kind", symbol.kind);
+    return { evidence, roles };
+  }
+  return { evidence, roles };
+}
+function resolveClassifyRuntime(
+  isContractSeed: (id: string) => boolean,
+  hasCallableMembers: (declaration: PackageLocalDeclaration) => boolean,
+  seedKind: Map<string, ConceptSeedKind>,
+  policy: {
+    schemaLibraries: string[];
+    packageWide: {
+      minimumResponsibilities: number;
+      responsibilityShare: number;
+    };
+    dedicatedRoleShare: number;
+    hub: { minimumSymbols: number; minimumResponsibilities: number };
+    utility: { maximumStatements: number; minimumConsumers: number };
+    conventions: { minimumSupport: number };
+    roleBasenames: string[];
+    report: {
+      topSymbols: number;
+      topModules: number;
+      topConventions: number;
+      microscopeModules: number;
+    };
+  },
+  schemaSymbols: Set<string>,
+  factsById: Map<string, SymbolFacts>,
+  entry: SymbolFacts
+): RoleResult {
+  const { symbol, declaration } = entry;
+  const roles: ArchitecturalRole[] = [];
+  const evidence: RoleEvidence[] = [];
+  const add = (
+    role: ArchitecturalRole,
+    kind: RoleEvidence["kind"],
+    detail: string
+  ) => {
+    if (!roles.includes(role)) {
+      roles.push(role);
+    }
+    evidence.push({ detail, kind, role });
+  };
+  const { concepts } = declaration;
+  const relationship = (
+    kind: keyof PackageLocalDeclaration["concepts"][number]["relationships"]
+  ) => concepts.filter((c) => (c.relationships[kind] ?? 0) > 0);
+  const isFunction =
+    symbol.kind === "function" ||
+    (symbol.kind === "variable" && declaration.initializer === "function");
+
+  if (symbol.kind === "enum") {
+    add("constant", "declaration-kind", "enum");
+    return { evidence, roles };
+  }
+  if (symbol.kind === "class") {
+    const implemented = [
+      ...relationship("implements"),
+      ...relationship("extends"),
+    ];
+    if (declaration.abstract === true) {
+      add("contract", "declaration-kind", "abstract class");
+    }
+    classifyRuntimeEntries4(implemented, add, relationship, isContractSeed);
+    classifyRuntimeEntries5(roles, hasCallableMembers, declaration, entry, add);
+    return { evidence, roles };
+  }
+  if (isFunction) {
+    // Construction alone is not a factory (a thrower constructs errors),
+    // nor is a return type alone (a getter returns an instance): the
+    // function must construct what it returns, or be named as a factory
+    // and do one of the two.
+    const constructs = relationship("constructs").filter(
+      (c) => seedKind.get(c.conceptId) === "class"
+    );
+    const returns = relationship("return-type").filter((c) =>
+      seedKind.has(c.conceptId)
+    );
+    const constructsAndReturns = constructs.filter((c) =>
+      returns.some((r) => r.conceptId === c.conceptId)
+    );
+    const named = FACTORY_NAME.test(symbol.name);
+    classifyRuntimeEntries(
+      constructsAndReturns,
+      add,
+      named,
+      constructs,
+      returns,
+      evidence,
+      symbol
+    );
+    classifyRuntimeEntries2(
+      roles,
+      entry,
+      concepts,
+      declaration,
+      policy,
+      add,
+      evidence,
+      symbol
+    );
+    return { evidence, roles };
+  }
+  if (symbol.kind === "variable") {
+    const initializer = declaration.initializer ?? "none";
+    if (schemaSymbols.has(symbol.id)) {
+      resolveClassifyRuntimeEntries(declaration, add);
+      return { evidence, roles };
+    }
+    const { annotation } = declaration;
+    const annotated =
+      annotation === undefined ? undefined : factsById.get(annotation);
+    if (
+      initializer === "object" &&
+      annotation !== undefined &&
+      isContractSeed(annotation)
+    ) {
+      add(
+        "implementation",
+        "annotation",
+        `object annotated with contract ${annotation}`
+      );
+      return { evidence, roles };
+    }
+    if (
+      initializer === "literal" ||
+      initializer === "array" ||
+      initializer === "object"
+    ) {
+      resolveClassifyRuntimeEntries2(
+        annotated,
+        symbol,
+        initializer,
+        add,
+        annotation,
+        declaration
+      );
+      return { evidence, roles };
+    }
+    add("value", "initializer", initializer);
+    return { evidence, roles };
+  }
+  return { evidence, roles };
+}
+
+function resolveClassifyRuntimeEntries2(
+  annotated: SymbolFacts | undefined,
+  symbol: PackageLocalSymbol,
+  initializer: "object" | "array" | "literal",
+  add: (
+    role: ArchitecturalRole,
+    kind: RoleEvidence["kind"],
+    detail: string
+  ) => void,
+  annotation: string | undefined,
+  declaration: PackageLocalDeclaration
+) {
+  const configurationByAnnotation =
+    annotated !== undefined && CONFIGURATION_NAME.test(annotated.symbol.name);
+  const configurationByName = CONFIGURATION_NAME.test(symbol.name);
+  classifyRuntimeEntries3(
+    initializer,
+    configurationByAnnotation,
+    configurationByName,
+    add,
+    annotation,
+    symbol
+  );
+  add(
+    "constant",
+    "initializer",
+    `${initializer}${declaration.asConst === true ? " as const" : ""}`
+  );
+}
+
+function resolveClassifyRuntimeEntries(
+  declaration: PackageLocalDeclaration,
+  add: (
+    role: ArchitecturalRole,
+    kind: RoleEvidence["kind"],
+    detail: string
+  ) => void
+) {
+  const { callee } = declaration;
+  add(
+    "schema",
+    "schema-library",
+    callee?.specifier === undefined
+      ? `${callee?.name ?? "?"} chains a schema`
+      : `${callee.name} from ${callee.specifier}`
+  );
+}
+function classifyAliasRole(
+  entry: SymbolFacts,
+  schemaSymbols: Set<string>,
+  add: (
+    role: ArchitecturalRole,
+    kind: RoleEvidence["kind"],
+    detail: string
+  ) => void,
+  evidence: RoleEvidence[],
+  roles: ArchitecturalRole[]
+): RoleResult | undefined {
+  const { symbol, declaration } = entry;
+  const shape = declaration.aliasShape ?? "other";
+  if (shape === "brand") {
+    add("identifier", "alias-shape", "branded primitive");
+    return { evidence, roles };
+  }
+  if (shape === "scalar" && IDENTIFIER_NAME.test(symbol.name)) {
+    add("identifier", "alias-shape", "scalar alias");
+    evidence.push({
+      detail: symbol.name,
+      kind: "naming",
+      role: "identifier",
+    });
+    return { evidence, roles };
+  }
+  const schemaQueries = (declaration.typeQueries ?? []).filter((id) =>
+    schemaSymbols.has(id)
+  );
+  if (schemaQueries.length > 0) {
+    add(
+      "representation",
+      "type-query",
+      `derived from ${schemaQueries.join(", ")}`
+    );
+    return { evidence, roles };
+  }
+  return undefined;
 }

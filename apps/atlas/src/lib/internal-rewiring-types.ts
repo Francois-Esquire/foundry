@@ -40,7 +40,7 @@ export type CompositionRoleKind =
   | "unclear";
 
 /** The module's internal import bindings' uses, summed. */
-export type CompositionWiring = PackageLocalBindingUses;
+type CompositionWiring = PackageLocalBindingUses;
 
 export interface CompositionEvidence {
   ambiguity?: ResponsibilityAmbiguityReason;
@@ -162,7 +162,7 @@ export interface CurrentArrangement {
   unresolvedConsumers?: number;
 }
 
-export type ProposedScope =
+type ProposedScope =
   | "unchanged"
   | "responsibility-local"
   | "cross-responsibility"
@@ -391,7 +391,7 @@ export interface InternalRewiringSummary {
   scenarios: number;
 }
 
-export interface InternalRewiringPolicy {
+interface InternalRewiringPolicy {
   /** A convention is strong enough to name an outlier at this support-to-exception ratio. */
   alignment: { minimumSupportRatio: number };
   candidateModules: number;

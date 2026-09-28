@@ -1,4 +1,4 @@
-import * as path from "node:path";
+import { relative } from "node:path";
 import type { Project, SourceFile } from "ts-morph";
 
 import { Node, SyntaxKind } from "ts-morph";
@@ -113,7 +113,7 @@ export function collectSymbols(
   const collected: CollectedSymbol[] = [];
   const seen = new Set<string>();
   for (const file of files) {
-    const relFile = toPosix(path.relative(boundary.root, file.getFilePath()));
+    const relFile = toPosix(relative(boundary.root, file.getFilePath()));
     for (const declaration of topLevelDeclarations(file)) {
       const name = nameOf(declaration);
       if (name === undefined) {

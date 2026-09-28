@@ -3,6 +3,7 @@ import type { AnalysisConfig } from "./config";
 import { ANALYSIS_CONFIG } from "./config";
 import type {
   ArchitecturalReviewDimension,
+  ArchitecturalReviewDisposition,
   ArchitecturalReviewEvidence,
   ArchitecturalReviewReport,
   ArchitecturalReviewSummary,
@@ -152,14 +153,16 @@ function combine(
   }
   const left = differing.some((item) => item.relation === "left-better");
   const right = differing.some((item) => item.relation === "right-better");
-  const relation: ScenarioDimensionRelation =
-    left && right
-      ? "tradeoff"
-      : left
-        ? "left-better"
-        : right
-          ? "right-better"
-          : "equivalent";
+  let relation: ScenarioDimensionRelation;
+  if (left && right) {
+    relation = "tradeoff";
+  } else if (left) {
+    relation = "left-better";
+  } else if (right) {
+    relation = "right-better";
+  } else {
+    relation = "equivalent";
+  }
   return { certainty, dimension, evidence, relation };
 }
 
@@ -416,11 +419,13 @@ function implementationDimension(
     l.parallelImplementationPreserved === r.parallelImplementationPreserved;
   const describe = (item: ScenarioImpactAnalysis) => {
     const impl = item.impact.implementation;
-    return impl.relocatedImplementationResponsibility.length > 0
-      ? `implementation responsibility relocates from ${impl.relocatedImplementationResponsibility.join(", ")}`
-      : impl.parallelImplementationPreserved
-        ? "parallel implementations preserved"
-        : "implementation centers unchanged";
+    if (impl.relocatedImplementationResponsibility.length > 0) {
+      return `implementation responsibility relocates from ${impl.relocatedImplementationResponsibility.join(", ")}`;
+    }
+    if (impl.parallelImplementationPreserved) {
+      return "parallel implementations preserved";
+    }
+    return "implementation centers unchanged";
   };
   return {
     certainty: "certain",
@@ -476,12 +481,14 @@ function intentDimension(
     false,
     "certain"
   );
-  const notes =
-    row.relation === "equivalent"
-      ? []
-      : [
-          `${intentOf(left)}${l.anchorsViolated.length > 0 ? ` (violates ${l.anchorsViolated.join(", ")})` : ""} vs ${intentOf(right)}${r.anchorsViolated.length > 0 ? ` (violates ${r.anchorsViolated.join(", ")})` : ""}`,
-        ];
+  let notes: string[];
+  if (row.relation === "equivalent") {
+    notes = [];
+  } else {
+    notes = [
+      `${intentOf(left)}${l.anchorsViolated.length > 0 ? ` (violates ${l.anchorsViolated.join(", ")})` : ""} vs ${intentOf(right)}${r.anchorsViolated.length > 0 ? ` (violates ${r.anchorsViolated.join(", ")})` : ""}`,
+    ];
+  }
   return combine("intent", [{ ...row, evidence: undefined }], notes);
 }
 
@@ -535,31 +542,15 @@ export function compareScenarioImpacts(
     right.status === "partially-simulated";
   const requireCertain =
     config.recentering.review.dominance.requireCertainEvidence;
-  const settle = (): ScenarioComparison["result"] => {
-    if (leftBetter.length === 0 && rightBetter.length === 0) {
-      if (graded.some((row) => row.relation === "tradeoff")) {
-        return "tradeoff";
-      }
-      return unknown ? "insufficient-evidence" : "equivalent";
-    }
-    if (partial) {
-      return "insufficient-evidence";
-    }
-    if (
-      graded.some((row) => row.relation === "tradeoff") ||
-      (leftBetter.length > 0 && rightBetter.length > 0)
-    ) {
-      return "tradeoff";
-    }
-    if (unknown) {
-      return "insufficient-evidence";
-    }
-    const winner = leftBetter.length > 0 ? leftBetter : rightBetter;
-    if (requireCertain && !winner.some((row) => row.certainty === "certain")) {
-      return "insufficient-evidence";
-    }
-    return leftBetter.length > 0 ? "left-dominates" : "right-dominates";
-  };
+  const settle = (): ScenarioComparison["result"] =>
+    resolveSettle(
+      leftBetter,
+      rightBetter,
+      graded,
+      unknown,
+      partial,
+      requireCertain
+    );
   return {
     dimensions,
     leftScenarioId: left.scenarioId,
@@ -926,45 +917,35 @@ export function reviewScenarioSet(
     .map((item) => item.scenarioId);
   if (partialIds.length > 0) {
     const causes = new Set<string>();
-    for (const item of ordered) {
-      if (item.status !== "partially-simulated") {
-        continue;
-      }
-      for (const row of item.uncertainties) {
-        if (row.kind === "structural-conformance-unobserved") {
-          causes.add(row.detail);
-        }
-      }
-      for (const edge of item.impact.dependency.uncertain) {
-        if (!edge.measured) {
-          causes.add(`unmeasured edge ${edge.from} → ${edge.to}`);
-        }
-      }
-    }
+    reviewScenarioSetItem(ordered, causes);
     unresolved.push({
       detail: [...causes].sort().join("; ") || "a dimension is unmeasured",
       kind: "partial-simulation",
       scenarioIds: partialIds,
     });
   }
-  for (const item of alternatives) {
-    if (status.get(item.scenarioId) !== "insufficient-evidence") {
-      continue;
+  const visitItem2 = () => {
+    for (const item of alternatives) {
+      if (status.get(item.scenarioId) !== "insufficient-evidence") {
+        continue;
+      }
+      if (item.status === "partially-simulated") {
+        continue;
+      }
+      const conditional = versus(item, baseline).dimensions.filter(
+        (row) =>
+          row.relation === "left-better" && GRADED.includes(row.dimension)
+      );
+      if (conditional.length > 0) {
+        unresolved.push({
+          detail: `differs from the baseline only through ${conditional.map((row) => `${row.dimension} (${row.certainty})`).join(", ")}`,
+          kind: "conditional-evidence-only",
+          scenarioIds: [item.scenarioId],
+        });
+      }
     }
-    if (item.status === "partially-simulated") {
-      continue;
-    }
-    const conditional = versus(item, baseline).dimensions.filter(
-      (row) => row.relation === "left-better" && GRADED.includes(row.dimension)
-    );
-    if (conditional.length > 0) {
-      unresolved.push({
-        detail: `differs from the baseline only through ${conditional.map((row) => `${row.dimension} (${row.certainty})`).join(", ")}`,
-        kind: "conditional-evidence-only",
-        scenarioIds: [item.scenarioId],
-      });
-    }
-  }
+  };
+  visitItem2();
   for (const comparison of comparisons) {
     const unknown = comparison.dimensions.filter(
       (row) => row.relation === "unknown" && GRADED.includes(row.dimension)
@@ -1014,6 +995,80 @@ export function reviewScenarioSet(
   const rationale: string[] = [];
   let disposition: ArchitecturalScenarioReview["disposition"];
   const [firstDominator] = viableDominators;
+  disposition = reviewScenarioSetEntries(
+    alternatives,
+    rationale,
+    firstDominator,
+    dominatorsTradeOff,
+    dominated,
+    baseline,
+    viableAlternatives,
+    tradeoffs,
+    list,
+    invalidIds,
+    ordered,
+    reviewed,
+    kindOf,
+    indistinguishable
+  );
+  if (baselineDominated && disposition !== "credible-alternative") {
+    rationale.push(
+      `baseline is dominated by ${dominatorsOfBaseline.map(kindOf).join(", ")}`
+    );
+  }
+  for (const id of invalidIds) {
+    if (disposition === "intent-blocked") {
+      break;
+    }
+    rationale.push(`${kindOf(id)} is invalid under explicit intent`);
+  }
+
+  const counts = (value: ReviewedScenarioStatus) =>
+    reviewed.filter((row) => row.status === value).length;
+  const scenarioSignal = scenarios?.signal ?? "external-gravity";
+  const summary = `${finding.subject.name}: ${scenarioSignal.replace("-", " ")} finding; ${ordered.length} scenarios; ${viable.length} viable · ${counts("dominated") + (baselineDominated ? 1 : 0)} dominated · ${counts("invalid")} invalid · ${counts("indistinguishable")} indistinguishable · ${counts("insufficient-evidence")} insufficient; ${disposition}`;
+
+  return {
+    baselineScenarioId: baseline.scenarioId,
+    comparisons,
+    concept: finding.subject,
+    disposition,
+    dominated,
+    findingId: finding.findingId,
+    invalid: invalidIds,
+    rationale,
+    scenarios: reviewed,
+    signal: scenarioSignal,
+    summary,
+    tradeoffs,
+    unresolved,
+    viable,
+  };
+}
+
+/** V8.2 scenarios and V8.3 impacts; anchors and constraints already live in both. */
+export interface ArchitecturalReviewSource {
+  impacts: ScenarioImpactReport;
+  scenarios: RecenteringScenarioReport;
+}
+
+function reviewScenarioSetEntries(
+  alternatives: ScenarioImpactAnalysis[],
+  rationale: string[],
+  firstDominator: ScenarioImpactAnalysis | undefined,
+  dominatorsTradeOff: boolean,
+  dominated: DominatedScenario[],
+  baseline: ScenarioImpactAnalysis,
+  viableAlternatives: ScenarioImpactAnalysis[],
+  tradeoffs: ArchitecturalTradeoff[],
+  list: (rows: { dimension: ArchitecturalReviewDimension }[]) => string,
+  invalidIds: string[],
+  ordered: ScenarioImpactAnalysis[],
+  reviewed: ReviewedScenario[],
+  kindOf: (id: string) => string,
+  indistinguishable: Map<string, string>
+): ArchitecturalReviewDisposition {
+  let disposition: ArchitecturalReviewDisposition;
   if (alternatives.length === 0) {
     disposition = "preserve-current";
     rationale.push("no alternative scenario was generated");
@@ -1037,14 +1092,17 @@ export function reviewScenarioSet(
     }
   } else if (invalidIds.length > 0) {
     disposition = "intent-blocked";
-    for (const item of ordered) {
-      if (!invalidIds.includes(item.scenarioId)) {
-        continue;
+    const visitItem3 = () => {
+      for (const item of ordered) {
+        if (!invalidIds.includes(item.scenarioId)) {
+          continue;
+        }
+        rationale.push(
+          `${item.kind} is invalid: ${item.impact.intent.anchorsViolated.length > 0 ? `violates ${item.impact.intent.anchorsViolated.join(", ")}` : "blocked by explicit intent"}`
+        );
       }
-      rationale.push(
-        `${item.kind} is invalid: ${item.impact.intent.anchorsViolated.length > 0 ? `violates ${item.impact.intent.anchorsViolated.join(", ")}` : "blocked by explicit intent"}`
-      );
-    }
+    };
+    visitItem3();
   } else if (
     reviewed.some((row) => row.status === "insufficient-evidence") ||
     completeness(baseline) === "weak"
@@ -1064,45 +1122,28 @@ export function reviewScenarioSet(
       rationale.push(`${kindOf(id)} is indistinguishable from ${kindOf(twin)}`);
     }
   }
-  if (baselineDominated && disposition !== "credible-alternative") {
-    rationale.push(
-      `baseline is dominated by ${dominatorsOfBaseline.map(kindOf).join(", ")}`
-    );
-  }
-  for (const id of invalidIds) {
-    if (disposition === "intent-blocked") {
-      break;
-    }
-    rationale.push(`${kindOf(id)} is invalid under explicit intent`);
-  }
-
-  const counts = (value: ReviewedScenarioStatus) =>
-    reviewed.filter((row) => row.status === value).length;
-  const signal = scenarios?.signal ?? "external-gravity";
-  const summary = `${finding.subject.name}: ${signal.replace("-", " ")} finding; ${ordered.length} scenarios; ${viable.length} viable · ${counts("dominated") + (baselineDominated ? 1 : 0)} dominated · ${counts("invalid")} invalid · ${counts("indistinguishable")} indistinguishable · ${counts("insufficient-evidence")} insufficient; ${disposition}`;
-
-  return {
-    baselineScenarioId: baseline.scenarioId,
-    comparisons,
-    concept: finding.subject,
-    disposition,
-    dominated,
-    findingId: finding.findingId,
-    invalid: invalidIds,
-    rationale,
-    scenarios: reviewed,
-    signal,
-    summary,
-    tradeoffs,
-    unresolved,
-    viable,
-  };
+  return disposition;
 }
 
-/** V8.2 scenarios and V8.3 impacts; anchors and constraints already live in both. */
-export interface ArchitecturalReviewSource {
-  impacts: ScenarioImpactReport;
-  scenarios: RecenteringScenarioReport;
+function reviewScenarioSetItem(
+  ordered: ScenarioImpactAnalysis[],
+  causes: Set<string>
+) {
+  for (const item of ordered) {
+    if (item.status !== "partially-simulated") {
+      continue;
+    }
+    for (const row of item.uncertainties) {
+      if (row.kind === "structural-conformance-unobserved") {
+        causes.add(row.detail);
+      }
+    }
+    for (const edge of item.impact.dependency.uncertain) {
+      if (!edge.measured) {
+        causes.add(`unmeasured edge ${edge.from} → ${edge.to}`);
+      }
+    }
+  }
 }
 
 /** Review every V8.3 finding. Compositional: no scan, no simulation, no aggregation across findings. */
@@ -1152,4 +1193,36 @@ function summarize(
     scenariosReviewed: scenarios.length,
     viable: reviews.reduce((sum, row) => sum + row.viable.length, 0),
   };
+}
+function resolveSettle(
+  leftBetter: ScenarioDimensionComparison[],
+  rightBetter: ScenarioDimensionComparison[],
+  graded: ScenarioDimensionComparison[],
+  unknown: boolean,
+  partial: boolean,
+  requireCertain: boolean
+): ScenarioComparison["result"] {
+  if (leftBetter.length === 0 && rightBetter.length === 0) {
+    if (graded.some((row) => row.relation === "tradeoff")) {
+      return "tradeoff";
+    }
+    return unknown ? "insufficient-evidence" : "equivalent";
+  }
+  if (partial) {
+    return "insufficient-evidence";
+  }
+  if (
+    graded.some((row) => row.relation === "tradeoff") ||
+    (leftBetter.length > 0 && rightBetter.length > 0)
+  ) {
+    return "tradeoff";
+  }
+  if (unknown) {
+    return "insufficient-evidence";
+  }
+  const winner = leftBetter.length > 0 ? leftBetter : rightBetter;
+  if (requireCertain && !winner.some((row) => row.certainty === "certain")) {
+    return "insufficient-evidence";
+  }
+  return leftBetter.length > 0 ? "left-dominates" : "right-dominates";
 }

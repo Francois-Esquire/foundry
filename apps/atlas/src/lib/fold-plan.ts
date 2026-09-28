@@ -1,5 +1,5 @@
-import * as fs from "node:fs";
-import * as path from "node:path";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { dirname, join, relative, resolve } from "node:path";
 
 import { ts } from "ts-morph";
 import { anchorBlocks, anchorFor } from "./anchors";
@@ -8,11 +8,12 @@ import { resolveBoundary, toPosix, workspacePatterns } from "./boundary";
 import type { AnalysisConfig } from "./config";
 import { ANALYSIS_CONFIG } from "./config";
 import { classifyFile } from "./file-kind";
-import { createIgnorer } from "./ignore";
+import { createIgnorer, type Ignorer } from "./ignore";
 import type {
   FoldDestination,
   FoldFile,
   FoldPackagePlan,
+  ModuleDependencyEdge,
   PackageMetadataImpact,
   PlanBlocker,
   PlannedChange,
@@ -24,6 +25,9 @@ import type {
   UsageNamespace,
 } from "./types";
 import { planFingerprint } from "./validate";
+
+const walkPattern = /\.tsx?$/;
+const walkPattern2 = /\.config\.[cm]?[jt]sx?$/;
 
 // Read-only fold planning: assembles the concrete shape of an existing
 // fold-package opportunity — what crosses the boundary, what would become
@@ -45,26 +49,7 @@ function inventoryFiles(boundary: Boundary): FoldFile[] {
   const files: FoldFile[] = [];
   const ignorer = createIgnorer(boundary.root);
   const walk = (dir: string) => {
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      const abs = path.join(dir, entry.name);
-      const rel = toPosix(path.relative(boundary.root, abs));
-      if (entry.isDirectory()) {
-        if (!(SKIP_DIRS.has(entry.name) || ignorer.ignores(`${rel}/`))) {
-          walk(abs);
-        }
-        continue;
-      }
-      if (ignorer.ignores(rel)) {
-        continue;
-      }
-      if (/\.config\.[cm]?[jt]sx?$/.test(entry.name)) {
-        files.push({ file: rel, kind: "config" });
-      } else if (/\.tsx?$/.test(entry.name) && !entry.name.endsWith(".d.ts")) {
-        // Stories fold like source; the shared classifier decides test-ness.
-        const kind = classifyFile(toPosix(path.relative(boundary.dir, abs)));
-        files.push({ file: rel, kind: kind === "test" ? "test" : "source" });
-      }
-    }
+    walkEntry(dir, boundary, ignorer, walk, files);
   };
   walk(boundary.dir);
   return files.sort((a, b) => a.file.localeCompare(b.file));
@@ -76,12 +61,41 @@ interface ManifestSections {
   peerDependencies?: Record<string, string>;
 }
 
+function walkEntry(
+  dir: string,
+  boundary: Boundary,
+  ignorer: Ignorer,
+  walk: (dir: string) => void,
+  files: FoldFile[]
+) {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const abs = join(dir, entry.name);
+    const rel = toPosix(relative(boundary.root, abs));
+    if (entry.isDirectory()) {
+      if (!(SKIP_DIRS.has(entry.name) || ignorer.ignores(`${rel}/`))) {
+        walk(abs);
+      }
+      continue;
+    }
+    if (ignorer.ignores(rel)) {
+      continue;
+    }
+    if (walkPattern2.test(entry.name)) {
+      files.push({ file: rel, kind: "config" });
+    } else if (walkPattern.test(entry.name) && !entry.name.endsWith(".d.ts")) {
+      // Stories fold like source; the shared classifier decides test-ness.
+      const kind = classifyFile(toPosix(relative(boundary.dir, abs)));
+      files.push({ file: rel, kind: kind === "test" ? "test" : "source" });
+    }
+  }
+}
+
 function declaresDependency(manifestFile: string, name: string): boolean {
-  if (!fs.existsSync(manifestFile)) {
+  if (!existsSync(manifestFile)) {
     return false;
   }
   const manifest = JSON.parse(
-    fs.readFileSync(manifestFile, "utf8")
+    readFileSync(manifestFile, "utf8")
   ) as ManifestSections;
   return [
     manifest.dependencies,
@@ -92,7 +106,7 @@ function declaresDependency(manifestFile: string, name: string): boolean {
 
 /** tsconfig `references` entries pointing at the source package (JSONC-safe). */
 function projectReferencesTo(tsconfigFile: string, sourceDir: string): boolean {
-  if (!fs.existsSync(tsconfigFile)) {
+  if (!existsSync(tsconfigFile)) {
     return false;
   }
   const parsed = ts.readConfigFile(tsconfigFile, (file) =>
@@ -107,7 +121,7 @@ function projectReferencesTo(tsconfigFile: string, sourceDir: string): boolean {
   return config.references.some(
     (reference) =>
       reference.path !== undefined &&
-      path.resolve(path.dirname(tsconfigFile), reference.path) === sourceDir
+      resolve(dirname(tsconfigFile), reference.path) === sourceDir
   );
 }
 
@@ -132,11 +146,9 @@ function resolveDestination(
     path: dest.relPath,
     resolution: "unresolved",
   };
-  if (shortName !== undefined && fs.existsSync(path.join(dest.dir, "src"))) {
+  if (shortName !== undefined && existsSync(join(dest.dir, "src"))) {
     destination.directory = `src/${shortName}`;
-    destination.resolution = fs.existsSync(
-      path.join(dest.dir, "src", shortName)
-    )
+    destination.resolution = existsSync(join(dest.dir, "src", shortName))
       ? "resolved"
       : "suggested";
   }
@@ -150,18 +162,18 @@ function collectMetadata(
   destinationDir: string | undefined
 ): PackageMetadataImpact[] {
   const impacts: PackageMetadataImpact[] = [];
-  const rel = (abs: string) => toPosix(path.relative(boundary.root, abs));
+  const rel = (abs: string) => toPosix(relative(boundary.root, abs));
 
-  const sourceManifest = path.join(boundary.dir, "package.json");
-  if (fs.existsSync(sourceManifest)) {
+  const sourceManifest = join(boundary.dir, "package.json");
+  if (existsSync(sourceManifest)) {
     impacts.push({
       detail: `${sourceName} package manifest defines the boundary being removed.`,
       file: rel(sourceManifest),
       kind: "source-manifest",
     });
   }
-  const sourceTsconfig = path.join(boundary.dir, "tsconfig.json");
-  if (fs.existsSync(sourceTsconfig)) {
+  const sourceTsconfig = join(boundary.dir, "tsconfig.json");
+  if (existsSync(sourceTsconfig)) {
     impacts.push({
       detail: `${sourceName} TypeScript project configuration would be absorbed or removed.`,
       file: rel(sourceTsconfig),
@@ -169,7 +181,7 @@ function collectMetadata(
     });
   }
   if (destinationDir !== undefined) {
-    const destManifest = path.join(destinationDir, "package.json");
+    const destManifest = join(destinationDir, "package.json");
     if (declaresDependency(destManifest, sourceName)) {
       impacts.push({
         detail: `${destinationName} declares a dependency on ${sourceName}; removable after the fold.`,
@@ -177,7 +189,7 @@ function collectMetadata(
         kind: "consumer-dependency",
       });
     }
-    const destTsconfig = path.join(destinationDir, "tsconfig.json");
+    const destTsconfig = join(destinationDir, "tsconfig.json");
     if (projectReferencesTo(destTsconfig, boundary.dir)) {
       impacts.push({
         detail: `${destinationName} declares a TypeScript project reference to ${sourceName}.`,
@@ -227,7 +239,7 @@ export function buildFoldPlans(
 
   const sourceName = boundary.packageName ?? boundary.relPath;
   const destinationName = fold.target.name;
-  const primary = dependencies.incoming[0];
+  const [primary] = dependencies.incoming;
 
   const blockers: PlanBlocker[] = [];
   let status: PlanStatus = "ready";
@@ -293,55 +305,19 @@ export function buildFoldPlans(
       : collectMetadata(boundary, sourceName, destinationName, destinationDir);
 
   const plannedChanges: PlannedChange[] = [];
-  if (status !== "unsupported") {
-    const sourceManifestRel = `${boundary.relPath}/package.json`;
-    plannedChanges.push({
-      description: `Move ${fileCounts(files)} into ${destinationName}.`,
-      file: boundary.relPath,
-      kind: "move-file",
-    });
-    const consumingModules = new Set(
-      dependencyEdges.map((edge) => edge.fromFile)
-    ).size;
-    plannedChanges.push({
-      description: `Rewrite ${boundaryUsage.importSites} import sites (${boundaryUsage.moduleEdges} module edges across ${consumingModules} modules) currently importing ${sourceName}.`,
-      file: destination.path ?? boundary.relPath,
-      kind: "rewrite-import",
-    });
-    plannedChanges.push({
-      description: `Up to ${potentiallyInternalized.length} package-public symbols become internal to ${destinationName}.`,
-      file: boundary.relPath,
-      kind: "internalize-surface",
-    });
-    for (const impact of metadata) {
-      if (impact.kind === "consumer-dependency") {
-        plannedChanges.push({
-          description: `Remove the ${sourceName} dependency from ${destinationName}.`,
-          file: impact.file,
-          kind: "remove-package-dependency",
-        });
-      } else if (impact.kind === "project-reference") {
-        plannedChanges.push({
-          description: `Update the TypeScript project reference pointing at ${sourceName}.`,
-          file: impact.file,
-          kind: "update-project-reference",
-        });
-      }
-    }
-    plannedChanges.push({
-      description: `Remove the ${sourceName} workspace package boundary.`,
-      file: sourceManifestRel,
-      kind: "remove-package-boundary",
-    });
-    const configFiles = files.filter((file) => file.kind === "config").length;
-    if (configFiles > 0) {
-      plannedChanges.push({
-        description: `Review ${configFiles} source-package config file${configFiles === 1 ? "" : "s"}.`,
-        file: boundary.relPath,
-        kind: "review-config",
-      });
-    }
-  }
+  buildFoldPlansEntries(
+    status,
+    boundary,
+    plannedChanges,
+    files,
+    destinationName,
+    dependencyEdges,
+    boundaryUsage,
+    sourceName,
+    destination,
+    potentiallyInternalized,
+    metadata
+  );
 
   const predictedDelta =
     status === "unsupported"
@@ -381,6 +357,78 @@ export function buildFoldPlans(
     status,
   };
   return [{ ...plan, fingerprint: planFingerprint(plan) }];
+}
+
+function buildFoldPlansEntries(
+  status: PlanStatus,
+  boundary: Boundary,
+  plannedChanges: PlannedChange[],
+  files: FoldFile[],
+  destinationName: string,
+  dependencyEdges: ModuleDependencyEdge[],
+  boundaryUsage: {
+    consumedSymbols: number;
+    importSites: number;
+    moduleEdges: number;
+    usageNamespace: UsageNamespace;
+  },
+  sourceName: string,
+  destination: FoldDestination,
+  potentiallyInternalized: string[],
+  metadata: PackageMetadataImpact[]
+) {
+  if (status !== "unsupported") {
+    const sourceManifestRel = `${boundary.relPath}/package.json`;
+    plannedChanges.push({
+      description: `Move ${fileCounts(files)} into ${destinationName}.`,
+      file: boundary.relPath,
+      kind: "move-file",
+    });
+    const consumingModules = new Set(
+      dependencyEdges.map((edge) => edge.fromFile)
+    ).size;
+    plannedChanges.push({
+      description: `Rewrite ${boundaryUsage.importSites} import sites (${boundaryUsage.moduleEdges} module edges across ${consumingModules} modules) currently importing ${sourceName}.`,
+      file: destination.path ?? boundary.relPath,
+      kind: "rewrite-import",
+    });
+    plannedChanges.push({
+      description: `Up to ${potentiallyInternalized.length} package-public symbols become internal to ${destinationName}.`,
+      file: boundary.relPath,
+      kind: "internalize-surface",
+    });
+    const visitImpact = () => {
+      for (const impact of metadata) {
+        if (impact.kind === "consumer-dependency") {
+          plannedChanges.push({
+            description: `Remove the ${sourceName} dependency from ${destinationName}.`,
+            file: impact.file,
+            kind: "remove-package-dependency",
+          });
+        } else if (impact.kind === "project-reference") {
+          plannedChanges.push({
+            description: `Update the TypeScript project reference pointing at ${sourceName}.`,
+            file: impact.file,
+            kind: "update-project-reference",
+          });
+        }
+      }
+    };
+    visitImpact();
+    plannedChanges.push({
+      description: `Remove the ${sourceName} workspace package boundary.`,
+      file: sourceManifestRel,
+      kind: "remove-package-boundary",
+    });
+    const configFiles = files.filter((file) => file.kind === "config").length;
+    if (configFiles > 0) {
+      plannedChanges.push({
+        description: `Review ${configFiles} source-package config file${configFiles === 1 ? "" : "s"}.`,
+        file: boundary.relPath,
+        kind: "review-config",
+      });
+    }
+  }
 }
 
 /**

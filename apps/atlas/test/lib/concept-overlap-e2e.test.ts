@@ -1,4 +1,4 @@
-import * as path from "node:path";
+import { join } from "node:path";
 
 import { beforeAll, describe, expect, it } from "vitest";
 import { analyzeSurface } from "../../src/lib/analyze";
@@ -8,7 +8,7 @@ import type {
   SurfaceReport,
 } from "../../src/lib/types";
 
-const root = path.join(import.meta.dirname, "fixtures", "overlap");
+const root = join(import.meta.dirname, "fixtures", "overlap");
 const now = new Date("2027-01-01T00:00:00Z");
 
 let report: SurfaceReport;

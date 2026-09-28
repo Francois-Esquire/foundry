@@ -1,4 +1,4 @@
-import * as path from "node:path";
+import { relative, resolve } from "node:path";
 import type { ExportDeclaration, Node, Project, SourceFile } from "ts-morph";
 
 import type { Boundary } from "./boundary";
@@ -14,6 +14,8 @@ import type {
   SurfaceSymbol,
 } from "./types";
 import { planFingerprint } from "./validate";
+
+const normalizeStatementPattern = /\s+/g;
 
 // Read-only planning: a plan describes what would have to change for a
 // symbol to leave the package-public API and what structural effect that
@@ -43,11 +45,11 @@ export interface ResolvedRoute {
 }
 
 function relPath(root: string, file: SourceFile): string {
-  return toPosix(path.relative(root, file.getFilePath()));
+  return toPosix(relative(root, file.getFilePath()));
 }
 
 function normalizeStatement(declaration: ExportDeclaration): string {
-  return declaration.getText().replace(/\s+/g, " ").trim();
+  return declaration.getText().replace(normalizeStatementPattern, " ").trim();
 }
 
 export function buildEntrypointContexts(
@@ -65,7 +67,7 @@ export function buildEntrypointContexts(
     );
 
   for (const entry of boundaryEntrypoints(boundary)) {
-    const file = project.getSourceFile(path.resolve(boundary.root, entry.file));
+    const file = project.getSourceFile(resolve(boundary.root, entry.file));
     if (file === undefined) {
       unresolved.push(entry.file);
       continue;
@@ -80,22 +82,12 @@ export function buildEntrypointContexts(
     }
     const internallyImportedNames = new Set<string>();
     let namespaceImported = false;
-    for (const other of boundaryFiles) {
-      if (other === file) {
-        continue;
-      }
-      for (const declaration of other.getImportDeclarations()) {
-        if (declaration.getModuleSpecifierSourceFile() !== file) {
-          continue;
-        }
-        if (declaration.getNamespaceImport() !== undefined) {
-          namespaceImported = true;
-        }
-        for (const named of declaration.getNamedImports()) {
-          internallyImportedNames.add(named.getName());
-        }
-      }
-    }
+    namespaceImported = buildEntrypointContextsOther(
+      boundaryFiles,
+      file,
+      namespaceImported,
+      internallyImportedNames
+    );
     contexts.push({
       entrypoint: entry.entrypoint,
       exposedNames,
@@ -109,6 +101,32 @@ export function buildEntrypointContexts(
 }
 
 const exportedNodesCache = new WeakMap<SourceFile, Set<Node>>();
+
+function buildEntrypointContextsOther(
+  boundaryFiles: SourceFile[],
+  file: SourceFile,
+  initialNamespaceImported: boolean,
+  internallyImportedNames: Set<string>
+) {
+  let namespaceImported = initialNamespaceImported;
+  for (const other of boundaryFiles) {
+    if (other === file) {
+      continue;
+    }
+    for (const declaration of other.getImportDeclarations()) {
+      if (declaration.getModuleSpecifierSourceFile() !== file) {
+        continue;
+      }
+      if (declaration.getNamespaceImport() !== undefined) {
+        namespaceImported = true;
+      }
+      for (const named of declaration.getNamedImports()) {
+        internallyImportedNames.add(named.getName());
+      }
+    }
+  }
+  return namespaceImported;
+}
 
 function exportsNode(file: SourceFile, node: Node): boolean {
   let nodes = exportedNodesCache.get(file);
@@ -143,7 +161,7 @@ function chainFor(
   for (
     let depth = 0;
     depth < MAX_CHAIN_DEPTH && current !== undefined;
-    depth++
+    depth += 1
   ) {
     const rel = relPath(root, current);
     if (chain.includes(rel)) {
@@ -170,16 +188,24 @@ function chainFor(
       }
     }
     if (next === undefined) {
-      for (const exported of current.getExportDeclarations()) {
-        if (exported.getNamedExports().length > 0) {
-          continue;
+      const visitExported = (
+        currentCurrent: SourceFile,
+        initialNext: SourceFile | undefined
+      ) => {
+        let currentNext = initialNext;
+        for (const exported of currentCurrent.getExportDeclarations()) {
+          if (exported.getNamedExports().length > 0) {
+            continue;
+          }
+          const target = exported.getModuleSpecifierSourceFile();
+          if (target !== undefined && exportsNode(target, node)) {
+            currentNext = target;
+            break;
+          }
         }
-        const target = exported.getModuleSpecifierSourceFile();
-        if (target !== undefined && exportsNode(target, node)) {
-          next = target;
-          break;
-        }
-      }
+        return currentNext;
+      };
+      next = visitExported(current, next);
     }
     if (next === undefined) {
       break;
@@ -216,11 +242,14 @@ export function resolveRoute(
       continue;
     }
     const typeOnly = declaration.isTypeOnly() || specifier.isTypeOnly();
-    const kind = typeOnly
-      ? "type-export"
-      : declaration.getModuleSpecifier() === undefined
-        ? "named-export"
-        : "named-reexport";
+    let kind: "type-export" | "named-export" | "named-reexport";
+    if (typeOnly) {
+      kind = "type-export";
+    } else if (declaration.getModuleSpecifier() === undefined) {
+      kind = "named-export";
+    } else {
+      kind = "named-reexport";
+    }
     return {
       context,
       declaration,
@@ -306,7 +335,117 @@ function planForSymbol(
   const plannedChanges: PlannedChange[] = [];
   let unsupported = !fullyEnumerable;
   let hasDirect = false;
+  const visitEntries = () => {
+    ({ unsupported, hasDirect } = planForSymbolEntries(
+      resolved,
+      unsupported,
+      blockers,
+      symbol,
+      plannedChanges,
+      hasDirect
+    ));
+  };
 
+  visitEntries();
+
+  if (fullyEnumerable && resolved.length === 0) {
+    unsupported = true;
+    blockers.push({
+      detail: `${symbol.name} is module-exported but no route through the declared package entrypoints exposes it; it may already be package-internal.`,
+      reason: "no-public-route",
+    });
+  }
+
+  if (boundary.explicitlyPublishable) {
+    blockers.push({
+      detail:
+        'Package appears independently publishable ("private": false); consumers outside this repository are invisible to the analyzer.',
+      reason: "publishable",
+    });
+  }
+  let status: "unsupported" | "blocked" | "ready";
+  if (unsupported) {
+    status = "unsupported";
+  } else if (boundary.explicitlyPublishable) {
+    status = "blocked";
+  } else {
+    status = "ready";
+  }
+
+  let preservedBehavior: string[];
+  if (status === "unsupported") {
+    preservedBehavior = [];
+  } else {
+    preservedBehavior = [
+      `Declaration remains in ${symbol.declarationFile}`,
+      "Internal imports and references remain unchanged",
+      ...(hasDirect ? [] : ["Internal module exports remain unchanged"]),
+      "Runtime behavior unchanged",
+    ];
+  }
+  const predictedDelta: StructuralDelta =
+    status === "unsupported"
+      ? { ...ZERO_DELTA }
+      : {
+          exportedSymbols: -1,
+          externallyUsedSymbols: 0,
+          totalSymbols: 0,
+          unusedExternalExports: -1,
+        };
+
+  const routes = resolved
+    .map((entry) => entry.route)
+    .sort(
+      (a, b) =>
+        a.entrypoint.localeCompare(b.entrypoint) ||
+        a.file.localeCompare(b.file) ||
+        (a.line ?? 0) - (b.line ?? 0)
+    );
+  plannedChanges.sort(
+    (a, b) =>
+      a.file.localeCompare(b.file) || a.description.localeCompare(b.description)
+  );
+  const uniqueBlockers = [
+    ...new Map(
+      blockers.map((blocker) => [
+        `${blocker.reason}\n${blocker.detail}`,
+        blocker,
+      ])
+    ).values(),
+  ].sort(
+    (a, b) =>
+      a.reason.localeCompare(b.reason) || a.detail.localeCompare(b.detail)
+  );
+
+  const plan: Omit<InternalizeSymbolPlan, "fingerprint"> = {
+    blockers: uniqueBlockers,
+    evidence: opportunity.evidence,
+    id: `plan:${opportunity.id}`,
+    operation: "internalize-symbol",
+    plannedChanges,
+    predictedDelta,
+    preservedBehavior,
+    publicRoutes: routes,
+    status,
+    subject: opportunity.subject,
+    target: {
+      package: boundary.packageName ?? boundary.relPath,
+      path: boundary.relPath,
+    },
+  };
+  return { ...plan, fingerprint: planFingerprint(plan) };
+}
+
+function planForSymbolEntries(
+  resolved: ResolvedRoute[],
+  initialUnsupported: boolean,
+  blockers: PlanBlocker[],
+  symbol: SurfaceSymbol,
+  plannedChanges: PlannedChange[],
+  initialHasDirect: boolean
+): { unsupported: boolean; hasDirect: boolean } {
+  let hasDirect = initialHasDirect;
+  let unsupported = initialUnsupported;
   for (const { route, declaration, direct, context } of resolved) {
     if (route.kind === "star-export") {
       unsupported = true;
@@ -387,88 +526,7 @@ function planForSymbol(
       });
     }
   }
-
-  if (fullyEnumerable && resolved.length === 0) {
-    unsupported = true;
-    blockers.push({
-      detail: `${symbol.name} is module-exported but no route through the declared package entrypoints exposes it; it may already be package-internal.`,
-      reason: "no-public-route",
-    });
-  }
-
-  if (boundary.explicitlyPublishable) {
-    blockers.push({
-      detail:
-        'Package appears independently publishable ("private": false); consumers outside this repository are invisible to the analyzer.',
-      reason: "publishable",
-    });
-  }
-  const status = unsupported
-    ? "unsupported"
-    : boundary.explicitlyPublishable
-      ? "blocked"
-      : "ready";
-
-  const preservedBehavior =
-    status === "unsupported"
-      ? []
-      : [
-          `Declaration remains in ${symbol.declarationFile}`,
-          "Internal imports and references remain unchanged",
-          ...(hasDirect ? [] : ["Internal module exports remain unchanged"]),
-          "Runtime behavior unchanged",
-        ];
-  const predictedDelta: StructuralDelta =
-    status === "unsupported"
-      ? { ...ZERO_DELTA }
-      : {
-          exportedSymbols: -1,
-          externallyUsedSymbols: 0,
-          totalSymbols: 0,
-          unusedExternalExports: -1,
-        };
-
-  const routes = resolved
-    .map((entry) => entry.route)
-    .sort(
-      (a, b) =>
-        a.entrypoint.localeCompare(b.entrypoint) ||
-        a.file.localeCompare(b.file) ||
-        (a.line ?? 0) - (b.line ?? 0)
-    );
-  plannedChanges.sort(
-    (a, b) =>
-      a.file.localeCompare(b.file) || a.description.localeCompare(b.description)
-  );
-  const uniqueBlockers = [
-    ...new Map(
-      blockers.map((blocker) => [
-        `${blocker.reason}\n${blocker.detail}`,
-        blocker,
-      ])
-    ).values(),
-  ].sort(
-    (a, b) =>
-      a.reason.localeCompare(b.reason) || a.detail.localeCompare(b.detail)
-  );
-
-  const plan: Omit<InternalizeSymbolPlan, "fingerprint"> = {
-    blockers: uniqueBlockers,
-    evidence: opportunity.evidence,
-    id: `plan:${opportunity.id}`,
-    operation: "internalize-symbol",
-    plannedChanges,
-    predictedDelta,
-    preservedBehavior,
-    publicRoutes: routes,
-    status,
-    subject: opportunity.subject,
-    target: {
-      package: boundary.packageName ?? boundary.relPath,
-      path: boundary.relPath,
-    },
-  };
-  return { ...plan, fingerprint: planFingerprint(plan) };
+  return { hasDirect, unsupported };
 }
 
 /**

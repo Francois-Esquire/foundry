@@ -1,7 +1,13 @@
 import { execFileSync } from "node:child_process";
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
+import {
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 
 import { afterAll, describe, expect, it, vi } from "vitest";
 import {
@@ -12,6 +18,9 @@ import type { InternalPackageTopology } from "../../src/lib/internal-topology-ty
 import { INTERNAL_PACKAGE_TOPOLOGY_SCHEMA_VERSION } from "../../src/lib/internal-topology-types";
 import { analyzePackageLocal } from "../../src/lib/package-local";
 
+const expectedTextPattern = /runtimeMs|elapsed|durationMs/;
+const expectedTextPattern2 = /\d{4}-\d{2}-\d{2}T/;
+
 // V13.0 internal topology on synthetic packages. Each fixture is one package
 // in a throwaway workspace; the topology must be a pure function of that
 // package's own files, so the independence tests perturb everything else.
@@ -20,7 +29,7 @@ const tempRoots: string[] = [];
 
 afterAll(() => {
   for (const dir of tempRoots) {
-    fs.rmSync(dir, { force: true, recursive: true });
+    rmSync(dir, { force: true, recursive: true });
   }
 });
 
@@ -29,13 +38,13 @@ function workspace(
   files: Record<string, string>,
   extra: Record<string, string> = {}
 ): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "internal-topology-"));
-  const root = fs.realpathSync(dir);
+  const dir = mkdtempSync(join(tmpdir(), "internal-topology-"));
+  const root = realpathSync(dir);
   tempRoots.push(root);
   const write = (file: string, text: string) => {
-    const target = path.join(root, file);
-    fs.mkdirSync(path.dirname(target), { recursive: true });
-    fs.writeFileSync(target, text);
+    const target = join(root, file);
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, text);
   };
   write(
     "package.json",
@@ -46,7 +55,7 @@ function workspace(
     JSON.stringify({ exports: { ".": "./src/index.ts" }, name: "@f/p" })
   );
   for (const [file, text] of Object.entries(files)) {
-    write(path.join("packages/p", file), text);
+    write(join("packages/p", file), text);
   }
   for (const [file, text] of Object.entries(extra)) {
     write(file, text);
@@ -480,7 +489,7 @@ describe("external imports", () => {
   });
 
   it("keeps only the internal target in the graph", () => {
-    expect(topology.modules.map((module) => module.id)).toEqual([
+    expect(topology.modules.map((moduleId) => moduleId.id)).toEqual([
       "src/a.ts",
       "src/b.ts",
     ]);
@@ -592,9 +601,9 @@ describe("independence", () => {
     const root = workspace(regions);
     const json = serialize(root);
     expect(json.includes(root)).toBe(false);
-    expect(json.includes(os.tmpdir())).toBe(false);
-    expect(/\d{4}-\d{2}-\d{2}T/.test(json)).toBe(false);
-    expect(/runtimeMs|elapsed|durationMs/.test(json)).toBe(false);
+    expect(json.includes(tmpdir())).toBe(false);
+    expect(expectedTextPattern2.test(json)).toBe(false);
+    expect(expectedTextPattern.test(json)).toBe(false);
   });
 });
 

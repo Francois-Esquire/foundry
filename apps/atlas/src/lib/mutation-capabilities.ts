@@ -9,9 +9,9 @@ import type { PlannedTransformationKind } from "./operator-plan-types";
 // Widening it is a V12 decision, taken by adding mutator support first.
 
 /** Bumps when the default registry's support changes. */
-export const MUTATION_CAPABILITY_VERSION = 1;
+const MUTATION_CAPABILITY_VERSION = 1;
 
-export interface MutationCapability {
+interface MutationCapability {
   /** The edit lands in one write per file with no intermediate state. */
   atomic: boolean;
   /** The edit is undone by restoring the pre-mutation bytes. */

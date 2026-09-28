@@ -72,7 +72,7 @@ export interface SurfaceSymbol {
   usageNamespace: UsageNamespace;
 }
 
-export interface SurfaceSummary {
+interface SurfaceSummary {
   /** Package-public symbols / total symbols. */
   declaredSurfaceRatio: number;
   /** Externally used package-public symbols / package-public symbols. */
@@ -163,18 +163,18 @@ export interface ReductionEvidence {
   value: string | number | boolean;
 }
 
-export interface ReductionCaution {
+interface ReductionCaution {
   detail: string;
   reason: string;
 }
 
-export interface ReductionSubject {
+interface ReductionSubject {
   id: string;
   name: string;
   type: "symbol" | "package";
 }
 
-export interface EstimatedReduction {
+interface EstimatedReduction {
   metric: string;
   value: number;
 }
@@ -225,7 +225,7 @@ export interface IneligibleOperation {
 
 export type PlanStatus = "ready" | "blocked" | "unsupported";
 
-export type PublicRouteKind =
+type PublicRouteKind =
   | "named-export"
   | "named-reexport"
   | "type-export"
@@ -345,7 +345,7 @@ export interface PackageMetadataImpact {
 }
 
 /** Aggregate shape of the destination → source boundary relationship. */
-export interface FoldBoundaryUsage {
+interface FoldBoundaryUsage {
   consumedSymbols: number;
   importSites: number;
   moduleEdges: number;
@@ -415,7 +415,7 @@ export interface PlanScale {
 }
 
 /** Public-route burden of an internalization plan. */
-export interface PlanRouteBurden {
+interface PlanRouteBurden {
   supported: number;
   total: number;
   unsupported: number;
@@ -444,7 +444,7 @@ export interface PlanSurface {
 }
 
 /** Direction of dependency flow across the fold boundary. */
-export interface PlanBoundaryFlow {
+interface PlanBoundaryFlow {
   cycle: boolean;
   destinationToSource: boolean;
   sourceToDestination: boolean;
@@ -472,7 +472,7 @@ export interface PlanIntent {
 }
 
 /** The plan's predicted delta split by certainty; one source of truth. */
-export interface PlanConsequence {
+interface PlanConsequence {
   certain: StructuralDelta;
   potential: StructuralDelta;
 }
@@ -490,7 +490,7 @@ export interface PlanIntelligence {
   surface: PlanSurface;
 }
 
-export type ValidationStatus = PlanStatus | "stale";
+type ValidationStatus = PlanStatus | "stale";
 
 /** One deterministic fact a plan assumed; `holds` is its current truth. */
 export interface PlanPrecondition {
@@ -591,7 +591,7 @@ export type FunctionKind =
  * configured); assignment forms (`&&=`) and optional chaining are not
  * counted.
  */
-export interface FunctionDecisions {
+interface FunctionDecisions {
   cases: number;
   catches: number;
   /** ifs + elseIfs + cases + loops + catches. */
@@ -609,7 +609,7 @@ export interface FunctionDecisions {
   total: number;
 }
 
-export interface FunctionParameters {
+interface FunctionParameters {
   /**
    * Parameters whose annotated type resolves to boolean (`boolean`,
    * `true | false`, or an alias/union of boolean literals). Unannotated
@@ -623,14 +623,14 @@ export interface FunctionParameters {
 }
 
 /** Explicit exit statements; nested function bodies are excluded. */
-export interface FunctionExits {
+interface FunctionExits {
   breaks: number;
   continues: number;
   returns: number;
   throws: number;
 }
 
-export interface FunctionLoops {
+interface FunctionLoops {
   doWhile: number;
   for: number;
   forIn: number;
@@ -643,21 +643,21 @@ export interface FunctionLoops {
  * Nested executable functions. Deliberately separate from control-flow
  * nesting: a callback is a different reading burden than an `if` ladder.
  */
-export interface FunctionCallbacks {
+interface FunctionCallbacks {
   /** Deepest function-in-function chain below this one (direct child = 1). */
   maxDepth: number;
   /** All function-like descendants, at any depth. */
   nestedFunctions: number;
 }
 
-export interface FunctionAsyncShape {
+interface FunctionAsyncShape {
   async: boolean;
   awaits: number;
   generator: boolean;
   yields: number;
 }
 
-export interface FunctionExceptions {
+interface FunctionExceptions {
   catches: number;
   finals: number;
   tries: number;
@@ -760,7 +760,7 @@ export interface WorkspaceModuleGraph {
   owners: Record<string, string>;
 }
 
-export interface GravityNode {
+interface GravityNode {
   id: string;
   kind: "package" | "module";
 }
@@ -947,7 +947,7 @@ export interface ArchitecturalIntentProfile {
  * description. Facts plus descriptive shape signals — no score, no
  * recommendation, no new scanning.
  */
-export interface ArchitecturalProfile {
+interface ArchitecturalProfile {
   complexity: ArchitecturalComplexityProfile;
   gravity: ArchitecturalGravityProfile;
   intent: ArchitecturalIntentProfile;
@@ -1029,7 +1029,7 @@ export interface BoundaryInteractionTotals {
   symbols: number;
 }
 
-export interface BoundaryInteractionSummary {
+interface BoundaryInteractionSummary {
   incoming: BoundaryInteractionTotals;
   outgoing: BoundaryInteractionTotals;
   /** Distinct (consumer, dependency) pairs routed through the target. */
@@ -1119,7 +1119,7 @@ export type ChurnFileKind = FileKind;
 export type CommitComposition = "source-dominant" | "config-dominant" | "mixed";
 
 /** The shared oversized rule, restated on each history-derived section. */
-export interface OversizedPolicy {
+interface OversizedPolicy {
   /** Config-dominant commits spanning this many packages → mechanical sweep. */
   configSweepMinPackages: number;
   /** Code files (source, test, story) above this → oversized. */
@@ -1161,7 +1161,7 @@ export interface FileChurn {
 }
 
 /** Churn aggregated over one package or module. Commits are unique. */
-export interface ChurnNode {
+interface ChurnNode {
   additions: number;
   authors: number;
   commits: number;
@@ -1224,7 +1224,7 @@ export interface ChurnHistoryInfo {
  * Repository-wide context so a file's churn can later be placed against the
  * whole population. Same window, same exclusions, every tracked file.
  */
-export interface ChurnPopulation {
+interface ChurnPopulation {
   commits: number;
   distributions: ChurnDistributions;
   filesAnalyzed: number;
@@ -1261,7 +1261,7 @@ export type HotspotSignal =
   | "complexity-dense"
   | "architecturally-central";
 
-export interface HotspotEvolution {
+interface HotspotEvolution {
   additions: number;
   /** Repository-relative, same-kind commit placement (see FileChurn.rank). */
   commitPercentile: number;
@@ -1310,7 +1310,7 @@ export interface FileHotspot {
   signals: HotspotSignal[];
 }
 
-export interface HotspotSummary {
+interface HotspotSummary {
   /** Files of an eligible kind with churn data (hotspot population). */
   eligibleSourceFiles: number;
   filesAboveCommitP90: number;
@@ -1420,7 +1420,7 @@ export interface FileCouplingSummary {
   };
 }
 
-export interface ChangeCouplingHistory {
+interface ChangeCouplingHistory {
   /**
    * Window commits with ≥ 1 eligible current file that are not oversized.
    * Single-file commits generate no pairs but count toward that file's
@@ -1436,7 +1436,7 @@ export interface ChangeCouplingHistory {
   windowDays: number | null;
 }
 
-export interface ChangeCouplingSummary {
+interface ChangeCouplingSummary {
   crossPackagePairs: number;
   filePairs: number;
   /** Strong file pairs whose static relation is `none` (both sides measured). */
@@ -1501,7 +1501,7 @@ export interface PackageCombination {
   packages: string[];
 }
 
-export interface ChangeRadiusHistory {
+interface ChangeRadiusHistory {
   commitsEligible: number;
   /** Observed commits failing the oversized rule; absent from distributions. */
   commitsExcluded: number;
@@ -1512,7 +1512,7 @@ export interface ChangeRadiusHistory {
   windowDays: number | null;
 }
 
-export interface ChangeRadiusSummary {
+interface ChangeRadiusSummary {
   boundaries: MetricDistribution;
   /** Commits crossing ≥ 1 static package edge. */
   boundaryCrossingCommits: number;
@@ -1547,7 +1547,7 @@ export type ChangeRadiusReport =
       reason: "git-unavailable" | "not-git-repository" | "not-collected";
     };
 
-export type EvolutionaryDimension = "churn" | "hotspot" | "coupling" | "radius";
+type EvolutionaryDimension = "churn" | "hotspot" | "coupling" | "radius";
 
 /**
  * One historical measurement read from a V6 section. `subject` names the
@@ -1561,7 +1561,7 @@ export interface EvolutionaryEvidence {
   value: number | string | boolean;
 }
 
-export interface EvolutionarySupport {
+interface EvolutionarySupport {
   /** Change-radius commits inside the size limit; the support gate's basis. */
   eligibleRadiusCommits: number;
   fileCouplingPairs: number;
@@ -1639,7 +1639,7 @@ export interface HotStructuralHub {
  * Edge-following spread is `boundaryCrossingRate` itself; only the edge-less
  * remainder is derived here.
  */
-export interface EvolutionarySpread {
+interface EvolutionarySpread {
   boundaryCrossingRate: number;
   crossPackageRate: number;
   /** Multi-package commits crossing no current static package edge. */
@@ -1770,7 +1770,7 @@ export interface ConceptFamily {
   seed: ConceptSeed;
 }
 
-export interface ConceptInventorySummary {
+interface ConceptInventorySummary {
   aliases: number;
   /** Families with evidence in more than one package. */
   crossPackageFamilies: number;
@@ -1935,7 +1935,7 @@ export interface ConceptDistributionAnalysis {
   temporal?: TemporalConceptContext;
 }
 
-export interface ConceptDistributionSummary {
+interface ConceptDistributionSummary {
   crossPackage: number;
   families: number;
   implementationSplit: number;
@@ -1961,7 +1961,7 @@ export type ConceptOverlapDimension =
   | "distribution"
   | "temporal";
 
-export type ConceptOverlapEvidenceKind =
+type ConceptOverlapEvidenceKind =
   | "name-token-overlap"
   | "property-overlap"
   | "assignability"
@@ -1991,7 +1991,7 @@ export interface ConceptIdentity {
   package: string;
 }
 
-export interface ConceptShapeProperty {
+interface ConceptShapeProperty {
   /** Function-typed (a method or callback); a shape of only these is behavioral, not data. */
   callable: boolean;
   name: string;
@@ -2101,7 +2101,7 @@ export interface ConceptOverlapCandidate {
 }
 
 /** How many pairs each generator proposed, and how many were evaluated. */
-export interface ConceptOverlapGeneration {
+interface ConceptOverlapGeneration {
   candidates: number;
   indexedDeclarations: number;
   pairsCompared: number;
@@ -2116,7 +2116,7 @@ export interface ConceptOverlapGeneration {
   seeds: number;
 }
 
-export interface ConceptOverlapSummary {
+interface ConceptOverlapSummary {
   bidirectionalConversionPairs: number;
   candidates: number;
   conversionPairs: number;
@@ -2306,7 +2306,7 @@ export interface ConceptOwnershipTension {
  * the seed: object-literal and factory conformance are not analyzed, so it
  * never proves the absence of implementations.
  */
-export type OwnershipCautionKind =
+type OwnershipCautionKind =
   | "sparse-history"
   | "anchored-seed"
   | "no-implementation-evidence";
@@ -2341,7 +2341,7 @@ export interface ConceptOwnershipAnalysis {
   tensions: ConceptOwnershipTension[];
 }
 
-export interface ConceptOwnershipSummary {
+interface ConceptOwnershipSummary {
   aligned: number;
   analyzed: number;
   distributed: number;
@@ -2461,7 +2461,7 @@ export interface ConceptTraversalContext {
 }
 
 /** Observed structural surface a change to the concept's behavior touches. Not a prediction. */
-export interface ConceptChangeSurface {
+interface ConceptChangeSurface {
   converterModules: number;
   /** Source behavior modules that are V6.1 hotspots (target-scoped). */
   hotspotModules: number;
@@ -2473,14 +2473,14 @@ export interface ConceptChangeSurface {
 }
 
 /** V7.1 reference breadth beside the behavior map; never part of locality. */
-export interface ConceptReferenceHalo {
+interface ConceptReferenceHalo {
   modules: number;
   packages: number;
   references: number;
 }
 
 /** Largest package and module share of source behavior; not ownership. */
-export interface ConceptBehaviorConcentration {
+interface ConceptBehaviorConcentration {
   primaryModule?: string;
   primaryModuleShare: number | null;
   primaryPackage?: string;
@@ -2532,7 +2532,7 @@ export type BehavioralLocalityShape =
 /** Additive shape: implementation behavior in several packages. */
 export type BehavioralLocalityModifier = "parallel-implementations";
 
-export type BehavioralLocalityCautionKind =
+type BehavioralLocalityCautionKind =
   | "structural-conformance-unobserved"
   | "test-heavy-behavior"
   | "sparse-source-behavior"
@@ -2569,7 +2569,7 @@ export interface ConceptBehavioralLocality {
   traversal: ConceptTraversalContext;
 }
 
-export interface ConceptBehavioralLocalitySummary {
+interface ConceptBehavioralLocalitySummary {
   analyzed: number;
   behaviorLight: number;
   crossPackageDistributed: number;
@@ -2615,7 +2615,7 @@ export type RecenteringTension =
   | "temporal-misalignment"
   | "anchor-conflict";
 
-export type RecenteringEvidenceSource =
+type RecenteringEvidenceSource =
   | "concept-ownership"
   | "concept-locality"
   | "concept-distribution"
@@ -2635,7 +2635,7 @@ export interface RecenteringEvidence {
 }
 
 /** V8.0 evaluates concept families only. */
-export interface RecenteringSubject {
+interface RecenteringSubject {
   concept: ConceptIdentity;
   kind: "concept-family";
 }
@@ -2752,7 +2752,7 @@ export type RecenteringStatus =
   | "protected"
   | "insufficient-evidence";
 
-export type RecenteringCautionKind =
+type RecenteringCautionKind =
   | "parameter-consumer-dominated"
   | "sparse-strong-behavior"
   | "behaviorally-concentrated"
@@ -2882,7 +2882,7 @@ export interface ObservedCenter {
   target: string;
 }
 
-export type MiscenteringCautionKind =
+type MiscenteringCautionKind =
   | "declared-home-anchored"
   | "observed-center-anchored"
   | "adapter-implementations"
@@ -3020,7 +3020,7 @@ export type ScenarioConstraint =
   | { kind: "structural-conformance-unknown"; concept: string }
   | { kind: "public-contract"; package: string };
 
-export type RecenteringScenarioEvidenceKind =
+type RecenteringScenarioEvidenceKind =
   | "declared-home"
   | "governing-behavior-center"
   | "representation-center"
@@ -3049,7 +3049,7 @@ export type ScenarioEvidenceConfidence = "strong" | "moderate" | "weak";
 
 export type ScenarioStatus = "plausible" | "constrained" | "blocked";
 
-export type ScenarioCautionKind =
+type ScenarioCautionKind =
   | "counter-evidence"
   | "integration-center"
   | "unobserved-conformance"
@@ -3062,7 +3062,7 @@ export interface ScenarioCaution {
   kind: ScenarioCautionKind;
 }
 
-export interface ScenarioAnchorContext {
+interface ScenarioAnchorContext {
   /** Anchored packages among the candidate centers. */
   anchoredCenters: string[];
   homeAnchored: boolean;
@@ -3094,7 +3094,7 @@ export interface RecenteringScenario {
 }
 
 /** Generation bookkeeping per finding, for tuning. */
-export interface ScenarioGenerationDiagnostics {
+interface ScenarioGenerationDiagnostics {
   blocked: number;
   centersConsidered: number;
   deduplicated: number;
@@ -3162,7 +3162,7 @@ export interface ScenarioMetricDelta {
   predicted: number | null;
 }
 
-export interface ScenarioDirectionalDelta {
+interface ScenarioDirectionalDelta {
   certainty: ImpactCertainty;
   direction: "increase" | "decrease" | "unchanged" | "unknown";
 }
@@ -3369,7 +3369,7 @@ export interface IntentImpact {
 }
 
 /** Independent dimensions; never folded into one number. */
-export interface ScenarioImpactVector {
+interface ScenarioImpactVector {
   behavior: BehaviorImpact;
   boundaries: BoundaryImpact;
   dependency: DependencyImpact;
@@ -3396,7 +3396,7 @@ export type ScenarioStructuralChangeKind =
   | "implementation-split-preserved"
   | "anchor-constraint";
 
-export type ScenarioImpactEvidenceSource =
+type ScenarioImpactEvidenceSource =
   | "scenario"
   | "boundary-interaction"
   | "dependency-gravity"
@@ -3409,7 +3409,7 @@ export type ScenarioImpactEvidenceSource =
   | "surface"
   | "anchor";
 
-export interface ScenarioImpactEvidence {
+interface ScenarioImpactEvidence {
   detail: string;
   source: ScenarioImpactEvidenceSource;
 }
@@ -3620,7 +3620,7 @@ export interface ScenarioDimensionComparison {
   relation: ScenarioDimensionRelation;
 }
 
-export type ScenarioComparisonResult =
+type ScenarioComparisonResult =
   | "left-dominates"
   | "right-dominates"
   | "tradeoff"

@@ -1,6 +1,12 @@
-import * as fs from "node:fs";
-import * as path from "node:path";
-import type { SourceFile } from "ts-morph";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
+import {
+  dirname,
+  isAbsolute,
+  join,
+  relative as pathRelative,
+  resolve,
+} from "node:path";
+import type { Expression, SourceFile, VariableDeclaration } from "ts-morph";
 
 import { Node, Project, SyntaxKind, ts } from "ts-morph";
 import { anchorFor } from "./anchors";
@@ -66,8 +72,8 @@ function tsconfigPathsInto(
   tsconfig: string,
   boundary: Boundary
 ): Record<string, string[]> {
-  const file = path.resolve(root, tsconfig);
-  const read = ts.readConfigFile(file, (name) => fs.readFileSync(name, "utf8"));
+  const file = resolve(root, tsconfig);
+  const read = ts.readConfigFile(file, (name) => readFileSync(name, "utf8"));
   const raw = read.config as
     | {
         compilerOptions?: {
@@ -80,14 +86,14 @@ function tsconfigPathsInto(
   if (options?.paths === undefined) {
     return {};
   }
-  const base = path.resolve(path.dirname(file), options.baseUrl ?? ".");
+  const base = resolve(dirname(file), options.baseUrl ?? ".");
   const inside: Record<string, string[]> = {};
   for (const [key, targets] of Object.entries(options.paths)) {
     const owned = targets
-      .map((target) => path.resolve(base, target))
+      .map((target) => resolve(base, target))
       .filter((target) => {
-        const rel = path.relative(boundary.dir, target);
-        return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
+        const rel = pathRelative(boundary.dir, target);
+        return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
       });
     if (owned.length > 0) {
       inside[key] = owned;
@@ -103,13 +109,13 @@ function tsconfigPathsInto(
  * inside it — so a self-import through the package name or a `~/` alias
  * works and every other workspace specifier stays unresolved by construction.
  */
-export function createLocalProject(
+function createLocalProject(
   root: string,
   boundary: Boundary,
   files: string[],
-  tsconfig?: string
+  tsconfig?: string | undefined
 ): Project {
-  const ownTsconfig = path.join(boundary.dir, "tsconfig.json");
+  const ownTsconfig = join(boundary.dir, "tsconfig.json");
   const project = new Project({
     compilerOptions: {
       baseUrl: root,
@@ -118,7 +124,7 @@ export function createLocalProject(
       moduleResolution: ts.ModuleResolutionKind.Bundler,
       paths: {
         ...packagePathAliases(boundary.dir),
-        ...(fs.existsSync(ownTsconfig) &&
+        ...(existsSync(ownTsconfig) &&
           tsconfigPathsInto(root, ownTsconfig, boundary)),
         ...(tsconfig !== undefined &&
           tsconfigPathsInto(root, tsconfig, boundary)),
@@ -131,7 +137,7 @@ export function createLocalProject(
     useInMemoryFileSystem: true,
   });
   for (const file of files) {
-    project.createSourceFile(file, fs.readFileSync(file, "utf8"));
+    project.createSourceFile(file, readFileSync(file, "utf8"));
   }
   return project;
 }
@@ -263,7 +269,7 @@ function collectDefaultExports(
     if (declarations === undefined) {
       continue;
     }
-    const module = toPosix(path.relative(boundary.root, file.getFilePath()));
+    const module = toPosix(pathRelative(boundary.root, file.getFilePath()));
     const symbolId = declarations
       .map((declaration) => idByNode.get(declaration))
       .find((id) => id !== undefined);
@@ -280,12 +286,6 @@ function collectDefaultExports(
 function collectConceptParticipation(
   group: ConceptSeedGroup
 ): PackageLocalConceptParticipation[] {
-  interface Entry {
-    conceptId: string;
-    counts: Map<ConceptRelationshipKind, number>;
-    module: string;
-    owners: Set<string>;
-  }
   const entries = new Map<string, Entry>();
   for (const state of group.states) {
     for (const item of state.evidence) {
@@ -472,39 +472,54 @@ function memberCounts(nodes: Node[]): { methods: number; properties: number } {
   let methods = 0;
   let properties = 0;
   for (const member of nodes) {
-    if (
-      Node.isMethodSignature(member) ||
-      Node.isMethodDeclaration(member) ||
-      Node.isCallSignatureDeclaration(member) ||
-      Node.isConstructSignatureDeclaration(member)
-    ) {
+    ({ methods, properties } = memberCountsEntries(
+      member,
+      methods,
+      properties
+    ));
+  }
+  return { methods, properties };
+}
+
+function memberCountsEntries(
+  member: Node<ts.Node>,
+  initialMethods: number,
+  initialProperties: number
+): { methods: number; properties: number } {
+  let properties = initialProperties;
+  let methods = initialMethods;
+  if (
+    Node.isMethodSignature(member) ||
+    Node.isMethodDeclaration(member) ||
+    Node.isCallSignatureDeclaration(member) ||
+    Node.isConstructSignatureDeclaration(member)
+  ) {
+    methods += 1;
+  } else if (Node.isPropertySignature(member)) {
+    const type = member.getTypeNode();
+    if (type !== undefined && Node.isFunctionTypeNode(type)) {
       methods += 1;
-    } else if (Node.isPropertySignature(member)) {
-      const type = member.getTypeNode();
-      if (type !== undefined && Node.isFunctionTypeNode(type)) {
-        methods += 1;
-      } else {
-        properties += 1;
-      }
-    } else if (Node.isPropertyDeclaration(member)) {
-      const initializer = member.getInitializer();
-      const type = member.getTypeNode();
-      if (
-        (initializer !== undefined &&
-          (Node.isArrowFunction(initializer) ||
-            Node.isFunctionExpression(initializer))) ||
-        (type !== undefined && Node.isFunctionTypeNode(type))
-      ) {
-        methods += 1;
-      } else {
-        properties += 1;
-      }
-    } else if (
-      Node.isGetAccessorDeclaration(member) ||
-      Node.isSetAccessorDeclaration(member)
-    ) {
+    } else {
       properties += 1;
     }
+  } else if (Node.isPropertyDeclaration(member)) {
+    const initializer = member.getInitializer();
+    const type = member.getTypeNode();
+    if (
+      (initializer !== undefined &&
+        (Node.isArrowFunction(initializer) ||
+          Node.isFunctionExpression(initializer))) ||
+      (type !== undefined && Node.isFunctionTypeNode(type))
+    ) {
+      methods += 1;
+    } else {
+      properties += 1;
+    }
+  } else if (
+    Node.isGetAccessorDeclaration(member) ||
+    Node.isSetAccessorDeclaration(member)
+  ) {
+    properties += 1;
   }
   return { methods, properties };
 }
@@ -583,7 +598,7 @@ function collectDeclarations(
   }
 
   return collected.map<PackageLocalDeclaration>((symbol) => {
-    const node = symbol.node;
+    const { node } = symbol;
     const declaration: PackageLocalDeclaration = {
       concepts: [],
       symbolId: symbol.id,
@@ -595,69 +610,13 @@ function collectDeclarations(
           Node.isJsxSelfClosingElement(descendant) ||
           Node.isJsxFragment(descendant)
       ) !== undefined;
-    if (Node.isFunctionDeclaration(node)) {
-      if (containsJsx(node)) {
-        declaration.jsx = true;
-      }
-    } else if (Node.isVariableDeclaration(node)) {
-      const initializer = node.getInitializer();
-      if (initializer === undefined) {
-        declaration.initializer = "none";
-      } else {
-        const { inner, asConst } = unwrapExpression(initializer);
-        declaration.initializer = initializerOf(inner);
-        if (asConst) {
-          declaration.asConst = true;
-        }
-        if (declaration.initializer === "function" && containsJsx(inner)) {
-          declaration.jsx = true;
-        }
-        if (declaration.initializer === "call") {
-          const root = rootIdentifier(inner);
-          if (root !== undefined) {
-            const name = root.getText();
-            const specifier = specifierOf(node.getSourceFile(), name);
-            const symbolId = resolveLocal(root);
-            declaration.callee = {
-              name,
-              ...(specifier !== undefined &&
-                symbolId === undefined && { specifier }),
-              ...(symbolId !== undefined && { symbolId }),
-            };
-          }
-        }
-      }
-      const typeNode = node.getTypeNode();
-      if (typeNode !== undefined && Node.isTypeReference(typeNode)) {
-        const annotation = resolveLocal(leftmostName(typeNode.getTypeName()));
-        if (annotation !== undefined) {
-          declaration.annotation = annotation;
-        }
-      }
-    } else if (Node.isTypeAliasDeclaration(node)) {
-      const typeNode = node.getTypeNode();
-      declaration.aliasShape = aliasShapeOf(typeNode);
-      if (typeNode !== undefined && Node.isTypeLiteral(typeNode)) {
-        declaration.members = memberCounts(typeNode.getMembers());
-      }
-      const queries = new Set<string>();
-      for (const query of node.getDescendantsOfKind(SyntaxKind.TypeQuery)) {
-        const id = resolveLocal(leftmostName(query.getExprName()));
-        if (id !== undefined) {
-          queries.add(id);
-        }
-      }
-      if (queries.size > 0) {
-        declaration.typeQueries = [...queries].sort();
-      }
-    } else if (Node.isInterfaceDeclaration(node)) {
-      declaration.members = memberCounts(node.getMembers());
-    } else if (Node.isClassDeclaration(node)) {
-      declaration.members = memberCounts(node.getMembers());
-      if (node.isAbstract()) {
-        declaration.abstract = true;
-      }
-    }
+    collectDeclarationsEntries(
+      node,
+      containsJsx,
+      declaration,
+      specifierOf,
+      resolveLocal
+    );
     const bySeed = conceptsBySymbol.get(symbol.id);
     if (bySeed !== undefined) {
       declaration.concepts = [...bySeed.entries()]
@@ -673,13 +632,131 @@ function collectDeclarations(
   });
 }
 
+function collectDeclarationsEntries(
+  node: Node<ts.Node>,
+  containsJsx: (body: Node) => boolean,
+  declaration: PackageLocalDeclaration,
+  specifierOf: (file: SourceFile, localName: string) => string | undefined,
+  resolveLocal: (identifier: Node | undefined) => string | undefined
+) {
+  if (Node.isFunctionDeclaration(node)) {
+    if (containsJsx(node)) {
+      declaration.jsx = true;
+    }
+  } else {
+    collectDeclarationsEntriesEntries(
+      node,
+      declaration,
+      containsJsx,
+      specifierOf,
+      resolveLocal
+    );
+  }
+}
+
+function collectDeclarationsEntriesEntries(
+  node: Node<ts.Node>,
+  declaration: PackageLocalDeclaration,
+  containsJsx: (body: Node) => boolean,
+  specifierOf: (file: SourceFile, localName: string) => string | undefined,
+  resolveLocal: (identifier: Node | undefined) => string | undefined
+) {
+  if (Node.isVariableDeclaration(node)) {
+    const initializer = node.getInitializer();
+    collectDeclarationsEntriesEntriesEntries2(
+      initializer,
+      declaration,
+      containsJsx,
+      specifierOf,
+      node,
+      resolveLocal
+    );
+    const typeNode = node.getTypeNode();
+    if (typeNode !== undefined && Node.isTypeReference(typeNode)) {
+      const annotation = resolveLocal(leftmostName(typeNode.getTypeName()));
+      if (annotation !== undefined) {
+        declaration.annotation = annotation;
+      }
+    }
+  } else {
+    collectDeclarationsEntriesEntriesEntries(node, declaration, resolveLocal);
+  }
+}
+
+function collectDeclarationsEntriesEntriesEntries2(
+  initializer: Expression<ts.Expression> | undefined,
+  declaration: PackageLocalDeclaration,
+  containsJsx: (body: Node) => boolean,
+  specifierOf: (file: SourceFile, localName: string) => string | undefined,
+  node: VariableDeclaration,
+  resolveLocal: (identifier: Node | undefined) => string | undefined
+) {
+  if (initializer === undefined) {
+    declaration.initializer = "none";
+  } else {
+    const { inner, asConst } = unwrapExpression(initializer);
+    declaration.initializer = initializerOf(inner);
+    if (asConst) {
+      declaration.asConst = true;
+    }
+    if (declaration.initializer === "function" && containsJsx(inner)) {
+      declaration.jsx = true;
+    }
+    if (declaration.initializer === "call") {
+      const root = rootIdentifier(inner);
+      if (root !== undefined) {
+        const name = root.getText();
+        const specifier = specifierOf(node.getSourceFile(), name);
+        const symbolId = resolveLocal(root);
+        declaration.callee = {
+          name,
+          ...(specifier !== undefined &&
+            symbolId === undefined && { specifier }),
+          ...(symbolId !== undefined && { symbolId }),
+        };
+      }
+    }
+  }
+}
+
+function collectDeclarationsEntriesEntriesEntries(
+  node: Node<ts.Node>,
+  declaration: PackageLocalDeclaration,
+  resolveLocal: (identifier: Node | undefined) => string | undefined
+) {
+  if (Node.isTypeAliasDeclaration(node)) {
+    const typeNode = node.getTypeNode();
+    declaration.aliasShape = aliasShapeOf(typeNode);
+    if (typeNode !== undefined && Node.isTypeLiteral(typeNode)) {
+      declaration.members = memberCounts(typeNode.getMembers());
+    }
+    const queries = new Set<string>();
+    for (const query of node.getDescendantsOfKind(SyntaxKind.TypeQuery)) {
+      const id = resolveLocal(leftmostName(query.getExprName()));
+      if (id !== undefined) {
+        queries.add(id);
+      }
+    }
+    if (queries.size > 0) {
+      declaration.typeQueries = [...queries].sort();
+    }
+  } else if (Node.isInterfaceDeclaration(node)) {
+    declaration.members = memberCounts(node.getMembers());
+  } else if (Node.isClassDeclaration(node)) {
+    declaration.members = memberCounts(node.getMembers());
+    if (node.isAbstract()) {
+      declaration.abstract = true;
+    }
+  }
+}
+
 function collectImports(
   project: Project,
   boundary: Boundary
 ): PackageLocalImport[] {
   const sites: PackageLocalImport[] = [];
   const relative = (absolute: string) =>
-    toPosix(path.relative(boundary.root, absolute));
+    toPosix(pathRelative(boundary.root, absolute));
   for (const file of project.getSourceFiles()) {
     const sourceModule = relative(file.getFilePath());
     const occurrences = bindingOccurrences(file);
@@ -690,77 +767,13 @@ function collectImports(
             scope: "internal",
             targetModule: relative(target.getFilePath()),
           } as const);
-    for (const declaration of file.getImportDeclarations()) {
-      const specifier = declaration.getModuleSpecifierValue();
-      const typeOnly = declaration.isTypeOnly();
-      const base = {
-        sourceModule,
-        specifier,
-        ...resolution(declaration.getModuleSpecifierSourceFile()),
-      };
-      const bound = (localName: string) => ({
-        bindingOccurrences: occurrences.names.get(localName) ?? 0,
-        localName,
-      });
-      const usesOf = (localName: string, siteTypeOnly: boolean) => {
-        const uses = occurrences.uses.get(localName);
-        return base.scope === "internal" && !siteTypeOnly && uses !== undefined
-          ? { uses }
-          : {};
-      };
-      const membersOf = (localName: string) => {
-        const accessed = occurrences.members.get(localName);
-        if (accessed === undefined) {
-          return {};
-        }
-        const members = [...accessed.entries()]
-          .map(([name, count]) => ({ name, occurrences: count }))
-          .sort((a, b) => a.name.localeCompare(b.name));
-        return { members };
-      };
-      const defaultImport = declaration.getDefaultImport();
-      const namespaceImport = declaration.getNamespaceImport();
-      const named = declaration.getNamedImports();
-      if (defaultImport !== undefined) {
-        sites.push({
-          ...base,
-          importedName: "default",
-          kind: "default",
-          ...bound(defaultImport.getText()),
-          typeOnly,
-          ...usesOf(defaultImport.getText(), typeOnly),
-        });
-      }
-      if (namespaceImport !== undefined) {
-        sites.push({
-          ...base,
-          kind: "namespace",
-          ...bound(namespaceImport.getText()),
-          ...membersOf(namespaceImport.getText()),
-          typeOnly,
-        });
-      }
-      for (const specifierNode of named) {
-        const siteTypeOnly = typeOnly || specifierNode.isTypeOnly();
-        const localName =
-          specifierNode.getAliasNode()?.getText() ?? specifierNode.getName();
-        sites.push({
-          ...base,
-          importedName: specifierNode.getName(),
-          kind: siteTypeOnly ? "type" : "named",
-          ...bound(localName),
-          typeOnly: siteTypeOnly,
-          ...usesOf(localName, siteTypeOnly),
-        });
-      }
-      if (
-        defaultImport === undefined &&
-        namespaceImport === undefined &&
-        named.length === 0
-      ) {
-        sites.push({ ...base, kind: "side-effect", typeOnly: false });
-      }
-    }
+    collectImportsDeclaration(
+      file,
+      sourceModule,
+      resolution,
+      occurrences,
+      sites
+    );
     for (const declaration of file.getExportDeclarations()) {
       const specifier = declaration.getModuleSpecifierValue();
       if (specifier === undefined) {
@@ -799,6 +812,90 @@ function collectImports(
   );
 }
 
+function collectImportsDeclaration(
+  file: SourceFile,
+  sourceModule: string,
+  resolution: (
+    target: SourceFile | undefined
+  ) =>
+    | { readonly scope: "external"; readonly targetModule?: undefined }
+    | { readonly scope: "internal"; readonly targetModule: string },
+  occurrences: BindingOccurrences,
+  sites: PackageLocalImport[]
+) {
+  for (const declaration of file.getImportDeclarations()) {
+    const specifier = declaration.getModuleSpecifierValue();
+    const typeOnly = declaration.isTypeOnly();
+    const base = {
+      sourceModule,
+      specifier,
+      ...resolution(declaration.getModuleSpecifierSourceFile()),
+    };
+    const bound = (localName: string) => ({
+      bindingOccurrences: occurrences.names.get(localName) ?? 0,
+      localName,
+    });
+    const usesOf = (localName: string, siteTypeOnly: boolean) => {
+      const uses = occurrences.uses.get(localName);
+      return base.scope === "internal" && !siteTypeOnly && uses !== undefined
+        ? { uses }
+        : {};
+    };
+    const membersOf = (localName: string) => {
+      const accessed = occurrences.members.get(localName);
+      if (accessed === undefined) {
+        return {};
+      }
+      const members = [...accessed.entries()]
+        .map(([name, count]) => ({ name, occurrences: count }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      return { members };
+    };
+    const defaultImport = declaration.getDefaultImport();
+    const namespaceImport = declaration.getNamespaceImport();
+    const named = declaration.getNamedImports();
+    if (defaultImport !== undefined) {
+      sites.push({
+        ...base,
+        importedName: "default",
+        kind: "default",
+        ...bound(defaultImport.getText()),
+        typeOnly,
+        ...usesOf(defaultImport.getText(), typeOnly),
+      });
+    }
+    if (namespaceImport !== undefined) {
+      sites.push({
+        ...base,
+        kind: "namespace",
+        ...bound(namespaceImport.getText()),
+        ...membersOf(namespaceImport.getText()),
+        typeOnly,
+      });
+    }
+    for (const specifierNode of named) {
+      const siteTypeOnly = typeOnly || specifierNode.isTypeOnly();
+      const localName =
+        specifierNode.getAliasNode()?.getText() ?? specifierNode.getName();
+      sites.push({
+        ...base,
+        importedName: specifierNode.getName(),
+        kind: siteTypeOnly ? "type" : "named",
+        ...bound(localName),
+        typeOnly: siteTypeOnly,
+        ...usesOf(localName, siteTypeOnly),
+      });
+    }
+    if (
+      defaultImport === undefined &&
+      namespaceImport === undefined &&
+      named.length === 0
+    ) {
+      sites.push({ ...base, kind: "side-effect", typeOnly: false });
+    }
+  }
+}
+
 function ratio(numerator: number, denominator: number): number {
   return denominator === 0 ? 0 : numerator / denominator;
 }
@@ -806,8 +903,8 @@ function ratio(numerator: number, denominator: number): number {
 export function analyzePackageLocal(
   options: AnalyzePackageLocalOptions
 ): PackageLocalReport {
-  const root = fs.realpathSync(
-    options.root ? path.resolve(options.root) : findRepoRoot(process.cwd())
+  const root = realpathSync(
+    options.root ? resolve(options.root) : findRepoRoot(process.cwd())
   );
   const config = options.config ?? ANALYSIS_CONFIG;
   const boundary = resolveBoundary(root, options.target);
@@ -922,7 +1019,7 @@ export function analyzePackageLocal(
       [...roles.entries()].sort(([a], [b]) => a.localeCompare(b))
     ),
     sources: files.map((file) => {
-      const rel = toPosix(path.relative(root, file));
+      const rel = toPosix(pathRelative(root, file));
       return { kind: classifyFile(rel), path: rel };
     }),
     summary: {
@@ -934,4 +1031,10 @@ export function analyzePackageLocal(
     },
     symbols,
   };
+}
+interface Entry {
+  conceptId: string;
+  counts: Map<ConceptRelationshipKind, number>;
+  module: string;
+  owners: Set<string>;
 }

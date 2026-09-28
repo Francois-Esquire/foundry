@@ -223,7 +223,7 @@ export interface SymbolLocalitySummary {
 }
 
 /** The definitions the findings were computed under. */
-export interface SymbolLocalityPolicy {
+interface SymbolLocalityPolicy {
   commonScope: "deepest common consumer directory; the region when that directory is the root or a technical root; the package across regions";
   dominanceDenominator: "consumer modules";
   dominantShareThreshold: number;

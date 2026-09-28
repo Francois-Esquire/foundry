@@ -3,11 +3,14 @@ import type {
   ArchitecturalReviewEvidence,
   ArchitecturalReviewReport,
   ArchitecturalScenarioReview,
+  BoundaryImpact,
+  DeclaredHome,
   MiscenteredConceptFinding,
   MiscenteredConceptReport,
   MiscenteringOutcome,
   RecenteringCandidate,
   RecenteringCandidateReport,
+  RecenteringIntentContext,
   RecenteringScenario,
   RecenteringScenarioFinding,
   RecenteringScenarioReport,
@@ -305,79 +308,101 @@ export function renderScenarioImpacts(
     (scenarios?.scenarios ?? []).map((scenario) => [scenario.id, scenario])
   );
   item.scenarios.forEach((analysis, index) => {
-    const scenario = scenarioById.get(analysis.scenarioId);
-    const { dependency, boundaries, locality, surface, representation } =
-      analysis.impact;
-    const { behavior, implementation, evolution, intent } = analysis.impact;
-    lines.push("");
-    lines.push(
-      `  ${String.fromCharCode(65 + index)}. ${scenario === undefined ? analysis.kind : scenarioLine(scenario)}`
-    );
-    lines.push(
-      `     status ${analysis.status} · certainty ${analysis.certainty.certain} certain · ${analysis.certainty.conditional} conditional · ${analysis.certainty.unknown} unknown`
-    );
-    lines.push("     behavior");
-    lines.push(
-      `       packages ${deltaText(locality.sourcePackageCount)} · source modules ${deltaText(locality.sourceModuleCount)} · behavior edges ${deltaText(locality.behavioralBoundaryEdges)} · disconnected pairs ${deltaText(locality.disconnectedBehaviorPairs)}`
-    );
-    lines.push(
-      `       governing ${behavior.governingBehaviorRelocated} relocate · ${behavior.governingBehaviorPreserved} stay · ${behavior.governingBehaviorUnplaced} unplaced · ${behavior.consumerBehaviorUnaffected} consumer behaviors unaffected · shape ${locality.shapeTransition.from} → ${locality.shapeTransition.to ?? "unknown"} (${locality.shapeTransition.certainty})`
-    );
-    lines.push("     boundaries");
-    for (const state of boundaries.current) {
-      const detail =
-        state.outcome === "reduced" || state.outcome === "eliminated"
-          ? ` · ${state.vacatedModules.length} module(s) leave, ${state.remainingModules.length} remain · ${state.conceptImportSitesRemoved ?? 0}/${state.importSites ?? "?"} import sites${state.exclusive ? " · exclusive" : ""}`
-          : state.importSites === null
-            ? " · unmeasured"
-            : ` · ${state.conceptImportSites ?? 0}/${state.importSites} concept import sites`;
-      lines.push(
-        `       ${state.edge.padEnd(40)} ${state.outcome} (${state.certainty})${detail}`
-      );
-    }
-    for (const edge of boundaries.added) {
-      lines.push(`       ${edge.padEnd(40)} added (conditional)`);
-    }
-    lines.push(
-      `       package edges: ${dependency.removed.length} removable · ${dependency.added.length} added · ${dependency.preserved.length} preserved · ${dependency.uncertain.length} uncertain`
-    );
-    lines.push("     surface");
-    lines.push(
-      `       ${surface.packagePublicContractRelocated ? `package-public contract ${surface.publicExposureRemoved.join(", ")} → ${surface.publicExposureAdded.join(", ")} · transition unresolved` : `semantic contract stays ${analysis.baseline.semanticCenter}`} · consumers ${surface.consumers.packages.length > 0 ? `${surface.consumers.packages.join(", ")} ${surface.consumers.impact}` : "none"}`
-    );
-    lines.push("     representation");
-    lines.push(
-      `       representations ${representation.semanticRepresentationsCurrent.join(", ") || "—"} → ${representation.semanticRepresentationsPredicted.join(", ") || "—"} (${representation.certainty}) · persistence preserved ${representation.persistenceRepresentationsPreserved.join(", ") || "—"} · converters preserved ${representation.convertersPreserved.join(", ") || "—"}${representation.representationBoundariesAdded.length > 0 ? ` · boundary made explicit: ${representation.representationBoundariesAdded.join(", ")}` : ""}`
-    );
-    lines.push(
-      `     implementation ${implementation.currentCenters.join(", ") || "—"} → ${implementation.predictedCenters.join(", ") || "—"}${implementation.parallelImplementationPreserved ? " · parallel split preserved" : ""}`
-    );
-    lines.push(
-      `     history      ${evolution.couplingRelationshipsCoLocated} coupled pair(s) co-located · ${evolution.couplingRelationshipsStillCrossBoundary} still cross-boundary · ${evolution.couplingRelationshipsPreserved} preserved · ${evolution.couplingRelationshipsUnknown} unknown · ${evolution.hotspotBehaviorRelocated} hotspot module(s) affected · alignment ${evolution.historicalEvidenceAlignment}`
-    );
-    lines.push(
-      `     intent       ${intent.compatibility}${intent.anchorsViolated.length > 0 ? ` · violates ${intent.anchorsViolated.join(", ")}` : ""}${intent.anchorsPreserved.length > 0 ? ` · preserves ${intent.anchorsPreserved.join(", ")}` : ""}${intent.anchoredResponsibilitiesAdded.length > 0 ? ` · anchored gains ${intent.anchoredResponsibilitiesAdded.join("; ")}` : ""}${intent.anchoredResponsibilitiesRemoved.length > 0 ? ` · anchored loses ${intent.anchoredResponsibilitiesRemoved.join("; ")}` : ""}`
-    );
-    for (const change of analysis.changes) {
-      const from = Array.isArray(change.from)
-        ? change.from.join(", ")
-        : change.from;
-      const to = Array.isArray(change.to) ? change.to.join(", ") : change.to;
-      lines.push(
-        `     Δ ${change.kind.padEnd(34)} ${from === undefined ? "" : String(from)}${from !== undefined && to !== undefined ? " → " : ""}${to === undefined ? "" : String(to)} (${change.certainty})`
-      );
-    }
-    for (const row of analysis.preserved) {
-      lines.push(`     = ${row.kind.padEnd(34)} ${row.detail}`);
-    }
-    for (const row of analysis.uncertainties) {
-      lines.push(`     ? ${row.kind.padEnd(34)} ${row.detail}`);
-    }
-    for (const row of analysis.constraints) {
-      lines.push(`     ! ${row.constraint.kind.padEnd(34)} ${row.consequence}`);
-    }
+    renderScenarioImpactsEntries(scenarioById, analysis, lines, index);
   });
   return lines.join("\n");
+}
+
+function renderScenarioImpactsEntries(
+  scenarioById: Map<string, RecenteringScenario>,
+  analysis: ScenarioImpactAnalysis,
+  lines: string[],
+  index: number
+) {
+  const scenario = scenarioById.get(analysis.scenarioId);
+  const { dependency, boundaries, locality, surface, representation } =
+    analysis.impact;
+  const { behavior, implementation, evolution, intent } = analysis.impact;
+  lines.push("");
+  lines.push(
+    `  ${String.fromCharCode(65 + index)}. ${scenario === undefined ? analysis.kind : scenarioLine(scenario)}`
+  );
+  lines.push(
+    `     status ${analysis.status} · certainty ${analysis.certainty.certain} certain · ${analysis.certainty.conditional} conditional · ${analysis.certainty.unknown} unknown`
+  );
+  lines.push("     behavior");
+  lines.push(
+    `       packages ${deltaText(locality.sourcePackageCount)} · source modules ${deltaText(locality.sourceModuleCount)} · behavior edges ${deltaText(locality.behavioralBoundaryEdges)} · disconnected pairs ${deltaText(locality.disconnectedBehaviorPairs)}`
+  );
+  lines.push(
+    `       governing ${behavior.governingBehaviorRelocated} relocate · ${behavior.governingBehaviorPreserved} stay · ${behavior.governingBehaviorUnplaced} unplaced · ${behavior.consumerBehaviorUnaffected} consumer behaviors unaffected · shape ${locality.shapeTransition.from} → ${locality.shapeTransition.to ?? "unknown"} (${locality.shapeTransition.certainty})`
+  );
+  lines.push("     boundaries");
+  renderScenarioImpactsState(boundaries, lines);
+  for (const edge of boundaries.added) {
+    lines.push(`       ${edge.padEnd(40)} added (conditional)`);
+  }
+  lines.push(
+    `       package edges: ${dependency.removed.length} removable · ${dependency.added.length} added · ${dependency.preserved.length} preserved · ${dependency.uncertain.length} uncertain`
+  );
+  lines.push("     surface");
+  lines.push(
+    `       ${surface.packagePublicContractRelocated ? `package-public contract ${surface.publicExposureRemoved.join(", ")} → ${surface.publicExposureAdded.join(", ")} · transition unresolved` : `semantic contract stays ${analysis.baseline.semanticCenter}`} · consumers ${surface.consumers.packages.length > 0 ? `${surface.consumers.packages.join(", ")} ${surface.consumers.impact}` : "none"}`
+  );
+  lines.push("     representation");
+  lines.push(
+    `       representations ${representation.semanticRepresentationsCurrent.join(", ") || "—"} → ${representation.semanticRepresentationsPredicted.join(", ") || "—"} (${representation.certainty}) · persistence preserved ${representation.persistenceRepresentationsPreserved.join(", ") || "—"} · converters preserved ${representation.convertersPreserved.join(", ") || "—"}${representation.representationBoundariesAdded.length > 0 ? ` · boundary made explicit: ${representation.representationBoundariesAdded.join(", ")}` : ""}`
+  );
+  lines.push(
+    `     implementation ${implementation.currentCenters.join(", ") || "—"} → ${implementation.predictedCenters.join(", ") || "—"}${implementation.parallelImplementationPreserved ? " · parallel split preserved" : ""}`
+  );
+  lines.push(
+    `     history      ${evolution.couplingRelationshipsCoLocated} coupled pair(s) co-located · ${evolution.couplingRelationshipsStillCrossBoundary} still cross-boundary · ${evolution.couplingRelationshipsPreserved} preserved · ${evolution.couplingRelationshipsUnknown} unknown · ${evolution.hotspotBehaviorRelocated} hotspot module(s) affected · alignment ${evolution.historicalEvidenceAlignment}`
+  );
+  lines.push(
+    `     intent       ${intent.compatibility}${intent.anchorsViolated.length > 0 ? ` · violates ${intent.anchorsViolated.join(", ")}` : ""}${intent.anchorsPreserved.length > 0 ? ` · preserves ${intent.anchorsPreserved.join(", ")}` : ""}${intent.anchoredResponsibilitiesAdded.length > 0 ? ` · anchored gains ${intent.anchoredResponsibilitiesAdded.join("; ")}` : ""}${intent.anchoredResponsibilitiesRemoved.length > 0 ? ` · anchored loses ${intent.anchoredResponsibilitiesRemoved.join("; ")}` : ""}`
+  );
+  collectChange(analysis, lines);
+  for (const row of analysis.preserved) {
+    lines.push(`     = ${row.kind.padEnd(34)} ${row.detail}`);
+  }
+  for (const row of analysis.uncertainties) {
+    lines.push(`     ? ${row.kind.padEnd(34)} ${row.detail}`);
+  }
+  for (const row of analysis.constraints) {
+    lines.push(`     ! ${row.constraint.kind.padEnd(34)} ${row.consequence}`);
+  }
+}
+
+function collectChange(analysis: ScenarioImpactAnalysis, lines: string[]) {
+  for (const change of analysis.changes) {
+    const from = Array.isArray(change.from)
+      ? change.from.join(", ")
+      : change.from;
+    const to = Array.isArray(change.to) ? change.to.join(", ") : change.to;
+    lines.push(
+      `     Δ ${change.kind.padEnd(34)} ${from === undefined ? "" : String(from)}${from !== undefined && to !== undefined ? " → " : ""}${to === undefined ? "" : String(to)} (${change.certainty})`
+    );
+  }
+}
+
+function renderScenarioImpactsState(
+  boundaries: BoundaryImpact,
+  lines: string[]
+) {
+  for (const state of boundaries.current) {
+    let detail: string;
+    if (state.outcome === "reduced" || state.outcome === "eliminated") {
+      detail = ` · ${state.vacatedModules.length} module(s) leave, ${state.remainingModules.length} remain · ${state.conceptImportSitesRemoved ?? 0}/${state.importSites ?? "?"} import sites${state.exclusive ? " · exclusive" : ""}`;
+    } else if (state.importSites === null) {
+      detail = " · unmeasured";
+    } else {
+      detail = ` · ${state.conceptImportSites ?? 0}/${state.importSites} concept import sites`;
+    }
+    lines.push(
+      `       ${state.edge.padEnd(40)} ${state.outcome} (${state.certainty})${detail}`
+    );
+  }
 }
 
 function packagesOf(placement: ScenarioPlacement, responsibility: string) {
@@ -404,6 +429,8 @@ function scenarioLine(item: RecenteringScenario): string {
       return `formalize representation boundary · conversion in ${packagesOf(item.proposed, "conversion").join(", ")}`;
     case "split-responsibility":
       return `split responsibility · implementation ${packagesOf(item.proposed, "implementation").join(", ") || "—"} · conversion ${packagesOf(item.proposed, "conversion").join(", ") || "—"}`;
+    default:
+      throw new Error("Unexpected item.kind.");
   }
 }
 
@@ -491,20 +518,24 @@ export function renderRecenteringScenarios(
           `${center.package}${center.anchored ? " ◆" : ""} [${Object.entries(
             center.reasons
           )
-            .map(([reason, value]) =>
-              typeof value === "number" &&
-              value <= 1 &&
-              !Number.isInteger(value)
-                ? `${reason} ${percent(value)}`
-                : value === true
-                  ? reason
-                  : `${reason} ${value}`
-            )
+            .map(([reason, value]) => {
+              if (
+                typeof value === "number" &&
+                value <= 1 &&
+                !Number.isInteger(value)
+              ) {
+                return `${reason} ${percent(value)}`;
+              }
+              if (value === true) {
+                return reason;
+              }
+              return `${reason} ${value}`;
+            })
             .join(", ")}]`
       )
       .join(" · ")}`
   );
-  const diagnostics = item.diagnostics;
+  const { diagnostics } = item;
   lines.push(
     `  generation         ${diagnostics.proposed} proposed · ${diagnostics.deduplicated} deduplicated · ${diagnostics.truncated} truncated · ${diagnostics.blocked} blocked${diagnostics.noAlternativeReason === undefined ? "" : ` · ${diagnostics.noAlternativeReason}`}`
   );
@@ -530,17 +561,22 @@ export function renderRecenteringScenarios(
         `     + ${entry.kind.padEnd(26)} ${String(entry.detail)}${entry.package === undefined ? "" : ` (${entry.package})`} · supports ${entry.supports}`
       );
     }
-    for (const constraint of scenario.constraints) {
-      const detail =
-        constraint.kind === "anchor"
-          ? `${constraint.package}: ${constraint.reason}`
-          : constraint.kind === "representation-boundary"
-            ? constraint.concepts.join(", ")
-            : constraint.kind === "public-contract"
-              ? constraint.package
-              : constraint.concept;
-      lines.push(`     ! ${constraint.kind}: ${detail}`);
-    }
+    const visitConstraint = () => {
+      for (const constraint of scenario.constraints) {
+        let detail: string;
+        if (constraint.kind === "anchor") {
+          detail = `${constraint.package}: ${constraint.reason}`;
+        } else if (constraint.kind === "representation-boundary") {
+          detail = constraint.concepts.join(", ");
+        } else if (constraint.kind === "public-contract") {
+          detail = constraint.package;
+        } else {
+          detail = constraint.concept;
+        }
+        lines.push(`     ! ${constraint.kind}: ${detail}`);
+      }
+    };
+    visitConstraint();
     for (const caution of scenario.cautions) {
       lines.push(`     ~ ${caution.kind}: ${caution.detail}`);
     }
@@ -553,18 +589,20 @@ function findingLine(item: MiscenteredConceptFinding): string {
   const centers = item.observedCenters.filter(
     (center) => center.target !== home
   );
-  const where =
-    item.signal === "external-gravity"
-      ? `${home} → gravity toward ${centers[0]?.target ?? "—"}`
-      : item.signal === "boundary-drift"
-        ? `${home} keeps symbols; behavior in ${centers
-            .filter((center) => (center.shares["behavioral-locality"] ?? 0) > 0)
-            .map((center) => center.target)
-            .join(", ")}`
-        : `split across ${item.observedCenters
-            .filter((center) => center.gravity >= 0.2)
-            .map((center) => center.target)
-            .join(" / ")}`;
+  let where: string;
+  if (item.signal === "external-gravity") {
+    where = `${home} → gravity toward ${centers[0]?.target ?? "—"}`;
+  } else if (item.signal === "boundary-drift") {
+    where = `${home} keeps symbols; behavior in ${centers
+      .filter((center) => (center.shares["behavioral-locality"] ?? 0) > 0)
+      .map((center) => center.target)
+      .join(", ")}`;
+  } else {
+    where = `split across ${item.observedCenters
+      .filter((center) => center.gravity >= 0.2)
+      .map((center) => center.target)
+      .join(" / ")}`;
+  }
   return `${where}${item.anchored ? " ◆ anchored" : ""}\n       ${item.signal} · evidence ${percent(item.evidenceConfidence)}`;
 }
 
@@ -614,7 +652,7 @@ export function renderMiscenteredFinding(
   }
   const home = item.declaredHome;
   lines.push(
-    `  declared home      ${home.package}${home.anchored ? ` ◆ anchored${home.anchorReason === undefined ? "" : ` (${home.anchorReason})`}` : ""} · ${home.module}`
+    `  declared home      ${home.package}${resolveRenderMiscenteredFinding(home)} · ${home.module}`
   );
   lines.push(
     `  signal             ${signalLabel(item.signal)} · evidence confidence ${percent(item.evidenceConfidence)} · mismatch ${item.mismatch.toFixed(2)}`
@@ -636,11 +674,14 @@ export function renderMiscenteredFinding(
   }
   lines.push("  evidence");
   for (const entry of item.evidence) {
-    const value = Array.isArray(entry.value)
-      ? entry.value.join(", ")
-      : typeof entry.value === "number"
-        ? percent(entry.value)
-        : entry.value;
+    let value: string;
+    if (Array.isArray(entry.value)) {
+      value = entry.value.join(", ");
+    } else if (typeof entry.value === "number") {
+      value = percent(entry.value);
+    } else {
+      ({ value } = entry);
+    }
     lines.push(
       `    ${entry.supports ? "▲" : " "} ${entry.kind.padEnd(20)} ${entry.metric.padEnd(32)} ${value}${entry.package === undefined ? "" : ` (${entry.package})`} · ${entry.source}`
     );
@@ -649,6 +690,13 @@ export function renderMiscenteredFinding(
     lines.push(`  caution  ${caution.kind}: ${caution.detail}`);
   }
   return lines.join("\n");
+}
+
+function resolveRenderMiscenteredFinding(home: DeclaredHome): string {
+  if (home.anchored) {
+    return ` ◆ anchored${home.anchorReason === undefined ? "" : ` (${home.anchorReason})`}`;
+  }
+  return "";
 }
 
 /** Focused view for `--concept`; every tension, evidence item, and caution. */
@@ -702,27 +750,47 @@ export function renderRecenteringCandidate(
     );
   }
   lines.push(
-    `  intent             ${intent.seedAnchored ? `seed package anchored${intent.anchorReason === undefined ? "" : ` (${intent.anchorReason})`}` : "seed package not anchored"}${intent.anchoredObservedPackages.length > 0 ? ` · anchored observed: ${intent.anchoredObservedPackages.join(", ")}` : ""}`
+    `  intent             ${resolveRenderRecenteringCandidate(intent)}${intent.anchoredObservedPackages.length > 0 ? ` · anchored observed: ${intent.anchoredObservedPackages.join(", ")}` : ""}`
   );
-  for (const boundary of intent.representationBoundaries) {
-    lines.push(
-      `    representation boundary ${boundary.overlappingConcept?.name ?? "—"} · converters in ${boundary.converterPackages.join(", ")}${boundary.explicitBidirectionalConversion ? " · bidirectional" : ""}${boundary.structuralOverlap === undefined ? "" : ` · Jaccard ${percent(boundary.structuralOverlap)}`}`
-    );
-  }
+  const visitBoundary = () => {
+    for (const boundary of intent.representationBoundaries) {
+      lines.push(
+        `    representation boundary ${boundary.overlappingConcept?.name ?? "—"} · converters in ${boundary.converterPackages.join(", ")}${boundary.explicitBidirectionalConversion ? " · bidirectional" : ""}${boundary.structuralOverlap === undefined ? "" : ` · Jaccard ${percent(boundary.structuralOverlap)}`}`
+      );
+    }
+  };
+  visitBoundary();
   lines.push("  evidence");
-  for (const entry of item.evidence) {
-    const value = Array.isArray(entry.value)
-      ? entry.value.join(", ")
-      : typeof entry.value === "number" &&
-          (SHARE_KINDS.has(entry.kind) || !Number.isInteger(entry.value))
-        ? percent(entry.value)
-        : String(entry.value);
-    lines.push(
-      `    ${entry.dimension.padEnd(15)} ${entry.kind.padEnd(34)} ${value}${entry.package === undefined ? "" : ` (${entry.package})`} · ${entry.source}`
-    );
-  }
+  const visitEntry = () => {
+    for (const entry of item.evidence) {
+      let value: string;
+      if (Array.isArray(entry.value)) {
+        value = entry.value.join(", ");
+      } else if (
+        typeof entry.value === "number" &&
+        (SHARE_KINDS.has(entry.kind) || !Number.isInteger(entry.value))
+      ) {
+        value = percent(entry.value);
+      } else {
+        value = String(entry.value);
+      }
+      lines.push(
+        `    ${entry.dimension.padEnd(15)} ${entry.kind.padEnd(34)} ${value}${entry.package === undefined ? "" : ` (${entry.package})`} · ${entry.source}`
+      );
+    }
+  };
+  visitEntry();
   for (const caution of item.cautions) {
     lines.push(`  caution  ${caution.kind}: ${caution.detail}`);
   }
   return lines.join("\n");
+}
+
+function resolveRenderRecenteringCandidate(
+  intent: RecenteringIntentContext
+): string {
+  if (intent.seedAnchored) {
+    return `seed package anchored${intent.anchorReason === undefined ? "" : ` (${intent.anchorReason})`}`;
+  }
+  return "seed package not anchored";
 }

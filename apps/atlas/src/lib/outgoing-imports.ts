@@ -1,4 +1,4 @@
-import * as path from "node:path";
+import { isAbsolute, relative as pathRelative } from "node:path";
 import type { Node, Project, SourceFile } from "ts-morph";
 
 import type { Boundary } from "./boundary";
@@ -37,7 +37,7 @@ export function collectOutgoingImports(
 ): OutgoingImportSite[] {
   const sites: OutgoingImportSite[] = [];
   const relative = (absolute: string) =>
-    toPosix(path.relative(boundary.root, absolute));
+    toPosix(pathRelative(boundary.root, absolute));
   const external = (file: SourceFile | undefined): SourceFile | undefined => {
     if (file === undefined) {
       return undefined;
@@ -49,8 +49,8 @@ export function collectOutgoingImports(
     if (filePath.includes("/node_modules/")) {
       return undefined;
     }
-    const rel = path.relative(boundary.root, filePath);
-    if (rel === "" || rel.startsWith("..") || path.isAbsolute(rel)) {
+    const rel = pathRelative(boundary.root, filePath);
+    if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) {
       return undefined;
     }
     return file;
@@ -89,26 +89,7 @@ export function collectOutgoingImports(
     if (!boundaryContains(boundary, file.getFilePath())) {
       continue;
     }
-    for (const declaration of file.getImportDeclarations()) {
-      const imported = external(declaration.getModuleSpecifierSourceFile());
-      if (imported === undefined) {
-        continue;
-      }
-      const declarationTypeOnly = declaration.isTypeOnly();
-      const defaultImport = declaration.getDefaultImport();
-      if (defaultImport !== undefined) {
-        push(file, imported, defaultImport, "default", declarationTypeOnly);
-      }
-      for (const specifier of declaration.getNamedImports()) {
-        push(
-          file,
-          imported,
-          specifier.getNameNode(),
-          specifier.getName(),
-          declarationTypeOnly || specifier.isTypeOnly()
-        );
-      }
-    }
+    collectOutgoingImportsDeclaration(file, external, push);
     for (const declaration of file.getExportDeclarations()) {
       const imported = external(declaration.getModuleSpecifierSourceFile());
       if (imported === undefined) {
@@ -131,4 +112,37 @@ export function collectOutgoingImports(
       a.sourceModule.localeCompare(b.sourceModule) ||
       a.symbolKey.localeCompare(b.symbolKey)
   );
+}
+
+function collectOutgoingImportsDeclaration(
+  file: SourceFile,
+  external: (file: SourceFile | undefined) => SourceFile | undefined,
+  push: (
+    file: SourceFile,
+    imported: SourceFile,
+    nameNode: Node,
+    name: string,
+    typeOnly: boolean
+  ) => void
+) {
+  for (const declaration of file.getImportDeclarations()) {
+    const imported = external(declaration.getModuleSpecifierSourceFile());
+    if (imported === undefined) {
+      continue;
+    }
+    const declarationTypeOnly = declaration.isTypeOnly();
+    const defaultImport = declaration.getDefaultImport();
+    if (defaultImport !== undefined) {
+      push(file, imported, defaultImport, "default", declarationTypeOnly);
+    }
+    for (const specifier of declaration.getNamedImports()) {
+      push(
+        file,
+        imported,
+        specifier.getNameNode(),
+        specifier.getName(),
+        declarationTypeOnly || specifier.isTypeOnly()
+      );
+    }
+  }
 }

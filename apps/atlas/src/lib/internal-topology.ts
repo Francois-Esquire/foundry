@@ -1,6 +1,11 @@
 import type { AnalysisConfig } from "./config";
 import { ANALYSIS_CONFIG } from "./config";
-import { buildAdjacency, condense, longestPathLengths } from "./gravity";
+import {
+  buildAdjacency,
+  type Condensation,
+  condense,
+  longestPathLengths,
+} from "./gravity";
 import type {
   InternalConsumedSymbol,
   InternalCycle,
@@ -23,7 +28,10 @@ import type {
   InternalTopologySummary,
 } from "./internal-topology-types";
 import { INTERNAL_PACKAGE_TOPOLOGY_SCHEMA_VERSION } from "./internal-topology-types";
-import type { PackageLocalReport } from "./package-local-types";
+import type {
+  PackageLocalImport,
+  PackageLocalReport,
+} from "./package-local-types";
 import type { FileKind } from "./types";
 
 // V13.0 internal package topology. A pure function of one
@@ -72,7 +80,7 @@ function nearestRank(sorted: number[], percentile: number): number {
 export function distribution(values: number[]): InternalDistribution {
   const sorted = [...values].sort((a, b) => a - b);
   return {
-    max: sorted[sorted.length - 1] ?? 0,
+    max: sorted.at(-1) ?? 0,
     median: nearestRank(sorted, 0.5),
     min: sorted[0] ?? 0,
     p90: nearestRank(sorted, 0.9),
@@ -157,54 +165,95 @@ function articulationPoints(
     low.set(root, time);
     time += 1;
     stack.push({ node: root, queue: [...(neighbors.get(root) ?? [])] });
-    while (stack.length > 0) {
-      const frame = stack[stack.length - 1];
-      if (frame === undefined) {
-        break;
-      }
-      const next = frame.queue.shift();
-      if (next !== undefined) {
-        if (next === frame.parent) {
-          continue;
-        }
-        if (discovered.has(next)) {
-          low.set(
-            frame.node,
-            Math.min(low.get(frame.node) ?? 0, discovered.get(next) ?? 0)
-          );
-          continue;
-        }
-        discovered.set(next, time);
-        low.set(next, time);
-        time += 1;
-        if (frame.node === root) {
-          rootChildren += 1;
-        }
-        stack.push({
-          node: next,
-          parent: frame.node,
-          queue: [...(neighbors.get(next) ?? [])],
-        });
-        continue;
-      }
-      stack.pop();
-      const parent = frame.parent;
-      if (parent === undefined) {
-        continue;
-      }
-      low.set(parent, Math.min(low.get(parent) ?? 0, low.get(frame.node) ?? 0));
-      if (
-        parent !== root &&
-        (low.get(frame.node) ?? 0) >= (discovered.get(parent) ?? 0)
-      ) {
-        points.add(parent);
-      }
-    }
+    ({ time, rootChildren } = articulationPointsEntries(
+      stack,
+      discovered,
+      low,
+      time,
+      root,
+      rootChildren,
+      neighbors,
+      points
+    ));
     if (rootChildren > 1) {
       points.add(root);
     }
   }
   return points;
+}
+
+function articulationPointsEntries(
+  stack: { node: string; parent?: string; queue: string[] }[],
+  discovered: Map<string, number>,
+  low: Map<string, number>,
+  initialTime: number,
+  root: string,
+  initialRootChildren: number,
+  neighbors: Map<string, Set<string>>,
+  points: Set<string>
+): { time: number; rootChildren: number } {
+  let rootChildren = initialRootChildren;
+  let time = initialTime;
+  while (stack.length > 0) {
+    const frame = stack.at(-1);
+    if (frame === undefined) {
+      break;
+    }
+    const next = frame.queue.shift();
+    if (next !== undefined) {
+      if (next === frame.parent) {
+        continue;
+      }
+      if (discovered.has(next)) {
+        low.set(
+          frame.node,
+          Math.min(low.get(frame.node) ?? 0, discovered.get(next) ?? 0)
+        );
+        continue;
+      }
+      discovered.set(next, time);
+      low.set(next, time);
+      time += 1;
+      rootChildren += Number(frame.node === root);
+      stack.push({
+        node: next,
+        parent: frame.node,
+        queue: [...(neighbors.get(next) ?? [])],
+      });
+      continue;
+    }
+    stack.pop();
+    const { parent } = frame;
+    if (parent === undefined) {
+      continue;
+    }
+    low.set(parent, Math.min(low.get(parent) ?? 0, low.get(frame.node) ?? 0));
+    articulationPointsEntriesEntries(
+      parent,
+      root,
+      low,
+      frame,
+      discovered,
+      points
+    );
+  }
+  return { rootChildren, time };
+}
+
+function articulationPointsEntriesEntries(
+  parent: string,
+  root: string,
+  low: Map<string, number>,
+  frame: { node: string; parent?: string; queue: string[] },
+  discovered: Map<string, number>,
+  points: Set<string>
+) {
+  if (
+    parent !== root &&
+    (low.get(frame.node) ?? 0) >= (discovered.get(parent) ?? 0)
+  ) {
+    points.add(parent);
+  }
 }
 
 function weakComponentCount(
@@ -252,7 +301,7 @@ class SymbolResolver {
     report: Pick<PackageLocalReport, "symbols" | "imports" | "defaultExports">,
     relative: (rootRelative: string) => string
   ) {
-    const byId = new Map<string, Resolution>();
+    const resolutionsById = new Map<string, Resolution>();
     for (const symbol of report.symbols) {
       const module = relative(symbol.declarationFile);
       const names = this.declared.get(module) ?? new Map<string, Resolution>();
@@ -260,8 +309,8 @@ class SymbolResolver {
       if (!names.has(symbol.name)) {
         names.set(symbol.name, resolution);
       }
-      if (!byId.has(symbol.id)) {
-        byId.set(symbol.id, resolution);
+      if (!resolutionsById.has(symbol.id)) {
+        resolutionsById.set(symbol.id, resolution);
       }
       this.declared.set(module, names);
     }
@@ -272,7 +321,7 @@ class SymbolResolver {
       if (entry.symbolId === undefined) {
         continue;
       }
-      const resolution = byId.get(entry.symbolId);
+      const resolution = resolutionsById.get(entry.symbolId);
       if (resolution === undefined) {
         continue;
       }
@@ -283,6 +332,13 @@ class SymbolResolver {
       }
       this.declared.set(module, names);
     }
+    this.registerImports(report, relative);
+  }
+
+  private registerImports(
+    report: Pick<PackageLocalReport, "imports">,
+    relative: (rootRelative: string) => string
+  ): void {
     for (const site of report.imports) {
       if (site.scope !== "internal" || site.targetModule === undefined) {
         continue;
@@ -371,122 +427,40 @@ export function analyzeInternalPackageTopology(
 
   const declaredCount = new Map<string, number>();
   const exportedCount = new Map<string, number>();
-  for (const symbol of report.symbols) {
-    const module = relative(symbol.declarationFile);
-    declaredCount.set(module, (declaredCount.get(module) ?? 0) + 1);
-    if (symbol.exported) {
-      exportedCount.set(module, (exportedCount.get(module) ?? 0) + 1);
-    }
-  }
+  analyzeInternalPackageTopologySymbol(
+    report,
+    relative,
+    declaredCount,
+    exportedCount
+  );
 
   const resolver = new SymbolResolver(report, relative);
 
   const accumulators = new Map<SiteKey, EdgeAccumulator>();
   const selfImports = new Set<string>();
   const externalSpecifiers = new Map<string, Set<string>>();
-  for (const site of report.imports) {
-    const source = relative(site.sourceModule);
-    if (!kindOf.has(source)) {
-      continue;
-    }
-    if (site.scope === "external" || site.targetModule === undefined) {
-      const specifiers = externalSpecifiers.get(source) ?? new Set<string>();
-      specifiers.add(site.specifier);
-      externalSpecifiers.set(source, specifiers);
-      continue;
-    }
-    const target = relative(site.targetModule);
-    if (!kindOf.has(target)) {
-      continue;
-    }
-    if (source === target) {
-      selfImports.add(source);
-      continue;
-    }
-    const key = `${source} ${target}`;
-    const edge = accumulators.get(key) ?? {
-      bindingOccurrences: 0,
-      importSites: 0,
-      namespaceSites: 0,
-      reExportSites: 0,
-      sideEffectSites: 0,
-      source,
-      symbols: new Map<string, InternalEdgeSymbol>(),
-      target,
-      typeOnlySites: 0,
-      valueSites: 0,
-    };
-    accumulators.set(key, edge);
-    edge.importSites += 1;
-    if (site.kind === "re-export" || site.kind === "star-re-export") {
-      edge.reExportSites += 1;
-    }
-    if (site.typeOnly) {
-      edge.typeOnlySites += 1;
-    } else {
-      edge.valueSites += 1;
-    }
-    if (site.kind === "namespace") {
-      edge.namespaceSites += 1;
-    }
-    if (site.kind === "side-effect") {
-      edge.sideEffectSites += 1;
-    }
-    edge.bindingOccurrences += site.bindingOccurrences ?? 0;
-    const symbolOn = (name: string) => {
-      const symbol = edge.symbols.get(name) ?? {
-        name,
-        ...resolver.resolve(target, name),
-        bindingOccurrences: 0,
-        importSites: 0,
-        mediated: false,
-        namespaceSites: 0,
-        reExportSites: 0,
-        typeOnlySites: 0,
-      };
-      symbol.mediated =
-        symbol.declarationModule !== undefined &&
-        symbol.declarationModule !== target;
-      edge.symbols.set(name, symbol);
-      return symbol;
-    };
-    if (site.kind === "namespace") {
-      // Only members actually accessed through the binding count; a bare use
-      // of the namespace names no symbol and stays a namespace site.
-      for (const member of site.members ?? []) {
-        const symbol = symbolOn(member.name);
-        symbol.namespaceSites += 1;
-        if (site.typeOnly) {
-          symbol.typeOnlySites += 1;
-        }
-        symbol.bindingOccurrences += member.occurrences;
-      }
-      continue;
-    }
-    if (site.importedName === undefined) {
-      continue;
-    }
-    const symbol = symbolOn(site.importedName);
-    symbol.importSites += 1;
-    if (site.kind === "re-export") {
-      symbol.reExportSites += 1;
-    }
-    if (site.typeOnly) {
-      symbol.typeOnlySites += 1;
-    }
-    symbol.bindingOccurrences += site.bindingOccurrences ?? 0;
-  }
+  analyzeInternalPackageTopologySite(
+    report,
+    relative,
+    kindOf,
+    externalSpecifiers,
+    selfImports,
+    accumulators,
+    resolver
+  );
 
   const edges: InternalModuleEdge[] = [...accumulators.values()]
     .map((edge) => {
       const sourceDirectory = directoryOf(edge.source);
       const targetDirectory = directoryOf(edge.target);
-      const locality: InternalEdgeLocality =
-        sourceDirectory === targetDirectory
-          ? "same-directory"
-          : regionOfModule(edge.source) === regionOfModule(edge.target)
-            ? "same-region"
-            : "cross-region";
+      let locality: InternalEdgeLocality;
+      if (sourceDirectory === targetDirectory) {
+        locality = "same-directory";
+      } else if (regionOfModule(edge.source) === regionOfModule(edge.target)) {
+        locality = "same-region";
+      } else {
+        locality = "cross-region";
+      }
       return {
         bindingOccurrences: edge.bindingOccurrences,
         distance: directoryDistance(sourceDirectory, targetDirectory),
@@ -532,30 +506,68 @@ export function analyzeInternalPackageTopology(
   const outgoingSites = new Map<string, number>();
   const consumedNames = new Map<string, Set<string>>();
   const contextConsumers = new Map<string, Set<string>>();
-  for (const edge of edges) {
-    if (edge.primary) {
-      incomingSites.set(
-        edge.target,
-        (incomingSites.get(edge.target) ?? 0) + edge.importSites
-      );
-      outgoingSites.set(
-        edge.source,
-        (outgoingSites.get(edge.source) ?? 0) + edge.importSites
-      );
-      const names = consumedNames.get(edge.source) ?? new Set<string>();
-      for (const symbol of edge.symbols) {
-        names.add(symbol.name);
+  const visitEdge3 = () => {
+    for (const edge of edges) {
+      if (edge.primary) {
+        incomingSites.set(
+          edge.target,
+          (incomingSites.get(edge.target) ?? 0) + edge.importSites
+        );
+        outgoingSites.set(
+          edge.source,
+          (outgoingSites.get(edge.source) ?? 0) + edge.importSites
+        );
+        const names = consumedNames.get(edge.source) ?? new Set<string>();
+        for (const symbol of edge.symbols) {
+          names.add(symbol.name);
+        }
+        consumedNames.set(edge.source, names);
+      } else if (isPrimary(edge.target) && !isPrimary(edge.source)) {
+        const consumers =
+          contextConsumers.get(edge.target) ?? new Set<string>();
+        consumers.add(edge.source);
+        contextConsumers.set(edge.target, consumers);
       }
-      consumedNames.set(edge.source, names);
-    } else if (isPrimary(edge.target) && !isPrimary(edge.source)) {
-      const consumers = contextConsumers.get(edge.target) ?? new Set<string>();
-      consumers.add(edge.source);
-      contextConsumers.set(edge.target, consumers);
     }
-  }
+  };
+  visitEdge3();
 
   // Internal consumed surface: every resolved symbol on a primary edge,
   // attributed to its declaring module rather than the module imported from.
+  const visitEdge4 = () => {
+    for (const edge of primaryEdges) {
+      for (const symbol of edge.symbols) {
+        if (
+          symbol.symbolId === undefined ||
+          symbol.declarationModule === undefined ||
+          symbol.declarationModule === edge.source ||
+          symbol.reExportSites === symbol.importSites + symbol.namespaceSites
+        ) {
+          continue;
+        }
+        const entry = consumed.get(symbol.symbolId) ?? {
+          consumers: new Map<string, InternalSymbolConsumer>(),
+          module: symbol.declarationModule,
+          name: symbolById.get(symbol.symbolId)?.name ?? symbol.name,
+          symbolId: symbol.symbolId,
+        };
+        consumed.set(symbol.symbolId, entry);
+        const consumer = entry.consumers.get(edge.source) ?? {
+          bindingOccurrences: 0,
+          importSites: 0,
+          module: edge.source,
+          namespaceSites: 0,
+          typeOnlySites: 0,
+          ...(symbol.mediated && { via: edge.target }),
+        };
+        consumer.importSites += symbol.importSites;
+        consumer.typeOnlySites += symbol.typeOnlySites;
+        consumer.namespaceSites += symbol.namespaceSites;
+        consumer.bindingOccurrences += symbol.bindingOccurrences;
+        entry.consumers.set(edge.source, consumer);
+      }
+    }
+  };
   // A site that only forwards the symbol (`export … from`) is not a consumer.
   const consumed = new Map<
     string,
@@ -569,38 +581,7 @@ export function analyzeInternalPackageTopology(
   const symbolById = new Map(
     report.symbols.map((symbol) => [symbol.id, symbol])
   );
-  for (const edge of primaryEdges) {
-    for (const symbol of edge.symbols) {
-      if (
-        symbol.symbolId === undefined ||
-        symbol.declarationModule === undefined ||
-        symbol.declarationModule === edge.source ||
-        symbol.reExportSites === symbol.importSites + symbol.namespaceSites
-      ) {
-        continue;
-      }
-      const entry = consumed.get(symbol.symbolId) ?? {
-        consumers: new Map<string, InternalSymbolConsumer>(),
-        module: symbol.declarationModule,
-        name: symbolById.get(symbol.symbolId)?.name ?? symbol.name,
-        symbolId: symbol.symbolId,
-      };
-      consumed.set(symbol.symbolId, entry);
-      const consumer = entry.consumers.get(edge.source) ?? {
-        bindingOccurrences: 0,
-        importSites: 0,
-        module: edge.source,
-        namespaceSites: 0,
-        typeOnlySites: 0,
-        ...(symbol.mediated && { via: edge.target }),
-      };
-      consumer.importSites += symbol.importSites;
-      consumer.typeOnlySites += symbol.typeOnlySites;
-      consumer.namespaceSites += symbol.namespaceSites;
-      consumer.bindingOccurrences += symbol.bindingOccurrences;
-      entry.consumers.set(edge.source, consumer);
-    }
-  }
+  visitEdge4();
   const consumedSurface: InternalConsumedSymbol[] = [...consumed.values()]
     .map((entry) => {
       const consumers = [...entry.consumers.values()].sort((a, b) =>
@@ -637,30 +618,19 @@ export function analyzeInternalPackageTopology(
     );
   const providedByModule = new Map<string, Set<string>>();
   const consumersByModule = new Map<string, Set<string>>();
-  for (const symbol of consumedSurface) {
-    const provided =
-      providedByModule.get(symbol.declarationModule) ?? new Set();
-    provided.add(symbol.symbolId);
-    providedByModule.set(symbol.declarationModule, provided);
-    const consumers =
-      consumersByModule.get(symbol.declarationModule) ?? new Set();
-    for (const consumer of symbol.consumers) {
-      consumers.add(consumer.module);
-    }
-    consumersByModule.set(symbol.declarationModule, consumers);
-  }
+  analyzeInternalPackageTopologySymbol2(
+    consumedSurface,
+    providedByModule,
+    consumersByModule
+  );
 
   const cycleIds = new Map<string, string>();
   const componentMembers = new Map<string, string[]>();
-  for (const module of primaryModules) {
-    const component = condensation.componentOf.get(module);
-    if (component === undefined) {
-      continue;
-    }
-    const members = componentMembers.get(component) ?? [];
-    members.push(module);
-    componentMembers.set(component, members);
-  }
+  analyzeInternalPackageTopologyModule(
+    primaryModules,
+    condensation,
+    componentMembers
+  );
   const cyclicComponents = [...componentMembers.entries()]
     .filter(([, members]) => members.length > 1)
     .map(([component, members]) => ({ component, members: members.sort() }))
@@ -715,28 +685,63 @@ export function analyzeInternalPackageTopology(
   // is a node, so the hierarchy is complete even where a level holds no file.
   const directoryModules = new Map<string, string[]>();
   const descendants = new Map<string, number>([[ROOT_DIRECTORY, 0]]);
-  for (const id of moduleIds) {
-    const owning = directoryOf(id);
-    const list = directoryModules.get(owning) ?? [];
-    list.push(id);
-    directoryModules.set(owning, list);
-    for (const ancestor of lineage(owning)) {
-      descendants.set(ancestor, (descendants.get(ancestor) ?? 0) + 1);
+  analyzeInternalPackageTopologyId2(moduleIds, directoryModules, descendants);
+  const visitEdge = () => {
+    for (const edge of primaryEdges) {
+      const fromLineage = lineage(directoryOf(edge.source));
+      const toLineage = new Set(lineage(directoryOf(edge.target)));
+      for (const directory of fromLineage) {
+        const stats = directoryStats.get(directory);
+        if (stats === undefined) {
+          continue;
+        }
+        if (toLineage.has(directory)) {
+          stats.internal += 1;
+          toLineage.delete(directory);
+        } else {
+          stats.outgoing += 1;
+        }
+      }
+      for (const directory of toLineage) {
+        const stats = directoryStats.get(directory);
+        if (stats !== undefined) {
+          stats.incoming += 1;
+        }
+      }
     }
-  }
+  };
   const directoryIds = [...descendants.keys()].sort((a, b) =>
     a.localeCompare(b)
   );
   const children = new Map<string, string[]>();
-  for (const id of directoryIds) {
-    const parent = parentOf(id);
-    if (parent === undefined) {
-      continue;
+  analyzeInternalPackageTopologyId3(directoryIds, children);
+  const visitEdge5 = () => {
+    for (const edge of primaryEdges) {
+      const from = directoryOf(edge.source);
+      const to = directoryOf(edge.target);
+      if (from === to) {
+        continue;
+      }
+      const key = `${from} ${to}`;
+      const entry = directoryEdgeMap.get(key) ?? {
+        from,
+        importSites: 0,
+        moduleEdges: 0,
+        sources: new Set<string>(),
+        symbols: new Set<string>(),
+        targets: new Set<string>(),
+        to,
+      };
+      directoryEdgeMap.set(key, entry);
+      entry.moduleEdges += 1;
+      entry.importSites += edge.importSites;
+      for (const symbol of edge.symbols) {
+        entry.symbols.add(symbol.name);
+      }
+      entry.sources.add(edge.source);
+      entry.targets.add(edge.target);
     }
-    const list = children.get(parent) ?? [];
-    list.push(id);
-    children.set(parent, list);
-  }
+  };
   const directoryStats = new Map<
     string,
     { internal: number; incoming: number; outgoing: number }
@@ -746,28 +751,7 @@ export function analyzeInternalPackageTopology(
   }
   // An edge is internal to every shared ancestor, outgoing from the
   // source-only ancestors, incoming to the target-only ones.
-  for (const edge of primaryEdges) {
-    const fromLineage = lineage(directoryOf(edge.source));
-    const toLineage = new Set(lineage(directoryOf(edge.target)));
-    for (const directory of fromLineage) {
-      const stats = directoryStats.get(directory);
-      if (stats === undefined) {
-        continue;
-      }
-      if (toLineage.has(directory)) {
-        stats.internal += 1;
-        toLineage.delete(directory);
-      } else {
-        stats.outgoing += 1;
-      }
-    }
-    for (const directory of toLineage) {
-      const stats = directoryStats.get(directory);
-      if (stats !== undefined) {
-        stats.incoming += 1;
-      }
-    }
-  }
+  visitEdge();
   const directories: InternalDirectoryNode[] = directoryIds.map((id) => {
     const parent = parentOf(id);
     const stats = directoryStats.get(id) ?? {
@@ -801,31 +785,7 @@ export function analyzeInternalPackageTopology(
       targets: Set<string>;
     }
   >();
-  for (const edge of primaryEdges) {
-    const from = directoryOf(edge.source);
-    const to = directoryOf(edge.target);
-    if (from === to) {
-      continue;
-    }
-    const key = `${from} ${to}`;
-    const entry = directoryEdgeMap.get(key) ?? {
-      from,
-      importSites: 0,
-      moduleEdges: 0,
-      sources: new Set<string>(),
-      symbols: new Set<string>(),
-      targets: new Set<string>(),
-      to,
-    };
-    directoryEdgeMap.set(key, entry);
-    entry.moduleEdges += 1;
-    entry.importSites += edge.importSites;
-    for (const symbol of edge.symbols) {
-      entry.symbols.add(symbol.name);
-    }
-    entry.sources.add(edge.source);
-    entry.targets.add(edge.target);
-  }
+  visitEdge5();
   const directoryEdges: InternalDirectoryEdge[] = [...directoryEdgeMap.values()]
     .map((entry) => ({
       from: entry.from,
@@ -837,6 +797,33 @@ export function analyzeInternalPackageTopology(
       to: entry.to,
     }))
     .sort((a, b) => a.from.localeCompare(b.from) || a.to.localeCompare(b.to));
+  const visitEdge2 = () => {
+    for (const edge of primaryEdges) {
+      const from = regionOfModule(edge.source);
+      const to = regionOfModule(edge.target);
+      if (from === to) {
+        const stats = regionStats.get(from);
+        if (stats !== undefined) {
+          stats.internal += 1;
+        }
+        continue;
+      }
+      const fromStats = regionStats.get(from);
+      const toStats = regionStats.get(to);
+      if (fromStats !== undefined) {
+        fromStats.outgoing += 1;
+        fromStats.outbound.add(edge.source);
+      }
+      if (toStats !== undefined) {
+        toStats.incoming += 1;
+        toStats.inbound.add(edge.target);
+      }
+      const key = `${from} ${to}`;
+      const seam = seamMap.get(key) ?? { edges: [], from, to };
+      seam.edges.push(edge);
+      seamMap.set(key, seam);
+    }
+  };
 
   const regionModules = new Map<string, string[]>();
   for (const id of moduleIds) {
@@ -876,31 +863,7 @@ export function analyzeInternalPackageTopology(
       outgoing: 0,
     });
   }
-  for (const edge of primaryEdges) {
-    const from = regionOfModule(edge.source);
-    const to = regionOfModule(edge.target);
-    if (from === to) {
-      const stats = regionStats.get(from);
-      if (stats !== undefined) {
-        stats.internal += 1;
-      }
-      continue;
-    }
-    const fromStats = regionStats.get(from);
-    const toStats = regionStats.get(to);
-    if (fromStats !== undefined) {
-      fromStats.outgoing += 1;
-      fromStats.outbound.add(edge.source);
-    }
-    if (toStats !== undefined) {
-      toStats.incoming += 1;
-      toStats.inbound.add(edge.target);
-    }
-    const key = `${from} ${to}`;
-    const seam = seamMap.get(key) ?? { edges: [], from, to };
-    seam.edges.push(edge);
-    seamMap.set(key, seam);
-  }
+  visitEdge2();
   const regions: InternalRegionNode[] = [...regionModules.entries()]
     .map(([id, list]) => {
       const stats = regionStats.get(id);
@@ -1015,12 +978,14 @@ export function analyzeInternalPackageTopology(
       ).length;
       const cycleDirectories = [...new Set(members.map(directoryOf))].sort();
       const cycleRegions = [...new Set(members.map(regionOfModule))].sort();
-      const scope: InternalCycleScope =
-        cycleDirectories.length === 1
-          ? "directory"
-          : cycleRegions.length === 1
-            ? "region"
-            : "cross-region";
+      let scope: InternalCycleScope;
+      if (cycleDirectories.length === 1) {
+        scope = "directory";
+      } else if (cycleRegions.length === 1) {
+        scope = "region";
+      } else {
+        scope = "cross-region";
+      }
       const symbols = symbolCounts(internal);
       return {
         directories: cycleDirectories,
@@ -1039,14 +1004,7 @@ export function analyzeInternalPackageTopology(
   );
 
   const layerMap = new Map<number, string[]>();
-  for (const module of modules) {
-    if (module.layer === undefined) {
-      continue;
-    }
-    const list = layerMap.get(module.layer) ?? [];
-    list.push(module.id);
-    layerMap.set(module.layer, list);
-  }
+  analyzeInternalPackageTopologyModule2(modules, layerMap);
   const layers: InternalLayer[] = [...layerMap.entries()]
     .sort((a, b) => a[0] - b[0])
     .map(([index, list]) => ({ index, modules: list.sort() }));
@@ -1068,44 +1026,14 @@ export function analyzeInternalPackageTopology(
   const highFanCutoff = { fanIn: cutoff(fanIns), fanOut: cutoff(fanOuts) };
 
   const roles: InternalModuleRoleAssignment[] = [];
-  for (const id of primaryModules) {
-    const module = moduleById.get(id);
-    if (module === undefined) {
-      continue;
-    }
-    const assigned: InternalModuleRole[] = [];
-    if (module.fanIn === 0 && module.fanOut === 0) {
-      assigned.push("isolated");
-    } else if (module.fanIn === 0) {
-      assigned.push("dependency-source");
-    } else if (module.fanOut === 0) {
-      assigned.push("dependency-sink");
-    }
-    if (module.fanIn >= highFanCutoff.fanIn) {
-      assigned.push("high-fan-in");
-    }
-    if (module.fanOut >= highFanCutoff.fanOut) {
-      assigned.push("high-fan-out");
-    }
-    if (module.syntacticRole.kind === "aggregator") {
-      assigned.push("aggregator");
-    }
-    if (articulation.has(id)) {
-      assigned.push("bridge");
-    }
-    if (
-      (undirected.get(id)?.size ?? 0) === 1 &&
-      module.syntacticRole.kind !== "aggregator"
-    ) {
-      assigned.push("satellite");
-    }
-    if (module.cycle !== undefined) {
-      assigned.push("cycle-member");
-    }
-    if (assigned.length > 0) {
-      roles.push({ module: id, roles: assigned });
-    }
-  }
+  analyzeInternalPackageTopologyId(
+    primaryModules,
+    moduleById,
+    highFanCutoff,
+    articulation,
+    undirected,
+    roles
+  );
   const roleCount = (role: InternalModuleRole) =>
     roles.filter((assignment) => assignment.roles.includes(role)).length;
 
@@ -1208,6 +1136,194 @@ export interface InternalModuleNeighborhood {
   provided: InternalConsumedSymbol[];
 }
 
+function analyzeInternalPackageTopologyModule2(
+  modules: InternalModuleNode[],
+  layerMap: Map<number, string[]>
+) {
+  for (const module of modules) {
+    if (module.layer === undefined) {
+      continue;
+    }
+    const list = layerMap.get(module.layer) ?? [];
+    list.push(module.id);
+    layerMap.set(module.layer, list);
+  }
+}
+
+function analyzeInternalPackageTopologyId3(
+  directoryIds: string[],
+  children: Map<string, string[]>
+) {
+  for (const id of directoryIds) {
+    const parent = parentOf(id);
+    if (parent === undefined) {
+      continue;
+    }
+    const list = children.get(parent) ?? [];
+    list.push(id);
+    children.set(parent, list);
+  }
+}
+
+function analyzeInternalPackageTopologyId2(
+  moduleIds: string[],
+  directoryModules: Map<string, string[]>,
+  descendants: Map<string, number>
+) {
+  for (const id of moduleIds) {
+    const owning = directoryOf(id);
+    const list = directoryModules.get(owning) ?? [];
+    list.push(id);
+    directoryModules.set(owning, list);
+    for (const ancestor of lineage(owning)) {
+      descendants.set(ancestor, (descendants.get(ancestor) ?? 0) + 1);
+    }
+  }
+}
+
+function analyzeInternalPackageTopologyModule(
+  primaryModules: string[],
+  condensation: Condensation,
+  componentMembers: Map<string, string[]>
+) {
+  for (const module of primaryModules) {
+    const component = condensation.componentOf.get(module);
+    if (component === undefined) {
+      continue;
+    }
+    const members = componentMembers.get(component) ?? [];
+    members.push(module);
+    componentMembers.set(component, members);
+  }
+}
+
+function analyzeInternalPackageTopologySymbol2(
+  consumedSurface: InternalConsumedSymbol[],
+  providedByModule: Map<string, Set<string>>,
+  consumersByModule: Map<string, Set<string>>
+) {
+  for (const symbol of consumedSurface) {
+    const provided =
+      providedByModule.get(symbol.declarationModule) ?? new Set();
+    provided.add(symbol.symbolId);
+    providedByModule.set(symbol.declarationModule, provided);
+    const consumers =
+      consumersByModule.get(symbol.declarationModule) ?? new Set();
+    for (const consumer of symbol.consumers) {
+      consumers.add(consumer.module);
+    }
+    consumersByModule.set(symbol.declarationModule, consumers);
+  }
+}
+
+function analyzeInternalPackageTopologySymbol(
+  report: PackageLocalReport,
+  relative: (rootRelative: string) => string,
+  declaredCount: Map<string, number>,
+  exportedCount: Map<string, number>
+) {
+  for (const symbol of report.symbols) {
+    const module = relative(symbol.declarationFile);
+    declaredCount.set(module, (declaredCount.get(module) ?? 0) + 1);
+    if (symbol.exported) {
+      exportedCount.set(module, (exportedCount.get(module) ?? 0) + 1);
+    }
+  }
+}
+
+function analyzeInternalPackageTopologySite(
+  report: PackageLocalReport,
+  relative: (rootRelative: string) => string,
+  kindOf: Map<string, FileKind>,
+  externalSpecifiers: Map<string, Set<string>>,
+  selfImports: Set<string>,
+  accumulators: Map<string, EdgeAccumulator>,
+  resolver: SymbolResolver
+) {
+  const visitSite = (site: PackageLocalImport) =>
+    resolveVisitSite(
+      relative,
+      kindOf,
+      externalSpecifiers,
+      selfImports,
+      accumulators,
+      resolver,
+      site
+    );
+  for (const site of report.imports) {
+    visitSite(site);
+  }
+}
+
+function analyzeInternalPackageTopologySiteMember(
+  site: PackageLocalImport,
+  symbolOn: (name: string) => InternalEdgeSymbol
+) {
+  for (const member of site.members ?? []) {
+    const symbol = symbolOn(member.name);
+    symbol.namespaceSites += 1;
+    if (site.typeOnly) {
+      symbol.typeOnlySites += 1;
+    }
+    symbol.bindingOccurrences += member.occurrences;
+  }
+}
+
+function analyzeInternalPackageTopologyId(
+  primaryModules: string[],
+  moduleById: Map<string, InternalModuleNode>,
+  highFanCutoff: { fanIn: number; fanOut: number },
+  articulation: Set<string>,
+  undirected: Map<string, Set<string>>,
+  roles: InternalModuleRoleAssignment[]
+) {
+  for (const id of primaryModules) {
+    const module = moduleById.get(id);
+    if (module === undefined) {
+      continue;
+    }
+    const assigned: InternalModuleRole[] = [];
+    analyzeInternalPackageTopologyIdEntries(module, assigned);
+    if (module.fanIn >= highFanCutoff.fanIn) {
+      assigned.push("high-fan-in");
+    }
+    if (module.fanOut >= highFanCutoff.fanOut) {
+      assigned.push("high-fan-out");
+    }
+    if (module.syntacticRole.kind === "aggregator") {
+      assigned.push("aggregator");
+    }
+    if (articulation.has(id)) {
+      assigned.push("bridge");
+    }
+    if (
+      (undirected.get(id)?.size ?? 0) === 1 &&
+      module.syntacticRole.kind !== "aggregator"
+    ) {
+      assigned.push("satellite");
+    }
+    if (module.cycle !== undefined) {
+      assigned.push("cycle-member");
+    }
+    if (assigned.length > 0) {
+      roles.push({ module: id, roles: assigned });
+    }
+  }
+}
+
+function analyzeInternalPackageTopologyIdEntries(
+  module: InternalModuleNode,
+  assigned: InternalModuleRole[]
+) {
+  if (module.fanIn === 0 && module.fanOut === 0) {
+    assigned.push("isolated");
+  } else if (module.fanIn === 0) {
+    assigned.push("dependency-source");
+  } else if (module.fanOut === 0) {
+    assigned.push("dependency-sink");
+  }
+}
+
 export function getModuleNeighborhood(
   topology: InternalPackageTopology,
   id: string
@@ -1230,54 +1346,96 @@ export function getModuleNeighborhood(
     ),
   };
 }
-
-export function getSymbolNeighborhood(
-  topology: InternalPackageTopology,
-  symbolId: string
-): InternalConsumedSymbol | undefined {
-  return topology.consumedSurface.find(
-    (symbol) => symbol.symbolId === symbolId
-  );
-}
-
-export interface InternalDirectoryNeighborhood {
-  children: InternalDirectoryNode[];
-  directory: InternalDirectoryNode;
-  inbound: InternalDirectoryEdge[];
-  outbound: InternalDirectoryEdge[];
-}
-
-export function getDirectoryNeighborhood(
-  topology: InternalPackageTopology,
-  id: string
-): InternalDirectoryNeighborhood | undefined {
-  const directory = topology.directories.find(
-    (candidate) => candidate.id === id
-  );
-  if (directory === undefined) {
-    return undefined;
+function resolveVisitSite(
+  relative: (rootRelative: string) => string,
+  kindOf: Map<string, FileKind>,
+  externalSpecifiers: Map<string, Set<string>>,
+  selfImports: Set<string>,
+  accumulators: Map<string, EdgeAccumulator>,
+  resolver: SymbolResolver,
+  site: PackageLocalImport
+) {
+  const source = relative(site.sourceModule);
+  if (!kindOf.has(source)) {
+    return;
   }
-  return {
-    children: topology.directories.filter(
-      (candidate) => candidate.parent === id
-    ),
-    directory,
-    inbound: topology.directoryEdges.filter((edge) => edge.to === id),
-    outbound: topology.directoryEdges.filter((edge) => edge.from === id),
+  if (site.scope === "external" || site.targetModule === undefined) {
+    const specifiers = externalSpecifiers.get(source) ?? new Set<string>();
+    specifiers.add(site.specifier);
+    externalSpecifiers.set(source, specifiers);
+    return;
+  }
+  const target = relative(site.targetModule);
+  if (!kindOf.has(target)) {
+    return;
+  }
+  if (source === target) {
+    selfImports.add(source);
+    return;
+  }
+  const key = `${source} ${target}`;
+  const edge = accumulators.get(key) ?? {
+    bindingOccurrences: 0,
+    importSites: 0,
+    namespaceSites: 0,
+    reExportSites: 0,
+    sideEffectSites: 0,
+    source,
+    symbols: new Map<string, InternalEdgeSymbol>(),
+    target,
+    typeOnlySites: 0,
+    valueSites: 0,
   };
-}
-
-export function getSeam(
-  topology: InternalPackageTopology,
-  from: string,
-  to: string
-): InternalSeam | undefined {
-  return topology.seams.find((seam) => seam.from === from && seam.to === to);
-}
-
-export function getCycle(
-  topology: InternalPackageTopology,
-  id: string
-): InternalCycle | undefined {
-  return topology.cycles.find((cycle) => cycle.id === id);
+  accumulators.set(key, edge);
+  edge.importSites += 1;
+  if (site.kind === "re-export" || site.kind === "star-re-export") {
+    edge.reExportSites += 1;
+  }
+  if (site.typeOnly) {
+    edge.typeOnlySites += 1;
+  } else {
+    edge.valueSites += 1;
+  }
+  if (site.kind === "namespace") {
+    edge.namespaceSites += 1;
+  }
+  if (site.kind === "side-effect") {
+    edge.sideEffectSites += 1;
+  }
+  edge.bindingOccurrences += site.bindingOccurrences ?? 0;
+  const symbolOn = (name: string) => {
+    const symbol = edge.symbols.get(name) ?? {
+      name,
+      ...resolver.resolve(target, name),
+      bindingOccurrences: 0,
+      importSites: 0,
+      mediated: false,
+      namespaceSites: 0,
+      reExportSites: 0,
+      typeOnlySites: 0,
+    };
+    symbol.mediated =
+      symbol.declarationModule !== undefined &&
+      symbol.declarationModule !== target;
+    edge.symbols.set(name, symbol);
+    return symbol;
+  };
+  if (site.kind === "namespace") {
+    // Only members actually accessed through the binding count; a bare use
+    // of the namespace names no symbol and stays a namespace site.
+    analyzeInternalPackageTopologySiteMember(site, symbolOn);
+    return;
+  }
+  if (site.importedName === undefined) {
+    return;
+  }
+  const symbol = symbolOn(site.importedName);
+  symbol.importSites += 1;
+  if (site.kind === "re-export") {
+    symbol.reExportSites += 1;
+  }
+  if (site.typeOnly) {
+    symbol.typeOnlySites += 1;
+  }
+  symbol.bindingOccurrences += site.bindingOccurrences ?? 0;
 }

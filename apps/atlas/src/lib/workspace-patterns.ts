@@ -47,7 +47,13 @@ import type {
 // walks every concept against every boundary.
 
 function byId(a: string, b: string): number {
-  return a < b ? -1 : a > b ? 1 : 0;
+  if (a < b) {
+    return -1;
+  }
+  if (a > b) {
+    return 1;
+  }
+  return 0;
 }
 
 function sorted(values: Iterable<string>): string[] {
@@ -205,9 +211,9 @@ export function reviewGravityCenter(
   finding: WorkspaceRecenteringFinding
 ): string | null {
   const declared = finding.concept.package;
-  const strongest = finding.observedCenters
+  const [strongest] = finding.observedCenters
     .filter((c) => c.target !== declared)
-    .sort((a, b) => b.gravity - a.gravity || byId(a.target, b.target))[0];
+    .sort((a, b) => b.gravity - a.gravity || byId(a.target, b.target));
   return strongest?.target ?? null;
 }
 
@@ -311,27 +317,7 @@ function buildContext(
     (p) => p.coverage === "authoritative"
   );
   const couplings = new Map<string, PairCouplings>();
-  for (const placement of authoritative) {
-    for (const coupling of placement.evolution?.strongMemberCouplings ?? []) {
-      if (coupling.scope !== "cross-package") {
-        continue;
-      }
-      const key = pairId(coupling.leftPackage, coupling.rightPackage);
-      let entry = couplings.get(key);
-      if (entry === undefined) {
-        entry = { concepts: new Set(), ids: new Map(), withPath: new Set() };
-        couplings.set(key, entry);
-      }
-      entry.ids.set(coupling.id, coupling.coChangeCommits);
-      entry.concepts.add(placement.concept.id);
-      if (
-        coupling.dependencyPath.forward !== null ||
-        coupling.dependencyPath.reverse !== null
-      ) {
-        entry.withPath.add(coupling.id);
-      }
-    }
-  }
+  visitPlacement2();
   const converters = new Map(
     concepts.relationships.pairs.map((p) => [p.pair, p.converterPackages])
   );
@@ -373,6 +359,30 @@ function buildContext(
     seams: new Set(graph.seams.map((s) => s.id)),
     workspace,
   };
+
+  function visitPlacement2() {
+    for (const placement of authoritative) {
+      for (const coupling of placement.evolution?.strongMemberCouplings ?? []) {
+        if (coupling.scope !== "cross-package") {
+          continue;
+        }
+        const key = pairId(coupling.leftPackage, coupling.rightPackage);
+        let entry = couplings.get(key);
+        if (entry === undefined) {
+          entry = { concepts: new Set(), ids: new Map(), withPath: new Set() };
+          couplings.set(key, entry);
+        }
+        entry.ids.set(coupling.id, coupling.coChangeCommits);
+        entry.concepts.add(placement.concept.id);
+        if (
+          coupling.dependencyPath.forward !== null ||
+          coupling.dependencyPath.reverse !== null
+        ) {
+          entry.withPath.add(coupling.id);
+        }
+      }
+    }
+  }
 }
 
 function layerOf(context: Context, pkg: string): number | null {
@@ -462,6 +472,32 @@ function packageFacts(context: Context): Map<string, PackageFacts> {
   for (const pkg of context.workspace.packages.packages) {
     factsOf(pkg.id);
   }
+  visitPlacement();
+  for (const direction of context.concepts.directions) {
+    factsOf(direction.from).directionTargets.push(direction.to);
+  }
+  for (const list of context.conversions.values()) {
+    for (const pair of list) {
+      for (const converter of pair.converterPackages) {
+        factsOf(converter).conversionsOwned.push(pair);
+      }
+    }
+  }
+  for (const entry of facts.values()) {
+    entry.directionTargets = sorted(entry.directionTargets);
+    entry.projected = [...new Set(entry.projected)];
+  }
+  return facts;
+
+  function visitPlacement() {
+    packageFactsPlacement(context, factsOf);
+  }
+}
+
+function packageFactsPlacement(
+  context: Context,
+  factsOf: (pkg: string) => PackageFacts
+) {
   for (const placement of context.authoritative) {
     const declared = placement.presence.declaredPackage;
     const own = factsOf(declared);
@@ -486,21 +522,6 @@ function packageFacts(context: Context): Map<string, PackageFacts> {
       }
     }
   }
-  for (const direction of context.concepts.directions) {
-    factsOf(direction.from).directionTargets.push(direction.to);
-  }
-  for (const list of context.conversions.values()) {
-    for (const pair of list) {
-      for (const converter of pair.converterPackages) {
-        factsOf(converter).conversionsOwned.push(pair);
-      }
-    }
-  }
-  for (const entry of facts.values()) {
-    entry.directionTargets = sorted(entry.directionTargets);
-    entry.projected = [...new Set(entry.projected)];
-  }
-  return facts;
 }
 
 function distinctDeclared(placements: WorkspaceConceptPlacement[]): string[] {
@@ -566,18 +587,17 @@ function packagesOf(
     const edges = loads.filter((l) =>
       role === "incoming" ? l.to === pkg : l.from === pkg && l.roles[role] > 0
     );
-    return edges.length === 0
-      ? []
-      : [
-          evidence(
-            "boundary",
-            role === "incoming"
-              ? "concept-bearing-dependents"
-              : `${role}-edges`,
-            edges.map((l) => l.boundaryId),
-            edges.length
-          ),
-        ];
+    if (edges.length === 0) {
+      return [];
+    }
+    return [
+      evidence(
+        "boundary",
+        role === "incoming" ? "concept-bearing-dependents" : `${role}-edges`,
+        edges.map((l) => l.boundaryId),
+        edges.length
+      ),
+    ];
   };
   return [...facts.values()]
     .sort((a, b) => byId(a.package, b.package))
@@ -829,7 +849,7 @@ function pairsOf(context: Context): WorkspacePackagePairPattern[] {
   return [...grouped.entries()]
     .sort(([a], [b]) => byId(a, b))
     .map(([id, directions]) => {
-      const first = directions[0];
+      const [first] = directions;
       if (first === undefined) {
         throw new Error(`empty direction group ${id}`);
       }
@@ -891,31 +911,7 @@ function pairsOf(context: Context): WorkspacePackagePairPattern[] {
           )
         );
       }
-      if (
-        reviews !== undefined &&
-        reviews.reviewed >= support.minReviewedConcepts
-      ) {
-        const contested = reviews.dominatedBaselines.length;
-        const preserved = reviews.preserved.length;
-        if (contested >= support.minReviewedConcepts && preserved === 0) {
-          patterns.push("repeated-externalization");
-        } else if (
-          preserved >= support.minReviewedConcepts &&
-          contested === 0
-        ) {
-          patterns.push("stable-responsibility-split");
-        } else if (contested > 0 && preserved > 0) {
-          patterns.push("mixed");
-        }
-        observations.push(
-          evidence(
-            "v8-review",
-            "dispositions",
-            [...reviews.dominatedBaselines, ...reviews.preserved],
-            reviews.reviewed
-          )
-        );
-      }
+      pairsOfEntries(reviews, support, patterns, observations);
       const edge = directEdge(context, from, to);
       if (edge !== null) {
         observations.push(
@@ -977,6 +973,43 @@ function pairsOf(context: Context): WorkspacePackagePairPattern[] {
     });
 }
 
+function pairsOfEntries(
+  reviews: WorkspaceReviewContext | undefined,
+  support: {
+    minConcepts: number;
+    minSourcePackages: number;
+    minReviewedConcepts: number;
+    minCouplings: number;
+    minConversionPairs: number;
+    strongMultiplier: number;
+  },
+  patterns: WorkspaceDirectionPattern[],
+  observations: WorkspacePatternEvidence[]
+) {
+  if (
+    reviews !== undefined &&
+    reviews.reviewed >= support.minReviewedConcepts
+  ) {
+    const contested = reviews.dominatedBaselines.length;
+    const preserved = reviews.preserved.length;
+    if (contested >= support.minReviewedConcepts && preserved === 0) {
+      patterns.push("repeated-externalization");
+    } else if (preserved >= support.minReviewedConcepts && contested === 0) {
+      patterns.push("stable-responsibility-split");
+    } else if (contested > 0 && preserved > 0) {
+      patterns.push("mixed");
+    }
+    observations.push(
+      evidence(
+        "v8-review",
+        "dispositions",
+        [...reviews.dominatedBaselines, ...reviews.preserved],
+        reviews.reviewed
+      )
+    );
+  }
+}
+
 // ---------------------------------------------------------------------------
 // BOUNDARIES
 
@@ -991,9 +1024,37 @@ function boundariesOf(context: Context): WorkspaceBoundaryPattern[] {
     loads.set(load.boundaryId, load);
   }
   const out: WorkspaceBoundaryPattern[] = [];
-  for (const load of [...loads.values()].sort((a, b) =>
-    byId(a.boundaryId, b.boundaryId)
-  )) {
+  boundariesOfLoad(loads, context, policy, support, minSevered, out);
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// CONCEPT PATTERNS
+
+interface ConceptCandidates {
+  crossLayer: number[];
+  externalization: number[];
+  parallel: number[];
+  primitive: number[];
+  projection: number[];
+}
+
+function boundariesOfLoad(
+  loads: Map<string, WorkspaceBoundaryConceptLoad>,
+  context: Context,
+  policy: { minImportSites: number; minConcepts: number; minRoleShare: number },
+  support: {
+    minConcepts: number;
+    minSourcePackages: number;
+    minReviewedConcepts: number;
+    minCouplings: number;
+    minConversionPairs: number;
+    strongMultiplier: number;
+  },
+  minSevered: number,
+  out: WorkspaceBoundaryPattern[]
+) {
+  const visitLoad = (load: WorkspaceBoundaryConceptLoad) => {
     const { roles, structure, volume } = load;
     const total = load.conceptCount;
     const share = (n: number) => (total === 0 ? 0 : n / total);
@@ -1047,21 +1108,15 @@ function boundariesOf(context: Context): WorkspaceBoundaryPattern[] {
         )
       );
     }
-    if (
-      roles.semanticUse >= support.minConcepts &&
-      share(roles.semanticUse) >= policy.minRoleShare &&
-      share(roles.behavior) < policy.minRoleShare
-    ) {
-      kinds.push("consumption-channel");
-      observations.push(
-        evidence(
-          "workspace-concepts",
-          "usage-share",
-          [load.boundaryId],
-          share(roles.semanticUse)
-        )
-      );
-    }
+    boundariesOfLoadEntries(
+      roles,
+      support,
+      share,
+      policy,
+      kinds,
+      observations,
+      load
+    );
     if (
       structure.severedPairs >= minSevered ||
       context.seams.has(load.boundaryId)
@@ -1088,7 +1143,7 @@ function boundariesOf(context: Context): WorkspaceBoundaryPattern[] {
       );
     }
     if (kinds.length === 0) {
-      continue;
+      return;
     }
     const pattern = supportOf({
       boundaries: [load.boundaryId],
@@ -1128,19 +1183,51 @@ function boundariesOf(context: Context): WorkspaceBoundaryPattern[] {
       support: pattern,
       to: load.to,
     });
+  };
+  for (const load of [...loads.values()].sort((a, b) =>
+    byId(a.boundaryId, b.boundaryId)
+  )) {
+    visitLoad(load);
   }
-  return out;
 }
 
-// ---------------------------------------------------------------------------
-// CONCEPT PATTERNS
-
-interface ConceptCandidates {
-  crossLayer: number[];
-  externalization: number[];
-  parallel: number[];
-  primitive: number[];
-  projection: number[];
+function boundariesOfLoadEntries(
+  roles: {
+    semanticUse: number;
+    behavior: number;
+    implementation: number;
+    representation: number;
+    conversion: number;
+  },
+  support: {
+    minConcepts: number;
+    minSourcePackages: number;
+    minReviewedConcepts: number;
+    minCouplings: number;
+    minConversionPairs: number;
+    strongMultiplier: number;
+  },
+  share: (n: number) => number,
+  policy: { minImportSites: number; minConcepts: number; minRoleShare: number },
+  kinds: WorkspaceBoundaryPatternKind[],
+  observations: WorkspacePatternEvidence[],
+  load: WorkspaceBoundaryConceptLoad
+) {
+  if (
+    roles.semanticUse >= support.minConcepts &&
+    share(roles.semanticUse) >= policy.minRoleShare &&
+    share(roles.behavior) < policy.minRoleShare
+  ) {
+    kinds.push("consumption-channel");
+    observations.push(
+      evidence(
+        "workspace-concepts",
+        "usage-share",
+        [load.boundaryId],
+        share(roles.semanticUse)
+      )
+    );
+  }
 }
 
 function conceptPatternsOf(
@@ -1249,59 +1336,7 @@ function conceptPatternsOf(
   // Conversion projection: repeated explicit converters between two packages,
   // with several distinct concepts on each side (one concept fanning out to
   // many partners is not a projection).
-  for (const [key, pairs] of [...context.conversions.entries()].sort(
-    ([a], [b]) => byId(a, b)
-  )) {
-    const [a = "", b = ""] = key.split("|");
-    const { a: sideA, b: sideB } = conversionSides(pairs, a, b);
-    const qualifies = twoSided(pairs, a, b);
-    candidates.projection.push(qualifies ? pairs.length : 0);
-    if (!qualifies || pairs.length < support.minConversionPairs) {
-      continue;
-    }
-    const converters = sorted(pairs.flatMap((p) => p.converterPackages));
-    emit({
-      concepts: [...sideA, ...sideB],
-      count: pairs.length,
-      id: `cross-package-conversion-projection:${key}`,
-      kind: "cross-package-conversion-projection",
-      minimum: support.minConversionPairs,
-      observations: [
-        evidence(
-          "boundary",
-          "conversion-pairs",
-          pairs.map((p) => p.id),
-          pairs.length
-        ),
-        ...(directEdge(context, a, b) === null
-          ? []
-          : [
-              evidence("workspace-graph", "dependency-edge", [
-                directEdge(context, a, b) ?? "",
-              ]),
-            ]),
-        ...(pairCouplings(context, a, b).ids.size > 0
-          ? [
-              evidence(
-                "evolution",
-                "cross-package-couplings",
-                [...pairCouplings(context, a, b).ids.keys()].sort(byId),
-                pairCouplings(context, a, b).ids.size
-              ),
-            ]
-          : []),
-      ],
-      packages: [a, b, ...converters],
-      structure: {
-        bidirectionalPairs: pairs.filter((p) => p.bidirectional).length,
-        converterPackages: converters,
-        leftConcepts: sideA.length,
-        packages: [a, b],
-        pairs: pairs.length,
-        rightConcepts: sideB.length,
-      },
-    });
-  }
+  visitEntries();
 
   // Shared primitives: behavior-light concepts used upward by several packages.
   const primitives = context.authoritative.filter(
@@ -1467,6 +1502,62 @@ function conceptPatternsOf(
     });
   }
   return out;
+
+  function visitEntries() {
+    for (const [key, pairs] of [...context.conversions.entries()].sort(
+      ([a], [b]) => byId(a, b)
+    )) {
+      const [a = "", b = ""] = key.split("|");
+      const { a: sideA, b: sideB } = conversionSides(pairs, a, b);
+      const qualifies = twoSided(pairs, a, b);
+      candidates.projection.push(qualifies ? pairs.length : 0);
+      if (!qualifies || pairs.length < support.minConversionPairs) {
+        continue;
+      }
+      const converters = sorted(pairs.flatMap((p) => p.converterPackages));
+      emit({
+        concepts: [...sideA, ...sideB],
+        count: pairs.length,
+        id: `cross-package-conversion-projection:${key}`,
+        kind: "cross-package-conversion-projection",
+        minimum: support.minConversionPairs,
+        observations: [
+          evidence(
+            "boundary",
+            "conversion-pairs",
+            pairs.map((p) => p.id),
+            pairs.length
+          ),
+          ...(directEdge(context, a, b) === null
+            ? []
+            : [
+                evidence("workspace-graph", "dependency-edge", [
+                  directEdge(context, a, b) ?? "",
+                ]),
+              ]),
+          ...(pairCouplings(context, a, b).ids.size > 0
+            ? [
+                evidence(
+                  "evolution",
+                  "cross-package-couplings",
+                  [...pairCouplings(context, a, b).ids.keys()].sort(byId),
+                  pairCouplings(context, a, b).ids.size
+                ),
+              ]
+            : []),
+        ],
+        packages: [a, b, ...converters],
+        structure: {
+          bidirectionalPairs: pairs.filter((p) => p.bidirectional).length,
+          converterPackages: converters,
+          leftConcepts: sideA.length,
+          packages: [a, b],
+          pairs: pairs.length,
+          rightConcepts: sideB.length,
+        },
+      });
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1487,6 +1578,30 @@ function evolutionaryPatternsOf(
     }
     directionConcepts.set(key, set);
   }
+  evolutionaryPatternsOfEntries(
+    context,
+    candidates,
+    support,
+    directionConcepts,
+    out
+  );
+  return out;
+}
+
+function evolutionaryPatternsOfEntries(
+  context: Context,
+  candidates: number[],
+  support: {
+    minConcepts: number;
+    minSourcePackages: number;
+    minReviewedConcepts: number;
+    minCouplings: number;
+    minConversionPairs: number;
+    strongMultiplier: number;
+  },
+  directionConcepts: Map<string, Set<string>>,
+  out: WorkspaceEvolutionaryPattern[]
+) {
   for (const [key, couplings] of [...context.couplings.entries()].sort(
     ([a], [b]) => byId(a, b)
   )) {
@@ -1509,31 +1624,26 @@ function evolutionaryPatternsOf(
         return false;
       }
       const declared = p.presence.declaredPackage;
-      const other = declared === a ? b : declared === b ? a : null;
+      let other: string | null;
+      if (declared === a) {
+        other = b;
+      } else if (declared === b) {
+        other = a;
+      } else {
+        other = null;
+      }
       return (
         other !== null && p.presence.implementationPackages.includes(other)
       );
     });
-    if (implemented.length > 0) {
-      const implementationCouplings = sorted(
-        implemented.flatMap((id) =>
-          (context.placements.get(id)?.evolution?.strongMemberCouplings ?? [])
-            .filter((c) => couplings.ids.has(c.id))
-            .map((c) => c.id)
-        )
-      );
-      if (implementationCouplings.length >= support.minCouplings) {
-        kinds.push("implementation-cochange");
-        observations.push(
-          evidence(
-            "workspace-concepts",
-            "implemented-across-pair",
-            implemented,
-            implemented.length
-          )
-        );
-      }
-    }
+    evolutionaryPatternsOfEntriesEntries(
+      implemented,
+      context,
+      couplings,
+      support,
+      kinds,
+      observations
+    );
     const conversions = context.conversions.get(key) ?? [];
     if (conversions.length > 0) {
       const projected = new Set(conversions.flatMap((c) => [c.left, c.right]));
@@ -1597,7 +1707,43 @@ function evolutionaryPatternsOf(
       support: pattern,
     });
   }
-  return out;
+}
+
+function evolutionaryPatternsOfEntriesEntries(
+  implemented: string[],
+  context: Context,
+  couplings: PairCouplings,
+  support: {
+    minConcepts: number;
+    minSourcePackages: number;
+    minReviewedConcepts: number;
+    minCouplings: number;
+    minConversionPairs: number;
+    strongMultiplier: number;
+  },
+  kinds: WorkspaceEvolutionaryPatternKind[],
+  observations: WorkspacePatternEvidence[]
+) {
+  if (implemented.length > 0) {
+    const implementationCouplings = sorted(
+      implemented.flatMap((id) =>
+        (context.placements.get(id)?.evolution?.strongMemberCouplings ?? [])
+          .filter((c) => couplings.ids.has(c.id))
+          .map((c) => c.id)
+      )
+    );
+    if (implementationCouplings.length >= support.minCouplings) {
+      kinds.push("implementation-cochange");
+      observations.push(
+        evidence(
+          "workspace-concepts",
+          "implemented-across-pair",
+          implemented,
+          implemented.length
+        )
+      );
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1609,19 +1755,21 @@ function reviewPatternsOf(context: Context): WorkspaceReviewPattern[] {
     scope: WorkspaceReviewPattern["scope"],
     id: string,
     entityIds: string[],
-    facts: ReviewFact[]
+    reviewFacts: ReviewFact[]
   ) => {
-    const reviews = reviewContextOf(facts);
+    const reviews = reviewContextOf(reviewFacts);
     if (reviews === undefined) {
       return;
     }
     out.push({
       entityIds,
       id,
-      impactUncertainties: tally(facts.flatMap((f) => f.impactUncertainties)),
+      impactUncertainties: tally(
+        reviewFacts.flatMap((f) => f.impactUncertainties)
+      ),
       reviews,
       scope,
-      unresolvedCauses: tally(facts.flatMap((f) => f.unresolved)),
+      unresolvedCauses: tally(reviewFacts.flatMap((f) => f.unresolved)),
     });
   };
   const { facts } = context.reviews;
@@ -1642,7 +1790,7 @@ function reviewPatternsOf(context: Context): WorkspaceReviewPattern[] {
       (f) => `${f.declared}→${f.gravityCenter ?? ""}`
     ).entries(),
   ].sort(([a], [b]) => byId(a, b))) {
-    const first = list[0];
+    const [first] = list;
     emit(
       "direction",
       key,

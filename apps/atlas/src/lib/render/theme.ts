@@ -50,6 +50,8 @@ export function toneStyle(theme: RenderTheme, tone: Tone): Style {
       return theme.blocked;
     case "anchored":
       return theme.anchored;
+    default:
+      throw new Error("Unexpected tone.");
   }
 }
 
@@ -137,5 +139,7 @@ export function toneGlyph(glyphs: Glyphs, tone: Tone): string {
       return glyphs.blocked;
     case "anchored":
       return glyphs.anchored;
+    default:
+      throw new Error("Unexpected tone.");
   }
 }

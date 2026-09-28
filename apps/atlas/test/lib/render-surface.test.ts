@@ -1,21 +1,19 @@
 import { cpSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import * as path from "node:path";
+import { join } from "node:path";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { analyzeSurface } from "../../src/lib/analyze";
 import type { AnalysisConfig } from "../../src/lib/config";
 import { ANALYSIS_CONFIG } from "../../src/lib/config";
-import type { RenderOptions, ReportView } from "../../src/lib/render";
-import {
-  createTextRenderer,
-  DEFAULT_CONTEXT,
-  renderSurface,
-} from "../../src/lib/render";
+import type { RenderOptions } from "../../src/lib/render";
+import { DEFAULT_CONTEXT, renderSurface } from "../../src/lib/render";
+import { createTextRenderer } from "../../src/lib/render/text";
+import type { ReportView } from "../../src/lib/render/views";
 import type { SurfaceReport } from "../../src/lib/types";
 
-const fixtures = mkdtempSync(path.join(tmpdir(), "atlas-render-"));
-cpSync(path.join(import.meta.dirname, "fixtures"), fixtures, {
+const fixtures = mkdtempSync(join(tmpdir(), "atlas-render-"));
+cpSync(join(import.meta.dirname, "fixtures"), fixtures, {
   recursive: true,
 });
 afterAll(() => rmSync(fixtures, { force: true, recursive: true }));
@@ -86,7 +84,7 @@ beforeAll(async () => {
   await Promise.all(
     cases.map(async (item, index) => {
       const report = await analyzeSurface({
-        root: path.join(fixtures, item.root),
+        root: join(fixtures, item.root),
         target: item.target,
         ...(item.tsconfig !== undefined && { tsconfig: item.tsconfig }),
         ...(item.config !== undefined && { config: item.config }),
@@ -115,11 +113,11 @@ describe("surface report", () => {
     });
   }
 
-  const first = cases[0];
+  const [first] = cases;
   if (first === undefined) {
     throw new Error("no cases");
   }
-  const anchoredCase = cases[2];
+  const [, , anchoredCase] = cases;
   if (anchoredCase === undefined) {
     throw new Error("no anchored case");
   }

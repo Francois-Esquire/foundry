@@ -1,6 +1,15 @@
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
+import {
+  cpSync,
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { basename, isAbsolute, join, sep } from "node:path";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { assembleSurfaceReport } from "../../src/lib/assemble";
@@ -45,7 +54,7 @@ import type { WorkspaceReport } from "../../src/lib/workspace-types";
 import { WORKSPACE_SCHEMA_VERSION } from "../../src/lib/workspace-types";
 import { hashTree } from "./helpers/planning-fixture";
 
-const fixture = path.join(import.meta.dirname, "fixtures", "semantics");
+const fixture = join(import.meta.dirname, "fixtures", "semantics");
 const now = new Date("2027-01-01T00:00:00Z");
 
 /** In-process seams: the canonical analysis with the fixture tsconfig, no worker. */
@@ -79,13 +88,13 @@ const inProcessDerive: SemanticsDeriver = async (locals, context) => {
 const inProcess = { analyzeLocal: inProcessLocal, derive: inProcessDerive };
 
 function copyFixture(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "semantics-"));
-  fs.cpSync(fixture, dir, { recursive: true });
-  return fs.realpathSync(dir);
+  const dir = mkdtempSync(join(tmpdir(), "semantics-"));
+  cpSync(fixture, dir, { recursive: true });
+  return realpathSync(dir);
 }
 
 function readJson(dir: string, file: string): unknown {
-  return JSON.parse(fs.readFileSync(path.join(dir, file), "utf8"));
+  return JSON.parse(readFileSync(join(dir, file), "utf8"));
 }
 
 function readManifest(dir: string): SemanticsManifest {
@@ -170,15 +179,15 @@ describe("discovery", () => {
   it("reads foundry.config.json#semantics and defaults without it", () => {
     expect(loadSemanticsConfig(fixture)).toEqual(DEFAULT_SEMANTICS_CONFIG);
     const dir = copyFixture();
-    fs.writeFileSync(
-      path.join(dir, "foundry.config.json"),
+    writeFileSync(
+      join(dir, "foundry.config.json"),
       JSON.stringify({ semantics: { roots: ["services"] } })
     );
     expect(loadSemanticsConfig(dir)).toEqual({
       ...DEFAULT_SEMANTICS_CONFIG,
       roots: ["services"],
     });
-    fs.rmSync(dir, { force: true, recursive: true });
+    rmSync(dir, { force: true, recursive: true });
   });
 
   it("encodes scoped package names reversibly", () => {
@@ -207,30 +216,28 @@ describe("generation", () => {
     });
     dataset = result.output;
     manifest = readManifest(dataset);
-    reports = (
-      await analyzeWorkspaceSurfaces({
-        now,
-        root,
-        targets: ["apps/a", "packages/b", "tooling/c"],
-        tsconfig: "tsconfig.json",
-      })
-    ).reports;
+    ({ reports } = await analyzeWorkspaceSurfaces({
+      now,
+      root,
+      targets: ["apps/a", "packages/b", "tooling/c"],
+      tsconfig: "tsconfig.json",
+    }));
     workspace = analyzeWorkspace(
       ingestWorkspaceReports(reports, { root: "semantics-root" })
     );
   });
 
   afterAll(() => {
-    fs.rmSync(root, { force: true, recursive: true });
+    rmSync(root, { force: true, recursive: true });
   });
 
   it("writes the dataset under .foundry/semantics with a complete manifest", () => {
-    expect(dataset).toBe(path.join(root, ".foundry", "semantics"));
+    expect(dataset).toBe(join(root, ".foundry", "semantics"));
     expect(manifest.schemaVersion).toBe(SEMANTICS_DATASET_SCHEMA_VERSION);
     expect(manifest.coverage).toBe("complete");
     expect(manifest.workspace).toEqual({
       name: "semantics-root",
-      root: path.basename(root),
+      root: basename(root),
     });
     expect(manifest.roots).toEqual(["apps", "packages", "plugins", "tooling"]);
     expect(manifest.versions.workspaceSchema).toBe(WORKSPACE_SCHEMA_VERSION);
@@ -292,15 +299,15 @@ describe("generation", () => {
     );
     expect(urls.length).toBeGreaterThan(10);
     for (const url of urls) {
-      expect(path.isAbsolute(url)).toBe(false);
+      expect(isAbsolute(url)).toBe(false);
       expect(url.startsWith("..")).toBe(false);
-      expect(fs.existsSync(path.join(dataset, url))).toBe(true);
+      expect(existsSync(join(dataset, url))).toBe(true);
     }
     const referenced = new Set([...urls, "manifest.json"]);
     expect(listFiles(dataset).filter((f) => !referenced.has(f))).toEqual([]);
-    const text = fs.readFileSync(path.join(dataset, "manifest.json"), "utf8");
+    const text = readFileSync(join(dataset, "manifest.json"), "utf8");
     expect(text).not.toContain(root);
-    expect(text).not.toContain(os.tmpdir());
+    expect(text).not.toContain(tmpdir());
   });
 
   it("materializes each package report exactly as the canonical analyzer returns it", () => {
@@ -562,11 +569,11 @@ describe("generation", () => {
     expect(
       added.every(
         (f) =>
-          f.startsWith(path.join(".foundry", "semantics") + path.sep) ||
-          f.startsWith(path.join(".foundry", "cache", "semantics") + path.sep)
+          f.startsWith(join(".foundry", "semantics") + sep) ||
+          f.startsWith(join(".foundry", "cache", "semantics") + sep)
       )
     ).toBe(true);
-    expect(fs.readdirSync(path.join(root, ".foundry")).sort()).toEqual([
+    expect(readdirSync(join(root, ".foundry")).sort()).toEqual([
       "cache",
       "semantics",
     ]);
@@ -618,7 +625,7 @@ describe("generation", () => {
   it("drops records of units that disappeared", async () => {
     const files = listFiles(dataset);
     expect(files).toContain("packages/@s__c.json");
-    fs.rmSync(path.join(root, "tooling", "c"), { recursive: true });
+    rmSync(join(root, "tooling", "c"), { recursive: true });
     await generateSemantics({ now, root, ...inProcess });
     const after = listFiles(dataset);
     expect(after.some((f) => f.includes("@s__c"))).toBe(false);
@@ -667,9 +674,7 @@ describe("failure handling", () => {
     });
     expect(failed?.report).toBeUndefined();
     expect(failed?.projection).toBe("packages/@s__c.projection.json");
-    expect(fs.existsSync(path.join(result.output, "packages/@s__c.json"))).toBe(
-      false
-    );
+    expect(existsSync(join(result.output, "packages/@s__c.json"))).toBe(false);
     const workspace = readJson(
       result.output,
       manifest.files.workspace
@@ -682,7 +687,7 @@ describe("failure handling", () => {
     ) as WorkspaceOverviewProjection;
     expect(overview.coverage.packagesAnalyzed).toBe(2);
     expect(overview.coverage.packagesKnown).toBe(3);
-    fs.rmSync(root, { force: true, recursive: true });
+    rmSync(root, { force: true, recursive: true });
   });
 
   it("leaves the previous dataset byte-identical when generation fails", async () => {
@@ -705,11 +710,11 @@ describe("failure handling", () => {
       })
     ).rejects.toThrow("disk on fire");
     expect(hashTree(first.output)).toEqual(good);
-    expect(fs.readdirSync(path.join(root, ".foundry")).sort()).toEqual([
+    expect(readdirSync(join(root, ".foundry")).sort()).toEqual([
       "cache",
       "semantics",
     ]);
-    fs.rmSync(root, { force: true, recursive: true });
+    rmSync(root, { force: true, recursive: true });
   });
 
   it("aborts remaining units under --fail-fast", async () => {
@@ -730,10 +735,10 @@ describe("failure handling", () => {
       })
     ).rejects.toThrow("no @s/a");
     expect(seen).toEqual(["@s/a"]);
-    expect(fs.existsSync(path.join(root, ".foundry"))).toBe(true);
+    expect(existsSync(join(root, ".foundry"))).toBe(true);
     // the failed build published nothing; only the disposable cache remains
-    expect(fs.readdirSync(path.join(root, ".foundry"))).toEqual(["cache"]);
-    fs.rmSync(root, { force: true, recursive: true });
+    expect(readdirSync(join(root, ".foundry"))).toEqual(["cache"]);
+    rmSync(root, { force: true, recursive: true });
   });
 });
 
@@ -759,6 +764,6 @@ describe("worker", () => {
       targets: ["packages/b"],
     });
     expect(spawned.reports.map(stable)).toEqual(direct.reports.map(stable));
-    fs.rmSync(root, { force: true, recursive: true });
+    rmSync(root, { force: true, recursive: true });
   });
 });

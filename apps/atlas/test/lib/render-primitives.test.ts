@@ -1,14 +1,10 @@
 import { describe, expect, it } from "vitest";
-
-import type { BlockView, RenderContext } from "../../src/lib/render";
-
-import {
-  createTerminalRenderer,
-  createTextRenderer,
-  DEFAULT_CONTEXT,
-  displayWidth,
-  truncateDisplay,
-} from "../../src/lib/render";
+import { DEFAULT_CONTEXT } from "../../src/lib/render";
+import type { RenderContext } from "../../src/lib/render/context";
+import { createTerminalRenderer } from "../../src/lib/render/terminal";
+import { createTextRenderer } from "../../src/lib/render/text";
+import type { BlockView } from "../../src/lib/render/views";
+import { displayWidth, truncateDisplay } from "../../src/lib/render/width";
 
 const ESC = String.fromCharCode(27);
 

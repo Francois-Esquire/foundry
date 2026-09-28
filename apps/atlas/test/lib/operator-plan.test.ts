@@ -1,6 +1,12 @@
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
+import {
+  appendFileSync,
+  cpSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
@@ -51,6 +57,14 @@ import {
   WIDGET,
 } from "./helpers/planning-fixture";
 import { workspace } from "./helpers/workspace-builder";
+
+const expectedTextPattern = /should |recommend|optimi[sz]|effort/;
+const expectedTextPattern2 =
+  /^(score|priority|rank|effort|cost|risk|apply|execute|write|patch|edits?|ast|line|column|replacement)$/i;
+const forbiddenPattern =
+  /\b(writeFile|writeFileSync|appendFile|renameSync|rename\(|unlink|rmSync|mkdirSync|\.save\(|saveSync|insertText|addImportDeclaration|addExportDeclaration|setIsExported|replaceWithText|\.remove\(|applyReductionPlan|from "\.\/apply")/;
+const expectedTextPattern3 = /^plan:[0-9a-f]{16}$/;
+const expectedTextPattern4 = /^transformation:[0-9a-f]{16}$/;
 
 interface Planned {
   composition: OperatorComposition;
@@ -125,7 +139,7 @@ describe("internalize plans (§91–92, §103)", () => {
       "packages/core/src/index.ts",
       "packages/core/src/internal-user.ts",
     ]);
-    const removal = ofKind(plan, "rewrite-reexport")[0];
+    const [removal] = ofKind(plan, "rewrite-reexport");
     expect(removal?.before?.names).toEqual(["helperOnly"]);
     expect(removal?.after?.names).toEqual([]);
     expect(plan.realizations.every((r) => r.status === "realized")).toBe(true);
@@ -134,11 +148,11 @@ describe("internalize plans (§91–92, §103)", () => {
 
   it("redirects the internal entrypoint importer to the module before the exposure goes (V3 regression)", () => {
     const { plan } = planned([internalize(HELPER, "@p/core")]);
-    const rewrite = ofKind(plan, "rewrite-import")[0];
+    const [rewrite] = ofKind(plan, "rewrite-import");
     expect(rewrite?.file).toBe("packages/core/src/internal-user.ts");
     expect(rewrite?.before?.specifier).toBe("@p/core");
     expect(rewrite?.after?.specifier).toBe("./helper");
-    const removal = ofKind(plan, "rewrite-reexport")[0];
+    const [removal] = ofKind(plan, "rewrite-reexport");
     expect(plan.dependencies).toContainEqual(
       expect.objectContaining({
         after: removal?.id,
@@ -181,7 +195,7 @@ describe("relocation plans (§93–99)", () => {
     ]);
     expect(plan.status).toBe("ready");
     expect(validation.status).toBe("valid");
-    const move = ofKind(plan, "move-symbol")[0];
+    const [move] = ofKind(plan, "move-symbol");
     expect(move?.subject?.symbolId).toBe(
       "packages/store/src/status-factory.ts#okStatus"
     );
@@ -326,7 +340,7 @@ describe("relocation plans (§93–99)", () => {
 describe("surface and manifest plans (§100–108)", () => {
   it("adds the target's public exposure in its barrel, not in the module (§100, §107)", () => {
     const { plan } = planned([open(rehome(TOKEN, "@p/core"))]);
-    const added = ofKind(plan, "add-export")[0];
+    const [added] = ofKind(plan, "add-export");
     expect(added?.file).toBe("packages/core/src/index.ts");
     expect(added?.after).toEqual({
       exportForm: "type-reexport",
@@ -344,7 +358,7 @@ describe("surface and manifest plans (§100–108)", () => {
     const { plan, validation } = planned([rehome(TOKEN, "@p/core")]);
     expect(plan.status).toBe("ready");
     expect(validation.status).toBe("valid");
-    const compat = ofKind(plan, "preserve-compatibility-export")[0];
+    const [compat] = ofKind(plan, "preserve-compatibility-export");
     expect(compat?.file).toBe("packages/store/src/index.ts");
     expect(compat?.after?.specifier).toBe("@p/core");
     expect(compat?.after?.exportForm).toBe("type-reexport");
@@ -373,7 +387,7 @@ describe("surface and manifest plans (§100–108)", () => {
     const { plan } = planned([open(rehome(TOKEN, "@p/core"))]);
     expect(plan.status).toBe("ready");
     expect(plan.relocations[0]?.strategy).toBe("direct-relocation");
-    const removal = ofKind(plan, "rewrite-reexport")[0];
+    const [removal] = ofKind(plan, "rewrite-reexport");
     expect(removal?.file).toBe("packages/store/src/index.ts");
     for (const rewrite of ofKind(plan, "rewrite-import")) {
       expect(plan.dependencies).toContainEqual(
@@ -400,7 +414,7 @@ describe("surface and manifest plans (§100–108)", () => {
   it("plans the exact manifest dependency a new import needs (§28, §105)", () => {
     const { plan } = planned([open(rehome(WIDGET, "@p/app"))]);
     expect(plan.status).toBe("ready");
-    const manifest = ofKind(plan, "update-package-dependency")[0];
+    const [manifest] = ofKind(plan, "update-package-dependency");
     expect(manifest?.file).toBe("packages/app/package.json");
     expect(manifest?.after?.dependency).toEqual({
       declared: true,
@@ -417,7 +431,7 @@ describe("surface and manifest plans (§100–108)", () => {
 
   it("rewrites a test import to the moved declaration (§69)", () => {
     const { plan } = planned([open(rehome(WIDGET, "@p/app"))]);
-    const test = ofKind(plan, "update-test-import")[0];
+    const [test] = ofKind(plan, "update-test-import");
     expect(test?.file).toBe("packages/app/test/main-check.ts");
     expect(test?.after?.specifier).toBe("../src/main");
     expect(plan.targets.find((t) => t.file === test?.file)?.kind).toBe("test");
@@ -464,8 +478,8 @@ describe("staleness and fingerprint scope (§109–110)", () => {
   let copied: OperatorPlanningContext;
 
   beforeAll(() => {
-    copy = fs.mkdtempSync(path.join(os.tmpdir(), "semantic-surface-plan-"));
-    fs.cpSync(root, copy, { recursive: true });
+    copy = mkdtempSync(join(tmpdir(), "semantic-surface-plan-"));
+    cpSync(root, copy, { recursive: true });
     copied = createOperatorPlanningContext({
       root: copy,
       tsconfig: "tsconfig.json",
@@ -473,14 +487,14 @@ describe("staleness and fingerprint scope (§109–110)", () => {
   });
 
   afterAll(() => {
-    fs.rmSync(copy, { force: true, recursive: true });
+    rmSync(copy, { force: true, recursive: true });
   });
 
   it("goes stale when a planned file changes and stays current when an unrelated one does", () => {
     const first = planned([rehome(TOKEN, "@p/core")], copied);
     expect(first.validation.status).toBe("valid");
-    const unrelated = path.join(copy, "packages/util/src/clamp.ts");
-    fs.appendFileSync(unrelated, "\n// unrelated\n");
+    const unrelated = join(copy, "packages/util/src/clamp.ts");
+    appendFileSync(unrelated, "\n// unrelated\n");
     const still = validateOperatorExecutionPlan(
       first.plan,
       first.composition,
@@ -490,8 +504,8 @@ describe("staleness and fingerprint scope (§109–110)", () => {
     );
     expect(still.status).toBe("valid");
     expect(still.changedFiles).toEqual([]);
-    const planned_ = path.join(copy, "packages/store/src/token.ts");
-    fs.appendFileSync(planned_, "\n// moved\n");
+    const planned_ = join(copy, "packages/store/src/token.ts");
+    appendFileSync(planned_, "\n// moved\n");
     const stale = validateOperatorExecutionPlan(
       first.plan,
       first.composition,
@@ -641,7 +655,7 @@ describe("composition (§72–73, §127)", () => {
 
   it("realizes an inward redirect through the move that carries it", () => {
     const { plan } = planned([rehomeBehavior(SHAPE, "@p/store", "@p/core")]);
-    const move = ofKind(plan, "move-symbol")[0];
+    const [move] = ofKind(plan, "move-symbol");
     expect(move?.actions.some((a) => a.includes("redirect-concept"))).toBe(
       true
     );
@@ -686,10 +700,10 @@ describe("identity, serialization, API (§78–84, §116–117)", () => {
   it("gives transformations content ids, never plan-prefixed ones (§78)", () => {
     const { plan } = planned([rehome(TOKEN, "@p/core")]);
     for (const t of plan.transformations) {
-      expect(t.id).toMatch(/^transformation:[0-9a-f]{16}$/);
+      expect(t.id).toMatch(expectedTextPattern4);
       expect(t.id).not.toContain(plan.id);
     }
-    expect(plan.id).toMatch(/^plan:[0-9a-f]{16}$/);
+    expect(plan.id).toMatch(expectedTextPattern3);
   });
 
   it("reports a tampered record as invalid", () => {
@@ -741,13 +755,12 @@ describe("guarantees (§37, §87, §118–119)", () => {
     "operator-planning-context.ts",
     "operator-plan-types.ts",
     "report-plan.ts",
-  ].map((f) => path.join(import.meta.dirname, "../../src/lib", f));
+  ].map((f) => join(import.meta.dirname, "../../src/lib", f));
 
   it("never calls a write or an AST manipulation (§87)", () => {
-    const forbidden =
-      /\b(writeFile|writeFileSync|appendFile|renameSync|rename\(|unlink|rmSync|mkdirSync|\.save\(|saveSync|insertText|addImportDeclaration|addExportDeclaration|setIsExported|replaceWithText|\.remove\(|applyReductionPlan|from "\.\/apply")/;
+    const forbidden = forbiddenPattern;
     for (const file of sources) {
-      const text = fs.readFileSync(file, "utf8");
+      const text = readFileSync(file, "utf8");
       expect(text, file).not.toMatch(forbidden);
     }
   });
@@ -770,12 +783,8 @@ describe("guarantees (§37, §87, §118–119)", () => {
     };
     walk(plan);
     for (const key of keys) {
-      expect(key).not.toMatch(
-        /^(score|priority|rank|effort|cost|risk|apply|execute|write|patch|edits?|ast|line|column|replacement)$/i
-      );
+      expect(key).not.toMatch(expectedTextPattern2);
     }
-    expect(JSON.stringify(plan)).not.toMatch(
-      /should |recommend|optimi[sz]|effort/
-    );
+    expect(JSON.stringify(plan)).not.toMatch(expectedTextPattern);
   });
 });

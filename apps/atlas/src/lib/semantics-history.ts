@@ -1,8 +1,16 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { basename, dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import {
   ANALYSIS_POLICY_VERSION,
@@ -64,6 +72,7 @@ import type {
   SemanticsWorkspaceUnit,
 } from "./semantics-types";
 import type { SurfaceReport } from "./types";
+import type { WorkspaceModuleGraphAnalysis } from "./workspace-graph-types";
 import { ingestWorkspaceReports } from "./workspace-ingest";
 import { analyzeWorkspace } from "./workspace-intelligence";
 import type { WorkspaceReport } from "./workspace-types";
@@ -80,8 +89,8 @@ import {
 
 const execFileAsync = promisify(execFile);
 
-export const DEFAULT_HISTORY_OUTPUT = ".foundry/semantics-history";
-export const DEFAULT_HISTORY_CACHE = ".foundry/cache/semantics-history";
+const DEFAULT_HISTORY_OUTPUT = ".foundry/semantics-history";
+const DEFAULT_HISTORY_CACHE = ".foundry/cache/semantics-history";
 
 const FILES = {
   entities: "entities.json",
@@ -97,7 +106,7 @@ function deltaFile(from: string, to: string): string {
   return `deltas/${from}__${to}.json`;
 }
 
-export type SemanticsHistoryProgressEvent =
+type SemanticsHistoryProgressEvent =
   | { kind: "phase"; phase: SemanticsHistoryPhase; detail?: string }
   | {
       kind: "checkpoint";
@@ -138,7 +147,7 @@ async function git(root: string, args: string[]): Promise<string> {
   const { stdout } = await execFileAsync("git", args, {
     cwd: root,
     encoding: "utf8",
-    maxBuffer: 1 << 26,
+    maxBuffer: 2 ** 26,
   });
   return stdout;
 }
@@ -162,7 +171,7 @@ const ROLE_ORDER: TemporalConceptRole[] = [
 ];
 
 /** Path-keyed snapshot straight from the canonical workspace; lineage ids are applied later. */
-export function projectSnapshot(
+function projectSnapshot(
   commit: SemanticsHistoryCommit,
   discovery: SemanticsDiscovery,
   outcomes: UnitOutcome[],
@@ -184,7 +193,7 @@ export function projectSnapshot(
     workspace.intelligence?.concepts?.concepts ?? []
   )
     .map((placement) => {
-      const centers = placement.centers;
+      const { centers } = placement;
       return {
         centers: {
           ...(centers?.semantic !== undefined && {
@@ -214,41 +223,15 @@ export function projectSnapshot(
 
   const modules: TemporalModuleState[] = [];
   const moduleCounts = new Map<string, number>();
-  for (const module of workspace.graph.modules) {
-    const pkg = module.package;
-    if (pkg === undefined || !analyzed.has(pkg)) {
-      continue;
-    }
-    moduleCounts.set(pkg, (moduleCounts.get(pkg) ?? 0) + 1);
-    const facts = moduleFacts.get(module.id);
-    const conceptRoles = roles.get(module.id);
-    const byRole: Partial<Record<TemporalConceptRole, number[]>> = {};
-    let any = false;
-    if (conceptRoles !== undefined) {
-      for (const role of ROLE_ORDER) {
-        const indices = [...conceptRoles[role]]
-          .flatMap((id) => {
-            const index = conceptIndex.get(id);
-            return index === undefined ? [] : [index];
-          })
-          .sort((a, b) => a - b);
-        if (indices.length === 0) {
-          continue;
-        }
-        byRole[role] = indices;
-        any = true;
-      }
-    }
-    modules.push({
-      id: module.id,
-      package: pkg,
-      path: module.id,
-      ...(module.fileKind !== undefined && { fileKind: module.fileKind }),
-      ...(module.role !== undefined && { role: module.role.kind }),
-      ...(facts !== undefined && { layer: facts.layer }),
-      ...(any && { concepts: byRole }),
-    });
-  }
+  projectSnapshotModule(
+    workspace,
+    analyzed,
+    moduleCounts,
+    moduleFacts,
+    roles,
+    conceptIndex,
+    modules
+  );
   modules.sort((a, b) => a.id.localeCompare(b.id));
   const moduleIndex = new Map(modules.map((m, i) => [m.id, i]));
 
@@ -318,6 +301,63 @@ export function projectSnapshot(
   };
 }
 
+function projectSnapshotModule(
+  workspace: WorkspaceReport,
+  analyzed: Set<string>,
+  moduleCounts: Map<string, number>,
+  moduleFacts: Map<string, WorkspaceModuleGraphAnalysis>,
+  roles: Map<
+    string,
+    Record<
+      | "declared"
+      | "behavior"
+      | "implementation"
+      | "representation"
+      | "usage"
+      | "conversion",
+      Set<string>
+    >
+  >,
+  conceptIndex: Map<string, number>,
+  modules: TemporalModuleState[]
+) {
+  for (const module of workspace.graph.modules) {
+    const pkg = module.package;
+    if (pkg === undefined || !analyzed.has(pkg)) {
+      continue;
+    }
+    moduleCounts.set(pkg, (moduleCounts.get(pkg) ?? 0) + 1);
+    const facts = moduleFacts.get(module.id);
+    const conceptRoles = roles.get(module.id);
+    const byRole: Partial<Record<TemporalConceptRole, number[]>> = {};
+    let any = false;
+    if (conceptRoles !== undefined) {
+      for (const role of ROLE_ORDER) {
+        const indices = [...conceptRoles[role]]
+          .flatMap((id) => {
+            const index = conceptIndex.get(id);
+            return index === undefined ? [] : [index];
+          })
+          .sort((a, b) => a - b);
+        if (indices.length === 0) {
+          continue;
+        }
+        byRole[role] = indices;
+        any = true;
+      }
+    }
+    modules.push({
+      id: module.id,
+      package: pkg,
+      path: module.id,
+      ...(module.fileKind !== undefined && { fileKind: module.fileKind }),
+      ...(module.role !== undefined && { role: module.role.kind }),
+      ...(facts !== undefined && { layer: facts.layer }),
+      ...(any && { concepts: byRole }),
+    });
+  }
+}
+
 function conceptLineageId(
   conceptId: string,
   lineageOf: (file: string) => string
@@ -348,7 +388,7 @@ function sortById<T extends { id: string }>(
  * then restore id order. Index references (dependencies, module concept
  * roles) follow the permutation, so the file stays self-consistent.
  */
-export function rekeySnapshot(
+function rekeySnapshot(
   snapshot: TemporalWorkspaceSnapshot,
   paths: Map<string, string> | undefined
 ): TemporalWorkspaceSnapshot {
@@ -444,7 +484,7 @@ function edgePairs(
   return pairs;
 }
 
-export function diffSnapshots(
+function diffSnapshots(
   from: TemporalWorkspaceSnapshot,
   to: TemporalWorkspaceSnapshot
 ): TemporalSnapshotDelta {
@@ -465,30 +505,33 @@ export function diffSnapshots(
   const renamed: TemporalSnapshotDelta["modules"]["renamed"] = [];
   const moved: TemporalSnapshotDelta["modules"]["moved"] = [];
   const roles: TemporalConceptRoleChange[] = [];
-  for (const [id, after] of modulesAfter) {
-    const before = modulesBefore.get(id);
-    if (before === undefined) {
-      continue;
-    }
-    if (before.path !== after.path) {
-      renamed.push({ from: before.path, id, to: after.path });
-    }
-    if (before.package !== after.package) {
-      moved.push({ from: before.package, id, to: after.package });
-    }
-    const rolesBefore = rolesOf(before, from.concepts);
-    const rolesAfter = rolesOf(after, to.concepts);
-    for (const concept of new Set([
-      ...rolesBefore.keys(),
-      ...rolesAfter.keys(),
-    ])) {
-      const a = rolesBefore.get(concept) ?? [];
-      const b = rolesAfter.get(concept) ?? [];
-      if (!sameList(a, b)) {
-        roles.push({ concept, from: a, module: id, to: b });
+  const visitEntries = () => {
+    for (const [id, after] of modulesAfter) {
+      const before = modulesBefore.get(id);
+      if (before === undefined) {
+        continue;
+      }
+      if (before.path !== after.path) {
+        renamed.push({ from: before.path, id, to: after.path });
+      }
+      if (before.package !== after.package) {
+        moved.push({ from: before.package, id, to: after.package });
+      }
+      const rolesBefore = rolesOf(before, from.concepts);
+      const rolesAfter = rolesOf(after, to.concepts);
+      for (const concept of new Set([
+        ...rolesBefore.keys(),
+        ...rolesAfter.keys(),
+      ])) {
+        const a = rolesBefore.get(concept) ?? [];
+        const b = rolesAfter.get(concept) ?? [];
+        if (!sameList(a, b)) {
+          roles.push({ concept, from: a, module: id, to: b });
+        }
       }
     }
-  }
+  };
+  visitEntries();
   roles.sort(
     (a, b) =>
       a.module.localeCompare(b.module) || a.concept.localeCompare(b.concept)
@@ -595,11 +638,11 @@ interface CheckpointResult {
  * reuses it, and a derivation-policy change never reaches this cache.
  */
 function readHistoricalLocal(file: string): PackageLocalReport | undefined {
-  if (!fs.existsSync(file)) {
+  if (!existsSync(file)) {
     return undefined;
   }
   try {
-    const parsed: unknown = JSON.parse(fs.readFileSync(file, "utf8"));
+    const parsed: unknown = JSON.parse(readFileSync(file, "utf8"));
     if (typeof parsed !== "object" || parsed === null) {
       return undefined;
     }
@@ -626,8 +669,8 @@ async function analyzeCheckpoint(
 ): Promise<CheckpointResult> {
   const { root, config, concurrency, analyzeLocal, derive, progress } = context;
   const started = performance.now();
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "semantics-history-"));
-  const worktree = path.join(dir, "tree");
+  const dir = mkdtempSync(join(tmpdir(), "semantics-history-"));
+  const worktree = join(dir, "tree");
   const timing = {
     analyzeMs: 0,
     cleanupMs: 0,
@@ -646,7 +689,7 @@ async function analyzeCheckpoint(
       commit.hash,
     ]);
     timing.worktreeMs = Math.round(performance.now() - started);
-    const tree = fs.realpathSync(worktree);
+    const tree = realpathSync(worktree);
     const now = new Date(commit.timestamp);
     const discovery = discoverSemanticsUnits(tree, config);
     const at = performance.now();
@@ -663,10 +706,7 @@ async function analyzeCheckpoint(
         const unitStart = performance.now();
         try {
           const fingerprint = packageLocalFingerprint(tree, unit);
-          const file = path.join(
-            context.localCache,
-            `${fingerprint.combined}.json`
-          );
+          const file = join(context.localCache, `${fingerprint.combined}.json`);
           let local = readHistoricalLocal(file);
           if (local === undefined) {
             local = await analyzeLocal(unit, { root: tree });
@@ -727,7 +767,7 @@ async function analyzeCheckpoint(
     const workspaceAt = performance.now();
     const workspace = analyzeWorkspace(
       ingestWorkspaceReports(reports, {
-        root: rootName(tree) ?? path.basename(root),
+        root: rootName(tree) ?? basename(root),
       })
     );
     timing.workspaceMs = Math.round(performance.now() - workspaceAt);
@@ -746,7 +786,7 @@ async function analyzeCheckpoint(
     await git(root, ["worktree", "remove", "--force", worktree]).catch(
       () => undefined
     );
-    fs.rmSync(dir, { force: true, recursive: true });
+    rmSync(dir, { force: true, recursive: true });
     await git(root, ["worktree", "prune"]).catch(() => undefined);
     timing.cleanupMs = Math.round(performance.now() - cleanupAt);
   }
@@ -758,13 +798,16 @@ async function analyzeCheckpoint(
 class Writer {
   readonly files: { file: string; bytes: number }[] = [];
 
-  constructor(readonly dir: string) {}
+  readonly dir: string;
+  constructor(dir: string) {
+    this.dir = dir;
+  }
 
   write(file: string, value: unknown): number {
-    const target = path.join(this.dir, file);
-    fs.mkdirSync(path.dirname(target), { recursive: true });
+    const target = join(this.dir, file);
+    mkdirSync(dirname(target), { recursive: true });
     const text = JSON.stringify(value);
-    fs.writeFileSync(target, text);
+    writeFileSync(target, text);
     const bytes = Buffer.byteLength(text);
     this.files.push({ bytes, file });
     return bytes;
@@ -796,11 +839,11 @@ function readCachedSnapshot(
   file: string,
   commit: string
 ): TemporalWorkspaceSnapshot | undefined {
-  if (!fs.existsSync(file)) {
+  if (!existsSync(file)) {
     return undefined;
   }
   try {
-    const parsed: unknown = JSON.parse(fs.readFileSync(file, "utf8"));
+    const parsed: unknown = JSON.parse(readFileSync(file, "utf8"));
     if (typeof parsed !== "object" || parsed === null) {
       return undefined;
     }
@@ -819,7 +862,7 @@ function readCachedSnapshot(
 export async function generateSemanticsHistory(
   options: SemanticsHistoryGenerateOptions
 ): Promise<SemanticsHistoryGenerationResult> {
-  const root = fs.realpathSync(path.resolve(options.root));
+  const root = realpathSync(resolve(options.root));
   const config = options.config ?? loadSemanticsConfig(root);
   const policy: SemanticsHistoryConfig = {
     ...config.history,
@@ -829,11 +872,11 @@ export async function generateSemanticsHistory(
   const analyzeLocal = options.analyzeLocal ?? spawnLocalAnalyzer;
   const derive = options.derive ?? spawnDeriver;
   const progress = options.onProgress ?? (() => undefined);
-  const output = path.resolve(root, options.output ?? DEFAULT_HISTORY_OUTPUT);
-  const cacheDir = path.resolve(root, options.cache ?? DEFAULT_HISTORY_CACHE);
+  const output = resolve(root, options.output ?? DEFAULT_HISTORY_OUTPUT);
+  const cacheDir = resolve(root, options.cache ?? DEFAULT_HISTORY_CACHE);
   // Keyed by content, so it sits outside the snapshot fingerprint directory
   // and outlives every derivation-policy change.
-  const localCache = path.join(
+  const localCache = join(
     cacheDir,
     "local",
     `v${PACKAGE_LOCAL_REPORT_SCHEMA_VERSION}`
@@ -861,8 +904,8 @@ export async function generateSemanticsHistory(
   };
 
   const tmp = `${output}.tmp-${process.pid}`;
-  fs.rmSync(tmp, { force: true, recursive: true });
-  fs.mkdirSync(tmp, { recursive: true });
+  rmSync(tmp, { force: true, recursive: true });
+  mkdirSync(tmp, { recursive: true });
   const writer = new Writer(tmp);
 
   try {
@@ -881,7 +924,7 @@ export async function generateSemanticsHistory(
       commit.checkpoint = true;
     }
 
-    const cacheRoot = path.join(
+    const cacheRoot = join(
       cacheDir,
       `v${SEMANTICS_CACHE_SCHEMA_VERSION}`,
       fingerprint
@@ -893,7 +936,7 @@ export async function generateSemanticsHistory(
       let done = 0;
       for (const commit of checkpoints) {
         const at = performance.now();
-        const cacheFile = path.join(cacheRoot, `${commit.hash}.json`);
+        const cacheFile = join(cacheRoot, `${commit.hash}.json`);
         const emit = (
           status: "complete" | "failed" | "cached",
           error?: string
@@ -1045,7 +1088,10 @@ export async function generateSemanticsHistory(
         modules: lineage.lineages,
         packages: [...packages.entries()]
           .sort(([a], [b]) => a.localeCompare(b))
-          .map(([id, checkpoints]) => ({ checkpoints, id })),
+          .map(([id, packageCheckpoints]) => ({
+            checkpoints: packageCheckpoints,
+            id,
+          })),
         schemaVersion: SEMANTICS_HISTORY_SCHEMA_VERSION,
       };
       writer.write(FILES.entities, entities);
@@ -1056,8 +1102,8 @@ export async function generateSemanticsHistory(
       writer.write(FILES.timeline, timelineFile);
     });
 
-    const oldest = timeline.commits[0];
-    const newest = timeline.commits[timeline.commits.length - 1];
+    const [oldest] = timeline.commits;
+    const newest = timeline.commits.at(-1);
     const finishedAt = new Date();
     const manifest: SemanticsHistoryManifest = {
       deltas: deltaRefs,
@@ -1117,7 +1163,7 @@ export async function generateSemanticsHistory(
       output,
     };
   } catch (error) {
-    fs.rmSync(tmp, { force: true, recursive: true });
+    rmSync(tmp, { force: true, recursive: true });
     throw error;
   }
 }

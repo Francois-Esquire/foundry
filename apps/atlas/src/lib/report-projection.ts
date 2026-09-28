@@ -1,5 +1,9 @@
+import type { WorkspaceConceptPath } from "./workspace-concepts-types";
 import type {
+  ConceptCouplingProjection,
   ConceptDirectionProjection,
+  ConceptGraphEdge,
+  ConceptRelationshipProjection,
   ProjectionCoverage,
   WorkspaceBoundaryProjection,
   WorkspaceConceptGraphProjection,
@@ -11,6 +15,7 @@ import type {
   WorkspaceMatrixProjection,
   WorkspaceOverviewProjection,
   WorkspacePackageProjection,
+  WorkspacePackageReviewProjection,
   WorkspacePackageSummaryProjection,
   WorkspacePatternProjection,
   WorkspaceQueryResult,
@@ -18,8 +23,11 @@ import type {
   WorkspaceReviewContextProjection,
   WorkspaceReviewListProjection,
   WorkspaceReviewProjection,
+  WorkspaceScenarioProjection,
   WorkspaceSearchProjection,
 } from "./workspace-projection-types";
+
+const shortPattern = /^@[^/]+\//;
 
 // Text renderers over V9.4 projection objects. Formatting only: every
 // value printed is read from the projection, so nothing here reaches into
@@ -34,7 +42,7 @@ function plural(n: number, word: string): string {
 }
 
 function short(id: string): string {
-  return id.replace(/^@[^/]+\//, "");
+  return id.replace(shortPattern, "");
 }
 
 function percent(value: number | null): string {
@@ -72,7 +80,7 @@ function reviewContextLine(r: WorkspaceReviewContextProjection): string {
   return `${count(r.reviewed)} reviewed · ${dispositions} · ${count(r.dominatedBaselines.length)} dominated baselines`;
 }
 
-export function renderOverview(o: WorkspaceOverviewProjection): string {
+function renderOverview(o: WorkspaceOverviewProjection): string {
   const lines = title("WORKSPACE OVERVIEW");
   const w = o.workspace;
   lines.push(
@@ -136,26 +144,15 @@ export function renderOverview(o: WorkspaceOverviewProjection): string {
   return lines.join("\n");
 }
 
-export function renderPackage(p: WorkspacePackageProjection): string {
+function renderPackage(p: WorkspacePackageProjection): string {
   const lines = title(p.package);
-  const flags = [
-    p.analyzed ? "" : "not analyzed",
-    p.anchored
-      ? `anchored${p.anchorReason === undefined ? "" : ` (${p.anchorReason})`}`
-      : "",
-  ].filter((f) => f !== "");
+  const flags = [p.analyzed ? "" : "not analyzed", resolveFlags(p)].filter(
+    (f) => f !== ""
+  );
   if (flags.length > 0) {
     lines.push(`  ${flags.join(" · ")}`);
   }
-  if (p.graph !== undefined) {
-    const g = p.graph;
-    lines.push(
-      `  role ${g.role} · layer ${count(g.layer)} · component ${g.component}${g.cycle ? " · cycle" : ""}${g.articulation ? " · articulation" : ""}`
-    );
-    lines.push(
-      `  fan-in ${count(g.fanIn)} · fan-out ${count(g.fanOut)} · dependents ${count(g.dependentReach)} (${percent(g.dependentReachShare)}) · dependencies ${count(g.dependencyReach)} (${percent(g.dependencyReachShare)}) · betweenness ${g.betweenness.toFixed(3)}`
-    );
-  }
+  renderPackageEntries2(p, lines);
   if (p.surface !== undefined) {
     const s = p.surface;
     lines.push(
@@ -204,11 +201,14 @@ export function renderPackage(p: WorkspacePackageProjection): string {
   if (p.boundaries.length === 0) {
     lines.push("  none");
   }
-  for (const b of p.boundaries) {
-    lines.push(
-      `  ${b.direction === "outgoing" ? "→ " + short(b.to) : "← " + short(b.from)} · ${count(b.conceptCount)} ${plural(b.conceptCount, "concept")} · ${b.importSites === null ? `${count(b.moduleEdges)} module edges` : `${count(b.importSites)} import sites`}${b.severedPairs === null ? "" : ` · severs ${count(b.severedPairs)}`}${b.seam ? " · seam" : ""}${b.patterns.length > 0 ? ` · ${b.patterns.join(", ")}` : ""}`
-    );
-  }
+  const visitB = () => {
+    for (const b of p.boundaries) {
+      lines.push(
+        `  ${b.direction === "outgoing" ? `→ ${short(b.to)}` : `← ${short(b.from)}`} · ${count(b.conceptCount)} ${plural(b.conceptCount, "concept")} · ${b.importSites === null ? `${count(b.moduleEdges)} module edges` : `${count(b.importSites)} import sites`}${b.severedPairs === null ? "" : ` · severs ${count(b.severedPairs)}`}${b.seam ? " · seam" : ""}${b.patterns.length > 0 ? ` · ${b.patterns.join(", ")}` : ""}`
+      );
+    }
+  };
+  visitB();
   lines.push("", "Patterns");
   if (p.patterns.length === 0) {
     lines.push("  none");
@@ -217,6 +217,37 @@ export function renderPackage(p: WorkspacePackageProjection): string {
     lines.push(`  ${id}`);
   }
   const r = p.reviews;
+  renderPackageEntries(r, lines);
+  lines.push(...cautionLines(p.cautions));
+  if (p.evidenceRefs !== undefined) {
+    lines.push(...evidenceLines(p.evidenceRefs));
+  }
+  return lines.join("\n");
+}
+
+function resolveFlags(p: WorkspacePackageProjection): string {
+  if (p.anchored) {
+    return `anchored${p.anchorReason === undefined ? "" : ` (${p.anchorReason})`}`;
+  }
+  return "";
+}
+
+function renderPackageEntries2(p: WorkspacePackageProjection, lines: string[]) {
+  if (p.graph !== undefined) {
+    const g = p.graph;
+    lines.push(
+      `  role ${g.role} · layer ${count(g.layer)} · component ${g.component}${g.cycle ? " · cycle" : ""}${g.articulation ? " · articulation" : ""}`
+    );
+    lines.push(
+      `  fan-in ${count(g.fanIn)} · fan-out ${count(g.fanOut)} · dependents ${count(g.dependentReach)} (${percent(g.dependentReachShare)}) · dependencies ${count(g.dependencyReach)} (${percent(g.dependencyReachShare)}) · betweenness ${g.betweenness.toFixed(3)}`
+    );
+  }
+}
+
+function renderPackageEntries(
+  r: WorkspacePackageReviewProjection,
+  lines: string[]
+) {
   if (
     r.asDeclaringPackage !== undefined ||
     r.asGravityCenter !== undefined ||
@@ -239,11 +270,6 @@ export function renderPackage(p: WorkspacePackageProjection): string {
       );
     }
   }
-  lines.push(...cautionLines(p.cautions));
-  if (p.evidenceRefs !== undefined) {
-    lines.push(...evidenceLines(p.evidenceRefs));
-  }
-  return lines.join("\n");
 }
 
 function evidenceLines(
@@ -262,9 +288,7 @@ function evidenceLines(
   ];
 }
 
-export function renderPackageSummary(
-  s: WorkspacePackageSummaryProjection
-): string {
+function renderPackageSummary(s: WorkspacePackageSummaryProjection): string {
   const lines = title(s.package);
   lines.push(
     `  ${s.roles.length === 0 ? "no architectural role" : s.roles.map((r) => `${r.kind} ${count(r.conceptCount)} (${r.strength})`).join(" · ")}`
@@ -279,56 +303,29 @@ export function renderPackageSummary(
   return lines.join("\n");
 }
 
-export function renderConcept(c: WorkspaceConceptProjection): string {
+function renderConcept(c: WorkspaceConceptProjection): string {
   const lines = title(`${c.concept.name} · ${c.concept.id}`);
   lines.push(
     `  ${c.coverage} · ${c.shapes.join(", ") || "no shape"} · propagation ${c.propagation}`
   );
   lines.push("", "Centers");
-  if (c.centers === undefined) {
-    lines.push("  unavailable");
-  } else {
-    const at = (pkg: string | undefined, layer: number | undefined) =>
-      pkg === undefined
-        ? "—"
-        : `${short(pkg)}${layer === undefined ? "" : ` (L${layer})`}`;
-    lines.push(
-      `  semantic ${at(c.centers.semantic, c.centers.layers.semantic)} · representation ${at(c.centers.representation, c.centers.layers.representation)} · usage ${at(c.centers.usage, c.centers.layers.usage)} · behavior ${at(c.centers.behavior, c.centers.layers.behavior)} · evolution ${c.centers.evolution === undefined ? "—" : short(c.centers.evolution)}`
-    );
-    lines.push(
-      `  implementations ${c.centers.implementations.length === 0 ? "none" : c.centers.implementations.map(short).join(", ")}`
-    );
-  }
-  if (c.ownership !== undefined) {
-    lines.push(
-      `  ownership ${c.ownership.alignment}${c.ownership.tensions.length > 0 ? ` · tensions ${c.ownership.tensions.join(", ")}` : ""}`
-    );
-  }
+  renderConceptEntries(c, lines);
+  renderConceptEntries3(c, lines);
   if (c.distribution !== undefined) {
     const d = c.distribution;
-    const share = (label: string, s: typeof d.references) =>
-      s === null
-        ? ""
-        : ` · ${label} ${short(s.package)} ${s.count === null ? "" : `${count(s.count)}/`}${count(s.total)} (${percent(s.share)})`;
+    const share = (label: string, scenarioReview: typeof d.references) => {
+      if (scenarioReview === null) {
+        return "";
+      }
+      return ` · ${label} ${short(scenarioReview.package)} ${scenarioReview.count === null ? "" : `${count(scenarioReview.count)}/`}${count(scenarioReview.total)} (${percent(scenarioReview.share)})`;
+    };
     lines.push(
       `  distribution ${count(d.packages)} packages · ${count(d.modules)} modules${share("references", d.references)}${share("representations", d.representations)}${share("source behavior", d.sourceBehavior)}`
     );
   }
-  if (c.locality !== undefined) {
-    const l = c.locality;
-    lines.push(
-      `  locality ${[l.shape, ...l.modifiers].join(" · ")} · ${count(l.sourceModuleCount)}/${count(l.moduleCount)} source modules · ${count(l.packageCount)} packages · ${count(l.packageBoundaryCount)} boundary edges${l.anchored ? " · anchored" : ""}`
-    );
-    lines.push(
-      `  behavior ${count(l.behavior.source)} source · ${count(l.behavior.test)} test · ${count(l.behavior.story)} story · ${count(l.behavior.contract)} contract · ${count(l.behavior.implementation)} implementation · ${count(l.behavior.conversion)} conversion`
-    );
-  }
+  renderConceptEntries4(c, lines);
   lines.push("", "Participation");
-  for (const p of c.participation) {
-    lines.push(
-      `  ${short(p.package).padEnd(18)}${(p.roles.join(", ") || "evidence only").padEnd(40)} ${p.layer === null ? "" : `L${p.layer} · `}repr ${count(p.representations)} · impl ${count(p.implementations)} · refs ${count(p.references)} · conv ${count(p.conversions)} · behavior ${count(p.sourceBehaviors)}s/${count(p.testBehaviors)}t/${count(p.storyBehaviors)}y (${count(p.contractBehaviors)} contract · ${count(p.implementationBehaviors)} implementation · ${count(p.conversionBehaviors)} conversion)`
-    );
-  }
+  renderConceptP(c, lines);
   lines.push("", "Span");
   const s = c.span;
   lines.push(
@@ -345,6 +342,101 @@ export function renderConcept(c: WorkspaceConceptProjection): string {
     ["usage", c.flow.semanticToUsage],
     ["conversion", c.flow.semanticToConversions],
   ];
+  renderConceptEntries5(flows, lines);
+  lines.push("", "Boundaries");
+  if (c.topology.edges.length === 0) {
+    lines.push("  none");
+  }
+  const visitE3 = () => {
+    for (const e of c.topology.edges) {
+      lines.push(
+        `  ${short(e.from)}→${short(e.to)} · ${e.roles.join(", ")} · ${e.importSites === null ? `${count(e.moduleEdges)} module edges` : `${count(e.importSites)} import sites`} · severs ${count(e.severedPairs)}${e.seam ? " · seam" : ""}`
+      );
+    }
+  };
+  visitE3();
+  lines.push("", "Relationships");
+  if (c.relationships.overlaps.length === 0) {
+    lines.push("  none");
+  }
+  const visitRel = () => {
+    for (const rel of c.relationships.overlaps) {
+      const converters = [
+        ...new Set(
+          rel.conversions.map((x) =>
+            x.package === null ? "?" : short(x.package)
+          )
+        ),
+      ];
+      lines.push(
+        `  ${rel.otherName} (${short(rel.otherPackage)}) · ${rel.shapes.join(", ")}${converters.length > 0 ? ` · converters ${converters.join(", ")}` : ""}${resolveVisitRel(rel)}`
+      );
+    }
+  };
+  visitRel();
+  lines.push("", "History");
+  const ev = c.evolution;
+  if (ev === undefined || ev.strongMemberCouplings.length === 0) {
+    lines.push("  none");
+  }
+  const member = (file: string, pkg: string) =>
+    `${short(pkg)}:${file.split("/").pop() ?? file}`;
+  for (const k of ev?.strongMemberCouplings ?? []) {
+    lines.push(
+      `  ${member(k.left, k.leftPackage)} ↔ ${member(k.right, k.rightPackage)} · ${count(k.coChangeCommits)} commits · module path ${k.staticPath} · package path ${k.dependencyPath.forward ?? "—"}/${k.dependencyPath.reverse ?? "—"}`
+    );
+  }
+  renderConceptEntries6(ev, lines);
+  renderConceptEntries2(c, lines);
+  lines.push("", "Patterns");
+  if (c.patterns.length === 0) {
+    lines.push("  none");
+  }
+  for (const id of c.patterns) {
+    lines.push(`  ${id}`);
+  }
+  lines.push(...cautionLines(c.cautions));
+  if (c.evidenceRefs !== undefined) {
+    lines.push(...evidenceLines(c.evidenceRefs));
+  }
+  return lines.join("\n");
+}
+
+function resolveVisitRel(rel: ConceptRelationshipProjection): string {
+  if (rel.path === undefined) {
+    return "";
+  }
+  return ` · path ${rel.path.forward ?? "—"}/${rel.path.reverse ?? "—"}${rel.path.directEdge === null ? "" : ` · edge ${short(rel.path.directEdge)}`}`;
+}
+
+function renderConceptEntries6(
+  ev:
+    | {
+        strongMemberCouplings: ConceptCouplingProjection[];
+        contextualCouplings: number;
+        crossPackageCouplings: number;
+        coChangeCommits: number;
+        hotspotModules: string[];
+        hotspotPackages: string[];
+        historicallyActivePackages: string[];
+      }
+    | undefined,
+  lines: string[]
+) {
+  if (
+    ev !== undefined &&
+    (ev.hotspotModules.length > 0 || ev.contextualCouplings > 0)
+  ) {
+    lines.push(
+      `  ${count(ev.contextualCouplings)} contextual couplings · hotspots ${ev.hotspotModules.length === 0 ? "none" : ev.hotspotModules.join(", ")}`
+    );
+  }
+}
+
+function renderConceptEntries5(
+  flows: [string, WorkspaceConceptPath[]][],
+  lines: string[]
+) {
   for (const [label, paths] of flows) {
     if (paths.length === 0) {
       continue;
@@ -358,78 +450,82 @@ export function renderConcept(c: WorkspaceConceptProjection): string {
         .join(" · ")}`
     );
   }
-  lines.push("", "Boundaries");
-  if (c.topology.edges.length === 0) {
-    lines.push("  none");
-  }
-  for (const e of c.topology.edges) {
+}
+
+function renderConceptP(c: WorkspaceConceptProjection, lines: string[]) {
+  for (const p of c.participation) {
     lines.push(
-      `  ${short(e.from)}→${short(e.to)} · ${e.roles.join(", ")} · ${e.importSites === null ? `${count(e.moduleEdges)} module edges` : `${count(e.importSites)} import sites`} · severs ${count(e.severedPairs)}${e.seam ? " · seam" : ""}`
+      `  ${short(p.package).padEnd(18)}${(p.roles.join(", ") || "evidence only").padEnd(40)} ${p.layer === null ? "" : `L${p.layer} · `}repr ${count(p.representations)} · impl ${count(p.implementations)} · refs ${count(p.references)} · conv ${count(p.conversions)} · behavior ${count(p.sourceBehaviors)}s/${count(p.testBehaviors)}t/${count(p.storyBehaviors)}y (${count(p.contractBehaviors)} contract · ${count(p.implementationBehaviors)} implementation · ${count(p.conversionBehaviors)} conversion)`
     );
   }
-  lines.push("", "Relationships");
-  if (c.relationships.overlaps.length === 0) {
-    lines.push("  none");
-  }
-  for (const rel of c.relationships.overlaps) {
-    const converters = [
-      ...new Set(
-        rel.conversions.map((x) =>
-          x.package === null ? "?" : short(x.package)
-        )
-      ),
-    ];
+}
+
+function renderConceptEntries4(c: WorkspaceConceptProjection, lines: string[]) {
+  if (c.locality !== undefined) {
+    const l = c.locality;
     lines.push(
-      `  ${rel.otherName} (${short(rel.otherPackage)}) · ${rel.shapes.join(", ")}${converters.length > 0 ? ` · converters ${converters.join(", ")}` : ""}${rel.path === undefined ? "" : ` · path ${rel.path.forward ?? "—"}/${rel.path.reverse ?? "—"}${rel.path.directEdge === null ? "" : ` · edge ${short(rel.path.directEdge)}`}`}`
+      `  locality ${[l.shape, ...l.modifiers].join(" · ")} · ${count(l.sourceModuleCount)}/${count(l.moduleCount)} source modules · ${count(l.packageCount)} packages · ${count(l.packageBoundaryCount)} boundary edges${l.anchored ? " · anchored" : ""}`
+    );
+    lines.push(
+      `  behavior ${count(l.behavior.source)} source · ${count(l.behavior.test)} test · ${count(l.behavior.story)} story · ${count(l.behavior.contract)} contract · ${count(l.behavior.implementation)} implementation · ${count(l.behavior.conversion)} conversion`
     );
   }
-  lines.push("", "History");
-  const ev = c.evolution;
-  if (ev === undefined || ev.strongMemberCouplings.length === 0) {
-    lines.push("  none");
-  }
-  const member = (file: string, pkg: string) =>
-    `${short(pkg)}:${file.split("/").pop() ?? file}`;
-  for (const k of ev?.strongMemberCouplings ?? []) {
+}
+
+function renderConceptEntries3(c: WorkspaceConceptProjection, lines: string[]) {
+  if (c.ownership !== undefined) {
     lines.push(
-      `  ${member(k.left, k.leftPackage)} ↔ ${member(k.right, k.rightPackage)} · ${count(k.coChangeCommits)} commits · module path ${k.staticPath} · package path ${k.dependencyPath.forward ?? "—"}/${k.dependencyPath.reverse ?? "—"}`
+      `  ownership ${c.ownership.alignment}${c.ownership.tensions.length > 0 ? ` · tensions ${c.ownership.tensions.join(", ")}` : ""}`
     );
   }
-  if (
-    ev !== undefined &&
-    (ev.hotspotModules.length > 0 || ev.contextualCouplings > 0)
-  ) {
-    lines.push(
-      `  ${count(ev.contextualCouplings)} contextual couplings · hotspots ${ev.hotspotModules.length === 0 ? "none" : ev.hotspotModules.join(", ")}`
-    );
-  }
+}
+
+function renderConceptEntries2(c: WorkspaceConceptProjection, lines: string[]) {
   if (c.recentering !== undefined) {
+    const { scenarios } = c.recentering;
     lines.push("", "Re-centering");
     const f = c.recentering.finding;
     lines.push(
       `  status ${c.recentering.status}${f === undefined ? "" : ` · ${f.signal} · mismatch ${f.mismatch.toFixed(2)} · confidence ${f.evidenceConfidence.toFixed(2)} · observed ${f.observedCenters.map((o) => `${short(o.target)} ${o.gravity.toFixed(2)}`).join(", ")}`}`
     );
-    for (const sc of c.recentering.scenarios) {
-      lines.push(
-        `  ${sc.kind.padEnd(34)} → ${short(sc.proposedCenter)} · ${sc.status} · ${sc.confidence}${sc.impact === undefined ? "" : ` · impact ${sc.impact.status}${sc.impact.uncertainties.length > 0 ? ` (${sc.impact.uncertainties.join(", ")})` : ""}`}`
-      );
-    }
+    const visitSc = () => {
+      for (const sc of scenarios) {
+        lines.push(
+          `  ${sc.kind.padEnd(34)} → ${short(sc.proposedCenter)} · ${sc.status} · ${sc.confidence}${resolveVisitSc(sc)}`
+        );
+      }
+    };
+    visitSc();
     if (c.recentering.review !== undefined) {
       lines.push(...reviewLines(c.recentering.review));
     }
   }
-  lines.push("", "Patterns");
-  if (c.patterns.length === 0) {
-    lines.push("  none");
+}
+
+function resolveVisitSc(sc: WorkspaceScenarioProjection): string {
+  if (sc.impact === undefined) {
+    return "";
   }
-  for (const id of c.patterns) {
-    lines.push(`  ${id}`);
+  return ` · impact ${sc.impact.status}${sc.impact.uncertainties.length > 0 ? ` (${sc.impact.uncertainties.join(", ")})` : ""}`;
+}
+
+function renderConceptEntries(c: WorkspaceConceptProjection, lines: string[]) {
+  if (c.centers === undefined) {
+    lines.push("  unavailable");
+  } else {
+    const at = (pkg: string | undefined, layer: number | undefined) => {
+      if (pkg === undefined) {
+        return "—";
+      }
+      return `${short(pkg)}${layer === undefined ? "" : ` (L${layer})`}`;
+    };
+    lines.push(
+      `  semantic ${at(c.centers.semantic, c.centers.layers.semantic)} · representation ${at(c.centers.representation, c.centers.layers.representation)} · usage ${at(c.centers.usage, c.centers.layers.usage)} · behavior ${at(c.centers.behavior, c.centers.layers.behavior)} · evolution ${c.centers.evolution === undefined ? "—" : short(c.centers.evolution)}`
+    );
+    lines.push(
+      `  implementations ${c.centers.implementations.length === 0 ? "none" : c.centers.implementations.map(short).join(", ")}`
+    );
   }
-  lines.push(...cautionLines(c.cautions));
-  if (c.evidenceRefs !== undefined) {
-    lines.push(...evidenceLines(c.evidenceRefs));
-  }
-  return lines.join("\n");
 }
 
 function reviewLines(r: WorkspaceReviewProjection): string[] {
@@ -448,11 +544,9 @@ function reviewLines(r: WorkspaceReviewProjection): string[] {
   return lines;
 }
 
-export function renderConceptSummary(
-  s: WorkspaceConceptSummaryProjection
-): string {
+function renderConceptSummary(s: WorkspaceConceptSummaryProjection): string {
   const lines = title(`${s.concept.name} · ${s.concept.id}`);
-  const centers = s.centers;
+  const { centers } = s;
   lines.push(
     `  ${s.coverage} · ${s.shapes.join(", ") || "no shape"} · ${s.localityShape ?? "—"} · ownership ${s.ownershipAlignment ?? "—"}`
   );
@@ -470,7 +564,7 @@ export function renderConceptSummary(
   return lines.join("\n");
 }
 
-export function renderBoundary(b: WorkspaceBoundaryProjection): string {
+function renderBoundary(b: WorkspaceBoundaryProjection): string {
   const lines = title(b.boundaryId);
   lines.push(
     `  layers ${b.layers.from ?? "—"} → ${b.layers.to ?? "—"}${b.verified ? " · verified" : ""}${b.structure.seam ? " · seam" : ""}`
@@ -486,11 +580,7 @@ export function renderBoundary(b: WorkspaceBoundaryProjection): string {
   );
   lines.push("", "Structure");
   const st = b.structure;
-  lines.push(
-    st.inPackageGraph
-      ? `  severs ${count(st.severedPairs ?? 0)} · alternatives ${count(st.alternativeRoutes ?? 0)}${st.weakBridge ? " · weak bridge" : ""} · betweenness ${(st.betweenness ?? 0).toFixed(3)}`
-      : "  not a package-graph edge"
-  );
+  lines.push(resolveRenderBoundary(st));
   lines.push("", "Concepts");
   const c = b.concepts;
   lines.push(
@@ -519,7 +609,21 @@ export function renderBoundary(b: WorkspaceBoundaryProjection): string {
   return lines.join("\n");
 }
 
-export function renderPattern(p: WorkspacePatternProjection): string {
+function resolveRenderBoundary(st: {
+  inPackageGraph: boolean;
+  severedPairs: number | null;
+  alternativeRoutes: number | null;
+  weakBridge: boolean;
+  seam: boolean;
+  betweenness: number | null;
+}): string {
+  if (st.inPackageGraph) {
+    return `  severs ${count(st.severedPairs ?? 0)} · alternatives ${count(st.alternativeRoutes ?? 0)}${st.weakBridge ? " · weak bridge" : ""} · betweenness ${(st.betweenness ?? 0).toFixed(3)}`;
+  }
+  return "  not a package-graph edge";
+}
+
+function renderPattern(p: WorkspacePatternProjection): string {
   const lines = title(p.id);
   lines.push(`  ${p.insight.headline}`);
   lines.push(
@@ -552,7 +656,7 @@ export function renderPattern(p: WorkspacePatternProjection): string {
   return lines.join("\n");
 }
 
-export function renderGraph(g: WorkspaceGraphProjection): string {
+function renderGraph(g: WorkspaceGraphProjection): string {
   const lines = title(`GRAPH · ${g.metadata.preset}`);
   lines.push(`  edges: ${g.metadata.edgeSource}`);
   lines.push(`  ${coverageLine(g.metadata.coverage)}`);
@@ -563,6 +667,19 @@ export function renderGraph(g: WorkspaceGraphProjection): string {
     );
   }
   lines.push("", `Edges (${count(g.edges.length)})`);
+  renderGraphE(g, lines);
+  if (g.groups.length > 0) {
+    lines.push("", "Groups");
+    for (const group of g.groups) {
+      lines.push(
+        `  ${group.id.padEnd(24)} ${group.members.map(short).join(", ")}`
+      );
+    }
+  }
+  return lines.join("\n");
+}
+
+function renderGraphE(g: WorkspaceGraphProjection, lines: string[]) {
   for (const e of g.edges) {
     const label = `${short(e.from)} → ${short(e.to)}`.padEnd(30);
     switch (e.kind) {
@@ -579,20 +696,13 @@ export function renderGraph(g: WorkspaceGraphProjection): string {
       case "review":
         lines.push(`  ${label} review · ${reviewContextLine(e.reviews)}`);
         break;
+      default:
+        throw new Error("Unexpected e.kind.");
     }
   }
-  if (g.groups.length > 0) {
-    lines.push("", "Groups");
-    for (const group of g.groups) {
-      lines.push(
-        `  ${group.id.padEnd(24)} ${group.members.map(short).join(", ")}`
-      );
-    }
-  }
-  return lines.join("\n");
 }
 
-export function renderConceptGraph(g: WorkspaceConceptGraphProjection): string {
+function renderConceptGraph(g: WorkspaceConceptGraphProjection): string {
   const lines = title(`CONCEPT GRAPH · ${g.concept}`);
   lines.push("Nodes");
   for (const n of g.nodes) {
@@ -601,17 +711,27 @@ export function renderConceptGraph(g: WorkspaceConceptGraphProjection): string {
     );
   }
   lines.push("", "Edges");
-  for (const e of g.edges) {
-    const from = e.from.split("#").pop() ?? e.from;
-    const to = e.to.split("#").pop() ?? e.to;
-    lines.push(
-      `  ${short(from)} → ${short(to)} · ${e.kind}${e.shapes === undefined ? "" : ` · ${e.shapes.join(", ")}`}${e.conversion === true ? " · conversion" : ""}${e.importSites === undefined ? "" : ` · ${e.importSites === null ? `${count(e.moduleEdges ?? 0)} module edges` : `${count(e.importSites)} import sites`}`}`
-    );
-  }
+  const visitE = () => {
+    for (const e of g.edges) {
+      const from = e.from.split("#").pop() ?? e.from;
+      const to = e.to.split("#").pop() ?? e.to;
+      lines.push(
+        `  ${short(from)} → ${short(to)} · ${e.kind}${e.shapes === undefined ? "" : ` · ${e.shapes.join(", ")}`}${e.conversion === true ? " · conversion" : ""}${resolveVisitE(e)}`
+      );
+    }
+  };
+  visitE();
   return lines.join("\n");
 }
 
-export function renderMatrix(m: WorkspaceMatrixProjection): string {
+function resolveVisitE(e: ConceptGraphEdge): string {
+  if (e.importSites === undefined) {
+    return "";
+  }
+  return ` · ${e.importSites === null ? `${count(e.moduleEdges ?? 0)} module edges` : `${count(e.importSites)} import sites`}`;
+}
+
+function renderMatrix(m: WorkspaceMatrixProjection): string {
   const lines = title(`MATRIX · ${m.id}`);
   lines.push(`  ${m.metricLabel}`);
   lines.push(`  ${coverageLine(m.coverage)}`);
@@ -627,13 +747,7 @@ export function renderMatrix(m: WorkspaceMatrixProjection): string {
       `${row.label.padEnd(width)}${m.columns
         .map((c) => {
           const v = cells.get(`${row.id}|${c.id}`);
-          return (
-            v === undefined
-              ? "·"
-              : Number.isInteger(v)
-                ? count(v)
-                : v.toFixed(2)
-          ).padStart(colWidth);
+          return resolveValue(v).padStart(colWidth);
         })
         .join("")}`
     );
@@ -641,7 +755,17 @@ export function renderMatrix(m: WorkspaceMatrixProjection): string {
   return lines.join("\n");
 }
 
-export function renderRank(r: WorkspaceRankProjection): string {
+function resolveValue(v: number | undefined): string {
+  if (v === undefined) {
+    return "·";
+  }
+  if (Number.isInteger(v)) {
+    return count(v);
+  }
+  return v.toFixed(2);
+}
+
+function renderRank(r: WorkspaceRankProjection): string {
   const lines = title(`RANK · ${r.query.kind} by ${r.query.metric}`);
   lines.push(
     `  ${r.sort} · ${count(r.total)} entries${r.query.limit === undefined ? "" : ` · showing ${count(r.entries.length)}`}`
@@ -649,18 +773,22 @@ export function renderRank(r: WorkspaceRankProjection): string {
   lines.push(`  ${coverageLine(r.coverage)}`);
   lines.push("");
   for (const e of r.entries) {
-    const value =
-      e.numerator === undefined || e.denominator === undefined
-        ? Number.isInteger(e.value)
-          ? count(e.value)
-          : e.value.toFixed(2)
-        : `${e.value.toFixed(2)} (${count(e.numerator)} / ${count(e.denominator)})`;
+    let value: string;
+    if (e.numerator === undefined || e.denominator === undefined) {
+      if (Number.isInteger(e.value)) {
+        value = count(e.value);
+      } else {
+        value = e.value.toFixed(2);
+      }
+    } else {
+      value = `${e.value.toFixed(2)} (${count(e.numerator)} / ${count(e.denominator)})`;
+    }
     lines.push(`  ${e.label.padEnd(44)} ${value}`);
   }
   return lines.join("\n");
 }
 
-export function renderDirections(d: WorkspaceDirectionListProjection): string {
+function renderDirections(d: WorkspaceDirectionListProjection): string {
   const lines = title("DIRECTIONS");
   lines.push(
     `  ${
@@ -682,7 +810,7 @@ export function renderDirections(d: WorkspaceDirectionListProjection): string {
   return lines.join("\n");
 }
 
-export function renderReviews(r: WorkspaceReviewListProjection): string {
+function renderReviews(r: WorkspaceReviewListProjection): string {
   const lines = title("REVIEWS");
   lines.push(
     `  ${
@@ -704,7 +832,7 @@ export function renderReviews(r: WorkspaceReviewListProjection): string {
   return lines.join("\n");
 }
 
-export function renderSearch(s: WorkspaceSearchProjection): string {
+function renderSearch(s: WorkspaceSearchProjection): string {
   const lines = title(`SEARCH · ${s.text}`);
   lines.push(
     `  ${s.mode}${s.kinds === null ? "" : ` · ${s.kinds.join(", ")}`} · ${count(s.matches.length)} matches`
@@ -755,7 +883,14 @@ export function renderProjectionResult(result: WorkspaceQueryResult): string {
       return renderSearch(result.result);
     case "ambiguous": {
       const q = result.query;
-      const text = "id" in q ? q.id : "conceptId" in q ? q.conceptId : q.kind;
+      let text: string;
+      if ("id" in q) {
+        text = q.id;
+      } else if ("conceptId" in q) {
+        text = q.conceptId;
+      } else {
+        text = q.kind;
+      }
       return [
         `ambiguous name ${text}; use an id:`,
         ...result.candidates.map((c) => `  ${c.id}`),
@@ -763,9 +898,17 @@ export function renderProjectionResult(result: WorkspaceQueryResult): string {
     }
     case "not-found": {
       const q = result.query;
-      const text =
-        "id" in q ? q.id : "conceptId" in q ? q.conceptId : JSON.stringify(q);
+      let text: string;
+      if ("id" in q) {
+        text = q.id;
+      } else if ("conceptId" in q) {
+        text = q.conceptId;
+      } else {
+        text = JSON.stringify(q);
+      }
       return `no ${q.kind} ${text}`;
     }
+    default:
+      throw new Error("Unexpected result.kind.");
   }
 }

@@ -1,4 +1,3 @@
-import type { SemanticStage } from "./semantics-stages";
 import type { SurfaceReport, SurfaceSymbol } from "./types";
 
 // V12.6 fact locality. Package-local facts describe the package; workspace-
@@ -9,49 +8,6 @@ import type { SurfaceReport, SurfaceSymbol } from "./types";
 // tests read this table rather than a list in someone's head.
 
 export type SemanticFactScope = "package-local" | "workspace-derived";
-
-/**
- * `mixed` records carry fields of both scopes; the sub-field tables below
- * say which. `package-local*` marks a field local in every respect but one
- * named in the note.
- */
-export type SurfaceFieldScope = SemanticFactScope | "mixed";
-
-export const SURFACE_REPORT_FIELD_SCOPES: Record<
-  keyof SurfaceReport,
-  SurfaceFieldScope
-> = {
-  anchor: "package-local",
-  architecturalProfile: "workspace-derived",
-  boundaryInteractions: "workspace-derived",
-  changeCoupling: "workspace-derived",
-  changeRadius: "workspace-derived",
-  churn: "workspace-derived",
-  conceptBehavioralLocality: "workspace-derived",
-  /** Seeds are local; evidence, representations, and distribution are workspace-derived. */
-  conceptInventory: "mixed",
-  conceptOverlap: "workspace-derived",
-  conceptOwnership: "workspace-derived",
-  dependencies: "workspace-derived",
-  /** Roles and file kinds are local; every graph measurement is workspace-derived. */
-  dependencyGravity: "mixed",
-  evolutionaryPressure: "workspace-derived",
-  hotspots: "workspace-derived",
-  ineligibleOperations: "workspace-derived",
-  /** Local except `parameters.boolean`, which resolves annotation types workspace-wide. */
-  localComplexity: "mixed",
-  operators: "workspace-derived",
-  opportunities: "workspace-derived",
-  plans: "workspace-derived",
-  policyVersion: "package-local",
-  recenteringCandidates: "workspace-derived",
-  schemaVersion: "package-local",
-  structuralPressure: "workspace-derived",
-  summary: "mixed",
-  symbols: "mixed",
-  target: "package-local",
-};
-
 export const SURFACE_SYMBOL_FIELD_SCOPES: Record<
   keyof SurfaceSymbol,
   SemanticFactScope
@@ -88,15 +44,6 @@ export const SURFACE_SUMMARY_FIELD_SCOPES: Record<
   totalSymbols: "package-local",
   unusedExternalExports: "workspace-derived",
 };
-
-/** Stage ownership: which analysis stages produce facts of each scope. */
-export const PACKAGE_LOCAL_STAGES: readonly SemanticStage[] = [
-  "packageLocalAnalysis",
-];
-export const WORKSPACE_DERIVED_STAGES: readonly SemanticStage[] = [
-  "workspaceDerivation",
-];
-
 /**
  * Keys that name workspace-relative facts. A `PackageLocalReport` must not
  * contain any of them at any depth; the leak test walks the report for them.

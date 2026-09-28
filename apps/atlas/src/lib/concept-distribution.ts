@@ -86,7 +86,7 @@ function members(family: ConceptFamily): Map<string, Member> {
 }
 
 function distributeRepresentations(
-  family: ConceptFamily,
+  _family: ConceptFamily,
   byId: Map<string, Member>
 ): RepresentationDistribution {
   const perPackage = new Map<
@@ -124,7 +124,7 @@ function distributeRepresentations(
         a.package.localeCompare(b.package)
     );
   const total = byId.size;
-  const primary = packages[0];
+  const [primary] = packages;
   return {
     moduleCount: modules.size,
     packageCount: packages.length,
@@ -185,7 +185,7 @@ function distributeReferences(family: ConceptFamily): ReferenceDistribution {
     .sort(
       (a, b) => b.references - a.references || a.module.localeCompare(b.module)
     );
-  const primary = byPackage[0];
+  const [primary] = byPackage;
   return {
     byModule,
     byPackage,

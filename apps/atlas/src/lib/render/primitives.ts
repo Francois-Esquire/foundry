@@ -146,8 +146,13 @@ export function createRenderer(style: BlockStyle): Renderer {
       lines.push(...indent(wrap(summary, style.wrapCells)));
     }
     for (const item of evidence ?? []) {
-      const [head = "", ...rest] = wrap(item, style.wrapCells - 2);
-      lines.push(...indent([`${glyphs.bullet} ${head}`, ...indent(rest)]));
+      const [firstLine = "", ...remainingLines] = wrap(
+        item,
+        style.wrapCells - 2
+      );
+      lines.push(
+        ...indent([`${glyphs.bullet} ${firstLine}`, ...indent(remainingLines)])
+      );
     }
     return lines;
   };
@@ -220,6 +225,8 @@ export function createRenderer(style: BlockStyle): Renderer {
         return gate(view.title, view.checks, view.result);
       case "edge":
         return edge(view.from, view.to, view.label);
+      default:
+        throw new Error("Unexpected view.kind.");
     }
   };
 

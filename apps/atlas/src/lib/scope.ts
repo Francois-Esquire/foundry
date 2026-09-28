@@ -1,4 +1,4 @@
-import * as path from "node:path";
+import { resolve } from "node:path";
 import type { Node, Project } from "ts-morph";
 
 import type { Boundary } from "./boundary";
@@ -38,7 +38,7 @@ export function packagePublicNodes(
   }
   const nodes = new Set<Node>();
   for (const entry of entries) {
-    const file = project.getSourceFile(path.resolve(boundary.root, entry.file));
+    const file = project.getSourceFile(resolve(boundary.root, entry.file));
     if (file === undefined) {
       return null;
     }

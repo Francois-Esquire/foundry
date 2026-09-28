@@ -1,5 +1,13 @@
-import * as fs from "node:fs";
-import * as path from "node:path";
+import {
+  existsSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  statSync,
+} from "node:fs";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+
+const isTsSourcePattern = /\.tsx?$/;
 
 /** Generated and vendored directories no analysis looks inside. */
 export const EXCLUDED_DIRS = [
@@ -47,11 +55,11 @@ interface PackageJson {
 }
 
 function readPackageJson(dir: string): PackageJson | undefined {
-  const file = path.join(dir, "package.json");
-  if (!fs.existsSync(file)) {
+  const file = join(dir, "package.json");
+  if (!existsSync(file)) {
     return undefined;
   }
-  return JSON.parse(fs.readFileSync(file, "utf8")) as PackageJson;
+  return JSON.parse(readFileSync(file, "utf8")) as PackageJson;
 }
 
 export function workspacePatterns(root: string): string[] {
@@ -68,15 +76,15 @@ export function workspacePatterns(root: string): string[] {
 
 /** Walk up from `start` looking for a package.json with a workspaces field. */
 export function findRepoRoot(start: string): string {
-  let dir = path.resolve(start);
+  let dir = resolve(start);
   for (;;) {
     const pkg = readPackageJson(dir);
     if (pkg?.workspaces) {
       return dir;
     }
-    const parent = path.dirname(dir);
+    const parent = dirname(dir);
     if (parent === dir) {
-      return path.resolve(start);
+      return resolve(start);
     }
     dir = parent;
   }
@@ -84,21 +92,20 @@ export function findRepoRoot(start: string): string {
 
 export function expandPattern(root: string, pattern: string): string[] {
   if (!pattern.includes("*")) {
-    return [path.join(root, pattern)];
+    return [join(root, pattern)];
   }
   const [prefix] = pattern.split("*");
-  const base = path.join(root, prefix ?? "");
-  if (!fs.existsSync(base)) {
+  const base = join(root, prefix ?? "");
+  if (!existsSync(base)) {
     return [];
   }
-  return fs
-    .readdirSync(base, { withFileTypes: true })
+  return readdirSync(base, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
-    .map((entry) => path.join(base, entry.name));
+    .map((entry) => join(base, entry.name));
 }
 
 function readExportSubpaths(pkg: PackageJson): Set<string> | null {
-  const exports = pkg.exports;
+  const { exports } = pkg;
   if (exports === undefined || exports === null) {
     return null;
   }
@@ -124,7 +131,7 @@ function readExportSubpaths(pkg: PackageJson): Set<string> | null {
 }
 
 function isTsSource(value: string): boolean {
-  return /\.tsx?$/.test(value) && !value.endsWith(".d.ts");
+  return isTsSourcePattern.test(value) && !value.endsWith(".d.ts");
 }
 
 function pickTsTarget(value: unknown): string | undefined {
@@ -158,7 +165,7 @@ function packageEntryTargets(
       targets.set(subpath, target);
     }
   };
-  const exports = pkg.exports;
+  const { exports } = pkg;
   if (typeof exports === "string" || (exports && typeof exports === "object")) {
     if (typeof exports === "string") {
       const target = pickTsTarget(exports);
@@ -169,17 +176,7 @@ function packageEntryTargets(
       const entries = Object.entries(exports as Record<string, unknown>);
       const hasSubpaths = entries.some(([key]) => key.startsWith("."));
       if (hasSubpaths) {
-        for (const [key, value] of entries) {
-          const target = pickTsTarget(value);
-          if (target === undefined) {
-            continue;
-          }
-          if (key === ".") {
-            add("", target);
-          } else if (key.startsWith("./")) {
-            add(key.slice(2), target);
-          }
-        }
+        packageEntryTargetsEntries(entries, add);
       } else {
         const target = pickTsTarget(exports);
         if (target !== undefined) {
@@ -192,13 +189,30 @@ function packageEntryTargets(
       (candidate): candidate is string =>
         candidate !== undefined &&
         isTsSource(candidate) &&
-        fs.existsSync(path.join(dir, candidate))
+        existsSync(join(dir, candidate))
     );
     if (fallback !== undefined) {
       add("", fallback);
     }
   }
   return targets;
+}
+
+function packageEntryTargetsEntries(
+  entries: [string, unknown][],
+  add: (subpath: string, target: string) => void
+) {
+  for (const [key, value] of entries) {
+    const target = pickTsTarget(value);
+    if (target === undefined) {
+      continue;
+    }
+    if (key === ".") {
+      add("", target);
+    } else if (key.startsWith("./")) {
+      add(key.slice(2), target);
+    }
+  }
 }
 
 /**
@@ -229,7 +243,7 @@ export function packagePathAliases(dir: string): Record<string, string[]> {
   }
   for (const [subpath, target] of packageEntryTargets(pkg, dir)) {
     const key = subpath === "" ? name : `${name}/${subpath}`;
-    aliases[key] ??= [path.join(dir, target)];
+    aliases[key] ??= [join(dir, target)];
   }
   return aliases;
 }
@@ -259,9 +273,7 @@ export function boundaryEntrypoints(boundary: Boundary): BoundaryEntrypoint[] {
     }
     entries.push({
       entrypoint: subpath === "" ? name : `${name}/${subpath}`,
-      file: toPosix(
-        path.relative(boundary.root, path.join(boundary.dir, target))
-      ),
+      file: toPosix(relative(boundary.root, join(boundary.dir, target))),
     });
   }
   return entries.sort((a, b) => a.entrypoint.localeCompare(b.entrypoint));
@@ -269,8 +281,8 @@ export function boundaryEntrypoints(boundary: Boundary): BoundaryEntrypoint[] {
 
 export function resolveBoundary(root: string, target: string): Boundary {
   let dir: string | undefined;
-  const asPath = path.resolve(root, target);
-  if (fs.existsSync(asPath) && fs.statSync(asPath).isDirectory()) {
+  const asPath = resolve(root, target);
+  if (existsSync(asPath) && statSync(asPath).isDirectory()) {
     dir = asPath;
   } else {
     for (const pattern of workspacePatterns(root)) {
@@ -290,8 +302,8 @@ export function resolveBoundary(root: string, target: string): Boundary {
       `Cannot resolve target "${target}" as a directory under ${root} or a workspace package name.`
     );
   }
-  dir = fs.realpathSync(dir);
-  const relPath = toPosix(path.relative(root, dir));
+  dir = realpathSync(dir);
+  const relPath = toPosix(relative(root, dir));
   const pkg = readPackageJson(dir);
   if (pkg) {
     return {
@@ -318,8 +330,8 @@ export function boundaryContains(
   boundary: Boundary,
   filePath: string
 ): boolean {
-  const rel = path.relative(boundary.dir, filePath);
-  return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
+  const rel = relative(boundary.dir, filePath);
+  return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
 }
 
 /**
@@ -373,8 +385,8 @@ function workspaceDirs(root: string): Set<string> | null {
     dirs = patterns.length === 0 ? null : new Set();
     for (const pattern of patterns) {
       for (const dir of expandPattern(root, pattern)) {
-        if (fs.existsSync(dir)) {
-          dirs?.add(fs.realpathSync(dir));
+        if (existsSync(dir)) {
+          dirs?.add(realpathSync(dir));
         }
       }
     }
@@ -393,7 +405,7 @@ function workspaceDirs(root: string): Set<string> | null {
  */
 export function ownerBoundary(root: string, filePath: string): string {
   const members = workspaceDirs(root);
-  let dir = path.dirname(filePath);
+  let dir = dirname(filePath);
   const visited: string[] = [];
   let owner: string | undefined;
   while (dir.startsWith(root) && dir !== root) {
@@ -404,11 +416,11 @@ export function ownerBoundary(root: string, filePath: string): string {
     }
     visited.push(dir);
     const pkg = readPackageJson(dir);
-    if (pkg && (members === null || members.has(fs.realpathSync(dir)))) {
-      owner = pkg.name ?? toPosix(path.relative(root, dir));
+    if (pkg && (members === null || members.has(realpathSync(dir)))) {
+      owner = pkg.name ?? toPosix(relative(root, dir));
       break;
     }
-    dir = path.dirname(dir);
+    dir = dirname(dir);
   }
   owner ??= "<root>";
   for (const seen of visited) {
@@ -418,5 +430,5 @@ export function ownerBoundary(root: string, filePath: string): string {
 }
 
 export function toPosix(value: string): string {
-  return value.split(path.sep).join("/");
+  return value.split(sep).join("/");
 }

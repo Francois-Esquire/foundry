@@ -28,7 +28,7 @@ export type PlannedTransformationKind =
 
 export type PlannedImportKind = "named" | "type" | "default" | "namespace";
 
-export type PlannedExportForm =
+type PlannedExportForm =
   | "named-export"
   | "named-reexport"
   | "type-reexport"
@@ -56,7 +56,7 @@ export interface PlannedSourceState {
   specifier?: string;
 }
 
-export interface PlannedTransformationSubject {
+interface PlannedTransformationSubject {
   conceptId?: string;
   moduleId?: string;
   packageId?: string;
@@ -64,15 +64,12 @@ export interface PlannedTransformationSubject {
 }
 
 /** A reference to an operator precondition the transformation relies on; never a new fact. */
-export interface PlannedTransformationPrecondition {
+interface PlannedTransformationPrecondition {
   entityIds: string[];
   kind: string;
 }
 
-export type PlannedTransformationStatus =
-  | "required"
-  | "conditional"
-  | "unsupported";
+type PlannedTransformationStatus = "required" | "conditional" | "unsupported";
 
 export interface PlannedTransformation {
   /** Structural actions realized here; several when actions share one source edit. */
@@ -114,7 +111,7 @@ export type PlannedMovementGranularity =
   | "new-module"
   | "unresolved";
 
-export type PlannedSurfaceStrategy =
+type PlannedSurfaceStrategy =
   | "direct-relocation"
   | "compatibility-reexport"
   | "target-public-old-internal"
@@ -191,10 +188,7 @@ export interface PlannedImportRewrite {
   transformationId: string;
 }
 
-export type StructuralActionRealizationStatus =
-  | "realized"
-  | "partial"
-  | "blocked";
+type StructuralActionRealizationStatus = "realized" | "partial" | "blocked";
 
 export interface StructuralActionRealization {
   actionId: string;
@@ -204,7 +198,7 @@ export interface StructuralActionRealization {
   transformations: string[];
 }
 
-export type PlannedPreservationStatus = "transformed" | "proven" | "unproven";
+type PlannedPreservationStatus = "transformed" | "proven" | "unproven";
 
 export interface PlannedPreservation {
   preservationId: string;
@@ -281,7 +275,7 @@ export interface OperatorPlanBlocker {
   kind: OperatorPlanBlockerKind;
 }
 
-export type OperatorPlanConflictKind =
+type OperatorPlanConflictKind =
   | "same-symbol-multiple-destinations"
   | "import-rewrite-conflict"
   | "export-strategy-conflict"
@@ -312,13 +306,13 @@ export interface OperatorPlanGap {
   kind: OperatorPlanGapKind;
 }
 
-export interface OperatorPlanInput {
+interface OperatorPlanInput {
   operatorId: string;
   /** Package this operator's subject sits in. */
   package?: string;
 }
 
-export type OperatorPlanTargetKind = "source" | "test" | "manifest";
+type OperatorPlanTargetKind = "source" | "test" | "manifest";
 
 export interface OperatorPlanTarget {
   /** Root-relative file. */
@@ -399,10 +393,7 @@ export interface OperatorExecutionPlan {
   verification: PlannedVerificationStep[];
 }
 
-export type OperatorExecutionPlanValidationStatus =
-  | "valid"
-  | "invalid"
-  | "stale";
+type OperatorExecutionPlanValidationStatus = "valid" | "invalid" | "stale";
 
 export interface OperatorExecutionPlanValidation {
   /** Files whose bytes differ from the plan's fingerprint. */

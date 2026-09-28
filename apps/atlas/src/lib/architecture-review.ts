@@ -21,11 +21,14 @@ import type { AnalysisConfig } from "./config";
 import { ANALYSIS_CONFIG } from "./config";
 import type {
   ClosureSize,
+  ConventionAlignment,
+  InternalRewiringEffects,
   InternalRewiringReport,
   InternalRewiringScenario,
   InternalRewiringScenarioKind,
   LocalityRelation,
   RewiringPreservation,
+  ScenarioFamily,
   ScenarioUncertaintyReason,
 } from "./internal-rewiring-types";
 
@@ -279,28 +282,33 @@ function dimensionsOf(
 ): ReviewedEffectDimension[] {
   const e = scenario.effects;
   const unchanged = changesNothing(scenario);
-  const symbols = e.locality.symbols;
+  const { symbols } = e.locality;
   const aligned = (relation: LocalityRelation) =>
     ALIGNED.includes(relation) ? symbols : 0;
-  const subjectModule = e.dependencies.modules[0];
-  const collapse = scenario.proposed.collapse;
+  const [subjectModule] = e.dependencies.modules;
+  const { collapse } = scenario.proposed;
   const absorbed =
     collapse === undefined ? 0 : behaviorMassOf(collapse.intermediary);
   const cycleBefore = e.cycles.membership.length;
-  const cycleAfter =
-    e.cycles.outcome === "membership-removed"
-      ? cycleBefore - 1
-      : e.cycles.outcome === "potential-new-cycle"
-        ? cycleBefore + 1
-        : cycleBefore;
-  const conventionValue = unchanged
-    ? 1
-    : e.conventions.alignment === "matches-convention"
-      ? 2
-      : e.conventions.alignment === "differs-from-convention"
-        ? 0
-        : 1;
-  const closure = scenario.closure;
+  let cycleAfter: number;
+  if (e.cycles.outcome === "membership-removed") {
+    cycleAfter = cycleBefore - 1;
+  } else if (e.cycles.outcome === "potential-new-cycle") {
+    cycleAfter = cycleBefore + 1;
+  } else {
+    cycleAfter = cycleBefore;
+  }
+  let conventionValue: 1 | 2 | 0;
+  if (unchanged) {
+    conventionValue = 1;
+  } else if (e.conventions.alignment === "matches-convention") {
+    conventionValue = 2;
+  } else if (e.conventions.alignment === "differs-from-convention") {
+    conventionValue = 0;
+  } else {
+    conventionValue = 1;
+  }
+  const { closure } = scenario;
   const measures: Record<ReviewDimension, ReviewMeasure[]> = {
     "convention-alignment": [
       measure("conventionMatch", 1, conventionValue, "higher"),
@@ -425,6 +433,41 @@ function dimensionsOf(
   const conditions = Object.fromEntries(
     DIMENSIONS.map((d) => [d, [] as string[]])
   ) as Record<ReviewDimension, string[]>;
+  dimensionsOfEntries(
+    unchanged,
+    scenario,
+    certainty,
+    conditions,
+    e,
+    absorbed,
+    follows,
+    measures
+  );
+  // A scenario that changes nothing is unchanged and measured on every dimension; nothing to carry.
+  if (unchanged) {
+    return [];
+  }
+  return DIMENSIONS.filter((d) => DIMENSION_ROLES[d] !== "blocking").map(
+    (dimension) => ({
+      certainty: certainty[dimension],
+      conditions: conditions[dimension],
+      dimension,
+      direction: directionOf(measures[dimension], certainty[dimension]),
+      measures: measures[dimension],
+    })
+  );
+}
+
+function dimensionsOfEntries(
+  unchanged: boolean,
+  scenario: InternalRewiringScenario,
+  certainty: Record<ReviewDimension, EffectCertainty>,
+  conditions: Record<ReviewDimension, string[]>,
+  e: InternalRewiringEffects,
+  absorbed: number,
+  follows: FollowedScenario | undefined,
+  measures: Record<ReviewDimension, ReviewMeasure[]>
+) {
   if (!unchanged) {
     for (const u of scenario.uncertainties) {
       const effect = UNCERTAINTY_EFFECTS[u.reason];
@@ -437,7 +480,7 @@ function dimensionsOf(
       );
       conditions[effect.dimension].push(`${u.reason}: ${u.detail}`);
     }
-    const unresolvedEdges = e.responsibilityBoundaries.unresolvedEdges;
+    const { unresolvedEdges } = e.responsibilityBoundaries;
     if (
       unresolvedEdges.after > unresolvedEdges.before &&
       scenario.proposed.responsibility === undefined &&
@@ -458,31 +501,27 @@ function dimensionsOf(
         `the intermediary's ${absorbed} statements move to its consumer`
       );
     }
-    if (follows !== undefined && follows.status !== "credible") {
-      for (const dimension of COMPARISON_DIMENSIONS) {
-        if (directionOf(measures[dimension], "measured") === "unchanged") {
-          continue;
-        }
-        certainty[dimension] = weaker(certainty[dimension], "conditional");
-        conditions[dimension].push(
-          `follows ${follows.kind} ${follows.id}, which is ${follows.status}`
-        );
+    dimensionsOfEntriesEntries(follows, measures, certainty, conditions);
+  }
+}
+
+function dimensionsOfEntriesEntries(
+  follows: FollowedScenario | undefined,
+  measures: Record<ReviewDimension, ReviewMeasure[]>,
+  certainty: Record<ReviewDimension, EffectCertainty>,
+  conditions: Record<ReviewDimension, string[]>
+) {
+  if (follows !== undefined && follows.status !== "credible") {
+    for (const dimension of COMPARISON_DIMENSIONS) {
+      if (directionOf(measures[dimension], "measured") === "unchanged") {
+        continue;
       }
+      certainty[dimension] = weaker(certainty[dimension], "conditional");
+      conditions[dimension].push(
+        `follows ${follows.kind} ${follows.id}, which is ${follows.status}`
+      );
     }
   }
-  // A scenario that changes nothing is unchanged and measured on every dimension; nothing to carry.
-  if (unchanged) {
-    return [];
-  }
-  return DIMENSIONS.filter((d) => DIMENSION_ROLES[d] !== "blocking").map(
-    (dimension) => ({
-      certainty: certainty[dimension],
-      conditions: conditions[dimension],
-      dimension,
-      direction: directionOf(measures[dimension], certainty[dimension]),
-      measures: measures[dimension],
-    })
-  );
 }
 
 function effectOf(
@@ -648,319 +687,17 @@ export function reviewPackageArchitecture(
     rewiring.families.filter((f) => !followsAnother(f)),
     rewiring.families.filter((f) => followsAnother(f)),
   ];
-  for (const family of passes.flat()) {
-    const members: Reviewed[] = family.scenarioIds
-      .map((id) => scenarioById.get(id))
-      .filter((s): s is InternalRewiringScenario => s !== undefined)
-      .map((scenario) => ({
-        effects: dimensionsOf(scenario, behaviorMassOf, followedBy(scenario)),
-        scenario,
-      }));
-    const baseline =
-      members.find((m) => m.scenario.kind === "preserve-current") ??
-      members.find((m) => PRESERVATION_KINDS.includes(m.scenario.kind));
-    const required = sorted(
-      members
-        .filter((m) => PRESERVATION_KINDS.includes(m.scenario.kind))
-        .flatMap((m) => m.scenario.preservations)
-        .filter((p) => ARCHITECTURAL_PRESERVATIONS.includes(p))
-    );
-    const dominance: DominanceRelation[] = [];
-    const dominatedBy = new Map<string, string[]>();
-    const dominatesMap = new Map<string, string[]>();
-    for (const a of members) {
-      for (const b of members) {
-        if (a === b) {
-          continue;
-        }
-        const improves = dominates(a, b, required);
-        if (improves === undefined) {
-          continue;
-        }
-        dominance.push({
-          dominant: a.scenario.id,
-          dominated: b.scenario.id,
-          improves,
-        });
-        dominatedBy.set(b.scenario.id, [
-          ...(dominatedBy.get(b.scenario.id) ?? []),
-          a.scenario.id,
-        ]);
-        dominatesMap.set(a.scenario.id, [
-          ...(dominatesMap.get(a.scenario.id) ?? []),
-          b.scenario.id,
-        ]);
-      }
-    }
-    const isBaseline = (m: Reviewed) => m === baseline;
-    const isAlternative = (m: Reviewed) =>
-      !(isBaseline(m) || PRESERVATION_KINDS.includes(m.scenario.kind));
-    for (let i = 0; i < members.length; i += 1) {
-      for (let j = i + 1; j < members.length; j += 1) {
-        const a = members[i];
-        const b = members[j];
-        if (a === undefined || b === undefined) {
-          continue;
-        }
-        const ab = dominatedBy.get(b.scenario.id)?.includes(a.scenario.id);
-        const ba = dominatedBy.get(a.scenario.id)?.includes(b.scenario.id);
-        if (ab !== true && ba !== true) {
-          pairCounts.noDominance += 1;
-          continue;
-        }
-        const dominant = ab === true ? a : b;
-        const loser = ab === true ? b : a;
-        if (isBaseline(dominant) && isAlternative(loser)) {
-          pairCounts.baselineOverAlternative += 1;
-        } else if (isAlternative(dominant) && isBaseline(loser)) {
-          pairCounts.alternativeOverBaseline += 1;
-        } else {
-          pairCounts.alternativeOverAlternative += 1;
-        }
-      }
-    }
-
-    const reviewedMembers: ReviewedRewiringScenario[] = members.map((m) => {
-      const kept = keptPreservations(m.scenario, required);
-      const missing = required.filter((p) => !kept.includes(p));
-      const conditional = m.effects
-        .filter((d) => d.certainty === "conditional")
-        .map((d) => d.dimension);
-      const unresolved = m.effects
-        .filter((d) => d.certainty === "unresolved")
-        .map((d) => d.dimension);
-      const advantages: ReviewDimension[] = [];
-      const costs: ReviewDimension[] = [];
-      const mixed: ReviewDimension[] = [];
-      let conditionalDifference = false;
-      if (baseline !== undefined && m !== baseline) {
-        for (const dimension of COMPARISON_DIMENSIONS) {
-          const left = effectOf(m.effects, dimension);
-          const right = effectOf(baseline.effects, dimension);
-          const comparison = compareDimension(left, right);
-          const measured =
-            left.certainty === "measured" && right.certainty === "measured";
-          if (comparison === "better" && measured) {
-            advantages.push(dimension);
-          }
-          if (comparison === "worse" && measured) {
-            costs.push(dimension);
-          }
-          if (comparison === "mixed" && measured) {
-            mixed.push(dimension);
-          }
-          if (comparison !== "equal" && !measured) {
-            conditionalDifference = true;
-          }
-        }
-      }
-      const status: ScenarioReviewStatus = isBaseline(m)
-        ? "baseline"
-        : PRESERVATION_KINDS.includes(m.scenario.kind)
-          ? "preservation"
-          : missing.length > 0
-            ? "preservation-conflict"
-            : (dominatedBy.get(m.scenario.id) ?? []).length > 0
-              ? "dominated"
-              : unresolved.length > 0
-                ? "uncertain"
-                : advantages.length > 0 || mixed.length > 0
-                  ? "credible"
-                  : conditionalDifference
-                    ? "uncertain"
-                    : "equivalent";
-      const reasons = m.scenario.uncertainties.map((u) => u.reason);
-      return {
-        dominatedBy: sorted(dominatedBy.get(m.scenario.id) ?? []),
-        dominates: sorted(dominatesMap.get(m.scenario.id) ?? []),
-        effects: m.effects,
-        familyId: family.subject.key,
-        kind: m.scenario.kind,
-        measuredAdvantages: advantages,
-        measuredCosts: costs,
-        measuredTradeoffs: mixed,
-        preservation: { kept, missing, required },
-        scenarioId: m.scenario.id,
-        status,
-        uncertainty: {
-          conditionalDimensions: conditional,
-          reasons,
-          standing: reasons.filter((r) => STANDING_LIMITATIONS.includes(r)),
-          unresolvedDimensions: unresolved,
-        },
-        ...(m.scenario.closure !== undefined && {
-          closure: m.scenario.closure.size,
-        }),
-        evidence: { scenario: m.scenario.id },
-      };
-    });
-    scenarios.push(...reviewedMembers);
-    for (const r of reviewedMembers) {
-      statusById.set(r.scenarioId, r.status);
-    }
-
-    const nondominated = reviewedMembers
-      .filter((r) => r.dominatedBy.length === 0)
-      .map((r) => r.scenarioId);
-    const tradeoffs: ScenarioTradeoff[] = [];
-    const nondominatedMembers = members.filter((m) =>
-      nondominated.includes(m.scenario.id)
-    );
-    for (let i = 0; i < nondominatedMembers.length; i += 1) {
-      for (let j = i + 1; j < nondominatedMembers.length; j += 1) {
-        const a = nondominatedMembers[i];
-        const b = nondominatedMembers[j];
-        if (a === undefined || b === undefined) {
-          continue;
-        }
-        const leftBetter: ReviewDimension[] = [];
-        const rightBetter: ReviewDimension[] = [];
-        for (const dimension of DIMENSIONS) {
-          if (DIMENSION_ROLES[dimension] === "blocking") {
-            continue;
-          }
-          const left = effectOf(a.effects, dimension);
-          const right = effectOf(b.effects, dimension);
-          const comparison = compareDimension(left, right);
-          if (comparison === "equal") {
-            continue;
-          }
-          const certainty = weaker(left.certainty, right.certainty);
-          const differing = (own: ReviewMeasure[], other: ReviewMeasure[]) =>
-            own.filter(
-              (m) =>
-                m.comparison !== "none" &&
-                m.delta !== (other.find((o) => o.name === m.name)?.delta ?? 0)
-            );
-          tradeoffs.push({
-            certainty,
-            comparison,
-            dimension,
-            evidence: {
-              left: differing(left.measures, right.measures),
-              right: differing(right.measures, left.measures),
-            },
-            left: a.scenario.id,
-            right: b.scenario.id,
-          });
-          if (DIMENSION_ROLES[dimension] !== "comparison") {
-            continue;
-          }
-          if (certainty !== "measured") {
-            continue;
-          }
-          if (comparison === "better") {
-            leftBetter.push(dimension);
-          }
-          if (comparison === "worse") {
-            rightBetter.push(dimension);
-          }
-        }
-        for (const x of leftBetter) {
-          for (const y of rightBetter) {
-            const key = [x, y].sort().join("↔");
-            tradeoffPairCounts.set(key, (tradeoffPairCounts.get(key) ?? 0) + 1);
-          }
-        }
-      }
-    }
-
-    const alternatives = reviewedMembers.filter(
-      (r) => r.status !== "baseline" && r.status !== "preservation"
-    );
-    const credible = alternatives.filter((r) => r.status === "credible");
-    const uncertain = alternatives.filter((r) => r.status === "uncertain");
-    const hasPreservation = members.some((m) =>
-      PRESERVATION_KINDS.includes(m.scenario.kind)
-    );
-    let disposition: FamilyReviewDisposition;
-    const reasons: string[] = [];
-    const describe = (r: ReviewedRewiringScenario) =>
-      `${r.kind}: ${[
-        ...(r.measuredAdvantages.length > 0
-          ? [`better on ${r.measuredAdvantages.join(", ")}`]
-          : []),
-        ...(r.measuredCosts.length > 0
-          ? [`worse on ${r.measuredCosts.join(", ")}`]
-          : []),
-        ...(r.measuredTradeoffs.length > 0
-          ? [`trades inside ${r.measuredTradeoffs.join(", ")}`]
-          : []),
-        ...(r.uncertainty.conditionalDimensions.length > 0
-          ? [`conditional on ${r.uncertainty.conditionalDimensions.join(", ")}`]
-          : []),
-      ].join("; ")}`;
-    if (credible.length >= 2) {
-      disposition = "multiple-tradeoffs";
-      reasons.push(
-        `${credible.length} alternatives nondominated with measured differences`,
-        ...credible.map(describe),
-        "no scenario dominates the others on all measured dimensions"
-      );
-    } else if (credible.length === 1) {
-      disposition = "credible-alternative";
-      const only = credible[0];
-      if (only !== undefined) {
-        reasons.push(`nondominated · ${describe(only)}`);
-      }
-    } else if (hasPreservation) {
-      disposition = "preservation-required";
-      reasons.push(
-        `preservation scenario present; requires ${required.length > 0 ? required.join(", ") : "nothing architectural"}`
-      );
-      if (uncertain.length > 0) {
-        reasons.push(
-          `${uncertain.length} alternatives uncertain: ${uncertain.map((r) => `${r.kind} (${[...r.uncertainty.unresolvedDimensions, ...r.uncertainty.conditionalDimensions].join(", ")})`).join("; ")}`
-        );
-      }
-    } else if (uncertain.length > 0) {
-      disposition = "uncertainty-blocked";
-      reasons.push(
-        `${uncertain.length} alternatives nondominated but not comparable: ${uncertain.map((r) => `${r.kind} (${[...r.uncertainty.unresolvedDimensions.map((d) => `${d} unresolved`), ...r.uncertainty.conditionalDimensions.map((d) => `${d} conditional`)].join(", ")})`).join("; ")}`,
-        ...uncertain
-          .filter(
-            (r) => r.measuredAdvantages.length > 0 || r.measuredCosts.length > 0
-          )
-          .map(
-            (r) => `${r.kind} measured: ${describe(r).slice(r.kind.length + 2)}`
-          )
-      );
-    } else {
-      disposition = "preserve-current";
-      reasons.push(
-        alternatives.length === 0
-          ? "no alternative"
-          : `${alternatives.filter((r) => r.status === "dominated").length} dominated, ${alternatives.filter((r) => r.status === "equivalent").length} equivalent, ${alternatives.filter((r) => r.status === "preservation-conflict").length} in preservation conflict`
-      );
-    }
-    if (baseline !== undefined) {
-      const baselineDominated = dominatedBy.get(baseline.scenario.id) ?? [];
-      if (baselineDominated.length > 0) {
-        reasons.push(
-          `baseline dominated by ${baselineDominated.map((id) => scenarioById.get(id)?.kind ?? id).join(", ")}`
-        );
-      }
-    }
-    families.push({
-      id: family.subject.key,
-      subject: family.subject,
-      ...(baseline !== undefined && {
-        baseline: baseline.scenario.id,
-        baselineKind: baseline.scenario.kind,
-      }),
-      disposition,
-      dominance,
-      dominated: reviewedMembers
-        .filter((r) => r.dominatedBy.length > 0)
-        .map((r) => r.scenarioId),
-      missingEvidence: [],
-      nondominated,
-      preservationRequirements: required,
-      reasons,
-      scenarios: family.scenarioIds,
-      tradeoffs,
-    });
-  }
+  reviewPackageArchitectureFamily(
+    passes,
+    scenarioById,
+    behaviorMassOf,
+    followedBy,
+    pairCounts,
+    scenarios,
+    statusById,
+    tradeoffPairCounts,
+    families
+  );
 
   // Subjects whose every candidate was ineligible: reviewed as families with nothing to compare.
   const familyKeys = new Set(families.map((f) => f.id));
@@ -1010,7 +747,9 @@ export function reviewPackageArchitecture(
   families.sort((a, b) => a.id.localeCompare(b.id));
   const position = new Map<string, number>();
   families.forEach((family, i) => {
-    family.scenarios.forEach((id, j) => position.set(id, i * 1000 + j));
+    family.scenarios.forEach((id, j) => {
+      position.set(id, i * 1000 + j);
+    });
   });
   scenarios.sort(
     (a, b) =>
@@ -1063,6 +802,517 @@ export function reviewPackageArchitecture(
     subjects,
     summary,
   };
+}
+
+function reviewPackageArchitectureFamily(
+  passes: ScenarioFamily[][],
+  scenarioById: Map<string, InternalRewiringScenario>,
+  behaviorMassOf: (module: string) => number,
+  followedBy: (scenario: InternalRewiringScenario) =>
+    | {
+        id: string;
+        kind: InternalRewiringScenarioKind;
+        status: ScenarioReviewStatus | "missing";
+      }
+    | undefined,
+  pairCounts: {
+    alternativeOverAlternative: number;
+    alternativeOverBaseline: number;
+    baselineOverAlternative: number;
+    noDominance: number;
+  },
+  scenarios: ReviewedRewiringScenario[],
+  statusById: Map<string, ScenarioReviewStatus>,
+  tradeoffPairCounts: Map<string, number>,
+  families: ScenarioFamilyReview[]
+) {
+  for (const family of passes.flat()) {
+    const members: Reviewed[] = family.scenarioIds
+      .map((id) => scenarioById.get(id))
+      .filter((s): s is InternalRewiringScenario => s !== undefined)
+      .map((scenario) => ({
+        effects: dimensionsOf(scenario, behaviorMassOf, followedBy(scenario)),
+        scenario,
+      }));
+    const baseline =
+      members.find((m) => m.scenario.kind === "preserve-current") ??
+      members.find((m) => PRESERVATION_KINDS.includes(m.scenario.kind));
+    const required = sorted(
+      members
+        .filter((m) => PRESERVATION_KINDS.includes(m.scenario.kind))
+        .flatMap((m) => m.scenario.preservations)
+        .filter((p) => ARCHITECTURAL_PRESERVATIONS.includes(p))
+    );
+    const dominance: DominanceRelation[] = [];
+    const dominatedBy = new Map<string, string[]>();
+    const dominatesMap = new Map<string, string[]>();
+    reviewPackageArchitectureFamilyA(
+      members,
+      required,
+      dominance,
+      dominatedBy,
+      dominatesMap
+    );
+    const isBaseline = (m: Reviewed) => m === baseline;
+    const isAlternative = (m: Reviewed) =>
+      !(isBaseline(m) || PRESERVATION_KINDS.includes(m.scenario.kind));
+    reviewPackageArchitectureFamilyI(
+      members,
+      dominatedBy,
+      pairCounts,
+      isBaseline,
+      isAlternative
+    );
+
+    const reviewedMembers: ReviewedRewiringScenario[] = members.map((m) => {
+      const kept = keptPreservations(m.scenario, required);
+      const missing = required.filter((p) => !kept.includes(p));
+      const conditional = m.effects
+        .filter((d) => d.certainty === "conditional")
+        .map((d) => d.dimension);
+      const unresolved = m.effects
+        .filter((d) => d.certainty === "unresolved")
+        .map((d) => d.dimension);
+      const advantages: ReviewDimension[] = [];
+      const costs: ReviewDimension[] = [];
+      const mixed: ReviewDimension[] = [];
+      let conditionalDifference = false;
+      if (baseline !== undefined && m !== baseline) {
+        const visitDimension = () => {
+          conditionalDifference = collectDimension(
+            m,
+            baseline,
+            advantages,
+            costs,
+            mixed,
+            conditionalDifference
+          );
+        };
+        visitDimension();
+      }
+      const status: ScenarioReviewStatus = reviewPackageArchitectureEntries(
+        isBaseline,
+        m,
+        missing,
+        dominatedBy,
+        unresolved,
+        advantages,
+        mixed,
+        conditionalDifference
+      );
+      const reasons = m.scenario.uncertainties.map((u) => u.reason);
+      return {
+        dominatedBy: sorted(dominatedBy.get(m.scenario.id) ?? []),
+        dominates: sorted(dominatesMap.get(m.scenario.id) ?? []),
+        effects: m.effects,
+        familyId: family.subject.key,
+        kind: m.scenario.kind,
+        measuredAdvantages: advantages,
+        measuredCosts: costs,
+        measuredTradeoffs: mixed,
+        preservation: { kept, missing, required },
+        scenarioId: m.scenario.id,
+        status,
+        uncertainty: {
+          conditionalDimensions: conditional,
+          reasons,
+          standing: reasons.filter((r) => STANDING_LIMITATIONS.includes(r)),
+          unresolvedDimensions: unresolved,
+        },
+        ...(m.scenario.closure !== undefined && {
+          closure: m.scenario.closure.size,
+        }),
+        evidence: { scenario: m.scenario.id },
+      };
+    });
+    scenarios.push(...reviewedMembers);
+    for (const r of reviewedMembers) {
+      statusById.set(r.scenarioId, r.status);
+    }
+
+    const nondominated = reviewedMembers
+      .filter((r) => r.dominatedBy.length === 0)
+      .map((r) => r.scenarioId);
+    const tradeoffs: ScenarioTradeoff[] = [];
+    const nondominatedMembers = members.filter((m) =>
+      nondominated.includes(m.scenario.id)
+    );
+    reviewPackageArchitectureFamilyI2(
+      nondominatedMembers,
+      tradeoffs,
+      tradeoffPairCounts
+    );
+
+    const alternatives = reviewedMembers.filter(
+      (r) => r.status !== "baseline" && r.status !== "preservation"
+    );
+    const credible = alternatives.filter((r) => r.status === "credible");
+    const uncertain = alternatives.filter((r) => r.status === "uncertain");
+    const hasPreservation = members.some((m) =>
+      PRESERVATION_KINDS.includes(m.scenario.kind)
+    );
+
+    const reasons: string[] = [];
+    const describe = (r: ReviewedRewiringScenario) =>
+      `${r.kind}: ${[
+        ...(r.measuredAdvantages.length > 0
+          ? [`better on ${r.measuredAdvantages.join(", ")}`]
+          : []),
+        ...(r.measuredCosts.length > 0
+          ? [`worse on ${r.measuredCosts.join(", ")}`]
+          : []),
+        ...(r.measuredTradeoffs.length > 0
+          ? [`trades inside ${r.measuredTradeoffs.join(", ")}`]
+          : []),
+        ...(r.uncertainty.conditionalDimensions.length > 0
+          ? [`conditional on ${r.uncertainty.conditionalDimensions.join(", ")}`]
+          : []),
+      ].join("; ")}`;
+    const disposition: FamilyReviewDisposition =
+      reviewPackageArchitectureFamilyEntries(
+        credible,
+        reasons,
+        describe,
+        hasPreservation,
+        required,
+        uncertain,
+        alternatives
+      );
+    if (baseline !== undefined) {
+      const baselineDominated = dominatedBy.get(baseline.scenario.id) ?? [];
+      if (baselineDominated.length > 0) {
+        reasons.push(
+          `baseline dominated by ${baselineDominated.map((id) => scenarioById.get(id)?.kind ?? id).join(", ")}`
+        );
+      }
+    }
+    families.push({
+      id: family.subject.key,
+      subject: family.subject,
+      ...(baseline !== undefined && {
+        baseline: baseline.scenario.id,
+        baselineKind: baseline.scenario.kind,
+      }),
+      disposition,
+      dominance,
+      dominated: reviewedMembers
+        .filter((r) => r.dominatedBy.length > 0)
+        .map((r) => r.scenarioId),
+      missingEvidence: [],
+      nondominated,
+      preservationRequirements: required,
+      reasons,
+      scenarios: family.scenarioIds,
+      tradeoffs,
+    });
+  }
+}
+
+function reviewPackageArchitectureFamilyA(
+  members: Reviewed[],
+  required: RewiringPreservation[],
+  dominance: DominanceRelation[],
+  dominatedBy: Map<string, string[]>,
+  dominatesMap: Map<string, string[]>
+) {
+  for (const a of members) {
+    for (const b of members) {
+      if (a === b) {
+        continue;
+      }
+      const improves = dominates(a, b, required);
+      if (improves === undefined) {
+        continue;
+      }
+      dominance.push({
+        dominant: a.scenario.id,
+        dominated: b.scenario.id,
+        improves,
+      });
+      dominatedBy.set(b.scenario.id, [
+        ...(dominatedBy.get(b.scenario.id) ?? []),
+        a.scenario.id,
+      ]);
+      dominatesMap.set(a.scenario.id, [
+        ...(dominatesMap.get(a.scenario.id) ?? []),
+        b.scenario.id,
+      ]);
+    }
+  }
+}
+
+function reviewPackageArchitectureFamilyEntries(
+  credible: ReviewedRewiringScenario[],
+  reasons: string[],
+  describe: (r: ReviewedRewiringScenario) => string,
+  hasPreservation: boolean,
+  required: RewiringPreservation[],
+  uncertain: ReviewedRewiringScenario[],
+  alternatives: ReviewedRewiringScenario[]
+): FamilyReviewDisposition {
+  let disposition: FamilyReviewDisposition;
+  if (credible.length >= 2) {
+    disposition = "multiple-tradeoffs";
+    reasons.push(
+      `${credible.length} alternatives nondominated with measured differences`,
+      ...credible.map(describe),
+      "no scenario dominates the others on all measured dimensions"
+    );
+  } else if (credible.length === 1) {
+    disposition = "credible-alternative";
+    const [only] = credible;
+    if (only !== undefined) {
+      reasons.push(`nondominated · ${describe(only)}`);
+    }
+  } else if (hasPreservation) {
+    disposition = "preservation-required";
+    reasons.push(
+      `preservation scenario present; requires ${required.length > 0 ? required.join(", ") : "nothing architectural"}`
+    );
+    if (uncertain.length > 0) {
+      reasons.push(
+        `${uncertain.length} alternatives uncertain: ${uncertain.map((r) => `${r.kind} (${[...r.uncertainty.unresolvedDimensions, ...r.uncertainty.conditionalDimensions].join(", ")})`).join("; ")}`
+      );
+    }
+  } else if (uncertain.length > 0) {
+    disposition = "uncertainty-blocked";
+    reasons.push(
+      `${uncertain.length} alternatives nondominated but not comparable: ${uncertain.map((r) => `${r.kind} (${[...r.uncertainty.unresolvedDimensions.map((d) => `${d} unresolved`), ...r.uncertainty.conditionalDimensions.map((d) => `${d} conditional`)].join(", ")})`).join("; ")}`,
+      ...uncertain
+        .filter(
+          (r) => r.measuredAdvantages.length > 0 || r.measuredCosts.length > 0
+        )
+        .map(
+          (r) => `${r.kind} measured: ${describe(r).slice(r.kind.length + 2)}`
+        )
+    );
+  } else {
+    disposition = "preserve-current";
+    reasons.push(
+      alternatives.length === 0
+        ? "no alternative"
+        : `${alternatives.filter((r) => r.status === "dominated").length} dominated, ${alternatives.filter((r) => r.status === "equivalent").length} equivalent, ${alternatives.filter((r) => r.status === "preservation-conflict").length} in preservation conflict`
+    );
+  }
+  return disposition;
+}
+
+function reviewPackageArchitectureFamilyI2(
+  nondominatedMembers: Reviewed[],
+  tradeoffs: ScenarioTradeoff[],
+  tradeoffPairCounts: Map<string, number>
+) {
+  for (let i = 0; i < nondominatedMembers.length; i += 1) {
+    reviewPackageArchitectureFamilyI2J(
+      i,
+      nondominatedMembers,
+      tradeoffs,
+      tradeoffPairCounts
+    );
+  }
+}
+
+function reviewPackageArchitectureFamilyI2J(
+  i: number,
+  nondominatedMembers: Reviewed[],
+  tradeoffs: ScenarioTradeoff[],
+  tradeoffPairCounts: Map<string, number>
+) {
+  for (let j = i + 1; j < nondominatedMembers.length; j += 1) {
+    const a = nondominatedMembers[i];
+    const b = nondominatedMembers[j];
+    if (a === undefined || b === undefined) {
+      continue;
+    }
+    const leftBetter: ReviewDimension[] = [];
+    const rightBetter: ReviewDimension[] = [];
+    reviewPackageArchitectureFamilyI2JDimension(
+      a,
+      b,
+      tradeoffs,
+      leftBetter,
+      rightBetter
+    );
+    for (const x of leftBetter) {
+      for (const y of rightBetter) {
+        const key = [x, y].sort().join("↔");
+        tradeoffPairCounts.set(key, (tradeoffPairCounts.get(key) ?? 0) + 1);
+      }
+    }
+  }
+}
+
+function reviewPackageArchitectureFamilyI2JDimension(
+  a: Reviewed,
+  b: Reviewed,
+  tradeoffs: ScenarioTradeoff[],
+  leftBetter: ReviewDimension[],
+  rightBetter: ReviewDimension[]
+) {
+  for (const dimension of DIMENSIONS) {
+    if (DIMENSION_ROLES[dimension] === "blocking") {
+      continue;
+    }
+    const left = effectOf(a.effects, dimension);
+    const right = effectOf(b.effects, dimension);
+    const comparison = compareDimension(left, right);
+    if (comparison === "equal") {
+      continue;
+    }
+    const certainty = weaker(left.certainty, right.certainty);
+    const differing = (own: ReviewMeasure[], other: ReviewMeasure[]) =>
+      own.filter(
+        (m) =>
+          m.comparison !== "none" &&
+          m.delta !== (other.find((o) => o.name === m.name)?.delta ?? 0)
+      );
+    tradeoffs.push({
+      certainty,
+      comparison,
+      dimension,
+      evidence: {
+        left: differing(left.measures, right.measures),
+        right: differing(right.measures, left.measures),
+      },
+      left: a.scenario.id,
+      right: b.scenario.id,
+    });
+    if (DIMENSION_ROLES[dimension] !== "comparison") {
+      continue;
+    }
+    if (certainty !== "measured") {
+      continue;
+    }
+    if (comparison === "better") {
+      leftBetter.push(dimension);
+    }
+    if (comparison === "worse") {
+      rightBetter.push(dimension);
+    }
+  }
+}
+
+function reviewPackageArchitectureFamilyI(
+  members: Reviewed[],
+  dominatedBy: Map<string, string[]>,
+  pairCounts: {
+    alternativeOverAlternative: number;
+    alternativeOverBaseline: number;
+    baselineOverAlternative: number;
+    noDominance: number;
+  },
+  isBaseline: (m: Reviewed) => boolean,
+  isAlternative: (m: Reviewed) => boolean
+) {
+  for (let i = 0; i < members.length; i += 1) {
+    reviewPackageArchitectureFamilyIJ(
+      i,
+      members,
+      dominatedBy,
+      pairCounts,
+      isBaseline,
+      isAlternative
+    );
+  }
+}
+
+function reviewPackageArchitectureFamilyIJ(
+  i: number,
+  members: Reviewed[],
+  dominatedBy: Map<string, string[]>,
+  pairCounts: {
+    alternativeOverAlternative: number;
+    alternativeOverBaseline: number;
+    baselineOverAlternative: number;
+    noDominance: number;
+  },
+  isBaseline: (m: Reviewed) => boolean,
+  isAlternative: (m: Reviewed) => boolean
+) {
+  for (let j = i + 1; j < members.length; j += 1) {
+    const a = members[i];
+    const b = members[j];
+    if (a === undefined || b === undefined) {
+      continue;
+    }
+    const ab = dominatedBy.get(b.scenario.id)?.includes(a.scenario.id);
+    const ba = dominatedBy.get(a.scenario.id)?.includes(b.scenario.id);
+    if (ab !== true && ba !== true) {
+      pairCounts.noDominance += 1;
+      continue;
+    }
+    const dominant = ab === true ? a : b;
+    const loser = ab === true ? b : a;
+    if (isBaseline(dominant) && isAlternative(loser)) {
+      pairCounts.baselineOverAlternative += 1;
+    } else if (isAlternative(dominant) && isBaseline(loser)) {
+      pairCounts.alternativeOverBaseline += 1;
+    } else {
+      pairCounts.alternativeOverAlternative += 1;
+    }
+  }
+}
+
+function reviewPackageArchitectureEntries(
+  isBaseline: (m: Reviewed) => boolean,
+  m: Reviewed,
+  missing: RewiringPreservation[],
+  dominatedBy: Map<string, string[]>,
+  unresolved: ReviewDimension[],
+  advantages: ReviewDimension[],
+  mixed: ReviewDimension[],
+  conditionalDifference: boolean
+): ScenarioReviewStatus {
+  let status: ScenarioReviewStatus;
+  if (isBaseline(m)) {
+    status = "baseline";
+  } else if (PRESERVATION_KINDS.includes(m.scenario.kind)) {
+    status = "preservation";
+  } else if (missing.length > 0) {
+    status = "preservation-conflict";
+  } else if ((dominatedBy.get(m.scenario.id) ?? []).length > 0) {
+    status = "dominated";
+  } else if (unresolved.length > 0) {
+    status = "uncertain";
+  } else if (advantages.length > 0 || mixed.length > 0) {
+    status = "credible";
+  } else if (conditionalDifference) {
+    status = "uncertain";
+  } else {
+    status = "equivalent";
+  }
+  return status;
+}
+
+function collectDimension(
+  m: Reviewed,
+  baseline: Reviewed,
+  advantages: ReviewDimension[],
+  costs: ReviewDimension[],
+  mixed: ReviewDimension[],
+  initialConditionalDifference: boolean
+) {
+  let conditionalDifference = initialConditionalDifference;
+  for (const dimension of COMPARISON_DIMENSIONS) {
+    const left = effectOf(m.effects, dimension);
+    const right = effectOf(baseline.effects, dimension);
+    const comparison = compareDimension(left, right);
+    const measured =
+      left.certainty === "measured" && right.certainty === "measured";
+    if (comparison === "better" && measured) {
+      advantages.push(dimension);
+    }
+    if (comparison === "worse" && measured) {
+      costs.push(dimension);
+    }
+    if (comparison === "mixed" && measured) {
+      mixed.push(dimension);
+    }
+    if (comparison !== "equal" && !measured) {
+      conditionalDifference = true;
+    }
+  }
+  return conditionalDifference;
 }
 
 function buildSubjects(
@@ -1206,15 +1456,17 @@ function summarize(
 ): PackageArchitectureReviewSummary {
   const byDisposition = zeroRecord(DISPOSITIONS);
   const familySizes = zeroRecord(["1", "2", "3", "4+"] as const);
-  for (const family of families) {
-    byDisposition[family.disposition] += 1;
-    if (family.scenarios.length === 0) {
-      continue;
+  const visitFamily = () => {
+    for (const family of families) {
+      byDisposition[family.disposition] += 1;
+      if (family.scenarios.length === 0) {
+        continue;
+      }
+      const size = family.scenarios.length;
+      familySizes[resolveVisitFamily(size)] += 1;
     }
-    const size = family.scenarios.length;
-    familySizes[size >= 4 ? "4+" : size === 3 ? "3" : size === 2 ? "2" : "1"] +=
-      1;
-  }
+  };
+  visitFamily();
   const byStatus = zeroRecord(STATUSES);
   const byKind: PackageArchitectureReviewSummary["byKind"] = Object.fromEntries(
     [...new Set(scenarios.map((s) => s.kind))].sort().map((k) => [k, {}])
@@ -1235,68 +1487,23 @@ function summarize(
   let rootsPreserved = 0;
   const low: ReviewedRewiringScenario[] = [];
   const high: ReviewedRewiringScenario[] = [];
-  for (const reviewed of scenarios) {
-    byStatus[reviewed.status] += 1;
-    const kindEntry = byKind[reviewed.kind];
-    kindEntry[reviewed.status] = (kindEntry[reviewed.status] ?? 0) + 1;
-    if (reviewed.closure !== undefined) {
-      const entry = closureByStatus[reviewed.closure];
-      entry[reviewed.status] = (entry[reviewed.status] ?? 0) + 1;
-    }
-    if (reviewed.kind === "preserve-composition-root") {
-      rootsPreserved += 1;
-    }
-    if (reviewed.status === "baseline" || reviewed.status === "preservation") {
-      continue;
-    }
-    for (const reason of reviewed.uncertainty.reasons) {
-      uncertaintyReasons[reason] = (uncertaintyReasons[reason] ?? 0) + 1;
-    }
-    for (const dimension of reviewed.uncertainty.unresolvedDimensions) {
-      unresolvedDimensions[dimension] =
-        (unresolvedDimensions[dimension] ?? 0) + 1;
-    }
-    const alignment = scenarioById.get(reviewed.scenarioId)?.effects.conventions
-      .alignment;
-    if (alignment === "matches-convention") {
-      if (reviewed.status === "credible") {
-        conventions.supportedCredible += 1;
-      } else if (reviewed.status === "dominated") {
-        conventions.supportedDominated += 1;
-      } else if (reviewed.status === "uncertain") {
-        conventions.supportedUncertain += 1;
-      }
-    }
-    if (
-      alignment === "competing-convention" &&
-      reviewed.status === "credible"
-    ) {
-      conventions.competingTradeoffs += 1;
-    }
-    if (
-      reviewed.measuredAdvantages.includes("locality") ||
-      reviewed.measuredAdvantages.includes("responsibility-boundaries")
-    ) {
-      responsibilityDependent += 1;
-    }
-    if (
-      reviewed.status === "credible" &&
-      reviewed.uncertainty.conditionalDimensions.length === 0 &&
-      (reviewed.closure === undefined ||
-        reviewed.closure === "independent" ||
-        reviewed.closure === "small")
-    ) {
-      low.push(reviewed);
-    }
-    if (
-      reviewed.status === "uncertain" &&
-      reviewed.uncertainty.unresolvedDimensions.length +
-        reviewed.uncertainty.conditionalDimensions.length >=
-        2
-    ) {
-      high.push(reviewed);
-    }
-  }
+  const visitReviewed = () => {
+    ({ rootsPreserved, responsibilityDependent } = summarizeReviewed(
+      scenarios,
+      byStatus,
+      byKind,
+      closureByStatus,
+      rootsPreserved,
+      uncertaintyReasons,
+      unresolvedDimensions,
+      scenarioById,
+      conventions,
+      responsibilityDependent,
+      low,
+      high
+    ));
+  };
+  visitReviewed();
   const insufficient = new Map<string, number>();
   for (const family of families) {
     if (family.disposition !== "insufficient-evidence") {
@@ -1355,6 +1562,166 @@ function summarize(
     uncertaintyReasons,
     unresolvedDimensions,
   };
+}
+
+function resolveVisitFamily(size: number): "4+" | "3" | "2" | "1" {
+  if (size >= 4) {
+    return "4+";
+  }
+  if (size === 3) {
+    return "3";
+  }
+  if (size === 2) {
+    return "2";
+  }
+  return "1";
+}
+
+function summarizeReviewed(
+  scenarios: ReviewedRewiringScenario[],
+  byStatus: Record<ScenarioReviewStatus, number>,
+  byKind: Record<
+    InternalRewiringScenarioKind,
+    Partial<Record<ScenarioReviewStatus, number>>
+  >,
+  closureByStatus: Record<
+    ClosureSize,
+    Partial<Record<ScenarioReviewStatus, number>>
+  >,
+  initialRootsPreserved: number,
+  uncertaintyReasons: Partial<Record<ScenarioUncertaintyReason, number>>,
+  unresolvedDimensions: Partial<Record<ReviewDimension, number>>,
+  scenarioById: Map<string, InternalRewiringScenario>,
+  conventions: {
+    competingTradeoffs: number;
+    supportedCredible: number;
+    supportedDominated: number;
+    supportedUncertain: number;
+  },
+  initialResponsibilityDependent: number,
+  low: ReviewedRewiringScenario[],
+  high: ReviewedRewiringScenario[]
+) {
+  let responsibilityDependent = initialResponsibilityDependent;
+  let rootsPreserved = initialRootsPreserved;
+  const visitReviewed2 = (reviewed: ReviewedRewiringScenario) => {
+    byStatus[reviewed.status] += 1;
+    const kindEntry = byKind[reviewed.kind];
+    kindEntry[reviewed.status] = (kindEntry[reviewed.status] ?? 0) + 1;
+    if (reviewed.closure !== undefined) {
+      const entry = closureByStatus[reviewed.closure];
+      entry[reviewed.status] = (entry[reviewed.status] ?? 0) + 1;
+    }
+    if (reviewed.kind === "preserve-composition-root") {
+      rootsPreserved += 1;
+    }
+    if (reviewed.status === "baseline" || reviewed.status === "preservation") {
+      return;
+    }
+    const visitReason = (reason: ScenarioUncertaintyReason) => {
+      uncertaintyReasons[reason] = (uncertaintyReasons[reason] ?? 0) + 1;
+    };
+    responsibilityDependent = collectVisitDimension2(
+      reviewed,
+      visitReason,
+      unresolvedDimensions,
+      scenarioById,
+      conventions,
+      responsibilityDependent,
+      low,
+      high
+    );
+  };
+  for (const reviewed of scenarios) {
+    visitReviewed2(reviewed);
+  }
+  return { responsibilityDependent, rootsPreserved };
+}
+
+function collectVisitDimension2(
+  reviewed: ReviewedRewiringScenario,
+  visitReason: (reason: ScenarioUncertaintyReason) => void,
+  unresolvedDimensions: Partial<Record<ReviewDimension, number>>,
+  scenarioById: Map<string, InternalRewiringScenario>,
+  conventions: {
+    competingTradeoffs: number;
+    supportedCredible: number;
+    supportedDominated: number;
+    supportedUncertain: number;
+  },
+  initialResponsibilityDependent: number,
+  low: ReviewedRewiringScenario[],
+  high: ReviewedRewiringScenario[]
+) {
+  let responsibilityDependent = initialResponsibilityDependent;
+  for (const reason of reviewed.uncertainty.reasons) {
+    visitReason(reason);
+  }
+  const visitDimension2 = (dimension: ReviewDimension) => {
+    unresolvedDimensions[dimension] =
+      (unresolvedDimensions[dimension] ?? 0) + 1;
+  };
+  for (const dimension of reviewed.uncertainty.unresolvedDimensions) {
+    visitDimension2(dimension);
+  }
+  const alignment = scenarioById.get(reviewed.scenarioId)?.effects.conventions
+    .alignment;
+  summarizeReviewedEntries(alignment, reviewed, conventions);
+  if (alignment === "competing-convention" && reviewed.status === "credible") {
+    conventions.competingTradeoffs += 1;
+  }
+  if (
+    reviewed.measuredAdvantages.includes("locality") ||
+    reviewed.measuredAdvantages.includes("responsibility-boundaries")
+  ) {
+    responsibilityDependent += 1;
+  }
+  summarizeReviewedEntries2(reviewed, low);
+  if (
+    reviewed.status === "uncertain" &&
+    reviewed.uncertainty.unresolvedDimensions.length +
+      reviewed.uncertainty.conditionalDimensions.length >=
+      2
+  ) {
+    high.push(reviewed);
+  }
+  return responsibilityDependent;
+}
+
+function summarizeReviewedEntries2(
+  reviewed: ReviewedRewiringScenario,
+  low: ReviewedRewiringScenario[]
+) {
+  if (
+    reviewed.status === "credible" &&
+    reviewed.uncertainty.conditionalDimensions.length === 0 &&
+    (reviewed.closure === undefined ||
+      reviewed.closure === "independent" ||
+      reviewed.closure === "small")
+  ) {
+    low.push(reviewed);
+  }
+}
+
+function summarizeReviewedEntries(
+  alignment: ConventionAlignment | undefined,
+  reviewed: ReviewedRewiringScenario,
+  conventions: {
+    competingTradeoffs: number;
+    supportedCredible: number;
+    supportedDominated: number;
+    supportedUncertain: number;
+  }
+) {
+  if (alignment === "matches-convention") {
+    if (reviewed.status === "credible") {
+      conventions.supportedCredible += 1;
+    } else if (reviewed.status === "dominated") {
+      conventions.supportedDominated += 1;
+    } else if (reviewed.status === "uncertain") {
+      conventions.supportedUncertain += 1;
+    }
+  }
 }
 
 export function getReviewForScenario(

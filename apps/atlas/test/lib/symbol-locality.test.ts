@@ -1,7 +1,13 @@
 import { execFileSync } from "node:child_process";
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
+import {
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, posix } from "node:path";
 
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { analyzeInternalPackageTopology } from "../../src/lib/internal-topology";
@@ -19,6 +25,8 @@ import type {
 } from "../../src/lib/symbol-locality-types";
 import { SYMBOL_LOCALITY_SCHEMA_VERSION } from "../../src/lib/symbol-locality-types";
 
+const specifierPattern = /\.tsx?$/;
+
 // V13.1 symbol locality on synthetic packages. Each fixture is one package in
 // a throwaway workspace; the report must be a pure function of that package's
 // own files, so the independence tests perturb everything else.
@@ -27,7 +35,7 @@ const tempRoots: string[] = [];
 
 afterAll(() => {
   for (const dir of tempRoots) {
-    fs.rmSync(dir, { force: true, recursive: true });
+    rmSync(dir, { force: true, recursive: true });
   }
 });
 
@@ -36,13 +44,13 @@ function workspace(
   files: Record<string, string>,
   extra: Record<string, string> = {}
 ): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "symbol-locality-"));
-  const root = fs.realpathSync(dir);
+  const dir = mkdtempSync(join(tmpdir(), "symbol-locality-"));
+  const root = realpathSync(dir);
   tempRoots.push(root);
   const write = (file: string, text: string) => {
-    const target = path.join(root, file);
-    fs.mkdirSync(path.dirname(target), { recursive: true });
-    fs.writeFileSync(target, text);
+    const target = join(root, file);
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, text);
   };
   write(
     "package.json",
@@ -53,7 +61,7 @@ function workspace(
     JSON.stringify({ exports: { ".": "./src/index.ts" }, name: "@f/p" })
   );
   for (const [file, text] of Object.entries(files)) {
-    write(path.join("packages/p", file), text);
+    write(join("packages/p", file), text);
   }
   for (const [file, text] of Object.entries(extra)) {
     write(file, text);
@@ -72,9 +80,9 @@ function localityOf(
 
 /** `import { X } from "<relative>"` from one package-relative file to another. */
 function importOf(from: string, to: string, name = "X"): string {
-  let specifier = path.posix.relative(
-    path.posix.dirname(from),
-    to.replace(/\.tsx?$/, "")
+  let specifier = posix.relative(
+    posix.dirname(from),
+    to.replace(specifierPattern, "")
   );
   if (!specifier.startsWith(".")) {
     specifier = `./${specifier}`;
@@ -265,10 +273,10 @@ describe("split locality: two significant regions, none dominant", () => {
         ...Array.from({ length: 8 }, (_, i) => `src/r${i}/m.ts`),
       ]),
     });
-    const x = finding(tail, X);
-    expect(x.significantRegions).toBe(2);
-    expect(x.distribution).toBe("package-distributed");
-    expect(x.placement).toBe("distributed");
+    const findingX = finding(tail, X);
+    expect(findingX.significantRegions).toBe(2);
+    expect(findingX.distribution).toBe("package-distributed");
+    expect(findingX.placement).toBe("distributed");
   });
 });
 
@@ -502,8 +510,7 @@ describe("many import sites, few bindings", () => {
   const report = localityOf({
     "src/canvas/a.ts":
       'import { X } from "../shared/x";\nimport { X as X2 } from "../shared/x";\nexport const a = X2;\n',
-    "src/canvas/b.ts":
-      importOf("src/canvas/b.ts", "src/shared/x.ts") + "export const b = X;\n",
+    "src/canvas/b.ts": `${importOf("src/canvas/b.ts", "src/shared/x.ts")}export const b = X;\n`,
     "src/shared/x.ts": "export const X = 1;\n",
   });
 
@@ -605,10 +612,8 @@ describe("disconnected consumer groups", () => {
 
 describe("behavior beside usage", () => {
   const report = localityOf({
-    "src/canvas/a.ts":
-      importOf("src/canvas/a.ts", "src/shared/x.ts") + "export const a = X;\n",
-    "src/canvas/b.ts":
-      importOf("src/canvas/b.ts", "src/shared/x.ts") + "export const b = X;\n",
+    "src/canvas/a.ts": `${importOf("src/canvas/a.ts", "src/shared/x.ts")}export const a = X;\n`,
+    "src/canvas/b.ts": `${importOf("src/canvas/b.ts", "src/shared/x.ts")}export const b = X;\n`,
     "src/shared/x.ts": "export const X = 1;\n",
     "src/tasks/c.ts":
       importOf("src/tasks/c.ts", "src/shared/x.ts") +
@@ -762,6 +767,6 @@ describe("independence", () => {
     const first = JSON.stringify(analyzeSymbolLocality(local, topology));
     expect(JSON.stringify(analyzeSymbolLocality(local, topology))).toBe(first);
     expect(first).not.toContain(root);
-    expect(first).not.toContain(os.tmpdir());
+    expect(first).not.toContain(tmpdir());
   });
 });

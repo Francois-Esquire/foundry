@@ -350,11 +350,11 @@ const store = familyOf("Store", "core/store", [
 ]);
 
 function analysis(family: ConceptFamily, config?: AnalysisConfig) {
-  const result = analyzeConceptDistribution(
+  const [result] = analyzeConceptDistribution(
     inventoryOf(family),
     noHistory,
     config
-  ).families[0];
+  ).families;
   if (result === undefined) {
     throw new Error("no analysis");
   }
@@ -586,8 +586,10 @@ describe("temporal annotation", () => {
   };
 
   it("attaches existing V6 coupling between member files", () => {
-    const result = analyzeConceptDistribution(inventoryOf(store), history)
-      .families[0];
+    const [result] = analyzeConceptDistribution(
+      inventoryOf(store),
+      history
+    ).families;
     expect(result?.temporal).toEqual({
       hotspotRepresentations: ["SqliteStore"],
       representedFilesWithChurn: 2,
@@ -615,7 +617,7 @@ describe("temporal annotation", () => {
   it("never lets a strong pair with an outside file change the family", () => {
     const before = JSON.stringify(store.representations);
     const report = analyzeConceptDistribution(inventoryOf(store), history);
-    const result = report.families[0];
+    const [result] = report.families;
     expect(JSON.stringify(store.representations)).toBe(before);
     expect(result?.representations.total).toBe(5);
     expect(

@@ -45,7 +45,7 @@ export interface SharedStructuralAction {
   sourceOperators: string[];
 }
 
-export type CompositionDependencyOrigin = "explicit" | "inferred";
+type CompositionDependencyOrigin = "explicit" | "inferred";
 
 export interface ComposedActionDependency extends StructuralActionDependency {
   origin: CompositionDependencyOrigin;
@@ -74,7 +74,7 @@ export interface OperatorCompositionConflict {
   operators: string[];
 }
 
-export type CompositionPreservationStatus =
+type CompositionPreservationStatus =
   | "covered"
   | "implicit"
   | "conflicted"
@@ -90,10 +90,7 @@ export interface CompositionPreservation {
   status: CompositionPreservationStatus;
 }
 
-export type CompositionEffectRelation =
-  | "compatible"
-  | "duplicate"
-  | "conflicting";
+type CompositionEffectRelation = "compatible" | "duplicate" | "conflicting";
 
 /** Operator effects on one dimension and change for one subject; never a new prediction. */
 export interface CompositionEffect {
@@ -105,7 +102,7 @@ export interface CompositionEffect {
   subjects: string[];
 }
 
-export type CompositionVerificationStatus =
+type CompositionVerificationStatus =
   | "compatible"
   | "conflicting"
   | "unresolved";
@@ -118,10 +115,7 @@ export interface CompositionVerification {
   status: CompositionVerificationStatus;
 }
 
-export type CompositionGapResolutionStatus =
-  | "resolved"
-  | "unresolved"
-  | "conflicted";
+type CompositionGapResolutionStatus = "resolved" | "unresolved" | "conflicted";
 
 export interface CompositionGapResolution {
   /** `<operator id>/<gap kind>:<entities>` */
@@ -138,7 +132,7 @@ export interface OperatorCompositionGap extends OperatorDecompositionGap {
   sourceOperator: string;
 }
 
-export interface OperatorCompositionDiagnostics {
+interface OperatorCompositionDiagnostics {
   conflicts: number;
   explicitDependencies: number;
   gapsRemaining: number;
@@ -152,7 +146,7 @@ export interface OperatorCompositionDiagnostics {
   sharedActions: number;
 }
 
-export interface CompositionFingerprint {
+interface CompositionFingerprint {
   facts: string[];
   hash: string;
 }
@@ -195,7 +189,7 @@ export interface OperatorComposition {
   verification: CompositionVerification[];
 }
 
-export type OperatorCompositionValidationStatus = "valid" | "invalid" | "stale";
+type OperatorCompositionValidationStatus = "valid" | "invalid" | "stale";
 
 export interface OperatorCompositionValidation {
   compositionId: string;

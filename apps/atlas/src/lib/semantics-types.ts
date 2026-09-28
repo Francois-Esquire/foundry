@@ -34,7 +34,7 @@ export interface SemanticsWorkspaceUnit {
   root: string;
 }
 
-export type SemanticsSkipReason =
+type SemanticsSkipReason =
   | "no package manifest"
   | "excluded"
   | "analysis unsupported"
@@ -55,7 +55,7 @@ export interface SemanticsDiscovery {
   units: SemanticsWorkspaceUnit[];
 }
 
-export type SemanticsPackageStatus = "complete" | "failed" | "skipped";
+type SemanticsPackageStatus = "complete" | "failed" | "skipped";
 
 export interface SemanticsManifestPackage {
   error?: string;
@@ -88,7 +88,7 @@ export type SemanticsPhase =
 
 export type SemanticsGenerationMode = "full" | "incremental";
 
-export interface SemanticsGenerationMetadata {
+interface SemanticsGenerationMetadata {
   artifactsGenerated: number;
   artifactsReused: number;
   command: string;
@@ -146,7 +146,7 @@ export interface SemanticsInvalidation {
   status: "reuse" | "recompute" | "remove";
 }
 
-export interface SemanticsManifestFiles {
+interface SemanticsManifestFiles {
   conceptIndex: string;
   couplings: string;
   moduleIndex: string;
@@ -295,7 +295,7 @@ export interface SemanticsModuleIndex {
  * One co-change pair as the workspace recorded it. `left`/`right` follow the
  * sorted pair id and carry no direction; the conditionals are per side.
  */
-export interface SemanticsCouplingPair {
+interface SemanticsCouplingPair {
   coChangeCommits: number;
   /** `${left}|${right}` */
   id: string;
@@ -319,7 +319,7 @@ export interface SemanticsCouplingIndex {
   schemaVersion: number;
 }
 
-export interface SemanticsConceptIndexEntry {
+interface SemanticsConceptIndexEntry {
   centers: {
     semantic?: string;
     representation?: string;

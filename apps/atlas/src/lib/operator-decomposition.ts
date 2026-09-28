@@ -27,6 +27,7 @@ import type {
 import { DECOMPOSITION_SCHEMA_VERSION } from "./operator-decomposition-types";
 import type {
   ArchitecturalOperator,
+  OperatorConstraint,
   OperatorContext,
   OperatorEvidenceRef,
   OperatorExpectedEffect,
@@ -50,7 +51,7 @@ export function preservationId(preservation: OperatorPreservation): string {
 }
 
 /** Operator effects in operator order; a repeated shape gets an ordinal. */
-export function effectIds(effects: OperatorExpectedEffect[]): string[] {
+function effectIds(effects: OperatorExpectedEffect[]): string[] {
   const seen = new Map<string, number>();
   return effects.map((effect) => {
     const base = `${effect.dimension}:${effect.change}:${JSON.stringify(effect.from ?? null)}→${JSON.stringify(effect.to ?? null)}`;
@@ -78,6 +79,8 @@ export function subjectKey(subject: StructuralActionSubject): string {
       return `${subject.consumer}⇢${subject.provider}#${subject.conceptId ?? "*"}`;
     case "package":
       return subject.packageId;
+    default:
+      throw new Error("Unexpected subject.kind.");
   }
 }
 
@@ -155,14 +158,16 @@ function currentPackages(operator: ArchitecturalOperator): string[] {
 
 function involvedPackages(operator: ArchitecturalOperator): string[] {
   const target = operator.placement.target?.package;
-  const subjectPackages =
-    operator.subject.kind === "boundary"
-      ? [operator.subject.from, operator.subject.to]
-      : operator.subject.kind === "package"
-        ? [operator.subject.packageId]
-        : operator.subject.kind === "symbol"
-          ? [operator.subject.package]
-          : [];
+  let subjectPackages: string[];
+  if (operator.subject.kind === "boundary") {
+    subjectPackages = [operator.subject.from, operator.subject.to];
+  } else if (operator.subject.kind === "package") {
+    subjectPackages = [operator.subject.packageId];
+  } else if (operator.subject.kind === "symbol") {
+    subjectPackages = [operator.subject.package];
+  } else {
+    subjectPackages = [];
+  }
   return sorted([
     ...currentPackages(operator),
     ...(target === undefined ? [] : [target]),
@@ -177,7 +182,7 @@ function decompositionFacts(
   operator: ArchitecturalOperator,
   context: OperatorContext
 ): { facts: string[]; resolvable: boolean } {
-  const packages = context.projection.workspace.packages.packages;
+  const { packages } = context.projection.workspace.packages;
   const facts = [
     `operator:${operator.id}`,
     `operator-fingerprint:${operator.fingerprint.hash}`,
@@ -208,7 +213,7 @@ function decompositionFacts(
   return { facts, resolvable };
 }
 
-export function decompositionFingerprint(facts: string[]): {
+function decompositionFingerprint(facts: string[]): {
   facts: string[];
   hash: string;
 } {
@@ -242,7 +247,10 @@ class Assembly {
   readonly dependencies: StructuralActionDependency[] = [];
   readonly gaps: OperatorDecompositionGap[] = [];
 
-  constructor(private readonly operator: ArchitecturalOperator) {}
+  private readonly operator: ArchitecturalOperator;
+  constructor(operator: ArchitecturalOperator) {
+    this.operator = operator;
+  }
 
   add(draft: ActionDraft): StructuralAction {
     const id = actionId(
@@ -331,63 +339,7 @@ function preservationActions(
   placement: StructuralAction[]
 ): void {
   const conceptId = conceptIdOf(operator);
-  for (const preservation of operator.preservations) {
-    const id = preservationId(preservation);
-    let action: StructuralAction | undefined;
-    switch (preservation.kind) {
-      case "representation-boundary":
-        action = acc.add({
-          kind: "preserve-representation-boundary",
-          preserves: [id],
-          subject: { conceptId: conceptId ?? "?", kind: "concept" },
-          summary: `representation boundary with ${preservation.entityIds.join(", ") || "partner representations"} stays explicit`,
-        });
-        break;
-      case "implementation-split":
-        action = acc.add({
-          kind: "preserve-implementation-split",
-          preconditions: pre(operator, "implementation-state"),
-          preserves: [id],
-          subject: {
-            conceptId: conceptId ?? "?",
-            kind: "behavior",
-            role: "implementation",
-          },
-          summary: `implementations stay where they are: ${preservation.entityIds.join(", ")}`,
-        });
-        break;
-      case "anchor":
-        for (const packageId of preservation.entityIds) {
-          action = acc.add({
-            kind: "preserve-anchor-boundary",
-            preconditions: pre(operator, "anchor-state", [packageId]),
-            preserves: [id],
-            subject: { kind: "package", packageId },
-            summary: `${packageId} keeps its anchored boundary${preservation.reason === undefined ? "" : `: ${preservation.reason}`}`,
-          });
-          for (const p of placement) {
-            acc.depend(action, p, "preserve-before-remove", "anchor holds");
-          }
-        }
-        action = undefined;
-        break;
-      case "public-contract":
-      case "semantic-center":
-      case "consumer-import-path":
-      case "runtime-behavior":
-        break;
-    }
-    if (action !== undefined) {
-      for (const p of placement) {
-        acc.depend(
-          action,
-          p,
-          "preserve-before-remove",
-          "the invariant is fixed before the placement changes"
-        );
-      }
-    }
-  }
+  preservationActionsPreservation(operator, acc, conceptId, placement);
   // A representation constraint without a preservation still needs the boundary kept explicit.
   for (const constraint of operator.constraints) {
     if (constraint.kind !== "representation-boundary") {
@@ -407,6 +359,95 @@ function preservationActions(
       );
     }
   }
+}
+
+function preservationActionsPreservation(
+  operator: ArchitecturalOperator,
+  acc: Assembly,
+  conceptId: string | undefined,
+  placement: StructuralAction[]
+) {
+  for (const preservation of operator.preservations) {
+    const id = preservationId(preservation);
+    let action: StructuralAction | undefined;
+    action = preservationActionsPreservationKind(
+      preservation,
+      action,
+      acc,
+      id,
+      conceptId,
+      operator,
+      placement
+    );
+    if (action !== undefined) {
+      for (const p of placement) {
+        acc.depend(
+          action,
+          p,
+          "preserve-before-remove",
+          "the invariant is fixed before the placement changes"
+        );
+      }
+    }
+  }
+}
+
+function preservationActionsPreservationKind(
+  preservation: OperatorPreservation,
+  initialAction: StructuralAction | undefined,
+  acc: Assembly,
+  id: string,
+  conceptId: string | undefined,
+  operator: ArchitecturalOperator,
+  placement: StructuralAction[]
+) {
+  let action = initialAction;
+  switch (preservation.kind) {
+    case "representation-boundary":
+      action = acc.add({
+        kind: "preserve-representation-boundary",
+        preserves: [id],
+        subject: { conceptId: conceptId ?? "?", kind: "concept" },
+        summary: `representation boundary with ${preservation.entityIds.join(", ") || "partner representations"} stays explicit`,
+      });
+      break;
+    case "implementation-split":
+      action = acc.add({
+        kind: "preserve-implementation-split",
+        preconditions: pre(operator, "implementation-state"),
+        preserves: [id],
+        subject: {
+          conceptId: conceptId ?? "?",
+          kind: "behavior",
+          role: "implementation",
+        },
+        summary: `implementations stay where they are: ${preservation.entityIds.join(", ")}`,
+      });
+      break;
+    case "anchor":
+      for (const packageId of preservation.entityIds) {
+        action = acc.add({
+          kind: "preserve-anchor-boundary",
+          preconditions: pre(operator, "anchor-state", [packageId]),
+          preserves: [id],
+          subject: { kind: "package", packageId },
+          summary: `${packageId} keeps its anchored boundary${preservation.reason === undefined ? "" : `: ${preservation.reason}`}`,
+        });
+        for (const p of placement) {
+          acc.depend(action, p, "preserve-before-remove", "anchor holds");
+        }
+      }
+      action = undefined;
+      break;
+    case "public-contract":
+    case "semantic-center":
+    case "consumer-import-path":
+    case "runtime-behavior":
+      break;
+    default:
+      throw new Error("Unexpected preservation.kind.");
+  }
+  return action;
 }
 
 function anchorActionsForBlockers(
@@ -458,11 +499,7 @@ function completenessGaps(
     ) {
       acc.gap(
         "behavior-members-unresolved",
-        constraint.entityIds.length === 0
-          ? conceptId === undefined
-            ? []
-            : [conceptId]
-          : constraint.entityIds,
+        resolveCompletenessGaps(constraint, conceptId),
         constraint.effect !== "informational",
         constraint.entityIds.length === 0
           ? `${constraint.detail}; participants in unanalyzed packages are unseen`
@@ -470,6 +507,19 @@ function completenessGaps(
       );
     }
   }
+}
+
+function resolveCompletenessGaps(
+  constraint: OperatorConstraint,
+  conceptId: string | undefined
+): string[] {
+  if (constraint.entityIds.length === 0) {
+    if (conceptId === undefined) {
+      return [];
+    }
+    return [conceptId];
+  }
+  return constraint.entityIds;
 }
 
 function targetModuleGap(acc: Assembly, placement: StructuralAction[]): void {
@@ -1011,7 +1061,7 @@ const CONFLICTS: Partial<
     p.entityIds.includes(a.current?.package ?? ""),
 };
 
-export function coverPreservations(
+function coverPreservations(
   operator: ArchitecturalOperator,
   actions: StructuralAction[]
 ): PreservationCoverage[] {
@@ -1283,6 +1333,8 @@ export function decomposeArchitecturalOperator(
       break;
     case "move":
       break;
+    default:
+      throw new Error("Unexpected live.kind.");
   }
   boundaryRemovalActions(live, acc);
   const effectCoverage = partitionEffects(live, acc);
@@ -1301,12 +1353,14 @@ export function decomposeArchitecturalOperator(
   }
   const actions = orderActions(acc.actions, layer).map(canonicalAction);
   const gaps = sortGaps(acc.gaps);
-  const status: OperatorDecompositionStatus =
-    validation.status === "blocked"
-      ? "blocked"
-      : gaps.length > 0
-        ? "partial"
-        : "complete";
+  let status: OperatorDecompositionStatus;
+  if (validation.status === "blocked") {
+    status = "blocked";
+  } else if (gaps.length > 0) {
+    status = "partial";
+  } else {
+    status = "complete";
+  }
   const { facts } = decompositionFacts(operator, context);
   return {
     actions,
@@ -1413,39 +1467,32 @@ export function validateOperatorDecomposition(
 
   const known = new Set<string>(STRUCTURAL_ACTION_KINDS);
   const actionIds = new Set(decomposition.actions.map((a) => a.id));
-  for (const action of decomposition.actions) {
-    if (!known.has(action.kind)) {
-      problems.push(`${action.id}: unknown action kind ${action.kind}`);
-      continue;
+  const visitAction = () => {
+    for (const action of decomposition.actions) {
+      if (!known.has(action.kind)) {
+        problems.push(`${action.id}: unknown action kind ${action.kind}`);
+        continue;
+      }
+      const definition = getStructuralActionDefinition(action.kind);
+      if (!definition.supportedSubjects.includes(action.subject.kind)) {
+        problems.push(
+          `${action.id}: ${action.kind} does not take ${action.subject.kind} subjects`
+        );
+      }
+      if (definition.requiresTarget && action.target?.package === undefined) {
+        problems.push(`${action.id}: ${action.kind} needs a target package`);
+      }
     }
-    const definition = getStructuralActionDefinition(action.kind);
-    if (!definition.supportedSubjects.includes(action.subject.kind)) {
-      problems.push(
-        `${action.id}: ${action.kind} does not take ${action.subject.kind} subjects`
-      );
-    }
-    if (definition.requiresTarget && action.target?.package === undefined) {
-      problems.push(`${action.id}: ${action.kind} needs a target package`);
-    }
-  }
-  for (const d of decomposition.dependencies) {
-    if (!(actionIds.has(d.before) && actionIds.has(d.after))) {
-      problems.push(
-        `dependency ${d.before} → ${d.after} names an unknown action`
-      );
-    }
-  }
+  };
+  visitAction();
+  validateOperatorDecompositionD(decomposition, actionIds, problems);
   const { cycle } = layers(decomposition.actions, decomposition.dependencies);
   const cycles = cycle.length === 0 ? [] : [cycle];
   if (cycle.length > 0) {
     problems.push(`actions form a cycle: ${cycle.join(", ")}`);
   }
 
-  for (const kind of REQUIRED_ACTIONS[operator.kind] ?? []) {
-    if (!decomposition.actions.some((a) => a.kind === kind)) {
-      problems.push(`${operator.kind} requires a ${kind} action`);
-    }
-  }
+  validateOperatorDecompositionKind(operator, decomposition, problems);
   for (const c of preservationCoverage) {
     if (c.status === "uncovered") {
       problems.push(`preservation ${c.preservationId} is not covered`);
@@ -1476,6 +1523,32 @@ export function validateOperatorDecomposition(
     status: problems.length === 0 ? "valid" : "invalid",
     ...coverage,
   };
+}
+
+function validateOperatorDecompositionKind(
+  operator: ArchitecturalOperator,
+  decomposition: OperatorDecomposition,
+  problems: string[]
+) {
+  for (const kind of REQUIRED_ACTIONS[operator.kind] ?? []) {
+    if (!decomposition.actions.some((a) => a.kind === kind)) {
+      problems.push(`${operator.kind} requires a ${kind} action`);
+    }
+  }
+}
+
+function validateOperatorDecompositionD(
+  decomposition: OperatorDecomposition,
+  actionIds: Set<string>,
+  problems: string[]
+) {
+  for (const d of decomposition.dependencies) {
+    if (!(actionIds.has(d.before) && actionIds.has(d.after))) {
+      problems.push(
+        `dependency ${d.before} → ${d.after} names an unknown action`
+      );
+    }
+  }
 }
 
 export function sameEffect(

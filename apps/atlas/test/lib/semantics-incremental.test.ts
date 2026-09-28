@@ -1,6 +1,18 @@
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
+import {
+  appendFileSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 
 import { afterAll, describe, expect, it } from "vitest";
 import { assembleSurfaceReport } from "../../src/lib/assemble";
@@ -30,13 +42,13 @@ import { hashTree } from "./helpers/planning-fixture";
 // are under test: package-local reports (keyed by a package's own files)
 // and assembled reports (keyed by the whole workspace).
 
-const fixture = path.join(import.meta.dirname, "fixtures", "semantics");
+const fixture = join(import.meta.dirname, "fixtures", "semantics");
 const now = new Date("2027-01-01T00:00:00Z");
 const tempRoots: string[] = [];
 
 afterAll(() => {
   for (const dir of tempRoots) {
-    fs.rmSync(dir, { force: true, recursive: true });
+    rmSync(dir, { force: true, recursive: true });
   }
 });
 
@@ -69,27 +81,27 @@ const inProcessDerive: SemanticsDeriver = async (locals, context) => {
 };
 
 function copyFixture(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "semantics-incremental-"));
-  fs.cpSync(fixture, dir, { recursive: true });
-  const root = fs.realpathSync(dir);
+  const dir = mkdtempSync(join(tmpdir(), "semantics-incremental-"));
+  cpSync(fixture, dir, { recursive: true });
+  const root = realpathSync(dir);
   tempRoots.push(root);
   return root;
 }
 
 function write(root: string, file: string, content: string): void {
-  const target = path.join(root, file);
-  fs.mkdirSync(path.dirname(target), { recursive: true });
-  fs.writeFileSync(target, content);
+  const target = join(root, file);
+  mkdirSync(dirname(target), { recursive: true });
+  writeFileSync(target, content);
 }
 
 function append(root: string, file: string, content: string): void {
-  fs.appendFileSync(path.join(root, file), content);
+  appendFileSync(join(root, file), content);
 }
 
 /** A copy of the current dataset, so a later build can be compared against it. */
 function keep(root: string, name: string): string {
-  const target = path.join(root, ".foundry", name);
-  fs.cpSync(path.join(root, ".foundry", "semantics"), target, {
+  const target = join(root, ".foundry", name);
+  cpSync(join(root, ".foundry", "semantics"), target, {
     recursive: true,
   });
   return target;
@@ -163,25 +175,22 @@ async function expectEquivalentToFull(root: string): Promise<void> {
   await full(root);
   const result = compareSemanticsDatasets(
     incrementalCopy,
-    path.join(root, ".foundry", "semantics")
+    join(root, ".foundry", "semantics")
   );
   expect(result.differences).toEqual([]);
   expect(result.equivalent).toBe(true);
   expect(result.comparedArtifacts).toBeGreaterThan(10);
-  fs.rmSync(incrementalCopy, { force: true, recursive: true });
+  rmSync(incrementalCopy, { force: true, recursive: true });
 }
 
 function readManifest(root: string): SemanticsManifest {
   return JSON.parse(
-    fs.readFileSync(
-      path.join(root, ".foundry", "semantics", "manifest.json"),
-      "utf8"
-    )
+    readFileSync(join(root, ".foundry", "semantics", "manifest.json"), "utf8")
   ) as SemanticsManifest;
 }
 
 const cacheDir = (root: string): string =>
-  path.join(root, ".foundry", "cache", "semantics");
+  join(root, ".foundry", "cache", "semantics");
 
 describe("no changes", () => {
   it("reuses every local and assembled report, skips derivation, and reproduces the full dataset", async () => {
@@ -199,7 +208,7 @@ describe("no changes", () => {
     const inodes = new Map(
       listSemanticsFiles(first.output).map((f) => [
         f,
-        fs.statSync(path.join(first.output, f)).ino,
+        statSync(join(first.output, f)).ino,
       ])
     );
 
@@ -257,7 +266,7 @@ describe("no changes", () => {
       if (file === "manifest.json") {
         continue;
       }
-      expect(fs.statSync(path.join(second.output, file)).ino).toBe(ino);
+      expect(statSync(join(second.output, file)).ino).toBe(ino);
     }
     const manifest = readManifest(root);
     expect(manifest.generation.mode).toBe("incremental");
@@ -276,13 +285,13 @@ describe("no changes", () => {
     await incremental(root);
     const after = hashTree(cacheDir(root));
     expect([...after.keys()].sort()).toEqual([...first.keys()].sort());
-    expect(fs.existsSync(path.join(cacheDir(root), "lock.json"))).toBe(false);
+    expect(existsSync(join(cacheDir(root), "lock.json"))).toBe(false);
   });
 
   it("stores one local and one assembled entry per package", async () => {
     const root = copyFixture();
     const result = await full(root);
-    const files = fs.readdirSync(path.join(cacheDir(root), "packages")).sort();
+    const files = readdirSync(join(cacheDir(root), "packages")).sort();
     expect(files).toEqual([
       "@s__a.json",
       "@s__a.local.json",
@@ -355,7 +364,7 @@ describe("source changes", () => {
     const consumersOf = (output: string): string[] =>
       (
         JSON.parse(
-          fs.readFileSync(path.join(output, "packages", "@s__b.json"), "utf8")
+          readFileSync(join(output, "packages", "@s__b.json"), "utf8")
         ) as { symbols: { name: string; consumerPackages: string[] }[] }
       ).symbols.find((s) => s.name === "area")?.consumerPackages ?? [];
     expect(consumersOf(first.output)).toEqual(["@s/a"]);
@@ -401,12 +410,12 @@ describe("source changes", () => {
   it("treats a manifest change as a local source change of that package", async () => {
     const root = copyFixture();
     await full(root);
-    const manifest = path.join(root, "packages/b/package.json");
-    const parsed = JSON.parse(fs.readFileSync(manifest, "utf8")) as Record<
+    const manifest = join(root, "packages/b/package.json");
+    const parsed = JSON.parse(readFileSync(manifest, "utf8")) as Record<
       string,
       unknown
     >;
-    fs.writeFileSync(
+    writeFileSync(
       manifest,
       JSON.stringify({ ...parsed, description: "changed" })
     );
@@ -500,9 +509,9 @@ describe("discovery changes", () => {
     const root = copyFixture();
     await full(root);
     expect(
-      fs.existsSync(path.join(cacheDir(root), "packages", "@s__c.meta.json"))
+      existsSync(join(cacheDir(root), "packages", "@s__c.meta.json"))
     ).toBe(true);
-    fs.rmSync(path.join(root, "tooling/c"), { recursive: true });
+    rmSync(join(root, "tooling/c"), { recursive: true });
     const result = await incremental(root);
     const removed = result.invalidations.find((i) => i.status === "remove");
     expect(removed).toEqual({
@@ -517,13 +526,11 @@ describe("discovery changes", () => {
       "@s__c.local.meta.json",
       "@s__c.local.json",
     ]) {
-      expect(fs.existsSync(path.join(cacheDir(root), "packages", file))).toBe(
-        false
-      );
+      expect(existsSync(join(cacheDir(root), "packages", file))).toBe(false);
     }
-    expect(
-      fs.existsSync(path.join(result.output, "packages", "@s__c.json"))
-    ).toBe(false);
+    expect(existsSync(join(result.output, "packages", "@s__c.json"))).toBe(
+      false
+    );
     expect(readManifest(root).packages.map((p) => p.id)).toEqual([
       "@s/a",
       "@s/b",
@@ -536,8 +543,8 @@ describe("cache state", () => {
   it("recomputes only a corrupt local entry", async () => {
     const root = copyFixture();
     await full(root);
-    fs.writeFileSync(
-      path.join(cacheDir(root), "packages", "@s__b.local.json"),
+    writeFileSync(
+      join(cacheDir(root), "packages", "@s__b.local.json"),
       "{ not json"
     );
     const result = await incremental(root);
@@ -554,10 +561,7 @@ describe("cache state", () => {
   it("re-derives when an assembled entry is corrupt, without local analysis", async () => {
     const root = copyFixture();
     await full(root);
-    fs.writeFileSync(
-      path.join(cacheDir(root), "packages", "@s__b.json"),
-      "{ not json"
-    );
+    writeFileSync(join(cacheDir(root), "packages", "@s__b.json"), "{ not json");
     const result = await incremental(root);
     expect(result.packages).toMatchObject({ analyzed: 0, reused: 3 });
     expect(reportCauses(result)).toEqual({
@@ -572,7 +576,7 @@ describe("cache state", () => {
   it("recomputes a missing local entry", async () => {
     const root = copyFixture();
     await full(root);
-    fs.rmSync(path.join(cacheDir(root), "packages", "@s__b.local.meta.json"));
+    rmSync(join(cacheDir(root), "packages", "@s__b.local.meta.json"));
     const result = await incremental(root);
     expect(localCauses(result)["@s/b"]).toBe("recompute:cache-missing");
     expect(localCauses(result)["@s/a"]).toBe("reuse:fingerprint-unchanged");
@@ -581,16 +585,13 @@ describe("cache state", () => {
   it("rejects an entry written under another cache schema", async () => {
     const root = copyFixture();
     await full(root);
-    const meta = path.join(cacheDir(root), "packages", "@s__b.local.meta.json");
-    const parsed = JSON.parse(fs.readFileSync(meta, "utf8")) as Record<
+    const meta = join(cacheDir(root), "packages", "@s__b.local.meta.json");
+    const parsed = JSON.parse(readFileSync(meta, "utf8")) as Record<
       string,
       unknown
     >;
     expect(parsed.cacheSchemaVersion).toBe(SEMANTICS_CACHE_SCHEMA_VERSION);
-    fs.writeFileSync(
-      meta,
-      JSON.stringify({ ...parsed, cacheSchemaVersion: 0 })
-    );
+    writeFileSync(meta, JSON.stringify({ ...parsed, cacheSchemaVersion: 0 }));
     const result = await incremental(root);
     expect(localCauses(result)["@s/b"]).toBe("recompute:cache-schema-changed");
     // the refreshed entry carries the current cache schema, so it hits again
@@ -601,19 +602,19 @@ describe("cache state", () => {
   it("never reads a V12.5 full-report entry as a local report", async () => {
     const root = copyFixture();
     const first = await full(root);
-    const report = fs.readFileSync(
-      path.join(first.output, "packages", "@s__b.json"),
+    const report = readFileSync(
+      join(first.output, "packages", "@s__b.json"),
       "utf8"
     );
-    const packages = path.join(cacheDir(root), "packages");
+    const packages = join(cacheDir(root), "packages");
     // a schema-1 entry: the assembled report under the bare name, no `kind`
-    fs.writeFileSync(path.join(packages, "@s__b.local.json"), report);
+    writeFileSync(join(packages, "@s__b.local.json"), report);
     const meta = JSON.parse(
-      fs.readFileSync(path.join(packages, "@s__b.local.meta.json"), "utf8")
+      readFileSync(join(packages, "@s__b.local.meta.json"), "utf8")
     ) as Record<string, unknown>;
     const { kind: _kind, ...legacy } = meta;
-    fs.writeFileSync(
-      path.join(packages, "@s__b.local.meta.json"),
+    writeFileSync(
+      join(packages, "@s__b.local.meta.json"),
       JSON.stringify({ ...legacy, cacheSchemaVersion: 1 })
     );
     const result = await incremental(root);
@@ -625,7 +626,7 @@ describe("cache state", () => {
     const root = copyFixture();
     await full(root);
     const before = keep(root, "before");
-    fs.rmSync(cacheDir(root), { recursive: true });
+    rmSync(cacheDir(root), { recursive: true });
     const result = await incremental(root);
     expect(result.packages).toMatchObject({ analyzed: 3, reused: 0 });
     expect(localCauses(result)["@s/a"]).toBe("recompute:cache-missing");
@@ -638,17 +639,17 @@ describe("cache state", () => {
     const root = copyFixture();
     await full(root);
     const valid = keep(root, "valid");
-    fs.writeFileSync(
-      path.join(cacheDir(root), "packages", "@s__a.local.json"),
+    writeFileSync(
+      join(cacheDir(root), "packages", "@s__a.local.json"),
       "garbage"
     );
     await full(root);
     const corrupt = keep(root, "corrupt");
-    fs.rmSync(cacheDir(root), { recursive: true });
+    rmSync(cacheDir(root), { recursive: true });
     await full(root);
     expect(compareSemanticsDatasets(valid, corrupt).equivalent).toBe(true);
     expect(
-      compareSemanticsDatasets(valid, path.join(root, ".foundry", "semantics"))
+      compareSemanticsDatasets(valid, join(root, ".foundry", "semantics"))
         .equivalent
     ).toBe(true);
   });
@@ -656,8 +657,8 @@ describe("cache state", () => {
   it("refuses to run while another live process holds the cache lock", async () => {
     const root = copyFixture();
     await full(root);
-    const lock = path.join(cacheDir(root), "lock.json");
-    fs.writeFileSync(
+    const lock = join(cacheDir(root), "lock.json");
+    writeFileSync(
       lock,
       JSON.stringify({
         pid: process.pid + 1_000_000,
@@ -668,12 +669,12 @@ describe("cache state", () => {
     await expect(incremental(root)).resolves.toMatchObject({
       packages: { reused: 3 },
     });
-    fs.writeFileSync(
+    writeFileSync(
       lock,
       JSON.stringify({ pid: process.ppid, startedAt: "2027-01-01T00:00:00Z" })
     );
     await expect(incremental(root)).rejects.toThrow("is locked by process");
-    fs.rmSync(lock);
+    rmSync(lock);
   });
 });
 
@@ -711,7 +712,7 @@ describe("failures", () => {
       })
     ).rejects.toThrow("program exploded");
     expect(hashTree(first.output)).toEqual(good);
-    expect(fs.existsSync(`${first.output}.tmp-${process.pid}`)).toBe(false);
+    expect(existsSync(`${first.output}.tmp-${process.pid}`)).toBe(false);
   });
 
   it("never substitutes a stale cached local report for a failed analysis", async () => {
@@ -732,13 +733,13 @@ describe("failures", () => {
     expect(manifest.packages.find((p) => p.id === "@s/b")?.status).toBe(
       "failed"
     );
-    expect(
-      fs.existsSync(path.join(result.output, "packages", "@s__b.json"))
-    ).toBe(false);
+    expect(existsSync(join(result.output, "packages", "@s__b.json"))).toBe(
+      false
+    );
     // the stale entry stays on disk but can never match the new fingerprint
     const meta = JSON.parse(
-      fs.readFileSync(
-        path.join(cacheDir(root), "packages", "@s__b.local.meta.json"),
+      readFileSync(
+        join(cacheDir(root), "packages", "@s__b.local.meta.json"),
         "utf8"
       )
     ) as { fingerprint: string };
@@ -780,15 +781,15 @@ describe("determinism", () => {
   it("yields the same invalidation graph and dataset under any worker count", async () => {
     const root = copyFixture();
     await full(root);
-    const pristine = path.join(root, ".foundry", "cache-pristine");
-    fs.cpSync(cacheDir(root), pristine, { recursive: true });
+    const pristine = join(root, ".foundry", "cache-pristine");
+    cpSync(cacheDir(root), pristine, { recursive: true });
     append(root, "apps/a/src/index.ts", "\nexport const more = 2;\n");
     const graphs: unknown[] = [];
     const datasets: string[] = [];
     for (const concurrency of [1, 2, 4]) {
       // every run starts from the pre-change cache, so only the worker count differs
-      fs.rmSync(cacheDir(root), { recursive: true });
-      fs.cpSync(pristine, cacheDir(root), { recursive: true });
+      rmSync(cacheDir(root), { recursive: true });
+      cpSync(pristine, cacheDir(root), { recursive: true });
       const result = await incremental(root, { concurrency });
       expect(result.packages).toMatchObject({ analyzed: 1, reused: 2 });
       graphs.push(result.invalidations);
@@ -814,7 +815,7 @@ describe("determinism", () => {
         write(root, "packages/b/src/extra.ts", "export const extra = 1;\n");
       },
       () => {
-        fs.rmSync(path.join(root, "packages/b/src/extra.ts"));
+        rmSync(join(root, "packages/b/src/extra.ts"));
       },
       () => {
         write(
@@ -845,7 +846,7 @@ describe("determinism", () => {
         write(root, "packages/e/src/index.ts", "export const e = 1;\n");
       },
       () => {
-        fs.rmSync(path.join(root, "packages/e"), { recursive: true });
+        rmSync(join(root, "packages/e"), { recursive: true });
       },
     ];
     for (const step of steps) {

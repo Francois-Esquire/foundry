@@ -1,4 +1,4 @@
-import * as path from "node:path";
+import { resolve } from "node:path";
 
 import { Project, ts } from "ts-morph";
 
@@ -18,7 +18,7 @@ export function createProject(root: string, tsconfig?: string): Project {
   const project = tsconfig
     ? new Project({
         skipAddingFilesFromTsConfig: true,
-        tsConfigFilePath: path.resolve(root, tsconfig),
+        tsConfigFilePath: resolve(root, tsconfig),
       })
     : new Project({
         compilerOptions: {

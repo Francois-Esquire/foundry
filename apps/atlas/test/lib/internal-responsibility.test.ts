@@ -1,7 +1,13 @@
 import { execFileSync } from "node:child_process";
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
+import {
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { basename, dirname, join, posix } from "node:path";
 
 import { afterAll, describe, expect, it, vi } from "vitest";
 import {
@@ -22,6 +28,8 @@ import { analyzePackageLocal } from "../../src/lib/package-local";
 import { renderInternalResponsibilities } from "../../src/lib/report-responsibility";
 import { analyzeSymbolLocality } from "../../src/lib/symbol-locality";
 
+const specifierPattern = /\.tsx?$/;
+
 // V13.2 responsibility regions on synthetic packages. Each fixture is one
 // package in a throwaway workspace; the high-fan cutoff floors at 3, so a
 // symbol with two consumers is localized and a module with three dependents
@@ -31,7 +39,7 @@ const tempRoots: string[] = [];
 
 afterAll(() => {
   for (const dir of tempRoots) {
-    fs.rmSync(dir, { force: true, recursive: true });
+    rmSync(dir, { force: true, recursive: true });
   }
 });
 
@@ -39,13 +47,13 @@ function workspace(
   files: Record<string, string>,
   extra: Record<string, string> = {}
 ): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "responsibility-"));
-  const root = fs.realpathSync(dir);
+  const dir = mkdtempSync(join(tmpdir(), "responsibility-"));
+  const root = realpathSync(dir);
   tempRoots.push(root);
   const write = (file: string, text: string) => {
-    const target = path.join(root, file);
-    fs.mkdirSync(path.dirname(target), { recursive: true });
-    fs.writeFileSync(target, text);
+    const target = join(root, file);
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, text);
   };
   write(
     "package.json",
@@ -56,7 +64,7 @@ function workspace(
     JSON.stringify({ exports: { ".": "./src/index.ts" }, name: "@f/p" })
   );
   for (const [file, text] of Object.entries(files)) {
-    write(path.join("packages/p", file), text);
+    write(join("packages/p", file), text);
   }
   for (const [file, text] of Object.entries(extra)) {
     write(file, text);
@@ -80,9 +88,9 @@ function responsibilitiesOf(
 
 /** `import { names } from "<relative>"` from one package-relative file to another. */
 function importOf(from: string, to: string, names: string): string {
-  let specifier = path.posix.relative(
-    path.posix.dirname(from),
-    to.replace(/\.tsx?$/, "")
+  let specifier = posix.relative(
+    posix.dirname(from),
+    to.replace(specifierPattern, "")
   );
   if (!specifier.startsWith(".")) {
     specifier = `./${specifier}`;
@@ -314,7 +322,7 @@ function twoRegions(extra: Record<string, string>): Record<string, string> {
 
 describe("distributed primitive", () => {
   const cn = (at: string) =>
-    `${importOf(at, "src/util.ts", "cn")}export const ${path.basename(at, ".ts")}Class = cn("x");\n`;
+    `${importOf(at, "src/util.ts", "cn")}export const ${basename(at, ".ts")}Class = cn("x");\n`;
   const report = responsibilitiesOf(
     twoRegions({
       "src/a/a3.ts": cn("src/a/a3.ts"),
@@ -503,8 +511,7 @@ describe("procedural responsibility", () => {
 
 describe("usage beside behavior", () => {
   const report = responsibilitiesOf({
-    "src/a/a1.ts":
-      importOf("src/a/a1.ts", "src/s/x.ts", "X") + "export const a = X;\n",
+    "src/a/a1.ts": `${importOf("src/a/a1.ts", "src/s/x.ts", "X")}export const a = X;\n`,
     "src/b/b1.ts":
       importOf("src/b/b1.ts", "src/s/x.ts", "X") +
       "export function heavy(): number { let t = X; t += 1; t += 2; t += 3; return t; }\n",
@@ -772,7 +779,7 @@ describe("independence", () => {
     );
     expect(shuffled).toBe(first);
     expect(first).not.toContain(root);
-    expect(first).not.toContain(os.tmpdir());
+    expect(first).not.toContain(tmpdir());
   });
 
   it("keeps a region's id when an unrelated module is added elsewhere", () => {

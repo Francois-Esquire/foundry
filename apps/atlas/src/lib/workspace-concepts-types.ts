@@ -98,7 +98,7 @@ export interface WorkspaceConceptCenters {
  * several hops. `reverse-directed`: only the declared package reaches it.
  * `disconnected`: neither reaches the other. `unmeasured`: not a graph node.
  */
-export type WorkspaceConceptPathRelation =
+type WorkspaceConceptPathRelation =
   | "direct"
   | "indirect"
   | "reverse-directed"
@@ -122,7 +122,7 @@ export type ConceptEdgeRole =
   | "representation"
   | "conversion";
 
-export interface WorkspaceConceptEvidence {
+interface WorkspaceConceptEvidence {
   entities: string[];
   kind:
     | "package-role"
@@ -238,7 +238,7 @@ export type WorkspaceConceptShape =
   | "representation-split"
   | "multi-region";
 
-export interface WorkspaceConceptBoundaryContext {
+interface WorkspaceConceptBoundaryContext {
   behaviorBoundaries: number;
   count: number;
   /** Edge id with the most severed pairs; only when > 0. */
@@ -249,7 +249,7 @@ export interface WorkspaceConceptBoundaryContext {
   seams: string[];
 }
 
-export interface WorkspaceConceptConversion {
+interface WorkspaceConceptConversion {
   /** `outgoing`: this concept converts to the other; `incoming`: the other converts to this. */
   direction: "outgoing" | "incoming";
   file: string;
@@ -268,7 +268,7 @@ export interface WorkspaceConceptRelationship {
   shapes: ConceptOverlapShape[];
 }
 
-export interface WorkspaceConceptRelationshipContext {
+interface WorkspaceConceptRelationshipContext {
   /** Overlaps carrying conversion evidence. */
   conversions: WorkspaceConceptRelationship[];
   overlaps: WorkspaceConceptRelationship[];
@@ -300,7 +300,7 @@ export interface WorkspaceConceptEvolutionContext {
   strongMemberCouplings: WorkspaceConceptCoupling[];
 }
 
-export interface WorkspaceConceptArchitectureContext {
+interface WorkspaceConceptArchitectureContext {
   anchored: boolean;
   localityShape?: BehavioralLocalityShape;
   ownershipAlignment?: OwnershipAlignment;
@@ -309,7 +309,7 @@ export interface WorkspaceConceptArchitectureContext {
   reviewDisposition?: ArchitecturalReviewDisposition;
 }
 
-export type WorkspaceConceptCautionKind =
+type WorkspaceConceptCautionKind =
   | "foreign-only"
   | "partial-analysis"
   | "partial-graph-coverage"
@@ -465,7 +465,7 @@ export interface WorkspaceConceptPairTopology {
   shapes: ConceptOverlapShape[];
 }
 
-export interface WorkspaceConceptRelationshipIndex {
+interface WorkspaceConceptRelationshipIndex {
   bidirectionalConversionPairs: number;
   conversionPairs: number;
   crossPackagePairs: number;
@@ -482,7 +482,7 @@ export interface WorkspaceConceptSpanDistribution {
   usageLayerSpan: Record<string, number>;
 }
 
-export interface WorkspaceConceptSummary {
+interface WorkspaceConceptSummary {
   authoritative: number;
   conceptBearingBoundaries: number;
   concepts: number;
@@ -502,7 +502,7 @@ export interface WorkspaceConceptSummary {
   upstreamConsumed: number;
 }
 
-export type WorkspaceConceptIntelligenceCautionKind =
+type WorkspaceConceptIntelligenceCautionKind =
   | "partial-coverage"
   | "foreign-only-concepts"
   | "unknown-packages";

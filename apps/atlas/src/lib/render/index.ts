@@ -8,27 +8,6 @@ import { buildSurfaceView } from "./reports/surface";
 import { createTerminalRenderer } from "./terminal";
 import { createTextRenderer } from "./text";
 
-export type { RenderContext, RenderDensity, RenderFormat } from "./context";
-export { createMarkdownRenderer } from "./markdown";
-export type { Renderer } from "./renderer";
-export { buildSurfaceView } from "./reports/surface";
-export { createTerminalRenderer } from "./terminal";
-export { createTextRenderer } from "./text";
-export type { Glyphs, RenderTheme } from "./theme";
-export type {
-  BlockView,
-  DistributionItem,
-  FunnelStage,
-  GateCheck,
-  LabelValueRow,
-  RankedItem,
-  RatioItem,
-  ReportView,
-  SectionView,
-  Tone,
-} from "./views";
-export { displayWidth, padDisplay, truncateDisplay } from "./width";
-
 export interface RenderOptions extends Partial<RenderContext> {
   config?: AnalysisConfig;
 }
@@ -41,7 +20,7 @@ export const DEFAULT_CONTEXT: RenderContext = {
   width: 80,
 };
 
-export function rendererFor(context: RenderContext): Renderer {
+function rendererFor(context: RenderContext): Renderer {
   switch (context.format) {
     case "terminal":
       return createTerminalRenderer(context);
@@ -49,6 +28,8 @@ export function rendererFor(context: RenderContext): Renderer {
       return createMarkdownRenderer();
     case "text":
       return createTextRenderer(context);
+    default:
+      throw new Error("Unexpected context.format.");
   }
 }
 

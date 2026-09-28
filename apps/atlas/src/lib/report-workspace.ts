@@ -12,6 +12,9 @@ import type {
 } from "./workspace-graph-types";
 import type {
   WorkspaceArchitecturalPatterns,
+  WorkspaceBoundaryPattern,
+  WorkspacePackagePairPattern,
+  WorkspacePatternCoverage,
   WorkspacePatternEvidenceStrength,
   WorkspacePatternSupport,
 } from "./workspace-patterns-types";
@@ -22,6 +25,8 @@ import type {
   WorkspaceEntityKind,
   WorkspaceReport,
 } from "./workspace-types";
+
+const shortPattern = /^@[^/]+\//;
 
 // Whole-workspace summary: ingestion counts, coverage, conflicts, and the
 // V9.1–V9.3 sections. The focused `--package` / `--concept` views render
@@ -92,7 +97,7 @@ export function renderWorkspaceReport(report: WorkspaceReport): string {
   }
   lines.push("");
 
-  const recentering = report.architecture.recentering;
+  const { recentering } = report.architecture;
   lines.push("Architecture");
   lines.push(`  ${count(recentering.findings.length)} re-centering findings`);
   lines.push(`  ${count(recentering.scenarios.length)} scenarios`);
@@ -108,7 +113,7 @@ export function renderWorkspaceReport(report: WorkspaceReport): string {
   }
   lines.push("");
 
-  const coverage = ingestion.coverage;
+  const { coverage } = ingestion;
   lines.push("Coverage");
   lines.push(
     `  ${coverage.complete ? "complete" : "partial"} · ${count(coverage.packagesAnalyzed)} of ${count(coverage.population ?? coverage.packagesKnown)} packages analyzed`
@@ -182,7 +187,7 @@ function byStrength<T extends { strength: WorkspacePatternEvidenceStrength }>(
 function supportLine(
   support: WorkspacePatternSupport,
   strength: WorkspacePatternEvidenceStrength,
-  coverage: string
+  coverage: WorkspacePatternCoverage
 ): string {
   return `${count(support.conceptCount)} ${plural(support.conceptCount, "concept")} · ${strength} · ${coverage} coverage`;
 }
@@ -216,18 +221,21 @@ function renderPatternSection(
   if (withRoles.length === 0) {
     lines.push("  none");
   }
-  for (const pkg of withRoles) {
-    lines.push(`  ${short(pkg.package)}`);
-    for (const role of pkg.roles.filter((r) => shown(r.strength))) {
-      const sources =
-        role.kind === "semantic-center"
-          ? `${count(pkg.counts.directionTargets)} ${plural(pkg.counts.directionTargets, "target package")}`
-          : `from ${count(role.sourcePackages.length)} ${plural(role.sourcePackages.length, "package")}`;
-      lines.push(
-        `    ${role.kind.padEnd(22)} ${count(role.support.conceptCount)} ${plural(role.support.conceptCount, "concept")} · ${sources} · ${role.strength}`
-      );
+  const visitPkg = () => {
+    for (const pkg of withRoles) {
+      lines.push(`  ${short(pkg.package)}`);
+      for (const role of pkg.roles.filter((r) => shown(r.strength))) {
+        const sources =
+          role.kind === "semantic-center"
+            ? `${count(pkg.counts.directionTargets)} ${plural(pkg.counts.directionTargets, "target package")}`
+            : `from ${count(role.sourcePackages.length)} ${plural(role.sourcePackages.length, "package")}`;
+        lines.push(
+          `    ${role.kind.padEnd(22)} ${count(role.support.conceptCount)} ${plural(role.support.conceptCount, "concept")} · ${sources} · ${role.strength}`
+        );
+      }
     }
-  }
+  };
+  visitPkg();
   lines.push("");
 
   lines.push("Repeated directions");
@@ -238,21 +246,24 @@ function renderPatternSection(
   if (pairs.length === 0) {
     lines.push("  none");
   }
-  for (const pair of pairs) {
-    const roles = [
-      ["impl", pair.conceptRoles.implementation.length],
-      ["behavior", pair.conceptRoles.behavior.length],
-      ["repr", pair.conceptRoles.representation.length],
-      ["use", pair.conceptRoles.usage.length],
-      ["conv", pair.conceptRoles.conversion.length],
-    ] as const;
-    lines.push(
-      `  ${short(pair.from)} → ${short(pair.to)} · ${pair.patterns.join(", ")}`
-    );
-    lines.push(
-      `    ${roles.map(([label, n]) => `${label} ${count(n)}`).join(" · ")} · static ${pair.graph.forward === null ? (pair.graph.reverse === null ? "none" : "reverse") : "forward"}${pair.reviews === undefined ? "" : ` · reviewed ${count(pair.reviews.reviewed)} (${count(pair.reviews.dominatedBaselines.length)} dominated baselines)`}`
-    );
-  }
+  const visitPair = () => {
+    for (const pair of pairs) {
+      const roles = [
+        ["impl", pair.conceptRoles.implementation.length],
+        ["behavior", pair.conceptRoles.behavior.length],
+        ["repr", pair.conceptRoles.representation.length],
+        ["use", pair.conceptRoles.usage.length],
+        ["conv", pair.conceptRoles.conversion.length],
+      ] as const;
+      lines.push(
+        `  ${short(pair.from)} → ${short(pair.to)} · ${pair.patterns.join(", ")}`
+      );
+      lines.push(
+        `    ${roles.map(([label, n]) => `${label} ${count(n)}`).join(" · ")} · static ${resolveVisitPair(pair)}${pair.reviews === undefined ? "" : ` · reviewed ${count(pair.reviews.reviewed)} (${count(pair.reviews.dominatedBaselines.length)} dominated baselines)`}`
+      );
+    }
+  };
+  visitPair();
   lines.push("");
 
   lines.push("Boundary patterns");
@@ -263,14 +274,7 @@ function renderPatternSection(
   if (boundaries.length === 0) {
     lines.push("  none");
   }
-  for (const boundary of boundaries) {
-    lines.push(
-      `  ${short(boundary.from)}→${short(boundary.to)} · ${boundary.kinds.join(", ")}`
-    );
-    lines.push(
-      `    ${count(boundary.conceptLoad)} ${plural(boundary.conceptLoad, "concept")} · ${count(boundary.graph.importSites ?? boundary.graph.moduleEdges)} ${boundary.graph.importSites === null ? "module edges" : "import sites"} · severs ${count(boundary.graph.severedPairs)} · ${count(boundary.evolution.couplings.length)} ${plural(boundary.evolution.couplings.length, "coupling")}`
-    );
-  }
+  renderPatternSectionBoundary(boundaries, lines);
   lines.push("");
 
   lines.push("Concept patterns");
@@ -357,18 +361,54 @@ const DIRECTION_LABELS: [WorkspaceConceptDirectionKind, string][] = [
   ["semantic-to-conversion", "conversion"],
 ];
 
+function resolveVisitPair(
+  pair: WorkspacePackagePairPattern
+): "none" | "reverse" | "forward" {
+  if (pair.graph.forward === null) {
+    if (pair.graph.reverse === null) {
+      return "none";
+    }
+    return "reverse";
+  }
+  return "forward";
+}
+
+function renderPatternSectionBoundary(
+  boundaries: WorkspaceBoundaryPattern[],
+  lines: string[]
+) {
+  for (const boundary of boundaries) {
+    lines.push(
+      `  ${short(boundary.from)}→${short(boundary.to)} · ${boundary.kinds.join(", ")}`
+    );
+    lines.push(
+      `    ${count(boundary.conceptLoad)} ${plural(boundary.conceptLoad, "concept")} · ${count(boundary.graph.importSites ?? boundary.graph.moduleEdges)} ${boundary.graph.importSites === null ? "module edges" : "import sites"} · severs ${count(boundary.graph.severedPairs)} · ${count(boundary.evolution.couplings.length)} ${plural(boundary.evolution.couplings.length, "coupling")}`
+    );
+  }
+}
+
 function directionLine(direction: WorkspaceConceptDirection): string {
   const label =
     DIRECTION_LABELS.find(([kind]) => kind === direction.kind)?.[1] ??
     direction.kind;
-  const path =
-    direction.dependencyPath.forward === null
-      ? direction.dependencyPath.reverse === null
-        ? direction.dependencyPath.usageOnly
-          ? "usage-only"
-          : "no static path"
-        : "static reverse"
-      : "static forward";
+  let path:
+    | "usage-only"
+    | "no static path"
+    | "static reverse"
+    | "static forward";
+  if (direction.dependencyPath.forward === null) {
+    if (direction.dependencyPath.reverse === null) {
+      if (direction.dependencyPath.usageOnly) {
+        path = "usage-only";
+      } else {
+        path = "no static path";
+      }
+    } else {
+      path = "static reverse";
+    }
+  } else {
+    path = "static forward";
+  }
   return `  ${short(direction.from)} → ${short(direction.to)} · ${label.padEnd(14)} ${count(direction.count)} ${plural(direction.count, "concept")} · ${path}`;
 }
 
@@ -483,7 +523,7 @@ export function renderWorkspaceConcept(
 }
 
 function short(id: string): string {
-  return id.replace(/^@[^/]+\//, "");
+  return id.replace(shortPattern, "");
 }
 
 function rankedLine(label: string, nodes: WorkspaceRankedNode[], digits = 0) {
@@ -585,42 +625,4 @@ export function renderWorkspacePackageGraph(
   return renderProjectionResult(
     queryWorkspace(context, { id, kind: "package" })
   );
-}
-
-/** Provenance-focused view of one canonical entity, for debugging disagreement. */
-export function renderWorkspaceEntity(
-  report: WorkspaceReport,
-  id: string
-): string {
-  const lines: string[] = [];
-  const found = [
-    ...report.packages.packages,
-    ...report.graph.modules,
-    ...report.graph.dependencyEdges,
-    ...report.boundaries.boundaries,
-    ...report.concepts.concepts,
-    ...report.concepts.overlaps,
-    ...report.evolution.couplings,
-    ...report.architecture.recentering.findings,
-    ...report.architecture.recentering.scenarios,
-  ].filter((entity) => entity.id === id);
-  const churn = report.evolution.churn.filter((f) => f.file === id);
-  if (found.length === 0 && churn.length === 0) {
-    return `no entity ${id}`;
-  }
-  for (const entity of [...found, ...churn]) {
-    lines.push(JSON.stringify(entity, null, 2));
-  }
-  const conflicts = report.ingestion.conflicts.filter((c) => c.entityId === id);
-  if (conflicts.length > 0) {
-    lines.push("", "Conflicts");
-    for (const conflict of conflicts) {
-      lines.push(
-        `  ${conflict.field} · ${conflict.resolution} · ${conflict.observations
-          .map((o) => `${o.sourcePackage}: ${JSON.stringify(o.value)}`)
-          .join(" | ")}`
-      );
-    }
-  }
-  return lines.join("\n");
 }

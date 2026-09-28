@@ -1,6 +1,12 @@
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
+import {
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 
 import { afterAll, describe, expect, it } from "vitest";
 
@@ -10,21 +16,19 @@ const tempRoots: string[] = [];
 
 afterAll(() => {
   for (const dir of tempRoots) {
-    fs.rmSync(dir, { force: true, recursive: true });
+    rmSync(dir, { force: true, recursive: true });
   }
 });
 
 function fixture(files: Record<string, string>): string {
-  const root = fs.mkdtempSync(
-    path.join(os.tmpdir(), "semantic-surface-boundary-")
-  );
+  const root = mkdtempSync(join(tmpdir(), "semantic-surface-boundary-"));
   tempRoots.push(root);
   for (const [file, content] of Object.entries(files)) {
-    const target = path.join(root, file);
-    fs.mkdirSync(path.dirname(target), { recursive: true });
-    fs.writeFileSync(target, content);
+    const target = join(root, file);
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, content);
   }
-  return fs.realpathSync(root);
+  return realpathSync(root);
 }
 
 const manifest = (name: string) => JSON.stringify({ name });
@@ -42,7 +46,7 @@ describe("ownerBoundary", () => {
       "packages/a/src/index.ts": "",
       "scripts/x.ts": "",
     });
-    const owner = (file: string) => ownerBoundary(root, path.join(root, file));
+    const owner = (file: string) => ownerBoundary(root, join(root, file));
     expect(owner("packages/a/src/index.ts")).toBe("@x/a");
     expect(owner("packages/a/nested/lib.ts")).toBe("@x/a");
     expect(owner("scripts/x.ts")).toBe("<root>");
@@ -54,8 +58,6 @@ describe("ownerBoundary", () => {
       "lib/inner/package.json": manifest("inner"),
       "package.json": manifest("root"),
     });
-    expect(ownerBoundary(root, path.join(root, "lib/inner/a.ts"))).toBe(
-      "inner"
-    );
+    expect(ownerBoundary(root, join(root, "lib/inner/a.ts"))).toBe("inner");
   });
 });

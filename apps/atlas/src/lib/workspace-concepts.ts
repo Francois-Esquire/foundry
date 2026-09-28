@@ -48,7 +48,13 @@ import type {
 // presence packages; every graph lookup is a memoized table built once.
 
 function byId(a: string, b: string): number {
-  return a < b ? -1 : a > b ? 1 : 0;
+  if (a < b) {
+    return -1;
+  }
+  if (a > b) {
+    return 1;
+  }
+  return 0;
 }
 
 function sorted(values: Iterable<string>): string[] {
@@ -218,20 +224,23 @@ function rolesOf(
       add(p.package, "represents");
     }
   }
-  for (const p of concept.ownership?.participation ?? []) {
-    if (p.representations > 0) {
-      add(p.package, "represents");
+  const visitP = () => {
+    for (const p of concept.ownership?.participation ?? []) {
+      if (p.representations > 0) {
+        add(p.package, "represents");
+      }
+      if (p.implementations > 0) {
+        add(p.package, "implements");
+      }
+      if (p.references > 0) {
+        add(p.package, "uses");
+      }
+      if (p.conversions > 0) {
+        add(p.package, "converts");
+      }
     }
-    if (p.implementations > 0) {
-      add(p.package, "implements");
-    }
-    if (p.references > 0) {
-      add(p.package, "uses");
-    }
-    if (p.conversions > 0) {
-      add(p.package, "converts");
-    }
-  }
+  };
+  visitP();
   const contractOnly = new Set<string>();
   for (const p of concept.locality?.behavior ?? []) {
     if (p.implementationBehaviors > 0 || p.conversionBehaviors > 0) {
@@ -685,7 +694,7 @@ function evolutionOf(
   couplings: Map<string, WorkspaceCouplingPair>,
   packageOf: (module: string) => string | null
 ): WorkspaceConceptEvolutionContext | undefined {
-  const evolution = concept.evolution;
+  const { evolution } = concept;
   if (evolution === undefined) {
     return undefined;
   }
@@ -830,8 +839,8 @@ function placeConcept(
     (a, b) =>
       b.structure.severedPairs - a.structure.severedPairs || byId(a.id, b.id)
   );
-  const highestVolume = byVolume[0];
-  const highestSeverance = bySeverance[0];
+  const [highestVolume] = byVolume;
+  const [highestSeverance] = bySeverance;
   const centers = centersOf(index, concept);
   const evolution = evolutionOf(index, concept, tables.couplings, packageOf);
   const reviewDisposition = tables.reviews.get(concept.id);
@@ -1003,29 +1012,7 @@ function boundaryLoadsOf(
       },
     };
   for (const placement of placements) {
-    for (const conceptEdge of placement.topology.edges) {
-      const edge = index.edges.get(conceptEdge.id);
-      if (edge === undefined) {
-        continue;
-      }
-      const entry = load(edge);
-      entry.concepts.push(placement.concept.id);
-      entry.conceptCount += 1;
-      for (const role of conceptEdge.roles) {
-        if (role === "semantic-use") {
-          entry.roles.semanticUse += 1;
-        } else if (role === "behavior") {
-          entry.roles.behavior += 1;
-        } else if (role === "implementation") {
-          entry.roles.implementation += 1;
-        } else if (role === "representation") {
-          entry.roles.representation += 1;
-        } else {
-          entry.roles.conversion += 1;
-        }
-      }
-      table.set(edge.id, entry);
-    }
+    boundaryLoadsOfConceptEdge(placement, index, load, table);
   }
   return [...table.values()]
     .map((b) => ({ ...b, concepts: b.concepts.sort(byId) }))
@@ -1033,6 +1020,37 @@ function boundaryLoadsOf(
       (a, b) =>
         b.conceptCount - a.conceptCount || byId(a.boundaryId, b.boundaryId)
     );
+}
+
+function boundaryLoadsOfConceptEdge(
+  placement: WorkspaceConceptPlacement,
+  index: GraphIndex,
+  load: (edge: WorkspacePackageGraphEdge) => WorkspaceBoundaryConceptLoad,
+  table: Map<string, WorkspaceBoundaryConceptLoad>
+) {
+  for (const conceptEdge of placement.topology.edges) {
+    const edge = index.edges.get(conceptEdge.id);
+    if (edge === undefined) {
+      continue;
+    }
+    const entry = load(edge);
+    entry.concepts.push(placement.concept.id);
+    entry.conceptCount += 1;
+    for (const role of conceptEdge.roles) {
+      if (role === "semantic-use") {
+        entry.roles.semanticUse += 1;
+      } else if (role === "behavior") {
+        entry.roles.behavior += 1;
+      } else if (role === "implementation") {
+        entry.roles.implementation += 1;
+      } else if (role === "representation") {
+        entry.roles.representation += 1;
+      } else {
+        entry.roles.conversion += 1;
+      }
+    }
+    table.set(edge.id, entry);
+  }
 }
 
 function seamLoadsOf(
@@ -1125,29 +1143,30 @@ function packageRolesOf(
   for (const pkg of workspace.packages.packages) {
     row(pkg.id);
   }
+  packageRolesOfPlacement(placements, row, tables);
+  return [...rows.values()]
+    .map((r) => ({
+      ...r,
+      asymmetry: {
+        behavingMinusDeclared: r.participating.behaving - r.declaredConcepts,
+        implementingMinusDeclared:
+          r.participating.implementing - r.declaredConcepts,
+        representingMinusDeclared:
+          r.participating.representing - r.declaredConcepts,
+      },
+    }))
+    .sort((a, b) => byId(a.package, b.package));
+}
+
+function packageRolesOfPlacement(
+  placements: WorkspaceConceptPlacement[],
+  row: (pkg: string) => WorkspacePackageConceptRoleSummary,
+  tables: Map<string, RoleTable>
+) {
   for (const placement of placements) {
     row(placement.concept.package).declaredConcepts += 1;
-    const centers = placement.centers;
-    if (centers !== undefined) {
-      if (centers.semantic !== undefined) {
-        row(centers.semantic).semanticCenters += 1;
-      }
-      if (centers.behavior !== undefined) {
-        row(centers.behavior).behaviorCenters += 1;
-      }
-      if (centers.representation !== undefined) {
-        row(centers.representation).representationCenters += 1;
-      }
-      if (centers.usage !== undefined) {
-        row(centers.usage).usageCenters += 1;
-      }
-      if (centers.evolution !== undefined) {
-        row(centers.evolution).evolutionCenters += 1;
-      }
-      for (const pkg of centers.implementations) {
-        row(pkg).implementationCenters += 1;
-      }
-    }
+    const { centers } = placement;
+    packageRolesOfPlacementEntries(centers, row);
     const table = tables.get(placement.concept.id);
     if (table === undefined) {
       continue;
@@ -1172,18 +1191,32 @@ function packageRolesOf(
       }
     }
   }
-  return [...rows.values()]
-    .map((r) => ({
-      ...r,
-      asymmetry: {
-        behavingMinusDeclared: r.participating.behaving - r.declaredConcepts,
-        implementingMinusDeclared:
-          r.participating.implementing - r.declaredConcepts,
-        representingMinusDeclared:
-          r.participating.representing - r.declaredConcepts,
-      },
-    }))
-    .sort((a, b) => byId(a.package, b.package));
+}
+
+function packageRolesOfPlacementEntries(
+  centers: WorkspaceConceptCenters | undefined,
+  row: (pkg: string) => WorkspacePackageConceptRoleSummary
+) {
+  if (centers !== undefined) {
+    if (centers.semantic !== undefined) {
+      row(centers.semantic).semanticCenters += 1;
+    }
+    if (centers.behavior !== undefined) {
+      row(centers.behavior).behaviorCenters += 1;
+    }
+    if (centers.representation !== undefined) {
+      row(centers.representation).representationCenters += 1;
+    }
+    if (centers.usage !== undefined) {
+      row(centers.usage).usageCenters += 1;
+    }
+    if (centers.evolution !== undefined) {
+      row(centers.evolution).evolutionCenters += 1;
+    }
+    for (const pkg of centers.implementations) {
+      row(pkg).implementationCenters += 1;
+    }
+  }
 }
 
 function familiesOf(
@@ -1259,11 +1292,7 @@ function pairsOf(
             return pkg === null ? [] : [pkg];
           })
         ),
-        directEdge: index.edges.has(forwardId)
-          ? forwardId
-          : index.edges.has(reverseId)
-            ? reverseId
-            : null,
+        directEdge: resolveDirectEdge(index, forwardId, reverseId),
         left: pair.left.id,
         leftPackage: pair.left.package,
         pair: pair.id,
@@ -1287,6 +1316,20 @@ function pairsOf(
       };
     })
     .sort((a, b) => byId(a.pair, b.pair));
+}
+
+function resolveDirectEdge(
+  index: GraphIndex,
+  forwardId: string,
+  reverseId: string
+): string | null {
+  if (index.edges.has(forwardId)) {
+    return forwardId;
+  }
+  if (index.edges.has(reverseId)) {
+    return reverseId;
+  }
+  return null;
 }
 
 function histogram(values: (number | null)[]): Record<string, number> {

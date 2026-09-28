@@ -1,4 +1,7 @@
-import type { RecenteringFacts } from "./concept-recentering";
+import type {
+  RecenteringBoundaryUse,
+  RecenteringFacts,
+} from "./concept-recentering";
 import type { AnalysisConfig } from "./config";
 import { ANALYSIS_CONFIG } from "./config";
 import type {
@@ -150,11 +153,7 @@ export function assessMiscentering(
     weights[family] = policy.gravity.weights[family] / weightTotal;
   }
   const packages = new Set<string>([home]);
-  for (const family of gravityFamilies) {
-    for (const row of shares[family]) {
-      packages.add(row.package);
-    }
-  }
+  assessMiscenteringFamily(gravityFamilies, shares, packages);
   const centers: ObservedCenter[] = [...packages]
     .map((pkg) => {
       const perFamily: ObservedCenter["shares"] = {};
@@ -194,7 +193,7 @@ export function assessMiscentering(
   }
 
   const minShare = policy.minFamilyShare;
-  const evolutionCenter = facts.placement.evolutionCenter;
+  const { evolutionCenter } = facts.placement;
   const crossings = facts.boundaries.filter(
     (boundary) =>
       boundary.conceptImportingModules.length > 0 &&
@@ -235,86 +234,37 @@ export function assessMiscentering(
     .reduce((sum, row) => sum + row.count, 0);
 
   const topSupporters = supportersOf(top.target);
-  if (
-    top.gravity >= policy.external.minAlternativeGravity &&
-    mismatch >= policy.external.minMismatch &&
-    topSupporters.length >= policy.minEvidenceFamilies &&
-    topSupporters.includes("behavioral-locality")
-  ) {
-    signal = "external-gravity";
-    supporting = topSupporters;
-    magnitude = clamp(mismatch / (2 * policy.external.minMismatch));
-  } else if (
-    pointsAt(facts.representationShares, home, minShare) &&
-    foreignBehaviorShare >= policy.drift.minForeignShare &&
-    foreignBehaviors >= policy.drift.minForeignBehaviors
-  ) {
-    const second: MiscenteringEvidenceKind[] = [];
-    if (crossings.length > 0) {
-      second.push("boundary-crossing");
-    }
-    if (evolutionCenter !== undefined && evolutionCenter !== home) {
-      second.push("ownership");
-    }
-    if (facts.distributionShapes.includes("implementation-split")) {
-      second.push("concept-distribution");
-    }
-    if (second.length + 1 >= policy.minEvidenceFamilies) {
-      signal = "boundary-drift";
-      supporting = ["behavioral-locality", ...second];
-      magnitude = foreignBehaviorShare;
-    }
-  }
+  ({ signal, supporting, magnitude } = assessMiscenteringEntries(
+    top,
+    policy,
+    mismatch,
+    topSupporters,
+    signal,
+    supporting,
+    magnitude,
+    facts,
+    home,
+    minShare,
+    foreignBehaviorShare,
+    foreignBehaviors,
+    crossings,
+    evolutionCenter
+  ));
   // A broadly consumed type (identifiers, shared contracts) divides its few
   // producers across its consumers; that is breadth of use, not split
   // ownership, so consumption-heavy concepts never read as split.
   const consumptionHeavy = facts.behavior.weak > facts.behavior.strong;
-  if (
-    signal === undefined &&
-    !consumptionHeavy &&
-    centers.every((center) => center.gravity < policy.split.maxTopGravity) &&
-    centers.filter((center) => center.gravity >= policy.split.minShare)
-      .length >= policy.split.minPackages &&
-    divided(
-      behaviorShares,
-      minShare,
-      policy.split.minShare,
-      policy.split.minPackages
-    )
-  ) {
-    const second: MiscenteringEvidenceKind[] = [];
-    if (
-      divided(
-        facts.representationShares,
-        minShare,
-        policy.split.minShare,
-        policy.split.minPackages
-      )
-    ) {
-      second.push("symbol-distribution");
-    }
-    if (
-      divided(
-        facts.referenceShares,
-        minShare,
-        policy.split.minShare,
-        policy.split.minPackages
-      )
-    ) {
-      second.push("consumer-gravity");
-    }
-    if (
-      facts.distributionShapes.includes("reference-distributed") ||
-      facts.distributionShapes.includes("implementation-split")
-    ) {
-      second.push("concept-distribution");
-    }
-    if (second.length + 1 >= policy.minEvidenceFamilies) {
-      signal = "split-gravity";
-      supporting = ["behavioral-locality", ...second];
-      magnitude = 1 - (centers[0]?.gravity ?? 0);
-    }
-  }
+  ({ signal, supporting, magnitude } = assessMiscenteringEntries2(
+    signal,
+    consumptionHeavy,
+    centers,
+    policy,
+    behaviorShares,
+    minShare,
+    facts,
+    supporting,
+    magnitude
+  ));
   if (signal === undefined) {
     if (homeBehaviorShare < minShare) {
       return { outcome: "unclear" };
@@ -398,22 +348,7 @@ export function assessMiscentering(
     "seed-module-import-site-share",
     "boundary-interaction"
   );
-  for (const boundary of facts.boundaries) {
-    const both =
-      boundary.conceptImportingModules.length > 0 &&
-      boundary.conceptImportedModules.length > 0;
-    evidence.push({
-      kind: "boundary-crossing",
-      metric: both ? "concept-modules-on-both-sides" : "boundary-edge",
-      package: boundary.foreignPackage,
-      source: "boundary-interaction",
-      supports: both && supports("boundary-crossing", boundary.foreignPackage),
-      value: [
-        ...boundary.conceptImportingModules,
-        ...boundary.conceptImportedModules,
-      ],
-    });
-  }
+  assessMiscenteringBoundary(facts, evidence, supports);
   evidence.push({
     kind: "concept-distribution",
     metric: "shapes",
@@ -428,42 +363,10 @@ export function assessMiscentering(
     supports: false,
     value: facts.alignment,
   });
-  for (const [metric, pkg] of [
-    ["representation-center", facts.placement.representationCenter],
-    ["usage-center", facts.placement.usageCenter],
-    ["evolution-center", evolutionCenter],
-  ] as const) {
-    if (pkg === undefined) {
-      continue;
-    }
-    evidence.push({
-      kind: "ownership",
-      metric,
-      package: pkg,
-      source: "concept-ownership",
-      supports: metric === "evolution-center" && supports("ownership", pkg),
-      value: pkg,
-    });
-  }
+  assessMiscenteringEntries3(facts, evolutionCenter, evidence, supports);
 
-  if (anchored.has(home)) {
-    cautions.push({
-      detail: `${home} is anchored${facts.intent.anchorReason === undefined ? "" : ` (${facts.intent.anchorReason})`}; treat this as architecture evidence, not a relocation suggestion`,
-      kind: "declared-home-anchored",
-    });
-  }
-  for (const center of centers) {
-    if (
-      center.target !== home &&
-      center.anchored &&
-      center.gravity >= policy.split.minShare
-    ) {
-      cautions.push({
-        detail: `${center.target} holds ${percent(center.gravity)} of gravity and is anchored`,
-        kind: "observed-center-anchored",
-      });
-    }
-  }
+  assessMiscenteringEntries4(anchored, home, cautions, facts);
+  assessMiscenteringCenter(centers, home, policy, cautions);
   const foreignReturns = facts.behavior.byPackage
     .filter((row) => row.package !== home)
     .reduce((sum, row) => sum + row.byKind.return, 0);
@@ -486,19 +389,20 @@ export function assessMiscentering(
     });
   }
 
-  const name = facts.concept.name;
-  const summary =
-    signal === "external-gravity"
-      ? `${name} is declared in ${home} (${percent(homeGravity)}) while gravity points to ${top.target} (${percent(top.gravity)}) across ${supporting.join(", ")}`
-      : signal === "boundary-drift"
-        ? `${name} keeps its symbols in ${home} while ${percent(foreignBehaviorShare)} of governing behavior sits in ${governing
-            .filter((row) => row.package !== home && row.count > 0)
-            .map((row) => row.package)
-            .join(", ")}`
-        : `${name} has no dominant observed center: ${centers
-            .filter((center) => center.gravity >= policy.split.minShare)
-            .map((center) => `${center.target} ${percent(center.gravity)}`)
-            .join(", ")}`;
+  const { name } = facts.concept;
+
+  const summary: string = assessMiscenteringEntries5(
+    signal,
+    name,
+    home,
+    homeGravity,
+    top,
+    supporting,
+    foreignBehaviorShare,
+    governing,
+    centers,
+    policy
+  );
 
   return {
     finding: {
@@ -526,6 +430,308 @@ export function assessMiscentering(
     },
     outcome: "finding",
   };
+}
+
+function assessMiscenteringEntries5(
+  signal: MiscenteringSignal,
+  name: string,
+  home: string,
+  homeGravity: number,
+  top: ObservedCenter,
+  supporting: MiscenteringEvidenceKind[],
+  foreignBehaviorShare: number,
+  governing: GoverningBehavior[],
+  centers: ObservedCenter[],
+  policy: {
+    gravity: {
+      weights: {
+        "behavioral-locality": number;
+        "symbol-distribution": number;
+        "consumer-gravity": number;
+      };
+    };
+    minEvidenceFamilies: number;
+    minFamilyShare: number;
+    external: { minAlternativeGravity: number; minMismatch: number };
+    split: { maxTopGravity: number; minShare: number; minPackages: number };
+    drift: { minForeignShare: number; minForeignBehaviors: number };
+    report: { topFindings: number };
+  }
+): string {
+  let summary: string;
+  if (signal === "external-gravity") {
+    summary = `${name} is declared in ${home} (${percent(homeGravity)}) while gravity points to ${top.target} (${percent(top.gravity)}) across ${supporting.join(", ")}`;
+  } else if (signal === "boundary-drift") {
+    summary = `${name} keeps its symbols in ${home} while ${percent(foreignBehaviorShare)} of governing behavior sits in ${governing
+      .filter((row) => row.package !== home && row.count > 0)
+      .map((row) => row.package)
+      .join(", ")}`;
+  } else {
+    summary = `${name} has no dominant observed center: ${centers
+      .filter((center) => center.gravity >= policy.split.minShare)
+      .map((center) => `${center.target} ${percent(center.gravity)}`)
+      .join(", ")}`;
+  }
+  return summary;
+}
+
+function assessMiscenteringCenter(
+  centers: ObservedCenter[],
+  home: string,
+  policy: {
+    gravity: {
+      weights: {
+        "behavioral-locality": number;
+        "symbol-distribution": number;
+        "consumer-gravity": number;
+      };
+    };
+    minEvidenceFamilies: number;
+    minFamilyShare: number;
+    external: { minAlternativeGravity: number; minMismatch: number };
+    split: { maxTopGravity: number; minShare: number; minPackages: number };
+    drift: { minForeignShare: number; minForeignBehaviors: number };
+    report: { topFindings: number };
+  },
+  cautions: MiscenteringCaution[]
+) {
+  for (const center of centers) {
+    if (
+      center.target !== home &&
+      center.anchored &&
+      center.gravity >= policy.split.minShare
+    ) {
+      cautions.push({
+        detail: `${center.target} holds ${percent(center.gravity)} of gravity and is anchored`,
+        kind: "observed-center-anchored",
+      });
+    }
+  }
+}
+
+function assessMiscenteringEntries4(
+  anchored: Set<string>,
+  home: string,
+  cautions: MiscenteringCaution[],
+  facts: RecenteringFacts
+) {
+  if (anchored.has(home)) {
+    cautions.push({
+      detail: `${home} is anchored${facts.intent.anchorReason === undefined ? "" : ` (${facts.intent.anchorReason})`}; treat this as architecture evidence, not a relocation suggestion`,
+      kind: "declared-home-anchored",
+    });
+  }
+}
+
+function assessMiscenteringEntries3(
+  facts: RecenteringFacts,
+  evolutionCenter: string | undefined,
+  evidence: MiscenteringEvidence[],
+  supports: (family: MiscenteringEvidenceKind, pkg?: string) => boolean
+) {
+  for (const [metric, pkg] of [
+    ["representation-center", facts.placement.representationCenter],
+    ["usage-center", facts.placement.usageCenter],
+    ["evolution-center", evolutionCenter],
+  ] as const) {
+    if (pkg === undefined) {
+      continue;
+    }
+    evidence.push({
+      kind: "ownership",
+      metric,
+      package: pkg,
+      source: "concept-ownership",
+      supports: metric === "evolution-center" && supports("ownership", pkg),
+      value: pkg,
+    });
+  }
+}
+
+function assessMiscenteringBoundary(
+  facts: RecenteringFacts,
+  evidence: MiscenteringEvidence[],
+  supports: (family: MiscenteringEvidenceKind, pkg?: string) => boolean
+) {
+  for (const boundary of facts.boundaries) {
+    const both =
+      boundary.conceptImportingModules.length > 0 &&
+      boundary.conceptImportedModules.length > 0;
+    evidence.push({
+      kind: "boundary-crossing",
+      metric: both ? "concept-modules-on-both-sides" : "boundary-edge",
+      package: boundary.foreignPackage,
+      source: "boundary-interaction",
+      supports: both && supports("boundary-crossing", boundary.foreignPackage),
+      value: [
+        ...boundary.conceptImportingModules,
+        ...boundary.conceptImportedModules,
+      ],
+    });
+  }
+}
+
+function assessMiscenteringFamily(
+  gravityFamilies: MiscenteringGravityFamily[],
+  shares: Record<MiscenteringGravityFamily, PackageShare[]>,
+  packages: Set<string>
+) {
+  for (const family of gravityFamilies) {
+    for (const row of shares[family]) {
+      packages.add(row.package);
+    }
+  }
+}
+
+function assessMiscenteringEntries2(
+  initialSignal: MiscenteringSignal | undefined,
+  consumptionHeavy: boolean,
+  centers: ObservedCenter[],
+  policy: {
+    gravity: {
+      weights: {
+        "behavioral-locality": number;
+        "symbol-distribution": number;
+        "consumer-gravity": number;
+      };
+    };
+    minEvidenceFamilies: number;
+    minFamilyShare: number;
+    external: { minAlternativeGravity: number; minMismatch: number };
+    split: { maxTopGravity: number; minShare: number; minPackages: number };
+    drift: { minForeignShare: number; minForeignBehaviors: number };
+    report: { topFindings: number };
+  },
+  behaviorShares: PackageShare[],
+  minShare: number,
+  facts: RecenteringFacts,
+  initialSupporting: MiscenteringEvidenceKind[],
+  initialMagnitude: number
+): {
+  signal: MiscenteringSignal | undefined;
+  supporting: MiscenteringEvidenceKind[];
+  magnitude: number;
+} {
+  let magnitude = initialMagnitude;
+  let supporting = initialSupporting;
+  let signal = initialSignal;
+  if (
+    signal === undefined &&
+    !consumptionHeavy &&
+    centers.every((center) => center.gravity < policy.split.maxTopGravity) &&
+    centers.filter((center) => center.gravity >= policy.split.minShare)
+      .length >= policy.split.minPackages &&
+    divided(
+      behaviorShares,
+      minShare,
+      policy.split.minShare,
+      policy.split.minPackages
+    )
+  ) {
+    const second: MiscenteringEvidenceKind[] = [];
+    if (
+      divided(
+        facts.representationShares,
+        minShare,
+        policy.split.minShare,
+        policy.split.minPackages
+      )
+    ) {
+      second.push("symbol-distribution");
+    }
+    if (
+      divided(
+        facts.referenceShares,
+        minShare,
+        policy.split.minShare,
+        policy.split.minPackages
+      )
+    ) {
+      second.push("consumer-gravity");
+    }
+    if (
+      facts.distributionShapes.includes("reference-distributed") ||
+      facts.distributionShapes.includes("implementation-split")
+    ) {
+      second.push("concept-distribution");
+    }
+    if (second.length + 1 >= policy.minEvidenceFamilies) {
+      signal = "split-gravity";
+      supporting = ["behavioral-locality", ...second];
+      magnitude = 1 - (centers[0]?.gravity ?? 0);
+    }
+  }
+  return { magnitude, signal, supporting };
+}
+
+function assessMiscenteringEntries(
+  top: ObservedCenter,
+  policy: {
+    gravity: {
+      weights: {
+        "behavioral-locality": number;
+        "symbol-distribution": number;
+        "consumer-gravity": number;
+      };
+    };
+    minEvidenceFamilies: number;
+    minFamilyShare: number;
+    external: { minAlternativeGravity: number; minMismatch: number };
+    split: { maxTopGravity: number; minShare: number; minPackages: number };
+    drift: { minForeignShare: number; minForeignBehaviors: number };
+    report: { topFindings: number };
+  },
+  mismatch: number,
+  topSupporters: MiscenteringEvidenceKind[],
+  initialSignal: MiscenteringSignal | undefined,
+  initialSupporting: MiscenteringEvidenceKind[],
+  initialMagnitude: number,
+  facts: RecenteringFacts,
+  home: string,
+  minShare: number,
+  foreignBehaviorShare: number,
+  foreignBehaviors: number,
+  crossings: RecenteringBoundaryUse[],
+  evolutionCenter: string | undefined
+): {
+  signal: MiscenteringSignal | undefined;
+  supporting: MiscenteringEvidenceKind[];
+  magnitude: number;
+} {
+  let magnitude = initialMagnitude;
+  let supporting = initialSupporting;
+  let signal = initialSignal;
+  if (
+    top.gravity >= policy.external.minAlternativeGravity &&
+    mismatch >= policy.external.minMismatch &&
+    topSupporters.length >= policy.minEvidenceFamilies &&
+    topSupporters.includes("behavioral-locality")
+  ) {
+    signal = "external-gravity";
+    supporting = topSupporters;
+    magnitude = clamp(mismatch / (2 * policy.external.minMismatch));
+  } else if (
+    pointsAt(facts.representationShares, home, minShare) &&
+    foreignBehaviorShare >= policy.drift.minForeignShare &&
+    foreignBehaviors >= policy.drift.minForeignBehaviors
+  ) {
+    const second: MiscenteringEvidenceKind[] = [];
+    if (crossings.length > 0) {
+      second.push("boundary-crossing");
+    }
+    if (evolutionCenter !== undefined && evolutionCenter !== home) {
+      second.push("ownership");
+    }
+    if (facts.distributionShapes.includes("implementation-split")) {
+      second.push("concept-distribution");
+    }
+    if (second.length + 1 >= policy.minEvidenceFamilies) {
+      signal = "boundary-drift";
+      supporting = ["behavioral-locality", ...second];
+      magnitude = foreignBehaviorShare;
+    }
+  }
+  return { magnitude, signal, supporting };
 }
 
 /** Mis-centering findings over the V8.0 facts, strongest evidence first. */

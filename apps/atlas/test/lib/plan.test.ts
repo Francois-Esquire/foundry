@@ -1,4 +1,4 @@
-import * as path from "node:path";
+import { join } from "node:path";
 
 import { beforeAll, describe, expect, it } from "vitest";
 import { analyzeSurface } from "../../src/lib/analyze";
@@ -6,7 +6,7 @@ import { buildInternalizationPlan } from "../../src/lib/plan";
 import { renderPlan, renderReport } from "../../src/lib/report";
 import type { InternalizeSymbolPlan, SurfaceReport } from "../../src/lib/types";
 
-const root = path.join(import.meta.dirname, "fixtures", "deps");
+const root = join(import.meta.dirname, "fixtures", "deps");
 
 let plans: SurfaceReport;
 let star: SurfaceReport;
@@ -58,7 +58,7 @@ describe("ready plans", () => {
     const plan = planFor(plans, "PlanAlpha");
     expect(plan.status).toBe("ready");
     expect(plan.publicRoutes).toHaveLength(1);
-    const route = plan.publicRoutes[0];
+    const [route] = plan.publicRoutes;
     expect(route?.file).toBe("packages/plans/src/index.ts");
     expect(route?.kind).toBe("type-export");
     expect(route?.entrypoint).toBe("@deps/plans");

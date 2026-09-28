@@ -26,12 +26,15 @@ import type {
   RecenteringScenarioReport,
   RepresentationImpact,
   ScenarioBehaviorPlacement,
+  ScenarioBoundaryOutcome,
   ScenarioBoundaryState,
+  ScenarioConstraint,
   ScenarioConstraintImpact,
   ScenarioDependencyEdge,
   ScenarioImpactAnalysis,
   ScenarioImpactFinding,
   ScenarioImpactReport,
+  ScenarioImpactStatus,
   ScenarioImpactSummary,
   ScenarioImpactUncertainty,
   ScenarioMetricDelta,
@@ -63,7 +66,7 @@ export interface ScenarioImpactFacts {
   weakByPackage: { package: string; weak: number }[];
 }
 
-export function deriveScenarioImpactFacts(
+function deriveScenarioImpactFacts(
   finding: MiscenteredConceptFinding,
   facts: RecenteringFacts,
   config: AnalysisConfig = ANALYSIS_CONFIG
@@ -184,7 +187,7 @@ function relocations(
     if (found === undefined) {
       out.set(module, { from, module, ...(to !== undefined && { to }) });
     } else if (found.to !== to) {
-      delete found.to;
+      found.to = undefined;
     }
   };
   for (const row of facts.modules) {
@@ -401,6 +404,72 @@ function planEdges(
 
   const currentEdges: ScenarioDependencyEdge[] = [];
   const states: ScenarioBoundaryState[] = [];
+  planEdgesEdge(
+    edges,
+    measured,
+    facts,
+    home,
+    requireExclusive,
+    currentEdges,
+    proposed,
+    moves,
+    current,
+    states
+  );
+
+  const added: ScenarioDependencyEdge[] = [];
+  const needs = (from: string, to: string) => {
+    if (from === to || seen.has(edgeLabel(from, to))) {
+      return;
+    }
+    seen.add(edgeLabel(from, to));
+    added.push({
+      conceptImportSites: null,
+      conceptModules: [],
+      exclusive: false,
+      from,
+      importSites: null,
+      measured: false,
+      to,
+    });
+  };
+  const center = proposed.semanticCenter;
+  for (const pkg of span) {
+    const responsibilities = responsibilitiesOf(proposed, pkg).filter(
+      (responsibility) =>
+        responsibility !== "consumption" &&
+        responsibility !== "semantic-contract"
+    );
+    if (responsibilities.length === 0) {
+      continue;
+    }
+    if (pkg !== center && center !== home) {
+      needs(pkg, center);
+    }
+  }
+  for (const [, move] of moves) {
+    if (move.to !== undefined && move.to !== center) {
+      needs(move.to, center);
+    }
+  }
+  added.sort(
+    (a, b) => a.from.localeCompare(b.from) || a.to.localeCompare(b.to)
+  );
+  return { added, current: currentEdges, states };
+}
+
+function planEdgesEdge(
+  edges: { from: string; to: string }[],
+  measured: Map<string, RecenteringBoundaryUse>,
+  facts: ScenarioImpactFacts,
+  home: string,
+  requireExclusive: boolean,
+  currentEdges: ScenarioDependencyEdge[],
+  proposed: ScenarioPlacement,
+  moves: Map<string, Relocation>,
+  current: ScenarioPlacement,
+  states: ScenarioBoundaryState[]
+) {
   for (const edge of edges) {
     const label = edgeLabel(edge.from, edge.to);
     const boundary = measured.get(label);
@@ -418,12 +487,14 @@ function planEdges(
       rows.reduce((total, row) => total + row.importSites, 0);
     const importingSites =
       boundary === undefined ? null : sum(boundary.conceptImportSitesByModule);
-    const importedSites =
-      boundary === undefined
-        ? edge.to === home
-          ? seedImports
-          : null
-        : sum(boundary.conceptImportedSitesByModule);
+
+    const importedSites: number | null = planEdgesEdgeEntries2(
+      boundary,
+      edge,
+      home,
+      seedImports,
+      sum
+    );
     // Import sites naming a concept module are the concept's share of the
     // edge. Exclusivity asks whether anything else crosses it: with the
     // gate on, every imported module must be the concept's; off, every
@@ -474,26 +545,21 @@ function planEdges(
       vacated.includes(facts.seed.module) &&
       edge.to === home &&
       edge.from !== proposed.semanticCenter;
-    let outcome: ScenarioBoundaryState["outcome"];
-    let certainty: ImpactCertainty;
-    if (boundary === undefined) {
-      // No interaction data: a foreign-to-foreign edge with a changed
-      // endpoint cannot be settled.
-      outcome = endpointChanged ? "uncertain" : "preserved";
-      certainty = endpointChanged ? "unknown" : "certain";
-    } else if (contractRetargets) {
-      outcome = "uncertain";
-      certainty = "unknown";
-    } else if (vacated.length === 0) {
-      outcome = "preserved";
-      certainty = "certain";
-    } else if (interactionEnds && exclusive) {
-      outcome = "eliminated";
-      certainty = "conditional";
-    } else {
-      outcome = "reduced";
-      certainty = "conditional";
-    }
+
+    const {
+      outcome,
+      certainty,
+    }: {
+      outcome: ScenarioBoundaryState["outcome"];
+      certainty: ImpactCertainty;
+    } = planEdgesEdgeEntries(
+      boundary,
+      endpointChanged,
+      contractRetargets,
+      vacated,
+      interactionEnds,
+      exclusive
+    );
     const vacatedImportSites =
       boundary === undefined
         ? null
@@ -525,46 +591,57 @@ function planEdges(
       vacatedModules: vacated,
     });
   }
+}
 
-  const added: ScenarioDependencyEdge[] = [];
-  const needs = (from: string, to: string) => {
-    if (from === to || seen.has(edgeLabel(from, to))) {
-      return;
+function planEdgesEdgeEntries2(
+  boundary: RecenteringBoundaryUse | undefined,
+  edge: { from: string; to: string },
+  home: string,
+  seedImports: number,
+  sum: (rows: { importSites: number }[]) => number
+): number | null {
+  let importedSites: number | null;
+  if (boundary === undefined) {
+    if (edge.to === home) {
+      importedSites = seedImports;
+    } else {
+      importedSites = null;
     }
-    seen.add(edgeLabel(from, to));
-    added.push({
-      conceptImportSites: null,
-      conceptModules: [],
-      exclusive: false,
-      from,
-      importSites: null,
-      measured: false,
-      to,
-    });
-  };
-  const center = proposed.semanticCenter;
-  for (const pkg of span) {
-    const responsibilities = responsibilitiesOf(proposed, pkg).filter(
-      (responsibility) =>
-        responsibility !== "consumption" &&
-        responsibility !== "semantic-contract"
-    );
-    if (responsibilities.length === 0) {
-      continue;
-    }
-    if (pkg !== center && center !== home) {
-      needs(pkg, center);
-    }
+  } else {
+    importedSites = sum(boundary.conceptImportedSitesByModule);
   }
-  for (const [, move] of moves) {
-    if (move.to !== undefined && move.to !== center) {
-      needs(move.to, center);
-    }
+  return importedSites;
+}
+
+function planEdgesEdgeEntries(
+  boundary: RecenteringBoundaryUse | undefined,
+  endpointChanged: boolean,
+  contractRetargets: boolean,
+  vacated: string[],
+  interactionEnds: boolean,
+  exclusive: boolean
+): { outcome: ScenarioBoundaryOutcome; certainty: ImpactCertainty } {
+  let outcome: ScenarioBoundaryOutcome;
+  let certainty: ImpactCertainty;
+  if (boundary === undefined) {
+    // No interaction data: a foreign-to-foreign edge with a changed
+    // endpoint cannot be settled.
+    outcome = endpointChanged ? "uncertain" : "preserved";
+    certainty = endpointChanged ? "unknown" : "certain";
+  } else if (contractRetargets) {
+    outcome = "uncertain";
+    certainty = "unknown";
+  } else if (vacated.length === 0) {
+    outcome = "preserved";
+    certainty = "certain";
+  } else if (interactionEnds && exclusive) {
+    outcome = "eliminated";
+    certainty = "conditional";
+  } else {
+    outcome = "reduced";
+    certainty = "conditional";
   }
-  added.sort(
-    (a, b) => a.from.localeCompare(b.from) || a.to.localeCompare(b.to)
-  );
-  return { added, current: currentEdges, states };
+  return { certainty, outcome };
 }
 
 function dependencyImpact(plan: EdgePlan, home: string): DependencyImpact {
@@ -598,7 +675,7 @@ function dependencyImpact(plan: EdgePlan, home: string): DependencyImpact {
     return metric(
       current,
       unknown ? null : current - gone + more,
-      unknown ? "unknown" : gone + more > 0 ? "conditional" : "certain"
+      resolveFan(unknown, gone, more)
     );
   };
   return {
@@ -611,6 +688,20 @@ function dependencyImpact(plan: EdgePlan, home: string): DependencyImpact {
     removed,
     uncertain,
   };
+}
+
+function resolveFan(
+  unknown: boolean,
+  gone: number,
+  more: number
+): ImpactCertainty {
+  if (unknown) {
+    return "unknown";
+  }
+  if (gone + more > 0) {
+    return "conditional";
+  }
+  return "certain";
 }
 
 function boundaryImpact(plan: EdgePlan): BoundaryImpact {
@@ -728,7 +819,7 @@ function localityImpact(
     to = from;
     shapeCertainty = "certain";
   } else if (predictedPackages.length === 1) {
-    const destination = predictedPackages[0];
+    const [destination] = predictedPackages;
     const modulesThere = facts.modules.filter(
       (row) => row.package === destination && !moves.has(row.module)
     ).length;
@@ -919,6 +1010,74 @@ function evolutionImpact(
   let unknown = 0;
   let newlyCross = 0;
   const coupledMoved = new Set<string>();
+  ({ preserved, unknown, coLocated, stillCross, newlyCross } =
+    evolutionImpactPair(
+      facts,
+      moves,
+      preserved,
+      coupledMoved,
+      placed,
+      unknown,
+      coLocated,
+      stillCross,
+      newlyCross
+    ));
+  const hotspots = new Set(facts.hotspotModules);
+  const affectedPairs = coLocated + stillCross + unknown;
+  return {
+    couplingRelationshipsCoLocated: coLocated,
+    couplingRelationshipsPreserved: preserved,
+    couplingRelationshipsStillCrossBoundary: stillCross,
+    couplingRelationshipsUnknown: unknown,
+    historicalEvidenceAlignment: resolveHistoricalEvidenceAlignment(
+      facts,
+      affectedPairs,
+      coLocated,
+      newlyCross,
+      unknown
+    ),
+    historicallyCoupledFilesAffected: coupledMoved.size,
+    hotspotBehaviorRelocated: [...moves.keys()].filter((module) =>
+      hotspots.has(module)
+    ).length,
+  };
+}
+
+function resolveHistoricalEvidenceAlignment(
+  facts: ScenarioImpactFacts,
+  affectedPairs: number,
+  coLocated: number,
+  newlyCross: number,
+  unknown: number
+): "improves" | "unchanged" | "mixed" | "unknown" {
+  if (facts.historyAvailable) {
+    if (affectedPairs === 0) {
+      return "unchanged";
+    }
+    if (coLocated > 0 && newlyCross === 0 && unknown === 0) {
+      return "improves";
+    }
+    return "mixed";
+  }
+  return "unknown";
+}
+
+function evolutionImpactPair(
+  facts: ScenarioImpactFacts,
+  moves: Map<string, Relocation>,
+  initialPreserved: number,
+  coupledMoved: Set<string>,
+  placed: (module: string, pkg: string) => string | undefined,
+  initialUnknown: number,
+  initialCoLocated: number,
+  initialStillCross: number,
+  initialNewlyCross: number
+) {
+  let newlyCross = initialNewlyCross;
+  let stillCross = initialStillCross;
+  let coLocated = initialCoLocated;
+  let unknown = initialUnknown;
+  let preserved = initialPreserved;
   for (const pair of facts.couplings) {
     const affected = moves.has(pair.left) || moves.has(pair.right);
     if (!affected) {
@@ -948,25 +1107,7 @@ function evolutionImpact(
       }
     }
   }
-  const hotspots = new Set(facts.hotspotModules);
-  const affectedPairs = coLocated + stillCross + unknown;
-  return {
-    couplingRelationshipsCoLocated: coLocated,
-    couplingRelationshipsPreserved: preserved,
-    couplingRelationshipsStillCrossBoundary: stillCross,
-    couplingRelationshipsUnknown: unknown,
-    historicalEvidenceAlignment: facts.historyAvailable
-      ? affectedPairs === 0
-        ? "unchanged"
-        : coLocated > 0 && newlyCross === 0 && unknown === 0
-          ? "improves"
-          : "mixed"
-      : "unknown",
-    historicallyCoupledFilesAffected: coupledMoved.size,
-    hotspotBehaviorRelocated: [...moves.keys()].filter((module) =>
-      hotspots.has(module)
-    ).length,
-  };
+  return { coLocated, newlyCross, preserved, stillCross, unknown };
 }
 
 function intentImpact(
@@ -979,6 +1120,57 @@ function intentImpact(
   const violated: string[] = [];
   const added: string[] = [];
   const removed: string[] = [];
+  intentImpactAnchor(
+    facts,
+    current,
+    proposed,
+    home,
+    violated,
+    removed,
+    added,
+    preserved
+  );
+  const publicChanges: string[] = [];
+  if (proposed.semanticCenter !== home && facts.seed.packagePublic) {
+    publicChanges.push(
+      `package-public contract leaves ${home} for ${proposed.semanticCenter}`
+    );
+  }
+  return {
+    anchoredResponsibilitiesAdded: added.sort(),
+    anchoredResponsibilitiesRemoved: removed.sort(),
+    anchorsPreserved: preserved.sort(),
+    anchorsViolated: violated.sort(),
+    compatibility: resolveCompatibility(scenario, violated, added, removed),
+    publicBoundaryChanges: publicChanges,
+  };
+}
+
+function resolveCompatibility(
+  scenario: RecenteringScenario,
+  violated: string[],
+  added: string[],
+  removed: string[]
+): "compatible" | "constrained" | "incompatible" {
+  if (scenario.status === "blocked" || violated.length > 0) {
+    return "incompatible";
+  }
+  if (added.length > 0 || removed.length > 0) {
+    return "constrained";
+  }
+  return "compatible";
+}
+
+function intentImpactAnchor(
+  facts: ScenarioImpactFacts,
+  current: ScenarioPlacement,
+  proposed: ScenarioPlacement,
+  home: string,
+  violated: string[],
+  removed: string[],
+  added: string[],
+  preserved: string[]
+) {
   for (const anchor of facts.scenario.anchors) {
     const pkg = anchor.package;
     const before = responsibilitiesOf(current, pkg);
@@ -1003,25 +1195,6 @@ function intentImpact(
       preserved.push(pkg);
     }
   }
-  const publicChanges: string[] = [];
-  if (proposed.semanticCenter !== home && facts.seed.packagePublic) {
-    publicChanges.push(
-      `package-public contract leaves ${home} for ${proposed.semanticCenter}`
-    );
-  }
-  return {
-    anchoredResponsibilitiesAdded: added.sort(),
-    anchoredResponsibilitiesRemoved: removed.sort(),
-    anchorsPreserved: preserved.sort(),
-    anchorsViolated: violated.sort(),
-    compatibility:
-      scenario.status === "blocked" || violated.length > 0
-        ? "incompatible"
-        : added.length > 0 || removed.length > 0
-          ? "constrained"
-          : "compatible",
-    publicBoundaryChanges: publicChanges,
-  };
 }
 
 /**
@@ -1066,108 +1239,60 @@ export function simulateScenarioImpact(
       certainty,
       evidence,
     });
-  if (proposed.semanticCenter !== home) {
-    change(
-      "semantic-center-change",
-      "certain",
-      [
-        {
-          detail: "the scenario moves the semantic contract",
-          source: "scenario",
-        },
-      ],
-      home,
-      proposed.semanticCenter
-    );
-    change(
-      "surface-relocation",
-      facts.seed.packagePublic ? "certain" : "conditional",
-      [
-        {
-          detail: facts.seed.packagePublic
-            ? `package-public seed in ${home}; exposure strategy unmodeled`
-            : `seed is not package-public in ${home}`,
-          source: "surface",
-        },
-      ],
-      home,
-      proposed.semanticCenter
-    );
-  }
+  simulateScenarioImpactEntries(proposed, home, change, facts);
   const behaviorNow = packagesOf(current, "domain-behavior");
   const behaviorNext = packagesOf(proposed, "domain-behavior");
-  if (!sameSet(behaviorNow, behaviorNext)) {
-    const relocates = behavior.governingBehaviorRelocated > 0;
-    const kind: ScenarioStructuralChangeKind =
-      relocates &&
-      behaviorNext.length < behaviorNow.length &&
-      behaviorNext.length === 1
-        ? "behavior-consolidation"
-        : "behavior-center-change";
-    change(
-      kind,
-      behavior.certainty,
-      [
-        {
-          detail: `domain behavior ${behaviorNow.join(", ")} → ${behaviorNext.join(", ")}`,
-          source: "scenario",
-        },
-        relocates
-          ? {
-              detail: `source behavior packages ${locality.current.sourcePackageCount} → ${locality.predicted.sourcePackageCount}; ${behavior.governingBehaviorRelocated} governing behavior(s) relocate, ${behavior.consumerBehaviorUnaffected} consumer behavior(s) stay`,
-              source: "concept-locality",
-            }
-          : {
-              detail:
-                "reclassification only: conversion-only behavior reads as conversion responsibility; nothing relocates",
-              source: "scenario",
+  simulateScenarioImpactEntries2(
+    behaviorNow,
+    behaviorNext,
+    behavior,
+    change,
+    locality
+  );
+  const visitState = () => {
+    for (const state of plan.states) {
+      if (state.outcome === "eliminated") {
+        change(
+          "boundary-elimination",
+          state.certainty,
+          [
+            {
+              detail: `${state.vacatedModules.length} concept module(s) leave the edge; ${state.conceptImportSitesRemoved ?? 0} concept import site(s) of ${state.importSites ?? 0}`,
+              source: "boundary-interaction",
             },
-      ],
-      behaviorNow,
-      behaviorNext
-    );
-  }
-  for (const state of plan.states) {
-    if (state.outcome === "eliminated") {
-      change(
-        "boundary-elimination",
-        state.certainty,
-        [
-          {
-            detail: `${state.vacatedModules.length} concept module(s) leave the edge; ${state.conceptImportSitesRemoved ?? 0} concept import site(s) of ${state.importSites ?? 0}`,
-            source: "boundary-interaction",
-          },
-        ],
-        state.edge
-      );
-      change(
-        "dependency-elimination",
-        "conditional",
-        [
-          {
-            detail:
-              "every import site on the edge names a concept module, at module granularity",
-            source: "boundary-interaction",
-          },
-        ],
-        state.edge
-      );
-    } else if (state.outcome === "reduced") {
-      change(
-        "boundary-reduction",
-        state.certainty,
-        [
-          {
-            detail: state.conceptInteractionEnds
-              ? `the concept stops crossing the edge (${state.conceptImportSitesRemoved ?? 0} of ${state.importSites ?? 0} import sites); unrelated traffic keeps it`
-              : `${state.vacatedModules.length} concept module(s) leave the edge, ${state.remainingModules.length} remain; ${state.conceptImportSitesRemoved ?? 0} concept import site(s) of ${state.importSites ?? 0} removed`,
-            source: "boundary-interaction",
-          },
-        ],
-        state.edge
-      );
+          ],
+          state.edge
+        );
+        change(
+          "dependency-elimination",
+          "conditional",
+          [
+            {
+              detail:
+                "every import site on the edge names a concept module, at module granularity",
+              source: "boundary-interaction",
+            },
+          ],
+          state.edge
+        );
+      } else if (state.outcome === "reduced") {
+        change(
+          "boundary-reduction",
+          state.certainty,
+          [
+            {
+              detail: state.conceptInteractionEnds
+                ? `the concept stops crossing the edge (${state.conceptImportSitesRemoved ?? 0} of ${state.importSites ?? 0} import sites); unrelated traffic keeps it`
+                : `${state.vacatedModules.length} concept module(s) leave the edge, ${state.remainingModules.length} remain; ${state.conceptImportSitesRemoved ?? 0} concept import site(s) of ${state.importSites ?? 0} removed`,
+              source: "boundary-interaction",
+            },
+          ],
+          state.edge
+        );
+      }
     }
-  }
+  };
+  visitState();
   for (const edge of plan.added) {
     const label = edgeLabel(edge.from, edge.to);
     change(
@@ -1238,26 +1363,7 @@ export function simulateScenarioImpact(
       implementation.currentCenters
     );
   }
-  if (
-    intent.anchorsViolated.length > 0 ||
-    intent.anchoredResponsibilitiesAdded.length > 0 ||
-    intent.anchoredResponsibilitiesRemoved.length > 0
-  ) {
-    change("anchor-constraint", "certain", [
-      {
-        detail: [
-          ...intent.anchorsViolated.map(
-            (pkg) => `${pkg} loses the semantic contract`
-          ),
-          ...intent.anchoredResponsibilitiesAdded.map((row) => `gains ${row}`),
-          ...intent.anchoredResponsibilitiesRemoved.map(
-            (row) => `loses ${row}`
-          ),
-        ].join("; "),
-        source: "anchor",
-      },
-    ]);
-  }
+  simulateScenarioImpactEntries4(intent, change);
   changes.sort(
     (a, b) =>
       CHANGE_ORDER.indexOf(a.kind) - CHANGE_ORDER.indexOf(b.kind) ||
@@ -1275,19 +1381,7 @@ export function simulateScenarioImpact(
       kind: "implementation-split",
     });
   }
-  for (const boundary of facts.scenario.boundaries) {
-    if (
-      boundary.persistenceLike &&
-      representation.persistenceRepresentationsPreserved.includes(
-        boundary.package
-      )
-    ) {
-      preserved.push({
-        detail: `${boundary.concept.name} in ${boundary.package}`,
-        kind: "persistence-boundary",
-      });
-    }
-  }
+  simulateScenarioImpactBoundary(facts, representation, preserved);
   for (const pkg of intent.anchorsPreserved) {
     preserved.push({ detail: pkg, kind: "anchor" });
   }
@@ -1321,20 +1415,23 @@ export function simulateScenarioImpact(
       kind: "structural-conformance-unobserved",
     });
   }
-  for (const row of facts.scenario.behavior) {
-    if (row.construction === 0) {
-      continue;
+  const visitRow = () => {
+    for (const row of facts.scenario.behavior) {
+      if (row.construction === 0) {
+        continue;
+      }
+      const vacated =
+        packagesOf(current, "domain-behavior").includes(row.package) &&
+        !packagesOf(proposed, "domain-behavior").includes(row.package);
+      if (vacated) {
+        uncertainties.push({
+          detail: `${row.package} still constructs the concept ${row.construction} time(s); its wiring edge stays`,
+          kind: "composition-root-remains",
+        });
+      }
     }
-    const vacated =
-      packagesOf(current, "domain-behavior").includes(row.package) &&
-      !packagesOf(proposed, "domain-behavior").includes(row.package);
-    if (vacated) {
-      uncertainties.push({
-        detail: `${row.package} still constructs the concept ${row.construction} time(s); its wiring edge stays`,
-        kind: "composition-root-remains",
-      });
-    }
-  }
+  };
+  visitRow();
   const sharedEdges = plan.states.filter(
     (state) => state.outcome === "reduced" || state.outcome === "uncertain"
   );
@@ -1362,94 +1459,35 @@ export function simulateScenarioImpact(
 
   const constraints: ScenarioConstraintImpact[] = scenario.constraints.map(
     (constraint) => ({
-      consequence:
-        constraint.kind === "anchor"
-          ? constraint.package === home && proposed.semanticCenter !== home
-            ? `the semantic contract cannot leave ${home}; simulated as a counterfactual`
-            : `${constraint.package} cannot be assumed to give up or absorb responsibility`
-          : constraint.kind === "public-contract"
-            ? "relocating the contract needs an exposure strategy; consumers unresolved"
-            : constraint.kind === "representation-boundary"
-              ? `converters for ${constraint.concepts.join(", ")} stay where they are`
-              : "implementation and locality dimensions are partially simulated",
+      consequence: resolveConsequence(constraint, home, proposed),
       constraint,
     })
   );
 
   // Unresolved consumer edges are the expected answer under a contract
   // move (§53), not a simulation gap; missing evidence is.
+
   const status: ScenarioImpactAnalysis["status"] =
-    scenario.status === "blocked"
-      ? "blocked"
-      : facts.scenario.unobservedConformance ||
-          plan.states.some(
-            (state) =>
-              state.outcome === "uncertain" && state.importSites === null
-          )
-        ? "partially-simulated"
-        : "simulated";
+    simulateScenarioImpactEntries3(scenario, facts, plan);
 
   const count = (certainty: ImpactCertainty) =>
     changes.filter((item) => item.certainty === certainty).length;
 
   const summary: string[] = [];
-  if (scenario.kind === "preserve-current") {
-    summary.push(
-      "no placement delta; current structure retained as the baseline"
-    );
-  }
-  if (proposed.semanticCenter !== home) {
-    summary.push(
-      `semantic contract ${home} → ${proposed.semanticCenter} (certain)`
-    );
-  }
-  if (locality.sourcePackageCount.delta !== 0) {
-    summary.push(
-      `source behavior packages ${locality.current.sourcePackageCount} → ${locality.predicted.sourcePackageCount} (certain)`
-    );
-  }
-  if (behavior.governingBehaviorRelocated > 0) {
-    summary.push(
-      `${behavior.governingBehaviorRelocated} governing behavior(s) relocate; ${behavior.consumerBehaviorUnaffected} consumer behavior(s) stay`
-    );
-  }
-  for (const edge of boundaries.eliminated) {
-    summary.push(`boundary ${edge} eliminated (conditional)`);
-  }
-  for (const row of boundaries.reduced) {
-    summary.push(
-      row.conceptInteractionEnds
-        ? `boundary ${row.edge} reduced: the concept stops crossing it, unrelated traffic remains (conditional)`
-        : `boundary ${row.edge} reduced: ${row.conceptImportSitesRemoved} concept import site(s) removed, ${row.remainingModules} concept module(s) remain (conditional)`
-    );
-  }
-  for (const edge of boundaries.added) {
-    summary.push(`boundary ${edge} added (conditional)`);
-  }
-  if (
-    locality.disconnectedBehaviorPairs.delta !== null &&
-    locality.disconnectedBehaviorPairs.delta < 0
-  ) {
-    summary.push(
-      `disconnected behavior package pairs ${locality.current.disconnectedPackagePairs} → ${locality.predicted.disconnectedPackagePairs} (certain)`
-    );
-  }
-  if (surface.consumers.packages.length > 0) {
-    summary.push(
-      `consumers in ${surface.consumers.packages.join(", ")} ${surface.consumers.impact}`
-    );
-  }
-  if (surface.packagePublicContractRelocated) {
-    summary.push("public surface transition unresolved");
-  }
+  collectDetails(
+    scenario,
+    summary,
+    proposed,
+    home,
+    locality,
+    behavior,
+    boundaries,
+    surface
+  );
   if (implementation.parallelImplementationPreserved) {
     summary.push("parallel implementations preserved");
   }
-  for (const item of preserved) {
-    if (item.kind === "persistence-boundary") {
-      summary.push(`persistence boundary preserved: ${item.detail}`);
-    }
-  }
+  simulateScenarioImpactItem(preserved, summary);
   if (evolution.couplingRelationshipsCoLocated > 0) {
     summary.push(
       `${evolution.couplingRelationshipsCoLocated} historically coupled pair(s) would become co-located`
@@ -1499,6 +1537,266 @@ export interface ScenarioImpactSource {
   facts: RecenteringFacts[];
   miscentered: MiscenteredConceptReport;
   scenarios: RecenteringScenarioReport;
+}
+
+function collectDetails(
+  scenario: RecenteringScenario,
+  summary: string[],
+  proposed: ScenarioPlacement,
+  home: string,
+  locality: LocalityImpact,
+  behavior: BehaviorImpact,
+  boundaries: BoundaryImpact,
+  surface: SurfaceImpact
+) {
+  if (scenario.kind === "preserve-current") {
+    summary.push(
+      "no placement delta; current structure retained as the baseline"
+    );
+  }
+  if (proposed.semanticCenter !== home) {
+    summary.push(
+      `semantic contract ${home} → ${proposed.semanticCenter} (certain)`
+    );
+  }
+  if (locality.sourcePackageCount.delta !== 0) {
+    summary.push(
+      `source behavior packages ${locality.current.sourcePackageCount} → ${locality.predicted.sourcePackageCount} (certain)`
+    );
+  }
+  if (behavior.governingBehaviorRelocated > 0) {
+    summary.push(
+      `${behavior.governingBehaviorRelocated} governing behavior(s) relocate; ${behavior.consumerBehaviorUnaffected} consumer behavior(s) stay`
+    );
+  }
+  for (const edge of boundaries.eliminated) {
+    summary.push(`boundary ${edge} eliminated (conditional)`);
+  }
+  simulateScenarioImpactRow(boundaries, summary);
+  for (const edge of boundaries.added) {
+    summary.push(`boundary ${edge} added (conditional)`);
+  }
+  if (
+    locality.disconnectedBehaviorPairs.delta !== null &&
+    locality.disconnectedBehaviorPairs.delta < 0
+  ) {
+    summary.push(
+      `disconnected behavior package pairs ${locality.current.disconnectedPackagePairs} → ${locality.predicted.disconnectedPackagePairs} (certain)`
+    );
+  }
+  if (surface.consumers.packages.length > 0) {
+    summary.push(
+      `consumers in ${surface.consumers.packages.join(", ")} ${surface.consumers.impact}`
+    );
+  }
+  if (surface.packagePublicContractRelocated) {
+    summary.push("public surface transition unresolved");
+  }
+}
+
+function simulateScenarioImpactEntries4(
+  intent: IntentImpact,
+  change: (
+    kind: ScenarioStructuralChangeKind,
+    certainty: ImpactCertainty,
+    evidence: ScenarioStructuralChange["evidence"],
+    from?: ScenarioStructuralChange["from"],
+    to?: ScenarioStructuralChange["to"]
+  ) => number
+) {
+  if (
+    intent.anchorsViolated.length > 0 ||
+    intent.anchoredResponsibilitiesAdded.length > 0 ||
+    intent.anchoredResponsibilitiesRemoved.length > 0
+  ) {
+    change("anchor-constraint", "certain", [
+      {
+        detail: [
+          ...intent.anchorsViolated.map(
+            (pkg) => `${pkg} loses the semantic contract`
+          ),
+          ...intent.anchoredResponsibilitiesAdded.map((row) => `gains ${row}`),
+          ...intent.anchoredResponsibilitiesRemoved.map(
+            (row) => `loses ${row}`
+          ),
+        ].join("; "),
+        source: "anchor",
+      },
+    ]);
+  }
+}
+
+function resolveConsequence(
+  constraint: ScenarioConstraint,
+  home: string,
+  proposed: ScenarioPlacement
+): string {
+  if (constraint.kind === "anchor") {
+    if (constraint.package === home && proposed.semanticCenter !== home) {
+      return `the semantic contract cannot leave ${home}; simulated as a counterfactual`;
+    }
+    return `${constraint.package} cannot be assumed to give up or absorb responsibility`;
+  }
+  if (constraint.kind === "public-contract") {
+    return "relocating the contract needs an exposure strategy; consumers unresolved";
+  }
+  if (constraint.kind === "representation-boundary") {
+    return `converters for ${constraint.concepts.join(", ")} stay where they are`;
+  }
+  return "implementation and locality dimensions are partially simulated";
+}
+
+function simulateScenarioImpactItem(
+  preserved: ScenarioPreservation[],
+  summary: string[]
+) {
+  for (const item of preserved) {
+    if (item.kind === "persistence-boundary") {
+      summary.push(`persistence boundary preserved: ${item.detail}`);
+    }
+  }
+}
+
+function simulateScenarioImpactRow(
+  boundaries: BoundaryImpact,
+  summary: string[]
+) {
+  for (const row of boundaries.reduced) {
+    summary.push(
+      row.conceptInteractionEnds
+        ? `boundary ${row.edge} reduced: the concept stops crossing it, unrelated traffic remains (conditional)`
+        : `boundary ${row.edge} reduced: ${row.conceptImportSitesRemoved} concept import site(s) removed, ${row.remainingModules} concept module(s) remain (conditional)`
+    );
+  }
+}
+
+function simulateScenarioImpactEntries3(
+  scenario: RecenteringScenario,
+  facts: ScenarioImpactFacts,
+  plan: EdgePlan
+): ScenarioImpactStatus {
+  let status: ScenarioImpactStatus;
+  if (scenario.status === "blocked") {
+    status = "blocked";
+  } else if (
+    facts.scenario.unobservedConformance ||
+    plan.states.some(
+      (state) => state.outcome === "uncertain" && state.importSites === null
+    )
+  ) {
+    status = "partially-simulated";
+  } else {
+    status = "simulated";
+  }
+  return status;
+}
+
+function simulateScenarioImpactBoundary(
+  facts: ScenarioImpactFacts,
+  representation: RepresentationImpact,
+  preserved: ScenarioPreservation[]
+) {
+  for (const boundary of facts.scenario.boundaries) {
+    if (
+      boundary.persistenceLike &&
+      representation.persistenceRepresentationsPreserved.includes(
+        boundary.package
+      )
+    ) {
+      preserved.push({
+        detail: `${boundary.concept.name} in ${boundary.package}`,
+        kind: "persistence-boundary",
+      });
+    }
+  }
+}
+
+function simulateScenarioImpactEntries2(
+  behaviorNow: string[],
+  behaviorNext: string[],
+  behavior: BehaviorImpact,
+  change: (
+    kind: ScenarioStructuralChangeKind,
+    certainty: ImpactCertainty,
+    evidence: ScenarioStructuralChange["evidence"],
+    from?: ScenarioStructuralChange["from"],
+    to?: ScenarioStructuralChange["to"]
+  ) => number,
+  locality: LocalityImpact
+) {
+  if (!sameSet(behaviorNow, behaviorNext)) {
+    const relocates = behavior.governingBehaviorRelocated > 0;
+    const kind: ScenarioStructuralChangeKind =
+      relocates &&
+      behaviorNext.length < behaviorNow.length &&
+      behaviorNext.length === 1
+        ? "behavior-consolidation"
+        : "behavior-center-change";
+    change(
+      kind,
+      behavior.certainty,
+      [
+        {
+          detail: `domain behavior ${behaviorNow.join(", ")} → ${behaviorNext.join(", ")}`,
+          source: "scenario",
+        },
+        relocates
+          ? {
+              detail: `source behavior packages ${locality.current.sourcePackageCount} → ${locality.predicted.sourcePackageCount}; ${behavior.governingBehaviorRelocated} governing behavior(s) relocate, ${behavior.consumerBehaviorUnaffected} consumer behavior(s) stay`,
+              source: "concept-locality",
+            }
+          : {
+              detail:
+                "reclassification only: conversion-only behavior reads as conversion responsibility; nothing relocates",
+              source: "scenario",
+            },
+      ],
+      behaviorNow,
+      behaviorNext
+    );
+  }
+}
+
+function simulateScenarioImpactEntries(
+  proposed: ScenarioPlacement,
+  home: string,
+  change: (
+    kind: ScenarioStructuralChangeKind,
+    certainty: ImpactCertainty,
+    evidence: ScenarioStructuralChange["evidence"],
+    from?: ScenarioStructuralChange["from"],
+    to?: ScenarioStructuralChange["to"]
+  ) => number,
+  facts: ScenarioImpactFacts
+) {
+  if (proposed.semanticCenter !== home) {
+    change(
+      "semantic-center-change",
+      "certain",
+      [
+        {
+          detail: "the scenario moves the semantic contract",
+          source: "scenario",
+        },
+      ],
+      home,
+      proposed.semanticCenter
+    );
+    change(
+      "surface-relocation",
+      facts.seed.packagePublic ? "certain" : "conditional",
+      [
+        {
+          detail: facts.seed.packagePublic
+            ? `package-public seed in ${home}; exposure strategy unmodeled`
+            : `seed is not package-public in ${home}`,
+          source: "surface",
+        },
+      ],
+      home,
+      proposed.semanticCenter
+    );
+  }
 }
 
 /** Impact of every V8.2 scenario, in scenario order. Compositional; no rescan. */

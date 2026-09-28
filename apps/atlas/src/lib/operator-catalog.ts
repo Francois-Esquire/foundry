@@ -102,7 +102,7 @@ const DEFINITIONS: Record<ArchitecturalOperatorKind, OperatorDefinition> = {
   },
 };
 
-export const OPERATOR_KINDS: ArchitecturalOperatorKind[] = [
+const OPERATOR_KINDS: ArchitecturalOperatorKind[] = [
   "internalize",
   "move",
   "rehome-concept",
@@ -127,7 +127,7 @@ export function listOperatorDefinitions(): OperatorDefinition[] {
  * representation formalization and responsibility splits have no operator
  * yet and are reported as catalog gaps rather than forced into `move`.
  */
-export const SCENARIO_OPERATOR_MAPPINGS: ScenarioOperatorMapping[] = [
+const SCENARIO_OPERATOR_MAPPINGS: ScenarioOperatorMapping[] = [
   { operatorKind: "rehome-concept", scenarioKind: "rehome-semantic-center" },
   { operatorKind: "rehome-behavior", scenarioKind: "rehome-behavior" },
   { operatorKind: "rehome-behavior", scenarioKind: "consolidate-behavior" },

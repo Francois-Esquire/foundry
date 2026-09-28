@@ -6,6 +6,7 @@ import type {
   ConceptIdentity,
   MiscenteredConceptFinding,
   MiscenteredConceptReport,
+  ObservedCenter,
   RecenteringScenario,
   RecenteringScenarioEvidence,
   RecenteringScenarioFinding,
@@ -70,7 +71,7 @@ export interface ScenarioBehaviorPackage {
 }
 
 /** A V7.2 partner in another package whose converters live there too. */
-export interface ScenarioBoundary {
+interface ScenarioBoundary {
   concept: ConceptIdentity;
   converterPackages: string[];
   package: string;
@@ -311,7 +312,7 @@ function withResponsibilities(
   };
 }
 
-export function canonicalPlacement(placement: ScenarioPlacement): string {
+function canonicalPlacement(placement: ScenarioPlacement): string {
   return [
     `semantic=${placement.semanticCenter}`,
     ...placement.responsibilities.map(
@@ -333,19 +334,22 @@ function candidateCenters(
     return found;
   };
   reasonsOf(facts.home).semantic = true;
-  for (const row of facts.behavior) {
-    if (row.governingShare >= policy.minObservedCenterShare) {
-      reasonsOf(row.package).behavior = row.governingShare;
+  const visitRow2 = () => {
+    for (const row of facts.behavior) {
+      if (row.governingShare >= policy.minObservedCenterShare) {
+        reasonsOf(row.package).behavior = row.governingShare;
+      }
+      if (row.adapters > 0) {
+        const reasons = reasonsOf(row.package);
+        reasons.implementation = (reasons.implementation ?? 0) + row.adapters;
+      }
+      if (row.conversions > 0) {
+        const reasons = reasonsOf(row.package);
+        reasons.conversion = (reasons.conversion ?? 0) + row.conversions;
+      }
     }
-    if (row.adapters > 0) {
-      const reasons = reasonsOf(row.package);
-      reasons.implementation = (reasons.implementation ?? 0) + row.adapters;
-    }
-    if (row.conversions > 0) {
-      const reasons = reasonsOf(row.package);
-      reasons.conversion = (reasons.conversion ?? 0) + row.conversions;
-    }
-  }
+  };
+  visitRow2();
   for (const row of facts.representationShares) {
     if (row.share >= policy.minObservedCenterShare) {
       reasonsOf(row.package).representation = row.share;
@@ -395,7 +399,13 @@ function confidenceOf(
       .filter((item) => item.supports === DIRECTION[kind])
       .map((item) => item.kind)
   );
-  return kinds.size >= 3 ? "strong" : kinds.size === 2 ? "moderate" : "weak";
+  if (kinds.size >= 3) {
+    return "strong";
+  }
+  if (kinds.size === 2) {
+    return "moderate";
+  }
+  return "weak";
 }
 
 function diff(
@@ -680,7 +690,7 @@ export function generateRecenteringScenarios(
       )
     );
   }
-  const strongestForeign = foreignBehavior[0];
+  const [strongestForeign] = foreignBehavior;
   if (strongestForeign !== undefined) {
     baseline.cautions.push({
       detail: `${strongestForeign.package} holds ${percent(strongestForeign.governingShare)} of governing behavior`,
@@ -694,6 +704,443 @@ export function generateRecenteringScenarios(
   const semanticRehomeAllowed =
     finding.signal === "external-gravity" ||
     (finding.signal === "boundary-drift" && policy.allowWeakRehome);
+  generateRecenteringScenariosEntries(
+    semanticRehomeAllowed,
+    top,
+    topCenter,
+    anchorConstraint,
+    home,
+    facts,
+    conformance,
+    boundaryConstraint,
+    centerRationale,
+    sharedCautions,
+    homeRepresentation,
+    homeBehaviorShare,
+    drafts,
+    current
+  );
+
+  generateRecenteringScenariosEntries2(
+    finding,
+    top,
+    anchorConstraint,
+    conformance,
+    boundaryConstraint,
+    centerRationale,
+    home,
+    homeAnchor,
+    evidence,
+    facts,
+    sharedCautions,
+    behaviorOf,
+    drafts,
+    current
+  );
+
+  const consolidationTargets: string[] = generateRecenteringScenariosEntries3(
+    finding,
+    home,
+    facts,
+    policy
+  );
+  generateRecenteringScenariosDestination(
+    consolidationTargets,
+    facts,
+    anchorConstraint,
+    home,
+    conformance,
+    behaviorOf,
+    boundaryConstraint,
+    centerRationale,
+    sharedCautions,
+    foreignBehavior,
+    drafts,
+    current
+  );
+
+  generateRecenteringScenariosEntries4(
+    facts,
+    evidence,
+    home,
+    anchorConstraint,
+    drafts,
+    sharedCautions,
+    current
+  );
+
+  const foreignResponsibilityCenters = centers.filter(
+    (center) =>
+      center.package !== home &&
+      (center.reasons.implementation !== undefined ||
+        center.reasons.conversion !== undefined)
+  );
+  // Foreign behavior that is entirely converters reads as a conversion
+  // responsibility, not domain behavior; anything beyond that stays where
+  // it is. The scenario formalizes the split rather than moving behavior.
+  const behaviorBeyondConversion = unique(
+    facts.behavior
+      .filter(
+        (row) =>
+          row.governing > 0 &&
+          (row.package === home || row.governing > row.conversions)
+      )
+      .map((row) => row.package)
+  );
+  if (foreignResponsibilityCenters.length > 0) {
+    const implementation = unique([
+      ...facts.implementationCenters,
+      ...centers
+        .filter((center) => center.reasons.implementation !== undefined)
+        .map((center) => center.package),
+    ]);
+    const conversion = unique(
+      centers
+        .filter((center) => center.reasons.conversion !== undefined)
+        .map((center) => center.package)
+    );
+    const rationale: RecenteringScenarioEvidence[] = [
+      evidence("declared-home", "split", true, home),
+    ];
+    const visitCenter = (currentRationale: RecenteringScenarioEvidence[]) => {
+      for (const center of foreignResponsibilityCenters) {
+        if (center.reasons.implementation !== undefined) {
+          currentRationale.push(
+            evidence(
+              "implementation-center",
+              "split",
+              `${center.reasons.implementation} implementation(s)`,
+              center.package
+            )
+          );
+        }
+        if (center.reasons.conversion !== undefined) {
+          currentRationale.push(
+            evidence(
+              "conversion-boundary",
+              "split",
+              `${center.reasons.conversion} converter(s)`,
+              center.package
+            )
+          );
+        }
+      }
+    };
+    visitCenter(rationale);
+    drafts.push({
+      blocked: false,
+      cautions: sharedCautions(),
+      constraints: conformance(),
+      destination: foreignResponsibilityCenters
+        .map((center) => center.package)
+        .join("+"),
+      kind: "split-responsibility",
+      proposed: withResponsibilities(current, home, {
+        conversion,
+        "domain-behavior": behaviorBeyondConversion,
+        implementation,
+      }),
+      rationale,
+    });
+  }
+  const visitDraft = () => {
+    for (const draft of drafts) {
+      const key = canonicalPlacement(draft.proposed);
+      const kept = byPlacement.get(key);
+      if (kept === undefined) {
+        byPlacement.set(key, draft);
+        continue;
+      }
+      // Constraints describe the kept draft's move; a merged draft adds only
+      // its rationale and cautions.
+      deduplicated += 1;
+      const rationaleKey = (item: RecenteringScenarioEvidence) =>
+        `${item.kind}|${item.package ?? ""}|${String(item.detail)}`;
+      const seen = new Set(kept.rationale.map(rationaleKey));
+      for (const item of draft.rationale) {
+        const serialized = rationaleKey(item);
+        if (seen.has(serialized)) {
+          continue;
+        }
+        seen.add(serialized);
+        kept.rationale.push(item);
+      }
+      const cautions = new Set(kept.cautions.map((item) => item.detail));
+      for (const item of draft.cautions) {
+        if (cautions.has(item.detail)) {
+          continue;
+        }
+        kept.cautions.push(item);
+      }
+    }
+  };
+
+  drafts.sort(
+    (a, b) =>
+      KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind) ||
+      a.destination.localeCompare(b.destination)
+  );
+  const byPlacement = new Map<string, Draft>();
+  let deduplicated = 0;
+  visitDraft();
+  const unique_ = [...byPlacement.values()];
+  const kept = unique_.slice(0, policy.maxScenariosPerFinding);
+  const scenarios: RecenteringScenario[] = kept.map((draft) => {
+    const { affected, preserved } = diff(current, draft.proposed);
+    return {
+      affectedResponsibilities: affected,
+      anchorContext: {
+        anchoredCenters,
+        homeAnchored: homeAnchor !== undefined,
+      },
+      cautions: draft.cautions,
+      confidence: confidenceOf(draft.kind, draft.rationale, draft.constraints),
+      constraints: draft.constraints,
+      current,
+      findingId: finding.id,
+      id: `${finding.id}::${draft.kind}::${canonicalPlacement(draft.proposed)}`,
+      kind: draft.kind,
+      preservedResponsibilities: preserved,
+      proposed: draft.proposed,
+      rationale: draft.rationale,
+      status: resolveStatus(draft),
+      subject: finding.concept,
+    };
+  });
+  const alternatives = scenarios.filter(
+    (scenario) => scenario.kind !== "preserve-current"
+  );
+  return {
+    candidateCenters: centers,
+    diagnostics: {
+      blocked: scenarios.filter((scenario) => scenario.status === "blocked")
+        .length,
+      centersConsidered: centers.length,
+      deduplicated,
+      proposed: drafts.length,
+      truncated: unique_.length - kept.length,
+      ...(alternatives.length === 0 && {
+        noAlternativeReason: resolveNoAlternativeReason(drafts, centers),
+      }),
+    },
+    findingId: finding.id,
+    scenarios,
+    signal: finding.signal,
+    subject: finding.concept,
+  };
+}
+
+function resolveNoAlternativeReason(
+  drafts: Draft[],
+  centers: ScenarioCandidateCenter[]
+): string | undefined {
+  if (drafts.length > 1) {
+    return "every alternative collapsed into the current arrangement";
+  }
+  if (centers.length <= 1) {
+    return "no candidate center beyond the declared home";
+  }
+  return "no observed center meets the generation gates";
+}
+
+function resolveStatus(draft: Draft): "blocked" | "constrained" | "plausible" {
+  if (draft.blocked) {
+    return "blocked";
+  }
+  if (draft.constraints.length > 0) {
+    return "constrained";
+  }
+  return "plausible";
+}
+
+function generateRecenteringScenariosEntries4(
+  facts: ScenarioFacts,
+  evidence: (
+    kind: RecenteringScenarioEvidence["kind"],
+    supports: RecenteringScenarioEvidence["supports"],
+    detail: RecenteringScenarioEvidence["detail"],
+    pkg?: string
+  ) => RecenteringScenarioEvidence,
+  home: string,
+  anchorConstraint: (pkg: string) => ScenarioConstraint | undefined,
+  drafts: Draft[],
+  sharedCautions: (destination?: string) => ScenarioCaution[],
+  current: ScenarioPlacement
+) {
+  if (facts.boundaries.length > 0) {
+    const converterPackages = unique(
+      facts.boundaries.flatMap((boundary) => boundary.converterPackages)
+    );
+    const rationale: RecenteringScenarioEvidence[] = [
+      evidence("declared-home", "split", true, home),
+    ];
+    for (const boundary of facts.boundaries) {
+      rationale.push(
+        evidence(
+          "conversion-boundary",
+          "split",
+          `${boundary.concept.name} converts in ${boundary.converterPackages.join(", ")}`,
+          boundary.package
+        ),
+        evidence(
+          "representation-center",
+          "split",
+          `${boundary.concept.name} declared here`,
+          boundary.package
+        )
+      );
+    }
+    const constraints: ScenarioConstraint[] = [];
+    const visitRow = (
+      currentConverterPackages: string[],
+      currentConstraints: ScenarioConstraint[]
+    ) => {
+      for (const row of facts.behavior) {
+        if (
+          row.conversions === 0 ||
+          currentConverterPackages.includes(row.package)
+        ) {
+          continue;
+        }
+        const vacated = anchorConstraint(row.package);
+        if (vacated !== undefined) {
+          currentConstraints.push(vacated);
+        }
+      }
+    };
+    visitRow(converterPackages, constraints);
+    drafts.push({
+      blocked: false,
+      cautions: sharedCautions(),
+      constraints,
+      destination: converterPackages.join("+"),
+      kind: "formalize-representation-boundary",
+      proposed: withResponsibilities(current, home, {
+        conversion: converterPackages,
+        persistence: facts.boundaries
+          .filter((boundary) => boundary.persistenceLike)
+          .map((boundary) => boundary.package),
+      }),
+      rationale,
+    });
+  }
+}
+
+function generateRecenteringScenariosEntries3(
+  finding: MiscenteredConceptFinding,
+  home: string,
+  facts: ScenarioFacts,
+  policy: {
+    minObservedCenterShare: number;
+    minSupportingFamilies: number;
+    maxScenariosPerFinding: number;
+    allowWeakRehome: boolean;
+    report: { topFindings: number; topScenariosPerFinding: number };
+  }
+): string[] {
+  let consolidationTargets: string[];
+  if (finding.signal === "boundary-drift") {
+    consolidationTargets = [home];
+  } else if (finding.signal === "split-gravity") {
+    consolidationTargets = facts.behavior
+      .filter((row) => row.governingShare >= policy.minObservedCenterShare)
+      .map((row) => row.package);
+  } else {
+    consolidationTargets = [];
+  }
+  return consolidationTargets;
+}
+
+function generateRecenteringScenariosEntries2(
+  finding: MiscenteredConceptFinding,
+  top: ObservedCenter | undefined,
+  anchorConstraint: (pkg: string) => ScenarioConstraint | undefined,
+  conformance: () => ScenarioConstraint[],
+  boundaryConstraint: () => ScenarioConstraint[],
+  centerRationale: (
+    pkg: string,
+    supports: RecenteringScenarioEvidence["supports"]
+  ) => RecenteringScenarioEvidence[],
+  home: string,
+  homeAnchor: { package: string; reason?: string } | undefined,
+  evidence: (
+    kind: RecenteringScenarioEvidence["kind"],
+    supports: RecenteringScenarioEvidence["supports"],
+    detail: RecenteringScenarioEvidence["detail"],
+    pkg?: string
+  ) => RecenteringScenarioEvidence,
+  facts: ScenarioFacts,
+  sharedCautions: (destination?: string) => ScenarioCaution[],
+  behaviorOf: (pkg: string) => ScenarioBehaviorPackage | undefined,
+  drafts: Draft[],
+  current: ScenarioPlacement
+) {
+  if (finding.signal === "external-gravity" && top !== undefined) {
+    const constraints: ScenarioConstraint[] = [];
+    const outbound = anchorConstraint(top.target);
+    if (outbound !== undefined) {
+      constraints.push(outbound);
+    }
+    constraints.push(...conformance(), ...boundaryConstraint());
+    const rationale = centerRationale(home, "rehome");
+    if (homeAnchor !== undefined) {
+      rationale.push(
+        evidence(
+          "anchor",
+          "rehome",
+          homeAnchor.reason ?? "anchored package",
+          home
+        )
+      );
+    }
+    if (facts.publicContract) {
+      rationale.push(
+        evidence(
+          "public-contract",
+          "rehome",
+          "package-public and consumed outside",
+          home
+        )
+      );
+    }
+    const cautions = sharedCautions();
+    cautions.push({
+      detail: `${top.target} holds ${percent(behaviorOf(top.target)?.governingShare ?? 0)} of governing behavior`,
+      kind: "counter-evidence",
+    });
+    drafts.push({
+      blocked: false,
+      cautions,
+      constraints,
+      destination: home,
+      kind: "rehome-behavior",
+      proposed: withResponsibilities(current, home, {
+        "domain-behavior": [home],
+      }),
+      rationale,
+    });
+  }
+}
+
+function generateRecenteringScenariosEntries(
+  semanticRehomeAllowed: boolean,
+  top: ObservedCenter | undefined,
+  topCenter: ScenarioCandidateCenter | undefined,
+  anchorConstraint: (pkg: string) => ScenarioConstraint | undefined,
+  home: string,
+  facts: ScenarioFacts,
+  conformance: () => ScenarioConstraint[],
+  boundaryConstraint: () => ScenarioConstraint[],
+  centerRationale: (
+    pkg: string,
+    supports: RecenteringScenarioEvidence["supports"]
+  ) => RecenteringScenarioEvidence[],
+  sharedCautions: (destination?: string) => ScenarioCaution[],
+  homeRepresentation: number,
+  homeBehaviorShare: number,
+  drafts: Draft[],
+  current: ScenarioPlacement
+) {
   if (
     semanticRehomeAllowed &&
     top !== undefined &&
@@ -744,63 +1191,25 @@ export function generateRecenteringScenarios(
       rationale,
     });
   }
+}
 
-  if (finding.signal === "external-gravity" && top !== undefined) {
-    const constraints: ScenarioConstraint[] = [];
-    const outbound = anchorConstraint(top.target);
-    if (outbound !== undefined) {
-      constraints.push(outbound);
-    }
-    constraints.push(...conformance(), ...boundaryConstraint());
-    const rationale = centerRationale(home, "rehome");
-    if (homeAnchor !== undefined) {
-      rationale.push(
-        evidence(
-          "anchor",
-          "rehome",
-          homeAnchor.reason ?? "anchored package",
-          home
-        )
-      );
-    }
-    if (facts.publicContract) {
-      rationale.push(
-        evidence(
-          "public-contract",
-          "rehome",
-          "package-public and consumed outside",
-          home
-        )
-      );
-    }
-    const cautions = sharedCautions();
-    cautions.push({
-      detail: `${top.target} holds ${percent(behaviorOf(top.target)?.governingShare ?? 0)} of governing behavior`,
-      kind: "counter-evidence",
-    });
-    drafts.push({
-      blocked: false,
-      cautions,
-      constraints,
-      destination: home,
-      kind: "rehome-behavior",
-      proposed: withResponsibilities(current, home, {
-        "domain-behavior": [home],
-      }),
-      rationale,
-    });
-  }
-
-  const consolidationTargets =
-    finding.signal === "boundary-drift"
-      ? [home]
-      : finding.signal === "split-gravity"
-        ? facts.behavior
-            .filter(
-              (row) => row.governingShare >= policy.minObservedCenterShare
-            )
-            .map((row) => row.package)
-        : [];
+function generateRecenteringScenariosDestination(
+  consolidationTargets: string[],
+  facts: ScenarioFacts,
+  anchorConstraint: (pkg: string) => ScenarioConstraint | undefined,
+  home: string,
+  conformance: () => ScenarioConstraint[],
+  behaviorOf: (pkg: string) => ScenarioBehaviorPackage | undefined,
+  boundaryConstraint: () => ScenarioConstraint[],
+  centerRationale: (
+    pkg: string,
+    supports: RecenteringScenarioEvidence["supports"]
+  ) => RecenteringScenarioEvidence[],
+  sharedCautions: (destination?: string) => ScenarioCaution[],
+  foreignBehavior: ScenarioBehaviorPackage[],
+  drafts: Draft[],
+  current: ScenarioPlacement
+) {
   for (const destination of consolidationTargets) {
     const constraints: ScenarioConstraint[] = [];
     for (const row of facts.behavior) {
@@ -830,10 +1239,10 @@ export function generateRecenteringScenarios(
     }
     const rationale = centerRationale(destination, "consolidate");
     const cautions = sharedCautions(destination);
-    const strongestOther = foreignBehavior
+    const [strongestOther] = foreignBehavior
       .concat(facts.behavior.filter((row) => row.package === home))
       .filter((row) => row.package !== destination && row.governing > 0)
-      .sort((a, b) => b.governingShare - a.governingShare)[0];
+      .sort((a, b) => b.governingShare - a.governingShare);
     if (strongestOther !== undefined) {
       cautions.push({
         detail: `${strongestOther.package} holds ${percent(strongestOther.governingShare)} of governing behavior`,
@@ -852,218 +1261,6 @@ export function generateRecenteringScenarios(
       rationale,
     });
   }
-
-  if (facts.boundaries.length > 0) {
-    const converterPackages = unique(
-      facts.boundaries.flatMap((boundary) => boundary.converterPackages)
-    );
-    const rationale: RecenteringScenarioEvidence[] = [
-      evidence("declared-home", "split", true, home),
-    ];
-    for (const boundary of facts.boundaries) {
-      rationale.push(
-        evidence(
-          "conversion-boundary",
-          "split",
-          `${boundary.concept.name} converts in ${boundary.converterPackages.join(", ")}`,
-          boundary.package
-        ),
-        evidence(
-          "representation-center",
-          "split",
-          `${boundary.concept.name} declared here`,
-          boundary.package
-        )
-      );
-    }
-    const constraints: ScenarioConstraint[] = [];
-    for (const row of facts.behavior) {
-      if (row.conversions === 0 || converterPackages.includes(row.package)) {
-        continue;
-      }
-      const vacated = anchorConstraint(row.package);
-      if (vacated !== undefined) {
-        constraints.push(vacated);
-      }
-    }
-    drafts.push({
-      blocked: false,
-      cautions: sharedCautions(),
-      constraints,
-      destination: converterPackages.join("+"),
-      kind: "formalize-representation-boundary",
-      proposed: withResponsibilities(current, home, {
-        conversion: converterPackages,
-        persistence: facts.boundaries
-          .filter((boundary) => boundary.persistenceLike)
-          .map((boundary) => boundary.package),
-      }),
-      rationale,
-    });
-  }
-
-  const foreignResponsibilityCenters = centers.filter(
-    (center) =>
-      center.package !== home &&
-      (center.reasons.implementation !== undefined ||
-        center.reasons.conversion !== undefined)
-  );
-  // Foreign behavior that is entirely converters reads as a conversion
-  // responsibility, not domain behavior; anything beyond that stays where
-  // it is. The scenario formalizes the split rather than moving behavior.
-  const behaviorBeyondConversion = unique(
-    facts.behavior
-      .filter(
-        (row) =>
-          row.governing > 0 &&
-          (row.package === home || row.governing > row.conversions)
-      )
-      .map((row) => row.package)
-  );
-  if (foreignResponsibilityCenters.length > 0) {
-    const implementation = unique([
-      ...facts.implementationCenters,
-      ...centers
-        .filter((center) => center.reasons.implementation !== undefined)
-        .map((center) => center.package),
-    ]);
-    const conversion = unique(
-      centers
-        .filter((center) => center.reasons.conversion !== undefined)
-        .map((center) => center.package)
-    );
-    const rationale: RecenteringScenarioEvidence[] = [
-      evidence("declared-home", "split", true, home),
-    ];
-    for (const center of foreignResponsibilityCenters) {
-      if (center.reasons.implementation !== undefined) {
-        rationale.push(
-          evidence(
-            "implementation-center",
-            "split",
-            `${center.reasons.implementation} implementation(s)`,
-            center.package
-          )
-        );
-      }
-      if (center.reasons.conversion !== undefined) {
-        rationale.push(
-          evidence(
-            "conversion-boundary",
-            "split",
-            `${center.reasons.conversion} converter(s)`,
-            center.package
-          )
-        );
-      }
-    }
-    drafts.push({
-      blocked: false,
-      cautions: sharedCautions(),
-      constraints: conformance(),
-      destination: foreignResponsibilityCenters
-        .map((center) => center.package)
-        .join("+"),
-      kind: "split-responsibility",
-      proposed: withResponsibilities(current, home, {
-        conversion,
-        "domain-behavior": behaviorBeyondConversion,
-        implementation,
-      }),
-      rationale,
-    });
-  }
-
-  drafts.sort(
-    (a, b) =>
-      KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind) ||
-      a.destination.localeCompare(b.destination)
-  );
-  const byPlacement = new Map<string, Draft>();
-  let deduplicated = 0;
-  for (const draft of drafts) {
-    const key = canonicalPlacement(draft.proposed);
-    const kept = byPlacement.get(key);
-    if (kept === undefined) {
-      byPlacement.set(key, draft);
-      continue;
-    }
-    // Constraints describe the kept draft's move; a merged draft adds only
-    // its rationale and cautions.
-    deduplicated += 1;
-    const rationaleKey = (item: RecenteringScenarioEvidence) =>
-      `${item.kind}|${item.package ?? ""}|${String(item.detail)}`;
-    const seen = new Set(kept.rationale.map(rationaleKey));
-    for (const item of draft.rationale) {
-      const serialized = rationaleKey(item);
-      if (seen.has(serialized)) {
-        continue;
-      }
-      seen.add(serialized);
-      kept.rationale.push(item);
-    }
-    const cautions = new Set(kept.cautions.map((item) => item.detail));
-    for (const item of draft.cautions) {
-      if (cautions.has(item.detail)) {
-        continue;
-      }
-      kept.cautions.push(item);
-    }
-  }
-  const unique_ = [...byPlacement.values()];
-  const kept = unique_.slice(0, policy.maxScenariosPerFinding);
-  const scenarios: RecenteringScenario[] = kept.map((draft) => {
-    const { affected, preserved } = diff(current, draft.proposed);
-    return {
-      affectedResponsibilities: affected,
-      anchorContext: {
-        anchoredCenters,
-        homeAnchored: homeAnchor !== undefined,
-      },
-      cautions: draft.cautions,
-      confidence: confidenceOf(draft.kind, draft.rationale, draft.constraints),
-      constraints: draft.constraints,
-      current,
-      findingId: finding.id,
-      id: `${finding.id}::${draft.kind}::${canonicalPlacement(draft.proposed)}`,
-      kind: draft.kind,
-      preservedResponsibilities: preserved,
-      proposed: draft.proposed,
-      rationale: draft.rationale,
-      status: draft.blocked
-        ? "blocked"
-        : draft.constraints.length > 0
-          ? "constrained"
-          : "plausible",
-      subject: finding.concept,
-    };
-  });
-  const alternatives = scenarios.filter(
-    (scenario) => scenario.kind !== "preserve-current"
-  );
-  return {
-    candidateCenters: centers,
-    diagnostics: {
-      blocked: scenarios.filter((scenario) => scenario.status === "blocked")
-        .length,
-      centersConsidered: centers.length,
-      deduplicated,
-      proposed: drafts.length,
-      truncated: unique_.length - kept.length,
-      ...(alternatives.length === 0 && {
-        noAlternativeReason:
-          drafts.length > 1
-            ? "every alternative collapsed into the current arrangement"
-            : centers.length <= 1
-              ? "no candidate center beyond the declared home"
-              : "no observed center meets the generation gates",
-      }),
-    },
-    findingId: finding.id,
-    scenarios,
-    signal: finding.signal,
-    subject: finding.concept,
-  };
 }
 
 function percentile(values: number[], p: number): number {
@@ -1121,24 +1318,29 @@ function summarize(
     if (scenario.kind === "preserve-current") {
       continue;
     }
-    const destination =
-      scenario.kind === "rehome-semantic-center"
-        ? scenario.proposed.semanticCenter
-        : scenario.kind === "rehome-behavior" ||
-            scenario.kind === "consolidate-behavior"
-          ? (scenario.proposed.responsibilities.find(
-              (row) => row.responsibility === "domain-behavior"
-            )?.packages[0] ?? scenario.proposed.semanticCenter)
-          : scenario.proposed.responsibilities
-              .filter(
-                (row) =>
-                  row.responsibility === "implementation" ||
-                  row.responsibility === "conversion"
-              )
-              .flatMap((row) => row.packages)
-              .filter((pkg) => pkg !== scenario.current.semanticCenter)
-              .sort()
-              .join("+");
+    let destination: string;
+    if (scenario.kind === "rehome-semantic-center") {
+      destination = scenario.proposed.semanticCenter;
+    } else if (
+      scenario.kind === "rehome-behavior" ||
+      scenario.kind === "consolidate-behavior"
+    ) {
+      destination =
+        scenario.proposed.responsibilities.find(
+          (row) => row.responsibility === "domain-behavior"
+        )?.packages[0] ?? scenario.proposed.semanticCenter;
+    } else {
+      destination = scenario.proposed.responsibilities
+        .filter(
+          (row) =>
+            row.responsibility === "implementation" ||
+            row.responsibility === "conversion"
+        )
+        .flatMap((row) => row.packages)
+        .filter((pkg) => pkg !== scenario.current.semanticCenter)
+        .sort()
+        .join("+");
+    }
     if (destination === "") {
       continue;
     }

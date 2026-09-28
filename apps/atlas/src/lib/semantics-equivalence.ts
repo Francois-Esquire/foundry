@@ -1,5 +1,5 @@
-import * as fs from "node:fs";
-import * as path from "node:path";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 
 // V12.5 canonical equivalence. Two datasets are equivalent when every
 // artifact matches after the documented volatile fields are removed. Nothing
@@ -9,7 +9,7 @@ import * as path from "node:path";
  * Volatile fields per artifact, as JSON-pointer-like paths from the artifact
  * root. `*` matches any key or index. Anything not listed here is canonical.
  */
-export const SEMANTICS_VOLATILE_FIELDS: Record<string, readonly string[]> = {
+const SEMANTICS_VOLATILE_FIELDS: Record<string, readonly string[]> = {
   /** Wall clock, timings, and cache provenance of the temporal dataset. */
   "history-manifest.json": [
     "generatedAt",
@@ -32,7 +32,7 @@ export const SEMANTICS_VOLATILE_FIELDS: Record<string, readonly string[]> = {
  * comparison across that boundary sorts both sides. Same path syntax as
  * `SEMANTICS_VOLATILE_FIELDS`.
  */
-export const SEMANTICS_UNORDERED_FIELDS: Record<string, readonly string[]> = {
+const SEMANTICS_UNORDERED_FIELDS: Record<string, readonly string[]> = {
   "packages/*.json": [
     "conceptOverlap.candidates.*.structure.shared",
     "conceptOverlap.candidates.*.structure.baseShared",
@@ -42,7 +42,7 @@ export const SEMANTICS_UNORDERED_FIELDS: Record<string, readonly string[]> = {
   ],
 };
 
-export interface SemanticsDifference {
+interface SemanticsDifference {
   file: string;
   kind: "missing-left" | "missing-right" | "value";
   left?: unknown;
@@ -82,7 +82,10 @@ function fieldsFor(
     .flatMap(([, fields]) => fields);
 }
 
-function volatileFieldsFor(file: string, kind?: string): readonly string[] {
+function volatileFieldsFor(
+  file: string,
+  kind?: string | undefined
+): readonly string[] {
   return fieldsFor(SEMANTICS_VOLATILE_FIELDS, file, kind);
 }
 
@@ -223,13 +226,7 @@ function collectDifferences(
       ...new Set([...Object.keys(a), ...Object.keys(b)]),
     ].sort()) {
       const next = at === "" ? key : `${at}.${key}`;
-      if (!(key in a)) {
-        out.push({ file, kind: "missing-left", path: next, right: b[key] });
-      } else if (key in b) {
-        collectDifferences(file, a[key], b[key], next, out, limit);
-      } else {
-        out.push({ file, kind: "missing-right", left: a[key], path: next });
-      }
+      collectDifferencesEntries(key, a, out, file, next, b, limit);
       if (out.length >= limit) {
         return;
       }
@@ -248,16 +245,34 @@ export interface CompareSemanticsOptions {
   limit?: number;
 }
 
+function collectDifferencesEntries(
+  key: string,
+  a: Record<string, unknown>,
+  out: SemanticsDifference[],
+  file: string,
+  next: string,
+  b: Record<string, unknown>,
+  limit: number
+) {
+  if (!(key in a)) {
+    out.push({ file, kind: "missing-left", path: next, right: b[key] });
+  } else if (key in b) {
+    collectDifferences(file, a[key], b[key], next, out, limit);
+  } else {
+    out.push({ file, kind: "missing-right", left: a[key], path: next });
+  }
+}
+
 /** Every JSON artifact under a dataset, relative posix paths, sorted. */
 export function listSemanticsFiles(dir: string, prefix = ""): string[] {
-  if (!fs.existsSync(dir)) {
+  if (!existsSync(dir)) {
     return [];
   }
   const files: string[] = [];
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const rel = prefix === "" ? entry.name : `${prefix}/${entry.name}`;
     if (entry.isDirectory()) {
-      files.push(...listSemanticsFiles(path.join(dir, entry.name), rel));
+      files.push(...listSemanticsFiles(join(dir, entry.name), rel));
     } else if (entry.name.endsWith(".json")) {
       files.push(rel);
     }
@@ -280,13 +295,13 @@ export function compareSemanticsDatasets(
     if (differences.length >= limit) {
       break;
     }
-    const a = path.join(left, file);
-    const b = path.join(right, file);
-    if (!fs.existsSync(a)) {
+    const a = join(left, file);
+    const b = join(right, file);
+    if (!existsSync(a)) {
       differences.push({ file, kind: "missing-left", path: "" });
       continue;
     }
-    if (!fs.existsSync(b)) {
+    if (!existsSync(b)) {
       differences.push({ file, kind: "missing-right", path: "" });
       continue;
     }
@@ -295,12 +310,12 @@ export function compareSemanticsDatasets(
       file,
       canonicalizeSemanticsArtifact(
         file,
-        JSON.parse(fs.readFileSync(a, "utf8")),
+        JSON.parse(readFileSync(a, "utf8")),
         kind
       ),
       canonicalizeSemanticsArtifact(
         file,
-        JSON.parse(fs.readFileSync(b, "utf8")),
+        JSON.parse(readFileSync(b, "utf8")),
         kind
       ),
       "",

@@ -1,4 +1,4 @@
-import * as path from "node:path";
+import { join } from "node:path";
 
 import { beforeAll, describe, expect, it } from "vitest";
 import { analyzeSurface } from "../../src/lib/analyze";
@@ -57,7 +57,13 @@ import {
 } from "../../src/lib/workspace-projection-views";
 import type { WorkspaceReport } from "../../src/lib/workspace-types";
 
-const root = path.join(import.meta.dirname, "fixtures", "locality");
+const expectedTextPattern = /"(x|y|color|width|height|font)":/;
+const expectedTextPattern2 = /should |recommend/;
+const expectedTextPattern3 = /Score"|score"|health|shouldMove|recommend/i;
+const expectedTextPattern4 = /dominant|hub|drift|subsystem/;
+const expectedTextPattern5 = /dominant|hub|drift/;
+
+const root = join(import.meta.dirname, "fixtures", "locality");
 const now = new Date("2027-01-01T00:00:00Z");
 const targets = ["app", "core", "plug-a", "plug-b", "store"];
 
@@ -116,7 +122,7 @@ describe("real package reports", () => {
   });
 
   it("merges both perspectives of a boundary and keeps a destination-only one", () => {
-    const boundaries = workspace.boundaries.boundaries;
+    const { boundaries } = workspace.boundaries;
     expect(boundaries.map((b) => b.id)).toEqual([
       "@l/app→@l/core",
       "@l/app→@l/store",
@@ -176,7 +182,7 @@ describe("real package reports", () => {
   });
 
   it("carries re-centering findings, scenarios, impacts, and reviews with resolved references", () => {
-    const recentering = workspace.architecture.recentering;
+    const { recentering } = workspace.architecture;
     const findings = reports.flatMap(
       (r) => r.recenteringCandidates.miscentered.findings
     );
@@ -212,7 +218,7 @@ describe("real package reports", () => {
     expect(text).toContain("WORKSPACE");
     expect(text).toContain("5 accepted · 0 rejected · 0 duplicate");
     expect(text).toContain("complete · 5 of 5 packages analyzed");
-    expect(text).not.toMatch(/dominant|hub|drift/);
+    expect(text).not.toMatch(expectedTextPattern5);
   });
 });
 
@@ -349,7 +355,7 @@ describe("workspace concepts over real reports", () => {
     const text = renderWorkspaceReport(report);
     expect(text).toContain("WORKSPACE CONCEPTS");
     expect(text).toContain("core → store · implementation");
-    expect(text).not.toMatch(/dominant|hub|drift|subsystem/);
+    expect(text).not.toMatch(expectedTextPattern4);
     const focused = renderWorkspaceConcept(report, "Repo");
     expect(focused).toContain("implementation  store direct 1");
     expect(focused).toContain("History");
@@ -380,7 +386,7 @@ describe("workspace patterns over real reports", () => {
       "@l/core→@l/store"
     );
     const text = JSON.stringify(patterns);
-    expect(text).not.toMatch(/Score"|score"|health|shouldMove|recommend/i);
+    expect(text).not.toMatch(expectedTextPattern3);
     for (const pattern of patterns?.conceptPatterns ?? []) {
       expect(pattern.support.conceptCount).toBeGreaterThan(0);
       expect(pattern.support.observations.length).toBeGreaterThan(0);
@@ -392,7 +398,7 @@ describe("workspace patterns over real reports", () => {
     const text = renderWorkspaceReport(report);
     expect(text).toContain("WORKSPACE ARCHITECTURE");
     expect(text).toContain("Statements");
-    expect(text).not.toMatch(/should |recommend/);
+    expect(text).not.toMatch(expectedTextPattern2);
     const focused = renderWorkspacePackageGraph(report, "@l/core");
     expect(focused).toContain("Architectural roles");
     expect(focused).toContain("pair:@l/core→@l/store");
@@ -426,11 +432,11 @@ describe("workspace projections over real reports", () => {
         usageOnly: false,
       },
     ]);
-    const direction = listConceptDirections(context, {
+    const [direction] = listConceptDirections(context, {
       from: "@l/core",
       role: "implementation",
       to: "@l/store",
-    }).directions[0];
+    }).directions;
     expect(direction).toMatchObject({
       from: "@l/core",
       staticDependencyDirection: "reverse",
@@ -479,10 +485,8 @@ describe("workspace projections over real reports", () => {
       expect(result.kind).not.toBe("ambiguous");
       const text = renderProjectionResult(result);
       expect(text.length).toBeGreaterThan(0);
-      expect(text).not.toMatch(/should |recommend/);
-      expect(JSON.stringify(result)).not.toMatch(
-        /"(x|y|color|width|height|font)":/
-      );
+      expect(text).not.toMatch(expectedTextPattern2);
+      expect(JSON.stringify(result)).not.toMatch(expectedTextPattern);
     }
     const patternId = context.index.patterns[0]?.id ?? "";
     expect(
@@ -833,7 +837,7 @@ describe("operator planning against the fixture sources", () => {
     if (result.status !== "created") {
       throw new Error(result.reason);
     }
-    const operator = result.operator;
+    const { operator } = result;
     const decomposition = decomposeArchitecturalOperator(operator, ctx);
     const composition = composeArchitecturalOperators(
       [operator],

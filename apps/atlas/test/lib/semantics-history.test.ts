@@ -1,7 +1,17 @@
 import { execFileSync } from "node:child_process";
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { assembleSurfaceReport } from "../../src/lib/assemble";
@@ -38,7 +48,12 @@ import { stageClosure } from "../../src/lib/semantics-stages";
 import { deriveWorkspaceSurface } from "../../src/lib/workspace-derive";
 import { hashTree } from "./helpers/planning-fixture";
 
-const fixture = path.join(import.meta.dirname, "fixtures", "semantics");
+const expectedTextPattern = /Unsupported history range/;
+const expectedTextPattern2 =
+  /every unit failed to analyze: historical source unsupported/;
+const expectedTextPattern3 = /historical workspace unsupported/;
+
+const fixture = join(import.meta.dirname, "fixtures", "semantics");
 
 function git(dir: string, args: string[], env: NodeJS.ProcessEnv = {}): string {
   return execFileSync("git", args, {
@@ -49,9 +64,9 @@ function git(dir: string, args: string[], env: NodeJS.ProcessEnv = {}): string {
 }
 
 function write(dir: string, file: string, content: string): void {
-  const target = path.join(dir, file);
-  fs.mkdirSync(path.dirname(target), { recursive: true });
-  fs.writeFileSync(target, content);
+  const target = join(dir, file);
+  mkdirSync(dirname(target), { recursive: true });
+  writeFileSync(target, content);
 }
 
 function commit(dir: string, date: string): string {
@@ -107,10 +122,10 @@ const inProcess = { analyzeLocal: inProcessLocal, derive: inProcessDerive };
  * a rename plus a cross-package move, then a package born and one removed.
  */
 function buildRepository(): { dir: string; commits: string[] } {
-  const dir = fs.realpathSync(
-    fs.mkdtempSync(path.join(os.tmpdir(), "semantics-history-fixture-"))
+  const dir = realpathSync(
+    mkdtempSync(join(tmpdir(), "semantics-history-fixture-"))
   );
-  fs.cpSync(fixture, dir, { recursive: true });
+  cpSync(fixture, dir, { recursive: true });
   write(dir, ".gitignore", ".foundry/\n");
   git(dir, ["init", "-q", "-b", "main"]);
   const commits: string[] = [];
@@ -148,6 +163,7 @@ function buildRepository(): { dir: string; commits: string[] } {
   write(
     dir,
     "apps/a/src/index.ts",
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: This fixture contains literal template syntax for the analyzer to inspect.
     'import type { Shape } from "@s/b";\n\nimport { area } from "@s/b";\n\nimport { scale } from "./scale";\n\nexport interface Tile extends Shape {\n  label: string;\n}\n\nexport function describe(tile: Tile): string {\n  return `${tile.label}: ${String(area(scale(tile, 2)))}`;\n}\n'
   );
   commits.push(commit(dir, "2026-03-15T12:00:00Z"));
@@ -168,7 +184,7 @@ function buildRepository(): { dir: string; commits: string[] } {
 }
 
 function readJson(dir: string, file: string): unknown {
-  return JSON.parse(fs.readFileSync(path.join(dir, file), "utf8"));
+  return JSON.parse(readFileSync(join(dir, file), "utf8"));
 }
 
 /** Dependency edges of a snapshot as `[sourceId, targetId]`. */
@@ -205,8 +221,8 @@ function conceptsOf(
 function listFiles(dir: string): string[] {
   const out: string[] = [];
   const walk = (current: string): void => {
-    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
-      const full = path.join(current, entry.name);
+    for (const entry of readdirSync(current, { withFileTypes: true })) {
+      const full = join(current, entry.name);
       if (entry.isDirectory()) {
         walk(full);
       } else {
@@ -313,7 +329,7 @@ describe("timeline parsing", () => {
       "2026-08-25T12:00:00.000Z"
     );
     expect(rangeStart("all", head)).toBeUndefined();
-    expect(() => rangeStart("soon", head)).toThrow(/Unsupported history range/);
+    expect(() => rangeStart("soon", head)).toThrow(expectedTextPattern);
   });
 });
 
@@ -478,8 +494,8 @@ describe("history generation", () => {
       ...inProcess,
       concurrency: 2,
     });
-    manifest = result.manifest;
-    output = result.output;
+    ({ manifest } = result);
+    ({ output } = result);
     for (const ref of manifest.snapshots) {
       if (ref.file !== undefined) {
         snapshots.set(
@@ -491,7 +507,7 @@ describe("history generation", () => {
   }, 240_000);
 
   afterAll(() => {
-    fs.rmSync(repo.dir, { force: true, recursive: true });
+    rmSync(repo.dir, { force: true, recursive: true });
   });
 
   it("selects every monthly commit and ends at HEAD", () => {
@@ -683,9 +699,9 @@ describe("history generation", () => {
   });
 
   it("writes only relative paths", () => {
-    const tmp = fs.realpathSync(os.tmpdir());
+    const tmp = realpathSync(tmpdir());
     for (const file of listFiles(output)) {
-      const text = fs.readFileSync(file, "utf8");
+      const text = readFileSync(file, "utf8");
       expect(text.includes(tmp)).toBe(false);
       expect(text.includes("semantics-history-")).toBe(false);
       expect(text.includes(repo.dir)).toBe(false);
@@ -759,7 +775,7 @@ describe("history generation", () => {
     // cache, so a per-package failure at c2 only loses that package; a
     // derivation failure loses the whole checkpoint.
     const failing: SemanticsDeriver = (locals, context) => {
-      if (fs.existsSync(path.join(context.root, "packages/b/src/scale.ts"))) {
+      if (existsSync(join(context.root, "packages/b/src/scale.ts"))) {
         throw new Error("historical workspace unsupported");
       }
       return inProcessDerive(locals, context);
@@ -778,7 +794,7 @@ describe("history generation", () => {
     });
     const failed = result.manifest.snapshots.find((s) => s.commit === c2);
     expect(failed?.status).toBe("failed");
-    expect(failed?.error).toMatch(/historical workspace unsupported/);
+    expect(failed?.error).toMatch(expectedTextPattern3);
     expect(failed?.file).toBeUndefined();
     expect(result.manifest.generation).toMatchObject({
       failedSnapshots: 1,
@@ -810,11 +826,9 @@ describe("history generation", () => {
       root: repo.dir,
     });
     expect(result.manifest.snapshots.map((s) => s.status)).toEqual(
-      Array<string>(4).fill("failed")
+      new Array(4).fill("failed")
     );
-    expect(result.manifest.snapshots[0]?.error).toMatch(
-      /every unit failed to analyze: historical source unsupported/
-    );
+    expect(result.manifest.snapshots[0]?.error).toMatch(expectedTextPattern2);
     expect(result.manifest.deltas).toEqual([]);
   }, 240_000);
 
@@ -830,28 +844,28 @@ describe("history generation", () => {
         root: repo.dir,
         ...inProcess,
       })
-    ).rejects.toThrow(/Unsupported history range/);
+    ).rejects.toThrow(expectedTextPattern);
     expect([...hashTree(output).entries()]).toEqual([...previous.entries()]);
     expect(
-      fs.readdirSync(path.dirname(output)).filter((f) => f.includes(".tmp-"))
+      readdirSync(dirname(output)).filter((f) => f.includes(".tmp-"))
     ).toEqual([]);
   });
 
   it("ignores a corrupt or foreign cached snapshot and analyzes that checkpoint again", async () => {
-    const cacheRoot = path.join(
+    const cacheRoot = join(
       repo.dir,
       ".foundry/cache/semantics-history",
       `v${SEMANTICS_CACHE_SCHEMA_VERSION}`,
       manifest.fingerprint
     );
     const [c1, c2] = repo.commits;
-    fs.writeFileSync(path.join(cacheRoot, `${c1 ?? ""}.json`), "{ broken");
+    writeFileSync(join(cacheRoot, `${c1 ?? ""}.json`), "{ broken");
     const foreign = readJson(
       cacheRoot,
       `${c2 ?? ""}.json`
     ) as TemporalWorkspaceSnapshot;
-    fs.writeFileSync(
-      path.join(cacheRoot, `${c2 ?? ""}.json`),
+    writeFileSync(
+      join(cacheRoot, `${c2 ?? ""}.json`),
       JSON.stringify({
         ...foreign,
         commit: "0000000000000000000000000000000000000000",
@@ -1025,7 +1039,7 @@ describe("history generation", () => {
       ...inProcess,
     });
     expect(result.manifest.generation.successfulSnapshots).toBe(1);
-    const only = result.manifest.snapshots[0];
+    const [only] = result.manifest.snapshots;
     const snapshot = readJson(
       result.output,
       only?.file ?? ""

@@ -28,6 +28,12 @@ import { createWorkspaceProjectionContext } from "../../src/lib/workspace-projec
 import type { Spec } from "./helpers/workspace-builder";
 import { workspace } from "./helpers/workspace-builder";
 
+const expectedTextPattern = /should |recommend/;
+const forbiddenPattern =
+  /^(apply|execute|write|patch|filesToMove|importEdits|score|priority|confidencePercent|rank|evidenceConfidence|mismatch)$/i;
+const expectedTextPattern2 = /Unknown concept A/;
+const expectedTextPattern3 = /Unknown boundary/;
+
 const A = "packages/core/src/a.ts#A";
 const APP_A = "packages/app/src/a.ts#A";
 const B = "packages/store/src/b.ts#B";
@@ -228,7 +234,7 @@ describe("manual operators", () => {
         from: "@c/app",
         to: "@c/store",
       })
-    ).toThrow(/Unknown boundary/);
+    ).toThrow(expectedTextPattern3);
   });
 
   it("preserve-boundary records intent and changes nothing", () => {
@@ -307,7 +313,7 @@ describe("manual operators", () => {
     expect(core.id).not.toBe(app.id);
     expect(() =>
       createRehomeConceptOperator(ctx, { conceptId: "A", to: "@c/store" })
-    ).toThrow(/Unknown concept A/);
+    ).toThrow(expectedTextPattern2);
   });
 });
 
@@ -496,8 +502,7 @@ describe("operator model boundaries", () => {
       }
     };
     built.forEach(walk);
-    const forbidden =
-      /^(apply|execute|write|patch|filesToMove|importEdits|score|priority|confidencePercent|rank|evidenceConfidence|mismatch)$/i;
+    const forbidden = forbiddenPattern;
     expect([...keys].filter((key) => forbidden.test(key))).toEqual([]);
     for (const op of built) {
       for (const value of Object.values(op)) {
@@ -507,7 +512,7 @@ describe("operator model boundaries", () => {
         op,
         validateArchitecturalOperator(op, context())
       );
-      expect(text).not.toMatch(/should |recommend/);
+      expect(text).not.toMatch(expectedTextPattern);
     }
   });
 });

@@ -1,13 +1,13 @@
-import * as path from "node:path";
-import type { Project } from "ts-morph";
+import { join } from "node:path";
+import type { ClassMemberTypes, Project } from "ts-morph";
 
 import { Node } from "ts-morph";
 
 import type { Boundary } from "./boundary";
 import { ownerBoundary } from "./boundary";
-import { classifyFile } from "./churn";
 import type { AnalysisConfig } from "./config";
 import { ANALYSIS_CONFIG } from "./config";
+import { classifyFile } from "./file-kind";
 import type {
   ChurnFileKind,
   ConceptBehaviorDistribution,
@@ -25,6 +25,7 @@ import type {
   ConceptPackagePresence,
   ConceptRepresentation,
   ConceptRepresentationKinds,
+  CouplingContext,
   FileChangeCouplingPair,
   OwnershipAlignment,
   OwnershipCaution,
@@ -212,159 +213,39 @@ export function assessOwnership(
 
   const center: ConceptOwnershipCenter = { implementations: [] };
   const tensions: ConceptOwnershipTension[] = [];
-  if (!insufficient) {
-    center.semantic = seed;
-    center.implementations = rows
-      .filter((row) => row.implementations > 0)
-      .map((row) => row.package)
-      .sort();
-    const representation = leader(
-      rows,
-      (row) => row.sourceRepresentations,
-      seed
-    );
-    if (
-      representation !== undefined &&
-      sourceRepresentationTotal >=
-        policy.representationCenter.minRepresentations &&
-      share(representation.sourceRepresentations, sourceRepresentationTotal) >=
-        policy.representationCenter.minShare
-    ) {
-      center.representation = representation.package;
-    }
-    const usage = leader(rows, (row) => row.references, seed);
-    if (
-      usage !== undefined &&
-      facts.referenceTotal >= policy.usageCenter.minReferences &&
-      share(usage.references, facts.referenceTotal) >=
-        policy.usageCenter.minShare
-    ) {
-      center.usage = usage.package;
-    }
-    const behavior = leader(rows, (row) => row.sourceContract, seed);
-    if (
-      behavior !== undefined &&
-      sourceContractTotal >= policy.behaviorCenter.minBehaviors &&
-      share(behavior.sourceContract, sourceContractTotal) >=
-        policy.behaviorCenter.minShare
-    ) {
-      center.behavior = behavior.package;
-    }
-    const evolution = leader(rows, (row) => row.evolution?.support ?? 0, seed);
-    if (
-      evolution?.evolution !== undefined &&
-      evolution.evolution.support >= policy.evolutionCenter.minHistoricalSupport
-    ) {
-      center.evolution = evolution.package;
-    }
-
-    if (
-      representation !== undefined &&
-      center.representation !== undefined &&
-      center.representation !== seed &&
-      sourceRepresentationTotal >= policy.tensions.minRepresentations &&
-      share(representation.sourceRepresentations, sourceRepresentationTotal) >=
-        policy.tensions.minShare
-    ) {
-      tensions.push({
-        kind: "seed-vs-representation",
-        observedPackage: representation.package,
-        seedPackage: seed,
-        value: share(
-          representation.sourceRepresentations,
-          sourceRepresentationTotal
-        ),
-      });
-    }
-    if (
-      behavior !== undefined &&
-      center.behavior !== undefined &&
-      center.behavior !== seed &&
-      sourceContractTotal >= policy.tensions.minBehaviors &&
-      share(behavior.sourceContract, sourceContractTotal) >=
-        policy.tensions.minShare
-    ) {
-      tensions.push({
-        kind: "seed-vs-behavior",
-        observedPackage: behavior.package,
-        seedPackage: seed,
-        value: share(behavior.sourceContract, sourceContractTotal),
-      });
-    }
-    if (
-      evolution?.evolution !== undefined &&
-      center.evolution !== undefined &&
-      center.evolution !== seed
-    ) {
-      tensions.push({
-        kind: "seed-vs-evolution",
-        observedPackage: evolution.package,
-        seedPackage: seed,
-        value: evolution.evolution.support,
-      });
-    }
-    if (
-      usage !== undefined &&
-      center.usage !== undefined &&
-      center.usage !== seed
-    ) {
-      tensions.push({
-        kind: "usage-vs-semantic-center",
-        observedPackage: usage.package,
-        seedPackage: seed,
-        value: share(usage.references, facts.referenceTotal),
-      });
-    }
-    // The anchor is intent; questioning it takes several dimensions
-    // converging on one other package, not one tension.
-    if (facts.anchor !== undefined) {
-      const converging = new Map<string, ConceptOwnershipTension[]>();
-      for (const tension of tensions) {
-        if (!tension.kind.startsWith("seed-vs-")) {
-          continue;
-        }
-        const list = converging.get(tension.observedPackage);
-        if (list === undefined) {
-          converging.set(tension.observedPackage, [tension]);
-        } else {
-          list.push(tension);
-        }
-      }
-      const observed = [...converging.entries()]
-        .filter(
-          ([, list]) =>
-            list.length >= policy.tensions.anchorMinConvergingDimensions
-        )
-        .sort(
-          (a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0])
-        )[0];
-      if (observed !== undefined) {
-        tensions.push({
-          kind: "anchor-vs-observed-center",
-          observedPackage: observed[0],
-          seedPackage: seed,
-          value: observed[1].length,
-        });
-      }
-    }
-  }
+  assessOwnershipEntries3(
+    insufficient,
+    center,
+    seed,
+    rows,
+    sourceRepresentationTotal,
+    policy,
+    facts,
+    sourceContractTotal,
+    tensions
+  );
 
   const divergent = tensions.some((tension) =>
     tension.kind.startsWith("seed-vs-")
   );
-  const alignment: OwnershipAlignment = insufficient
-    ? "insufficient-evidence"
-    : divergent
-      ? "divergent"
-      : [
-            center.representation,
-            center.usage,
-            center.behavior,
-            center.evolution,
-          ].every((name) => name === undefined || name === seed) &&
-          center.implementations.every((name) => name === seed)
-        ? "aligned"
-        : "distributed";
+  let alignment: OwnershipAlignment;
+  if (insufficient) {
+    alignment = "insufficient-evidence";
+  } else if (divergent) {
+    alignment = "divergent";
+  } else if (
+    [
+      center.representation,
+      center.usage,
+      center.behavior,
+      center.evolution,
+    ].every((name) => name === undefined || name === seed) &&
+    center.implementations.every((name) => name === seed)
+  ) {
+    alignment = "aligned";
+  } else {
+    alignment = "distributed";
+  }
 
   const candidates: ConceptOwnershipCandidate[] = participating.map((row) => {
     const evidence: OwnershipEvidence[] = [];
@@ -399,47 +280,11 @@ export function assessOwnership(
       push("reference", "count", row.references);
       push("reference", "share", share(row.references, facts.referenceTotal));
     }
-    if (row.behaviors > 0) {
-      push("behavior", "count", row.behaviors);
-      push("behavior", "share", share(row.behaviors, facts.behavior.total));
-      push("behavior", "contract", row.contract);
-      if (row.contract > 0) {
-        push(
-          "behavior",
-          "contractShare",
-          share(row.contract, facts.behavior.contractTotal)
-        );
-      }
-      if (row.sourceContract > 0) {
-        push("behavior", "sourceContract", row.sourceContract);
-        push(
-          "behavior",
-          "sourceContractShare",
-          share(row.sourceContract, sourceContractTotal)
-        );
-      }
-    }
+    assessOwnershipEntries(row, push, facts, sourceContractTotal);
     if (row.conversions > 0) {
       push("conversion", "count", row.conversions);
     }
-    if (row.evolution !== undefined && row.evolution.support > 0) {
-      push("evolution", "support", row.evolution.support);
-      push("evolution", "commits", row.evolution.commits);
-      if (row.evolution.hotspotRepresentations > 0) {
-        push(
-          "evolution",
-          "hotspotRepresentations",
-          row.evolution.hotspotRepresentations
-        );
-      }
-      const strongest = row.evolution.couplings[0];
-      if (strongest !== undefined) {
-        push("evolution", "strongestCoupling", strongest.coChangeCommits);
-        push("evolution", "strongestConditional", strongest.conditional);
-        push("evolution", "strongestJaccard", strongest.jaccard);
-        push("evolution", "strongestContext", strongest.context);
-      }
-    }
+    assessOwnershipEntries2(row, push);
     if (row.seed && facts.architectureSignals.length > 0) {
       push("architecture", "profile", facts.architectureSignals.join(", "));
     }
@@ -460,6 +305,8 @@ export function assessOwnership(
           return center.behavior === row.package;
         case "evolution-center":
           return center.evolution === row.package;
+        default:
+          throw new Error("Unexpected role.");
       }
     });
     return {
@@ -533,6 +380,443 @@ export function assessOwnership(
 }
 
 type TopLevelIndex = Map<string, Node>;
+
+function assessOwnershipEntries3(
+  insufficient: boolean,
+  center: ConceptOwnershipCenter,
+  seed: string,
+  rows: {
+    behaviors: number;
+    contract: number;
+    conversions: number;
+    evolution: ConceptEvolutionEvidence | undefined;
+    implementations: number;
+    package: string;
+    references: number;
+    representations: number;
+    seed: boolean;
+    sourceContract: number;
+    sourceRepresentations: number;
+  }[],
+  sourceRepresentationTotal: number,
+  policy: {
+    candidates: {
+      minReferenceShare: number;
+      minRepresentations: number;
+      minBehaviors: number;
+    };
+    support: { minReferences: number; minBehaviors: number };
+    representationCenter: {
+      minShare: number;
+      minRepresentations: number;
+      fileKinds: ChurnFileKind[];
+    };
+    usageCenter: { minShare: number; minReferences: number };
+    behaviorCenter: {
+      minShare: number;
+      minBehaviors: number;
+      fileKinds: ChurnFileKind[];
+    };
+    evolutionCenter: {
+      minHistoricalSupport: number;
+      couplingContexts: CouplingContext[];
+    };
+    tensions: {
+      minShare: number;
+      minRepresentations: number;
+      minBehaviors: number;
+      anchorMinConvergingDimensions: number;
+    };
+    report: { topConcepts: number };
+  },
+  facts: OwnershipFacts,
+  sourceContractTotal: number,
+  tensions: ConceptOwnershipTension[]
+) {
+  if (!insufficient) {
+    center.semantic = seed;
+    center.implementations = rows
+      .filter((row) => row.implementations > 0)
+      .map((row) => row.package)
+      .sort();
+    const representation = leader(
+      rows,
+      (row) => row.sourceRepresentations,
+      seed
+    );
+    if (
+      representation !== undefined &&
+      sourceRepresentationTotal >=
+        policy.representationCenter.minRepresentations &&
+      share(representation.sourceRepresentations, sourceRepresentationTotal) >=
+        policy.representationCenter.minShare
+    ) {
+      center.representation = representation.package;
+    }
+    const usage = leader(rows, (row) => row.references, seed);
+    if (
+      usage !== undefined &&
+      facts.referenceTotal >= policy.usageCenter.minReferences &&
+      share(usage.references, facts.referenceTotal) >=
+        policy.usageCenter.minShare
+    ) {
+      center.usage = usage.package;
+    }
+    const behavior = leader(rows, (row) => row.sourceContract, seed);
+    if (
+      behavior !== undefined &&
+      sourceContractTotal >= policy.behaviorCenter.minBehaviors &&
+      share(behavior.sourceContract, sourceContractTotal) >=
+        policy.behaviorCenter.minShare
+    ) {
+      center.behavior = behavior.package;
+    }
+    const evolution = leader(rows, (row) => row.evolution?.support ?? 0, seed);
+    if (
+      evolution?.evolution !== undefined &&
+      evolution.evolution.support >= policy.evolutionCenter.minHistoricalSupport
+    ) {
+      center.evolution = evolution.package;
+    }
+
+    assessOwnershipEntries3Entries2(
+      representation,
+      center,
+      seed,
+      sourceRepresentationTotal,
+      policy,
+      tensions
+    );
+    assessOwnershipEntries3Entries3(
+      behavior,
+      center,
+      seed,
+      sourceContractTotal,
+      policy,
+      tensions
+    );
+    if (
+      evolution?.evolution !== undefined &&
+      center.evolution !== undefined &&
+      center.evolution !== seed
+    ) {
+      tensions.push({
+        kind: "seed-vs-evolution",
+        observedPackage: evolution.package,
+        seedPackage: seed,
+        value: evolution.evolution.support,
+      });
+    }
+    if (
+      usage !== undefined &&
+      center.usage !== undefined &&
+      center.usage !== seed
+    ) {
+      tensions.push({
+        kind: "usage-vs-semantic-center",
+        observedPackage: usage.package,
+        seedPackage: seed,
+        value: share(usage.references, facts.referenceTotal),
+      });
+    }
+    // The anchor is intent; questioning it takes several dimensions
+    // converging on one other package, not one tension.
+    assessOwnershipEntries3Entries(facts, tensions, policy, seed);
+  }
+}
+
+function assessOwnershipEntries3Entries3(
+  behavior:
+    | {
+        behaviors: number;
+        contract: number;
+        conversions: number;
+        evolution: ConceptEvolutionEvidence | undefined;
+        implementations: number;
+        package: string;
+        references: number;
+        representations: number;
+        seed: boolean;
+        sourceContract: number;
+        sourceRepresentations: number;
+      }
+    | undefined,
+  center: ConceptOwnershipCenter,
+  seed: string,
+  sourceContractTotal: number,
+  policy: {
+    candidates: {
+      minReferenceShare: number;
+      minRepresentations: number;
+      minBehaviors: number;
+    };
+    support: { minReferences: number; minBehaviors: number };
+    representationCenter: {
+      minShare: number;
+      minRepresentations: number;
+      fileKinds: ChurnFileKind[];
+    };
+    usageCenter: { minShare: number; minReferences: number };
+    behaviorCenter: {
+      minShare: number;
+      minBehaviors: number;
+      fileKinds: ChurnFileKind[];
+    };
+    evolutionCenter: {
+      minHistoricalSupport: number;
+      couplingContexts: CouplingContext[];
+    };
+    tensions: {
+      minShare: number;
+      minRepresentations: number;
+      minBehaviors: number;
+      anchorMinConvergingDimensions: number;
+    };
+    report: { topConcepts: number };
+  },
+  tensions: ConceptOwnershipTension[]
+) {
+  if (
+    behavior !== undefined &&
+    center.behavior !== undefined &&
+    center.behavior !== seed &&
+    sourceContractTotal >= policy.tensions.minBehaviors &&
+    share(behavior.sourceContract, sourceContractTotal) >=
+      policy.tensions.minShare
+  ) {
+    tensions.push({
+      kind: "seed-vs-behavior",
+      observedPackage: behavior.package,
+      seedPackage: seed,
+      value: share(behavior.sourceContract, sourceContractTotal),
+    });
+  }
+}
+
+function assessOwnershipEntries3Entries2(
+  representation:
+    | {
+        behaviors: number;
+        contract: number;
+        conversions: number;
+        evolution: ConceptEvolutionEvidence | undefined;
+        implementations: number;
+        package: string;
+        references: number;
+        representations: number;
+        seed: boolean;
+        sourceContract: number;
+        sourceRepresentations: number;
+      }
+    | undefined,
+  center: ConceptOwnershipCenter,
+  seed: string,
+  sourceRepresentationTotal: number,
+  policy: {
+    candidates: {
+      minReferenceShare: number;
+      minRepresentations: number;
+      minBehaviors: number;
+    };
+    support: { minReferences: number; minBehaviors: number };
+    representationCenter: {
+      minShare: number;
+      minRepresentations: number;
+      fileKinds: ChurnFileKind[];
+    };
+    usageCenter: { minShare: number; minReferences: number };
+    behaviorCenter: {
+      minShare: number;
+      minBehaviors: number;
+      fileKinds: ChurnFileKind[];
+    };
+    evolutionCenter: {
+      minHistoricalSupport: number;
+      couplingContexts: CouplingContext[];
+    };
+    tensions: {
+      minShare: number;
+      minRepresentations: number;
+      minBehaviors: number;
+      anchorMinConvergingDimensions: number;
+    };
+    report: { topConcepts: number };
+  },
+  tensions: ConceptOwnershipTension[]
+) {
+  if (
+    representation !== undefined &&
+    center.representation !== undefined &&
+    center.representation !== seed &&
+    sourceRepresentationTotal >= policy.tensions.minRepresentations &&
+    share(representation.sourceRepresentations, sourceRepresentationTotal) >=
+      policy.tensions.minShare
+  ) {
+    tensions.push({
+      kind: "seed-vs-representation",
+      observedPackage: representation.package,
+      seedPackage: seed,
+      value: share(
+        representation.sourceRepresentations,
+        sourceRepresentationTotal
+      ),
+    });
+  }
+}
+
+function assessOwnershipEntries3Entries(
+  facts: OwnershipFacts,
+  tensions: ConceptOwnershipTension[],
+  policy: {
+    candidates: {
+      minReferenceShare: number;
+      minRepresentations: number;
+      minBehaviors: number;
+    };
+    support: { minReferences: number; minBehaviors: number };
+    representationCenter: {
+      minShare: number;
+      minRepresentations: number;
+      fileKinds: ChurnFileKind[];
+    };
+    usageCenter: { minShare: number; minReferences: number };
+    behaviorCenter: {
+      minShare: number;
+      minBehaviors: number;
+      fileKinds: ChurnFileKind[];
+    };
+    evolutionCenter: {
+      minHistoricalSupport: number;
+      couplingContexts: CouplingContext[];
+    };
+    tensions: {
+      minShare: number;
+      minRepresentations: number;
+      minBehaviors: number;
+      anchorMinConvergingDimensions: number;
+    };
+    report: { topConcepts: number };
+  },
+  seed: string
+) {
+  if (facts.anchor !== undefined) {
+    const converging = new Map<string, ConceptOwnershipTension[]>();
+    const visitTension = (
+      currentConverging: Map<string, ConceptOwnershipTension[]>
+    ) => {
+      for (const tension of tensions) {
+        if (!tension.kind.startsWith("seed-vs-")) {
+          continue;
+        }
+        const list = currentConverging.get(tension.observedPackage);
+        if (list === undefined) {
+          currentConverging.set(tension.observedPackage, [tension]);
+        } else {
+          list.push(tension);
+        }
+      }
+    };
+    visitTension(converging);
+    const [observed] = [...converging.entries()]
+      .filter(
+        ([, list]) =>
+          list.length >= policy.tensions.anchorMinConvergingDimensions
+      )
+      .sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]));
+    if (observed !== undefined) {
+      tensions.push({
+        kind: "anchor-vs-observed-center",
+        observedPackage: observed[0],
+        seedPackage: seed,
+        value: observed[1].length,
+      });
+    }
+  }
+}
+
+function assessOwnershipEntries2(
+  row: {
+    behaviors: number;
+    contract: number;
+    conversions: number;
+    evolution: ConceptEvolutionEvidence | undefined;
+    implementations: number;
+    package: string;
+    references: number;
+    representations: number;
+    seed: boolean;
+    sourceContract: number;
+    sourceRepresentations: number;
+  },
+  push: (
+    dimension: OwnershipDimension,
+    metric: string,
+    value: number | string | boolean
+  ) => number
+) {
+  if (row.evolution !== undefined && row.evolution.support > 0) {
+    push("evolution", "support", row.evolution.support);
+    push("evolution", "commits", row.evolution.commits);
+    if (row.evolution.hotspotRepresentations > 0) {
+      push(
+        "evolution",
+        "hotspotRepresentations",
+        row.evolution.hotspotRepresentations
+      );
+    }
+    const [strongest] = row.evolution.couplings;
+    if (strongest !== undefined) {
+      push("evolution", "strongestCoupling", strongest.coChangeCommits);
+      push("evolution", "strongestConditional", strongest.conditional);
+      push("evolution", "strongestJaccard", strongest.jaccard);
+      push("evolution", "strongestContext", strongest.context);
+    }
+  }
+}
+
+function assessOwnershipEntries(
+  row: {
+    behaviors: number;
+    contract: number;
+    conversions: number;
+    evolution: ConceptEvolutionEvidence | undefined;
+    implementations: number;
+    package: string;
+    references: number;
+    representations: number;
+    seed: boolean;
+    sourceContract: number;
+    sourceRepresentations: number;
+  },
+  push: (
+    dimension: OwnershipDimension,
+    metric: string,
+    value: number | string | boolean
+  ) => number,
+  facts: OwnershipFacts,
+  sourceContractTotal: number
+) {
+  if (row.behaviors > 0) {
+    push("behavior", "count", row.behaviors);
+    push("behavior", "share", share(row.behaviors, facts.behavior.total));
+    push("behavior", "contract", row.contract);
+    if (row.contract > 0) {
+      push(
+        "behavior",
+        "contractShare",
+        share(row.contract, facts.behavior.contractTotal)
+      );
+    }
+    if (row.sourceContract > 0) {
+      push("behavior", "sourceContract", row.sourceContract);
+      push(
+        "behavior",
+        "sourceContractShare",
+        share(row.sourceContract, sourceContractTotal)
+      );
+    }
+  }
+}
 
 function isContractLike(node: Node | undefined): boolean {
   return (
@@ -638,7 +922,8 @@ function behaviorOf(
     role: "contract" | "implementation"
   ) => {
     entry[role] += 1;
-    const byKind = (entry.kinds[kind] ??= { contract: 0, implementation: 0 });
+    entry.kinds[kind] ??= { contract: 0, implementation: 0 };
+    const byKind = entry.kinds[kind];
     byKind[role] += 1;
   };
   const countMember = (
@@ -648,8 +933,8 @@ function behaviorOf(
     member: Node,
     role: "contract" | "implementation"
   ) => {
-    const constructor = Node.isConstructorDeclaration(member);
-    if (constructor) {
+    const currentConstructor = Node.isConstructorDeclaration(member);
+    if (currentConstructor) {
       entry.constructors += 1;
     } else {
       entry.methods += 1;
@@ -662,72 +947,25 @@ function behaviorOf(
         end: member.getEndLineNumber(),
         start: member.getStartLineNumber(),
       },
-      member: constructor ? "constructor" : "method",
+      member: currentConstructor ? "constructor" : "method",
       package: representation.package,
       role,
-      symbol: `${representation.name}.${constructor ? "constructor" : Node.hasName(member) ? member.getName() : "member"}`,
+      symbol: `${representation.name}.${resolveSymbol(currentConstructor, member)}`,
     });
   };
 
   const seen = new Set<string>();
-  for (const representation of family.representations) {
-    if (seen.has(representation.symbolId)) {
-      continue;
-    }
-    seen.add(representation.symbolId);
-    const node = indexFor(representation.file).get(representation.name);
-    if (node === undefined) {
-      continue;
-    }
-    const kind = classifyFile(representation.file);
-    const lines = linesBySymbol.get(representation.symbolId) ?? [];
-    if (Node.isClassDeclaration(node)) {
-      const members = node.getMembers().filter(isBodiedMember);
-      if (implementing.has(representation.symbolId)) {
-        const entry = tally(representation.package);
-        for (const member of members) {
-          countMember(entry, representation, kind, member, "implementation");
-        }
-        continue;
-      }
-      const matched = new Set<Node>();
-      for (const line of lines) {
-        const member = members.find(
-          (candidate) =>
-            candidate.getStartLineNumber() <= line &&
-            line <= candidate.getEndLineNumber()
-        );
-        if (member !== undefined) {
-          matched.add(member);
-        }
-      }
-      if (matched.size === 0) {
-        continue;
-      }
-      const entry = tally(representation.package);
-      for (const member of matched) {
-        countMember(entry, representation, kind, member, "contract");
-      }
-      continue;
-    }
-    if (lines.length > 0 && isFunctionLike(node)) {
-      const entry = tally(representation.package);
-      entry.functions += 1;
-      count(entry, kind, "contract");
-      participants.push({
-        file: representation.file,
-        kind,
-        lines: {
-          end: node.getEndLineNumber(),
-          start: node.getStartLineNumber(),
-        },
-        member: "function",
-        package: representation.package,
-        role: "contract",
-        symbol: representation.name,
-      });
-    }
-  }
+  behaviorOfRepresentation(
+    family,
+    seen,
+    indexFor,
+    linesBySymbol,
+    implementing,
+    tally,
+    countMember,
+    count,
+    participants
+  );
   participants.sort(
     (a, b) =>
       a.file.localeCompare(b.file) ||
@@ -761,6 +999,140 @@ interface TemporalIndex {
   hotspots: Map<string, { commits: number; commitPercentile: number }>;
   pairsByFile: Map<string, FileChangeCouplingPair[]>;
   supportingContexts: Set<string>;
+}
+
+function resolveSymbol(currentConstructor: boolean, member: Node): string {
+  if (currentConstructor) {
+    return "constructor";
+  }
+  if (Node.hasName(member)) {
+    return member.getName();
+  }
+  return "member";
+}
+
+function behaviorOfRepresentation(
+  family: ConceptFamily,
+  seen: Set<string>,
+  indexFor: (relFile: string) => TopLevelIndex,
+  linesBySymbol: Map<string, number[]>,
+  implementing: Set<string>,
+  tally: (pkg: string) => BehaviorTally,
+  countMember: (
+    entry: BehaviorTally,
+    representation: ConceptRepresentation,
+    kind: ChurnFileKind,
+    member: Node,
+    role: "contract" | "implementation"
+  ) => void,
+  count: (
+    entry: BehaviorTally,
+    kind: ChurnFileKind,
+    role: "contract" | "implementation"
+  ) => void,
+  participants: ConceptBehaviorParticipant[]
+) {
+  const visitRepresentation = (representation: ConceptRepresentation) =>
+    resolveVisitRepresentation(
+      seen,
+      indexFor,
+      linesBySymbol,
+      implementing,
+      tally,
+      countMember,
+      count,
+      participants,
+      representation
+    );
+  for (const representation of family.representations) {
+    visitRepresentation(representation);
+  }
+}
+
+function behaviorOfRepresentationLine(
+  lines: number[],
+  members: ClassMemberTypes[],
+  matched: Set<Node>
+) {
+  for (const line of lines) {
+    const member = members.find(
+      (candidate) =>
+        candidate.getStartLineNumber() <= line &&
+        line <= candidate.getEndLineNumber()
+    );
+    if (member !== undefined) {
+      matched.add(member);
+    }
+  }
+}
+function resolveVisitRepresentation(
+  seen: Set<string>,
+  indexFor: (relFile: string) => TopLevelIndex,
+  linesBySymbol: Map<string, number[]>,
+  implementing: Set<string>,
+  tally: (pkg: string) => BehaviorTally,
+  countMember: (
+    entry: BehaviorTally,
+    representation: ConceptRepresentation,
+    kind: ChurnFileKind,
+    member: Node,
+    role: "contract" | "implementation"
+  ) => void,
+  count: (
+    entry: BehaviorTally,
+    kind: ChurnFileKind,
+    role: "contract" | "implementation"
+  ) => void,
+  participants: ConceptBehaviorParticipant[],
+  representation: ConceptRepresentation
+) {
+  if (seen.has(representation.symbolId)) {
+    return;
+  }
+  seen.add(representation.symbolId);
+  const node = indexFor(representation.file).get(representation.name);
+  if (node === undefined) {
+    return;
+  }
+  const kind = classifyFile(representation.file);
+  const lines = linesBySymbol.get(representation.symbolId) ?? [];
+  if (Node.isClassDeclaration(node)) {
+    const members = node.getMembers().filter(isBodiedMember);
+    if (implementing.has(representation.symbolId)) {
+      const entry = tally(representation.package);
+      for (const member of members) {
+        countMember(entry, representation, kind, member, "implementation");
+      }
+      return;
+    }
+    const matched = new Set<Node>();
+    behaviorOfRepresentationLine(lines, members, matched);
+    if (matched.size === 0) {
+      return;
+    }
+    const entry = tally(representation.package);
+    for (const member of matched) {
+      countMember(entry, representation, kind, member, "contract");
+    }
+    return;
+  }
+  if (lines.length > 0 && isFunctionLike(node)) {
+    const entry = tally(representation.package);
+    entry.functions += 1;
+    count(entry, kind, "contract");
+    participants.push({
+      file: representation.file,
+      kind,
+      lines: {
+        end: node.getEndLineNumber(),
+        start: node.getStartLineNumber(),
+      },
+      member: "function",
+      package: representation.package,
+      role: "contract",
+      symbol: representation.name,
+    });
+  }
 }
 
 function evolutionOf(
@@ -807,72 +1179,14 @@ function evolutionOf(
   };
   const commitsByFile = new Map<string, number>();
   const seenPairs = new Set<FileChangeCouplingPair>();
-  for (const [file, pkg] of packageByFile) {
-    const entry = row(pkg);
-    const churn = index.commitsByFile.get(file);
-    if (churn !== undefined) {
-      entry.changedRepresentationFiles += 1;
-      commitsByFile.set(file, churn);
-    }
-    const hotspot = index.hotspots.get(file);
-    if (hotspot !== undefined) {
-      entry.hotspotRepresentations += namesByFile.get(file)?.size ?? 0;
-      entry.hotspots.push({ file, ...hotspot });
-    }
-    for (const pair of index.pairsByFile.get(file) ?? []) {
-      if (seenPairs.has(pair)) {
-        continue;
-      }
-      if (!(packageByFile.has(pair.left) && packageByFile.has(pair.right))) {
-        continue;
-      }
-      seenPairs.add(pair);
-      for (const [side, commits] of [
-        [pair.left, pair.leftCommits],
-        [pair.right, pair.rightCommits],
-      ] as const) {
-        const known = commitsByFile.get(side);
-        if (known === undefined || commits > known) {
-          commitsByFile.set(side, commits);
-        }
-      }
-      const supporting = index.supportingContexts.has(pair.context);
-      const aggregatorMediated =
-        index.aggregators.has(pair.left) || index.aggregators.has(pair.right);
-      const sides = new Set([pair.left, pair.right]);
-      for (const side of sides) {
-        const own = packageByFile.get(side);
-        if (own === undefined) {
-          continue;
-        }
-        const partner = side === pair.left ? pair.right : pair.left;
-        const sideRow = row(own);
-        // A same-package pair adds one to the package, whichever side is read.
-        if (side === pair.right && own === packageByFile.get(pair.left)) {
-          continue;
-        }
-        sideRow.strongCouplingPairs += 1;
-        if (supporting) {
-          sideRow.supportingCouplingPairs += 1;
-        }
-        const coupling: ConceptEvolutionCoupling = {
-          aggregatorMediated,
-          coChangeCommits: pair.coChangeCommits,
-          conditional:
-            side === pair.left ? pair.leftConditional : pair.rightConditional,
-          context: pair.context,
-          file: side,
-          jaccard: pair.jaccard,
-          partnerConditional:
-            side === pair.left ? pair.rightConditional : pair.leftConditional,
-          partnerFile: partner,
-          partnerPackage: packageByFile.get(partner) ?? own,
-          staticPath: pair.staticPath,
-        };
-        sideRow.couplings.push(coupling);
-      }
-    }
-  }
+  evolutionOfEntries(
+    packageByFile,
+    row,
+    index,
+    commitsByFile,
+    namesByFile,
+    seenPairs
+  );
   for (const [file, commits] of commitsByFile) {
     const pkg = packageByFile.get(file);
     if (pkg !== undefined) {
@@ -900,6 +1214,118 @@ function evolutionOf(
     .sort(
       (a, b) => b.support - a.support || a.package.localeCompare(b.package)
     );
+}
+
+function evolutionOfEntries(
+  packageByFile: Map<string, string>,
+  row: (pkg: string) => ConceptEvolutionEvidence,
+  index: TemporalIndex,
+  commitsByFile: Map<string, number>,
+  namesByFile: Map<string, Set<string>>,
+  seenPairs: Set<FileChangeCouplingPair>
+) {
+  for (const [file, pkg] of packageByFile) {
+    const entry = row(pkg);
+    const churn = index.commitsByFile.get(file);
+    if (churn !== undefined) {
+      entry.changedRepresentationFiles += 1;
+      commitsByFile.set(file, churn);
+    }
+    const hotspot = index.hotspots.get(file);
+    if (hotspot !== undefined) {
+      entry.hotspotRepresentations += namesByFile.get(file)?.size ?? 0;
+      entry.hotspots.push({ file, ...hotspot });
+    }
+    evolutionOfEntriesPair(
+      index,
+      file,
+      seenPairs,
+      packageByFile,
+      commitsByFile,
+      row
+    );
+  }
+}
+
+function evolutionOfEntriesPair(
+  index: TemporalIndex,
+  file: string,
+  seenPairs: Set<FileChangeCouplingPair>,
+  packageByFile: Map<string, string>,
+  commitsByFile: Map<string, number>,
+  row: (pkg: string) => ConceptEvolutionEvidence
+) {
+  for (const pair of index.pairsByFile.get(file) ?? []) {
+    if (seenPairs.has(pair)) {
+      continue;
+    }
+    if (!(packageByFile.has(pair.left) && packageByFile.has(pair.right))) {
+      continue;
+    }
+    seenPairs.add(pair);
+    for (const [side, commits] of [
+      [pair.left, pair.leftCommits],
+      [pair.right, pair.rightCommits],
+    ] as const) {
+      const known = commitsByFile.get(side);
+      if (known === undefined || commits > known) {
+        commitsByFile.set(side, commits);
+      }
+    }
+    const supporting = index.supportingContexts.has(pair.context);
+    const aggregatorMediated =
+      index.aggregators.has(pair.left) || index.aggregators.has(pair.right);
+    const sides = new Set([pair.left, pair.right]);
+    evolutionOfEntriesPairSide(
+      sides,
+      packageByFile,
+      pair,
+      row,
+      supporting,
+      aggregatorMediated
+    );
+  }
+}
+
+function evolutionOfEntriesPairSide(
+  sides: Set<string>,
+  packageByFile: Map<string, string>,
+  pair: FileChangeCouplingPair,
+  row: (pkg: string) => ConceptEvolutionEvidence,
+  supporting: boolean,
+  aggregatorMediated: boolean
+) {
+  for (const side of sides) {
+    const own = packageByFile.get(side);
+    if (own === undefined) {
+      continue;
+    }
+    const partner = side === pair.left ? pair.right : pair.left;
+    const sideRow = row(own);
+    // A same-package pair adds one to the package, whichever side is read.
+    if (side === pair.right && own === packageByFile.get(pair.left)) {
+      continue;
+    }
+    sideRow.strongCouplingPairs += 1;
+    if (supporting) {
+      sideRow.supportingCouplingPairs += 1;
+    }
+    const coupling: ConceptEvolutionCoupling = {
+      aggregatorMediated,
+      coChangeCommits: pair.coChangeCommits,
+      conditional:
+        side === pair.left ? pair.leftConditional : pair.rightConditional,
+      context: pair.context,
+      file: side,
+      jaccard: pair.jaccard,
+      partnerConditional:
+        side === pair.left ? pair.rightConditional : pair.leftConditional,
+      partnerFile: partner,
+      partnerPackage: packageByFile.get(partner) ?? own,
+      staticPath: pair.staticPath,
+    };
+    sideRow.couplings.push(coupling);
+  }
 }
 
 /** Seed plus distinct representations by package and declaring-file kind; mirrors V7.1 members. */
@@ -936,7 +1362,7 @@ export function analyzeConceptOwnership(
   config: AnalysisConfig = ANALYSIS_CONFIG
 ): ConceptOwnershipReport {
   const { project, boundary } = source;
-  const root = boundary.root;
+  const { root } = boundary;
   const indexes = new Map<string, TopLevelIndex>();
   const indexFor = (relFile: string): TopLevelIndex => {
     let index = indexes.get(relFile);
@@ -944,7 +1370,7 @@ export function analyzeConceptOwnership(
       return index;
     }
     index = new Map();
-    const file = project.getSourceFile(path.join(root, relFile));
+    const file = project.getSourceFile(join(root, relFile));
     for (const statement of file?.getStatements() ?? []) {
       if (Node.isVariableStatement(statement)) {
         for (const declaration of statement.getDeclarations()) {
@@ -1000,39 +1426,12 @@ export function analyzeConceptOwnership(
 
   const overlapBySeed = new Map<string, ConceptOwnershipOverlapContext[]>();
   const conversionsBySeed = new Map<string, Map<string, number>>();
-  for (const candidate of source.conceptOverlap.candidates) {
-    for (const [mine, other] of [
-      [candidate.left, candidate.right],
-      [candidate.right, candidate.left],
-    ] as const) {
-      if (!mine.inTarget) {
-        continue;
-      }
-      const packages = new Set<string>();
-      for (const conversion of candidate.conversions) {
-        const pkg = ownerBoundary(root, path.join(root, conversion.file));
-        packages.add(pkg);
-        let counts = conversionsBySeed.get(mine.id);
-        if (counts === undefined) {
-          counts = new Map();
-          conversionsBySeed.set(mine.id, counts);
-        }
-        counts.set(pkg, (counts.get(pkg) ?? 0) + 1);
-      }
-      const context: ConceptOwnershipOverlapContext = {
-        conversionPackages: [...packages].sort(),
-        other,
-        representationBoundary:
-          other.package !== mine.package && packages.has(other.package),
-      };
-      const list = overlapBySeed.get(mine.id);
-      if (list === undefined) {
-        overlapBySeed.set(mine.id, [context]);
-      } else {
-        list.push(context);
-      }
-    }
-  }
+  analyzeConceptOwnershipCandidate(
+    source,
+    root,
+    conversionsBySeed,
+    overlapBySeed
+  );
 
   const architectureSignals = source.architecturalProfile.target.signals.map(
     (signal) => signal.signal
@@ -1061,7 +1460,7 @@ export function analyzeConceptOwnership(
         indexFor(family.seed.declaration.file).get(family.seed.name)
       ),
       conversions: [...(conversionsBySeed.get(family.seed.id) ?? [])]
-        .map(([pkg, count]) => ({ count, package: pkg }))
+        .map(([pkg, itemCount]) => ({ count: itemCount, package: pkg }))
         .sort(
           (a, b) => b.count - a.count || a.package.localeCompare(b.package)
         ),
@@ -1105,4 +1504,45 @@ export function analyzeConceptOwnership(
     },
     target: targetName,
   };
+}
+
+function analyzeConceptOwnershipCandidate(
+  source: ConceptOwnershipSource,
+  root: string,
+  conversionsBySeed: Map<string, Map<string, number>>,
+  overlapBySeed: Map<string, ConceptOwnershipOverlapContext[]>
+) {
+  for (const candidate of source.conceptOverlap.candidates) {
+    for (const [mine, other] of [
+      [candidate.left, candidate.right],
+      [candidate.right, candidate.left],
+    ] as const) {
+      if (!mine.inTarget) {
+        continue;
+      }
+      const packages = new Set<string>();
+      for (const conversion of candidate.conversions) {
+        const pkg = ownerBoundary(root, join(root, conversion.file));
+        packages.add(pkg);
+        let counts = conversionsBySeed.get(mine.id);
+        if (counts === undefined) {
+          counts = new Map();
+          conversionsBySeed.set(mine.id, counts);
+        }
+        counts.set(pkg, (counts.get(pkg) ?? 0) + 1);
+      }
+      const context: ConceptOwnershipOverlapContext = {
+        conversionPackages: [...packages].sort(),
+        other,
+        representationBoundary:
+          other.package !== mine.package && packages.has(other.package),
+      };
+      const list = overlapBySeed.get(mine.id);
+      if (list === undefined) {
+        overlapBySeed.set(mine.id, [context]);
+      } else {
+        list.push(context);
+      }
+    }
+  }
 }

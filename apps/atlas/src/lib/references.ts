@@ -1,4 +1,4 @@
-import * as path from "node:path";
+import { relative } from "node:path";
 import type { Node, SourceFile } from "ts-morph";
 
 import { SyntaxKind } from "ts-morph";
@@ -47,7 +47,7 @@ export function emptyUsage(): ExternalUsage {
   };
 }
 
-export function namespaceOf(spaces: Set<"type" | "value">): UsageNamespace {
+function namespaceOf(spaces: Set<"type" | "value">): UsageNamespace {
   return spaces.size === 2 ? "both" : (spaces.values().next().value ?? "none");
 }
 
@@ -132,12 +132,6 @@ export function usageFromReferences(
   referenceNodes: Iterable<Node>,
   boundary: Boundary
 ): ExternalUsage {
-  interface ConsumerCounts {
-    contexts: Partial<Record<UsageContext, number>>;
-    importSites: number;
-    references: number;
-    spaces: Set<"type" | "value">;
-  }
   const consumers = new Map<string, ConsumerCounts>();
   const consumerModules = new Set<string>();
   const moduleUsage = new Map<string, ConsumerModuleUsage>();
@@ -152,7 +146,93 @@ export function usageFromReferences(
     usageContexts[context] = (usageContexts[context] ?? 0) + 1;
     consumer.contexts[context] = (consumer.contexts[context] ?? 0) + 1;
   };
+  const visitRef = () => {
+    ({ importSites, references } = usageFromReferencesRef(
+      referenceNodes,
+      boundary,
+      consumerModules,
+      consumerFiles,
+      consumers,
+      moduleUsage,
+      importSites,
+      accessSet,
+      spaces,
+      bump,
+      references
+    ));
+  };
 
+  visitRef();
+
+  if (references + importSites === 0) {
+    return emptyUsage();
+  }
+
+  if (accessSet.size === 0) {
+    for (const file of consumerFiles.values()) {
+      for (const value of fileAccess(file, boundary)) {
+        accessSet.add(value);
+      }
+    }
+  }
+
+  const sortedConsumers: ConsumerUsage[] = [...consumers.entries()]
+    .map(([consumerBoundary, counts]) => ({
+      boundary: consumerBoundary,
+      importSites: counts.importSites,
+      references: counts.references,
+      usageContexts: counts.contexts,
+      usageNamespace: namespaceOf(counts.spaces),
+    }))
+    .sort(
+      (a, b) =>
+        b.references - a.references ||
+        b.importSites - a.importSites ||
+        a.boundary.localeCompare(b.boundary)
+    );
+
+  const [primary] = sortedConsumers;
+  const primaryConsumerShare =
+    references > 0 && primary ? primary.references / references : 0;
+
+  const usageNamespace = namespaceOf(spaces);
+
+  const access: SymbolAccess =
+    accessSet.size === 2
+      ? "both"
+      : (accessSet.values().next().value ?? "public");
+
+  return {
+    access,
+    consumerModules: [...consumerModules].sort(),
+    consumerModuleUsage: [...moduleUsage.values()].sort((a, b) =>
+      a.module.localeCompare(b.module)
+    ),
+    consumerPackages: [...consumers.keys()].sort(),
+    consumers: sortedConsumers,
+    externalImportSites: importSites,
+    externalReferences: references,
+    primaryConsumerShare,
+    usageContexts,
+    usageNamespace,
+  };
+}
+
+function usageFromReferencesRef(
+  referenceNodes: Iterable<Node>,
+  boundary: Boundary,
+  consumerModules: Set<string>,
+  consumerFiles: Map<string, SourceFile>,
+  consumers: Map<string, ConsumerCounts>,
+  moduleUsage: Map<string, ConsumerModuleUsage>,
+  initialImportSites: number,
+  accessSet: Set<"public" | "deep">,
+  spaces: Set<"type" | "value">,
+  bump: (context: UsageContext, consumer: ConsumerCounts) => void,
+  initialReferences: number
+) {
+  let references = initialReferences;
+  let importSites = initialImportSites;
   for (const ref of referenceNodes) {
     const file = ref.getSourceFile();
     const filePath = file.getFilePath();
@@ -163,7 +243,7 @@ export function usageFromReferences(
       continue;
     }
 
-    const relFile = toPosix(path.relative(boundary.root, filePath));
+    const relFile = toPosix(relative(boundary.root, filePath));
     const owner = ownerBoundary(boundary.root, filePath);
     consumerModules.add(relFile);
     consumerFiles.set(filePath, file);
@@ -210,57 +290,11 @@ export function usageFromReferences(
       consumer.spaces.add(space);
     }
   }
-
-  if (references + importSites === 0) {
-    return emptyUsage();
-  }
-
-  if (accessSet.size === 0) {
-    for (const file of consumerFiles.values()) {
-      for (const value of fileAccess(file, boundary)) {
-        accessSet.add(value);
-      }
-    }
-  }
-
-  const sortedConsumers: ConsumerUsage[] = [...consumers.entries()]
-    .map(([consumerBoundary, counts]) => ({
-      boundary: consumerBoundary,
-      importSites: counts.importSites,
-      references: counts.references,
-      usageContexts: counts.contexts,
-      usageNamespace: namespaceOf(counts.spaces),
-    }))
-    .sort(
-      (a, b) =>
-        b.references - a.references ||
-        b.importSites - a.importSites ||
-        a.boundary.localeCompare(b.boundary)
-    );
-
-  const primary = sortedConsumers[0];
-  const primaryConsumerShare =
-    references > 0 && primary ? primary.references / references : 0;
-
-  const usageNamespace = namespaceOf(spaces);
-
-  const access: SymbolAccess =
-    accessSet.size === 2
-      ? "both"
-      : (accessSet.values().next().value ?? "public");
-
-  return {
-    access,
-    consumerModules: [...consumerModules].sort(),
-    consumerModuleUsage: [...moduleUsage.values()].sort((a, b) =>
-      a.module.localeCompare(b.module)
-    ),
-    consumerPackages: [...consumers.keys()].sort(),
-    consumers: sortedConsumers,
-    externalImportSites: importSites,
-    externalReferences: references,
-    primaryConsumerShare,
-    usageContexts,
-    usageNamespace,
-  };
+  return { importSites, references };
+}
+interface ConsumerCounts {
+  contexts: Partial<Record<UsageContext, number>>;
+  importSites: number;
+  references: number;
+  spaces: Set<"type" | "value">;
 }

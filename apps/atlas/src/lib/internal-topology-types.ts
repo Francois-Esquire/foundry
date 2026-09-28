@@ -8,7 +8,7 @@ import type { FileKind, ModuleRole } from "./types";
 export const INTERNAL_PACKAGE_TOPOLOGY_SCHEMA_VERSION = 2;
 
 /** Package-relative posix path of the module; the package root directory is `"."`. */
-export type InternalModuleId = string;
+type InternalModuleId = string;
 
 export type InternalEdgeLocality =
   | "same-directory"
@@ -130,7 +130,7 @@ export interface InternalRegionNode {
   primaryModules: number;
 }
 
-export interface InternalSeamParticipant {
+interface InternalSeamParticipant {
   module: InternalModuleId;
   moduleEdges: number;
   share: number;
@@ -276,7 +276,7 @@ export interface InternalTopologySummary {
 }
 
 /** The definitions the facts were computed under; static per schema version. */
-export interface InternalTopologyPolicy {
+interface InternalTopologyPolicy {
   highFan: { percentile: number; minimum: number };
   layer: "longest primary dependency chain to a sink on the SCC condensation";
   primaryEdge: "both endpoints source-kind";

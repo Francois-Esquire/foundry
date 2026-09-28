@@ -1,8 +1,6 @@
-import * as path from "node:path";
-import type { Project } from "ts-morph";
-
+import { relative } from "node:path";
+import type { Project, SourceFile } from "ts-morph";
 import { Node, SyntaxKind, ts } from "ts-morph";
-
 import type { Boundary } from "./boundary";
 import { ownerBoundary, toPosix } from "./boundary";
 import type { AnalysisConfig } from "./config";
@@ -20,6 +18,7 @@ import type {
   ConceptSeed,
   ConceptSeedKind,
   SurfaceSymbol,
+  SymbolKind,
 } from "./types";
 import { classifyReference } from "./usage";
 
@@ -32,7 +31,7 @@ export interface ConceptInventorySource {
   symbols: CollectedSymbol[];
 }
 
-export interface ConceptSeedState {
+interface ConceptSeedState {
   evidence: ConceptEvidence[];
   seed: ConceptSeed;
 }
@@ -79,7 +78,7 @@ const REPRESENTATION_ORDER: ConceptRepresentationRelationship[] = [
 ];
 
 function isSeedKind(
-  kind: string,
+  kind: SymbolKind,
   seedKinds: ConceptSeedKind[]
 ): kind is ConceptSeedKind {
   return (seedKinds as string[]).includes(kind);
@@ -102,29 +101,13 @@ function topLevelOwner(node: Node): Node | undefined {
   return statement;
 }
 
-/**
- * Build the concept inventory: every type-like declaration in the target is a
- * seed; one pass over the workspace collects the explicit TypeScript
- * relationships that attach other symbols to those seeds. Identity is the
- * resolved declaration node, so two same-named types in different files stay
- * separate and re-exports never add a seed.
- */
-export function analyzeConceptInventory(
-  source: ConceptInventorySource,
-  config: AnalysisConfig = ANALYSIS_CONFIG
-): ConceptInventoryReport {
-  const group = prepareConceptSeeds(source, config);
-  sweepConceptEvidence(source.project, source.boundary.root, [group]);
-  return buildConceptInventory(group, source.surface);
-}
-
 /** The target's seeds with their declaration evidence; no workspace has been read yet. */
 export function prepareConceptSeeds(
   source: Omit<ConceptInventorySource, "project">,
   config: AnalysisConfig = ANALYSIS_CONFIG
 ): ConceptSeedGroup {
   const { boundary } = source;
-  const root = boundary.root;
+  const { root } = boundary;
   const surfaceById = new Map(source.surface.map((s) => [s.id, s]));
   const seedByNode = new Map<ts.Node, ConceptSeedState>();
   const seeds: ConceptSeedState[] = [];
@@ -198,27 +181,13 @@ export function sweepConceptEvidence(
     if (symbol === undefined) {
       return [];
     }
+    // biome-ignore lint/suspicious/noBitwiseOperators: TypeScript exposes these properties as bit flags.
     if (symbol.flags & ts.SymbolFlags.Alias) {
       symbol = checker.getAliasedSymbol(symbol);
     }
     const found: ConceptSeedState[] = [];
     const matched = new Set<ConceptSeedGroup>();
-    for (const declaration of symbol.declarations ?? []) {
-      for (const group of active) {
-        if (matched.has(group)) {
-          continue;
-        }
-        const seed = group.byNode.get(declaration);
-        if (seed === undefined) {
-          continue;
-        }
-        matched.add(group);
-        found.push(seed);
-      }
-      if (matched.size === active.length) {
-        break;
-      }
-    }
+    seedsOfDeclaration(symbol, active, matched, found);
     return found;
   };
   const groupOfSeed = new Map<ConceptSeedState, ConceptSeedGroup>();
@@ -261,63 +230,32 @@ export function sweepConceptEvidence(
     });
   };
 
+  sweepConceptEvidenceFile(project, root, seedsOf, record);
+}
+
+function sweepConceptEvidenceFile(
+  project: Project,
+  root: string,
+  seedsOf: (node: Node) => ConceptSeedState[],
+  record: (
+    seed: ConceptSeedState,
+    kind: ConceptRelationshipKind,
+    at: Node,
+    relFile: string,
+    owner: string
+  ) => void
+) {
   for (const file of project.getSourceFiles()) {
     const filePath = file.getFilePath();
     if (file.isDeclarationFile() || filePath.includes("/node_modules/")) {
       continue;
     }
-    const relFile = toPosix(path.relative(root, filePath));
+    const relFile = toPosix(relative(root, filePath));
     const owner = ownerBoundary(root, filePath);
 
-    for (const reference of file.getDescendantsOfKind(
-      SyntaxKind.TypeReference
-    )) {
-      const typeName = reference.getTypeName();
-      const seeds = seedsOf(typeName);
-      if (seeds.length === 0) {
-        continue;
-      }
-      const parent = reference.getParent();
-      if (
-        Node.isTypeAliasDeclaration(parent) &&
-        parent.getTypeNode() === reference
-      ) {
-        for (const seed of seeds) {
-          record(seed, "alias", reference, relFile, owner);
-        }
-        continue;
-      }
-      const { context } = classifyReference(typeName);
-      const kind: ConceptRelationshipKind =
-        context === "parameter-type" ||
-        context === "return-type" ||
-        context === "property-type"
-          ? context
-          : "type-reference";
-      for (const seed of seeds) {
-        record(seed, kind, reference, relFile, owner);
-      }
-    }
+    sweepConceptEvidenceFileReference(file, seedsOf, record, relFile, owner);
 
-    for (const expression of file.getDescendantsOfKind(
-      SyntaxKind.ExpressionWithTypeArguments
-    )) {
-      const clause = expression.getParent();
-      if (!Node.isHeritageClause(clause)) {
-        continue;
-      }
-      const seeds = seedsOf(expression.getExpression());
-      if (seeds.length === 0) {
-        continue;
-      }
-      const kind =
-        clause.getToken() === SyntaxKind.ImplementsKeyword
-          ? "implements"
-          : "extends";
-      for (const seed of seeds) {
-        record(seed, kind, expression, relFile, owner);
-      }
-    }
+    sweepConceptEvidenceFileExpression(file, seedsOf, record, relFile, owner);
 
     for (const construction of file.getDescendantsOfKind(
       SyntaxKind.NewExpression
@@ -325,6 +263,106 @@ export function sweepConceptEvidence(
       for (const seed of seedsOf(construction.getExpression())) {
         record(seed, "constructs", construction, relFile, owner);
       }
+    }
+  }
+}
+
+function sweepConceptEvidenceFileExpression(
+  file: SourceFile,
+  seedsOf: (node: Node) => ConceptSeedState[],
+  record: (
+    seed: ConceptSeedState,
+    kind: ConceptRelationshipKind,
+    at: Node,
+    relFile: string,
+    owner: string
+  ) => void,
+  relFile: string,
+  owner: string
+) {
+  for (const expression of file.getDescendantsOfKind(
+    SyntaxKind.ExpressionWithTypeArguments
+  )) {
+    const clause = expression.getParent();
+    if (!Node.isHeritageClause(clause)) {
+      continue;
+    }
+    const seeds = seedsOf(expression.getExpression());
+    if (seeds.length === 0) {
+      continue;
+    }
+    const kind =
+      clause.getToken() === SyntaxKind.ImplementsKeyword
+        ? "implements"
+        : "extends";
+    for (const seed of seeds) {
+      record(seed, kind, expression, relFile, owner);
+    }
+  }
+}
+
+function sweepConceptEvidenceFileReference(
+  file: SourceFile,
+  seedsOf: (node: Node) => ConceptSeedState[],
+  record: (
+    seed: ConceptSeedState,
+    kind: ConceptRelationshipKind,
+    at: Node,
+    relFile: string,
+    owner: string
+  ) => void,
+  relFile: string,
+  owner: string
+) {
+  for (const reference of file.getDescendantsOfKind(SyntaxKind.TypeReference)) {
+    const typeName = reference.getTypeName();
+    const seeds = seedsOf(typeName);
+    if (seeds.length === 0) {
+      continue;
+    }
+    const parent = reference.getParent();
+    if (
+      Node.isTypeAliasDeclaration(parent) &&
+      parent.getTypeNode() === reference
+    ) {
+      for (const seed of seeds) {
+        record(seed, "alias", reference, relFile, owner);
+      }
+      continue;
+    }
+    const { context } = classifyReference(typeName);
+    const kind: ConceptRelationshipKind =
+      context === "parameter-type" ||
+      context === "return-type" ||
+      context === "property-type"
+        ? context
+        : "type-reference";
+    for (const seed of seeds) {
+      record(seed, kind, reference, relFile, owner);
+    }
+  }
+}
+
+function seedsOfDeclaration(
+  symbol: ts.Symbol,
+  active: ConceptSeedGroup[],
+  matched: Set<ConceptSeedGroup>,
+  found: ConceptSeedState[]
+) {
+  for (const declaration of symbol.declarations ?? []) {
+    for (const group of active) {
+      if (matched.has(group)) {
+        continue;
+      }
+      const seed = group.byNode.get(declaration);
+      if (seed === undefined) {
+        continue;
+      }
+      matched.add(group);
+      found.push(seed);
+    }
+    if (matched.size === active.length) {
+      break;
     }
   }
 }

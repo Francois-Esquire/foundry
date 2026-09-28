@@ -27,6 +27,8 @@ import type {
   StructuralPressureSignal,
 } from "../../src/lib/types";
 
+const expectedTextPattern = /recommend|should|merge|fold|priority/i;
+
 const TARGET = "@fixture/a";
 const STUDIO = "@fixture/studio";
 const A_INDEX = "packages/a/src/index.ts";
@@ -182,11 +184,7 @@ function pair(
   coChangeCommits: number,
   staticRelation: StaticRelation,
   conditionals: [number, number] = [0.8, 0.8],
-  staticPath: StaticPathRelation = staticRelation === "unmeasured"
-    ? "unmeasured"
-    : staticRelation === "none"
-      ? "none"
-      : "direct"
+  staticPath: StaticPathRelation = resolvePair(staticRelation)
 ): PackageChangeCoupling {
   return {
     coChangeCommits,
@@ -202,6 +200,18 @@ function pair(
   };
 }
 
+function resolvePair(
+  staticRelation: StaticRelation
+): "none" | "unmeasured" | "direct" {
+  if (staticRelation === "unmeasured") {
+    return "unmeasured";
+  }
+  if (staticRelation === "none") {
+    return "none";
+  }
+  return "direct";
+}
+
 function filePair(
   left: string,
   right: string,
@@ -211,12 +221,15 @@ function filePair(
   staticPath?: StaticPathRelation,
   context: CouplingContext = "source-source"
 ): FileChangeCouplingPair {
-  const owner = (file: string) =>
-    file.startsWith("packages/a/")
-      ? TARGET
-      : file.startsWith("apps/studio/")
-        ? STUDIO
-        : "@fixture/b";
+  const owner = (file: string) => {
+    if (file.startsWith("packages/a/")) {
+      return TARGET;
+    }
+    if (file.startsWith("apps/studio/")) {
+      return STUDIO;
+    }
+    return "@fixture/b";
+  };
   const leftPackage = owner(left);
   const rightPackage = owner(right);
   return {
@@ -1034,7 +1047,7 @@ describe("rendering", () => {
     expect(text).toContain("REINFORCED\n\n  SURFACE PRESSURE");
     expect(text).toContain("TENSIONS (1)\n\n  STATIC LEAF TEMPORAL COUPLING");
     expect(text).not.toContain("COUPLING PATHS");
-    expect(text).not.toMatch(/recommend|should|merge|fold|priority/i);
+    expect(text).not.toMatch(expectedTextPattern);
   });
 
   it("renders insufficient history without conclusions", () => {

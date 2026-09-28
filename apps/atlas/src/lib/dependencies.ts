@@ -1,6 +1,6 @@
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import { cruise } from "dependency-cruiser";
 import extractTsConfig from "dependency-cruiser/config-utl/extract-ts-config";
@@ -61,12 +61,12 @@ function synthesizeTsconfig(root: string): {
 } {
   const paths: Record<string, string[]> = {};
   for (const [key, targets] of Object.entries(workspacePathAliases(root))) {
-    paths[key] = targets.map((target) => toPosix(path.relative(root, target)));
+    paths[key] = targets.map((target) => toPosix(relative(root, target)));
   }
   const compilerOptions = { baseUrl: toPosix(root), paths };
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "semantic-surface-"));
-  const file = path.join(dir, "tsconfig.json");
-  fs.writeFileSync(file, JSON.stringify({ compilerOptions }));
+  const dir = mkdtempSync(join(tmpdir(), "semantic-surface-"));
+  const file = join(dir, "tsconfig.json");
+  writeFileSync(file, JSON.stringify({ compilerOptions }));
   return { compilerOptions, file };
 }
 
@@ -85,10 +85,10 @@ export async function collectCrossBoundaryEdges(
  */
 export async function cruiseWorkspace(
   root: string,
-  tsconfig?: string
+  tsconfig?: string | undefined
 ): Promise<CruisedModule[]> {
   const synthesized = tsconfig ? undefined : synthesizeTsconfig(root);
-  const tsconfigFile = synthesized?.file ?? path.resolve(root, tsconfig ?? "");
+  const tsconfigFile = synthesized?.file ?? resolve(root, tsconfig ?? "");
   const transpileTsConfig: unknown = synthesized
     ? { options: synthesized.compilerOptions }
     : extractTsConfig(tsconfigFile);
@@ -96,13 +96,11 @@ export async function cruiseWorkspace(
   const entries = (patterns.length > 0 ? patterns : [""]).flatMap((pattern) =>
     pattern === ""
       ? ["."]
-      : expandPattern(root, pattern).map((dir) =>
-          toPosix(path.relative(root, dir))
-        )
+      : expandPattern(root, pattern).map((dir) => toPosix(relative(root, dir)))
   );
   try {
     const result = await cruise(
-      entries.filter((entry) => fs.existsSync(path.resolve(root, entry))),
+      entries.filter((entry) => existsSync(resolve(root, entry))),
       {
         baseDir: root,
         doNotFollow: { path: "node_modules" },
@@ -121,7 +119,7 @@ export async function cruiseWorkspace(
     return result.output.modules;
   } finally {
     if (synthesized) {
-      fs.rmSync(path.dirname(synthesized.file), { recursive: true });
+      rmSync(dirname(synthesized.file), { recursive: true });
     }
   }
 }
@@ -154,85 +152,33 @@ export function normalizeEdges(
   // dropped here instead: as modules, and as edge targets.
   const ignorer = createIgnorer(root);
   const inRoot = (absolute: string) => {
-    const rel = path.relative(root, absolute);
+    const rel = relative(root, absolute);
     return (
       rel !== "" &&
       !rel.startsWith("..") &&
-      !path.isAbsolute(rel) &&
+      !isAbsolute(rel) &&
       !ignorer.ignores(toPosix(rel))
     );
   };
 
   const registerModule = (absolute: string): string => {
-    const rel = toPosix(path.relative(root, absolute));
+    const rel = toPosix(relative(root, absolute));
     if (!moduleOwners.has(rel)) {
       moduleOwners.set(rel, ownerBoundary(root, absolute));
     }
     return rel;
   };
 
-  for (const mod of modules) {
-    const fromAbs = path.resolve(root, mod.source);
-    if (
-      !inRoot(fromAbs) ||
-      fromAbs.includes(`${path.sep}node_modules${path.sep}`)
-    ) {
-      continue;
-    }
-    const fromFile = registerModule(fromAbs);
-    for (const dep of mod.dependencies) {
-      if (dep.coreModule || dep.couldNotResolve) {
-        continue;
-      }
-      const toAbs = path.resolve(root, dep.resolved);
-      if (
-        !inRoot(toAbs) ||
-        toAbs.includes(`${path.sep}node_modules${path.sep}`)
-      ) {
-        continue;
-      }
-      const toFile = registerModule(toAbs);
-      if (fromFile === toFile) {
-        continue;
-      }
-      const pairKey = `${fromFile}\0${toFile}`;
-      const typeOnly = dep.dependencyTypes.includes("type-only");
-      const known = graphEdges.get(pairKey);
-      const firstSighting = known === undefined;
-      const edge: ModuleDependencyEdge = known ?? {
-        fromFile,
-        toFile,
-        typeOnly,
-      };
-      if (known === undefined) {
-        graphEdges.set(pairKey, edge);
-      } else if (!typeOnly) {
-        edge.typeOnly = false;
-      }
-      const fromIn = boundaryContains(boundary, fromAbs);
-      const toIn = boundaryContains(boundary, toAbs);
-      if (fromIn === toIn) {
-        continue;
-      }
-
-      if (toIn) {
-        const owner = ownerBoundary(root, fromAbs);
-        const entry = incoming.get(owner) ?? { edges: [], typeOnly: true };
-        incoming.set(owner, entry);
-        if (firstSighting) {
-          entry.edges.push(edge);
-        }
-        if (!typeOnly) {
-          entry.typeOnly = false;
-        }
-      } else if (firstSighting) {
-        const owner = ownerBoundary(root, toAbs);
-        const edges = outgoing.get(owner) ?? [];
-        outgoing.set(owner, edges);
-        edges.push(edge);
-      }
-    }
-  }
+  normalizeEdgesMod(
+    modules,
+    root,
+    inRoot,
+    registerModule,
+    graphEdges,
+    boundary,
+    incoming,
+    outgoing
+  );
 
   const sortEdges = (edges: ModuleDependencyEdge[]) =>
     edges.sort(
@@ -253,6 +199,124 @@ export function normalizeEdges(
     ),
   };
   return { graph, incoming, outgoing };
+}
+
+function normalizeEdgesMod(
+  modules: CruisedModule[],
+  root: string,
+  inRoot: (absolute: string) => boolean,
+  registerModule: (absolute: string) => string,
+  graphEdges: Map<string, ModuleDependencyEdge>,
+  boundary: Boundary,
+  incoming: Map<string, IncomingEdges>,
+  outgoing: Map<string, ModuleDependencyEdge[]>
+) {
+  for (const mod of modules) {
+    const fromAbs = resolve(root, mod.source);
+    if (!inRoot(fromAbs) || fromAbs.includes(`${sep}node_modules${sep}`)) {
+      continue;
+    }
+    const fromFile = registerModule(fromAbs);
+    normalizeEdgesModDep(
+      mod,
+      root,
+      inRoot,
+      registerModule,
+      fromFile,
+      graphEdges,
+      boundary,
+      fromAbs,
+      incoming,
+      outgoing
+    );
+  }
+}
+
+function normalizeEdgesModDep(
+  mod: CruisedModule,
+  root: string,
+  inRoot: (absolute: string) => boolean,
+  registerModule: (absolute: string) => string,
+  fromFile: string,
+  graphEdges: Map<string, ModuleDependencyEdge>,
+  boundary: Boundary,
+  fromAbs: string,
+  incoming: Map<string, IncomingEdges>,
+  outgoing: Map<string, ModuleDependencyEdge[]>
+) {
+  for (const dep of mod.dependencies) {
+    if (dep.coreModule || dep.couldNotResolve) {
+      continue;
+    }
+    const toAbs = resolve(root, dep.resolved);
+    if (!inRoot(toAbs) || toAbs.includes(`${sep}node_modules${sep}`)) {
+      continue;
+    }
+    const toFile = registerModule(toAbs);
+    if (fromFile === toFile) {
+      continue;
+    }
+    const pairKey = `${fromFile}\0${toFile}`;
+    const typeOnly = dep.dependencyTypes.includes("type-only");
+    const known = graphEdges.get(pairKey);
+    const firstSighting = known === undefined;
+    const edge: ModuleDependencyEdge = known ?? {
+      fromFile,
+      toFile,
+      typeOnly,
+    };
+    if (known === undefined) {
+      graphEdges.set(pairKey, edge);
+    } else if (!typeOnly) {
+      edge.typeOnly = false;
+    }
+    const fromIn = boundaryContains(boundary, fromAbs);
+    const toIn = boundaryContains(boundary, toAbs);
+    if (fromIn === toIn) {
+      continue;
+    }
+
+    normalizeEdgesModDepEntries(
+      toIn,
+      root,
+      fromAbs,
+      incoming,
+      firstSighting,
+      edge,
+      typeOnly,
+      toAbs,
+      outgoing
+    );
+  }
+}
+
+function normalizeEdgesModDepEntries(
+  toIn: boolean,
+  root: string,
+  fromAbs: string,
+  incoming: Map<string, IncomingEdges>,
+  firstSighting: boolean,
+  edge: ModuleDependencyEdge,
+  typeOnly: boolean,
+  toAbs: string,
+  outgoing: Map<string, ModuleDependencyEdge[]>
+) {
+  if (toIn) {
+    const owner = ownerBoundary(root, fromAbs);
+    const entry = incoming.get(owner) ?? { edges: [], typeOnly: true };
+    incoming.set(owner, entry);
+    if (firstSighting) {
+      entry.edges.push(edge);
+    }
+    if (!typeOnly) {
+      entry.typeOnly = false;
+    }
+  } else if (firstSighting) {
+    const owner = ownerBoundary(root, toAbs);
+    const edges = outgoing.get(owner) ?? [];
+    outgoing.set(owner, edges);
+    edges.push(edge);
+  }
 }
 
 function mergeNamespace(
@@ -282,13 +346,6 @@ export function buildDependencies(
     (sum, symbol) => sum + symbol.externalReferences,
     0
   );
-
-  interface ConsumerAccumulator {
-    importSites: number;
-    references: number;
-    symbols: SymbolDependencyUsage[];
-    usageNamespace: UsageNamespace;
-  }
   const accumulators = new Map<string, ConsumerAccumulator>();
   for (const symbol of used) {
     for (const consumer of symbol.consumers) {
@@ -368,7 +425,7 @@ export function buildDependencies(
         b.moduleEdges - a.moduleEdges || a.package.localeCompare(b.package)
     );
 
-  const primary = incoming[0];
+  const [primary] = incoming;
   const averageSymbolDistribution =
     used.length === 0
       ? 0
@@ -403,7 +460,7 @@ function shapeSignals(
 ): PackageShapeSignal[] {
   const { concentration, shape } = config.dependency;
   const signals: PackageShapeSignal[] = [];
-  const primary = incoming[0];
+  const [primary] = incoming;
   const concentrated =
     primary !== undefined &&
     (primary.referenceShare >= concentration.highShare ||
@@ -445,4 +502,10 @@ function shapeSignals(
     signals.push("shared-hub");
   }
   return signals;
+}
+interface ConsumerAccumulator {
+  importSites: number;
+  references: number;
+  symbols: SymbolDependencyUsage[];
+  usageNamespace: UsageNamespace;
 }

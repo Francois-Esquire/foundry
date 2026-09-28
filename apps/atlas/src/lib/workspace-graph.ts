@@ -32,7 +32,13 @@ import type { WorkspaceReport } from "./workspace-types";
 type GraphConfig = AnalysisConfig["workspaceGraph"];
 
 function byId(a: string, b: string): number {
-  return a < b ? -1 : a > b ? 1 : 0;
+  if (a < b) {
+    return -1;
+  }
+  if (a > b) {
+    return 1;
+  }
+  return 0;
 }
 
 function sortedEdges(edges: [string, string][]): [string, string][] {
@@ -138,35 +144,38 @@ function measureLevel(nodes: string[], edges: [string, string][]): Level {
   }
   const others = sortedNodes.length - 1;
   const facts = new Map<string, WorkspaceNodeGraphFacts>();
-  for (const node of sortedNodes) {
-    const component = measured.condensation.componentOf.get(node);
-    const dependents = reachableCount(node, measured.adjacency.into);
-    const dependencies = reachableCount(node, measured.adjacency.out);
-    const upstream =
-      component === undefined ? 0 : (measured.upstream.get(component) ?? 0);
-    facts.set(node, {
-      component: weakOf.get(node) ?? node,
-      cycle: strongOf.has(node),
-      depth: {
-        downstream:
-          component === undefined
-            ? 0
-            : (measured.downstream.get(component) ?? 0),
-        upstream,
-      },
-      direct: {
-        fanIn: measured.adjacency.into.get(node)?.size ?? 0,
-        fanOut: measured.adjacency.out.get(node)?.size ?? 0,
-      },
-      layer: upstream,
-      reach: {
-        dependencyShare: others > 0 ? dependencies / others : 0,
-        dependentShare: others > 0 ? dependents / others : 0,
-      },
-      strongComponent: strongOf.get(node) ?? null,
-      transitive: { dependencies, dependents },
-    });
-  }
+  const visitNode = () => {
+    for (const node of sortedNodes) {
+      const component = measured.condensation.componentOf.get(node);
+      const dependents = reachableCount(node, measured.adjacency.into);
+      const dependencies = reachableCount(node, measured.adjacency.out);
+      const upstream =
+        component === undefined ? 0 : (measured.upstream.get(component) ?? 0);
+      facts.set(node, {
+        component: weakOf.get(node) ?? node,
+        cycle: strongOf.has(node),
+        depth: {
+          downstream:
+            component === undefined
+              ? 0
+              : (measured.downstream.get(component) ?? 0),
+          upstream,
+        },
+        direct: {
+          fanIn: measured.adjacency.into.get(node)?.size ?? 0,
+          fanOut: measured.adjacency.out.get(node)?.size ?? 0,
+        },
+        layer: upstream,
+        reach: {
+          dependencyShare: others > 0 ? dependencies / others : 0,
+          dependentShare: others > 0 ? dependents / others : 0,
+        },
+        strongComponent: strongOf.get(node) ?? null,
+        transitive: { dependencies, dependents },
+      });
+    }
+  };
+  visitNode();
   return {
     facts,
     measured,
@@ -214,7 +223,7 @@ function longestChains(level: Level, limit: number): string[][] {
     if (chains.length >= limit) {
       return;
     }
-    const current = path[path.length - 1];
+    const current = path.at(-1);
     if (current === undefined) {
       return;
     }
@@ -277,28 +286,22 @@ function brandes(adjacency: Adjacency): Betweenness {
   for (const s of adjacency.nodes) {
     node.set(s, 0);
   }
+  brandesS(adjacency, edge, node);
+  return { edge, node };
+}
+
+function brandesS(
+  adjacency: Adjacency,
+  edge: Map<string, number>,
+  node: Map<string, number>
+) {
   for (const s of adjacency.nodes) {
     const stack: string[] = [];
     const predecessors = new Map<string, string[]>();
     const sigma = new Map<string, number>([[s, 1]]);
     const distance = new Map<string, number>([[s, 0]]);
     const queue = [s];
-    for (const v of queue) {
-      stack.push(v);
-      const dv = distance.get(v) ?? 0;
-      for (const w of [...(adjacency.out.get(v) ?? [])].sort(byId)) {
-        if (!distance.has(w)) {
-          distance.set(w, dv + 1);
-          queue.push(w);
-        }
-        if (distance.get(w) === dv + 1) {
-          sigma.set(w, (sigma.get(w) ?? 0) + (sigma.get(v) ?? 0));
-          const list = predecessors.get(w) ?? [];
-          list.push(v);
-          predecessors.set(w, list);
-        }
-      }
-    }
+    brandesSV(queue, stack, distance, adjacency, sigma, predecessors);
     const delta = new Map<string, number>();
     while (stack.length > 0) {
       const w = stack.pop();
@@ -318,7 +321,32 @@ function brandes(adjacency: Adjacency): Betweenness {
       }
     }
   }
-  return { edge, node };
+}
+
+function brandesSV(
+  queue: string[],
+  stack: string[],
+  distance: Map<string, number>,
+  adjacency: Adjacency,
+  sigma: Map<string, number>,
+  predecessors: Map<string, string[]>
+) {
+  for (const v of queue) {
+    stack.push(v);
+    const dv = distance.get(v) ?? 0;
+    for (const w of [...(adjacency.out.get(v) ?? [])].sort(byId)) {
+      if (!distance.has(w)) {
+        distance.set(w, dv + 1);
+        queue.push(w);
+      }
+      if (distance.get(w) === dv + 1) {
+        sigma.set(w, (sigma.get(w) ?? 0) + (sigma.get(v) ?? 0));
+        const list = predecessors.get(w) ?? [];
+        list.push(v);
+        predecessors.set(w, list);
+      }
+    }
+  }
 }
 
 function articulationPackages(level: Level): string[] {
@@ -393,7 +421,7 @@ function findCorridors(
   level: Level,
   config: GraphConfig["corridors"]
 ): CorridorSearch {
-  const out = level.measured.adjacency.out;
+  const { out } = level.measured.adjacency;
   const supporters = new Map<
     string,
     {
@@ -424,54 +452,16 @@ function findCorridors(
         }
       }
     }
-    for (const destination of level.nodes) {
-      const length = distance.get(destination);
-      if (length === undefined || length < config.minLength) {
-        continue;
-      }
-      if ((sigma.get(destination) ?? 0) > config.maxPathsPerPair) {
-        capped.push(`${source}→${destination}`);
-        continue;
-      }
-      const paths: string[][] = [];
-      const walk = (path: string[]) => {
-        const head = path[0];
-        if (head === undefined) {
-          return;
-        }
-        if (head === source) {
-          paths.push(path);
-          return;
-        }
-        for (const previous of [...(predecessors.get(head) ?? [])].sort(byId)) {
-          walk([previous, ...path]);
-        }
-      };
-      walk([destination]);
-      const pair = `${source}→${destination}`;
-      for (const path of paths) {
-        for (let start = 0; start < path.length; start += 1) {
-          for (
-            let end = start + config.minLength;
-            end < path.length;
-            end += 1
-          ) {
-            const packages = path.slice(start, end + 1);
-            const id = packages.join("→");
-            const entry = supporters.get(id) ?? {
-              destinations: new Set<string>(),
-              packages,
-              pairs: new Set<string>(),
-              sources: new Set<string>(),
-            };
-            entry.pairs.add(pair);
-            entry.sources.add(source);
-            entry.destinations.add(destination);
-            supporters.set(id, entry);
-          }
-        }
-      }
-    }
+    findCorridorsDestination(
+      level,
+      distance,
+      config,
+      sigma,
+      capped,
+      source,
+      predecessors,
+      supporters
+    );
   }
   const qualifying = [...supporters.entries()].filter(
     ([, entry]) => entry.pairs.size >= config.minSupport
@@ -516,6 +506,70 @@ function findCorridors(
   return { capped: capped.sort(byId), corridors };
 }
 
+function findCorridorsDestination(
+  level: Level,
+  distance: Map<string, number>,
+  config: { minSupport: number; minLength: number; maxPathsPerPair: number },
+  sigma: Map<string, number>,
+  capped: string[],
+  source: string,
+  predecessors: Map<string, string[]>,
+  supporters: Map<
+    string,
+    {
+      packages: string[];
+      pairs: Set<string>;
+      sources: Set<string>;
+      destinations: Set<string>;
+    }
+  >
+) {
+  for (const destination of level.nodes) {
+    const length = distance.get(destination);
+    if (length === undefined || length < config.minLength) {
+      continue;
+    }
+    if ((sigma.get(destination) ?? 0) > config.maxPathsPerPair) {
+      capped.push(`${source}→${destination}`);
+      continue;
+    }
+    const paths: string[][] = [];
+    const walk = (path: string[]) => {
+      const [head] = path;
+      if (head === undefined) {
+        return;
+      }
+      if (head === source) {
+        paths.push(path);
+        return;
+      }
+      for (const previous of [...(predecessors.get(head) ?? [])].sort(byId)) {
+        walk([previous, ...path]);
+      }
+    };
+    walk([destination]);
+    const pair = `${source}→${destination}`;
+    for (const path of paths) {
+      for (let start = 0; start < path.length; start += 1) {
+        for (let end = start + config.minLength; end < path.length; end += 1) {
+          const packages = path.slice(start, end + 1);
+          const id = packages.join("→");
+          const entry = supporters.get(id) ?? {
+            destinations: new Set<string>(),
+            packages,
+            pairs: new Set<string>(),
+            sources: new Set<string>(),
+          };
+          entry.pairs.add(pair);
+          entry.sources.add(source);
+          entry.destinations.add(destination);
+          supporters.set(id, entry);
+        }
+      }
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Assembly
 
@@ -552,7 +606,7 @@ export function analyzeWorkspaceGraph(
   config: AnalysisConfig = ANALYSIS_CONFIG
 ): WorkspaceGraphAnalysis {
   const policy = config.workspaceGraph;
-  const graph = workspace.graph;
+  const { graph } = workspace;
 
   const packageNodes = graph.packages.map((p) => p.package);
   const usageOnlyEdges = graph.dependencyEdges
@@ -568,7 +622,7 @@ export function analyzeWorkspaceGraph(
   ]);
   const packages = measureLevel(packageNodes, packageEdgePairs);
 
-  const moduleNodes = graph.modules.map((m) => m.id);
+  const moduleNodes = graph.modules.map((moduleEntry2) => moduleEntry2.id);
   const modules = measureLevel(
     moduleNodes,
     graph.moduleEdges.map((edge): [string, string] => [edge.from, edge.to])
@@ -689,13 +743,17 @@ export function analyzeWorkspaceGraph(
   const { corridors, capped } = findCorridors(packages, policy.corridors);
 
   const roles = new Map(
-    graph.modules.flatMap((m) =>
-      m.role === undefined ? [] : [[m.id, m.role] as const]
+    graph.modules.flatMap((moduleEntry) =>
+      moduleEntry.role === undefined
+        ? []
+        : [[moduleEntry.id, moduleEntry.role] as const]
     )
   );
   const packageOf = new Map(
-    graph.modules.flatMap((m) =>
-      m.package === undefined ? [] : [[m.id, m.package] as const]
+    graph.modules.flatMap((moduleEntry4) =>
+      moduleEntry4.package === undefined
+        ? []
+        : [[moduleEntry4.id, moduleEntry4.package] as const]
     )
   );
   const moduleAnalyses = modules.nodes.map(
@@ -735,10 +793,10 @@ export function analyzeWorkspaceGraph(
       policy.report.topPackages
     ),
     highFanInModules: ranked(
-      moduleAnalyses.map((m) => ({
-        id: m.module,
-        value: m.direct.fanIn,
-        ...(m.role !== undefined && { role: m.role }),
+      moduleAnalyses.map((moduleEntry3) => ({
+        id: moduleEntry3.module,
+        value: moduleEntry3.direct.fanIn,
+        ...(moduleEntry3.role !== undefined && { role: moduleEntry3.role }),
       })),
       policy.report.topModules
     ),
@@ -761,7 +819,7 @@ export function analyzeWorkspaceGraph(
     packageLayers,
   };
 
-  const coverage = workspace.ingestion.coverage;
+  const { coverage } = workspace.ingestion;
   const cautions: WorkspaceGraphCaution[] = [];
   if (!coverage.complete) {
     cautions.push({

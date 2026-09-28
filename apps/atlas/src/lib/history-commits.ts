@@ -1,7 +1,8 @@
-import * as path from "node:path";
+import { join } from "node:path";
 import { EXCLUDED_DIRS, ownerBoundary } from "./boundary";
-import { classifyFile, renameAliases } from "./churn";
+import { renameAliases } from "./churn";
 import type { AnalysisConfig } from "./config";
+import { classifyFile } from "./file-kind";
 import type { CommitChange, GitHistory } from "./git-history";
 import type {
   ChurnFileKind,
@@ -15,7 +16,7 @@ import type {
 // (`<root>` owner) count as files but never as a package.
 
 export const PAIR = "\0";
-export const ROOT_OWNER = "<root>";
+const ROOT_OWNER = "<root>";
 const DAY_MS = 86_400_000;
 
 export type AvailableHistory = Extract<GitHistory, { available: true }>;
@@ -42,7 +43,7 @@ function isExcluded(file: string): boolean {
   return file.split("/").some((segment) => EXCLUDED_DIRS.includes(segment));
 }
 
-export function emptyKinds(): Record<ChurnFileKind, number> {
+function emptyKinds(): Record<ChurnFileKind, number> {
   return { config: 0, other: 0, source: 0, story: 0, test: 0 };
 }
 
@@ -130,8 +131,7 @@ export function ownerResolver(
   graph: WorkspaceModuleGraph,
   root: string
 ): (file: string) => string {
-  return (file) =>
-    graph.owners[file] ?? ownerBoundary(root, path.join(root, file));
+  return (file) => graph.owners[file] ?? ownerBoundary(root, join(root, file));
 }
 
 /** Directed package edges (`from\0to`) implied by module edges across owners. */

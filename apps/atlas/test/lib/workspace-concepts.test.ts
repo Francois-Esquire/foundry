@@ -11,6 +11,10 @@ import { analyzeWorkspace } from "../../src/lib/workspace-intelligence";
 import type { Spec } from "./helpers/workspace-builder";
 import { workspace } from "./helpers/workspace-builder";
 
+const expectedTextPattern =
+  /persistenceHub|domainCluster|architecturalSubsystem|driftCorridor|Score"|score"|hub|drift|subsystem/i;
+const expectedTextPattern2 = /^ambiguous name Status/;
+
 function analyze(spec: Spec): WorkspaceConceptIntelligence {
   const ws = workspace(spec);
   return analyzeWorkspaceConcepts(ws, analyzeWorkspaceGraph(ws));
@@ -150,7 +154,7 @@ describe("path context", () => {
   });
 
   it("records a reverse-directed relation instead of inventing an outward path", () => {
-    const analysis = analyze({
+    const packageAnalysis2 = analyze({
       concepts: [
         {
           behavior: { A: { implementationBehaviors: 2, sourceBehaviors: 2 } },
@@ -161,7 +165,7 @@ describe("path context", () => {
       ],
       edges: ["B→A"],
     });
-    const thing = concept(analysis, "B/b.ts#Thing");
+    const thing = concept(packageAnalysis2, "B/b.ts#Thing");
     expect(thing.topology.paths).toEqual([
       {
         distance: 1,
@@ -175,7 +179,7 @@ describe("path context", () => {
   });
 
   it("reports a disconnected implementation as a second region under complete coverage", () => {
-    const analysis = analyze({
+    const packageAnalysis = analyze({
       concepts: [
         {
           id: "A/a.ts#Thing",
@@ -185,7 +189,7 @@ describe("path context", () => {
       ],
       packages: ["A", "C"],
     });
-    const thing = concept(analysis, "A/a.ts#Thing");
+    const thing = concept(packageAnalysis, "A/a.ts#Thing");
     expect(thing.topology.paths).toEqual([
       {
         distance: null,
@@ -198,7 +202,7 @@ describe("path context", () => {
     expect(thing.topology.components).toEqual(["A", "C"]);
     expect(thing.shapes).toContain("multi-region");
     expect(thing.propagation).toBe("disconnected");
-    expect(analysis.families[0]?.categories).toContain(
+    expect(packageAnalysis.families[0]?.categories).toContain(
       "disconnected-implementation"
     );
   });
@@ -556,7 +560,7 @@ describe("coverage", () => {
         ),
         "Status"
       )
-    ).toMatch(/^ambiguous name Status/);
+    ).toMatch(expectedTextPattern2);
     expect(renderWorkspaceConcept(analyzeWorkspace(ws), "Nope")).toBe(
       "no concept Nope"
     );
@@ -617,9 +621,7 @@ describe("invariance and hygiene", () => {
 
   it("carries no pattern label and no score", () => {
     const text = JSON.stringify(analyze(spec));
-    expect(text).not.toMatch(
-      /persistenceHub|domainCluster|architecturalSubsystem|driftCorridor|Score"|score"|hub|drift|subsystem/i
-    );
+    expect(text).not.toMatch(expectedTextPattern);
   });
 
   it("stamps the workspace intelligence policy and renders one concept", () => {

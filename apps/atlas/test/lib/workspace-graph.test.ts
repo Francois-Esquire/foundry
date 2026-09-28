@@ -6,6 +6,10 @@ import type { WorkspaceGraphAnalysis } from "../../src/lib/workspace-graph-types
 import type { WorkspaceReport } from "../../src/lib/workspace-types";
 import { WORKSPACE_SCHEMA_VERSION } from "../../src/lib/workspace-types";
 
+const expectedTextPattern = /health/i;
+const expectedTextPattern2 = /importance/i;
+const expectedTextPattern3 = /score/i;
+
 interface Spec {
   anchored?: string[];
   /** Unrelated indexes, to prove they do not leak into graph facts. */
@@ -22,8 +26,12 @@ interface Spec {
   packages?: string[];
 }
 
-function parse(edge: string): { from: string; to: string; count: number } {
-  const [pair, count] = edge.split(":");
+function parse(moduleEdge: string): {
+  from: string;
+  to: string;
+  count: number;
+} {
+  const [pair, count] = moduleEdge.split(":");
   const [from, to] = (pair ?? "").split("→");
   return {
     count: count === undefined ? 1 : Number(count),
@@ -564,8 +572,8 @@ describe("determinism and separation", () => {
     const analysis = analyzeWorkspaceGraph(workspace(spec));
     const json = JSON.stringify(analysis);
     expect(JSON.parse(json)).toEqual(analysis);
-    expect(json).not.toMatch(/score/i);
-    expect(json).not.toMatch(/importance/i);
-    expect(json).not.toMatch(/health/i);
+    expect(json).not.toMatch(expectedTextPattern3);
+    expect(json).not.toMatch(expectedTextPattern2);
+    expect(json).not.toMatch(expectedTextPattern);
   });
 });

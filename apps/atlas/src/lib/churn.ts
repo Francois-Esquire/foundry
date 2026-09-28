@@ -42,8 +42,6 @@ function isExcluded(file: string): boolean {
   return file.split("/").some((segment) => EXCLUDED_DIRS.includes(segment));
 }
 
-export { classifyFile };
-
 /**
  * Attribute every commit to the path each changed file has today. Commits
  * walk newest → oldest, so when a rename is met the old name can be mapped
@@ -78,37 +76,46 @@ function collectPathStats(
   const aliases = renameAliases(history.commits);
   for (const commit of history.commits) {
     const inWindow = since === null || Date.parse(commit.timestamp) >= since;
-    for (const change of commit.files) {
-      const path = aliases.get(change.path) ?? change.path;
-      let record = stats.get(path);
-      if (record === undefined) {
-        record = emptyStats();
-        stats.set(path, record);
-      }
-      // Compare instants, not %cI strings: offsets vary across the log, and
-      // log order is not strictly committer-date order on non-linear history.
-      if (isLater(commit.timestamp, record.lastChangedAt)) {
-        record.lastChangedAt = commit.timestamp;
-      }
-      if (
-        record.firstChangedAt === undefined ||
-        isLater(record.firstChangedAt, commit.timestamp)
-      ) {
-        record.firstChangedAt = commit.timestamp;
-      }
-      if (!inWindow) {
-        continue;
-      }
-      record.windowCommits.add(commit.hash);
-      record.additions += change.additions ?? 0;
-      record.deletions += change.deletions ?? 0;
-      record.authors.set(
-        commit.author,
-        (record.authors.get(commit.author) ?? 0) + 1
-      );
-    }
+    collectPathStatsChange(commit, aliases, stats, inWindow);
   }
   return stats;
+}
+
+function collectPathStatsChange(
+  commit: CommitChange,
+  aliases: Map<string, string>,
+  stats: Map<string, PathStats>,
+  inWindow: boolean
+) {
+  for (const change of commit.files) {
+    const path = aliases.get(change.path) ?? change.path;
+    let record = stats.get(path);
+    if (record === undefined) {
+      record = emptyStats();
+      stats.set(path, record);
+    }
+    // Compare instants, not %cI strings: offsets vary across the log, and
+    // log order is not strictly committer-date order on non-linear history.
+    if (isLater(commit.timestamp, record.lastChangedAt)) {
+      record.lastChangedAt = commit.timestamp;
+    }
+    if (
+      record.firstChangedAt === undefined ||
+      isLater(record.firstChangedAt, commit.timestamp)
+    ) {
+      record.firstChangedAt = commit.timestamp;
+    }
+    if (!inWindow) {
+      continue;
+    }
+    record.windowCommits.add(commit.hash);
+    record.additions += change.additions ?? 0;
+    record.deletions += change.deletions ?? 0;
+    record.authors.set(
+      commit.author,
+      (record.authors.get(commit.author) ?? 0) + 1
+    );
+  }
 }
 
 /** True when `candidate` is a later instant than `current`, or current is unset. */
@@ -169,7 +176,7 @@ export function percentile(sorted: number[], value: number): number {
   let low = 0;
   let high = sorted.length;
   while (low < high) {
-    const mid = (low + high) >> 1;
+    const mid = Math.floor((low + high) / 2);
     if ((sorted[mid] ?? 0) < value) {
       low = mid + 1;
     } else {
@@ -233,7 +240,7 @@ function summarize(
       file.lastChangedAt !== undefined &&
       isLater(file.lastChangedAt, lastChangedAt)
     ) {
-      lastChangedAt = file.lastChangedAt;
+      ({ lastChangedAt } = file);
     }
   }
   const additions = files.reduce((sum, file) => sum + file.additions, 0);
@@ -329,8 +336,8 @@ export function analyzeChurn(
       commit.files.length > 0 &&
       (since === null || Date.parse(commit.timestamp) >= since)
   );
-  const newest = windowCommits[0];
-  const oldest = windowCommits[windowCommits.length - 1];
+  const [newest] = windowCommits;
+  const oldest = windowCommits.at(-1);
   const summary = summarize(files, stats, deletedFiles);
   return {
     available: true,

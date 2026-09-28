@@ -170,7 +170,7 @@ describe("external findings", () => {
     const { scenarios } = generateRecenteringScenarios(
       facts({ publicContract: true })
     );
-    const semantic = scenarios[1];
+    const [, semantic] = scenarios;
     expect(semantic?.status).toBe("constrained");
     expect(semantic?.constraints).toEqual([
       { kind: "public-contract", package: A },
@@ -187,7 +187,7 @@ describe("anchors", () => {
     const { scenarios, diagnostics } = generateRecenteringScenarios(
       facts({ anchors: [{ package: A, reason: "core is fixed" }] })
     );
-    const semantic = scenarios[1];
+    const [, semantic] = scenarios;
     expect(semantic?.kind).toBe("rehome-semantic-center");
     expect(semantic?.status).toBe("blocked");
     expect(semantic?.constraints).toEqual([
@@ -199,7 +199,7 @@ describe("anchors", () => {
       homeAnchored: true,
     });
     expect(diagnostics.blocked).toBe(1);
-    const behaviorHome = scenarios[2];
+    const [, , behaviorHome] = scenarios;
     expect(behaviorHome?.kind).toBe("rehome-behavior");
     expect(behaviorHome?.status).toBe("plausible");
     expect(behaviorHome?.rationale.some((item) => item.kind === "anchor")).toBe(
@@ -381,7 +381,7 @@ describe("representation boundaries and responsibility splits", () => {
     // The boundary and split kinds reach the same placement as consolidation
     // (B's behavior is entirely converters), so they fold into it.
     expect(diagnostics.deduplicated).toBe(2);
-    const consolidate = scenarios[1];
+    const [, consolidate] = scenarios;
     expect(packagesOf(consolidate, "domain-behavior")).toEqual([A]);
     expect(packagesOf(consolidate, "persistence")).toEqual([B]);
     expect(packagesOf(consolidate, "conversion")).toEqual([B]);
@@ -408,7 +408,7 @@ describe("representation boundaries and responsibility splits", () => {
       "rehome-semantic-center",
       "rehome-behavior",
     ]);
-    const merged = scenarios[2];
+    const [, , merged] = scenarios;
     expect(
       merged?.rationale.some(
         (item) =>
@@ -437,7 +437,7 @@ describe("evidence quality", () => {
         unobservedConformance: true,
       })
     );
-    const semantic = scenarios[1];
+    const [, semantic] = scenarios;
     expect(semantic?.status).toBe("constrained");
     expect(semantic?.confidence).toBe("weak");
     expect(semantic?.constraints).toContainEqual({
@@ -469,18 +469,18 @@ describe("evidence quality", () => {
   });
 
   it("counts distinct rationale kinds: three strong, two moderate, fewer weak", () => {
-    const strong = generateRecenteringScenarios(
+    const [, strong] = generateRecenteringScenarios(
       facts({
         implementationCenters: [B],
         supportingFamilies: [{ families: ["X", "Y"], package: B }],
       })
-    ).scenarios[1];
+    ).scenarios;
     expect(strong?.confidence).toBe("strong");
-    const moderate = generateRecenteringScenarios(facts()).scenarios[1];
+    const [, moderate] = generateRecenteringScenarios(facts()).scenarios;
     expect(moderate?.confidence).toBe("moderate");
-    const weak = generateRecenteringScenarios(
+    const [, weak] = generateRecenteringScenarios(
       facts({ representationShares: shares({ [A]: 9, [B]: 1 }) })
-    ).scenarios[1];
+    ).scenarios;
     expect(weak?.confidence).toBe("weak");
   });
 

@@ -1,4 +1,4 @@
-import * as path from "node:path";
+import { join } from "node:path";
 
 import { beforeAll, describe, expect, it } from "vitest";
 import { analyzeSurface } from "../../src/lib/analyze";
@@ -300,7 +300,7 @@ describe("profile composition", () => {
 });
 
 describe("fixture integration", () => {
-  const root = path.join(import.meta.dirname, "fixtures", "deps");
+  const root = join(import.meta.dirname, "fixtures", "deps");
   let report: SurfaceReport;
 
   beforeAll(async () => {
