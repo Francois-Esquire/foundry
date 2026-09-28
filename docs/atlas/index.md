@@ -9,11 +9,12 @@ sidebar:
 
 Point it at a directory of TypeScript packages. Atlas reads the packages,
 their files, and the imports between them, saves what it found outside the
-workspace, and serves a local viewer. Packages are islands, files are the
-settlements on them, and dependencies are the sea routes between islands.
-Zoom in and an island resolves into districts, then into files. Select a
-place and Atlas shows what it imports, what depends on it, and the evidence
-behind where it was drawn.
+workspace, and serves a local viewer. Packages are islands and files are the
+settlements on them. Dependency decides where an island sits: foundations to
+the north, leaves to the south, related packages drawn together. Zoom in and
+an island resolves into districts, then into files. Select a place and Atlas
+shows what it imports, what depends on it, and the evidence behind where it
+was drawn; switch on the sea routes to see the trade between islands.
 
 ```sh
 atlas scan ./my-workspace

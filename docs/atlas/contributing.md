@@ -23,9 +23,10 @@ loaders together. `test:package` packs the tarball, installs it into a
 temporary consumer, and scans and serves a fixture through the installed
 bin. The release workflow runs the same check before publishing.
 
-Atlas is published on its own as `@foundry/atlas`. The repository's release
-tooling publishes every non-private workspace under one shared version from
-a `v*` tag, so Atlas and Quirks currently release together.
+Atlas is a separate public package, `@foundry/atlas`, not yet published.
+The repository's release tooling publishes every non-private workspace
+under one shared version from a `v*` tag, so Atlas and Quirks will release
+together until the tooling learns per-package tags.
 
 ## Documentation
 

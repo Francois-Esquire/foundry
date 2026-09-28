@@ -19,8 +19,11 @@ physical scale.
 - **Settlements are files.** Files are placed within their island by what
   they import and the concepts they share, so files that work together sit
   together. Marks differ for source, test, and story files.
-- **Routes are dependencies.** Sea routes connect a package to its leading
-  consumers. Select an island and its own trade shows instead.
+- **Dependency is placement.** By default no lines are drawn between
+  islands; the rows and the distances carry the relationship. Sea trade
+  routes are an optional layer in the chart settings: switched on, they
+  connect each package to its leading consumers, and a selected island
+  shows its own trade instead. A selected file can trace its imports.
 - **Districts are responsibilities.** Inside an island, files that the
   internal analysis groups under one responsibility share a region.
 

@@ -49,14 +49,15 @@ normal side effects; read the [safety and limits](https://francois-esquire.githu
 | Part | Purpose |
 | --- | --- |
 | [Quirks](apps/quirks) | The local CLI and configuration API. |
+| [Atlas](apps/atlas) | A CLI and local web viewer that draws a workspace as a map. |
 | [Agents](packages/agents) | Agent execution and retained conversations. |
 | [Workflows](packages/workflows) | Steps, composition, and execution state. |
 | [Models](packages/models) | Model providers and coding-agent harness access. |
 | [Workspaces](packages/workspaces) | Directory inventories and Git operations. |
 | [Artifacts](packages/artifacts) | Versioned content, blob storage, and filesystem delivery. |
 
-Quirks is currently the only package configured for public npm releases. The
-shared libraries are private workspace packages bundled into it.
+Quirks and Atlas are the packages configured for public npm releases. The
+shared libraries are private workspace packages bundled into Quirks.
 
 ## Contributing
 
