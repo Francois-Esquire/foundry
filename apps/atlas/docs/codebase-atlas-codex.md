@@ -6,7 +6,9 @@ can change without the other: the semantic surface can gain or drop fields, and 
 scene can change encodings, as long as the resolver and binding tables are kept
 current.
 
-This document inventories both sides first. Nothing here changes the scene.
+This document inventories both sides first. Nothing here changes the scene. The
+first implementation, covering the values the atlas binds today, lives in
+`src/web/codex/`; its README records every contact point.
 
 "Density" here means how much meaning each scale can carry. File concentration is
 one codex value among many, not the organizing idea.

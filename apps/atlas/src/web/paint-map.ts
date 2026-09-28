@@ -1,4 +1,5 @@
 import type { BelongingLayer, BelongingRegion } from "./belonging";
+import { labelPriority, territoryLabelSize } from "./codex/bindings";
 import { compositionInsideLand } from "./composition-placement";
 import type { Continent } from "./continent";
 import { continentCoasts } from "./continent";
@@ -591,7 +592,7 @@ function paintLabels(
   for (const p of territories) {
     const size = Math.min(
       26 / pixels,
-      Math.max(12 / pixels, 13, Math.min(22, p.radius * 0.15))
+      Math.max(12 / pixels, territoryLabelSize(p.radius))
     );
     if (size * pixels >= 9) {
       add(p, p.label, p.x, p.y + territoryLabelY(p), size, "AtlasDisplay");
@@ -636,8 +637,8 @@ function paintLabels(
     }
     for (const f of [...p.files].sort(
       (a, b) =>
-        b.incoming + b.outgoing - a.incoming - a.outgoing ||
-        a.id.localeCompare(b.id)
+        labelPriority(b.incoming, b.outgoing) -
+          labelPriority(a.incoming, a.outgoing) || a.id.localeCompare(b.id)
     )) {
       if (f.id === fileId) {
         continue;

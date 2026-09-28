@@ -1,13 +1,13 @@
 import { expect, it } from "vitest";
 
 import { insidePolygons } from "../../src/web/atmosphere";
+import { settlementTier } from "../../src/web/codex/bindings";
 import {
   continentCell,
   continentCoasts,
   createContinents,
   forestSites,
   settlementBuildings,
-  settlementKind,
 } from "../../src/web/continent";
 import { ecosystemOpacity } from "../../src/web/ecosystem-layer";
 import { loadAtlas } from "../helpers/reference-atlas";
@@ -61,7 +61,7 @@ it("places deterministic forests between settlements with shoreline clearance", 
 });
 
 it("uses file count for settlement scale and keeps building footprints inside package terrain", async () => {
-  expect([0, 39, 40, 299, 300, 1000].map(settlementKind)).toEqual([
+  expect([0, 39, 40, 299, 300, 1000].map(settlementTier)).toEqual([
     "village",
     "village",
     "town",

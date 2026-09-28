@@ -1,8 +1,6 @@
-import { runInternalAnalysis } from "../../src/lib/internal-analysis";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-
 import { afterAll, describe, expect, it } from "vitest";
 import {
   getNondominatedScenarios,
@@ -18,6 +16,7 @@ import type {
   ScenarioFamilyReview,
 } from "../../src/lib/architecture-review-types";
 import { PACKAGE_ARCHITECTURE_REVIEW_SCHEMA_VERSION } from "../../src/lib/architecture-review-types";
+import { runInternalAnalysis } from "../../src/lib/internal-analysis";
 import { analyzeInternalResponsibilities } from "../../src/lib/internal-responsibility";
 import { analyzeInternalRewiring } from "../../src/lib/internal-rewiring";
 import type {
@@ -1062,7 +1061,11 @@ describe("independence", () => {
 
   it("runs through the library entry point", () => {
     const root = workspace(files);
-    const report = runInternalAnalysis({ root, target: "packages/p", through: "review" }).review;
+    const report = runInternalAnalysis({
+      root,
+      target: "packages/p",
+      through: "review",
+    }).review;
     expect(report?.schemaVersion).toBe(1);
     expect(report).toBeDefined();
   });

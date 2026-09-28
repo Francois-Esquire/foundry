@@ -1,10 +1,9 @@
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-
+import { operatorFingerprint } from "../../../src/lib/architectural-operator";
 import type { ArchitecturalOperator } from "../../../src/lib/operator-types";
 import { OPERATOR_SCHEMA_VERSION } from "../../../src/lib/operator-types";
-import { operatorFingerprint } from "../../../src/lib/architectural-operator";
 import type { Spec } from "./workspace-builder";
 
 // Shared by the V11.3 planning and V11.4 readiness suites: the synthetic

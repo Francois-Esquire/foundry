@@ -1,3 +1,4 @@
+import { districtAffinity } from "./codex/bindings";
 import type { AtlasInternals } from "./internals";
 
 type Report = AtlasInternals["responsibilities"];
@@ -37,7 +38,7 @@ export function deriveHierarchy(evidence: HierarchyEvidence) {
     if (from === undefined || to === undefined || from === to) {
       continue;
     }
-    const weight = Math.log1p(edge.moduleEdges) + Math.log1p(edge.symbolFlow);
+    const weight = districtAffinity(edge.moduleEdges, edge.symbolFlow);
     weights[from * count + to] = (weights[from * count + to] ?? 0) + weight;
     weights[to * count + from] = (weights[to * count + from] ?? 0) + weight;
     const source = groups.get(from);

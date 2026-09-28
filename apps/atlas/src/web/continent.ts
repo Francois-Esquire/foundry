@@ -1,4 +1,5 @@
 import { insidePolygons } from "./atmosphere";
+import { settlementTier } from "./codex/bindings";
 import { territoryLabelY, unit } from "./geography";
 import { landmassFootprint } from "./landmass-footprint";
 import { packageGroups } from "./landmasses";
@@ -52,12 +53,8 @@ export function continentHeight(continent: Continent, x: number, y: number) {
   );
 }
 
-export function settlementKind(files: number) {
-  return files >= 300 ? "city" : files >= 40 ? "town" : "village";
-}
-
 export function settlementBuildings(p: Territory) {
-  const kind = settlementKind(p.files.length);
+  const kind = settlementTier(p.files.length);
   const target = kind === "city" ? 64 : kind === "town" ? 18 : 5;
   const points = p.coast.flat(2);
   if (!points.length) {

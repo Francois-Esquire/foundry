@@ -1132,7 +1132,11 @@ describe("independence", () => {
 
   it("runs through the library entry point", () => {
     const root = workspace(files);
-    const report = runInternalAnalysis({ root, target: "packages/p", through: "rewiring" }).rewiring;
+    const report = runInternalAnalysis({
+      root,
+      target: "packages/p",
+      through: "rewiring",
+    }).rewiring;
     expect(report?.schemaVersion).toBe(1);
     expect(report).toBeDefined();
   });

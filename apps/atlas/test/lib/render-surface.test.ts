@@ -15,8 +15,10 @@ import {
 import type { SurfaceReport } from "../../src/lib/types";
 
 const fixtures = mkdtempSync(path.join(tmpdir(), "atlas-render-"));
-cpSync(path.join(import.meta.dirname, "fixtures"), fixtures, { recursive: true });
-afterAll(() => rmSync(fixtures, { recursive: true, force: true }));
+cpSync(path.join(import.meta.dirname, "fixtures"), fixtures, {
+  recursive: true,
+});
+afterAll(() => rmSync(fixtures, { force: true, recursive: true }));
 /**
  * Churn recency is measured against a clock; pin it so runs compare equal.
  * Commit counts still move whenever fixture files are committed, so a churn

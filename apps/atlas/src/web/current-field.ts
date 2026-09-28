@@ -1,3 +1,4 @@
+import { currentStrength } from "./codex/bindings";
 import type { AtlasData } from "./types";
 
 interface Connection {
@@ -41,7 +42,7 @@ export function dependencyCurrent(data: AtlasData) {
         dy: (b.y - a.y) / length,
         length,
         reach: Math.max(85, (a.radius + b.radius) * 0.55),
-        weight: Math.log1p(count),
+        weight: currentStrength(count),
         x: a.x,
         y: a.y,
       });

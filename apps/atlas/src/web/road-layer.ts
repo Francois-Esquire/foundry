@@ -1,5 +1,6 @@
 import * as THREE from "three";
 
+import { roadWidth } from "./codex/bindings";
 import type { createRoadNetwork } from "./roads";
 
 export function createRoadLayer(network: ReturnType<typeof createRoadNetwork>) {
@@ -16,7 +17,7 @@ export function createRoadLayer(network: ReturnType<typeof createRoadNetwork>) {
       const dx = b.x - a.x,
         dy = b.y - a.y,
         length = Math.hypot(dx, dy);
-      const width = 0.7 + Math.log1p(weight) / Math.log1p(maximum);
+      const width = roadWidth(weight, maximum);
       const count = Math.ceil(length / 2);
       const color = new THREE.Color("#997c4e");
       for (let i = 0; i < count; i++) {

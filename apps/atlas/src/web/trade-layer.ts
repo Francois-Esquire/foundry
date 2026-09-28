@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { laneWidth } from "./codex/bindings";
 import { compositionInsideLand } from "./composition-placement";
 import { roundSeaLane } from "./sea-lane";
 import { terrainHeight } from "./terrain";
@@ -278,9 +279,7 @@ export function createTradeLayer(
           const dx = after.x - before.x,
             dy = after.y - before.y,
             magnitude = Math.hypot(dx, dy) || 1;
-          const width =
-            0.35 +
-            (0.25 * Math.log1p(route.dependency.weight)) / Math.log1p(maximum);
+          const width = laneWidth(route.dependency.weight, maximum);
           for (const side of [-1, 1]) {
             positions.push(
               p.x - (dy / magnitude) * width * side,

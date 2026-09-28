@@ -1,3 +1,5 @@
+import { neighborhoodAffinity } from "./codex/bindings";
+
 export interface FileRelationship {
   attraction: number;
   concepts: string[];
@@ -62,7 +64,7 @@ export function fileRelationships(
   return [...pairs.values()]
     .map((relation) => ({
       ...relation,
-      attraction: relation.imports + 0.5 * Math.min(1, relation.attraction),
+      attraction: neighborhoodAffinity(relation.imports, relation.attraction),
     }))
     .sort(
       (a, b) =>

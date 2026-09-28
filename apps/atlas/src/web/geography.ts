@@ -1,5 +1,6 @@
 import { contours } from "d3-contour";
 
+import { attraction, latitude } from "./codex/bindings";
 import type { AtlasFile, Polygon, Territory } from "./types";
 
 export function unit(id: string): number {
@@ -18,7 +19,7 @@ export function settlePackages(
   const byId = new Map(regions.map((p) => [p.id, p]));
   for (let step = 0; step < 450; step++) {
     for (const a of regions) {
-      a.y += ((layers.get(a.id) ?? 0) * -220 - a.y) * 0.018;
+      a.y += (latitude(layers.get(a.id) ?? 0) - a.y) * 0.018;
       a.x *= 0.999;
     }
     for (const edge of routes) {
@@ -31,9 +32,7 @@ export function settlePackages(
       const dy = b.y - a.y;
       const d = Math.hypot(dx, dy) || 1;
       const pull =
-        ((d - a.radius - b.radius - 75) / d) *
-        0.003 *
-        Math.log2(2 + edge.weight);
+        ((d - a.radius - b.radius - 75) / d) * 0.003 * attraction(edge.weight);
       a.x += dx * pull;
       a.y += dy * pull;
       b.x -= dx * pull;
