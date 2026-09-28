@@ -51,7 +51,7 @@ jobs:
         run: |
           bun run validate
           bun run build
-          bun run test
+          bun run test --concurrency=2 --continue=always
       - name: Pack and test public packages
         run: bun run release:pack
       - uses: actions/upload-artifact@v7
