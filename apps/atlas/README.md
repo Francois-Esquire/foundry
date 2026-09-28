@@ -1,81 +1,114 @@
 # Atlas
 
-One Bun CLI, the semantic analysis library, and a Vite + React viewer.
+A CLI and local web viewer for workspace semantic surveys. Point it at a
+directory of TypeScript packages; Atlas analyzes them, saves the result
+outside the workspace, and serves a map you can explore in the browser:
+packages as territories, files as settlements, dependencies as the routes
+between them.
+
+Atlas runs on [Bun](https://bun.sh) 1.3.14 or newer. Git history is optional
+and needs `git` on the PATH.
 
 ```sh
+bun add -g @foundry/atlas     # once published
+atlas /path/to/workspace      # scan, serve, open the browser
+```
+
+Until the package is on npm, run it from a checkout of Foundry:
+
+```sh
+git clone https://github.com/Francois-Esquire/foundry.git
+cd foundry && bun install
 bun run --filter @foundry/atlas build
-bun run atlas scan /path/to/workspace
-bun run atlas serve /path/to/workspace
+bun run atlas -- /path/to/workspace
 ```
 
-`atlas [path]` generates output, serves it, and opens the browser.
-`atlas scan [path]` only generates. `atlas serve [path]` only serves.
-Paths default to the caller's current directory. Flags: `--state <path>`,
-`--port <number>`, `--no-open`, `--history`, `--help`. Port zero selects a free port.
-`--history` adds Git checkpoints during a scan and requires a Git repository.
-
-The CLI generates the dataset incrementally, then runs `runInternalAnalysis`
-through the review stage for each complete package. Internal reports are currently
-recomputed on every scan. Workspace settings still come from the library's
-existing `foundry.config.json#semantics` loader.
+## Commands
 
 ```text
-src/cli/index.ts       Commands: resolve workspace, call library, start server
-src/cli/scan.ts        Calls the library and saves its existing results
-src/cli/workspace.ts   Canonical workspace path and hashed storage paths
-src/lib/              Semantic analysis library migrated from Agents
-src/server/server.ts  Static file serving
-src/web/              Atlas renderer and browser data loaders
-public/               Static web assets, including the ship model
+atlas [path]         Refresh a workspace, serve it, and open the browser
+atlas scan [path]    Generate output without starting the web viewer
+atlas serve [path]   Serve saved output without running analysis
+
+  --state <path>     State root (default: ~/.foundry/atlas)
+  --port <number>    Local port (default: 4173; 0 chooses a free port)
+  --no-open          Do not open the browser
+  --history          Include Git history when scanning
+  --help, -h         Show this help
 ```
 
-The CLI calls `generateSemantics` with `root`, `config`, `cache`, and `onProgress`.
-Generated files live under:
+Paths default to the current directory. A scan is incremental: packages
+whose sources have not changed reuse their last analysis. The workspace is
+never modified. The viewer binds to `127.0.0.1` only.
+
+## What a workspace is
+
+Atlas reads the root `package.json` for its `workspaces` patterns, then
+treats every immediate child of `apps`, `packages`, `plugins`, and `tooling`
+that has a `package.json` with a name and at least one `.ts` or `.tsx` file as
+a unit. A `foundry.config.json` at the root can change the roots and exclude
+units:
+
+```json
+{
+  "semantics": {
+    "roots": ["apps", "packages"],
+    "exclude": ["packages/fixtures"],
+    "history": { "checkpoints": 12, "range": "1y", "strategy": "monthly" }
+  }
+}
+```
+
+## Where output goes
 
 ```text
-~/.foundry/atlas/<sha256-of-canonical-workspace-path>/
-  output/
-    manifest.json       Library's dataset manifest
-    ...                 Library's reports, indexes, shards, and projections
-    manifests/          Byte-for-byte copies of package.json files
-    internals/          Unwrapped runInternalAnalysis results by package
-    history/            Library's history output when --history is requested
-  cache/
+~/.foundry/atlas/<sha256 of the workspace path>/
+  output/              the dataset the viewer reads
+    manifest.json      what was scanned, what was skipped, where each file is
+    workspace.json     the whole workspace report
+    packages/          one report and one projection per package
+    modules/           file records and import edges, sharded by package
+    projections/       the dependency graph and other renderer-neutral views
+    concepts/          the concept index
+    manifests/         byte-for-byte copies of each package.json
+    internals/         per-package internal structure evidence
+    history/           checkpoints, timeline, and deltas with --history
+  cache/               analysis cache; delete the directory to force a rebuild
 ```
 
-`--state` replaces `~/.foundry/atlas`. The server maps `/data/*` directly to
-`output/*`, preserving file bytes. It does not parse, wrap, project, or rewrite
-the data. The frontend consumes the library's existing types and shapes.
-There is no saved-view file, data API, or separate contracts layer. The cache
-is not served. The renderer retains its existing layout and geometry calculations
-in memory. The original workspace is unnecessary for rendering saved output;
-the CLI still resolves the supplied workspace path to locate it.
+`--state` replaces `~/.foundry/atlas`. The server maps `/data/*` to
+`output/*` unchanged and never serves the cache.
 
-The library publishes the main dataset before the CLI writes package manifests
-and internal reports. Wait for the scan to finish before loading it. A scan without
-`--history` replaces the output with a current-only dataset.
+Documentation: <https://francois-esquire.github.io/foundry/atlas/>
 
-## Build and development
-
-`build` bundles the CLI and its analysis worker into `dist/cli` with Bun and builds
-the browser app into `dist/web` with Vite. Vite copies `public/` into that web
-output. The CLI serves those assets without running Vite. Scanning does not
-rebuild the frontend. Bun and installed runtime dependencies are required; this
-is not a standalone executable.
+## Development
 
 ```sh
+bun run --filter @foundry/atlas build      # dist/cli and dist/web
 bun run --filter @foundry/atlas dev -- /path/to/workspace --no-open
 bun run --filter @foundry/atlas typecheck
 bun run test --filter=@foundry/atlas
+bun run --cwd=apps/atlas test:package      # install the tarball and run the bin
 ```
 
-Development uses Vite hot reload and proxies `/data` to the same static file
-server. It reads saved output without scanning automatically. Tests run after the
-build through Turbo. Vitest covers the library and renderer; Bun tests exercise
-the built CLI, worker, HTTP server, and browser loaders together. Analyzer fixture
-source is excluded from lint and dead-code analysis because its text is test input.
-All app configuration uses CLI arguments; use Varlock if environment settings are
-introduced.
+`build` bundles the CLI and its analysis worker into `dist/cli` with Bun and
+the browser app into `dist/web` with Vite. `dev` runs Vite with hot reload
+against saved output; it never scans. Vitest covers the library and renderer;
+Bun tests exercise the built CLI, worker, server, and browser loaders.
+`test:package` packs the tarball, installs it into a temporary consumer, and
+scans and serves a fixture through the installed bin, which is what the
+release workflow runs before publishing.
 
-See [migration notes](docs/migration.md) for the source mapping and verification
-limits. Other documents under `docs/` preserve the original design notes.
+```text
+src/cli/       commands, argument parsing, workspace identity
+src/lib/       semantic analysis library
+src/server/    static file server
+src/web/       map renderer and browser data loaders
+public/        static web assets, including the ship model
+docs/          design notes and the migration record
+```
+
+Analyzer fixture source under `test/lib/fixtures` is test input and is
+excluded from lint and dead-code analysis. All configuration is CLI
+arguments; use Varlock if environment settings are introduced. See
+[migration notes](docs/migration.md) for the source mapping.
