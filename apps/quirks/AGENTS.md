@@ -11,3 +11,7 @@ Knip cannot trace those bundled imports back to this manifest. Keep its
 removing one, inspect the build and run
 `bun run test:package` from this directory; the package test installs the
 tarball in an isolated consumer and exercises the CLI.
+
+The `evlog` exception covers imports in the bundled models and workflows code.
+The `@foundry/core` development dependency supplies transitive pagination types
+to the declaration bundler through the explicit mappings in `tsup.config.ts`.

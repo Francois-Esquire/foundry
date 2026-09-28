@@ -8,9 +8,11 @@
     "apps/quirks": {
       "ignoreDependencies": [
         "@browser-ai/transformers-js",
+        "@foundry/core",
         "@noble/hashes",
         "ai-sdk-provider-claude-code",
         "ai-sdk-provider-codex-cli",
+        "evlog",
         "ignore",
         "simple-git",
         "unique-names-generator"

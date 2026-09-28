@@ -30,7 +30,7 @@ export type MonitorSpec =
   | { readonly glob: string; readonly kind: "files" }
   | { readonly kind: "http"; readonly url: string };
 
-export interface FileEntry {
+interface FileEntry {
   readonly checksum: string;
   readonly path: string;
 }
