@@ -10,7 +10,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { sleep, spawn } from "bun";
+import { sleep, spawn, stripANSI } from "bun";
 
 /** Configs live in a tmpdir with no node_modules, so zod is imported by URL. */
 const ZOD = import.meta.resolve("zod");
@@ -189,7 +189,14 @@ async function openTestCli(config: string) {
       child.terminal?.close();
     },
     async see(value: string) {
-      await until(() => output.includes(value));
+      try {
+        await until(() => output.includes(value));
+      } catch (cause) {
+        throw new Error(
+          `Terminal did not show ${JSON.stringify(value)} (exit ${child.exitCode}). Output:\n${stripANSI(output).slice(-8000)}`,
+          { cause }
+        );
+      }
     },
     async send(value: string) {
       child.terminal?.write(value);
