@@ -31,8 +31,8 @@ export function createChannelGraph(
     edges[a]?.push(b);
     edges[b]?.push(a);
   };
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
       const i = y * width + x;
       if (x + 1 < width && owners[i] !== owners[i + 1]) {
         connect(x + 1, y, x + 1, y + 1);
@@ -43,21 +43,7 @@ export function createChannelGraph(
     }
   }
   const components = new Int32Array(points.length).fill(-1);
-  for (let root = 0; root < points.length; root++) {
-    if (components[root] !== -1) {
-      continue;
-    }
-    const queue = [root];
-    components[root] = root;
-    for (const current of queue) {
-      for (const next of edges[current] ?? []) {
-        if (components[next] === -1) {
-          components[next] = root;
-          queue.push(next);
-        }
-      }
-    }
-  }
+  createChannelGraphRoot(points, components, edges);
   const portals = (p: TradePoint) => {
     const nearest = new Map<number, { id: number; distance: number }>();
     points.forEach((q, id) => {
@@ -78,7 +64,7 @@ export function createChannelGraph(
   return (from: TradePoint, to: TradePoint): TradePoint[] => {
     const starts = portals(from),
       ends = portals(to);
-    const pair = [...starts]
+    const [pair] = [...starts]
       .flatMap(([component, start]) => {
         const end = ends.get(component);
         return end ? [{ end, start }] : [];
@@ -86,22 +72,14 @@ export function createChannelGraph(
       .sort(
         (a, b) =>
           a.start.distance + a.end.distance - b.start.distance - b.end.distance
-      )[0];
+      );
     if (!pair) {
       return [];
     }
     const previous = new Int32Array(points.length).fill(-1);
     const queue = [pair.start.id];
     previous[pair.start.id] = pair.start.id;
-    for (let n = 0; n < queue.length && previous[pair.end.id] === -1; n++) {
-      for (const next of edges[queue[n] ?? pair.start.id] ?? []) {
-        if (previous[next] !== -1) {
-          continue;
-        }
-        previous[next] = queue[n] ?? pair.start.id;
-        queue.push(next);
-      }
-    }
+    createChannelGraphN(queue, previous, pair, edges);
     const path = [to];
     for (let i = pair.end.id; ; i = previous[i] ?? pair.start.id) {
       const p = points[i];
@@ -119,7 +97,7 @@ export function createChannelGraph(
       vertex(1, 0).y - vertex(0, 0).y
     );
     const simplify = (part: TradePoint[]): TradePoint[] => {
-      const a = part[0],
+      const [a] = part,
         b = part.at(-1);
       if (!(a && b) || part.length < 3) {
         return part;
@@ -152,4 +130,46 @@ export function createChannelGraph(
     };
     return roundSeaLane([from, ...simplify(path.slice(1, -1)), to], clear);
   };
+}
+
+function createChannelGraphRoot(
+  points: TradePoint[],
+  components: Int32Array<ArrayBuffer>,
+  edges: number[][]
+) {
+  for (let root = 0; root < points.length; root += 1) {
+    if (components[root] !== -1) {
+      continue;
+    }
+    const queue = [root];
+    components[root] = root;
+    for (const current of queue) {
+      for (const next of edges[current] ?? []) {
+        if (components[next] === -1) {
+          components[next] = root;
+          queue.push(next);
+        }
+      }
+    }
+  }
+}
+
+function createChannelGraphN(
+  queue: number[],
+  previous: Int32Array<ArrayBuffer>,
+  pair: {
+    end: { id: number; distance: number };
+    start: { id: number; distance: number };
+  },
+  edges: number[][]
+) {
+  for (let n = 0; n < queue.length && previous[pair.end.id] === -1; n += 1) {
+    for (const next of edges[queue[n] ?? pair.start.id] ?? []) {
+      if (previous[next] !== -1) {
+        continue;
+      }
+      previous[next] = queue[n] ?? pair.start.id;
+      queue.push(next);
+    }
+  }
 }

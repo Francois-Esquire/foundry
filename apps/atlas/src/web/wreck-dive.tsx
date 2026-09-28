@@ -11,6 +11,7 @@ export function WreckDive({
 }) {
   const host = useRef<HTMLDivElement>(null);
   useEffect(() => {
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: React assigns and updates this ref between renders and effects.
     if (!host.current) {
       return;
     }
@@ -27,7 +28,9 @@ export function WreckDive({
           </p>
           <small>Drag to orbit · Scroll to move closer</small>
         </div>
-        <button onClick={onClose}>Return to atlas</button>
+        <button onClick={onClose} type="button">
+          Return to atlas
+        </button>
       </div>
     </aside>
   );

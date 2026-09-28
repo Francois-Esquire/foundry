@@ -3,7 +3,8 @@ import type { AtlasFile, Polygon, Territory } from "./types";
 
 function insideRing(x: number, y: number, ring: Polygon[number]) {
   let inside = false;
-  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+  for (let i = 0; i < ring.length; i += 1) {
+    const j = (i + ring.length - 1) % ring.length;
     const a = ring[i],
       b = ring[j];
     if (!(a && b)) {
@@ -21,7 +22,7 @@ function insideRing(x: number, y: number, ring: Polygon[number]) {
 
 export function compositionInsideLand(x: number, y: number, coast: Polygon[]) {
   return coast.some((polygon) => {
-    const outer = polygon[0];
+    const [outer] = polygon;
     return (
       outer &&
       insideRing(x, y, outer) &&
@@ -38,7 +39,7 @@ export function clearOfCoast(
 ) {
   for (const polygon of coast) {
     for (const ring of polygon) {
-      for (let i = 0; i < ring.length; i++) {
+      for (let i = 0; i < ring.length; i += 1) {
         const a = ring[i],
           b = ring[(i + 1) % ring.length];
         if (!(a && b)) {
@@ -72,8 +73,8 @@ export function fitComposition(
     return { marks: [], unplaced: [] };
   }
   const sites: { x: number; y: number }[] = [];
-  for (let row = -18; row <= 18; row++) {
-    for (let column = -18; column <= 18; column++) {
+  for (let row = -18; row <= 18; row += 1) {
+    for (let column = -18; column <= 18; column += 1) {
       const x = column * 1.8,
         y = row * 1.8;
       if (
@@ -111,8 +112,9 @@ export function fitComposition(
   )) {
     let best = -1,
       distance = Number.POSITIVE_INFINITY;
-    sites.forEach((site, index) => {
-      const next = (site.x - mark.x) ** 2 + (site.y - mark.y) ** 2;
+    sites.forEach((currentSite, index) => {
+      const next =
+        (currentSite.x - mark.x) ** 2 + (currentSite.y - mark.y) ** 2;
       if (next < distance) {
         best = index;
         distance = next;

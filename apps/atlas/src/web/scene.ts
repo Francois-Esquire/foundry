@@ -1,5 +1,25 @@
-import * as THREE from "three";
+import type { Object3DEventMap } from "three";
+import {
+  AmbientLight,
+  CanvasTexture,
+  DirectionalLight,
+  Group,
+  MathUtils,
+  Mesh,
+  MeshBasicMaterial,
+  OrthographicCamera,
+  PCFSoftShadowMap,
+  Plane,
+  PlaneGeometry,
+  Raycaster,
+  Scene,
+  SRGBColorSpace,
+  Vector2,
+  Vector3,
+  WebGLRenderer,
+} from "three";
 import { MapControls } from "three/addons/controls/MapControls.js";
+import type { MapPoint } from "./atmosphere";
 import {
   atmosphereStrength,
   clearWind,
@@ -16,7 +36,7 @@ import { hitComposition } from "./composition-hit";
 import { continentCoasts, createContinents } from "./continent";
 import { detailLevel, detailVisibility, fileInView } from "./detail-level";
 import { createEcosystemLayer } from "./ecosystem-layer";
-import type { MapLabel } from "./exploration";
+import type { InkView, MapLabel } from "./exploration";
 import {
   frameFiles,
   inkView,
@@ -62,11 +82,11 @@ export function createAtlasScene(
   onWreck?: (wreck: FormerPackage | null, selected: boolean) => void,
   onRegionTerritory?: (territory: Territory | null) => void
 ) {
-  const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+  const renderer = new WebGLRenderer({ alpha: true, antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.outputColorSpace = SRGBColorSpace;
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.type = PCFSoftShadowMap;
   renderer.shadowMap.autoUpdate = false;
   renderer.shadowMap.needsUpdate = true;
   host.append(renderer.domElement);
@@ -74,21 +94,23 @@ export function createAtlasScene(
     "aria-label",
     "Codebase atlas. Drag to pan, scroll to zoom. Use Find a place to select islands, regions, and files with a keyboard."
   );
-  const scene = new THREE.Scene();
-  scene.add(new THREE.AmbientLight("#ffffff", 1.65));
-  const light = new THREE.DirectionalLight("#fffaf4", 2);
+  const scene = new Scene();
+  scene.add(new AmbientLight("#ffffff", 1.65));
+  const light = new DirectionalLight("#fffaf4", 2);
   light.position.set(-600, 700, 1100);
   light.castShadow = true;
   light.shadow.mapSize.set(2048, 2048);
   const shadowSpan = Math.max(data.width, data.height) * 0.75;
-  light.shadow.camera.left = light.shadow.camera.bottom = -shadowSpan;
-  light.shadow.camera.right = light.shadow.camera.top = shadowSpan;
+  light.shadow.camera.bottom = -shadowSpan;
+  light.shadow.camera.left = light.shadow.camera.bottom;
+  light.shadow.camera.top = shadowSpan;
+  light.shadow.camera.right = light.shadow.camera.top;
   light.shadow.camera.near = 1;
   light.shadow.camera.far = 4000;
   light.shadow.bias = -0.0001;
   light.shadow.normalBias = 0.3;
   scene.add(light);
-  const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 10_000);
+  const camera = new OrthographicCamera(-1, 1, 1, -1, 1, 10_000);
   const tilt = 0.7;
   camera.position.set(0, -Math.sin(tilt) * 2200, Math.cos(tilt) * 2200);
   camera.lookAt(0, 0, 0);
@@ -132,8 +154,8 @@ export function createAtlasScene(
     undefined,
     continents
   );
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
+  const texture = new CanvasTexture(canvas);
+  texture.colorSpace = SRGBColorSpace;
   texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
   const paperCanvas = document.createElement("canvas");
   paperCanvas.width = Math.min(4096, renderer.capabilities.maxTextureSize);
@@ -155,10 +177,10 @@ export function createAtlasScene(
     undefined,
     continents
   );
-  const paperTexture = new THREE.CanvasTexture(paperCanvas);
-  paperTexture.colorSpace = THREE.SRGBColorSpace;
+  const paperTexture = new CanvasTexture(paperCanvas);
+  paperTexture.colorSpace = SRGBColorSpace;
   paperTexture.anisotropy = texture.anisotropy;
-  const coastMaterial = new THREE.MeshBasicMaterial({
+  const coastMaterial = new MeshBasicMaterial({
     depthWrite: false,
     map: paperTexture,
     transparent: true,
@@ -167,29 +189,29 @@ export function createAtlasScene(
   inkCanvas.width = canvas.width;
   inkCanvas.height = canvas.height;
   paintMap(inkCanvas, data, null, null, "ink");
-  let inkTexture = new THREE.CanvasTexture(inkCanvas);
-  inkTexture.colorSpace = THREE.SRGBColorSpace;
+  let inkTexture = new CanvasTexture(inkCanvas);
+  inkTexture.colorSpace = SRGBColorSpace;
   inkTexture.anisotropy = texture.anisotropy;
-  const inkMaterial = new THREE.MeshBasicMaterial({
+  const inkMaterial = new MeshBasicMaterial({
     depthTest: false,
     depthWrite: false,
     map: inkTexture,
     transparent: true,
   });
-  const ink = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), inkMaterial);
+  const ink = new Mesh(new PlaneGeometry(1, 1), inkMaterial);
   ink.position.z = paperThickness + 0.02;
   ink.renderOrder = 1;
   scene.add(ink);
   const materials = createPaperMaterials(paperTexture);
   const water = createWaterMaterial(texture, seaData, coasts);
-  const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(seaData.width, seaData.height),
+  const ground = new Mesh(
+    new PlaneGeometry(seaData.width, seaData.height),
     water.material
   );
   ground.receiveShadow = true;
   scene.add(ground);
-  const coast = new THREE.Mesh(
-    new THREE.PlaneGeometry(data.width, data.height),
+  const coast = new Mesh(
+    new PlaneGeometry(data.width, data.height),
     coastMaterial
   );
   coast.position.z = 0.01;
@@ -197,11 +219,11 @@ export function createAtlasScene(
   const wreckLayer = createWreckLayer(data.formerPackages ?? []);
   scene.add(wreckLayer.group);
 
-  const relief = new THREE.Group();
+  const relief = new Group();
   for (const p of data.territories) {
     for (const polygon of p.coast) {
       const geo = terrainGeometry(p, polygon, data.width, data.height);
-      const island = new THREE.Mesh(geo, materials.paper);
+      const island = new Mesh(geo, materials.paper);
       island.castShadow = true;
       relief.add(island);
     }
@@ -264,7 +286,7 @@ export function createAtlasScene(
   let frame = 0;
   let focusedTerritory: Territory | null = null;
   const projectAtmosphere = ({ x, y }: { x: number; y: number }) => {
-    const p = new THREE.Vector3(x, -y, paperThickness + 0.04).project(camera);
+    const p = new Vector3(x, -y, paperThickness + 0.04).project(camera);
     return {
       x: ((p.x + 1) * host.clientWidth) / 2,
       y: ((1 - p.y) * host.clientHeight) / 2,
@@ -450,8 +472,8 @@ export function createAtlasScene(
       Math.round(height * renderer.getPixelRatio())
     );
     inkTexture.dispose();
-    inkTexture = new THREE.CanvasTexture(inkCanvas);
-    inkTexture.colorSpace = THREE.SRGBColorSpace;
+    inkTexture = new CanvasTexture(inkCanvas);
+    inkTexture.colorSpace = SRGBColorSpace;
     inkTexture.anisotropy = texture.anisotropy;
     inkMaterial.map = inkTexture;
     render();
@@ -460,135 +482,28 @@ export function createAtlasScene(
   observer.observe(host);
   resize();
 
-  const raycaster = new THREE.Raycaster();
-  const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -paperThickness);
-  const point = new THREE.Vector3();
-  const hit = (event: PointerEvent): AtlasSelection | null => {
-    const rect = renderer.domElement.getBoundingClientRect();
-    raycaster.setFromCamera(
-      new THREE.Vector2(
-        ((event.clientX - rect.left) / rect.width) * 2 - 1,
-        (-(event.clientY - rect.top) / rect.height) * 2 + 1
-      ),
-      camera
-    );
-    if (!raycaster.ray.intersectPlane(plane, point)) {
-      return null;
-    }
-    const label = labels.find(
-      (l) =>
-        Math.abs(point.x - l.x) < l.width / 2 &&
-        -point.y >= l.y - l.height &&
-        -point.y <= l.y
-    );
-    if (label) {
-      return {
-        compositeId: label.compositeId,
-        file: label.file,
-        neighborhoodId: label.neighborhoodId,
-        regionId: label.regionId,
-        territory: label.territory,
-      };
-    }
-    const port = tradeLayer.pick(raycaster);
-    if (port) {
-      return { territory: port };
-    }
-    const view = inkView(
+  const raycaster = new Raycaster();
+  const plane = new Plane(new Vector3(0, 0, 1), -paperThickness);
+  const point = new Vector3();
+  const hit = (event: PointerEvent): AtlasSelection | null =>
+    resolveHit(
+      renderer,
+      raycaster,
       camera,
-      controls.target,
+      plane,
+      point,
+      labels,
+      tradeLayer,
+      controls,
       tilt,
-      paperThickness + 0.02,
-      host.clientWidth
+      host,
+      responsibility,
+      drawingData,
+      visibility,
+      playbackMotion,
+      belonging,
+      event
     );
-    let overlay = responsibility;
-    if (
-      overlay?.composition &&
-      !fileInView(
-        drawingData.territories.find(
-          (item) => item.id === overlay?.territoryId
-        ),
-        overlay.composition.fileId,
-        view
-      )
-    ) {
-      overlay = { ...overlay, composition: undefined, trace: undefined };
-    }
-    if (overlay && visibility.composition) {
-      const territory = drawingData.territories.find(
-        (item) => item.id === overlay.territoryId
-      );
-      if (territory) {
-        const pixels =
-          (host.clientWidth * camera.zoom) / (camera.right - camera.left);
-        const detail = hitComposition(
-          territory,
-          { ...overlay, reducedMotion: playbackMotion.matches },
-          point.x - territory.x,
-          -point.y - territory.y,
-          pixels
-        );
-        if (detail) {
-          return { territory, ...detail };
-        }
-      }
-    }
-    let closest: AtlasSelection | null = null;
-    const pixels =
-      (host.clientWidth * camera.zoom) / (camera.right - camera.left);
-    const level = detailLevel(
-      pixels,
-      (overlay?.composition?.marks.length ?? 0) > 0
-    );
-    let distance = Number.POSITIVE_INFINITY;
-    for (const territory of drawingData.territories) {
-      const x = point.x - territory.x;
-      const y = -point.y - territory.y;
-      for (const file of territory.files) {
-        const d = Math.hypot(file.x - x, file.y - y);
-        if (d < distance && d < 20) {
-          distance = d;
-          closest = {
-            territory,
-            ...(visibility.files && d < Math.max(1, 5 / pixels)
-              ? { file }
-              : {}),
-          };
-        }
-      }
-    }
-    const land = islandAt({ x: point.x, y: -point.y }, drawingData.territories);
-    if (
-      belonging &&
-      land?.id === belonging.territory.id &&
-      !closest?.file &&
-      level.composition < 0.5
-    ) {
-      const region = hitBelonging(
-        belonging,
-        point.x - land.x,
-        -point.y - land.y,
-        pixels
-      );
-      if (region) {
-        return region.children
-          ? { compositeId: region.id, territory: land }
-          : { regionId: region.id, territory: land };
-      }
-    }
-    if (belonging && land?.id === belonging.territory.id && !closest?.file) {
-      return {
-        compositeId: belonging.parents?.find((parent) => parent.children)?.id,
-        regionId: belonging.parents?.find((parent) => !parent.children)?.id,
-        territory: land,
-      };
-    }
-    return land
-      ? closest?.territory.id === land.id
-        ? closest
-        : { territory: land }
-      : null;
-  };
   let down = { x: 0, y: 0 };
   let previewTimer = 0;
   let previewFrame = 0;
@@ -687,24 +602,15 @@ export function createAtlasScene(
     atmosphere.highlight(selection?.territory ?? focusedTerritory);
     const origin = { x: point.x, y: -point.y };
     atmosphere.wind(
-      selection || selectedFile
-        ? null
-        : () => {
-            const scale =
-              (host.clientWidth * camera.zoom) / (camera.right - camera.left);
-            const path = windPath(origin, scale);
-            const onscreen = path.every((p) => {
-              const projected = new THREE.Vector3(
-                p.x,
-                -p.y,
-                paperThickness + 0.04
-              ).project(camera);
-              return Math.abs(projected.x) < 0.9 && Math.abs(projected.y) < 0.9;
-            });
-            return onscreen && clearWind(path, data, labels, 14 / scale)
-              ? path
-              : null;
-          }
+      resolvePointerMove(
+        selection,
+        selectedFile,
+        host,
+        camera,
+        origin,
+        data,
+        labels
+      )
     );
   };
   const pointerLeave = () => {
@@ -726,11 +632,13 @@ export function createAtlasScene(
   renderer.domElement.addEventListener("pointerleave", pointerLeave);
 
   const focus = (
-    territory: Territory | null,
-    file?: AtlasFile,
+    initialTerritory: Territory | null,
+    initialFile?: AtlasFile,
     neighborhoodId?: string,
     fileIds?: string[]
   ) => {
+    let file = initialFile;
+    let territory = initialTerritory;
     territory = territory
       ? (drawingData.territories.find((item) => item.id === territory?.id) ??
         territory)
@@ -779,7 +687,7 @@ export function createAtlasScene(
           territory.files.filter((f) => !members || members.includes(f.id))
         )
       : null;
-    const target = new THREE.Vector3(
+    const target = new Vector3(
       (territory?.x ?? 0) + (file?.x ?? bounds?.x ?? 0),
       -(territory?.y ?? 0) - (file?.y ?? bounds?.y ?? 0),
       0
@@ -787,20 +695,18 @@ export function createAtlasScene(
     const start = controls.target.clone();
     const offset = camera.position.clone().sub(controls.target);
     const zoomStart = camera.zoom;
-    const zoom = file
-      ? zoomForPixels(camera, host.clientWidth, 10)
-      : territory && !fileIds && !neighborhoodId
-        ? zoomForPixels(camera, host.clientWidth, 2.2)
-        : bounds
-          ? Math.min(
-              12,
-              (camera.right - camera.left) / (bounds.width * 1.4),
-              (camera.top - camera.bottom) /
-                (bounds.height * Math.cos(tilt) * 1.4)
-            )
-          : territory
-            ? zoomForPixels(camera, host.clientWidth, 2.2)
-            : overviewZoom;
+    let zoom: number;
+    zoom = focusEntries(
+      file,
+      camera,
+      host,
+      territory,
+      fileIds,
+      neighborhoodId,
+      bounds,
+      tilt,
+      overviewZoom
+    );
     const began = performance.now();
     const reduced = window.matchMedia(
       "(prefers-reduced-motion: reduce)"
@@ -865,9 +771,9 @@ export function createAtlasScene(
       ground.geometry.dispose();
       coast.geometry.dispose();
       coastMaterial.dispose();
-      relief.children.forEach((child) => {
-        (child as THREE.Mesh).geometry.dispose();
-      });
+      for (const child of relief.children) {
+        (child as Mesh).geometry.dispose();
+      }
       texture.dispose();
       paperTexture.dispose();
       ink.geometry.dispose();
@@ -886,7 +792,7 @@ export function createAtlasScene(
     focus,
     focusWreck: (wreck: FormerPackage) => {
       const start = controls.target.clone();
-      const target = new THREE.Vector3(wreck.x, -wreck.y, 0);
+      const target = new Vector3(wreck.x, -wreck.y, 0);
       const offset = camera.position.clone().sub(controls.target);
       const zoomStart = camera.zoom;
       const began = performance.now();
@@ -933,7 +839,7 @@ export function createAtlasScene(
       const offset = camera.position.clone().sub(controls.target);
       controls.target.set(view.x, view.y, 0);
       camera.position.copy(controls.target).add(offset);
-      camera.zoom = THREE.MathUtils.clamp(
+      camera.zoom = MathUtils.clamp(
         zoomForPixels(camera, host.clientWidth, view.pixels),
         controls.minZoom,
         controls.maxZoom
@@ -993,14 +899,7 @@ export function createAtlasScene(
       render();
     },
     setTerritoryLayout: (territory: Territory | null) => {
-      drawingData = territory
-        ? {
-            ...data,
-            territories: data.territories.map((item) =>
-              item.id === territory.id ? territory : item
-            ),
-          }
-        : data;
+      drawingData = resolveSetTerritoryLayout(territory, data);
       const current =
         data.territories.find((item) => item.id === selected) ?? null;
       focus(
@@ -1015,7 +914,7 @@ export function createAtlasScene(
     },
     zoom: (factor: number) => {
       cancelAnimationFrame(frame);
-      camera.zoom = THREE.MathUtils.clamp(
+      camera.zoom = MathUtils.clamp(
         camera.zoom * factor,
         controls.minZoom,
         controls.maxZoom
@@ -1024,4 +923,269 @@ export function createAtlasScene(
       render();
     },
   };
+}
+
+function resolveSetTerritoryLayout(
+  territory: Territory | null,
+  data: AtlasData
+): AtlasData {
+  if (territory) {
+    return {
+      ...data,
+      territories: data.territories.map((item) =>
+        item.id === territory.id ? territory : item
+      ),
+    };
+  }
+  return data;
+}
+
+function resolvePointerMove(
+  selection: AtlasSelection | null,
+  selectedFile: string | null,
+  host: HTMLElement,
+  camera: OrthographicCamera,
+  origin: { x: number; y: number },
+  data: AtlasData,
+  labels: MapLabel[]
+): (() => MapPoint[] | null) | null {
+  if (selection || selectedFile) {
+    return null;
+  }
+  return () => {
+    const scale =
+      (host.clientWidth * camera.zoom) / (camera.right - camera.left);
+    const path = windPath(origin, scale);
+    const onscreen = path.every((p) => {
+      const projected = new Vector3(p.x, -p.y, paperThickness + 0.04).project(
+        camera
+      );
+      return Math.abs(projected.x) < 0.9 && Math.abs(projected.y) < 0.9;
+    });
+    return onscreen && clearWind(path, data, labels, 14 / scale) ? path : null;
+  };
+}
+
+function hitTerritory(
+  drawingData: AtlasData,
+  point: Vector3,
+  initialDistance: number,
+  initialClosest: AtlasSelection | null,
+  visibility: { composition: boolean; files: boolean },
+  pixels: number
+) {
+  let closest = initialClosest;
+  let distance = initialDistance;
+  for (const territory of drawingData.territories) {
+    const x = point.x - territory.x;
+    const y = -point.y - territory.y;
+    for (const file of territory.files) {
+      const d = Math.hypot(file.x - x, file.y - y);
+      if (d < distance && d < 20) {
+        distance = d;
+        closest = {
+          territory,
+          ...(visibility.files && d < Math.max(1, 5 / pixels) ? { file } : {}),
+        };
+      }
+    }
+  }
+  return { closest, distance };
+}
+
+function focusEntries(
+  file: AtlasFile | undefined,
+  camera: OrthographicCamera,
+  host: HTMLElement,
+  territory: Territory | null,
+  fileIds: string[] | undefined,
+  neighborhoodId: string | undefined,
+  bounds: { height: number; width: number; x: number; y: number } | null,
+  tilt: number,
+  overviewZoom: number
+): number {
+  let zoom: number;
+  if (file) {
+    zoom = zoomForPixels(camera, host.clientWidth, 10);
+  } else if (territory && !fileIds && !neighborhoodId) {
+    zoom = zoomForPixels(camera, host.clientWidth, 2.2);
+  } else if (bounds) {
+    zoom = Math.min(
+      12,
+      (camera.right - camera.left) / (bounds.width * 1.4),
+      (camera.top - camera.bottom) / (bounds.height * Math.cos(tilt) * 1.4)
+    );
+  } else if (territory) {
+    zoom = zoomForPixels(camera, host.clientWidth, 2.2);
+  } else {
+    zoom = overviewZoom;
+  }
+  return zoom;
+}
+function resolveHit(
+  renderer: WebGLRenderer,
+  raycaster: Raycaster,
+  camera: OrthographicCamera,
+  plane: Plane,
+  point: Vector3,
+  labels: MapLabel[],
+  tradeLayer: {
+    dispose: () => void;
+    group: Group<Object3DEventMap>;
+    pick: (raycaster: Raycaster) => Territory | undefined;
+    setRoutes: (routes: TradeRoute[]) => void;
+  },
+  controls: MapControls,
+  tilt: 0.7,
+  host: HTMLElement,
+  responsibility: ResponsibilityOverlay | null,
+  drawingData: AtlasData,
+  visibility: { composition: boolean; files: boolean },
+  playbackMotion: MediaQueryList,
+  belonging: BelongingLayer | null,
+  event: PointerEvent
+): AtlasSelection | null {
+  const rect = renderer.domElement.getBoundingClientRect();
+  raycaster.setFromCamera(
+    new Vector2(
+      ((event.clientX - rect.left) / rect.width) * 2 - 1,
+      (-(event.clientY - rect.top) / rect.height) * 2 + 1
+    ),
+    camera
+  );
+  if (!raycaster.ray.intersectPlane(plane, point)) {
+    return null;
+  }
+  const label = labels.find(
+    (l) =>
+      Math.abs(point.x - l.x) < l.width / 2 &&
+      -point.y >= l.y - l.height &&
+      -point.y <= l.y
+  );
+  if (label) {
+    return {
+      compositeId: label.compositeId,
+      file: label.file,
+      neighborhoodId: label.neighborhoodId,
+      regionId: label.regionId,
+      territory: label.territory,
+    };
+  }
+  const port = tradeLayer.pick(raycaster);
+  if (port) {
+    return { territory: port };
+  }
+  const view = inkView(
+    camera,
+    controls.target,
+    tilt,
+    paperThickness + 0.02,
+    host.clientWidth
+  );
+  let overlay = responsibility;
+  overlay = resolveHitEntries(overlay, drawingData, view);
+  if (overlay && visibility.composition) {
+    const compositionHit = hitVisibleComposition(
+      overlay,
+      drawingData,
+      point,
+      playbackMotion.matches,
+      (host.clientWidth * camera.zoom) / (camera.right - camera.left)
+    );
+    if (compositionHit) {
+      return compositionHit;
+    }
+  }
+  let closest: AtlasSelection | null = null;
+  const pixels =
+    (host.clientWidth * camera.zoom) / (camera.right - camera.left);
+  const level = detailLevel(
+    pixels,
+    (overlay?.composition?.marks.length ?? 0) > 0
+  );
+  let distance = Number.POSITIVE_INFINITY;
+  ({ distance, closest } = hitTerritory(
+    drawingData,
+    point,
+    distance,
+    closest,
+    visibility,
+    pixels
+  ));
+  const land = islandAt({ x: point.x, y: -point.y }, drawingData.territories);
+  if (
+    belonging &&
+    land?.id === belonging.territory.id &&
+    !closest?.file &&
+    level.composition < 0.5
+  ) {
+    const region = hitBelonging(
+      belonging,
+      point.x - land.x,
+      -point.y - land.y,
+      pixels
+    );
+    if (region) {
+      return region.children
+        ? { compositeId: region.id, territory: land }
+        : { regionId: region.id, territory: land };
+    }
+  }
+  if (belonging && land?.id === belonging.territory.id && !closest?.file) {
+    return {
+      compositeId: belonging.parents?.find((parent) => parent.children)?.id,
+      regionId: belonging.parents?.find((parent) => !parent.children)?.id,
+      territory: land,
+    };
+  }
+  if (land) {
+    if (closest?.territory.id === land.id) {
+      return closest;
+    }
+    return { territory: land };
+  }
+  return null;
+}
+
+function resolveHitEntries(
+  initialOverlay: ResponsibilityOverlay | null,
+  drawingData: AtlasData,
+  view: InkView
+) {
+  let overlay = initialOverlay;
+  if (
+    overlay?.composition &&
+    !fileInView(
+      drawingData.territories.find((item) => item.id === overlay?.territoryId),
+      overlay.composition.fileId,
+      view
+    )
+  ) {
+    overlay = { ...overlay, composition: undefined, trace: undefined };
+  }
+  return overlay;
+}
+function hitVisibleComposition(
+  overlay: ResponsibilityOverlay,
+  drawingData: AtlasData,
+  point: Vector3,
+  reducedMotion: boolean,
+  pixels: number
+): AtlasSelection | null {
+  const territory = drawingData.territories.find(
+    (item) => item.id === overlay.territoryId
+  );
+  if (territory) {
+    const detail = hitComposition(
+      territory,
+      { ...overlay, reducedMotion },
+      point.x - territory.x,
+      -point.y - territory.y,
+      pixels
+    );
+    if (detail) {
+      return { territory, ...detail };
+    }
+  }
+  return null;
 }

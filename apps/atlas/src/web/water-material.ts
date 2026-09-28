@@ -1,4 +1,12 @@
-import * as THREE from "three";
+import {
+  Color,
+  DataTexture,
+  LinearFilter,
+  MathUtils,
+  MeshStandardMaterial,
+  type Texture,
+  Vector2,
+} from "three";
 
 import type { ChartSettings } from "./chart-settings";
 import { defaultChartSettings } from "./chart-settings";
@@ -10,7 +18,7 @@ import type { AtlasData, Polygon } from "./types";
 import { waveArrivalField } from "./wave-field";
 
 export function createWaterMaterial(
-  map: THREE.Texture,
+  map: Texture,
   data: AtlasData,
   coasts?: Polygon[]
 ) {
@@ -23,18 +31,7 @@ export function createWaterMaterial(
   const land = Uint8Array.from(distances, (distance) =>
     distance === 0 ? 1 : 0
   );
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const i = y * width + x;
-      const flow = field.sample(
-        ((x + 0.5) / width) * data.width - data.width / 2,
-        ((y + 0.5) / height) * data.height - data.height / 2
-      );
-      vx[i] = flow.x;
-      vy[i] = flow.y;
-      strength[i] = flow.strength;
-    }
-  }
+  createWaterMaterialY(height, width, field, data, vx, vy, strength);
   const current = coastalCurrent(vx, vy, land, width, height);
   const zeros = new Float32Array(vx.length);
   const east = coastalCurrent(
@@ -52,7 +49,7 @@ export function createWaterMaterial(
     height
   );
   let velocityScale = 1;
-  for (let i = 0; i < vx.length; i++) {
+  for (let i = 0; i < vx.length; i += 1) {
     velocityScale = Math.max(
       velocityScale,
       Math.abs(current.x[i] ?? 0),
@@ -64,29 +61,23 @@ export function createWaterMaterial(
     );
   }
   const pixels = new Uint8Array(width * height * 4);
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const i = y * width + x;
-      const distance = (distances[i] ?? 0) / scale;
-      pixels.set(
-        [
-          Math.round((((current.x[i] ?? 0) / velocityScale) * 0.5 + 0.5) * 255),
-          Math.round(
-            ((-(current.y[i] ?? 0) / velocityScale) * 0.5 + 0.5) * 255
-          ),
-          Math.round((strength[i] ?? 0) * 255),
-          Math.round(Math.min(1, distance / 6) * 255),
-        ],
-        ((height - 1 - y) * width + x) * 4
-      );
-    }
-  }
-  const texture = new THREE.DataTexture(pixels, width, height);
-  texture.minFilter = texture.magFilter = THREE.LinearFilter;
+  createWaterMaterialY2(
+    height,
+    width,
+    distances,
+    scale,
+    pixels,
+    current,
+    velocityScale,
+    strength
+  );
+  const texture = new DataTexture(pixels, width, height);
+  texture.magFilter = LinearFilter;
+  texture.minFilter = texture.magFilter;
   texture.needsUpdate = true;
   const wreckPixels = new Uint8Array(width * height * 4);
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
       const mapX = ((x + 0.5) / width - 0.5) * data.width;
       const mapY = ((y + 0.5) / height - 0.5) * data.height;
       const depth = Math.max(
@@ -101,12 +92,13 @@ export function createWaterMaterial(
       wreckPixels[((height - 1 - y) * width + x) * 4] = Math.round(depth * 255);
     }
   }
-  const wreckMask = new THREE.DataTexture(wreckPixels, width, height);
-  wreckMask.minFilter = wreckMask.magFilter = THREE.LinearFilter;
+  const wreckMask = new DataTexture(wreckPixels, width, height);
+  wreckMask.magFilter = LinearFilter;
+  wreckMask.minFilter = wreckMask.magFilter;
   wreckMask.needsUpdate = true;
   const windPixels = new Uint8Array(pixels.length);
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
       const i = y * width + x;
       windPixels.set(
         [
@@ -121,12 +113,14 @@ export function createWaterMaterial(
       );
     }
   }
-  const windTexture = new THREE.DataTexture(windPixels, width, height);
-  windTexture.minFilter = windTexture.magFilter = THREE.LinearFilter;
+  const windTexture = new DataTexture(windPixels, width, height);
+  windTexture.magFilter = LinearFilter;
+  windTexture.minFilter = windTexture.magFilter;
   windTexture.needsUpdate = true;
   const wavePixels = new Uint8Array(pixels.length);
-  const waveTexture = new THREE.DataTexture(wavePixels, width, height);
-  waveTexture.minFilter = waveTexture.magFilter = THREE.LinearFilter;
+  const waveTexture = new DataTexture(wavePixels, width, height);
+  waveTexture.magFilter = LinearFilter;
+  waveTexture.minFilter = waveTexture.magFilter;
   const waveRange = { value: 1 };
   const rebuildWaves = (direction: number) => {
     const { arrival, exposure } = waveArrivalField(
@@ -140,8 +134,8 @@ export function createWaterMaterial(
       (max, value) => (Number.isFinite(value) ? Math.max(max, value) : max),
       1
     );
-    for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
         const i = y * width + x;
         const value = arrival[i] ?? Number.POSITIVE_INFINITY;
         const encoded = Number.isFinite(value)
@@ -149,8 +143,8 @@ export function createWaterMaterial(
           : 0;
         wavePixels.set(
           [
-            encoded >> 8,
-            encoded & 255,
+            Math.floor(encoded / 256),
+            encoded % 256,
             Number.isFinite(value) ? Math.round((exposure[i] ?? 0) * 255) : 0,
             Math.round(Math.min(1, (distances[i] ?? 0) / scale / 100) * 255),
           ],
@@ -165,15 +159,15 @@ export function createWaterMaterial(
     currentSpeed: { value: 1 },
     dependencyPower: { value: 1 },
     waterContrast: { value: 1 },
-    waterPigment: { value: new THREE.Color() },
+    waterPigment: { value: new Color() },
     waveAmount: { value: 0 },
     wavelength: { value: 36 },
     wavePower: { value: 0 },
-    windBearing: { value: new THREE.Vector2() },
+    windBearing: { value: new Vector2() },
     windCoupling: { value: 0 },
     windPower: { value: 0 },
   };
-  const originalWater = new THREE.Color("#d5dbca");
+  const originalWater = new Color("#d5dbca");
   const configure = (settings: ChartSettings) => {
     const angle = (settings.windDirection * Math.PI) / 180;
     controls.windBearing.value.set(Math.sin(angle), Math.cos(angle));
@@ -198,7 +192,7 @@ export function createWaterMaterial(
     waveTime = { value: 0 };
   const amount = { value: 1 };
   const wreckReveal = { value: 0.2 };
-  const material = new THREE.MeshStandardMaterial({
+  const material = new MeshStandardMaterial({
     depthWrite: !data.formerPackages?.length,
     map,
     metalness: 0,
@@ -220,7 +214,7 @@ export function createWaterMaterial(
     shader.uniforms.currentAmount = amount;
     shader.uniforms.wreckReveal = wreckReveal;
     shader.uniforms.currentSize = {
-      value: new THREE.Vector2(data.width, data.height),
+      value: new Vector2(data.width, data.height),
     };
     shader.fragmentShader = shader.fragmentShader.replace(
       "#include <common>",
@@ -302,14 +296,69 @@ diffuseColor.a *= 1.0 - texture2D(wreckMask, vMapUv).r * 0.75 * wreckReveal;
     },
     material,
     rebuildWaves,
-    setWreckReveal(pixels: number) {
-      wreckReveal.value = THREE.MathUtils.clamp((pixels - 0.5) / 2, 0.12, 1);
+    setWreckReveal(pixelsPerUnit: number) {
+      wreckReveal.value = MathUtils.clamp((pixelsPerUnit - 0.5) / 2, 0.12, 1);
     },
-    update(playback: PlaybackSnapshot, strength: number) {
+    update(playback: PlaybackSnapshot, currentStrength: number) {
       time.value = playback.tracks.current.time;
       windTime.value = playback.tracks.wind.time;
       waveTime.value = playback.tracks.waves.time;
-      amount.value = strength;
+      amount.value = currentStrength;
     },
   };
+}
+
+function createWaterMaterialY2(
+  height: number,
+  width: number,
+  distances: Float32Array<ArrayBufferLike>,
+  scale: number,
+  pixels: Uint8Array<ArrayBuffer>,
+  current: { x: Float32Array<ArrayBuffer>; y: Float32Array<ArrayBuffer> },
+  velocityScale: number,
+  strength: Float32Array<ArrayBuffer>
+) {
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const i = y * width + x;
+      const distance = (distances[i] ?? 0) / scale;
+      pixels.set(
+        [
+          Math.round((((current.x[i] ?? 0) / velocityScale) * 0.5 + 0.5) * 255),
+          Math.round(
+            ((-(current.y[i] ?? 0) / velocityScale) * 0.5 + 0.5) * 255
+          ),
+          Math.round((strength[i] ?? 0) * 255),
+          Math.round(Math.min(1, distance / 6) * 255),
+        ],
+        ((height - 1 - y) * width + x) * 4
+      );
+    }
+  }
+}
+
+function createWaterMaterialY(
+  height: number,
+  width: number,
+  field: {
+    prevailing: { x: number; y: number };
+    sample(x: number, y: number): { strength: number; x: number; y: number };
+  },
+  data: AtlasData,
+  vx: Float32Array<ArrayBuffer>,
+  vy: Float32Array<ArrayBuffer>,
+  strength: Float32Array<ArrayBuffer>
+) {
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const i = y * width + x;
+      const flow = field.sample(
+        ((x + 0.5) / width) * data.width - data.width / 2,
+        ((y + 0.5) / height) * data.height - data.height / 2
+      );
+      vx[i] = flow.x;
+      vy[i] = flow.y;
+      strength[i] = flow.strength;
+    }
+  }
 }

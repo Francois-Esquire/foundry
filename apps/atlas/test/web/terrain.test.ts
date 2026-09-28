@@ -10,7 +10,9 @@ import { loadAtlas } from "../helpers/reference-atlas";
 describe("atlas terrain", () => {
   it("tapers continuous density relief to unchanged coastlines", async () => {
     const data = await loadAtlas();
-    const p = data.territories.find((p) => p.files.length > 100);
+    const p = data.territories.find(
+      (territory) => territory.files.length > 100
+    );
     if (!p) {
       throw new Error("Missing populated territory");
     }
@@ -22,10 +24,10 @@ describe("atlas terrain", () => {
         }
       }
     }
-    const f = p.files[0];
-    const polygon = [...p.coast].sort(
+    const [f] = p.files;
+    const [polygon] = [...p.coast].sort(
       (a, b) => b.flat().length - a.flat().length
-    )[0];
+    );
     if (!(f && polygon)) {
       throw new Error("Missing file or coast");
     }

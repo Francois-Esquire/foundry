@@ -18,10 +18,11 @@ describe("wave arrival", () => {
     const depth = Float32Array.from({ length: width * width }, (_, i) =>
       Math.max(0, Math.hypot((i % width) - 64, Math.floor(i / width) - 64) - 24)
     );
-    const hypot = Math.hypot;
+    const { hypot } = Math;
     let visits = 0;
     const probe = vi.spyOn(Math, "hypot").mockImplementation((...values) => {
-      if (++visits > depth.length * 64) {
+      visits += 1;
+      if (visits > depth.length * 64) {
         throw new Error("Wave propagation repeatedly revisited cells");
       }
       return hypot(...values);
@@ -48,7 +49,7 @@ describe("wave arrival", () => {
     expect(
       waveArrivalField(shallow, 21, 21, 1, 90).arrival[220]
     ).toBeGreaterThan(waveArrivalField(deep, 21, 21, 1, 90).arrival[220] ?? 0);
-    for (let y = 6; y <= 14; y++) {
+    for (let y = 6; y <= 14; y += 1) {
       deep[y * 21 + 10] = 0;
     }
     const field = waveArrivalField(deep, 21, 21, 1, 90);

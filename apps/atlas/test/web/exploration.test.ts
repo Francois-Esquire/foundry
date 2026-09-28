@@ -202,7 +202,7 @@ describe("atlas exploration", () => {
   });
   it("follows actual directed imports to existing files", async () => {
     const data = await loadAtlas();
-    const edge = data.fileEdges[0];
+    const [edge] = data.fileEdges;
     if (!edge) {
       throw new Error("Missing survey edge");
     }
@@ -222,7 +222,7 @@ describe("atlas exploration", () => {
     expect(fileConnections(data, "missing")).toEqual([]);
   });
   it("keeps priority labels and rejects overlaps and offscreen labels", async () => {
-    const territory = (await loadAtlas()).territories[0];
+    const [territory] = (await loadAtlas()).territories;
     if (!territory) {
       throw new Error("Missing territory");
     }

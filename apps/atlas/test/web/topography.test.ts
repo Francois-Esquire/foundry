@@ -16,7 +16,7 @@ it("packs rings near the rim and increases spacing without extending their reach
   for (const rings of [coastalRings, archipelagoRings]) {
     expect(rings).toHaveLength(7);
     let previousGap = 0;
-    for (let i = 1; i < rings.length; i++) {
+    for (let i = 1; i < rings.length; i += 1) {
       const gap = (rings[i] ?? 0) - (rings[i - 1] ?? 0);
       expect(gap).toBeGreaterThan(previousGap);
       previousGap = gap;
@@ -26,7 +26,7 @@ it("packs rings near the rim and increases spacing without extending their reach
 
 it("extracts contours from actual relief without changing geography", async () => {
   const data = await loadAtlas();
-  const p = data.territories.find((p) => p.files.length > 500);
+  const p = data.territories.find((territory) => territory.files.length > 500);
   if (!p) {
     throw new Error("Missing large island");
   }

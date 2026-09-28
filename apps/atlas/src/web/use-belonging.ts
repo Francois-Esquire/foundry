@@ -19,7 +19,7 @@ export function useBelonging(territory: Territory | undefined, survey: string) {
       return;
     }
     const controller = new AbortController();
-    void loadInternals(id, survey, controller.signal)
+    loadInternals(id, survey, controller.signal)
       .then((data) => {
         if (!controller.signal.aborted) {
           setResult({ data, id, survey });

@@ -22,7 +22,7 @@ export function landContours(p: Territory): ContourLine[] {
   if (!coast.length) {
     return [];
   }
-  const cell = 2;
+  const cell = 1;
   const left = Math.min(...coast.map(([x]) => x)) - cell;
   const top = Math.min(...coast.map(([, y]) => y)) - cell;
   const width = Math.ceil(
@@ -121,6 +121,19 @@ export function paintTopography(
   ctx.setLineDash([]);
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
+  paintTopographyEntries(lines, pixels, ctx, opacity, occupied, view, labels);
+  ctx.restore();
+}
+
+function paintTopographyEntries(
+  lines: ContourLine[],
+  pixels: number,
+  ctx: CanvasRenderingContext2D,
+  opacity: number,
+  occupied: Map<string, number>,
+  view: InkView,
+  labels: MapLabel[]
+) {
   for (const [id, line] of lines.entries()) {
     const detail = line.major
       ? 1
@@ -134,33 +147,56 @@ export function paintTopography(
     ctx.lineWidth = (line.major ? 0.7 : 0.45) / pixels;
     ctx.beginPath();
     let drawing = false;
-    for (const [x, terrainY] of line.points) {
-      const y = terrainY - line.elevation * Math.tan(0.7);
-      const key = `${Math.floor((x * pixels) / 3)}:${Math.floor((y * pixels) / 3)}`;
-      const owner = occupied.get(key);
-      const hidden =
-        Math.abs(x - view.x) > view.width / 2 ||
-        Math.abs(y - view.y) > view.height / 2 ||
-        (owner !== undefined && owner !== id) ||
-        labels.some(
-          (l) =>
-            Math.abs(x - l.x) < l.width / 2 + 4 / pixels &&
-            y > l.y - l.height - 4 / pixels &&
-            y < l.y + 4 / pixels
-        );
-      if (hidden) {
-        drawing = false;
-        continue;
-      }
-      occupied.set(key, id);
-      if (drawing) {
-        ctx.lineTo(x, y);
-      } else {
-        ctx.moveTo(x, y);
-      }
-      drawing = true;
-    }
+    drawing = paintTopographyEntriesEntries(
+      line,
+      pixels,
+      occupied,
+      view,
+      id,
+      labels,
+      drawing,
+      ctx
+    );
     ctx.stroke();
   }
-  ctx.restore();
+}
+
+function paintTopographyEntriesEntries(
+  line: ContourLine,
+  pixels: number,
+  occupied: Map<string, number>,
+  view: InkView,
+  id: number,
+  labels: MapLabel[],
+  initialDrawing: boolean,
+  ctx: CanvasRenderingContext2D
+): boolean {
+  let drawing = initialDrawing;
+  for (const [x, terrainY] of line.points) {
+    const y = terrainY - line.elevation * Math.tan(0.7);
+    const key = `${Math.floor((x * pixels) / 3)}:${Math.floor((y * pixels) / 3)}`;
+    const owner = occupied.get(key);
+    const hidden =
+      Math.abs(x - view.x) > view.width / 2 ||
+      Math.abs(y - view.y) > view.height / 2 ||
+      (owner !== undefined && owner !== id) ||
+      labels.some(
+        (l) =>
+          Math.abs(x - l.x) < l.width / 2 + 4 / pixels &&
+          y > l.y - l.height - 4 / pixels &&
+          y < l.y + 4 / pixels
+      );
+    if (hidden) {
+      drawing = false;
+      continue;
+    }
+    occupied.set(key, id);
+    if (drawing) {
+      ctx.lineTo(x, y);
+    } else {
+      ctx.moveTo(x, y);
+    }
+    drawing = true;
+  }
+  return drawing;
 }

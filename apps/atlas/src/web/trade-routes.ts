@@ -1,6 +1,6 @@
 import { createChannelGraph } from "./channel-graph";
 import { compositionInsideLand } from "./composition-placement";
-import { shoreDistances } from "./ocean";
+import { shoreDistances } from "./distance-field";
 import type { AtlasData, AtlasRoute, Territory } from "./types";
 
 export interface TradePoint {
@@ -65,72 +65,18 @@ export function createTradeNavigation(data: AtlasData) {
   const land = new Uint8Array(width * height);
   const owners = new Int32Array(land.length).fill(-1);
   const nearest = new Float32Array(land.length).fill(Number.POSITIVE_INFINITY);
-  for (const [owner, p] of [...data.territories]
-    .sort((a, b) => a.id.localeCompare(b.id))
-    .entries()) {
-    const island = new Uint8Array(land.length);
-    const vertices = p.coast.flat(2);
-    if (!vertices.length) {
-      continue;
-    }
-    const xs = vertices.map(([x]) => x + p.x),
-      ys = vertices.map(([, y]) => y + p.y);
-    const left = Math.max(
-      0,
-      Math.floor((Math.min(...xs) + data.width / 2) / step)
-    );
-    const right = Math.min(
-      width - 1,
-      Math.ceil((Math.max(...xs) + data.width / 2) / step)
-    );
-    const top = Math.max(
-      0,
-      Math.floor((Math.min(...ys) + data.height / 2) / step)
-    );
-    const bottom = Math.min(
-      height - 1,
-      Math.ceil((Math.max(...ys) + data.height / 2) / step)
-    );
-    for (let y = top; y <= bottom; y++) {
-      for (let x = left; x <= right; x++) {
-        const i = y * width + x,
-          q = point(i);
-        if (compositionInsideLand(q.x - p.x, q.y - p.y, p.coast)) {
-          island[i] = land[i] = 1;
-        }
-      }
-    }
-    for (const polygon of p.coast) {
-      for (const ring of polygon) {
-        ring.forEach(([x, y], i) => {
-          const next = ring[(i + 1) % ring.length];
-          if (!next) {
-            return;
-          }
-          const count = Math.ceil(
-            Math.hypot(next[0] - x, next[1] - y) / (step / 3)
-          );
-          for (let n = 0; n <= count; n++) {
-            const t = n / Math.max(1, count);
-            const index = cell({
-              x: p.x + x + (next[0] - x) * t,
-              y: p.y + y + (next[1] - y) * t,
-            });
-            if (index >= 0) {
-              island[index] = land[index] = 1;
-            }
-          }
-        });
-      }
-    }
-    shoreDistances(island, width, height).forEach((distance, i) => {
-      if (distance < (nearest[i] ?? Number.POSITIVE_INFINITY)) {
-        nearest[i] = distance;
-        owners[i] = owner;
-      }
-    });
-  }
-  for (let i = 0; i < owners.length; i++) {
+  createTradeNavigationEntries(
+    data,
+    land,
+    step,
+    width,
+    height,
+    point,
+    cell,
+    nearest,
+    owners
+  );
+  for (let i = 0; i < owners.length; i += 1) {
     const x = i % width,
       y = Math.floor(i / width);
     const border = Math.min(
@@ -155,18 +101,20 @@ export function createTradeNavigation(data: AtlasData) {
       return;
     }
     ocean[i] = 1;
-    flood[tail++] = i;
+    flood[tail] = i;
+    tail += 1;
   };
-  for (let x = 0; x < width; x++) {
+  for (let x = 0; x < width; x += 1) {
     visit(x);
     visit((height - 1) * width + x);
   }
-  for (let y = 0; y < height; y++) {
+  for (let y = 0; y < height; y += 1) {
     visit(y * width);
     visit(y * width + width - 1);
   }
   while (head < tail) {
-    const i = flood[head++] ?? 0;
+    const i = flood[head] ?? 0;
+    head += 1;
     visit(i - width);
     visit(i + width);
     if (i % width) {
@@ -179,7 +127,7 @@ export function createTradeNavigation(data: AtlasData) {
   const open = (i: number) => i >= 0 && ocean[i] === 1;
   const clear = (a: TradePoint, b: TradePoint) => {
     const count = Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / (step / 4));
-    for (let n = 0; n <= count; n++) {
+    for (let n = 0; n <= count; n += 1) {
       const t = n / Math.max(1, count);
       if (!open(cell({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }))) {
         return false;
@@ -203,59 +151,19 @@ export function createTradeNavigation(data: AtlasData) {
     };
     let best: TradePort | undefined,
       score = Number.POSITIVE_INFINITY;
-    for (const polygon of p.coast) {
-      const ring = polygon[0] ?? [];
-      for (
-        let i = 0;
-        i < ring.length;
-        i += Math.max(1, Math.floor(ring.length / 80))
-      ) {
-        const a = ring[i],
-          b = ring[(i + 1) % ring.length];
-        if (!(a && b)) {
-          continue;
-        }
-        const coast = {
-          x: p.x + (a[0] + b[0]) / 2,
-          y: p.y + (a[1] + b[1]) / 2,
-        };
-        const length = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
-        for (const side of [-1, 1]) {
-          const index = cell({
-            x: coast.x + ((b[1] - a[1]) / length) * step * 3.5 * side,
-            y: coast.y - ((b[0] - a[0]) / length) * step * 3.5 * side,
-          });
-          if (!open(index)) {
-            continue;
-          }
-          const water = point(index);
-          let approach = true;
-          for (let n = 1; n <= 16; n++) {
-            const x = coast.x + ((water.x - coast.x) * n) / 16;
-            const y = coast.y + ((water.y - coast.y) * n) / 16;
-            if (
-              data.territories.some((island) =>
-                compositionInsideLand(x - island.x, y - island.y, island.coast)
-              )
-            ) {
-              approach = false;
-              break;
-            }
-          }
-          if (!approach) {
-            continue;
-          }
-          const value =
-            Math.hypot(coast.x - anchor.x, coast.y - anchor.y) +
-            Math.hypot(water.x - other.x, water.y - other.y) * 0.2;
-          if (value >= score) {
-            continue;
-          }
-          score = value;
-          best = { coast, files, territory: p.id, water };
-        }
-      }
-    }
+    ({ score, best } = portPolygon(
+      p,
+      cell,
+      step,
+      open,
+      point,
+      data,
+      anchor,
+      other,
+      score,
+      best,
+      files
+    ));
     return best;
   };
   const sail = createChannelGraph(
@@ -304,4 +212,227 @@ export function createTradeNavigation(data: AtlasData) {
       }
       return cache.get(key) ?? [];
     });
+}
+
+function createTradeNavigationEntries(
+  data: AtlasData,
+  land: Uint8Array<ArrayBuffer>,
+  step: number,
+  width: number,
+  height: number,
+  point: (i: number) => TradePoint,
+  cell: (p: TradePoint) => number,
+  nearest: Float32Array<ArrayBuffer>,
+  owners: Int32Array<ArrayBuffer>
+) {
+  for (const [owner, p] of [...data.territories]
+    .sort((a, b) => a.id.localeCompare(b.id))
+    .entries()) {
+    const island = new Uint8Array(land.length);
+    const vertices = p.coast.flat(2);
+    if (!vertices.length) {
+      continue;
+    }
+    const xs = vertices.map(([x]) => x + p.x),
+      ys = vertices.map(([, y]) => y + p.y);
+    const left = Math.max(
+      0,
+      Math.floor((Math.min(...xs) + data.width / 2) / step)
+    );
+    const right = Math.min(
+      width - 1,
+      Math.ceil((Math.max(...xs) + data.width / 2) / step)
+    );
+    const top = Math.max(
+      0,
+      Math.floor((Math.min(...ys) + data.height / 2) / step)
+    );
+    const bottom = Math.min(
+      height - 1,
+      Math.ceil((Math.max(...ys) + data.height / 2) / step)
+    );
+    for (let y = top; y <= bottom; y += 1) {
+      for (let x = left; x <= right; x += 1) {
+        const i = y * width + x,
+          q = point(i);
+        if (compositionInsideLand(q.x - p.x, q.y - p.y, p.coast)) {
+          land[i] = 1;
+          island[i] = land[i];
+        }
+      }
+    }
+    for (const polygon of p.coast) {
+      for (const ring of polygon) {
+        ring.forEach(([x, y], i) => {
+          const next = ring[(i + 1) % ring.length];
+          if (!next) {
+            return;
+          }
+          const count = Math.ceil(
+            Math.hypot(next[0] - x, next[1] - y) / (step / 3)
+          );
+          for (let n = 0; n <= count; n += 1) {
+            const t = n / Math.max(1, count);
+            const index = cell({
+              x: p.x + x + (next[0] - x) * t,
+              y: p.y + y + (next[1] - y) * t,
+            });
+            if (index >= 0) {
+              land[index] = 1;
+              island[index] = land[index];
+            }
+          }
+        });
+      }
+    }
+    shoreDistances(island, width, height).forEach((shoreDistance, i) => {
+      if (shoreDistance < (nearest[i] ?? Number.POSITIVE_INFINITY)) {
+        nearest[i] = shoreDistance;
+        owners[i] = owner;
+      }
+    });
+  }
+}
+
+function portPolygon(
+  p: Territory,
+  cell: (p: TradePoint) => number,
+  step: number,
+  open: (i: number) => boolean,
+  point: (i: number) => TradePoint,
+  data: AtlasData,
+  anchor: { x: number; y: number },
+  other: Territory,
+  initialScore: number,
+  initialBest: TradePort | undefined,
+  files: string[]
+) {
+  let best = initialBest;
+  let score = initialScore;
+  for (const polygon of p.coast) {
+    const ring = polygon[0] ?? [];
+    ({ score, best } = portPolygonI(
+      ring,
+      p,
+      cell,
+      step,
+      open,
+      point,
+      data,
+      anchor,
+      other,
+      score,
+      best,
+      files
+    ));
+  }
+  return { best, score };
+}
+
+function portPolygonI(
+  ring: [number, number][],
+  p: Territory,
+  cell: (p: TradePoint) => number,
+  step: number,
+  open: (i: number) => boolean,
+  point: (i: number) => TradePoint,
+  data: AtlasData,
+  anchor: { x: number; y: number },
+  other: Territory,
+  initialScore: number,
+  initialBest: TradePort | undefined,
+  files: string[]
+) {
+  let best = initialBest;
+  let score = initialScore;
+  for (
+    let i = 0;
+    i < ring.length;
+    i += Math.max(1, Math.floor(ring.length / 80))
+  ) {
+    const a = ring[i],
+      b = ring[(i + 1) % ring.length];
+    if (!(a && b)) {
+      continue;
+    }
+    const coast = {
+      x: p.x + (a[0] + b[0]) / 2,
+      y: p.y + (a[1] + b[1]) / 2,
+    };
+    const length = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+    ({ score, best } = portPolygonISide(
+      cell,
+      coast,
+      b,
+      a,
+      length,
+      step,
+      open,
+      point,
+      data,
+      anchor,
+      other,
+      score,
+      best,
+      files,
+      p
+    ));
+  }
+  return { best, score };
+}
+
+function portPolygonISide(
+  cell: (p: TradePoint) => number,
+  coast: { x: number; y: number },
+  b: [number, number],
+  a: [number, number],
+  length: number,
+  step: number,
+  open: (i: number) => boolean,
+  point: (i: number) => TradePoint,
+  data: AtlasData,
+  anchor: { x: number; y: number },
+  other: Territory,
+  initialScore: number,
+  initialBest: TradePort | undefined,
+  files: string[],
+  p: Territory
+) {
+  let best = initialBest;
+  let score = initialScore;
+  for (const side of [-1, 1]) {
+    const index = cell({
+      x: coast.x + ((b[1] - a[1]) / length) * step * 3.5 * side,
+      y: coast.y - ((b[0] - a[0]) / length) * step * 3.5 * side,
+    });
+    if (!open(index)) {
+      continue;
+    }
+    const water = point(index);
+    let approach = true;
+    for (let n = 1; n <= 16; n += 1) {
+      const x = coast.x + ((water.x - coast.x) * n) / 16;
+      const y = coast.y + ((water.y - coast.y) * n) / 16;
+      if (
+        data.territories.some((island) =>
+          compositionInsideLand(x - island.x, y - island.y, island.coast)
+        )
+      ) {
+        approach = false;
+        break;
+      }
+    }
+    if (!approach) {
+      continue;
+    }
+    const value =
+      Math.hypot(coast.x - anchor.x, coast.y - anchor.y) +
+      Math.hypot(water.x - other.x, water.y - other.y) * 0.2;
+    if (value >= score) {
+      continue;
+    }
+    score = value;
+    best = { coast, files, territory: p.id, water };
+  }
+  return { best, score };
 }

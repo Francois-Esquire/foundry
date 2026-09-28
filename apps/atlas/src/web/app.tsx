@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import Atlas from "./Atlas";
+import Atlas from "./atlas-view";
 import { loadAtlas } from "./load-atlas";
 import type { AtlasData } from "./types";
 

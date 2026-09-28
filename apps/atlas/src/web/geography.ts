@@ -6,8 +6,10 @@ import type { AtlasFile, Polygon, Territory } from "./types";
 export function unit(id: string): number {
   let h = 2_166_136_261;
   for (const c of id) {
+    // biome-ignore lint/suspicious/noBitwiseOperators: Preserve the deterministic 32-bit hash used for map placement and colors.
     h = Math.imul(h ^ c.charCodeAt(0), 16_777_619);
   }
+  // biome-ignore lint/suspicious/noBitwiseOperators: Preserve the deterministic 32-bit hash used for map placement and colors.
   return (h >>> 0) / 4_294_967_296;
 }
 
@@ -17,7 +19,7 @@ export function settlePackages(
   routes: { from: string; to: string; weight: number }[]
 ): void {
   const byId = new Map(regions.map((p) => [p.id, p]));
-  for (let step = 0; step < 450; step++) {
+  for (let step = 0; step < 450; step += 1) {
     for (const a of regions) {
       a.y += (latitude(layers.get(a.id) ?? 0) - a.y) * 0.018;
       a.x *= 0.999;
@@ -38,21 +40,25 @@ export function settlePackages(
       b.x -= dx * pull;
       b.y -= dy * pull;
     }
-    for (const [i, a] of regions.entries()) {
-      for (const b of regions.slice(i + 1)) {
-        const dx = b.x - a.x || 0.01;
-        const dy = b.y - a.y || 0.01;
-        const d = Math.hypot(dx, dy);
-        const overlap = a.radius + b.radius + 55 - d;
-        if (overlap <= 0) {
-          continue;
-        }
-        const push = (overlap / d) * 0.48;
-        a.x -= dx * push;
-        a.y -= dy * push;
-        b.x += dx * push;
-        b.y += dy * push;
+    settlePackagesEntries(regions);
+  }
+}
+
+function settlePackagesEntries(regions: Territory[]) {
+  for (const [i, a] of regions.entries()) {
+    for (const b of regions.slice(i + 1)) {
+      const dx = b.x - a.x || 0.01;
+      const dy = b.y - a.y || 0.01;
+      const d = Math.hypot(dx, dy);
+      const overlap = a.radius + b.radius + 55 - d;
+      if (overlap <= 0) {
+        continue;
       }
+      const push = (overlap / d) * 0.48;
+      a.x -= dx * push;
+      a.y -= dy * push;
+      b.x += dx * push;
+      b.y += dy * push;
     }
   }
 }
@@ -70,7 +76,7 @@ export function settleFiles(
   });
   const anchors = files.map((f) => {
     const angle = unit(f.directory) * Math.PI * 2;
-    const distance = Math.sqrt(unit(f.directory + ":distance")) * radius * 0.62;
+    const distance = Math.sqrt(unit(`${f.directory}:distance`)) * radius * 0.62;
     return { x: Math.cos(angle) * distance, y: Math.sin(angle) * distance };
   });
   files.forEach((f, i) => {
@@ -79,11 +85,11 @@ export function settleFiles(
       return;
     }
     const angle = unit(f.id) * Math.PI * 2;
-    const distance = Math.sqrt(unit(f.id + ":distance")) * radius * 0.24;
+    const distance = Math.sqrt(unit(`${f.id}:distance`)) * radius * 0.24;
     f.x = a.x + Math.cos(angle) * distance;
     f.y = a.y + Math.sin(angle) * distance;
   });
-  for (let step = 0; step < 100; step++) {
+  for (let step = 0; step < 100; step += 1) {
     for (const [a, b] of links) {
       const dx = (b.x - a.x) * 0.012;
       const dy = (b.y - a.y) * 0.012;
@@ -102,28 +108,37 @@ export function settleFiles(
       f.y += (a.y - f.y) * 0.025;
       const gx = Math.floor(f.x / 6);
       const gy = Math.floor(f.y / 6);
-      for (let x = gx - 1; x <= gx + 1; x++) {
-        for (let y = gy - 1; y <= gy + 1; y++) {
-          for (const other of grid.get(`${x},${y}`) ?? []) {
-            const dx = f.x - other.x || 0.01;
-            const dy = f.y - other.y || 0.01;
-            const d = Math.hypot(dx, dy);
-            if (d >= 5) {
-              continue;
-            }
-            const push = ((5 - d) / d) * 0.5;
-            f.x += dx * push;
-            f.y += dy * push;
-            other.x -= dx * push;
-            other.y -= dy * push;
-          }
-        }
-      }
+      settleFilesX(gx, gy, grid, f);
       const key = `${gx},${gy}`;
       const bucket = grid.get(key) ?? [];
       bucket.push(f);
       grid.set(key, bucket);
     });
+  }
+}
+
+function settleFilesX(
+  gx: number,
+  gy: number,
+  grid: Map<string, AtlasFile[]>,
+  f: AtlasFile
+) {
+  for (let x = gx - 1; x <= gx + 1; x += 1) {
+    for (let y = gy - 1; y <= gy + 1; y += 1) {
+      for (const other of grid.get(`${x},${y}`) ?? []) {
+        const dx = f.x - other.x || 0.01;
+        const dy = f.y - other.y || 0.01;
+        const d = Math.hypot(dx, dy);
+        if (d >= 5) {
+          continue;
+        }
+        const push = ((5 - d) / d) * 0.5;
+        f.x += dx * push;
+        f.y += dy * push;
+        other.x -= dx * push;
+        other.y -= dy * push;
+      }
+    }
   }
 }
 
@@ -146,12 +161,12 @@ export function landContours(files: AtlasFile[], radius: number): Polygon[][] {
     for (
       let y = Math.max(0, Math.floor(cy - reach));
       y < Math.min(size, cy + reach);
-      y++
+      y += 1
     ) {
       for (
         let x = Math.max(0, Math.floor(cx - reach));
         x < Math.min(size, cx + reach);
-        x++
+        x += 1
       ) {
         const d2 = ((x - cx) ** 2 + (y - cy) ** 2) * cell ** 2;
         field[y * size + x] =

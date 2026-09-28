@@ -5,8 +5,10 @@ import type { AtlasFile, Territory } from "./types";
 function hash(value: string) {
   let result = 2_166_136_261;
   for (const character of value) {
+    // biome-ignore lint/suspicious/noBitwiseOperators: Preserve the deterministic 32-bit hash used for map placement and colors.
     result = Math.imul(result ^ character.charCodeAt(0), 16_777_619);
   }
+  // biome-ignore lint/suspicious/noBitwiseOperators: Preserve the deterministic 32-bit hash used for map placement and colors.
   return result >>> 0;
 }
 
@@ -43,7 +45,7 @@ export function planDistricts(data: AtlasInternals, territory: Territory) {
 function coastSites(territory: Territory) {
   const sites: { x: number; y: number; component: number }[] = [];
   territory.coast.forEach((polygon, component) => {
-    const ring = polygon[0];
+    const [ring] = polygon;
     if (!ring?.length) {
       return;
     }
@@ -54,13 +56,13 @@ function coastSites(territory: Territory) {
     for (
       let row = Math.ceil(minY / 3.2);
       row <= Math.floor(maxY / 3.2);
-      row++
+      row += 1
     ) {
       const offset = Math.abs(row % 2) * 1.8;
       for (
         let column = Math.ceil((minX - offset) / 3.6);
         column <= Math.floor((maxX - offset) / 3.6);
-        column++
+        column += 1
       ) {
         const x = column * 3.6 + offset,
           y = row * 3.2;
@@ -96,11 +98,12 @@ export function fitDistricts(
     const target = targets.get(file.id) ?? file;
     let best = -1,
       distance = Number.POSITIVE_INFINITY;
-    sites.forEach((site, index) => {
-      if (component >= 0 && site.component !== component) {
+    sites.forEach((currentSite, index) => {
+      if (component >= 0 && currentSite.component !== component) {
         return;
       }
-      const next = (site.x - target.x) ** 2 + (site.y - target.y) ** 2;
+      const next =
+        (currentSite.x - target.x) ** 2 + (currentSite.y - target.y) ** 2;
       if (next < distance) {
         best = index;
         distance = next;

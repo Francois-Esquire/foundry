@@ -1,4 +1,4 @@
-import { landmassHull } from "./landmasses";
+import { landmassHull } from "./landmass-hull";
 import type { AtlasData } from "./types";
 
 type Point = [number, number];
@@ -21,7 +21,8 @@ export function traceArchipelago(
   ctx.closePath();
 }
 
-export function archipelagoCurve(ring: Point[]) {
+export function archipelagoCurve(initialRing: Point[]) {
+  let ring = initialRing;
   if (ring.length < 3) {
     return [];
   }

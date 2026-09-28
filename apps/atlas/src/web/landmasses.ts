@@ -3,9 +3,6 @@ import { unit } from "./geography";
 import { landmassFootprint, oceanAccess } from "./landmass-footprint";
 import { landmassHull } from "./landmass-hull";
 import type { AtlasData, AtlasRoute, Territory } from "./types";
-
-export { landmassHull } from "./landmass-hull";
-
 export type HullPoint = [number, number];
 
 export const defaultLandmassSettings = {
@@ -118,7 +115,7 @@ export function settleLandmasses(
       p[1] += y;
     }
   };
-  const main = groups[0];
+  const [main] = groups;
   if (!main) {
     return;
   }
@@ -143,29 +140,7 @@ export function settleLandmasses(
       90;
     move(group, x * distance, y * distance);
   });
-  for (let pass = 0; pass < 120; pass++) {
-    let largest = 0;
-    for (const [i, a] of groups.entries()) {
-      for (const b of groups.slice(i + 1)) {
-        const separation = hullSeparation(
-          a.hull,
-          b.hull,
-          settings.islandClearance
-        );
-        if (!separation) {
-          continue;
-        }
-        const [x, y] = separation;
-        largest = Math.max(largest, Math.hypot(x, y));
-        const share = a === main ? 1 : a.mass / (a.mass + b.mass || 1);
-        move(a, -x * (1 - share), -y * (1 - share));
-        move(b, x * share, y * share);
-      }
-    }
-    if (largest < 0.01) {
-      break;
-    }
-  }
+  settleLandmassesPass(groups, settings, main, move);
   if (main.members.length < 2 || groups.length < 2) {
     return;
   }
@@ -182,7 +157,7 @@ export function settleLandmasses(
     if (group.members.length !== 1) {
       continue;
     }
-    const p = group.members[0];
+    const [p] = group.members;
     if (!p) {
       continue;
     }
@@ -232,6 +207,41 @@ export function settleLandmasses(
         continue;
       }
       move(group, x, y);
+      break;
+    }
+  }
+}
+
+function settleLandmassesPass(
+  groups: { hull: HullPoint[]; mass: number; members: Territory[] }[],
+  settings: { coastalBuffer: number; islandClearance: number },
+  main: { hull: HullPoint[]; mass: number; members: Territory[] },
+  move: (
+    group: { hull: HullPoint[]; mass: number; members: Territory[] },
+    x: number,
+    y: number
+  ) => void
+) {
+  for (let pass = 0; pass < 120; pass += 1) {
+    let largest = 0;
+    for (const [i, a] of groups.entries()) {
+      for (const b of groups.slice(i + 1)) {
+        const separation = hullSeparation(
+          a.hull,
+          b.hull,
+          settings.islandClearance
+        );
+        if (!separation) {
+          continue;
+        }
+        const [x, y] = separation;
+        largest = Math.max(largest, Math.hypot(x, y));
+        const share = a === main ? 1 : a.mass / (a.mass + b.mass || 1);
+        move(a, -x * (1 - share), -y * (1 - share));
+        move(b, x * share, y * share);
+      }
+    }
+    if (largest < 0.01) {
       break;
     }
   }

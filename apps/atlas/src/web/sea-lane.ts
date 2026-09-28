@@ -4,12 +4,12 @@ export function roundSeaLane(
   points: TradePoint[],
   clear: (a: TradePoint, b: TradePoint) => boolean
 ) {
-  const first = points[0];
+  const [first] = points;
   if (!first) {
     return [];
   }
   const result = [first];
-  for (let i = 1; i < points.length - 1; i++) {
+  for (let i = 1; i < points.length - 1; i += 1) {
     const a = points[i - 1],
       b = points[i],
       c = points[i + 1];

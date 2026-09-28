@@ -1,27 +1,44 @@
-import * as THREE from "three";
+import {
+  BoxGeometry,
+  BufferGeometry,
+  CircleGeometry,
+  CylinderGeometry,
+  DoubleSide,
+  ExtrudeGeometry,
+  Float32BufferAttribute,
+  Group,
+  LineBasicMaterial,
+  LineSegments,
+  type Material,
+  Mesh,
+  MeshStandardMaterial,
+  Shape,
+  ShapeGeometry,
+  Vector3,
+} from "three";
 import { unit } from "./geography";
 import type { FormerPackage } from "./types";
 
 function wreckMaterials() {
-  const timber = new THREE.MeshStandardMaterial({
+  const timber = new MeshStandardMaterial({
     color: "#4b655d",
     roughness: 1,
-    side: THREE.DoubleSide,
+    side: DoubleSide,
   });
-  const hold = new THREE.MeshStandardMaterial({
+  const hold = new MeshStandardMaterial({
     color: "#304a47",
     roughness: 1,
   });
-  const bone = new THREE.MeshStandardMaterial({
+  const bone = new MeshStandardMaterial({
     color: "#829785",
     roughness: 1,
   });
-  const canvas = new THREE.MeshStandardMaterial({
+  const canvas = new MeshStandardMaterial({
     color: "#95aa9e",
     roughness: 1,
-    side: THREE.DoubleSide,
+    side: DoubleSide,
   });
-  const seabed = new THREE.MeshStandardMaterial({
+  const seabed = new MeshStandardMaterial({
     color: "#a9bdad",
     roughness: 1,
   });
@@ -29,7 +46,7 @@ function wreckMaterials() {
 }
 
 function hullShape() {
-  const shape = new THREE.Shape();
+  const shape = new Shape();
   shape.moveTo(-4.8, -11);
   shape.lineTo(-6, -6);
   shape.lineTo(-5.7, 3);
@@ -40,7 +57,7 @@ function hullShape() {
   shape.lineTo(6, -6);
   shape.lineTo(4.8, -11);
   shape.closePath();
-  const opening = new THREE.Shape();
+  const opening = new Shape();
   opening.moveTo(-3.3, -8.5);
   opening.lineTo(3.3, -8.5);
   opening.lineTo(4, 2.5);
@@ -51,11 +68,8 @@ function hullShape() {
   return { opening, shape };
 }
 
-function beam(length: number, radius: number, material: THREE.Material) {
-  return new THREE.Mesh(
-    new THREE.CylinderGeometry(radius, radius, length, 6),
-    material
-  );
+function beam(length: number, radius: number, material: Material) {
+  return new Mesh(new CylinderGeometry(radius, radius, length, 6), material);
 }
 
 function lowerHull() {
@@ -69,7 +83,7 @@ function lowerHull() {
   ];
   const vertices: number[] = [];
   for (const side of [-1, 1]) {
-    for (let i = 0; i < sections.length - 1; i++) {
+    for (let i = 0; i < sections.length - 1; i += 1) {
       const a = sections[i];
       const b = sections[i + 1];
       if (!(a && b)) {
@@ -89,30 +103,27 @@ function lowerHull() {
       );
     }
   }
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute(
-    "position",
-    new THREE.Float32BufferAttribute(vertices, 3)
-  );
+  const geometry = new BufferGeometry();
+  geometry.setAttribute("position", new Float32BufferAttribute(vertices, 3));
   geometry.computeVertexNormals();
   return geometry;
 }
 
 export function createWreckLayer(packages: FormerPackage[]) {
   const { timber, hold, bone, canvas, seabed } = wreckMaterials();
-  const group = new THREE.Group();
+  const group = new Group();
   for (const pkg of packages) {
-    const wreck = new THREE.Group();
+    const wreck = new Group();
     wreck.position.set(pkg.x, -pkg.y, -10);
     wreck.rotation.z = unit(`${pkg.id}:bearing`) * Math.PI * 2;
-    const seaFloor = new THREE.Mesh(new THREE.CircleGeometry(39, 32), seabed);
+    const seaFloor = new Mesh(new CircleGeometry(39, 32), seabed);
     seaFloor.position.z = -2.2;
     seaFloor.receiveShadow = true;
     wreck.add(seaFloor);
 
     const { shape, opening } = hullShape();
-    const hull = new THREE.Mesh(
-      new THREE.ExtrudeGeometry(shape, {
+    const hull = new Mesh(
+      new ExtrudeGeometry(shape, {
         bevelEnabled: true,
         bevelSegments: 1,
         bevelSize: 0.55,
@@ -124,11 +135,11 @@ export function createWreckLayer(packages: FormerPackage[]) {
     hull.position.z = 0.45;
     hull.castShadow = true;
     wreck.add(hull);
-    const keel = new THREE.Mesh(lowerHull(), timber);
+    const keel = new Mesh(lowerHull(), timber);
     keel.castShadow = true;
     wreck.add(keel);
 
-    const floor = new THREE.Mesh(new THREE.ShapeGeometry(opening), hold);
+    const floor = new Mesh(new ShapeGeometry(opening), hold);
     floor.position.z = 0.5;
     wreck.add(floor);
 
@@ -153,7 +164,7 @@ export function createWreckLayer(packages: FormerPackage[]) {
     spar.rotation.x = 0.22;
     spar.rotation.z = 1.16;
     wreck.add(spar);
-    const stern = new THREE.Mesh(new THREE.BoxGeometry(8.5, 4.5, 1.5), timber);
+    const stern = new Mesh(new BoxGeometry(8.5, 4.5, 1.5), timber);
     stern.position.set(0, -7.8, 3.4);
     stern.castShadow = true;
     wreck.add(stern);
@@ -161,10 +172,10 @@ export function createWreckLayer(packages: FormerPackage[]) {
     bowsprit.position.set(0, 16, 3.1);
     bowsprit.rotation.x = Math.PI / 2.4;
     wreck.add(bowsprit);
-    const sailShape = new THREE.BufferGeometry();
+    const sailShape = new BufferGeometry();
     sailShape.setAttribute(
       "position",
-      new THREE.Float32BufferAttribute(
+      new Float32BufferAttribute(
         [
           -4.5, -1.4, 7.3, 4.4, -1.4, 7.3, -2.3, -1.4, 3.5, 4.4, -1.4, 7.3, 1.7,
           -1.4, 4.3, -2.3, -1.4, 3.5,
@@ -173,15 +184,15 @@ export function createWreckLayer(packages: FormerPackage[]) {
       )
     );
     sailShape.computeVertexNormals();
-    wreck.add(new THREE.Mesh(sailShape, canvas));
-    const rigging = new THREE.LineSegments(
-      new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(-1.5, -1.5, 8.8),
-        new THREE.Vector3(-4.2, -9, 2.8),
-        new THREE.Vector3(-1.5, -1.5, 8.8),
-        new THREE.Vector3(0, 13, 2.5),
+    wreck.add(new Mesh(sailShape, canvas));
+    const rigging = new LineSegments(
+      new BufferGeometry().setFromPoints([
+        new Vector3(-1.5, -1.5, 8.8),
+        new Vector3(-4.2, -9, 2.8),
+        new Vector3(-1.5, -1.5, 8.8),
+        new Vector3(0, 13, 2.5),
       ]),
-      new THREE.LineBasicMaterial({
+      new LineBasicMaterial({
         color: "#667f74",
         opacity: 0.7,
         transparent: true,
@@ -193,13 +204,13 @@ export function createWreckLayer(packages: FormerPackage[]) {
   return {
     dispose() {
       group.traverse((object) => {
-        if (object instanceof THREE.Mesh) {
-          (object as THREE.Mesh).geometry.dispose();
+        if (object instanceof Mesh) {
+          (object as Mesh).geometry.dispose();
         }
-        if (object instanceof THREE.LineSegments) {
-          const line = object as THREE.LineSegments<
-            THREE.BufferGeometry,
-            THREE.LineBasicMaterial
+        if (object instanceof LineSegments) {
+          const line = object as LineSegments<
+            BufferGeometry,
+            LineBasicMaterial
           >;
           line.geometry.dispose();
           line.material.dispose();

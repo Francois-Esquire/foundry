@@ -1,5 +1,5 @@
-import { useState } from "react";
-
+import type { MouseEvent, ToggleEvent } from "react";
+import { useCallback, useState } from "react";
 import type { AtlasSelection } from "./scene";
 import type { TradeRoute } from "./trade-routes";
 import { leadingTrades } from "./trade-routes";
@@ -59,24 +59,45 @@ function Partner({
   const [open, setOpen] = useState(false);
   const consumer = data.territories.find((p) => p.id === dependency.from);
   const supplier = data.territories.find((p) => p.id === dependency.to);
-  if (!(consumer && supplier)) {
-    return null;
-  }
-  const importing = consumer.id === territory.id;
+  const importing = consumer?.id === territory.id;
   const partner = importing ? supplier : consumer;
-  const sources = new Set(consumer.files.map((f) => f.id));
-  const targets = new Set(supplier.files.map((f) => f.id));
+  const sources = new Set(consumer?.files.map((f) => f.id));
+  const targets = new Set(supplier?.files.map((f) => f.id));
   const edges = data.fileEdges.filter(
     (e) => sources.has(e.source) && targets.has(e.target)
   );
   const from = new Set(edges.map((e) => e.source)),
     to = new Set(edges.map((e) => e.target));
+  const handleOpen = useCallback(
+    (event: ToggleEvent<HTMLDetailsElement>) => {
+      setOpen(event.currentTarget.open);
+    },
+    [setOpen]
+  );
+  const handleSelect = useCallback(() => {
+    if (partner) {
+      onSelect({ territory: partner });
+    }
+  }, [onSelect, partner]);
+  const selectFile = useCallback(
+    (event: MouseEvent<HTMLButtonElement>) => {
+      const selected = data.territories.find(
+        (item) => item.id === event.currentTarget.dataset.territory
+      );
+      const file = selected?.files.find(
+        (item) => item.id === event.currentTarget.value
+      );
+      if (selected && file) {
+        onSelect({ file, territory: selected });
+      }
+    },
+    [data, onSelect]
+  );
+  if (!(consumer && supplier && partner)) {
+    return null;
+  }
   return (
-    <details
-      onToggle={(event) => {
-        setOpen(event.currentTarget.open);
-      }}
-    >
+    <details onToggle={handleOpen}>
       <summary>
         {importing ? "Imports from" : "Supplies"} {partner.label} ·{" "}
         {dependency.weight}
@@ -91,11 +112,7 @@ function Partner({
               ? `${from.size} consumer files · ${to.size} resource files.`
               : "No matched file endpoints. Route uses package geography."}
           </p>
-          <button
-            onClick={() => {
-              onSelect({ territory: partner });
-            }}
-          >
+          <button onClick={handleSelect} type="button">
             Visit {partner.label}
           </button>
           {(
@@ -112,11 +129,12 @@ function Partner({
                 .filter((f) => members.has(f.id))
                 .map((file) => (
                   <button
+                    data-territory={p.id}
                     key={file.id}
-                    onClick={() => {
-                      onSelect({ file, territory: p });
-                    }}
+                    onClick={selectFile}
                     title={file.path}
+                    type="button"
+                    value={file.id}
                   >
                     {file.path}
                   </button>

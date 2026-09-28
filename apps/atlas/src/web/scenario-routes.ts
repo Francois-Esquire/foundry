@@ -28,13 +28,13 @@ export function scenarioRoutes(
     if (source && target) {
       proposed.push({ source, target });
     } else {
-      unmapped++;
+      unmapped += 1;
     }
   };
   for (const edge of scenario.proposed.redirect ?? []) {
     add(edge.source, file(edge.target));
   }
-  const surface = scenario.proposed.surface;
+  const { surface } = scenario.proposed;
   if (surface) {
     for (const source of surface.consumerModules) {
       add(
@@ -47,7 +47,7 @@ export function scenarioRoutes(
       );
     }
   }
-  const collapse = scenario.proposed.collapse;
+  const { collapse } = scenario.proposed;
   if (collapse) {
     for (const provider of collapse.providers) {
       add(collapse.consumer, file(provider));

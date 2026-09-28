@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import type { ChangeEvent, MouseEvent } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { familyScenario, scenarioReview } from "./architecture";
 import type { AtlasInternals } from "./internals";
 import type { ResponsibilityOverlay } from "./responsibility-focus";
 import { responsibilityFocus } from "./responsibility-focus";
-import { ScenarioInspection } from "./ScenarioInspection";
+import { ScenarioInspection } from "./scenario-inspection";
 import { scenarioRoutes } from "./scenario-routes";
 
 export function RelationshipInspection({
@@ -20,7 +21,7 @@ export function RelationshipInspection({
   const [scenarioId, setScenarioId] = useState("");
   const [familyId, setFamilyId] = useState("");
   const [progress, setProgress] = useState(0);
-  const architecture = data.architecture;
+  const { architecture } = data;
   const relationship = data.responsibilities.relationships.find(
     (item) => item.from === from && item.to === to
   );
@@ -62,6 +63,18 @@ export function RelationshipInspection({
       onOverlay(null);
     };
   }, [overlay, onOverlay]);
+  const selectScenario = useCallback((event: MouseEvent<HTMLButtonElement>) => {
+    const { family } = event.currentTarget.dataset;
+    if (!family) {
+      return;
+    }
+    setScenarioId(event.currentTarget.value);
+    setFamilyId(family);
+    setProgress(0);
+  }, []);
+  const handleProgress = useCallback((event: ChangeEvent<HTMLInputElement>) => {
+    setProgress(Number(event.target.value));
+  }, []);
   if (!(architecture && relationship)) {
     return <p>No matching responsibility relationship in this report.</p>;
   }
@@ -103,12 +116,11 @@ export function RelationshipInspection({
               <button
                 aria-pressed={scenarioId === id && familyId === family.id}
                 className="atlas-evidence-link"
+                data-family={family.id}
                 key={id}
-                onClick={() => {
-                  setScenarioId(id);
-                  setFamilyId(family.id);
-                  setProgress(0);
-                }}
+                onClick={selectScenario}
+                type="button"
+                value={id}
               >
                 {scenario.kind.replaceAll("-", " ")}
               </button>
@@ -133,9 +145,7 @@ export function RelationshipInspection({
               <input
                 max="1"
                 min="0"
-                onChange={(event) => {
-                  setProgress(Number(event.target.value));
-                }}
+                onChange={handleProgress}
                 step="0.01"
                 type="range"
                 value={progress}

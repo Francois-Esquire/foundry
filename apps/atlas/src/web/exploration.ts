@@ -95,12 +95,14 @@ export function fileConnections(data: AtlasData, id: string) {
   const seen = new Set<string>();
   return data.fileEdges
     .flatMap((edge) => {
-      const direction =
-        edge.source === id
-          ? "Imports"
-          : edge.target === id
-            ? "Imported by"
-            : null;
+      let direction: "Imports" | "Imported by" | null;
+      if (edge.source === id) {
+        direction = "Imports";
+      } else if (edge.target === id) {
+        direction = "Imported by";
+      } else {
+        direction = null;
+      }
       if (!direction) {
         return [];
       }

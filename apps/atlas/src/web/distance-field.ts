@@ -6,13 +6,13 @@ export function shoreDistances(
   const distances = Float32Array.from(land, (cell) =>
     cell ? 0 : (width + height) ** 2
   );
-  for (let y = 0; y < height; y++) {
+  for (let y = 0; y < height; y += 1) {
     distances.set(
       squaredDistances(Array.from(distances.slice(y * width, (y + 1) * width))),
       y * width
     );
   }
-  for (let x = 0; x < width; x++) {
+  for (let x = 0; x < width; x += 1) {
     const column = squaredDistances(
       Array.from({ length: height }, (_, y) => distances[y * width + x] ?? 0)
     );
@@ -27,26 +27,29 @@ function squaredDistances(values: number[]): number[] {
   const sites = [0];
   const boundaries = [Number.NEGATIVE_INFINITY, Number.POSITIVE_INFINITY];
   let k = 0;
-  for (let q = 1; q < values.length; q++) {
-    let intersection: number;
-    while (true) {
+  for (let q = 1; q < values.length; q += 1) {
+    let intersection = 0;
+    let searching = true;
+    while (searching) {
       const site = sites[k] ?? 0;
       intersection =
         ((values[q] ?? 0) + q * q - (values[site] ?? 0) - site * site) /
         (2 * (q - site));
       if (intersection > (boundaries[k] ?? Number.NEGATIVE_INFINITY)) {
-        break;
+        searching = false;
+      } else {
+        k -= 1;
       }
-      k--;
     }
-    sites[++k] = q;
+    k += 1;
+    sites[k] = q;
     boundaries[k] = intersection;
     boundaries[k + 1] = Number.POSITIVE_INFINITY;
   }
   k = 0;
   return values.map((_, q) => {
     while ((boundaries[k + 1] ?? Number.POSITIVE_INFINITY) < q) {
-      k++;
+      k += 1;
     }
     const site = sites[k] ?? 0;
     return (q - site) ** 2 + (values[site] ?? 0);

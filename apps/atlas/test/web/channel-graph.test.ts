@@ -8,7 +8,10 @@ it("follows shared region vertices before branching into the destination", () =>
   const owners = Int32Array.from({ length: width * height }, (_, i) => {
     const x = i % width,
       y = Math.floor(i / width);
-    return x < (y < 10 ? 7 : 12) ? 0 : 1;
+    if (x < (y < 10 ? 7 : 12)) {
+      return 0;
+    }
+    return 1;
   });
   const route = createChannelGraph(
     owners,

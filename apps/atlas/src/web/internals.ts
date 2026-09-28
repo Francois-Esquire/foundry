@@ -77,6 +77,8 @@ export function scopeFileIds(
           );
         case "module":
           return module.id === scope.path;
+        default:
+          throw new Error("Unexpected scope.kind.");
       }
     })
     .flatMap((module) => internals.fileIds[module.id] ?? [])

@@ -8,7 +8,7 @@ export function paintScenarioRoutes(
   overlay: ResponsibilityOverlay,
   pixels: number
 ) {
-  const routes = overlay.routes;
+  const { routes } = overlay;
   if (!routes) {
     return;
   }

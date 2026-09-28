@@ -1,9 +1,9 @@
-import * as THREE from "three";
+import { MeshStandardMaterial, type Texture } from "three";
 
 export const paperThickness = 0.4;
 
-export function createPaperMaterials(map: THREE.Texture) {
-  const paper = new THREE.MeshStandardMaterial({
+export function createPaperMaterials(map: Texture) {
+  const paper = new MeshStandardMaterial({
     map,
     metalness: 0,
     roughness: 0.96,

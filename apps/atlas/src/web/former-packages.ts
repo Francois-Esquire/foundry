@@ -8,7 +8,7 @@ export function formerPackages(
 ): FormerPackage[] {
   const placed: FormerPackage[] = [];
   for (const pkg of [...retired].sort((a, b) => a.id.localeCompare(b.id))) {
-    for (let attempt = 0; attempt < 256; attempt++) {
+    for (let attempt = 0; attempt < 256; attempt += 1) {
       const x =
         (unit(`${pkg.id}:wreck:x:${attempt}`) - 0.5) * (data.width - 80);
       const y =

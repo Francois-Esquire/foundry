@@ -17,7 +17,7 @@ export function useArchitecture(
       return;
     }
     const controller = new AbortController();
-    void loadInternals(packageId, survey, controller.signal)
+    loadInternals(packageId, survey, controller.signal)
       .then((internals) => {
         if (!controller.signal.aborted) {
           setData(internals);

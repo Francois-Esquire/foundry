@@ -1,4 +1,12 @@
-import * as THREE from "three";
+import {
+  Box3,
+  BufferAttribute,
+  BufferGeometry,
+  ExtrudeGeometry,
+  Group,
+  Mesh,
+  ShaderMaterial,
+} from "three";
 import { describe, expect, it, vi } from "vitest";
 import { createTradeLayer } from "../../src/web/trade-layer";
 import { createTradeNavigation } from "../../src/web/trade-routes";
@@ -43,46 +51,37 @@ describe("3D coastal trade", () => {
     const routes = createTradeNavigation(data)();
     const layer = createTradeLayer(data);
     layer.setRoutes(routes);
-    const towns = layer.group.children.filter((c) => c instanceof THREE.Group);
+    const towns = layer.group.children.filter((c) => c instanceof Group);
     expect(towns).toHaveLength(2);
     expect(
       towns.every((t) =>
         t.children.some(
-          (c) =>
-            c instanceof THREE.Mesh &&
-            c.geometry instanceof THREE.ExtrudeGeometry
+          (c) => c instanceof Mesh && c.geometry instanceof ExtrudeGeometry
         )
       )
     ).toBe(true);
     layer.group.updateMatrixWorld(true);
-    expect(new THREE.Box3().setFromObject(layer.group).max.z).toBeGreaterThan(
-      3
-    );
-    const lane = layer.group.children.find((c) => c instanceof THREE.Mesh);
-    if (
-      !(
-        lane instanceof THREE.Mesh &&
-        lane.material instanceof THREE.ShaderMaterial
-      )
-    ) {
+    expect(new Box3().setFromObject(layer.group).max.z).toBeGreaterThan(3);
+    const lane = layer.group.children.find((c) => c instanceof Mesh);
+    if (!(lane instanceof Mesh && lane.material instanceof ShaderMaterial)) {
       throw new Error("Missing sea lane");
     }
     const geometry: unknown = lane.geometry;
-    if (!(geometry instanceof THREE.BufferGeometry)) {
+    if (!(geometry instanceof BufferGeometry)) {
       throw new Error("Missing lane geometry");
     }
     const positions: unknown = geometry.getAttribute("position");
-    if (!(positions instanceof THREE.BufferAttribute)) {
+    if (!(positions instanceof BufferAttribute)) {
       throw new Error("Missing lane positions");
     }
-    for (let i = 0; i < positions.count; i++) {
+    for (let i = 0; i < positions.count; i += 1) {
       expect(positions.getZ(i)).toBeCloseTo(0.08);
     }
     expect(lane.material.fragmentShader).toContain(
       "min(laneUv.x, laneLength - laneUv.x)"
     );
     const lengths: unknown = geometry.getAttribute("routeLength");
-    if (!(lengths instanceof THREE.BufferAttribute)) {
+    if (!(lengths instanceof BufferAttribute)) {
       throw new Error("Missing route length");
     }
     expect(lengths.getX(0)).toBeGreaterThan(0);

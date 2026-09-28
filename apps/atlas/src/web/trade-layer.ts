@@ -1,4 +1,20 @@
-import * as THREE from "three";
+import {
+  BoxGeometry,
+  BufferGeometry,
+  Color,
+  ConeGeometry,
+  CylinderGeometry,
+  DoubleSide,
+  ExtrudeGeometry,
+  Float32BufferAttribute,
+  Group,
+  type Material,
+  Mesh,
+  MeshStandardMaterial,
+  type Raycaster,
+  ShaderMaterial,
+  Shape,
+} from "three";
 import { laneWidth } from "./codex/bindings";
 import { compositionInsideLand } from "./composition-placement";
 import { roundSeaLane } from "./sea-lane";
@@ -10,23 +26,23 @@ export function createTradeLayer(
   data: AtlasData,
   inlandPackages = new Set<string>()
 ) {
-  const group = new THREE.Group();
-  const cube = new THREE.BoxGeometry(1, 1, 1);
-  const cylinder = new THREE.CylinderGeometry(1, 1, 1, 8).rotateX(Math.PI / 2);
-  const cone = new THREE.ConeGeometry(1, 1, 8).rotateX(Math.PI / 2);
-  const roofShape = new THREE.Shape()
+  const group = new Group();
+  const cube = new BoxGeometry(1, 1, 1);
+  const cylinder = new CylinderGeometry(1, 1, 1, 8).rotateX(Math.PI / 2);
+  const cone = new ConeGeometry(1, 1, 8).rotateX(Math.PI / 2);
+  const roofShape = new Shape()
     .moveTo(-0.5, 0)
     .lineTo(0.5, 0)
     .lineTo(0, 0.5)
     .closePath();
-  const roof = new THREE.ExtrudeGeometry(roofShape, {
+  const roof = new ExtrudeGeometry(roofShape, {
     bevelEnabled: false,
     depth: 1,
   })
     .translate(0, 0, -0.5)
     .rotateX(Math.PI / 2);
   const material = (color: string) =>
-    new THREE.MeshStandardMaterial({
+    new MeshStandardMaterial({
       color,
       metalness: 0,
       opacity: 1,
@@ -38,9 +54,9 @@ export function createTradeLayer(
     roofs = material("#875222"),
     timber = material("#4a4233");
   const uniforms = {
-    ink: { value: new THREE.Color("#875222") },
+    ink: { value: new Color("#875222") },
   };
-  const laneMaterial = new THREE.ShaderMaterial({
+  const laneMaterial = new ShaderMaterial({
     depthWrite: false,
     fragmentShader: `uniform vec3 ink; varying float laneLength; varying vec2 laneUv;
       void main() {
@@ -50,19 +66,19 @@ export function createTradeLayer(
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
       }`,
-    side: THREE.DoubleSide,
+    side: DoubleSide,
     transparent: true,
     uniforms,
     vertexShader: `attribute float routeLength; varying float laneLength; varying vec2 laneUv;
       void main() { laneUv = uv; laneLength = routeLength; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
   });
-  let paths: THREE.BufferGeometry[] = [];
+  let paths: BufferGeometry[] = [];
   let signature = "";
   let occupied: { x: number; y: number; radius: number }[] = [];
   const mesh = (
-    parent: THREE.Group,
-    geometry: THREE.BufferGeometry,
-    surface: THREE.Material,
+    parent: Group,
+    geometry: BufferGeometry,
+    surface: Material,
     x: number,
     y: number,
     z: number,
@@ -70,10 +86,11 @@ export function createTradeLayer(
     sy: number,
     sz: number
   ) => {
-    const item = new THREE.Mesh(geometry, surface);
+    const item = new Mesh(geometry, surface);
     item.position.set(x, y, z);
     item.scale.set(sx, sy, sz);
-    item.castShadow = item.receiveShadow = true;
+    item.receiveShadow = true;
+    item.castShadow = item.receiveShadow;
     item.renderOrder = 2;
     parent.add(item);
     return item;
@@ -82,7 +99,7 @@ export function createTradeLayer(
     if (inlandPackages.has(p.id)) {
       return;
     }
-    const town = new THREE.Group();
+    const town = new Group();
     town.userData.territory = p.id;
     const vertices = p.coast.flat(2);
     const xs = vertices.map(([x]) => x),
@@ -204,7 +221,7 @@ export function createTradeLayer(
   };
   const clearWater = (a: TradePoint, b: TradePoint) => {
     const steps = Math.ceil(Math.hypot(b.x - a.x, b.y - a.y));
-    for (let n = 0; n <= steps; n++) {
+    for (let n = 0; n <= steps; n += 1) {
       const t = n / Math.max(1, steps),
         x = a.x + (b.x - a.x) * t,
         y = a.y + (b.y - a.y) * t;
@@ -220,9 +237,9 @@ export function createTradeLayer(
   };
   return {
     dispose: () => {
-      paths.forEach((geometry) => {
+      for (const geometry of paths) {
         geometry.dispose();
-      });
+      }
       for (const geometry of [cube, cylinder, cone, roof]) {
         geometry.dispose();
       }
@@ -232,14 +249,14 @@ export function createTradeLayer(
       group.clear();
     },
     group,
-    pick: (raycaster: THREE.Raycaster) => {
+    pick: (raycaster: Raycaster) => {
       if (!group.visible) {
         return;
       }
-      const hit = raycaster.intersectObjects(
-        group.children.filter((child) => child instanceof THREE.Group),
+      const [hit] = raycaster.intersectObjects(
+        group.children.filter((child) => child instanceof Group),
         true
-      )[0];
+      );
       const id: unknown = hit?.object.parent?.userData.territory;
       return data.territories.find((p) => p.id === id);
     },
@@ -256,9 +273,9 @@ export function createTradeLayer(
       }
       signature = next;
       group.clear();
-      paths.forEach((geometry) => {
+      for (const geometry of paths) {
         geometry.dispose();
-      });
+      }
       paths = [];
       occupied = [];
       const painted: TradePort[] = [];
@@ -293,22 +310,22 @@ export function createTradeLayer(
             indices.push(j - 2, j - 1, j, j - 1, j + 1, j);
           }
         });
-        const geometry = new THREE.BufferGeometry();
+        const geometry = new BufferGeometry();
         geometry.setAttribute(
           "position",
-          new THREE.Float32BufferAttribute(positions, 3)
+          new Float32BufferAttribute(positions, 3)
         );
-        geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+        geometry.setAttribute("uv", new Float32BufferAttribute(uv, 2));
         geometry.setAttribute(
           "routeLength",
-          new THREE.Float32BufferAttribute(
+          new Float32BufferAttribute(
             new Float32Array(points.length * 2).fill(length),
             1
           )
         );
         geometry.setIndex(indices);
         paths.push(geometry);
-        group.add(new THREE.Mesh(geometry, laneMaterial));
+        group.add(new Mesh(geometry, laneMaterial));
         for (const [site, resource] of [
           [route.supplier, true],
           [route.consumer, false],
@@ -323,7 +340,9 @@ export function createTradeLayer(
           ) {
             continue;
           }
-          const p = data.territories.find((p) => p.id === site.territory);
+          const p = data.territories.find(
+            (territory2) => territory2.id === site.territory
+          );
           if (p) {
             port(p, site, resource);
             painted.push(site);

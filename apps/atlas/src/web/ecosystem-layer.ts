@@ -1,4 +1,20 @@
-import * as THREE from "three";
+import {
+  BoxGeometry,
+  type BufferGeometry,
+  Color,
+  CylinderGeometry,
+  ExtrudeGeometry,
+  Group,
+  IcosahedronGeometry,
+  InstancedMesh,
+  type Material,
+  Mesh,
+  MeshStandardMaterial,
+  Object3D,
+  Shape,
+  ShapeGeometry,
+  Vector2,
+} from "three";
 import { TessellateModifier } from "three/addons/modifiers/TessellateModifier.js";
 
 import type { Continent } from "./continent";
@@ -16,38 +32,38 @@ export function ecosystemOpacity(pixels: number) {
 export function createEcosystemLayer(
   data: AtlasData,
   continents: Continent[],
-  paper: THREE.Material,
+  paper: Material,
   routes: Pick<TradeRoute, "points">[],
   layers = { forests: true, houses: true }
 ) {
-  const group = new THREE.Group(),
-    props = new THREE.Group();
+  const group = new Group(),
+    props = new Group();
   group.add(props);
-  const geometries: THREE.BufferGeometry[] = [];
+  const geometries: BufferGeometry[] = [];
   for (const continent of continents) {
     for (const ring of continent.field.outline) {
-      const base = new THREE.ShapeGeometry(
-        new THREE.Shape(ring.map(([x, y]) => new THREE.Vector2(x, -y)))
+      const base = new ShapeGeometry(
+        new Shape(ring.map(([x, y]) => new Vector2(x, -y)))
       );
       const geometry = new TessellateModifier(16, 12).modify(base);
       base.dispose();
       const positions = geometry.getAttribute("position"),
         uv = geometry.getAttribute("uv");
-      for (let i = 0; i < positions.count; i++) {
+      for (let i = 0; i < positions.count; i += 1) {
         const x = positions.getX(i),
           y = positions.getY(i);
         positions.setZ(i, continentHeight(continent, x, -y));
         uv.setXY(i, x / data.width + 0.5, y / data.height + 0.5);
       }
       geometry.computeVertexNormals();
-      const mesh = new THREE.Mesh(geometry, paper);
+      const mesh = new Mesh(geometry, paper);
       mesh.receiveShadow = true;
       group.add(mesh);
       geometries.push(geometry);
     }
   }
   const material = (color: string) =>
-    new THREE.MeshStandardMaterial({
+    new MeshStandardMaterial({
       color,
       roughness: 0.95,
       transparent: true,
@@ -57,40 +73,28 @@ export function createEcosystemLayer(
     trunks = material("#786345"),
     leaves = material("#8caa71");
   const materials = [walls, roofs, trunks, leaves];
-  const cube = new THREE.BoxGeometry(1, 1, 1),
-    crown = new THREE.IcosahedronGeometry(1, 1);
-  const trunk = new THREE.CylinderGeometry(0.22, 0.35, 1, 5).rotateX(
-    Math.PI / 2
-  );
-  const roofShape = new THREE.Shape()
+  const cube = new BoxGeometry(1, 1, 1),
+    crown = new IcosahedronGeometry(1, 1);
+  const trunk = new CylinderGeometry(0.22, 0.35, 1, 5).rotateX(Math.PI / 2);
+  const roofShape = new Shape()
     .moveTo(-0.5, 0)
     .lineTo(0.5, 0)
     .lineTo(0, 0.5)
     .closePath();
-  const roof = new THREE.ExtrudeGeometry(roofShape, {
+  const roof = new ExtrudeGeometry(roofShape, {
     bevelEnabled: false,
     depth: 1,
   })
     .translate(0, 0, -0.5)
     .rotateX(Math.PI / 2);
   geometries.push(cube, crown, trunk, roof);
-  interface Instance {
-    angle?: number;
-    color?: THREE.Color;
-    sx: number;
-    sy: number;
-    sz: number;
-    x: number;
-    y: number;
-    z: number;
-  }
   const instance = (
-    geometry: THREE.BufferGeometry,
-    surface: THREE.Material,
+    geometry: BufferGeometry,
+    surface: Material,
     items: Instance[]
   ) => {
-    const mesh = new THREE.InstancedMesh(geometry, surface, items.length);
-    const object = new THREE.Object3D();
+    const mesh = new InstancedMesh(geometry, surface, items.length);
+    const object = new Object3D();
     for (const [i, p] of items.entries()) {
       object.position.set(p.x, -p.y, p.z);
       object.scale.set(p.sx, p.sy, p.sz);
@@ -101,7 +105,8 @@ export function createEcosystemLayer(
         mesh.setColorAt(i, p.color);
       }
     }
-    mesh.castShadow = mesh.receiveShadow = true;
+    mesh.receiveShadow = true;
+    mesh.castShadow = mesh.receiveShadow;
     props.add(mesh);
   };
   const buildings: Instance[] = [],
@@ -125,29 +130,7 @@ export function createEcosystemLayer(
         return Math.hypot(x - a.x - t * dx, y - a.y - t * dy) > radius + 5;
       })
     );
-  for (const p of layers.houses ? data.territories : []) {
-    for (const site of settlementBuildings(p)) {
-      if (!clearRoad(p.x + site.x, p.y + site.y, site.size)) {
-        continue;
-      }
-      const z = terrainHeight(p, site.x, site.y);
-      const position = {
-        angle: site.angle,
-        sx: site.size,
-        sy: site.size * 1.25,
-        x: p.x + site.x,
-        y: p.y + site.y,
-      };
-      buildings.push({ ...position, sz: site.height, z: z + site.height / 2 });
-      caps.push({
-        ...position,
-        sx: site.size * 1.2,
-        sy: site.size * 1.45,
-        sz: site.size * 0.8,
-        z: z + site.height,
-      });
-    }
-  }
+  createEcosystemLayerP(layers, data, clearRoad, buildings, caps);
   instance(cube, walls, buildings);
   instance(roof, roofs, caps);
   const wood: Instance[] = [],
@@ -169,7 +152,7 @@ export function createEcosystemLayer(
       });
       canopy.push({
         angle: shade * Math.PI,
-        color: new THREE.Color().setHSL(
+        color: new Color().setHSL(
           0.22 + shade * 0.045,
           0.2,
           0.64 + shade * 0.2
@@ -195,7 +178,7 @@ export function createEcosystemLayer(
         surface.dispose();
       }
       props.traverse((object) => {
-        if (object instanceof THREE.InstancedMesh) {
+        if (object instanceof InstancedMesh) {
           object.dispose();
         }
       });
@@ -217,4 +200,46 @@ export function createEcosystemLayer(
       return changed;
     },
   };
+}
+
+function createEcosystemLayerP(
+  layers: { forests: boolean; houses: boolean },
+  data: AtlasData,
+  clearRoad: (x: number, y: number, radius: number) => boolean,
+  buildings: Instance[],
+  caps: Instance[]
+) {
+  for (const p of layers.houses ? data.territories : []) {
+    for (const site of settlementBuildings(p)) {
+      if (!clearRoad(p.x + site.x, p.y + site.y, site.size)) {
+        continue;
+      }
+      const z = terrainHeight(p, site.x, site.y);
+      const position = {
+        angle: site.angle,
+        sx: site.size,
+        sy: site.size * 1.25,
+        x: p.x + site.x,
+        y: p.y + site.y,
+      };
+      buildings.push({ ...position, sz: site.height, z: z + site.height / 2 });
+      caps.push({
+        ...position,
+        sx: site.size * 1.2,
+        sy: site.size * 1.45,
+        sz: site.size * 0.8,
+        z: z + site.height,
+      });
+    }
+  }
+}
+interface Instance {
+  angle?: number;
+  color?: Color;
+  sx: number;
+  sy: number;
+  sz: number;
+  x: number;
+  y: number;
+  z: number;
 }

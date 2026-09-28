@@ -310,7 +310,7 @@ describe("map detail drawing", () => {
   });
   it("limits relationship labels to evidence and keeps a bounded amount of ink", () => {
     const { canvas } = canvasFixture();
-    const source = territory.files[0];
+    const [source] = territory.files;
     if (!source) {
       throw new Error("Missing fixture file");
     }

@@ -15,9 +15,9 @@ export function createPlayback() {
       sourceTime = null;
     },
     restore(value: PlaybackSnapshot) {
-      time = value.time;
-      playing = value.playing;
-      speed = value.speed;
+      ({ time } = value);
+      ({ playing } = value);
+      ({ speed } = value);
       sourceTime = null;
       for (const id of trackIds) {
         Object.assign(tracks[id], value.tracks[id]);

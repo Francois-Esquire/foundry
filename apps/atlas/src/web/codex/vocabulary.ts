@@ -1,10 +1,4 @@
-export type FileKind =
-  | "source"
-  | "test"
-  | "story"
-  | "config"
-  | "other"
-  | "unknown";
+type FileKind = "source" | "test" | "story" | "config" | "other" | "unknown";
 
 export type DeclaredDependencyKind =
   | "dependencies"
@@ -12,12 +6,12 @@ export type DeclaredDependencyKind =
   | "peerDependencies"
   | "optionalDependencies";
 
-export interface CodexWorkspace {
+interface CodexWorkspace {
   coverage: "complete" | "partial";
   surveyedAt: string;
 }
 
-export interface CodexPackage {
+interface CodexPackage {
   analyzed: boolean;
   id: string;
   label: string;
@@ -27,7 +21,7 @@ export interface CodexPackage {
   size: number;
 }
 
-export interface CodexModule {
+interface CodexModule {
   /** Concepts the module takes part in, in any role. */
   concepts: string[];
   /** Import edges starting here, within and across packages. */
@@ -41,12 +35,12 @@ export interface CodexModule {
   path: string;
 }
 
-export interface CodexImport {
+interface CodexImport {
   source: string;
   target: string;
 }
 
-export interface CodexDependency {
+interface CodexDependency {
   from: string;
   sharedConcepts: number;
   /** Module import edges from `from` to `to`. */
@@ -54,7 +48,7 @@ export interface CodexDependency {
   to: string;
 }
 
-export interface CodexDeclaredDependency {
+interface CodexDeclaredDependency {
   from: string;
   kind: DeclaredDependencyKind;
   to: string;

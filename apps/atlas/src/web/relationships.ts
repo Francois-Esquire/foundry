@@ -40,7 +40,7 @@ export function fileRelationships(
       continue;
     }
     seen.add(key);
-    pair(edge.source, edge.target).imports++;
+    pair(edge.source, edge.target).imports += 1;
   }
   const participants = new Map<string, string[]>();
   for (const id of [...known].sort()) {

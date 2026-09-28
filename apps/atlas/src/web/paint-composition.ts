@@ -8,7 +8,7 @@ export function paintComposition(
   overlay: ResponsibilityOverlay,
   pixels: number
 ) {
-  const composition = overlay.composition;
+  const { composition } = overlay;
   const file = territory.files.find((item) => item.id === composition?.fileId);
   if (!(composition && file)) {
     return;
@@ -41,11 +41,7 @@ export function paintComposition(
     const { x, y } = mark;
     ctx.fillStyle = "#f1ead9";
     ctx.fillRect(x - 0.8, y - 0.8, 1.6, 1.6);
-    ctx.strokeStyle = blockers.has(mark.id)
-      ? "#963f32"
-      : active.has(mark.id)
-        ? "#875222"
-        : "#4a4233";
+    ctx.strokeStyle = resolvePaintComposition(blockers, mark, active);
     ctx.strokeRect(x - 0.5, y - 0.5, 1, 1);
     if (blockers.has(mark.id)) {
       ctx.beginPath();
@@ -72,4 +68,23 @@ export function paintComposition(
     }
   }
   ctx.restore();
+}
+
+function resolvePaintComposition(
+  blockers: Set<string>,
+  mark: {
+    ghost: { alpha: number; tether: boolean; x: number; y: number } | undefined;
+    id: string;
+    x: number;
+    y: number;
+  },
+  active: Set<string>
+): string | CanvasGradient | CanvasPattern {
+  if (blockers.has(mark.id)) {
+    return "#963f32";
+  }
+  if (active.has(mark.id)) {
+    return "#875222";
+  }
+  return "#4a4233";
 }

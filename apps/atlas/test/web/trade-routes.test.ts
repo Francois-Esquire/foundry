@@ -66,13 +66,13 @@ describe("coastal trade", () => {
     expect(routes[0]?.supplier.files).toEqual(["supplier"]);
     const points = routes[0]?.points ?? [];
     expect(points.some((p) => Math.abs(p.y) > 45)).toBe(true);
-    for (let i = 1; i < points.length; i++) {
+    for (let i = 1; i < points.length; i += 1) {
       const a = points[i - 1],
         b = points[i];
       if (!(a && b)) {
         throw new Error("Missing route segment");
       }
-      for (let n = 0; n <= 100; n++) {
+      for (let n = 0; n <= 100; n += 1) {
         const x = a.x + ((b.x - a.x) * n) / 100,
           y = a.y + ((b.y - a.y) * n) / 100;
         expect(
@@ -94,7 +94,7 @@ describe("coastal trade", () => {
 
   it("does not invent a crossing when land separates the water", () => {
     const data = fixture();
-    const obstacle = data.territories[2];
+    const [, , obstacle] = data.territories;
     if (!obstacle) {
       throw new Error("Missing obstacle");
     }
@@ -120,7 +120,7 @@ describe("coastal trade", () => {
 
   it("chooses an exterior harbor instead of an enclosed coastal basin", () => {
     const data = fixture();
-    const consumer = data.territories[0];
+    const [consumer] = data.territories;
     if (!consumer) {
       throw new Error("Missing consumer");
     }
@@ -144,7 +144,7 @@ describe("coastal trade", () => {
       ],
     ];
     consumer.files = consumer.files.map((f) => ({ ...f, x: -25 }));
-    const route = createTradeNavigation(data)()[0];
+    const [route] = createTradeNavigation(data)();
     expect(route).toBeDefined();
     if (!route) {
       throw new Error("Missing exterior route");

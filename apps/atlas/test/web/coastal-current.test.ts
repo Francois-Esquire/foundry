@@ -17,7 +17,7 @@ describe("island-aware current", () => {
     expect(flow.x[18 * width + 30]).toBeGreaterThan(0.6);
     expect(flow.y[24 * width + 41]).toBeGreaterThan(0.05);
     expect(flow.y[36 * width + 41]).toBeLessThan(-0.05);
-    for (let i = 0; i < land.length; i++) {
+    for (let i = 0; i < land.length; i += 1) {
       if (land[i]) {
         expect(flow.x[i]).toBe(0);
         expect(flow.y[i]).toBe(0);

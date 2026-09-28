@@ -21,7 +21,7 @@ it("keeps a closed, tangent-continuous Bezier rim outside the islands", async ()
         8
       );
     }
-    for (let sample = 0; sample < 24; sample++) {
+    for (let sample = 0; sample < 24; sample += 1) {
       const t = sample / 24;
       const coordinate = (axis: 0 | 1) =>
         (1 - t) ** 3 * curve.start[axis] +

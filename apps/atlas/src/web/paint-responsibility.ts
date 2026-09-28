@@ -2,7 +2,7 @@ import { detailLevel } from "./detail-level";
 import { paintComposition } from "./paint-composition";
 import { paintScenarioRoutes } from "./paint-scenario-routes";
 import type { ResponsibilityOverlay } from "./responsibility-focus";
-import type { Territory } from "./types";
+import type { AtlasFile, Territory } from "./types";
 
 export function paintResponsibility(
   ctx: CanvasRenderingContext2D,
@@ -44,21 +44,7 @@ export function paintResponsibility(
     pixels,
     (overlay.composition?.marks.length ?? 0) > 0
   ).files;
-  for (const [ids, color, radius] of [
-    [overlay.related, "#587575", 2.5],
-    [overlay.members, "#875222", 3.5],
-  ] as const) {
-    ctx.strokeStyle = color;
-    for (const id of ids) {
-      const file = files.get(id);
-      if (!file) {
-        continue;
-      }
-      ctx.beginPath();
-      ctx.arc(file.x, file.y, radius / pixels, 0, Math.PI * 2);
-      ctx.stroke();
-    }
-  }
+  paintResponsibilityEntries(overlay, ctx, files, pixels);
   ctx.strokeStyle = "#963f32";
   for (const id of overlay.pathDisagreement) {
     const file = files.get(id);
@@ -87,4 +73,27 @@ export function paintResponsibility(
     ctx.stroke();
   }
   ctx.restore();
+}
+
+function paintResponsibilityEntries(
+  overlay: ResponsibilityOverlay,
+  ctx: CanvasRenderingContext2D,
+  files: Map<string, AtlasFile>,
+  pixels: number
+) {
+  for (const [ids, color, radius] of [
+    [overlay.related, "#587575", 2.5],
+    [overlay.members, "#875222", 3.5],
+  ] as const) {
+    ctx.strokeStyle = color;
+    for (const id of ids) {
+      const file = files.get(id);
+      if (!file) {
+        continue;
+      }
+      ctx.beginPath();
+      ctx.arc(file.x, file.y, radius / pixels, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
 }

@@ -1,3 +1,4 @@
+import type { CompositionMark } from "./composition-layout";
 import { clearOfCoast, compositionInsideLand } from "./composition-placement";
 import { detailLevel } from "./detail-level";
 import type { ResponsibilityOverlay } from "./responsibility-focus";
@@ -42,18 +43,29 @@ export function compositionFrame(
     const progress = overlay.trace?.progress ?? 0;
     const fade = overlay.reducedMotion === true || stationaryTrace.has(mark.id);
     return {
-      ghost:
-        target && progress > 0
-          ? {
-              alpha: fade ? progress : 1,
-              tether: !fade,
-              x: fade ? target.x : x + (target.x * spread - x) * progress,
-              y: fade ? target.y : y + (target.y * spread - y) * progress,
-            }
-          : undefined,
+      ghost: resolveGhost(target, progress, fade, x, spread, y),
       id: mark.id,
       x,
       y,
     };
   });
+}
+
+function resolveGhost(
+  target: CompositionMark | undefined,
+  progress: number,
+  fade: boolean,
+  x: number,
+  spread: number,
+  y: number
+): { alpha: number; tether: boolean; x: number; y: number } | undefined {
+  if (target && progress > 0) {
+    return {
+      alpha: fade ? progress : 1,
+      tether: !fade,
+      x: fade ? target.x : x + (target.x * spread - x) * progress,
+      y: fade ? target.y : y + (target.y * spread - y) * progress,
+    };
+  }
+  return undefined;
 }

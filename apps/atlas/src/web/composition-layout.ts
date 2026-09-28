@@ -12,8 +12,8 @@ export type CompositionArrangement = "rows" | "clusters";
 function clusterSites(count: number) {
   const radius = Math.ceil(Math.sqrt(count));
   const sites: { x: number; y: number }[] = [];
-  for (let q = -radius; q <= radius; q++) {
-    for (let r = -radius; r <= radius; r++) {
+  for (let q = -radius; q <= radius; q += 1) {
+    for (let r = -radius; r <= radius; r += 1) {
       if (Math.max(Math.abs(q), Math.abs(r), Math.abs(q + r)) > radius) {
         continue;
       }

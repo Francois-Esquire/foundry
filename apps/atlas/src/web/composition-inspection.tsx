@@ -1,5 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import type { ChangeEvent, MouseEvent } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type { CompositionEvidence } from "../lib/internal-rewiring-types";
+import type { PrimitiveModuleFinding } from "../lib/primitive-convention-types";
 import {
+  type AtlasArchitecture,
   compositionGroups,
   familyScenario,
   scenarioReview,
@@ -13,7 +17,7 @@ import { compositionMotionFits } from "./composition-motion";
 import { fitComposition } from "./composition-placement";
 import type { AtlasInternals } from "./internals";
 import type { ResponsibilityOverlay } from "./responsibility-focus";
-import { ScenarioInspection } from "./ScenarioInspection";
+import { ScenarioInspection } from "./scenario-inspection";
 import { scenarioRoutes } from "./scenario-routes";
 import type { AtlasFile, AtlasSymbol, Territory } from "./types";
 
@@ -42,7 +46,7 @@ export function CompositionInspection({
   const [trace, setTrace] = useState(0);
   const [arrangement, setArrangement] =
     useState<CompositionArrangement>("rows");
-  const architecture = data.architecture;
+  const { architecture } = data;
   const groups = useMemo(
     () => compositionGroups(architecture?.primitives.symbols ?? [], module),
     [architecture, module]
@@ -116,14 +120,14 @@ export function CompositionInspection({
         .flatMap((group) =>
           group.symbols
             .filter((item) => !symbol || item.symbolId === symbol.id)
-            .map((symbol) => symbol.symbolId)
+            .map((symbolEntry4) => symbolEntry4.symbolId)
         )
     );
     const consumers = [
       ...new Set(
         data.locality.symbols
-          .filter((symbol) => symbols.has(symbol.symbolId))
-          .flatMap((symbol) => symbol.consumerModules)
+          .filter((symbolEntry3) => symbols.has(symbolEntry3.symbolId))
+          .flatMap((symbolEntry5) => symbolEntry5.consumerModules)
       ),
     ];
     const related = consumers.flatMap((id) => data.fileIds[id] ?? []);
@@ -140,28 +144,7 @@ export function CompositionInspection({
         ),
         stationary: stationary.reveal,
       },
-      hints: hints
-        ? [
-            ...new Set(
-              architecture?.review.subjects
-                .filter((subject) =>
-                  subject.nondominatedScenarios.some((id) =>
-                    architecture.review.scenarios.some(
-                      (value) =>
-                        value.scenarioId === id &&
-                        value.familyId === subject.subject.key &&
-                        ["credible", "uncertain"].includes(value.status)
-                    )
-                  )
-                )
-                .flatMap((subject) =>
-                  subject.subject.kind === "module"
-                    ? (data.fileIds[subject.subject.key] ?? [])
-                    : []
-                ) ?? []
-            ),
-          ]
-        : [],
+      hints: resolveHints(hints, architecture, data),
       links: (tracing ? related : [])
         .slice(0, 24)
         .map((source) => ({ source, target: file.id })),
@@ -178,7 +161,7 @@ export function CompositionInspection({
               progress: trace,
               scopes: data.responsibilities.regions.map((region) => ({
                 files: region.modules.flatMap(
-                  (module) => data.fileIds[module] ?? []
+                  (moduleId) => data.fileIds[moduleId] ?? []
                 ),
                 id: region.id,
               })),
@@ -219,27 +202,86 @@ export function CompositionInspection({
       onOverlay(null);
     };
   }, [overlay, onOverlay]);
+  const names = new Map(
+    architecture?.primitives.symbols.map((symbolEntry2) => [
+      symbolEntry2.symbolId,
+      symbolEntry2.name,
+    ])
+  );
+  const finding = architecture?.primitives.modules.find(
+    (item) => item.module === module
+  );
+  const selectedSymbol = architecture?.primitives.symbols.find(
+    (item) => item.symbolId === symbol?.id && item.declaration.module === module
+  );
+  const composition = architecture?.rewiring.composition.find(
+    (item) => item.module === module
+  );
+  const families =
+    architecture?.review.families.filter(
+      (family) => family.subject.module === module
+    ) ?? [];
+  const handleTracedSymbol = useCallback(() => {
+    if (!selectedSymbol) {
+      return;
+    }
+    setTracedSymbol(
+      tracedSymbol === selectedSymbol.symbolId ? "" : selectedSymbol.symbolId
+    );
+  }, [selectedSymbol, setTracedSymbol, tracedSymbol]);
+  const handleSymbol = useCallback(() => {
+    onSymbol();
+  }, [onSymbol]);
+  const handleArrangement = useCallback(
+    (event: ChangeEvent<HTMLSelectElement, HTMLSelectElement>) => {
+      setArrangement(event.target.value === "clusters" ? "clusters" : "rows");
+      setTrace(0);
+    },
+    [setArrangement, setTrace]
+  );
+  const handleHints = useCallback(
+    (event: ChangeEvent<HTMLInputElement, HTMLInputElement>) => {
+      setHints(event.target.checked);
+    },
+    [setHints]
+  );
+  const handleTrace = useCallback(
+    (event: ChangeEvent<HTMLInputElement, HTMLInputElement>) => {
+      setTrace(Number(event.target.value));
+    },
+    [setTrace]
+  );
+  const traceGroup = useCallback(
+    (event: MouseEvent<HTMLButtonElement>) => {
+      const id = event.currentTarget.value;
+      onSymbol();
+      setGroupId((current) => (current === id ? "" : id));
+    },
+    [onSymbol]
+  );
+  const selectDeclaration = useCallback(
+    (event: MouseEvent<HTMLButtonElement>) => {
+      const entry = architecture?.primitives.symbols.find(
+        (item) => item.symbolId === event.currentTarget.value
+      );
+      if (entry) {
+        onSymbol({ id: entry.symbolId, name: entry.name });
+      }
+    },
+    [architecture, onSymbol]
+  );
+  const selectScenario = useCallback((event: MouseEvent<HTMLButtonElement>) => {
+    const { family } = event.currentTarget.dataset;
+    if (!family) {
+      return;
+    }
+    setScenarioId(event.currentTarget.value);
+    setFamilyId(family);
+    setTrace(0);
+  }, []);
   if (!architecture) {
     return null;
   }
-  const names = new Map(
-    architecture.primitives.symbols.map((symbol) => [
-      symbol.symbolId,
-      symbol.name,
-    ])
-  );
-  const finding = architecture.primitives.modules.find(
-    (item) => item.module === module
-  );
-  const selectedSymbol = architecture.primitives.symbols.find(
-    (item) => item.symbolId === symbol?.id && item.declaration.module === module
-  );
-  const composition = architecture.rewiring.composition.find(
-    (item) => item.module === module
-  );
-  const families = architecture.review.families.filter(
-    (family) => family.subject.module === module
-  );
   return (
     <>
       <h3>{module.split("/").at(-1)}</h3>
@@ -254,13 +296,8 @@ export function CompositionInspection({
           <button
             aria-pressed={tracedSymbol === selectedSymbol.symbolId}
             className="atlas-evidence-link"
-            onClick={() => {
-              setTracedSymbol(
-                tracedSymbol === selectedSymbol.symbolId
-                  ? ""
-                  : selectedSymbol.symbolId
-              );
-            }}
+            onClick={handleTracedSymbol}
+            type="button"
           >
             {tracedSymbol === selectedSymbol.symbolId
               ? "Hide consumers"
@@ -282,23 +319,14 @@ export function CompositionInspection({
           </details>
           <button
             className="atlas-evidence-link"
-            onClick={() => {
-              onSymbol();
-            }}
+            onClick={handleSymbol}
+            type="button"
           >
             Return to composition
           </button>
         </section>
       )}
-      <p>
-        {composition?.compositionRoot
-          ? "Composition junction. Its wiring role must be preserved."
-          : finding?.shapes.length
-            ? finding.shapes
-                .map((value) => value.replaceAll("-", " "))
-                .join(", ")
-            : "Source settlement"}
-      </p>
+      <p>{resolveCompositionInspection(composition, finding)}</p>
       <p>
         {groups.reduce((count, group) => count + group.symbols.length, 0)}{" "}
         declarations · {groups.length} scope groups. Select a mark to inspect
@@ -308,15 +336,7 @@ export function CompositionInspection({
         <summary>Drawing details</summary>
         <label className="atlas-neighborhood-filter">
           <span>Composition arrangement</span>
-          <select
-            onChange={(event) => {
-              setArrangement(
-                event.target.value === "clusters" ? "clusters" : "rows"
-              );
-              setTrace(0);
-            }}
-            value={arrangement}
-          >
+          <select onChange={handleArrangement} value={arrangement}>
             <option value="rows">Rows</option>
             <option value="clusters">Compact clusters</option>
           </select>
@@ -357,28 +377,29 @@ export function CompositionInspection({
             <button
               aria-pressed={groupId === group.id}
               className="atlas-evidence-link"
-              onClick={() => {
-                onSymbol();
-                setGroupId(groupId === group.id ? "" : group.id);
-              }}
+              onClick={traceGroup}
+              type="button"
+              value={group.id}
             >
               Trace this group's consumers
             </button>
             <ul>
-              {group.symbols.map((symbol) => (
-                <li key={symbol.symbolId}>
+              {group.symbols.map((symbolEntry) => (
+                <li key={symbolEntry.symbolId}>
                   <button
-                    aria-pressed={selectedSymbol?.symbolId === symbol.symbolId}
+                    aria-pressed={
+                      selectedSymbol?.symbolId === symbolEntry.symbolId
+                    }
                     className="atlas-evidence-link"
-                    onClick={() => {
-                      onSymbol({ id: symbol.symbolId, name: symbol.name });
-                    }}
+                    onClick={selectDeclaration}
+                    type="button"
+                    value={symbolEntry.symbolId}
                   >
-                    {symbol.name}
+                    {symbolEntry.name}
                   </button>
-                  {symbol.roles.join(", ")} · {symbol.evidence.scope} scope
-                  evidence
-                  {!symbol.exported && " · private"}
+                  {symbolEntry.roles.join(", ")} · {symbolEntry.evidence.scope}{" "}
+                  scope evidence
+                  {!symbolEntry.exported && " · private"}
                 </li>
               ))}
             </ul>
@@ -388,14 +409,8 @@ export function CompositionInspection({
       <details>
         <summary>Compare alternatives</summary>
         <label>
-          <input
-            checked={hints}
-            onChange={(event) => {
-              setHints(event.target.checked);
-            }}
-            type="checkbox"
-          />{" "}
-          Show alternative investigations
+          <input checked={hints} onChange={handleHints} type="checkbox" /> Show
+          alternative investigations
         </label>
         <p>
           Open amber marks indicate credible or uncertain alternatives, not
@@ -417,12 +432,11 @@ export function CompositionInspection({
                   <button
                     aria-pressed={scenarioId === id && familyId === family.id}
                     className="atlas-evidence-link"
+                    data-family={family.id}
                     key={id}
-                    onClick={() => {
-                      setScenarioId(id);
-                      setFamilyId(family.id);
-                      setTrace(0);
-                    }}
+                    onClick={selectScenario}
+                    type="button"
+                    value={id}
                   >
                     {option.kind.replaceAll("-", " ")}
                     {option.proposed.separated &&
@@ -457,9 +471,7 @@ export function CompositionInspection({
                 <input
                   max="1"
                   min="0"
-                  onChange={(event) => {
-                    setTrace(Number(event.target.value));
-                  }}
+                  onChange={handleTrace}
                   step="0.01"
                   type="range"
                   value={trace}
@@ -496,4 +508,47 @@ export function CompositionInspection({
       </details>
     </>
   );
+}
+
+function resolveCompositionInspection(
+  composition: CompositionEvidence | undefined,
+  finding: PrimitiveModuleFinding | undefined
+): React.ReactNode {
+  if (composition?.compositionRoot) {
+    return "Composition junction. Its wiring role must be preserved.";
+  }
+  if (finding?.shapes.length) {
+    return finding.shapes.map((value) => value.replaceAll("-", " ")).join(", ");
+  }
+  return "Source settlement";
+}
+
+function resolveHints(
+  hints: boolean,
+  architecture: AtlasArchitecture | undefined,
+  data: AtlasInternals
+): string[] | undefined {
+  if (hints) {
+    return [
+      ...new Set(
+        architecture?.review.subjects
+          .filter((subject) =>
+            subject.nondominatedScenarios.some((id) =>
+              architecture.review.scenarios.some(
+                (value) =>
+                  value.scenarioId === id &&
+                  value.familyId === subject.subject.key &&
+                  ["credible", "uncertain"].includes(value.status)
+              )
+            )
+          )
+          .flatMap((subject) =>
+            subject.subject.kind === "module"
+              ? (data.fileIds[subject.subject.key] ?? [])
+              : []
+          ) ?? []
+      ),
+    ];
+  }
+  return [];
 }

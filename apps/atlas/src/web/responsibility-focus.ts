@@ -1,4 +1,9 @@
-import type { ResponsibilityRelationship } from "../lib/internal-responsibility-types";
+import type {
+  InternalResponsibilityReport,
+  ResponsibilityAmbiguity,
+  ResponsibilityRegion,
+  ResponsibilityRelationship,
+} from "../lib/internal-responsibility-types";
 
 import type { CompositionMark } from "./composition-layout";
 import type { AtlasInternals } from "./internals";
@@ -53,15 +58,7 @@ export function responsibilityFocus(
       ? report.unresolved.find((m) => m.module === selection.id)
       : undefined;
   const members = new Set(region?.modules ?? []);
-  const unresolved = new Set(
-    ambiguity
-      ? [ambiguity.module]
-      : region
-        ? report.unresolved
-            .filter((m) => m.candidates.some((c) => c.region === region.id))
-            .map((m) => m.module)
-        : []
-  );
+  const unresolved = new Set(resolveUnresolved(ambiguity, region, report));
   const relationship =
     selection.kind === "region" ? selection.relationship : undefined;
   const relatedRegionIds = relationship
@@ -121,4 +118,20 @@ export function responsibilityFocus(
     totalLinks: mappedEdges.length,
     unresolved: mapped(unresolved),
   };
+}
+
+function resolveUnresolved(
+  ambiguity: ResponsibilityAmbiguity | undefined,
+  region: ResponsibilityRegion | undefined,
+  report: InternalResponsibilityReport
+): Iterable<string> | null | undefined {
+  if (ambiguity) {
+    return [ambiguity.module];
+  }
+  if (region) {
+    return report.unresolved
+      .filter((m) => m.candidates.some((c) => c.region === region.id))
+      .map((m) => m.module);
+  }
+  return [];
 }

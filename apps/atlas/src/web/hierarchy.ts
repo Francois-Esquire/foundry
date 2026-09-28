@@ -10,7 +10,7 @@ interface HierarchyEvidence {
   >[];
 }
 
-export interface CompositeDistrict {
+interface CompositeDistrict {
   anchor: string;
   anchorWeight: number;
   id: string;
@@ -52,46 +52,7 @@ export function deriveHierarchy(evidence: HierarchyEvidence) {
     total += weight;
   }
   const originalWeights = weights.slice();
-  while (total > 0) {
-    let bestGain = 1e-12;
-    let best: [number, number] | undefined;
-    for (const [a, left] of groups) {
-      for (const [b, right] of groups) {
-        if (b <= a) {
-          continue;
-        }
-        const crossing = weights[a * count + b] ?? 0;
-        if (!crossing) {
-          continue;
-        }
-        const gain =
-          crossing / total -
-          (left.strength * right.strength) / (2 * total ** 2);
-        if (gain > bestGain) {
-          bestGain = gain;
-          best = [a, b];
-        }
-      }
-    }
-    if (!best) {
-      break;
-    }
-    const [a, b] = best;
-    const left = groups.get(a);
-    const right = groups.get(b);
-    if (!(left && right)) {
-      break;
-    }
-    left.members.push(...right.members);
-    left.strength += right.strength;
-    groups.delete(b);
-    for (const key of groups.keys()) {
-      const weight =
-        (weights[a * count + key] ?? 0) + (weights[b * count + key] ?? 0);
-      weights[a * count + key] = weight;
-      weights[key * count + a] = weight;
-    }
-  }
+  deriveHierarchyEntries(total, groups, weights, count);
   const composites: CompositeDistrict[] = [];
   const independent: string[] = [];
   for (const group of groups.values()) {
@@ -114,7 +75,7 @@ export function deriveHierarchy(evidence: HierarchyEvidence) {
           b.weight - a.weight ||
           (a.region?.id ?? "").localeCompare(b.region?.id ?? "")
       );
-    const anchor = ranked[0];
+    const [anchor] = ranked;
     if (!anchor?.region) {
       continue;
     }
@@ -128,4 +89,70 @@ export function deriveHierarchy(evidence: HierarchyEvidence) {
     });
   }
   return { composites, independent: independent.sort() };
+}
+
+function deriveHierarchyEntries(
+  total: number,
+  groups: Map<number, { members: number[]; strength: number }>,
+  weights: Float64Array<ArrayBuffer>,
+  count: number
+) {
+  while (total > 0) {
+    const { best } = deriveHierarchyEntriesEntries(
+      groups,
+      weights,
+      count,
+      total,
+      1e-12,
+      undefined
+    );
+    if (!best) {
+      break;
+    }
+    const [a, b] = best;
+    const left = groups.get(a);
+    const right = groups.get(b);
+    if (!(left && right)) {
+      break;
+    }
+    left.members.push(...right.members);
+    left.strength += right.strength;
+    groups.delete(b);
+    for (const key of groups.keys()) {
+      const weight =
+        (weights[a * count + key] ?? 0) + (weights[b * count + key] ?? 0);
+      weights[a * count + key] = weight;
+      weights[key * count + a] = weight;
+    }
+  }
+}
+
+function deriveHierarchyEntriesEntries(
+  groups: Map<number, { members: number[]; strength: number }>,
+  weights: Float64Array<ArrayBuffer>,
+  count: number,
+  total: number,
+  initialBestGain: number,
+  initialBest: [number, number] | undefined
+): { bestGain: number; best: [number, number] | undefined } {
+  let best = initialBest;
+  let bestGain = initialBestGain;
+  for (const [a, left] of groups) {
+    for (const [b, right] of groups) {
+      if (b <= a) {
+        continue;
+      }
+      const crossing = weights[a * count + b] ?? 0;
+      if (!crossing) {
+        continue;
+      }
+      const gain =
+        crossing / total - (left.strength * right.strength) / (2 * total ** 2);
+      if (gain > bestGain) {
+        bestGain = gain;
+        best = [a, b];
+      }
+    }
+  }
+  return { best, bestGain };
 }

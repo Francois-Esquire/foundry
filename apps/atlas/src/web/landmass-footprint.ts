@@ -13,11 +13,11 @@ export function oceanAccess(open: Uint8Array, width: number, height: number) {
       queue.push(i);
     }
   };
-  for (let x = 0; x < width; x++) {
+  for (let x = 0; x < width; x += 1) {
     visit(x);
     visit((height - 1) * width + x);
   }
-  for (let y = 0; y < height; y++) {
+  for (let y = 0; y < height; y += 1) {
     visit(y * width);
     visit(y * width + width - 1);
   }
@@ -59,7 +59,7 @@ export function landmassFootprint(members: Territory[], coastalBuffer = 32) {
     const yy = ring.map(([, y]) => y);
     const y0 = Math.max(0, Math.floor((Math.min(...yy) - top) / step));
     const y1 = Math.min(height - 1, Math.ceil((Math.max(...yy) - top) / step));
-    for (let y = y0; y <= y1; y++) {
+    for (let y = y0; y <= y1; y += 1) {
       const line = top + (y + 0.5) * step;
       const crossings: number[] = [];
       for (const [i, a] of ring.entries()) {
@@ -90,7 +90,7 @@ export function landmassFootprint(members: Territory[], coastalBuffer = 32) {
       raster(landmassHull([p], 0));
     }
     for (const polygon of p.coast) {
-      const ring = polygon[0];
+      const [ring] = polygon;
       if (ring) {
         raster(ring.map(([x, y]) => [x + p.x, y + p.y]));
       }
@@ -99,37 +99,7 @@ export function landmassFootprint(members: Territory[], coastalBuffer = 32) {
   const settlementDistance = shoreDistances(land, width, height);
   const joined = ordered.slice(0, 1),
     remaining = ordered.slice(1);
-  while (remaining.length) {
-    let shortest = Number.POSITIVE_INFINITY,
-      source = joined[0],
-      destination = 0;
-    for (const a of joined) {
-      for (const [i, b] of remaining.entries()) {
-        const distance = Math.hypot(b.x - a.x, b.y - a.y);
-        if (distance < shortest) {
-          shortest = distance;
-          source = a;
-          destination = i;
-        }
-      }
-    }
-    const target = remaining.splice(destination, 1)[0];
-    if (!(source && target)) {
-      break;
-    }
-    const dx = target.x - source.x,
-      dy = target.y - source.y;
-    const length = Math.hypot(dx, dy) || 1;
-    const nx = (-dy / length) * 12,
-      ny = (dx / length) * 12;
-    raster([
-      [source.x + nx, source.y + ny],
-      [target.x + nx, target.y + ny],
-      [target.x - nx, target.y - ny],
-      [source.x - nx, source.y - ny],
-    ]);
-    joined.push(target);
-  }
+  landmassFootprintEntries(remaining, joined, raster);
   const distance = shoreDistances(land, width, height);
   const dilationExterior = Uint8Array.from(distance, (d) =>
     d * step > reach ? 1 : 0
@@ -173,4 +143,42 @@ export function landmassFootprint(members: Territory[], coastalBuffer = 32) {
     step,
     width,
   };
+}
+
+function landmassFootprintEntries(
+  remaining: Territory[],
+  joined: Territory[],
+  raster: (ring: [number, number][]) => void
+) {
+  while (remaining.length) {
+    let shortest = Number.POSITIVE_INFINITY,
+      [source] = joined,
+      destination = 0;
+    for (const a of joined) {
+      for (const [i, b] of remaining.entries()) {
+        const distance = Math.hypot(b.x - a.x, b.y - a.y);
+        if (distance < shortest) {
+          shortest = distance;
+          source = a;
+          destination = i;
+        }
+      }
+    }
+    const [target] = remaining.splice(destination, 1);
+    if (!(source && target)) {
+      break;
+    }
+    const dx = target.x - source.x,
+      dy = target.y - source.y;
+    const length = Math.hypot(dx, dy) || 1;
+    const nx = (-dy / length) * 12,
+      ny = (dx / length) * 12;
+    raster([
+      [source.x + nx, source.y + ny],
+      [target.x + nx, target.y + ny],
+      [target.x - nx, target.y - ny],
+      [source.x - nx, source.y - ny],
+    ]);
+    joined.push(target);
+  }
 }

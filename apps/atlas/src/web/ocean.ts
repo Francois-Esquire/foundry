@@ -2,8 +2,6 @@ import { archipelagoHull, traceArchipelago } from "./archipelago";
 import { shoreDistances } from "./distance-field";
 import type { AtlasData, Polygon } from "./types";
 
-export { shoreDistances } from "./distance-field";
-
 export function oceanShade(
   distance: number,
   outsideRim = 0

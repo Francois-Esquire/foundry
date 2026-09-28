@@ -50,33 +50,7 @@ export function createAtmosphereLayer(
     if (!enabled) {
       return;
     }
-    if (territory && opacity > 0.005) {
-      const island = territory;
-      ctx.beginPath();
-      for (const polygon of territory.coast) {
-        for (const ring of polygon) {
-          ring.forEach(([x, y], i) => {
-            const p = project({ x: island.x + x, y: island.y + y });
-            if (i) {
-              ctx.lineTo(p.x, p.y);
-            } else {
-              ctx.moveTo(p.x, p.y);
-            }
-          });
-          ctx.closePath();
-        }
-      }
-      for (const [width, alpha] of [
-        [12, 0.08],
-        [7, 0.16],
-        [2, 0.6],
-      ] as const) {
-        ctx.strokeStyle = `rgba(190, 132, 48, ${alpha * opacity})`;
-        ctx.lineWidth = width;
-        ctx.lineJoin = "round";
-        ctx.stroke();
-      }
-    }
+    drawEntries(territory, opacity, ctx, project);
     if (wind) {
       const t = Math.min(1, (performance.now() - wind.began) / 2400);
       ctx.strokeStyle = `rgba(117, 102, 73, ${Math.sin(t * Math.PI) * 0.55})`;
@@ -249,4 +223,39 @@ export function createAtmosphereLayer(
       }, 1000);
     },
   };
+}
+
+function drawEntries(
+  territory: Territory | null,
+  opacity: number,
+  ctx: CanvasRenderingContext2D,
+  project: (point: MapPoint) => MapPoint
+) {
+  if (territory && opacity > 0.005) {
+    const island = territory;
+    ctx.beginPath();
+    for (const polygon of territory.coast) {
+      for (const ring of polygon) {
+        ring.forEach(([x, y], i) => {
+          const p = project({ x: island.x + x, y: island.y + y });
+          if (i) {
+            ctx.lineTo(p.x, p.y);
+          } else {
+            ctx.moveTo(p.x, p.y);
+          }
+        });
+        ctx.closePath();
+      }
+    }
+    for (const [bandWidth, alpha] of [
+      [12, 0.08],
+      [7, 0.16],
+      [2, 0.6],
+    ] as const) {
+      ctx.strokeStyle = `rgba(190, 132, 48, ${alpha * opacity})`;
+      ctx.lineWidth = bandWidth;
+      ctx.lineJoin = "round";
+      ctx.stroke();
+    }
+  }
 }

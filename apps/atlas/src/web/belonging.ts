@@ -38,8 +38,8 @@ export function belongingAncestry(
   const entered = composites.find(
     (group) => group.id === selection.compositeId
   );
-  const candidates = regions.filter((region) =>
-    region.members.some((file) => file.id === selection.fileId)
+  const candidates = regions.filter((regionEntry) =>
+    regionEntry.members.some((file) => file.id === selection.fileId)
   );
   const region =
     regions.find(
@@ -49,11 +49,18 @@ export function belongingAncestry(
     ) ??
     candidates.find((group) => entered?.children?.includes(group.id)) ??
     candidates[0];
-  const composite = region
-    ? entered?.children?.includes(region.id)
-      ? entered
-      : composites.find((group) => group.children?.includes(region.id))
-    : entered;
+  let composite: BelongingRegion | undefined;
+  if (region) {
+    if (entered?.children?.includes(region.id)) {
+      composite = entered;
+    } else {
+      composite = composites.find((group) =>
+        group.children?.includes(region.id)
+      );
+    }
+  } else {
+    composite = entered;
+  }
   return {
     compositeId: composite?.id,
     regionId: region?.id ?? selection.regionId,
@@ -72,8 +79,10 @@ const pigments = [
 function pigment(id: string) {
   let hash = 0;
   for (const character of id) {
+    // biome-ignore lint/suspicious/noBitwiseOperators: Preserve the deterministic 32-bit hash used for map placement and colors.
     hash = (hash * 31 + character.charCodeAt(0)) | 0;
   }
+  // biome-ignore lint/suspicious/noBitwiseOperators: Preserve the deterministic 32-bit hash used for map placement and colors.
   return pigments[(hash >>> 0) % pigments.length] ?? "#688c77";
 }
 
@@ -100,12 +109,12 @@ export function memberContours(members: AtlasFile[]): Polygon[] {
     for (
       let y = Math.max(0, Math.floor(file.y - top - radius));
       y < Math.min(height, file.y - top + radius);
-      y++
+      y += 1
     ) {
       for (
         let x = Math.max(0, Math.floor(file.x - left - radius));
         x < Math.min(width, file.x - left + radius);
-        x++
+        x += 1
       ) {
         const distance = Math.hypot(
           x + 0.5 + left - file.x,
@@ -140,7 +149,7 @@ export function belongingRegions(
     uncertain: boolean
   ) => {
     const members = [...new Set(modules.map((module) => data.fileIds[module]))]
-      .flatMap((id) => files.get(id ?? "") ?? [])
+      .flatMap((fileId2) => files.get(fileId2 ?? "") ?? [])
       .sort((a, b) => a.id.localeCompare(b.id));
     return {
       color: uncertain ? "#956f47" : pigment(id),
@@ -287,12 +296,12 @@ function districtContours(regions: BelongingRegion[]) {
       for (
         let y = Math.max(0, Math.floor((file.y - radius - top) / step));
         y < Math.min(height, (file.y + radius - top) / step);
-        y++
+        y += 1
       ) {
         for (
           let x = Math.max(0, Math.floor((file.x - radius - left) / step));
           x < Math.min(width, (file.x + radius - left) / step);
-          x++
+          x += 1
         ) {
           const distance = Math.hypot(
             left + (x + 0.5) * step - file.x,
@@ -341,14 +350,7 @@ export function matchedRegion(
     ...overlay.members,
     ...overlay.related,
     ...overlay.unresolved,
-    ...(overlay.routes
-      ? [...overlay.routes.baseline, ...overlay.routes.proposed].flatMap(
-          (route) =>
-            [route.source, route.target].flatMap((endpoint) =>
-              endpoint.kind === "file" ? [endpoint.id] : []
-            )
-        )
-      : []),
+    ...resolveIds(overlay),
   ]);
   const members = territory.files.filter((file) => ids.has(file.id));
   if (!members.length) {
@@ -362,4 +364,16 @@ export function matchedRegion(
     polygons: memberContours(members),
     uncertain: false,
   };
+}
+
+function resolveIds(overlay: ResponsibilityOverlay): string[] {
+  if (overlay.routes) {
+    return [...overlay.routes.baseline, ...overlay.routes.proposed].flatMap(
+      (route) =>
+        [route.source, route.target].flatMap((endpoint) =>
+          endpoint.kind === "file" ? [endpoint.id] : []
+        )
+    );
+  }
+  return [];
 }

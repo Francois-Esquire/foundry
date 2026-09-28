@@ -20,21 +20,21 @@ it("routes measured dependencies on land with shared corridors and stable eviden
   let traversals = 0;
   for (const route of network.routes) {
     expect(data.routes).toContainEqual(route.dependency);
-    const c = continents.find((c) =>
-      c.members.some((p) => p.id === route.dependency.from)
+    const c = continents.find((continent) =>
+      continent.members.some((p) => p.id === route.dependency.from)
     );
     if (!c) {
       throw new Error("Missing continent");
     }
     expect(c.members.some((p) => p.id === route.dependency.to)).toBe(true);
     traversals += route.points.length - 1;
-    for (let i = 1; i < route.points.length; i++) {
+    for (let i = 1; i < route.points.length; i += 1) {
       const a = route.points[i - 1],
         b = route.points[i];
       if (!(a && b)) {
         throw new Error("Missing road point");
       }
-      for (let n = 0; n <= 24; n++) {
+      for (let n = 0; n <= 24; n += 1) {
         const index = continentCell(
           c,
           a.x + ((b.x - a.x) * n) / 24,
@@ -49,7 +49,7 @@ it("routes measured dependencies on land with shared corridors and stable eviden
   }
   expect(network.segments.length).toBeLessThan(traversals);
   for (const path of network.paths) {
-    for (let i = 1; i < path.points.length; i++) {
+    for (let i = 1; i < path.points.length; i += 1) {
       const a = path.points[i - 1],
         b = path.points[i];
       if (!(a && b)) {
@@ -57,7 +57,7 @@ it("routes measured dependencies on land with shared corridors and stable eviden
       }
       const length = Math.hypot(b.x - a.x, b.y - a.y) || 1;
       for (const side of [-1, 0, 1]) {
-        for (let n = 0; n <= 4; n++) {
+        for (let n = 0; n <= 4; n += 1) {
           const x =
             a.x + ((b.x - a.x) * n) / 4 - ((b.y - a.y) / length) * 1.7 * side;
           const y =

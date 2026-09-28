@@ -25,7 +25,7 @@ import { bindInternals, scopeFileIds } from "../../src/web/internals";
 import { responsibilityFocus } from "../../src/web/responsibility-focus";
 import { scenarioRoutes } from "../../src/web/scenario-routes";
 import type { Territory } from "../../src/web/types";
-import { UnmappedModuleInspection } from "../../src/web/UnmappedModuleInspection";
+import { UnmappedModuleInspection } from "../../src/web/unmapped-module-inspection";
 import { loadInternals } from "../helpers/reference-internals";
 
 let root: string;
@@ -81,7 +81,7 @@ describe("atlas package internals", () => {
     if (result.status !== "available") {
       throw new Error(result.reason);
     }
-    const architecture = result.internals.architecture;
+    const { architecture } = result.internals;
     const scenario = architecture?.rewiring.scenarios[0];
     if (!(architecture && scenario)) {
       throw new Error("Missing scenario fixture");
@@ -181,7 +181,7 @@ describe("atlas package internals", () => {
       throw new Error(result.reason);
     }
     const data = result.internals;
-    const region = data.responsibilities.regions[0];
+    const [region] = data.responsibilities.regions;
     if (!region) {
       throw new Error("Missing fixture responsibility");
     }
@@ -246,7 +246,7 @@ describe("atlas package internals", () => {
     if (full.status !== "available") {
       throw new Error(full.reason);
     }
-    const architecture = full.internals.architecture;
+    const { architecture } = full.internals;
     if (!architecture) {
       throw new Error("Missing architecture evidence");
     }
@@ -299,7 +299,7 @@ describe("atlas package internals", () => {
     if (result.status !== "available") {
       throw new Error(result.reason);
     }
-    const architecture = result.internals.architecture;
+    const { architecture } = result.internals;
     if (!architecture) {
       throw new Error("Missing architecture");
     }
@@ -326,7 +326,7 @@ describe("atlas package internals", () => {
       expect(html).toContain(scenario.id);
     }
     for (const symbol of architecture.primitives.symbols.filter(
-      (symbol) => symbol.declaration.module === module
+      (symbolEntry) => symbolEntry.declaration.module === module
     )) {
       expect(html).toContain(symbol.name);
     }
@@ -429,7 +429,7 @@ describe("atlas package internals", () => {
       false
     );
     const [region, other] = report.regions;
-    const edge = data.topology.edges[0];
+    const [edge] = data.topology.edges;
     const sourceModule = region?.modules[0],
       targetModule = other?.modules[0];
     if (!(region && other && sourceModule && targetModule && edge)) {
@@ -461,9 +461,9 @@ describe("atlas package internals", () => {
       region.modules.map((id) => data.fileIds[id]).sort()
     );
     expect(focus.links.length).toBeGreaterThan(0);
-    for (const edge of focus.links) {
-      expect(focus.members).toContain(edge.source);
-      expect(focus.related).toContain(edge.target);
+    for (const moduleEdge of focus.links) {
+      expect(focus.members).toContain(moduleEdge.source);
+      expect(focus.related).toContain(moduleEdge.target);
     }
     expect(data).toEqual(before);
     expect(
@@ -477,7 +477,7 @@ describe("atlas package internals", () => {
       throw new Error(result.reason);
     }
     const data = result.internals;
-    const region = data.responsibilities.regions[0];
+    const [region] = data.responsibilities.regions;
     if (!region) {
       throw new Error("Missing fixture responsibility");
     }
@@ -491,7 +491,7 @@ describe("atlas package internals", () => {
         roles: ["bridge"],
       },
     ];
-    const edge = data.topology.edges[0];
+    const [edge] = data.topology.edges;
     if (!edge) {
       throw new Error("Missing fixture dependency");
     }

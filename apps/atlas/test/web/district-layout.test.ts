@@ -68,7 +68,7 @@ describe("island-wide district fitting", () => {
         expect(file.x).toBeGreaterThan(50);
       }
     }
-    for (let i = 0; i < result.files.length; i++) {
+    for (let i = 0; i < result.files.length; i += 1) {
       for (const b of result.files.slice(i + 1)) {
         const a = result.files[i];
         if (!a) {

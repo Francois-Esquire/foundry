@@ -10,7 +10,7 @@ export function hitComposition(
   y: number,
   pixels: number
 ) {
-  const composition = overlay.composition;
+  const { composition } = overlay;
   const file = territory.files.find((item) => item.id === composition?.fileId);
   const { detail } = compositionReveal(pixels);
   if (

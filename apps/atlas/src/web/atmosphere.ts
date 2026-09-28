@@ -15,7 +15,8 @@ export function insidePolygons(point: MapPoint, polygons: Polygon[]): boolean {
   return polygons.some((polygon) => {
     let inside = false;
     for (const ring of polygon) {
-      for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      for (let i = 0; i < ring.length; i += 1) {
+        const j = (i + ring.length - 1) % ring.length;
         const a = ring[i],
           b = ring[j];
         if (!(a && b)) {
@@ -89,28 +90,8 @@ export function clearWind(
       return false;
     }
     for (const p of data.territories) {
-      const local = { x: point.x - p.x, y: point.y - p.y };
-      if (insidePolygons(local, p.shallows) || insidePolygons(local, p.coast)) {
+      if (!clearTerritory(point, p, clearance)) {
         return false;
-      }
-      for (const polygon of p.shallows) {
-        for (const ring of polygon) {
-          for (let i = 0; i < ring.length; i++) {
-            const a = ring[i],
-              b = ring[(i + 1) % ring.length];
-            if (
-              a &&
-              b &&
-              segmentDistance(
-                local,
-                { x: a[0], y: a[1] },
-                { x: b[0], y: b[1] }
-              ) < clearance
-            ) {
-              return false;
-            }
-          }
-        }
       }
     }
     if (
@@ -123,26 +104,69 @@ export function clearWind(
     ) {
       return false;
     }
-    for (const route of data.routes) {
-      const a = regions.get(route.from),
-        b = regions.get(route.to);
-      if (!(a && b)) {
-        continue;
-      }
-      const cx = (a.x + b.x) / 2 + (b.y - a.y) * 0.12;
-      const cy = (a.y + b.y) / 2 - (b.x - a.x) * 0.12;
-      let previous: MapPoint = a;
-      for (let i = 1; i <= 40; i++) {
-        const t = i / 40;
-        const next = {
-          x: (1 - t) ** 2 * a.x + 2 * (1 - t) * t * cx + t * t * b.x,
-          y: (1 - t) ** 2 * a.y + 2 * (1 - t) * t * cy + t * t * b.y,
-        };
-        if (segmentDistance(point, previous, next) < clearance) {
+    if (!clearRoutes(point, data, regions, clearance)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function clearTerritory(
+  point: MapPoint,
+  territory: Territory,
+  clearance: number
+): boolean {
+  const local = { x: point.x - territory.x, y: point.y - territory.y };
+  if (
+    insidePolygons(local, territory.shallows) ||
+    insidePolygons(local, territory.coast)
+  ) {
+    return false;
+  }
+  for (const polygon of territory.shallows) {
+    for (const ring of polygon) {
+      for (let i = 0; i < ring.length; i += 1) {
+        const a = ring[i];
+        const b = ring[(i + 1) % ring.length];
+        if (
+          a &&
+          b &&
+          segmentDistance(local, { x: a[0], y: a[1] }, { x: b[0], y: b[1] }) <
+            clearance
+        ) {
           return false;
         }
-        previous = next;
       }
+    }
+  }
+  return true;
+}
+
+function clearRoutes(
+  point: MapPoint,
+  data: AtlasData,
+  regions: Map<string, Territory>,
+  clearance: number
+): boolean {
+  for (const route of data.routes) {
+    const a = regions.get(route.from);
+    const b = regions.get(route.to);
+    if (!(a && b)) {
+      continue;
+    }
+    const cx = (a.x + b.x) / 2 + (b.y - a.y) * 0.12;
+    const cy = (a.y + b.y) / 2 - (b.x - a.x) * 0.12;
+    let previous: MapPoint = a;
+    for (let i = 1; i <= 40; i += 1) {
+      const t = i / 40;
+      const next = {
+        x: (1 - t) ** 2 * a.x + 2 * (1 - t) * t * cx + t * t * b.x,
+        y: (1 - t) ** 2 * a.y + 2 * (1 - t) * t * cy + t * t * b.y,
+      };
+      if (segmentDistance(point, previous, next) < clearance) {
+        return false;
+      }
+      previous = next;
     }
   }
   return true;

@@ -1,4 +1,4 @@
-import * as THREE from "three";
+import { Texture } from "three";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -8,7 +8,7 @@ import {
 
 describe("atlas paper", () => {
   it("uses matte solid pigment without decorative bump or displacement", () => {
-    const map = new THREE.Texture();
+    const map = new Texture();
     const materials = createPaperMaterials(map);
     expect(materials.paper.map).toBe(map);
     expect(materials.paper.displacementMap).toBeNull();

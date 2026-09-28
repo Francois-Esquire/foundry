@@ -23,7 +23,7 @@ export function relaxRoad(
       );
       return Math.hypot(p.x - a.x - t * dx, p.y - a.y - t * dy) <= 36;
     });
-  for (let pass = 0; pass < 64; pass++) {
+  for (let pass = 0; pass < 64; pass += 1) {
     const next = points.map((p, i) => {
       const a = points[i - 1],
         b = points[i + 1];
@@ -52,14 +52,14 @@ export function relaxRoad(
       points = next;
     }
   }
-  for (let pass = 0; pass < 3; pass++) {
-    const first = points[0],
+  for (let pass = 0; pass < 3; pass += 1) {
+    const [first] = points,
       last = points.at(-1);
     if (!(first && last)) {
       return points;
     }
     const next = [first];
-    for (let i = 0; i < points.length - 1; i++) {
+    for (let i = 0; i < points.length - 1; i += 1) {
       const a = points[i],
         b = points[i + 1];
       if (!(a && b)) {

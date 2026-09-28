@@ -55,7 +55,7 @@ export function dependencyCurrent(data: AtlasData) {
     gy += c.dy * c.weight;
   }
   if (Math.hypot(gx, gy) < 0.000_001) {
-    const strongest = [...connections].sort((a, b) => b.weight - a.weight)[0];
+    const [strongest] = [...connections].sort((a, b) => b.weight - a.weight);
     gx = strongest?.dx ?? 0;
     gy = strongest?.dy ?? 0;
   }

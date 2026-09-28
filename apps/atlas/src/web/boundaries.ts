@@ -1,6 +1,7 @@
 import { archipelagoHull, traceArchipelago } from "./archipelago";
 import { landmassFootprint } from "./landmass-footprint";
-import { landmassHull, packageGroups } from "./landmasses";
+import { landmassHull } from "./landmass-hull";
+import { packageGroups } from "./landmasses";
 import type { AtlasData } from "./types";
 
 export const boundaryStyles = {

@@ -1,4 +1,12 @@
-import * as THREE from "three";
+import {
+  BufferAttribute,
+  type BufferGeometry,
+  Path,
+  Shape,
+  ShapeGeometry,
+  Vector2,
+  Vector3,
+} from "three";
 import { TessellateModifier } from "three/addons/modifiers/TessellateModifier.js";
 import { mergeVertices } from "three/addons/utils/BufferGeometryUtils.js";
 import { paperThickness } from "./paper-material";
@@ -8,7 +16,7 @@ export function terrainHeight(p: Territory, x: number, y: number): number {
   let distance = Number.POSITIVE_INFINITY;
   for (const polygon of p.coast) {
     for (const ring of polygon) {
-      for (let i = 1; i < ring.length; i++) {
+      for (let i = 1; i < ring.length; i += 1) {
         const a = ring[i - 1];
         const b = ring[i];
         if (!(a && b)) {
@@ -45,15 +53,13 @@ export function terrainGeometry(
   polygon: Polygon,
   width: number,
   height: number
-): THREE.BufferGeometry {
-  const rings = polygon.map((ring) =>
-    ring.map(([x, y]) => new THREE.Vector2(x, -y))
-  );
-  const shape = new THREE.Shape(rings[0]);
+): BufferGeometry {
+  const rings = polygon.map((ring) => ring.map(([x, y]) => new Vector2(x, -y)));
+  const shape = new Shape(rings[0]);
   for (const hole of rings.slice(1)) {
-    shape.holes.push(new THREE.Path(hole));
+    shape.holes.push(new Path(hole));
   }
-  const base = new THREE.ShapeGeometry(shape);
+  const base = new ShapeGeometry(shape);
   const triangles = new TessellateModifier(5, 12).modify(base);
   base.dispose();
   triangles.deleteAttribute("normal");
@@ -62,7 +68,7 @@ export function terrainGeometry(
   const positions = geometry.getAttribute("position");
   const uv = geometry.getAttribute("uv");
   const normals = new Float32Array(positions.count * 3);
-  for (let i = 0; i < positions.count; i++) {
+  for (let i = 0; i < positions.count; i += 1) {
     const x = positions.getX(i),
       y = positions.getY(i);
     positions.setXYZ(i, p.x + x, -p.y + y, terrainHeight(p, x, -y));
@@ -71,9 +77,9 @@ export function terrainGeometry(
       (terrainHeight(p, x + 0.2, -y) - terrainHeight(p, x - 0.2, -y)) / 0.4;
     const dy =
       (terrainHeight(p, x, -y + 0.2) - terrainHeight(p, x, -y - 0.2)) / 0.4;
-    new THREE.Vector3(-dx, dy, 1).normalize().toArray(normals, i * 3);
+    new Vector3(-dx, dy, 1).normalize().toArray(normals, i * 3);
   }
-  geometry.setAttribute("normal", new THREE.BufferAttribute(normals, 3));
+  geometry.setAttribute("normal", new BufferAttribute(normals, 3));
   return geometry;
 }
 

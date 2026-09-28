@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { compositionGroups, scenarioReview } from "./architecture";
 import type { AtlasInternals } from "./internals";
 import type { ResponsibilityOverlay } from "./responsibility-focus";
-import { ScenarioInspection } from "./ScenarioInspection";
+import { ScenarioInspection } from "./scenario-inspection";
 
 export function UnmappedModuleInspection({
   data,
@@ -16,7 +16,7 @@ export function UnmappedModuleInspection({
   useEffect(() => {
     onOverlay(null);
   }, [onOverlay]);
-  const architecture = data.architecture;
+  const { architecture } = data;
   if (!architecture) {
     return null;
   }

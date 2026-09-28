@@ -33,8 +33,8 @@ describe("composition layout", () => {
   });
   it("leaves clearance between every pair of declaration marks", () => {
     const layout = layoutComposition(groups);
-    for (let i = 0; i < layout.length; i++) {
-      for (let j = i + 1; j < layout.length; j++) {
+    for (let i = 0; i < layout.length; i += 1) {
+      for (let j = i + 1; j < layout.length; j += 1) {
         const a = layout[i],
           b = layout[j];
         if (!(a && b)) {
@@ -56,7 +56,7 @@ describe("composition layout", () => {
     expect(layoutComposition([...groups].reverse(), "clusters")).toEqual(
       clusters
     );
-    for (let i = 0; i < clusters.length; i++) {
+    for (let i = 0; i < clusters.length; i += 1) {
       for (const other of clusters.slice(i + 1)) {
         const mark = clusters[i];
         if (!mark) {

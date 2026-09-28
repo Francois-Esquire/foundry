@@ -57,6 +57,14 @@ a:focus-visible {
   padding: 0;
   overflow: hidden;
 }
+.atlas-world {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  background: #dfe2d2;
+  border: 1px solid #bcb39b;
+  box-shadow: 0 12px 38px #5f4e3220;
+}
 .atlas-map-first .atlas-world {
   position: absolute;
   inset: 0;
@@ -64,6 +72,11 @@ a:focus-visible {
   min-height: 0;
   border: 0;
   box-shadow: none;
+}
+.atlas-map {
+  position: absolute;
+  inset: 56px 0 74px;
+  touch-action: none;
 }
 .atlas-map-first .atlas-map {
   inset: 66px 0 62px;
@@ -138,6 +151,13 @@ a:focus-visible {
   width: 360px;
   max-height: calc(100dvh - 156px);
 }
+.atlas-index {
+  flex: 1;
+  min-height: 70px;
+  padding-right: 4px;
+  margin: 12px -5px 12px -8px;
+  overflow: auto;
+}
 .atlas-search-drawer .atlas-index {
   max-height: none;
   overflow-y: auto;
@@ -160,6 +180,13 @@ a:focus-visible {
   bottom: 82px;
   left: 24px;
   width: 310px;
+}
+h2 {
+  margin: 0 0 6px;
+  font:
+    22px / 1.2 AtlasDisplay,
+    serif;
+  overflow-wrap: anywhere;
 }
 .atlas-place h2,
 .atlas-evidence-drawer h2 {
@@ -192,6 +219,16 @@ a:focus-visible {
   font-size: 14px;
   text-decoration: underline;
   text-underline-offset: 4px;
+}
+.atlas-map-bottom {
+  position: absolute;
+  right: 28px;
+  bottom: 22px;
+  left: 28px;
+  display: flex;
+  gap: 20px;
+  align-items: center;
+  justify-content: space-between;
 }
 .atlas-map-first .atlas-map-bottom {
   bottom: 12px;
@@ -276,13 +313,6 @@ h1 span {
   margin: 29px 0 24px;
   background: #c6bda8;
 }
-h2 {
-  margin: 0 0 6px;
-  font:
-    22px / 1.2 AtlasDisplay,
-    serif;
-  overflow-wrap: anywhere;
-}
 .atlas-description {
   margin: 0 0 12px;
   font-size: 15px;
@@ -301,13 +331,6 @@ h2 {
 }
 .atlas-search input::placeholder {
   color: #7b6d56;
-}
-.atlas-index {
-  flex: 1;
-  min-height: 70px;
-  padding-right: 4px;
-  margin: 12px -5px 12px -8px;
-  overflow: auto;
 }
 .atlas-exploration-mode {
   display: flex;
@@ -473,6 +496,19 @@ h2 {
   background: none;
   border: 0;
 }
+.atlas-wreck-toggle span {
+  margin-left: 6px;
+  color: #75674e;
+}
+.atlas-setting > span {
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+}
+.atlas-inspection span {
+  font-size: 13px;
+  color: #75674e;
+}
 .atlas-geography-notes li span {
   display: block;
   font-size: 12px;
@@ -495,25 +531,12 @@ h2 {
   outline: 2px solid #875222;
   outline-offset: 3px;
 }
-.atlas-world {
-  position: relative;
-  min-width: 0;
-  overflow: hidden;
-  background: #dfe2d2;
-  border: 1px solid #bcb39b;
-  box-shadow: 0 12px 38px #5f4e3220;
-}
 .atlas-world:after {
   position: absolute;
   inset: 8px;
   pointer-events: none;
   content: "";
   border: 1px solid #a99c783f;
-}
-.atlas-map {
-  position: absolute;
-  inset: 56px 0 74px;
-  touch-action: none;
 }
 .atlas-map canvas {
   display: block;
@@ -544,26 +567,12 @@ h2 {
   font-family: AtlasDisplay, serif;
   font-size: 17px;
 }
-.atlas-map-bottom {
-  position: absolute;
-  right: 28px;
-  bottom: 22px;
-  left: 28px;
-  display: flex;
-  gap: 20px;
-  align-items: center;
-  justify-content: space-between;
-}
 .atlas-wreck-toggle {
   padding: 7px 11px 5px;
   margin-left: auto;
   font-size: 14px;
   background: #f1ead9;
   border: 1px solid #958d74;
-}
-.atlas-wreck-toggle span {
-  margin-left: 6px;
-  color: #75674e;
 }
 .atlas-wreck-ledger {
   position: absolute;
@@ -690,14 +699,14 @@ h2 {
   font-weight: 400;
   overflow-wrap: anywhere;
 }
-.atlas-inspection span {
-  font-size: 13px;
-  color: #75674e;
-}
 .atlas-controls {
   display: flex;
   flex-shrink: 0;
   gap: 4px;
+  min-width: 0;
+  padding: 0;
+  margin: 0;
+  border: 0;
 }
 .atlas-controls button {
   width: 38px;
@@ -853,11 +862,6 @@ h2 {
 .atlas-setting {
   display: block;
   margin: 14px 0;
-}
-.atlas-setting > span {
-  display: flex;
-  gap: 8px;
-  justify-content: space-between;
 }
 .atlas-setting output,
 .atlas-chart-settings output {

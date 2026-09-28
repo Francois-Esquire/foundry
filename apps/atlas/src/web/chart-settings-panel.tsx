@@ -1,7 +1,5 @@
-import type { RefObject } from "react";
-
-import { useEffect, useRef, useState } from "react";
-
+import type { ChangeEvent, MouseEvent, RefObject } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { BoundaryId } from "./boundaries";
 import { boundaryStyles } from "./boundaries";
 import type { ChartSettings } from "./chart-settings";
@@ -49,12 +47,58 @@ export function ChartSettingsPanel({
       motion.removeEventListener("change", preference);
     };
   }, [scene]);
-  const sync = () => {
+  const sync = useCallback(() => {
     const value = scene.current?.getPlayback();
     if (value) {
       setPlayback(value);
     }
-  };
+  }, [scene, setPlayback]);
+  const changeNumericSetting = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      const key = event.currentTarget.name as keyof ChartSettings;
+      if (typeof settings[key] === "number") {
+        onChange({ ...settings, [key]: Number(event.currentTarget.value) });
+      }
+    },
+    [onChange, settings]
+  );
+  const changeLayer = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      const key = event.currentTarget.name as keyof ChartSettings["layers"];
+      if (Object.hasOwn(settings.layers, key)) {
+        onChange({
+          ...settings,
+          layers: { ...settings.layers, [key]: event.currentTarget.checked },
+        });
+      }
+    },
+    [onChange, settings]
+  );
+  const changeBoundary = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      const key = event.currentTarget.name as BoundaryId;
+      if (Object.hasOwn(boundaryStyles, key)) {
+        onChange({
+          ...settings,
+          boundaries: {
+            ...settings.boundaries,
+            [key]: event.currentTarget.checked,
+          },
+        });
+      }
+    },
+    [onChange, settings]
+  );
+  const toggleTrack = useCallback(
+    (event: MouseEvent<HTMLButtonElement>) => {
+      const id = trackIds.find((track) => track === event.currentTarget.value);
+      if (id) {
+        scene.current?.setTrackPlaying(id, !playback.tracks[id].playing);
+        sync();
+      }
+    },
+    [playback, scene, sync]
+  );
   const range = (
     label: string,
     key: Exclude<
@@ -78,15 +122,62 @@ export function ChartSettingsPanel({
         aria-label={label}
         max={max}
         min={min}
-        onChange={(event) => {
-          onChange({ ...settings, [key]: Number(event.target.value) });
-        }}
+        name={key}
+        onChange={changeNumericSetting}
         step={step}
         type="range"
         value={settings[key]}
       />
     </label>
   );
+  const handleChange3 = useCallback(() => {
+    onChange({ ...settings, ...defaultLandmassSettings });
+  }, [onChange, settings]);
+  const handleClick = useCallback(() => {
+    scene.current?.play(!playback.playing);
+    sync();
+  }, [playback, scene, sync]);
+  const handlePlaybackSpeed = useCallback(
+    (event: ChangeEvent<HTMLSelectElement, HTMLSelectElement>) => {
+      scene.current?.setPlaybackSpeed(Number(event.target.value));
+      sync();
+    },
+    [scene, sync]
+  );
+  const handleChange5 = useCallback(
+    (event: ChangeEvent<HTMLInputElement, HTMLInputElement>) => {
+      scene.current?.seek(Number(event.target.value));
+      sync();
+    },
+    [scene, sync]
+  );
+  const handleChange6 = useCallback(
+    (event: ChangeEvent<HTMLInputElement, HTMLInputElement>) => {
+      onChange({ ...settings, waterColor: event.target.value });
+    },
+    [onChange, settings]
+  );
+  const handleChange7 = useCallback(
+    (event: ChangeEvent<HTMLSelectElement, HTMLSelectElement>) => {
+      const filter = Object.keys(chartFilters).find(
+        (key) => key === event.target.value
+      ) as ChartSettings["filter"] | undefined;
+      if (filter) {
+        onChange({ ...settings, filter });
+      }
+    },
+    [onChange, settings]
+  );
+  const handleChange8 = useCallback(
+    (event: ChangeEvent<HTMLInputElement, HTMLInputElement>) => {
+      onChange({ ...settings, contours: event.target.checked });
+    },
+    [onChange, settings]
+  );
+  const handleReset = useCallback(() => {
+    onReset();
+    sync();
+  }, [onReset, sync]);
   return (
     <aside
       aria-labelledby="chart-settings-title"
@@ -95,7 +186,12 @@ export function ChartSettingsPanel({
     >
       <header>
         <h2 id="chart-settings-title">Chart settings</h2>
-        <button aria-label="Close chart settings" onClick={onClose} ref={close}>
+        <button
+          aria-label="Close chart settings"
+          onClick={onClose}
+          ref={close}
+          type="button"
+        >
           Close
         </button>
       </header>
@@ -125,12 +221,8 @@ export function ChartSettingsPanel({
                 ((key === "roads" || key === "forests") &&
                   !settings.layers.land)
               }
-              onChange={(event) => {
-                onChange({
-                  ...settings,
-                  layers: { ...settings.layers, [key]: event.target.checked },
-                });
-              }}
+              name={key}
+              onChange={changeLayer}
               type="checkbox"
             />
             <span>{label}</span>
@@ -146,11 +238,7 @@ export function ChartSettingsPanel({
             Lower values tighten the outline and let islands fit closer. Changes
             settle after a brief pause; island shapes stay fixed.
           </p>
-          <button
-            onClick={() => {
-              onChange({ ...settings, ...defaultLandmassSettings });
-            }}
-          >
+          <button onClick={handleChange3} type="button">
             Reset layout
           </button>
           <p role="status">
@@ -167,15 +255,8 @@ export function ChartSettingsPanel({
               <label className="atlas-boundary-control" key={key}>
                 <input
                   checked={settings.boundaries[key]}
-                  onChange={(event) => {
-                    onChange({
-                      ...settings,
-                      boundaries: {
-                        ...settings.boundaries,
-                        [key]: event.target.checked,
-                      },
-                    });
-                  }}
+                  name={key}
+                  onChange={changeBoundary}
                   type="checkbox"
                 />
                 <svg
@@ -209,10 +290,8 @@ export function ChartSettingsPanel({
               playback.playing && !reduced ? "Pause timeline" : "Play timeline"
             }
             disabled={reduced}
-            onClick={() => {
-              scene.current?.play(!playback.playing);
-              sync();
-            }}
+            onClick={handleClick}
+            type="button"
           >
             {playback.playing && !reduced ? "Pause" : "Play"}
           </button>
@@ -221,13 +300,7 @@ export function ChartSettingsPanel({
           </output>
           <label>
             Speed
-            <select
-              onChange={(event) => {
-                scene.current?.setPlaybackSpeed(Number(event.target.value));
-                sync();
-              }}
-              value={playback.speed}
-            >
+            <select onChange={handlePlaybackSpeed} value={playback.speed}>
               {[0.25, 0.5, 1, 2, 3].map((speed) => (
                 <option key={speed} value={speed}>
                   {speed}×
@@ -244,10 +317,7 @@ export function ChartSettingsPanel({
             aria-label="Timeline"
             max={Math.max(120, Math.ceil(playback.time / 60) * 60)}
             min="0"
-            onChange={(event) => {
-              scene.current?.seek(Number(event.target.value));
-              sync();
-            }}
+            onChange={handleChange5}
             step="0.1"
             type="range"
             value={playback.time}
@@ -261,13 +331,9 @@ export function ChartSettingsPanel({
               <button
                 aria-label={`${playback.tracks[id].playing ? "Pause" : "Resume"} ${id} track`}
                 aria-pressed={!playback.tracks[id].playing}
-                onClick={() => {
-                  scene.current?.setTrackPlaying(
-                    id,
-                    !playback.tracks[id].playing
-                  );
-                  sync();
-                }}
+                onClick={toggleTrack}
+                type="button"
+                value={id}
               >
                 {playback.tracks[id].playing ? "Pause" : "Resume"}
               </button>
@@ -315,9 +381,7 @@ export function ChartSettingsPanel({
             Water pigment
             <input
               aria-label="Water pigment"
-              onChange={(event) => {
-                onChange({ ...settings, waterColor: event.target.value });
-              }}
+              onChange={handleChange6}
               type="color"
               value={settings.waterColor}
             />
@@ -326,14 +390,7 @@ export function ChartSettingsPanel({
             Map filter
             <select
               aria-label="Map filter"
-              onChange={(event) => {
-                const filter = Object.keys(chartFilters).find(
-                  (key) => key === event.target.value
-                ) as ChartSettings["filter"] | undefined;
-                if (filter) {
-                  onChange({ ...settings, filter });
-                }
-              }}
+              onChange={handleChange7}
               value={settings.filter}
             >
               {Object.entries(chartFilters).map(([value, { label }]) => (
@@ -351,9 +408,7 @@ export function ChartSettingsPanel({
           <label className="atlas-check">
             <input
               checked={settings.contours}
-              onChange={(event) => {
-                onChange({ ...settings, contours: event.target.checked });
-              }}
+              onChange={handleChange8}
               type="checkbox"
             />
             Topographic lines
@@ -362,10 +417,8 @@ export function ChartSettingsPanel({
       </details>
       <button
         className="atlas-settings-reset"
-        onClick={() => {
-          onReset();
-          sync();
-        }}
+        onClick={handleReset}
+        type="button"
       >
         Reset visualization
       </button>

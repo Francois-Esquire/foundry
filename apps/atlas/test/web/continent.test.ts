@@ -43,7 +43,7 @@ it("forms land from connected groups while retaining every original coastline at
 
 it("places deterministic forests between settlements with shoreline clearance", async () => {
   const data = await loadAtlas();
-  const c = createContinents(data, 0)[0];
+  const [c] = createContinents(data, 0);
   if (!c) {
     throw new Error("Missing continent");
   }

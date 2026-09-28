@@ -34,7 +34,7 @@ it("retains land constraints during relaxation and curve subdivision", () => {
     { x: 40, y: 0 },
   ];
   const clear = (a: { x: number; y: number }, b: { x: number; y: number }) => {
-    for (let n = 0; n <= 100; n++) {
+    for (let n = 0; n <= 100; n += 1) {
       const x = a.x + ((b.x - a.x) * n) / 100,
         y = a.y + ((b.y - a.y) * n) / 100;
       if (x > 8 && x < 32 && y < 32) {

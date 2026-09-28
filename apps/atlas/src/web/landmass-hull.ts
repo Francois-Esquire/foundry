@@ -8,8 +8,8 @@ function convexHull(points: HullPoint[]): HullPoint[] {
     const hull: HullPoint[] = [];
     for (const p of ordered) {
       while (hull.length > 1) {
-        const a = hull[hull.length - 2],
-          b = hull[hull.length - 1];
+        const a = hull.at(-2),
+          b = hull.at(-1);
         if (
           !(a && b) ||
           (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]) > 0

@@ -5,9 +5,9 @@ import {
   landmassFootprint,
   oceanAccess,
 } from "../../src/web/landmass-footprint";
+import { landmassHull } from "../../src/web/landmass-hull";
 import {
   hullSeparation,
-  landmassHull,
   packageGroups,
   relayoutAtlas,
   settleLandmasses,
@@ -84,7 +84,7 @@ it("separates crossing landmass hulls and an enclosed island without reshaping o
     expect({ ...p, x: 0, y: 0 }).toEqual({ ...original, x: 0, y: 0 });
   }
   for (const group of groups) {
-    const first = group[0];
+    const [first] = group;
     if (!first) {
       continue;
     }
@@ -206,8 +206,8 @@ it("places a singleton in an open coastal bay without changing the mainland or i
 
 it("does not classify enclosed holes as ocean-accessible pockets", () => {
   const open = new Uint8Array(49).fill(1);
-  for (let y = 1; y <= 5; y++) {
-    for (let x = 1; x <= 5; x++) {
+  for (let y = 1; y <= 5; y += 1) {
+    for (let x = 1; x <= 5; x += 1) {
       if (x === 1 || x === 5 || y === 1 || y === 5) {
         open[y * 7 + x] = 0;
       }

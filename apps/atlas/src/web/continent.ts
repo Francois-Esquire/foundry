@@ -1,4 +1,5 @@
 import { insidePolygons } from "./atmosphere";
+import type { SettlementTier } from "./codex/bindings";
 import { settlementTier } from "./codex/bindings";
 import { territoryLabelY, unit } from "./geography";
 import { landmassFootprint } from "./landmass-footprint";
@@ -55,7 +56,14 @@ export function continentHeight(continent: Continent, x: number, y: number) {
 
 export function settlementBuildings(p: Territory) {
   const kind = settlementTier(p.files.length);
-  const target = kind === "city" ? 64 : kind === "town" ? 18 : 5;
+  let target: 64 | 18 | 5;
+  if (kind === "city") {
+    target = 64;
+  } else if (kind === "town") {
+    target = 18;
+  } else {
+    target = 5;
+  }
   const points = p.coast.flat(2);
   if (!points.length) {
     return [];
@@ -72,30 +80,7 @@ export function settlementBuildings(p: Territory) {
   const top = Math.min(...points.map(([, y]) => y)),
     bottom = Math.max(...points.map(([, y]) => y));
   const step = kind === "village" ? 7 : 10;
-  for (let y = top + 5; y < bottom - 5; y += step) {
-    for (let x = left + 5; x < right - 5; x += step) {
-      const seed = `${p.id}:${x}:${y}`;
-      const size = (kind === "village" ? 3.2 : 4.6) + unit(seed) * 1.8;
-      const xx = x + (unit(seed + "x") - 0.5) * 1.5,
-        yy = y + (unit(seed + "y") - 0.5) * 1.5;
-      if (
-        ![-1, 1].every((dx) =>
-          [-1, 1].every((dy) =>
-            insidePolygons({ x: xx + dx * size, y: yy + dy * size }, p.coast)
-          )
-        )
-      ) {
-        continue;
-      }
-      candidates.push({
-        angle: unit(p.id) > 0.5 ? 0 : Math.PI / 2,
-        height: 2.5 + unit(seed + "height") * (kind === "city" ? 6 : 3),
-        size,
-        x: xx,
-        y: yy,
-      });
-    }
-  }
+  settlementBuildingsY(top, bottom, step, left, right, p, kind, candidates);
   candidates.sort(
     (a, b) =>
       Math.hypot(a.x, a.y) - Math.hypot(b.x, b.y) || a.y - b.y || a.x - b.x
@@ -123,6 +108,48 @@ export function settlementBuildings(p: Territory) {
   return placed;
 }
 
+function settlementBuildingsY(
+  top: number,
+  bottom: number,
+  step: number,
+  left: number,
+  right: number,
+  p: Territory,
+  kind: SettlementTier,
+  candidates: {
+    x: number;
+    y: number;
+    size: number;
+    height: number;
+    angle: number;
+  }[]
+) {
+  for (let y = top + 5; y < bottom - 5; y += step) {
+    for (let x = left + 5; x < right - 5; x += step) {
+      const seed = `${p.id}:${x}:${y}`;
+      const size = (kind === "village" ? 3.2 : 4.6) + unit(seed) * 1.8;
+      const xx = x + (unit(`${seed}x`) - 0.5) * 1.5,
+        yy = y + (unit(`${seed}y`) - 0.5) * 1.5;
+      if (
+        ![-1, 1].every((dx) =>
+          [-1, 1].every((dy) =>
+            insidePolygons({ x: xx + dx * size, y: yy + dy * size }, p.coast)
+          )
+        )
+      ) {
+        continue;
+      }
+      candidates.push({
+        angle: unit(p.id) > 0.5 ? 0 : Math.PI / 2,
+        height: 2.5 + unit(`${seed}height`) * (kind === "city" ? 6 : 3),
+        size,
+        x: xx,
+        y: yy,
+      });
+    }
+  }
+}
+
 export function forestSites(continent: Continent) {
   const { field } = continent;
   const sites: { x: number; y: number; size: number }[] = [];
@@ -132,7 +159,7 @@ export function forestSites(continent: Continent) {
       const point = field.point(row * field.width + col);
       const seed = `${continent.members[0]?.id}:${col}:${row}`;
       const x = point.x + (unit(seed) - 0.5) * 18,
-        y = point.y + (unit(seed + "y") - 0.5) * 18;
+        y = point.y + (unit(`${seed}y`) - 0.5) * 18;
       const i = continentCell(continent, x, y);
       if (
         !field.filled[i] ||
@@ -143,10 +170,10 @@ export function forestSites(continent: Continent) {
       }
       const grove =
         Math.sin(x / 62 + Math.cos(y / 97)) + Math.cos(y / 73 - x / 125);
-      if (grove + unit(seed + "grove") < 0.3) {
+      if (grove + unit(`${seed}grove`) < 0.3) {
         continue;
       }
-      const size = 6 + unit(seed + "size") * 4;
+      const size = 6 + unit(`${seed}size`) * 4;
       if (
         continent.members.some(
           (p) =>
