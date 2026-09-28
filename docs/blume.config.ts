@@ -3,7 +3,6 @@ import { defineConfig } from "blume";
 export default defineConfig({
   content: {
     include: [
-      "index.md",
       "quirks/**/*.md",
       "quirks/**/*.mdx",
       "atlas/**/*.md",

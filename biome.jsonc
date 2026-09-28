@@ -25,6 +25,19 @@
       "assist": { "enabled": false }
     },
     {
+      // Biome lints only the frontmatter of an Astro file; bindings used in the
+      // template below it read as unused. Astro's own check covers the template.
+      "includes": ["**/*.astro"],
+      "linter": {
+        "rules": {
+          "correctness": {
+            "noUnusedImports": "off",
+            "noUnusedVariables": "off"
+          }
+        }
+      }
+    },
+    {
       "includes": ["tooling/typescript/*.json"],
       "json": {
         "parser": {

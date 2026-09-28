@@ -1,0 +1,195 @@
+---
+import data from "blume:data";
+import CodeBlock from "blume/components/content/CodeBlock.astro";
+import { withBase } from "blume/components/islands/base-path.ts";
+import PageLayout from "blume/components/layout/PageLayout.astro";
+
+const { config } = data;
+const repo = "https://github.com/Francois-Esquire/foundry";
+
+const quirksSample = `import { step } from "@foundry/quirks";
+
+step("inspect").do(async ({ workspaces, log }) => {
+  const files = await workspaces.current.files();
+  log(files.length, "files");
+  return { files: files.length };
+});`;
+
+const atlasSample = `atlas scan ./my-workspace
+atlas serve ./my-workspace
+atlas ./my-workspace`;
+
+const setupSample = `git clone ${repo}.git
+cd foundry && bun install
+bun run quirks -- --help
+bun run --filter @foundry/atlas build && bun run atlas -- --help`;
+
+const quirksWords = [
+  ["step", "does one piece of work"],
+  ["workflow", "connects those pieces"],
+  ["agent", "supplies instructions to a coding-agent harness"],
+  ["session", "retains a conversation across runs"],
+  ["monitor", "reacts when a source changes"],
+  ["schedule", "decides when work returns"],
+];
+
+const quirksLinks = [
+  { href: "/quirks/concepts", label: "Concepts" },
+  { href: "/quirks/use-cases", label: "Use cases" },
+  { href: "/quirks/reference/api", label: "API reference" },
+];
+
+const atlasLinks = [
+  { href: "/atlas", label: "Introduction" },
+  { href: "/atlas/start-here", label: "Start here" },
+];
+
+const button =
+  "inline-flex items-center justify-center rounded-full px-5 py-2.5 font-medium text-sm no-underline transition-colors";
+const primary = `${button} bg-accent text-accent-foreground hover:opacity-90`;
+const secondary = `${button} border border-border text-foreground hover:bg-muted`;
+const textLink =
+  "font-medium text-foreground text-sm underline decoration-border underline-offset-4 hover:decoration-foreground";
+---
+
+<PageLayout
+  analytics={config.analytics}
+  banner={config.banner}
+  favicon={config.favicon}
+  fontCssVars={data.fontCssVars}
+  logo={config.logo}
+  navigation={data.navigation}
+  ogEnabled={config.og.enabled}
+  page={{ description: config.description, route: "/", title: "Foundry" }}
+  searchEnabled={config.search.enabled}
+  site={{ description: config.description, title: config.title }}
+  siteUrl={config.site}
+  themeMode={config.theme.mode}
+>
+  <section class="mx-auto max-w-5xl px-6 pt-20 pb-16 md:pt-28 md:pb-24">
+    <p class="mb-4 font-medium text-muted-foreground text-sm uppercase tracking-wide">
+      Foundry
+    </p>
+    <h1 class="max-w-3xl font-semibold text-4xl text-foreground leading-tight tracking-tight md:text-5xl">
+      Local developer tools for working with coding agents.
+    </h1>
+    <p class="mt-6 max-w-2xl text-lg text-muted-foreground leading-relaxed">
+      Two tools, one repository. <strong class="text-foreground">Quirks</strong>
+      turns recurring behaviors into inspectable TypeScript that an agent can
+      take part in. <strong class="text-foreground">Atlas</strong> draws a
+      workspace as a map you can explore in the browser.
+    </p>
+    <div class="mt-8 flex flex-wrap gap-3">
+      <a class={primary} href={withBase("/quirks/start-here")}>Start with Quirks</a>
+      <a class={secondary} href={withBase("/atlas/start-here")}>Start with Atlas</a>
+      <a class={secondary} href={repo} rel="noreferrer" target="_blank">GitHub</a>
+    </div>
+  </section>
+
+  <section class="border-border border-t">
+    <div class="mx-auto grid max-w-5xl gap-10 px-6 py-16 md:grid-cols-2 md:items-start md:py-20">
+      <div>
+        <p class="mb-2 font-medium text-muted-foreground text-sm">Quirks</p>
+        <h2 class="font-semibold text-2xl text-foreground tracking-tight md:text-3xl">
+          Behaviors as code.
+        </h2>
+        <p class="mt-4 text-muted-foreground leading-relaxed">
+          A <code class="text-foreground">quirks.config.ts</code> defines the
+          work, where an agent participates, and what makes it run again. Run it
+          once, keep it active in a terminal, or let launchd invoke it on a
+          schedule. State lives on disk between invocations.
+        </p>
+        <ul class="mt-6 space-y-2 text-sm">
+          {
+            quirksWords.map(([word, meaning]) => (
+              <li class="flex gap-3">
+                <code class="shrink-0 text-foreground">{word}</code>
+                <span class="text-muted-foreground">{meaning}</span>
+              </li>
+            ))
+          }
+        </ul>
+        <div class="mt-6 flex flex-wrap gap-x-5 gap-y-2">
+          {
+            quirksLinks.map((link) => (
+              <a class={textLink} href={withBase(link.href)}>
+                {link.label}
+              </a>
+            ))
+          }
+        </div>
+      </div>
+      <div>
+        <CodeBlock code={quirksSample} lang="ts" title="quirks.config.ts" />
+        <p class="mt-3 text-muted-foreground text-sm">
+          A deterministic step needs no model call. Save it and run
+          <code class="text-foreground">quirks once inspect</code>.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section class="border-border border-t">
+    <div class="mx-auto grid max-w-5xl gap-10 px-6 py-16 md:grid-cols-2 md:items-start md:py-20">
+      <div>
+        <p class="mb-2 font-medium text-muted-foreground text-sm">Atlas</p>
+        <h2 class="font-semibold text-2xl text-foreground tracking-tight md:text-3xl">
+          A map of your codebase.
+        </h2>
+        <p class="mt-4 text-muted-foreground leading-relaxed">
+          Point Atlas at a directory. It analyzes the packages and files it
+          finds, saves the result outside the workspace, and serves a local
+          viewer that renders packages as territories, files as settlements,
+          and dependencies as the routes between them. The workspace itself is
+          never modified.
+        </p>
+        <div class="mt-6 flex flex-wrap gap-x-5 gap-y-2">
+          {
+            atlasLinks.map((link) => (
+              <a class={textLink} href={withBase(link.href)}>
+                {link.label}
+              </a>
+            ))
+          }
+        </div>
+      </div>
+      <div>
+        <CodeBlock code={atlasSample} lang="sh" />
+        <p class="mt-3 text-muted-foreground text-sm">
+          <code class="text-foreground">scan</code> analyzes and saves,
+          <code class="text-foreground">serve</code> shows the last result, and
+          the bare form does both and opens the browser.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section class="border-border border-t">
+    <div class="mx-auto max-w-5xl px-6 py-16 md:py-20">
+      <h2 class="font-semibold text-2xl text-foreground tracking-tight md:text-3xl">
+        Run it from the repository.
+      </h2>
+      <p class="mt-4 max-w-2xl text-muted-foreground leading-relaxed">
+        Neither tool is published to npm yet. Both run from a checkout of
+        Foundry with Bun 1.3.14 or newer.
+      </p>
+      <div class="mt-6 max-w-3xl">
+        <CodeBlock code={setupSample} lang="sh" />
+      </div>
+    </div>
+  </section>
+
+  <footer
+    class="border-border border-t"
+    slot="footer"
+  >
+    <div class="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-4 px-6 py-8 text-muted-foreground text-sm">
+      <span>Foundry is MIT licensed.</span>
+      <div class="flex flex-wrap gap-x-5 gap-y-2">
+        <a class={textLink} href={repo} rel="noreferrer" target="_blank">Source</a>
+        <a class={textLink} href={`${repo}/blob/main/CONTRIBUTING.md`} rel="noreferrer" target="_blank">Contributing</a>
+        <a class={textLink} href={withBase("/quirks/safety-and-limits")}>Safety and limits</a>
+      </div>
+    </div>
+  </footer>
+</PageLayout>

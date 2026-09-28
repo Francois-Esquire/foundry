@@ -49,7 +49,10 @@ installed *from* elsewhere and are managed by the CLI, not by hand.
 
 Blume and its configuration live in the top-level `docs/` package. Quirks
 pages live in `docs/quirks`; `blume.config.ts` selects the published content
-and `quirks/meta.ts` orders it.
+and `quirks/meta.ts` orders it. Quirks and Atlas are header tabs, each scoped
+to its own folder. The home page is the custom `pages/index.astro`, rendered
+without a sidebar; its links are not covered by `docs:check`, so confirm them
+against the built site.
 
 Most pages use Markdown. Pages with Mermaid diagrams, callouts, or pattern cards
 use MDX because Blume renders those components through its MDX pipeline. Internal
