@@ -33,4 +33,6 @@ if ((await scan.exited) !== 0) {
 await rm(example, { force: true, recursive: true });
 await cp(join(atlas, "dist/web"), example, { recursive: true });
 await cp(join(state, id, "output"), join(example, "data"), { recursive: true });
-process.stdout.write("Atlas example ready at /atlas/examples/foundry/\n");
+process.stdout.write(
+  "Atlas example ready at /atlas/examples/foundry/?view=map\n"
+);

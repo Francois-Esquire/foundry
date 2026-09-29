@@ -117,7 +117,7 @@ There is no context provider.
 
 Add `?view=map` to the viewer URL to render the interactive map without the
 shell. `AtlasMap` fills its parent, so embeds must give that parent a height.
-The docs example uses this mode and links to the complete viewer.
+The docs embed and full-screen example both use this mode.
 
 Analyzer fixture source under `test/lib/fixtures` is test input and is
 excluded from lint and dead-code analysis. All configuration is CLI
