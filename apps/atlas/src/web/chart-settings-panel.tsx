@@ -1,12 +1,12 @@
 import type { ChangeEvent, MouseEvent, RefObject } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { AtlasMapHandle } from "./atlas-map";
 import type { BoundaryId } from "./boundaries";
 import { boundaryStyles } from "./boundaries";
 import type { ChartSettings } from "./chart-settings";
 import { chartFilters } from "./chart-settings";
 import { defaultLandmassSettings } from "./landmasses";
 import { createPlayback, trackIds } from "./playback";
-import type { createAtlasScene } from "./scene";
 
 export function ChartSettingsPanel({
   scene,
@@ -16,7 +16,7 @@ export function ChartSettingsPanel({
   onReset,
   layoutPending = false,
 }: {
-  scene: RefObject<ReturnType<typeof createAtlasScene> | null>;
+  scene: RefObject<AtlasMapHandle | null>;
   settings: ChartSettings;
   onChange: (settings: ChartSettings) => void;
   onClose: () => void;

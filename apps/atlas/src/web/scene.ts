@@ -92,7 +92,7 @@ export function createAtlasScene(
   host.append(renderer.domElement);
   renderer.domElement.setAttribute(
     "aria-label",
-    "Codebase atlas. Drag to pan, scroll to zoom. Use Find a place to select islands, regions, and files with a keyboard."
+    "Codebase atlas. Drag to pan, scroll to zoom."
   );
   const scene = new Scene();
   scene.add(new AmbientLight("#ffffff", 1.65));
@@ -562,12 +562,13 @@ export function createAtlasScene(
       return;
     }
     if (
+      onSettings &&
       Math.hypot(
         point.x - (data.width / 2 - 88),
         -point.y - (-data.height / 2 + 94)
       ) < 40
     ) {
-      onSettings?.();
+      onSettings();
       return;
     }
     if (!(selection || selected)) {
@@ -583,6 +584,7 @@ export function createAtlasScene(
     const wreck = wreckAt();
     onWreck?.(wreck, false);
     const compass =
+      !!onSettings &&
       Math.hypot(
         point.x - (data.width / 2 - 88),
         -point.y - (-data.height / 2 + 94)

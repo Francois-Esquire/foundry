@@ -188,7 +188,7 @@ diffuseColor.rgb += vec3(0.12, 0.17, 0.14) * pow(abs(caustic), 12.0);`
   scene.add(ship.group);
   let model: Group | null = null;
   let disposed = false;
-  new GLTFLoader().load("/atlas/two-masted-brig.glb", (gltf) => {
+  new GLTFLoader().load("./atlas/two-masted-brig.glb", (gltf) => {
     if (disposed) {
       disposeModel(gltf.scene);
       return;

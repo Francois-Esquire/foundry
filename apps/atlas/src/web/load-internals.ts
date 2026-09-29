@@ -11,7 +11,7 @@ export async function loadInternals(
   signal: AbortSignal
 ) {
   const read = async <T>(path: string): Promise<T> => {
-    const response = await fetch(`/data/${path}`, {
+    const response = await fetch(`./data/${path}`, {
       cache: "no-store",
       signal,
     });

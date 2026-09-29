@@ -4,15 +4,17 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "clean": "rm -rf .blume .cache .turbo dist",
+    "clean": "rm -rf .blume .cache .turbo dist public/atlas/examples/foundry",
     "dev": "bun run docs:dev",
-    "docs:build": "blume build",
+    "docs:build": "bun scripts/build-example.ts && blume build",
     "docs:check": "blume validate --strict",
-    "docs:dev": "blume dev",
+    "docs:dev": "bun scripts/build-example.ts && blume dev",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
+    "@foundry/atlas": "workspace:*",
     "@foundry/tsconfig": "workspace:*",
+    "@types/bun": "1.3.14",
     "blume": "1.6.3",
     "typescript": "^6.0.3"
   }

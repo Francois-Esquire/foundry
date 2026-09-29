@@ -5,6 +5,7 @@ export default defineMeta({
   pages: [
     "index",
     "start-here",
+    "examples",
     "concepts",
     "guides",
     "reference",

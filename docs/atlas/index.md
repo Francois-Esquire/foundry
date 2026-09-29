@@ -30,6 +30,7 @@ Atlas is a package, `@foundry/atlas`, with one binary. It runs on Bun and
 needs Git only when you ask for history.
 
 - [Start here](/atlas/start-here): install, scan, and open the viewer.
+- [Examples](/atlas/examples): explore Atlas's map of Foundry in your browser.
 - [How Atlas reads a codebase](/atlas/concepts/how-atlas-reads-a-codebase):
   what the scan computes.
 - [Explore the map](/atlas/guides/explore-the-map): what you are looking at

@@ -56,7 +56,7 @@ export async function readCodexSource(
   signal?: AbortSignal
 ): Promise<CodexSource> {
   const read = async <T>(file: string): Promise<T> => {
-    const response = await fetch(`/data/${file}`, {
+    const response = await fetch(`./data/${file}`, {
       cache: "no-store",
       signal,
     });
@@ -110,7 +110,7 @@ async function readHistory(
   read: <T>(file: string) => Promise<T>,
   signal?: AbortSignal
 ): Promise<CodexSource["history"]> {
-  const manifest = await fetch("/data/history/manifest.json", {
+  const manifest = await fetch("./data/history/manifest.json", {
     cache: "no-store",
     signal,
   });

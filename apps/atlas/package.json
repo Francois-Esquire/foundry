@@ -49,6 +49,7 @@
     "@types/three": "^0.185.4",
     "@vitejs/plugin-react": "5.2.0",
     "d3-contour": "^4.0.2",
+    "happy-dom": "^20.11.2",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "three": "^0.185.1",

@@ -1,0 +1,12 @@
+{
+  "extends": ["//"],
+  "tasks": {
+    "docs:build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**", ".blume/**", "public/atlas/examples/foundry/**"]
+    },
+    "docs:dev": {
+      "dependsOn": ["^build"]
+    }
+  }
+}

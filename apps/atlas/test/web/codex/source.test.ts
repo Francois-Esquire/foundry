@@ -56,12 +56,25 @@ function survey(schemaVersion = 3): Record<string, unknown> {
   };
 }
 
-function serve(files: Record<string, unknown>, status = 404) {
-  vi.stubGlobal("fetch", (url: string) =>
-    Promise.resolve(
-      url in files ? Response.json(files[url]) : new Response(null, { status })
-    )
+function serve(
+  files: Record<string, unknown>,
+  status = 404,
+  base = "http://localhost:4173/"
+) {
+  const urls = new Map(
+    Object.entries(files).map(([path, value]) => [
+      new URL(`.${path}`, base).href,
+      value,
+    ])
   );
+  vi.stubGlobal("fetch", (path: string) => {
+    const url = new URL(path, base).href;
+    return Promise.resolve(
+      urls.has(url)
+        ? Response.json(urls.get(url))
+        : new Response(null, { status })
+    );
+  });
 }
 
 afterEach(() => {
@@ -69,8 +82,11 @@ afterEach(() => {
 });
 
 describe("readCodexSource", () => {
-  it("reads the eager survey and each package manifest", async () => {
-    serve(survey());
+  it.each([
+    "http://localhost:4173/",
+    "http://localhost:4173/foundry/atlas/examples/foundry/",
+  ])("reads the survey and package manifests beneath %s", async (base) => {
+    serve(survey(), 404, base);
     const source = await readCodexSource();
     expect(source.survey).toMatchObject({
       coverage: "complete",

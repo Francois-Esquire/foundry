@@ -1,0 +1,49 @@
+---
+title: Examples
+description: Explore Atlas's map of the Foundry repository.
+---
+
+import { withBase } from "blume/components/islands/base-path.ts";
+
+## Foundry
+
+This is Atlas reading its own repository. Each documentation build scans the
+current checkout and includes the saved dataset with the same viewer shipped
+in the CLI.
+
+<div style={{ display: "flex", flexWrap: "wrap", gap: "1rem" }}>
+  <a href={withBase("/atlas/examples/foundry/")} target="_blank" rel="noopener noreferrer">
+    Open the full-screen map
+  </a>
+  <a href={withBase("/atlas/examples/foundry/data/manifest.json")}>
+    Read the dataset manifest
+  </a>
+</div>
+
+<iframe
+  src={withBase("/atlas/examples/foundry/?view=map")}
+  title="Atlas map of the Foundry repository"
+  loading="lazy"
+  allowFullScreen
+  style={{ width: "100%", height: "720px", border: "1px solid var(--border)", borderRadius: "12px" }}
+/>
+
+Drag or zoom to explore the map above. Open the full-screen view for search,
+package details, and chart settings.
+
+The viewer loads static files. It does not scan your machine or need a running
+Atlas server. The manifest records the scan time, coverage, and any skipped
+packages. Historical checkpoints are not included in this example.
+
+## Build the example locally
+
+From the Foundry repository root:
+
+```sh
+bun install --frozen-lockfile
+bun run docs:build
+```
+
+The build generates the example in `docs/public/atlas/examples/foundry/` and
+copies it into `docs/dist/atlas/examples/foundry/`. Generated files are ignored
+by Git. `bun run docs:dev` refreshes the example before starting the docs server.

@@ -108,6 +108,17 @@ public/        static web assets, including the ship model
 docs/          design notes and the migration record
 ```
 
+The viewer composition lives in `src/web/atlas-view.tsx`. It instantiates a
+plain `AtlasState` and passes the current state explicitly to `AtlasShell`
+and its nested `AtlasMap`. `useAtlasState` holds selection and data-loading
+bindings; drawer visibility and focus stay in the shell. The map owns the
+scene lifetime, while camera and playback commands use a separate map ref.
+There is no context provider.
+
+Add `?view=map` to the viewer URL to render the interactive map without the
+shell. `AtlasMap` fills its parent, so embeds must give that parent a height.
+The docs example uses this mode and links to the complete viewer.
+
 Analyzer fixture source under `test/lib/fixtures` is test input and is
 excluded from lint and dead-code analysis. All configuration is CLI
 arguments; use Varlock if environment settings are introduced. See

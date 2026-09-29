@@ -24,7 +24,14 @@ export function App() {
   }, []);
 
   if (data) {
-    return <Atlas data={data} />;
+    return (
+      <Atlas
+        data={data}
+        mapOnly={
+          new URLSearchParams(window.location.search).get("view") === "map"
+        }
+      />
+    );
   }
   return (
     <main style={{ padding: "8vw" }}>

@@ -75,11 +75,25 @@ a:focus-visible {
 }
 .atlas-map {
   position: absolute;
-  inset: 56px 0 74px;
+  inset: 0;
   touch-action: none;
 }
-.atlas-map-first .atlas-map {
+.atlas-map-view {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
+}
+.atlas-map-only {
+  height: 100dvh;
+  overflow: hidden;
+}
+.atlas-shell .atlas-map-view {
+  position: absolute;
   inset: 66px 0 62px;
+  width: auto;
+  height: auto;
 }
 .atlas-navigation {
   position: absolute;
@@ -249,7 +263,7 @@ h2 {
     width: 100%;
     font-size: 14px;
   }
-  .atlas-map-first .atlas-map {
+  .atlas-shell .atlas-map-view {
     inset: 94px 0 58px;
   }
   .atlas-place {
@@ -912,7 +926,7 @@ h1 span {
   margin-top: 20px;
 }
 @media (min-width: 1100px) {
-  .atlas-settings-open .atlas-map {
+  .atlas-settings-open .atlas-map-view {
     right: 332px;
   }
   .atlas-settings-open .atlas-map-top,
@@ -1039,9 +1053,6 @@ h1 span {
   }
   .atlas-colophon {
     padding-bottom: 18px;
-  }
-  .atlas-map {
-    inset: 48px 0 83px;
   }
 }
 .atlas-trade-index {
