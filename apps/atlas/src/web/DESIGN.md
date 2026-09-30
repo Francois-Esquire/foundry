@@ -470,16 +470,17 @@ applies only when the pipeline is off or failed and the scene draws directly.
 Chart settings → Rendering controls one pass graph shared by the chart and
 wreck dives: scene → coastlight and wind overlay → ambient occlusion → indirect
 light → bloom → exposure and tone mapping → grade. The defaults reproduce the
-chart as drawn before the pipeline existed, with a slight occlusion at coasts
-and the foot of buildings; every stage is a toggle so the aesthetic stays under
-control. Quality tiers (Low, Medium, High) only trade resolution and filtering
+chart as drawn before the pipeline existed; every stage is a toggle so the
+aesthetic stays under control. Quality tiers (Low, Medium, High) only trade resolution and filtering
 for speed and never hide a control. **Off** is the direct draw: no passes, CSS
 filter restored. If a device cannot compile the graph, the viewer falls back
 to the direct draw on its own and the panel says so.
 
-Occlusion on the chart is gentle by design: the paper relief is shallow, so
-its strength is an exponent on the occlusion term rather than a mix. Its reach
-defaults to 12 map units; shorter reaches span only a texel or two of the
+Occlusion is effectively neutral on the chart at the default strength: the
+paper relief is too shallow to shade, so strength is an exponent on the
+occlusion term rather than a mix, and it takes a raised strength to draw out
+coasts and the foot of buildings. In wreck dives the same stage is a real
+contribution. Its reach defaults to 12 map units; shorter reaches span only a texel or two of the
 half-resolution occlusion buffer at overview scale and band across the tilted
 paper. Indirect light (screen-space GI) needs a
 perspective camera, so it applies to wreck dives and not the top-down chart.

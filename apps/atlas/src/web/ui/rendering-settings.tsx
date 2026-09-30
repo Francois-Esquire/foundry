@@ -164,7 +164,7 @@ export function RenderingSettings({
       <p>
         {giUnavailable
           ? "Indirect light needs a perspective camera; it applies to wreck dives, not the top-down chart."
-          : "Occlusion darkens coasts and the foot of buildings. Bloom lifts only the brightest ink."}
+          : "Occlusion is subtle on the flat chart and strongest in wreck dives. Bloom lifts only the brightest ink."}
       </p>
     </fieldset>
   );
