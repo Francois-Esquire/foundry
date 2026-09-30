@@ -1,0 +1,60 @@
+---
+import Arrow from "../components/arrow.astro";
+import { navigation, site } from "../site";
+import "../styles/global.css";
+
+interface Props {
+  description?: string;
+  noindex?: boolean;
+  title?: string;
+}
+
+const {
+  title = "Foundry | Tools for the work of creation",
+  description = site.description,
+  noindex = false,
+} = Astro.props;
+const canonical = new URL(Astro.url.pathname, Astro.site);
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <meta name="theme-color" content="#f8f9fc" />
+    {noindex && <meta name="robots" content="noindex" />}
+    <link rel="canonical" href={canonical} />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="preload" href="/fonts/inter-regular.woff2" as="font" type="font/woff2" crossorigin />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Foundry" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta name="twitter:card" content="summary" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-header wrap">
+      <a class="wordmark" href="/" aria-label="Foundry home">foundry<span>.sh</span></a>
+      <nav aria-label="Main navigation">
+        {navigation.map((link) => <a href={link.href}>{link.label}</a>)}
+        <a class="docs-link" href={site.docs}>Docs <Arrow /></a>
+      </nav>
+    </header>
+    <main id="main" tabindex="-1">
+      <slot />
+    </main>
+    <footer class="site-footer wrap">
+      <a class="wordmark" href="/" aria-label="Foundry home">foundry<span>.sh</span></a>
+      <p>Tools for the work of creation.</p>
+      <nav aria-label="Footer navigation">
+        <a href={site.docs}>Documentation</a>
+        <a href={site.repository}>GitHub</a>
+      </nav>
+    </footer>
+  </body>
+</html>

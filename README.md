@@ -61,6 +61,12 @@ bun run docs:dev
 
 Each package README covers its own API and development commands.
 
+## Website
+
+[`apps/foundry.sh`](apps/foundry.sh) is the static Astro marketing site for
+foundry.sh. It introduces the broader creation-tooling vision and links to the
+documentation. Run it with `bun run dev --filter=@foundry/website`.
+
 ## Contributing
 
 Development uses Bun and Turborepo. See [CONTRIBUTING.md](CONTRIBUTING.md) for

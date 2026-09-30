@@ -1,0 +1,77 @@
+---
+import Arrow from "../components/arrow.astro";
+import SiteLayout from "../layouts/site-layout.astro";
+import { site } from "../site";
+---
+
+<SiteLayout>
+  <section class="hero wrap" aria-labelledby="hero-title">
+    <h1 id="hero-title">Tools for the<br />work of <span>creation.</span></h1>
+    <div class="hero-bottom">
+      <p class="hero-description">An idea is a beginning. We're building Foundry to help you shape it, work through it, and make it real.</p>
+      <a class="button" href="#vision">Explore the vision <Arrow /></a>
+    </div>
+    <div class="creation-strip" aria-label="Our direction spans product, creative work, and code">
+      <span>Product</span>
+      <span>Creative work</span>
+      <span>Code</span>
+      <svg class="creation-mark" aria-hidden="true" viewBox="0 0 120 56" fill="none">
+        <rect x="2" y="2" width="52" height="52" stroke="currentColor" stroke-width="2" />
+        <circle cx="60" cy="28" r="26" stroke="currentColor" stroke-width="2" />
+        <path d="M66 54 92 2l26 52H66Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round" />
+      </svg>
+    </div>
+  </section>
+
+  <section class="vision-section" id="vision" aria-labelledby="vision-title">
+    <div class="wrap section-grid">
+      <h2 id="vision-title">An idea can become<br />many things.</h2>
+      <div class="prose">
+        <p class="lead">A product. A piece of creative work. Software that makes something possible.</p>
+        <p>Foundry is growing around that breadth. Our direction is tooling that connects the thinking, making, and doing involved in creation, with people setting the direction and AI taking part in the work.</p>
+        <p>We're starting with developer tools. Product and creative tooling are the next push. The tools available today are a part of that vision, and a place to begin.</p>
+        <a class="text-link" href="#technology">See what we're building <Arrow /></a>
+      </div>
+    </div>
+  </section>
+
+  <section class="technology-section wrap" id="technology" aria-labelledby="technology-title">
+    <div class="section-heading">
+      <h2 id="technology-title">The work so far.</h2>
+      <p>Open-source developer tools.<br />Built here, ready to explore.</p>
+    </div>
+    <article class="tool-row">
+      <div class="tool-name"><h3>Quirks</h3><span>Behaviors as code</span></div>
+      <div class="tool-description">
+        <p>Turn recurring work into inspectable TypeScript. Define steps, workflows, and agents, then decide when they run. Keep the behavior and its state on your machine.</p>
+        <a class="text-link" href={`${site.docs}quirks/`}>Explore Quirks <Arrow /></a>
+      </div>
+      <p class="tool-detail">Define the work.<br />Make it repeatable.</p>
+    </article>
+    <article class="tool-row">
+      <div class="tool-name"><h3>Atlas</h3><span>A map of your codebase</span></div>
+      <div class="tool-description">
+        <p>See how a TypeScript workspace fits together. Atlas turns packages, files, and dependencies into a map you can explore in your browser.</p>
+        <a class="text-link" href={`${site.docs}atlas/`}>Explore Atlas <Arrow /></a>
+      </div>
+      <p class="tool-detail">Explore the parts.<br />Understand the whole.</p>
+    </article>
+    <div class="foundation-note">
+      <p>Underneath: shared libraries for agents, durable workflows, models, workspaces, and artifacts.</p>
+      <a class="text-link" href={`${site.repository}#libraries`}>Read the source <Arrow /></a>
+    </div>
+  </section>
+
+  <section class="closing-section" aria-labelledby="closing-title">
+    <div class="wrap closing-content">
+      <div>
+        <h2 id="closing-title">Start with what's here.<br />Help shape what's next.</h2>
+        <p>The documentation is the place to get started with today's tools. The repository is where the work happens.</p>
+      </div>
+      <div class="closing-links">
+        <a class="button" href={site.docs}>Read the documentation <Arrow /></a>
+        <a class="text-link" href={site.repository}>Follow the work on GitHub <Arrow /></a>
+      </div>
+    </div>
+  </section>
+</SiteLayout>
