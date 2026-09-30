@@ -4,8 +4,8 @@ import type {
   Lake,
   Marsh,
   NaturalFeatures,
-  Stream,
 } from "../natural-features";
+import type { RiverRun } from "../river-network";
 import type { Polygon } from "../types";
 
 /** The chart's shallows pigment, so a lake reads as the same water as the sea. */
@@ -49,13 +49,13 @@ function path(ctx: CanvasRenderingContext2D, points: FeaturePoint[]) {
 }
 
 /** Streams keep their map width far out and thin to a pen line up close. */
-function streamLine(stream: Stream, pixels: number) {
+function streamLine(stream: RiverRun, pixels: number) {
   return Math.min(stream.width, (1 + 2 * stream.width) / pixels);
 }
 
 function paintStreams(
   ctx: CanvasRenderingContext2D,
-  streams: Stream[],
+  streams: RiverRun[],
   strength: number,
   pixels: number
 ) {
@@ -168,19 +168,12 @@ function paintConfluences(
   pixels: number
 ) {
   for (const confluence of features.confluences) {
-    const { x, y } = confluence.file;
-    ctx.globalAlpha = 0.8 * strength;
+    const { x, y } = confluence;
+    ctx.globalAlpha = 0.55 * strength;
     ctx.fillStyle = streamInk;
     ctx.beginPath();
-    ctx.arc(x, y, Math.min(1.2, 3.5 / pixels), 0, Math.PI * 2);
+    ctx.arc(x, y, Math.min(0.65, 1.6 / pixels), 0, Math.PI * 2);
     ctx.fill();
-    if (confluence.streams > 1) {
-      ctx.strokeStyle = streamInk;
-      ctx.lineWidth = 0.6 / pixels;
-      ctx.beginPath();
-      ctx.arc(x, y, Math.min(2.4, 7 / pixels), 0, Math.PI * 2);
-      ctx.stroke();
-    }
   }
 }
 
@@ -202,7 +195,7 @@ export function paintNaturalFeatures(
   ctx.save();
   ctx.setLineDash([]);
   if (streams) {
-    paintStreams(ctx, features.streams, strength, pixels);
+    paintStreams(ctx, features.rivers, strength, pixels);
   }
   paintLakes(ctx, features.lakes, strength, pixels);
   paintMarshes(ctx, features.marshes, strength, pixels);

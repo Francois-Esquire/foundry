@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { memberContours } from "../../src/web/belonging";
 import type { NaturalFeatures } from "../../src/web/natural-features";
+import { riverRuns } from "../../src/web/river-network";
 import { paintNaturalFeatures } from "../../src/web/scene/paint-features";
 import { paintMap } from "../../src/web/scene/paint-map";
 import type { AtlasData, AtlasFile, Territory } from "../../src/web/types";
@@ -20,7 +21,7 @@ const commons = file("commons", -20, 0);
 const junction = file("junction", 20, 0);
 const lost = file("lost", 0, 20);
 const features: NaturalFeatures = {
-  confluences: [{ file: junction, streams: 2 }],
+  confluences: [{ streams: 2, x: junction.x, y: junction.y }],
   lakes: [{ file: commons, radius: 4 }],
   marshes: [
     {
@@ -39,6 +40,8 @@ const features: NaturalFeatures = {
       ],
     },
   ],
+  omitted: [],
+  rivers: [],
   streams: [
     {
       from: "west",
@@ -49,12 +52,15 @@ const features: NaturalFeatures = {
         { x: 0, y: -4 },
         { x: 20, y: 0 },
       ],
+      spring: commons,
       to: "east",
       width: 1,
     },
   ],
   unrouted: 0,
 };
+
+features.rivers = riverRuns(features.streams);
 
 function context() {
   return {
@@ -102,7 +108,7 @@ describe("natural feature drawing", () => {
       features,
       { pixels: 2, streams: true, strength: 1 }
     );
-    expect(flowing.arc).toHaveBeenCalledTimes(3);
+    expect(flowing.arc).toHaveBeenCalledTimes(2);
     expect(flowing.stroke.mock.calls.length).toBeGreaterThan(
       quiet.stroke.mock.calls.length
     );
@@ -128,8 +134,8 @@ describe("natural feature drawing", () => {
       );
       return seen;
     };
-    expect(widths(1)[1]).toBe(1);
-    expect(widths(10)[1]).toBeCloseTo(0.3);
+    expect(widths(1)[1]).toBe(1.1);
+    expect(widths(10)[1]).toBeCloseTo(0.32);
     const hidden = context();
     paintNaturalFeatures(
       hidden as unknown as CanvasRenderingContext2D,

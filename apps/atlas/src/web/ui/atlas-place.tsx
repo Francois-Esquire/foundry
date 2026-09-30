@@ -1,5 +1,6 @@
 import { useCallback } from "react";
 import type { BelongingRegion } from "../belonging";
+import type { NaturalFeatures } from "../natural-features";
 import type { ResponsibilityOverlay } from "../responsibility-focus";
 import type { AtlasSelection } from "../scene/scene";
 import type { TradeRoute } from "../trade-routes";
@@ -25,6 +26,7 @@ export interface EvidenceActions {
 /** Selected-place inspector with the pointer readout and architectural evidence. */
 export function AtlasPlace({
   data,
+  features,
   selection,
   hover,
   hoveredWreck,
@@ -44,6 +46,7 @@ export function AtlasPlace({
   onTrace,
 }: {
   data: AtlasData;
+  features?: NaturalFeatures;
   selection: AtlasSelection | null;
   hover: AtlasSelection | null;
   hoveredWreck: FormerPackage | null;
@@ -115,6 +118,36 @@ export function AtlasPlace({
         </>
       )}
       <PlaceNote composite={composite} region={region} />
+      {features && features.unrouted > 0 && (
+        <details className="atlas-place-note">
+          <summary>
+            {features.unrouted} relationships have no mapped stream
+          </summary>
+          <p>
+            All relationships remain in the evidence. Streams cannot cross water
+            or another river to reach their consumer.
+          </p>
+          <ul>
+            {features.omitted.map((item) => (
+              <li key={`${item.from}:${item.to}`}>
+                {regions.find((entry) => entry.id === item.from)?.label ??
+                  item.from}{" "}
+                imports from{" "}
+                {regions.find((entry) => entry.id === item.to)?.label ??
+                  item.to}
+                : {item.moduleEdges} module edges.{" "}
+                {
+                  {
+                    crossing: "No short route found clear of other rivers.",
+                    endpoints: "No distinct mapped endpoints.",
+                    land: "No continuous land route.",
+                  }[item.reason]
+                }
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
       {!(place || selection.file) && (
         <TradePartners
           data={data}

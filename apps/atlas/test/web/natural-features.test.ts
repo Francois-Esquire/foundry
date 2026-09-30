@@ -76,7 +76,12 @@ const regions = [
   region("unresolved:lost", lost, true),
 ];
 const evidence = {
-  fileIds: { "e-source": "e-source", lost: "lost", "w-junction": "w-junction" },
+  fileIds: {
+    "e-source": "e-source",
+    lost: "lost",
+    "w-junction": "w-junction",
+    "w-plain": "w-plain",
+  },
   relationships: [
     {
       from: "west",
@@ -156,10 +161,8 @@ describe("natural features", () => {
     expect(features.unrouted).toBe(0);
   });
 
-  it("marks confluences at junctions and counts the streams that meet there", () => {
-    expect(features.confluences.map((c) => [c.file.id, c.streams])).toEqual([
-      ["w-junction", 1],
-    ]);
+  it("does not mistake an isolated composition junction for a river fork", () => {
+    expect(features.confluences).toEqual([]);
   });
 
   it("counts relationships whose files have no land route", () => {
@@ -232,5 +235,78 @@ describe("file classification", () => {
       undefined,
     ]);
     expect(files).toEqual(before);
+  });
+});
+
+describe("shared drainage", () => {
+  const basin = {
+    ...territory,
+    coast: [
+      [
+        [
+          [-60, -60],
+          [60, -60],
+          [60, 60],
+          [-60, 60],
+          [-60, -60],
+        ],
+      ],
+    ],
+  } as Territory;
+  const mouth = file("mouth", 35, 25, { architectureKind: "junction" });
+  const suppliers = [
+    file("a", -40, -25),
+    file("b", -35, -10),
+    file("c", -30, 10),
+  ];
+  const places = [
+    region("consumer", [mouth]),
+    ...suppliers.map((item) => region(item.id, [item])),
+  ];
+  const links = suppliers.map((item, i) => ({
+    from: "consumer",
+    moduleEdges: 3 - i,
+    sourceModules: ["mouth"],
+    targetModules: [item.id],
+    to: item.id,
+  }));
+  const recorded = {
+    fileIds: { a: "a", b: "b", c: "c", mouth: "mouth" },
+    relationships: links,
+    unresolved: [],
+  };
+
+  it("shares downstream geometry and sums only the evidence using each trunk", () => {
+    const before = structuredClone({ basin, places, recorded });
+    const result = naturalFeatures(basin, places, recorded);
+    expect(result.streams).toHaveLength(3);
+    expect(
+      result.rivers.some(
+        (run) => run.moduleEdges === 6 && run.streams.length === 3
+      )
+    ).toBe(true);
+    expect(result.confluences.length).toBeGreaterThan(0);
+    for (const run of result.rivers) {
+      expect(run.moduleEdges).toBe(
+        run.streams.reduce((sum, stream) => sum + stream.moduleEdges, 0)
+      );
+    }
+    expect({ basin, places, recorded }).toEqual(before);
+    expect(
+      naturalFeatures(basin, [...places].reverse(), {
+        ...recorded,
+        relationships: [...links].reverse(),
+      })
+    ).toEqual(result);
+  });
+
+  it("discloses missing endpoint evidence instead of choosing an unrelated file", () => {
+    const result = naturalFeatures(basin, places, { ...recorded, fileIds: {} });
+    expect(result.streams).toEqual([]);
+    expect(result.omitted.map((item) => item.reason)).toEqual([
+      "endpoints",
+      "endpoints",
+      "endpoints",
+    ]);
   });
 });

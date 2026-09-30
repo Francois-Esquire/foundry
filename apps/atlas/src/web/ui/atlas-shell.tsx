@@ -179,6 +179,7 @@ export function AtlasShell({
           error={belonging.error}
           evidence={actions}
           evidenceOpen={evidenceOpen}
+          features={belonging.features}
           hover={hover}
           hoveredWreck={hoveredWreck}
           loading={belonging.loading}

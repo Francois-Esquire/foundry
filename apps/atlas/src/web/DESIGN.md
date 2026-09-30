@@ -332,11 +332,19 @@ remain disposable presentation data; temporal stability is not guaranteed.
   layers. Each recorded relationship between two responsibilities is one
   stream from a supplier file to the consumer's composition junction, or to
   its most depended-on consuming file when it has no junction. Width follows
-  module edges; up close a stream thins to a pen line. Streams take one arc
-  where the land allows, otherwise a grid path over the island's land
-  smoothed the same way as sea lanes; a relationship whose files share no
-  land is skipped. A confluence marks each junction, ringed where
-  two or more streams meet. Streams aggregate at district level: selecting a
+  module edges; shared downstream runs accumulate their contributing module
+  edges and draw once. Up close a stream thins to a pen line. Stronger
+  relationships route first, with stable identity breaking ties. Tributaries
+  sharing a consumer mouth prefer an existing downstream run at 0.45 of its
+  remaining distance, approaching in its direction where land permits. Other
+  rivers are obstacles, never false connections. One arc is preferred; a lazy
+  three-unit land grid and constrained smoothing handle obstructed routes.
+  Every segment checks the coast, including holes and thin inlets.
+  Detours longer than 1.7 times the independent land route are omitted. A confluence
+  is an actual joining fork, not a ring around an isolated junction file.
+  Place lists omitted relationships, distinguishing disconnected land,
+  other rivers and unavailable endpoints. The routes are a deterministic
+  drawing, not a hydraulic simulation or an exhaustive planar embedding. Streams aggregate at district level: selecting a
   responsibility still does not draw its file graph, and nothing animates.
 - District relationships can be inspected independently of files. Selecting a
   relationship frames both sets of members. Teal retains current affected-consumer
