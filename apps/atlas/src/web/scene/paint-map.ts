@@ -469,10 +469,9 @@ function paintMapPF(
   lakes?: Set<string>
 ) {
   for (const f of p.files) {
-    if (lakes?.has(f.id)) {
-      continue;
-    }
-    if (detail.specks > 0) {
+    // A lake stands in for its file's speck and mark; selection still rings it.
+    const lake = lakes?.has(f.id) ?? false;
+    if (detail.specks > 0 && !lake) {
       ctx.globalAlpha = detail.specks;
       ctx.fillStyle = settlementColor(f.kind);
       ctx.fillRect(f.x - 0.9, f.y - 1.35, 1.8, 2.7);
@@ -490,7 +489,9 @@ function paintMapPF(
     ctx.strokeStyle = ctx.fillStyle;
     const size = Math.min(1.3, 2.5 / pixels);
     ctx.lineWidth = Math.min(0.45, 1 / pixels);
-    paintMapPFEntries(f, ctx, size);
+    if (!lake) {
+      paintMapPFEntries(f, ctx, size);
+    }
     if (f.id === fileId) {
       ctx.strokeStyle = "#7c421d";
       ctx.lineWidth = 1 / pixels;

@@ -94,15 +94,15 @@ describe("natural feature drawing", () => {
       features,
       { pixels: 2, streams: false, strength: 1 }
     );
-    expect(quiet.fill).toHaveBeenCalledTimes(2);
-    expect(quiet.arc).not.toHaveBeenCalled();
+    expect(quiet.fill).toHaveBeenCalledTimes(3);
+    expect(quiet.arc).toHaveBeenCalledTimes(1);
     const flowing = context();
     paintNaturalFeatures(
       flowing as unknown as CanvasRenderingContext2D,
       features,
       { pixels: 2, streams: true, strength: 1 }
     );
-    expect(flowing.arc).toHaveBeenCalledTimes(2);
+    expect(flowing.arc).toHaveBeenCalledTimes(3);
     expect(flowing.stroke.mock.calls.length).toBeGreaterThan(
       quiet.stroke.mock.calls.length
     );
@@ -163,7 +163,7 @@ describe("natural feature drawing", () => {
       territories: [territory],
       width: 500,
     };
-    const paint = (withFeatures: boolean) => {
+    const paint = (withFeatures: boolean, fileId: string | null = null) => {
       const ctx = context();
       paintMap(
         {
@@ -172,8 +172,8 @@ describe("natural feature drawing", () => {
           width: 500,
         } as unknown as HTMLCanvasElement,
         data,
-        null,
-        null,
+        fileId && territory.id,
+        fileId,
         "ink",
         { height: 500, pixelsPerUnit: 6, width: 500, x: 0, y: 0 },
         undefined,
@@ -197,5 +197,9 @@ describe("natural feature drawing", () => {
       ctx.fillRect.mock.calls.filter(([x]) => Math.abs(Number(x) + 20) < 2);
     expect(marks(plain).length).toBeGreaterThan(0);
     expect(marks(drawn)).toHaveLength(0);
+    const ring = paint(true, "commons").arc.mock.calls.filter(
+      ([x, y, radius]) => x === -20 && y === 0 && Number(radius) < 2
+    );
+    expect(ring).toHaveLength(1);
   });
 });

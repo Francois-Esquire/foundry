@@ -8,7 +8,9 @@ import type {
 } from "../natural-features";
 import type { Polygon } from "../types";
 
-const water = "#c9d6cf";
+/** The chart's shallows pigment, so a lake reads as the same water as the sea. */
+const water = "#c3cebd";
+const deepWater = "#b3c2b4";
 const shoreInk = "#6f8b83";
 const streamInk = "#5f8a86";
 const bankWash = "#dfe6dc";
@@ -98,13 +100,18 @@ function paintLakes(
       }
     }
     ctx.closePath();
-    ctx.globalAlpha = 0.9 * strength;
+    ctx.globalAlpha = 0.95 * strength;
     ctx.fillStyle = water;
     ctx.fill();
     ctx.globalAlpha = 0.8 * strength;
     ctx.strokeStyle = shoreInk;
-    ctx.lineWidth = 0.6 / pixels;
+    ctx.lineWidth = 0.8 / pixels;
     ctx.stroke();
+    ctx.globalAlpha = 0.6 * strength;
+    ctx.fillStyle = deepWater;
+    ctx.beginPath();
+    ctx.arc(lake.file.x, lake.file.y, lake.radius * 0.5, 0, Math.PI * 2);
+    ctx.fill();
   }
 }
 
@@ -124,13 +131,16 @@ function paintMarshes(
     ctx.lineWidth = Math.min(0.4, 0.8 / pixels);
     ctx.lineCap = "round";
     ctx.beginPath();
+    // The cartographic marsh sign: a waterline with three short reeds.
     for (const tuft of marsh.tufts) {
-      ctx.moveTo(tuft.x, tuft.y + 0.6);
-      ctx.lineTo(tuft.x, tuft.y - 0.7);
-      ctx.moveTo(tuft.x - 0.7, tuft.y + 0.5);
-      ctx.lineTo(tuft.x - 0.2, tuft.y - 0.3);
-      ctx.moveTo(tuft.x + 0.7, tuft.y + 0.5);
-      ctx.lineTo(tuft.x + 0.2, tuft.y - 0.3);
+      ctx.moveTo(tuft.x - 0.9, tuft.y + 0.3);
+      ctx.lineTo(tuft.x + 0.9, tuft.y + 0.3);
+      ctx.moveTo(tuft.x, tuft.y + 0.1);
+      ctx.lineTo(tuft.x, tuft.y - 0.5);
+      ctx.moveTo(tuft.x - 0.4, tuft.y + 0.1);
+      ctx.lineTo(tuft.x - 0.55, tuft.y - 0.3);
+      ctx.moveTo(tuft.x + 0.4, tuft.y + 0.1);
+      ctx.lineTo(tuft.x + 0.55, tuft.y - 0.3);
     }
     ctx.stroke();
     const [origin] = marsh.region.members;

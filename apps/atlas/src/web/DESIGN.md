@@ -324,7 +324,7 @@ remain disposable presentation data; temporal stability is not guaranteed.
   shared commons module is a lake: its radius follows the modules that draw
   on it, shrunk to keep a shore inside the coast, and the lake replaces that
   file's own mark. A module with unresolved belonging is a marsh: a patch of
-  tufts around the file, with up to two dotted drains running part of the
+  reed signs around the file, with up to two dotted drains running part of the
   way toward the districts it could join. Lakes and marsh always draw with
   the districts and stay through file zoom, receding under composition.
   Marsh means undecided, not defective.
@@ -335,7 +335,7 @@ remain disposable presentation data; temporal stability is not guaranteed.
   module edges; up close a stream thins to a pen line. Streams take one arc
   where the land allows, otherwise a grid path over the island's land
   smoothed the same way as sea lanes; a relationship whose files share no
-  land is counted, not drawn. A confluence marks each junction, ringed where
+  land is skipped. A confluence marks each junction, ringed where
   two or more streams meet. Streams aggregate at district level: selecting a
   responsibility still does not draw its file graph, and nothing animates.
 - District relationships can be inspected independently of files. Selecting a
