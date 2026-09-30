@@ -5,8 +5,8 @@ import {
   ExtrudeGeometry,
   Group,
   Mesh,
-  ShaderMaterial,
 } from "three";
+import { MeshBasicNodeMaterial } from "three/webgpu";
 import { describe, expect, it, vi } from "vitest";
 import { createTradeLayer } from "../../src/web/scene/trade-layer";
 import { createTradeNavigation } from "../../src/web/trade-routes";
@@ -63,7 +63,9 @@ describe("3D coastal trade", () => {
     layer.group.updateMatrixWorld(true);
     expect(new Box3().setFromObject(layer.group).max.z).toBeGreaterThan(3);
     const lane = layer.group.children.find((c) => c instanceof Mesh);
-    if (!(lane instanceof Mesh && lane.material instanceof ShaderMaterial)) {
+    if (
+      !(lane instanceof Mesh && lane.material instanceof MeshBasicNodeMaterial)
+    ) {
       throw new Error("Missing sea lane");
     }
     const geometry: unknown = lane.geometry;
@@ -77,16 +79,16 @@ describe("3D coastal trade", () => {
     for (let i = 0; i < positions.count; i += 1) {
       expect(positions.getZ(i)).toBeCloseTo(0.08);
     }
-    expect(lane.material.fragmentShader).toContain(
-      "min(laneUv.x, laneLength - laneUv.x)"
-    );
+    expect(lane.material.colorNode).not.toBeNull();
+    expect(lane.material.opacityNode).not.toBeNull();
+    expect(lane.material.transparent).toBe(true);
+    expect(lane.material.depthWrite).toBe(false);
     const lengths: unknown = geometry.getAttribute("routeLength");
     if (!(lengths instanceof BufferAttribute)) {
       throw new Error("Missing route length");
     }
     expect(lengths.getX(0)).toBeGreaterThan(0);
     expect(lengths.count).toBe(positions.count);
-    expect(lane.material.uniforms).not.toHaveProperty("time");
     layer.setRoutes(routes);
     expect(layer.group.children).toContain(lane);
     const dispose = vi.spyOn(geometry, "dispose");

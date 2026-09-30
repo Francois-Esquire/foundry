@@ -8,7 +8,7 @@ import type { AtlasState } from "./atlas-state";
 
 /** Commands used by the surrounding UI; scene ownership stays in AtlasMap. */
 export type AtlasMapHandle = Pick<
-  ReturnType<typeof createAtlasScene>,
+  Awaited<ReturnType<typeof createAtlasScene>>,
   | "focus"
   | "focusWreck"
   | "pinRegion"
@@ -32,12 +32,35 @@ interface AtlasMapProps {
   state: AtlasState;
 }
 
+/** Presentation state and any saved camera or playback reach a fresh scene. */
+function applyState(
+  current: Awaited<ReturnType<typeof createAtlasScene>>,
+  next: AtlasState,
+  view: { x: number; y: number; pixels: number } | null,
+  playback: PlaybackSnapshot | null
+) {
+  current.configure(next.chartSettings);
+  current.setAtmosphere(next.atmosphereEnabled);
+  current.setBelonging(next.belongingLayer);
+  current.setTerritoryLayout(next.territoryLayout);
+  current.setConnections(next.showConnections);
+  current.setResponsibility(next.responsibility);
+  if (view) {
+    current.restoreView(view);
+  }
+  if (playback) {
+    current.restorePlayback(playback);
+  }
+}
+
 export function AtlasMap(props: AtlasMapProps) {
   const { state, mapRef } = props;
   const { data, layoutSettings, chartSettings } = state;
   const { layers } = chartSettings;
   const host = useRef<HTMLDivElement>(null);
-  const scene = useRef<ReturnType<typeof createAtlasScene> | null>(null);
+  const scene = useRef<Awaited<ReturnType<typeof createAtlasScene>> | null>(
+    null
+  );
   const latest = useRef(props);
   const view = useRef<{ x: number; y: number; pixels: number } | null>(null);
   const playback = useRef<PlaybackSnapshot | null>(null);
@@ -70,7 +93,7 @@ export function AtlasMap(props: AtlasMapProps) {
         if (disposed || !host.current) {
           return;
         }
-        const current = createAtlasScene(
+        const current = await createAtlasScene(
           host.current,
           data,
           (value) => {
@@ -88,25 +111,20 @@ export function AtlasMap(props: AtlasMapProps) {
           selectWreck,
           (territory) => latest.current.onViewTerritory?.(territory)
         );
+        if (disposed) {
+          current.dispose();
+          return;
+        }
         scene.current = current;
         if (mapRef) {
           mapRef.current = current;
         }
-        const next = latest.current.state;
-        current.configure(next.chartSettings);
-        current.setAtmosphere(next.atmosphereEnabled);
-        current.setBelonging(next.belongingLayer);
-        current.setTerritoryLayout(next.territoryLayout);
-        current.setConnections(next.showConnections);
-        current.setResponsibility(next.responsibility);
-        // biome-ignore lint/suspicious/noUnnecessaryConditions: Cleanup saves the camera before a geometry rebuild.
-        if (view.current) {
-          current.restoreView(view.current);
-        }
-        // biome-ignore lint/suspicious/noUnnecessaryConditions: Cleanup saves playback before a geometry rebuild.
-        if (playback.current) {
-          current.restorePlayback(playback.current);
-        }
+        applyState(
+          current,
+          latest.current.state,
+          view.current,
+          playback.current
+        );
         setStatus("");
       } catch {
         if (!disposed) {

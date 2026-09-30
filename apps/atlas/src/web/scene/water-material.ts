@@ -3,10 +3,35 @@ import {
   DataTexture,
   LinearFilter,
   MathUtils,
-  MeshStandardMaterial,
   type Texture,
   Vector2,
 } from "three";
+import {
+  abs,
+  cos,
+  dot,
+  Fn,
+  float,
+  floor,
+  fract,
+  Loop,
+  max,
+  mix,
+  pow,
+  texture as sampleTexture,
+  select,
+  sin,
+  smoothstep,
+  uniform,
+  uv,
+  vec2,
+  vec3,
+} from "three/tsl";
+import {
+  MeshStandardNodeMaterial,
+  type Node,
+  type UniformNode,
+} from "three/webgpu";
 
 import type { ChartSettings } from "../chart-settings";
 import { defaultChartSettings } from "../chart-settings";
@@ -121,7 +146,7 @@ export function createWaterMaterial(
   const waveTexture = new DataTexture(wavePixels, width, height);
   waveTexture.magFilter = LinearFilter;
   waveTexture.minFilter = waveTexture.magFilter;
-  const waveRange = { value: 1 };
+  const waveRange = uniform(1);
   const rebuildWaves = (direction: number) => {
     const { arrival, exposure } = waveArrivalField(
       distances,
@@ -131,7 +156,7 @@ export function createWaterMaterial(
       direction
     );
     waveRange.value = arrival.reduce(
-      (max, value) => (Number.isFinite(value) ? Math.max(max, value) : max),
+      (top, value) => (Number.isFinite(value) ? Math.max(top, value) : top),
       1
     );
     for (let y = 0; y < height; y += 1) {
@@ -156,16 +181,16 @@ export function createWaterMaterial(
   };
   rebuildWaves(defaultChartSettings.windDirection);
   const controls = {
-    currentSpeed: { value: 1 },
-    dependencyPower: { value: 1 },
-    waterContrast: { value: 1 },
-    waterPigment: { value: new Color() },
-    waveAmount: { value: 0 },
-    wavelength: { value: 36 },
-    wavePower: { value: 0 },
-    windBearing: { value: new Vector2() },
-    windCoupling: { value: 0 },
-    windPower: { value: 0 },
+    currentSpeed: uniform(1),
+    dependencyPower: uniform(1),
+    waterContrast: uniform(1),
+    waterPigment: uniform(new Color()),
+    waveAmount: uniform(0),
+    wavelength: uniform(36),
+    wavePower: uniform(0),
+    windBearing: uniform(new Vector2()),
+    windCoupling: uniform(0),
+    windPower: uniform(0),
   };
   const originalWater = new Color("#d5dbca");
   const configure = (settings: ChartSettings) => {
@@ -187,104 +212,36 @@ export function createWaterMaterial(
     );
   };
   configure(defaultChartSettings);
-  const time = { value: 0 };
-  const windTime = { value: 0 },
-    waveTime = { value: 0 };
-  const amount = { value: 1 };
-  const wreckReveal = { value: 0.2 };
-  const material = new MeshStandardMaterial({
+  const time = uniform(0);
+  const windTime = uniform(0),
+    waveTime = uniform(0);
+  const amount = uniform(1);
+  const wreckReveal = uniform(0.2);
+  const material = new MeshStandardNodeMaterial({
     depthWrite: !data.formerPackages?.length,
     map,
     metalness: 0,
     roughness: 0.96,
     transparent: !!data.formerPackages?.length,
   });
-  material.onBeforeCompile = (shader) => {
-    shader.uniforms.currentField = { value: texture };
-    shader.uniforms.wreckMask = { value: wreckMask };
-    shader.uniforms.currentTime = time;
-    Object.assign(shader.uniforms, controls, {
-      waveField: { value: waveTexture },
-      waveRange,
-      waveTime,
-      windField: { value: windTexture },
-      windTime,
-    });
-    shader.uniforms.currentVelocityScale = { value: velocityScale };
-    shader.uniforms.currentAmount = amount;
-    shader.uniforms.wreckReveal = wreckReveal;
-    shader.uniforms.currentSize = {
-      value: new Vector2(data.width, data.height),
-    };
-    shader.fragmentShader = shader.fragmentShader.replace(
-      "#include <common>",
-      `#include <common>
-uniform sampler2D currentField;
-uniform sampler2D wreckMask;
-uniform sampler2D windField;
-uniform sampler2D waveField;
-uniform float waveRange, windTime, waveTime;
-uniform vec2 windBearing;
-uniform float windPower, windCoupling, dependencyPower, currentSpeed;
-uniform float waveAmount, wavelength, wavePower, waterContrast;
-uniform vec3 waterPigment;
-uniform float currentTime;
-uniform float currentVelocityScale;
-uniform float currentAmount;
-uniform float wreckReveal;
-uniform vec2 currentSize;
-float currentHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-float currentNoise(vec2 p) {
-  vec2 i = floor(p), f = fract(p);
-  f = f * f * (3.0 - 2.0 * f);
-  return mix(mix(currentHash(i), currentHash(i + vec2(1,0)), f.x), mix(currentHash(i + vec2(0,1)), currentHash(i + vec2(1,1)), f.x), f.y);
-}
-vec2 currentVelocity(vec2 uv) {
-  vec4 flow = texture2D(currentField, uv);
-  vec4 wind = texture2D(windField, uv) * 2.0 - 1.0;
-  vec2 velocity = (flow.rg * 2.0 - 1.0) * dependencyPower + (wind.rg * windBearing.x + wind.ba * windBearing.y) * windPower * windCoupling;
-  return velocity * 36.0 * currentVelocityScale * flow.a / currentSize;
-}
-vec2 currentStep(vec2 uv, float dt) {
-  vec2 mid = uv + currentVelocity(uv) * dt * 0.5;
-  vec2 next = uv + currentVelocity(mid) * dt;
-  if (texture2D(currentField, mid).a < 0.05 || texture2D(currentField, next).a < 0.05) return uv;
-  return next;
-}
-float currentWash(vec2 uv, float phase) {
-  for (int i = 0; i < 8; i++) uv = currentStep(uv, -phase * 0.75);
-  float pigment = 0.0;
-  for (int i = 0; i < 5; i++) {
-    pigment += currentNoise(uv * currentSize / 24.0) * 0.8 + currentNoise(uv * currentSize / 72.0) * 0.2;
-    uv = currentStep(uv, 0.7);
-  }
-  return pigment / 5.0;
-}`
-    );
-    shader.fragmentShader = shader.fragmentShader.replace(
-      "#include <map_fragment>",
-      `#include <map_fragment>
-vec4 flow = texture2D(currentField, vMapUv);
-float phase = fract(currentTime * currentSpeed / 6.0);
-float nextPhase = fract(phase + 0.5);
-float blend = abs(phase * 2.0 - 1.0);
-float wash = mix(currentWash(vMapUv, phase), currentWash(vMapUv, nextPhase), blend);
-float currentPigment = (wash - 0.5) * 0.7 * max(flow.b * dependencyPower, windPower * windCoupling) * flow.a;
-vec4 wave = texture2D(waveField, vMapUv);
-float arrival = (wave.r * 65280.0 + wave.g * 255.0) / 65535.0 * waveRange;
-float wavePhase = (arrival - waveTime) * 18.0 / wavelength * 6.283185;
-float envelope = waveAmount > 0.0 ? smoothstep(1.0 - waveAmount, 1.0, currentNoise(vMapUv * currentSize / 130.0)) : 0.0;
-float crest = pow(max(0.0, cos(wavePhase)), 10.0);
-float swell = (crest - 0.12) * envelope * wave.b * (1.0 - wave.a * 0.65) * wavePower * windPower * flow.a;
-vec2 windUv = vMapUv * currentSize / 18.0 - windBearing * windTime * 0.9;
-float breeze = (currentNoise(windUv) - 0.5) * 0.055 * windPower * flow.a;
-diffuseColor.rgb *= waterPigment;
-diffuseColor.rgb *= 1.0 + (currentPigment + swell * 0.5 + breeze) * waterContrast * currentAmount;
-diffuseColor.a *= 1.0 - texture2D(wreckMask, vMapUv).r * 0.75 * wreckReveal;
-`
-    );
-  };
-  material.customProgramCacheKey = () => "atlas-chart-tracks-v6";
+  const shading = createWaterShading({
+    amount,
+    controls,
+    currentField: texture,
+    map,
+    size: new Vector2(data.width, data.height),
+    time,
+    velocityScale,
+    waveField: waveTexture,
+    waveRange,
+    waveTime,
+    windField: windTexture,
+    windTime,
+    wreckMask,
+    wreckReveal,
+  });
+  material.colorNode = shading.color;
+  material.opacityNode = shading.opacity;
   return {
     configure,
     dispose() {
@@ -361,4 +318,171 @@ function createWaterMaterialY(
       strength[i] = flow.strength;
     }
   }
+}
+
+type FloatUniform = UniformNode<"float", number>;
+type Vec2Node = Node<"vec2">;
+type FloatNode = Node<"float">;
+
+interface WaterShadingInputs {
+  amount: FloatUniform;
+  controls: {
+    currentSpeed: FloatUniform;
+    dependencyPower: FloatUniform;
+    waterContrast: FloatUniform;
+    waterPigment: UniformNode<"color", Color>;
+    waveAmount: FloatUniform;
+    wavelength: FloatUniform;
+    wavePower: FloatUniform;
+    windBearing: UniformNode<"vec2", Vector2>;
+    windCoupling: FloatUniform;
+    windPower: FloatUniform;
+  };
+  currentField: Texture;
+  map: Texture;
+  size: Vector2;
+  time: FloatUniform;
+  velocityScale: number;
+  waveField: Texture;
+  waveRange: FloatUniform;
+  waveTime: FloatUniform;
+  windField: Texture;
+  windTime: FloatUniform;
+  wreckMask: Texture;
+  wreckReveal: FloatUniform;
+}
+
+/**
+ * The chart water in TSL: pigment washes advected along dependency currents,
+ * wind breeze, depth-aware wave crests and the wreck reveal. Node materials
+ * compile this for WebGPU and the WebGL 2 fallback alike, so the pipeline can
+ * read the water's depth and normals like any other surface.
+ */
+function createWaterShading(inputs: WaterShadingInputs) {
+  const { controls, size } = inputs;
+  const currentSize = vec2(size.x, size.y);
+  const velocityScale = float(inputs.velocityScale);
+  const hash = Fn(([p]: [Vec2Node]) =>
+    fract(sin(dot(p, vec2(127.1, 311.7))).mul(43_758.5453))
+  );
+  const noise = Fn(([p]: [Vec2Node]) => {
+    const i = floor(p);
+    const f = fract(p).toVar();
+    f.assign(f.mul(f).mul(float(3).sub(f.mul(2))));
+    return mix(
+      mix(hash(i), hash(i.add(vec2(1, 0))), f.x),
+      mix(hash(i.add(vec2(0, 1))), hash(i.add(vec2(1, 1))), f.x),
+      f.y
+    );
+  });
+  const velocity = Fn(([p]: [Vec2Node]) => {
+    const flow = sampleTexture(inputs.currentField, p);
+    const wind = sampleTexture(inputs.windField, p).mul(2).sub(1);
+    const drift = flow.rg.mul(2).sub(1).mul(controls.dependencyPower);
+    const gust = wind.rg
+      .mul(controls.windBearing.x)
+      .add(wind.ba.mul(controls.windBearing.y))
+      .mul(controls.windPower)
+      .mul(controls.windCoupling);
+    return drift
+      .add(gust)
+      .mul(36)
+      .mul(velocityScale)
+      .mul(flow.a)
+      .div(currentSize);
+  });
+  const step = Fn(([p, dt]: [Vec2Node, FloatNode]) => {
+    const mid = p.add(velocity(p).mul(dt).mul(0.5));
+    const next = p.add(velocity(mid).mul(dt));
+    const blocked = sampleTexture(inputs.currentField, mid)
+      .a.lessThan(0.05)
+      .or(sampleTexture(inputs.currentField, next).a.lessThan(0.05));
+    return select(blocked, p, next);
+  });
+  const wash = Fn(([start, phase]: [Vec2Node, FloatNode]) => {
+    const p = vec2(start).toVar();
+    const upstream = phase.negate().mul(0.75);
+    Loop(8, () => {
+      p.assign(step(p, upstream));
+    });
+    const pigment = float(0).toVar();
+    Loop(5, () => {
+      pigment.addAssign(
+        noise(p.mul(currentSize).div(24))
+          .mul(0.8)
+          .add(noise(p.mul(currentSize).div(72)).mul(0.2))
+      );
+      p.assign(step(p, float(0.7)));
+    });
+    return pigment.div(5);
+  });
+  const color = Fn(() => {
+    const mapUv = uv();
+    const base = sampleTexture(inputs.map, mapUv);
+    const flow = sampleTexture(inputs.currentField, mapUv);
+    const phase = fract(inputs.time.mul(controls.currentSpeed).div(6));
+    const nextPhase = fract(phase.add(0.5));
+    const blend = abs(phase.mul(2).sub(1));
+    const washed = mix(wash(mapUv, phase), wash(mapUv, nextPhase), blend);
+    const currentPigment = washed
+      .sub(0.5)
+      .mul(0.7)
+      .mul(
+        max(
+          flow.b.mul(controls.dependencyPower),
+          controls.windPower.mul(controls.windCoupling)
+        )
+      )
+      .mul(flow.a);
+    const wave = sampleTexture(inputs.waveField, mapUv);
+    const arrival = wave.r
+      .mul(65_280)
+      .add(wave.g.mul(255))
+      .div(65_535)
+      .mul(inputs.waveRange);
+    const wavePhase = arrival
+      .sub(inputs.waveTime)
+      .mul(18)
+      .div(controls.wavelength)
+      .mul(6.283_185);
+    const envelope = select(
+      controls.waveAmount.greaterThan(0),
+      smoothstep(
+        float(1).sub(controls.waveAmount),
+        float(1),
+        noise(mapUv.mul(currentSize).div(130))
+      ),
+      float(0)
+    );
+    const crest = pow(max(float(0), cos(wavePhase)), 10);
+    const swell = crest
+      .sub(0.12)
+      .mul(envelope)
+      .mul(wave.b)
+      .mul(float(1).sub(wave.a.mul(0.65)))
+      .mul(controls.wavePower)
+      .mul(controls.windPower)
+      .mul(flow.a);
+    const windUv = mapUv
+      .mul(currentSize)
+      .div(18)
+      .sub(controls.windBearing.mul(inputs.windTime).mul(0.9));
+    const breeze = noise(windUv)
+      .sub(0.5)
+      .mul(0.055)
+      .mul(controls.windPower)
+      .mul(flow.a);
+    const lift = float(1).add(
+      currentPigment
+        .add(swell.mul(0.5))
+        .add(breeze)
+        .mul(controls.waterContrast)
+        .mul(inputs.amount)
+    );
+    return vec3(base.rgb.mul(controls.waterPigment).mul(lift));
+  })();
+  const opacity = float(1).sub(
+    sampleTexture(inputs.wreckMask, uv()).r.mul(0.75).mul(inputs.wreckReveal)
+  );
+  return { color, opacity };
 }

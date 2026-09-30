@@ -23,10 +23,11 @@ import {
   PointsMaterial,
   Scene,
   SRGBColorSpace,
-  WebGLRenderer,
 } from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { abs, materialColor, positionLocal, pow, sin, vec3 } from "three/tsl";
+import { MeshStandardNodeMaterial, WebGPURenderer } from "three/webgpu";
 import { unit } from "../geography";
 import type { FormerPackage } from "../types";
 import { createWreckLayer } from "./wreck-layer";
@@ -59,12 +60,13 @@ function disposeModel(root: Object3D) {
 }
 
 export function createDiveScene(host: HTMLElement, wreck: FormerPackage) {
-  const renderer = new WebGLRenderer({ antialias: true });
+  const renderer = new WebGPURenderer({ antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.outputColorSpace = SRGBColorSpace;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = PCFSoftShadowMap;
   host.append(renderer.domElement);
+  let ready = false;
   const scene = new Scene();
   scene.background = new Color("#4a7778");
   scene.fog = new FogExp2("#4a7778", 0.012);
@@ -93,30 +95,19 @@ export function createDiveScene(host: HTMLElement, wreck: FormerPackage) {
     );
   }
   floorGeometry.computeVertexNormals();
-  const floorMaterial = new MeshStandardMaterial({
+  const floorMaterial = new MeshStandardNodeMaterial({
     color: "#8f9c89",
     roughness: 1,
   });
-  floorMaterial.onBeforeCompile = (shader) => {
-    shader.vertexShader = shader.vertexShader.replace(
-      "#include <common>",
-      "#include <common>\nvarying vec2 causticPosition;"
-    );
-    shader.vertexShader = shader.vertexShader.replace(
-      "#include <begin_vertex>",
-      "#include <begin_vertex>\ncausticPosition = position.xy;"
-    );
-    shader.fragmentShader = shader.fragmentShader.replace(
-      "#include <common>",
-      "#include <common>\nvarying vec2 causticPosition;"
-    );
-    shader.fragmentShader = shader.fragmentShader.replace(
-      "#include <map_fragment>",
-      `#include <map_fragment>
-float caustic = sin(causticPosition.x * 0.19 + sin(causticPosition.y * 0.12)) * sin(causticPosition.y * 0.17 - sin(causticPosition.x * 0.09));
-diffuseColor.rgb += vec3(0.12, 0.17, 0.14) * pow(abs(caustic), 12.0);`
-    );
-  };
+  // Caustic light dancing on the seabed, keyed to the floor's local position.
+  const causticX = positionLocal.x;
+  const causticY = positionLocal.y;
+  const caustic = sin(causticX.mul(0.19).add(sin(causticY.mul(0.12)))).mul(
+    sin(causticY.mul(0.17).sub(sin(causticX.mul(0.09))))
+  );
+  floorMaterial.colorNode = materialColor.rgb.add(
+    vec3(0.12, 0.17, 0.14).mul(pow(abs(caustic), 12))
+  );
   const floor = new Mesh(floorGeometry, floorMaterial);
   floor.receiveShadow = true;
   scene.add(floor);
@@ -276,7 +267,9 @@ diffuseColor.rgb += vec3(0.12, 0.17, 0.14) * pow(abs(caustic), 12.0);`
   controls.enableDamping = false;
 
   const render = () => {
-    renderer.render(scene, camera);
+    if (ready) {
+      renderer.render(scene, camera);
+    }
   };
   controls.addEventListener("change", render);
   const resize = () => {
@@ -288,6 +281,18 @@ diffuseColor.rgb += vec3(0.12, 0.17, 0.14) * pow(abs(caustic), 12.0);`
   const observer = new ResizeObserver(resize);
   observer.observe(host);
   resize();
+  // The backend (WebGPU, or WebGL 2 when unavailable) initializes
+  // asynchronously; the first frame waits for it.
+  renderer.init().then(
+    () => {
+      if (disposed) {
+        return;
+      }
+      ready = true;
+      render();
+    },
+    () => undefined
+  );
   return () => {
     disposed = true;
     observer.disconnect();

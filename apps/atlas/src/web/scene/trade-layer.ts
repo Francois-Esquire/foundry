@@ -12,9 +12,21 @@ import {
   Mesh,
   MeshStandardMaterial,
   type Raycaster,
-  ShaderMaterial,
   Shape,
 } from "three";
+import {
+  abs,
+  attribute,
+  Discard,
+  Fn,
+  float,
+  min,
+  mod,
+  smoothstep,
+  uniform,
+  uv,
+} from "three/tsl";
+import { MeshBasicNodeMaterial } from "three/webgpu";
 import { laneWidth } from "../codex/bindings";
 import { compositionInsideLand } from "../composition-placement";
 import { roundSeaLane } from "../sea-lane";
@@ -53,25 +65,24 @@ export function createTradeLayer(
     walls = material("#f1ead9"),
     roofs = material("#875222"),
     timber = material("#4a4233");
-  const uniforms = {
-    ink: { value: new Color("#875222") },
-  };
-  const laneMaterial = new ShaderMaterial({
+  const ink = uniform(new Color("#875222"));
+  const laneMaterial = new MeshBasicNodeMaterial({
     depthWrite: false,
-    fragmentShader: `uniform vec3 ink; varying float laneLength; varying vec2 laneUv;
-      void main() {
-        if (mod(min(laneUv.x, laneLength - laneUv.x), 14.0) > 8.0) discard;
-        float edge = 1.0 - smoothstep(0.7, 1.0, abs(laneUv.y));
-        gl_FragColor = vec4(ink, edge * 0.65);
-        #include <tonemapping_fragment>
-        #include <colorspace_fragment>
-      }`,
     side: DoubleSide,
     transparent: true,
-    uniforms,
-    vertexShader: `attribute float routeLength; varying float laneLength; varying vec2 laneUv;
-      void main() { laneUv = uv; laneLength = routeLength; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
   });
+  const laneUv = uv();
+  const laneLength = attribute<"float">("routeLength", "float");
+  // Dashed sea lanes: a 14-unit cadence with 8-unit gaps measured from both
+  // ends, so dashes stay symmetric no matter the route length.
+  laneMaterial.colorNode = Fn(() => {
+    const along = min(laneUv.x, laneLength.sub(laneUv.x));
+    Discard(mod(along, 14).greaterThan(8));
+    return ink;
+  })();
+  laneMaterial.opacityNode = float(1)
+    .sub(smoothstep(0.7, 1, abs(laneUv.y)))
+    .mul(0.65);
   let paths: BufferGeometry[] = [];
   let signature = "";
   let occupied: { x: number; y: number; radius: number }[] = [];
@@ -286,7 +297,7 @@ export function createTradeLayer(
           clearWater
         );
         const positions: number[] = [],
-          uv: number[] = [],
+          laneUvs: number[] = [],
           indices: number[] = [];
         let length = 0;
         points.forEach((p, i) => {
@@ -303,7 +314,7 @@ export function createTradeLayer(
               -p.y - (dx / magnitude) * width * side,
               0.08
             );
-            uv.push(length, side);
+            laneUvs.push(length, side);
           }
           if (i) {
             const j = i * 2;
@@ -315,7 +326,7 @@ export function createTradeLayer(
           "position",
           new Float32BufferAttribute(positions, 3)
         );
-        geometry.setAttribute("uv", new Float32BufferAttribute(uv, 2));
+        geometry.setAttribute("uv", new Float32BufferAttribute(laneUvs, 2));
         geometry.setAttribute(
           "routeLength",
           new Float32BufferAttribute(

@@ -16,9 +16,9 @@ import {
   SRGBColorSpace,
   Vector2,
   Vector3,
-  WebGLRenderer,
 } from "three";
 import { MapControls } from "three/addons/controls/MapControls.js";
+import { WebGPURenderer } from "three/webgpu";
 import type { MapPoint } from "../atmosphere";
 import {
   atmosphereStrength,
@@ -70,7 +70,10 @@ export interface AtlasSelection {
   unmappedModule?: string;
 }
 
-export function createAtlasScene(
+/** Largest chart texture edge; every supported backend allows at least this. */
+const maxTextureSize = 4096;
+
+export async function createAtlasScene(
   host: HTMLElement,
   data: AtlasData,
   onSelect: (selection: AtlasSelection | null) => void,
@@ -82,18 +85,19 @@ export function createAtlasScene(
   onWreck?: (wreck: FormerPackage | null, selected: boolean) => void,
   onRegionTerritory?: (territory: Territory | null) => void
 ) {
-  const renderer = new WebGLRenderer({ alpha: true, antialias: true });
+  const renderer = new WebGPURenderer({ alpha: true, antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.outputColorSpace = SRGBColorSpace;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = PCFSoftShadowMap;
-  renderer.shadowMap.autoUpdate = false;
-  renderer.shadowMap.needsUpdate = true;
   host.append(renderer.domElement);
   renderer.domElement.setAttribute(
     "aria-label",
     "Codebase atlas. Drag to pan, scroll to zoom."
   );
+  // WebGPU when the browser offers it, otherwise the WebGL 2 backend. Nothing
+  // may render before the backend is ready.
+  await renderer.init();
   const scene = new Scene();
   scene.add(new AmbientLight("#ffffff", 1.65));
   const light = new DirectionalLight("#fffaf4", 2);
@@ -109,6 +113,9 @@ export function createAtlasScene(
   light.shadow.camera.far = 4000;
   light.shadow.bias = -0.0001;
   light.shadow.normalBias = 0.3;
+  // Shadows only re-render when the props change, not on every frame.
+  light.shadow.autoUpdate = false;
+  light.shadow.needsUpdate = true;
   scene.add(light);
   const camera = new OrthographicCamera(-1, 1, 1, -1, 1, 10_000);
   const tilt = 0.7;
@@ -137,7 +144,7 @@ export function createAtlasScene(
     coastalBuffer,
     footprints.map((c) => c.field)
   );
-  canvas.width = Math.min(4096, renderer.capabilities.maxTextureSize);
+  canvas.width = maxTextureSize;
   canvas.height = Math.round((canvas.width * seaData.height) / seaData.width);
   paintMap(
     canvas,
@@ -156,9 +163,9 @@ export function createAtlasScene(
   );
   const texture = new CanvasTexture(canvas);
   texture.colorSpace = SRGBColorSpace;
-  texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  texture.anisotropy = renderer.getMaxAnisotropy();
   const paperCanvas = document.createElement("canvas");
-  paperCanvas.width = Math.min(4096, renderer.capabilities.maxTextureSize);
+  paperCanvas.width = maxTextureSize;
   paperCanvas.height = Math.round(
     (paperCanvas.width * data.height) / data.width
   );
@@ -382,7 +389,7 @@ export function createAtlasScene(
           Boolean(responsibility)
       )
     ) {
-      renderer.shadowMap.needsUpdate = true;
+      light.shadow.needsUpdate = true;
     }
     const tradeVisible = !(
       selectedFile ||
@@ -394,7 +401,7 @@ export function createAtlasScene(
     roadLayer.update(view.pixelsPerUnit);
     if (tradeLayer.group.visible !== (tradeVisible && layers.trade)) {
       tradeLayer.group.visible = tradeVisible && layers.trade;
-      renderer.shadowMap.needsUpdate = true;
+      light.shadow.needsUpdate = true;
     }
     visibility = detailVisibility(
       visibility,
@@ -464,11 +471,11 @@ export function createAtlasScene(
     camera.updateProjectionMatrix();
     renderer.setSize(width, height);
     inkCanvas.width = Math.min(
-      renderer.capabilities.maxTextureSize,
+      maxTextureSize,
       Math.round(width * renderer.getPixelRatio())
     );
     inkCanvas.height = Math.min(
-      renderer.capabilities.maxTextureSize,
+      maxTextureSize,
       Math.round(height * renderer.getPixelRatio())
     );
     inkTexture.dispose();
@@ -487,7 +494,7 @@ export function createAtlasScene(
   const point = new Vector3();
   const hit = (event: PointerEvent): AtlasSelection | null =>
     resolveHit(
-      renderer,
+      renderer.domElement,
       raycaster,
       camera,
       plane,
@@ -653,7 +660,7 @@ export function createAtlasScene(
     tradeLayer.setRoutes(
       trades.filter((r) => !inland(r.dependency.from, r.dependency.to))
     );
-    renderer.shadowMap.needsUpdate = true;
+    light.shadow.needsUpdate = true;
     onTrades?.(trades);
     focusedTerritory = territory;
     atmosphere.highlight(territory);
@@ -1025,7 +1032,7 @@ function focusEntries(
   return zoom;
 }
 function resolveHit(
-  renderer: WebGLRenderer,
+  canvas: HTMLCanvasElement,
   raycaster: Raycaster,
   camera: OrthographicCamera,
   plane: Plane,
@@ -1047,7 +1054,7 @@ function resolveHit(
   belonging: BelongingLayer | null,
   event: PointerEvent
 ): AtlasSelection | null {
-  const rect = renderer.domElement.getBoundingClientRect();
+  const rect = canvas.getBoundingClientRect();
   raycaster.setFromCamera(
     new Vector2(
       ((event.clientX - rect.left) / rect.width) * 2 - 1,
