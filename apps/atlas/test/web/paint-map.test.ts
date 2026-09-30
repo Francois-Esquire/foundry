@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { memberContours } from "../../src/web/belonging";
-import { paintMap } from "../../src/web/paint-map";
 import type { ResponsibilityOverlay } from "../../src/web/responsibility-focus";
+import { paintMap } from "../../src/web/scene/paint-map";
 import type { AtlasData, Territory } from "../../src/web/types";
 
 const territory: Territory = {

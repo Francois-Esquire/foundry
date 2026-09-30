@@ -47,11 +47,11 @@ imports from the renderer, so the folder moves as a unit. Tests are in
 | `latitude`             | Package layer                                 | north/south position  | `load-atlas.ts`, `geography.ts` |
 | `attraction`           | Dependency strength                           | pull between islands  | `geography.ts`                  |
 | `settlementTier`       | Package size                                  | village, town, city   | `continent.ts`                  |
-| `territoryLabelSize`   | Package footprint                             | territory label size  | `paint-map.ts`                  |
-| `labelPriority`        | Module dependents, dependencies               | file label order      | `paint-map.ts`                  |
+| `territoryLabelSize`   | Package footprint                             | territory label size  | `scene/paint-map.ts`                  |
+| `labelPriority`        | Module dependents, dependencies               | file label order      | `scene/paint-map.ts`                  |
 | `neighborhoodAffinity` | imports, shared concept participation         | neighborhood grouping | `relationships.ts`              |
-| `laneWidth`            | Dependency strength                           | sea lane width        | `trade-layer.ts`                |
-| `roadWidth`            | Dependency strength, merged per road          | road width            | `road-layer.ts`                 |
+| `laneWidth`            | Dependency strength                           | sea lane width        | `scene/trade-layer.ts`                |
+| `roadWidth`            | Dependency strength, merged per road          | road width            | `scene/road-layer.ts`                 |
 | `currentStrength`      | cross-package imports between two packages    | sea current           | `current-field.ts`              |
 | `districtAffinity`     | responsibility link module edges, symbol flow | district grouping     | `hierarchy.ts`                  |
 
@@ -69,10 +69,10 @@ change swaps an inline read or transform for a codex export; nothing else moved.
 | `geography.ts`            | `layer · −220`, `log2(2 + w)`                                        | `latitude`, `attraction`                                   |
 | `continent.ts`            | `settlementKind`                                                     | removed; `settlementTier`                                  |
 | `continent.test.ts`       | imported `settlementKind`                                            | imports `settlementTier`                                   |
-| `paint-map.ts`            | `clamp(0.15r, 13, 22)`; `incoming + outgoing`                        | `territoryLabelSize`; `labelPriority`                      |
+| `scene/paint-map.ts`            | `clamp(0.15r, 13, 22)`; `incoming + outgoing`                        | `territoryLabelSize`; `labelPriority`                      |
 | `relationships.ts`        | `imports + 0.5 · min(1, shared)`                                     | `neighborhoodAffinity`                                     |
-| `trade-layer.ts`          | inline lane width                                                    | `laneWidth`                                                |
-| `road-layer.ts`           | inline road width                                                    | `roadWidth`                                                |
+| `scene/trade-layer.ts`          | inline lane width                                                    | `laneWidth`                                                |
+| `scene/road-layer.ts`           | inline road width                                                    | `roadWidth`                                                |
 | `current-field.ts`        | `log1p(count)`                                                       | `currentStrength`                                          |
 | `hierarchy.ts`            | `log1p(moduleEdges) + log1p(symbolFlow)`                             | `districtAffinity`                                         |
 

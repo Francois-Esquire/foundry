@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { detailLevel, detailVisibility } from "../../src/web/detail-level";
+import {
+  detailLevel,
+  detailVisibility,
+} from "../../src/web/scene/detail-level";
 
 describe("atlas detail hierarchy", () => {
   it("keeps interaction detail stable through small zoom reversals", () => {

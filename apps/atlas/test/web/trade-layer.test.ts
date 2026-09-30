@@ -8,7 +8,7 @@ import {
   ShaderMaterial,
 } from "three";
 import { describe, expect, it, vi } from "vitest";
-import { createTradeLayer } from "../../src/web/trade-layer";
+import { createTradeLayer } from "../../src/web/scene/trade-layer";
 import { createTradeNavigation } from "../../src/web/trade-routes";
 import type { AtlasData, Territory } from "../../src/web/types";
 

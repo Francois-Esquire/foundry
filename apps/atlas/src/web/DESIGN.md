@@ -112,10 +112,15 @@ the renderer. Label sizes remain bounded as the camera approaches.
 
 ## Layout
 
-The atlas fills 100dvh with no permanent sidebar or outer gutter. Desktop reserves
-66px above the canvas for breadcrumbs and navigation, and 62px below for inspection
-and controls. Search and evidence overlay the upper right at widths of 360px and
-350px. A 310px selected-place inspector sits at the lower left.
+The atlas fills 100dvh with no permanent sidebar or outer gutter. A single
+header row holds the breadcrumb, the map layer selector, Find a place, and the
+map controls: zoom out, whole atlas, zoom in, decorative atmosphere, chart
+settings, and the side panel toggle. The world below it holds the canvas, a thin
+inset frame around the map, and one 360px paper side panel on the right with
+Place, Find, Chart and, when history exists, Wrecks sections. Only one section
+shows at a time; Place stays mounted so loaded evidence survives switching.
+There is no bottom bar; the pointer readout lives in the Place section and in a
+polite live region.
 
 The painted sea extends well beyond the package chart. At wide zoom, panning can
 move most of the archipelago out of frame while water still fills every edge.
@@ -124,10 +129,10 @@ viewport resolution, so the larger sea does not soften close detail. The opening
 overview keeps the full archipelago visible on desktop; narrow screens retain
 their closer, pannable crop.
 
-At 640px and below, the header wraps into two rows. The canvas reserves 94px above
-and 58px below; the inspector narrows to 270px. Optional drawers span the available
-width with 16px side margins and scroll within the space between header and controls.
-The map remains behind them. Hover paths and controls stay in the bottom margin.
+From 1100px the canvas makes room for the open panel; below that the panel
+overlays the map. At 760px and below, the header keeps the breadcrumb and a
+Menu button whose dropdown lists the layer selector and every control with a
+label, and the open panel covers the whole map area until closed.
 Narrow viewports start on a centered, closer crop of the chart so islands and
 their marks remain legible; pan and zoom still reach the full atlas.
 
@@ -318,10 +323,11 @@ remain disposable presentation data; temporal stability is not guaranteed.
   fabricated modules. File redirects and collapsed-indirection targets retain
   their actual mapped identities. The current-arrangement option preserves the
   baseline relationship drawing.
-- The painted compass and margin compass button open Chart settings. On desktop
-  the canvas makes room for a 304px paper panel; on mobile the panel covers the
-  map until closed. Escape closes it before changing selection and returns
-  focus to the button. Controls use native sliders, selects and buttons.
+- The compass hit region and the header Chart settings button open the side
+  panel on its Chart section. Escape closes the panel's Find, Chart and Wrecks
+  sections, or collapses evidence, before changing selection, and returns focus
+  to the header button that opened it. Controls use native sliders, selects and
+  buttons.
 - The collapsed Display boundaries section contains Coastal buffer, 0–64 in steps of
   4, default 32, and Island clearance, 8–80 in steps of 1, default 45. Changes wait
   300ms before rebuilding layout, boundaries, scene, water and routes from original
@@ -338,7 +344,7 @@ remain disposable presentation data; temporal stability is not guaranteed.
   immediately without changing placement or the ocean pigment. Package clearance
   shows 32-unit padded hulls; Coastlines retains every original ring. Pocket rings
   show potential space, not a guarantee that an island fits. Checkboxes and focus
-  use amber. At 640px and below, the panel starts 94px below the viewport top.
+  use amber.
 - The master timeline supports play, pause, speed and explicit seeking. Current,
   Wind and Waves each have a local clock and independent pause. Global resume
   preserves track pause states; a seek realigns every track and pauses playback.
@@ -355,12 +361,12 @@ remain disposable presentation data; temporal stability is not guaranteed.
   Contour changes repaint ink; other controls update shader uniforms.
 
 - The header pairs an Atlas/island/district/responsibility/file breadcrumb with a Belonging/Files
-  selector, Find a place, and Docs. Belonging is the initial layer. Search lists
+  selector, Find a place, and the map controls. Belonging is the initial layer. Search lists
   islands at overview, districts within an island, responsibilities within an
   entered district, and exact members of an entered responsibility. A typed query
   also finds files within the current island or district. Direct file selection
   recovers available ancestry; shared files retain the entered parent when valid.
-  Choosing a result closes search and returns focus to its button.
+  Choosing a result switches the panel to Place and focuses that tab.
   Escape closes search first; empty searches report no matches.
 - Selecting an island frames graph-derived composite districts. Recorded module
   edges and symbol flow determine grouping; displayed coordinates do not. Each
@@ -390,9 +396,9 @@ remain disposable presentation data; temporal stability is not guaranteed.
 - Drag pans; wheel or pinch zooms. Named zoom buttons provide another control.
   Open-water clicks leave the overview alone; from an island they return to the
   opening chart frame.
-  Breadcrumbs return to the named ancestor. Escape closes search, chart settings,
-  or evidence first, then leaves one level: file, responsibility, district, island,
-  overview. The Atlas breadcrumb, Clear selection and Whole atlas restore the
+  Breadcrumbs return to the named ancestor. Escape closes the panel's search,
+  chart or wrecks section, or collapses evidence, first, then leaves one level:
+  file, responsibility, district, island, overview. The Atlas breadcrumb, Clear selection and Whole atlas restore the
   overview. Zoom preserves entered ancestry. Selection moves
   the camera over 650ms; reduced-motion preference makes that move immediate.
 - Keyboard users select islands, regions and files through search. Inputs have labels,

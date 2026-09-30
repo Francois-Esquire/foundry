@@ -5,7 +5,7 @@ import {
   boundaryStyles,
   defaultBoundaries,
   paintBoundaries,
-} from "../../src/web/boundaries";
+} from "../../src/web/scene/boundaries";
 import { loadAtlas } from "../helpers/reference-atlas";
 
 it("retains every computational boundary independently of layer visibility", async () => {

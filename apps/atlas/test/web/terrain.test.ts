@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { paperThickness } from "../../src/web/paper-material";
+import { paperThickness } from "../../src/web/scene/paper-material";
 import {
   settlementColor,
   terrainGeometry,
   terrainHeight,
-} from "../../src/web/terrain";
+} from "../../src/web/scene/terrain";
 import { loadAtlas } from "../helpers/reference-atlas";
 
 describe("atlas terrain", () => {

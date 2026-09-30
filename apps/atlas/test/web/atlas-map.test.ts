@@ -3,12 +3,12 @@ import assert from "node:assert/strict";
 import { act, createElement, StrictMode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { AtlasMap } from "../../src/web/atlas-map";
-import { createAtlasState } from "../../src/web/atlas-state";
-import { createAtlasScene } from "../../src/web/scene";
+import { createAtlasScene } from "../../src/web/scene/scene";
+import { AtlasMap } from "../../src/web/ui/atlas-map";
+import { createAtlasState } from "../../src/web/ui/atlas-state";
 import { loadAtlas } from "../helpers/reference-atlas";
 
-vi.mock("../../src/web/scene", () => ({
+vi.mock("../../src/web/scene/scene", () => ({
   createAtlasScene: vi.fn((host: HTMLElement) => {
     const canvas = document.createElement("canvas");
     host.append(canvas);

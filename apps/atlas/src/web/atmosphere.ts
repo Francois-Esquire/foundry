@@ -1,4 +1,4 @@
-import type { MapLabel } from "./exploration";
+import type { MapLabel } from "./scene/exploration";
 import type { AtlasData, Polygon, Territory } from "./types";
 
 export interface MapPoint {

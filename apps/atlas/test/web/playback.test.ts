@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { createPlayback } from "../../src/web/playback";
+import { createPlayback } from "../../src/web/scene/playback";
 
 describe("shared playback tracks", () => {
   it("restores independent track clocks after rebuilding the map without catching up wall time", () => {

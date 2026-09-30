@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dependencyCurrent } from "../../src/web/current-field";
+import { dependencyCurrent } from "../../src/web/scene/current-field";
 import type { AtlasData, Territory } from "../../src/web/types";
 
 function fixture(edges: { source: string; target: string }[]): AtlasData {

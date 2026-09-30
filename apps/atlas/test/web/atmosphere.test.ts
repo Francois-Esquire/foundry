@@ -5,7 +5,7 @@ import {
   islandAt,
   windPath,
 } from "../../src/web/atmosphere";
-import { createAtmosphereLayer } from "../../src/web/atmosphere-layer";
+import { createAtmosphereLayer } from "../../src/web/scene/atmosphere-layer";
 import type { AtlasData, Polygon, Territory } from "../../src/web/types";
 
 const square: Polygon = [

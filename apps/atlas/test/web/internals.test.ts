@@ -25,7 +25,7 @@ import { bindInternals, scopeFileIds } from "../../src/web/internals";
 import { responsibilityFocus } from "../../src/web/responsibility-focus";
 import { scenarioRoutes } from "../../src/web/scenario-routes";
 import type { Territory } from "../../src/web/types";
-import { UnmappedModuleInspection } from "../../src/web/unmapped-module-inspection";
+import { UnmappedModuleInspection } from "../../src/web/ui/unmapped-module-inspection";
 import { loadInternals } from "../helpers/reference-internals";
 
 let root: string;

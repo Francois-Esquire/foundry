@@ -51,7 +51,7 @@ flags for them.
 ## In the viewer
 
 A package that exists at some checkpoint and not at `HEAD` appears as a
-wreck, dated by the last checkpoint that had it. A **Wrecks** toggle shows
-them, a **Former packages** ledger lists them, and selecting one opens a
-dive. A scan without `--history` replaces the dataset with a current-only
+wreck, dated by the last checkpoint that had it. The side panel gains a
+**Wrecks** section that lists them as former packages, and selecting one
+opens a dive. A scan without `--history` replaces the dataset with a current-only
 one, and the wrecks go with it.

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { waveArrivalField } from "../../src/web/wave-field";
+import { waveArrivalField } from "../../src/web/scene/wave-field";
 
 describe("wave arrival", () => {
   it("retains the precision used to compare queued arrival times", () => {

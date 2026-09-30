@@ -103,12 +103,14 @@ release workflow runs before publishing.
 src/cli/       commands, argument parsing, workspace identity
 src/lib/       semantic analysis library
 src/server/    static file server
-src/web/       map renderer and browser data loaders
+src/web/       browser viewer: data loading, geography, and semantic overlays
+src/web/ui/    React chrome, hooks, and the stylesheet
+src/web/scene/ three.js scene, canvas painting, materials, and layers
 public/        static web assets, including the ship model
 docs/          design notes and the migration record
 ```
 
-The viewer composition lives in `src/web/atlas-view.tsx`. It instantiates a
+The viewer composition lives in `src/web/ui/atlas-view.tsx`. It instantiates a
 plain `AtlasState` and passes the current state explicitly to `AtlasShell`
 and its nested `AtlasMap`. `useAtlasState` holds selection and data-loading
 bindings; drawer visibility and focus stay in the shell. The map owns the

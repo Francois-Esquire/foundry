@@ -1,13 +1,13 @@
 import { expect, it } from "vitest";
 
 import { insidePolygons } from "../../src/web/atmosphere";
-import { paperThickness } from "../../src/web/paper-material";
-import { terrainHeight } from "../../src/web/terrain";
+import { paperThickness } from "../../src/web/scene/paper-material";
+import { terrainHeight } from "../../src/web/scene/terrain";
 import {
   archipelagoRings,
   coastalRings,
   landContours,
-} from "../../src/web/topography";
+} from "../../src/web/scene/topography";
 import { loadAtlas } from "../helpers/reference-atlas";
 
 it("packs rings near the rim and increases spacing without extending their reach", () => {

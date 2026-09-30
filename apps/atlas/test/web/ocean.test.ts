@@ -1,9 +1,8 @@
 import { describe, expect, it } from "vitest";
-
-import { archipelagoHull } from "../../src/web/archipelago";
 import { insidePolygons } from "../../src/web/atmosphere";
 import { shoreDistances } from "../../src/web/distance-field";
-import { oceanShade } from "../../src/web/ocean";
+import { archipelagoHull } from "../../src/web/scene/archipelago";
+import { oceanShade } from "../../src/web/scene/ocean";
 import { loadAtlas } from "../helpers/reference-atlas";
 
 describe("atlas ocean", () => {

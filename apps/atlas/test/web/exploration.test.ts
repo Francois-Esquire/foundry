@@ -1,7 +1,7 @@
 import { OrthographicCamera, Vector3 } from "three";
 import { describe, expect, it } from "vitest";
 
-import type { MapLabel } from "../../src/web/exploration";
+import type { MapLabel } from "../../src/web/scene/exploration";
 
 import {
   fileConnections,
@@ -11,7 +11,7 @@ import {
   visibleLabels,
   visibleRegionTerritory,
   zoomForPixels,
-} from "../../src/web/exploration";
+} from "../../src/web/scene/exploration";
 import { loadAtlas } from "../helpers/reference-atlas";
 
 describe("atlas exploration", () => {

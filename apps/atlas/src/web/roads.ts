@@ -2,7 +2,7 @@ import { insidePolygons } from "./atmosphere";
 import type { Continent } from "./continent";
 import { continentCell, continentHeight } from "./continent";
 import { relaxRoad } from "./relax-road";
-import { terrainHeight } from "./terrain";
+import { terrainHeight } from "./scene/terrain";
 import type { TradePoint, TradeRoute } from "./trade-routes";
 import type { AtlasData, AtlasRoute } from "./types";
 

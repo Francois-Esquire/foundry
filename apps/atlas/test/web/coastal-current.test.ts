@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { coastalCurrent } from "../../src/web/coastal-current";
+import { coastalCurrent } from "../../src/web/scene/coastal-current";
 
 describe("island-aware current", () => {
   it("splits upstream, passes both flanks, and rejoins downstream", () => {

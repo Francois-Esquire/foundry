@@ -1,7 +1,7 @@
 import type { CompositionMark } from "./composition-layout";
 import { clearOfCoast, compositionInsideLand } from "./composition-placement";
-import { detailLevel } from "./detail-level";
 import type { ResponsibilityOverlay } from "./responsibility-focus";
+import { detailLevel } from "./scene/detail-level";
 import type { Polygon } from "./types";
 
 export function compositionMotionFits(

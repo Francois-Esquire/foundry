@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   createPaperMaterials,
   paperThickness,
-} from "../../src/web/paper-material";
+} from "../../src/web/scene/paper-material";
 
 describe("atlas paper", () => {
   it("uses matte solid pigment without decorative bump or displacement", () => {

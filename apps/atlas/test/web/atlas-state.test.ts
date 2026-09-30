@@ -1,10 +1,10 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, it } from "vitest";
-import { AtlasMap } from "../../src/web/atlas-map";
-import { createAtlasState } from "../../src/web/atlas-state";
-import Atlas from "../../src/web/atlas-view";
 import { defaultChartSettings } from "../../src/web/chart-settings";
+import { AtlasMap } from "../../src/web/ui/atlas-map";
+import { createAtlasState } from "../../src/web/ui/atlas-state";
+import Atlas from "../../src/web/ui/atlas-view";
 import { loadAtlas } from "../helpers/reference-atlas";
 
 it("retains the canonical survey and isolates mutable settings between maps", async () => {

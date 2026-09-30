@@ -9,7 +9,7 @@ import {
   forestSites,
   settlementBuildings,
 } from "../../src/web/continent";
-import { ecosystemOpacity } from "../../src/web/ecosystem-layer";
+import { ecosystemOpacity } from "../../src/web/scene/ecosystem-layer";
 import { loadAtlas } from "../helpers/reference-atlas";
 
 it("forms land from connected groups while retaining every original coastline at zero buffer", async () => {

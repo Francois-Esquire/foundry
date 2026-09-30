@@ -1,5 +1,5 @@
-import { defaultBoundaries } from "./boundaries";
 import { defaultLandmassSettings } from "./landmasses";
+import { defaultBoundaries } from "./scene/boundaries";
 
 export const chartFilters = {
   faded: { filter: "saturate(0.45) sepia(0.18)", label: "Faded pigments" },

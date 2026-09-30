@@ -34,26 +34,31 @@ shown. Labels are budgeted to the viewport so they never overlap.
 
 ## Moving around
 
-Drag to pan and scroll to zoom towards the cursor. Buttons zoom in and out
-and return to the **Whole atlas**. Clicking a place selects it: a label, a
-file, a district, or the island itself. Hovering previews. **Escape** backs
-out one level at a time: a panel, then the file, then the district, then
-the island.
+Drag to pan and scroll to zoom towards the cursor. Every control sits in
+the header: buttons zoom in and out and return to the **Whole atlas**, and
+a **Side panel** button opens the one panel that holds everything else. On
+narrow screens the header collapses into a **Menu**. Clicking a place
+selects it: a label, a file, a district, or the island itself. Hovering
+previews. **Escape** backs out one level at a time: the panel's search,
+chart, or evidence first, then the file, then the district, then the island.
 
-**Find a place** opens a search that matches island names, and, inside a
-selected island, its districts, responsibilities, and file paths. It is the
-keyboard route to any place on the map. A **Map layer** control switches
-the island lens between belonging and files.
+**Find a place** opens the panel's **Find** section, a search that matches
+island names, and, inside a selected island, its districts,
+responsibilities, and file paths. It is the keyboard route to any place on
+the map. A **Map layer** control switches the island lens between belonging
+and files.
 
 ## What selecting reveals
 
-The selected place gets a card: a file's kind and its incoming and outgoing
-import counts, or a region's member count. **Trading partners** lists what
+The panel's **Place** section describes the selection: a file's kind and
+its incoming and outgoing import counts, or a region's member count, with
+the place under the pointer noted beneath it. **Trading partners** lists what
 the file imports from and what it supplies, with a **Visit** link to each.
 **Trace imports** draws a dashed line for every import edge into or out of
 the selected file; the lines follow real directed imports.
 
-**Evidence & alternatives** opens the architectural evidence for the island:
+**Evidence & alternatives** expands the architectural evidence for the island
+below the place:
 its districts and how they relate, any file's composition by declaration and
 who consumes each one, and, where the analysis found credible alternatives,
 the scenarios it compared, their measured effects, what each preserves, and
@@ -63,14 +68,14 @@ if the dataset changed since the map loaded, the panel asks you to reload.
 
 ## Chart settings
 
-The compass rose, or the **Chart settings** button, opens the chart. Every
+The **Chart settings** button opens the panel's **Chart** section. Every
 optional layer is off by default: connecting land between related islands,
 a road network over it, houses, forests, and sea trade routes. Boundary
 overlays, topographic contours, water pigment, and a map filter such as
 graphite or parchment are there too, with a **Reset visualization**. Water,
 wind, and waves animate only when you press play, and a separate
-**Decorative atmosphere** toggle adds currents and coastlight. Settings are
-not saved between visits.
+**Decorative atmosphere** toggle in the header adds currents and coastlight.
+Settings are not saved between visits.
 
 Under a reduced-motion preference, the map paints still frames: focus jumps
 instead of travelling, and playback stays paused.
@@ -78,8 +83,8 @@ instead of travelling, and playback stays paused.
 ## History
 
 After a scan with `--history`, packages that existed at an earlier
-checkpoint but are gone now appear as wrecks, with a **Former packages**
-ledger. See [history](/atlas/guides/history).
+checkpoint but are gone now appear as wrecks, listed in the panel's
+**Wrecks** section. See [history](/atlas/guides/history).
 
 ## When the map will not open
 
