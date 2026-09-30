@@ -1,4 +1,4 @@
-import { roundSeaLane } from "./sea-lane";
+import { directSeaLane, smoothSeaLane } from "./sea-lane";
 import type { TradePoint } from "./trade-routes";
 
 export function createChannelGraph(
@@ -62,6 +62,10 @@ export function createChannelGraph(
     return nearest;
   };
   return (from: TradePoint, to: TradePoint): TradePoint[] => {
+    const direct = directSeaLane(from, to, clear);
+    if (direct) {
+      return direct;
+    }
     const starts = portals(from),
       ends = portals(to);
     const [pair] = [...starts]
@@ -92,43 +96,7 @@ export function createChannelGraph(
     }
     path.push(from);
     path.reverse();
-    const step = Math.hypot(
-      vertex(1, 0).x - vertex(0, 0).x,
-      vertex(1, 0).y - vertex(0, 0).y
-    );
-    const simplify = (part: TradePoint[]): TradePoint[] => {
-      const [a] = part,
-        b = part.at(-1);
-      if (!(a && b) || part.length < 3) {
-        return part;
-      }
-      let maximum = 0,
-        split = 1;
-      part.forEach((p, i) => {
-        const dx = b.x - a.x,
-          dy = b.y - a.y;
-        const t = Math.max(
-          0,
-          Math.min(
-            1,
-            ((p.x - a.x) * dx + (p.y - a.y) * dy) / (dx * dx + dy * dy || 1)
-          )
-        );
-        const distance = Math.hypot(p.x - a.x - t * dx, p.y - a.y - t * dy);
-        if (distance > maximum) {
-          maximum = distance;
-          split = i;
-        }
-      });
-      if (maximum <= step && clear(a, b)) {
-        return [a, b];
-      }
-      return [
-        ...simplify(part.slice(0, split + 1)).slice(0, -1),
-        ...simplify(part.slice(split)),
-      ];
-    };
-    return roundSeaLane([from, ...simplify(path.slice(1, -1)), to], clear);
+    return smoothSeaLane(path, clear);
   };
 }
 

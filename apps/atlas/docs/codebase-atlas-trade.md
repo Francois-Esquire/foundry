@@ -27,7 +27,7 @@ endpoint files; it does not establish a new architectural owner or move those fi
   land. Route smoothing must preserve navigability. Unreachable ports do not get
   fabricated straight-line routes.
 - Fine static dashed routes vary slightly in width with distinct module dependencies.
-  The inspector states import direction. Corner rounding is constrained by navigable
+  The inspector states import direction. Curves are constrained by navigable
   water. The continuous strip and traveling crest were rejected and removed.
 - Ports use raised Three.js warehouses, pitched roofs, foundations, quays and piers
   in the existing palette. Building footprints fit the land and avoid neighboring
@@ -44,8 +44,16 @@ Water is partitioned by distance to rasterized island coastlines. The bounded ma
 edge supplies an outside region so peripheral channels join. Shared cell edges
 form a vertex graph. Routes attach existing ports to the nearest visible vertices
 in a common graph component, traverse its edges, then enter the destination port.
-Simplification stays within one grid cell of the boundary; corner rounding retains
-water clearance. No open-water line-of-sight shortcut replaces the graph journey.
+
+Lanes are smooth curves again. The earlier rule kept every route within one grid
+cell of the region boundary, which made lanes trace the outline of whatever lay
+between two ports. Now open water takes a single arc between the harbors, tried
+at increasing bulges until every sample keeps its clearance. Only when land
+blocks every arc does the route fall back to the graph, and then line-of-sight
+shortcutting removes every waypoint a clear straight run can skip before a
+spline runs through the corners that remain. The spline tightens per segment
+until it clears; a segment that never clears stays straight with rounded
+corners. No lane crosses land, and unreachable ports still get no route.
 
 The outer hull spans the outermost coast points of every package. Connected groups
 of two or more packages receive their own enclosing hull, not a chain of bubbles.

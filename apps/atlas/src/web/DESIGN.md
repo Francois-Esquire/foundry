@@ -263,9 +263,12 @@ remain disposable presentation data; temporal stability is not guaranteed.
   excludes those islands and enclosed water. Coast-distance
   regions share a cell-edge vertex graph, with the bounded map edge supplying
   an outside region. Ports join their nearest visible vertices in a common
-  component; routes traverse that graph without open-water shortcuts.
-  Simplification stays within one grid cell of the boundary, and curves retain
-  clearance from original islands. Same-continent relationships use persistent
+  component. A lane is one continuous curve: across open water it is a
+  single gentle arc between the two harbors, tried at increasing bulges until
+  every sample keeps its clearance. Where land blocks every arc the route
+  follows that graph, drops each waypoint a clear straight run can skip, and
+  runs a spline through the corners that remain, tightening per segment until
+  it clears. Lanes bend only where land forces them and never cross it. Same-continent relationships use persistent
   roads and suppress sea traces; an unavailable land route has no fallback through
   water. The inspector reports mapped-route availability or no safe mapped path,
   with consumer/resource endpoint counts; it does not label roads as sea routes.
