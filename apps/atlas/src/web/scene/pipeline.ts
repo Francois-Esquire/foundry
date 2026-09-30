@@ -54,12 +54,6 @@ export interface RenderStatus {
 export interface RenderPipelineOptions {
   camera: Camera;
   filter: (settings: RenderSettings) => Filter;
-  /**
-   * Depth spread, in world units, beyond which occlusion samples are treated
-   * as separate surfaces. Defaults to twice the reach, which suits the chart;
-   * a perspective scene with a far floor at a grazing angle needs more.
-   */
-  occlusionThickness?: number;
   onStatus?: (status: RenderStatus) => void;
   overlay?: Texture;
   renderer: Renderer;
@@ -543,7 +537,7 @@ export function createRenderPipeline(options: RenderPipelineOptions) {
           uniforms.aoRadius.value = radius;
           // The chart is viewed at a tilt, so samples along flat paper still
           // differ in view depth; thickness must exceed that spread.
-          uniforms.aoThickness.value = options.occlusionThickness ?? radius * 2;
+          uniforms.aoThickness.value = radius * 2;
         }
         try {
           pipeline.render();

@@ -170,7 +170,7 @@ export function RenderingSettings({
       <p>
         {giUnavailable
           ? "Indirect light needs a perspective camera; it applies to wreck dives, not the top-down chart."
-          : "Occlusion engraves the relief and shades wreck dives. Bloom lifts only the brightest ink."}
+          : "Occlusion engraves the relief on the chart and shades wreck dives. Bloom lifts only the brightest ink."}
       </p>
     </fieldset>
   );
