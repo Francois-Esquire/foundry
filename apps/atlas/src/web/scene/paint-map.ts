@@ -11,6 +11,7 @@ import { detailLevel, fileInView } from "./detail-level";
 import type { InkView, MapLabel } from "./exploration";
 import { visibleLabels } from "./exploration";
 import { paintOcean } from "./ocean";
+import { paintNaturalFeatures } from "./paint-features";
 import { paintResponsibility } from "./paint-responsibility";
 import { settlementColor } from "./terrain";
 import type { ContourLine } from "./topography";
@@ -47,7 +48,8 @@ export function paintMap(
   showConnections = false,
   initialBelonging: BelongingLayer | null = null,
   matches?: BelongingRegion,
-  continents: Continent[] = []
+  continents: Continent[] = [],
+  streams = false
 ): MapLabel[] {
   let belonging = initialBelonging;
   let responsibility = initialResponsibility;
@@ -114,7 +116,8 @@ export function paintMap(
     pixels,
     matches,
     activeRegion,
-    detail
+    detail,
+    streams
   );
 
   const evidenceFiles: Set<string> | undefined = paintMapEntries5(
@@ -392,6 +395,9 @@ function paintMapP(
   belonging: BelongingLayer | null,
   activeRegion: BelongingRegion | undefined
 ) {
+  const lakes = new Set(
+    belonging?.features?.lakes.map((lake) => lake.file.id) ?? []
+  );
   for (const p of data.territories) {
     ctx.save();
     ctx.translate(p.x, p.y);
@@ -406,31 +412,43 @@ function paintMapP(
       members,
       evidenceFiles,
       pixels,
-      fileId
+      fileId,
+      p.id === belonging?.territory.id ? lakes : undefined
     );
-    const exactMembers =
-      belonging?.files ??
-      (activeRegion && !activeRegion.children
-        ? activeRegion.members
-        : undefined);
-    if (
-      exactMembers &&
-      p.id === belonging?.territory.id &&
-      detail.composition < 0.5
-    ) {
-      ctx.globalAlpha = 1;
-      ctx.fillStyle = belonging.files
-        ? "#4a4233"
-        : (activeRegion?.color ?? "#4a4233");
-      ctx.strokeStyle = "#f1ead9";
-      ctx.lineWidth = 1 / pixels;
-      for (const file of exactMembers) {
-        const size = (belonging.files ? 5 : 3.5) / pixels;
-        ctx.fillRect(file.x - size / 2, file.y - size / 2, size, size);
-        ctx.strokeRect(file.x - size / 2, file.y - size / 2, size, size);
-      }
-    }
+    paintExactMembers(ctx, p, belonging, activeRegion, detail, pixels);
     ctx.restore();
+  }
+}
+
+/** Exact members of the selected group, drawn as solid marks over the files. */
+function paintExactMembers(
+  ctx: CanvasRenderingContext2D,
+  p: Territory,
+  belonging: BelongingLayer | null,
+  activeRegion: BelongingRegion | undefined,
+  detail: { composition: number },
+  pixels: number
+) {
+  const exactMembers =
+    belonging?.files ??
+    (activeRegion && !activeRegion.children ? activeRegion.members : undefined);
+  if (
+    !exactMembers ||
+    p.id !== belonging?.territory.id ||
+    detail.composition >= 0.5
+  ) {
+    return;
+  }
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = belonging.files
+    ? "#4a4233"
+    : (activeRegion?.color ?? "#4a4233");
+  ctx.strokeStyle = "#f1ead9";
+  ctx.lineWidth = 1 / pixels;
+  for (const file of exactMembers) {
+    const size = (belonging.files ? 5 : 3.5) / pixels;
+    ctx.fillRect(file.x - size / 2, file.y - size / 2, size, size);
+    ctx.strokeRect(file.x - size / 2, file.y - size / 2, size, size);
   }
 }
 
@@ -447,9 +465,13 @@ function paintMapPF(
   members: string[] | undefined,
   evidenceFiles: Set<string> | undefined,
   pixels: number,
-  fileId: string | null
+  fileId: string | null,
+  lakes?: Set<string>
 ) {
   for (const f of p.files) {
+    if (lakes?.has(f.id)) {
+      continue;
+    }
     if (detail.specks > 0) {
       ctx.globalAlpha = detail.specks;
       ctx.fillStyle = settlementColor(f.kind);
@@ -514,6 +536,18 @@ function paintMapPFEntries(
   }
 }
 
+/** Lakes and marsh stay through file zoom; they recede only under composition. */
+function featureStrength(
+  belonging: BelongingLayer,
+  detail: { composition: number; districts: number; files: number }
+) {
+  return (
+    Math.min(1, detail.districts + detail.files) *
+    (1 - detail.composition * 0.8) *
+    (belonging.reveal ?? 1)
+  );
+}
+
 function paintMapEntries(
   belonging: BelongingLayer | null,
   regionStrength: number,
@@ -528,16 +562,24 @@ function paintMapEntries(
     districts: number;
     files: number;
     specks: number;
-  }
+  },
+  streams: boolean
 ) {
-  if (belonging && regionStrength > 0) {
-    ctx.save();
-    ctx.translate(belonging.territory.x, belonging.territory.y);
-    trace(ctx, belonging.territory.coast);
-    ctx.clip("evenodd");
-    const enclosing = belonging.parents?.find(
-      (region) => region.children && !region.collection
-    );
+  if (!belonging) {
+    return;
+  }
+  const features = belonging.features ? featureStrength(belonging, detail) : 0;
+  if (regionStrength <= 0 && features <= 0) {
+    return;
+  }
+  ctx.save();
+  ctx.translate(belonging.territory.x, belonging.territory.y);
+  trace(ctx, belonging.territory.coast);
+  ctx.clip("evenodd");
+  const enclosing = belonging.parents?.find(
+    (region) => region.children && !region.collection
+  );
+  if (regionStrength > 0) {
     paintMapEntriesParent(
       belonging,
       ctx,
@@ -559,26 +601,32 @@ function paintMapEntries(
       regionStrength,
       pixels
     );
-    if (enclosing) {
-      ctx.fillStyle = enclosing.color;
-      ctx.globalAlpha = 0.65 * regionStrength;
-      const members =
-        belonging.files ??
-        belonging.regions.flatMap((region) => region.members);
-      for (const file of members) {
-        if (compositionInsideLand(file.x, file.y, enclosing.polygons)) {
-          continue;
-        }
-        ctx.fillRect(
-          file.x - 1.5 / pixels,
-          file.y - 1.5 / pixels,
-          3 / pixels,
-          3 / pixels
-        );
-      }
-    }
-    ctx.restore();
   }
+  if (belonging.features && features > 0) {
+    paintNaturalFeatures(ctx, belonging.features, {
+      pixels,
+      streams,
+      strength: features,
+    });
+  }
+  if (enclosing && regionStrength > 0) {
+    ctx.fillStyle = enclosing.color;
+    ctx.globalAlpha = 0.65 * regionStrength;
+    const members =
+      belonging.files ?? belonging.regions.flatMap((region) => region.members);
+    for (const file of members) {
+      if (compositionInsideLand(file.x, file.y, enclosing.polygons)) {
+        continue;
+      }
+      ctx.fillRect(
+        file.x - 1.5 / pixels,
+        file.y - 1.5 / pixels,
+        3 / pixels,
+        3 / pixels
+      );
+    }
+  }
+  ctx.restore();
 }
 
 function paintMapEntriesRegion(

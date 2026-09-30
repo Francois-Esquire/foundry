@@ -7,8 +7,8 @@
  *     --url http://127.0.0.1:5199/ --tag overview zoom=6 wait=1500 shot=zoomed errors
  *
  * Steps: click=<button text or aria-label>, press=<label> (no screenshot),
- * zoom=<steps>, hover=<x>,<y>, wait=<ms>, shot=<name>, eval=<expression>,
- * clearlog, errors. Screenshots land in .cache/shots/<tag>-<name>.png.
+ * zoom=<steps>, hover=<x>,<y>, tap=<x>,<y> (a mouse click on the page),
+ * wait=<ms>, shot=<name>, eval=<expression>, clearlog, errors. Screenshots land in .cache/shots/<tag>-<name>.png.
  */
 import { spawn } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -197,6 +197,25 @@ async function runStep(
         x: x + 2,
         y: y + 1,
       });
+      break;
+    }
+    case "tap": {
+      const [x = 0, y = 0] = argument.split(",").map(Number);
+      await session.send("Input.dispatchMouseEvent", {
+        type: "mouseMoved",
+        x,
+        y,
+      });
+      for (const type of ["mousePressed", "mouseReleased"]) {
+        await session.send("Input.dispatchMouseEvent", {
+          button: "left",
+          clickCount: 1,
+          type,
+          x,
+          y,
+        });
+      }
+      await sleep(1500);
       break;
     }
     case "clearlog":

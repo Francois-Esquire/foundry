@@ -128,6 +128,7 @@ export function ChartSettingsPanel({
     key: Exclude<
       keyof ChartSettings,
       | "contours"
+      | "streams"
       | "waterColor"
       | "filter"
       | "boundaries"
@@ -203,6 +204,12 @@ export function ChartSettingsPanel({
     },
     [onChange, settings]
   );
+  const handleStreams = useCallback(
+    (event: ChangeEvent<HTMLInputElement, HTMLInputElement>) => {
+      onChange({ ...settings, streams: event.target.checked });
+    },
+    [onChange, settings]
+  );
   const handleReset = useCallback(() => {
     onReset();
     sync();
@@ -243,6 +250,21 @@ export function ChartSettingsPanel({
             <span>{label}</span>
           </label>
         ))}
+        <label className="atlas-boundary-control atlas-layer-control">
+          <input
+            checked={settings.streams}
+            disabled={!scene.current}
+            name="streams"
+            onChange={handleStreams}
+            type="checkbox"
+          />
+          <span>District streams</span>
+        </label>
+        <p>
+          Inside an island, shared commons are lakes and unresolved belonging is
+          marsh. Streams draw the imports between districts and meet at
+          composition junctions.
+        </p>
       </details>
       <details>
         <summary>Display boundaries</summary>

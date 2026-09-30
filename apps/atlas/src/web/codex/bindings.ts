@@ -46,3 +46,13 @@ export function currentStrength(imports: number) {
 export function districtAffinity(moduleEdges: number, symbolFlow: number) {
   return Math.log1p(moduleEdges) + Math.log1p(symbolFlow);
 }
+
+/** Lake radius for a shared commons module, from the modules that draw on it. */
+export function lakeRadius(dependents: number) {
+  return Math.min(6, 2 + 0.8 * Math.sqrt(dependents));
+}
+
+/** Stream width between two districts, from their module edges. */
+export function streamWidth(moduleEdges: number, strongest: number) {
+  return 0.35 + (0.75 * Math.log1p(moduleEdges)) / Math.log1p(strongest);
+}

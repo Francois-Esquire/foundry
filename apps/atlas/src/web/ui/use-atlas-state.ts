@@ -4,6 +4,7 @@ import { type BelongingRegion, belongingAncestry } from "../belonging";
 import type { ChartSettings } from "../chart-settings";
 import type { AtlasInternals } from "../internals";
 import { relayoutAtlas } from "../landmasses";
+import type { NaturalFeatures } from "../natural-features";
 import type { ResponsibilityOverlay } from "../responsibility-focus";
 import { trackIds } from "../scene/playback";
 import type { AtlasSelection } from "../scene/scene";
@@ -208,6 +209,7 @@ export function useAtlasState(initial: AtlasState) {
       selection,
       mapBelonging.regions,
       mapBelonging.composites,
+      mapBelonging.features,
       belonging.composites,
       territoryLayout,
     ]
@@ -394,6 +396,7 @@ function resolveValue(
     composites: BelongingRegion[];
     data: AtlasInternals | undefined;
     error: string | undefined;
+    features: NaturalFeatures | undefined;
     loading: boolean;
     regions: BelongingRegion[];
     retry: () => void;
@@ -410,6 +413,10 @@ function resolveValue(
 ): BelongingLayer | null {
   if (viewTerritory && lens === "belonging") {
     return {
+      features:
+        territoryLayout?.id === viewTerritory.id
+          ? undefined
+          : mapBelonging.features,
       files: viewIsSelected ? selectedRegion?.members : undefined,
       parents: resolveParents(
         viewIsSelected,

@@ -83,6 +83,8 @@ export const defaultChartSettings = {
     trade: false,
   },
   rendering: defaultRenderSettings,
+  /** District streams: imports between responsibilities drawn on the land. */
+  streams: false,
   waterColor: "#d5dbca",
   waterContrast: 0.3,
   waveAmount: 0.45,

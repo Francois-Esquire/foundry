@@ -26,6 +26,13 @@ physical scale.
   shows its own trade instead. A selected file can trace its imports.
 - **Districts are responsibilities.** Inside an island, files that the
   internal analysis groups under one responsibility share a region.
+- **Natural features carry meaning.** A lake is a shared module that many
+  responsibilities draw on. A marsh is a module the analysis could not
+  place in one responsibility, with dotted drains toward the ones it could
+  join. With **District streams** switched on in the chart settings, a
+  stream is the imports from one responsibility into another, wider where
+  there are more, and a ringed dot marks where streams meet at a
+  composition junction. These describe roles, not quality.
 
 Zoom reveals detail in steps. From the overview, islands are shapes with
 labels. Closer, districts fade in. Closer still, individual files appear
@@ -70,7 +77,8 @@ if the dataset changed since the map loaded, the panel asks you to reload.
 
 The **Chart settings** button opens the panel's **Chart** section. Every
 optional layer is off by default: connecting land between related islands,
-a road network over it, houses, forests, and sea trade routes. Boundary
+a road network over it, houses, forests, sea trade routes, and district
+streams. Boundary
 overlays, topographic contours, water pigment, and a map filter such as
 graphite or parchment are there too, with a **Reset visualization**. Water,
 wind, and waves animate only when you press play, and a separate

@@ -123,8 +123,16 @@ export function fitDistricts(
   };
 }
 
-export function districtLayout(data: AtlasInternals, territory: Territory) {
-  const fitted = fitDistricts(territory, planDistricts(data, territory));
+/**
+ * Architectural role of each file from the package's own evidence: composition
+ * roots are junctions, modules whose symbols are consumed only across
+ * responsibilities are commons, and the rest keep their scope reading. Pure,
+ * and independent of any arrangement, so the same roles reach every drawing.
+ */
+export function classifyFiles(
+  data: Pick<AtlasInternals, "architecture" | "fileIds">,
+  files: readonly AtlasFile[]
+): AtlasFile[] {
   const modules = new Map(
     data.architecture?.primitives.modules.map((module) => [
       data.fileIds[module.module],
@@ -136,7 +144,7 @@ export function districtLayout(data: AtlasInternals, territory: Territory) {
       .filter((module) => module.compositionRoot)
       .map((module) => data.fileIds[module.module]) ?? []
   );
-  const classified = fitted.files.map((file): AtlasFile => {
+  return files.map((file): AtlasFile => {
     const module = modules.get(file.id);
     let architectureKind: AtlasFile["architectureKind"];
     if (roots.has(file.id)) {
@@ -158,8 +166,13 @@ export function districtLayout(data: AtlasInternals, territory: Territory) {
         architectureKind = "unknown";
       }
     }
-    return { ...file, architectureKind };
+    return architectureKind ? { ...file, architectureKind } : file;
   });
+}
+
+export function districtLayout(data: AtlasInternals, territory: Territory) {
+  const fitted = fitDistricts(territory, planDistricts(data, territory));
+  const classified = classifyFiles(data, fitted.files);
   return {
     territory: {
       ...territory,

@@ -456,7 +456,9 @@ export async function createAtlasScene(
       },
       showConnections,
       belonging,
-      matches
+      matches,
+      [],
+      settings.streams
     );
     const inkContext = inkCanvas.getContext("2d");
     if (inkContext) {
@@ -777,7 +779,8 @@ export async function createAtlasScene(
       const directionChanged = next.windDirection !== settings.windDirection;
       const contoursChanged =
         next.contours !== settings.contours ||
-        next.boundaries !== settings.boundaries;
+        next.boundaries !== settings.boundaries ||
+        next.streams !== settings.streams;
       settings = { ...next };
       water.configure(settings);
       applyRendering();

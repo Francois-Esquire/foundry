@@ -124,7 +124,7 @@ release workflow runs before publishing.
 
 `scripts/capture.ts` is a manual look check, outside the test command: it
 opens a running viewer in a headless Chrome over the DevTools protocol, runs
-steps such as `zoom=6`, `press=Chart settings`, `shot=name`, and `errors`,
+steps such as `zoom=6`, `tap=510,810`, `press=Chart settings`, `shot=name`, and `errors`,
 and saves screenshots under `.cache/shots`. Pass `--browser` with the path to
 a Chrome binary and `--webgpu` to test the WebGPU path; without it the
 capture uses the software WebGL 2 fallback.

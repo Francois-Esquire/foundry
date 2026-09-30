@@ -54,6 +54,8 @@ imports from the renderer, so the folder moves as a unit. Tests are in
 | `roadWidth`            | Dependency strength, merged per road          | road width            | `scene/road-layer.ts`                 |
 | `currentStrength`      | cross-package imports between two packages    | sea current           | `current-field.ts`              |
 | `districtAffinity`     | responsibility link module edges, symbol flow | district grouping     | `hierarchy.ts`                  |
+| `lakeRadius`           | Module dependents, for a shared commons       | lake radius           | `natural-features.ts`           |
+| `streamWidth`          | responsibility link module edges              | stream width          | `natural-features.ts`           |
 
 ## Contact points
 

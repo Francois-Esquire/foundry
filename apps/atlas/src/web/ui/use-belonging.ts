@@ -3,6 +3,7 @@ import { belongingRegions, compositeRegions } from "../belonging";
 import { deriveHierarchy } from "../hierarchy";
 import type { AtlasInternals } from "../internals";
 import { loadInternals } from "../load-internals";
+import { naturalFeatures } from "../natural-features";
 import type { Territory } from "../types";
 
 export function useBelonging(territory: Territory | undefined, survey: string) {
@@ -61,10 +62,22 @@ export function useBelonging(territory: Territory | undefined, survey: string) {
     () => (hierarchy ? compositeRegions(hierarchy, regions) : []),
     [hierarchy, regions]
   );
+  const features = useMemo(
+    () =>
+      current?.data && territory
+        ? naturalFeatures(territory, regions, {
+            fileIds: current.data.fileIds,
+            relationships: current.data.responsibilities.relationships,
+            unresolved: current.data.responsibilities.unresolved,
+          })
+        : undefined,
+    [current, regions, territory]
+  );
   return {
     composites,
     data: current?.data,
     error: current?.error,
+    features,
     loading: !!id && !current,
     regions,
     retry: () => {

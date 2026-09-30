@@ -1,7 +1,9 @@
 import { contours } from "d3-contour";
 import { compositionInsideLand } from "./composition-placement";
+import { classifyFiles } from "./district-layout";
 import type { deriveHierarchy } from "./hierarchy";
 import type { AtlasInternals } from "./internals";
+import type { NaturalFeatures } from "./natural-features";
 import type { ResponsibilityOverlay } from "./responsibility-focus";
 import type { AtlasFile, Polygon, Territory } from "./types";
 
@@ -20,6 +22,8 @@ export interface BelongingRegion {
 
 export interface BelongingLayer {
   emphasis?: number;
+  /** Lakes, marshes, streams and confluences drawn from the same evidence. */
+  features?: NaturalFeatures;
   files?: AtlasFile[];
   hovered?: string;
   parents?: BelongingRegion[];
@@ -141,7 +145,9 @@ export function belongingRegions(
   data: AtlasInternals,
   territory: Territory
 ): BelongingRegion[] {
-  const files = new Map(territory.files.map((file) => [file.id, file]));
+  const files = new Map(
+    classifyFiles(data, territory.files).map((file) => [file.id, file])
+  );
   const region = (
     id: string,
     label: string,

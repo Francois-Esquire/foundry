@@ -319,6 +319,25 @@ remain disposable presentation data; temporal stability is not guaranteed.
   Review lookup uses both the scenario ID and family identity because IDs can repeat
   across families. See the [V13 work log](../../../../docs/designs/codebase-atlas-v13.md)
   for the verification record and experiment limits.
+- Natural features draw an island's internal evidence on its own land, in
+  island-local ink under the file marks. They need no connecting land. A
+  shared commons module is a lake: its radius follows the modules that draw
+  on it, shrunk to keep a shore inside the coast, and the lake replaces that
+  file's own mark. A module with unresolved belonging is a marsh: a patch of
+  tufts around the file, with up to two dotted drains running part of the
+  way toward the districts it could join. Lakes and marsh always draw with
+  the districts and stay through file zoom, receding under composition.
+  Marsh means undecided, not defective.
+- District streams are an optional layer, off initially, under Experimental
+  layers. Each recorded relationship between two responsibilities is one
+  stream from a supplier file to the consumer's composition junction, or to
+  its most depended-on consuming file when it has no junction. Width follows
+  module edges; up close a stream thins to a pen line. Streams take one arc
+  where the land allows, otherwise a grid path over the island's land
+  smoothed the same way as sea lanes; a relationship whose files share no
+  land is counted, not drawn. A confluence marks each junction, ringed where
+  two or more streams meet. Streams aggregate at district level: selecting a
+  responsibility still does not draw its file graph, and nothing animates.
 - District relationships can be inspected independently of files. Selecting a
   relationship frames both sets of members. Teal retains current affected-consumer
   connections beneath amber proposed connections, capped at 64 per layer with
