@@ -1,6 +1,7 @@
 import {
   BufferAttribute,
   type BufferGeometry,
+  type InterleavedBufferAttribute,
   Path,
   Shape,
   ShapeGeometry,
@@ -80,7 +81,108 @@ export function terrainGeometry(
     new Vector3(-dx, dy, 1).normalize().toArray(normals, i * 3);
   }
   geometry.setAttribute("normal", new BufferAttribute(normals, 3));
+  geometry.setAttribute(
+    "occlusion",
+    new BufferAttribute(reliefOcclusion(geometry), 1)
+  );
   return geometry;
+}
+
+/** Concavity per unit of edge length that counts as full occlusion. */
+const occlusionGain = 4;
+const occlusionSmoothing = 2;
+
+interface Neighbourhood {
+  edgeSum: Float32Array;
+  heightSum: Float32Array;
+  neighbours: Float32Array;
+}
+
+/** Sums each vertex's neighbouring heights and edge lengths over the index. */
+function gatherNeighbours(
+  positions: BufferAttribute | InterleavedBufferAttribute,
+  index: BufferAttribute
+): Neighbourhood {
+  const { count } = positions;
+  const heightSum = new Float32Array(count);
+  const edgeSum = new Float32Array(count);
+  const neighbours = new Float32Array(count);
+  const edge = (a: number, b: number) => {
+    heightSum[a] = (heightSum[a] ?? 0) + positions.getZ(b);
+    edgeSum[a] =
+      (edgeSum[a] ?? 0) +
+      Math.hypot(
+        positions.getX(a) - positions.getX(b),
+        positions.getY(a) - positions.getY(b)
+      );
+    neighbours[a] = (neighbours[a] ?? 0) + 1;
+  };
+  for (let i = 0; i < index.count; i += 3) {
+    const a = index.getX(i),
+      b = index.getX(i + 1),
+      c = index.getX(i + 2);
+    edge(a, b);
+    edge(b, a);
+    edge(b, c);
+    edge(c, b);
+    edge(c, a);
+    edge(a, c);
+  }
+  return { edgeSum, heightSum, neighbours };
+}
+
+/**
+ * One averaging pass over neighbours, so the term shades as a wash rather
+ * than a mesh-frequency speckle.
+ */
+function smoothOcclusion(
+  occlusion: Float32Array,
+  index: BufferAttribute,
+  neighbours: Float32Array
+) {
+  const sum = new Float32Array(occlusion.length);
+  for (let i = 0; i < index.count; i += 3) {
+    const a = index.getX(i),
+      b = index.getX(i + 1),
+      c = index.getX(i + 2);
+    sum[a] = (sum[a] ?? 0) + (occlusion[b] ?? 0) + (occlusion[c] ?? 0);
+    sum[b] = (sum[b] ?? 0) + (occlusion[a] ?? 0) + (occlusion[c] ?? 0);
+    sum[c] = (sum[c] ?? 0) + (occlusion[a] ?? 0) + (occlusion[b] ?? 0);
+  }
+  for (let i = 0; i < occlusion.length; i += 1) {
+    const n = neighbours[i] ?? 0;
+    if (n > 0) {
+      occlusion[i] = ((occlusion[i] ?? 0) + (sum[i] ?? 0) / n) / 2;
+    }
+  }
+}
+
+/**
+ * Concavity of the relief at each vertex: 0 on ridges and flats, rising to 1
+ * in valleys and at the foot of hills. It comes from mesh neighbours rather
+ * than extra height samples, so it costs nothing beyond the geometry itself.
+ */
+function reliefOcclusion(geometry: BufferGeometry): Float32Array {
+  const positions = geometry.getAttribute("position");
+  const index = geometry.getIndex();
+  const occlusion = new Float32Array(positions.count);
+  if (!index) {
+    return occlusion;
+  }
+  const { edgeSum, heightSum, neighbours } = gatherNeighbours(positions, index);
+  for (let i = 0; i < positions.count; i += 1) {
+    const n = neighbours[i] ?? 0;
+    if (n === 0) {
+      continue;
+    }
+    const concavity =
+      ((heightSum[i] ?? 0) / n - positions.getZ(i)) / ((edgeSum[i] ?? 0) / n);
+    occlusion[i] = Math.min(1, Math.max(0, concavity * occlusionGain));
+  }
+  for (let pass = 0; pass < occlusionSmoothing; pass += 1) {
+    smoothOcclusion(occlusion, index, neighbours);
+  }
+  return occlusion;
 }
 
 export function settlementColor(kind: string): string {

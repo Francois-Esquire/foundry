@@ -1,7 +1,7 @@
 import type { ChangeEvent } from "react";
 import { useCallback } from "react";
 import type { RenderSettings } from "../chart-settings";
-import { renderQualities, toneMappings } from "../chart-settings";
+import { renderQualities, renderStages, toneMappings } from "../chart-settings";
 import type { RenderStatus } from "../scene/pipeline";
 
 type NumericRenderKey = {
@@ -12,7 +12,33 @@ type ToggleRenderKey = {
   [K in keyof RenderSettings]: RenderSettings[K] extends boolean ? K : never;
 }[keyof RenderSettings];
 
+type ChoiceRenderKey = "quality" | "stage" | "toneMapping";
+
 const backendLabels = { webgl: "WebGL 2", webgpu: "WebGPU" } as const;
+
+const choices: Record<ChoiceRenderKey, Record<string, { label: string }>> = {
+  quality: renderQualities,
+  stage: renderStages,
+  toneMapping: toneMappings,
+};
+
+function statusText(status: RenderStatus | null) {
+  if (!status) {
+    return "Waiting for the map.";
+  }
+  const parts: string[] = [backendLabels[status.backend]];
+  if (status.postProcessing) {
+    parts.push(`pipeline active · ${renderQualities[status.quality].label}`);
+  } else if (status.failure) {
+    parts.push(`direct draw, the pipeline failed: ${status.failure}`);
+  } else {
+    parts.push("direct draw, map filter via CSS");
+  }
+  if (status.frameMs !== null) {
+    parts.push(`${status.frameMs.toFixed(0)} ms per frame`);
+  }
+  return parts.join(" · ");
+}
 
 /** Rendering pipeline controls: quality tier, exposure, grade, occlusion, bloom, indirect light. */
 export function RenderingSettings({
@@ -45,24 +71,14 @@ export function RenderingSettings({
     },
     [onChange, settings]
   );
-  const changeQuality = useCallback(
+  const changeChoice = useCallback(
     (event: ChangeEvent<HTMLSelectElement, HTMLSelectElement>) => {
-      const quality = Object.keys(renderQualities).find(
-        (key) => key === event.target.value
-      ) as RenderSettings["quality"] | undefined;
-      if (quality) {
-        onChange({ ...settings, quality });
-      }
-    },
-    [onChange, settings]
-  );
-  const changeToneMapping = useCallback(
-    (event: ChangeEvent<HTMLSelectElement, HTMLSelectElement>) => {
-      const toneMapping = Object.keys(toneMappings).find(
-        (key) => key === event.target.value
-      ) as RenderSettings["toneMapping"] | undefined;
-      if (toneMapping) {
-        onChange({ ...settings, toneMapping });
+      const key = event.currentTarget.name as ChoiceRenderKey;
+      const value = Object.keys(choices[key]).find(
+        (option) => option === event.target.value
+      );
+      if (value) {
+        onChange({ ...settings, [key]: value });
       }
     },
     [onChange, settings]
@@ -108,63 +124,53 @@ export function RenderingSettings({
       {label}
     </label>
   );
+  const choice = (label: string, key: ChoiceRenderKey, always = false) => (
+    <label className="atlas-appearance-control" key={key}>
+      {label}
+      <select
+        aria-label={label}
+        disabled={off && !always}
+        name={key}
+        onChange={changeChoice}
+        value={settings[key]}
+      >
+        {Object.entries(choices[key]).map(([value, option]) => (
+          <option key={value} value={value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
   const giUnavailable = status !== null && !status.globalIlluminationAvailable;
   return (
     <fieldset aria-label="Rendering pipeline" disabled={disabled}>
-      <label className="atlas-appearance-control">
-        Quality
-        <select
-          aria-label="Rendering quality"
-          onChange={changeQuality}
-          value={settings.quality}
-        >
-          {Object.entries(renderQualities).map(([value, { label }]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-        </select>
-      </label>
-      <p role="status">
-        {status
-          ? `${backendLabels[status.backend]} · ${
-              status.postProcessing
-                ? "pipeline active"
-                : "direct draw, map filter via CSS"
-            }`
-          : "Waiting for the map."}
-      </p>
-      <label className="atlas-appearance-control">
-        Tone mapping
-        <select
-          aria-label="Tone mapping"
-          disabled={off}
-          onChange={changeToneMapping}
-          value={settings.toneMapping}
-        >
-          {Object.entries(toneMappings).map(([value, { label }]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-        </select>
-      </label>
+      {choice("Quality", "quality", true)}
+      <p role="status">{statusText(status)}</p>
+      {status?.adapted && (
+        <p>
+          Frames ran over budget, so the tier stepped down. Choose a quality to
+          set it again.
+        </p>
+      )}
+      {choice("Tone mapping", "toneMapping")}
       {range("Exposure", "exposure", 0.25, 3, 0.05, "×")}
       {range("Saturation", "saturation", 0, 2, 0.05)}
       {range("Vibrance", "vibrance", -1, 1, 0.05)}
       {toggle("Ambient occlusion", "ambientOcclusion")}
       {range("Occlusion strength", "aoIntensity", 0, 2, 0.05)}
-      {range("Occlusion reach", "aoRadius", 2, 60, 1)}
+      {range("Occlusion reach", "aoReach", 4, 48, 1, " px")}
       {toggle("Bloom", "bloom")}
       {range("Bloom strength", "bloomStrength", 0, 1.5, 0.05)}
       {range("Bloom threshold", "bloomThreshold", 0, 1, 0.05)}
       {range("Bloom radius", "bloomRadius", 0, 1, 0.05)}
       {toggle("Indirect light (screen-space GI)", "globalIllumination")}
       {range("Indirect strength", "giIntensity", 0, 3, 0.05)}
+      {choice("Show stage", "stage")}
       <p>
         {giUnavailable
           ? "Indirect light needs a perspective camera; it applies to wreck dives, not the top-down chart."
-          : "Occlusion is subtle on the flat chart and strongest in wreck dives. Bloom lifts only the brightest ink."}
+          : "Occlusion engraves the relief and shades wreck dives. Bloom lifts only the brightest ink."}
       </p>
     </fieldset>
   );

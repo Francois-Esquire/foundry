@@ -92,9 +92,17 @@ and High trade resolution and denoising for speed; they never remove a control.
 If the pass graph cannot compile on a device, the viewer returns to the direct
 draw and the panel reports it.
 
+Sliders are live uniforms; only quality, toggles, tone mapping, the filter, and
+the stage view rebuild the graph. Occlusion reach is a screen size in pixels, so
+the look holds at every zoom. When the device reports frame times, a sustained
+frame over budget steps the tier down one level and the panel says so; choosing
+a quality again clears that. **Show stage** swaps the image for one stage's
+output (occlusion, depth, indirect light, bloom) for tuning.
+
 Indirect light (screen-space global illumination) needs a perspective camera,
-so it applies to wreck dives, not the top-down chart. Append `?debug=ao` or
-`?debug=depth` to the viewer URL to see the occlusion or depth stage alone.
+so it applies to wreck dives, not the top-down chart. Relief on the chart also
+carries an engraved occlusion term baked into the land geometry, which the same
+Occlusion strength control drives and which shades on the direct draw too.
 
 ## Development
 
@@ -114,13 +122,20 @@ Bun tests exercise the built CLI, worker, server, and browser loaders.
 scans and serves a fixture through the installed bin, which is what the
 release workflow runs before publishing.
 
+`scripts/capture.ts` is a manual look check, outside the test command: it
+opens a running viewer in a headless Chrome over the DevTools protocol, runs
+steps such as `zoom=6`, `press=Chart settings`, `shot=name`, and `errors`,
+and saves screenshots under `.cache/shots`. Pass `--browser` with the path to
+a Chrome binary and `--webgpu` to test the WebGPU path; without it the
+capture uses the software WebGL 2 fallback.
+
 ```text
 src/cli/       commands, argument parsing, workspace identity
 src/lib/       semantic analysis library
 src/server/    static file server
 src/web/       browser viewer: data loading, geography, and semantic overlays
 src/web/ui/    React chrome, hooks, and the stylesheet
-src/web/scene/ three.js scene, canvas painting, materials, and layers
+src/web/scene/ three.js scene, render pipeline, materials, and layers
 public/        static web assets, including the ship model
 docs/          design notes and the migration record
 ```

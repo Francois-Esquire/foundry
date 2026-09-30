@@ -476,14 +476,26 @@ for speed and never hide a control. **Off** is the direct draw: no passes, CSS
 filter restored. If a device cannot compile the graph, the viewer falls back
 to the direct draw on its own and the panel says so.
 
-Occlusion is effectively neutral on the chart at the default strength: the
-paper relief is too shallow to shade, so strength is an exponent on the
-occlusion term rather than a mix, and it takes a raised strength to draw out
-coasts and the foot of buildings. In wreck dives the same stage is a real
-contribution. Its reach defaults to 12 map units; shorter reaches span only a texel or two of the
-half-resolution occlusion buffer at overview scale and band across the tilted
-paper. Indirect light (screen-space GI) needs a
-perspective camera, so it applies to wreck dives and not the top-down chart.
+Occlusion on the chart is engraved rather than screen-space: the land
+geometry carries a per-vertex concavity term computed from its own mesh
+(valleys and the foot of hills, never ridges), and the paper material darkens
+with it under the Occlusion strength control. It shades on the direct draw as
+well, and it is the only occlusion the flat paper visibly receives, since the
+screen-space term finds little to occlude in relief this shallow. In wreck
+dives the screen-space stage is the real contribution. Its reach is a screen
+size, in pixels, converted to world units each frame from the camera: on the
+chart from the zoom, in a dive at the fog limit so the far seabed never falls
+below what the sampler can resolve. Reaches under about eight pixels span a
+texel or two of the half-resolution buffer and band across the tilted paper.
+Indirect light (screen-space GI) needs a perspective camera, so it applies to
+wreck dives and not the top-down chart.
+
+Sliders are uniforms and change nothing in the graph; quality, toggles, tone
+mapping, filter, and stage view rebuild it. Stage modules load on first use.
+When the device reports GPU frame times, a sustained frame over budget steps
+the tier down one level, never to Off, and the panel says so; choosing a
+quality again clears the cap. The Show stage select replaces the image with a
+single stage's output for tuning.
 
 ## Do's and Don'ts
 

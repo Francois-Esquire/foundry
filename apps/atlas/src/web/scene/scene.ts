@@ -86,7 +86,11 @@ export async function createAtlasScene(
   onWreck?: (wreck: FormerPackage | null, selected: boolean) => void,
   onRegionTerritory?: (territory: Territory | null) => void
 ) {
-  const renderer = new WebGPURenderer({ alpha: true, antialias: true });
+  const renderer = new WebGPURenderer({
+    alpha: true,
+    antialias: true,
+    trackTimestamp: true,
+  });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.outputColorSpace = SRGBColorSpace;
   renderer.shadowMap.enabled = true;
@@ -330,18 +334,32 @@ export async function createAtlasScene(
       pipeline.render();
     },
   });
-  const pipeline = createRenderPipeline(
-    renderer,
-    scene,
+  const pipeline = createRenderPipeline({
     camera,
-    () => settings.filter,
-    atmosphere.texture,
-    (status) => {
+    filter: () => settings.filter,
+    onStatus: (status) => {
       atmosphere.setComposited(status.postProcessing);
       host.dispatchEvent(new CustomEvent("atlas:render", { detail: status }));
-    }
-  );
-  pipeline.configure(settings.rendering);
+      // A stage finishes building after the frame that asked for it.
+      render();
+    },
+    overlay: atmosphere.texture,
+    renderer,
+    scene,
+    unitsPerPixel: () =>
+      (camera.right - camera.left) /
+      (camera.zoom * Math.max(1, host.clientWidth)),
+  });
+  const applyRendering = () => {
+    pipeline.configure(settings.rendering);
+    const { rendering } = settings;
+    materials.setOcclusion(
+      rendering.quality !== "off" && rendering.ambientOcclusion
+        ? rendering.aoIntensity
+        : 0
+    );
+  };
+  applyRendering();
   const seekCurrent = (milliseconds: number | null) => {
     if (
       milliseconds !== null &&
@@ -762,7 +780,7 @@ export async function createAtlasScene(
         next.boundaries !== settings.boundaries;
       settings = { ...next };
       water.configure(settings);
-      pipeline.configure(settings.rendering);
+      applyRendering();
       if (directionChanged) {
         clearTimeout(waveTimer);
         waveTimer = window.setTimeout(() => {

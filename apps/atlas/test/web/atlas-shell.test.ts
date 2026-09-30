@@ -31,9 +31,13 @@ vi.mock("../../src/web/scene/scene", () => ({
         },
       })),
       getRenderStatus: vi.fn(() => ({
+        adapted: false,
         backend: "webgl" as const,
+        failure: null,
+        frameMs: null,
         globalIlluminationAvailable: false,
         postProcessing: true,
+        quality: "medium" as const,
       })),
       pinRegion: vi.fn(),
       play: vi.fn(),
@@ -204,11 +208,17 @@ it("lists former packages in a Wrecks section and opens a dive from it", async (
   );
   assert(wreck);
   await act(async () => wreck.click());
-  expect(
+  // The dive loads on first use, so give its module a moment to arrive.
+  const dive = () =>
     container.querySelector(
       '[aria-label="Underwater view of @foundry/retired"]'
-    )
-  ).not.toBeNull();
+    );
+  for (let attempt = 0; attempt < 20 && !dive(); attempt += 1) {
+    await act(async () => {
+      await new Promise((done) => setTimeout(done, 10));
+    });
+  }
+  expect(dive()).not.toBeNull();
   expect(panel()?.hidden).toBe(true);
 });
 

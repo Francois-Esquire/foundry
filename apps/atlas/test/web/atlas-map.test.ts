@@ -19,9 +19,13 @@ vi.mock("../../src/web/scene/scene", () => ({
       focus: vi.fn(),
       getPlayback: vi.fn(() => ({ time: 15 })),
       getRenderStatus: vi.fn(() => ({
+        adapted: false,
         backend: "webgl" as const,
+        failure: null,
+        frameMs: null,
         globalIlluminationAvailable: false,
         postProcessing: true,
+        quality: "medium" as const,
       })),
       restorePlayback: vi.fn(),
       restoreView: vi.fn(),

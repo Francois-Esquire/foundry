@@ -31,15 +31,27 @@ export const toneMappings = {
 
 export type ToneMappingId = keyof typeof toneMappings;
 
+/** Intermediate pipeline stages the panel can show in place of the final image. */
+export const renderStages = {
+  bloom: { label: "Bloom only" },
+  depth: { label: "Depth" },
+  final: { label: "Final image" },
+  indirect: { label: "Indirect light" },
+  occlusion: { label: "Occlusion" },
+};
+
+export type RenderStage = keyof typeof renderStages;
+
 /**
  * Rendering pipeline controls. Defaults keep the chart's matte paper look:
- * linear output at unit exposure, a coastal occlusion band, and a whisper of
+ * linear output at unit exposure, engraved relief shading, and a whisper of
  * bloom on the brightest ink.
  */
 export const defaultRenderSettings = {
   ambientOcclusion: true,
   aoIntensity: 1,
-  aoRadius: 12,
+  /** Occlusion reach in screen pixels, so the look holds at every zoom. */
+  aoReach: 10,
   bloom: true,
   bloomRadius: 0.35,
   bloomStrength: 0.2,
@@ -49,6 +61,7 @@ export const defaultRenderSettings = {
   globalIllumination: false,
   quality: "medium" as RenderQuality,
   saturation: 1,
+  stage: "final" as RenderStage,
   toneMapping: "none" as ToneMappingId,
   vibrance: 0,
 };

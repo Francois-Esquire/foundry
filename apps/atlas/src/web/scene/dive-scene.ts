@@ -62,8 +62,19 @@ function disposeModel(root: Object3D) {
   }
 }
 
+/**
+ * Distance at which occlusion reach is measured: the edge of visibility in
+ * the fog. Measured nearer, the reach would fall below what the far seabed
+ * can resolve and shade a false horizon; measured here, the default reach is
+ * a few scene units, which reads as contact shadow at the wreck.
+ */
+const reachDepth = 380;
+
 export function createDiveScene(host: HTMLElement, wreck: FormerPackage) {
-  const renderer = new WebGPURenderer({ antialias: true });
+  const renderer = new WebGPURenderer({
+    antialias: true,
+    trackTimestamp: true,
+  });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.outputColorSpace = SRGBColorSpace;
   renderer.shadowMap.enabled = true;
@@ -269,12 +280,17 @@ export function createDiveScene(host: HTMLElement, wreck: FormerPackage) {
   controls.maxPolarAngle = 2.2;
   controls.enableDamping = false;
 
-  const pipeline = createRenderPipeline(
+  const pipeline = createRenderPipeline({
+    camera,
+    filter: () => "original",
+    // A stage finishes building after the frame that asked for it.
+    onStatus: () => render(),
     renderer,
     scene,
-    camera,
-    () => "original"
-  );
+    unitsPerPixel: () =>
+      (2 * reachDepth * Math.tan((camera.fov * Math.PI) / 360)) /
+      Math.max(1, host.clientHeight),
+  });
   const render = () => {
     if (ready) {
       pipeline.render();

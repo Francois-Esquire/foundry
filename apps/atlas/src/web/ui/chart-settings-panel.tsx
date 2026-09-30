@@ -10,6 +10,19 @@ import { createPlayback, trackIds } from "../scene/playback";
 import type { AtlasMapHandle } from "./atlas-map";
 import { RenderingSettings } from "./rendering-settings";
 
+/** Frame time is rounded so the readout does not re-render on every tick. */
+const renderStatusKey = (status: RenderStatus | null) =>
+  status
+    ? [
+        status.backend,
+        status.postProcessing,
+        status.globalIlluminationAvailable,
+        status.quality,
+        status.adapted,
+        status.frameMs === null ? "" : Math.round(status.frameMs),
+      ].join("|")
+    : "";
+
 export function ChartSettingsPanel({
   scene,
   settings,
@@ -44,12 +57,7 @@ export function ChartSettingsPanel({
       }
       const status = scene.current?.getRenderStatus() ?? null;
       setRenderStatus((current) =>
-        current?.backend === status?.backend &&
-        current?.postProcessing === status?.postProcessing &&
-        current?.globalIlluminationAvailable ===
-          status?.globalIlluminationAvailable
-          ? current
-          : status
+        renderStatusKey(current) === renderStatusKey(status) ? current : status
       );
     }, 150);
     return () => {

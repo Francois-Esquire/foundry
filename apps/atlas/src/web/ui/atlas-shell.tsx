@@ -1,6 +1,8 @@
 import {
+  lazy,
   type ReactNode,
   type Ref,
+  Suspense,
   useCallback,
   useEffect,
   useImperativeHandle,
@@ -17,7 +19,11 @@ import type { AtlasState } from "./atlas-state";
 import { AtlasWrecks } from "./atlas-wrecks";
 import { ChartSettingsPanel } from "./chart-settings-panel";
 import type { useAtlasState } from "./use-atlas-state";
-import { WreckDive } from "./wreck-dive";
+
+/** The dive scene, its model loader, and orbit controls load on first use. */
+const WreckDive = lazy(() =>
+  import("./wreck-dive").then((module) => ({ default: module.WreckDive }))
+);
 
 export interface AtlasShellHandle {
   openSettings: () => void;
@@ -267,11 +273,13 @@ export function AtlasShell({
           tabs={tabs}
         />
         {selectedWreck && (
-          <WreckDive
-            onClose={actions.closeWreck}
-            rendering={chartSettings.rendering}
-            wreck={selectedWreck}
-          />
+          <Suspense fallback={null}>
+            <WreckDive
+              onClose={actions.closeWreck}
+              rendering={chartSettings.rendering}
+              wreck={selectedWreck}
+            />
+          </Suspense>
         )}
       </div>
       <p aria-live="polite" className="sr-only" role="status">
