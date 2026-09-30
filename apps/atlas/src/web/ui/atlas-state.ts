@@ -32,6 +32,7 @@ export function createAtlasState(data: AtlasData): AtlasState {
       ...defaultChartSettings,
       boundaries: { ...defaultChartSettings.boundaries },
       layers: { ...defaultChartSettings.layers },
+      rendering: { ...defaultChartSettings.rendering },
     },
     data,
     hover: null,

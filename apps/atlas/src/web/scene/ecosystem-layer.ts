@@ -97,6 +97,10 @@ export function createEcosystemLayer(
     surface: Material,
     items: Instance[]
   ) => {
+    if (!items.length) {
+      // A zero-instance mesh binds an empty buffer, which WebGPU rejects.
+      return;
+    }
     const mesh = new InstancedMesh(geometry, surface, items.length);
     const object = new Object3D();
     for (const [i, p] of items.entries()) {

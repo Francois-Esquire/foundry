@@ -11,6 +11,50 @@ export const chartFilters = {
   },
 };
 
+/** Post-processing tiers. "off" draws the scene directly, as the atlas always has. */
+export const renderQualities = {
+  high: { label: "Full" },
+  low: { label: "Light" },
+  medium: { label: "Balanced" },
+  off: { label: "Off · direct draw" },
+};
+
+export type RenderQuality = keyof typeof renderQualities;
+
+export const toneMappings = {
+  aces: { label: "ACES filmic" },
+  agx: { label: "AgX" },
+  neutral: { label: "Neutral" },
+  none: { label: "None (linear)" },
+  reinhard: { label: "Reinhard" },
+};
+
+export type ToneMappingId = keyof typeof toneMappings;
+
+/**
+ * Rendering pipeline controls. Defaults keep the chart's matte paper look:
+ * linear output at unit exposure, a coastal occlusion band, and a whisper of
+ * bloom on the brightest ink.
+ */
+export const defaultRenderSettings = {
+  ambientOcclusion: true,
+  aoIntensity: 1,
+  aoRadius: 12,
+  bloom: true,
+  bloomRadius: 0.35,
+  bloomStrength: 0.2,
+  bloomThreshold: 0.8,
+  exposure: 1,
+  giIntensity: 1,
+  globalIllumination: false,
+  quality: "medium" as RenderQuality,
+  saturation: 1,
+  toneMapping: "none" as ToneMappingId,
+  vibrance: 0,
+};
+
+export type RenderSettings = typeof defaultRenderSettings;
+
 export const defaultChartSettings = {
   ...defaultLandmassSettings,
   boundaries: defaultBoundaries,
@@ -25,6 +69,7 @@ export const defaultChartSettings = {
     roads: false,
     trade: false,
   },
+  rendering: defaultRenderSettings,
   waterColor: "#d5dbca",
   waterContrast: 0.3,
   waveAmount: 0.45,

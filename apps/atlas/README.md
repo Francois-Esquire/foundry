@@ -81,6 +81,21 @@ units:
 
 Documentation: <https://francois-esquire.github.io/foundry/atlas/>
 
+## Rendering
+
+The viewer draws with WebGPU and falls back to WebGL 2 where WebGPU is
+unavailable. The Chart panel's **Rendering** section controls a post-processing
+pipeline: quality tier, tone mapping, exposure, saturation, vibrance, ambient
+occlusion, bloom, and indirect light. Quality **Off** draws the scene directly,
+exactly as before the pipeline, with the map filter applied as CSS. Low, Medium,
+and High trade resolution and denoising for speed; they never remove a control.
+If the pass graph cannot compile on a device, the viewer returns to the direct
+draw and the panel reports it.
+
+Indirect light (screen-space global illumination) needs a perspective camera,
+so it applies to wreck dives, not the top-down chart. Append `?debug=ao` or
+`?debug=depth` to the viewer URL to see the occlusion or depth stage alone.
+
 ## Development
 
 ```sh

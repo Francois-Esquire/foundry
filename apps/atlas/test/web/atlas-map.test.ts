@@ -18,6 +18,11 @@ vi.mock("../../src/web/scene/scene", () => ({
       dispose: vi.fn(() => canvas.remove()),
       focus: vi.fn(),
       getPlayback: vi.fn(() => ({ time: 15 })),
+      getRenderStatus: vi.fn(() => ({
+        backend: "webgl" as const,
+        globalIlluminationAvailable: false,
+        postProcessing: true,
+      })),
       restorePlayback: vi.fn(),
       restoreView: vi.fn(),
       setAtmosphere: vi.fn(),

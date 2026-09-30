@@ -1,5 +1,6 @@
 import { type RefObject, useEffect, useRef, useState } from "react";
 import { chartFilters } from "../chart-settings";
+import type { RenderStatus } from "../scene/pipeline";
 import type { PlaybackSnapshot } from "../scene/playback";
 import { type AtlasSelection, createAtlasScene } from "../scene/scene";
 import type { TradeRoute } from "../trade-routes";
@@ -11,6 +12,7 @@ export type AtlasMapHandle = Pick<
   Awaited<ReturnType<typeof createAtlasScene>>,
   | "focus"
   | "focusWreck"
+  | "getRenderStatus"
   | "pinRegion"
   | "zoom"
   | "getPlayback"
@@ -65,6 +67,8 @@ export function AtlasMap(props: AtlasMapProps) {
   const view = useRef<{ x: number; y: number; pixels: number } | null>(null);
   const playback = useRef<PlaybackSnapshot | null>(null);
   const [status, setStatus] = useState("Unfolding the atlas…");
+  // The pipeline grades the image itself; CSS filters only cover a direct draw.
+  const [postProcessing, setPostProcessing] = useState(false);
 
   useEffect(() => {
     latest.current = props;
@@ -145,8 +149,17 @@ export function AtlasMap(props: AtlasMapProps) {
       }
     };
     window.addEventListener("keydown", handleEscape);
+    const element = host.current;
+    const handleRender = (event: Event) => {
+      const detail: unknown = (event as CustomEvent<unknown>).detail;
+      if (detail && typeof detail === "object" && "postProcessing" in detail) {
+        setPostProcessing((detail as RenderStatus).postProcessing);
+      }
+    };
+    element?.addEventListener("atlas:render", handleRender);
     return () => {
       disposed = true;
+      element?.removeEventListener("atlas:render", handleRender);
       view.current = scene.current?.captureView() ?? null;
       playback.current = scene.current?.getPlayback() ?? null;
       scene.current?.dispose();
@@ -180,7 +193,11 @@ export function AtlasMap(props: AtlasMapProps) {
       <div
         className="atlas-map"
         ref={host}
-        style={{ filter: chartFilters[chartSettings.filter].filter }}
+        style={{
+          filter: postProcessing
+            ? "none"
+            : chartFilters[chartSettings.filter].filter,
+        }}
       />
       {status && (
         <p className="atlas-status" role="status">

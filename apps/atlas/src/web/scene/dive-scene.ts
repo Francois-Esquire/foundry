@@ -28,8 +28,11 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { abs, materialColor, positionLocal, pow, sin, vec3 } from "three/tsl";
 import { MeshStandardNodeMaterial, WebGPURenderer } from "three/webgpu";
+import type { RenderSettings } from "../chart-settings";
+import { defaultRenderSettings } from "../chart-settings";
 import { unit } from "../geography";
 import type { FormerPackage } from "../types";
+import { createRenderPipeline } from "./pipeline";
 import { createWreckLayer } from "./wreck-layer";
 
 function disposeModel(root: Object3D) {
@@ -266,9 +269,15 @@ export function createDiveScene(host: HTMLElement, wreck: FormerPackage) {
   controls.maxPolarAngle = 2.2;
   controls.enableDamping = false;
 
+  const pipeline = createRenderPipeline(
+    renderer,
+    scene,
+    camera,
+    () => "original"
+  );
   const render = () => {
     if (ready) {
-      renderer.render(scene, camera);
+      pipeline.render();
     }
   };
   controls.addEventListener("change", render);
@@ -283,17 +292,19 @@ export function createDiveScene(host: HTMLElement, wreck: FormerPackage) {
   resize();
   // The backend (WebGPU, or WebGL 2 when unavailable) initializes
   // asynchronously; the first frame waits for it.
+  let rendering: RenderSettings = defaultRenderSettings;
   renderer.init().then(
     () => {
       if (disposed) {
         return;
       }
       ready = true;
+      pipeline.configure(rendering);
       render();
     },
     () => undefined
   );
-  return () => {
+  const dispose = () => {
     disposed = true;
     observer.disconnect();
     controls.dispose();
@@ -314,7 +325,18 @@ export function createDiveScene(host: HTMLElement, wreck: FormerPackage) {
     dustGeometry.dispose();
     (dust.material as Material).dispose();
     light.shadow.dispose();
+    pipeline.dispose();
     renderer.dispose();
     renderer.domElement.remove();
+  };
+  return {
+    configure: (settings: RenderSettings) => {
+      rendering = settings;
+      if (ready) {
+        pipeline.configure(settings);
+        render();
+      }
+    },
+    dispose,
   };
 }

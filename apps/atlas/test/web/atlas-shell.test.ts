@@ -8,7 +8,7 @@ import Atlas from "../../src/web/ui/atlas-view";
 import { loadAtlas } from "../helpers/reference-atlas";
 
 vi.mock("../../src/web/scene/dive-scene", () => ({
-  createDiveScene: vi.fn(() => () => undefined),
+  createDiveScene: vi.fn(() => ({ configure: vi.fn(), dispose: vi.fn() })),
 }));
 vi.mock("../../src/web/scene/scene", () => ({
   createAtlasScene: vi.fn((host: HTMLElement) => {
@@ -29,6 +29,11 @@ vi.mock("../../src/web/scene/scene", () => ({
           waves: { playing: true, time: 0 },
           wind: { playing: true, time: 0 },
         },
+      })),
+      getRenderStatus: vi.fn(() => ({
+        backend: "webgl" as const,
+        globalIlluminationAvailable: false,
+        postProcessing: true,
       })),
       pinRegion: vi.fn(),
       play: vi.fn(),

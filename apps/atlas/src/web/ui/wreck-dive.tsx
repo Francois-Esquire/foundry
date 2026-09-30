@@ -1,22 +1,37 @@
 import { useEffect, useRef } from "react";
+import type { RenderSettings } from "../chart-settings";
 import { createDiveScene } from "../scene/dive-scene";
 import type { FormerPackage } from "../types";
 
 export function WreckDive({
   wreck,
+  rendering,
   onClose,
 }: {
   wreck: FormerPackage;
+  rendering: RenderSettings;
   onClose: () => void;
 }) {
   const host = useRef<HTMLDivElement>(null);
+  const dive = useRef<ReturnType<typeof createDiveScene> | null>(null);
+  const latest = useRef(rendering);
+  latest.current = rendering;
   useEffect(() => {
     // biome-ignore lint/suspicious/noUnnecessaryConditions: React assigns and updates this ref between renders and effects.
     if (!host.current) {
       return;
     }
-    return createDiveScene(host.current, wreck);
+    const scene = createDiveScene(host.current, wreck);
+    scene.configure(latest.current);
+    dive.current = scene;
+    return () => {
+      dive.current = null;
+      scene.dispose();
+    };
   }, [wreck]);
+  useEffect(() => {
+    dive.current?.configure(rendering);
+  }, [rendering]);
   return (
     <aside aria-label={`Underwater view of ${wreck.id}`} className="atlas-dive">
       <div className="atlas-dive-scene" ref={host} />

@@ -267,7 +267,11 @@ export function AtlasShell({
           tabs={tabs}
         />
         {selectedWreck && (
-          <WreckDive onClose={actions.closeWreck} wreck={selectedWreck} />
+          <WreckDive
+            onClose={actions.closeWreck}
+            rendering={chartSettings.rendering}
+            wreck={selectedWreck}
+          />
         )}
       </div>
       <p aria-live="polite" className="sr-only" role="status">

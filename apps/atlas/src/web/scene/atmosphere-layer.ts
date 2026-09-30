@@ -1,3 +1,4 @@
+import { CanvasTexture, SRGBColorSpace } from "three";
 import type { MapPoint } from "../atmosphere";
 import type { Territory } from "../types";
 
@@ -18,6 +19,12 @@ export function createAtmosphereLayer(
   if (!ctx) {
     throw new Error("Canvas rendering is unavailable.");
   }
+  // The same strokes feed the render pipeline as a texture when it composites
+  // the overlay itself; the DOM canvas then hides so nothing draws twice.
+  const texture = new CanvasTexture(canvas);
+  texture.colorSpace = SRGBColorSpace;
+  let composited = false;
+  let painted2d = false;
   const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
   let enabled = true;
   let visible = true;
@@ -46,31 +53,17 @@ export function createAtmosphereLayer(
     if (!visible || document.hidden) {
       return;
     }
+    const drawn = enabled && (Boolean(territory && opacity > 0.005) || !!wind);
+    if (drawn) {
+      drawEntries(territory, opacity, ctx, project);
+      drawWind(wind, ctx, project);
+    }
+    if (composited && (drawn || painted2d)) {
+      texture.needsUpdate = true;
+    }
+    painted2d = drawn;
+    // The scene renders last so a composited overlay is already current.
     ocean?.update(manualTime ?? (motion.matches ? 8000 : elapsed), enabled);
-    if (!enabled) {
-      return;
-    }
-    drawEntries(territory, opacity, ctx, project);
-    if (wind) {
-      const t = Math.min(1, (performance.now() - wind.began) / 2400);
-      ctx.strokeStyle = `rgba(117, 102, 73, ${Math.sin(t * Math.PI) * 0.55})`;
-      ctx.lineWidth = 0.85;
-      ctx.lineCap = "round";
-      const end = Math.floor(Math.min(1, t * 1.7) * 40);
-      const start = Math.floor(Math.max(0, (t - 0.45) / 0.55) * 40);
-      for (const offset of [-4, 0, 4]) {
-        ctx.beginPath();
-        wind.path.slice(start, end + 1).forEach((point, i) => {
-          const p = project(point);
-          if (i) {
-            ctx.lineTo(p.x, p.y + offset);
-          } else {
-            ctx.moveTo(p.x, p.y + offset);
-          }
-        });
-        ctx.stroke();
-      }
-    }
   };
   const tick = (now: number) => {
     const step = Math.min(1, (now - last) / 180);
@@ -179,9 +172,19 @@ export function createAtmosphereLayer(
       document.removeEventListener("visibilitychange", visibility);
       motion.removeEventListener("change", preference);
       observer.disconnect();
+      texture.dispose();
       canvas.remove();
     },
     highlight,
+    setComposited: (value: boolean) => {
+      if (value === composited) {
+        return;
+      }
+      composited = value;
+      canvas.hidden = value;
+      texture.needsUpdate = true;
+      draw();
+    },
     setCurrentTime: (milliseconds: number | null) => {
       if (
         milliseconds !== null &&
@@ -199,6 +202,7 @@ export function createAtmosphereLayer(
       enabled = value;
       visibility();
     },
+    texture,
     wind: (makePath: (() => MapPoint[] | null) | null) => {
       clearTimeout(timer);
       timer = 0;
@@ -257,5 +261,33 @@ function drawEntries(
       ctx.lineJoin = "round";
       ctx.stroke();
     }
+  }
+}
+
+function drawWind(
+  wind: { path: MapPoint[]; began: number } | null,
+  ctx: CanvasRenderingContext2D,
+  project: (point: MapPoint) => MapPoint
+) {
+  if (!wind) {
+    return;
+  }
+  const t = Math.min(1, (performance.now() - wind.began) / 2400);
+  ctx.strokeStyle = `rgba(117, 102, 73, ${Math.sin(t * Math.PI) * 0.55})`;
+  ctx.lineWidth = 0.85;
+  ctx.lineCap = "round";
+  const end = Math.floor(Math.min(1, t * 1.7) * 40);
+  const start = Math.floor(Math.max(0, (t - 0.45) / 0.55) * 40);
+  for (const offset of [-4, 0, 4]) {
+    ctx.beginPath();
+    wind.path.slice(start, end + 1).forEach((point, i) => {
+      const p = project(point);
+      if (i) {
+        ctx.lineTo(p.x, p.y + offset);
+      } else {
+        ctx.moveTo(p.x, p.y + offset);
+      }
+    });
+    ctx.stroke();
   }
 }

@@ -51,6 +51,7 @@ import {
 } from "./exploration";
 import { paintMap } from "./paint-map";
 import { createPaperMaterials, paperThickness } from "./paper-material";
+import { createRenderPipeline } from "./pipeline";
 import type { PlaybackSnapshot, TrackId } from "./playback";
 import { createPlayback } from "./playback";
 import { createRoadLayer } from "./road-layer";
@@ -326,9 +327,21 @@ export async function createAtlasScene(
       water.setWreckReveal(
         (host.clientWidth * camera.zoom) / (camera.right - camera.left)
       );
-      renderer.render(scene, camera);
+      pipeline.render();
     },
   });
+  const pipeline = createRenderPipeline(
+    renderer,
+    scene,
+    camera,
+    () => settings.filter,
+    atmosphere.texture,
+    (status) => {
+      atmosphere.setComposited(status.postProcessing);
+      host.dispatchEvent(new CustomEvent("atlas:render", { detail: status }));
+    }
+  );
+  pipeline.configure(settings.rendering);
   const seekCurrent = (milliseconds: number | null) => {
     if (
       milliseconds !== null &&
@@ -749,6 +762,7 @@ export async function createAtlasScene(
         next.boundaries !== settings.boundaries;
       settings = { ...next };
       water.configure(settings);
+      pipeline.configure(settings.rendering);
       if (directionChanged) {
         clearTimeout(waveTimer);
         waveTimer = window.setTimeout(() => {
@@ -795,6 +809,7 @@ export async function createAtlasScene(
       roadLayer.dispose();
       ecosystem.dispose();
       light.shadow.dispose();
+      pipeline.dispose();
       renderer.dispose();
       renderer.domElement.remove();
     },
@@ -823,6 +838,7 @@ export async function createAtlasScene(
       animate();
     },
     getPlayback: playback.snapshot,
+    getRenderStatus: pipeline.status,
     highlight: (territory: Territory | null) => {
       atmosphere.highlight(territory ?? focusedTerritory);
     },

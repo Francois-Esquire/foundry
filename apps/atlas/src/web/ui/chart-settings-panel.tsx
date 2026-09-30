@@ -1,12 +1,14 @@
 import type { ChangeEvent, MouseEvent, RefObject } from "react";
 import { useCallback, useEffect, useState } from "react";
-import type { ChartSettings } from "../chart-settings";
+import type { ChartSettings, RenderSettings } from "../chart-settings";
 import { chartFilters } from "../chart-settings";
 import { defaultLandmassSettings } from "../landmasses";
 import type { BoundaryId } from "../scene/boundaries";
 import { boundaryStyles } from "../scene/boundaries";
+import type { RenderStatus } from "../scene/pipeline";
 import { createPlayback, trackIds } from "../scene/playback";
 import type { AtlasMapHandle } from "./atlas-map";
+import { RenderingSettings } from "./rendering-settings";
 
 export function ChartSettingsPanel({
   scene,
@@ -25,6 +27,9 @@ export function ChartSettingsPanel({
     () => scene.current?.getPlayback() ?? createPlayback().snapshot()
   );
   const [reduced, setReduced] = useState(false);
+  const [renderStatus, setRenderStatus] = useState<RenderStatus | null>(
+    () => scene.current?.getRenderStatus() ?? null
+  );
   useEffect(() => {
     const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
     const preference = () => {
@@ -37,6 +42,15 @@ export function ChartSettingsPanel({
       if (value) {
         setPlayback(value);
       }
+      const status = scene.current?.getRenderStatus() ?? null;
+      setRenderStatus((current) =>
+        current?.backend === status?.backend &&
+        current?.postProcessing === status?.postProcessing &&
+        current?.globalIlluminationAvailable ===
+          status?.globalIlluminationAvailable
+          ? current
+          : status
+      );
     }, 150);
     return () => {
       clearInterval(timer);
@@ -70,6 +84,12 @@ export function ChartSettingsPanel({
     },
     [onChange, settings]
   );
+  const changeRendering = useCallback(
+    (rendering: RenderSettings) => {
+      onChange({ ...settings, rendering });
+    },
+    [onChange, settings]
+  );
   const changeBoundary = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
       const key = event.currentTarget.name as BoundaryId;
@@ -99,7 +119,12 @@ export function ChartSettingsPanel({
     label: string,
     key: Exclude<
       keyof ChartSettings,
-      "contours" | "waterColor" | "filter" | "boundaries" | "layers"
+      | "contours"
+      | "waterColor"
+      | "filter"
+      | "boundaries"
+      | "layers"
+      | "rendering"
     >,
     min: number,
     max: number,
@@ -355,6 +380,15 @@ export function ChartSettingsPanel({
             simulation.
           </p>
         </fieldset>
+      </details>
+      <details>
+        <summary>Rendering</summary>
+        <RenderingSettings
+          disabled={!scene.current}
+          onChange={changeRendering}
+          settings={settings.rendering}
+          status={renderStatus}
+        />
       </details>
       <details>
         <summary>Appearance</summary>

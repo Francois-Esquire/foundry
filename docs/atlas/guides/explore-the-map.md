@@ -75,7 +75,9 @@ overlays, topographic contours, water pigment, and a map filter such as
 graphite or parchment are there too, with a **Reset visualization**. Water,
 wind, and waves animate only when you press play, and a separate
 **Decorative atmosphere** toggle in the header adds currents and coastlight.
-Settings are not saved between visits.
+A **Rendering** section sets quality, tone mapping, exposure, occlusion, and
+bloom; **Off** draws the map directly with no post-processing. Settings are
+not saved between visits.
 
 Under a reduced-motion preference, the map paints still frames: focus jumps
 instead of travelling, and playback stays paused.
