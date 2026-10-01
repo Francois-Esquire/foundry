@@ -56,3 +56,36 @@ export function lakeRadius(dependents: number) {
 export function streamWidth(moduleEdges: number, strongest: number) {
   return 0.35 + (0.75 * Math.log1p(moduleEdges)) / Math.log1p(strongest);
 }
+
+/** Crowd and zoom control cartographic texture, never the unresolved count itself. */
+export function marshDetail(unresolved: number, pixels: number) {
+  return {
+    opacity: Math.max(
+      0.35,
+      Math.min(1, Math.sqrt(12 / Math.max(1, unresolved)))
+    ),
+    spacing: Math.max(2.4, 10 / pixels),
+  };
+}
+
+/** A shared river keeps a mineral body, then resolves to a fine pen line. */
+export function riverPen(width: number, pixels: number) {
+  return Math.min(width, (0.65 + 1.6 * width) / pixels);
+}
+
+/** Engraving follows density slope; zoom limits its contrast beneath file ink. */
+export function reliefHachure(slope: number, pixels = 1) {
+  if (slope <= 0.12) {
+    return { length: 0, opacity: 0 };
+  }
+  return {
+    length: Math.min(3.6, 0.8 + slope * 3),
+    opacity:
+      Math.min(0.3, slope * 0.35) * Math.min(1, Math.max(0, pixels - 1.2)),
+  };
+}
+
+/** File settlements remain legible as the camera enters close detail. */
+export function filePen(pixels: number) {
+  return Math.min(1.8, 4.5 / pixels);
+}

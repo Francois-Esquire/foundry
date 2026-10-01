@@ -56,6 +56,10 @@ imports from the renderer, so the folder moves as a unit. Tests are in
 | `districtAffinity`     | responsibility link module edges, symbol flow | district grouping     | `hierarchy.ts`                  |
 | `lakeRadius`           | Module dependents, for a shared commons       | lake radius           | `natural-features.ts`           |
 | `streamWidth`          | responsibility link module edges, accumulated on shared runs | stream width | `natural-features.ts`, `river-network.ts`           |
+| `marshDetail` | Unresolved module count and zoom | reed opacity and screen spacing | `scene/paint-features.ts` |
+| `riverPen` | Bound stream width and zoom | mineral river pen width | `scene/paint-features.ts` |
+| `reliefHachure` | Concentration height-field slope and zoom | engraved fall-line threshold, length and opacity | `scene/relief-ink.ts` |
+| `filePen` | Zoom | file settlement mark size | `scene/paint-map.ts` |
 
 ## Contact points
 

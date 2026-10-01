@@ -1,5 +1,5 @@
 import type { BelongingLayer, BelongingRegion } from "../belonging";
-import { labelPriority, territoryLabelSize } from "../codex/bindings";
+import { filePen, labelPriority, territoryLabelSize } from "../codex/bindings";
 import type { CompositionMark } from "../composition-layout";
 import { compositionInsideLand } from "../composition-placement";
 import type { Continent } from "../continent";
@@ -12,7 +12,9 @@ import type { InkView, MapLabel } from "./exploration";
 import { visibleLabels } from "./exploration";
 import { paintOcean } from "./ocean";
 import { paintNaturalFeatures } from "./paint-features";
+import { paintCoastInk, paintPaperFolds } from "./paint-paper";
 import { paintResponsibility } from "./paint-responsibility";
+import { paintReliefInk, type ReliefInk } from "./relief-ink";
 import { settlementColor } from "./terrain";
 import type { ContourLine } from "./topography";
 import { paintTopography } from "./topography";
@@ -49,7 +51,8 @@ export function paintMap(
   initialBelonging: BelongingLayer | null = null,
   matches?: BelongingRegion,
   continents: Continent[] = [],
-  streams = false
+  streams = false,
+  relief: ReliefInk[] = []
 ): MapLabel[] {
   let belonging = initialBelonging;
   let responsibility = initialResponsibility;
@@ -73,11 +76,13 @@ export function paintMap(
       ctx.fill();
     }
     for (const p of data.territories) {
-      paintLand(ctx, p, selected, joined.has(p.id));
+      paintLand(ctx, p, joined.has(p.id));
     }
     return [];
   }
   paintMapEntries3(view, ctx);
+  paintPaper(ctx, data, view, selected);
+  paintReliefInk(ctx, relief, view?.pixelsPerUnit ?? 1);
   const regions = new Map(data.territories.map((p) => [p.id, p]));
   const pixels = view?.pixelsPerUnit ?? 1;
   const focusedFileVisible =
@@ -135,7 +140,6 @@ export function paintMap(
     selected,
     evidenceFiles,
     pixels,
-    fileId,
     belonging,
     activeRegion
   );
@@ -148,6 +152,7 @@ export function paintMap(
     ctx,
     pixels
   );
+  paintFileFocus(ctx, data, selected, fileId, pixels);
   const labels = paintLabels(
     ctx,
     data,
@@ -317,6 +322,25 @@ function paintMapEntries4(
   return { belonging, neighborhoodId };
 }
 
+function paintPaper(
+  ctx: CanvasRenderingContext2D,
+  data: AtlasData,
+  view: InkView | undefined,
+  selected: string | null
+) {
+  if (view) {
+    paintPaperFolds(ctx, data, view);
+  }
+  for (const territory of data.territories) {
+    paintCoastInk(
+      ctx,
+      territory,
+      view?.pixelsPerUnit ?? 1,
+      territory.id === selected
+    );
+  }
+}
+
 function paintMapEntries3(
   view: InkView | undefined,
   ctx: CanvasRenderingContext2D
@@ -326,8 +350,8 @@ function paintMapEntries3(
     const top = view.y - view.height / 2;
     const right = left + view.width;
     const bottom = top + view.height;
-    ctx.strokeStyle = "#7f80604a";
-    ctx.lineWidth = 0.4;
+    ctx.strokeStyle = "#7f806024";
+    ctx.lineWidth = 0.45 / view.pixelsPerUnit;
     for (let x = Math.ceil(left / 90) * 90; x <= right; x += 90) {
       ctx.beginPath();
       ctx.moveTo(x, top);
@@ -391,7 +415,6 @@ function paintMapP(
   selected: string | null,
   evidenceFiles: Set<string> | undefined,
   pixels: number,
-  fileId: string | null,
   belonging: BelongingLayer | null,
   activeRegion: BelongingRegion | undefined
 ) {
@@ -412,7 +435,6 @@ function paintMapP(
       members,
       evidenceFiles,
       pixels,
-      fileId,
       p.id === belonging?.territory.id ? lakes : undefined
     );
     paintExactMembers(ctx, p, belonging, activeRegion, detail, pixels);
@@ -465,7 +487,6 @@ function paintMapPF(
   members: string[] | undefined,
   evidenceFiles: Set<string> | undefined,
   pixels: number,
-  fileId: string | null,
   lakes?: Set<string>
 ) {
   for (const f of p.files) {
@@ -487,19 +508,40 @@ function paintMapPF(
         : 1);
     ctx.fillStyle = settlementColor(f.kind);
     ctx.strokeStyle = ctx.fillStyle;
-    const size = Math.min(1.3, 2.5 / pixels);
+    const size = filePen(pixels);
     ctx.lineWidth = Math.min(0.45, 1 / pixels);
     if (!lake) {
       paintMapPFEntries(f, ctx, size);
     }
-    if (f.id === fileId) {
-      ctx.strokeStyle = "#7c421d";
-      ctx.lineWidth = 1 / pixels;
-      ctx.beginPath();
-      ctx.arc(f.x, f.y, 7 / pixels, 0, Math.PI * 2);
-      ctx.stroke();
-    }
   }
+}
+
+function paintFileFocus(
+  ctx: CanvasRenderingContext2D,
+  data: AtlasData,
+  selected: string | null,
+  fileId: string | null,
+  pixels: number
+) {
+  const territory = data.territories.find((item) => item.id === selected);
+  const file = territory?.files.find((item) => item.id === fileId);
+  if (!(territory && file)) {
+    return;
+  }
+  ctx.save();
+  ctx.translate(territory.x + file.x, territory.y + file.y);
+  ctx.globalAlpha = 1;
+  ctx.beginPath();
+  ctx.arc(0, 0, 9 / pixels, 0, Math.PI * 2);
+  ctx.strokeStyle = "#faf4e4";
+  ctx.lineWidth = 5 / pixels;
+  ctx.stroke();
+  ctx.strokeStyle = "#875222";
+  ctx.lineWidth = 2 / pixels;
+  ctx.stroke();
+  ctx.fillStyle = "#875222";
+  ctx.fillRect(-2 / pixels, -2 / pixels, 4 / pixels, 4 / pixels);
+  ctx.restore();
 }
 
 function paintMapPFEntries(
@@ -605,6 +647,7 @@ function paintMapEntries(
   }
   if (belonging.features && features > 0) {
     paintNaturalFeatures(ctx, belonging.features, {
+      focus: belonging.featureFocus,
       pixels,
       streams,
       strength: features,
@@ -781,7 +824,6 @@ function resolvePaintMapEntries(
 function paintLand(
   ctx: CanvasRenderingContext2D,
   p: Territory,
-  selected: string | null,
   joined = false
 ): void {
   ctx.save();
@@ -790,25 +832,15 @@ function paintLand(
     trace(ctx, p.shallows);
     ctx.fillStyle = "#c3cebd";
     ctx.fill("evenodd");
-    ctx.strokeStyle = "#93a895";
-    ctx.lineWidth = 0.45;
-    ctx.stroke();
   }
   trace(ctx, p.coast);
   ctx.fillStyle = p.color;
   ctx.fill("evenodd");
-  ctx.save();
-  ctx.clip("evenodd");
-  ctx.strokeStyle = "#79553624";
-  ctx.lineWidth = 4;
-  ctx.stroke();
-  ctx.strokeStyle = "#fff3d950";
-  ctx.lineWidth = 1.8;
-  ctx.stroke();
-  ctx.restore();
-  ctx.strokeStyle = selected === p.id ? "#8b532e" : "#8b8165";
-  ctx.lineWidth = selected === p.id ? 1 : 0.7;
-  ctx.stroke();
+  // Pigment is a wash into warm stock; relief supplies the landform.
+  ctx.fillStyle = "#f1ead9";
+  ctx.globalAlpha = 0.62;
+  ctx.fill("evenodd");
+  ctx.globalAlpha = 1;
   ctx.restore();
 }
 
@@ -853,7 +885,7 @@ function paintLabels(
     });
   };
   const pixels = view.pixelsPerUnit;
-  paintLabelsEntries(belonging, detail, add, composition, pixels);
+
   const territories = [...data.territories].sort(
     (a, b) =>
       Number(b.id === selected) - Number(a.id === selected) ||
@@ -866,19 +898,14 @@ function paintLabels(
         p,
         file.path.split("/").at(-1) ?? file.path,
         p.x + file.x,
-        p.y +
-          file.y +
-          (composition?.fileId === file.id
-            ? Math.min(0, ...composition.marks.map((mark) => mark.y)) *
-              detail.composition
-            : 0) -
-          12 / pixels,
-        15 / pixels,
+        p.y + file.y - 21 / pixels,
+        20 / pixels,
         "AtlasBody",
         { file, opacity: Math.max(detail.files, detail.composition) }
       );
     }
   }
+  paintLabelsEntries(belonging, detail, add, composition, pixels);
   paintLabelsP(
     territories,
     pixels,
@@ -904,7 +931,13 @@ function paintLabels(
       Math.floor((view.width * view.height * pixels * pixels) / 90_000)
     )
   );
-  const labels = visibleLabels(candidates, view).filter((label) => {
+  const focusedName = candidates.find(
+    (label) => label.file?.id === fileId
+  )?.text;
+  const distinct = candidates.filter(
+    (label) => label.file || label.text !== focusedName
+  );
+  const labels = visibleLabels(distinct, view).filter((label) => {
     if (label.regionId ?? label.compositeId) {
       regionLabels += 1;
       if (regionLabels > regionLabelBudget) {
@@ -921,10 +954,10 @@ function paintLabels(
   for (const label of labels) {
     ctx.globalAlpha = label.opacity ?? 1;
     ctx.font = label.font;
-    ctx.strokeStyle = label.territory.color;
-    ctx.lineWidth = 3 / pixels;
+    ctx.strokeStyle = "#f5efdf";
+    ctx.lineWidth = (label.file?.id === fileId ? 6 : 3) / pixels;
     ctx.strokeText(label.text, label.x, label.y);
-    ctx.fillStyle = "#443b2c";
+    ctx.fillStyle = label.file?.id === fileId ? "#743d1b" : "#39372e";
     ctx.fillText(label.text, label.x, label.y);
   }
   ctx.globalAlpha = 1;
@@ -1094,7 +1127,7 @@ function paintLabelsPF(
       f.path.split("/").at(-1) ?? f.path,
       p.x + f.x,
       p.y + f.y - 7 / pixels,
-      (belonging?.files ? 16 : 12) / pixels,
+      (belonging?.files ? 17 : 15) / pixels,
       "AtlasBody",
       { file: f, opacity: detail.files }
     );

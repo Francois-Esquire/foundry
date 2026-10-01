@@ -1,4 +1,6 @@
+import { marshDetail, riverPen } from "../codex/bindings";
 import { unit } from "../geography";
+import type { NaturalFeature } from "../natural-feature-inspection";
 import type {
   FeaturePoint,
   Lake,
@@ -6,71 +8,57 @@ import type {
   NaturalFeatures,
 } from "../natural-features";
 import type { RiverRun } from "../river-network";
-import type { Polygon } from "../types";
 
-/** The chart's shallows pigment, so a lake reads as the same water as the sea. */
 const water = "#c3cebd";
-const deepWater = "#b3c2b4";
-const shoreInk = "#6f8b83";
-const streamInk = "#5f8a86";
-const bankWash = "#dfe6dc";
-const marshWash = "#c9d1b6";
-const marshInk = "#7a8a63";
-const drainInk = "#956f47";
-/** Lake outlines wobble by this fraction of their radius. */
-const lakeWobble = 0.12;
-const lakeSides = 28;
+const shoreInk = "#607c70";
+const streamInk = "#537d78";
+const marshInk = "#697855";
 
-function trace(ctx: CanvasRenderingContext2D, polygons: Polygon[]) {
+function path(
+  ctx: CanvasRenderingContext2D,
+  points: FeaturePoint[],
+  closed = false
+) {
   ctx.beginPath();
-  for (const polygon of polygons) {
-    for (const ring of polygon) {
-      ring.forEach(([x, y], i) => {
-        if (i) {
-          ctx.lineTo(x, y);
-        } else {
-          ctx.moveTo(x, y);
-        }
-      });
-      ctx.closePath();
+  for (const [i, point] of points.entries()) {
+    if (i) {
+      ctx.lineTo(point.x, point.y);
+    } else {
+      ctx.moveTo(point.x, point.y);
     }
   }
-}
-
-function path(ctx: CanvasRenderingContext2D, points: FeaturePoint[]) {
-  ctx.beginPath();
-  points.forEach((p, i) => {
-    if (i) {
-      ctx.lineTo(p.x, p.y);
-    } else {
-      ctx.moveTo(p.x, p.y);
-    }
-  });
-}
-
-/** Streams keep their map width far out and thin to a pen line up close. */
-function streamLine(stream: RiverRun, pixels: number) {
-  return Math.min(stream.width, (1 + 2 * stream.width) / pixels);
+  if (closed) {
+    ctx.closePath();
+  }
 }
 
 function paintStreams(
   ctx: CanvasRenderingContext2D,
-  streams: RiverRun[],
+  runs: RiverRun[],
   strength: number,
   pixels: number
 ) {
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
-  for (const stream of streams) {
-    const line = streamLine(stream, pixels);
-    path(ctx, stream.points);
-    ctx.globalAlpha = 0.3 * strength;
-    ctx.strokeStyle = bankWash;
-    ctx.lineWidth = line * 2.2 + 1 / pixels;
+  for (const run of runs) {
+    const width = riverPen(run.width, pixels);
+    path(ctx, run.points);
+    ctx.globalAlpha = 0.12 * strength;
+    ctx.strokeStyle = "#605b47";
+    ctx.lineWidth = width + 5 / pixels;
     ctx.stroke();
-    ctx.globalAlpha = 0.65 * strength;
+    ctx.save();
+    ctx.translate(0.65 / pixels, 0.9 / pixels);
+    path(ctx, run.points);
+    ctx.globalAlpha = 0.75 * strength;
+    ctx.strokeStyle = "#fff5da";
+    ctx.lineWidth = width + 1.3 / pixels;
+    ctx.stroke();
+    ctx.restore();
+    path(ctx, run.points);
+    ctx.globalAlpha = 0.85 * strength;
     ctx.strokeStyle = streamInk;
-    ctx.lineWidth = line;
+    ctx.lineWidth = width;
     ctx.stroke();
   }
 }
@@ -82,36 +70,67 @@ function paintLakes(
   pixels: number
 ) {
   for (const lake of lakes) {
-    const phase = unit(lake.file.id) * Math.PI * 2;
-    ctx.beginPath();
-    for (let side = 0; side <= lakeSides; side += 1) {
-      const angle = (side / lakeSides) * Math.PI * 2;
-      const radius =
-        lake.radius *
-        (1 +
-          lakeWobble * Math.sin(3 * angle + phase) +
-          (lakeWobble / 2) * Math.sin(5 * angle - phase));
-      const x = lake.file.x + Math.cos(angle) * radius,
-        y = lake.file.y + Math.sin(angle) * radius;
-      if (side === 0) {
-        ctx.moveTo(x, y);
-      } else {
-        ctx.lineTo(x, y);
-      }
-    }
-    ctx.closePath();
-    ctx.globalAlpha = 0.95 * strength;
+    path(ctx, lake.shore, true);
+    ctx.globalAlpha = strength;
     ctx.fillStyle = water;
     ctx.fill();
-    ctx.globalAlpha = 0.8 * strength;
-    ctx.strokeStyle = shoreInk;
-    ctx.lineWidth = 0.8 / pixels;
-    ctx.stroke();
-    ctx.globalAlpha = 0.6 * strength;
-    ctx.fillStyle = deepWater;
-    ctx.beginPath();
-    ctx.arc(lake.file.x, lake.file.y, lake.radius * 0.5, 0, Math.PI * 2);
+    ctx.save();
+    ctx.clip();
+    // An inset bank: shadow at the northwest shore, pale lip at the southeast.
+    const spread = Math.min(lake.radius * 0.5, 8 / pixels);
+    for (const band of [1, 0.7, 0.4, 0.18]) {
+      for (const [direction, color] of [
+        [1, "#426e6920"],
+        [-1, "#fff6dd32"],
+      ] as const) {
+        ctx.save();
+        const offset = direction * spread * band * 0.3;
+        ctx.translate(offset, offset);
+        path(ctx, lake.shore, true);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = spread * band;
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+    const wash = ctx.createLinearGradient(
+      lake.file.x - lake.radius,
+      lake.file.y - lake.radius,
+      lake.file.x + lake.radius,
+      lake.file.y + lake.radius
+    );
+    wash.addColorStop(0, "#537f7920");
+    wash.addColorStop(1, "#d9e0c300");
+    ctx.fillStyle = wash;
+    path(ctx, lake.shore, true);
     ctx.fill();
+    ctx.restore();
+    path(ctx, lake.shore, true);
+    ctx.globalAlpha = 0.75 * strength;
+    ctx.strokeStyle = shoreInk;
+    ctx.lineWidth = 0.65 / pixels;
+    ctx.stroke();
+  }
+}
+
+function reed(
+  ctx: CanvasRenderingContext2D,
+  tuft: FeaturePoint,
+  pixels: number
+) {
+  const size = Math.min(1, 5 / pixels);
+  const lean = (unit(`${tuft.x}:${tuft.y}`) - 0.5) * 0.35;
+  const { x, y } = tuft;
+  ctx.moveTo(x - size * 0.85, y + size * 0.3);
+  ctx.quadraticCurveTo(x, y + size * 0.4, x + size * 0.85, y + size * 0.22);
+  for (const offset of [-0.4, 0, 0.4]) {
+    ctx.moveTo(x + offset * size, y + size * 0.1);
+    ctx.quadraticCurveTo(
+      x + (offset + lean) * size,
+      y - size * 0.2,
+      x + (offset * 1.35 + lean) * size,
+      y - size * (offset ? 0.4 : 0.75)
+    );
   }
 }
 
@@ -121,86 +140,116 @@ function paintMarshes(
   strength: number,
   pixels: number
 ) {
+  const detail = marshDetail(marshes.length, pixels);
+  const occupied: FeaturePoint[] = [];
   for (const marsh of marshes) {
-    trace(ctx, marsh.region.polygons);
-    ctx.globalAlpha = 0.16 * strength;
-    ctx.fillStyle = marshWash;
-    ctx.fill("evenodd");
-    ctx.globalAlpha = 0.7 * strength;
+    ctx.globalAlpha = 0.65 * detail.opacity * strength;
     ctx.strokeStyle = marshInk;
-    ctx.lineWidth = Math.min(0.4, 0.8 / pixels);
-    ctx.lineCap = "round";
+    ctx.lineWidth = Math.min(0.3, 0.75 / pixels);
     ctx.beginPath();
-    // The cartographic marsh sign: a waterline with three short reeds.
     for (const tuft of marsh.tufts) {
-      ctx.moveTo(tuft.x - 0.9, tuft.y + 0.3);
-      ctx.lineTo(tuft.x + 0.9, tuft.y + 0.3);
-      ctx.moveTo(tuft.x, tuft.y + 0.1);
-      ctx.lineTo(tuft.x, tuft.y - 0.5);
-      ctx.moveTo(tuft.x - 0.4, tuft.y + 0.1);
-      ctx.lineTo(tuft.x - 0.55, tuft.y - 0.3);
-      ctx.moveTo(tuft.x + 0.4, tuft.y + 0.1);
-      ctx.lineTo(tuft.x + 0.55, tuft.y - 0.3);
+      if (
+        occupied.some(
+          (point) =>
+            Math.hypot(point.x - tuft.x, point.y - tuft.y) < detail.spacing
+        )
+      ) {
+        continue;
+      }
+      occupied.push(tuft);
+      reed(ctx, tuft, pixels);
     }
     ctx.stroke();
-    const [origin] = marsh.region.members;
-    if (!(origin && marsh.drains.length)) {
+    if (pixels < 3) {
       continue;
     }
-    ctx.globalAlpha = 0.4 * strength;
-    ctx.strokeStyle = drainInk;
+    ctx.globalAlpha = 0.2 * detail.opacity * strength;
     ctx.lineWidth = 0.6 / pixels;
-    ctx.setLineDash([1 / pixels, 2 / pixels]);
-    ctx.beginPath();
+    ctx.setLineDash([0.7 / pixels, 2.7 / pixels]);
     for (const drain of marsh.drains) {
-      ctx.moveTo(origin.x, origin.y);
-      ctx.lineTo(drain.x, drain.y);
+      path(ctx, drain.points);
+      ctx.stroke();
     }
-    ctx.stroke();
     ctx.setLineDash([]);
   }
 }
 
-function paintConfluences(
+function paintSprings(
   ctx: CanvasRenderingContext2D,
   features: NaturalFeatures,
   strength: number,
   pixels: number
 ) {
-  for (const confluence of features.confluences) {
-    const { x, y } = confluence;
-    ctx.globalAlpha = 0.55 * strength;
-    ctx.fillStyle = streamInk;
+  if (pixels < 2) {
+    return;
+  }
+  const springs = new Map(
+    features.streams.map((stream) => [stream.spring.id, stream.spring])
+  );
+  const lakes = new Set(features.lakes.map((lake) => lake.file.id));
+  ctx.strokeStyle = streamInk;
+  ctx.lineWidth = 0.7 / pixels;
+  ctx.globalAlpha = strength * 0.75;
+  for (const spring of springs.values()) {
+    if (lakes.has(spring.id)) {
+      continue;
+    }
     ctx.beginPath();
-    ctx.arc(x, y, Math.min(0.65, 1.6 / pixels), 0, Math.PI * 2);
-    ctx.fill();
+    ctx.arc(spring.x, spring.y, 2.2 / pixels, Math.PI * 0.2, Math.PI * 1.8);
+    ctx.stroke();
   }
 }
 
-/**
- * Draws an island's natural features in island-local coordinates, under the
- * file marks: streams first so lakes and marsh sit on their banks, then
- * confluences where streams meet. Streams and confluences are a layer the
- * chart can switch off; lakes and marsh always draw with the districts.
- */
+function paintFocus(
+  ctx: CanvasRenderingContext2D,
+  focus: NaturalFeature | undefined,
+  pixels: number
+) {
+  if (!focus) {
+    return;
+  }
+  ctx.globalAlpha = 0.9;
+  ctx.strokeStyle = "#875222";
+  ctx.lineWidth = 1.5 / pixels;
+  if (focus.kind === "lake") {
+    path(ctx, focus.lake.shore, true);
+  } else if (focus.kind === "river") {
+    path(ctx, focus.river.points);
+  } else {
+    return;
+  }
+  ctx.stroke();
+}
+
+/** Static cartographic ink. Focus is the only amber in this vocabulary. */
 export function paintNaturalFeatures(
   ctx: CanvasRenderingContext2D,
   features: NaturalFeatures,
-  options: { pixels: number; strength: number; streams: boolean }
+  options: {
+    pixels: number;
+    strength: number;
+    streams: boolean;
+    focus?: NaturalFeature;
+  }
 ) {
-  const { pixels, strength, streams } = options;
+  const { pixels, strength, streams, focus } = options;
   if (strength <= 0) {
     return;
   }
   ctx.save();
   ctx.setLineDash([]);
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  paintMarshes(ctx, features.marshes, strength, pixels);
   if (streams) {
     paintStreams(ctx, features.rivers, strength, pixels);
   }
   paintLakes(ctx, features.lakes, strength, pixels);
-  paintMarshes(ctx, features.marshes, strength, pixels);
   if (streams) {
-    paintConfluences(ctx, features, strength, pixels);
+    paintSprings(ctx, features, strength, pixels);
+  }
+  if (focus?.kind !== "river" || streams) {
+    paintFocus(ctx, focus, pixels);
   }
   ctx.restore();
 }

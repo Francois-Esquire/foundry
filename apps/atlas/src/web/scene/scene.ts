@@ -31,6 +31,11 @@ import { hitBelonging, matchedRegion } from "../belonging";
 import type { ChartSettings } from "../chart-settings";
 import { defaultChartSettings } from "../chart-settings";
 import { continentCoasts, createContinents } from "../continent";
+import {
+  featureIdentity,
+  hitNaturalFeature,
+  type NaturalFeature,
+} from "../natural-feature-inspection";
 import type { ResponsibilityOverlay } from "../responsibility-focus";
 import { createRoadNetwork } from "../roads";
 import type { TradeRoute } from "../trade-routes";
@@ -54,6 +59,7 @@ import { createPaperMaterials, paperThickness } from "./paper-material";
 import { createRenderPipeline } from "./pipeline";
 import type { PlaybackSnapshot, TrackId } from "./playback";
 import { createPlayback } from "./playback";
+import { createReliefInk } from "./relief-ink";
 import { createRoadLayer } from "./road-layer";
 import { terrainGeometry } from "./terrain";
 import { createTopography } from "./topography";
@@ -63,6 +69,7 @@ import { createWreckLayer } from "./wreck-layer";
 
 export interface AtlasSelection {
   compositeId?: string;
+  feature?: NaturalFeature;
   file?: AtlasFile;
   neighborhoodId?: string;
   regionId?: string;
@@ -144,6 +151,7 @@ export async function createAtlasScene(
   const continents = layers.land ? footprints : [];
   const coasts = continentCoasts(data, continents);
   const topography = createTopography(data, coasts);
+  const reliefInk = createReliefInk(data);
   const boundaries = atlasBoundaries(
     data,
     coastalBuffer,
@@ -236,7 +244,8 @@ export async function createAtlasScene(
     for (const polygon of p.coast) {
       const geo = terrainGeometry(p, polygon, data.width, data.height);
       const island = new Mesh(geo, materials.paper);
-      island.castShadow = true;
+      // Cartographic slope shading avoids cast-shadow speckle on shallow relief.
+      island.castShadow = false;
       relief.add(island);
     }
   }
@@ -458,7 +467,8 @@ export async function createAtlasScene(
       belonging,
       matches,
       [],
-      settings.streams
+      settings.streams,
+      reliefInk
     );
     const inkContext = inkCanvas.getContext("2d");
     if (inkContext) {
@@ -542,6 +552,7 @@ export async function createAtlasScene(
       visibility,
       playbackMotion,
       belonging,
+      settings.streams,
       event
     );
   let down = { x: 0, y: 0 };
@@ -549,6 +560,7 @@ export async function createAtlasScene(
   let previewFrame = 0;
   let revealFrame = 0;
   let previewKey = "";
+  let selectedFeature: NaturalFeature | undefined;
   const preview = (selection: AtlasSelection | null) => {
     onHover(selection);
     if (!belonging) {
@@ -558,6 +570,7 @@ export async function createAtlasScene(
     belonging = {
       ...belonging,
       emphasis: playbackMotion.matches ? 1 : 0,
+      featureFocus: selection?.feature ?? selectedFeature,
       hovered: selection?.regionId ?? selection?.compositeId,
     };
     const start = performance.now();
@@ -632,7 +645,7 @@ export async function createAtlasScene(
     renderer.domElement.style.cursor =
       selection || compass || wreck ? "pointer" : "grab";
     const key = selection
-      ? `${selection.territory.id}:${selection.file?.id ?? selection.regionId ?? selection.compositeId ?? ""}`
+      ? `${selection.territory.id}:${selection.file?.id ?? (featureIdentity(selection.feature) || undefined) ?? selection.regionId ?? selection.compositeId ?? ""}`
       : "";
     if (key !== previewKey) {
       previewKey = key;
@@ -661,8 +674,12 @@ export async function createAtlasScene(
     previewKey = "";
     onHover(null);
     onWreck?.(null, false);
-    if (belonging?.hovered) {
-      belonging = { ...belonging, hovered: undefined };
+    if (belonging && (belonging.hovered || belonging.featureFocus)) {
+      belonging = {
+        ...belonging,
+        featureFocus: selectedFeature,
+        hovered: undefined,
+      };
       render();
     }
     atmosphere.highlight(focusedTerritory);
@@ -900,6 +917,11 @@ export async function createAtlasScene(
     },
     setAtmosphere: atmosphere.setEnabled,
     setBelonging: (value: BelongingLayer | null) => {
+      if (value?.featureFocus) {
+        selectedFile = null;
+        selectedNeighborhood = undefined;
+      }
+      selectedFeature = value?.featureFocus;
       clearTimeout(previewTimer);
       cancelAnimationFrame(previewFrame);
       cancelAnimationFrame(revealFrame);
@@ -1089,6 +1111,7 @@ function resolveHit(
   visibility: { composition: boolean; files: boolean },
   playbackMotion: MediaQueryList,
   belonging: BelongingLayer | null,
+  streams: boolean,
   event: PointerEvent
 ): AtlasSelection | null {
   const rect = canvas.getBoundingClientRect();
@@ -1165,16 +1188,14 @@ function resolveHit(
     !closest?.file &&
     level.composition < 0.5
   ) {
-    const region = hitBelonging(
+    const internal = hitInternalPlace(
       belonging,
-      point.x - land.x,
-      -point.y - land.y,
-      pixels
+      { x: point.x - land.x, y: -point.y - land.y },
+      pixels,
+      streams
     );
-    if (region) {
-      return region.children
-        ? { compositeId: region.id, territory: land }
-        : { regionId: region.id, territory: land };
+    if (internal) {
+      return internal;
     }
   }
   if (belonging && land?.id === belonging.territory.id && !closest?.file) {
@@ -1234,4 +1255,24 @@ function hitVisibleComposition(
     }
   }
   return null;
+}
+
+function hitInternalPlace(
+  belonging: BelongingLayer,
+  point: { x: number; y: number },
+  pixels: number,
+  streams: boolean
+): AtlasSelection | undefined {
+  const { territory, features } = belonging;
+  const feature =
+    features && hitNaturalFeature(features, point, pixels, streams);
+  if (feature) {
+    return { feature, territory };
+  }
+  const region = hitBelonging(belonging, point.x, point.y, pixels);
+  if (region) {
+    return region.children
+      ? { compositeId: region.id, territory }
+      : { regionId: region.id, territory };
+  }
 }

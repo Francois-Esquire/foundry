@@ -169,11 +169,13 @@ quality or test coverage. District pigment deepens with behavior mass on a compr
 scale. On entry, a bounded wash concentrates around behavior-bearing files; empty
 space stays quiet. Selecting a file reveals statement count and district share.
 
-Internal routes bundle district relationships at island scale, expand toward
-responsibilities on entry, and reveal exact dependency endpoints on file selection.
-Thickness encodes distinct module dependencies. Symbol counts describe the crossing
-without silently changing that encoding. Preserve dependency direction and avoid
-invented junction files. Begin the experiment on Studio.
+Optional district streams now draw measured responsibility relationships on each
+island. Compatible streams share downstream runs; width adds their module edges.
+Place reports direction, dominant crossing symbols and omitted routes. Lakes mark
+commons modules and marsh marks unresolved belonging. The on-map key and keyboard
+feature index explain the drawing. See the current [design record](../src/web/DESIGN.md)
+for routing and fitting rules. Expansion into every exact file dependency remains
+an explicit trace, not a consequence of selecting a responsibility.
 
 The useful comparison is where behavior concentrates versus where dependencies go:
 local support, broad service, or a dependency-heavy consumer. Keep these separate
@@ -196,8 +198,8 @@ route limits; retained internal exploration; desktop and narrow rendered checks.
 
 ## Delivery evidence
 
-Package trade implemented. Behavior washes and internal district routes remain future
-work. Package world positions now account for landmass collisions. Island shapes,
+Package trade and optional internal district streams are implemented. Behavior
+washes remain future work. Package world positions now account for landmass collisions. Island shapes,
 local file placement, semantic tooling, dependencies and Git history remain unchanged.
 
 - 128 tests across 34 files pass; typecheck and scoped lint pass.

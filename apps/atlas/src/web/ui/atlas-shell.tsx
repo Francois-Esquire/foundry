@@ -18,6 +18,7 @@ import { AtlasSearch } from "./atlas-search";
 import type { AtlasState } from "./atlas-state";
 import { AtlasWrecks } from "./atlas-wrecks";
 import { ChartSettingsPanel } from "./chart-settings-panel";
+import { MapKey } from "./map-key";
 import type { useAtlasState } from "./use-atlas-state";
 
 /** The dive scene, its model loader, and orbit controls load on first use. */
@@ -168,7 +169,8 @@ export function AtlasShell({
   const readout = inspectionText(
     hoveredWreck ?? selectedWreck,
     inspected,
-    inspectedRegion
+    inspectedRegion,
+    belonging.features
   );
   const tabs: PanelTab[] = [
     {
@@ -265,6 +267,7 @@ export function AtlasShell({
       />
       <div className={open ? "atlas-world atlas-panel-open" : "atlas-world"}>
         {children}
+        <MapKey streams={chartSettings.streams} />
         <AtlasPanel
           focusToken={focusToken}
           onClose={closePanel}

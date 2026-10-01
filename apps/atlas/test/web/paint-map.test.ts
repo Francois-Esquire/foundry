@@ -62,6 +62,7 @@ function canvasFixture() {
     clearRect: vi.fn(),
     clip: vi.fn(),
     closePath: vi.fn(),
+    createLinearGradient: () => ({ addColorStop: vi.fn() }),
     fill: vi.fn(),
     fillRect: vi.fn(),
     fillText: vi.fn(),
@@ -293,6 +294,9 @@ describe("map detail drawing", () => {
       composition.filter((label) => label.file).map((label) => label.file?.id)
     ).toEqual(["one"]);
     expect(composition.some((label) => label.neighborhoodId)).toBe(false);
+    expect(composition.find((label) => label.file?.id === "one")?.y).toBe(
+      -21 / 8
+    );
     const elsewhere = paintMap(
       canvas,
       data,

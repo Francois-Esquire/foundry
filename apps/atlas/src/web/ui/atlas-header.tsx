@@ -50,6 +50,10 @@ export function AtlasHeader({
   const composite = composites.find(
     (item) => item.id === selection?.compositeId
   );
+  const repeatsFile =
+    region?.members.length === 1 &&
+    region.members[0]?.id === selection?.file?.id &&
+    region.label === selection?.file?.path.split("/").at(-1);
   const handleLens = useCallback(
     (event: ChangeEvent<HTMLSelectElement, HTMLSelectElement>) => {
       onLens(event.target.value === "files" ? "files" : "belonging");
@@ -102,7 +106,9 @@ export function AtlasHeader({
         {composite && (
           <Crumb label={composite.label} onClick={crumbComposite} />
         )}
-        {region && <Crumb label={region.label} onClick={crumbRegion} />}
+        {region && !repeatsFile && (
+          <Crumb label={region.label} onClick={crumbRegion} />
+        )}
         {selection?.file && (
           <>
             <span aria-hidden="true">/</span>

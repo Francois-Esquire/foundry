@@ -1,5 +1,6 @@
 import { useCallback } from "react";
 import type { BelongingRegion } from "../belonging";
+import { featureText } from "../natural-feature-inspection";
 import type { NaturalFeatures } from "../natural-features";
 import type { ResponsibilityOverlay } from "../responsibility-focus";
 import type { AtlasSelection } from "../scene/scene";
@@ -12,6 +13,7 @@ import type {
   Territory,
 } from "../types";
 import { ArchitecturePanel } from "./architecture-panel";
+import { NaturalFeaturePanel } from "./natural-feature-panel";
 import { TradePartners } from "./trade-partners";
 
 export interface EvidenceActions {
@@ -78,7 +80,7 @@ export function AtlasPlace({
       onFrame(place.members.map((file) => file.id));
     }
   }, [onFrame, place]);
-  const pointer = describePointer(hoveredWreck, hover, hoveredRegion);
+  const pointer = describePointer(hoveredWreck, hover, hoveredRegion, features);
   if (!(territory && selection)) {
     return (
       <div className="atlas-place">
@@ -116,6 +118,14 @@ export function AtlasPlace({
             Retry belonging
           </button>
         </>
+      )}
+      {features && (
+        <NaturalFeaturePanel
+          features={features}
+          hover={hover}
+          onSelect={onSelect}
+          selection={selection}
+        />
       )}
       <PlaceNote composite={composite} region={region} />
       {features && features.unrouted > 0 && (
@@ -303,9 +313,10 @@ function describePlaceKind(
 function describePointer(
   wreck: FormerPackage | null,
   hover: AtlasSelection | null,
-  region: BelongingRegion | undefined
+  region: BelongingRegion | undefined,
+  features?: NaturalFeatures
 ) {
-  const text = inspectionText(wreck, hover, region);
+  const text = inspectionText(wreck, hover, region, features);
   if (!text) {
     return null;
   }
@@ -320,7 +331,8 @@ function describePointer(
 export function inspectionText(
   wreck: FormerPackage | null,
   inspected: AtlasSelection | null,
-  region: BelongingRegion | undefined
+  region: BelongingRegion | undefined,
+  features?: NaturalFeatures
 ): { title: string; detail: string } | null {
   if (wreck) {
     return {
@@ -330,6 +342,15 @@ export function inspectionText(
   }
   if (!inspected) {
     return null;
+  }
+  const lake = features?.lakes.find(
+    (item) => item.file.id === inspected.file?.id
+  );
+  if (lake) {
+    return featureText({ kind: "lake", lake });
+  }
+  if (inspected.feature) {
+    return featureText(inspected.feature);
   }
   return {
     detail: inspectionDetail(inspected, region),

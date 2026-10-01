@@ -8,7 +8,8 @@
  *
  * Steps: click=<button text or aria-label>, press=<label> (no screenshot),
  * zoom=<steps>, hover=<x>,<y>, tap=<x>,<y> (a mouse click on the page),
- * wait=<ms>, shot=<name>, eval=<expression>, clearlog, errors. Screenshots land in .cache/shots/<tag>-<name>.png.
+ * key=Enter|Tab|Escape, motion=reduce|normal, wait=<ms>, shot=<name>,
+ * eval=<expression>, clearlog, errors. Screenshots land in .cache/shots/<tag>-<name>.png.
  */
 import { spawn } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -218,6 +219,38 @@ async function runStep(
       await sleep(1500);
       break;
     }
+    case "key": {
+      const keys: Record<
+        string,
+        { code: string; key: string; windowsVirtualKeyCode: number }
+      > = {
+        Enter: { code: "Enter", key: "Enter", windowsVirtualKeyCode: 13 },
+        Escape: { code: "Escape", key: "Escape", windowsVirtualKeyCode: 27 },
+        Tab: { code: "Tab", key: "Tab", windowsVirtualKeyCode: 9 },
+      };
+      const key = keys[argument];
+      if (!key) {
+        throw new Error(`Unknown key: ${argument}`);
+      }
+      await session.send("Input.dispatchKeyEvent", {
+        ...key,
+        text: argument === "Enter" ? "\r" : undefined,
+        type: "keyDown",
+      });
+      await session.send("Input.dispatchKeyEvent", { ...key, type: "keyUp" });
+      await sleep(700);
+      break;
+    }
+    case "motion":
+      await session.send("Emulation.setEmulatedMedia", {
+        features: [
+          {
+            name: "prefers-reduced-motion",
+            value: argument === "reduce" ? "reduce" : "no-preference",
+          },
+        ],
+      });
+      break;
     case "clearlog":
       session.logs.length = 0;
       break;

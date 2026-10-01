@@ -83,6 +83,17 @@ export function createLandRouter(coast: Polygon[]) {
       const { x, y } = centre(cell);
       land[cell] = compositionInsideLand(x, y, coast) ? 1 : 0;
     }
+    const landEdges = new Map<number, boolean>();
+    const edgeOnLand = (a: number, b: number) => {
+      const key = Math.min(a, b) * land.length + Math.max(a, b);
+      const known = landEdges.get(key);
+      if (known !== undefined) {
+        return known;
+      }
+      const safe = onLand(centre(a), centre(b));
+      landEdges.set(key, safe);
+      return safe;
+    };
     /** Breadth-first over land cells from start until end is reached. */
     const search = (
       start: number,
@@ -101,6 +112,7 @@ export function createLandRouter(coast: Polygon[]) {
           y >= height ||
           previous[next] !== -1 ||
           !land[next] ||
+          !edgeOnLand(cell, next) ||
           !clear(centre(cell), centre(next))
         ) {
           return;
@@ -145,6 +157,13 @@ export function createLandRouter(coast: Polygon[]) {
     unobstructed: (a: FeaturePoint, b: FeaturePoint) => boolean = () => true,
     downstream?: FeaturePoint
   ) => {
+    if (
+      distance(from, to) < 0.000_01 ||
+      !onLand(from, from) ||
+      !onLand(to, to)
+    ) {
+      return;
+    }
     const clear = (a: FeaturePoint, b: FeaturePoint) =>
       unobstructed(a, b) && onLand(a, b);
     const direct =
@@ -154,7 +173,7 @@ export function createLandRouter(coast: Polygon[]) {
       return direct;
     }
     gridPath ??= grid();
-    const path = gridPath(from, to, clear);
+    const path = gridPath(from, to, unobstructed);
     if (
       !path?.every((point, i) => i === 0 || clear(path[i - 1] ?? point, point))
     ) {

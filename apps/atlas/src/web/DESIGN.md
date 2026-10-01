@@ -47,7 +47,7 @@ overlays and decorative atmosphere start off. Current playback retains its exist
 default. Features below are opt-in where noted.
 
 The overview retains the older chart's dense file marks, pale sea, fine grid,
-dark labels and layered coast ink while keeping today's relief and map-first
+dark labels and fine coast ink while keeping today's relief and map-first
 navigation. File marks give scale, not a new quality score.
 
 When history data exists, package IDs observed at a completed checkpoint but
@@ -97,12 +97,14 @@ combined continental and island coast drives water shading and sea contours.
 
 ## Typography
 
-Local Abril Fatface is registered as `AtlasDisplay`; local regular Calibre as
-`AtlasBody`. Both come from `packages/design/src/fonts` with font swapping.
+Local Abril Fatface is registered as `AtlasDisplay`; local regular Inter as
+`AtlasBody`. Both are bundled with the standalone viewer in `public/fonts`, with
+font swapping and their licenses. The former design-package font paths no longer
+exist; an unloaded family must not silently substitute the map typography.
 The scene waits for their font loads before painting labels.
 
 Abril Fatface sets the page title, section headings and territory names.
-Calibre sets navigation, paths, counts and inspection text. Georgia marks
+Inter sets navigation, paths, counts and inspection text. Georgia marks
 computed neighborhoods; italic Georgia sets the sea caption. Map typography is painted onto
 a transparent ink texture on a parallel plane 0.02 map units above the raised
 paper. Labels and routes remain continuous across relief and share the map's
@@ -323,9 +325,17 @@ remain disposable presentation data; temporal stability is not guaranteed.
   island-local ink under the file marks. They need no connecting land. A
   shared commons module is a lake: its radius follows the modules that draw
   on it, shrunk to keep a shore inside the coast, and the lake replaces that
-  file's own mark. A module with unresolved belonging is a marsh: a patch of
-  reed signs around the file, with up to two dotted drains running part of the
-  way toward the districts it could join. Lakes and marsh always draw with
+  file's own mark. A smooth radial shore yields to neighboring settlements
+  without moving them; its radius is an upper bound where drawing space is
+  limited. Directional inset banks and mineral washes suggest a basin. This is
+  cartographic shading, not measured depth or a change to terrain height.
+  A module with unresolved belonging is a marsh: a patch of
+  reed signs around the file, with up to two dotted drains following land
+  routes part of the way toward the districts it could join. Reeds vary
+  slightly in lean and spacing, with screen-space thinning and lower opacity
+  on crowded islands. Drains appear at file scale; there is no blanket marsh
+  wash. Every unresolved module remains in the feature index. Lakes and marsh
+  always draw with
   the districts and stay through file zoom, receding under composition.
   Marsh means undecided, not defective.
 - District streams are an optional layer, off initially, under Experimental
@@ -339,13 +349,29 @@ remain disposable presentation data; temporal stability is not guaranteed.
   remaining distance, approaching in its direction where land permits. Other
   rivers are obstacles, never false connections. One arc is preferred; a lazy
   three-unit land grid and constrained smoothing handle obstructed routes.
+  A worker computes natural geometry once when belonging loads and is
+  terminated when its island changes. Environments without workers retain
+  the synchronous implementation. Grid-edge coast checks are cached per build.
   Every segment checks the coast, including holes and thin inlets.
-  Detours longer than 1.7 times the independent land route are omitted. A confluence
+  Detours longer than 1.7 times the independent land route are omitted.
+  A confluence
   is an actual joining fork, not a ring around an isolated junction file.
   Place lists omitted relationships, distinguishing disconnected land,
   other rivers and unavailable endpoints. The routes are a deterministic
-  drawing, not a hydraulic simulation or an exhaustive planar embedding. Streams aggregate at district level: selecting a
+  drawing, not a hydraulic simulation or an exhaustive planar embedding.
+  Streams aggregate at district level: selecting a
   responsibility still does not draw its file graph, and nothing animates.
+  A small open spring sign marks a recorded supplier endpoint unless a lake
+  already marks it. Muted banks replace the bright casing around each line.
+- A collapsed Map key sits on the paper at the lower left. It explains commons
+  lakes, district streams and unresolved marsh without implying quality.
+  Feature hover and selection report in Place and the polite live region.
+  Lake inspection lists the measured consuming responsibilities. River
+  inspection states import direction, module edges, contributing relationships
+  on shared trunks and dominant crossing symbols. An independent, collapsed
+  feature index provides the same destinations by keyboard, including streams
+  while their optional layer is off. Selecting a feature adds only its focus
+  ink; it does not enable streams, move a file or open a dependency trace.
 - District relationships can be inspected independently of files. Selecting a
   relationship frames both sets of members. Teal retains current affected-consumer
   connections beneath amber proposed connections, capped at 64 per layer with
@@ -461,12 +487,14 @@ remain disposable presentation data; temporal stability is not guaranteed.
   screen-area budget of two to six, with parent priority, collision and viewport
   checks. Hover preserves that label set. Collections have no map labels; child
   names retire as composition reaches half opacity while parent names remain.
-  Selected responsibility members use 5px ink marks and 16px filenames. Ordinary
+  Selected responsibility members use 5px ink marks and 17px filenames. Ordinary
   file marks appear at 3–5 CSS pixels per map unit on every island in view. With
   composition loaded, declarations appear at 6–8 while file marks remain. File interaction enters at 4.2
   and exits below 3.6; declaration interaction enters at 7 and exits below 6.2.
   These separate thresholds prevent detail flicker. Ordinary file labels require 5;
-  only the selected file's name remains while that file is in view. Selecting a
+  only the selected file's name remains while that file is in view. Its 20px
+  name takes placement priority, and its amber ring has a paper knockout drawn
+  above composition, so detail cannot erase the selected settlement. Selecting a
   group limits file labels to its members. Labels outside the view or
   colliding with earlier labels are omitted; crowded file names may stay hidden.
   Visible labels are selectable. Search retains omitted files and regions,
@@ -506,19 +534,25 @@ for speed and never hide a control. **Off** is the direct draw: no passes, CSS
 filter restored. If a device cannot compile the graph, the viewer falls back
 to the direct draw on its own and the panel says so.
 
-Occlusion on the chart is engraved rather than screen-space: the land
-geometry carries a per-vertex concavity term computed from its own mesh
-(valleys and the foot of hills, never ridges), and the paper material darkens
-with it under the Occlusion strength control. It shades on the direct draw as
-well, and it is the only occlusion the flat paper visibly receives, since the
-screen-space term finds little to occlude in relief this shallow. In wreck
-dives the screen-space stage is the real contribution. Its reach is a screen
-size, in pixels, converted to world units each frame from the camera: on the
-chart from the zoom, in a dive at the fog limit so the far seabed never falls
-below what the sampler can resolve. Reaches under about eight pixels span a
-texel or two of the half-resolution buffer and band across the tilted paper.
-Indirect light (screen-space GI) needs a perspective camera, so it applies to
-wreck dives and not the top-down chart.
+Land uses matte cartographic slope shading, with warm northwest light and cool
+southeast shade, computed from the unchanged concentration height field. Land
+casts no physical shadows: shallow cast shadows produced flecks and triangles
+rather than readable relief. Short engraved hachures follow the same measured
+slope at island and file scales; their length and opacity use `reliefHachure`.
+They do not introduce mountains, another metric, or agent activity.
+
+The land geometry carries a per-vertex concavity term sampled at a fixed radius
+in the height field. This avoids imprinting the coast mesh's irregular triangle
+sizes on the paper. Occlusion strength controls that valley darkening. On wreck
+dives the screen-space occlusion stage remains the real contribution. Its reach
+is a screen size converted to world units each frame; indirect light remains
+limited to the perspective wreck camera.
+
+The sheet has four fixed, subtle folds, independent of semantic data and anchored
+to the map rather than the viewport. They are paper wear, not district boundaries.
+Coast and grid ink repaint at viewport resolution with bounded screen widths;
+zoom must not enlarge a raster outline into a heavy border. Package pigment is a
+light wash into warm stock, leaving contrast for settlement and feature ink.
 
 Sliders are uniforms and change nothing in the graph; quality, toggles, tone
 mapping, filter, and stage view rebuild it. Stage modules load on first use.

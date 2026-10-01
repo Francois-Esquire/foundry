@@ -1,11 +1,21 @@
 import type { Texture } from "three";
-import { attribute, float, materialColor, uniform } from "three/tsl";
-import { MeshStandardNodeMaterial } from "three/webgpu";
+import {
+  attribute,
+  dot,
+  float,
+  materialColor,
+  max,
+  mix,
+  normalLocal,
+  uniform,
+  vec3,
+} from "three/tsl";
+import { MeshBasicNodeMaterial } from "three/webgpu";
 
 export const paperThickness = 0.4;
 
 /** Full occlusion strength darkens a valley floor by this fraction. */
-const reliefShade = 0.3;
+const reliefShade = 0.24;
 
 /**
  * Paper is engraved: the relief carries a per-vertex occlusion term (see
@@ -14,13 +24,17 @@ const reliefShade = 0.3;
  */
 export function createPaperMaterials(map: Texture) {
   const strength = uniform(0);
-  const paper = new MeshStandardNodeMaterial({
+  const paper = new MeshBasicNodeMaterial({
     map,
-    metalness: 0,
-    roughness: 0.96,
   });
   const occlusion = attribute<"float">("occlusion", "float");
-  paper.colorNode = materialColor.rgb.mul(
+  // Cool shadow and warm light describe the measured density slopes. Quiet
+  // flats leave enough value range for settlement ink and water.
+  const aspect = dot(normalLocal, vec3(-0.65, 0.65, 0)).clamp(-1, 1);
+  const shadow = max(0, aspect.negate()).mul(0.62);
+  const lit = max(0, aspect).mul(0.08);
+  const pigment = mix(materialColor.rgb, vec3(0.3, 0.36, 0.34), shadow);
+  paper.colorNode = mix(pigment, vec3(1, 0.96, 0.84), lit).mul(
     float(1).sub(occlusion.mul(strength).mul(reliefShade))
   );
   return {
@@ -28,7 +42,7 @@ export function createPaperMaterials(map: Texture) {
       paper.dispose();
     },
     paper,
-    /** Occlusion strength; zero reproduces the plain paper. */
+    /** Occlusion strength; zero removes valley darkening, retaining slope shading. */
     setOcclusion: (value: number) => {
       strength.value = value;
     },

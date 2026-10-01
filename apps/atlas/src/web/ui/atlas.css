@@ -1,3 +1,18 @@
+@font-face {
+  font-display: swap;
+  font-family: AtlasDisplay;
+  font-style: normal;
+  font-weight: 400;
+  src: url("../../../public/fonts/AbrilFatface-Regular.ttf") format("truetype");
+}
+@font-face {
+  font-display: swap;
+  font-family: AtlasBody;
+  font-style: normal;
+  font-weight: 400;
+  src: url("../../../public/fonts/inter-regular.woff2") format("woff2");
+}
+
 :root {
   font-family: AtlasBody, sans-serif;
   font-synthesis: none;
@@ -24,6 +39,7 @@ input {
 button {
   cursor: pointer;
 }
+summary:focus-visible,
 button:focus-visible,
 select:focus-visible,
 input:focus-visible,
@@ -824,4 +840,113 @@ h2 {
   .atlas-dive-caption h2 {
     font-size: 20px;
   }
+}
+
+.atlas-map-key {
+  position: absolute;
+  bottom: 18px;
+  left: 18px;
+  z-index: 3;
+  width: min(290px, calc(100% - 36px));
+  padding: 9px 12px;
+  font-size: 14px;
+  line-height: 1.35;
+  color: #4a4233;
+  background: #f1ead9f2;
+}
+.atlas-map-key:not([open]) {
+  width: auto;
+}
+.atlas-map-key summary {
+  font-family: AtlasDisplay, serif;
+  font-size: 16px;
+  cursor: pointer;
+}
+.atlas-map-key dl {
+  margin: 16px 0 12px;
+}
+.atlas-map-key dl > div + div {
+  margin-top: 14px;
+}
+.atlas-map-key dt {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-weight: 600;
+}
+.atlas-map-key svg {
+  flex: none;
+  width: 44px;
+  height: 24px;
+}
+.atlas-map-key dd {
+  margin: 3px 0 0 52px;
+}
+.atlas-map-key p {
+  margin: 12px 0 0;
+  font-size: 13px;
+}
+.atlas-natural-features {
+  margin-block: 20px;
+}
+.atlas-natural-features summary {
+  cursor: pointer;
+}
+.atlas-feature-evidence {
+  margin-block: 18px 24px;
+}
+.atlas-feature-evidence h3 {
+  margin: 0 0 8px;
+  font-family: AtlasDisplay, serif;
+  font-size: 20px;
+  font-weight: 400;
+  overflow-wrap: anywhere;
+}
+.atlas-feature-evidence h4 {
+  margin: 18px 0 4px;
+  font-size: 16px;
+  font-weight: 600;
+}
+.atlas-feature-evidence p {
+  margin-block: 8px 12px;
+}
+.atlas-stream-evidence button,
+.atlas-feature-index button {
+  display: block;
+  max-width: 100%;
+  margin-block: 6px;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.atlas-feature-index {
+  max-height: 34vh;
+  margin-top: 12px;
+  overflow: auto;
+}
+.atlas-feature-index button {
+  width: 100%;
+  padding: 6px 8px;
+}
+@media (max-width: 760px) {
+  .atlas-panel-open .atlas-map-key {
+    visibility: hidden;
+  }
+}
+
+.atlas-natural-features button {
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+}
+.atlas-feature-index button {
+  padding: 10px 2px;
+  margin: 0;
+  text-decoration: none;
+  border-bottom: 1px solid #79664b33;
+}
+.atlas-feature-index button:hover {
+  background: #dfd5bc;
 }

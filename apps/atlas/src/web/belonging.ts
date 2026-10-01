@@ -3,6 +3,7 @@ import { compositionInsideLand } from "./composition-placement";
 import { classifyFiles } from "./district-layout";
 import type { deriveHierarchy } from "./hierarchy";
 import type { AtlasInternals } from "./internals";
+import type { NaturalFeature } from "./natural-feature-inspection";
 import type { NaturalFeatures } from "./natural-features";
 import type { ResponsibilityOverlay } from "./responsibility-focus";
 import type { AtlasFile, Polygon, Territory } from "./types";
@@ -22,6 +23,7 @@ export interface BelongingRegion {
 
 export interface BelongingLayer {
   emphasis?: number;
+  featureFocus?: NaturalFeature;
   /** Lakes, marshes, streams and confluences drawn from the same evidence. */
   features?: NaturalFeatures;
   files?: AtlasFile[];

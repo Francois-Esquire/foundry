@@ -9,6 +9,14 @@ export function segmentIntersection(
   c: FeaturePoint,
   d: FeaturePoint
 ): FeaturePoint | undefined {
+  if (
+    Math.max(a.x, b.x) + epsilon < Math.min(c.x, d.x) ||
+    Math.max(c.x, d.x) + epsilon < Math.min(a.x, b.x) ||
+    Math.max(a.y, b.y) + epsilon < Math.min(c.y, d.y) ||
+    Math.max(c.y, d.y) + epsilon < Math.min(a.y, b.y)
+  ) {
+    return undefined;
+  }
   const dx = b.x - a.x,
     dy = b.y - a.y;
   const ex = d.x - c.x,

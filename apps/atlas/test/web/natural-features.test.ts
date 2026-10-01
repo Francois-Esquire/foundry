@@ -2,6 +2,12 @@ import { describe, expect, it } from "vitest";
 import { memberContours } from "../../src/web/belonging";
 import { compositionInsideLand } from "../../src/web/composition-placement";
 import { classifyFiles } from "../../src/web/district-layout";
+import { createLandRouter } from "../../src/web/inland-routing";
+import { lakeShore } from "../../src/web/lake-shore";
+import {
+  featureText,
+  hitNaturalFeature,
+} from "../../src/web/natural-feature-inspection";
 import { naturalFeatures } from "../../src/web/natural-features";
 import type { AtlasFile, Territory } from "../../src/web/types";
 
@@ -128,8 +134,8 @@ describe("natural features", () => {
     ]);
     const [marsh] = features.marshes;
     expect(marsh?.drains).toHaveLength(2);
-    expect(marsh?.drains[0]?.x).toBeLessThan(0);
-    expect(marsh?.drains[1]?.x).toBeGreaterThan(0);
+    expect(marsh?.drains[0]?.points.at(-1)?.x).toBeLessThan(0);
+    expect(marsh?.drains[1]?.points.at(-1)?.x).toBeGreaterThan(0);
     expect(marsh?.tufts.length).toBeGreaterThan(0);
     for (const tuft of marsh?.tufts ?? []) {
       expect(
@@ -300,6 +306,20 @@ describe("shared drainage", () => {
     ).toEqual(result);
   });
 
+  it("keeps optional rivers out of hit testing until their layer is on", () => {
+    const result = naturalFeatures(basin, places, recorded);
+    const [run] = result.rivers;
+    const point = run?.points[Math.floor(run.points.length / 2)];
+    expect(point).toBeDefined();
+    if (!point) {
+      return;
+    }
+    expect(hitNaturalFeature(result, point, 6, false)).toBeUndefined();
+    const hit = hitNaturalFeature(result, point, 6, true);
+    expect(hit?.kind).toBe("river");
+    expect(hit && featureText(hit).detail).toContain("consumer imports from");
+  });
+
   it("discloses missing endpoint evidence instead of choosing an unrelated file", () => {
     const result = naturalFeatures(basin, places, { ...recorded, fileIds: {} });
     expect(result.streams).toEqual([]);
@@ -309,4 +329,57 @@ describe("shared drainage", () => {
       "endpoints",
     ]);
   });
+});
+
+it("fits a commons shore without covering a neighboring file and hits the fitted shape", () => {
+  const commons = file("commons", 0, 0, { architectureKind: "commons" });
+  const neighbor = file("neighbor", 2, 0);
+  const shore = lakeShore(commons, 6, [commons, neighbor]);
+  expect(Math.max(...shore.map((point) => point.x))).toBeLessThan(1);
+  const features = {
+    confluences: [],
+    lakes: [
+      {
+        consumers: [{ id: "reader", label: "Reader" }],
+        file: commons,
+        radius: 6,
+        shore,
+      },
+    ],
+    marshes: [],
+    omitted: [],
+    rivers: [],
+    streams: [],
+    unrouted: 0,
+  };
+  const hit = hitNaturalFeature(features, commons, 6, false);
+  expect(hit?.kind).toBe("lake");
+  expect(hitNaturalFeature(features, neighbor, 6, false)).toBeUndefined();
+  expect(hit && featureText(hit).detail).toContain("Drawn on by Reader");
+});
+
+it("never jumps a sub-grid water gap or routes off-land endpoints", () => {
+  const router = createLandRouter([
+    [
+      [
+        [-10, -10],
+        [-0.1, -10],
+        [-0.1, 10],
+        [-10, 10],
+        [-10, -10],
+      ],
+    ],
+    [
+      [
+        [0.1, -10],
+        [10, -10],
+        [10, 10],
+        [0.1, 10],
+        [0.1, -10],
+      ],
+    ],
+  ]);
+  expect(router({ x: -5, y: 0 }, { x: 5, y: 0 })).toBeUndefined();
+  expect(router({ x: 50, y: 0 }, { x: 5, y: 0 })).toBeUndefined();
+  expect(createLandRouter([])({ x: 0, y: 0 }, { x: 1, y: 1 })).toBeUndefined();
 });

@@ -136,7 +136,14 @@ export function useAtlasState(initial: AtlasState) {
       const group = selectionGroup(value, territoryLayoutRef.current);
       if (!value?.symbol && value?.file) {
         scene.current?.focus(value.territory, value.file, group);
-      } else if (!(value?.symbol || value?.regionId || value?.compositeId)) {
+      } else if (
+        !(
+          value?.feature ||
+          value?.symbol ||
+          value?.regionId ||
+          value?.compositeId
+        )
+      ) {
         scene.current?.focus(value?.territory ?? null, value?.file, group);
       }
     },
@@ -282,6 +289,16 @@ export function useAtlasState(initial: AtlasState) {
         setSelection(null);
         setHover(null);
       }
+      if (!next.streams) {
+        setSelection((current) =>
+          current?.feature?.kind === "river"
+            ? { territory: current.territory }
+            : current
+        );
+        setHover((current) =>
+          current?.feature?.kind === "river" ? null : current
+        );
+      }
       chartPreference.current = next;
       setChartSettings(next);
     },
@@ -384,6 +401,7 @@ function resolveValue(
   selectedRegion: BelongingRegion | undefined,
   selectedComposite: BelongingRegion | undefined,
   selection: {
+    feature?: AtlasSelection["feature"];
     compositeId: string | undefined;
     regionId: string | undefined;
     file?: AtlasFile;
@@ -413,6 +431,7 @@ function resolveValue(
 ): BelongingLayer | null {
   if (viewTerritory && lens === "belonging") {
     return {
+      featureFocus: viewIsSelected ? selection?.feature : undefined,
       features:
         territoryLayout?.id === viewTerritory.id
           ? undefined
@@ -487,6 +506,7 @@ function resolveParents(
 
 function resolveCurrentEscape(
   current: {
+    feature?: AtlasSelection["feature"];
     compositeId: string | undefined;
     regionId: string | undefined;
     file?: AtlasFile;
@@ -496,6 +516,9 @@ function resolveCurrentEscape(
     unmappedModule?: string;
   } | null
 ): AtlasSelection | null {
+  if (current?.feature) {
+    return { territory: current.territory };
+  }
   if (current?.file) {
     return {
       compositeId: current.compositeId,
@@ -549,6 +572,7 @@ function selectionAncestry(
     retry: () => void;
   },
   selection: {
+    feature?: AtlasSelection["feature"];
     compositeId: string | undefined;
     regionId: string | undefined;
     file?: AtlasFile;
