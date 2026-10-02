@@ -89,3 +89,12 @@ export function reliefHachure(slope: number, pixels = 1) {
 export function filePen(pixels: number) {
   return Math.min(1.8, 4.5 / pixels);
 }
+
+/** Fixed chart coordinates; reveal fifths only when their spacing has room. */
+export function chartGrid(pixels: number) {
+  return {
+    majorStep: 90,
+    minorOpacity: 0.14 * Math.max(0, Math.min(1, (18 * pixels - 30) / 30)),
+    minorStep: 18,
+  };
+}

@@ -12,7 +12,7 @@ import type { InkView, MapLabel } from "./exploration";
 import { visibleLabels } from "./exploration";
 import { paintOcean } from "./ocean";
 import { paintNaturalFeatures } from "./paint-features";
-import { paintCoastInk, paintPaperFolds } from "./paint-paper";
+import { paintChartGrid, paintCoastInk } from "./paint-paper";
 import { paintResponsibility } from "./paint-responsibility";
 import { paintReliefInk, type ReliefInk } from "./relief-ink";
 import { settlementColor } from "./terrain";
@@ -80,7 +80,9 @@ export function paintMap(
     }
     return [];
   }
-  paintMapEntries3(view, ctx);
+  if (view) {
+    paintChartGrid(ctx, view);
+  }
   paintPaper(ctx, data, view, selected);
   paintReliefInk(ctx, relief, view?.pixelsPerUnit ?? 1);
   const regions = new Map(data.territories.map((p) => [p.id, p]));
@@ -328,9 +330,6 @@ function paintPaper(
   view: InkView | undefined,
   selected: string | null
 ) {
-  if (view) {
-    paintPaperFolds(ctx, data, view);
-  }
   for (const territory of data.territories) {
     paintCoastInk(
       ctx,
@@ -338,32 +337,6 @@ function paintPaper(
       view?.pixelsPerUnit ?? 1,
       territory.id === selected
     );
-  }
-}
-
-function paintMapEntries3(
-  view: InkView | undefined,
-  ctx: CanvasRenderingContext2D
-) {
-  if (view) {
-    const left = view.x - view.width / 2;
-    const top = view.y - view.height / 2;
-    const right = left + view.width;
-    const bottom = top + view.height;
-    ctx.strokeStyle = "#7f806024";
-    ctx.lineWidth = 0.45 / view.pixelsPerUnit;
-    for (let x = Math.ceil(left / 90) * 90; x <= right; x += 90) {
-      ctx.beginPath();
-      ctx.moveTo(x, top);
-      ctx.lineTo(x, bottom);
-      ctx.stroke();
-    }
-    for (let y = Math.ceil(top / 90) * 90; y <= bottom; y += 90) {
-      ctx.beginPath();
-      ctx.moveTo(left, y);
-      ctx.lineTo(right, y);
-      ctx.stroke();
-    }
   }
 }
 

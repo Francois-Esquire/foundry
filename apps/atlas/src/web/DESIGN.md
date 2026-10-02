@@ -156,10 +156,12 @@ roles remain unclassified. File specks remain visible across every island at
 overview, recede to 20% as regions take focus, then give way to full file marks
 between 3 and 5 pixels per map unit. File marks stay visible at closer zoom.
 
-Matte solid pigments use roughness 0.96 without grain, bump maps or hatching.
-The 90-unit coordinate grid is mapped onto the displaced terrain through world
-coordinates, so it bends with slopes. Coastal trade adds raised ports and dashed
-sea routes; file and declaration connections require an explicit trace.
+Matte mineral pigments retain quiet flats beneath the engraved relief.
+The coordinate grid uses fixed 90-unit major lines and 18-unit subdivisions.
+Minor ink fades in only when its projected spacing reaches 30–60 pixels, through
+`chartGrid`. Both draw on the cartographic ink plane, with bounded screen widths;
+they express chart coordinates, not dependency layers or responsibility borders.
+Coastal trade adds raised ports and dashed sea routes; file and declaration connections require an explicit trace.
 
 Engraved topography is generated once per scene from existing height and distance
 fields. Land levels at 3, 6, 9, 12 and 15 units use two-unit sampling; their ink
@@ -527,9 +529,9 @@ applies only when the pipeline is off or failed and the scene draws directly.
 
 Chart settings → Rendering controls one pass graph shared by the chart and
 wreck dives: scene → coastlight and wind overlay → ambient occlusion → indirect
-light → bloom → exposure and tone mapping → grade. The defaults reproduce the
-chart as drawn before the pipeline existed; every stage is a toggle so the
-aesthetic stays under control. Quality tiers (Low, Medium, High) only trade resolution and filtering
+light → bloom → exposure and tone mapping → grade → paper finish. Lighting and
+grade controls retain their defaults; the faint paper finish applies only to the
+map, after grading. Quality tiers (Low, Medium, High) only trade resolution and filtering
 for speed and never hide a control. **Off** is the direct draw: no passes, CSS
 filter restored. If a device cannot compile the graph, the viewer falls back
 to the direct draw on its own and the panel says so.
@@ -548,8 +550,11 @@ dives the screen-space occlusion stage remains the real contribution. Its reach
 is a screen size converted to world units each frame; indirect light remains
 limited to the perspective wreck camera.
 
-The sheet has four fixed, subtle folds, independent of semantic data and anchored
-to the map rather than the viewport. They are paper wear, not district boundaries.
+The sheet has no full-length fold bands. The coordinate grid supplies its structure.
+A faint, deterministic paper grain finishes the graded map image in the render
+pipeline. Its amplitude is independent of survey data; it never moves, distorts
+ink, or signals activity. Grain is screen-pixel sized, omitted from diagnostic
+stage views and wreck dives, and absent when post-processing is off or unavailable.
 Coast and grid ink repaint at viewport resolution with bounded screen widths;
 zoom must not enlarge a raster outline into a heavy border. Package pigment is a
 light wash into warm stock, leaving contrast for settlement and feature ink.

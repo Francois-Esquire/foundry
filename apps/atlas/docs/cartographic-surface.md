@@ -20,10 +20,12 @@ terrain. Adding more natural symbols did not address those problems.
   belongs together as a quiet base beneath explanatory information. Lighter
   package washes and bounded coast strokes let files retain the strongest ink.
 
-Four folds describe the sheet itself. They carry no codebase meaning. Their
-placement is stable in chart coordinates; they neither follow nor partition
-responsibilities. Fonts are bundled locally rather than relying on the absent
-design package named by the earlier record.
+The four full-sheet folds were rejected after visual review: their regular cross
+competed with the drawing. Fixed major coordinates and progressively revealed
+minor divisions now supply the sheet's structure. A faint, static grain finishes
+the graded map in post-processing, without displacement or creases. Direct draw
+stays clean when that pipeline is off. Fonts are bundled locally rather than
+relying on the absent design package named by the earlier record.
 
 ## What remains unresolved
 
