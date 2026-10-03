@@ -1,5 +1,6 @@
 import { contours } from "d3-contour";
 import { insidePolygons } from "../atmosphere";
+import { terrainContourLevels } from "../codex/bindings";
 import type { AtlasData, Polygon, Territory } from "../types";
 import type { InkView, MapLabel } from "./exploration";
 import { oceanField } from "./ocean";
@@ -90,12 +91,12 @@ function buildLandContours(
   });
   return contours()
     .size([width, height])
-    .thresholds([3, 6, 9, 12, 15])(field)
+    .thresholds(terrainContourLevels)(field)
     .flatMap((c) =>
       c.coordinates.flatMap((polygon) =>
         polygon.map((ring) => ({
           elevation: c.value,
-          major: c.value % 6 === 0,
+          major: terrainContourLevels.indexOf(c.value) % 2 === 1,
           opacity: 1,
           points: ring.map(([x = 0, y = 0]): [number, number] => [
             p.x + left + x * cell,

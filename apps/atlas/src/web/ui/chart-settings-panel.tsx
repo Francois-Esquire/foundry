@@ -278,10 +278,10 @@ export function ChartSettingsPanel({
           <span>Recorded change · evidence in Place</span>
         </label>
         <p>
-          Inside an island, crests follow concentration and structural
-          importance. Unresolved belonging is marsh. Streams draw the imports
-          between districts and meet at composition junctions. Recorded change
-          dates and counts are in Place.
+          Inside an island, neighborhoods share levels based on average incoming
+          imports per file. Unresolved belonging is marsh. Streams draw the
+          imports between districts and meet at composition junctions. Recorded
+          change dates and counts are in Place.
         </p>
       </details>
       <details>

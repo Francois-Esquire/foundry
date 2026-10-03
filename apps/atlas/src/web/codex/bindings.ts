@@ -109,40 +109,30 @@ export function changeCrater(commits: number, percentile: number) {
   return commits >= 3 && percentile >= 0.8;
 }
 
-/** Local mass and incoming imports shape relief, independently of recorded change. */
-export function terrainProminence(neighbors: number, dependents: number) {
-  const concentration = 0.15 + 1.05 * (1 - Math.exp(-neighbors / 8));
-  const importance = Math.min(10, 0.5 * Math.log2(1 + dependents) ** 1.7);
-  return Math.max(concentration, importance);
+/** Mean incoming imports per neighborhood member set a shared two-unit level. */
+export function neighborhoodElevation(meanImports: number) {
+  return 0.6 + 2 * Math.min(4, Math.round(Math.log2(1 + meanImports)));
 }
 
-/** Compact rounded crest: horizontal tangents at the summit and the shoreward foot. */
-export function ridgeProfile(
-  distance: number,
-  reach: number,
-  elevation: number
-) {
-  const q = Math.max(0, Math.min(1, distance / reach));
-  return elevation * (1 - q) ** 4 * (1 + 4 * q);
+/** Broad support interpolates group levels; normalization prevents density bumps. */
+export function terrainSupport(distanceSquared: number) {
+  return Math.max(0, 1 - distanceSquared / (42 * 42)) ** 3;
 }
 
-/** Each crest fits inside its own coast clearance, leaving the coast on the sheet. */
-export function ridgeFoot(
-  elevation: number,
-  clearance: number,
-  stretch: number
-) {
-  const reach = Math.max(
-    0.01,
-    Math.min(14 + elevation * 1.6, (clearance * 0.95) / stretch)
-  );
-  return { elevation: Math.min(elevation, reach * 0.4), reach };
+/** Broad level ground with rounded ramps between two-unit shelves. */
+export function shelfBlend(total: number, weight: number) {
+  const elevation = (total + 0.6 * 0.02) / (weight + 0.02);
+  const level = Math.max(0, (elevation - 0.6) / 2);
+  const whole = Math.floor(level);
+  const t = Math.max(0, Math.min(1, (level - whole - 0.2) / 0.6));
+  return 0.6 + 2 * (whole + t * t * (3 - 2 * t));
 }
 
-export function terrainNeighborhood(distance: number) {
-  return Math.max(0, 1 - distance / 24) ** 2;
+/** A ten-unit shoreward ramp keeps land attached to the original coastline. */
+export function shoreRamp(clearance: number) {
+  const t = Math.max(0, Math.min(1, clearance / 10));
+  return t * t * (3 - 2 * t);
 }
 
-export function ridgeStretch(spread: number, variance: number) {
-  return 1 + Math.min(0.8, spread / Math.max(1, variance));
-}
+/** Contours between shared shelf levels; every second contour is emphasized. */
+export const terrainContourLevels = [2, 4, 6, 8];

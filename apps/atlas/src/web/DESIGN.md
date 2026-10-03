@@ -142,24 +142,27 @@ their marks remain legible; pan and zoom still reach the full atlas.
 
 Three.js uses an orthographic camera with a fixed 0.7-radian tilt. Coastlines
 remain unchanged while a triangulated surface rises from a 0.4-unit shoreline.
-Height expresses file concentration and measured structural importance, never
-quality or live activity. Low concentration relief leaves quiet flats. Incoming
-module imports raise rounded crests on a bounded logarithmic scale. Loading
-internals does not change elevation. Local file covariance stretches each crest
-along its neighborhood. The surface takes the upper envelope of compact crests, leaving
-saddles between them instead of summing them into a swollen island. Each crest
-fits within its own coastline clearance and tapers to the sheet independently.
-The compact profile has a horizontal tangent at its summit and foot, removing
-needle tips without lifting the surrounding flats. Elevation continues to mean
-structural centrality; it does not classify files as user-facing.
-Normals and concavity derive from the same field. No terrain noise, stacked
-contours or peak icons are added. File placement and coastline XY stay fixed.
+Height expresses neighborhood structural centrality, never quality or live activity.
+The existing import/concept neighborhoods share levels based on mean incoming
+module imports per member: 0.6 plus two times the rounded base-two logarithm of
+one plus that mean, capped at 8.6 units. Ungrouped files stay on low ground.
+Member positions define broad 42-unit blending support; normalized weights avoid
+raising a peak for each file or for greater local density. Shared shelves have
+rounded transitions and descend over ten units to the original shoreline.
+A weak low-ground background makes isolated support fade continuously.
+The field is sampled once on a fixed three-unit grid and interpolated cubically;
+the fixed three-unit mesh does not change with zoom. Normals use a three-unit
+span to keep slope shading continuous. Commons and junction roles remain in Place
+and do not change the terrain when their evidence arrives. File placement and
+coastline XY stay fixed. No terrain noise, peak icons or activity elevation are added.
+A fine coast cut and pale inner paper edge retain definition without screen-space
+occlusion.
 
 Cartographic ink and pointer hits share the displaced relief mesh. Lettering
 uses raised anchors on a separate overlay so glyphs remain undistorted; label
 collision and hit bounds use those projected positions. File label heights are
 cached per immutable terrain field and file position, so camera movement does
-not resample every crest for every label. Sea ink remains flat. Terrain pointer
+not resample terrain for every label. Sea ink remains flat. Terrain pointer
 hits use an eight-unit grid of projected mesh triangles for the fixed camera,
 then exact barycentric intersection within the relevant bin. The index rebuilds
 only when that terrain changes; it does not approximate the picked surface.
@@ -187,9 +190,8 @@ The sea grid stops at land, preventing a second flat line across a hill.
 File and declaration connections still require an explicit trace.
 
 Engraved topography is generated from the current height and distance fields.
-Land levels at 3, 6, 9, 12 and 15 units use one-unit sampling; their ink follows
-the mesh. Land contours and hachures refresh when structural or change evidence
-changes the relief. Seven coastal rings sit 2, 3.5, 5.5, 8,
+Land levels at 2, 4, 6 and 8 units use one-unit sampling; their ink follows
+the mesh. Land contours and hachures are built once with the survey terrain. Seven coastal rings sit 2, 3.5, 5.5, 8,
 11.5, 15.5 and 20 units from land. Seven outer rings sit 3, 4.5, 6.5, 9.5, 13, 17
 and 22 units beyond the archipelago rim. Their spacing increases and ink fades
 outward; the coastal reach stays capped at 20 units. A finer 1280-pixel distance

@@ -46,9 +46,10 @@ export function MapKey({
         </div>
       </dl>
       <p>
-        Low ground follows file concentration. Stronger crests mark incoming
-        imports. Commons and composition junctions are identified in Place. File
-        marks stay visible on the relief. Height is not a quality score.
+        Neighborhoods share levels based on average incoming imports per file.
+        Rounded slopes join their levels; ungrouped files stay on low ground.
+        Commons and composition junctions are identified in Place. Height is not
+        a quality score.
         {volcanic
           ? " Recorded Git change counts and dates are in Place."
           : " Recorded change is off."}{" "}

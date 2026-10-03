@@ -205,3 +205,29 @@ captures at overview, island, district and file scales are in `.cache/shots/clea
 all visual runs reported zero console errors. The captures retain the existing
 coasts and file positions. The remaining individual file crests and weak shore
 contrast are not a completed visual redesign.
+
+
+### Shared neighborhood levels
+
+Individual file crests have been replaced with shared import/concept-neighborhood
+levels. Mean incoming imports per member sets the level; normalized spatial
+weights interpolate it without raising a hill for each file. Rounded shelf
+transitions and an exact coast mask keep the relief attached to the surveyed
+land. The field is sampled once, with cubic interpolation for smooth shading.
+The mesh now uses a fixed three-unit tessellation, independent of camera zoom.
+The live survey has 59,341 terrain triangles, down from 206,062, a 71% reduction.
+Coast ink has a fine dark cut and a pale inner paper edge that survives low-tier
+post-processing. The key and design record explain the changed height meaning.
+
+Isolated Retina cold sweeps: Atlas 18.0 ms p95 / 76.8 ms maximum, Quirks 17.9 ms
+p95 / 52.8 ms maximum. Both pass the existing interaction budget; these headless
+runs do not prove 120 FPS. Atlas still recorded 65 ms and 71 ms main-thread long
+tasks; Quirks recorded none. Four-scale visual captures for both islands are in
+`.cache/shots/shelves-final-*`, compared against `cleanup-after-*`. They report
+zero console errors. Keyboard search/Enter selected `reference-internals.ts` and
+the polite live region announced its path, kind and import counts. The shared
+terrain makes file marks clearer; close-up labels remain dense and the overall
+paper/sea color still needs judgment in the real viewport.
+
+Validation: `bun run validate` passed; `bun x vitest run` passed 1,401 tests in
+108 files. The updated key also fits the 390-pixel mobile viewport.

@@ -1,6 +1,5 @@
 import { Mesh, MeshBasicMaterial, Raycaster, Vector3 } from "three";
 import { expect, it } from "vitest";
-import { ridgeProfile } from "../../src/web/codex/bindings";
 import {
   createLabelProjector,
   elevatedLabel,
@@ -46,22 +45,43 @@ const territory: Territory = {
   y: 0,
 };
 
-it("gives a depended-on file a stronger crest without lifting the coast or moving files", () => {
-  const before = structuredClone(territory);
-  const terrain = createTerrainField(territory);
-  const quiet = createTerrainField({
+it("gives a neighborhood shared level ground without separate file summits", () => {
+  const grouped = {
     ...territory,
-    files: [{ ...file, incoming: 0 }],
+    files: [
+      { ...file, id: "a", x: -12 },
+      { ...file, id: "b", x: 12 },
+    ],
+    neighborhoods: [
+      {
+        id: "group",
+        imports: 20,
+        label: "Shared",
+        members: ["a", "b"],
+        sharedConcepts: 0,
+      },
+    ],
+  };
+  const before = structuredClone(grouped);
+  const terrain = createTerrainField(grouped);
+  const quiet = createTerrainField({
+    ...grouped,
+    files: grouped.files.map((member) => ({ ...member, incoming: 0 })),
   });
-  expect(terrain.sample(0, 0).elevation).toBeGreaterThan(
-    quiet.sample(0, 0).elevation * 3
+  expect(terrain.sample(-12, 0).elevation).toBeCloseTo(
+    terrain.sample(12, 0).elevation,
+    4
+  );
+  expect(terrain.sample(0, 0).elevation).toBeCloseTo(
+    terrain.sample(12, 0).elevation,
+    4
   );
   expect(terrain.sample(0, 0).elevation).toBeGreaterThan(
-    terrain.sample(5, 0).elevation
+    quiet.sample(0, 0).elevation
   );
-  expect(terrain.sample(40, 0).elevation).toBe(0);
-  expect(terrain.sample(50, 0).elevation).toBe(0);
-  expect(territory).toEqual(before);
+  expect(terrain.sample(50, 0).elevation).toBeLessThan(0.05);
+  expect(terrain.sample(60, 0).elevation).toBe(0);
+  expect(grouped).toEqual(before);
 });
 
 it("raises label anchors without distorting their type or click bounds", () => {
@@ -86,38 +106,16 @@ it("raises label anchors without distorting their type or click bounds", () => {
   expect(label.y).toBe(-4);
 });
 
-it("darkens the saddle between two crests while keeping their summits clear", () => {
-  const pair = {
-    ...territory,
-    files: [
-      { ...file, id: "west", x: -8 },
-      { ...file, id: "east", x: 8 },
-    ],
-  };
-  const [coast] = pair.coast;
-  if (!coast) {
-    throw new Error("Missing fixture coast");
-  }
-  const geometry = terrainGeometry(pair, coast, 100, 100);
-  const positions = geometry.getAttribute("position");
-  const shade = geometry.getAttribute("occlusion");
-  const at = (x: number) => {
-    let nearest = 0;
-    let distance = Number.POSITIVE_INFINITY;
-    for (let index = 0; index < positions.count; index += 1) {
-      const next = Math.hypot(positions.getX(index) - x, positions.getY(index));
-      if (next < distance) {
-        nearest = index;
-        distance = next;
-      }
-    }
-    return shade.getX(nearest);
-  };
-  expect(at(0)).toBeGreaterThan(0.2);
-  expect(at(-8)).toBeLessThan(0.05);
-  expect(at(8)).toBeLessThan(0.05);
-  expect(shade.count).toBe(positions.count);
-  geometry.dispose();
+it("keeps ungrouped files on low ground regardless of their individual import counts", () => {
+  const terrain = createTerrainField(territory);
+  expect(terrain.sample(0, 0).elevation).toBeCloseTo(0.6);
+  expect(terrain.sample(12, 0).elevation).toBeCloseTo(0.6);
+  expect(terrain.sample(0, 0)).toEqual(
+    createTerrainField({
+      ...territory,
+      files: [{ ...file, incoming: 0 }],
+    }).sample(0, 0)
+  );
 });
 
 it("finds the same terrain triangle as a full raycast, including coast misses", () => {
@@ -178,35 +176,4 @@ it("samples a file label once across camera changes and refreshes after terrain 
   expect(samples).toBe(2);
   project({ ...label, file: { ...file, x: 4 } });
   expect(samples).toBe(3);
-});
-
-it("rounds the crest and foot without flattening the elevation signal", () => {
-  const epsilon = 0.000_01;
-  expect(ridgeProfile(0, 1, 6)).toBe(6);
-  expect(
-    (ridgeProfile(0, 1, 1) - ridgeProfile(epsilon, 1, 1)) / epsilon
-  ).toBeLessThan(0.001);
-  expect(ridgeProfile(1 - epsilon, 1, 1) / epsilon).toBeLessThan(0.001);
-  expect(ridgeProfile(1, 1, 6)).toBe(0);
-});
-
-it("preserves the terrain across ridge overlaps, empty ground and negative coordinates", () => {
-  const clustered = {
-    ...territory,
-    files: Array.from({ length: 12 }, (_, index) => ({
-      ...file,
-      id: `file-${index}`,
-      incoming: index * 3,
-      x: (index % 4) * 17 - 28,
-      y: Math.floor(index / 4) * 13 - 21,
-    })),
-  };
-  const field = createTerrainField(clustered);
-  const samples: number[] = [];
-  for (let y = -60; y <= 60; y += 13) {
-    for (let x = -60; x <= 60; x += 11) {
-      samples.push(Number(field.sample(x, y).elevation.toFixed(8)));
-    }
-  }
-  expect(samples).toMatchSnapshot();
 });

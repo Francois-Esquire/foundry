@@ -29,7 +29,7 @@ export function terrainGeometry(
     shape.holes.push(new Path(hole));
   }
   const base = new ShapeGeometry(shape);
-  const triangles = new TessellateModifier(1.5, 18).modify(base);
+  const triangles = new TessellateModifier(3, 16).modify(base);
   base.dispose();
   triangles.deleteAttribute("normal");
   const geometry = mergeVertices(triangles);

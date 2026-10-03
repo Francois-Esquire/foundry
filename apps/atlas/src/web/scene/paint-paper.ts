@@ -66,8 +66,15 @@ export function paintCoastInk(
     }
   }
   ctx.lineJoin = "round";
-  ctx.strokeStyle = selected ? "#875222b0" : "#655f4d90";
-  ctx.lineWidth = (selected ? 1.15 : 0.7) / pixels;
+  // The pale inner edge and fine cut line survive changes in screen-space AO.
+  ctx.save();
+  ctx.clip("evenodd");
+  ctx.strokeStyle = "#fff4d5c0";
+  ctx.lineWidth = 3 / pixels;
+  ctx.stroke();
+  ctx.restore();
+  ctx.strokeStyle = selected ? "#875222cc" : "#62533db0";
+  ctx.lineWidth = (selected ? 1.25 : 0.9) / pixels;
   ctx.stroke();
   ctx.restore();
 }

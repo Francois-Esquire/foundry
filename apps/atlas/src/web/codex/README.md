@@ -50,11 +50,11 @@ missing history never becomes a zero count.
 | ---------------------- | --------------------------------------------- | --------------------- | ------------------------------- |
 | `prominentFile` | Incoming imports and fraction of package files with strictly fewer | Structural evidence index at >=5 imports and >=95th percentile | `landmarks.ts` |
 | `changeCrater` | Commits and repository same-kind commit percentile in the recorded window | Recorded-change index at >=3 commits and >=80th percentile | `landmarks.ts` |
-| `terrainProminence` | Local file mass and incoming module imports | Quiet concentration relief (up to 1.2 units); import prominence up to 10 | `scene/terrain-field.ts` |
-| `terrainNeighborhood` | Distance between real files | Compact 24-unit neighborhood weight for mass and covariance | `scene/terrain-field.ts` |
-| `ridgeStretch` | Neighborhood covariance spread and variance | Crest elongation from 1 to 1.8 | `scene/terrain-field.ts` |
-| `ridgeFoot` | Prominence, coast clearance and elongation | Individual shore-fitting footprint and bounded slope | `scene/terrain-field.ts` |
-| `ridgeProfile` | Elliptical distance, footprint and prominence | Rounded compact profile `(1−q)^4·(1+4q)`, with horizontal summit/foot tangents; combined by maximum | `scene/terrain-field.ts` |
+| `neighborhoodElevation` | Mean incoming imports per member of an import/concept neighborhood | Shared levels: `0.6 + 2 × min(4, round(log₂(1 + mean)))`; ungrouped files stay at 0.6 | `scene/terrain-field.ts` |
+| `terrainSupport` | Distance to measured neighborhood members | Compact 42-unit blending support; normalized weights prevent density peaks | `scene/terrain-field.ts` |
+| `shelfBlend` | Weighted neighborhood heights, with a 0.02 low-ground background | Two-unit shelves with rounded transitions across the middle 60% of each interval | `scene/terrain-field.ts` |
+| `terrainContourLevels` | Shared elevation scale | Optional contours at 2, 4, 6 and 8 units; every second line emphasized | `scene/topography.ts` |
+| `shoreRamp` | Clearance from the unchanged coast | Smooth ten-unit descent to the shoreline | `scene/terrain-field.ts` |
 | `chartGrid` | View pixels per map unit | Fixed 90-unit majors and 18-unit minor lines; minor opacity fades in at 30–60 screen pixels of spacing | `scene/paint-paper.ts` |
 | `footprint`            | Package size                                  | island radius         | `load-atlas.ts`                 |
 | `latitude`             | Package layer                                 | north/south position  | `load-atlas.ts`, `geography.ts` |

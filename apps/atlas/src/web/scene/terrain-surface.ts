@@ -22,16 +22,16 @@ export function sampleTerrainSurface(
     const y = -(positions[offset + 1] ?? 0) - origin.y;
     const sample = field.sample(x, y);
     positions[offset + 2] = thickness + sample.elevation;
-    const east = field.sample(x + 0.5, y).elevation;
-    const west = field.sample(x - 0.5, y).elevation;
-    const south = field.sample(x, y + 0.5).elevation;
-    const north = field.sample(x, y - 0.5).elevation;
+    const east = field.sample(x + 1.5, y).elevation;
+    const west = field.sample(x - 1.5, y).elevation;
+    const south = field.sample(x, y + 1.5).elevation;
+    const north = field.sample(x, y - 1.5).elevation;
     occlusion[index] = Math.max(
       0,
       Math.min(1, ((east + west + south + north) / 4 - sample.elevation) * 4)
     );
-    const dx = west - east;
-    const dy = south - north;
+    const dx = (west - east) / 3;
+    const dy = (south - north) / 3;
     const length = Math.sqrt(dx * dx + dy * dy + 1);
     normals[offset] = dx / length;
     normals[offset + 1] = dy / length;
