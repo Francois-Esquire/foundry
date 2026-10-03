@@ -109,14 +109,15 @@ function context() {
 }
 
 describe("natural feature drawing", () => {
-  it("always draws landmarks and marsh, and streams with confluences only as a layer", () => {
+  it("draws marsh ink and adds streams only as a layer", () => {
     const quiet = context();
     paintNaturalFeatures(
       quiet as unknown as CanvasRenderingContext2D,
       features,
       { pixels: 2, streams: false, strength: 1 }
     );
-    expect(quiet.fill.mock.calls.length).toBeGreaterThan(0);
+    expect(quiet.stroke.mock.calls.length).toBeGreaterThan(0);
+    expect(quiet.fill).not.toHaveBeenCalled();
 
     const flowing = context();
     paintNaturalFeatures(
@@ -165,7 +166,7 @@ describe("natural feature drawing", () => {
     expect(hidden.save).not.toHaveBeenCalled();
   });
 
-  it("keeps landmarks through file zoom and replaces the landmark file's own mark", () => {
+  it("keeps every file mark and its selection ring visible with terrain evidence", () => {
     const territory: Territory = {
       analyzed: true,
       coast: [],
@@ -216,13 +217,11 @@ describe("natural feature drawing", () => {
     };
     const plain = paint(false),
       drawn = paint(true);
-    expect(drawn.fill.mock.calls.length).toBeGreaterThan(
-      plain.fill.mock.calls.length
-    );
+
     const marks = (ctx: ReturnType<typeof context>) =>
       ctx.fillRect.mock.calls.filter(([x]) => Math.abs(Number(x) + 20) < 2);
     expect(marks(plain).length).toBeGreaterThan(0);
-    expect(marks(drawn)).toHaveLength(0);
+    expect(marks(drawn)).toEqual(marks(plain));
     const ring = paint(true, "commons").arc.mock.calls.filter(
       ([x, y, radius]) => x === 0 && y === 0 && Number(radius) === 9 / 6
     );

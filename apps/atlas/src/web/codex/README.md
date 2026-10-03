@@ -48,9 +48,10 @@ missing history never becomes a zero count.
 
 | Binding                | Codex input                                   | Channel               | Used in                         |
 | ---------------------- | --------------------------------------------- | --------------------- | ------------------------------- |
-| `prominentFile` | Incoming imports and fraction of package files with strictly fewer | Hub summit at >=5 imports and >=95th percentile | `landmarks.ts` |
-| `changeCrater` | Commits and repository same-kind commit percentile in the recorded window | Crater at >=3 commits and >=80th percentile | `landmarks.ts` |
-| `craterAperture` | Recorded commits | Bounded logarithmic crater opening | `scene/paint-landmarks.ts` |
+| `prominentFile` | Incoming imports and fraction of package files with strictly fewer | Structural evidence index at >=5 imports and >=95th percentile | `landmarks.ts` |
+| `changeCrater` | Commits and repository same-kind commit percentile in the recorded window | Recorded-change index at >=3 commits and >=80th percentile | `landmarks.ts` |
+| `concentrationSample` | Distance from a real file | Broad Gaussian and compact local concentration kernels | `scene/terrain.ts` |
+| `concentrationRelief` | Broad and local file concentration | Bounded 6-unit foothills plus 12-unit crests | `scene/terrain.ts` |
 | `chartGrid` | View pixels per map unit | Fixed 90-unit majors and 18-unit minor lines; minor opacity fades in at 30–60 screen pixels of spacing | `scene/paint-paper.ts` |
 | `footprint`            | Package size                                  | island radius         | `load-atlas.ts`                 |
 | `latitude`             | Package layer                                 | north/south position  | `load-atlas.ts`, `geography.ts` |
@@ -63,7 +64,7 @@ missing history never becomes a zero count.
 | `roadWidth`            | Dependency strength, merged per road          | road width            | `scene/road-layer.ts`                 |
 | `currentStrength`      | cross-package imports between two packages    | sea current           | `current-field.ts`              |
 | `districtAffinity`     | responsibility link module edges, symbol flow | district grouping     | `hierarchy.ts`                  |
-| `landmarkRadius`           | Module dependents, for a structural landmark       | summit footprint radius           | `landmarks.ts`           |
+| `landmarkRadius`           | Module dependents, for a structural landmark       | bounded inspection footprint           | `landmarks.ts`           |
 | `streamWidth`          | responsibility link module edges, accumulated on shared runs | stream width | `natural-features.ts`, `river-network.ts`           |
 | `marshDetail` | Unresolved module count and zoom | reed opacity and screen spacing | `scene/paint-features.ts` |
 | `riverPen` | Bound stream width and zoom | mineral river pen width | `scene/paint-features.ts` |

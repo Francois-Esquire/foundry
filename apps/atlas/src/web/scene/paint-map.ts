@@ -391,25 +391,13 @@ function paintMapP(
   belonging: BelongingLayer | null,
   activeRegion: BelongingRegion | undefined
 ) {
-  const landmarks = new Set(
-    belonging?.features?.landmarks.map((landmark) => landmark.file.id) ?? []
-  );
   for (const p of data.territories) {
     ctx.save();
     ctx.translate(p.x, p.y);
     const members = p.neighborhoods.find(
       (n) => n.id === neighborhoodId
     )?.members;
-    paintMapPF(
-      p,
-      detail,
-      ctx,
-      selected,
-      members,
-      evidenceFiles,
-      pixels,
-      p.id === belonging?.territory.id ? landmarks : undefined
-    );
+    paintMapPF(p, detail, ctx, selected, members, evidenceFiles, pixels);
     paintExactMembers(ctx, p, belonging, activeRegion, detail, pixels);
     ctx.restore();
   }
@@ -459,13 +447,10 @@ function paintMapPF(
   selected: string | null,
   members: string[] | undefined,
   evidenceFiles: Set<string> | undefined,
-  pixels: number,
-  landmarks?: Set<string>
+  pixels: number
 ) {
   for (const f of p.files) {
-    // A landmark stands in for its file's speck and mark; selection still rings it.
-    const landmark = landmarks?.has(f.id) ?? false;
-    if (detail.specks > 0 && !landmark) {
+    if (detail.specks > 0) {
       ctx.globalAlpha = detail.specks;
       ctx.fillStyle = settlementColor(f.kind);
       ctx.fillRect(f.x - 0.9, f.y - 1.35, 1.8, 2.7);
@@ -483,9 +468,7 @@ function paintMapPF(
     ctx.strokeStyle = ctx.fillStyle;
     const size = filePen(pixels);
     ctx.lineWidth = Math.min(0.45, 1 / pixels);
-    if (!landmark) {
-      paintMapPFEntries(f, ctx, size);
-    }
+    paintMapPFEntries(f, ctx, size);
   }
 }
 
@@ -811,7 +794,7 @@ function paintLand(
   ctx.fill("evenodd");
   // Pigment is a wash into warm stock; relief supplies the landform.
   ctx.fillStyle = "#f1ead9";
-  ctx.globalAlpha = 0.34;
+  ctx.globalAlpha = 0.48;
   ctx.fill("evenodd");
   ctx.globalAlpha = 1;
   ctx.restore();

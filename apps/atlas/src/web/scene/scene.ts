@@ -111,9 +111,9 @@ export async function createAtlasScene(
   // may render before the backend is ready.
   await renderer.init();
   const scene = new Scene();
-  scene.add(new AmbientLight("#ffffff", 1.65));
-  const light = new DirectionalLight("#fffaf4", 2);
-  light.position.set(-600, 700, 1100);
+  scene.add(new AmbientLight("#ffffff", 1.05));
+  const light = new DirectionalLight("#fffaf4", 2.7);
+  light.position.set(-600, 700, 700);
   light.castShadow = true;
   light.shadow.mapSize.set(2048, 2048);
   const shadowSpan = Math.max(data.width, data.height) * 0.75;

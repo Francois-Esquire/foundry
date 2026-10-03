@@ -275,10 +275,10 @@ export function ChartSettingsPanel({
             onChange={handleVolcanic}
             type="checkbox"
           />
-          <span>Recorded change · craters and volcanoes</span>
+          <span>Recorded change evidence</span>
         </label>
         <p>
-          Inside an island, structural landmarks are summits and unresolved
+          Inside an island, terrain follows file concentration and unresolved
           belonging is marsh. Streams draw the imports between districts and
           meet at composition junctions.
         </p>

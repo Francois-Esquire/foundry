@@ -9,6 +9,7 @@ import {
 } from "three";
 import { TessellateModifier } from "three/addons/modifiers/TessellateModifier.js";
 import { mergeVertices } from "three/addons/utils/BufferGeometryUtils.js";
+import { concentrationRelief, concentrationSample } from "../codex/bindings";
 import type { Polygon, Territory } from "../types";
 import { paperThickness } from "./paper-material";
 
@@ -40,12 +41,15 @@ export function terrainHeight(p: Territory, x: number, y: number): number {
   }
   const shore = Math.min(1, distance / 28);
   const taper = shore * shore * (3 - 2 * shore);
-  const density = p.files.reduce(
-    (sum, f) =>
-      sum + Math.exp(-((x - f.x) ** 2 + (y - f.y) ** 2) / (2 * 22 ** 2)),
-    0
-  );
-  return paperThickness + 18 * (1 - Math.exp(-density / 40)) * taper;
+  let broad = 0;
+  let local = 0;
+  for (const file of p.files) {
+    const squared = (x - file.x) ** 2 + (y - file.y) ** 2;
+    const sample = concentrationSample(squared);
+    broad += sample.broad;
+    local += sample.local;
+  }
+  return paperThickness + concentrationRelief(broad, local) * taper;
 }
 
 export function terrainGeometry(

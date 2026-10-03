@@ -142,9 +142,11 @@ their marks remain legible; pan and zoom still reach the full atlas.
 
 Three.js uses an orthographic camera with a fixed 0.7-radian tilt. Coastlines
 remain unchanged while a triangulated surface rises from a 0.4-unit shoreline.
-A Gaussian file-density field with 22-unit bandwidth controls height, bounded
-below 18 additional units. Smooth coastal taper spans 28 units. Analytic slope
-normals smooth the lighting across triangles. There are no stacked contours.
+File concentration controls height at two scales. A 22-unit Gaussian field
+supplies up to 6 units of broad relief; a compact 16-unit kernel supplies up to
+12 units of local crests. This reduces the inflated broad mound while resolving
+nearby file groups in the actual mesh. Coastal taper still spans 28 units.
+Normals derive from that field. There are no stacked contours or peak icons.
 Height means concentration, never quality or activity. File placement stays fixed.
 Cartographic ink stays on its original overlay plane, rendered above terrain.
 
@@ -156,7 +158,7 @@ roles remain unclassified. File specks remain visible across every island at
 overview, recede to 20% as regions take focus, then give way to full file marks
 between 3 and 5 pixels per map unit. File marks stay visible at closer zoom.
 
-Matte mineral pigments retain quiet flats beneath engraved relief. A 34% warm
+Matte mineral pigments retain quiet flats beneath engraved relief. A 48% warm
 stock wash leaves package pigments visible. The coordinate grid uses 90-unit
 major lines and 18-unit subdivisions, which fade in at 30–60 pixels of spacing.
 On land the grid is printed in world coordinates on the displaced mesh, so lines
@@ -326,21 +328,19 @@ remain disposable presentation data; temporal stability is not guaranteed.
   for the verification record and experiment limits.
 - Natural features draw an island's internal evidence on its own land, in
   island-local ink under the file marks. They need no connecting land. A
-  structural landmark is an engraved summit: a shared commons, composition
-  junction, or dependency hub. A hub has at least 5 incoming module imports and
+  file's structural evidence remains inspectable: shared commons, composition
+  junctions, and dependency hubs. A hub has at least 5 incoming module imports and
   at least 95% of this package's files have strictly fewer incoming imports.
-  The footprint radius is `min(6, 2 + 0.8 sqrt(incoming))`, shrunk to fit the
-  coast and neighboring files. One file gets one mark, without moving its anchor.
-  Summit silhouettes are symbols, not extra terrain elevation; the actual height
-  field still measures file concentration. Commons consumers remain inspectable.
+  The rejected summit and crater stamps are removed. Every file retains its own
+  visible mark and selection ring. Structural roles and consuming responsibilities
+  remain in Place and its keyboard index; they do not add an icon or extra height.
   A module with unresolved belonging is a marsh: a patch of
   reed signs around the file, with up to two dotted drains following land
   routes part of the way toward the districts it could join. Reeds vary
   slightly in lean and spacing, with screen-space thinning and lower opacity
   on crowded islands. Drains appear at file scale; there is no blanket marsh
-  wash. Every unresolved module remains in the feature index. Summits and marsh
-  always draw with
-  the districts and stay through file zoom, receding under composition.
+  wash. Every unresolved module remains in the feature index. Marsh draws with
+  the districts and stays through file zoom, receding under composition.
   Marsh means undecided, not defective.
 - District streams are an optional layer, off initially, under Experimental
   layers. Each recorded relationship between two responsibilities is one
@@ -365,11 +365,11 @@ remain disposable presentation data; temporal stability is not guaranteed.
   drawing, not a hydraulic simulation or an exhaustive planar embedding.
   Streams aggregate at district level: selecting a
   responsibility still does not draw its file graph, and nothing animates.
-  A small open spring sign marks a recorded supplier endpoint unless a summit
+  A small open spring sign marks a recorded supplier endpoint unless a structural file mark
   already marks it. Muted banks replace the bright casing around each line.
-- A collapsed Map key sits on the paper at the lower left. It explains summits, recorded-change craters, district streams and unresolved marsh without implying quality.
+- A collapsed Map key sits on the paper at the lower left. It explains district streams, unresolved marsh, and concentration relief without implying quality.
   Feature hover and selection report in Place and the polite live region.
-  Summit inspection lists its structural role and measured consuming responsibilities. River
+  File inspection lists its structural role and measured consuming responsibilities. River
   inspection states import direction, module edges, contributing relationships
   on shared trunks and dominant crossing symbols. An independent, collapsed
   feature index provides the same destinations by keyboard, including streams
@@ -536,23 +536,22 @@ failure also falls back to direct draw and is disclosed in the panel.
 
 Land uses a rough, nonmetallic lit paper material under warm northwest light.
 No land cast shadows are added. Concavity still comes from fixed-radius samples
-of the unchanged concentration field. Hachures appear only above slope 0.24,
+of the concentration field. Hachures appear only above slope 0.24,
 leaving gentle flats clear. There are no full-sheet fold bands or screen grain.
 Fine fibers and faint broad stock variation are stationary world-coordinate
 material texture, shared by land and sea. They fade when too small to resolve,
 never distort geometry, and never encode activity. Post-processing grades the
 finished drawing; material texture also works in direct draw.
 
-Recorded change is an optional layer, off initially. It reads the same survey's
-package churn report only when enabled, matched by exact workspace-relative file path. A crater
-requires at least 3 commits and a commit percentile >= 0.8 among repository
-files of the same kind in the same history window. A structural summit with
-that evidence becomes a volcano; other qualifying files get low craters.
-Crater aperture is `radius * min(0.48, 0.2 + 0.06 log2(1 + commits))`.
-Terracotta pigment is static, never amber focus ink, an eruption, a defect, or
-live agent activity. No history means no inferred crater. Place states counts,
-line additions/deletions, dates, percentile population, and complete/partial Git
-history. Turning the layer off removes its marks and inspection targets.
+Recorded change evidence is optional, off initially. It reads the same survey's
+package churn report only when enabled, matched by exact workspace-relative file
+path. The index includes files with at least 3 commits and a commit percentile
+>= 0.8 among repository files of the same kind in the same history window.
+The rejected crater/volcano icons are removed. Counts, line additions/deletions,
+dates, percentile population, and complete/partial Git history remain in Place.
+No history means no inferred count. Structural peaks and churn depressions in
+the mesh require a separate decision about the height channel; the current
+terrain still represents concentration only.
 
 Sliders are uniforms and change nothing in the graph; quality, toggles, tone
 mapping, filter, and stage view rebuild it. Stage modules load on first use.

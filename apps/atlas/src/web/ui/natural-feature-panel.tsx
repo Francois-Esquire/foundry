@@ -51,7 +51,7 @@ export function NaturalFeaturePanel({
       <details>
         <summary>Explore natural features</summary>
         <p>
-          {features.landmarks.length} summits and change marks ·{" "}
+          {features.landmarks.length} structural and change records ·{" "}
           {features.marshes.length} unresolved modules ·{" "}
           {features.streams.length} mapped relationships
         </p>
@@ -65,7 +65,7 @@ export function NaturalFeaturePanel({
                 territory,
               }}
             >
-              {item.kind} · {item.file.path}
+              {item.file.path}
             </PlaceButton>
           ))}
           {features.streams.map((stream) => (
@@ -110,10 +110,8 @@ function FeatureEvidence({
       {feature.kind === "landmark" && (
         <>
           <p>
-            The fitted footprint leaves room for neighboring files. Summit size
-            follows incoming imports; crater size follows recorded commits.
-            These are engraved symbols, separate from the concentration height
-            field.
+            This evidence describes the file at its existing mark. Terrain
+            height follows file concentration.
           </p>
           <PlaceButton
             onSelect={onSelect}

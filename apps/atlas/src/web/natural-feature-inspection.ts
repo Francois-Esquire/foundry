@@ -56,24 +56,6 @@ function distanceToSegment(
   return Math.hypot(point.x - a.x - t * dx, point.y - a.y - t * dy);
 }
 
-function inside(point: FeaturePoint, polygon: FeaturePoint[]) {
-  let result = false;
-  for (let i = 0; i < polygon.length; i += 1) {
-    const j = (i + polygon.length - 1) % polygon.length;
-    const a = polygon[i],
-      b = polygon[j];
-    if (
-      a &&
-      b &&
-      a.y > point.y !== b.y > point.y &&
-      point.x < ((b.x - a.x) * (point.y - a.y)) / (b.y - a.y) + a.x
-    ) {
-      result = !result;
-    }
-  }
-  return result;
-}
-
 /** File and declaration hits take priority; this uses the same fitted drawing. */
 export function hitNaturalFeature(
   features: NaturalFeatures,
@@ -81,12 +63,6 @@ export function hitNaturalFeature(
   pixels: number,
   streams: boolean
 ): NaturalFeature | undefined {
-  const landmark = features.landmarks.find((item) =>
-    inside(point, item.footprint)
-  );
-  if (landmark) {
-    return { kind: "landmark", landmark };
-  }
   if (streams) {
     const river = features.rivers.find((run) =>
       run.points.some(
@@ -109,20 +85,17 @@ export function hitNaturalFeature(
 }
 
 function landmarkText(landmark: Landmark) {
-  const { file, consumers, role, change, kind } = landmark;
+  const { file, consumers, role, change } = landmark;
   const roles = {
     change: "Recorded change",
     commons: "Shared commons",
     dependents: "Dependency hub",
     junction: "Composition junction",
   };
-  const drawing = { crater: "Crater", summit: "Summit", volcano: "Volcano" }[
-    kind
-  ];
   const served = consumers.length
     ? ` Drawn on by ${consumers.map((item) => item.label).join(", ")}.`
     : "";
-  let detail = `${drawing} · ${roles[role]} · ${file.incoming} incoming imports.${served}`;
+  let detail = `${roles[role]} · ${file.incoming} incoming imports.${served}`;
   if (role === "dependents") {
     detail +=
       " At least 5 incoming imports and the 95th percentile or higher within this package.";

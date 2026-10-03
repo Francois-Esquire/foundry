@@ -109,7 +109,16 @@ export function changeCrater(commits: number, percentile: number) {
   return commits >= 3 && percentile >= 0.8;
 }
 
-/** Bounded crater aperture; logarithms keep a few large histories from dominating. */
-export function craterAperture(commits: number) {
-  return Math.min(0.48, 0.2 + 0.06 * Math.log2(1 + commits));
+/** Broad concentration supplies the foothills; local concentration resolves crests. */
+export function concentrationRelief(broad: number, local: number) {
+  return 6 * (1 - Math.exp(-broad / 40)) + 12 * (1 - Math.exp(-local / 5));
+}
+
+/** Evidence kernels at two spatial scales; neither introduces decorative noise. */
+export function concentrationSample(squaredDistance: number) {
+  const reach = Math.max(0, 1 - Math.sqrt(squaredDistance) / 16);
+  return {
+    broad: Math.exp(-squaredDistance / (2 * 22 ** 2)),
+    local: reach * reach,
+  };
 }

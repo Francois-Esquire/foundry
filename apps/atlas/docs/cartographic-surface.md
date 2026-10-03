@@ -25,12 +25,12 @@ presence. Grid ink now follows the actual relief mesh on land and stays flat on
 water. Warm lit material, a lighter stock wash, and stationary fibers replace the
 flat cool slope tint and pixel noise. Full-sheet folds remain removed.
 
-Shared commons now use fitted summit signs. Composition junctions and the most
-depended-on modules share that vocabulary, with the precise role in inspection.
-An optional recorded-change layer adds craters from dated Git churn evidence;
-craters on structural summits become volcanoes. These are engraved symbols over
-unchanged density relief, not a second height metric. See DESIGN.md for the
-thresholds, history population, and handling of unavailable evidence.
+The summit/crater stamps were also rejected. They added repeated clip-art shapes
+while leaving the underlying landform soft. They are removed, and every file
+keeps its original visible mark. The recovery concentrates on actual terrain:
+less broad elevation, compact crests from local file concentration, and a lower
+northwest light with less ambient fill. The coordinate grid follows that mesh.
+Structural roles and optional recorded Git change remain inspectable in Place.
 
 ## What remains unresolved
 
@@ -40,7 +40,7 @@ positions. Compatible mouths share trunks; omitted routes and their reasons
 remain visible in Place. Some surviving arcs still look like connections rather
 than tributaries. Streams remain optional and off initially.
 
-Stream banks and summit signs remain cartographic shading, not carved mesh depth.
+Stream banks remain cartographic shading, not carved mesh depth.
 Relief height still means concentration only. Commons normally supply consumers;
 streams retain that direction regardless of the landmark vocabulary.
 
@@ -50,7 +50,7 @@ moving the same construction into a dedicated worker. Cached coast checks help;
 the worker prevents that construction from blocking navigation, but does not
 remove total computation. A synchronous fallback remains for unavailable workers.
 
-The map key and keyboard feature index explain summits, recorded change, streams, and unresolved
-marsh. Hover/selection describes the same evidence in Place and the polite live
+The map key explains concentration relief, streams, and unresolved marsh.
+The keyboard index retains structural roles and recorded-change evidence. Hover/selection describes the same evidence in Place and the polite live
 region. The district chord chart, inland current, cycle signs, and physical basin
 mesh are deferred rather than added to an already dense surface.

@@ -368,11 +368,11 @@ function changeNote(evidence: NaturalEvidence): string | undefined {
     return;
   }
   if (!evidence.churn?.available) {
-    return "Recorded change unavailable for this survey; no craters inferred.";
+    return "Recorded change unavailable for this survey.";
   }
   const { history } = evidence.churn;
   const window = history.since
     ? `${history.since.slice(0, 10)} to ${history.analyzedAt.slice(0, 10)}`
     : `Full recorded history through ${history.analyzedAt.slice(0, 10)}`;
-  return `${window}. ${history.historyComplete ? "Complete Git history" : "Partial Git history"}. Craters require at least 3 commits and a commit percentile of 80% or higher among repository files of the same kind. Marks describe change, not defects or live activity.`;
+  return `${window}. ${history.historyComplete ? "Complete Git history" : "Partial Git history"}. The change index includes files with at least 3 commits and a commit percentile of 80% or higher among repository files of the same kind. Counts describe recorded change, not defects or live activity.`;
 }

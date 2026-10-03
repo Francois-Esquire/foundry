@@ -3,7 +3,6 @@ import { unit } from "../geography";
 import type { NaturalFeature } from "../natural-feature-inspection";
 import type { FeaturePoint, Marsh, NaturalFeatures } from "../natural-features";
 import type { RiverRun } from "../river-network";
-import { paintLandmarks } from "./paint-landmarks";
 
 const streamInk = "#537d78";
 const marshInk = "#697855";
@@ -190,7 +189,6 @@ export function paintNaturalFeatures(
   if (streams) {
     paintStreams(ctx, features.rivers, strength, pixels);
   }
-  paintLandmarks(ctx, features.landmarks, strength, pixels);
   if (streams) {
     paintSprings(ctx, features, strength, pixels);
   }

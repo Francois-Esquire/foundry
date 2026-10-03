@@ -334,7 +334,7 @@ describe("shared drainage", () => {
   });
 });
 
-it("fits a commons shore without covering a neighboring file and hits the fitted shape", () => {
+it("keeps role evidence while leaving file picking to the visible file marks", () => {
   const commons = file("commons", 0, 0, { architectureKind: "commons" });
   const neighbor = file("neighbor", 2, 0);
   const shore = landmarkFootprint(commons, 6, [commons, neighbor]);
@@ -358,9 +358,15 @@ it("fits a commons shore without covering a neighboring file and hits the fitted
     unrouted: 0,
   };
   const hit = hitNaturalFeature(features, commons, 6, false);
-  expect(hit?.kind).toBe("landmark");
+  expect(hit).toBeUndefined();
   expect(hitNaturalFeature(features, neighbor, 6, false)).toBeUndefined();
-  expect(hit && featureText(hit).detail).toContain("Drawn on by Reader");
+  const landmark = features.landmarks.at(0);
+  if (!landmark) {
+    throw new Error("Missing role evidence");
+  }
+  expect(featureText({ kind: "landmark", landmark }).detail).toContain(
+    "Drawn on by Reader"
+  );
 });
 
 it("never jumps a sub-grid water gap or routes off-land endpoints", () => {
