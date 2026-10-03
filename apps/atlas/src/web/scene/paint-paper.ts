@@ -1,9 +1,13 @@
 import { chartGrid } from "../codex/bindings";
-import type { Territory } from "../types";
+import type { AtlasData, Territory } from "../types";
 import type { InkView } from "./exploration";
 
 /** Coordinates stay fixed while minor divisions become legible with zoom. */
-export function paintChartGrid(ctx: CanvasRenderingContext2D, view: InkView) {
+export function paintChartGrid(
+  ctx: CanvasRenderingContext2D,
+  view: InkView,
+  data: AtlasData
+) {
   const { pixelsPerUnit: pixels } = view;
   const { majorStep, minorOpacity, minorStep } = chartGrid(pixels);
   const left = view.x - view.width / 2;
@@ -11,6 +15,11 @@ export function paintChartGrid(ctx: CanvasRenderingContext2D, view: InkView) {
   const right = left + view.width;
   const bottom = top + view.height;
   ctx.save();
+  // Sea ink stops at land; the same coordinates are printed on the relief mesh.
+  ctx.beginPath();
+  ctx.rect(left, top, view.width, view.height);
+  traceLand(ctx, data);
+  ctx.clip("evenodd");
   for (const { step, opacity, width } of [
     { opacity: minorOpacity, step: minorStep, width: 0.5 },
     { opacity: 0.3, step: majorStep, width: 0.7 },
@@ -61,4 +70,21 @@ export function paintCoastInk(
   ctx.lineWidth = (selected ? 1.15 : 0.7) / pixels;
   ctx.stroke();
   ctx.restore();
+}
+
+function traceLand(ctx: CanvasRenderingContext2D, data: AtlasData) {
+  for (const territory of data.territories) {
+    for (const polygon of territory.coast) {
+      for (const ring of polygon) {
+        for (const [index, [x, y]] of ring.entries()) {
+          if (index) {
+            ctx.lineTo(x + territory.x, y + territory.y);
+          } else {
+            ctx.moveTo(x + territory.x, y + territory.y);
+          }
+        }
+        ctx.closePath();
+      }
+    }
+  }
 }

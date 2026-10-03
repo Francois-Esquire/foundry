@@ -3,7 +3,7 @@ import { memberContours } from "../../src/web/belonging";
 import { compositionInsideLand } from "../../src/web/composition-placement";
 import { classifyFiles } from "../../src/web/district-layout";
 import { createLandRouter } from "../../src/web/inland-routing";
-import { lakeShore } from "../../src/web/lake-shore";
+import { landmarkFootprint } from "../../src/web/landmark-footprint";
 import {
   featureText,
   hitNaturalFeature,
@@ -115,17 +115,20 @@ const evidence = {
 describe("natural features", () => {
   const features = naturalFeatures(territory, regions, evidence);
 
-  it("makes lakes from commons files, sized by dependents and fitted to land", () => {
-    expect(features.lakes.map((item) => item.file.id)).toEqual(["w-commons"]);
-    const [lake] = features.lakes;
-    expect(lake?.radius).toBeGreaterThan(3);
-    expect(lake?.radius).toBeLessThanOrEqual(6);
+  it("makes landmarks from commons files, sized by dependents and fitted to land", () => {
+    expect(features.landmarks.map((item) => item.file.id)).toEqual([
+      "w-commons",
+      "w-junction",
+    ]);
+    const [landmark] = features.landmarks;
+    expect(landmark?.radius).toBeGreaterThan(3);
+    expect(landmark?.radius).toBeLessThanOrEqual(6);
     const shore = naturalFeatures(
       territory,
       [region("edge", [file("edge", -58, 0, { architectureKind: "commons" })])],
       { fileIds: {}, relationships: [], unresolved: [] }
     );
-    expect(shore.lakes).toEqual([]);
+    expect(shore.landmarks).toEqual([]);
   });
 
   it("makes marsh from unresolved belonging with drains toward two candidates", () => {
@@ -334,16 +337,18 @@ describe("shared drainage", () => {
 it("fits a commons shore without covering a neighboring file and hits the fitted shape", () => {
   const commons = file("commons", 0, 0, { architectureKind: "commons" });
   const neighbor = file("neighbor", 2, 0);
-  const shore = lakeShore(commons, 6, [commons, neighbor]);
+  const shore = landmarkFootprint(commons, 6, [commons, neighbor]);
   expect(Math.max(...shore.map((point) => point.x))).toBeLessThan(1);
   const features = {
     confluences: [],
-    lakes: [
+    landmarks: [
       {
         consumers: [{ id: "reader", label: "Reader" }],
         file: commons,
+        footprint: shore,
+        kind: "summit" as const,
         radius: 6,
-        shore,
+        role: "commons" as const,
       },
     ],
     marshes: [],
@@ -353,7 +358,7 @@ it("fits a commons shore without covering a neighboring file and hits the fitted
     unrouted: 0,
   };
   const hit = hitNaturalFeature(features, commons, 6, false);
-  expect(hit?.kind).toBe("lake");
+  expect(hit?.kind).toBe("landmark");
   expect(hitNaturalFeature(features, neighbor, 6, false)).toBeUndefined();
   expect(hit && featureText(hit).detail).toContain("Drawn on by Reader");
 });

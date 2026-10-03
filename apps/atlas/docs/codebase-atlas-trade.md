@@ -171,8 +171,9 @@ space stays quiet. Selecting a file reveals statement count and district share.
 
 Optional district streams now draw measured responsibility relationships on each
 island. Compatible streams share downstream runs; width adds their module edges.
-Place reports direction, dominant crossing symbols and omitted routes. Lakes mark
-commons modules and marsh marks unresolved belonging. The on-map key and keyboard
+Place reports direction, dominant crossing symbols and omitted routes. Summits mark
+commons, composition junctions and dependency hubs; marsh marks unresolved belonging.
+Optional craters and volcanoes describe recorded Git change, with dates and counts in Place. The on-map key and keyboard
 feature index explain the drawing. See the current [design record](../src/web/DESIGN.md)
 for routing and fitting rules. Expansion into every exact file dependency remains
 an explicit trace, not a consequence of selecting a responsibility.

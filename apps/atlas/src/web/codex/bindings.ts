@@ -47,8 +47,8 @@ export function districtAffinity(moduleEdges: number, symbolFlow: number) {
   return Math.log1p(moduleEdges) + Math.log1p(symbolFlow);
 }
 
-/** Lake radius for a shared commons module, from the modules that draw on it. */
-export function lakeRadius(dependents: number) {
+/** Landmark footprint for a structurally significant module, from the modules that draw on it. */
+export function landmarkRadius(dependents: number) {
   return Math.min(6, 2 + 0.8 * Math.sqrt(dependents));
 }
 
@@ -75,13 +75,13 @@ export function riverPen(width: number, pixels: number) {
 
 /** Engraving follows density slope; zoom limits its contrast beneath file ink. */
 export function reliefHachure(slope: number, pixels = 1) {
-  if (slope <= 0.12) {
+  if (slope <= 0.24) {
     return { length: 0, opacity: 0 };
   }
   return {
     length: Math.min(3.6, 0.8 + slope * 3),
     opacity:
-      Math.min(0.3, slope * 0.35) * Math.min(1, Math.max(0, pixels - 1.2)),
+      Math.min(0.22, slope * 0.25) * Math.min(1, Math.max(0, pixels - 1.2)),
   };
 }
 
@@ -97,4 +97,19 @@ export function chartGrid(pixels: number) {
     minorOpacity: 0.14 * Math.max(0, Math.min(1, (18 * pixels - 30) / 30)),
     minorStep: 18,
   };
+}
+
+/** Prominence is dependency reach within this package, never a quality score. */
+export function prominentFile(dependents: number, percentile: number) {
+  return dependents >= 5 && percentile >= 0.95;
+}
+
+/** Recorded commits, ranked against repository files of the same kind/window. */
+export function changeCrater(commits: number, percentile: number) {
+  return commits >= 3 && percentile >= 0.8;
+}
+
+/** Bounded crater aperture; logarithms keep a few large histories from dominating. */
+export function craterAperture(commits: number) {
+  return Math.min(0.48, 0.2 + 0.06 * Math.log2(1 + commits));
 }

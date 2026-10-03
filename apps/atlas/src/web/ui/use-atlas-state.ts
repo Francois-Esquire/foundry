@@ -92,7 +92,8 @@ export function useAtlasState(initial: AtlasState) {
   const territory = chosen?.territory;
   const viewBelonging = useBelonging(
     viewTerritory ?? undefined,
-    data.generatedAt
+    data.generatedAt,
+    chartSettings.volcanic
   );
   const selectedBelonging = useBelonging(
     resolveSelectedBelonging(
@@ -101,7 +102,8 @@ export function useAtlasState(initial: AtlasState) {
       viewBelonging,
       territoryLayout
     ),
-    data.generatedAt
+    data.generatedAt,
+    chartSettings.volcanic
   );
   const belonging =
     territory?.id === viewTerritory?.id && viewBelonging.data
@@ -297,6 +299,19 @@ export function useAtlasState(initial: AtlasState) {
         );
         setHover((current) =>
           current?.feature?.kind === "river" ? null : current
+        );
+      }
+      if (!next.volcanic && chartPreference.current.volcanic) {
+        setSelection((current) =>
+          current?.feature?.kind === "landmark"
+            ? {
+                file: current.feature.landmark.file,
+                territory: current.territory,
+              }
+            : current
+        );
+        setHover((current) =>
+          current?.feature?.kind === "landmark" ? null : current
         );
       }
       chartPreference.current = next;

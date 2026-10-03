@@ -24,7 +24,7 @@ export interface BelongingRegion {
 export interface BelongingLayer {
   emphasis?: number;
   featureFocus?: NaturalFeature;
-  /** Lakes, marshes, streams and confluences drawn from the same evidence. */
+  /** Landmarks, marshes, streams and confluences drawn from the same evidence. */
   features?: NaturalFeatures;
   files?: AtlasFile[];
   hovered?: string;

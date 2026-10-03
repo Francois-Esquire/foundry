@@ -10,7 +10,6 @@ import {
 import {
   diffuseColor,
   grayscale,
-  hash,
   mix,
   mrt,
   output,
@@ -18,7 +17,6 @@ import {
   renderOutput,
   texture as sampleTexture,
   saturation,
-  screenCoordinate,
   screenUV,
   uniform,
   vec3,
@@ -102,9 +100,6 @@ async function loadStages(names: StageName[]): Promise<Stages> {
 /** Occlusion strength 1 maps to this exponent on the raw GTAO term. */
 const aoExponent = 3;
 
-/** Display-space modulation stays below two 8-bit levels on light stock. */
-const paperGrainStrength = 0.014;
-
 /** A frame slower than this, sustained, steps the tier down. */
 const frameBudgetMs = 34;
 /** Frames measured before the tier may step down. */
@@ -174,7 +169,7 @@ interface Frame {
 
 /**
  * One pass graph for every atlas view: scene → overlay → occlusion → indirect
- * light → bloom → exposure and tone mapping → grade → paper finish. Stages are optional
+ * light → bloom → exposure and tone mapping → grade. Stages are optional
  * and reads the same depth and normal targets, so a future stage such as a
  * cloud layer plugs into the same inputs. When quality is off, or the graph
  * cannot compile on this device, the scene draws directly as it always has.
@@ -426,14 +421,7 @@ export function createRenderPipeline(options: RenderPipelineOptions) {
     );
     const next = new RenderPipeline(renderer);
     next.outputColorTransform = false;
-    // Static paper tooth is a display finish, independent of survey values.
-    // Keep diagnostic stages and underwater scenes untouched.
-    const pixel = screenCoordinate.floor();
-    const tooth = hash(pixel.x.add(pixel.y.mul(65_537)))
-      .sub(0.5)
-      .mul(paperGrainStrength);
-    const paper = vec4(graded.rgb.mul(tooth.add(1)), graded.a);
-    next.outputNode = frame.view ?? (perspective ? graded : paper);
+    next.outputNode = frame.view ?? graded;
     pipeline = next;
   };
 

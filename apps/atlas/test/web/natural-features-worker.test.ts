@@ -28,7 +28,7 @@ const territory: Territory = {
 };
 const features: NaturalFeatures = {
   confluences: [],
-  lakes: [],
+  landmarks: [],
   marshes: [],
   omitted: [],
   rivers: [],

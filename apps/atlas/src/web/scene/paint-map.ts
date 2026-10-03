@@ -81,7 +81,7 @@ export function paintMap(
     return [];
   }
   if (view) {
-    paintChartGrid(ctx, view);
+    paintChartGrid(ctx, view, data);
   }
   paintPaper(ctx, data, view, selected);
   paintReliefInk(ctx, relief, view?.pixelsPerUnit ?? 1);
@@ -391,8 +391,8 @@ function paintMapP(
   belonging: BelongingLayer | null,
   activeRegion: BelongingRegion | undefined
 ) {
-  const lakes = new Set(
-    belonging?.features?.lakes.map((lake) => lake.file.id) ?? []
+  const landmarks = new Set(
+    belonging?.features?.landmarks.map((landmark) => landmark.file.id) ?? []
   );
   for (const p of data.territories) {
     ctx.save();
@@ -408,7 +408,7 @@ function paintMapP(
       members,
       evidenceFiles,
       pixels,
-      p.id === belonging?.territory.id ? lakes : undefined
+      p.id === belonging?.territory.id ? landmarks : undefined
     );
     paintExactMembers(ctx, p, belonging, activeRegion, detail, pixels);
     ctx.restore();
@@ -460,12 +460,12 @@ function paintMapPF(
   members: string[] | undefined,
   evidenceFiles: Set<string> | undefined,
   pixels: number,
-  lakes?: Set<string>
+  landmarks?: Set<string>
 ) {
   for (const f of p.files) {
-    // A lake stands in for its file's speck and mark; selection still rings it.
-    const lake = lakes?.has(f.id) ?? false;
-    if (detail.specks > 0 && !lake) {
+    // A landmark stands in for its file's speck and mark; selection still rings it.
+    const landmark = landmarks?.has(f.id) ?? false;
+    if (detail.specks > 0 && !landmark) {
       ctx.globalAlpha = detail.specks;
       ctx.fillStyle = settlementColor(f.kind);
       ctx.fillRect(f.x - 0.9, f.y - 1.35, 1.8, 2.7);
@@ -483,7 +483,7 @@ function paintMapPF(
     ctx.strokeStyle = ctx.fillStyle;
     const size = filePen(pixels);
     ctx.lineWidth = Math.min(0.45, 1 / pixels);
-    if (!lake) {
+    if (!landmark) {
       paintMapPFEntries(f, ctx, size);
     }
   }
@@ -552,7 +552,7 @@ function paintMapPFEntries(
   }
 }
 
-/** Lakes and marsh stay through file zoom; they recede only under composition. */
+/** Landmarks and marsh stay through file zoom; they recede only under composition. */
 function featureStrength(
   belonging: BelongingLayer,
   detail: { composition: number; districts: number; files: number }
@@ -811,7 +811,7 @@ function paintLand(
   ctx.fill("evenodd");
   // Pigment is a wash into warm stock; relief supplies the landform.
   ctx.fillStyle = "#f1ead9";
-  ctx.globalAlpha = 0.62;
+  ctx.globalAlpha = 0.34;
   ctx.fill("evenodd");
   ctx.globalAlpha = 1;
   ctx.restore();

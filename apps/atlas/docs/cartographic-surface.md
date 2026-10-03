@@ -20,12 +20,17 @@ terrain. Adding more natural symbols did not address those problems.
   belongs together as a quiet base beneath explanatory information. Lighter
   package washes and bounded coast strokes let files retain the strongest ink.
 
-The four full-sheet folds were rejected after visual review: their regular cross
-competed with the drawing. Fixed major coordinates and progressively revealed
-minor divisions now supply the sheet's structure. A faint, static grain finishes
-the graded map in post-processing, without displacement or creases. Direct draw
-stays clean when that pipeline is off. Fonts are bundled locally rather than
-relying on the absent design package named by the earlier record.
+The flat-grid and screen-grain pass was rejected: it lost the terrain's physical
+presence. Grid ink now follows the actual relief mesh on land and stays flat on
+water. Warm lit material, a lighter stock wash, and stationary fibers replace the
+flat cool slope tint and pixel noise. Full-sheet folds remain removed.
+
+Shared commons now use fitted summit signs. Composition junctions and the most
+depended-on modules share that vocabulary, with the precise role in inspection.
+An optional recorded-change layer adds craters from dated Git churn evidence;
+craters on structural summits become volcanoes. These are engraved symbols over
+unchanged density relief, not a second height metric. See DESIGN.md for the
+thresholds, history population, and handling of unavailable evidence.
 
 ## What remains unresolved
 
@@ -35,9 +40,9 @@ positions. Compatible mouths share trunks; omitted routes and their reasons
 remain visible in Place. Some surviving arcs still look like connections rather
 than tributaries. Streams remain optional and off initially.
 
-The new lake and stream bevels are cartographic shading, not carved mesh depth.
-Relief height still means concentration only. Deltas into commons are not drawn:
-commons normally supply their consumers, so that would reverse the recorded flow.
+Stream banks and summit signs remain cartographic shading, not carved mesh depth.
+Relief height still means concentration only. Commons normally supply consumers;
+streams retain that direction regardless of the landmark vocabulary.
 
 Routing is materially slower than the independent-arc baseline. A browser probe
 on this workspace measured Atlas at 330–426 ms and Quirks at 146–156 ms before
@@ -45,7 +50,7 @@ moving the same construction into a dedicated worker. Cached coast checks help;
 the worker prevents that construction from blocking navigation, but does not
 remove total computation. A synchronous fallback remains for unavailable workers.
 
-The map key and keyboard feature index explain lakes, streams, and unresolved
+The map key and keyboard feature index explain summits, recorded change, streams, and unresolved
 marsh. Hover/selection describes the same evidence in Place and the polite live
 region. The district chord chart, inland current, cycle signs, and physical basin
 mesh are deferred rather than added to an already dense surface.

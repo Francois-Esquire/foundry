@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { memberContours } from "../../src/web/belonging";
-import { lakeShore } from "../../src/web/lake-shore";
+import { landmarkFootprint } from "../../src/web/landmark-footprint";
 import type { NaturalFeatures } from "../../src/web/natural-features";
 import { riverRuns } from "../../src/web/river-network";
 import { paintNaturalFeatures } from "../../src/web/scene/paint-features";
@@ -23,12 +23,14 @@ const junction = file("junction", 20, 0);
 const lost = file("lost", 0, 20);
 const features: NaturalFeatures = {
   confluences: [{ streams: 2, x: junction.x, y: junction.y }],
-  lakes: [
+  landmarks: [
     {
       consumers: [],
       file: commons,
+      footprint: landmarkFootprint(commons, 4, []),
+      kind: "summit" as const,
       radius: 4,
-      shore: lakeShore(commons, 4, []),
+      role: "commons" as const,
     },
   ],
   marshes: [
@@ -81,6 +83,7 @@ function context() {
     clip: vi.fn(),
     closePath: vi.fn(),
     createLinearGradient: () => ({ addColorStop: vi.fn() }),
+    ellipse: vi.fn(),
     fill: vi.fn(),
     fillRect: vi.fn(),
     fillText: vi.fn(),
@@ -106,7 +109,7 @@ function context() {
 }
 
 describe("natural feature drawing", () => {
-  it("always draws lakes and marsh, and streams with confluences only as a layer", () => {
+  it("always draws landmarks and marsh, and streams with confluences only as a layer", () => {
     const quiet = context();
     paintNaturalFeatures(
       quiet as unknown as CanvasRenderingContext2D,
@@ -162,7 +165,7 @@ describe("natural feature drawing", () => {
     expect(hidden.save).not.toHaveBeenCalled();
   });
 
-  it("keeps lakes through file zoom and replaces the lake file's own mark", () => {
+  it("keeps landmarks through file zoom and replaces the landmark file's own mark", () => {
     const territory: Territory = {
       analyzed: true,
       coast: [],

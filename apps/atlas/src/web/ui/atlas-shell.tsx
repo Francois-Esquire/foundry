@@ -267,7 +267,10 @@ export function AtlasShell({
       />
       <div className={open ? "atlas-world atlas-panel-open" : "atlas-world"}>
         {children}
-        <MapKey streams={chartSettings.streams} />
+        <MapKey
+          streams={chartSettings.streams}
+          volcanic={chartSettings.volcanic}
+        />
         <AtlasPanel
           focusToken={focusToken}
           onClose={closePanel}

@@ -343,11 +343,11 @@ export function inspectionText(
   if (!inspected) {
     return null;
   }
-  const lake = features?.lakes.find(
+  const landmark = features?.landmarks.find(
     (item) => item.file.id === inspected.file?.id
   );
-  if (lake) {
-    return featureText({ kind: "lake", lake });
+  if (landmark) {
+    return featureText({ kind: "landmark", landmark });
   }
   if (inspected.feature) {
     return featureText(inspected.feature);

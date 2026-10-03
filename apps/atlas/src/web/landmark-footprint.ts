@@ -2,8 +2,8 @@ import { unit } from "./geography";
 import type { FeaturePoint } from "./natural-features";
 import type { AtlasFile } from "./types";
 
-/** A commons shore fits between existing settlements; their positions never move. */
-export function lakeShore(
+/** A landmark footprint fits between existing settlements; their positions never move. */
+export function landmarkFootprint(
   file: AtlasFile,
   radius: number,
   files: readonly AtlasFile[]

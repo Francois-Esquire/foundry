@@ -1,16 +1,8 @@
 import type { Texture } from "three";
-import {
-  attribute,
-  dot,
-  float,
-  materialColor,
-  max,
-  mix,
-  normalLocal,
-  uniform,
-  vec3,
-} from "three/tsl";
-import { MeshBasicNodeMaterial } from "three/webgpu";
+import { attribute, float, materialColor, uniform } from "three/tsl";
+import { MeshStandardNodeMaterial } from "three/webgpu";
+
+import { paperSurface, terrainGrid } from "./paper-surface";
 
 export const paperThickness = 0.4;
 
@@ -24,17 +16,13 @@ const reliefShade = 0.24;
  */
 export function createPaperMaterials(map: Texture) {
   const strength = uniform(0);
-  const paper = new MeshBasicNodeMaterial({
+  const paper = new MeshStandardNodeMaterial({
     map,
+    metalness: 0,
+    roughness: 0.96,
   });
   const occlusion = attribute<"float">("occlusion", "float");
-  // Cool shadow and warm light describe the measured density slopes. Quiet
-  // flats leave enough value range for settlement ink and water.
-  const aspect = dot(normalLocal, vec3(-0.65, 0.65, 0)).clamp(-1, 1);
-  const shadow = max(0, aspect.negate()).mul(0.62);
-  const lit = max(0, aspect).mul(0.08);
-  const pigment = mix(materialColor.rgb, vec3(0.3, 0.36, 0.34), shadow);
-  paper.colorNode = mix(pigment, vec3(1, 0.96, 0.84), lit).mul(
+  paper.colorNode = terrainGrid(paperSurface(materialColor.rgb)).mul(
     float(1).sub(occlusion.mul(strength).mul(reliefShade))
   );
   return {

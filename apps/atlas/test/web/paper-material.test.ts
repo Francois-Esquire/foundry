@@ -11,7 +11,7 @@ describe("atlas paper", () => {
     const map = new Texture();
     const materials = createPaperMaterials(map);
     expect(materials.paper.map).toBe(map);
-    expect(materials.paper.isMeshBasicNodeMaterial).toBe(true);
+    expect(materials.paper.isMeshStandardNodeMaterial).toBe(true);
     expect(materials.paper.colorNode).toBeDefined();
     expect(paperThickness).toBe(0.4);
     let disposed = false;

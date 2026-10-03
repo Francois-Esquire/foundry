@@ -6,9 +6,14 @@ import { loadInternals } from "../load-internals";
 import type { Territory } from "../types";
 import { useNaturalFeatures } from "./use-natural-features";
 
-export function useBelonging(territory: Territory | undefined, survey: string) {
+export function useBelonging(
+  territory: Territory | undefined,
+  survey: string,
+  volcanic = false
+) {
   const [result, setResult] = useState<{
     id: string;
+    volcanic: boolean;
     survey: string;
     data?: AtlasInternals;
     error?: string;
@@ -20,10 +25,10 @@ export function useBelonging(territory: Territory | undefined, survey: string) {
       return;
     }
     const controller = new AbortController();
-    loadInternals(id, survey, controller.signal)
+    loadInternals(id, survey, controller.signal, volcanic)
       .then((data) => {
         if (!controller.signal.aborted) {
-          setResult({ data, id, survey });
+          setResult({ data, id, survey, volcanic });
         }
       })
       .catch((error: unknown) => {
@@ -35,15 +40,20 @@ export function useBelonging(territory: Territory | undefined, survey: string) {
                 : "Could not load belonging.",
             id,
             survey,
+            volcanic,
           });
         }
       });
     return () => {
       controller.abort();
     };
-  }, [id, survey, attempt]);
+  }, [id, survey, attempt, volcanic]);
   const current =
-    result?.id === id && result?.survey === survey ? result : undefined;
+    result?.id === id &&
+    result?.survey === survey &&
+    result.volcanic === volcanic
+      ? result
+      : undefined;
   const regions = useMemo(
     () =>
       current?.data && territory
@@ -62,7 +72,12 @@ export function useBelonging(territory: Territory | undefined, survey: string) {
     () => (hierarchy ? compositeRegions(hierarchy, regions) : []),
     [hierarchy, regions]
   );
-  const features = useNaturalFeatures(territory, regions, current?.data);
+  const features = useNaturalFeatures(
+    territory,
+    regions,
+    current?.data,
+    volcanic
+  );
   return {
     composites,
     data: current?.data,

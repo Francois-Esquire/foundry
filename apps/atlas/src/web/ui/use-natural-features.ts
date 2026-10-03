@@ -8,9 +8,11 @@ import type { Territory } from "../types";
 export function useNaturalFeatures(
   territory: Territory | undefined,
   regions: BelongingRegion[],
-  data: AtlasInternals | undefined
+  data: AtlasInternals | undefined,
+  volcanic = false
 ) {
   const [result, setResult] = useState<{
+    volcanic: boolean;
     features: NaturalFeatures;
     regions: BelongingRegion[];
   }>();
@@ -22,7 +24,9 @@ export function useNaturalFeatures(
       territory,
       regions,
       {
+        churn: volcanic ? data.churn : undefined,
         fileIds: data.fileIds,
+        recordedChange: volcanic,
         relationships: data.responsibilities.relationships,
         unresolved: data.responsibilities.unresolved,
       },
@@ -30,7 +34,7 @@ export function useNaturalFeatures(
     let active = true;
     const publish = (features: NaturalFeatures) => {
       if (active) {
-        setResult({ features, regions });
+        setResult({ features, regions, volcanic });
       }
     };
     const fallback = () => publish(naturalFeatures(...args));
@@ -66,6 +70,8 @@ export function useNaturalFeatures(
       }
       worker?.terminate();
     };
-  }, [data, regions, territory]);
-  return result?.regions === regions ? result.features : undefined;
+  }, [data, regions, territory, volcanic]);
+  return result?.regions === regions && result.volcanic === volcanic
+    ? result.features
+    : undefined;
 }

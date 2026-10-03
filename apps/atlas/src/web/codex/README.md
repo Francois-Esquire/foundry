@@ -41,8 +41,16 @@ imports from the renderer, so the folder moves as a unit. Tests are in
 
 ## Bindings
 
+Landmarks also consume `SurfaceReport.churn`: exact workspace-relative file
+paths, commit and line-change counts, same-kind repository percentiles, and
+`history` window/completeness. This is loaded with the island's internal evidence only when Recorded change is enabled;
+missing history never becomes a zero count.
+
 | Binding                | Codex input                                   | Channel               | Used in                         |
 | ---------------------- | --------------------------------------------- | --------------------- | ------------------------------- |
+| `prominentFile` | Incoming imports and fraction of package files with strictly fewer | Hub summit at >=5 imports and >=95th percentile | `landmarks.ts` |
+| `changeCrater` | Commits and repository same-kind commit percentile in the recorded window | Crater at >=3 commits and >=80th percentile | `landmarks.ts` |
+| `craterAperture` | Recorded commits | Bounded logarithmic crater opening | `scene/paint-landmarks.ts` |
 | `chartGrid` | View pixels per map unit | Fixed 90-unit majors and 18-unit minor lines; minor opacity fades in at 30–60 screen pixels of spacing | `scene/paint-paper.ts` |
 | `footprint`            | Package size                                  | island radius         | `load-atlas.ts`                 |
 | `latitude`             | Package layer                                 | north/south position  | `load-atlas.ts`, `geography.ts` |
@@ -55,7 +63,7 @@ imports from the renderer, so the folder moves as a unit. Tests are in
 | `roadWidth`            | Dependency strength, merged per road          | road width            | `scene/road-layer.ts`                 |
 | `currentStrength`      | cross-package imports between two packages    | sea current           | `current-field.ts`              |
 | `districtAffinity`     | responsibility link module edges, symbol flow | district grouping     | `hierarchy.ts`                  |
-| `lakeRadius`           | Module dependents, for a shared commons       | lake radius           | `natural-features.ts`           |
+| `landmarkRadius`           | Module dependents, for a structural landmark       | summit footprint radius           | `landmarks.ts`           |
 | `streamWidth`          | responsibility link module edges, accumulated on shared runs | stream width | `natural-features.ts`, `river-network.ts`           |
 | `marshDetail` | Unresolved module count and zoom | reed opacity and screen spacing | `scene/paint-features.ts` |
 | `riverPen` | Bound stream width and zoom | mineral river pen width | `scene/paint-features.ts` |

@@ -1,4 +1,10 @@
-export function MapKey({ streams }: { streams: boolean }) {
+export function MapKey({
+  streams,
+  volcanic,
+}: {
+  streams: boolean;
+  volcanic: boolean;
+}) {
   return (
     <details className="atlas-map-key">
       <summary>Map key</summary>
@@ -7,19 +13,42 @@ export function MapKey({ streams }: { streams: boolean }) {
           <dt>
             <svg aria-hidden="true" viewBox="0 0 44 24">
               <path
-                d="M7 9 C9 2 24 4 29 7 S40 12 32 18 S17 21 10 17 S4 14 7 9Z"
-                fill="#c3cebd"
-                stroke="#607c70"
+                d="M5 20 Q12 16 20 4 Q28 12 39 20Z"
+                fill="#cbb98e"
+                stroke="#78664e"
               />
+              <path d="M20 4 L24 15 L39 20 L20 11 L13 16Z" fill="#887959" />
+            </svg>
+            Summit
+          </dt>
+          <dd>
+            Shared commons, composition junction, or dependency hub. Size
+            follows incoming imports.
+          </dd>
+        </div>
+        <div>
+          <dt>
+            <svg aria-hidden="true" viewBox="0 0 44 24">
               <path
-                d="M12 10 C15 6 25 8 29 11 S29 18 21 17 S8 14 12 10Z"
-                fill="#8eaaa0"
-                fillOpacity=".3"
+                d="M5 21 L17 7 Q22 11 27 7 L39 21Z"
+                fill="#c5ae83"
+                stroke="#78664e"
+              />
+              <ellipse
+                cx="22"
+                cy="7"
+                fill="#a6503e"
+                rx="5"
+                ry="2.5"
+                stroke="#61503e"
               />
             </svg>
-            Commons lake
+            Recorded change{!volcanic && " · off"}
           </dt>
-          <dd>A shared module, fitted between its neighbors.</dd>
+          <dd>
+            Frequent recorded changes form a crater; on a structural summit, a
+            volcano. Counts and the history window are in Place.
+          </dd>
         </div>
         <div>
           <dt>
@@ -58,8 +87,9 @@ export function MapKey({ streams }: { streams: boolean }) {
         </div>
       </dl>
       <p>
-        Roles, never quality. Height means file concentration. Omitted routes
-        are listed in Place.
+        Roles, never quality. Land height means file concentration. Summit and
+        crater symbols carry separate evidence. Omitted routes are listed in
+        Place.
       </p>
     </details>
   );

@@ -1,13 +1,9 @@
-import type {
-  FeaturePoint,
-  Lake,
-  Marsh,
-  NaturalFeatures,
-} from "./natural-features";
+import type { Landmark } from "./landmarks";
+import type { FeaturePoint, Marsh, NaturalFeatures } from "./natural-features";
 import type { RiverRun } from "./river-network";
 
 export type NaturalFeature =
-  | { kind: "lake"; lake: Lake }
+  | { kind: "landmark"; landmark: Landmark }
   | { kind: "marsh"; marsh: Marsh }
   | { kind: "river"; river: RiverRun };
 
@@ -15,8 +11,8 @@ export function featureIdentity(feature: NaturalFeature | undefined): string {
   if (!feature) {
     return "";
   }
-  if (feature.kind === "lake") {
-    return `lake:${feature.lake.file.id}`;
+  if (feature.kind === "landmark") {
+    return `landmark:${feature.landmark.file.id}`;
   }
   if (feature.kind === "marsh") {
     return `marsh:${feature.marsh.region.id}`;
@@ -26,12 +22,8 @@ export function featureIdentity(feature: NaturalFeature | undefined): string {
 }
 
 export function featureText(feature: NaturalFeature) {
-  if (feature.kind === "lake") {
-    const { file, consumers } = feature.lake;
-    return {
-      detail: `Commons lake · ${file.incoming} incoming imports · Drawn on by ${consumers.map((item) => item.label).join(", ") || "responsibilities not resolved in this report"}.`,
-      title: file.path,
-    };
+  if (feature.kind === "landmark") {
+    return landmarkText(feature.landmark);
   }
   if (feature.kind === "marsh") {
     return {
@@ -89,9 +81,11 @@ export function hitNaturalFeature(
   pixels: number,
   streams: boolean
 ): NaturalFeature | undefined {
-  const lake = features.lakes.find((item) => inside(point, item.shore));
-  if (lake) {
-    return { kind: "lake", lake };
+  const landmark = features.landmarks.find((item) =>
+    inside(point, item.footprint)
+  );
+  if (landmark) {
+    return { kind: "landmark", landmark };
   }
   if (streams) {
     const river = features.rivers.find((run) =>
@@ -112,4 +106,33 @@ export function hitNaturalFeature(
     )
   );
   return marsh ? { kind: "marsh", marsh } : undefined;
+}
+
+function landmarkText(landmark: Landmark) {
+  const { file, consumers, role, change, kind } = landmark;
+  const roles = {
+    change: "Recorded change",
+    commons: "Shared commons",
+    dependents: "Dependency hub",
+    junction: "Composition junction",
+  };
+  const drawing = { crater: "Crater", summit: "Summit", volcano: "Volcano" }[
+    kind
+  ];
+  const served = consumers.length
+    ? ` Drawn on by ${consumers.map((item) => item.label).join(", ")}.`
+    : "";
+  let detail = `${drawing} · ${roles[role]} · ${file.incoming} incoming imports.${served}`;
+  if (role === "dependents") {
+    detail +=
+      " At least 5 incoming imports and the 95th percentile or higher within this package.";
+  }
+  if (change) {
+    const { history, file: changed } = change;
+    const window = history.since
+      ? `${history.since.slice(0, 10)}–${history.analyzedAt.slice(0, 10)}`
+      : `full history through ${history.analyzedAt.slice(0, 10)}`;
+    detail += ` ${changed.commits} commits · ${changed.linesChanged} lines added/deleted · ${Math.round(changed.rank.commitPercentile * 100)}th commit percentile among repository files of the same kind · ${window} · ${history.historyComplete ? "complete" : "partial"} Git history. Recorded change, never live activity or a quality verdict.`;
+  }
+  return { detail, title: file.path };
 }

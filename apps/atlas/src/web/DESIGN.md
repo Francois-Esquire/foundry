@@ -156,12 +156,13 @@ roles remain unclassified. File specks remain visible across every island at
 overview, recede to 20% as regions take focus, then give way to full file marks
 between 3 and 5 pixels per map unit. File marks stay visible at closer zoom.
 
-Matte mineral pigments retain quiet flats beneath the engraved relief.
-The coordinate grid uses fixed 90-unit major lines and 18-unit subdivisions.
-Minor ink fades in only when its projected spacing reaches 30–60 pixels, through
-`chartGrid`. Both draw on the cartographic ink plane, with bounded screen widths;
-they express chart coordinates, not dependency layers or responsibility borders.
-Coastal trade adds raised ports and dashed sea routes; file and declaration connections require an explicit trace.
+Matte mineral pigments retain quiet flats beneath engraved relief. A 34% warm
+stock wash leaves package pigments visible. The coordinate grid uses 90-unit
+major lines and 18-unit subdivisions, which fade in at 30–60 pixels of spacing.
+On land the grid is printed in world coordinates on the displaced mesh, so lines
+bend with the concentration relief. Derivative antialiasing keeps the ink fine.
+The sea grid stops at land, preventing a second flat line across a hill.
+File and declaration connections still require an explicit trace.
 
 Engraved topography is generated once per scene from existing height and distance
 fields. Land levels at 3, 6, 9, 12 and 15 units use two-unit sampling; their ink
@@ -325,18 +326,19 @@ remain disposable presentation data; temporal stability is not guaranteed.
   for the verification record and experiment limits.
 - Natural features draw an island's internal evidence on its own land, in
   island-local ink under the file marks. They need no connecting land. A
-  shared commons module is a lake: its radius follows the modules that draw
-  on it, shrunk to keep a shore inside the coast, and the lake replaces that
-  file's own mark. A smooth radial shore yields to neighboring settlements
-  without moving them; its radius is an upper bound where drawing space is
-  limited. Directional inset banks and mineral washes suggest a basin. This is
-  cartographic shading, not measured depth or a change to terrain height.
+  structural landmark is an engraved summit: a shared commons, composition
+  junction, or dependency hub. A hub has at least 5 incoming module imports and
+  at least 95% of this package's files have strictly fewer incoming imports.
+  The footprint radius is `min(6, 2 + 0.8 sqrt(incoming))`, shrunk to fit the
+  coast and neighboring files. One file gets one mark, without moving its anchor.
+  Summit silhouettes are symbols, not extra terrain elevation; the actual height
+  field still measures file concentration. Commons consumers remain inspectable.
   A module with unresolved belonging is a marsh: a patch of
   reed signs around the file, with up to two dotted drains following land
   routes part of the way toward the districts it could join. Reeds vary
   slightly in lean and spacing, with screen-space thinning and lower opacity
   on crowded islands. Drains appear at file scale; there is no blanket marsh
-  wash. Every unresolved module remains in the feature index. Lakes and marsh
+  wash. Every unresolved module remains in the feature index. Summits and marsh
   always draw with
   the districts and stay through file zoom, receding under composition.
   Marsh means undecided, not defective.
@@ -363,12 +365,11 @@ remain disposable presentation data; temporal stability is not guaranteed.
   drawing, not a hydraulic simulation or an exhaustive planar embedding.
   Streams aggregate at district level: selecting a
   responsibility still does not draw its file graph, and nothing animates.
-  A small open spring sign marks a recorded supplier endpoint unless a lake
+  A small open spring sign marks a recorded supplier endpoint unless a summit
   already marks it. Muted banks replace the bright casing around each line.
-- A collapsed Map key sits on the paper at the lower left. It explains commons
-  lakes, district streams and unresolved marsh without implying quality.
+- A collapsed Map key sits on the paper at the lower left. It explains summits, recorded-change craters, district streams and unresolved marsh without implying quality.
   Feature hover and selection report in Place and the polite live region.
-  Lake inspection lists the measured consuming responsibilities. River
+  Summit inspection lists its structural role and measured consuming responsibilities. River
   inspection states import direction, module edges, contributing relationships
   on shared trunks and dominant crossing symbols. An independent, collapsed
   feature index provides the same destinations by keyboard, including streams
@@ -529,35 +530,29 @@ applies only when the pipeline is off or failed and the scene draws directly.
 
 Chart settings → Rendering controls one pass graph shared by the chart and
 wreck dives: scene → coastlight and wind overlay → ambient occlusion → indirect
-light → bloom → exposure and tone mapping → grade → paper finish. Lighting and
-grade controls retain their defaults; the faint paper finish applies only to the
-map, after grading. Quality tiers (Low, Medium, High) only trade resolution and filtering
-for speed and never hide a control. **Off** is the direct draw: no passes, CSS
-filter restored. If a device cannot compile the graph, the viewer falls back
-to the direct draw on its own and the panel says so.
+light → bloom → exposure and tone mapping → grade. Quality tiers trade resolution
+and filtering for speed. Off draws directly with the CSS filter restored; shader
+failure also falls back to direct draw and is disclosed in the panel.
 
-Land uses matte cartographic slope shading, with warm northwest light and cool
-southeast shade, computed from the unchanged concentration height field. Land
-casts no physical shadows: shallow cast shadows produced flecks and triangles
-rather than readable relief. Short engraved hachures follow the same measured
-slope at island and file scales; their length and opacity use `reliefHachure`.
-They do not introduce mountains, another metric, or agent activity.
+Land uses a rough, nonmetallic lit paper material under warm northwest light.
+No land cast shadows are added. Concavity still comes from fixed-radius samples
+of the unchanged concentration field. Hachures appear only above slope 0.24,
+leaving gentle flats clear. There are no full-sheet fold bands or screen grain.
+Fine fibers and faint broad stock variation are stationary world-coordinate
+material texture, shared by land and sea. They fade when too small to resolve,
+never distort geometry, and never encode activity. Post-processing grades the
+finished drawing; material texture also works in direct draw.
 
-The land geometry carries a per-vertex concavity term sampled at a fixed radius
-in the height field. This avoids imprinting the coast mesh's irregular triangle
-sizes on the paper. Occlusion strength controls that valley darkening. On wreck
-dives the screen-space occlusion stage remains the real contribution. Its reach
-is a screen size converted to world units each frame; indirect light remains
-limited to the perspective wreck camera.
-
-The sheet has no full-length fold bands. The coordinate grid supplies its structure.
-A faint, deterministic paper grain finishes the graded map image in the render
-pipeline. Its amplitude is independent of survey data; it never moves, distorts
-ink, or signals activity. Grain is screen-pixel sized, omitted from diagnostic
-stage views and wreck dives, and absent when post-processing is off or unavailable.
-Coast and grid ink repaint at viewport resolution with bounded screen widths;
-zoom must not enlarge a raster outline into a heavy border. Package pigment is a
-light wash into warm stock, leaving contrast for settlement and feature ink.
+Recorded change is an optional layer, off initially. It reads the same survey's
+package churn report only when enabled, matched by exact workspace-relative file path. A crater
+requires at least 3 commits and a commit percentile >= 0.8 among repository
+files of the same kind in the same history window. A structural summit with
+that evidence becomes a volcano; other qualifying files get low craters.
+Crater aperture is `radius * min(0.48, 0.2 + 0.06 log2(1 + commits))`.
+Terracotta pigment is static, never amber focus ink, an eruption, a defect, or
+live agent activity. No history means no inferred crater. Place states counts,
+line additions/deletions, dates, percentile population, and complete/partial Git
+history. Turning the layer off removes its marks and inspection targets.
 
 Sliders are uniforms and change nothing in the graph; quality, toggles, tone
 mapping, filter, and stage view rebuild it. Stage modules load on first use.

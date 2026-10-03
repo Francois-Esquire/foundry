@@ -30,13 +30,13 @@ export function NaturalFeaturePanel({
   hover: AtlasSelection | null;
   onSelect: (selection: AtlasSelection) => void;
 }) {
-  const lake = features.lakes.find(
+  const landmark = features.landmarks.find(
     (item) => item.file.id === (hover?.file?.id ?? selection.file?.id)
   );
   const feature =
     hover?.feature ??
     selection.feature ??
-    (lake ? { kind: "lake" as const, lake } : undefined);
+    (landmark ? { kind: "landmark" as const, landmark } : undefined);
   const { territory } = selection;
   return (
     <section aria-label="Natural features" className="atlas-natural-features">
@@ -47,20 +47,25 @@ export function NaturalFeaturePanel({
           territory={territory}
         />
       )}
+      {features.changeNote && <p>{features.changeNote}</p>}
       <details>
         <summary>Explore natural features</summary>
         <p>
-          {features.lakes.length} commons lakes · {features.marshes.length}{" "}
-          unresolved modules · {features.streams.length} mapped relationships
+          {features.landmarks.length} summits and change marks ·{" "}
+          {features.marshes.length} unresolved modules ·{" "}
+          {features.streams.length} mapped relationships
         </p>
         <div className="atlas-feature-index">
-          {features.lakes.map((item) => (
+          {features.landmarks.map((item) => (
             <PlaceButton
               key={item.file.id}
               onSelect={onSelect}
-              value={{ feature: { kind: "lake", lake: item }, territory }}
+              value={{
+                feature: { kind: "landmark", landmark: item },
+                territory,
+              }}
             >
-              Lake · {item.file.path}
+              {item.kind} · {item.file.path}
             </PlaceButton>
           ))}
           {features.streams.map((stream) => (
@@ -102,17 +107,19 @@ function FeatureEvidence({
     <div className="atlas-feature-evidence">
       <h3>{text.title}</h3>
       <p>{text.detail}</p>
-      {feature.kind === "lake" && (
+      {feature.kind === "landmark" && (
         <>
           <p>
-            A shared commons module. The shore leaves room for neighboring
-            files; its shading is cartographic, not measured depth.
+            The fitted footprint leaves room for neighboring files. Summit size
+            follows incoming imports; crater size follows recorded commits.
+            These are engraved symbols, separate from the concentration height
+            field.
           </p>
           <PlaceButton
             onSelect={onSelect}
-            value={{ file: feature.lake.file, territory }}
+            value={{ file: feature.landmark.file, territory }}
           >
-            Inspect commons file
+            Inspect file
           </PlaceButton>
         </>
       )}

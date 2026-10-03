@@ -4,12 +4,13 @@ import type {
   ArchitecturalScopeRef,
   SymbolLocalityReport,
 } from "../lib/symbol-locality-types";
-
+import type { ChurnReport } from "../lib/types";
 import type { AtlasArchitecture } from "./architecture";
 import type { AtlasFile } from "./types";
 
 export interface AtlasInternals {
   architecture?: AtlasArchitecture;
+  churn?: ChurnReport;
   fileIds: Record<string, string>;
   locality: SymbolLocalityReport;
   responsibilities: InternalResponsibilityReport;

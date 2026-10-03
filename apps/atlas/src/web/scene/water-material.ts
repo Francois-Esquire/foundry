@@ -39,6 +39,7 @@ import type { AtlasData, Polygon } from "../types";
 import { coastalCurrent } from "./coastal-current";
 import { dependencyCurrent } from "./current-field";
 import { oceanField } from "./ocean";
+import { paperSurface } from "./paper-surface";
 import type { PlaybackSnapshot } from "./playback";
 import { waveArrivalField } from "./wave-field";
 
@@ -240,7 +241,7 @@ export function createWaterMaterial(
     wreckMask,
     wreckReveal,
   });
-  material.colorNode = shading.color;
+  material.colorNode = paperSurface(shading.color);
   material.opacityNode = shading.opacity;
   return {
     configure,

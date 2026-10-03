@@ -1,16 +1,10 @@
 import { marshDetail, riverPen } from "../codex/bindings";
 import { unit } from "../geography";
 import type { NaturalFeature } from "../natural-feature-inspection";
-import type {
-  FeaturePoint,
-  Lake,
-  Marsh,
-  NaturalFeatures,
-} from "../natural-features";
+import type { FeaturePoint, Marsh, NaturalFeatures } from "../natural-features";
 import type { RiverRun } from "../river-network";
+import { paintLandmarks } from "./paint-landmarks";
 
-const water = "#c3cebd";
-const shoreInk = "#607c70";
 const streamInk = "#537d78";
 const marshInk = "#697855";
 
@@ -59,56 +53,6 @@ function paintStreams(
     ctx.globalAlpha = 0.85 * strength;
     ctx.strokeStyle = streamInk;
     ctx.lineWidth = width;
-    ctx.stroke();
-  }
-}
-
-function paintLakes(
-  ctx: CanvasRenderingContext2D,
-  lakes: Lake[],
-  strength: number,
-  pixels: number
-) {
-  for (const lake of lakes) {
-    path(ctx, lake.shore, true);
-    ctx.globalAlpha = strength;
-    ctx.fillStyle = water;
-    ctx.fill();
-    ctx.save();
-    ctx.clip();
-    // An inset bank: shadow at the northwest shore, pale lip at the southeast.
-    const spread = Math.min(lake.radius * 0.5, 8 / pixels);
-    for (const band of [1, 0.7, 0.4, 0.18]) {
-      for (const [direction, color] of [
-        [1, "#426e6920"],
-        [-1, "#fff6dd32"],
-      ] as const) {
-        ctx.save();
-        const offset = direction * spread * band * 0.3;
-        ctx.translate(offset, offset);
-        path(ctx, lake.shore, true);
-        ctx.strokeStyle = color;
-        ctx.lineWidth = spread * band;
-        ctx.stroke();
-        ctx.restore();
-      }
-    }
-    const wash = ctx.createLinearGradient(
-      lake.file.x - lake.radius,
-      lake.file.y - lake.radius,
-      lake.file.x + lake.radius,
-      lake.file.y + lake.radius
-    );
-    wash.addColorStop(0, "#537f7920");
-    wash.addColorStop(1, "#d9e0c300");
-    ctx.fillStyle = wash;
-    path(ctx, lake.shore, true);
-    ctx.fill();
-    ctx.restore();
-    path(ctx, lake.shore, true);
-    ctx.globalAlpha = 0.75 * strength;
-    ctx.strokeStyle = shoreInk;
-    ctx.lineWidth = 0.65 / pixels;
     ctx.stroke();
   }
 }
@@ -186,12 +130,14 @@ function paintSprings(
   const springs = new Map(
     features.streams.map((stream) => [stream.spring.id, stream.spring])
   );
-  const lakes = new Set(features.lakes.map((lake) => lake.file.id));
+  const landmarks = new Set(
+    features.landmarks.map((landmark) => landmark.file.id)
+  );
   ctx.strokeStyle = streamInk;
   ctx.lineWidth = 0.7 / pixels;
   ctx.globalAlpha = strength * 0.75;
   for (const spring of springs.values()) {
-    if (lakes.has(spring.id)) {
+    if (landmarks.has(spring.id)) {
       continue;
     }
     ctx.beginPath();
@@ -211,8 +157,8 @@ function paintFocus(
   ctx.globalAlpha = 0.9;
   ctx.strokeStyle = "#875222";
   ctx.lineWidth = 1.5 / pixels;
-  if (focus.kind === "lake") {
-    path(ctx, focus.lake.shore, true);
+  if (focus.kind === "landmark") {
+    path(ctx, focus.landmark.footprint, true);
   } else if (focus.kind === "river") {
     path(ctx, focus.river.points);
   } else {
@@ -244,7 +190,7 @@ export function paintNaturalFeatures(
   if (streams) {
     paintStreams(ctx, features.rivers, strength, pixels);
   }
-  paintLakes(ctx, features.lakes, strength, pixels);
+  paintLandmarks(ctx, features.landmarks, strength, pixels);
   if (streams) {
     paintSprings(ctx, features, strength, pixels);
   }

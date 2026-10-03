@@ -129,6 +129,7 @@ export function ChartSettingsPanel({
       keyof ChartSettings,
       | "contours"
       | "streams"
+      | "volcanic"
       | "waterColor"
       | "filter"
       | "boundaries"
@@ -210,6 +211,12 @@ export function ChartSettingsPanel({
     },
     [onChange, settings]
   );
+  const handleVolcanic = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      onChange({ ...settings, volcanic: event.target.checked });
+    },
+    [onChange, settings]
+  );
   const handleReset = useCallback(() => {
     onReset();
     sync();
@@ -260,10 +267,20 @@ export function ChartSettingsPanel({
           />
           <span>District streams</span>
         </label>
+        <label className="atlas-boundary-control atlas-layer-control">
+          <input
+            checked={settings.volcanic}
+            disabled={!scene.current}
+            name="volcanic"
+            onChange={handleVolcanic}
+            type="checkbox"
+          />
+          <span>Recorded change · craters and volcanoes</span>
+        </label>
         <p>
-          Inside an island, shared commons are lakes and unresolved belonging is
-          marsh. Streams draw the imports between districts and meet at
-          composition junctions.
+          Inside an island, structural landmarks are summits and unresolved
+          belonging is marsh. Streams draw the imports between districts and
+          meet at composition junctions.
         </p>
       </details>
       <details>

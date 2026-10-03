@@ -1,9 +1,10 @@
+import type { ChurnReport } from "../lib/types";
 import type { BelongingRegion } from "./belonging";
-import { lakeRadius, streamWidth } from "./codex/bindings";
-import { clearOfCoast, compositionInsideLand } from "./composition-placement";
+import { streamWidth } from "./codex/bindings";
+import { compositionInsideLand } from "./composition-placement";
 import { unit } from "./geography";
 import { createLandRouter } from "./inland-routing";
-import { lakeShore as fitLakeShore } from "./lake-shore";
+import { buildLandmarks, type Landmark } from "./landmarks";
 import {
   joinRiver,
   type RiverRun,
@@ -15,14 +16,6 @@ import type { AtlasFile, Polygon, Territory } from "./types";
 export interface FeaturePoint {
   x: number;
   y: number;
-}
-
-/** A shared commons module, with its measured consuming responsibilities. */
-export interface Lake {
-  consumers: { id: string; label: string }[];
-  file: AtlasFile;
-  radius: number;
-  shore: FeaturePoint[];
 }
 
 /** A module whose belonging is unresolved, with the districts it could join. */
@@ -55,8 +48,9 @@ interface Confluence extends FeaturePoint {
 }
 
 export interface NaturalFeatures {
+  changeNote?: string;
   confluences: Confluence[];
-  lakes: Lake[];
+  landmarks: Landmark[];
   marshes: Marsh[];
   omitted: {
     from: string;
@@ -71,7 +65,14 @@ export interface NaturalFeatures {
 }
 
 export interface NaturalEvidence {
+  churn?:
+    | Pick<
+        Extract<ChurnReport, { available: true }>,
+        "available" | "files" | "history"
+      >
+    | Extract<ChurnReport, { available: false }>;
   fileIds: Record<string, string>;
+  recordedChange?: boolean;
   relationships: readonly {
     dominantSymbols?: readonly {
       name: string;
@@ -90,9 +91,6 @@ export interface NaturalEvidence {
   }[];
 }
 
-/** Smallest lake that still reads as water. */
-const lakeFloor = 1.6;
-const lakeShore = 1;
 const tuftSpacing = 3.8;
 /** Tufts stay this close to the unresolved file, so a marsh reads as a patch. */
 const marshReach = 4;
@@ -112,39 +110,6 @@ function centroid(members: readonly AtlasFile[]): FeaturePoint | undefined {
 
 function distance(a: FeaturePoint, b: FeaturePoint) {
   return Math.hypot(a.x - b.x, a.y - b.y);
-}
-
-function lakes(
-  regions: readonly BelongingRegion[],
-  coast: Polygon[],
-  files: readonly AtlasFile[]
-): Lake[] {
-  const seen = new Set<string>();
-  const result: Lake[] = [];
-  for (const region of regions) {
-    for (const file of region.members) {
-      if (file.architectureKind !== "commons" || seen.has(file.id)) {
-        continue;
-      }
-      seen.add(file.id);
-      let radius = lakeRadius(file.incoming);
-      while (
-        radius >= lakeFloor &&
-        !clearOfCoast(file.x, file.y, coast, radius + lakeShore)
-      ) {
-        radius -= 0.4;
-      }
-      if (radius >= lakeFloor) {
-        result.push({
-          consumers: [],
-          file,
-          radius,
-          shore: fitLakeShore(file, radius, files),
-        });
-      }
-    }
-  }
-  return result.sort((a, b) => a.file.id.localeCompare(b.file.id));
 }
 
 function tuftsInside(
@@ -373,7 +338,7 @@ function confluences(runs: RiverRun[]): Confluence[] {
 
 /**
  * Natural features inside one island, from evidence the map already holds:
- * shared commons become lakes, unresolved belonging becomes marsh with drains
+ * shared commons become landmarks, unresolved belonging becomes marsh with drains
  * toward its candidate districts, district relationships become streams over
  * the land, and joined tributaries form confluences. Coordinates
  * are island-local, like the files and regions they come from. Nothing here
@@ -387,31 +352,27 @@ export function naturalFeatures(
   const flows = streams(regions, evidence, territory.coast);
   const rivers = riverRuns(flows.streams);
   return {
+    changeNote: changeNote(evidence),
     confluences: confluences(rivers),
-    lakes: lakes(
-      regions,
-      territory.coast,
-      territory.files.length
-        ? territory.files
-        : regions.flatMap((region) => region.members)
-    ).map((lake) => ({
-      ...lake,
-      consumers: regions
-        .filter((region) =>
-          evidence.relationships.some(
-            (link) =>
-              link.from === region.id &&
-              link.targetModules.some(
-                (module) => evidence.fileIds[module] === lake.file.id
-              )
-          )
-        )
-        .map((region) => ({ id: region.id, label: region.label })),
-    })),
+    landmarks: buildLandmarks(territory, regions, evidence),
     marshes: marshes(regions, evidence, createLandRouter(territory.coast)),
     omitted: flows.omitted,
     rivers,
     streams: flows.streams,
     unrouted: flows.unrouted,
   };
+}
+
+function changeNote(evidence: NaturalEvidence): string | undefined {
+  if (!evidence.recordedChange) {
+    return;
+  }
+  if (!evidence.churn?.available) {
+    return "Recorded change unavailable for this survey; no craters inferred.";
+  }
+  const { history } = evidence.churn;
+  const window = history.since
+    ? `${history.since.slice(0, 10)} to ${history.analyzedAt.slice(0, 10)}`
+    : `Full recorded history through ${history.analyzedAt.slice(0, 10)}`;
+  return `${window}. ${history.historyComplete ? "Complete Git history" : "Partial Git history"}. Craters require at least 3 commits and a commit percentile of 80% or higher among repository files of the same kind. Marks describe change, not defects or live activity.`;
 }
