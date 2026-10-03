@@ -54,7 +54,7 @@ import {
   visibleRegionTerritory,
   zoomForPixels,
 } from "./exploration";
-import { createLettering, elevatedLabel } from "./lettering";
+import { createLabelProjector, createLettering } from "./lettering";
 import { paintMap } from "./paint-map";
 import { createPaperMaterials, paperThickness } from "./paper-material";
 import { createRenderPipeline } from "./pipeline";
@@ -244,20 +244,11 @@ export async function createAtlasScene(
   const wreckLayer = createWreckLayer(data.formerPackages ?? []);
   scene.add(wreckLayer.group);
 
-  const relief = createReliefLayer(data, materials.paper, inkTexture);
+  const relief = createReliefLayer(data, materials.paper, inkTexture, tilt);
   scene.add(relief.group);
   const lettering = createLettering();
   scene.add(lettering.mesh);
-  const projectLabel = (label: MapLabel) => {
-    const { territory, file } = label;
-    const { elevation } = relief
-      .fieldFor(territory)
-      .sample(
-        file?.x ?? label.x - territory.x,
-        file?.y ?? label.y - territory.y
-      );
-    return elevatedLabel(label, elevation, tilt);
-  };
+  const projectLabel = createLabelProjector(relief.fieldFor, tilt);
   let selected: string | null = null;
   let drawingData = data;
   const roads = createRoadNetwork(data, layers.roads ? continents : []);
@@ -574,7 +565,7 @@ export async function createAtlasScene(
       playbackMotion,
       belonging,
       settings.streams,
-      relief.surfaces,
+      relief.pick,
       event
     );
   let down = { x: 0, y: 0 };
@@ -1143,7 +1134,7 @@ function resolveHit(
   playbackMotion: MediaQueryList,
   belonging: BelongingLayer | null,
   streams: boolean,
-  surfaces: Group,
+  pickTerrain: (point: Vector3) => Vector3 | undefined,
   event: PointerEvent
 ): AtlasSelection | null {
   const rect = canvas.getBoundingClientRect();
@@ -1172,9 +1163,9 @@ function resolveHit(
       territory: label.territory,
     };
   }
-  const [surface] = raycaster.intersectObjects(surfaces.children, false);
+  const surface = pickTerrain(point);
   if (surface) {
-    point.copy(surface.point);
+    point.copy(surface);
   }
   const port = tradeLayer.pick(raycaster);
   if (port) {

@@ -120,14 +120,14 @@ export function terrainProminence(
   return Math.max(concentration, importance, structural ? 3.5 : 0);
 }
 
-/** A broad foot around a narrow crest, rather than a uniformly inflated coast. */
+/** Compact rounded crest: horizontal tangents at the summit and the shoreward foot. */
 export function ridgeProfile(
   distance: number,
   reach: number,
   elevation: number
 ) {
-  const t = Math.max(0, 1 - distance / reach);
-  return elevation * t * t;
+  const q = Math.max(0, Math.min(1, distance / reach));
+  return elevation * (1 - q) ** 4 * (1 + 4 * q);
 }
 
 /** Crater radius and cut depth follow the recorded commits, with bounded growth. */

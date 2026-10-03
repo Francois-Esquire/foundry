@@ -54,7 +54,7 @@ missing history never becomes a zero count.
 | `terrainNeighborhood` | Distance between real files | Compact 24-unit neighborhood weight for mass and covariance | `scene/terrain-field.ts` |
 | `ridgeStretch` | Neighborhood covariance spread and variance | Crest elongation from 1 to 1.8 | `scene/terrain-field.ts` |
 | `ridgeFoot` | Prominence, coast clearance and elongation | Individual shore-fitting footprint and bounded slope | `scene/terrain-field.ts` |
-| `ridgeProfile` | Elliptical distance, footprint and prominence | Squared compact crest profile, combined by maximum | `scene/terrain-field.ts` |
+| `ridgeProfile` | Elliptical distance, footprint and prominence | Rounded compact profile `(1−q)^4·(1+4q)`, with horizontal summit/foot tangents; combined by maximum | `scene/terrain-field.ts` |
 | `craterRelief` | Recorded commits | Logarithmic cut radius (up to 7) and depth (up to 4) | `scene/terrain-field.ts` |
 | `craterBowl` | Cut floor, normalized radius and existing elevation | Bowl cut, feathered outer fifth, muted mineral pigment inside cut | `scene/terrain-field.ts` |
 | `chartGrid` | View pixels per map unit | Fixed 90-unit majors and 18-unit minor lines; minor opacity fades in at 30–60 screen pixels of spacing | `scene/paint-paper.ts` |

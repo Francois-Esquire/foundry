@@ -9,12 +9,14 @@
  * Steps: click=<button text or aria-label>, press=<label> (no screenshot),
  * zoom=<steps>, hover=<x>,<y>, tap=<x>,<y> (a mouse click on the page),
  * key=Enter|Tab|Escape, motion=reduce|normal, wait=<ms>, shot=<name>,
- * eval=<expression>, clearlog, errors. Screenshots land in .cache/shots/<tag>-<name>.png.
+ * eval=<expression>, profile=pan|zoom|pointer, clearlog, errors.
+ * Profiles use a 1500x1000 viewport; pass --pixel-ratio 2 for Retina. Screenshots land in .cache/shots/<tag>-<name>.png.
  */
 import { spawn } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
+import { profileInteraction } from "./profile-interaction";
 
 interface CdpMessage {
   id?: number;
@@ -40,6 +42,7 @@ const { values, positionals } = parseArgs({
       default: resolve(import.meta.dirname, "../.cache/shots"),
       type: "string",
     },
+    "pixel-ratio": { default: "1", type: "string" },
     tag: { default: "capture", type: "string" },
     url: { default: "http://127.0.0.1:5199/", type: "string" },
     webgpu: { default: false, type: "boolean" },
@@ -166,6 +169,18 @@ async function runStep(
   const [action = "", ...rest] = step.split("=");
   const argument = rest.join("=");
   switch (action) {
+    case "profile": {
+      const result = await profileInteraction(session, argument);
+      const file = resolve(values.out, `${values.tag}-${argument}.cpuprofile`);
+      await writeFile(file, JSON.stringify(result.profile));
+      log(`profile ${argument}: ${JSON.stringify(result.metrics)}`);
+      if (!result.passed) {
+        throw new Error(
+          `Interaction budget exceeded: ${argument}. CPU profile: ${file}`
+        );
+      }
+      break;
+    }
     case "click":
       log(
         `click ${argument}: ${String(await session.evaluate(buttonScript(argument)))}`
@@ -283,7 +298,7 @@ async function main() {
     await session.send("Page.enable");
     await session.send("Runtime.enable");
     await session.send("Emulation.setDeviceMetricsOverride", {
-      deviceScaleFactor: 1,
+      deviceScaleFactor: Number(values["pixel-ratio"]),
       height,
       mobile: false,
       width,

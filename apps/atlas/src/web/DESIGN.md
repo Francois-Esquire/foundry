@@ -144,18 +144,26 @@ Three.js uses an orthographic camera with a fixed 0.7-radian tilt. Coastlines
 remain unchanged while a triangulated surface rises from a 0.4-unit shoreline.
 Height expresses file concentration and measured structural importance, never
 quality or live activity. Low concentration relief leaves quiet flats. Incoming
-module imports raise sharper crests on a bounded logarithmic scale; recorded
+module imports raise rounded crests on a bounded logarithmic scale; recorded
 commons and composition junctions receive a minimum structural prominence when
 internals are loaded. Local file covariance stretches each crest along its
 neighborhood. The surface takes the upper envelope of compact crests, leaving
 saddles between them instead of summing them into a swollen island. Each crest
 fits within its own coastline clearance and tapers to the sheet independently.
+The compact profile has a horizontal tangent at its summit and foot, removing
+needle tips without lifting the surrounding flats. Elevation continues to mean
+structural centrality; it does not classify files as user-facing.
 Normals and concavity derive from the same field. No terrain noise, stacked
 contours or peak icons are added. File placement and coastline XY stay fixed.
 
 Cartographic ink and pointer hits share the displaced relief mesh. Lettering
 uses raised anchors on a separate overlay so glyphs remain undistorted; label
-collision and hit bounds use those projected positions. Sea ink remains flat.
+collision and hit bounds use those projected positions. File label heights are
+cached per immutable terrain field and file position, so camera movement does
+not resample every crest for every label. Sea ink remains flat. Terrain pointer
+hits use an eight-unit grid of projected mesh triangles for the fixed camera,
+then exact barycentric intersection within the relevant bin. The index rebuilds
+only when that terrain changes; it does not approximate the picked surface.
 
 Source settlements retain brown ink. Tests use blue walled proving grounds;
 stories use rose semicircular theaters; configuration uses ochre buildings.

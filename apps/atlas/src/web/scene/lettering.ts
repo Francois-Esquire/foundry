@@ -5,8 +5,10 @@ import {
   PlaneGeometry,
   SRGBColorSpace,
 } from "three";
+import type { AtlasFile, Territory } from "../types";
 import type { InkView, MapLabel } from "./exploration";
 import { paperThickness } from "./paper-material";
+import type { TerrainField } from "./terrain-field";
 
 /** Shift the anchor with relief; keep the engraved letterforms undistorted. */
 export function elevatedLabel(
@@ -50,5 +52,32 @@ export function createLettering() {
       mesh.position.set(view.x, -view.y, paperThickness + 0.02);
       texture.needsUpdate = true;
     },
+  };
+}
+
+/** File anchors are invariant under camera movement; fields change only with evidence. */
+export function createLabelProjector(
+  fieldFor: (territory: Territory) => TerrainField,
+  tilt: number
+) {
+  const fields = new WeakMap<TerrainField, WeakMap<AtlasFile, number>>();
+  return (label: MapLabel) => {
+    const { territory, file } = label;
+    const field = fieldFor(territory);
+    if (!file) {
+      const { elevation } = field.sample(
+        label.x - territory.x,
+        label.y - territory.y
+      );
+      return elevatedLabel(label, elevation, tilt);
+    }
+    const cache = fields.get(field) ?? new WeakMap<AtlasFile, number>();
+    fields.set(field, cache);
+    let elevation = cache.get(file);
+    if (elevation === undefined) {
+      ({ elevation } = field.sample(file.x, file.y));
+      cache.set(file, elevation);
+    }
+    return elevatedLabel(label, elevation, tilt);
   };
 }

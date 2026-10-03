@@ -1,8 +1,15 @@
+import { Mesh, MeshBasicMaterial, Raycaster, Vector3 } from "three";
 import { expect, it } from "vitest";
+import { ridgeProfile } from "../../src/web/codex/bindings";
 import { buildLandmarks } from "../../src/web/landmarks";
-import { elevatedLabel } from "../../src/web/scene/lettering";
+import {
+  createLabelProjector,
+  elevatedLabel,
+} from "../../src/web/scene/lettering";
+import { paperThickness } from "../../src/web/scene/paper-material";
 import { reshapeTerrain, terrainGeometry } from "../../src/web/scene/terrain";
 import { createTerrainField } from "../../src/web/scene/terrain-field";
+import { createTerrainPicker } from "../../src/web/scene/terrain-picking";
 import type { AtlasFile, Territory } from "../../src/web/types";
 
 const file: AtlasFile = {
@@ -168,4 +175,74 @@ it("darkens the saddle between two crests while keeping their summits clear", ()
   expect(at(8)).toBeLessThan(0.05);
   expect(shade.count).toBe(positions.count);
   geometry.dispose();
+});
+
+it("finds the same terrain triangle as a full raycast, including coast misses", () => {
+  const [coast] = territory.coast;
+  if (!coast) {
+    throw new Error("Missing fixture coast");
+  }
+  const geometry = terrainGeometry(territory, coast, 100, 100);
+  const material = new MeshBasicMaterial();
+  const mesh = new Mesh(geometry, material);
+  const pick = createTerrainPicker([geometry], 0.7);
+  const direction = new Vector3(0, Math.sin(0.7), -Math.cos(0.7));
+  for (let x = -55; x < 55; x += 7) {
+    for (let y = -55; y < 55; y += 11) {
+      const ground = new Vector3(x, y, paperThickness);
+      const ray = new Raycaster(
+        ground.clone().addScaledVector(direction, -100),
+        direction
+      );
+      const [expected] = ray.intersectObject(mesh);
+      const hit = pick(ground);
+      expect(Boolean(hit)).toBe(Boolean(expected));
+      if (hit && expected) {
+        expect(hit.distanceTo(expected.point)).toBeLessThan(1e-6);
+      }
+    }
+  }
+  geometry.dispose();
+  material.dispose();
+});
+
+it("samples a file label once across camera changes and refreshes after terrain changes", () => {
+  let samples = 0;
+  const field = (elevation: number) => ({
+    sample: () => {
+      samples += 1;
+      return { elevation, mineral: 0 };
+    },
+  });
+  let active = field(6);
+  const project = createLabelProjector(() => active, 0.7);
+  const label = {
+    file,
+    font: "10px Georgia",
+    height: 10,
+    territory,
+    text: "shared.ts",
+    width: 48,
+    x: 0,
+    y: -4,
+  };
+  for (let index = 0; index < 100; index += 1) {
+    project({ ...label, y: -index });
+  }
+  expect(samples).toBe(1);
+  active = field(3);
+  expect(project(label).y).toBeCloseTo(label.y - 3 * Math.tan(0.7));
+  expect(samples).toBe(2);
+  project({ ...label, file: { ...file, x: 4 } });
+  expect(samples).toBe(3);
+});
+
+it("rounds the crest and foot without flattening the elevation signal", () => {
+  const epsilon = 0.000_01;
+  expect(ridgeProfile(0, 1, 6)).toBe(6);
+  expect(
+    (ridgeProfile(0, 1, 1) - ridgeProfile(epsilon, 1, 1)) / epsilon
+  ).toBeLessThan(0.001);
+  expect(ridgeProfile(1 - epsilon, 1, 1) / epsilon).toBeLessThan(0.001);
+  expect(ridgeProfile(1, 1, 6)).toBe(0);
 });

@@ -1,4 +1,11 @@
-import { Group, type Material, Mesh, type Texture, Vector2 } from "three";
+import {
+  Group,
+  type Material,
+  Mesh,
+  type Texture,
+  Vector2,
+  type Vector3,
+} from "three";
 import { positionWorld, texture, uniform, vec2 } from "three/tsl";
 import { MeshBasicNodeMaterial } from "three/webgpu";
 import type { BelongingLayer } from "../belonging";
@@ -11,12 +18,14 @@ import {
   createTerrainField,
   type TerrainField,
 } from "./terrain-field";
+import { createTerrainPicker } from "./terrain-picking";
 
 /** Terrain and cartographic ink share vertices, projection, and pointer geometry. */
 export function createReliefLayer(
   data: AtlasData,
   paper: Material,
-  map: Texture
+  map: Texture,
+  tilt: number
 ) {
   const group = new Group();
   const surfaces = new Group();
@@ -55,7 +64,7 @@ export function createReliefLayer(
       group.add(drawing);
       return shape;
     });
-    return { geometry, territory };
+    return { geometry, pick: createTerrainPicker(geometry, tilt), territory };
   });
   group.add(surfaces);
   const fields = new Map<string, TerrainField>();
@@ -73,6 +82,16 @@ export function createReliefLayer(
     },
     fieldFor,
     group,
+    pick(point: Vector3) {
+      let closest: Vector3 | undefined;
+      for (const entry of entries) {
+        const hit = entry.pick(point);
+        if (hit && (!closest || hit.z > closest.z)) {
+          closest = hit;
+        }
+      }
+      return closest;
+    },
     setFeatures(belonging: BelongingLayer | null) {
       const landmarks = belonging?.features?.landmarks;
       const next =
@@ -99,6 +118,7 @@ export function createReliefLayer(
         for (const geometry of entry.geometry) {
           reshapeTerrain(geometry, entry.territory, field);
         }
+        entry.pick = createTerrainPicker(entry.geometry, tilt);
       }
       return true;
     },
@@ -109,6 +129,5 @@ export function createReliefLayer(
       center.value.set(view.x, view.y);
       size.value.set(view.width, view.height);
     },
-    surfaces,
   };
 }
