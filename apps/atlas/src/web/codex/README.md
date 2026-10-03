@@ -48,13 +48,16 @@ missing history never becomes a zero count.
 
 | Binding                | Codex input                                   | Channel               | Used in                         |
 | ---------------------- | --------------------------------------------- | --------------------- | ------------------------------- |
-| `prominentFile` | Incoming imports and fraction of package files with strictly fewer | Structural evidence index at >=5 imports and >=95th percentile | `landmarks.ts` |
+| `prominentFile` | Incoming imports and fraction of package files with strictly fewer | Structural evidence index at >=5 imports and >=95th percentile; the same files raise terrain summits | `landmarks.ts`, `scene/terrain-field.ts` |
 | `changeCrater` | Commits and repository same-kind commit percentile in the recorded window | Recorded-change index at >=3 commits and >=80th percentile | `landmarks.ts` |
-| `neighborhoodElevation` | Mean incoming imports per member of an import/concept neighborhood | Shared levels: `0.6 + 2 × min(4, round(log₂(1 + mean)))`; ungrouped files stay at 0.6 | `scene/terrain-field.ts` |
-| `terrainSupport` | Distance to measured neighborhood members | Compact 42-unit blending support; normalized weights prevent density peaks | `scene/terrain-field.ts` |
-| `shelfBlend` | Weighted neighborhood heights, with a 0.02 low-ground background | Two-unit shelves with rounded transitions across the middle 60% of each interval | `scene/terrain-field.ts` |
+| `summitHeight` | Incoming imports of a prominent file (`prominentFile`) | Summit `1.8 × log₂((1 + incoming) / 5)` above lowland; other files raise nothing | `scene/terrain-field.ts` |
+| `summitReach` / `summitProfile` | Summit height | Rounded foot reaching `10 + 4 × height` units, zero slope at crown and foot | `scene/terrain-field.ts` |
+| `rangeBlend` | Overlapping summit profiles | Soft maximum (power 8): clustered summits join into one range | `scene/terrain-field.ts` |
+| `lowland` | Clearance from the unchanged coast | Beach round-over (1, 4-unit falloff) plus gentle inland rise (0.9, 30-unit falloff); no table | `scene/terrain-field.ts` |
+| `islandPlinth` | None (constant) | 0.45-unit raised coast above the paper | `scene/terrain.ts`, `scene/lettering.ts` |
+| `speckRadius` | View pixels per map unit | Overview file dot radius `1.45 / √pixels` | `scene/paint-map.ts` |
 | `terrainContourLevels` | Shared elevation scale | Optional contours at 2, 4, 6 and 8 units; every second line emphasized | `scene/topography.ts` |
-| `shoreRamp` | Clearance from the unchanged coast | Smooth ten-unit descent to the shoreline | `scene/terrain-field.ts` |
+| `shoreRamp` | Clearance from the unchanged coast | Summits fade over ten units toward the shoreline | `scene/terrain-field.ts` |
 | `chartGrid` | View pixels per map unit | Fixed 90-unit majors and 18-unit minor lines; minor opacity fades in at 30–60 screen pixels of spacing | `scene/paint-paper.ts` |
 | `footprint`            | Package size                                  | island radius         | `load-atlas.ts`                 |
 | `latitude`             | Package layer                                 | north/south position  | `load-atlas.ts`, `geography.ts` |

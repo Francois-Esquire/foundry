@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 import { insidePolygons } from "../../src/web/atmosphere";
 import { shoreDistances } from "../../src/web/distance-field";
 import { archipelagoHull } from "../../src/web/scene/archipelago";
-import { oceanShade } from "../../src/web/scene/ocean";
+import {
+  depthSteps,
+  oceanShade,
+  openSeaSteps,
+} from "../../src/web/scene/ocean";
 import { loadAtlas } from "../helpers/reference-atlas";
 
 describe("atlas ocean", () => {
@@ -35,21 +39,45 @@ describe("atlas ocean", () => {
     expect(channel).toEqual(shoreDistances(two, 21, 5));
     expect(open[4 * 21 + 5]).toBeCloseTo(Math.sqrt(13), 5);
   });
-  it("darkens continuously with distance and caps deep water pigment", () => {
-    expect(oceanShade(0)).toEqual([220, 224, 207]);
-    expect(oceanShade(40)).toEqual([213, 219, 202]);
-    expect(oceanShade(1000)).toEqual(oceanShade(40));
-    for (let d = 1; d <= 40; d += 1) {
+  it("steps softly deeper and cooler offshore, then caps deep water", () => {
+    const deepest = depthSteps.at(-1) ?? 0;
+    expect(oceanShade(0)).toEqual([223, 227, 211]);
+    expect(oceanShade(deepest + 10)).toEqual([199, 210, 199]);
+    expect(oceanShade(1000)).toEqual(oceanShade(deepest + 10));
+    for (let d = 1; d <= deepest + 10; d += 0.5) {
       expect(
-        oceanShade(d).every((value, i) => value <= (oceanShade(d - 1)[i] ?? 0))
+        oceanShade(d).every(
+          (value, i) => value <= (oceanShade(d - 0.5)[i] ?? 0)
+        )
       ).toBe(true);
     }
+    // Layers: flat within a band, a soft change across each step.
+    const [first = 0, second = 0] = depthSteps;
+    const middle = (first + second) / 2;
+    expect(oceanShade(middle - 1)).toEqual(oceanShade(middle + 1));
+    expect(oceanShade(second + 3)[0]).toBeLessThan(oceanShade(second - 3)[0]);
+    // Deep water is cooler: red falls further than blue.
+    const [r0 = 0, , b0 = 0] = oceanShade(0);
+    const [r1 = 0, , b1 = 0] = oceanShade(deepest + 10);
+    expect(r0 - r1).toBeGreaterThan(b0 - b1);
   });
-  it("adds a separate gradual deepening outside the archipelago rim", () => {
-    expect(oceanShade(40, 0)).toEqual(oceanShade(40));
-    expect(oceanShade(40, 1100)).toEqual([209, 214, 197]);
-    expect(oceanShade(40, 120)).toEqual(oceanShade(40));
-    expect(oceanShade(40, 550)[0]).toBeLessThan(oceanShade(40)[0]);
-    expect(oceanShade(40, 1100)[0]).toBeLessThan(oceanShade(40, 550)[0]);
+  it("layers open water beyond the rim out to a slightly darker ocean blue", () => {
+    const deep = (depthSteps.at(-1) ?? 0) + 10;
+    const edge = (openSeaSteps.at(-1) ?? 0) + 40;
+    // Inside the rim nothing changes.
+    expect(oceanShade(deep, 0)).toEqual(oceanShade(deep));
+    expect(oceanShade(deep, edge)).toEqual([180, 196, 197]);
+    for (let d = 5; d <= edge; d += 5) {
+      expect(
+        oceanShade(deep, d).every(
+          (value, i) => value <= (oceanShade(deep, d - 5)[i] ?? 0)
+        )
+      ).toBe(true);
+    }
+    // Ocean blue: red falls further than blue, and only slightly overall.
+    const [r0 = 0, , b0 = 0] = oceanShade(deep);
+    const [r1 = 0, , b1 = 0] = oceanShade(deep, edge);
+    expect(r0 - r1).toBeGreaterThan(b0 - b1);
+    expect(r0 - r1).toBeLessThan(24);
   });
 });

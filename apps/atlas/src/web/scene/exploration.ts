@@ -150,6 +150,8 @@ export function visibleRegionTerritory(
 }
 
 export interface MapLabel {
+  /** Small capitals printed beneath the name, e.g. a package's file count. */
+  caption?: string;
   compositeId?: string;
   file?: AtlasFile;
   font: string;

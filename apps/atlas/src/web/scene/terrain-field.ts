@@ -1,33 +1,31 @@
 import { insidePolygons } from "../atmosphere";
 import {
-  neighborhoodElevation,
-  shelfBlend,
+  lowland,
+  prominentFile,
+  rangeBlend,
   shoreRamp,
-  terrainSupport,
+  summitHeight,
+  summitProfile,
+  summitReach,
 } from "../codex/bindings";
 import type { Territory } from "../types";
 
 // Fixed survey-space sampling, never a zoom-dependent mesh or level of detail.
 const cell = 3;
 
-function elevationSamples(territory: Territory) {
-  const levels = new Map<string, number>();
-  const byId = new Map(territory.files.map((file) => [file.id, file]));
-  for (const neighborhood of territory.neighborhoods) {
-    const members = neighborhood.members.flatMap((id) => byId.get(id) ?? []);
-    const mean =
-      members.reduce((total, file) => total + file.incoming, 0) /
-      Math.max(1, members.length);
-    const elevation = neighborhoodElevation(mean);
-    for (const member of members) {
-      levels.set(member.id, elevation);
-    }
-  }
-  return territory.files.map((file) => ({
-    elevation: levels.get(file.id) ?? neighborhoodElevation(0),
-    x: file.x,
-    y: file.y,
-  }));
+/** Only prominent files (the package's landmarks) raise summits; the rest is lowland. */
+function summitSamples(territory: Territory) {
+  const { files } = territory;
+  return files
+    .filter((file) => {
+      const lower = files.filter((other) => other.incoming < file.incoming);
+      return prominentFile(file.incoming, lower.length / files.length);
+    })
+    .map((file) => {
+      const height = summitHeight(file.incoming);
+      return { height, reach: summitReach(height), x: file.x, y: file.y };
+    })
+    .filter((summit) => summit.height > 0);
 }
 
 function coastDistance(territory: Territory, x: number, y: number) {
@@ -59,19 +57,19 @@ function coastDistance(territory: Territory, x: number, y: number) {
   return distance;
 }
 
-function shelfHeight(
-  samples: ReturnType<typeof elevationSamples>,
+function rangeHeight(
+  summits: ReturnType<typeof summitSamples>,
   x: number,
   y: number
 ) {
-  let total = 0;
-  let weight = 0;
-  for (const point of samples) {
-    const influence = terrainSupport((point.x - x) ** 2 + (point.y - y) ** 2);
-    total += point.elevation * influence;
-    weight += influence;
+  const hills: number[] = [];
+  for (const summit of summits) {
+    const distanceSquared = (summit.x - x) ** 2 + (summit.y - y) ** 2;
+    if (distanceSquared < summit.reach * summit.reach) {
+      hills.push(summitProfile(distanceSquared, summit.height));
+    }
   }
-  return shelfBlend(total, weight);
+  return rangeBlend(hills);
 }
 
 function cubic(a: number, b: number, c: number, d: number, t: number) {
@@ -83,7 +81,7 @@ function cubic(a: number, b: number, c: number, d: number, t: number) {
   );
 }
 
-/** Shared neighborhood shelves, sampled once and independent of package detail. */
+/** Lowland and usage summits, sampled once and independent of zoom or package detail. */
 export function createTerrainField(territory: Territory) {
   const points = territory.coast.flat(2);
   const left =
@@ -94,7 +92,7 @@ export function createTerrainField(territory: Territory) {
     Math.ceil((Math.max(0, ...points.map(([x]) => x)) - left) / cell) + 2;
   const height =
     Math.ceil((Math.max(0, ...points.map(([, y]) => y)) - top) / cell) + 2;
-  const samples = elevationSamples(territory);
+  const summits = summitSamples(territory);
   const grid = new Float32Array(width * height);
   const coastal = new Uint8Array(grid.length);
   for (let row = 0; row < height; row += 1) {
@@ -105,7 +103,8 @@ export function createTerrainField(territory: Territory) {
         const clearance = coastDistance(territory, x, y);
         coastal[row * width + column] = Number(clearance < cell * 2);
         grid[row * width + column] =
-          shelfHeight(samples, x, y) * shoreRamp(clearance);
+          lowland(clearance) +
+          rangeHeight(summits, x, y) * shoreRamp(clearance);
       }
     }
   }

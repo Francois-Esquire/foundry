@@ -26,7 +26,7 @@ export function detailLevel(pixels: number, hasComposition = false) {
     composition,
     districts: regionIntro * (1 - files),
     files,
-    specks: ((1 - regionIntro) * 0.85 + regionIntro * 0.2) * (1 - files),
+    specks: (1 - regionIntro + regionIntro * 0.85) * (1 - files),
   };
 }
 

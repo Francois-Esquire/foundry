@@ -1,4 +1,6 @@
 import { Mesh, MeshBasicMaterial, PlaneGeometry } from "three";
+import { insidePolygons } from "../atmosphere";
+import { islandPlinth } from "../codex/bindings";
 import type { AtlasFile, Territory } from "../types";
 import type { InkView, MapLabel } from "./exploration";
 import { createInkTexture } from "./ink-texture";
@@ -58,17 +60,18 @@ export function createLabelProjector(
     const { territory, file } = label;
     const field = fieldFor(territory);
     if (!file) {
-      const { elevation } = field.sample(
-        label.x - territory.x,
-        label.y - territory.y
-      );
-      return elevatedLabel(label, elevation, tilt);
+      const local = { x: label.x - territory.x, y: label.y - territory.y };
+      if (!insidePolygons(local, territory.coast)) {
+        return label;
+      }
+      const { elevation } = field.sample(local.x, local.y);
+      return elevatedLabel(label, islandPlinth + elevation, tilt);
     }
     const cache = fields.get(field) ?? new WeakMap<AtlasFile, number>();
     fields.set(field, cache);
     let elevation = cache.get(file);
     if (elevation === undefined) {
-      ({ elevation } = field.sample(file.x, file.y));
+      elevation = islandPlinth + field.sample(file.x, file.y).elevation;
       cache.set(file, elevation);
     }
     return elevatedLabel(label, elevation, tilt);

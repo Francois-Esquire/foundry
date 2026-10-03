@@ -41,3 +41,23 @@ it("keeps a closed, tangent-continuous Bezier rim outside the islands", async ()
     }
   }
 });
+
+it("smooths the rim into gentle bends with no sharp corners", async () => {
+  const ring = archipelagoHull(await loadAtlas());
+  const turns = ring.map((point, i) => {
+    const before = ring[(i - 1 + ring.length) % ring.length] ?? point;
+    const after = ring[(i + 1) % ring.length] ?? point;
+    let turn =
+      Math.atan2(after[1] - point[1], after[0] - point[0]) -
+      Math.atan2(point[1] - before[1], point[0] - before[0]);
+    turn -= Math.round(turn / (2 * Math.PI)) * 2 * Math.PI;
+    return (turn * 180) / Math.PI;
+  });
+  for (const turn of turns) {
+    expect(Math.abs(turn)).toBeLessThan(8);
+  }
+  expect(Math.abs(turns.reduce((sum, turn) => sum + turn, 0))).toBeCloseTo(
+    360,
+    3
+  );
+});

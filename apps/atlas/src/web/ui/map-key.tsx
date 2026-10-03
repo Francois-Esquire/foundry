@@ -46,10 +46,10 @@ export function MapKey({
         </div>
       </dl>
       <p>
-        Neighborhoods share levels based on average incoming imports per file.
-        Rounded slopes join their levels; ungrouped files stay on low ground.
-        Commons and composition junctions are identified in Place. Height is not
-        a quality score.
+        Islands are low ground. Only a package's most-imported files (at least 5
+        incoming imports, above 95% of its files) raise rounded summits; nearby
+        summits join into one range. Commons and composition junctions are
+        identified in Place. Height is not a quality score.
         {volcanic
           ? " Recorded Git change counts and dates are in Place."
           : " Recorded change is off."}{" "}

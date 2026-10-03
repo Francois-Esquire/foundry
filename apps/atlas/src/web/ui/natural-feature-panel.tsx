@@ -112,9 +112,9 @@ function FeatureEvidence({
       {feature.kind === "landmark" && (
         <>
           <p>
-            This file keeps its position. Its neighborhood shares an elevation
-            based on average incoming imports. Recorded change appears above.
-            Exact roles and counts are given above.
+            This file keeps its position. Only a package's most-imported files
+            raise summits, from their incoming imports. Recorded change appears
+            above. Exact roles and counts are given above.
           </p>
           <PlaceButton
             onSelect={onSelect}

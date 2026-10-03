@@ -1,5 +1,10 @@
 import type { BelongingLayer, BelongingRegion } from "../belonging";
-import { filePen, labelPriority, territoryLabelSize } from "../codex/bindings";
+import {
+  filePen,
+  labelPriority,
+  speckRadius,
+  territoryLabelSize,
+} from "../codex/bindings";
 import type { CompositionMark } from "../composition-layout";
 import { compositionInsideLand } from "../composition-placement";
 import type { Continent } from "../continent";
@@ -12,9 +17,14 @@ import type { InkView, MapLabel } from "./exploration";
 import { visibleLabels } from "./exploration";
 import { paintOcean } from "./ocean";
 import { paintNaturalFeatures } from "./paint-features";
-import { paintChartGrid, paintCoastInk } from "./paint-paper";
+import {
+  paintChartGrid,
+  paintCoastInk,
+  paintGridReferences,
+} from "./paint-paper";
 import { paintResponsibility } from "./paint-responsibility";
 import { paintReliefInk, type ReliefInk } from "./relief-ink";
+import { paintSeaRipples, type SeaRipple } from "./sea-ripples";
 import { settlementColor } from "./terrain";
 import type { ContourLine } from "./topography";
 import { paintTopography } from "./topography";
@@ -56,7 +66,8 @@ export function paintMap(
   lettering?: {
     canvas: HTMLCanvasElement;
     project: (label: MapLabel) => MapLabel;
-  }
+  },
+  ripples: readonly SeaRipple[] = []
 ): MapLabel[] {
   let belonging = initialBelonging;
   let responsibility = initialResponsibility;
@@ -86,6 +97,7 @@ export function paintMap(
   }
   if (view) {
     paintChartGrid(ctx, view, data);
+    paintSeaRipples(ctx, ripples, view);
   }
   paintPaper(ctx, data, view, selected);
   paintReliefInk(ctx, relief, view?.pixelsPerUnit ?? 1);
@@ -187,6 +199,7 @@ export function paintMap(
     ctx.globalAlpha = 1 - detail.composition * 0.8;
     paintTopography(ctx, topography, view, labels);
     ctx.restore();
+    paintGridReferences(labelContext, view, data, labels);
   }
   paintCompass(ctx, data.width / 2 - 88, -data.height / 2 + 94);
   ctx.fillStyle = "#64786b";
@@ -469,12 +482,10 @@ function paintMapPF(
   evidenceFiles: Set<string> | undefined,
   pixels: number
 ) {
+  if (detail.specks > 0) {
+    paintSpecks(ctx, p.files, detail.specks, pixels);
+  }
   for (const f of p.files) {
-    if (detail.specks > 0) {
-      ctx.globalAlpha = detail.specks;
-      ctx.fillStyle = settlementColor(f.kind);
-      ctx.fillRect(f.x - 0.9, f.y - 1.35, 1.8, 2.7);
-    }
     if (detail.files < 0.05) {
       continue;
     }
@@ -489,6 +500,32 @@ function paintMapPF(
     const size = filePen(pixels);
     ctx.lineWidth = Math.min(0.45, 1 / pixels);
     paintMapPFEntries(f, ctx, size);
+  }
+}
+
+/** One round dot per file, filled once per kind so overview repaints stay cheap. */
+function paintSpecks(
+  ctx: CanvasRenderingContext2D,
+  files: readonly AtlasFile[],
+  opacity: number,
+  pixels: number
+) {
+  const radius = speckRadius(pixels);
+  const kinds = new Map<string, AtlasFile[]>();
+  for (const file of files) {
+    const group = kinds.get(file.kind) ?? [];
+    group.push(file);
+    kinds.set(file.kind, group);
+  }
+  ctx.globalAlpha = opacity;
+  for (const [kind, group] of kinds) {
+    ctx.beginPath();
+    for (const file of group) {
+      ctx.moveTo(file.x + radius, file.y);
+      ctx.arc(file.x, file.y, radius, 0, Math.PI * 2);
+    }
+    ctx.fillStyle = settlementColor(kind);
+    ctx.fill();
   }
 }
 
@@ -805,9 +842,13 @@ function paintLand(
   ctx.save();
   ctx.translate(p.x, p.y);
   if (!joined) {
+    // Feathered so the fixed-resolution coast texture magnifies as a soft
+    // depth change, never as stair-stepped texels.
+    ctx.filter = "blur(3px)";
     trace(ctx, p.shallows);
-    ctx.fillStyle = "#c3cebd";
+    ctx.fillStyle = "#e3e6d7";
     ctx.fill("evenodd");
+    ctx.filter = "none";
   }
   trace(ctx, p.coast);
   ctx.fillStyle = p.color;
@@ -936,9 +977,29 @@ function paintLabels(
     ctx.strokeText(label.text, label.x, label.y);
     ctx.fillStyle = label.file?.id === fileId ? "#743d1b" : "#39372e";
     ctx.fillText(label.text, label.x, label.y);
+    if (label.caption) {
+      paintCaption(ctx, label, label.caption, pixels);
+    }
   }
   ctx.globalAlpha = 1;
   return labels;
+}
+
+function paintCaption(
+  ctx: CanvasRenderingContext2D,
+  label: MapLabel,
+  caption: string,
+  pixels: number
+) {
+  ctx.save();
+  ctx.font = `${9.5 / pixels}px AtlasBody`;
+  ctx.letterSpacing = `${1.4 / pixels}px`;
+  const y = label.y + 14 / pixels;
+  ctx.lineWidth = 2.5 / pixels;
+  ctx.strokeText(caption, label.x, y);
+  ctx.fillStyle = "#5f5747";
+  ctx.fillText(caption, label.x, y);
+  ctx.restore();
 }
 
 function paintLabelsP(
@@ -972,7 +1033,10 @@ function paintLabelsP(
       Math.max(12 / pixels, territoryLabelSize(p.radius))
     );
     if (size * pixels >= 9) {
-      add(p, p.label, p.x, p.y + territoryLabelY(p), size, "AtlasDisplay");
+      const count = p.files.length;
+      add(p, p.label, p.x, p.y + territoryLabelY(p), size, "AtlasDisplay", {
+        caption: `${count.toLocaleString("en")} ${count === 1 ? "FILE" : "FILES"}`,
+      });
     }
     if (p.id !== selected && p.id !== belonging?.territory.id) {
       continue;

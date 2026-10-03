@@ -65,6 +65,7 @@ import { createPlayback } from "./playback";
 import { createReliefLayer } from "./relief-layer";
 import { createRoadLayer } from "./road-layer";
 import { copySeaInk } from "./sea-ink";
+import { createSeaRipples } from "./sea-ripples";
 import { createTopography } from "./topography";
 import { createTradeLayer } from "./trade-layer";
 import { createWaterMaterial } from "./water-material";
@@ -114,8 +115,9 @@ export async function createAtlasScene(
   // may render before the backend is ready.
   await renderer.init();
   const scene = new Scene();
-  scene.add(new AmbientLight("#ffffff", 1.05));
-  const light = new DirectionalLight("#fffaf4", 2.7);
+  // Balanced so level paper renders at its own pigment: (1.23 + 3.16 × 0.6) / π ≈ 1.
+  scene.add(new AmbientLight("#ffffff", 1.23));
+  const light = new DirectionalLight("#fffaf4", 3.16);
   light.position.set(-600, 700, 700);
   light.castShadow = true;
   light.shadow.mapSize.set(2048, 2048);
@@ -154,6 +156,7 @@ export async function createAtlasScene(
   const continents = layers.land ? footprints : [];
   const coasts = continentCoasts(data, continents);
   const topography = createTopography(data, coasts);
+  const ripples = createSeaRipples(data, coasts);
   const boundaries = atlasBoundaries(
     data,
     coastalBuffer,
@@ -466,7 +469,8 @@ export async function createAtlasScene(
       [],
       settings.streams,
       reliefInk,
-      { canvas: lettering.canvas, project: projectLabel }
+      { canvas: lettering.canvas, project: projectLabel },
+      ripples
     );
     const inkContext = inkCanvas.getContext("2d");
     if (inkContext) {

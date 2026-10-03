@@ -1,4 +1,7 @@
 import {
+  type BufferGeometry,
+  Color,
+  DoubleSide,
   Group,
   type Material,
   Mesh,
@@ -7,13 +10,15 @@ import {
   type Vector3,
 } from "three";
 import { positionWorld, texture, uniform, vec2 } from "three/tsl";
-import { MeshBasicNodeMaterial } from "three/webgpu";
+import { MeshBasicNodeMaterial, MeshStandardNodeMaterial } from "three/webgpu";
 import type { AtlasData } from "../types";
 import type { InkView } from "./exploration";
 import { sampleReliefInk } from "./relief-ink";
-import { terrainGeometry } from "./terrain";
+import { coastWallGeometry, terrainGeometry } from "./terrain";
 import { baseTerrainField } from "./terrain-field";
 import { createTerrainPicker } from "./terrain-picking";
+
+const cliffEarth = new Color("#8a6a45");
 
 /** Terrain and cartographic ink share vertices, projection, and pointer geometry. */
 export function createReliefLayer(
@@ -45,6 +50,22 @@ export function createReliefLayer(
     .and(coordinates.y.greaterThanEqual(0))
     .and(coordinates.y.lessThanEqual(1));
   ink.opacityNode = inView.select(sampled.a, 0);
+  // Raised coasts: each island's low cliff is a slightly deeper shade of its pigment.
+  const cliffs = new Map<string, MeshStandardNodeMaterial>();
+  const cliffFor = (color: string) => {
+    let cliff = cliffs.get(color);
+    if (!cliff) {
+      cliff = new MeshStandardNodeMaterial({
+        color: new Color(color).lerp(cliffEarth, 0.22),
+        metalness: 0,
+        roughness: 0.95,
+        side: DoubleSide,
+      });
+      cliffs.set(color, cliff);
+    }
+    return cliff;
+  };
+  const walls: BufferGeometry[] = [];
   const entries = data.territories.map((territory) => {
     const geometry = territory.coast.map((polygon) => {
       const shape = terrainGeometry(
@@ -54,6 +75,9 @@ export function createReliefLayer(
         data.height
       );
       surfaces.add(new Mesh(shape, paper));
+      const wall = coastWallGeometry(territory, polygon);
+      walls.push(wall);
+      surfaces.add(new Mesh(wall, cliffFor(territory.color)));
       const drawing = new Mesh(shape, ink);
       drawing.renderOrder = 2;
       group.add(drawing);
@@ -74,6 +98,12 @@ export function createReliefLayer(
         for (const geometry of entry.geometry) {
           geometry.dispose();
         }
+      }
+      for (const wall of walls) {
+        wall.dispose();
+      }
+      for (const cliff of cliffs.values()) {
+        cliff.dispose();
       }
       ink.dispose();
     },

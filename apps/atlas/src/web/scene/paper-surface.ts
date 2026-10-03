@@ -11,12 +11,13 @@ import {
 } from "three/tsl";
 import type { Node } from "three/webgpu";
 import { chartGrid } from "../codex/bindings";
+import { gridInk } from "./paint-paper";
 
 /** Stationary fibers and uneven stock, shared by land and sea in chart space. */
 export function paperSurface(pigment: Node<"vec3">) {
   const point = positionWorld.xy;
   const broad = mx_noise_float(point.mul(0.045)).mul(0.008);
-  const fibers = mx_noise_float(point.mul(vec2(3.8, 0.38))).mul(0.009);
+  const fibers = mx_noise_float(point.mul(vec2(3.8, 0.38))).mul(0.005);
   const resolved = float(1).sub(smoothstep(0.3, 1.2, fwidth(point.x)));
   return pigment.mul(float(1).add(broad).add(fibers.mul(resolved)));
 }
@@ -42,5 +43,5 @@ export function terrainGrid(pigment: Node<"vec3">) {
     .mul(smoothstep(30, 60, spacing))
     .mul(0.16);
   const ink = line(majorStep).mul(0.3).max(minor);
-  return mix(pigment, color("#78674e"), ink);
+  return mix(pigment, color(gridInk), ink);
 }

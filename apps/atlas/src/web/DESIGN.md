@@ -46,9 +46,11 @@ roads, houses, forests, sea trade routes, topographic lines, all six boundary
 overlays and decorative atmosphere start off. Current playback retains its existing
 default. Features below are opt-in where noted.
 
-The overview retains the older chart's dense file marks, pale sea, fine grid,
+The overview retains the older chart's dense file marks, pale sage sea, fine grid,
 dark labels and fine coast ink while keeping today's relief and map-first
-navigation. File marks give scale, not a new quality score.
+navigation. File marks give scale, not a new quality score. Each package name is
+set in Abril Fatface with its real file count beneath in small spaced capitals
+("149 FILES"); the caption travels with the name through collision and projection.
 
 When history data exists, package IDs observed at a completed checkpoint but
 absent from the current survey appear as subdued submerged wrecks. The ledger
@@ -67,20 +69,36 @@ no quality ranking. Package names provide identity alongside color. Muted
 paper edges distinguish the raised land from the sea sheet.
 
 Ocean pigment follows distance to the nearest land across all
-territories. A 640-pixel longest-axis land mask feeds a separable Euclidean
-distance field. Water blends subtly from pale sage `#dce0cf` to `#d5dbca`,
-reaching full depth at 40 map units. The narrow brightness range avoids white
-coastal halos. Nearby islands keep channels
-lighter; holes and disconnected coasts contribute to the same field. Existing
-shallows remain visible. This is geographic shading, not a semantic metric.
+territories. A 1280-pixel longest-axis land mask feeds a separable Euclidean
+distance field. The sea is layered: it steps one shade deeper and slightly
+cooler at 6, 14, 26, 42, 64 and 92 map units offshore, from pale sage
+`#dfe3d3` at the shore to `#c7d2c7` in open water. Each step is a soft
+four-unit wash, never a line. Because the layers are offsets of every coast,
+close islands merge into shared lobes. Holes and disconnected coasts contribute
+to the same field. Shallows are the lightest water, `#e3e6d7`. This is
+geographic shading, not a semantic metric.
 
-A convex hull spans the outermost coast points of all packages with 90-unit
-padding, rebuilt after package settlement. Edges subdivide into segments of at
-most 20 units before tangent-continuous Bezier rounding. A muted dashed line
-marks that archipelago rim. The gradient uses the same curved mask.
-Beyond it, the water darkens over 1100 units toward `#d1d6c5`, with a smooth curve
-that eases in and out so the envelope does not read as a border. This gradient is independent of
-individual coastal bands. It is a cartographic boundary, not a dependency claim.
+Gilded ripples echo each coast at 2.4, 4.8 and 7.6 map units offshore. They
+are contours of the same shore-distance field, built once, inked with the
+coast's seeded pen pressure and broken where the pen lifts. At 16%, 11% and 7%
+opacity they surface only as the camera comes in and are absent at overview.
+
+A convex hull spans the outermost coast points of all packages with 110-unit
+padding, rebuilt after package settlement. The rim is smoothed in polar form
+about the hull's centre over 180 angles: a moving maximum of the radius across
+±18° only moves it outward, then a triangular moving average across the same
+window bends long straight sides into broad arcs. Every averaged radius covers
+the hull's own radius at that angle, so the rim always contains the padded hull
+(over 100 units clear of every coast on the reference atlas). Segments of at
+most 20 units then join with tangent-continuous Bezier rounding. A muted dashed
+line marks that
+archipelago rim when the outer boundary is shown, and the sea uses the same
+curved mask. Beyond it, open water continues the coastal layering: soft steps at
+14, 80, 170, 280, 410 and 560 units, each a 20-unit wash, carry the deep water
+toward a slightly darker ocean blue `#b4c4c5` at the chart's edges. The water is
+the vignette: light at the centre of the archipelago, deepest at the margins,
+a quiet base for type set on the sea. It is a cartographic boundary, not a
+dependency claim.
 
 Optional inner dashed convex hulls use 32-unit padding around dependency-connected groups
 of two or more packages. Grouping unions positive analyzed module dependencies
@@ -141,22 +159,37 @@ their marks remain legible; pan and zoom still reach the full atlas.
 ## Elevation & Depth
 
 Three.js uses an orthographic camera with a fixed 0.7-radian tilt. Coastlines
-remain unchanged while a triangulated surface rises from a 0.4-unit shoreline.
-Height expresses neighborhood structural centrality, never quality or live activity.
-The existing import/concept neighborhoods share levels based on mean incoming
-module imports per member: 0.6 plus two times the rounded base-two logarithm of
-one plus that mean, capped at 8.6 units. Ungrouped files stay on low ground.
-Member positions define broad 42-unit blending support; normalized weights avoid
-raising a peak for each file or for greater local density. Shared shelves have
-rounded transitions and descend over ten units to the original shoreline.
-A weak low-ground background makes isolated support fade continuously.
+remain unchanged. Every island stands on a slight 0.45-unit lift above the
+0.4-unit paper: a short vertical coast, tinted 22% toward earth from the
+island's own pigment, gives the old-game raised rim without a cliff.
+
+Interiors are natural lowland. Ground rounds over the beach (1 unit with a
+four-unit falloff) and keeps rising gently inland (0.9 units with a 30-unit
+falloff); both terms depend only on clearance from the coast, so nothing levels
+into a table or shelf. Height above the lowland expresses usage, never quality,
+churn or live activity. Only a package's prominent files raise summits: at
+least 5 incoming module imports with at least 95% of the package's files having
+strictly fewer (the same rule as structural landmarks). A summit's height is
+1.8 × log₂((1 + incoming) / 5); its rounded foot reaches 10 + 4 × height units.
+Neighbouring summits join through a soft maximum, so a cluster of heavily used
+files forms one range rather than stacked needles, and summits fade over ten
+units toward the shore. Ordinary files never raise their own ground.
 The field is sampled once on a fixed three-unit grid and interpolated cubically;
 the fixed three-unit mesh does not change with zoom. Normals use a three-unit
 span to keep slope shading continuous. Commons and junction roles remain in Place
 and do not change the terrain when their evidence arrives. File placement and
 coastline XY stay fixed. No terrain noise, peak icons or activity elevation are added.
-A fine coast cut and pale inner paper edge retain definition without screen-space
-occlusion.
+
+Every coast carries a gilt rule just inside the shore, framed by a fine inner
+ink hairline, then a hand-inked coastline whose pen swells and thins along the
+shore. Pen pressure is seeded from the territory and arc length, so it is
+identical on every repaint; runs are grouped into four weights and stroked once
+per weight. All coast ink is clipped inside the shore so it drapes on the raised
+land; nothing is left on the flat sea plane to ghost across a far-side coast.
+Gold stays yellower and paler than amber: a selected island's rule and coast line
+turn amber. All of this ink is repainted at viewport resolution. Shallows in the fixed-resolution coast
+texture are feathered so they magnify as a soft depth change, never as
+stair-stepped texels.
 
 Cartographic ink and pointer hits share the displaced relief mesh. Lettering
 uses raised anchors on a separate overlay so glyphs remain undistorted; label
@@ -177,16 +210,23 @@ Source settlements retain brown ink. Tests use blue walled proving grounds;
 stories use rose semicircular theaters; configuration uses ochre buildings.
 Unknown kinds stay neutral. These marks preserve mixed neighborhoods rather
 than splitting islands by classification. Finer source
-roles remain unclassified. File specks remain visible across every island at
-overview, recede to 20% as regions take focus, then give way to full file marks
-between 3 and 5 pixels per map unit. File marks stay visible at closer zoom.
+roles remain unclassified. File specks are round dots, one per file, that grow
+gently with zoom (radius 1.45 / √pixels map units) and are filled once per kind.
+They stay bold across every island at overview, keep 85% as regions take focus,
+then give way to full file marks between 3 and 5 pixels per map unit. File marks
+stay visible at closer zoom.
 
 Matte mineral pigments retain quiet flats beneath engraved relief. A 48% warm
 stock wash leaves package pigments visible. The coordinate grid uses 90-unit
 major lines and 18-unit subdivisions, which fade in at 30–60 pixels of spacing.
 On land the grid is printed in world coordinates on the displaced mesh, so lines
 bend with the relief. Derivative antialiasing keeps the ink fine.
-The sea grid stops at land, preventing a second flat line across a hill.
+The sea grid stops at land, preventing a second flat line across a hill. Land
+and sea share one graticule ink. Atlas references label each major cell:
+lettered columns along the top margin and numbered rows down the left, counted
+from the chart's own corner so a place keeps its reference at every zoom. They
+are printed on the lettering overlay and are not map labels: they take no part
+in collision or announcements.
 File and declaration connections still require an explicit trace.
 
 Engraved topography is generated from the current height and distance fields.
@@ -203,7 +243,8 @@ per map unit. Land ink is warm brown; sea ink is muted teal. Contours are solid,
 with slightly stronger major lines; boundaries and dependencies retain dashes.
 Three-pixel crowding suppression and four-pixel label clearance protect reading.
 
-Neutral ambient fill and a warm directional light illuminate the paper. Land uses slope shading without cast shadows on the sea. Optional props use a
+Neutral ambient fill (1.23) and a warm directional light (3.16) illuminate the
+paper, balanced so level paper renders at its own pigment rather than greyed. Land uses slope shading without cast shadows on the sea. Optional props use a
 cached shadow map. The overview current animates the sea material at at most 30 fps.
 The full-screen sheet has no outer border or CSS shadow. Paper drawers and the
 selected-place inspector use `0 8px 26px #584a3328` to separate them from the map.

@@ -2,19 +2,45 @@ import { shoreDistances } from "../distance-field";
 import type { AtlasData, Polygon } from "../types";
 import { archipelagoHull, traceArchipelago } from "./archipelago";
 
+/** Offshore distances (map units) where the sea steps one shade deeper. */
+export const depthSteps = [6, 14, 26, 42, 64, 92];
+/** Distances beyond the archipelago rim where open water steps toward ocean blue. */
+export const openSeaSteps = [14, 80, 170, 280, 410, 560];
+const shoreWater = [223, 227, 211] as const;
+const deepWater = [199, 210, 199] as const;
+const oceanBlue = [180, 196, 197] as const;
+
+/** Fraction of `steps` passed at `distance`; each step is a soft wash, never a line. */
+function layered(distance: number, steps: readonly number[], softness: number) {
+  let level = 0;
+  for (const step of steps) {
+    const t = Math.min(
+      1,
+      Math.max(0, (distance - step + softness) / (2 * softness))
+    );
+    level += t * t * (3 - 2 * t);
+  }
+  return level / steps.length;
+}
+
+/**
+ * Layered sea: each step offshore is a slightly deeper, slightly cooler wash.
+ * Steps follow offsets of every coast, so neighbouring islands share their
+ * lobes. Beyond the archipelago rim the same layering continues, slightly
+ * darker, out to an ocean blue at the chart's edge: a natural vignette.
+ */
 export function oceanShade(
   distance: number,
   outsideRim = 0
 ): [number, number, number] {
-  const t = Math.min(1, Math.max(0, distance / 40));
-  const depth = t * t * (3 - 2 * t);
-  const outer = Math.min(1, Math.max(0, outsideRim / 1100));
-  const vignette = outer * outer * (3 - 2 * outer);
-  return [
-    Math.round(220 - 7 * depth - 4 * vignette),
-    Math.round(224 - 5 * depth - 5 * vignette),
-    Math.round(207 - 5 * depth - 5 * vignette),
-  ];
+  const depth = layered(distance, depthSteps, 2);
+  const open = layered(outsideRim, openSeaSteps, 10);
+  return [0, 1, 2].map((channel) => {
+    const near = shoreWater[channel] ?? 0;
+    const deep = deepWater[channel] ?? 0;
+    const water = near + (deep - near) * depth;
+    return Math.round(water + ((oceanBlue[channel] ?? 0) - water) * open);
+  }) as [number, number, number];
 }
 
 export function oceanField(
@@ -73,7 +99,7 @@ export function paintOcean(
 ): void {
   const { canvas, mask, pixels, distances, outside, scale } = oceanField(
     data,
-    640,
+    1280,
     coasts
   );
   for (const [i, distance] of distances.entries()) {

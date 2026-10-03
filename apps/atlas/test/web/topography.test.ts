@@ -1,8 +1,7 @@
 import { expect, it } from "vitest";
 
 import { insidePolygons } from "../../src/web/atmosphere";
-import { paperThickness } from "../../src/web/scene/paper-material";
-import { terrainHeight } from "../../src/web/scene/terrain";
+import { islandTop, terrainHeight } from "../../src/web/scene/terrain";
 import {
   archipelagoRings,
   coastalRings,
@@ -40,7 +39,7 @@ it("extracts contours from actual relief without changing geography", async () =
       expect(insidePolygons({ x: x - p.x, y: y - p.y }, p.coast)).toBe(true);
       expect(
         Math.abs(
-          terrainHeight(p, x - p.x, y - p.y) - paperThickness - line.elevation
+          terrainHeight(p, x - p.x, y - p.y) - islandTop - line.elevation
         )
       ).toBeLessThan(0.5);
     }

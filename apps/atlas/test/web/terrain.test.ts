@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { paperThickness } from "../../src/web/scene/paper-material";
 import {
+  islandTop,
   settlementColor,
   terrainGeometry,
   terrainHeight,
@@ -20,7 +20,7 @@ describe("atlas terrain", () => {
     for (const polygon of p.coast) {
       for (const ring of polygon) {
         for (const [x, y] of ring) {
-          expect(terrainHeight(p, x, y)).toBeCloseTo(paperThickness, 5);
+          expect(terrainHeight(p, x, y)).toBeCloseTo(islandTop, 5);
         }
       }
     }
@@ -41,8 +41,8 @@ describe("atlas terrain", () => {
     );
     expect(heights.every(Number.isFinite)).toBe(true);
     expect(new Set(heights.map((z) => z.toFixed(2))).size).toBeGreaterThan(20);
-    expect(Math.min(...heights)).toBeGreaterThanOrEqual(paperThickness - 0.001);
-    expect(Math.max(...heights)).toBeLessThanOrEqual(paperThickness + 18.001);
+    expect(Math.min(...heights)).toBeGreaterThanOrEqual(islandTop - 0.001);
+    expect(Math.max(...heights)).toBeLessThanOrEqual(islandTop + 14);
     expect(p).toEqual(before);
     geo.dispose();
   });

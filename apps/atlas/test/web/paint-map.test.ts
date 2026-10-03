@@ -2,6 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 import { memberContours } from "../../src/web/belonging";
 import type { ResponsibilityOverlay } from "../../src/web/responsibility-focus";
 import { paintMap } from "../../src/web/scene/paint-map";
+import {
+  paintCoastInk,
+  paintGridReferences,
+} from "../../src/web/scene/paint-paper";
 import type { AtlasData, Territory } from "../../src/web/types";
 
 const territory: Territory = {
@@ -94,9 +98,10 @@ function canvasFixture() {
 }
 
 describe("map detail drawing", () => {
-  it("shows quiet specks at region scale and full files without island selection", () => {
+  it("keeps bold specks at region scale and full files without island selection", () => {
     const { canvas, ctx } = canvasFixture();
     const alphas: number[] = [];
+    ctx.fill.mockImplementation(() => alphas.push(ctx.globalAlpha));
     ctx.fillRect.mockImplementation(() => alphas.push(ctx.globalAlpha));
     paintMap(canvas, data, null, null, "ink", {
       height: 500,
@@ -105,7 +110,7 @@ describe("map detail drawing", () => {
       x: 0,
       y: 0,
     });
-    expect(alphas).toContain(0.2);
+    expect(alphas).toContain(0.85);
     alphas.length = 0;
     paintMap(canvas, data, null, null, "ink", {
       height: 500,
@@ -362,5 +367,82 @@ describe("map detail drawing", () => {
     expect(
       focused.filter((label) => label.file).map((label) => label.file?.id)
     ).toEqual(["file:0"]);
+  });
+  it("captions each package name with its real file count", () => {
+    const { canvas } = canvasFixture();
+    const labels = paintMap(canvas, data, null, null, "ink", {
+      height: 500,
+      pixelsPerUnit: 1,
+      width: 500,
+      x: 0,
+      y: 0,
+    });
+    const caption = (text: string) =>
+      labels.find((label) => label.text === text)?.caption;
+    expect(caption("Island")).toBe("2 FILES");
+    expect(caption("Other")).toBe("0 FILES");
+  });
+  it("prints lettered columns and numbered rows from the chart corner", () => {
+    const { ctx } = canvasFixture();
+    const view = { height: 500, pixelsPerUnit: 2, width: 500, x: 0, y: 0 };
+    paintGridReferences(ctx as unknown as CanvasRenderingContext2D, view, data);
+    const printed = ctx.fillText.mock.calls.map(([text]) => text);
+    expect(printed).toContain("A");
+    expect(printed).toContain("C");
+    expect(printed).toContain("2");
+    ctx.fillText.mockClear();
+    paintGridReferences(
+      ctx as unknown as CanvasRenderingContext2D,
+      view,
+      data,
+      [
+        {
+          font: "20px AtlasDisplay",
+          height: 20,
+          territory,
+          text: "Island",
+          width: 400,
+          x: 0,
+          y: -205,
+        },
+      ]
+    );
+    // A place name covering the column margin hides its references.
+    expect(ctx.fillText.mock.calls.map(([text]) => text)).not.toContain("C");
+    ctx.fillText.mockClear();
+    paintGridReferences(ctx as unknown as CanvasRenderingContext2D, view, data);
+    paintGridReferences(
+      ctx as unknown as CanvasRenderingContext2D,
+      { ...view, x: 90 },
+      data
+    );
+    // Panning never renames a cell.
+    expect(
+      ctx.fillText.mock.calls.filter(([text]) => text === "C").length
+    ).toBe(2);
+  });
+  it("inks the same coast pen pressure on every repaint", () => {
+    const shore: Territory = {
+      ...territory,
+      coast: [
+        [
+          Array.from({ length: 41 }, (_, index): [number, number] => [
+            40 * Math.cos((index / 40) * Math.PI * 2),
+            40 * Math.sin((index / 40) * Math.PI * 2),
+          ]),
+        ],
+      ],
+    };
+    const widths = () => {
+      const { ctx } = canvasFixture();
+      const recorded: number[] = [];
+      const pen = ctx as unknown as CanvasRenderingContext2D;
+      ctx.stroke.mockImplementation(() => recorded.push(pen.lineWidth));
+      paintCoastInk(pen, shore, 2, false);
+      return recorded;
+    };
+    const first = widths();
+    expect(new Set(first).size).toBeGreaterThan(2);
+    expect(widths()).toEqual(first);
   });
 });

@@ -26,13 +26,13 @@ describe("atlas detail hierarchy", () => {
       composition: 0,
       districts: 0,
       files: 0,
-      specks: 0.85,
+      specks: 1,
     });
     expect(detailLevel(2, true)).toEqual({
       composition: 0,
       districts: 1,
       files: 0,
-      specks: 0.2,
+      specks: 0.85,
     });
     expect(detailLevel(5, true)).toEqual({
       composition: 0,

@@ -85,6 +85,11 @@ export function reliefHachure(slope: number, pixels = 1) {
   };
 }
 
+/** Overview file dots grow gently with zoom, so dense packages stay dotted rather than blotted. */
+export function speckRadius(pixels: number) {
+  return 1.45 / Math.sqrt(Math.max(0.25, pixels));
+}
+
 /** File settlements remain legible as the camera enters close detail. */
 export function filePen(pixels: number) {
   return Math.min(1.8, 4.5 / pixels);
@@ -109,24 +114,45 @@ export function changeCrater(commits: number, percentile: number) {
   return commits >= 3 && percentile >= 0.8;
 }
 
-/** Mean incoming imports per neighborhood member set a shared two-unit level. */
-export function neighborhoodElevation(meanImports: number) {
-  return 0.6 + 2 * Math.min(4, Math.round(Math.log2(1 + meanImports)));
+/** Summit height from incoming imports above the prominence floor; never quality or churn. */
+export function summitHeight(incoming: number) {
+  return Math.max(0, 1.8 * Math.log2((1 + incoming) / 5));
 }
 
-/** Broad support interpolates group levels; normalization prevents density bumps. */
-export function terrainSupport(distanceSquared: number) {
-  return Math.max(0, 1 - distanceSquared / (42 * 42)) ** 3;
+/** A summit's foot widens with its height, so heights stay rounded hills. */
+export function summitReach(height: number) {
+  return 10 + 4 * height;
 }
 
-/** Broad level ground with rounded ramps between two-unit shelves. */
-export function shelfBlend(total: number, weight: number) {
-  const elevation = (total + 0.6 * 0.02) / (weight + 0.02);
-  const level = Math.max(0, (elevation - 0.6) / 2);
-  const whole = Math.floor(level);
-  const t = Math.max(0, Math.min(1, (level - whole - 0.2) / 0.6));
-  return 0.6 + 2 * (whole + t * t * (3 - 2 * t));
+/** Rounded summit: zero slope at the crown and at its foot. */
+export function summitProfile(distanceSquared: number, height: number) {
+  const reach = summitReach(height);
+  const falloff = Math.max(0, 1 - distanceSquared / (reach * reach));
+  return height * falloff * falloff;
 }
+
+const rangeSharpness = 8;
+
+/** Soft maximum of neighbouring summits: clusters join into one range without stacking. */
+export function rangeBlend(hills: Iterable<number>) {
+  let total = 0;
+  for (const hill of hills) {
+    total += hill ** rangeSharpness;
+  }
+  return total ** (1 / rangeSharpness);
+}
+
+/**
+ * Lowland rounds over the beach, then keeps rising gently inland; it never
+ * levels into a table. Both terms depend only on clearance from the coast.
+ */
+export function lowland(clearance: number) {
+  const c = Math.max(0, clearance);
+  return 1.0 * (1 - Math.exp(-c / 4)) + 0.9 * (1 - Math.exp(-c / 30));
+}
+
+/** Every island stands a slight lift above the sea, an old chart's raised coast. */
+export const islandPlinth = 0.45;
 
 /** A ten-unit shoreward ramp keeps land attached to the original coastline. */
 export function shoreRamp(clearance: number) {

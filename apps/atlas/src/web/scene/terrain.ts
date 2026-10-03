@@ -1,6 +1,6 @@
 import {
   BufferAttribute,
-  type BufferGeometry,
+  BufferGeometry,
   Path,
   Shape,
   ShapeGeometry,
@@ -8,13 +8,17 @@ import {
 } from "three";
 import { TessellateModifier } from "three/addons/modifiers/TessellateModifier.js";
 import { mergeVertices } from "three/addons/utils/BufferGeometryUtils.js";
+import { islandPlinth } from "../codex/bindings";
 import type { Polygon, Territory } from "../types";
 import { paperThickness } from "./paper-material";
 import { baseTerrainField } from "./terrain-field";
 import { sampleTerrainSurface } from "./terrain-surface";
 
+/** The island's top surface: plinth plus usage relief above the paper. */
+export const islandTop = paperThickness + islandPlinth;
+
 export function terrainHeight(p: Territory, x: number, y: number): number {
-  return paperThickness + baseTerrainField(p).sample(x, y).elevation;
+  return islandTop + baseTerrainField(p).sample(x, y).elevation;
 }
 
 export function terrainGeometry(
@@ -46,13 +50,61 @@ export function terrainGeometry(
     new Float32Array(positions.array),
     p,
     baseTerrainField(p),
-    paperThickness
+    islandTop
   );
   positions.array.set(surface.positions);
   positions.needsUpdate = true;
   geometry.setAttribute("normal", new BufferAttribute(surface.normals, 3));
   geometry.setAttribute("occlusion", new BufferAttribute(surface.occlusion, 1));
   geometry.computeBoundingSphere();
+  return geometry;
+}
+
+/** Low vertical lift from the sea to the plinth along every coast ring. */
+export function coastWallGeometry(
+  p: Territory,
+  polygon: Polygon
+): BufferGeometry {
+  const positions: number[] = [];
+  const normals: number[] = [];
+  for (const [index, ring] of polygon.entries()) {
+    const points = ring.map(([x, y]) => [p.x + x, -(p.y + y)] as const);
+    let area = 0;
+    for (const [i, [x, y]] of points.entries()) {
+      const [nx, ny] = points[(i + 1) % points.length] ?? [x, y];
+      area += x * ny - nx * y;
+    }
+    // Faces point away from land: out of the outer ring, into each lake hole.
+    const side = (area > 0 ? 1 : -1) * (index === 0 ? 1 : -1);
+    for (let i = 1; i < points.length; i += 1) {
+      const a = points[i - 1];
+      const b = points[i];
+      if (!(a && b)) {
+        continue;
+      }
+      const [ax, ay] = a;
+      const [bx, by] = b;
+      const length = Math.hypot(bx - ax, by - ay) || 1;
+      const nx = (side * (by - ay)) / length;
+      const ny = (side * (ax - bx)) / length;
+      positions.push(
+        ...[ax, ay, 0, bx, by, 0, bx, by, islandTop],
+        ...[ax, ay, 0, bx, by, islandTop, ax, ay, islandTop]
+      );
+      for (let corner = 0; corner < 6; corner += 1) {
+        normals.push(nx, ny, 0);
+      }
+    }
+  }
+  const geometry = new BufferGeometry();
+  geometry.setAttribute(
+    "position",
+    new BufferAttribute(new Float32Array(positions), 3)
+  );
+  geometry.setAttribute(
+    "normal",
+    new BufferAttribute(new Float32Array(normals), 3)
+  );
   return geometry;
 }
 
