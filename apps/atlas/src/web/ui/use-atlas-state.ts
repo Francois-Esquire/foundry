@@ -93,7 +93,8 @@ export function useAtlasState(initial: AtlasState) {
   const viewBelonging = useBelonging(
     viewTerritory ?? undefined,
     data.generatedAt,
-    chartSettings.volcanic
+    chartSettings.volcanic,
+    chartSettings.streams
   );
   const selectedBelonging = useBelonging(
     resolveSelectedBelonging(
@@ -103,7 +104,8 @@ export function useAtlasState(initial: AtlasState) {
       territoryLayout
     ),
     data.generatedAt,
-    chartSettings.volcanic
+    chartSettings.volcanic,
+    chartSettings.streams
   );
   const belonging =
     territory?.id === viewTerritory?.id && viewBelonging.data

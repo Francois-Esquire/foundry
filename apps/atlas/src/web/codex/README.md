@@ -50,13 +50,11 @@ missing history never becomes a zero count.
 | ---------------------- | --------------------------------------------- | --------------------- | ------------------------------- |
 | `prominentFile` | Incoming imports and fraction of package files with strictly fewer | Structural evidence index at >=5 imports and >=95th percentile | `landmarks.ts` |
 | `changeCrater` | Commits and repository same-kind commit percentile in the recorded window | Recorded-change index at >=3 commits and >=80th percentile | `landmarks.ts` |
-| `terrainProminence` | Local file mass, incoming module imports, commons/junction role | Quiet concentration relief (up to 1.2 units); import prominence up to 10; structural minimum 3.5 | `scene/terrain-field.ts` |
+| `terrainProminence` | Local file mass and incoming module imports | Quiet concentration relief (up to 1.2 units); import prominence up to 10 | `scene/terrain-field.ts` |
 | `terrainNeighborhood` | Distance between real files | Compact 24-unit neighborhood weight for mass and covariance | `scene/terrain-field.ts` |
 | `ridgeStretch` | Neighborhood covariance spread and variance | Crest elongation from 1 to 1.8 | `scene/terrain-field.ts` |
 | `ridgeFoot` | Prominence, coast clearance and elongation | Individual shore-fitting footprint and bounded slope | `scene/terrain-field.ts` |
 | `ridgeProfile` | Elliptical distance, footprint and prominence | Rounded compact profile `(1−q)^4·(1+4q)`, with horizontal summit/foot tangents; combined by maximum | `scene/terrain-field.ts` |
-| `craterRelief` | Recorded commits | Logarithmic cut radius (up to 7) and depth (up to 4) | `scene/terrain-field.ts` |
-| `craterBowl` | Cut floor, normalized radius and existing elevation | Bowl cut, feathered outer fifth, muted mineral pigment inside cut | `scene/terrain-field.ts` |
 | `chartGrid` | View pixels per map unit | Fixed 90-unit majors and 18-unit minor lines; minor opacity fades in at 30–60 screen pixels of spacing | `scene/paint-paper.ts` |
 | `footprint`            | Package size                                  | island radius         | `load-atlas.ts`                 |
 | `latitude`             | Package layer                                 | north/south position  | `load-atlas.ts`, `geography.ts` |

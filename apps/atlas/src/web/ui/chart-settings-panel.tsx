@@ -275,13 +275,13 @@ export function ChartSettingsPanel({
             onChange={handleVolcanic}
             type="checkbox"
           />
-          <span>Recorded change · terrain craters</span>
+          <span>Recorded change · evidence in Place</span>
         </label>
         <p>
           Inside an island, crests follow concentration and structural
           importance. Unresolved belonging is marsh. Streams draw the imports
           between districts and meet at composition junctions. Recorded change
-          cuts shallow craters; dates and counts are in Place.
+          dates and counts are in Place.
         </p>
       </details>
       <details>

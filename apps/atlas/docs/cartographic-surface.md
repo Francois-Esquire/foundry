@@ -176,3 +176,32 @@ and `scroll-final-quirks-*`. Their meaning is unchanged; Light has visibly softe
 contact shading. WebGPU captures report zero console errors. The remaining cold
 GPU/frame-pacing spikes mean the overall scrolling-performance issue is improved,
 not fully closed.
+
+
+### Removal of browser workers and terrain variants
+
+The worker-based mitigation above is historical. The viewer now constructs one
+terrain per survey. Loading package internals, selecting a file, changing recorded
+change inspection, and crossing zoom thresholds cannot replace terrain geometry.
+The relief worker, natural-feature worker, transfer protocol, cancellation path,
+base/variant mesh copies and synchronous failure fallback have been removed.
+Natural-feature geometry uses ordinary memoization on the browser thread.
+Recorded change remains evidence in Place; it no longer cuts terrain. Late role
+classification no longer raises file crests. These changes remove unnecessary
+reconstruction rather than moving it between threads. New browser workers require
+explicit user instruction.
+
+District stream routing now runs only when its layer is enabled. Removing the
+worker without that change exposed a 269 ms pause from routing invisible streams.
+The final isolated Retina sweeps recorded Atlas at 17.7 ms p95 / 138.3 ms maximum,
+with no main-thread long tasks, and Quirks at 17.8 ms p95 / 73.5 ms maximum, with
+one 61 ms long task. Atlas still fails the existing 100 ms maximum-frame budget;
+neither run establishes 120 FPS. Optional stream routing remains synchronous
+when enabled and still needs its own cost reduction.
+
+`bun run validate` passed and `bun x vitest run` passed 1,403 tests in 108 files.
+The full suite needed localhost permission for its HTTP-server tests. Before/after
+captures at overview, island, district and file scales are in `.cache/shots/cleanup-*`;
+all visual runs reported zero console errors. The captures retain the existing
+coasts and file positions. The remaining individual file crests and weak shore
+contrast are not a completed visual redesign.

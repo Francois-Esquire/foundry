@@ -1,13 +1,10 @@
 import {
-  craterBowl,
-  craterRelief,
   ridgeFoot,
   ridgeProfile,
   ridgeStretch,
   terrainNeighborhood,
   terrainProminence,
 } from "../codex/bindings";
-import type { Landmark } from "../landmarks";
 import type { AtlasFile, Territory } from "../types";
 
 interface Crest {
@@ -21,11 +18,7 @@ interface Crest {
 }
 
 /** The local file distribution sets ridge orientation; no seeded terrain noise. */
-function crest(
-  file: AtlasFile,
-  territory: Territory,
-  structural: boolean
-): Crest {
+function crest(file: AtlasFile, territory: Territory): Crest {
   let xx = 0;
   let xy = 0;
   let yy = 0;
@@ -44,7 +37,7 @@ function crest(
   const stretch = ridgeStretch(spread, xx + yy);
   return {
     ...ridgeFoot(
-      terrainProminence(mass, file.incoming, structural),
+      terrainProminence(mass, file.incoming),
       coastDistance(territory, file.x, file.y),
       stretch
     ),
@@ -125,51 +118,12 @@ function coastDistance(territory: Territory, x: number, y: number) {
   return distance;
 }
 
-export function createTerrainField(
-  territory: Territory,
-  landmarks: readonly Landmark[] = []
-) {
-  const roles = new Set(
-    landmarks
-      .filter((item) => item.role !== "change")
-      .map((item) => item.file.id)
+export function createTerrainField(territory: Territory) {
+  const ridgeHeight = crestSampler(
+    territory.files.map((file) => crest(file, territory))
   );
-  const crests = territory.files.map((file) =>
-    crest(file, territory, roles.has(file.id))
-  );
-  const ridgeHeight = crestSampler(crests);
-  const craters = landmarks.flatMap((item) => {
-    if (!item.change) {
-      return [];
-    }
-    const { x, y } = item.file;
-    const { radius, depth } = craterRelief(item.change.file.commits);
-    return [
-      {
-        floor: Math.max(0.12, ridgeHeight(x, y) - depth),
-        radius,
-        x,
-        y,
-      },
-    ];
-  });
   return {
-    sample(x: number, y: number) {
-      let elevation = ridgeHeight(x, y);
-      let mineral = 0;
-      for (const crater of craters) {
-        const q = Math.hypot(x - crater.x, y - crater.y) / crater.radius;
-        if (q >= 1) {
-          continue;
-        }
-        const bowl = craterBowl(crater.floor, q, elevation);
-        if (bowl.elevation < elevation) {
-          ({ elevation } = bowl);
-          mineral = Math.max(mineral, bowl.mineral);
-        }
-      }
-      return { elevation, mineral };
-    },
+    sample: (x: number, y: number) => ({ elevation: ridgeHeight(x, y) }),
   };
 }
 

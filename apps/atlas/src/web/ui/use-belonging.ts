@@ -9,7 +9,8 @@ import { useNaturalFeatures } from "./use-natural-features";
 export function useBelonging(
   territory: Territory | undefined,
   survey: string,
-  volcanic = false
+  volcanic = false,
+  streams = false
 ) {
   const [result, setResult] = useState<{
     id: string;
@@ -76,7 +77,8 @@ export function useBelonging(
     territory,
     regions,
     current?.data,
-    volcanic
+    volcanic,
+    streams
   );
   return {
     composites,

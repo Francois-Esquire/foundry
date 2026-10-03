@@ -153,7 +153,7 @@ export async function createAtlasScene(
   const footprints = createContinents(data, coastalBuffer);
   const continents = layers.land ? footprints : [];
   const coasts = continentCoasts(data, continents);
-  let topography = createTopography(data, coasts);
+  const topography = createTopography(data, coasts);
   const boundaries = atlasBoundaries(
     data,
     coastalBuffer,
@@ -243,7 +243,7 @@ export async function createAtlasScene(
 
   const relief = createReliefLayer(data, materials.paper, inkTexture, tilt);
   scene.add(relief.group);
-  let reliefInk = relief.reliefInk();
+  const reliefInk = relief.reliefInk();
   const lettering = createLettering();
   scene.add(lettering.mesh);
   const projectLabel = createLabelProjector(relief.fieldFor, tilt);
@@ -927,17 +927,6 @@ export async function createAtlasScene(
     },
     setAtmosphere: atmosphere.setEnabled,
     setBelonging: (value: BelongingLayer | null) => {
-      relief.setFeatures(value).then((reliefChanged) => {
-        if (!reliefChanged) {
-          return;
-        }
-        topography = [
-          ...topography.filter((line) => line.sea),
-          ...relief.contours(),
-        ];
-        reliefInk = relief.reliefInk();
-        render();
-      });
       if (value?.featureFocus) {
         selectedFile = null;
         selectedNeighborhood = undefined;

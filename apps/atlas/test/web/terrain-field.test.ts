@@ -1,13 +1,12 @@
 import { Mesh, MeshBasicMaterial, Raycaster, Vector3 } from "three";
 import { expect, it } from "vitest";
 import { ridgeProfile } from "../../src/web/codex/bindings";
-import { buildLandmarks } from "../../src/web/landmarks";
 import {
   createLabelProjector,
   elevatedLabel,
 } from "../../src/web/scene/lettering";
 import { paperThickness } from "../../src/web/scene/paper-material";
-import { reshapeTerrain, terrainGeometry } from "../../src/web/scene/terrain";
+import { terrainGeometry } from "../../src/web/scene/terrain";
 import { createTerrainField } from "../../src/web/scene/terrain-field";
 import { createTerrainPicker } from "../../src/web/scene/terrain-picking";
 import type { AtlasFile, Territory } from "../../src/web/types";
@@ -63,62 +62,6 @@ it("gives a depended-on file a stronger crest without lifting the coast or movin
   expect(terrain.sample(40, 0).elevation).toBe(0);
   expect(terrain.sample(50, 0).elevation).toBe(0);
   expect(territory).toEqual(before);
-});
-
-it("cuts recorded change into existing vertices and restores the same mesh when absent", () => {
-  const marks = buildLandmarks(territory, [], {
-    churn: {
-      available: true,
-      files: [
-        {
-          additions: 70,
-          authors: 1,
-          commits: 8,
-          deletions: 30,
-          file: file.path,
-          kind: "source",
-          linesChanged: 100,
-          rank: { commitPercentile: 0.9, lineChurnPercentile: 0.5 },
-        },
-      ],
-      history: {
-        analyzedAt: "2026-09-30T00:00:00Z",
-        commitsAnalyzed: 20,
-        historyComplete: true,
-        windowDays: 365,
-      },
-    },
-    fileIds: {},
-    relationships: [],
-    unresolved: [],
-  });
-  const base = createTerrainField(territory);
-  const carved = createTerrainField(territory, marks);
-  expect(carved.sample(0, 0).elevation).toBeLessThan(
-    base.sample(0, 0).elevation - 1
-  );
-  expect(carved.sample(0, 0).mineral).toBeGreaterThan(0);
-  expect(carved.sample(12, 0)).toEqual(base.sample(12, 0));
-  const [coast] = territory.coast;
-  if (!coast) {
-    throw new Error("Missing fixture coast");
-  }
-  const geometry = terrainGeometry(territory, coast, 100, 100);
-  const positions = geometry.getAttribute("position");
-  const before = Array.from(positions.array);
-  reshapeTerrain(geometry, territory, carved);
-  let lowered = 0;
-  for (let index = 0; index < positions.count; index += 1) {
-    expect(positions.getX(index)).toBe(before[index * 3]);
-    expect(positions.getY(index)).toBe(before[index * 3 + 1]);
-    if (positions.getZ(index) < (before[index * 3 + 2] ?? 0)) {
-      lowered += 1;
-    }
-  }
-  expect(lowered).toBeGreaterThan(0);
-  reshapeTerrain(geometry, territory, base);
-  expect(Array.from(positions.array)).toEqual(before);
-  geometry.dispose();
 });
 
 it("raises label anchors without distorting their type or click bounds", () => {
@@ -258,15 +201,7 @@ it("preserves the terrain across ridge overlaps, empty ground and negative coord
       y: Math.floor(index / 4) * 13 - 21,
     })),
   };
-  const landmark = {
-    consumers: [],
-    file: clustered.files[5] ?? file,
-    footprint: [],
-    kind: "summit" as const,
-    radius: 5,
-    role: "commons" as const,
-  };
-  const field = createTerrainField(clustered, [landmark]);
+  const field = createTerrainField(clustered);
   const samples: number[] = [];
   for (let y = -60; y <= 60; y += 13) {
     for (let x = -60; x <= 60; x += 11) {

@@ -47,11 +47,11 @@ export function MapKey({
       </dl>
       <p>
         Low ground follows file concentration. Stronger crests mark incoming
-        imports, shared commons and composition junctions. File marks stay
-        visible on the relief. Height is not a quality score.
+        imports. Commons and composition junctions are identified in Place. File
+        marks stay visible on the relief. Height is not a quality score.
         {volcanic
-          ? " Crater cuts show recorded Git change; counts and dates are in Place."
-          : " Recorded-change craters are off."}{" "}
+          ? " Recorded Git change counts and dates are in Place."
+          : " Recorded change is off."}{" "}
         Roles, measured consumers and omitted routes are in Place.
       </p>
     </details>

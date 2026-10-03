@@ -53,7 +53,9 @@ export function NaturalFeaturePanel({
         <p>
           {features.landmarks.length} structural and change records ·{" "}
           {features.marshes.length} unresolved modules ·{" "}
-          {features.streams.length} mapped relationships
+          {features.streamsEnabled === false
+            ? "district streams are off"
+            : `${features.streams.length} mapped relationships`}
         </p>
         <div className="atlas-feature-index">
           {features.landmarks.map((item) => (
@@ -111,7 +113,7 @@ function FeatureEvidence({
         <>
           <p>
             This file keeps its position. Crests follow concentration and
-            structural importance; optional crater cuts show recorded change.
+            incoming imports. Recorded change appears in the evidence above.
             Exact roles and counts are given above.
           </p>
           <PlaceButton

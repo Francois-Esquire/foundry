@@ -10,8 +10,8 @@ import { TessellateModifier } from "three/addons/modifiers/TessellateModifier.js
 import { mergeVertices } from "three/addons/utils/BufferGeometryUtils.js";
 import type { Polygon, Territory } from "../types";
 import { paperThickness } from "./paper-material";
-import { baseTerrainField, type TerrainField } from "./terrain-field";
-import { sampleTerrainSurface, type TerrainSurface } from "./terrain-surface";
+import { baseTerrainField } from "./terrain-field";
+import { sampleTerrainSurface } from "./terrain-surface";
 
 export function terrainHeight(p: Territory, x: number, y: number): number {
   return paperThickness + baseTerrainField(p).sample(x, y).elevation;
@@ -42,36 +42,18 @@ export function terrainGeometry(
     positions.setXYZ(i, p.x + x, -p.y + y, 0);
     uv.setXY(i, (p.x + x) / width + 0.5, (-p.y + y) / height + 0.5);
   }
-  reshapeTerrain(geometry, p, baseTerrainField(p));
-  return geometry;
-}
-
-/** Shared by the relief mesh and its ink, including optional excavated craters. */
-export function reshapeTerrain(
-  geometry: BufferGeometry,
-  p: Territory,
-  field: TerrainField
-) {
   const surface = sampleTerrainSurface(
-    new Float32Array(geometry.getAttribute("position").array),
+    new Float32Array(positions.array),
     p,
-    field,
+    baseTerrainField(p),
     paperThickness
   );
-  applyTerrainSurface(geometry, surface);
-}
-
-export function applyTerrainSurface(
-  geometry: BufferGeometry,
-  surface: TerrainSurface
-) {
-  const positions = geometry.getAttribute("position");
   positions.array.set(surface.positions);
   positions.needsUpdate = true;
   geometry.setAttribute("normal", new BufferAttribute(surface.normals, 3));
   geometry.setAttribute("occlusion", new BufferAttribute(surface.occlusion, 1));
-  geometry.setAttribute("mineral", new BufferAttribute(surface.mineral, 1));
   geometry.computeBoundingSphere();
+  return geometry;
 }
 
 export function settlementColor(kind: string): string {

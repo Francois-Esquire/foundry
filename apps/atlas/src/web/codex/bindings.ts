@@ -110,14 +110,10 @@ export function changeCrater(commits: number, percentile: number) {
 }
 
 /** Local mass and incoming imports shape relief, independently of recorded change. */
-export function terrainProminence(
-  neighbors: number,
-  dependents: number,
-  structural = false
-) {
+export function terrainProminence(neighbors: number, dependents: number) {
   const concentration = 0.15 + 1.05 * (1 - Math.exp(-neighbors / 8));
   const importance = Math.min(10, 0.5 * Math.log2(1 + dependents) ** 1.7);
-  return Math.max(concentration, importance, structural ? 3.5 : 0);
+  return Math.max(concentration, importance);
 }
 
 /** Compact rounded crest: horizontal tangents at the summit and the shoreward foot. */
@@ -128,15 +124,6 @@ export function ridgeProfile(
 ) {
   const q = Math.max(0, Math.min(1, distance / reach));
   return elevation * (1 - q) ** 4 * (1 + 4 * q);
-}
-
-/** Crater radius and cut depth follow the recorded commits, with bounded growth. */
-export function craterRelief(commits: number) {
-  const change = Math.log2(1 + commits);
-  return {
-    depth: Math.min(4, 1.2 + change * 0.55),
-    radius: Math.min(7, 2.8 + change * 0.7),
-  };
 }
 
 /** Each crest fits inside its own coast clearance, leaving the coast on the sheet. */
@@ -158,13 +145,4 @@ export function terrainNeighborhood(distance: number) {
 
 export function ridgeStretch(spread: number, variance: number) {
   return 1 + Math.min(0.8, spread / Math.max(1, variance));
-}
-
-export function craterBowl(floor: number, distance: number, surface: number) {
-  const cut = Math.max(0, surface - floor - distance * distance * 5);
-  const feather = Math.min(1, Math.max(0, (1 - distance) / 0.2));
-  return {
-    elevation: surface - cut * feather,
-    mineral: cut > 0 ? Math.max(0, 1 - distance) * 0.65 : 0,
-  };
 }

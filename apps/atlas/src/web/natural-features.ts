@@ -60,6 +60,7 @@ export interface NaturalFeatures {
   }[];
   rivers: RiverRun[];
   streams: Stream[];
+  streamsEnabled?: boolean;
   /** Measured relationships omitted from this bounded, crossing-free drawing. */
   unrouted: number;
 }
@@ -347,9 +348,12 @@ function confluences(runs: RiverRun[]): Confluence[] {
 export function naturalFeatures(
   territory: Territory,
   regions: readonly BelongingRegion[],
-  evidence: NaturalEvidence
+  evidence: NaturalEvidence,
+  streamsEnabled = true
 ): NaturalFeatures {
-  const flows = streams(regions, evidence, territory.coast);
+  const flows = streamsEnabled
+    ? streams(regions, evidence, territory.coast)
+    : { omitted: [], streams: [], unrouted: 0 };
   const rivers = riverRuns(flows.streams);
   return {
     changeNote: changeNote(evidence),
@@ -359,6 +363,7 @@ export function naturalFeatures(
     omitted: flows.omitted,
     rivers,
     streams: flows.streams,
+    streamsEnabled,
     unrouted: flows.unrouted,
   };
 }

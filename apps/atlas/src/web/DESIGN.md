@@ -144,10 +144,9 @@ Three.js uses an orthographic camera with a fixed 0.7-radian tilt. Coastlines
 remain unchanged while a triangulated surface rises from a 0.4-unit shoreline.
 Height expresses file concentration and measured structural importance, never
 quality or live activity. Low concentration relief leaves quiet flats. Incoming
-module imports raise rounded crests on a bounded logarithmic scale; recorded
-commons and composition junctions receive a minimum structural prominence when
-internals are loaded. Local file covariance stretches each crest along its
-neighborhood. The surface takes the upper envelope of compact crests, leaving
+module imports raise rounded crests on a bounded logarithmic scale. Loading
+internals does not change elevation. Local file covariance stretches each crest
+along its neighborhood. The surface takes the upper envelope of compact crests, leaving
 saddles between them instead of summing them into a swollen island. Each crest
 fits within its own coastline clearance and tapers to the sheet independently.
 The compact profile has a horizontal tangent at its summit and foot, removing
@@ -165,14 +164,11 @@ hits use an eight-unit grid of projected mesh triangles for the fixed camera,
 then exact barycentric intersection within the relevant bin. The index rebuilds
 only when that terrain changes; it does not approximate the picked surface.
 
-Detailed relief and its contour/hachure ink are prepared in a cancellable worker;
-the previous complete terrain stays visible until mesh, field, picking and ink
-can be applied together. Each island retains its base and latest evidence
-variant across zoom transitions. Camera and detail-reveal changes share one
-map repaint per display frame. Viewport-resolution ink uses linear sampling
-without rebuilding mipmaps on each upload. These are computation changes, not
-new meanings or changes to terrain resolution. Worker-unavailable environments
-retain a synchronous fallback.
+Terrain, contour/hachure ink and picking are built once from the initial survey.
+Zoom and late-arriving package evidence never replace the land beneath the ink.
+There are no browser workers or alternate terrain variants. Camera and
+detail-reveal changes share one map repaint per display frame. Viewport-resolution
+ink uses linear sampling without rebuilding mipmaps on each upload.
 
 Source settlements retain brown ink. Tests use blue walled proving grounds;
 stories use rose semicircular theaters; configuration uses ochre buildings.
@@ -379,9 +375,9 @@ remain disposable presentation data; temporal stability is not guaranteed.
   remaining distance, approaching in its direction where land permits. Other
   rivers are obstacles, never false connections. One arc is preferred; a lazy
   three-unit land grid and constrained smoothing handle obstructed routes.
-  A worker computes natural geometry once when belonging loads and is
-  terminated when its island changes. Environments without workers retain
-  the synchronous implementation. Grid-edge coast checks are cached per build.
+  Natural geometry is memoized from the package evidence on the browser thread,
+  independently of camera movement. District routes are computed only when the
+  streams layer is enabled. Grid-edge coast checks are cached per build.
   Every segment checks the coast, including holes and thin inlets.
   Detours longer than 1.7 times the independent land route are omitted.
   A confluence
@@ -573,15 +569,11 @@ Recorded change evidence is optional, off initially. It reads the same survey's
 package churn report only when enabled, matched by exact workspace-relative file
 path. The index includes files with at least 3 commits and a commit percentile
 >= 0.8 among repository files of the same kind in the same history window.
-Recorded change cuts a shallow bowl into the existing mesh at each eligible
-file. Radius and maximum cut depth grow logarithmically with commit count,
-bounded at 7 and 4 map units; cuts never lift the surrounding ground or breach
-the paper base. A subdued iron pigment appears only inside the cut. A changed
-structural crest therefore has a crater, with no separate volcano icon or glow.
+Recorded change is inspection evidence in Place and does not alter terrain.
+The zoom-dependent crater cuts and role-based elevation boosts have been removed.
 Counts, line additions/deletions, dates, percentile population, and complete or
-partial Git history remain in Place. No history means no cut and no inferred
-count. Disabling the layer restores the uncut surface. Bloom starts off so
-bright paper slopes retain their edges.
+partial Git history remain in Place. No history means no inferred count.
+Bloom starts off so bright paper slopes retain their edges.
 
 Sliders are uniforms and change nothing in the graph; quality, toggles, tone
 mapping, filter, and stage view rebuild it. Stage modules load on first use.
