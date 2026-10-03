@@ -4,7 +4,11 @@ import { Panel } from "~/components/panel";
 import { SelectableRow } from "~/components/selectable-row";
 import { StatusLabel } from "~/components/status-label";
 import { Text } from "~/components/ui/text";
-import { type DashboardSelection, selectionKey } from "~/views/dashboard-model";
+import {
+  type DashboardSelection,
+  runStatusLabel,
+  selectionKey,
+} from "~/views/dashboard-model";
 import type { RunRow } from "~/views/dashboard-tree";
 import { EmptyState } from "./empty-state";
 
@@ -74,9 +78,11 @@ export function RunsBlock({
           ) : (
             <Text>·</Text>
           )}
-          {row.depth > 0 && <KindBadge kind="step" />}
+          {row.depth > 0 &&
+            row.selection.kind === "run" &&
+            row.selection.activityId === undefined && <KindBadge kind="step" />}
           <Text>{row.name}</Text>
-          <StatusLabel status={row.status} />
+          <StatusLabel status={runStatusLabel(row)} />
           <Text>{row.elapsed}</Text>
           {row.depth === 0 && <Text>· {row.selection.id}</Text>}
         </SelectableRow>

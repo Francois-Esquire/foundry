@@ -12,10 +12,15 @@ import type {
   RunSnapshot,
   StepSnapshot,
 } from "~/views/dashboard-model";
-import { selectionKey } from "~/views/dashboard-model";
+import {
+  runStatusLabel,
+  selectedActivity,
+  selectionKey,
+} from "~/views/dashboard-model";
 import { type CatalogSelection, scopedRuns } from "~/views/dashboard-tree";
 import type { RunActions } from "~/views/run-actions";
 import type { InspectorTab } from "~/views/use-dashboard";
+import { ActivityDetails } from "./activity-details";
 import { RunLogs } from "./run-logs";
 import { RunOverview, StepOverview } from "./run-overview";
 import { RunStream } from "./run-stream";
@@ -56,6 +61,14 @@ function RunInspector({
   readonly onInspect: (selection: DashboardSelection) => void;
   readonly stream?: RunActions["stream"];
 }) {
+  if (selection.activityId !== undefined) {
+    const activity = selectedActivity(run, selection);
+    return activity ? (
+      <ActivityDetails activity={activity} onInspect={onInspect} run={run} />
+    ) : (
+      <Text>This activity is no longer available in run {run.id}.</Text>
+    );
+  }
   const path = stepPath(run.steps, selection.stepId);
   const step = path.at(-1);
   if (selection.stepId && !step) {
@@ -178,6 +191,12 @@ function CatalogDetails({
                   ?.name ?? item.targetId,
             },
             { key: "Status", value: item.status },
+            ...("owner" in item && item.owner
+              ? [{ key: "Owner", value: item.owner }]
+              : []),
+            ...("lifetime" in item && item.lifetime
+              ? [{ key: "Lifetime", value: item.lifetime }]
+              : []),
             { key: "Next", value: item.next ?? "Waiting for an event" },
           ]}
         />
@@ -212,7 +231,7 @@ function CatalogDetails({
           value={{ id: run.id, kind: "run" }}
         >
           <Text>{run.id}</Text>
-          <StatusLabel status={run.status} />
+          <StatusLabel status={runStatusLabel(run)} />
         </SelectableRow>
       ))}
     </box>
@@ -248,7 +267,7 @@ export function DetailsBlock({
     content = run ? (
       <RunInspector
         focused={active}
-        key={`${run.id}:${selection.stepId ?? "run"}`}
+        key={selectionKey(selection)}
         onInspect={onInspect}
         onTab={onTab}
         run={run}

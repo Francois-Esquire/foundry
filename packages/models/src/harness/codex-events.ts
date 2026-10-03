@@ -1,24 +1,31 @@
 import type { StreamPart } from "@foundry/agents/harness";
+import { createNativeActivities } from "./native-activity";
 import { type DriverRun, inputSummary, record } from "./shared";
 export type EmitTool = (
   toolName: string,
   toolCallId: string,
   input: unknown,
   outcome: "started" | "ran" | "refused" | "failed",
-  reason?: string
+  reason?: string,
+  activityId?: string
 ) => Promise<void>;
 
 interface EventOptions {
   agentId: string;
-  onComplete: () => void;
+  isParentThread: (threadId: unknown) => boolean;
+  onChildTurn: (threadId: string, turn: Record<string, unknown>) => void;
+  onComplete: () => void | Promise<void>;
   onTurn: (params: Record<string, unknown>) => void;
   push: (part: StreamPart) => void;
   run: DriverRun;
   stop: () => void;
+  subscribeChild: (threadId: string) => Promise<void>;
 }
 
 export function createCodexEvents(options: EventOptions) {
-  const { run, push } = options;
+  let { run } = options;
+  const { push } = options;
+  const activities = createNativeActivities(run, crypto.randomUUID());
   const seen = new Set<string>();
   let steps = 0;
   const emit: EmitTool = async (
@@ -26,7 +33,8 @@ export function createCodexEvents(options: EventOptions) {
     toolCallId,
     input,
     outcome,
-    reason
+    reason,
+    activityId
   ) => {
     const key = `${toolCallId}:${outcome}`;
     if (seen.has(key)) {
@@ -34,6 +42,7 @@ export function createCodexEvents(options: EventOptions) {
     }
     seen.add(key);
     await run.onToolEvent({
+      ...(activityId ? { activityId } : {}),
       agentId: options.agentId,
       harness: "codex",
       inputSummary: inputSummary(input),
@@ -49,6 +58,18 @@ export function createCodexEvents(options: EventOptions) {
     started: boolean
   ) => {
     const item = record(params.item);
+    const activityId =
+      typeof params.threadId === "string" &&
+      !options.isParentThread(params.threadId)
+        ? activities.id(params.threadId)
+        : undefined;
+    for (const child of await activities.codexItem(item)) {
+      try {
+        await options.subscribeChild(child);
+      } catch {
+        await activities.codexTurn(child, undefined);
+      }
+    }
     if (!isTool(item.type)) {
       return;
     }
@@ -61,12 +82,13 @@ export function createCodexEvents(options: EventOptions) {
         toolCallId,
         item,
         outcome,
-        outcome === "ran" ? undefined : `CLI tool ${outcome}`
+        outcome === "ran" ? undefined : `CLI tool ${outcome}`,
+        activityId
       );
       return;
     }
     steps += 1;
-    await emit(name, toolCallId, item, "started");
+    await emit(name, toolCallId, item, "started", undefined, activityId);
     if (steps > run.profile.maxSteps) {
       await emit(
         name,
@@ -83,8 +105,31 @@ export function createCodexEvents(options: EventOptions) {
     }
   };
   return {
+    activityId: (threadId: unknown) =>
+      typeof threadId === "string" && !options.isParentThread(threadId)
+        ? activities.id(threadId)
+        : undefined,
+    close: activities.close,
     emit,
     async receive(method: string, params: Record<string, unknown>) {
+      const parent = options.isParentThread(params.threadId);
+      if (
+        !parent &&
+        (method === "turn/started" || method === "turn/completed") &&
+        typeof params.threadId === "string"
+      ) {
+        const turn = record(params.turn);
+        options.onChildTurn(params.threadId, turn);
+        await activities.codexTurn(
+          params.threadId,
+          turn.status,
+          method === "turn/started" && typeof turn.id === "string"
+        );
+        return;
+      }
+      if (!(parent || ["item/started", "item/completed"].includes(method))) {
+        return;
+      }
       const handlers: Record<string, () => Promise<void> | void> = {
         error: () =>
           push({
@@ -102,7 +147,7 @@ export function createCodexEvents(options: EventOptions) {
           push({ delta: String(params.delta ?? ""), type: "reasoning-delta" }),
         "item/started": () => itemEvent(params, true),
         "thread/tokenUsage/updated": () => push(usagePart(params)),
-        "turn/completed": () => {
+        "turn/completed": async () => {
           const turn = record(params.turn);
           if (turn.status !== "completed") {
             push({
@@ -112,12 +157,19 @@ export function createCodexEvents(options: EventOptions) {
               type: "error",
             });
           }
-          options.onComplete();
+          await options.onComplete();
         },
         "turn/started": () => options.onTurn(params),
       };
       await handlers[method]?.();
     },
+    setRun(value: DriverRun) {
+      run = value;
+      activities.setRun(value);
+      seen.clear();
+      steps = 0;
+    },
+    stoppableNativeId: activities.taskId,
   };
 }
 
@@ -131,6 +183,7 @@ function isTool(type: unknown): boolean {
       "dynamicToolCall",
       "webSearch",
       "imageGeneration",
+      "collabAgentToolCall",
     ].includes(type)
   );
 }

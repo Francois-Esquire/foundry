@@ -6,9 +6,12 @@ export type {
   ObserveTurn,
   TurnObservation,
 } from "../agents/model";
-
-export type { AgentHarnessSettings } from "./agent-harness";
 // biome-ignore lint/performance/noBarrelFile: This is the exported @foundry/agents/harness public API.
+export {
+  createHarnessActivityRecorder,
+  reduceHarnessActivities,
+} from "./activity";
+export type { AgentHarnessSettings } from "./agent-harness";
 export { AgentHarness } from "./agent-harness";
 export type { BuiltinCodingSettings } from "./builtin-coding";
 export {
@@ -23,6 +26,8 @@ export {
   resolveHarnessApproval,
   summarizeHarnessInput,
 } from "./permission";
+export type { HarnessQuestionToolSettings } from "./question";
+export { createHarnessQuestionTool, isHarnessQuestionTool } from "./question";
 export type {
   CompactionSettings,
   SessionHarnessSettings,
@@ -44,12 +49,18 @@ export {
 } from "./tool-compiler";
 export type {
   DriverSessionSettings,
+  HarnessActivity,
+  HarnessActivityEvent,
   HarnessAuthoritySettings,
   HarnessCapabilities,
   HarnessPermissionCallback,
   HarnessPermissionProfile,
   HarnessPermissionRequest,
   HarnessPermissionResult,
+  HarnessQuestion,
+  HarnessQuestionCallback,
+  HarnessQuestionRequest,
+  HarnessQuestionResult,
   HarnessSession,
   HarnessToolEvent,
   HarnessTurnDriver,

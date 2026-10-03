@@ -72,6 +72,9 @@ export function transformStream(
       case "text-delta":
         handlers?.onText?.(event.delta);
         break;
+      case "harness-activity":
+        handlers?.onHarnessActivity?.(event.event);
+        break;
       case "harness-tool":
         handlers?.onHarnessTool?.(event.event);
         break;
@@ -96,6 +99,9 @@ export function transformStream(
         break;
       case "tool-approval-request":
         handlers?.onApprovalRequest?.({
+          ...(event.activityId === undefined
+            ? {}
+            : { activityId: event.activityId }),
           approvalId: event.approvalId,
           capability: event.capability,
           input: event.input,
@@ -165,6 +171,13 @@ export function transformStream(
     try {
       const stream = await source;
       const consume: Record<string, (event: StreamPart) => void> = {
+        abort: (event) => {
+          throw new Error(
+            typeof event.reason === "string"
+              ? event.reason
+              : "Harness turn interrupted."
+          );
+        },
         error: (event) => {
           const error = toError(event.error);
           parts.push({ message: error.message, type: "error" });
@@ -172,6 +185,11 @@ export function transformStream(
         },
         finish: (event) => {
           usageAcc = normalizeUsage(event.totalUsage ?? event.usage);
+        },
+        "harness-activity": (part) => {
+          const event =
+            part.event as import("./turn-driver").HarnessActivityEvent;
+          emit({ event, type: "harness-activity" });
         },
         "harness-approval-request": (event) => {
           const approval = readApprovalRequest(event);
@@ -475,6 +493,7 @@ function stringField(
 /** Read the AI SDK provider-metadata bag off a stream part (it arrives as
  *  `providerMetadata` on the model stream; tolerate `providerOptions` too). */
 interface ApprovalRequestFields {
+  activityId: string | undefined;
   agentGeneration: number | undefined;
   agentId: string | undefined;
   approvalId: string;
@@ -488,6 +507,7 @@ interface ApprovalRequestFields {
 function readApprovalRequest(event: StreamPart): ApprovalRequestFields {
   const toolCall = nestedToolCall(event.toolCall);
   return {
+    activityId: readString(event, ["activityId"]) || undefined,
     agentGeneration:
       typeof event.agentGeneration === "number"
         ? event.agentGeneration

@@ -10,6 +10,7 @@ import type {
 } from "../../harness";
 import {
   createHarnessPermission,
+  redactHarnessSummary,
   resolveHarnessApproval,
   summarizeHarnessInput,
 } from "../../harness";
@@ -48,6 +49,35 @@ async function setup(mode: "scheduled" | "attended" = "scheduled") {
 }
 
 describe("native harness permission", () => {
+  it("awaits deferred request publication before returning the denial", async () => {
+    const { settings } = await setup();
+    let publish!: () => void;
+    settings.onApprovalRequest = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          publish = resolve;
+        })
+    );
+    let finished = false;
+    const pending = createHarnessPermission(settings)(request()).then(
+      (result) => {
+        finished = true;
+        return result;
+      }
+    );
+    await vi.waitFor(() =>
+      expect(settings.onApprovalRequest).toHaveBeenCalledWith(
+        expect.objectContaining({
+          approvalMode: "deferred",
+          sessionId: "session-1",
+        })
+      )
+    );
+    expect(finished).toBe(false);
+    publish();
+    expect(await pending).toMatchObject({ behavior: "deny" });
+  });
+
   it("scheduled asks deny promptly, record identity, and remember a next-run grant", async () => {
     const { settings, store } = await setup();
     const approve = vi.fn(() => new Promise<never>(() => undefined));
@@ -229,6 +259,41 @@ describe("native harness permission", () => {
     expect(
       JSON.stringify(vi.mocked(settings.onApprovalRequest).mock.calls)
     ).not.toContain("private-value");
+  });
+
+  it("shows a complete redacted operation when the live preview limit is Infinity", () => {
+    const command = `echo ${"x".repeat(300)}; token=private-value; rm -rf /workspace`;
+    expect(redactHarnessSummary(command)).toHaveLength(240);
+    const preview = redactHarnessSummary(command, Number.POSITIVE_INFINITY);
+    expect(preview).toContain("token=[redacted]");
+    expect(preview).toContain("; rm -rf /workspace");
+    expect(preview).not.toContain("private-value");
+    expect(redactHarnessSummary("abcdef", 3)).toBe("abc");
+    expect(() => redactHarnessSummary("value", 0)).toThrow("positive");
+    expect(() => redactHarnessSummary("value", Number.NaN)).toThrow("positive");
+  });
+
+  it("redacts quoted JSON secret keys, escaped string values, and bearer tokens", () => {
+    const input = JSON.stringify({
+      authorization: "Bearer private-bearer",
+      command:
+        "curl -H 'Authorization: Bearer private-header' https://user:private-url@example.test",
+      password: 'private-"password',
+      token: "private-token",
+    });
+    const preview = redactHarnessSummary(input, Number.POSITIVE_INFINITY);
+    expect(preview).toContain('token":');
+    expect(preview).toContain("[redacted]");
+    for (const secret of [
+      "private-token",
+      "private-password",
+      "private-bearer",
+      "private-header",
+      "private-url",
+    ]) {
+      expect(preview).not.toContain(secret);
+    }
+    expect(preview).not.toContain("private-");
   });
 
   it("summarizes inputs without command values", () => {

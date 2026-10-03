@@ -15,6 +15,9 @@ import type { Skill } from "@foundry/agents/skills";
 import type { ModelManager, TurnExecutorRef } from "@foundry/models";
 import { observeAgentTurn } from "@foundry/models";
 
+import type { AutomationService } from "~/automation/service";
+import type { HarnessActivities } from "~/sandbox/activities";
+import type { HarnessInteractions } from "~/sandbox/interactions";
 import { createSandboxSession } from "~/sandbox/session";
 
 import type { ManagerArgs } from "../bindings";
@@ -45,10 +48,13 @@ import type {
  */
 
 export interface AgentsDeps {
+  readonly activities?: HarnessActivities;
+  readonly automations?: AutomationService;
   /** The route when an agent names neither model nor provider. */
   readonly defaultExecutor: () => TurnExecutorRef;
   /** Simulation uses echo models and never prepares a guest or reads credentials. */
   readonly dry?: boolean;
+  readonly interactions?: HarnessInteractions;
   readonly models: ModelManager;
   readonly sessions: SessionStore;
   readonly skills: (set?: SkillSet) => Promise<Skill[]>;
@@ -249,6 +255,7 @@ function validateSessionOptions(options: SessionOptions): void {
     [
       options.profile,
       options.authority,
+      options.question,
       options.apiKey,
       options.oauthToken,
     ].some((value) => value !== undefined)
@@ -257,6 +264,39 @@ function validateSessionOptions(options: SessionOptions): void {
       "Harness profiles, authority, and explicit credentials require a sandbox session."
     );
   }
+}
+
+async function interactionOptions(
+  interactions: HarnessInteractions | undefined,
+  { frame, scope }: ManagerArgs,
+  agentId: string,
+  sessionId: string,
+  options: SessionOptions
+): Promise<SessionOptions> {
+  if (!interactions) {
+    return options;
+  }
+  const source = {
+    definition: frame.path[0] ?? agentId,
+    path: [...frame.path],
+    runId: scope.id,
+  };
+  await interactions.registerSession(
+    { agentId, sessionId, source },
+    options.authority?.policy
+  );
+  return {
+    ...options,
+    authority: interactions.authority(source, options.authority),
+    question:
+      options.question ??
+      ((request) =>
+        interactions.question(
+          source,
+          request,
+          options.profile?.mode === "attended"
+        )),
+  };
 }
 
 async function openSession(
@@ -290,12 +330,40 @@ async function openSession(
   const skills = await deps.skills(definition.skills);
   if (options.sandbox && !deps.dry) {
     const executor = sandboxExecutor(deps.models, modelId, provider);
+    const sessionOptions = await interactionOptions(
+      deps.interactions,
+      { cwd, frame, scope, write },
+      definition.id,
+      id,
+      options
+    );
+    const source = {
+      definition: frame.path[0] ?? definition.id,
+      path: [...frame.path],
+      runId: scope.id,
+    };
     const harness = await createSandboxSession({
       agentId: definition.id,
       harness: executor.harness,
       hostCwd: current.getStore()?.cwd ?? cwd,
+      hostToolsForSession: (sessionId) =>
+        deps.automations?.tools({
+          agentId: definition.id,
+          sessionId,
+          source,
+        }) ?? {},
       modelId: executor.model,
+      onActivity: deps.activities
+        ? (event) => deps.activities?.record(event, source)
+        : undefined,
+      onChildSession: (sessionId, activityId, session) =>
+        deps.activities?.attach(sessionId, session, activityId),
       provider: executor.provider,
+      registerChildSession: (sessionId) =>
+        deps.interactions?.registerSession(
+          { agentId: definition.id, sessionId, source },
+          sessionOptions.authority?.policy
+        ) ?? Promise.resolve(),
       ...sandboxModel(deps.models, executor),
       instructions: [
         definition.prompt,
@@ -303,12 +371,13 @@ async function openSession(
       ]
         .filter(Boolean)
         .join("\n\n"),
-      options,
+      options: sessionOptions,
       sessionId: id,
       signal: frame.signal,
       store: deps.sessions,
       write,
     });
+    deps.activities?.attach(id, harness);
     return retainSession(
       harness,
       id,

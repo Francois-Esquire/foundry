@@ -1,14 +1,19 @@
 import { createInMemoryAgentAuthorizer } from "@foundry/agents/authorization";
 import type {
   AgentModel,
+  HarnessActivityEvent,
   HarnessPermissionProfile,
   HarnessSession,
 } from "@foundry/agents/harness";
-import { createDriverSession } from "@foundry/agents/harness";
+import {
+  createDriverSession,
+  createHarnessQuestionTool,
+} from "@foundry/agents/harness";
 import type { SessionStore } from "@foundry/agents/session";
 import { createClaudeCodeDriver } from "@foundry/models/claude-code";
 import { createCodexDriver } from "@foundry/models/codex";
 import { prepareSandboxProcess } from "@foundry/sandbox/process";
+import type { ToolSet } from "ai";
 import { sandboxContainer } from "~/lib/managers/sandboxes";
 import type { SessionOptions } from "~/lib/types";
 import { createBuiltinSession } from "./builtin-session";
@@ -16,6 +21,7 @@ import {
   claudeSubscriptionToken,
   codexSubscriptionTokens,
 } from "./credentials";
+import { type DelegationScope, delegationTool } from "./delegate";
 import { prepareGuest } from "./prepare";
 import { assertGuestSessionState } from "./session-state";
 
@@ -37,13 +43,24 @@ const BUILTIN_SCHEDULED_PROFILE: HarnessPermissionProfile = {
 
 export interface SandboxSessionSettings {
   agentId: string;
+  delegation?: DelegationScope;
   harness?: string;
   hostCwd?: string;
+  hostTools?: ToolSet;
+  hostToolsForSession?: (sessionId: string) => ToolSet;
   instructions: string;
   model?: AgentModel;
   modelId: string;
+  onActivity?: (event: HarnessActivityEvent) => void | Promise<void>;
+  onChildSession?: (
+    sessionId: string,
+    activityId: string,
+    session: HarnessSession
+  ) => void;
   options: SessionOptions;
+  parentActivityId?: string;
   provider: string;
+  registerChildSession?: (sessionId: string) => Promise<void>;
   sessionId: string;
   signal: AbortSignal;
   store: SessionStore;
@@ -51,8 +68,16 @@ export interface SandboxSessionSettings {
 }
 
 export async function createSandboxSession(
-  settings: SandboxSessionSettings
+  input: SandboxSessionSettings
 ): Promise<HarnessSession> {
+  const settings = {
+    ...input,
+    hostTools: {
+      ...input.hostTools,
+      ...input.hostToolsForSession?.(input.sessionId),
+      delegate: delegationTool(input, createSandboxSession),
+    },
+  };
   const { options } = settings;
   if (!options.sandbox) {
     throw new Error("A sandbox is required.");
@@ -145,6 +170,7 @@ export async function createSandboxSession(
         id: settings.modelId,
         provider: settings.provider,
       },
+      parentActivityId: settings.parentActivityId,
       policy:
         options.authority?.policy ??
         createInMemoryAgentAuthorizer({
@@ -156,11 +182,23 @@ export async function createSandboxSession(
       ...(options.authority?.approve
         ? { approve: options.authority.approve }
         : {}),
-      onApprovalRequest: (request) => {
+      onActivity: async (event) => {
+        settings.write({ event, type: "harness-activity" });
+        await settings.onActivity?.(event);
+      },
+      onApprovalRequest: async (request) => {
         settings.write({ request, type: "harness-approval" });
-        options.authority?.onApprovalRequest?.(request);
+        await options.authority?.onApprovalRequest?.(request);
       },
       onToolEvent: (event) => settings.write({ event, type: "harness-tool" }),
+      question: options.question,
+      tools: {
+        ...settings.hostTools,
+        ask_user: createHarnessQuestionTool({
+          question: options.question,
+          sessionId: settings.sessionId,
+        }),
+      },
     },
     driver
   );

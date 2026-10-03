@@ -2,6 +2,7 @@ import type {
   CompactionSettings,
   HarnessAuthoritySettings,
   HarnessPermissionProfile,
+  HarnessQuestionCallback,
   HarnessSession,
   SessionHarness,
   SessionStreamOptions,
@@ -117,6 +118,8 @@ export interface SessionOptions {
   /** Claude subscription token; defaults to the host Claude Code login. */
   readonly oauthToken?: string;
   readonly profile?: HarnessPermissionProfile;
+  /** Host handler for model questions; the dashboard supplies one by default. */
+  readonly question?: HarnessQuestionCallback;
   /** Run the harness inside an already started MicroSandbox. */
   readonly sandbox?: Sandbox;
   /** Continue this session instead of starting a new one. */

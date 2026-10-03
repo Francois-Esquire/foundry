@@ -33,6 +33,7 @@ interface FeedArtifactLink {
 }
 
 export const ASK_MODES = ["question", "approval"] as const;
+export const INPUT_DELIVERIES = ["live", "deferred"] as const;
 
 /** A note is short: it rides along with an approval, it is not the report. */
 const MAX_NOTE = 2000;
@@ -116,13 +117,17 @@ export function feedPayload(entry: FeedPost, root: string): FeedPayload {
 }
 
 export const feedQuestionSchema = z.object({
+  activityId: z.string().optional(),
   body: z.string().default(""),
   choices: z
     .array(z.string().trim().min(1, "choices cannot be empty"))
     .max(MAX_CHOICES, `at most ${MAX_CHOICES} choices`)
     .default([]),
+  /** Live input waits in the current process; deferred permission applies to future runs. */
+  delivery: z.enum(INPUT_DELIVERIES).optional(),
   key: z.string().trim().min(1, "questions need a key"),
   mode: z.enum(ASK_MODES).default("question"),
+  sessionId: z.string().optional(),
   title: z.string().trim().min(1, "questions need a title"),
 });
 export type FeedQuestionPayload = z.infer<typeof feedQuestionSchema>;

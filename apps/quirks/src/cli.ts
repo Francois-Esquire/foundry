@@ -4,9 +4,10 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { plugin } from "bun";
-
 import type { Args } from "~/args";
 import { parseArgs } from "~/args";
+import { configuredMonitorUrl } from "~/automation/configured";
+import { AUTOMATION_MONITOR, AutomationService } from "~/automation/service";
 import { startEngine } from "~/engine";
 import { openFeed } from "~/feed/store";
 import { install, launchdPlan, uninstall } from "~/launchd";
@@ -215,7 +216,7 @@ async function runOnce(
     }
     return;
   }
-  if (catalog.definitions.has(name)) {
+  if (catalog.definitions.has(name) && name !== AUTOMATION_MONITOR) {
     print(JSON.stringify(await engine.run<unknown>(name, input), null, 2));
     return;
   }
@@ -228,7 +229,8 @@ async function dispatchRuntimeCommand(
   schedules: readonly Schedule[],
   stateDir: string | undefined,
   hasConfig: boolean,
-  configPath: string
+  configPath: string,
+  getSchedules: () => readonly Schedule[]
 ): Promise<boolean> {
   if (args.command === "once" && args.name) {
     await runOnce(engine, args.name, args.inputJson, stateDir);
@@ -240,7 +242,10 @@ async function dispatchRuntimeCommand(
       schedules,
       stateDir,
       hasConfig,
-      configPath
+      configPath,
+      undefined,
+      print,
+      getSchedules
     );
     return true;
   }
@@ -291,7 +296,14 @@ async function main(): Promise<void> {
     workspace.touch(hasConfig ? configPath : null);
   }
 
-  const schedules = [...catalog.schedules.values()];
+  const automations = new AutomationService({
+    allowHttp: configuredMonitorUrl,
+    state: stateDir,
+  });
+  const schedules = automations.schedules();
+  for (const [file, error] of Object.entries(automations.errors())) {
+    print(`[automation] ${file}: ${error}`);
+  }
   if (await handleNonRuntimeCommand(args, workspace, schedules, configPath)) {
     return;
   }
@@ -303,6 +315,7 @@ async function main(): Promise<void> {
   const runtime = bindRuntime({
     artifacts: feed.artifacts,
     dry: args.dry,
+    feed: feed.publisher,
     only: args.only,
     print,
     root: workspace.root,
@@ -313,6 +326,7 @@ async function main(): Promise<void> {
 
   const engine = await startEngine(registerCatalog, {
     feed: feed.publisher,
+    interactions: runtime.interactions,
     print,
     state: stateDir,
   });
@@ -325,7 +339,8 @@ async function main(): Promise<void> {
       schedules,
       stateDir,
       hasConfig,
-      configPath
+      configPath,
+      () => runtime.automations.schedules()
     );
     if (executed) {
       await printNewRuns(engine, restored);

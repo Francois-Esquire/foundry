@@ -1,6 +1,11 @@
+import {
+  type HarnessPermissionResult,
+  isHarnessQuestionTool,
+} from "@foundry/agents/harness";
 import { asSchema } from "ai";
 import type { AppServerConnection } from "./app-server";
 import type { EmitTool } from "./codex-events";
+import { askQuestions, nativeQuestions } from "./questions";
 import type { DriverRun } from "./shared";
 export async function dynamicTools(run: DriverRun) {
   const result: {
@@ -46,10 +51,11 @@ export async function answerRequest(
   params: Record<string, unknown>,
   id: string | number,
   run: DriverRun,
-  emit: EmitTool
+  emit: EmitTool,
+  activityId?: string
 ) {
   if (method === "item/tool/call") {
-    await callHostTool(connection, params, id, run, emit);
+    await callHostTool(connection, params, id, run, emit, activityId);
     return;
   }
   if (
@@ -82,7 +88,7 @@ export async function answerRequest(
     return;
   }
   if (method === "item/tool/requestUserInput") {
-    connection.respond(id, { answers: {} });
+    await answerUserQuestion(connection, params, id, run, emit);
     return;
   }
   if (method === "mcpServer/elicitation/request") {
@@ -92,23 +98,69 @@ export async function answerRequest(
   connection.reject(id);
 }
 
-async function callHostTool(
+async function answerUserQuestion(
   connection: AppServerConnection,
   params: Record<string, unknown>,
   id: string | number,
   run: DriverRun,
   emit: EmitTool
 ) {
+  const toolCallId = String(params.itemId ?? id);
+  await emit("requestUserInput", toolCallId, params, "started");
+  try {
+    const questions = nativeQuestions(params.questions, toolCallId, "codex");
+    const result = await askQuestions(run, toolCallId, questions, run.signal);
+    if (result.outcome === "declined") {
+      await emit(
+        "requestUserInput",
+        toolCallId,
+        params,
+        "refused",
+        result.reason
+      );
+      connection.respondError(id, result.reason);
+      return;
+    }
+    const answers: Record<string, { answers: string[] }> = {};
+    for (const question of questions) {
+      answers[question.id] = { answers: result.answers[question.id] ?? [] };
+    }
+    await emit("requestUserInput", toolCallId, params, "ran");
+    connection.respond(id, { answers });
+  } catch (error) {
+    await emit(
+      "requestUserInput",
+      toolCallId,
+      params,
+      "failed",
+      run.signal.aborted ? "Question canceled" : "Question request failed"
+    );
+    throw error;
+  }
+}
+
+async function callHostTool(
+  connection: AppServerConnection,
+  params: Record<string, unknown>,
+  id: string | number,
+  run: DriverRun,
+  emit: EmitTool,
+  activityId?: string
+) {
   const toolName = String(params.tool);
   const toolCallId = String(params.callId ?? id);
   await emit(toolName, toolCallId, params.arguments, "started");
-  const result = await run.permission({
-    input: params.arguments,
-    sessionId: run.sessionId,
-    signal: run.signal,
-    toolCallId,
-    toolName,
-  });
+  const tool = run.tools?.[toolName];
+  const result: HarnessPermissionResult =
+    tool && isHarnessQuestionTool(tool)
+      ? { behavior: "allow" }
+      : await run.permission({
+          input: params.arguments,
+          sessionId: run.sessionId,
+          signal: run.signal,
+          toolCallId,
+          toolName,
+        });
   if (result.behavior === "deny") {
     await emit(
       toolName,
@@ -120,7 +172,6 @@ async function callHostTool(
     connection.respond(id, toolResponse(result.message, false));
     return;
   }
-  const tool = run.tools?.[toolName];
   if (!tool?.execute) {
     connection.respond(id, toolResponse("Unknown host tool", false));
     return;
@@ -133,7 +184,12 @@ async function callHostTool(
     }
     const output = await tool.execute(
       validated?.success ? validated.value : input,
-      { abortSignal: run.signal, context: undefined, messages: [], toolCallId }
+      {
+        abortSignal: run.signal,
+        context: { activityId },
+        messages: [],
+        toolCallId,
+      }
     );
     if (
       typeof output === "object" &&

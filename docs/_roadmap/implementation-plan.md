@@ -71,15 +71,15 @@ Commands:
 
 - `bun run validate`: passed repository lint/format, dependency consistency,
   all 22 Turbo build/typecheck tasks, and dead-code checks.
-- Agents: all 402 tests passed, including compaction after a completed turn,
+- Agents: all 417 tests passed, including compaction after a completed turn,
   live/deferred approvals, grant claims, transcript ordering and shutdown.
-- Models: all 432 unit tests passed; CLI adapter focused checks passed.
+- Models: all 443 unit tests passed; CLI adapter focused checks passed.
 - Sandbox: all 121 unit tests passed. The full native integration run passed
   18 tests and failed three WebSocket close tests. Credential-free probes using
   only the native SDK reproduced missing TCP EOF and WebSocket close completion,
   with the SDK's bundled msb 0.6.18. No Foundry workaround or runtime switch was
   added. See `packages/sandbox/README.md` for the evidence.
-- Quirks: 201 unit tests, 66 terminal tests, and two standalone package-consumer
+- Quirks: 247 unit tests, 68 terminal tests, and two standalone package-consumer
   tests passed. The library and CLI continue sharing the packed registry.
 - Live coding: built-in through AI Gateway and Claude Code through the user's
   Max subscription each repaired the fixture and passed Bun tests inside
@@ -98,22 +98,94 @@ Commands:
   token goes to the guest. Optional `CLAUDE_CODE_OAUTH_TOKEN` is declared sensitive
   in Varlock. Codex supports the app-server external subscription-token flow.
 
+## Interactive follow-up
+
+Checkpoint `1ef0f4f` preserves the initial implementation. The follow-up adds
+provider-neutral questions, a host feed bridge, persistent authority grants,
+and live-input attention in the dashboard. The host bridge keeps attended
+turns alive; it never calls workflow suspension. Deferred requests write
+future grants, and recorded sessions reconcile interrupted feed publication.
+
+The final combined authenticated MicroSandbox interactive run passed all
+three harnesses in 144.71 seconds. Each scenario used the real Quirks engine,
+agent manager, feed publisher/reader and `Engine.answer` route to:
+
+- ask for a random marker unknown to the model before the feed answer;
+- block a shell write until approval and verify the file was absent first;
+- recall the answer on a second turn in the same session, with another approval;
+- deny a later command and independently verify its file was never created;
+- cancel while a question waited, reject a stale answer, and verify the step
+  body ran once without workflow replay.
+
+Claude uses its native `AskUserQuestion`. Codex's ordinary coding mode uses the
+shared `ask_user` dynamic tool; native app-server `requestUserInput` mapping is
+covered by protocol tests, not a live plan-mode fixture. Both CLI processes ran
+inside MicroSandbox using subscriptions. The built-in loop ran on the host
+with its coding tools inside MicroSandbox. Tests supply deterministic feed
+answers through the same route as the dashboard; OpenTUI render tests separately
+verify attention labels and retained pause/steer/cancel controls.
+
+Additional tests cover free-text and multiple answers, declines, remembered
+session grants, durable future grants with both stores reopened, agent isolation,
+competing claims, late answers, shutdown during publication, and recovery of
+missing request indexes or failed answered-feed writes. Question telemetry
+records counts/outcomes, while the user-facing feed and model history retain
+question/answer content. Approval previews show the full redacted operation.
+
+## Activities and durable automation follow-up
+
+Agents now owns a provider-neutral activity contract and persistent session
+events. Models translates native CLI events. Quirks projects those events into
+the run tree, routes child questions and approvals through the existing feed,
+and exposes stop only when the owning adapter can perform it. Activities retain
+their session and native identities; they do not become synthetic workflow steps.
+Reopened activity projections show unknown state until the current connection
+reports that activity; attaching a session alone does not revive stale controls.
+
+Every sandbox harness receives bounded host delegation and approved automation
+tools. Delegated children inherit the same MicroSandbox, model and authority,
+with their own session, approval ownership and automation records. The host
+persists declarative schedules and file/HTTP monitors and executes them through
+the existing scheduler and monitor delivery protocol. The first deadline survives
+restart. New triggers become visible to an already running loop. Pause and delete
+affect future firings, and dashboard controls expose those operations. Recovered
+invalid definitions are disabled with diagnostics. HTTP destinations require
+host authorization and redirects are refused. Recreating a deleted automation
+key produces a fresh ID, isolating it from old pending launches and run history.
+
+Current local verification passed 429 Agents tests, 456 Models tests, 277 Quirks
+unit tests, 74 terminal tests and two standalone package-consumer tests. Quirks
+build and repository validation passed, including all 22 Turbo build/typecheck
+tasks. The terminal suite includes actual CLI startup, cancellation and shutdown;
+it caught and now covers a duplicate cancellation race between scheduler shutdown
+and engine shutdown. Additional regressions cover native child cancellation while
+input is pending, confirmed native completion, stale activity controls after
+restart, and deleted automation keys being recreated. Interactive MicroSandbox
+regression scenarios passed for all three harnesses after the persistent Codex
+transport change.
+
+The final authenticated activity integration run passed all three harnesses in
+126.62 seconds. Each harness delegated a child question through the real feed
+and `Engine.answer`, returned its random answer, and created a host schedule.
+The test reopened persisted automation state, fired its real target workflow,
+independently checked its output file, and paused and deleted the trigger.
+Claude and Codex additionally launched native foreground subagents, routed their
+shell approvals with native child identity, copied an unknown random marker
+through a guest shell command, and reported confirmed native completion. The
+fixture independently verified the resulting file. CLI authentication used the
+existing subscriptions with both API-key environment variables removed.
+
+Native Monitor/Cron translation, idle Codex child events and native child stop
+have protocol-level tests. Claude's provider currently closes its query after the
+parent result, so detached Claude activity cannot remain continuously observed.
+Native Claude questions carry child identity; its generic MCP bridge does not
+expose enough correlation to attribute arbitrary native-child shared `ask_user`
+calls. Native schedules remain CLI-owned and are not silently promoted into host
+automation. Monitor delivery retains the existing crash window between launch
+and acknowledgement, so it does not promise exactly-once delivery. Pi is deferred.
+
 ## Remaining acceptance limits
 
-- Live coding fixtures cover one autonomous turn per harness. Attended
-  approve/deny, model questions, subsequent turns, and interruption while
-  awaiting input have not been verified end to end with real agents and the
-  Quirks feed. Focused mocked approval/session/adapter checks passed again
-  during the follow-up review: 33 tests across five files.
-- Harness approvals reach host callbacks and session/stream records, but are
-  not automatically connected to actionable Quirks feed inputs. The existing
-  workflow `ask` suspends/replays a run and cannot directly serve a live CLI
-  callback. The attended bridge must keep the turn alive; scheduled requests
-  need a feed action that writes a grant for a future invocation.
-- Native model questions are incomplete: Codex currently answers
-  `item/tool/requestUserInput` with empty answers and declines MCP elicitation;
-  there is no common question callback or Claude AskUserQuestion-to-Quirks
-  response bridge.
 - Native destination-level allowed/refused network logs remain unavailable in
   observed SDK system logs. Enforcement has been tested; an audit log is not
   being fabricated from configured rules.

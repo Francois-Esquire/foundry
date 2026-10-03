@@ -6,13 +6,17 @@ import type {
 import { StepSnapshotSchema } from "@foundry/workflows/snapshot";
 import type { RunRecord } from "@foundry/workflows/store";
 import { Option, Schema } from "effect";
+import type { AutomationRecord } from "~/automation/service";
 import { catalog } from "~/lib/catalog";
 import type { Schedule } from "~/lib/triggers";
 import { describeMonitor } from "~/monitor";
+import type { ActivityRecord } from "~/sandbox/activities";
 import { cadence, clock, nextDue, weekdays } from "~/schedule";
 import type {
   DashboardSnapshot,
   FeedEntrySnapshot,
+  HarnessActivitySnapshot,
+  InputAttention,
   JsonValue,
   RunSnapshot,
   StepSnapshot,
@@ -100,9 +104,36 @@ function observedTree(
   return roots;
 }
 
-function runSnapshot(record: RunRecord, now: number): RunSnapshot {
+function attentionOf(
+  values: readonly (InputAttention | undefined)[]
+): InputAttention | undefined {
+  if (values.includes("approval")) {
+    return "approval";
+  }
+  return values.includes("question") ? "question" : undefined;
+}
+
+function runSnapshot(
+  record: RunRecord,
+  now: number,
+  feed: readonly FeedEntrySnapshot[],
+  activities: readonly ActivityRecord[]
+): RunSnapshot {
   const trace = Option.getOrUndefined(decodeTrace(record.metadata));
   const steps = trace?.workflow?.steps ?? {};
+  const waiting =
+    record.status === "running"
+      ? feed.filter(
+          (entry) =>
+            entry.run === record.id &&
+            entry.kind === "input" &&
+            entry.input?.delivery === "live" &&
+            entry.input.status === "open"
+        )
+      : [];
+  const inputAttention = (entry: FeedEntrySnapshot): InputAttention =>
+    entry.input?.mode === "approval" ? "approval" : "question";
+  const attention = attentionOf(waiting.map(inputAttention));
   const stepNode = (node: WorkflowStepNode): StepSnapshot => {
     const step = steps[node.key];
     let status: StepSnapshot["status"] | "pending" | "aborted" =
@@ -113,8 +144,19 @@ function runSnapshot(record: RunRecord, now: number): RunSnapshot {
     if (status === "aborted") {
       status = "cancelled";
     }
+    const children = (node.children ?? []).map(stepNode);
+    const stepAttention =
+      status === "running"
+        ? attentionOf([
+            ...waiting
+              .filter((entry) => entry.step === node.key)
+              .map(inputAttention),
+            ...children.map((child) => child.attention),
+          ])
+        : undefined;
     return {
-      children: (node.children ?? []).map(stepNode),
+      ...(stepAttention ? { attention: stepAttention } : {}),
+      children,
       elapsed: step?.startedAt
         ? elapsed(
             Date.parse(step.startedAt),
@@ -130,6 +172,24 @@ function runSnapshot(record: RunRecord, now: number): RunSnapshot {
   };
   const { timestamps } = record;
   return {
+    ...(attention ? { attention } : {}),
+    activities: activities
+      .filter((activity) => activity.source.runId === record.id)
+      .map(
+        ({ event, source }): HarnessActivitySnapshot => ({
+          ...event,
+          attention: attentionOf(
+            waiting
+              .filter(
+                (entry) =>
+                  entry.input?.sessionId === event.sessionId &&
+                  entry.input.activityId === event.id
+              )
+              .map(inputAttention)
+          ),
+          stepId: source.path.join("."),
+        })
+      ),
     definitionId: record.step,
     elapsed: elapsed(
       timestamps.startedAt ?? timestamps.createdAt,
@@ -173,6 +233,9 @@ function description(schedule: Schedule): string {
 }
 
 export interface SnapshotOptions {
+  readonly activities?: readonly ActivityRecord[];
+  readonly automationErrors?: Readonly<Record<string, string>>;
+  readonly automations?: readonly AutomationRecord[];
   /** Feed entries from every workspace, newest first. */
   readonly feed?: readonly FeedEntrySnapshot[];
   readonly harnesses: readonly string[];
@@ -194,9 +257,19 @@ export function dashboardSnapshot(
   const sorted = [...records].sort(
     (a, b) => b.timestamps.createdAt - a.timestamps.createdAt
   );
-  const runs = sorted.map((record) => runSnapshot(record, now));
+  const feed = (options.feed ?? []).filter(
+    (entry) =>
+      !options.workspaceId || entry.workspace.id === options.workspaceId
+  );
+  const runs = sorted.map((record) =>
+    runSnapshot(record, now, feed, options.activities ?? [])
+  );
+  const managed = new Map(
+    (options.automations ?? []).map((record) => [record.id, record])
+  );
   const triggers = [...catalog.schedules.values()].map(
     (schedule): TriggerSnapshot => {
+      const automation = managed.get(schedule.key);
       const latest = sorted.find(
         (run) => run.extensions.triggerId === schedule.key
       );
@@ -217,23 +290,52 @@ export function dashboardSnapshot(
         latest?.timestamps.completedAt ??
         latest?.timestamps.failedAt ??
         options.lastFinish.get(schedule.key) ??
+        schedule.registeredAt ??
         options.startedAt;
       return {
-        configuration: json({
-          input: schedule.input,
-          monitor: catalog.monitors.get(schedule.key),
-          trigger: schedule.trigger,
-        }),
-        description: description(schedule),
+        ...(automation
+          ? {
+              lifetime: "durable" as const,
+              managed: true,
+              owner: automation.owner.agentId,
+            }
+          : {}),
+        configuration: json(
+          automation ?? {
+            input: schedule.input,
+            monitor: catalog.monitors.get(schedule.key),
+            trigger: schedule.trigger,
+          }
+        ),
+        description: automation
+          ? `${automation.workflow} · ${automation.source ? "change monitor" : "schedule"} · persists across sessions`
+          : description(schedule),
         id: schedule.key,
         kind: schedule.kind,
         name: schedule.label,
         next: new Date(nextDue(schedule, finished)).toLocaleString(),
         status,
-        targetId: schedule.workflow,
+        targetId: automation?.workflow ?? schedule.workflow,
       };
     }
   );
+  for (const automation of managed.values()) {
+    if (automation.enabled) {
+      continue;
+    }
+    triggers.push({
+      configuration: json(automation),
+      description: `${automation.workflow} · paused`,
+      id: automation.id,
+      kind: automation.source ? "monitor" : "schedule",
+      lifetime: "durable",
+      managed: true,
+      name: automation.key,
+      owner: automation.owner.agentId,
+      status: "paused",
+      targetId: automation.workflow,
+    });
+  }
   return {
     definitions: catalog.entries().map((entry) => ({
       description: entry.description ?? `Registered ${entry.kind}`,
@@ -245,6 +347,9 @@ export function dashboardSnapshot(
     feed: options.feed ?? [],
     harnesses: options.harnesses,
     mode: "live",
+    notices: Object.entries(options.automationErrors ?? {}).map(
+      ([file, error]) => `Automation unavailable (${file}): ${error}`
+    ),
     root: options.root,
     runs,
     status: options.status,

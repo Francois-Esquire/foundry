@@ -90,13 +90,20 @@ export function nextDue(schedule: Schedule, last: number): number {
 }
 
 export interface TickOptions {
+  /** Recheck a live trigger after taking its execution lock. */
+  readonly canRun?: (schedule: Schedule) => boolean;
   readonly now?: () => number;
   readonly print: (line: string) => void;
+  /** Loop ticks recheck persisted completion under lock; manual ticks are forced. */
+  readonly scheduled?: boolean;
+  readonly signal?: AbortSignal;
   /** Workspace state dir for the lock and history; omit to write nothing. */
   readonly state?: string;
 }
 
 export interface LoopOptions extends TickOptions {
+  /** Live catalogue. When supplied, empty catalogues wait for new triggers. */
+  readonly getSchedules?: () => readonly Schedule[];
   readonly signal: AbortSignal;
   readonly sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
 }
@@ -123,15 +130,27 @@ export async function tick(
     return undefined;
   }
 
-  options.print(`[schedule] ${schedule.key} → ${schedule.workflow}`);
   const start = now();
   let status: ScheduleHistory["lastStatus"] = "failed";
+  let dispatched = false;
   try {
-    const detected = await engine.run(
-      schedule.workflow,
-      schedule.input,
-      schedule.key
-    );
+    if (!shouldDispatch(schedule, options, now())) {
+      return undefined;
+    }
+    dispatched = true;
+    options.print(`[schedule] ${schedule.key} → ${schedule.workflow}`);
+    const detected =
+      options.signal && typeof engine.launch === "function"
+        ? await awaitScheduledRun(
+            engine,
+            await engine.launch(
+              schedule.workflow,
+              schedule.input,
+              schedule.key
+            ),
+            options.signal
+          )
+        : await engine.run(schedule.workflow, schedule.input, schedule.key);
     // A monitor's handler may hand back something to start; it runs as its
     // own run, attributed to the monitor. The monitor holds the launch as
     // pending until it has been started, so a tick that dies in between
@@ -160,14 +179,14 @@ export async function tick(
         schedule.key
       );
       acknowledgeLaunch(schedule.key);
-      value = await started.result;
+      value = await awaitScheduledRun(engine, started, options.signal);
     }
     status = "complete";
     return { value };
   } finally {
     try {
       const finish = now();
-      if (options.state !== undefined) {
+      if (dispatched && options.state !== undefined) {
         writeScheduleHistory(options.state, schedule.key, {
           kind: schedule.kind,
           label: schedule.label,
@@ -180,6 +199,39 @@ export async function tick(
     } finally {
       lock?.release();
     }
+  }
+}
+
+function shouldDispatch(
+  schedule: Schedule,
+  options: TickOptions,
+  now: number
+): boolean {
+  const last =
+    options.state === undefined
+      ? undefined
+      : readLastFinish(options.state, schedule.key);
+  const noLongerDue =
+    options.scheduled && last !== undefined && nextDue(schedule, last) > now;
+  return !noLongerDue && options.canRun?.(schedule) !== false;
+}
+
+async function awaitScheduledRun(
+  engine: Engine,
+  started: { readonly id: string; readonly result: Promise<unknown> },
+  signal?: AbortSignal
+): Promise<unknown> {
+  const cancel = () => {
+    engine.cancel(started.id).catch(() => undefined);
+  };
+  signal?.addEventListener("abort", cancel, { once: true });
+  if (signal?.aborted) {
+    cancel();
+  }
+  try {
+    return await started.result;
+  } finally {
+    signal?.removeEventListener("abort", cancel);
   }
 }
 
@@ -200,6 +252,31 @@ function defaultSleep(ms: number, signal: AbortSignal): Promise<void> {
  * completion time per schedule, seeded from the last recorded tick when
  * there is one so a restart keeps the cadence.
  */
+function soonestSchedule(
+  schedules: readonly Schedule[],
+  last: Map<string, number>,
+  now: () => number,
+  state?: string
+): readonly [Schedule, number] {
+  return schedules
+    .map((entry) => {
+      let finish = last.get(entry.key);
+      if (finish === undefined) {
+        finish =
+          (state === undefined
+            ? undefined
+            : readLastFinish(state, entry.key)) ??
+          entry.registeredAt ??
+          now();
+        last.set(entry.key, finish);
+      }
+      return [entry, nextDue(entry, finish)] as const;
+    })
+    .reduce((soonest, candidate) =>
+      candidate[1] < soonest[1] ? candidate : soonest
+    );
+}
+
 export async function runSchedules(
   engine: Engine,
   schedules: readonly Schedule[],
@@ -208,34 +285,63 @@ export async function runSchedules(
   const now = options.now ?? Date.now;
   const sleep = options.sleep ?? defaultSleep;
   const { state } = options;
-  const last = new Map(
-    schedules.map((schedule) => [
-      schedule,
-      (state === undefined ? undefined : readLastFinish(state, schedule.key)) ??
-        now(),
-    ])
-  );
+  const last = new Map<string, number>();
   const aborted = () => options.signal.aborted;
 
-  while (!aborted() && schedules.length > 0) {
-    const [schedule, due] = [...last.entries()]
-      .map(([entry, finished]) => [entry, nextDue(entry, finished)] as const)
-      .reduce((soonest, candidate) =>
-        candidate[1] < soonest[1] ? candidate : soonest
-      );
+  while (!aborted()) {
+    const active = options.getSchedules?.() ?? schedules;
+    if (active.length === 0) {
+      if (!options.getSchedules) {
+        return;
+      }
+      await sleep(1000, options.signal);
+      continue;
+    }
+    const [schedule, due] = soonestSchedule(active, last, now, state);
     const wait = due - now();
     if (wait > 0) {
-      await sleep(wait, options.signal);
+      await sleep(
+        options.getSchedules ? Math.min(wait, 1000) : wait,
+        options.signal
+      );
+      if (options.getSchedules) {
+        continue;
+      }
     }
     if (aborted()) {
       return;
     }
 
-    try {
-      await tick(engine, schedule, { now, print: options.print, state });
-    } catch (error) {
-      options.print(`[schedule] ${schedule.key} failed: ${String(error)}`);
-    }
-    last.set(schedule, now());
+    await loopTick(engine, schedule, {
+      canRun: (candidate) => currentSchedule(candidate, schedules, options),
+      now,
+      print: options.print,
+      scheduled: true,
+      signal: options.signal,
+      state,
+    });
+    last.set(schedule.key, now());
+  }
+}
+
+function currentSchedule(
+  candidate: Schedule,
+  schedules: readonly Schedule[],
+  options: LoopOptions
+): boolean {
+  return (options.getSchedules?.() ?? schedules).some(
+    (entry) => entry.key === candidate.key
+  );
+}
+
+async function loopTick(
+  engine: Engine,
+  schedule: Schedule,
+  options: TickOptions
+): Promise<void> {
+  try {
+    await tick(engine, schedule, options);
+  } catch (error) {
+    options.print(`[schedule] ${schedule.key} failed: ${String(error)}`);
   }
 }

@@ -1,6 +1,10 @@
 import { mkdirSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import {
+  createAgentAuthorizer,
+  createInMemoryAgentAuthorizer,
+} from "@foundry/agents/authorization";
 import { InMemorySessionStore } from "@foundry/agents/session";
 import type { Artifacts } from "@foundry/artifacts";
 import type { ModelManager, Provider } from "@foundry/models";
@@ -13,7 +17,9 @@ import type { GitRun } from "@foundry/workspaces/git";
 import { git } from "@foundry/workspaces/git";
 import { directory } from "@foundry/workspaces/node";
 import { nodeObserver } from "@foundry/workspaces/node/watch";
-
+import { configuredMonitorUrl } from "~/automation/configured";
+import { AutomationService } from "~/automation/service";
+import type { FeedPublisher } from "~/feed/publish";
 import {
   allowedExecutors,
   availableExecutors,
@@ -31,6 +37,9 @@ import { allowedMountRoots, sandboxesManager } from "~/lib/managers/sandboxes";
 import { globalSkillsDir, skillResolver } from "~/lib/managers/skills";
 import { workspacesManager } from "~/lib/managers/workspaces";
 import { echoModels } from "~/models/echo";
+import { HarnessActivities } from "~/sandbox/activities";
+import { JsonAgentGrantRepository } from "~/sandbox/grants";
+import { HarnessInteractions } from "~/sandbox/interactions";
 import { JsonSessionStore } from "~/sessions/json-store";
 
 /**
@@ -40,9 +49,13 @@ import { JsonSessionStore } from "~/sessions/json-store";
  */
 
 export interface RuntimeOptions {
+  /** Permit agent-created HTTP monitors. Defaults to origins of configured HTTP monitors. */
+  readonly allowMonitorUrl?: (url: URL) => boolean;
   /** The shared artifact store; declared artifacts and feed entries live in it. */
   readonly artifacts: Pick<Artifacts, "create" | "get" | "revise">;
+  readonly askable?: boolean;
   readonly dry: boolean;
+  readonly feed?: FeedPublisher;
   /** The user's home; defaults to the OS home. */
   readonly home?: string;
   /** Harness ids to keep; empty keeps every detected one. */
@@ -59,10 +72,13 @@ export interface RuntimeOptions {
 }
 
 export interface Runtime {
+  readonly activities: HarnessActivities;
+  readonly automations: AutomationService;
   readonly bindings: Bindings;
   dispose(): Promise<void>;
   /** Detected harness ids, in preference order. */
   readonly harnesses: readonly string[];
+  readonly interactions?: HarnessInteractions;
 }
 
 export function bindRuntime(options: RuntimeOptions): Runtime {
@@ -83,6 +99,25 @@ export function bindRuntime(options: RuntimeOptions): Runtime {
     state === undefined || dry
       ? new InMemorySessionStore()
       : new JsonSessionStore(join(state, "sessions"));
+  const policy =
+    state && !dry
+      ? createAgentAuthorizer({
+          grants: new JsonAgentGrantRepository(
+            join(state, "agent-grants.json")
+          ),
+        })
+      : createInMemoryAgentAuthorizer().authorizer;
+  const interactions = options.feed
+    ? new HarnessInteractions({
+        askable: options.askable ?? false,
+        feed: options.feed,
+        policy,
+        sessions,
+        ...(state && !dry
+          ? { pendingPath: join(state, "agent-approvals.json") }
+          : {}),
+      })
+    : undefined;
   const catalogue = new WorkspaceSystem().extend(
     directory({ observer: nodeObserver }),
     git(dry ? { run: echoGit(print) } : {})
@@ -116,10 +151,23 @@ export function bindRuntime(options: RuntimeOptions): Runtime {
     return containers;
   };
 
+  const persistentState = dry ? undefined : state;
+  const activities = new HarnessActivities({
+    feed: options.feed,
+    state: persistentState,
+  });
+  const automations = new AutomationService({
+    allowHttp: options.allowMonitorUrl ?? configuredMonitorUrl,
+    state: persistentState,
+  });
+
   const bindings: Bindings = {
     agents: agentsManager({
+      activities,
+      automations,
       defaultExecutor: () => selectExecutor(models),
       dry,
+      interactions,
       models,
       sessions,
       skills: skillResolver({ global: globalSkillsDir(home), workspace: root }),
@@ -140,11 +188,14 @@ export function bindRuntime(options: RuntimeOptions): Runtime {
   catalog.bind(bindings);
 
   return {
+    activities,
+    automations,
     bindings,
     // The Codex provider holds a `codex app-server` child; without this the
     // process never exits.
     async dispose() {
       try {
+        await interactions?.close();
         await catalogue.closeAll();
         await containers
           ?.then((open) => open.shutdown())
@@ -154,6 +205,7 @@ export function bindRuntime(options: RuntimeOptions): Runtime {
       }
     },
     harnesses: executors.map((executor) => executor.harness),
+    interactions,
   };
 }
 

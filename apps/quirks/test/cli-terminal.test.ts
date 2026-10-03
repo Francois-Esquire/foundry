@@ -81,7 +81,7 @@ for (const command of [[], ["run"]]) {
       await sleep(450); // Live refreshes must preserve the open dialog.
       child.terminal?.write("\x03");
       await until(() => child.exitCode !== null);
-      expect(await child.exited).toBe(0);
+      expect(await child.exited, stripANSI(output).slice(-8000)).toBe(0);
       expect(readFileSync(cancelled, "utf8")).toBe("cancelled");
     } finally {
       child.kill();

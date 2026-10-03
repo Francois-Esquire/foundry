@@ -6,6 +6,7 @@ import type {
 import {
   createBuiltinCodingHarness,
   createHarnessPermission,
+  createHarnessQuestionTool,
 } from "@foundry/agents/harness";
 import { createModelSummarizer } from "@foundry/agents/session";
 import type { Container } from "@foundry/sandbox/container/containers";
@@ -34,9 +35,9 @@ export async function createBuiltinSession(
     ...(options.authority?.approve
       ? { approve: options.authority.approve }
       : {}),
-    onApprovalRequest(request) {
+    async onApprovalRequest(request) {
       settings.write({ request, type: "harness-approval" });
-      options.authority?.onApprovalRequest?.(request);
+      await options.authority?.onApprovalRequest?.(request);
     },
   });
   return createBuiltinCodingHarness(
@@ -49,11 +50,22 @@ export async function createBuiltinSession(
       instructions: settings.instructions,
       maxSteps: profile.maxSteps,
       model,
-      permission,
+      permission: (request) =>
+        permission({
+          ...request,
+          activityId: request.activityId ?? settings.parentActivityId,
+        }),
       policy,
       sessionId: settings.sessionId,
       store: settings.store,
-      tools: createCodingTools(container, { workspacePath: "/workspace" }),
+      tools: {
+        ...settings.hostTools,
+        ...createCodingTools(container, { workspacePath: "/workspace" }),
+        ask_user: createHarnessQuestionTool({
+          question: options.question,
+          sessionId: settings.sessionId,
+        }),
+      },
     },
     { sessionId: settings.sessionId }
   );

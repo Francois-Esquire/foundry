@@ -3,10 +3,12 @@ import { useKeyboard } from "@opentui/react";
 import { useCallback, useState } from "react";
 import type { DashboardViewKey } from "~/components/blocks/view-tabs";
 import {
+  canStopActivity,
   type DashboardSelection,
   type DashboardSnapshot,
   flattenSteps,
   type RunSnapshot,
+  selectedActivity,
   selectionKey,
 } from "./dashboard-model";
 import {
@@ -275,7 +277,10 @@ export function useDashboard(
     const run = candidates.find(
       (item) =>
         item.status === status ||
-        flattenSteps(item.steps).some((entry) => entry.step.status === status)
+        flattenSteps(item.steps).some(
+          (entry) => entry.step.status === status
+        ) ||
+        item.activities?.some((candidate) => candidate.status === status)
     );
     if (!run) {
       return;
@@ -285,7 +290,17 @@ export function useDashboard(
     )?.step;
     setExpanded((previous) => new Set([...previous, ...expandedRun(run)]));
     setQueries((previous) => ({ ...previous, run: "" }));
-    select({ id: run.id, kind: "run", stepId: step?.id });
+    const activity = run.activities?.findLast((item) => item.status === status);
+    select(
+      activity
+        ? {
+            activityId: activity.id,
+            id: run.id,
+            kind: "run",
+            sessionId: activity.sessionId,
+          }
+        : { id: run.id, kind: "run", stepId: step?.id }
+    );
     setTab("overview");
   }
   function navigate(key: KeyEvent) {
@@ -377,6 +392,10 @@ export function useDashboard(
     if (!run) {
       return;
     }
+    if (selected.activityId !== undefined) {
+      activityCommands(key, run, selected, actions, act);
+      return;
+    }
     const { status, stepId } = actionTarget(run, selected.stepId);
     if (key.name === "k") {
       act(() => actions.cancel(run.id));
@@ -391,8 +410,26 @@ export function useDashboard(
       setPrompt({ kind: "steer", runId: run.id, stepId });
     }
   }
+  function triggerCommands(key: KeyEvent) {
+    if (!(actions && selected?.kind === "trigger")) {
+      return;
+    }
+    const trigger = snapshot.triggers.find((item) => item.id === selected.id);
+    if (!trigger?.managed) {
+      return;
+    }
+    const toggleEnabled = actions.setTriggerEnabled;
+    const remove = actions.deleteTrigger;
+    if (key.name === "p" && toggleEnabled) {
+      act(() => toggleEnabled(trigger.id, trigger.status === "paused"));
+    }
+    if (key.name === "k" && remove) {
+      act(() => remove(trigger.id));
+    }
+  }
   function commands(key: KeyEvent) {
     runCommands(key);
+    triggerCommands(key);
     if (key.name === "l" && selected?.kind === "definition") {
       onLaunch?.(selected.id);
     }
@@ -512,6 +549,7 @@ export function useDashboard(
   return {
     actionBusy,
     actionError,
+    actionHints: actionHints(snapshot, selected, actions),
     cancelPrompt,
     cancelQuit,
     changeTab,
@@ -552,4 +590,48 @@ export function useDashboard(
     triggers,
     view,
   };
+}
+
+function actionHints(
+  snapshot: DashboardSnapshot,
+  selection?: DashboardSelection,
+  actions?: RunActions
+): string | undefined {
+  if (!(actions && selection)) {
+    return undefined;
+  }
+  if (selection.kind === "run" && selection.activityId !== undefined) {
+    const run = snapshot.runs.find((item) => item.id === selection.id);
+    const activity = run && selectedActivity(run, selection);
+    return activity && actions.stopActivity && canStopActivity(activity)
+      ? "k stop activity"
+      : "";
+  }
+  if (selection.kind === "trigger") {
+    const trigger = snapshot.triggers.find((item) => item.id === selection.id);
+    if (!trigger?.managed) {
+      return "";
+    }
+    return [
+      ...(actions.setTriggerEnabled
+        ? [trigger.status === "paused" ? "p resume" : "p pause"]
+        : []),
+      ...(actions.deleteTrigger ? ["k delete trigger"] : []),
+    ].join(" · ");
+  }
+  return undefined;
+}
+
+function activityCommands(
+  key: KeyEvent,
+  run: RunSnapshot,
+  selection: DashboardSelection,
+  actions: RunActions,
+  act: (work: () => Promise<void>) => void
+): void {
+  const activity = selectedActivity(run, selection);
+  const stop = actions.stopActivity;
+  if (key.name === "k" && activity && stop && canStopActivity(activity)) {
+    act(() => stop(activity.sessionId, activity.id));
+  }
 }

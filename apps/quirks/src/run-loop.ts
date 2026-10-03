@@ -14,7 +14,8 @@ export async function runSchedulesUntilStopped(
   controller: AbortController = new AbortController(),
   print: (line: string) => void = (line) => {
     process.stdout.write(`${line}\n`);
-  }
+  },
+  getSchedules?: () => readonly Schedule[]
 ): Promise<void> {
   if (controller.signal.aborted) {
     return;
@@ -32,7 +33,12 @@ export async function runSchedulesUntilStopped(
       version: 1,
     });
   }
-  const options = { print, signal: controller.signal, state: stateDir };
+  const options = {
+    getSchedules,
+    print,
+    signal: controller.signal,
+    state: stateDir,
+  };
   try {
     await runSchedules(engine, schedules, options);
     // Nothing scheduled still means "run until stopped": the dashboard and

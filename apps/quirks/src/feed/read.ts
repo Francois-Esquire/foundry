@@ -135,6 +135,9 @@ function inputSnapshot(
   return {
     ...(input.answer === undefined ? {} : { answer: input.answer }),
     choices: input.choices,
+    ...(input.activityId === undefined ? {} : { activityId: input.activityId }),
+    ...(input.sessionId === undefined ? {} : { sessionId: input.sessionId }),
+    ...(input.delivery === undefined ? {} : { delivery: input.delivery }),
     ...(input.mode === undefined ? {} : { mode: input.mode }),
     ...(input.note === undefined ? {} : { note: input.note }),
     status: input.status,

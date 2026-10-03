@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { formatCount } from "~/components/ui/count-badge";
 import { startEngine } from "~/engine";
-import { feedPayload } from "~/feed/entry";
+import { feedPayload, feedQuestionSchema } from "~/feed/entry";
 import { feedPublisher } from "~/feed/publish";
 import { feedReader, formatPosted } from "~/feed/read";
 import { registerSetupStep, SETUP_STEP } from "~/feed/setup";
@@ -323,6 +323,60 @@ describe("questions", () => {
 });
 
 describe("abandoned questions", () => {
+  it("preserves live delivery through answer updates and deferred permission across restart", async () => {
+    const location = join(root, "artifacts");
+    const store = openFeed(location, workspace());
+    const source = { definition: "d", path: ["d"], runId: "rn-1" };
+    const question = feedQuestionSchema.parse({
+      choices: ["Approve once", "Allow for this session", "Deny"],
+      delivery: "live",
+      key: "live",
+      mode: "approval",
+      title: "Allow tool?",
+    });
+    const live = await store.publisher.publishInput(question, source, {
+      status: "open",
+    });
+    const deferred = await store.publisher.publishInput(
+      { ...question, delivery: "deferred", key: "future" },
+      source,
+      { status: "open" }
+    );
+    const reopened = openFeed(location, workspace());
+    expect(
+      (await reopened.read()).find((entry) => entry.id === live)?.input
+        ?.delivery
+    ).toBe("live");
+    await reopened.publisher.publishInput(question, source, {
+      answer: "Approve once",
+      status: "answered",
+    });
+    expect(
+      (await reopened.read()).find((entry) => entry.id === live)?.input
+    ).toMatchObject({
+      answer: "Approve once",
+      delivery: "live",
+      status: "answered",
+    });
+    const abandoned = await reopened.publisher.publishInput(
+      { ...question, key: "abandoned-live" },
+      source,
+      { status: "open" }
+    );
+    const sweeper = feedPublisher(
+      reopened.artifacts,
+      { ...workspace(), name: "a" },
+      { isAlive: () => false }
+    );
+    expect(await sweeper.cancelAbandoned()).toBe(1);
+    expect(
+      (await reopened.read()).find((entry) => entry.id === abandoned)?.input
+    ).toMatchObject({ delivery: "live", status: "cancelled" });
+    expect(
+      (await reopened.read()).find((entry) => entry.id === deferred)?.input
+    ).toMatchObject({ delivery: "deferred", status: "open" });
+  });
+
   it("cancel open questions whose process exited and keep live ones", async () => {
     const artifacts = new ArtifactSystem({
       store: new InMemoryArtifactStore(),

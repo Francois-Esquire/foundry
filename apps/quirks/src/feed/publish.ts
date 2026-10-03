@@ -19,6 +19,7 @@ import {
   type FeedEntryKind,
   type FeedPayload,
   type FeedQuestionPayload,
+  INPUT_DELIVERIES,
   INPUT_STATUSES,
   type InputStatus,
 } from "~/feed/entry";
@@ -49,8 +50,8 @@ interface InputState {
 
 export interface FeedPublisher {
   /**
-   * Cancel open questions whose process has exited. Only the process that
-   * asked can resume its run, so after a crash nothing can answer them.
+   * Cancel live and legacy questions whose process has exited. Deferred
+   * permissions remain open because a new host can resolve them for future runs.
    */
   cancelAbandoned(): Promise<number>;
   publish(post: FeedPayload, source: FeedSource): Promise<ArtifactId>;
@@ -72,15 +73,18 @@ export const feedMetadataSchema = z.object({
   /** Present on `input` entries: the question's choices and whether it is settled. */
   input: z
     .object({
+      activityId: z.string().optional(),
       answer: z.string().optional(),
       /** The question's markdown, kept so the entry can be rewritten later. */
       body: z.string().optional(),
       choices: z.array(z.string()),
-      /** Approval blocks the run; a question is input. Absent on old entries. */
+      delivery: z.enum(INPUT_DELIVERIES).optional(),
+      /** Approval requests permission; a question requests input. Absent on old entries. */
       mode: z.enum(ASK_MODES).optional(),
       note: z.string().optional(),
       /** While open: the process that can answer it. */
       pid: z.number().int().optional(),
+      sessionId: z.string().optional(),
       status: z.enum(INPUT_STATUSES),
     })
     .optional(),
@@ -179,6 +183,7 @@ export function feedPublisher(
         if (
           !(parsed.success && input) ||
           input.status !== "open" ||
+          input.delivery === "deferred" ||
           (input.pid !== undefined && isAlive(input.pid))
         ) {
           continue;
@@ -222,8 +227,13 @@ export function feedPublisher(
         ...state,
         body: question.body,
         choices: question.choices,
+        ...(question.activityId ? { activityId: question.activityId } : {}),
+        ...(question.sessionId ? { sessionId: question.sessionId } : {}),
+        ...(question.delivery ? { delivery: question.delivery } : {}),
         mode: question.mode,
-        ...(state.status === "open" ? { pid } : {}),
+        ...(state.status === "open" && question.delivery !== "deferred"
+          ? { pid }
+          : {}),
       };
       return serialized(() =>
         publish(

@@ -12,6 +12,7 @@ import type { FeedPublisher } from "~/feed/publish";
 import { feedRouter } from "~/feed/route";
 import { PAUSE_KIND, restoreScope, runs as runScopes } from "~/lib/run-scope";
 import { observeSteps } from "~/observe";
+import type { HarnessInteractions } from "~/sandbox/interactions";
 import type { RunExtras } from "~/state/runs";
 import { loadRuns, saveRun } from "~/state/runs";
 
@@ -90,6 +91,7 @@ export interface EngineOptions {
   readonly askable?: boolean;
   /** Writes entries steps post; without one, posts are dropped. */
   readonly feed?: FeedPublisher;
+  readonly interactions?: HarnessInteractions;
   readonly print: (line: string) => void;
   /** Workspace state dir. Omit for in-memory, which `--dry` always is. */
   readonly state?: string;
@@ -97,7 +99,7 @@ export interface EngineOptions {
 
 export async function startEngine(
   register: RegisterDefinitions,
-  { askable = false, feed, print, state }: EngineOptions
+  { askable = false, feed, interactions, print, state }: EngineOptions
 ): Promise<Engine> {
   const config = new Config();
   contributeQueueConfig(config, { concurrency: 1, defaultName: "quirks" });
@@ -250,6 +252,7 @@ export async function startEngine(
     save(runId);
     await router?.adopt(record.step, runId);
   }
+  await interactions?.restore();
   // A crashed dashboard never cancelled its open questions; nothing can answer them now.
   await feed
     ?.cancelAbandoned()
@@ -264,7 +267,10 @@ export async function startEngine(
   };
 
   const engine: Engine = {
-    answer(entryId, answer) {
+    async answer(entryId, answer) {
+      if (await interactions?.answer(entryId, answer)) {
+        return;
+      }
       if (!router) {
         return Promise.reject(new Error("The feed is not available."));
       }
@@ -343,6 +349,7 @@ export async function startEngine(
 
     async stop(options) {
       stopping = true;
+      await interactions?.close();
       // With a state dir a parked run is written and adopted by the next
       // process that can answer, so a quit keeps it and its open question.
       // Without one, nothing can resume it, so its entry says so.

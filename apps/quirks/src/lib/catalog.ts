@@ -80,7 +80,11 @@ class Catalog {
   /** Launchable definitions, without monitor detectors. */
   entries(): readonly CatalogEntry[] {
     return [...this.definitions.values()]
-      .filter((definition) => !this.monitors.has(definition.name as string))
+      .filter(
+        (definition) =>
+          definition.name !== "__automation_monitor" &&
+          !this.monitors.has(definition.name as string)
+      )
       .map((definition) => {
         const schema = definition.input;
         // No schema: no arguments. A schema the library cannot describe as

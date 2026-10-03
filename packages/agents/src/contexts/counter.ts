@@ -27,6 +27,11 @@ function serializedTokens(value: unknown): number {
 
 function partTokens(part: SessionPart): number {
   switch (part.type) {
+    case "harness_activity":
+    case "harness_question":
+    case "harness_session":
+    case "harness_tool":
+      return 0;
     case "text":
     case "reasoning":
       return textTokens(part.text);

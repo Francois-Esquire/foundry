@@ -6,7 +6,10 @@
  */
 
 import type { Capability, ToolSource } from "../authorization";
-import type { HarnessToolEvent } from "../harness/turn-driver";
+import type {
+  HarnessActivityEvent,
+  HarnessToolEvent,
+} from "../harness/turn-driver";
 import type { ToolEffectLocation } from "../harness/types";
 
 export interface ToolProvenance {
@@ -39,6 +42,16 @@ export type SessionRole = "user" | "assistant" | "system" | "tool" | "summary";
  * a part so the full transcript is reconstructable.
  */
 export type SessionPart =
+  | { type: "harness_activity"; event: HarnessActivityEvent }
+  | {
+      type: "harness_question";
+      activityId?: string;
+      harness: string;
+      toolCallId: string;
+      questionCount: number;
+      outcome: "requested" | "answered" | "declined" | "interrupted";
+      answerCount?: number;
+    }
   | { type: "harness_tool"; event: HarnessToolEvent }
   | { type: "harness_session"; harness: string; nativeSessionId: string }
   | { type: "text"; text: string }
@@ -76,6 +89,7 @@ export type SessionPart =
    */
   | {
       type: "tool_approval_request";
+      activityId?: string;
       /** Live callbacks resolve in process; deferred requests grant a future call.
        * Neither is an SDK replay checkpoint. Omitted on existing checkpoints. */
       approvalMode?: "live" | "deferred";

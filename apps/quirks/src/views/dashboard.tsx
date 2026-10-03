@@ -190,13 +190,22 @@ function footerFor(
   if (onFeed) {
     return feedFooter(feed);
   }
-  return dashboardFooter(
+  const activitySelected =
+    ui.selected?.kind === "run" && ui.selected.activityId !== undefined;
+  let text = dashboardFooter(
     ui.pane,
     ui.tab,
     ui.searching,
     ui.selected?.kind,
-    actions
+    actions && ui.actionHints === undefined
   );
+  if (activitySelected && ui.pane === "details") {
+    text = "activity · ↑↓ scroll · b run";
+  }
+  if (!ui.searching && ui.actionHints) {
+    text += ` · ${ui.actionHints}`;
+  }
+  return text;
 }
 
 function ActionStatus({
@@ -389,6 +398,9 @@ export function DashboardView({
         />
       )}
       {ui.help && <KeyboardHelp active={!ui.quitting} />}
+      {(snapshot.notices ?? []).map((notice) => (
+        <Text key={notice}>{notice}</Text>
+      ))}
       {!ui.help && content}
       {ui.prompt && (
         <PromptBar

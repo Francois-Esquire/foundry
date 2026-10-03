@@ -34,6 +34,7 @@ export function validateHarnessProfile(
 }
 
 export interface HarnessPermissionRequest {
+  activityId?: string;
   capability?: Capability;
   input: unknown;
   sessionId: string;
@@ -53,7 +54,33 @@ export type HarnessPermissionCallback = (
   request: HarnessPermissionRequest
 ) => Promise<HarnessPermissionResult>;
 
+export interface HarnessQuestion {
+  header?: string;
+  id: string;
+  multiSelect?: boolean;
+  options?: { label: string; description?: string }[];
+  question: string;
+}
+
+/** Questions and answers may contain secrets. Deliver only to the live host/model. */
+export interface HarnessQuestionRequest {
+  activityId?: string;
+  questions: HarnessQuestion[];
+  sessionId: string;
+  signal: AbortSignal;
+  toolCallId: string;
+}
+
+export type HarnessQuestionResult =
+  | { outcome: "answered"; answers: Record<string, string[]> }
+  | { outcome: "declined"; reason: string };
+
+export type HarnessQuestionCallback = (
+  request: HarnessQuestionRequest
+) => Promise<HarnessQuestionResult>;
+
 export interface HarnessToolEvent {
+  activityId?: string;
   agentId: string;
   harness: string;
   inputSummary: string;
@@ -82,11 +109,14 @@ export interface HarnessTurnDriver {
     signal: AbortSignal;
     profile: HarnessPermissionProfile;
     permission: HarnessPermissionCallback;
+    question: HarnessQuestionCallback;
     tools?: ToolSet;
+    onActivity: (activity: HarnessActivity) => Promise<void>;
     onToolEvent: (event: HarnessToolEvent) => Promise<void>;
     onSessionId: (nativeSessionId: string) => Promise<void>;
   }): Promise<AsyncIterable<StreamPart>>;
   steer?: (input: string) => Promise<void>;
+  stopActivity?: (id: string) => Promise<void>;
 }
 
 export interface HarnessSession {
@@ -100,6 +130,7 @@ export interface HarnessSession {
   readonly route: ModelRoute;
   readonly sessionId: string | undefined;
   steer(input: string): Promise<void>;
+  stopActivity?(id: string): Promise<void>;
   readonly store: SessionStore | undefined;
   stream(input: SessionInput, options?: SessionStreamOptions): SessionStream;
 }
@@ -120,8 +151,11 @@ export interface HarnessAuthoritySettings {
     }
   ) => Promise<ApprovalResolution>;
   onApprovalRequest?: (
-    request: AgentApprovalRequest & { sessionId: string }
-  ) => void;
+    request: AgentApprovalRequest & {
+      sessionId: string;
+      approvalMode: "live" | "deferred";
+    }
+  ) => void | Promise<void>;
   policy: AgentAuthorizer;
   profile: HarnessPermissionProfile;
   store: SessionStore;
@@ -129,7 +163,37 @@ export interface HarnessAuthoritySettings {
 
 export interface DriverSessionSettings extends HarnessAuthoritySettings {
   model: ModelRoute;
+  onActivity?: (event: HarnessActivityEvent) => void | Promise<void>;
   onToolEvent?: (event: HarnessToolEvent) => void;
+  parentActivityId?: string;
+  question?: HarnessQuestionCallback;
   sessionId?: string;
   tools?: ToolSet;
+}
+
+/** Full snapshots, with IDs scoped to the native process/environment generation.
+ * Completion of the parent turn says nothing about these activities. */
+export interface HarnessActivity {
+  actions?: readonly "stop"[];
+  id: string;
+  kind: "subagent" | "task" | "watch" | "schedule";
+  lifetime: "session" | "sandbox";
+  nativeId?: string;
+  parentId?: string;
+  status:
+    | "running"
+    | "waiting"
+    | "complete"
+    | "failed"
+    | "cancelled"
+    | "unknown";
+  summary?: string;
+  title: string;
+}
+
+export interface HarnessActivityEvent extends HarnessActivity {
+  agentId: string;
+  harness: string;
+  revision: number;
+  sessionId: string;
 }

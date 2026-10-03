@@ -20,14 +20,19 @@ type RunStatus =
   | "paused"
   | "skipped";
 
+export type InputAttention = "approval" | "question";
+
 export interface TriggerSnapshot {
   readonly configuration?: JsonValue;
   readonly description: string;
   readonly id: string;
   readonly kind: "schedule" | "monitor";
+  readonly lifetime?: "durable" | "sandbox";
+  readonly managed?: boolean;
   readonly name: string;
   readonly next?: string;
-  readonly status: "waiting" | "watching" | "running" | "failed";
+  readonly owner?: string;
+  readonly status: "waiting" | "watching" | "running" | "failed" | "paused";
   readonly targetId: string;
 }
 
@@ -40,6 +45,8 @@ export interface DefinitionSnapshot extends DefinitionOptions {
 
 /** An observed step instance, including children discovered during execution. */
 export interface StepSnapshot {
+  /** An open live feed input in this step or a running descendant. */
+  readonly attention?: InputAttention;
   readonly children: readonly StepSnapshot[];
   readonly elapsed?: string;
   readonly error?: string;
@@ -50,7 +57,34 @@ export interface StepSnapshot {
   readonly status: RunStatus;
 }
 
+export interface HarnessActivitySnapshot {
+  readonly actions?: readonly "stop"[];
+  readonly agentId: string;
+  readonly attention?: InputAttention;
+  readonly harness: string;
+  readonly id: string;
+  readonly kind: "subagent" | "task" | "watch" | "schedule";
+  readonly lifetime: "session" | "sandbox";
+  readonly nativeId?: string;
+  readonly parentId?: string;
+  readonly revision: number;
+  readonly sessionId: string;
+  readonly status:
+    | "running"
+    | "waiting"
+    | "complete"
+    | "failed"
+    | "cancelled"
+    | "unknown";
+  readonly stepId?: string;
+  readonly summary?: string;
+  readonly title: string;
+}
+
 export interface RunSnapshot {
+  readonly activities?: readonly HarnessActivitySnapshot[];
+  /** Human attention derived from open live feed entries, independent of runtime status. */
+  readonly attention?: InputAttention;
   readonly definitionId: string;
   readonly elapsed: string;
   readonly error?: string;
@@ -84,11 +118,15 @@ export interface FeedEntrySnapshot {
   readonly body: string;
   readonly definition: string;
   readonly id: string;
-  /** Set on `input` entries: a paused run waiting for this answer. */
+  /** Set on `input` entries: live input, deferred permission, or a workflow suspension. */
   readonly input?: {
     readonly answer?: string;
+    readonly sessionId?: string;
+    readonly activityId?: string;
     readonly choices: readonly string[];
-    /** An approval blocks its run; a question is input. */
+    /** Absent on legacy and workflow suspension entries. */
+    readonly delivery?: "live" | "deferred";
+    /** Approval requests permission; a question requests input. */
     readonly mode?: "question" | "approval";
     /** Given with the answer to an approval. */
     readonly note?: string;
@@ -113,6 +151,7 @@ export interface DashboardSnapshot {
   readonly feed: readonly FeedEntrySnapshot[];
   readonly harnesses: readonly string[];
   readonly mode: "snapshot" | "live";
+  readonly notices?: readonly string[];
   readonly root: string;
   readonly runs: readonly RunSnapshot[];
   readonly status: string;
@@ -125,7 +164,13 @@ export interface DashboardSnapshot {
 export type DashboardSelection =
   | { readonly kind: "trigger"; readonly id: string }
   | { readonly kind: "definition"; readonly id: string }
-  | { readonly kind: "run"; readonly id: string; readonly stepId?: string };
+  | {
+      readonly kind: "run";
+      readonly id: string;
+      readonly stepId?: string;
+      readonly activityId?: string;
+      readonly sessionId?: string;
+    };
 
 export function flattenSteps(
   steps: readonly StepSnapshot[],
@@ -138,8 +183,46 @@ export function flattenSteps(
 }
 
 export function selectionKey(selection: DashboardSelection): string {
+  if (selection.kind === "run" && selection.activityId !== undefined) {
+    return `run:${selection.id}:activity:${JSON.stringify([selection.sessionId, selection.activityId])}`;
+  }
   if (selection.kind === "run" && selection.stepId) {
     return `run:${selection.id}:step:${selection.stepId}`;
   }
   return `${selection.kind}:${selection.id}`;
+}
+
+/** Display attention without replacing the status used by execution controls. */
+export function runStatusLabel(item: {
+  readonly attention?: InputAttention;
+  readonly status: string;
+}): string {
+  if (item.attention === "approval") {
+    return "Waiting for approval";
+  }
+  if (item.attention === "question") {
+    return "Waiting for answer";
+  }
+  return item.status;
+}
+
+export function selectedActivity(
+  run: RunSnapshot,
+  selection: DashboardSelection
+): HarnessActivitySnapshot | undefined {
+  if (selection.kind !== "run" || selection.activityId === undefined) {
+    return undefined;
+  }
+  return run.activities?.find(
+    (activity) =>
+      activity.id === selection.activityId &&
+      activity.sessionId === selection.sessionId
+  );
+}
+
+export function canStopActivity(activity: HarnessActivitySnapshot): boolean {
+  return (
+    activity.actions?.includes("stop") === true &&
+    (activity.status === "running" || activity.status === "waiting")
+  );
 }

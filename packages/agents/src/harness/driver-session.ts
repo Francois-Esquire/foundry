@@ -1,14 +1,21 @@
 import { randomUUID } from "node:crypto";
 
 import type { SessionInput, SessionMessage, SessionStream } from "../session";
+import {
+  createHarnessActivityRecorder,
+  isActivityActive,
+  reduceHarnessActivities,
+} from "./activity";
 import type { EventQueue } from "./event-queue";
 import { createEventQueue } from "./event-queue";
 import { createHarnessPermission, redactHarnessSummary } from "./permission";
+import { createHarnessQuestionCallback } from "./question";
 import type { SessionStreamOptions } from "./session-harness";
 import type { StreamPart } from "./stream-transform";
 import { transformStream } from "./stream-transform";
 import type {
   DriverSessionSettings,
+  HarnessActivity,
   HarnessSession,
   HarnessToolEvent,
   HarnessTurnDriver,
@@ -24,6 +31,28 @@ export function createDriverSession(
   let active: AbortController | undefined;
   let activeMessage: Promise<SessionMessage> | undefined;
   let closed = false;
+  const lifetime = new AbortController();
+  const persistActivity = createHarnessActivityRecorder({
+    ...settings,
+    harness: driver.id,
+    sessionId,
+  });
+  const recordActivity = async (
+    activity: HarnessActivity,
+    queue?: EventQueue<StreamPart>
+  ) => {
+    const event = await persistActivity({
+      ...activity,
+      ...(activity.parentId === undefined &&
+      activity.id !== settings.parentActivityId &&
+      settings.parentActivityId !== undefined
+        ? { parentId: settings.parentActivityId }
+        : {}),
+    });
+    if (event) {
+      queue?.push({ event, type: "harness-activity" });
+    }
+  };
 
   const stream = (
     input: SessionInput,
@@ -88,16 +117,50 @@ export function createDriverSession(
           ...(mapping?.type === "harness_session"
             ? { nativeSessionId: mapping.nativeSessionId }
             : {}),
-          permission: createHarnessPermission({
-            ...settings,
-            onApprovalRequest: (request) => {
-              settings.onApprovalRequest?.(request);
-              queue.push({ ...request, type: "harness-approval-request" });
-            },
-          }),
+          permission: withParentActivity(
+            createHarnessPermission({
+              ...settings,
+              onApprovalRequest: async (request) => {
+                await settings.onApprovalRequest?.(request);
+                queue.push({ ...request, type: "harness-approval-request" });
+              },
+            }),
+            settings.parentActivityId
+          ),
           profile: settings.profile,
+          question: withParentActivity(
+            createHarnessQuestionCallback({
+              question: settings.question,
+              record: async (request, outcome, answerCount) => {
+                await settings.store.appendMessage({
+                  parts: [
+                    {
+                      harness: driver.id,
+                      outcome,
+                      questionCount: request.questions.length,
+                      toolCallId: request.toolCallId,
+                      type: "harness_question",
+                      ...(request.activityId === undefined
+                        ? {}
+                        : { activityId: request.activityId }),
+                      ...(answerCount === undefined ? {} : { answerCount }),
+                    },
+                  ],
+                  role: "system",
+                  sessionId,
+                });
+              },
+              sessionId,
+              signal: () =>
+                active === controller
+                  ? AbortSignal.any([signal, lifetime.signal])
+                  : lifetime.signal,
+            }),
+            settings.parentActivityId
+          ),
           signal,
           ...(settings.tools ? { tools: settings.tools } : {}),
+          onActivity: (activity) => recordActivity(activity, queue),
           onSessionId: async (nativeSessionId) => {
             await settings.store.appendMessage({
               parts: [
@@ -162,14 +225,43 @@ export function createDriverSession(
 
   return {
     capabilities: driver.capabilities,
+    ...(driver.stopActivity
+      ? {
+          stopActivity: async (id: string) => {
+            const history = await settings.store.listMessages(sessionId);
+            const activity = reduceHarnessActivities(history).find(
+              (event) => event.harness === driver.id && event.id === id
+            );
+            if (
+              !(
+                activity?.actions?.includes("stop") &&
+                isActivityActive(activity)
+              )
+            ) {
+              throw new Error("Activity does not support stopping.");
+            }
+            await driver.stopActivity?.(id);
+          },
+        }
+      : {}),
     async close() {
       closed = true;
+      lifetime.abort(new Error("Harness session closed."));
       const terminal = activeMessage;
       active?.abort(new Error("Harness session closed."));
       try {
         await driver.close?.();
       } finally {
         await terminal;
+
+        const history = await settings.store.listMessages(sessionId);
+        for (const activity of reduceHarnessActivities(history).filter(
+          (event) => event.harness === driver.id
+        )) {
+          if (isActivityActive(activity)) {
+            await recordActivity({ ...activity, status: "unknown" });
+          }
+        }
       }
     },
     generate: (input, options) => stream(input, options).message,
@@ -208,4 +300,17 @@ async function pumpDriverParts(
     }
     queue.push(part);
   }
+}
+
+function withParentActivity<Request extends { activityId?: string }, Result>(
+  callback: (request: Request) => Promise<Result>,
+  parentActivityId?: string
+): (request: Request) => Promise<Result> {
+  return (request) =>
+    callback({
+      ...request,
+      ...(request.activityId === undefined && parentActivityId !== undefined
+        ? { activityId: parentActivityId }
+        : {}),
+    });
 }

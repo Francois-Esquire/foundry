@@ -38,6 +38,8 @@ export interface Schedule {
   readonly kind: "schedule" | "monitor";
   /** For people: the target and its input, or the monitored source. */
   readonly label: string;
+  /** Durable creation time seeds the first deadline before any tick history exists. */
+  readonly registeredAt?: number;
   readonly trigger: Trigger;
   /** The launchable definition's name. */
   readonly workflow: string;

@@ -1,5 +1,6 @@
 import { basename, dirname, resolve } from "node:path";
 import type { Args } from "~/args";
+import { AUTOMATION_MONITOR } from "~/automation/service";
 import { dashboardSnapshot } from "~/dashboard/snapshot";
 import { openDashboard } from "~/dashboard/terminal";
 import type { Engine } from "~/engine";
@@ -43,7 +44,7 @@ export async function runInteractive(
   let stopping: Promise<void> | undefined;
   const stop = () => {
     controller.abort();
-    stopping ??= engine?.stop({ cancel: true });
+    stopping ??= stopAfterSchedules(loop, engine);
     // Attach immediately: cleanup below awaits and reports any failure.
     stopping?.catch(() => undefined);
   };
@@ -78,7 +79,9 @@ export async function runInteractive(
     feed = openFeed(args.dry ? undefined : resolve(args.artifacts), workspace);
     runtime = bindRuntime({
       artifacts: feed.artifacts,
+      askable: true,
       dry: args.dry,
+      feed: feed.publisher,
       only: args.only,
       print,
       root: workspace.root,
@@ -90,7 +93,13 @@ export async function runInteractive(
         registerCatalog(orchestrator);
         registerSetupStep(orchestrator);
       },
-      { askable: true, feed: feed.publisher, print, state }
+      {
+        askable: true,
+        feed: feed.publisher,
+        interactions: runtime.interactions,
+        print,
+        state,
+      }
     );
     if (controller.signal.aborted) {
       return;
@@ -105,11 +114,14 @@ export async function runInteractive(
     );
     let startedAt = Date.now();
     const runningEngine = engine;
-    const { harnesses } = runtime;
+    const { harnesses, activities, automations } = runtime;
     const readFeed = feed.read;
     const update = async () =>
       terminal.update(
         dashboardSnapshot(await runningEngine.runs(), {
+          activities: activities.list(),
+          automationErrors: automations.errors(),
+          automations: automations.list(),
           feed: await readFeed(),
           harnesses,
           lastFinish,
@@ -129,6 +141,10 @@ export async function runInteractive(
         await runningEngine.cancel(runId);
         await update();
       },
+      async deleteTrigger(id) {
+        automations.delete(id);
+        await update();
+      },
       async pause(runId, stepId) {
         if (!runningEngine.pause(runId, stepId)) {
           throw new Error("This step is not running in this process.");
@@ -139,15 +155,27 @@ export async function runInteractive(
         await runningEngine.resume(runId, stepId, prompt);
         await update();
       },
+      async setTriggerEnabled(id, enabled) {
+        automations.setEnabled(id, enabled);
+        await update();
+      },
       steer(runId, stepId, prompt) {
         runningEngine.steer(runId, stepId, prompt);
         return Promise.resolve();
+      },
+      async stopActivity(sessionId, activityId) {
+        await activities.stop(sessionId, activityId);
+        await update();
       },
       stream: (runId, signal) => runningEngine.stream(runId, signal),
     });
     terminal.setLauncher(async (name, input) => {
       const definition = catalog.definitions.get(name);
-      if (!definition || catalog.monitors.has(name)) {
+      if (
+        !definition ||
+        catalog.monitors.has(name) ||
+        name === AUTOMATION_MONITOR
+      ) {
         throw new Error("This definition is not available for manual launch.");
       }
       const values =
@@ -208,7 +236,8 @@ export async function runInteractive(
       hasConfig,
       configPath,
       controller,
-      print
+      print,
+      () => automations.schedules()
     );
     await loop;
   } catch (error) {
@@ -251,4 +280,15 @@ function postSetupMilestone(
   engine
     .run(SETUP_STEP, input)
     .catch((error: unknown) => print(`[feed] ${String(error)}`));
+}
+
+async function stopAfterSchedules(
+  loop: Promise<void> | undefined,
+  engine: Engine | undefined
+): Promise<void> {
+  try {
+    await loop;
+  } finally {
+    await engine?.stop({ cancel: true });
+  }
 }

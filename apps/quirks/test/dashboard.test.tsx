@@ -1113,6 +1113,72 @@ function recordingActions() {
   return { actions, calls };
 }
 
+test.each(["approval", "question"] as const)(
+  "shows live %s attention in run and step details while keeping pause, steer and cancel enabled",
+  async (attention) => {
+    const { actions, calls } = recordingActions();
+    const attentive: DashboardSnapshot = {
+      ...dashboardSnapshot,
+      runs: dashboardSnapshot.runs.map((run) =>
+        run.id === "run-104"
+          ? {
+              ...run,
+              attention,
+              steps: run.steps.map((step) =>
+                step.id === "update"
+                  ? {
+                      ...step,
+                      attention,
+                      children: step.children.map((child) =>
+                        child.id === "write" ? { ...child, attention } : child
+                      ),
+                    }
+                  : step
+              ),
+            }
+          : run
+      ),
+    };
+    const label =
+      attention === "approval" ? "Waiting for approval" : "Waiting for answer";
+    setup = await testRender(
+      <DashboardView actions={actions} onClose={close} snapshot={attentive} />,
+      { exitOnCtrlC: false, height: 40, kittyKeyboard: true, width: 120 }
+    );
+    const ui = setup;
+    await flush(ui);
+    expect(ui.captureCharFrame()).toContain(label);
+    await press(ui, "RETURN");
+    expect(ui.captureCharFrame()).toContain(label);
+    await press(ui, "ESCAPE");
+    await press(ui, "a");
+    await press(ui, "RETURN");
+    expect(ui.captureCharFrame()).toMatch(WRITE_STEP);
+    expect(ui.captureCharFrame()).toContain(label);
+    await act(async () => ui.mockInput.pressKey("p"));
+    await flush(ui);
+    expect(calls).toEqual([["pause", "run-104", "write"]]);
+    await act(async () => ui.mockInput.pressKey("s"));
+    await flush(ui);
+    expect(ui.captureCharFrame()).toContain("steer write ›");
+    await act(async () =>
+      ui.mockInput.typeText("summarize the pending action")
+    );
+    await act(async () => ui.mockInput.pressEnter());
+    await flush(ui);
+    expect(calls.at(-1)).toEqual([
+      "steer",
+      "run-104",
+      "write",
+      "summarize the pending action",
+    ]);
+    await act(async () => ui.mockInput.pressKey("k"));
+    await flush(ui);
+    expect(calls.at(-1)).toEqual(["cancel", "run-104"]);
+    expect(attentive.runs[0]?.status).toBe("running");
+  }
+);
+
 test("run keys pause, steer, and cancel the selected step", async () => {
   const { actions, calls } = recordingActions();
   closed = false;
@@ -1213,3 +1279,110 @@ test("a paused step resumes with an optional prompt", async () => {
   await flush(setup);
   expect(setup.captureCharFrame()).not.toContain("p pause/resume");
 });
+
+test.each([
+  { status: "running", stoppable: true, supported: true },
+  { status: "running", stoppable: false, supported: false },
+  { status: "complete", stoppable: false, supported: true },
+  { status: "unknown", stoppable: false, supported: true },
+] as const)(
+  "native activity controls stop only the selected supported child ($status, $supported)",
+  async ({ supported, status, stoppable }) => {
+    const { actions, calls } = recordingActions();
+    actions.stopActivity = async (...args) => {
+      calls.push(["stopActivity", ...args]);
+    };
+    const activeRun = dashboardSnapshot.runs.find(
+      (run) => run.id === "run-104"
+    );
+    if (!activeRun) {
+      throw new Error("Missing active fixture");
+    }
+    const snapshot: DashboardSnapshot = {
+      ...dashboardSnapshot,
+      runs: [
+        {
+          ...activeRun,
+          activities: [
+            {
+              actions: supported ? ["stop"] : [],
+              agentId: "coder",
+              harness: "claude-code",
+              id: "child",
+              kind: "task",
+              lifetime: "sandbox",
+              revision: 1,
+              sessionId: "child-session",
+              status,
+              title: "Background test run",
+            },
+          ],
+        },
+      ],
+    };
+    setup = await testRender(
+      <DashboardView actions={actions} onClose={close} snapshot={snapshot} />,
+      { exitOnCtrlC: false, height: 40, kittyKeyboard: true, width: 120 }
+    );
+    const ui = setup;
+    await flush(ui);
+    const frame = ui.captureCharFrame();
+    expect(frame).toContain("task: Background test run");
+    expect(frame).not.toContain("[step] task:");
+    await click(ui, 'run:run-104:activity:["child-session","child"]');
+    expect(ui.captureCharFrame()).toContain("Background test run");
+    expect(ui.captureCharFrame()).not.toContain("s steer");
+    await press(ui, "p");
+    await press(ui, "s");
+    expect(calls).toEqual([]);
+    await press(ui, "k");
+    expect(calls).toEqual(
+      stoppable ? [["stopActivity", "child-session", "child"]] : []
+    );
+  }
+);
+
+test.each(["running", "paused"] as const)(
+  "managed trigger %s offers pause/resume and delete controls",
+  async (status) => {
+    const { actions, calls } = recordingActions();
+    actions.setTriggerEnabled = async (...args) => {
+      calls.push(["setTriggerEnabled", ...args]);
+    };
+    actions.deleteTrigger = async (...args) => {
+      calls.push(["deleteTrigger", ...args]);
+    };
+    const snapshot: DashboardSnapshot = {
+      ...dashboardSnapshot,
+      triggers: [
+        {
+          description: "Scheduled agent work",
+          id: "managed-trigger",
+          kind: "schedule",
+          lifetime: "durable",
+          managed: true,
+          name: "Daily checks",
+          owner: "coder",
+          status,
+          targetId: "agent-task",
+        },
+      ],
+    };
+    setup = await testRender(
+      <DashboardView actions={actions} onClose={close} snapshot={snapshot} />,
+      { exitOnCtrlC: false, height: 40, kittyKeyboard: true, width: 120 }
+    );
+    const ui = setup;
+    await flush(ui);
+    await click(ui, "trigger:managed-trigger");
+    const frame = ui.captureCharFrame();
+    expect(frame).toContain(status === "paused" ? "p resume" : "p pause");
+    expect(frame).toContain("k delete trigger");
+    await press(ui, "p");
+    await press(ui, "k");
+    expect(calls).toEqual([
+      ["setTriggerEnabled", "managed-trigger", status === "paused"],
+      ["deleteTrigger", "managed-trigger"],
+    ]);
+  }
+);

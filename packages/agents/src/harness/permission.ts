@@ -17,7 +17,7 @@ import type {
 import { validateHarnessProfile } from "./turn-driver";
 
 const SECRET_ASSIGNMENT =
-  /\b(api[_-]?key|token|password|passwd|secret|authorization)(\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,;]+)/gi;
+  /\b(api[_-]?key|token|password|passwd|secret|authorization)(["']?\s*[:=]\s*)(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s,;]+)/gi;
 const BEARER = /\bBearer\s+[^\s"']+/gi;
 const URL_CREDENTIALS = /(https?:\/\/)[^\s/@]+:[^\s/@]+@/gi;
 const MAX_SUMMARY = 240;
@@ -39,12 +39,24 @@ export function summarizeHarnessInput(input: unknown): string {
   return redactHarnessSummary(`fields: ${keys.join(", ")}`);
 }
 
-export function redactHarnessSummary(summary: string): string {
+/** Limit persisted summaries by default; Infinity permits a full redacted live preview. */
+export function redactHarnessSummary(
+  summary: string,
+  maxLength = MAX_SUMMARY
+): string {
+  if (
+    maxLength !== Number.POSITIVE_INFINITY &&
+    (!Number.isSafeInteger(maxLength) || maxLength < 1)
+  ) {
+    throw new Error(
+      "Harness summary length must be a positive safe integer or Infinity."
+    );
+  }
   return summary
-    .replace(SECRET_ASSIGNMENT, "$1$2[redacted]")
     .replace(BEARER, "Bearer [redacted]")
+    .replace(SECRET_ASSIGNMENT, "$1$2[redacted]")
     .replace(URL_CREDENTIALS, "$1[redacted]@")
-    .slice(0, MAX_SUMMARY);
+    .slice(0, maxLength);
 }
 
 function authorizationRequest(
@@ -130,6 +142,9 @@ async function recordApprovalRequest(
     input: summarizeHarnessInput(request.input),
     toolCallId: request.toolCallId,
     toolName: request.toolName,
+    ...(request.activityId === undefined
+      ? {}
+      : { activityId: request.activityId }),
   };
   await settings.store.appendMessage({
     parts: [
@@ -142,6 +157,9 @@ async function recordApprovalRequest(
         name: approval.toolName,
         toolCallId: approval.toolCallId,
         type: "tool_approval_request",
+        ...(approval.activityId === undefined
+          ? {}
+          : { activityId: approval.activityId }),
         ...(settings.agentGeneration === undefined
           ? {}
           : { agentGeneration: settings.agentGeneration }),
@@ -150,8 +168,9 @@ async function recordApprovalRequest(
     role: "system",
     sessionId: request.sessionId,
   });
-  settings.onApprovalRequest?.({
+  await settings.onApprovalRequest?.({
     ...approval,
+    approvalMode: waitsForApproval ? "live" : "deferred",
     sessionId: request.sessionId,
   });
   return approval;

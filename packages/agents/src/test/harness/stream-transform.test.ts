@@ -28,6 +28,30 @@ const textParts: StreamPart[] = [
 ];
 
 describe("transformStream", () => {
+  it("records SDK abort chunks as interruption rather than successful completion", async () => {
+    const stream = transformStream(
+      source([
+        { delta: "partial", type: "text-delta" },
+        { reason: "Question interrupted.", type: "abort" },
+      ])
+    );
+    const events = await collect(stream);
+    expect((await stream.message).status).toBe("error");
+    expect((await stream.message).parts).toContainEqual({
+      message: "Question interrupted.",
+      type: "error",
+    });
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "finish" })
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        error: expect.objectContaining({ message: "Question interrupted." }),
+        type: "error",
+      })
+    );
+  });
+
   it("transforms a text stream into SessionEvents and resolves finals", async () => {
     const stream = transformStream(source(textParts));
 

@@ -1,7 +1,10 @@
 import type { ToolSet } from "ai";
 
 import type { Capability } from "../authorization";
-import type { HarnessToolEvent } from "../harness/turn-driver";
+import type {
+  HarnessActivityEvent,
+  HarnessToolEvent,
+} from "../harness/turn-driver";
 import type {
   SessionMessage,
   SessionPart,
@@ -18,6 +21,7 @@ import type {
  * observes.
  */
 export interface AgentApprovalRequest {
+  activityId?: string;
   agentGeneration?: number;
   /**
    * The agent preset that asked, and its generation. A host resolving this
@@ -59,6 +63,7 @@ export type SessionTurnOutcome = "complete" | "awaiting-approval";
  * into this package's own vocabulary.
  */
 export type SessionEvent =
+  | { type: "harness-activity"; event: HarnessActivityEvent }
   | { type: "harness-tool"; event: HarnessToolEvent }
   | { type: "text-delta"; delta: string }
   | { type: "reasoning-delta"; delta: string }
@@ -90,6 +95,7 @@ export interface StreamHandlers {
   onApprovalRequest?: (event: AgentApprovalRequest) => void;
   onError?: (error: Error) => void;
   onFinish?: (event: { message: SessionMessage; usage: SessionUsage }) => void;
+  onHarnessActivity?: (event: HarnessActivityEvent) => void;
   onHarnessTool?: (event: HarnessToolEvent) => void;
   onReasoning?: (delta: string) => void;
   onText?: (delta: string) => void;

@@ -1,99 +1,12 @@
-import { EventEmitter } from "node:events";
-import { PassThrough } from "node:stream";
 import type { LanguageModelV4 } from "@ai-sdk/provider";
-import type {
-  HarnessToolEvent,
-  HarnessTurnDriver,
-} from "@foundry/agents/harness";
+import type { HarnessToolEvent } from "@foundry/agents/harness";
 import { tool } from "ai";
 import type { ClaudeCodeSettings } from "ai-sdk-provider-claude-code";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { createClaudeCodeDriver } from "../harness/claude-code";
 import { createCodexDriver } from "../harness/codex";
-
-type Run = Parameters<HarnessTurnDriver["run"]>[0];
-
-function runOptions(patch: Partial<Run> = {}): Run {
-  return {
-    input: "new input only",
-    onSessionId: async () => undefined,
-    onToolEvent: async () => undefined,
-    permission: async () => ({ behavior: "deny", message: "Needs approval" }),
-    profile: {
-      allowedTools: ["Read"],
-      disallowedTools: ["Bash(git push*)"],
-      maxSteps: 4,
-      mode: "scheduled",
-      unresolved: "deny",
-    },
-    sessionId: "session-1",
-    signal: new AbortController().signal,
-    ...patch,
-  };
-}
-
-class FakeAppServer extends EventEmitter {
-  readonly stdin = new PassThrough();
-  readonly stdout = new PassThrough();
-  readonly stderr = new PassThrough();
-  readonly messages: Record<string, unknown>[] = [];
-  killed = false;
-  private buffer = "";
-
-  constructor() {
-    super();
-    this.stdin.setEncoding("utf8");
-    this.stdin.on("data", (chunk: string) => {
-      this.buffer += chunk;
-      const lines = this.buffer.split("\n");
-      this.buffer = lines.pop() ?? "";
-      for (const line of lines) {
-        const message = JSON.parse(line) as Record<string, unknown>;
-        this.messages.push(message);
-        if (message.method === "initialize") {
-          this.send({ id: message.id, result: {} });
-        }
-        if (message.method === "account/login/start") {
-          this.send({ id: message.id, result: {} });
-        }
-        if (
-          message.method === "thread/start" ||
-          message.method === "thread/resume"
-        ) {
-          this.send({ id: message.id, result: { thread: { id: "thread-1" } } });
-        }
-        if (message.method === "turn/start") {
-          this.send({
-            id: message.id,
-            result: { turn: { id: "turn-1", status: "inProgress" } },
-          });
-        }
-        if (
-          message.method === "turn/interrupt" ||
-          message.method === "turn/steer"
-        ) {
-          this.send({ id: message.id, result: {} });
-        }
-      }
-    });
-  }
-  send(message: unknown): void {
-    this.stdout.write(`${JSON.stringify(message)}\n`);
-  }
-  kill(): boolean {
-    this.killed = true;
-    return true;
-  }
-}
-
-async function collect(source: AsyncIterable<unknown>): Promise<unknown[]> {
-  const result: unknown[] = [];
-  for await (const value of source) {
-    result.push(value);
-  }
-  return result;
-}
+import { collect, FakeAppServer, runOptions } from "./helpers/cli";
 
 describe("Claude Code native driver", () => {
   it("sets per-session permission settings, records hooks and refusals, and resumes without replaying history", async () => {
@@ -357,7 +270,7 @@ describe("Codex native app-server driver", () => {
     ]);
   });
 
-  it("handshakes, explicitly sets posture, routes approvals, records outcomes, and closes its guest", async () => {
+  it("handshakes, explicitly sets posture, routes approvals, records outcomes, and retains its guest until close", async () => {
     const child = new FakeAppServer();
     const events: HarnessToolEvent[] = [];
     const permission = vi.fn(async () => ({
@@ -437,6 +350,8 @@ describe("Codex native app-server driver", () => {
       "refused",
     ]);
     expect(JSON.stringify(events)).not.toContain("secret");
+    expect(child.killed).toBe(false);
+    await driver.close?.();
     expect(child.killed).toBe(true);
   });
 

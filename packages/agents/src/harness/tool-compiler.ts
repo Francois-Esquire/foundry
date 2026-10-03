@@ -10,6 +10,7 @@ import type {
 } from "../authorization";
 import { agentSubject } from "../authorization";
 import { createEventQueue } from "./event-queue";
+import { isHarnessQuestionTool } from "./question";
 import type { HarnessPermissionCallback } from "./turn-driver";
 import type {
   AgentInvocationContext,
@@ -359,7 +360,7 @@ export function compileTool(
 ): Tool {
   const original = registration.tool;
   const originalExecute = original.execute;
-  if (!originalExecute) {
+  if (!originalExecute || isHarnessQuestionTool(original)) {
     return original;
   }
 
