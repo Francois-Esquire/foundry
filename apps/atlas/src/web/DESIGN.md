@@ -62,7 +62,7 @@ CC0, with provenance in `public/atlas/MODEL.md`.
 
 ## Colors
 
-Amber marks focus and navigation. Brown ink sits on warm paper. Desaturated
+Amber marks file focus and navigation; package selection and its dependency lines are gilt. Brown ink sits on warm paper. Desaturated
 seawater and shallows separate the package territories. The seven mineral
 pigments derive from stable package identifiers; colors can repeat and carry
 no quality ranking. Package names provide identity alongside color. Muted
@@ -186,8 +186,15 @@ shore. Pen pressure is seeded from the territory and arc length, so it is
 identical on every repaint; runs are grouped into four weights and stroked once
 per weight. All coast ink is clipped inside the shore so it drapes on the raised
 land; nothing is left on the flat sea plane to ghost across a far-side coast.
-Gold stays yellower and paler than amber: a selected island's rule and coast line
-turn amber. All of this ink is repainted at viewport resolution. Shallows in the fixed-resolution coast
+Selection is gilded. A selected island is ringed by a gilt line five map units
+offshore of its own coast (a contour of a per-island distance field, built once
+per island), and gilt curves lead to its package dependencies: dashed to the
+packages it imports from, dotted from the packages that import it, each ending
+in a small bead at the other package. Weight follows module imports between the
+pair (`dependencyPen`). Lines run between the nearest shores with a gentle bow,
+pass beneath other islands as sea-only ink, and stop short of every place name.
+They appear only while a package is selected. All of this ink is repainted at
+viewport resolution. Shallows in the fixed-resolution coast
 texture are feathered so they magnify as a soft depth change, never as
 stair-stepped texels.
 

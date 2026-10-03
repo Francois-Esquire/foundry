@@ -5,7 +5,6 @@ import type { InkView, MapLabel } from "./exploration";
 
 /** Gold leaf, yellower and paler than the amber reserved for focus. */
 const gilt = "#c9a443";
-const focusAmber = "#b8681f";
 
 /** One graticule ink on sea and land, so the grid reads as a single printing. */
 export const gridInk = "#6c6852";
@@ -199,19 +198,19 @@ export function paintCoastInk(
   // All coast ink stays inside the shore: it drapes on the raised land, so no
   // half-stroke is left on the sea plane to ghost across a far-side coast.
   ctx.clip("evenodd");
-  // A gilt rule framed by a fine inner hairline; a selected island's rule turns
-  // amber, the colour reserved for focus. Occlusion never dims it.
+  // A gilt rule framed by a fine inner hairline; occlusion never dims it.
+  // Selection is shown by the gilt surround in selection-ink.ts.
   ctx.strokeStyle = "#5a4a2e8c";
   ctx.lineWidth = 6.5 / pixels;
   ctx.stroke();
-  ctx.strokeStyle = selected ? focusAmber : gilt;
+  ctx.strokeStyle = gilt;
   ctx.lineWidth = 5.5 / pixels;
   ctx.stroke();
   // Hand-inked coastline: the pen swells and thins along the shore. Widths are
   // doubled because only the inner half survives the clip.
   ctx.lineCap = "round";
-  ctx.strokeStyle = selected ? "#875222e6" : "#4c4031d9";
-  strokePen(ctx, territory, (selected ? 3 : 2) / pixels);
+  ctx.strokeStyle = "#4c4031d9";
+  strokePen(ctx, territory, (selected ? 2.6 : 2) / pixels);
   ctx.restore();
 }
 
@@ -262,7 +261,7 @@ function traceCoast(
   }
 }
 
-function traceLand(ctx: CanvasRenderingContext2D, data: AtlasData) {
+export function traceLand(ctx: CanvasRenderingContext2D, data: AtlasData) {
   for (const territory of data.territories) {
     traceCoast(ctx, territory, territory.x, territory.y);
   }

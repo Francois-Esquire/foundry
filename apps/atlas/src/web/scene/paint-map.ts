@@ -25,6 +25,7 @@ import {
 import { paintResponsibility } from "./paint-responsibility";
 import { paintReliefInk, type ReliefInk } from "./relief-ink";
 import { paintSeaRipples, type SeaRipple } from "./sea-ripples";
+import { paintSelectionInk } from "./selection-ink";
 import { settlementColor } from "./terrain";
 import type { ContourLine } from "./topography";
 import { paintTopography } from "./topography";
@@ -199,6 +200,7 @@ export function paintMap(
     ctx.globalAlpha = 1 - detail.composition * 0.8;
     paintTopography(ctx, topography, view, labels);
     ctx.restore();
+    paintSelectionInk(ctx, data, selected, view.pixelsPerUnit, labels);
     paintGridReferences(labelContext, view, data, labels);
   }
   paintCompass(ctx, data.width / 2 - 88, -data.height / 2 + 94);

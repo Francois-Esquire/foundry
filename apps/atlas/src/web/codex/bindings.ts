@@ -39,6 +39,13 @@ export function roadWidth(strength: number, strongest: number) {
   return 0.7 + Math.log1p(strength) / Math.log1p(strongest);
 }
 
+/** Dependency line weight in screen pixels, from module imports between two packages. */
+export function dependencyPen(strength: number, strongest: number) {
+  return (
+    0.9 + (0.9 * Math.log1p(strength)) / Math.log1p(Math.max(1, strongest))
+  );
+}
+
 export function currentStrength(imports: number) {
   return Math.log1p(imports);
 }

@@ -67,6 +67,7 @@ missing history never becomes a zero count.
 | `labelPriority`        | Module dependents, dependencies               | file label order      | `scene/paint-map.ts`                  |
 | `neighborhoodAffinity` | imports, shared concept participation         | neighborhood grouping | `relationships.ts`              |
 | `laneWidth`            | Dependency strength                           | sea lane width        | `scene/trade-layer.ts`                |
+| `dependencyPen` | Module imports between two packages | Selected package's dependency line width, 0.9–1.8 screen pixels | `scene/selection-ink.ts` |
 | `roadWidth`            | Dependency strength, merged per road          | road width            | `scene/road-layer.ts`                 |
 | `currentStrength`      | cross-package imports between two packages    | sea current           | `current-field.ts`              |
 | `districtAffinity`     | responsibility link module edges, symbol flow | district grouping     | `hierarchy.ts`                  |

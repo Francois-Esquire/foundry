@@ -53,7 +53,9 @@ export function MapKey({
         {volcanic
           ? " Recorded Git change counts and dates are in Place."
           : " Recorded change is off."}{" "}
-        Roles, measured consumers and omitted routes are in Place.
+        Roles, measured consumers and omitted routes are in Place. A selected
+        package is ringed in gilt; dashed gilt lines lead to the packages it
+        imports from, dotted lines to the packages that import it.
       </p>
     </details>
   );
