@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import { CONTAINER_SANDBOX_CONSTRAINTS_FORMAT } from "@foundry/sandbox/container/constants";
 import type { ContainerSandboxConstraints } from "@foundry/sandbox/container/constraints";
 import type {
@@ -18,17 +18,7 @@ import type {
   SandboxSpec,
 } from "../types";
 
-/**
- * Isolated places to run commands, over the containers registry. The mount
- * policy is fixed: the workspace the sandbox is for mounts read/write at
- * `/workspace`; the host's `~/.foundry`, `~/.claude`, and `~/.codex` mount
- * read-only under `/root`, when they exist; nothing else is mounted. `"."`
- * is the step's working directory, so a sandbox started inside a worktree
- * callback mounts the worktree, the same way a session runs there. A
- * `files` sandbox mounts no workspace: its files are copied under
- * `/workspace` once it boots. Commands are aborted with the step. Handles
- * close when the run settles.
- */
+/** MicroSandbox lifecycle and workspace mounts, scoped to the workflow frame. */
 
 export interface SandboxesDeps {
   /** Lazy: the runtime is optional and may not be installed. */
@@ -40,7 +30,15 @@ export interface SandboxesDeps {
 }
 
 const WORKSPACE_TARGET = "/workspace";
-const HOST_CONFIG_DIRS = [".foundry", ".claude", ".codex"] as const;
+const managedSandboxes = new WeakMap<Sandbox, Container>();
+
+export function sandboxContainer(sandbox: Sandbox): Container {
+  const container = managedSandboxes.get(sandbox);
+  if (!container) {
+    throw new Error("The sandbox must be opened by this Quirks runtime.");
+  }
+  return container;
+}
 const KIND = "sandboxes.start";
 
 /** Where a sandbox's mounts resolve from. */
@@ -71,27 +69,20 @@ export function guestFiles(
   );
 }
 
-/**
- * Host directories the registry may bind: the workspaces (the config's
- * directory, the worktree home, declared workspaces) and the config folders.
- * Only directories that exist: the registry canonicalizes every root.
- */
+/** Only explicitly supplied workspace roots are eligible for mounting. */
 export function allowedMountRoots(
   roots: readonly string[],
-  home: string
+  _home?: string
 ): string[] {
-  return [
-    ...new Set([
-      ...roots.map((root) => resolve(root)),
-      ...HOST_CONFIG_DIRS.map((dir) => join(home, dir)),
-    ]),
-  ].filter((dir) => existsSync(dir));
+  return [...new Set(roots.map((root) => resolve(root)))].filter((dir) =>
+    existsSync(dir)
+  );
 }
 
 export function constraintsFor(
   spec: SandboxSpec,
   dirs: MountDirs,
-  home: string
+  _home?: string
 ): ContainerSandboxConstraints {
   const resources = {
     ...(spec.resources?.cpus === undefined
@@ -104,30 +95,19 @@ export function constraintsFor(
   return {
     format: CONTAINER_SANDBOX_CONSTRAINTS_FORMAT,
     ...(spec.image === undefined ? {} : { image: spec.image }),
+    ...(spec.network === undefined ? {} : { network: spec.network }),
     mounts: [
       ...("files" in spec
         ? []
         : [
             {
               access: "read-write" as const,
+              executable: spec.executable ?? false,
               id: "workspace",
               source: mountSource(spec, dirs),
               target: WORKSPACE_TARGET,
             },
           ]),
-      ...HOST_CONFIG_DIRS.flatMap((dir) => {
-        const source = join(home, dir);
-        return existsSync(source)
-          ? [
-              {
-                access: "read-only" as const,
-                id: dir.slice(1),
-                source,
-                target: `/root/${dir}`,
-              },
-            ]
-          : [];
-      }),
     ],
     ...(Object.keys(resources).length === 0 ? {} : { resources }),
     workdir: WORKSPACE_TARGET,
@@ -149,6 +129,7 @@ function wrap(container: Container, frame: Frame): Sandbox {
     },
     id: container.id,
   };
+  managedSandboxes.set(handle, container);
   frame.opened.add(handle);
   return handle;
 }
@@ -182,8 +163,13 @@ export function sandboxesManager(
         ),
         frame.signal
       );
-      if ("files" in sandbox) {
-        await container.files.copyIn(guestFiles(sandbox.files));
+      try {
+        if ("files" in sandbox) {
+          await container.files.copyIn(guestFiles(sandbox.files));
+        }
+      } catch (error) {
+        await container.close();
+        throw error;
       }
       scope.ledger.set(key, container.id);
       return wrap(container, frame);

@@ -39,6 +39,7 @@
     "preview:ui": "bun run preview/dashboard.tsx",
     "start": "bun run src/cli.ts",
     "test": "bun run test:unit && bun run test:tui",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:package": "bun test test/package.test.ts",
     "test:tui": "bun test test/status-view.test.ts test/dashboard.test.tsx test/cli-terminal.test.ts test/setup-launch.test.tsx test/identity.test.ts",
     "test:unit": "vitest run",
@@ -46,7 +47,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@ai-sdk/openai-compatible": "3.0.27",
     "@ai-sdk/provider": "4.0.7",
+    "@ai-sdk/provider-utils": "5.0.25",
     "@noble/hashes": "^2.2.0",
     "@opentui/core": "0.5.11",
     "@opentui/react": "0.5.11",

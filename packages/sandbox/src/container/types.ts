@@ -1,10 +1,25 @@
 import type { Storage } from "@foundry/core/storage";
 
+export interface ContainerNetworkAllowlist {
+  readonly destinations: readonly {
+    readonly host: string;
+    /** TCP destination ports. Defaults to HTTPS, 443. */
+    readonly ports?: readonly number[];
+  }[];
+  readonly mode: "allowlist";
+}
+
+export type ContainerNetwork =
+  | "disabled"
+  | "unrestricted"
+  | ContainerNetworkAllowlist;
+
 import type {
   SandboxCommand,
   SandboxDirectoryEntry,
   SandboxExecOptions,
   SandboxExecResult,
+  SandboxPipedProcess,
   SandboxResourceLimits,
   SandboxShell,
   SandboxShellOptions,
@@ -36,8 +51,7 @@ export interface ContainerConfig {
    */
   detached?: boolean;
   /**
-   * Disable all guest networking. Defaults to `false`. A future hardening pass
-   * can extend this into a richer network policy.
+   * Legacy choice. Defaults to denied egress. Prefer `network`.
    */
   disableNetwork?: boolean;
   /** Environment variables present in every exec. */
@@ -51,6 +65,7 @@ export interface ContainerConfig {
    * supplying a name makes a sandbox addressable across processes.
    */
   name?: string;
+  network?: ContainerNetwork;
   /**
    * Guest TCP ports to publish to the host, each bound to an ephemeral
    * `127.0.0.1` host port. Read the assigned host port back with
@@ -122,6 +137,10 @@ export interface ContainerSandbox<TNative = unknown> {
   readTextFile(path: string): Promise<string>;
   /** Stop if needed and delete the sandbox. Idempotent; terminal. */
   remove(): Promise<void>;
+  spawn(
+    command: SandboxCommand,
+    options?: SandboxExecOptions
+  ): Promise<SandboxPipedProcess>;
 
   /** Start a non-TTY process whose stdout and stderr remain separate. */
   startProcess(
@@ -156,6 +175,7 @@ export interface ContainerSpec {
   readonly mounts: readonly ContainerMountSpec[];
   /** Sandbox name, unique per host. Doubles as the environment id. */
   readonly name: string;
+  readonly network?: ContainerNetwork;
   /** Max process/thread count, applied as an `nproc` rlimit. */
   readonly pidsLimit?: number;
   /**
@@ -177,6 +197,8 @@ export interface ContainerPortMapping {
 }
 
 export interface ContainerMountSpec {
+  /** Opt in to workspace executables. Other mounts remain noexec. */
+  readonly executable?: boolean;
   readonly id: string;
   readonly readOnly: boolean;
   readonly source: string;
@@ -277,6 +299,10 @@ export interface ContainerInstance<TNative = unknown> {
   readonly native: TNative;
   readFile(path: string): Promise<Uint8Array>;
   remove(): Promise<void>;
+  spawn(
+    command: string[],
+    options: ContainerExecOptions
+  ): Promise<SandboxPipedProcess>;
   /** Start a non-TTY process whose stdout and stderr remain separate. */
   startProcess(
     command: string[],

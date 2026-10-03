@@ -81,6 +81,62 @@ Press `2` for Catalog, Enter for details, then `l` or click Launch. A step with
 an `.input(schema)` opens a form derived from the schema; one without launches
 immediately. The dashboard selects the new run while triggers continue running.
 
+## Coding inside MicroSandbox
+
+A sandbox session prepares the Linux CLI before its first turn. MicroSandbox
+consumes the base image directly. Claude Code uses the host subscription login;
+only the current access token enters the guest process. Host login directories
+and refresh credentials remain on the host. An explicit `oauthToken` from
+`claude setup-token` can select a different subscription credential.
+
+```ts
+import { agent, step } from "@foundry/quirks";
+
+const coder = agent({
+  provider: "claude-code",
+  model: "sonnet",
+  prompt: "Make focused fixes in /workspace and verify them with bun test.",
+});
+
+step("fix-fixture").do(async ({ agents, sandboxes }) => {
+  const box = await sandboxes.start({
+    image: "docker.io/oven/bun:1-slim",
+    executable: true,
+    network: {
+      mode: "allowlist",
+      destinations: [{ host: "api.anthropic.com", ports: [443] }],
+    },
+  });
+  const session = await agents.session(coder, {
+    sandbox: box,
+    profile: {
+      mode: "scheduled",
+      allowedTools: ["Read", "Edit", "Write", "Glob", "Grep", "Bash(bun test:*)"],
+      disallowedTools: [],
+      unresolved: "deny",
+      maxSteps: 20,
+    },
+  });
+  return (await session.generate("Fix the failing test without changing the test.")).text;
+});
+```
+
+Network access defaults to disabled, and executable workspace mounts are opt-in.
+Native session history currently resumes only while the same guest remains
+alive; reopening against a replacement guest fails explicitly. Scheduled
+approval requests are recorded and denied for that invocation. Attended hosts
+supply an in-process callback through `authority`; it must not call the workflow
+`ask` suspension API.
+
+Embedding hosts can register network providers through `bindRuntime.providers`.
+These use the built-in coding loop with scoped guest tools, a step limit, and
+compaction. The existing OpenAI-compatible gateway provider also supports
+OpenRouter configuration. Legacy sessions without `sandbox` retain their prior
+execution path; new profiles and credential options require a sandbox.
+
+The standalone bundle includes the OpenAI-compatible SDK dependencies used by
+the built-in path; their narrow Knip exceptions reflect bundled workspace imports.
+
 ## Documentation
 
 - [Introduction](https://francois-esquire.github.io/foundry/quirks/)

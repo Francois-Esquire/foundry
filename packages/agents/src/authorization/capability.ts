@@ -9,7 +9,8 @@ export type ToolSource =
   | "skill"
   | "mcp"
   | "mesh"
-  | "module";
+  | "module"
+  | "harness";
 
 export type CommandEffect = "read" | "compute" | "write";
 

@@ -73,6 +73,24 @@ describe("RunScope", () => {
     expect(closed.sort()).toEqual(["a", "b"]);
   });
 
+  it("closes child harnesses before parent VMs and waits for terminal writes", async () => {
+    const scope = new RunScope("run-close-order", "/tmp");
+    const closed: string[] = [];
+    scope.frame(["root"]).opened.add({
+      close() {
+        closed.push("vm");
+      },
+    });
+    scope.frame(["root", "child"]).opened.add({
+      async close() {
+        await Promise.resolve();
+        closed.push("transcript");
+      },
+    });
+    await scope.settle();
+    expect(closed).toEqual(["transcript", "vm"]);
+  });
+
   it("raceAbort rejects a running body when its frame aborts", async () => {
     const scope = new RunScope("run-6", "/tmp");
     const frame = scope.frame(["root"]);

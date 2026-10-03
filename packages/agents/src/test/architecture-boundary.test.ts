@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 const TYPESCRIPT_SOURCE_FILE_PATTERN = /\.tsx?$/;
+const SANDBOX_PACKAGE_IMPORT_PATTERN = /^@foundry\/sandbox(?:\/|$)/;
 const WORKFLOWS_PACKAGE_IMPORT_PATTERN = /^@foundry\/workflows(?:\/|$)/;
 const AGENTS_PACKAGE_IMPORT_PATTERN = /^@foundry\/agents(?:\/|$)/;
 const TOOLS_COMPILED_TOOLS_PATTERN = /tools:\s*compiled\.tools/;
@@ -69,6 +70,16 @@ describe("architecture boundary — package independence", () => {
       .filter(
         (file) =>
           importsMatching(file, WORKFLOWS_PACKAGE_IMPORT_PATTERN).length > 0
+      )
+      .map((file) => relative(REPO_ROOT, file));
+    expect(violations).toEqual([]);
+  });
+
+  it("finds no @foundry/sandbox import anywhere in packages/agents/src", () => {
+    const violations = sourceFilesUnder(AGENTS_SRC)
+      .filter(
+        (file) =>
+          importsMatching(file, SANDBOX_PACKAGE_IMPORT_PATTERN).length > 0
       )
       .map((file) => relative(REPO_ROOT, file));
     expect(violations).toEqual([]);

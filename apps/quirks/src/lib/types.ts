@@ -1,5 +1,8 @@
 import type {
   CompactionSettings,
+  HarnessAuthoritySettings,
+  HarnessPermissionProfile,
+  HarnessSession,
   SessionHarness,
   SessionStreamOptions,
 } from "@foundry/agents/harness";
@@ -8,6 +11,7 @@ import type {
   SessionMessage,
   SessionStream,
 } from "@foundry/agents/session";
+import type { ContainerSandboxConstraints } from "@foundry/sandbox/container/constraints";
 import type { Git } from "@foundry/workspaces/git";
 import type { Log } from "~/lib/log";
 
@@ -57,9 +61,12 @@ export interface SandboxResources {
 
 /** An image with a workspace mounted read/write at `/workspace`. */
 export interface ImageSandbox {
+  /** Permit workspace binaries while retaining nosuid and nodev. */
+  readonly executable?: boolean;
   readonly image: string;
   /** `"."` (the config's directory) or a declared workspace. */
   readonly mount?: "." | WorkspaceDefinition;
+  readonly network?: ContainerSandboxConstraints["network"];
   readonly resources?: SandboxResources;
 }
 
@@ -70,6 +77,7 @@ export interface ImageSandbox {
 export interface FilesSandbox {
   readonly files: Readonly<Record<string, string>>;
   readonly image?: string;
+  readonly network?: ContainerSandboxConstraints["network"];
   readonly resources?: SandboxResources;
 }
 
@@ -96,9 +104,21 @@ export interface SessionRef {
 }
 
 export interface SessionOptions {
+  /** Explicit per-session key; never persisted with the sandbox or session. */
+  readonly apiKey?: string;
+  readonly authority?: Pick<
+    HarnessAuthoritySettings,
+    "policy" | "approve" | "onApprovalRequest"
+  >;
+
   readonly compaction?: boolean | Partial<CompactionSettings>;
   /** Overrides the composed working directory. */
   readonly cwd?: string;
+  /** Claude subscription token; defaults to the host Claude Code login. */
+  readonly oauthToken?: string;
+  readonly profile?: HarnessPermissionProfile;
+  /** Run the harness inside an already started MicroSandbox. */
+  readonly sandbox?: Sandbox;
   /** Continue this session instead of starting a new one. */
   readonly session?: SessionRef | Session;
 }
@@ -114,7 +134,7 @@ export interface Session {
     input: SessionInput,
     options?: SessionStreamOptions
   ): Promise<SessionReply>;
-  readonly harness: SessionHarness;
+  readonly harness: SessionHarness | HarnessSession;
   readonly ref: SessionRef;
   stream(input: SessionInput, options?: SessionStreamOptions): SessionStream;
 }

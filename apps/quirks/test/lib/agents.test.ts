@@ -1,3 +1,4 @@
+import { createInMemoryAgentAuthorizer } from "@foundry/agents/authorization";
 import { InMemorySessionStore } from "@foundry/agents/session";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -50,6 +51,48 @@ const reviewer: AgentDefinition = {
 };
 
 describe("agents.session", () => {
+  it("dry sandbox sessions use echo models without preparing a guest or reading credentials", async () => {
+    const a = args();
+    const session = await agentsManager({ ...deps(), dry: true })(a).session(
+      reviewer,
+      {
+        sandbox: {
+          close: () => Promise.resolve(),
+          exec: () => {
+            throw new Error("Dry session must not execute guest commands");
+          },
+          id: "dry-sandbox",
+        },
+      }
+    );
+    expect((await session.generate("Inspect the fixture")).text).toContain(
+      "Inspect the fixture"
+    );
+  });
+
+  it("rejects sandbox-only permission and credential options on a host session", async () => {
+    const agents = agentsManager(deps())(args());
+    const authority = { policy: createInMemoryAgentAuthorizer().authorizer };
+    for (const options of [
+      { authority },
+      { apiKey: "explicit-key" },
+      { oauthToken: "explicit-token" },
+      {
+        profile: {
+          allowedTools: [],
+          disallowedTools: [],
+          maxSteps: 8,
+          mode: "attended" as const,
+          unresolved: "ask" as const,
+        },
+      },
+    ]) {
+      await expect(agents.session(reviewer, options)).rejects.toThrow(
+        "require a sandbox session"
+      );
+    }
+  });
+
   it("opens a session on the default provider in the frame's directory and streams text", async () => {
     const a = args();
     const agents = agentsManager(deps())(a);

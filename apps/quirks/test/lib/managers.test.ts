@@ -216,7 +216,7 @@ describe("artifacts", () => {
 });
 
 describe("sandboxes", () => {
-  it("translates a definition into constraints with the fixed mount policy", async () => {
+  it("mounts only explicit workspaces and never host credential directories", async () => {
     const home = join(tmp, "home");
     await mkdir(join(home, ".claude"), { recursive: true });
     const root = join(tmp, "project");
@@ -236,15 +236,10 @@ describe("sandboxes", () => {
       mounts: [
         {
           access: "read-write",
+          executable: false,
           id: "workspace",
           source: root,
           target: "/workspace",
-        },
-        {
-          access: "read-only",
-          id: "claude",
-          source: join(home, ".claude"),
-          target: "/root/.claude",
         },
       ],
       workdir: "/workspace",
@@ -256,6 +251,23 @@ describe("sandboxes", () => {
     );
     expect(sized.mounts?.[0]?.source).toBe(join(tmp, "site"));
     expect(sized.resources).toEqual({ cpus: 2 });
+    const executable = constraintsFor(
+      {
+        executable: true,
+        image: "img:1",
+        network: {
+          destinations: [{ host: "api.anthropic.com", ports: [443] }],
+          mode: "allowlist",
+        },
+      },
+      dirs,
+      home
+    );
+    expect(executable.mounts?.[0]?.executable).toBe(true);
+    expect(executable.network).toEqual({
+      destinations: [{ host: "api.anthropic.com", ports: [443] }],
+      mode: "allowlist",
+    });
     // "." is the step's working directory; a declared workspace stays
     // relative to the config's directory.
     const inWorktree = { cwd: join(tmp, "wt"), root };
@@ -270,7 +282,6 @@ describe("sandboxes", () => {
     expect(allowedMountRoots([root, join(tmp, "site")], home)).toEqual([
       root,
       join(tmp, "site"),
-      join(home, ".claude"),
     ]);
   });
 

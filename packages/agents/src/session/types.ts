@@ -6,6 +6,7 @@
  */
 
 import type { Capability, ToolSource } from "../authorization";
+import type { HarnessToolEvent } from "../harness/turn-driver";
 import type { ToolEffectLocation } from "../harness/types";
 
 export interface ToolProvenance {
@@ -38,6 +39,8 @@ export type SessionRole = "user" | "assistant" | "system" | "tool" | "summary";
  * a part so the full transcript is reconstructable.
  */
 export type SessionPart =
+  | { type: "harness_tool"; event: HarnessToolEvent }
+  | { type: "harness_session"; harness: string; nativeSessionId: string }
   | { type: "text"; text: string }
   | { type: "reasoning"; text: string }
   /** An inline image (e.g. a data URL), sent to vision-capable models. */
@@ -73,12 +76,17 @@ export type SessionPart =
    */
   | {
       type: "tool_approval_request";
+      /** Live callbacks resolve in process; deferred requests grant a future call.
+       * Neither is an SDK replay checkpoint. Omitted on existing checkpoints. */
+      approvalMode?: "live" | "deferred";
       approvalId: string;
       toolCallId: string;
       name: string;
       capability: Capability;
       input: unknown;
       signature?: string;
+      agentId?: string;
+      agentGeneration?: number;
     }
   /** The human's resolution for a `tool_approval_request`, matched by `approvalId`. */
   | {
@@ -110,6 +118,8 @@ export interface SessionUsage {
  * starts writing more (cost, finishReason, error).
  */
 export interface MessageMetadata {
+  /** Execution environment whose native harness history this session requires. */
+  harnessEnvironment?: { harness: string; id: string };
   model?: { id: string; provider?: string; harness?: string };
   /**
    * Present iff this message is a background-task notification (spec-background §0.3). Makes a

@@ -1,6 +1,7 @@
 import type { ToolSet } from "ai";
 
 import type { Capability } from "../authorization";
+import type { HarnessToolEvent } from "../harness/turn-driver";
 import type {
   SessionMessage,
   SessionPart,
@@ -58,6 +59,7 @@ export type SessionTurnOutcome = "complete" | "awaiting-approval";
  * into this package's own vocabulary.
  */
 export type SessionEvent =
+  | { type: "harness-tool"; event: HarnessToolEvent }
   | { type: "text-delta"; delta: string }
   | { type: "reasoning-delta"; delta: string }
   | {
@@ -88,6 +90,7 @@ export interface StreamHandlers {
   onApprovalRequest?: (event: AgentApprovalRequest) => void;
   onError?: (error: Error) => void;
   onFinish?: (event: { message: SessionMessage; usage: SessionUsage }) => void;
+  onHarnessTool?: (event: HarnessToolEvent) => void;
   onReasoning?: (delta: string) => void;
   onText?: (delta: string) => void;
   onToolCall?: (event: {

@@ -186,4 +186,140 @@ describe("real MicroSandbox command IO", () => {
       await drain;
     }
   }, 30_000);
+
+  it("preserves binary streams and EOF through the public piped process interface", async () => {
+    const child = await sandbox.spawn([
+      "bun",
+      "-e",
+      `
+      process.stdin.pipe(process.stdout);
+      process.stderr.write(Buffer.from([0, 255, 128]));
+      process.stdin.on("end", () => { process.exitCode = 7; });
+    `,
+    ]);
+    const output = Array.fromAsync(child.stdout);
+    const diagnostics = Array.fromAsync(child.stderr);
+    const input = Buffer.alloc(1024 * 1024, 255);
+    child.stdin.end(input);
+    const [stdout, stderr, result] = await Promise.all([
+      output,
+      diagnostics,
+      child.exited,
+    ]);
+    expect(Buffer.concat(stdout)).toEqual(input);
+    expect(Buffer.concat(stderr)).toEqual(Buffer.from([0, 255, 128]));
+    expect(result.exitCode).toBe(7);
+  }, 30_000);
+
+  it("aborts a live piped process and rejects its completion", async () => {
+    const controller = new AbortController();
+    const child = await sandbox.spawn(
+      ["bun", "-e", "setInterval(() => {}, 1000)"],
+      {
+        signal: controller.signal,
+      }
+    );
+    child.stdout.resume();
+    child.stderr.resume();
+    const completion = expect(child.exited).rejects.toThrow();
+    controller.abort(new Error("cancelled fixture"));
+    await completion;
+  }, 30_000);
+
+  it("refuses an already aborted launch", async () => {
+    await expect(
+      sandbox.spawn(["bun", "--version"], {
+        signal: AbortSignal.abort(new Error("cancelled before launch")),
+      })
+    ).rejects.toThrow("cancelled before launch");
+  });
+
+  it("sends a named signal and reports the native exit lifecycle", async () => {
+    const child = await sandbox.spawn([
+      "bun",
+      "-e",
+      "setInterval(() => {}, 1000)",
+    ]);
+    child.stdout.resume();
+    child.stderr.resume();
+    const event = new Promise<number | null>((resolve) =>
+      child.once("exit", resolve)
+    );
+    expect(child.kill("SIGTERM")).toBe(true);
+    expect(child.killed).toBe(true);
+    // SDK 0.6.18 reports -1 for signaled exits and omits the signal.
+    expect((await child.exited).exitCode).toBe(-1);
+    expect(await event).toBe(-1);
+    expect(child.exitCode).toBe(-1);
+    expect(child.kill()).toBe(false);
+  }, 30_000);
+
+  it("aborts output blocked by backpressure and reaps the guest process", async () => {
+    const controller = new AbortController();
+    const marker = `/tmp/piped-pid-${crypto.randomUUID()}`;
+    const child = await sandbox.spawn(
+      [
+        "bun",
+        "-e",
+        `
+      await Bun.write(${JSON.stringify(marker)}, String(process.pid));
+      const chunk = Buffer.alloc(1024 * 1024, 255);
+      setInterval(() => process.stdout.write(chunk), 5);
+    `,
+      ],
+      { signal: controller.signal }
+    );
+    child.stderr.resume();
+    await expect
+      .poll(async () => (await sandbox.exec(["test", "-f", marker])).exitCode)
+      .toBe(0);
+    const pid = (await sandbox.readTextFile(marker)).trim();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    const completion = expect(child.exited).rejects.toThrow(
+      "blocked output abort"
+    );
+    controller.abort(new Error("blocked output abort"));
+    await completion;
+    await expect
+      .poll(
+        async () =>
+          (await sandbox.exec(["test", "-d", `/proc/${pid}`])).exitCode
+      )
+      .not.toBe(0);
+    expect(child.stdout.destroyed).toBe(true);
+  }, 30_000);
+
+  it("rejects an abort during launch without leaving the guest process running", async () => {
+    const controller = new AbortController();
+    const marker = `/tmp/launch-pid-${crypto.randomUUID()}`;
+    const pending = sandbox.spawn(
+      [
+        "bun",
+        "-e",
+        `await Bun.write(${JSON.stringify(marker)}, String(process.pid)); setInterval(() => {}, 1000);`,
+      ],
+      { signal: controller.signal }
+    );
+    controller.abort(new Error("launch abort fixture"));
+    await expect(pending).rejects.toThrow("launch abort fixture");
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    if ((await sandbox.exec(["test", "-f", marker])).exitCode === 0) {
+      const pid = (await sandbox.readTextFile(marker)).trim();
+      await expect
+        .poll(
+          async () =>
+            (await sandbox.exec(["test", "-d", `/proc/${pid}`])).exitCode
+        )
+        .not.toBe(0);
+    }
+  }, 30_000);
+
+  it("reports a missing executable as a launch error", async () => {
+    const child = await sandbox.spawn(["/missing-executable-fixture"]);
+    child.stdout.resume();
+    child.stderr.resume();
+    await expect(child.exited).rejects.toThrow(
+      "exec session ended without exit event"
+    );
+  });
 });

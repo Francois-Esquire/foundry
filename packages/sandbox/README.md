@@ -22,7 +22,7 @@ interface Sandbox {
 }
 ```
 
-A container is a `Sandbox` with more on it: `ports`, `services`, `shell`, and
+A container is a `Sandbox` with more on it: `processes`, `ports`, `services`, `shell`, and
 `volumes` when mounts are allowed.
 
 ## Quick start
@@ -235,6 +235,56 @@ The fastest way to exercise anything that takes a `Sandbox`.
 
 MicroSandbox microVMs, through the containers registry.
 
+### Piped processes
+
+`container.processes.spawn(argv, options)` asynchronously launches a non-TTY
+process with separate byte streams, `exitCode`, `killed`, synchronous
+`kill(signal)`, and `on`/`once`/`off`/`removeListener` for `exit` and `error`.
+`exited` preserves nonzero status and rejects on launch, transport, or abort
+failure. Drain both output streams to maintain backpressure. Explicit
+environment variables are merged with the sandbox environment; the host's
+environment is not copied. Aborting launch or a running process reaps it.
+Closing the last container handle cancels its piped processes.
+
+`prepareSandboxProcess` from `@foundry/sandbox/process` returns a Node stream
+handle immediately while an asynchronous spawn is pending. It buffers stdin
+with backpressure, retains an early kill, and forwards launch errors. Use this
+for synchronous child-process hooks. Portable contracts use structural streams
+so filesystem and command consumers need no Node ambient types.
+
+SDK 0.6.18 reports `-1` for a signaled exit without the actual signal. This
+adapter preserves that value and emits a null signal; it does not invent a
+POSIX status or claim an observed signal.
+
+### Egress and workspace execution
+
+Guest egress defaults to denied, including the direct provisioner. Constraints
+accept `network: "disabled"`, explicit `"unrestricted"`, or an exact destination
+allowlist:
+
+```typescript
+network: {
+  mode: "allowlist",
+  destinations: [{ host: "api.openai.com", ports: [443] }],
+}
+```
+
+Ports default to 443. Allowlist mode applies native deny-by-default TCP rules,
+strict hostname authority checks, and native TLS interception with upstream
+certificate verification. The runtime installs its CA into the guest. Listed
+ports require TLS; choose HTTPS destinations. Wildcards and URLs are rejected
+by the constraints schema. Native host port bindings stay on loopback.
+
+Reached/refused destination auditing remains incomplete. A real successful
+HTTPS request and a denied hostname request produced TLS setup messages in
+native system logs, but no destination decision records. The adapter does not
+manufacture network audit events. Strict HTTPS authority requires interception,
+as described in the [MicroSandbox networking reference](https://docs.microsandbox.dev/sdk/typescript/networking#network-strict).
+
+A mount can set `executable: true` for project tools. Other mounts default to
+`noexec`; every bind mount retains `nosuid` and `nodev`. Config and credential
+mounts should stay read-only with execution disabled.
+
 ```typescript
 const containers = createContainers({ runtime, store, instanceLabel });
 await containers.sweep(); // boot: stop VMs with our labels and no row
@@ -359,10 +409,15 @@ replacing the shared runtime installation.
 
 `stdio.integration.test.ts` mounts this package read-only and checks `ls`,
 `cat`, command errors, and interactive output before the next input is sent.
-It exercises the adapter's combined terminal stream and the SDK's separate
-stdout/stderr pipes, including split UTF-8 input, EOF, and process exit.
+It exercises the adapter's combined terminal stream, the SDK's separate
+stdout/stderr pipes, and public process pipes, including binary input, EOF,
+nonzero exit, named signals, missing executables, launch/running cancellation,
+backpressure, and guest process reaping. `piped-lifecycle.integration.test.ts`
+checks the public registry facet and immediate hook bridge, including closing
+a container with a live process. Network and executable workspace integrations
+verify native destination rules and mount flags separately.
 `commands.exec()` collects output until exit; `shell.open()` exposes live
-terminal output. Separate live pipes currently require the native SDK.
+terminal output. `processes.spawn()` exposes separate live pipes.
 
 ```sh
 bun run --cwd packages/sandbox test:integration -- src/test/stdio.integration.test.ts
@@ -377,3 +432,35 @@ and asserts a real clean socket close within five seconds in every case.
 ```sh
 bun run --cwd packages/sandbox test:integration -- src/test/module-gateway-websocket.integration.test.ts --reporter=verbose --silent=false
 ```
+
+### Observed native TCP close limitation
+
+On 2026-10-03, the npm SDK and its selected bundled runtime both reported
+`0.6.18`. The close comparison passed both direct host cases and failed
+both VM cases plus the port-forward close test. Host and guest Bun were
+`1.3.14` at revision `0d9b296af33f2b851fcbf4df3e9ec89751734ba4`;
+the host client ran on Node `26.4.0`. Guest close callbacks recorded code
+1000 and reason `done`, while host sockets stayed in `CLOSING` for five seconds.
+
+A native SDK probe importing no Foundry code reproduced the WebSocket timeout.
+A separate native TCP probe received `native-eof` from a guest `socket.end()`
+but saw no host `end` event within two seconds, under both denied-egress and
+the SDK's default policy. This isolates the observed failure below the Foundry
+adapter; the exact native cause has not been established. The current changes
+leave the disabled-network forwarding branch and background service transport
+unchanged. No application workaround or runtime replacement was applied.
+
+Reproduce the existing close checks with:
+
+```sh
+bun run --cwd packages/sandbox test:integration -- module-gateway-websocket port-forward-websocket --reporter=verbose --silent=false
+node_modules/@superradcompany/microsandbox-darwin-arm64/bin/msb --version
+```
+
+The global `~/.microsandbox/bin/msb` separately reports `0.6.8`, but the SDK's
+`dist/internal/resolve-binary.js` selects the platform package's bundled binary
+and `napi.js` installs that path into the native resolver. `MSB_PATH` was unset,
+and a direct `msbPath()` check returned the bundled `0.6.18` binary. These close
+failures therefore already reproduce with a matching runtime. No runtime was
+installed or upgraded during this diagnosis; the native close failures remain
+part of the integration result.

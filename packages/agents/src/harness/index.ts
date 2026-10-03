@@ -10,7 +10,19 @@ export type {
 export type { AgentHarnessSettings } from "./agent-harness";
 // biome-ignore lint/performance/noBarrelFile: This is the exported @foundry/agents/harness public API.
 export { AgentHarness } from "./agent-harness";
+export type { BuiltinCodingSettings } from "./builtin-coding";
+export {
+  CODING_INSTRUCTIONS,
+  createBuiltinCodingHarness,
+} from "./builtin-coding";
+export { createDriverSession } from "./driver-session";
 export { directToolEffectPort } from "./effect-port";
+export {
+  createHarnessPermission,
+  redactHarnessSummary,
+  resolveHarnessApproval,
+  summarizeHarnessInput,
+} from "./permission";
 export type {
   CompactionSettings,
   SessionHarnessSettings,
@@ -30,6 +42,19 @@ export {
   toolAuthorizationContext,
   toolAuthorizationRequest,
 } from "./tool-compiler";
+export type {
+  DriverSessionSettings,
+  HarnessAuthoritySettings,
+  HarnessCapabilities,
+  HarnessPermissionCallback,
+  HarnessPermissionProfile,
+  HarnessPermissionRequest,
+  HarnessPermissionResult,
+  HarnessSession,
+  HarnessToolEvent,
+  HarnessTurnDriver,
+} from "./turn-driver";
+export { validateHarnessProfile } from "./turn-driver";
 export type {
   AgentInvocationContext,
   RegisteredToolCall,

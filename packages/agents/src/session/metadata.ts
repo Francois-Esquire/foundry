@@ -7,6 +7,7 @@ import type { MessageMetadata, SessionUsage } from "./types";
  * fields so a concrete store's row type assigns to it without a cast.
  */
 export interface RawMessageMetadata {
+  harnessEnvironment?: { harness: string; id: string } | null;
   model?: { id: string; provider?: string; harness?: string } | null;
   notification?: { taskId: string; kind: "status" | "completion" } | null;
   timing?: {
@@ -31,7 +32,7 @@ export interface RawUsage {
  * Project a store's raw metadata blob onto the canonical {@link MessageMetadata},
  * deep-picking exactly the known model / usage / timing fields and dropping the
  * rest. Store-agnostic: every persistent backend reads back the same canonical
- * shape, so this field-by-field normalization lives here once rather than being
+ * shape, including the harness environment identity, so this normalization lives here once rather than being
  * re-implemented in each adapter. Returns `undefined` for an absent blob so it
  * drops cleanly out of an exactOptionalPropertyTypes object spread.
  */
@@ -43,6 +44,14 @@ export function normalizeMessageMetadata(
   }
   const usage = normalizeUsage(raw.usage);
   return {
+    ...(raw.harnessEnvironment
+      ? {
+          harnessEnvironment: {
+            harness: raw.harnessEnvironment.harness,
+            id: raw.harnessEnvironment.id,
+          },
+        }
+      : {}),
     ...(raw.model ? { model: raw.model } : {}),
     ...(usage ? { usage } : {}),
     ...(raw.timing

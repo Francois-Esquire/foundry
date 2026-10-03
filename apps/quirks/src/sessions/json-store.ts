@@ -32,6 +32,7 @@ interface SessionFile {
 export class JsonSessionStore extends AbstractSessionStore {
   readonly #dir: string;
   readonly #files = new Map<string, SessionFile>();
+  readonly #writes = new Map<string, Promise<void>>();
 
   constructor(dir: string) {
     super();
@@ -168,10 +169,23 @@ export class JsonSessionStore extends AbstractSessionStore {
 
   async #write(file: SessionFile): Promise<void> {
     this.#files.set(file.session.id, file);
-    const path = join(this.#dir, `${file.session.id}.json`);
-    const temp = `${path}.${generateId()}.tmp`;
-    await writeFile(temp, JSON.stringify(file, null, 2));
-    await rename(temp, path);
+    const previous = this.#writes.get(file.session.id) ?? Promise.resolve();
+    const pending = previous
+      .catch(() => undefined)
+      .then(async () => {
+        const path = join(this.#dir, `${file.session.id}.json`);
+        const temp = `${path}.${generateId()}.tmp`;
+        await writeFile(temp, JSON.stringify(file, null, 2));
+        await rename(temp, path);
+      });
+    this.#writes.set(file.session.id, pending);
+    try {
+      await pending;
+    } finally {
+      if (this.#writes.get(file.session.id) === pending) {
+        this.#writes.delete(file.session.id);
+      }
+    }
   }
 }
 

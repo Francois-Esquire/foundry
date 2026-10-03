@@ -72,6 +72,9 @@ export function transformStream(
       case "text-delta":
         handlers?.onText?.(event.delta);
         break;
+      case "harness-tool":
+        handlers?.onHarnessTool?.(event.event);
+        break;
       case "reasoning-delta":
         handlers?.onReasoning?.(event.delta);
         break;
@@ -169,6 +172,15 @@ export function transformStream(
         },
         finish: (event) => {
           usageAcc = normalizeUsage(event.totalUsage ?? event.usage);
+        },
+        "harness-approval-request": (event) => {
+          const approval = readApprovalRequest(event);
+          emit({ ...approval, type: "tool-approval-request" });
+        },
+        "harness-tool": (part) => {
+          const event = part.event as import("./turn-driver").HarnessToolEvent;
+          // Driver sessions persist native events immediately, before completion.
+          emit({ event, type: "harness-tool" });
         },
         "reasoning-delta": (event) => {
           const delta = readString(event, ["text", "delta"]);
@@ -538,5 +550,6 @@ function isToolProvenanceSource(
     "mesh",
     "module",
     "external",
+    "harness",
   ].includes(value as string);
 }

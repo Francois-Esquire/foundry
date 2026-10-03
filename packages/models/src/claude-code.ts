@@ -5,6 +5,10 @@ import { createClaudeCode } from "ai-sdk-provider-claude-code";
 import type { Provider } from "./provider";
 import type { ProviderModelDefinition } from "./types";
 
+export type { ClaudeCodeDriverOptions } from "./harness/claude-code";
+// biome-ignore lint/performance/noBarrelFile: Existing provider subpath also exposes its native turn driver.
+export { createClaudeCodeDriver } from "./harness/claude-code";
+
 export interface ClaudeCodeProviderConfig extends ClaudeCodeProviderSettings {
   /**
    * Whether the CLI is installed and the user has this harness switched on.

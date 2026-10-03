@@ -3,7 +3,7 @@ import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { InMemorySessionStore } from "@foundry/agents/session";
 import type { Artifacts } from "@foundry/artifacts";
-import type { ModelManager } from "@foundry/models";
+import type { ModelManager, Provider } from "@foundry/models";
 import type { Containers } from "@foundry/sandbox/container/containers";
 import { createContainers } from "@foundry/sandbox/container/containers";
 import { createMemoryContainerStore } from "@foundry/sandbox/container/store";
@@ -48,6 +48,8 @@ export interface RuntimeOptions {
   /** Harness ids to keep; empty keeps every detected one. */
   readonly only: readonly string[];
   readonly print: (line: string) => void;
+  /** Explicit host-configured network providers, including OpenAI-compatible gateways. */
+  readonly providers?: readonly Provider[];
   /** The workspace root: the config's directory, or the cwd without one. */
   readonly root: string;
   /** Workspace state dir; sessions go under it. Omit for in-memory, which `--dry` always is. */
@@ -74,6 +76,9 @@ export function bindRuntime(options: RuntimeOptions): Runtime {
   const models: ModelManager = dry
     ? echoModels(executors, print)
     : harnessModels(harnesses);
+  for (const provider of options.providers ?? []) {
+    models.register(provider);
+  }
   const sessions =
     state === undefined || dry
       ? new InMemorySessionStore()
@@ -114,6 +119,7 @@ export function bindRuntime(options: RuntimeOptions): Runtime {
   const bindings: Bindings = {
     agents: agentsManager({
       defaultExecutor: () => selectExecutor(models),
+      dry,
       models,
       sessions,
       skills: skillResolver({ global: globalSkillsDir(home), workspace: root }),

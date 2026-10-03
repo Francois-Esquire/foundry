@@ -64,7 +64,9 @@
         "quirks": "./dist/cli.js",
       },
       "dependencies": {
+        "@ai-sdk/openai-compatible": "3.0.27",
         "@ai-sdk/provider": "4.0.7",
+        "@ai-sdk/provider-utils": "5.0.25",
         "@noble/hashes": "^2.2.0",
         "@opentui/core": "0.5.11",
         "@opentui/react": "0.5.11",

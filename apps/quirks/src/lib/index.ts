@@ -42,6 +42,7 @@ export type {
   SandboxResources,
   SandboxSpec,
   Session,
+  SessionOptions,
   SessionRef,
   SessionReply,
   SkillSet,

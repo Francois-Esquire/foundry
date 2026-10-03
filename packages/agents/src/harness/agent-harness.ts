@@ -17,6 +17,7 @@ import { createToolContext } from "../tools/context";
 import { directToolEffectPort } from "./effect-port";
 import type { StreamPart } from "./stream-transform";
 import { compileTools, withToolCallRegistration } from "./tool-compiler";
+import type { HarnessPermissionCallback } from "./turn-driver";
 import type { ToolEffectPort } from "./types";
 
 /** Stable placeholder identity for the agent Subject when a caller configures
@@ -70,6 +71,9 @@ export type AgentHarnessSettings = Omit<LoopAgentSettings, "toolsContext"> & {
   /** Effect boundary every allowed tool call executes through. Defaults to
    *  a direct in-process executor; Studio injects a Run-aware adapter. */
   effectPort?: ToolEffectPort;
+  /** Optional live authorization. The callback owns one claim before execution;
+   * policy asks do not become SDK suspension/replay checkpoints. */
+  permission?: HarnessPermissionCallback;
 };
 
 /**
@@ -121,6 +125,7 @@ export class AgentHarness {
       agentId,
       agentGeneration,
       toolsContext,
+      permission,
       ...rest
     } = settings;
 
@@ -139,6 +144,7 @@ export class AgentHarness {
       ...(context.sessionId ? { sessionId: context.sessionId } : {}),
       effectPort: effectPort ?? directToolEffectPort,
       policy: this.policy,
+      ...(permission ? { permission } : {}),
     });
     this.#registrationFor = compiled.registrationFor;
 

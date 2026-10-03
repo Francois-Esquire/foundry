@@ -127,6 +127,9 @@ export class SessionHarness extends AgentHarness {
     super(
       {
         ...harnessSettings,
+        // Persisted summaries and host notifications are trusted system history.
+        // AI SDK v7 rejects them in messages unless this is explicit.
+        allowSystemInMessages: true,
         tools: composeTools(tools, agentMesh.tools(resolvedNodeId)),
       },
       context

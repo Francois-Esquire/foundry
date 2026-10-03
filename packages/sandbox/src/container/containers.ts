@@ -216,6 +216,9 @@ export function createContainers<TNative = unknown>(
       get ports() {
         return entry.facets.ports;
       },
+      get processes() {
+        return entry.facets.processes;
+      },
       get row() {
         return entry.row;
       },

@@ -142,10 +142,59 @@ export interface SandboxProcess {
 }
 
 export interface SandboxProcessesFacet {
+  /** Separate byte streams with backpressure. Callers must drain both outputs. */
+  spawn(
+    command: SandboxCommand,
+    options?: SandboxExecOptions
+  ): Promise<SandboxPipedProcess>;
   start(
     command: SandboxCommand,
     options?: SandboxExecOptions
   ): Promise<SandboxProcess>;
+}
+
+/** Structural streams keep portable consumers independent of Node ambient types. */
+export interface SandboxWritable {
+  destroy(error?: Error): this;
+  readonly destroyed: boolean;
+  end(chunk?: string | Uint8Array): this;
+  write(chunk: string | Uint8Array): boolean;
+}
+
+export interface SandboxReadable extends AsyncIterable<Uint8Array> {
+  readonly destroyed: boolean;
+  resume(): this;
+}
+
+export interface SandboxPipedProcess {
+  readonly exitCode: number | null;
+  /** Settles after output has drained; rejects on transport failure. */
+  readonly exited: Promise<{ readonly exitCode: number }>;
+  kill(signal?: string | number): boolean;
+  readonly killed: boolean;
+  off(
+    event: "exit",
+    listener: (code: number | null, signal: string | null) => void
+  ): this;
+  off(event: "error", listener: (error: Error) => void): this;
+  on(
+    event: "exit",
+    listener: (code: number | null, signal: string | null) => void
+  ): this;
+  on(event: "error", listener: (error: Error) => void): this;
+  once(
+    event: "exit",
+    listener: (code: number | null, signal: string | null) => void
+  ): this;
+  once(event: "error", listener: (error: Error) => void): this;
+  removeListener(
+    event: "exit",
+    listener: (code: number | null, signal: string | null) => void
+  ): this;
+  removeListener(event: "error", listener: (error: Error) => void): this;
+  readonly stderr: SandboxReadable;
+  readonly stdin: SandboxWritable;
+  readonly stdout: SandboxReadable;
 }
 
 export interface SandboxPortBinding {

@@ -4,6 +4,13 @@ import { enrichFromSnapshot } from "./catalog/models-dev-snapshot";
 import type { Provider } from "./provider";
 import type { ProviderModelDefinition } from "./types";
 
+export type {
+  CodexDriverOptions,
+  CodexSubscriptionTokens,
+} from "./harness/codex";
+// biome-ignore lint/performance/noBarrelFile: Existing provider subpath also exposes its native turn driver.
+export { createCodexDriver } from "./harness/codex";
+
 export interface CodexProviderConfig {
   /**
    * Whether the CLI is installed and the user has this harness switched on.

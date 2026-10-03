@@ -10,6 +10,8 @@ import type {
   Sandbox,
   SandboxFilesystemFacet,
   SandboxPortsFacet,
+  SandboxProcessesFacet,
+  SandboxProcessStatus,
   SandboxService,
   SandboxServiceExit,
   SandboxServicesFacet,
@@ -37,6 +39,7 @@ interface ContainerState {
 export interface ContainerFacets extends Sandbox {
   readonly files: SandboxFilesystemFacet & Storage & StorageObserver;
   readonly ports: SandboxPortsFacet;
+  readonly processes: SandboxProcessesFacet;
   readonly services: SandboxServicesFacet;
   readonly shell: SandboxShellFacet;
   /** Present only when the registry was given mount roots. */
@@ -94,6 +97,33 @@ export function containerFacets<TNative>(
           : { host: "127.0.0.1", port: hostPort };
       },
     }),
+    processes: {
+      spawn: (command, options) => sandbox.spawn(command, options),
+      async start(command, options) {
+        const process = await sandbox.startProcess(command, options);
+        let status: SandboxProcessStatus = "running";
+        const exited = process.wait().finally(() => {
+          if (status === "running") {
+            status = "exited";
+          }
+        });
+        exited.catch(() => undefined);
+        return {
+          id: process.id,
+          get status() {
+            return status;
+          },
+          async terminate() {
+            if (status !== "running") {
+              return;
+            }
+            await process.kill();
+            status = "terminated";
+          },
+          wait: () => exited,
+        };
+      },
+    } satisfies SandboxProcessesFacet,
     services: createContainerServicesFacet(state, sandbox),
     shell: Object.freeze({
       open: (options?: SandboxShellOptions) => sandbox.openShell(options),
@@ -461,6 +491,9 @@ export async function resolveContainerMountSpecs(
     resolved.push(
       Object.freeze({
         id: mount.id,
+        ...(mount.executable === undefined
+          ? {}
+          : { executable: mount.executable }),
         readOnly: mount.access === "read-only",
         source,
         target: mount.target,

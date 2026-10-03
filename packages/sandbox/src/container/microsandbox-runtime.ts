@@ -14,6 +14,7 @@ import type {
   SandboxExecResult,
   SandboxShell,
 } from "../types";
+import { pipedProcess } from "./piped-process";
 import { guestStorage } from "./storage";
 import type {
   ContainerExecOptions,
@@ -55,6 +56,15 @@ interface MicrosandboxNetworkBuilder {
     hostPort: number,
     guestPort: number
   ): MicrosandboxNetworkBuilder;
+  strict(enabled: boolean): MicrosandboxNetworkBuilder;
+  tls(
+    configure: (tls: MicrosandboxTlsBuilder) => MicrosandboxTlsBuilder
+  ): MicrosandboxNetworkBuilder;
+}
+
+interface MicrosandboxTlsBuilder {
+  interceptedPorts(ports: number[]): MicrosandboxTlsBuilder;
+  verifyUpstream(enabled: boolean): MicrosandboxTlsBuilder;
 }
 
 interface MicrosandboxNetworkPolicy {
@@ -260,11 +270,13 @@ function applySpec(
     builder.volume(mount.target, (volume: MicrosandboxMountBuilder) => {
       let configured = volume
         .bind(mount.source)
-        .noexec()
         .nosuid()
         .nodev()
         .statVirtualization("relaxed")
         .hostPermissions("private");
+      if (!mount.executable) {
+        configured = configured.noexec();
+      }
       if (mount.readOnly) {
         configured = configured.readonly();
       }
@@ -284,6 +296,33 @@ function configureNetwork(builder: SandboxBuilder, spec: ContainerSpec): void {
     let configured = spec.disableNetwork
       ? network.policy(DENY_GUEST_EGRESS_POLICY)
       : network;
+    if (typeof spec.network === "object") {
+      const { destinations } = spec.network;
+      const interceptedPorts = [
+        ...new Set(
+          destinations.flatMap((destination) => destination.ports ?? [443])
+        ),
+      ];
+      configured = network
+        .policy({
+          defaultEgress: "deny",
+          defaultIngress: "allow",
+          rules: destinations.map((destination) => ({
+            action: "allow",
+            destination: { domain: destination.host, kind: "domain" },
+            direction: "egress",
+            ports: (destination.ports ?? [443]).map((port) => ({
+              end: port,
+              start: port,
+            })),
+            protocols: ["tcp"],
+          })),
+        })
+        .strict(true)
+        .tls((tls) =>
+          tls.interceptedPorts(interceptedPorts).verifyUpstream(true)
+        );
+    }
     for (const mapping of spec.ports) {
       assertPrivatePortMapping(mapping);
       configured = configured.portBind(
@@ -433,6 +472,31 @@ class MicrosandboxInstance implements ContainerInstance<MicroSandbox> {
       signal: (signal: number) => handle.signal(signal),
       wait: () => settled,
     });
+  }
+
+  async spawn(command: string[], options: ContainerExecOptions) {
+    options.signal?.throwIfAborted();
+    const [cmd, ...args] = command;
+    if (cmd === undefined) {
+      throw new Error("spawn requires a command");
+    }
+    const cancellation = Promise.withResolvers<never>();
+    const abort = () =>
+      cancellation.reject(
+        options.signal?.reason ?? new Error("Process launch aborted")
+      );
+    options.signal?.addEventListener("abort", abort, { once: true });
+    try {
+      const launch = (async () => {
+        const handle = await this.native.execStreamWith(cmd, (builder) =>
+          configureExec(builder, args, options).tty(false).stdinPipe()
+        );
+        return pipedProcess(handle, options.signal);
+      })();
+      return await Promise.race([launch, cancellation.promise]);
+    } finally {
+      options.signal?.removeEventListener("abort", abort);
+    }
   }
 
   async readFile(path: string): Promise<Uint8Array> {

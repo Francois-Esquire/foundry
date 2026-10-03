@@ -33,6 +33,10 @@
     "./local/remote": {
       "types": "./dist/src/local/remote/transport.d.ts",
       "import": "./src/local/remote/transport.ts"
+    },
+    "./gateway": {
+      "types": "./dist/src/gateway.d.ts",
+      "import": "./src/gateway.ts"
     }
   },
   "files": [

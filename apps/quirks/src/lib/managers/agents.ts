@@ -1,6 +1,7 @@
 import type { AgentSpec } from "@foundry/agents/agents/index";
 import { createAgentPreset } from "@foundry/agents/agents/index";
 import type {
+  HarnessSession,
   SessionHarness,
   SessionStreamOptions,
 } from "@foundry/agents/harness";
@@ -13,6 +14,8 @@ import { createModelSummarizer } from "@foundry/agents/session";
 import type { Skill } from "@foundry/agents/skills";
 import type { ModelManager, TurnExecutorRef } from "@foundry/models";
 import { observeAgentTurn } from "@foundry/models";
+
+import { createSandboxSession } from "~/sandbox/session";
 
 import type { ManagerArgs } from "../bindings";
 import type { Frame, LiveSession } from "../run-scope";
@@ -44,6 +47,8 @@ import type {
 export interface AgentsDeps {
   /** The route when an agent names neither model nor provider. */
   readonly defaultExecutor: () => TurnExecutorRef;
+  /** Simulation uses echo models and never prepares a guest or reads credentials. */
+  readonly dry?: boolean;
   readonly models: ModelManager;
   readonly sessions: SessionStore;
   readonly skills: (set?: SkillSet) => Promise<Skill[]>;
@@ -63,7 +68,7 @@ function textOf(message: SessionMessage): string {
 }
 
 function wrap(
-  harness: SessionHarness,
+  harness: SessionHarness | HarnessSession,
   ref: SessionRef,
   frame: Frame,
   write: (value: unknown) => void,
@@ -215,12 +220,52 @@ async function adoptIntoRun(
   }
 }
 
+function sandboxModel(models: ModelManager, executor: TurnExecutorRef) {
+  if (executor.harness === "claude-code" || executor.harness === "codex") {
+    return {};
+  }
+  return { model: models.model(executor.model, executor.provider) };
+}
+
+function sandboxExecutor(
+  models: ModelManager,
+  model: string | undefined,
+  provider: string | undefined
+): TurnExecutorRef {
+  if (model && (provider === "claude-code" || provider === "codex")) {
+    return { harness: provider, model, provider };
+  }
+  return models.resolveTextExecutor(model, provider);
+}
+
+function validateSessionOptions(options: SessionOptions): void {
+  if (options.sandbox && options.cwd !== undefined) {
+    throw new Error(
+      "Sandbox sessions run in /workspace. Select the workspace through the sandbox mount."
+    );
+  }
+  if (
+    !options.sandbox &&
+    [
+      options.profile,
+      options.authority,
+      options.apiKey,
+      options.oauthToken,
+    ].some((value) => value !== undefined)
+  ) {
+    throw new Error(
+      "Harness profiles, authority, and explicit credentials require a sandbox session."
+    );
+  }
+}
+
 async function openSession(
   deps: AgentsDeps,
   { cwd, frame, scope, write }: ManagerArgs,
   definition: AgentDefinition,
   options: SessionOptions
 ): Promise<Session> {
+  validateSessionOptions(options);
   const { key } = scope.claim(frame, KIND);
   const recorded = scope.ledger.get<SessionRef>(key);
   const wanted = options.session ? refOf(options.session) : undefined;
@@ -233,9 +278,6 @@ async function openSession(
   const modelId = definition.model ?? fallback?.model;
   // A worktree callback narrows the working directory through the async
   // store; a session opened inside it runs there unless the call says otherwise.
-  const model = deps.models.model(modelId, provider, {
-    workingDirectory: options.cwd ?? current.getStore()?.cwd ?? cwd,
-  });
 
   const id = sessionIdFor(recorded, wanted, provider, deps.warn);
   // A fresh session is a child of the run's own session, which is created
@@ -246,6 +288,38 @@ async function openSession(
   }
 
   const skills = await deps.skills(definition.skills);
+  if (options.sandbox && !deps.dry) {
+    const executor = sandboxExecutor(deps.models, modelId, provider);
+    const harness = await createSandboxSession({
+      agentId: definition.id,
+      harness: executor.harness,
+      hostCwd: current.getStore()?.cwd ?? cwd,
+      modelId: executor.model,
+      provider: executor.provider,
+      ...sandboxModel(deps.models, executor),
+      instructions: [
+        definition.prompt,
+        ...skills.map((skill) => skill.instructions ?? ""),
+      ]
+        .filter(Boolean)
+        .join("\n\n"),
+      options,
+      sessionId: id,
+      signal: frame.signal,
+      store: deps.sessions,
+      write,
+    });
+    return retainSession(
+      harness,
+      id,
+      { cwd, frame, scope, write },
+      key,
+      recorded !== undefined
+    );
+  }
+  const model = deps.models.model(modelId, provider, {
+    workingDirectory: options.cwd ?? current.getStore()?.cwd ?? cwd,
+  });
   const spec: AgentSpec = {
     id: definition.id,
     ...(modelId === undefined ? {} : { model: modelId }),
@@ -271,13 +345,33 @@ async function openSession(
     sessionId: id,
   });
 
+  return retainSession(
+    harness,
+    id,
+    { cwd, frame, scope, write },
+    key,
+    recorded !== undefined
+  );
+}
+
+function retainSession(
+  harness: SessionHarness | HarnessSession,
+  id: string,
+  { frame, scope, write }: ManagerArgs,
+  key: string,
+  recorded: boolean
+): Session {
+  if ("close" in harness && harness.close) {
+    const { close } = harness;
+    frame.opened.add({ close: () => close.call(harness) });
+  }
   const ref: SessionRef = {
     id,
     model: harness.route.id,
     provider: harness.route.provider,
   };
   scope.ledger.set(key, ref);
-  return wrap(harness, ref, frame, write, recorded !== undefined);
+  return wrap(harness, ref, frame, write, recorded);
 }
 
 export function agentsManager(deps: AgentsDeps): (args: ManagerArgs) => Agents {

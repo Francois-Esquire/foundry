@@ -10,6 +10,7 @@ import type {
 } from "../authorization";
 import { agentSubject } from "../authorization";
 import { createEventQueue } from "./event-queue";
+import type { HarnessPermissionCallback } from "./turn-driver";
 import type {
   AgentInvocationContext,
   HarnessToolRegistration,
@@ -28,6 +29,7 @@ export interface ToolCompilerDeps {
   agentGeneration?: number;
   agentId: string;
   effectPort: ToolEffectPort;
+  permission?: HarnessPermissionCallback;
   policy: AgentAuthorizer;
   sessionId?: string;
 }
@@ -381,6 +383,10 @@ export function compileTool(
       return true;
     }
 
+    if (deps.permission) {
+      return false;
+    }
+
     const call = registeredCallFor(registration, input, deps, {
       experimentalContext: options.context,
       messages: options.messages,
@@ -404,6 +410,9 @@ export function compileTool(
       toolCallId: options.toolCallId,
     });
     const request = toolAuthorizationRequest(call);
+    if (deps.permission) {
+      return authorizeLiveCall(call, options, deps.permission, deps.policy);
+    }
     let decision = await deps.policy.decide(request);
     const approvedReplay = wasApprovalGrantedFor(
       options.toolCallId,
@@ -517,6 +526,31 @@ export function compileTool(
     execute: streaming ? streamingExecute : execute,
     needsApproval,
   };
+}
+
+async function authorizeLiveCall(
+  call: RegisteredToolCall,
+  options: ToolExecutionOptions<unknown>,
+  permissionCallback: HarnessPermissionCallback,
+  policy: AgentAuthorizer
+): Promise<{ call: RegisteredToolCall } | { denied: unknown }> {
+  // The live callback owns one claim; this repeatable check preserves explicit refusals.
+  const current = await policy.decide(toolAuthorizationRequest(call));
+  if (current.kind === "deny") {
+    return { denied: deniedOutput(current.reason) };
+  }
+  const permission = await permissionCallback({
+    capability: call.capability,
+    input: call.input,
+    sessionId: call.sessionId ?? "",
+    signal: options.abortSignal ?? new AbortController().signal,
+    source: call.source,
+    toolCallId: call.toolCallId,
+    toolName: call.toolName,
+  });
+  return permission.behavior === "allow"
+    ? { call }
+    : { denied: deniedOutput(permission.message) };
 }
 
 function isAsyncGeneratorFunction(fn: unknown): boolean {

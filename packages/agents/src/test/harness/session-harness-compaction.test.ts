@@ -80,6 +80,7 @@ describe("SessionHarness — auto compaction", () => {
   it("folds older history before a turn once over budget", async () => {
     const store = new InMemorySessionStore();
     const summarizer = fakeSummarizer();
+    const model = overBudgetModel();
     const harness = new SessionHarness(
       {
         compaction: {
@@ -89,7 +90,7 @@ describe("SessionHarness — auto compaction", () => {
           window: TIGHT,
         },
         instructions: "x",
-        model: overBudgetModel(),
+        model,
         sessionId: "s",
         store,
         tools: {},
@@ -100,7 +101,14 @@ describe("SessionHarness — auto compaction", () => {
     await drain(harness.stream("first")); // no prior usage yet → no compaction
     expect(summarizer.calls).toBe(0);
 
-    await drain(harness.stream("second")); // prior assistant usage 200 > 100 → compact
+    const second = harness.stream("second"); // prior assistant usage 200 > 100 → compact
+    await drain(second);
+    expect(await second.text).toBe("ok2");
+    expect((await second.message).status).toBe("complete");
+    expect(model.doStreamCalls[1]?.prompt.slice(0, 2)).toEqual([
+      { content: "x", role: "system" },
+      { content: "RECAP", role: "system" },
+    ]);
     expect(summarizer.calls).toBe(1);
     expect(summarizer.lastSeen).toEqual(["first", "ok"]);
 

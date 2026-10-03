@@ -16,6 +16,7 @@ import type {
 import type {
   SandboxDirectoryEntry,
   SandboxExecResult,
+  SandboxPipedProcess,
   SandboxShell,
 } from "./types";
 
@@ -53,6 +54,10 @@ export interface FakeContainerRuntimeOptions {
   };
   /** Long-lived process behaviour. Omit to keep processes live until signalled. */
   process?: FakeExecHandler;
+  spawn?: (
+    command: string[],
+    options: ContainerExecOptions
+  ) => SandboxPipedProcess | Promise<SandboxPipedProcess>;
 }
 
 export interface FakeContainerInstance
@@ -126,7 +131,8 @@ export function createFakeContainerRuntime(
         spec,
         exec,
         options.process,
-        options.files ?? {}
+        options.files ?? {},
+        options.spawn
       );
       instances.push(instance);
       return Promise.resolve(instance);
@@ -198,7 +204,8 @@ function createInstance(
   spec: ContainerSpec,
   exec: FakeExecHandler,
   processHandler: FakeExecHandler | undefined,
-  seed: Record<string, string | Uint8Array>
+  seed: Record<string, string | Uint8Array>,
+  spawnHandler?: FakeContainerRuntimeOptions["spawn"]
 ): FakeContainerInstance {
   const files = new Map<string, Uint8Array>(
     Object.entries(seed).map(([path, content]) => [path, toBytes(content)])
@@ -278,6 +285,14 @@ function createInstance(
       return Promise.resolve();
     },
     removed: false,
+    async spawn(command, execOptions) {
+      execOptions.signal?.throwIfAborted();
+      if (!spawnHandler) {
+        throw new Error("No piped process fixture configured");
+      }
+      commands.push(command);
+      return spawnHandler(command, execOptions);
+    },
     spec,
     startProcess(command, execOptions): Promise<ContainerProcess> {
       commands.push(command);

@@ -6,6 +6,7 @@ import type {
   SandboxDirectoryEntry,
   SandboxExecOptions,
   SandboxExecResult,
+  SandboxPipedProcess,
   SandboxShell,
   SandboxShellOptions,
 } from "../types";
@@ -101,7 +102,11 @@ export async function resolveContainerSpec(
         ? DEFAULT_CONTAINER_CPUS
         : Math.max(1, Math.ceil(cpus)),
     detached: config.detached ?? false,
-    disableNetwork: config.disableNetwork ?? false,
+    disableNetwork:
+      config.network === undefined
+        ? (config.disableNetwork ?? true)
+        : config.network !== "unrestricted",
+    ...(config.network === undefined ? {} : { network: config.network }),
     env: config.env ?? {},
     image: config.image ?? DEFAULT_CONTAINER_IMAGE,
     // The environment-id label is stamped last: it is the immutable native
@@ -186,6 +191,7 @@ async function defaultRuntime<TNative>(): Promise<ContainerRuntime<TNative>> {
 
 class ContainerSandboxHandle<TNative> implements ContainerSandbox<TNative> {
   #status: ContainerStatus = "running";
+  private readonly lifetime = new AbortController();
   private readonly instance: ContainerInstance<TNative>;
   private readonly spec: ContainerSpec;
 
@@ -253,6 +259,22 @@ class ContainerSandboxHandle<TNative> implements ContainerSandbox<TNative> {
     return this.instance.startProcess(
       normalizeCommand(command),
       this.execOptions(options)
+    );
+  }
+
+  async spawn(
+    command: SandboxCommand,
+    options: SandboxExecOptions = {}
+  ): Promise<SandboxPipedProcess> {
+    this.assertActive("spawn");
+    options.signal?.throwIfAborted();
+    const signal =
+      options.signal === undefined
+        ? this.lifetime.signal
+        : AbortSignal.any([this.lifetime.signal, options.signal]);
+    return this.instance.spawn(
+      normalizeCommand(command),
+      this.execOptions({ ...options, signal })
     );
   }
 
@@ -373,6 +395,7 @@ class ContainerSandboxHandle<TNative> implements ContainerSandbox<TNative> {
     if (this.#status !== "running") {
       return;
     }
+    this.lifetime.abort(new Error("Sandbox stopped"));
     await this.instance.stop();
     this.#status = "stopped";
   }
@@ -381,6 +404,7 @@ class ContainerSandboxHandle<TNative> implements ContainerSandbox<TNative> {
     if (this.#status === "removed") {
       return;
     }
+    this.lifetime.abort(new Error("Sandbox removed"));
     await this.instance.remove();
     this.#status = "removed";
   }

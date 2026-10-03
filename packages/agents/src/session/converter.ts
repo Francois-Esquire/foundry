@@ -46,7 +46,7 @@ function toUIMessages(messages: SessionMessage[]): UIMessage[] {
       if (p.type === "tool_result") {
         results.set(p.toolCallId, p);
       }
-      if (p.type === "tool_approval_request") {
+      if (p.type === "tool_approval_request" && !p.approvalMode) {
         requests.set(p.toolCallId, p);
       }
       if (p.type === "tool_approval_response") {
@@ -56,17 +56,22 @@ function toUIMessages(messages: SessionMessage[]): UIMessage[] {
   }
   const ctx: ConversionContext = { requests, responses, results };
 
-  return messages
-    .filter((m) => m.role !== "tool")
-    .map((m) => ({
-      id: m.id,
-      parts: m.parts.flatMap((p) => toUIPart(p, ctx)),
-      // A `"summary"` block is sent to the model as a system message.
-      role: (m.role === "summary" ? "system" : m.role) as
-        | "user"
-        | "assistant"
-        | "system",
-    }));
+  return (
+    messages
+      .filter((m) => m.role !== "tool")
+      .map((m) => ({
+        id: m.id,
+        parts: m.parts.flatMap((p) => toUIPart(p, ctx)),
+        // A `"summary"` block is sent to the model as a system message.
+        role: (m.role === "summary" ? "system" : m.role) as
+          | "user"
+          | "assistant"
+          | "system",
+      }))
+      // Audit records and live/deferred approvals carry no model content.
+      // AI SDK v7 rejects even an empty system message in a turn's messages.
+      .filter((message) => message.parts.length > 0)
+  );
 }
 
 function toUIPart(

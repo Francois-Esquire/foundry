@@ -27,6 +27,7 @@ const publicEnvironmentSchema = z
 const mountSchema = z
   .object({
     access: z.enum(["read-only", "read-write"]),
+    executable: z.boolean().optional(),
     id: z.string().regex(/^[a-z][a-z0-9-]{0,63}$/),
     source: z.string().min(1).max(4096),
     // Which guest root a target may fall under is the provider's
@@ -51,7 +52,36 @@ export const containerSandboxConstraintsSchema = z
       .optional(),
     mounts: z.array(mountSchema).max(8).optional(),
     // This controls guest egress only; it never disables trusted host ingress.
-    network: z.enum(["disabled", "unrestricted"]).optional(),
+    network: z
+      .union([
+        z.enum(["disabled", "unrestricted"]),
+        z
+          .object({
+            destinations: z
+              .array(
+                z
+                  .object({
+                    host: z
+                      .string()
+                      .toLowerCase()
+                      .regex(
+                        /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$/
+                      )
+                      .max(253),
+                    ports: z
+                      .array(z.number().int().min(1).max(65_535))
+                      .min(1)
+                      .max(32)
+                      .optional(),
+                  })
+                  .strict()
+              )
+              .max(64),
+            mode: z.literal("allowlist"),
+          })
+          .strict(),
+      ])
+      .optional(),
     // Profiles may name guest listener ports, but never a host interface or
     // host port. The adapter assigns an ephemeral loopback mapping per lease.
     ports: z.array(z.number().int().min(1).max(65_535)).max(32).optional(),
@@ -128,6 +158,9 @@ export function containerSandboxConfigFromConstraints(
           },
         }),
     disableNetwork: constraints.network !== "unrestricted",
+    ...(constraints.network === undefined
+      ? {}
+      : { network: constraints.network }),
     ...(constraints.detached === undefined
       ? {}
       : { detached: constraints.detached }),

@@ -7,7 +7,9 @@
     },
     "apps/quirks": {
       "ignoreDependencies": [
+        "@ai-sdk/openai-compatible",
         "@ai-sdk/provider",
+        "@ai-sdk/provider-utils",
         "@browser-ai/transformers-js",
         "@foundry/core",
         "@noble/hashes",

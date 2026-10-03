@@ -15,6 +15,7 @@ export default defineConfig({
   },
   test: {
     exclude: [
+      "test/**/*.integration.test.ts",
       "test/status-view.test.ts",
       "test/package.test.ts",
       "test/cli-terminal.test.ts",

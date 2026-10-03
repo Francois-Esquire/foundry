@@ -276,14 +276,16 @@ export class RunScope {
 
   /** Close everything the run opened and forget the run. */
   async settle(): Promise<void> {
-    const closing: Promise<unknown>[] = [];
-    for (const frame of this.frames.values()) {
-      for (const handle of frame.opened) {
-        closing.push(Promise.resolve().then(() => handle.close()));
+    for (const frame of [...this.frames.values()].reverse()) {
+      for (const handle of [...frame.opened].reverse()) {
+        // Sessions are opened after their VM. Commit their terminal transcript
+        // before removing the environment that owns their live process.
+        await Promise.resolve()
+          .then(() => handle.close())
+          .catch(() => undefined);
       }
       frame.opened.clear();
     }
-    await Promise.allSettled(closing);
     runs.delete(this.id);
   }
 }
