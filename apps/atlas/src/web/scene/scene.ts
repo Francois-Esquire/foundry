@@ -54,17 +54,18 @@ import {
   visibleRegionTerritory,
   zoomForPixels,
 } from "./exploration";
+import { createFrameRenderer } from "./frame-render";
+import { createInkTexture } from "./ink-texture";
 import { createLabelProjector, createLettering } from "./lettering";
 import { paintMap } from "./paint-map";
 import { createPaperMaterials, paperThickness } from "./paper-material";
 import { createRenderPipeline } from "./pipeline";
 import type { PlaybackSnapshot, TrackId } from "./playback";
 import { createPlayback } from "./playback";
-import { createReliefInk } from "./relief-ink";
 import { createReliefLayer } from "./relief-layer";
 import { createRoadLayer } from "./road-layer";
 import { copySeaInk } from "./sea-ink";
-import { createTopography, landContours } from "./topography";
+import { createTopography } from "./topography";
 import { createTradeLayer } from "./trade-layer";
 import { createWaterMaterial } from "./water-material";
 import { createWreckLayer } from "./wreck-layer";
@@ -153,7 +154,6 @@ export async function createAtlasScene(
   const continents = layers.land ? footprints : [];
   const coasts = continentCoasts(data, continents);
   let topography = createTopography(data, coasts);
-  let reliefInk = createReliefInk(data);
   const boundaries = atlasBoundaries(
     data,
     coastalBuffer,
@@ -211,12 +211,9 @@ export async function createAtlasScene(
   inkCanvas.width = canvas.width;
   inkCanvas.height = canvas.height;
   paintMap(inkCanvas, data, null, null, "ink");
-  let inkTexture = new CanvasTexture(inkCanvas);
-  inkTexture.colorSpace = SRGBColorSpace;
-  inkTexture.anisotropy = texture.anisotropy;
+  let inkTexture = createInkTexture(inkCanvas);
   const seaInkCanvas = document.createElement("canvas");
-  let seaInkTexture = new CanvasTexture(seaInkCanvas);
-  seaInkTexture.colorSpace = SRGBColorSpace;
+  let seaInkTexture = createInkTexture(seaInkCanvas);
   const inkMaterial = new MeshBasicMaterial({
     depthTest: false,
     depthWrite: false,
@@ -246,6 +243,7 @@ export async function createAtlasScene(
 
   const relief = createReliefLayer(data, materials.paper, inkTexture, tilt);
   scene.add(relief.group);
+  let reliefInk = relief.reliefInk();
   const lettering = createLettering();
   scene.add(lettering.mesh);
   const projectLabel = createLabelProjector(relief.fieldFor, tilt);
@@ -403,7 +401,7 @@ export async function createAtlasScene(
       ),
       panRoom
     );
-  const render = () => {
+  const drawMap = () => {
     constrainCamera();
     const view = inkView(
       camera,
@@ -486,7 +484,9 @@ export async function createAtlasScene(
     inkTexture.needsUpdate = true;
     atmosphere.cameraChanged();
   };
-  controls.addEventListener("change", render);
+  const frameRenderer = createFrameRenderer(drawMap);
+  const render = frameRenderer.request;
+  controls.addEventListener("change", frameRenderer.request);
   controls.addEventListener("start", () => {
     cancelAnimationFrame(frame);
     atmosphere.wind(null);
@@ -526,17 +526,13 @@ export async function createAtlasScene(
       Math.round(height * renderer.getPixelRatio())
     );
     inkTexture.dispose();
-    inkTexture = new CanvasTexture(inkCanvas);
-    inkTexture.colorSpace = SRGBColorSpace;
-    inkTexture.anisotropy = texture.anisotropy;
+    inkTexture = createInkTexture(inkCanvas);
     relief.setMap(inkTexture);
     lettering.resize(inkCanvas.width, inkCanvas.height);
     seaInkCanvas.width = inkCanvas.width;
     seaInkCanvas.height = inkCanvas.height;
     seaInkTexture.dispose();
-    seaInkTexture = new CanvasTexture(seaInkCanvas);
-    seaInkTexture.colorSpace = SRGBColorSpace;
-    seaInkTexture.anisotropy = texture.anisotropy;
+    seaInkTexture = createInkTexture(seaInkCanvas);
     inkMaterial.map = seaInkTexture;
     render();
   };
@@ -828,6 +824,7 @@ export async function createAtlasScene(
       }
     },
     dispose: () => {
+      frameRenderer.dispose();
       clearTimeout(previewTimer);
       cancelAnimationFrame(previewFrame);
       cancelAnimationFrame(revealFrame);
@@ -930,15 +927,17 @@ export async function createAtlasScene(
     },
     setAtmosphere: atmosphere.setEnabled,
     setBelonging: (value: BelongingLayer | null) => {
-      if (relief.setFeatures(value)) {
+      relief.setFeatures(value).then((reliefChanged) => {
+        if (!reliefChanged) {
+          return;
+        }
         topography = [
           ...topography.filter((line) => line.sea),
-          ...data.territories.flatMap((territory) =>
-            landContours(territory, relief.fieldFor(territory))
-          ),
+          ...relief.contours(),
         ];
-        reliefInk = createReliefInk(data, relief.fieldFor);
-      }
+        reliefInk = relief.reliefInk();
+        render();
+      });
       if (value?.featureFocus) {
         selectedFile = null;
         selectedNeighborhood = undefined;

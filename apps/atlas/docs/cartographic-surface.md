@@ -94,3 +94,85 @@ zoom runs reached 51 ms at p95; the pan-only run remained near 60 fps despite
 its higher CPU cost. These measurements identify interaction overhead, not a
 universal frame-rate guarantee. The parent renderer's median zoom cost was
 2.8–2.9 ms, so the fix restores that cost while retaining draped terrain ink.
+
+### Zoom-transition regression
+
+The short, warm, alternating zoom test above missed the reported freezes. It
+never left file detail and discarded its first 20 frames. A cold full-range
+sweep on `f226f04` reproduced 0.5–2.14-second pauses. Chrome attributed about
+9.1 seconds of a 17.4-second sweep to `setBelonging`: mesh reshaping and repeated
+contour/hachure construction, including unchanged islands and hidden contours.
+The saved survey has 206,062 terrain triangles, 63,878 on Atlas and 34,759 on
+Quirks. Ink draws those same triangles again. The long pauses were CPU rebuilds,
+not a measured triangle-throughput limit.
+
+Terrain samples now search only overlapping compact crests. Coast masks and
+unchanged contours are cached. Detailed vertex sampling and its contour/hachure
+ink run in a cancellable worker. The scene retains the previous complete terrain
+until the new mesh, picking, field and ink are ready together. Each island keeps
+its base and latest completed evidence variant, so leaving and re-entering a
+zoom level does not resample it. A semantic evidence key avoids rebuilding for
+newly allocated but equivalent landmark arrays. Survey/placement changes create
+a new scene. Worker-unavailable environments retain a synchronous fallback.
+
+Camera and detail-reveal events share one requested repaint per display frame.
+Viewport-resolution ink, sea ink and lettering no longer build mip pyramids
+on every texture upload. Terrain topology, relief values and visual bindings
+are unchanged.
+
+Use the following **from overview in a fresh page**, without other benchmark or
+validation processes running:
+
+```sh
+bun scripts/capture.ts --browser "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --webgpu --pixel-ratio 2 --tag scroll --width 1500 --height 1000 profile=sweep shot=after errors
+```
+
+`profile=sweep@815,330` targets Quirks. The sweep runs 160 wheel events inward,
+160 outward and 160 inward, then watches 60 further frames for delayed work.
+There is no discarded warm-up. It exercises the real canvas handlers with
+synthetic wheel events, not an OS trackpad gesture. Reports include maximum
+frame interval, every interval above 50 ms, main-thread long tasks, and renderer
+quality changes. It fails above 100 ms maximum or 35 ms p95 frame interval;
+handler dispatch must also stay below 6 ms p95. Handler timing excludes queued
+painting, so judge the frame intervals and Chrome profile as well. Metrics JSON
+and CPU profiles are saved even on failure, and remaining screenshot/error
+steps still run.
+
+The older `1496169` viewer reached 66 ms maximum and 13 ms p95 wheel-handler
+cost on the same sweep. Indexing alone reduced the new worst pause to 446 ms;
+contour caching reduced it to 221 ms; the worker removed those long rebuild
+pauses. Final repeated results and the remaining GPU limit are recorded below.
+
+
+Retina sweeps after the CPU fix exposed a separate GPU limit. With post-processing
+off, the sweep peaked at 35.5 ms with a 17.8 ms p95. Disabling only screen-space
+occlusion retained grading and reached 62.5 ms maximum / 17.8 ms p95. Merely
+quartering its low-tier resolution did not reliably meet the frame budget, so
+that experiment was discarded. Light now keeps the terrain's engraved concavity
+and full-resolution ink without the chart's screen-space occlusion pass. Balanced
+and Full, explicit occlusion previews, and perspective wreck views retain it.
+The default remains Balanced; the existing measured-GPU adaptation selects Light
+when needed. The panel explains Light's tradeoff. Direct rendering now drains
+GPU timestamp queries too, fixing a query-pool warning exposed by the comparison.
+
+Atmosphere ticks also avoid submitting another frame when camera movement has
+already drawn one. A subsequent isolated Atlas sweep measured 78.3 ms maximum / 31.0 ms p95;
+Quirks measured 105.4 ms maximum / 32.7 ms p95. Neither recorded a main-thread
+long task. Quirks still failed the 100 ms maximum-frame budget. Warm pan measured 17.4 ms p95 frame intervals,
+and pointer dispatch measured 0.5 ms p95. Earlier repeated post-worker runs varied
+and some still failed the 35 ms p95 budget. The half-second and two-second rebuild
+freezes are removed; occasional GPU/frame-pacing hitches remain. These headless
+Chrome results do not establish uniformly smooth OS trackpad behavior or a
+60-fps guarantee on other hardware.
+
+
+Validation: repository `bun run validate` passed; Atlas `bun x vitest run`
+passed 1,409 tests in 110 files. The regression coverage includes unchanged
+height samples, cancelled worker results, evidence-equivalent zoom revisits,
+contour cache invalidation, merged repaint requests, duplicate atmosphere
+frames, low-tier occlusion behavior, and draining direct-render timestamp queries.
+Four-scale captures for both islands are under `.cache/shots/scroll-final-light-*`
+and `scroll-final-quirks-*`. Their meaning is unchanged; Light has visibly softer
+contact shading. WebGPU captures report zero console errors. The remaining cold
+GPU/frame-pacing spikes mean the overall scrolling-performance issue is improved,
+not fully closed.

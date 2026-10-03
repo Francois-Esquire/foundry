@@ -1,12 +1,7 @@
-import {
-  CanvasTexture,
-  Mesh,
-  MeshBasicMaterial,
-  PlaneGeometry,
-  SRGBColorSpace,
-} from "three";
+import { Mesh, MeshBasicMaterial, PlaneGeometry } from "three";
 import type { AtlasFile, Territory } from "../types";
 import type { InkView, MapLabel } from "./exploration";
+import { createInkTexture } from "./ink-texture";
 import { paperThickness } from "./paper-material";
 import type { TerrainField } from "./terrain-field";
 
@@ -21,8 +16,7 @@ export function elevatedLabel(
 
 export function createLettering() {
   const canvas = document.createElement("canvas");
-  let texture = new CanvasTexture(canvas);
-  texture.colorSpace = SRGBColorSpace;
+  let texture = createInkTexture(canvas);
   const material = new MeshBasicMaterial({
     depthTest: false,
     depthWrite: false,
@@ -43,8 +37,7 @@ export function createLettering() {
       canvas.width = width;
       canvas.height = height;
       texture.dispose();
-      texture = new CanvasTexture(canvas);
-      texture.colorSpace = SRGBColorSpace;
+      texture = createInkTexture(canvas);
       material.map = texture;
     },
     update(view: InkView) {

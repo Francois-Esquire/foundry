@@ -5,13 +5,13 @@ import {
   Shape,
   ShapeGeometry,
   Vector2,
-  Vector3,
 } from "three";
 import { TessellateModifier } from "three/addons/modifiers/TessellateModifier.js";
 import { mergeVertices } from "three/addons/utils/BufferGeometryUtils.js";
 import type { Polygon, Territory } from "../types";
 import { paperThickness } from "./paper-material";
 import { baseTerrainField, type TerrainField } from "./terrain-field";
+import { sampleTerrainSurface, type TerrainSurface } from "./terrain-surface";
 
 export function terrainHeight(p: Territory, x: number, y: number): number {
   return paperThickness + baseTerrainField(p).sample(x, y).elevation;
@@ -52,32 +52,25 @@ export function reshapeTerrain(
   p: Territory,
   field: TerrainField
 ) {
+  const surface = sampleTerrainSurface(
+    new Float32Array(geometry.getAttribute("position").array),
+    p,
+    field,
+    paperThickness
+  );
+  applyTerrainSurface(geometry, surface);
+}
+
+export function applyTerrainSurface(
+  geometry: BufferGeometry,
+  surface: TerrainSurface
+) {
   const positions = geometry.getAttribute("position");
-  const normals = new Float32Array(positions.count * 3);
-  const occlusion = new Float32Array(positions.count);
-  const mineral = new Float32Array(positions.count);
-  for (let i = 0; i < positions.count; i += 1) {
-    const x = positions.getX(i) - p.x;
-    const y = -positions.getY(i) - p.y;
-    const sample = field.sample(x, y);
-    positions.setZ(i, paperThickness + sample.elevation);
-    const east = field.sample(x + 0.5, y).elevation;
-    const west = field.sample(x - 0.5, y).elevation;
-    const south = field.sample(x, y + 0.5).elevation;
-    const north = field.sample(x, y - 0.5).elevation;
-    occlusion[i] = Math.max(
-      0,
-      Math.min(1, ((east + west + south + north) / 4 - sample.elevation) * 4)
-    );
-    new Vector3(west - east, south - north, 1)
-      .normalize()
-      .toArray(normals, i * 3);
-    mineral[i] = sample.mineral;
-  }
+  positions.array.set(surface.positions);
   positions.needsUpdate = true;
-  geometry.setAttribute("normal", new BufferAttribute(normals, 3));
-  geometry.setAttribute("occlusion", new BufferAttribute(occlusion, 1));
-  geometry.setAttribute("mineral", new BufferAttribute(mineral, 1));
+  geometry.setAttribute("normal", new BufferAttribute(surface.normals, 3));
+  geometry.setAttribute("occlusion", new BufferAttribute(surface.occlusion, 1));
+  geometry.setAttribute("mineral", new BufferAttribute(surface.mineral, 1));
   geometry.computeBoundingSphere();
 }
 

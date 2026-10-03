@@ -254,9 +254,12 @@ export function createRenderPipeline(options: RenderPipelineOptions) {
       quality: current ? effectiveQuality(current) : "off",
     };
   };
+  const screenOcclusion = (settings: RenderSettings, tier: Tier) =>
+    settings.ambientOcclusion &&
+    (tier !== "low" || perspective || settings.stage === "occlusion");
   const neededStages = (settings: RenderSettings, tier: Tier): StageName[] => {
     const names: StageName[] = [];
-    if (settings.ambientOcclusion) {
+    if (screenOcclusion(settings, tier)) {
       names.push("ao");
       if (qualityTiers[tier].denoise) {
         names.push("denoise");
@@ -281,7 +284,7 @@ export function createRenderPipeline(options: RenderPipelineOptions) {
     tier: Tier,
     modules: Stages
   ) => {
-    if (!(settings.ambientOcclusion && modules.ao)) {
+    if (!(screenOcclusion(settings, tier) && modules.ao)) {
       return;
     }
     const quality = qualityTiers[tier];
@@ -551,6 +554,7 @@ export function createRenderPipeline(options: RenderPipelineOptions) {
         }
       }
       renderer.render(scene, camera);
+      measure();
     },
     status,
   };

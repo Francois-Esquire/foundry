@@ -246,3 +246,32 @@ it("rounds the crest and foot without flattening the elevation signal", () => {
   expect(ridgeProfile(1 - epsilon, 1, 1) / epsilon).toBeLessThan(0.001);
   expect(ridgeProfile(1, 1, 6)).toBe(0);
 });
+
+it("preserves the terrain across ridge overlaps, empty ground and negative coordinates", () => {
+  const clustered = {
+    ...territory,
+    files: Array.from({ length: 12 }, (_, index) => ({
+      ...file,
+      id: `file-${index}`,
+      incoming: index * 3,
+      x: (index % 4) * 17 - 28,
+      y: Math.floor(index / 4) * 13 - 21,
+    })),
+  };
+  const landmark = {
+    consumers: [],
+    file: clustered.files[5] ?? file,
+    footprint: [],
+    kind: "summit" as const,
+    radius: 5,
+    role: "commons" as const,
+  };
+  const field = createTerrainField(clustered, [landmark]);
+  const samples: number[] = [];
+  for (let y = -60; y <= 60; y += 13) {
+    for (let x = -60; x <= 60; x += 11) {
+      samples.push(Number(field.sample(x, y).elevation.toFixed(8)));
+    }
+  }
+  expect(samples).toMatchSnapshot();
+});

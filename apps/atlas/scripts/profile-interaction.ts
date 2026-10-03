@@ -3,29 +3,47 @@ interface ProfileSession {
   send: (method: string, params?: object) => Promise<unknown>;
 }
 
-type Interaction = "pan" | "pointer" | "zoom";
+type Interaction = "pan" | "pointer" | "sweep" | "zoom";
 
 /** Serialized into the page by the capture tool; no dependencies outside this function. */
-async function measureInteraction(kind: Interaction) {
+async function measureInteraction(kind: Interaction, x: number, y: number) {
   const canvas = document.querySelector("canvas");
   if (!canvas) {
     throw new Error("Missing atlas canvas");
   }
+  const changes: unknown[] = [];
+  const longTasks: { milliseconds: number; start: number }[] = [];
+  const started = performance.now();
+  const record = (event: Event) =>
+    changes.push({
+      at: performance.now() - started,
+      status: (event as CustomEvent<unknown>).detail,
+    });
+  document.addEventListener("atlas:render", record, true);
+  const observer = new PerformanceObserver((list) => {
+    for (const entry of list.getEntries()) {
+      longTasks.push({
+        milliseconds: entry.duration,
+        start: entry.startTime - started,
+      });
+    }
+  });
+  observer.observe({ entryTypes: ["longtask"] });
   const dispatch: number[] = [];
   const frames: number[] = [];
-  let previous = performance.now();
-  for (let index = 0; index < 120; index += 1) {
-    await new Promise(requestAnimationFrame);
-    const now = performance.now();
-    const began = performance.now();
-    if (kind === "zoom") {
+  const stalls: { frame: number; milliseconds: number }[] = [];
+  const sweeping = kind === "sweep";
+  const count = sweeping ? 480 : 120;
+  const dispatchInput = (index: number) => {
+    if (kind === "zoom" || sweeping) {
+      const direction = sweeping ? Math.floor(index / 160) : index;
       canvas.dispatchEvent(
         new WheelEvent("wheel", {
           bubbles: true,
           cancelable: true,
-          clientX: 750,
-          clientY: 530,
-          deltaY: index % 2 ? 40 : -40,
+          clientX: x,
+          clientY: y,
+          deltaY: direction % 2 ? 40 : -40,
         })
       );
     } else {
@@ -45,31 +63,64 @@ async function measureInteraction(kind: Interaction) {
         })
       );
     }
-    if (index >= 20) {
-      dispatch.push(performance.now() - began);
+  };
+  let previous = performance.now();
+  for (let index = 0; index < count + (sweeping ? 60 : 0); index += 1) {
+    await new Promise(requestAnimationFrame);
+    const now = performance.now();
+    const began = performance.now();
+    if (index < count) {
+      dispatchInput(index);
+    }
+    if (sweeping || index >= 20) {
+      if (index < count) {
+        dispatch.push(performance.now() - began);
+      }
       frames.push(now - previous);
+      if (now - previous > 50) {
+        stalls.push({ frame: index, milliseconds: now - previous });
+      }
     }
     previous = now;
   }
+  observer.disconnect();
+  document.removeEventListener("atlas:render", record, true);
   const stats = (values: number[]) => {
     values.sort((a, b) => a - b);
     return {
       max: values.at(-1) ?? 0,
       mean: values.reduce((sum, value) => sum + value, 0) / values.length,
-      p50: values[50] ?? 0,
-      p95: values[95] ?? 0,
+      p50: values[Math.floor(values.length * 0.5)] ?? 0,
+      p95: values[Math.floor(values.length * 0.95)] ?? 0,
     };
   };
-  return { dispatchMs: stats(dispatch), frameMs: stats(frames) };
+  return {
+    changes,
+    dispatchMs: stats(dispatch),
+    frameMs: stats(frames),
+    longTasks,
+    stalls,
+  };
 }
 
 /** Real canvas handlers and Chrome CPU samples, including native pointer capture for panning. */
 export async function profileInteraction(
   session: ProfileSession,
-  kind: string
+  input: string
 ) {
-  if (kind !== "pan" && kind !== "zoom" && kind !== "pointer") {
-    throw new Error("Profile must be pan, zoom or pointer");
+  const [kind, coordinates] = input.split("@");
+  const [x = kind === "sweep" ? 510 : 750, y = kind === "sweep" ? 810 : 530] =
+    coordinates?.split(",").map(Number) ?? [];
+  if (!(Number.isFinite(x) && Number.isFinite(y))) {
+    throw new Error("Profile coordinates must be finite numbers");
+  }
+  if (
+    kind !== "pan" &&
+    kind !== "zoom" &&
+    kind !== "pointer" &&
+    kind !== "sweep"
+  ) {
+    throw new Error("Profile must be pan, zoom, pointer or sweep");
   }
   if (kind === "pan") {
     await session.send("Input.dispatchMouseEvent", {
@@ -88,7 +139,7 @@ export async function profileInteraction(
   await session.send("Profiler.enable");
   await session.send("Profiler.start");
   const metrics = (await session.evaluate(
-    `(${measureInteraction.toString()})(${JSON.stringify(kind)})`
+    `(${measureInteraction.toString()})(${JSON.stringify(kind)}, ${x}, ${y})`
   )) as Awaited<ReturnType<typeof measureInteraction>>;
   const profile = await session.send("Profiler.stop");
   if (kind === "pan") {
@@ -103,7 +154,10 @@ export async function profileInteraction(
   const budget = kind === "pointer" ? 2 : 6;
   return {
     metrics,
-    passed: metrics.dispatchMs.p95 < budget && metrics.frameMs.p95 < 35,
+    passed:
+      metrics.dispatchMs.p95 < budget &&
+      metrics.frameMs.p95 < 35 &&
+      (kind !== "sweep" || metrics.frameMs.max < 100),
     profile,
   };
 }

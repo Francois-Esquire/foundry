@@ -56,19 +56,44 @@ function crest(
   };
 }
 
-function ridgeHeight(crests: Crest[], x: number, y: number) {
-  let elevation = 0;
+// An acceleration grid, independent of the visual profile and mesh resolution.
+const crestCellSize = 16;
+
+function crestSampler(crests: Crest[]) {
+  const bins = new Map<string, Crest[]>();
   for (const ridge of crests) {
-    const dx = x - ridge.x;
-    const dy = y - ridge.y;
-    const along = (dx * ridge.ux + dy * ridge.uy) / ridge.stretch;
-    const across = -dx * ridge.uy + dy * ridge.ux;
-    elevation = Math.max(
-      elevation,
-      ridgeProfile(Math.hypot(along, across), ridge.reach, ridge.elevation)
-    );
+    const radius = ridge.reach * ridge.stretch;
+    const left = Math.floor((ridge.x - radius) / crestCellSize);
+    const right = Math.floor((ridge.x + radius) / crestCellSize);
+    const top = Math.floor((ridge.y - radius) / crestCellSize);
+    const bottom = Math.floor((ridge.y + radius) / crestCellSize);
+    for (let row = top; row <= bottom; row += 1) {
+      for (let col = left; col <= right; col += 1) {
+        const key = `${col}:${row}`;
+        const bin = bins.get(key) ?? [];
+        bin.push(ridge);
+        bins.set(key, bin);
+      }
+    }
   }
-  return elevation;
+  return (x: number, y: number) => {
+    let elevation = 0;
+    const key = `${Math.floor(x / crestCellSize)}:${Math.floor(y / crestCellSize)}`;
+    for (const ridge of bins.get(key) ?? []) {
+      const dx = x - ridge.x;
+      const dy = y - ridge.y;
+      const along = (dx * ridge.ux + dy * ridge.uy) / ridge.stretch;
+      const across = -dx * ridge.uy + dy * ridge.ux;
+      if (along * along + across * across >= ridge.reach * ridge.reach) {
+        continue;
+      }
+      elevation = Math.max(
+        elevation,
+        ridgeProfile(Math.hypot(along, across), ridge.reach, ridge.elevation)
+      );
+    }
+    return elevation;
+  };
 }
 
 function coastDistance(territory: Territory, x: number, y: number) {
@@ -112,6 +137,7 @@ export function createTerrainField(
   const crests = territory.files.map((file) =>
     crest(file, territory, roles.has(file.id))
   );
+  const ridgeHeight = crestSampler(crests);
   const craters = landmarks.flatMap((item) => {
     if (!item.change) {
       return [];
@@ -120,7 +146,7 @@ export function createTerrainField(
     const { radius, depth } = craterRelief(item.change.file.commits);
     return [
       {
-        floor: Math.max(0.12, ridgeHeight(crests, x, y) - depth),
+        floor: Math.max(0.12, ridgeHeight(x, y) - depth),
         radius,
         x,
         y,
@@ -129,7 +155,7 @@ export function createTerrainField(
   });
   return {
     sample(x: number, y: number) {
-      let elevation = ridgeHeight(crests, x, y);
+      let elevation = ridgeHeight(x, y);
       let mineral = 0;
       for (const crater of craters) {
         const q = Math.hypot(x - crater.x, y - crater.y) / crater.radius;

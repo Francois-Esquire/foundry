@@ -47,3 +47,25 @@ it("extracts contours from actual relief without changing geography", async () =
   }
   expect(p).toEqual(before);
 });
+
+it("reuses unchanged terrain contours and rebuilds only for a new field", async () => {
+  const { territories } = await loadAtlas();
+  const [territory] = territories;
+  if (!territory) {
+    throw new Error("Missing island");
+  }
+  let samples = 0;
+  const field = {
+    sample: () => {
+      samples += 1;
+      return { elevation: 4, mineral: 0 };
+    },
+  };
+  const before = landContours(territory, field);
+  const first = samples;
+  expect(first).toBeGreaterThan(0);
+  expect(landContours(territory, field)).toBe(before);
+  expect(samples).toBe(first);
+  expect(landContours(territory, { ...field })).not.toBe(before);
+  expect(samples).toBe(first * 2);
+});

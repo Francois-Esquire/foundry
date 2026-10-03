@@ -309,3 +309,19 @@ describe("bounded atmosphere lifecycle", () => {
     expect(disconnect).toHaveBeenCalled();
   });
 });
+
+it("does not submit extra ocean frames while the camera already redraws each frame", () => {
+  const update = vi.fn();
+  const { layer } = setup(false, { strength: () => 1, update });
+  try {
+    for (let index = 0; index < 60; index += 1) {
+      layer.cameraChanged();
+      vi.advanceTimersByTime(16);
+    }
+    expect(update).toHaveBeenCalledTimes(60);
+    vi.advanceTimersByTime(64);
+    expect(update.mock.calls.length).toBeGreaterThan(60);
+  } finally {
+    layer.dispose();
+  }
+});

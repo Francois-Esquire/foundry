@@ -9,7 +9,7 @@
  * Steps: click=<button text or aria-label>, press=<label> (no screenshot),
  * zoom=<steps>, hover=<x>,<y>, tap=<x>,<y> (a mouse click on the page),
  * key=Enter|Tab|Escape, motion=reduce|normal, wait=<ms>, shot=<name>,
- * eval=<expression>, profile=pan|zoom|pointer, clearlog, errors.
+ * eval=<expression>, profile=pan|zoom|pointer|sweep[@x,y], clearlog, errors.
  * Profiles use a 1500x1000 viewport; pass --pixel-ratio 2 for Retina. Screenshots land in .cache/shots/<tag>-<name>.png.
  */
 import { spawn } from "node:child_process";
@@ -74,6 +74,7 @@ const sleep = (ms: number) =>
   new Promise((done) => {
     setTimeout(done, ms);
   });
+const failedProfiles: string[] = [];
 const log = (line: string) => {
   process.stdout.write(`${line}\n`);
 };
@@ -173,11 +174,14 @@ async function runStep(
       const result = await profileInteraction(session, argument);
       const file = resolve(values.out, `${values.tag}-${argument}.cpuprofile`);
       await writeFile(file, JSON.stringify(result.profile));
+      await writeFile(
+        resolve(values.out, `${values.tag}-${argument}.json`),
+        JSON.stringify(result.metrics, null, 2)
+      );
       log(`profile ${argument}: ${JSON.stringify(result.metrics)}`);
       if (!result.passed) {
-        throw new Error(
-          `Interaction budget exceeded: ${argument}. CPU profile: ${file}`
-        );
+        failedProfiles.push(argument);
+        log(`Interaction budget exceeded: ${argument}. CPU profile: ${file}`);
       }
       break;
     }
@@ -333,6 +337,11 @@ async function main() {
       `webgpu: ${String(await session.evaluate(`typeof navigator.gpu !== "undefined"`))}`
     );
     session.close();
+    if (failedProfiles.length) {
+      throw new Error(
+        `Interaction budgets exceeded: ${failedProfiles.join(", ")}`
+      );
+    }
   } finally {
     browser.kill();
   }

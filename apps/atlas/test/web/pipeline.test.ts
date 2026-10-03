@@ -3,7 +3,11 @@ import { describe, expect, it, vi } from "vitest";
 
 // No GPU backend exists here, so the pass graph's render is stubbed: it
 // throws like a failed compile by default and succeeds for the adaptive test.
-const stub = vi.hoisted(() => ({ disposed: 0, throwOnRender: true }));
+const stub = vi.hoisted(() => ({
+  aoCalls: 0,
+  disposed: 0,
+  throwOnRender: true,
+}));
 vi.mock("three/webgpu", async (importOriginal) => ({
   ...(await importOriginal<typeof import("three/webgpu")>()),
   RenderPipeline: class {
@@ -19,6 +23,20 @@ vi.mock("three/webgpu", async (importOriginal) => ({
     }
   },
 }));
+
+vi.mock("three/addons/tsl/display/GTAONode.js", async (importOriginal) => {
+  const module =
+    await importOriginal<
+      typeof import("three/addons/tsl/display/GTAONode.js")
+    >();
+  return {
+    ...module,
+    ao: (...args: Parameters<typeof module.ao>) => {
+      stub.aoCalls += 1;
+      return module.ao(...args);
+    },
+  };
+});
 
 /** Lets the measurement microtasks after a render settle. */
 const settle = async () => {
@@ -177,4 +195,67 @@ describe("render pipeline", () => {
       pipeline.dispose();
     }
   });
+});
+
+it("drains timestamp queries during direct rendering so the GPU query pool cannot fill", async () => {
+  const resolveTimestampsAsync = vi.fn(() => Promise.resolve());
+  const renderer = {
+    backend: {},
+    info: { render: { timestamp: 5 } },
+    render: vi.fn(),
+    resolveTimestampsAsync,
+  } as unknown as Parameters<typeof createRenderPipeline>[0]["renderer"];
+  const pipeline = createRenderPipeline({
+    camera: new OrthographicCamera(),
+    filter: () => "original",
+    renderer,
+    scene: new Scene(),
+  });
+  try {
+    pipeline.configure({ ...defaultRenderSettings, quality: "off" });
+    await pipeline.ready();
+    for (let frame = 0; frame < 60; frame += 1) {
+      pipeline.render();
+      await settle();
+    }
+    expect(resolveTimestampsAsync).toHaveBeenCalledTimes(60);
+    expect(pipeline.status().postProcessing).toBe(false);
+  } finally {
+    pipeline.dispose();
+  }
+});
+
+it("uses engraved chart relief in Light while retaining screen-space occlusion for its preview and wreck views", async () => {
+  const options = {
+    filter: () => "original" as const,
+    renderer: fakeRenderer(),
+    scene: new Scene(),
+  };
+  const chart = createRenderPipeline({
+    ...options,
+    camera: new OrthographicCamera(),
+  });
+  const wreck = createRenderPipeline({
+    ...options,
+    camera: new PerspectiveCamera(),
+  });
+  const before = stub.aoCalls;
+  try {
+    chart.configure({ ...defaultRenderSettings, quality: "low" });
+    await chart.ready();
+    expect(stub.aoCalls).toBe(before);
+    chart.configure({
+      ...defaultRenderSettings,
+      quality: "low",
+      stage: "occlusion",
+    });
+    await chart.ready();
+    expect(stub.aoCalls).toBe(before + 1);
+    wreck.configure({ ...defaultRenderSettings, quality: "low" });
+    await wreck.ready();
+    expect(stub.aoCalls).toBe(before + 2);
+  } finally {
+    chart.dispose();
+    wreck.dispose();
+  }
 });

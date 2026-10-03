@@ -146,6 +146,13 @@ export function RenderingSettings({
   return (
     <fieldset aria-label="Rendering pipeline" disabled={disabled}>
       {choice("Quality", "quality", true)}
+      {status?.quality === "low" && !status.globalIlluminationAvailable && (
+        <p className="atlas-note">
+          Light keeps engraved terrain shading and full-resolution ink.
+          Screen-space occlusion is reserved for Balanced, Full, or its stage
+          preview.
+        </p>
+      )}
       <p role="status">{statusText(status)}</p>
       {status?.adapted && (
         <p>

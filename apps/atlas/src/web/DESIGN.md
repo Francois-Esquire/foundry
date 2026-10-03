@@ -165,6 +165,15 @@ hits use an eight-unit grid of projected mesh triangles for the fixed camera,
 then exact barycentric intersection within the relevant bin. The index rebuilds
 only when that terrain changes; it does not approximate the picked surface.
 
+Detailed relief and its contour/hachure ink are prepared in a cancellable worker;
+the previous complete terrain stays visible until mesh, field, picking and ink
+can be applied together. Each island retains its base and latest evidence
+variant across zoom transitions. Camera and detail-reveal changes share one
+map repaint per display frame. Viewport-resolution ink uses linear sampling
+without rebuilding mipmaps on each upload. These are computation changes, not
+new meanings or changes to terrain resolution. Worker-unavailable environments
+retain a synchronous fallback.
+
 Source settlements retain brown ink. Tests use blue walled proving grounds;
 stories use rose semicircular theaters; configuration uses ochre buildings.
 Unknown kinds stay neutral. These marks preserve mixed neighborhoods rather
@@ -578,7 +587,10 @@ Sliders are uniforms and change nothing in the graph; quality, toggles, tone
 mapping, filter, and stage view rebuild it. Stage modules load on first use.
 When the device reports GPU frame times, a sustained frame over budget steps
 the tier down one level, never to Off, and the panel says so; choosing a
-quality again clears the cap. The Show stage select replaces the image with a
+quality again clears the cap. On the chart, Light retains engraved terrain
+concavity and full-resolution ink while omitting screen-space occlusion;
+Balanced, Full, and the occlusion stage preview retain that pass. Perspective
+wreck views retain screen-space occlusion at every enabled tier. The Show stage select replaces the image with a
 single stage's output for tuning.
 
 ## Do's and Don'ts

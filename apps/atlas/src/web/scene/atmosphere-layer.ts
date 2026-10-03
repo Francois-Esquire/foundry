@@ -40,6 +40,7 @@ export function createAtmosphereLayer(
   let painted = 0;
   let wind: { path: MapPoint[]; began: number } | null = null;
   const draw = () => {
+    painted = performance.now();
     const ratio = Math.min(devicePixelRatio, 2);
     const width = Math.round(host.clientWidth * ratio),
       height = Math.round(host.clientHeight * ratio);
@@ -80,7 +81,6 @@ export function createAtmosphereLayer(
     }
     if (now - painted >= 32) {
       draw();
-      painted = now;
     }
     frame =
       opacity !== target ||

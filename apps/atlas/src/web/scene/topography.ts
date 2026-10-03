@@ -16,14 +16,14 @@ export interface ContourLine {
 export const coastalRings = [2, 3.5, 5.5, 8, 11.5, 15.5, 20];
 export const archipelagoRings = [3, 4.5, 6.5, 9.5, 13, 17, 22];
 
-export function landContours(
-  p: Territory,
-  terrain: TerrainField = baseTerrainField(p)
-): ContourLine[] {
+const grids = new WeakMap<Territory, ReturnType<typeof buildContourGrid>>();
+const landLines = new WeakMap<
+  Territory,
+  WeakMap<TerrainField, ContourLine[]>
+>();
+
+function buildContourGrid(p: Territory) {
   const coast = p.coast.flat(2);
-  if (!coast.length) {
-    return [];
-  }
   const cell = 1;
   const left = Math.min(...coast.map(([x]) => x)) - cell;
   const top = Math.min(...coast.map(([, y]) => y)) - cell;
@@ -33,12 +33,60 @@ export function landContours(
   const height = Math.ceil(
     (Math.max(...coast.map(([, y]) => y)) - top + cell) / cell
   );
-  const field = Array.from({ length: width * height }, (_, i) => {
+  const land = Uint8Array.from({ length: width * height }, (_, i) =>
+    Number(
+      insidePolygons(
+        {
+          x: left + ((i % width) + 0.5) * cell,
+          y: top + (Math.floor(i / width) + 0.5) * cell,
+        },
+        p.coast
+      )
+    )
+  );
+  return { cell, height, land, left, top, width };
+}
+
+function contourGrid(p: Territory) {
+  let grid = grids.get(p);
+  if (!grid) {
+    grid = buildContourGrid(p);
+    grids.set(p, grid);
+  }
+  return grid;
+}
+
+/** Coast masks survive field changes; contour lines survive camera/detail changes. */
+export function landContours(
+  p: Territory,
+  terrain: TerrainField = baseTerrainField(p)
+) {
+  let fields = landLines.get(p);
+  if (!fields) {
+    fields = new WeakMap();
+    landLines.set(p, fields);
+  }
+  let lines = fields.get(terrain);
+  if (!lines) {
+    lines = buildLandContours(p, terrain);
+    fields.set(terrain, lines);
+  }
+  return lines;
+}
+
+function buildLandContours(
+  p: Territory,
+  terrain: TerrainField = baseTerrainField(p)
+): ContourLine[] {
+  const coast = p.coast.flat(2);
+  if (!coast.length) {
+    return [];
+  }
+  const { cell, left, top, width, height, land } = contourGrid(p);
+  const field = Array.from(land, (inside, i) => {
     const x = left + ((i % width) + 0.5) * cell;
     const y = top + (Math.floor(i / width) + 0.5) * cell;
-    return insidePolygons({ x, y }, p.coast)
-      ? terrain.sample(x, y).elevation
-      : 0;
+    return inside ? terrain.sample(x, y).elevation : 0;
   });
   return contours()
     .size([width, height])
