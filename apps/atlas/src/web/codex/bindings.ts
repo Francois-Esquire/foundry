@@ -109,16 +109,62 @@ export function changeCrater(commits: number, percentile: number) {
   return commits >= 3 && percentile >= 0.8;
 }
 
-/** Broad concentration supplies the foothills; local concentration resolves crests. */
-export function concentrationRelief(broad: number, local: number) {
-  return 6 * (1 - Math.exp(-broad / 40)) + 12 * (1 - Math.exp(-local / 5));
+/** Local mass and incoming imports shape relief, independently of recorded change. */
+export function terrainProminence(
+  neighbors: number,
+  dependents: number,
+  structural = false
+) {
+  const concentration = 0.15 + 1.05 * (1 - Math.exp(-neighbors / 8));
+  const importance = Math.min(10, 0.5 * Math.log2(1 + dependents) ** 1.7);
+  return Math.max(concentration, importance, structural ? 3.5 : 0);
 }
 
-/** Evidence kernels at two spatial scales; neither introduces decorative noise. */
-export function concentrationSample(squaredDistance: number) {
-  const reach = Math.max(0, 1 - Math.sqrt(squaredDistance) / 16);
+/** A broad foot around a narrow crest, rather than a uniformly inflated coast. */
+export function ridgeProfile(
+  distance: number,
+  reach: number,
+  elevation: number
+) {
+  const t = Math.max(0, 1 - distance / reach);
+  return elevation * t * t;
+}
+
+/** Crater radius and cut depth follow the recorded commits, with bounded growth. */
+export function craterRelief(commits: number) {
+  const change = Math.log2(1 + commits);
   return {
-    broad: Math.exp(-squaredDistance / (2 * 22 ** 2)),
-    local: reach * reach,
+    depth: Math.min(4, 1.2 + change * 0.55),
+    radius: Math.min(7, 2.8 + change * 0.7),
+  };
+}
+
+/** Each crest fits inside its own coast clearance, leaving the coast on the sheet. */
+export function ridgeFoot(
+  elevation: number,
+  clearance: number,
+  stretch: number
+) {
+  const reach = Math.max(
+    0.01,
+    Math.min(14 + elevation * 1.6, (clearance * 0.95) / stretch)
+  );
+  return { elevation: Math.min(elevation, reach * 0.4), reach };
+}
+
+export function terrainNeighborhood(distance: number) {
+  return Math.max(0, 1 - distance / 24) ** 2;
+}
+
+export function ridgeStretch(spread: number, variance: number) {
+  return 1 + Math.min(0.8, spread / Math.max(1, variance));
+}
+
+export function craterBowl(floor: number, distance: number, surface: number) {
+  const cut = Math.max(0, surface - floor - distance * distance * 5);
+  const feather = Math.min(1, Math.max(0, (1 - distance) / 0.2));
+  return {
+    elevation: surface - cut * feather,
+    mineral: cut > 0 ? Math.max(0, 1 - distance) * 0.65 : 0,
   };
 }

@@ -1,5 +1,12 @@
 import type { Texture } from "three";
-import { attribute, float, materialColor, uniform } from "three/tsl";
+import {
+  attribute,
+  color,
+  float,
+  materialColor,
+  mix,
+  uniform,
+} from "three/tsl";
 import { MeshStandardNodeMaterial } from "three/webgpu";
 
 import { paperSurface, terrainGrid } from "./paper-surface";
@@ -22,9 +29,15 @@ export function createPaperMaterials(map: Texture) {
     roughness: 0.96,
   });
   const occlusion = attribute<"float">("occlusion", "float");
-  paper.colorNode = terrainGrid(paperSurface(materialColor.rgb)).mul(
-    float(1).sub(occlusion.mul(strength).mul(reliefShade))
-  );
+  paper.colorNode = terrainGrid(
+    paperSurface(
+      mix(
+        materialColor.rgb,
+        color("#874d38"),
+        attribute<"float">("mineral", "float")
+      )
+    )
+  ).mul(float(1).sub(occlusion.mul(strength).mul(reliefShade)));
   return {
     dispose: () => {
       paper.dispose();

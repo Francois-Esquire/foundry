@@ -46,11 +46,13 @@ export function MapKey({
         </div>
       </dl>
       <p>
-        Terrain height follows file concentration. File marks stay visible on
-        the relief. Structural roles and measured consumers are in Place.
-        {volcanic &&
-          " Recorded change counts and dates are also shown in Place."}{" "}
-        Omitted routes are listed there.
+        Low ground follows file concentration. Stronger crests mark incoming
+        imports, shared commons and composition junctions. File marks stay
+        visible on the relief. Height is not a quality score.
+        {volcanic
+          ? " Crater cuts show recorded Git change; counts and dates are in Place."
+          : " Recorded-change craters are off."}{" "}
+        Roles, measured consumers and omitted routes are in Place.
       </p>
     </details>
   );

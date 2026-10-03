@@ -50,8 +50,13 @@ missing history never becomes a zero count.
 | ---------------------- | --------------------------------------------- | --------------------- | ------------------------------- |
 | `prominentFile` | Incoming imports and fraction of package files with strictly fewer | Structural evidence index at >=5 imports and >=95th percentile | `landmarks.ts` |
 | `changeCrater` | Commits and repository same-kind commit percentile in the recorded window | Recorded-change index at >=3 commits and >=80th percentile | `landmarks.ts` |
-| `concentrationSample` | Distance from a real file | Broad Gaussian and compact local concentration kernels | `scene/terrain.ts` |
-| `concentrationRelief` | Broad and local file concentration | Bounded 6-unit foothills plus 12-unit crests | `scene/terrain.ts` |
+| `terrainProminence` | Local file mass, incoming module imports, commons/junction role | Quiet concentration relief (up to 1.2 units); import prominence up to 10; structural minimum 3.5 | `scene/terrain-field.ts` |
+| `terrainNeighborhood` | Distance between real files | Compact 24-unit neighborhood weight for mass and covariance | `scene/terrain-field.ts` |
+| `ridgeStretch` | Neighborhood covariance spread and variance | Crest elongation from 1 to 1.8 | `scene/terrain-field.ts` |
+| `ridgeFoot` | Prominence, coast clearance and elongation | Individual shore-fitting footprint and bounded slope | `scene/terrain-field.ts` |
+| `ridgeProfile` | Elliptical distance, footprint and prominence | Squared compact crest profile, combined by maximum | `scene/terrain-field.ts` |
+| `craterRelief` | Recorded commits | Logarithmic cut radius (up to 7) and depth (up to 4) | `scene/terrain-field.ts` |
+| `craterBowl` | Cut floor, normalized radius and existing elevation | Bowl cut, feathered outer fifth, muted mineral pigment inside cut | `scene/terrain-field.ts` |
 | `chartGrid` | View pixels per map unit | Fixed 90-unit majors and 18-unit minor lines; minor opacity fades in at 30–60 screen pixels of spacing | `scene/paint-paper.ts` |
 | `footprint`            | Package size                                  | island radius         | `load-atlas.ts`                 |
 | `latitude`             | Package layer                                 | north/south position  | `load-atlas.ts`, `geography.ts` |
@@ -68,7 +73,7 @@ missing history never becomes a zero count.
 | `streamWidth`          | responsibility link module edges, accumulated on shared runs | stream width | `natural-features.ts`, `river-network.ts`           |
 | `marshDetail` | Unresolved module count and zoom | reed opacity and screen spacing | `scene/paint-features.ts` |
 | `riverPen` | Bound stream width and zoom | mineral river pen width | `scene/paint-features.ts` |
-| `reliefHachure` | Concentration height-field slope and zoom | engraved fall-line threshold, length and opacity | `scene/relief-ink.ts` |
+| `reliefHachure` | Current height-field slope and zoom | engraved fall-line threshold, length and opacity | `scene/relief-ink.ts` |
 | `filePen` | Zoom | file settlement mark size | `scene/paint-map.ts` |
 
 ## Contact points

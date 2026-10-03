@@ -3,7 +3,7 @@ import {
   AmbientLight,
   CanvasTexture,
   DirectionalLight,
-  Group,
+  type Group,
   MathUtils,
   Mesh,
   MeshBasicMaterial,
@@ -54,15 +54,17 @@ import {
   visibleRegionTerritory,
   zoomForPixels,
 } from "./exploration";
+import { createLettering, elevatedLabel } from "./lettering";
 import { paintMap } from "./paint-map";
 import { createPaperMaterials, paperThickness } from "./paper-material";
 import { createRenderPipeline } from "./pipeline";
 import type { PlaybackSnapshot, TrackId } from "./playback";
 import { createPlayback } from "./playback";
 import { createReliefInk } from "./relief-ink";
+import { createReliefLayer } from "./relief-layer";
 import { createRoadLayer } from "./road-layer";
-import { terrainGeometry } from "./terrain";
-import { createTopography } from "./topography";
+import { copySeaInk } from "./sea-ink";
+import { createTopography, landContours } from "./topography";
 import { createTradeLayer } from "./trade-layer";
 import { createWaterMaterial } from "./water-material";
 import { createWreckLayer } from "./wreck-layer";
@@ -150,8 +152,8 @@ export async function createAtlasScene(
   const footprints = createContinents(data, coastalBuffer);
   const continents = layers.land ? footprints : [];
   const coasts = continentCoasts(data, continents);
-  const topography = createTopography(data, coasts);
-  const reliefInk = createReliefInk(data);
+  let topography = createTopography(data, coasts);
+  let reliefInk = createReliefInk(data);
   const boundaries = atlasBoundaries(
     data,
     coastalBuffer,
@@ -212,10 +214,13 @@ export async function createAtlasScene(
   let inkTexture = new CanvasTexture(inkCanvas);
   inkTexture.colorSpace = SRGBColorSpace;
   inkTexture.anisotropy = texture.anisotropy;
+  const seaInkCanvas = document.createElement("canvas");
+  let seaInkTexture = new CanvasTexture(seaInkCanvas);
+  seaInkTexture.colorSpace = SRGBColorSpace;
   const inkMaterial = new MeshBasicMaterial({
     depthTest: false,
     depthWrite: false,
-    map: inkTexture,
+    map: seaInkTexture,
     transparent: true,
   });
   const ink = new Mesh(new PlaneGeometry(1, 1), inkMaterial);
@@ -239,17 +244,20 @@ export async function createAtlasScene(
   const wreckLayer = createWreckLayer(data.formerPackages ?? []);
   scene.add(wreckLayer.group);
 
-  const relief = new Group();
-  for (const p of data.territories) {
-    for (const polygon of p.coast) {
-      const geo = terrainGeometry(p, polygon, data.width, data.height);
-      const island = new Mesh(geo, materials.paper);
-      // Cartographic slope shading avoids cast-shadow speckle on shallow relief.
-      island.castShadow = false;
-      relief.add(island);
-    }
-  }
-  scene.add(relief);
+  const relief = createReliefLayer(data, materials.paper, inkTexture);
+  scene.add(relief.group);
+  const lettering = createLettering();
+  scene.add(lettering.mesh);
+  const projectLabel = (label: MapLabel) => {
+    const { territory, file } = label;
+    const { elevation } = relief
+      .fieldFor(territory)
+      .sample(
+        file?.x ?? label.x - territory.x,
+        file?.y ?? label.y - territory.y
+      );
+    return elevatedLabel(label, elevation, tilt);
+  };
   let selected: string | null = null;
   let drawingData = data;
   const roads = createRoadNetwork(data, layers.roads ? continents : []);
@@ -468,7 +476,8 @@ export async function createAtlasScene(
       matches,
       [],
       settings.streams,
-      reliefInk
+      reliefInk,
+      { canvas: lettering.canvas, project: projectLabel }
     );
     const inkContext = inkCanvas.getContext("2d");
     if (inkContext) {
@@ -479,6 +488,10 @@ export async function createAtlasScene(
         view.pixelsPerUnit
       );
     }
+    copySeaInk(seaInkCanvas, inkCanvas, drawingData, view);
+    relief.setView(view);
+    lettering.update(view);
+    seaInkTexture.needsUpdate = true;
     inkTexture.needsUpdate = true;
     atmosphere.cameraChanged();
   };
@@ -525,7 +538,15 @@ export async function createAtlasScene(
     inkTexture = new CanvasTexture(inkCanvas);
     inkTexture.colorSpace = SRGBColorSpace;
     inkTexture.anisotropy = texture.anisotropy;
-    inkMaterial.map = inkTexture;
+    relief.setMap(inkTexture);
+    lettering.resize(inkCanvas.width, inkCanvas.height);
+    seaInkCanvas.width = inkCanvas.width;
+    seaInkCanvas.height = inkCanvas.height;
+    seaInkTexture.dispose();
+    seaInkTexture = new CanvasTexture(seaInkCanvas);
+    seaInkTexture.colorSpace = SRGBColorSpace;
+    seaInkTexture.anisotropy = texture.anisotropy;
+    inkMaterial.map = seaInkTexture;
     render();
   };
   const observer = new ResizeObserver(resize);
@@ -553,6 +574,7 @@ export async function createAtlasScene(
       playbackMotion,
       belonging,
       settings.streams,
+      relief.surfaces,
       event
     );
   let down = { x: 0, y: 0 };
@@ -832,9 +854,9 @@ export async function createAtlasScene(
       ground.geometry.dispose();
       coast.geometry.dispose();
       coastMaterial.dispose();
-      for (const child of relief.children) {
-        (child as Mesh).geometry.dispose();
-      }
+      relief.dispose();
+      lettering.dispose();
+      seaInkTexture.dispose();
       texture.dispose();
       paperTexture.dispose();
       ink.geometry.dispose();
@@ -917,6 +939,15 @@ export async function createAtlasScene(
     },
     setAtmosphere: atmosphere.setEnabled,
     setBelonging: (value: BelongingLayer | null) => {
+      if (relief.setFeatures(value)) {
+        topography = [
+          ...topography.filter((line) => line.sea),
+          ...data.territories.flatMap((territory) =>
+            landContours(territory, relief.fieldFor(territory))
+          ),
+        ];
+        reliefInk = createReliefInk(data, relief.fieldFor);
+      }
       if (value?.featureFocus) {
         selectedFile = null;
         selectedNeighborhood = undefined;
@@ -1112,6 +1143,7 @@ function resolveHit(
   playbackMotion: MediaQueryList,
   belonging: BelongingLayer | null,
   streams: boolean,
+  surfaces: Group,
   event: PointerEvent
 ): AtlasSelection | null {
   const rect = canvas.getBoundingClientRect();
@@ -1139,6 +1171,10 @@ function resolveHit(
       regionId: label.regionId,
       territory: label.territory,
     };
+  }
+  const [surface] = raycaster.intersectObjects(surfaces.children, false);
+  if (surface) {
+    point.copy(surface.point);
   }
   const port = tradeLayer.pick(raycaster);
   if (port) {

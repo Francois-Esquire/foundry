@@ -8,7 +8,7 @@ import {
 import { loadAtlas } from "../helpers/reference-atlas";
 
 describe("atlas terrain", () => {
-  it("tapers continuous density relief to unchanged coastlines", async () => {
+  it("fits continuous structural relief to unchanged coastlines", async () => {
     const data = await loadAtlas();
     const p = data.territories.find(
       (territory) => territory.files.length > 100
@@ -44,43 +44,6 @@ describe("atlas terrain", () => {
     expect(Math.min(...heights)).toBeGreaterThanOrEqual(paperThickness - 0.001);
     expect(Math.max(...heights)).toBeLessThanOrEqual(paperThickness + 18.001);
     expect(p).toEqual(before);
-    geo.dispose();
-  });
-  it("engraves an occlusion term that is darkest in valleys", async () => {
-    const data = await loadAtlas();
-    const p = data.territories.find(
-      (territory) => territory.files.length > 100
-    );
-    const [polygon] = [...(p?.coast ?? [])].sort(
-      (a, b) => b.flat().length - a.flat().length
-    );
-    if (!(p && polygon)) {
-      throw new Error("Missing populated territory");
-    }
-    const geo = terrainGeometry(p, polygon, data.width, data.height);
-    const occlusion = geo.getAttribute("occlusion");
-    const positions = geo.getAttribute("position");
-    expect(occlusion.count).toBe(positions.count);
-    // Rank inland vertices by height: summits against the foot of the relief.
-    const inland = Array.from({ length: positions.count }, (_, i) => i)
-      .filter((i) => positions.getZ(i) > paperThickness + 1)
-      .sort((a, b) => positions.getZ(b) - positions.getZ(a));
-    const tenth = Math.max(1, Math.floor(inland.length / 10));
-    const shade = (indices: number[]) =>
-      indices.reduce((sum, i) => sum + occlusion.getX(i), 0) / indices.length;
-    for (let i = 0; i < occlusion.count; i += 1) {
-      expect(occlusion.getX(i)).toBeGreaterThanOrEqual(0);
-      expect(occlusion.getX(i)).toBeLessThanOrEqual(1);
-    }
-    expect(inland.length).toBeGreaterThan(tenth * 2);
-    expect(shade(inland.slice(-tenth))).toBeGreaterThan(
-      shade(inland.slice(0, tenth))
-    );
-    expect(
-      Math.max(
-        ...Array.from({ length: occlusion.count }, (_, i) => occlusion.getX(i))
-      )
-    ).toBeGreaterThan(0.2);
     geo.dispose();
   });
   it("distinguishes canonical kinds and leaves unknown kinds neutral", () => {

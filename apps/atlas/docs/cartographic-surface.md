@@ -9,10 +9,10 @@ terrain. Adding more natural symbols did not address those problems.
 
 - [Imhof's Walensee](https://ikgrelief.ethz.ch/examples/walensee/): coherent warm
   light and cool shadow make broad landforms readable. Atlas uses the existing
-  file-concentration relief for that shading; it does not invent alpine heights.
+  evidence-derived relief for that shading; it does not invent alpine heights.
 - [Zermatt, 1891](https://ikgrelief.ethz.ch/examples/zermatt/): fine engraved slope
   strokes and clear settlement lettering share a restrained paper field. Atlas
-  samples short fall-line hachures from its density slope, below settlement ink.
+  samples short fall-line hachures from its terrain slope, below settlement ink.
 - [ETH's relief design guidance](https://ikgrelief.ethz.ch/design/): relief and
   water should agree, and cast shadows can confuse the drawing. Atlas removes
   shallow land cast shadows, and gives measured water a directional inset bank.
@@ -28,9 +28,13 @@ flat cool slope tint and pixel noise. Full-sheet folds remain removed.
 The summit/crater stamps were also rejected. They added repeated clip-art shapes
 while leaving the underlying landform soft. They are removed, and every file
 keeps its original visible mark. The recovery concentrates on actual terrain:
-less broad elevation, compact crests from local file concentration, and a lower
-northwest light with less ambient fill. The coordinate grid follows that mesh.
-Structural roles and optional recorded Git change remain inspectable in Place.
+quiet low ground and sharper crests shaped by incoming imports and structural
+roles. Local file covariance gives each crest a direction; compact footprints
+fit individually within the unchanged shore. Taking their upper envelope leaves
+saddles instead of inflating the whole island. Grid and cartographic ink follow
+the same mesh that receives pointer hits. Lettering stays undistorted on raised
+anchors. Optional recorded Git change cuts shallow bowls into that mesh. All
+roles and counts remain inspectable in Place. Bloom starts off.
 
 ## What remains unresolved
 
@@ -41,7 +45,7 @@ remain visible in Place. Some surviving arcs still look like connections rather
 than tributaries. Streams remain optional and off initially.
 
 Stream banks remain cartographic shading, not carved mesh depth.
-Relief height still means concentration only. Commons normally supply consumers;
+Relief now expresses concentration and structural prominence. Commons normally supply consumers;
 streams retain that direction regardless of the landmark vocabulary.
 
 Routing is materially slower than the independent-arc baseline. A browser probe
@@ -50,7 +54,11 @@ moving the same construction into a dedicated worker. Cached coast checks help;
 the worker prevents that construction from blocking navigation, but does not
 remove total computation. A synchronous fallback remains for unavailable workers.
 
-The map key explains concentration relief, streams, and unresolved marsh.
+The map key explains structural relief, recorded-change craters, streams, and unresolved marsh.
 The keyboard index retains structural roles and recorded-change evidence. Hover/selection describes the same evidence in Place and the polite live
-region. The district chord chart, inland current, cycle signs, and physical basin
-mesh are deferred rather than added to an already dense surface.
+region. The district chord chart, inland current, cycle signs, and carved stream beds are deferred rather than added to an already dense surface.
+
+This is a cartographic height field, not a hydraulic simulation. Nearest-shore
+fitting can suppress a prominent crest on narrow land, and closely spaced hubs
+can still crowd one another. Height is not a precise count axis; Place carries
+the counts. Actual cliffs, erosion and invented mountain ranges are excluded.

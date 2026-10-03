@@ -2,7 +2,7 @@ import { insidePolygons } from "../atmosphere";
 import { reliefHachure } from "../codex/bindings";
 import { unit } from "../geography";
 import type { AtlasData, Territory } from "../types";
-import { terrainHeight } from "./terrain";
+import { baseTerrainField, type TerrainField } from "./terrain-field";
 
 interface Hachure {
   dx: number;
@@ -17,9 +17,13 @@ export interface ReliefInk {
   territory: Territory;
 }
 
-/** Short fall-line strokes sampled from the existing concentration relief. */
-export function createReliefInk(data: AtlasData): ReliefInk[] {
+/** Short fall-line strokes sampled from the current terrain relief. */
+export function createReliefInk(
+  data: AtlasData,
+  fieldFor: (territory: Territory) => TerrainField = baseTerrainField
+): ReliefInk[] {
   return data.territories.map((territory) => {
+    const terrain = fieldFor(territory);
     const points = territory.coast.flat(2);
     const left = Math.min(...points.map(([x]) => x));
     const right = Math.max(...points.map(([x]) => x));
@@ -35,12 +39,12 @@ export function createReliefInk(data: AtlasData): ReliefInk[] {
           continue;
         }
         const dx =
-          (terrainHeight(territory, x + 2, y) -
-            terrainHeight(territory, x - 2, y)) /
+          (terrain.sample(x + 2, y).elevation -
+            terrain.sample(x - 2, y).elevation) /
           4;
         const dy =
-          (terrainHeight(territory, x, y + 2) -
-            terrainHeight(territory, x, y - 2)) /
+          (terrain.sample(x, y + 2).elevation -
+            terrain.sample(x, y - 2).elevation) /
           4;
         const slope = Math.hypot(dx, dy);
         if (reliefHachure(slope).length > 0) {

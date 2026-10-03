@@ -44,15 +44,14 @@ export type RenderStage = keyof typeof renderStages;
 
 /**
  * Rendering pipeline controls. Defaults keep the chart's matte paper look:
- * linear output at unit exposure, engraved relief shading, and a whisper of
- * bloom on the brightest ink.
+ * linear output at unit exposure and engraved relief shading without bloom.
  */
 export const defaultRenderSettings = {
   ambientOcclusion: true,
   aoIntensity: 1,
   /** Occlusion reach in screen pixels, so the look holds at every zoom. */
   aoReach: 10,
-  bloom: true,
+  bloom: false,
   bloomRadius: 0.35,
   bloomStrength: 0.2,
   bloomThreshold: 0.8,

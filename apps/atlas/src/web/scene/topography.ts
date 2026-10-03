@@ -3,8 +3,7 @@ import { insidePolygons } from "../atmosphere";
 import type { AtlasData, Polygon, Territory } from "../types";
 import type { InkView, MapLabel } from "./exploration";
 import { oceanField } from "./ocean";
-import { paperThickness } from "./paper-material";
-import { terrainHeight } from "./terrain";
+import { baseTerrainField, type TerrainField } from "./terrain-field";
 
 export interface ContourLine {
   elevation: number;
@@ -17,7 +16,10 @@ export interface ContourLine {
 export const coastalRings = [2, 3.5, 5.5, 8, 11.5, 15.5, 20];
 export const archipelagoRings = [3, 4.5, 6.5, 9.5, 13, 17, 22];
 
-export function landContours(p: Territory): ContourLine[] {
+export function landContours(
+  p: Territory,
+  terrain: TerrainField = baseTerrainField(p)
+): ContourLine[] {
   const coast = p.coast.flat(2);
   if (!coast.length) {
     return [];
@@ -35,7 +37,7 @@ export function landContours(p: Territory): ContourLine[] {
     const x = left + ((i % width) + 0.5) * cell;
     const y = top + (Math.floor(i / width) + 0.5) * cell;
     return insidePolygons({ x, y }, p.coast)
-      ? terrainHeight(p, x, y) - paperThickness
+      ? terrain.sample(x, y).elevation
       : 0;
   });
   return contours()
@@ -61,7 +63,9 @@ export function createTopography(
   data: AtlasData,
   coasts?: Polygon[]
 ): ContourLine[] {
-  const lines = data.territories.flatMap(landContours);
+  const lines = data.territories.flatMap((territory) =>
+    landContours(territory)
+  );
   const { canvas, distances, outside, scale } = oceanField(data, 1280, coasts);
   for (const { field, intervals } of [
     { field: distances, intervals: coastalRings },
@@ -173,7 +177,7 @@ function paintTopographyEntriesEntries(
 ): boolean {
   let drawing = initialDrawing;
   for (const [x, terrainY] of line.points) {
-    const y = terrainY - line.elevation * Math.tan(0.7);
+    const y = terrainY;
     const key = `${Math.floor((x * pixels) / 3)}:${Math.floor((y * pixels) / 3)}`;
     const owner = occupied.get(key);
     const hidden =

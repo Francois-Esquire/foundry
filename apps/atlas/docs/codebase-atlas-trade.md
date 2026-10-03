@@ -173,8 +173,10 @@ Optional district streams now draw measured responsibility relationships on each
 island. Compatible streams share downstream runs; width adds their module edges.
 Place reports direction, dominant crossing symbols and omitted routes. Commons,
 composition junctions and dependency hubs remain inspectable at their file marks;
-marsh marks unresolved belonging. Recorded Git change is optional evidence in Place.
-The rejected summit and crater stamps have been removed. The on-map key and keyboard
+marsh marks unresolved belonging. Crests express concentration and structural
+importance in the actual terrain, with quiet low ground between them. Recorded
+Git change optionally cuts shallow craters into that terrain, with counts and
+dates in Place. The rejected summit and crater stamps remain removed. The on-map key and keyboard
 feature index explain the drawing. See the current [design record](../src/web/DESIGN.md)
 for routing and fitting rules. Expansion into every exact file dependency remains
 an explicit trace, not a consequence of selecting a responsibility.

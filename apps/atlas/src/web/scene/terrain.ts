@@ -9,47 +9,12 @@ import {
 } from "three";
 import { TessellateModifier } from "three/addons/modifiers/TessellateModifier.js";
 import { mergeVertices } from "three/addons/utils/BufferGeometryUtils.js";
-import { concentrationRelief, concentrationSample } from "../codex/bindings";
 import type { Polygon, Territory } from "../types";
 import { paperThickness } from "./paper-material";
+import { baseTerrainField, type TerrainField } from "./terrain-field";
 
 export function terrainHeight(p: Territory, x: number, y: number): number {
-  let distance = Number.POSITIVE_INFINITY;
-  for (const polygon of p.coast) {
-    for (const ring of polygon) {
-      for (let i = 1; i < ring.length; i += 1) {
-        const a = ring[i - 1];
-        const b = ring[i];
-        if (!(a && b)) {
-          continue;
-        }
-        const dx = b[0] - a[0],
-          dy = b[1] - a[1];
-        const t = Math.max(
-          0,
-          Math.min(
-            1,
-            ((x - a[0]) * dx + (y - a[1]) * dy) / (dx * dx + dy * dy || 1)
-          )
-        );
-        distance = Math.min(
-          distance,
-          Math.hypot(x - a[0] - t * dx, y - a[1] - t * dy)
-        );
-      }
-    }
-  }
-  const shore = Math.min(1, distance / 28);
-  const taper = shore * shore * (3 - 2 * shore);
-  let broad = 0;
-  let local = 0;
-  for (const file of p.files) {
-    const squared = (x - file.x) ** 2 + (y - file.y) ** 2;
-    const sample = concentrationSample(squared);
-    broad += sample.broad;
-    local += sample.local;
-  }
-  return paperThickness + concentrationRelief(broad, local) * taper;
+  return paperThickness + baseTerrainField(p).sample(x, y).elevation;
 }
 
 export function terrainGeometry(
@@ -64,38 +29,56 @@ export function terrainGeometry(
     shape.holes.push(new Path(hole));
   }
   const base = new ShapeGeometry(shape);
-  const triangles = new TessellateModifier(3, 16).modify(base);
+  const triangles = new TessellateModifier(1.5, 18).modify(base);
   base.dispose();
   triangles.deleteAttribute("normal");
   const geometry = mergeVertices(triangles);
   triangles.dispose();
   const positions = geometry.getAttribute("position");
   const uv = geometry.getAttribute("uv");
-  const normals = new Float32Array(positions.count * 3);
-  const occlusion = new Float32Array(positions.count);
   for (let i = 0; i < positions.count; i += 1) {
     const x = positions.getX(i),
       y = positions.getY(i);
-    positions.setXYZ(i, p.x + x, -p.y + y, terrainHeight(p, x, -y));
+    positions.setXYZ(i, p.x + x, -p.y + y, 0);
     uv.setXY(i, (p.x + x) / width + 0.5, (-p.y + y) / height + 0.5);
-    const elevation = positions.getZ(i);
-    const east = terrainHeight(p, x + 3, -y);
-    const west = terrainHeight(p, x - 3, -y);
-    const south = terrainHeight(p, x, -y + 3);
-    const north = terrainHeight(p, x, -y - 3);
-    const dx = (east - west) / 6;
-    const dy = (south - north) / 6;
-    // Fixed-radius curvature avoids the long skinny triangles of a coast mesh
-    // imprinting their tessellation on the paper.
+  }
+  reshapeTerrain(geometry, p, baseTerrainField(p));
+  return geometry;
+}
+
+/** Shared by the relief mesh and its ink, including optional excavated craters. */
+export function reshapeTerrain(
+  geometry: BufferGeometry,
+  p: Territory,
+  field: TerrainField
+) {
+  const positions = geometry.getAttribute("position");
+  const normals = new Float32Array(positions.count * 3);
+  const occlusion = new Float32Array(positions.count);
+  const mineral = new Float32Array(positions.count);
+  for (let i = 0; i < positions.count; i += 1) {
+    const x = positions.getX(i) - p.x;
+    const y = -positions.getY(i) - p.y;
+    const sample = field.sample(x, y);
+    positions.setZ(i, paperThickness + sample.elevation);
+    const east = field.sample(x + 0.5, y).elevation;
+    const west = field.sample(x - 0.5, y).elevation;
+    const south = field.sample(x, y + 0.5).elevation;
+    const north = field.sample(x, y - 0.5).elevation;
     occlusion[i] = Math.max(
       0,
-      Math.min(1, ((east + west + south + north) / 4 - elevation) * 2)
+      Math.min(1, ((east + west + south + north) / 4 - sample.elevation) * 4)
     );
-    new Vector3(-dx, dy, 1).normalize().toArray(normals, i * 3);
+    new Vector3(west - east, south - north, 1)
+      .normalize()
+      .toArray(normals, i * 3);
+    mineral[i] = sample.mineral;
   }
+  positions.needsUpdate = true;
   geometry.setAttribute("normal", new BufferAttribute(normals, 3));
   geometry.setAttribute("occlusion", new BufferAttribute(occlusion, 1));
-  return geometry;
+  geometry.setAttribute("mineral", new BufferAttribute(mineral, 1));
+  geometry.computeBoundingSphere();
 }
 
 export function settlementColor(kind: string): string {

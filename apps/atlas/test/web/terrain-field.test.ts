@@ -1,0 +1,171 @@
+import { expect, it } from "vitest";
+import { buildLandmarks } from "../../src/web/landmarks";
+import { elevatedLabel } from "../../src/web/scene/lettering";
+import { reshapeTerrain, terrainGeometry } from "../../src/web/scene/terrain";
+import { createTerrainField } from "../../src/web/scene/terrain-field";
+import type { AtlasFile, Territory } from "../../src/web/types";
+
+const file: AtlasFile = {
+  directory: "src",
+  id: "shared",
+  incoming: 20,
+  kind: "source",
+  outgoing: 0,
+  path: "src/shared.ts",
+  x: 0,
+  y: 0,
+};
+const territory: Territory = {
+  analyzed: true,
+  coast: [
+    [
+      [
+        [-50, -50],
+        [50, -50],
+        [50, 50],
+        [-50, 50],
+        [-50, -50],
+      ],
+    ],
+  ],
+  color: "#fff",
+  files: [file],
+  hills: [],
+  id: "example",
+  label: "Example",
+  neighborhoods: [],
+  radius: 50,
+  shallows: [],
+  x: 0,
+  y: 0,
+};
+
+it("gives a depended-on file a stronger crest without lifting the coast or moving files", () => {
+  const before = structuredClone(territory);
+  const terrain = createTerrainField(territory);
+  const quiet = createTerrainField({
+    ...territory,
+    files: [{ ...file, incoming: 0 }],
+  });
+  expect(terrain.sample(0, 0).elevation).toBeGreaterThan(
+    quiet.sample(0, 0).elevation * 3
+  );
+  expect(terrain.sample(0, 0).elevation).toBeGreaterThan(
+    terrain.sample(5, 0).elevation
+  );
+  expect(terrain.sample(40, 0).elevation).toBe(0);
+  expect(terrain.sample(50, 0).elevation).toBe(0);
+  expect(territory).toEqual(before);
+});
+
+it("cuts recorded change into existing vertices and restores the same mesh when absent", () => {
+  const marks = buildLandmarks(territory, [], {
+    churn: {
+      available: true,
+      files: [
+        {
+          additions: 70,
+          authors: 1,
+          commits: 8,
+          deletions: 30,
+          file: file.path,
+          kind: "source",
+          linesChanged: 100,
+          rank: { commitPercentile: 0.9, lineChurnPercentile: 0.5 },
+        },
+      ],
+      history: {
+        analyzedAt: "2026-09-30T00:00:00Z",
+        commitsAnalyzed: 20,
+        historyComplete: true,
+        windowDays: 365,
+      },
+    },
+    fileIds: {},
+    relationships: [],
+    unresolved: [],
+  });
+  const base = createTerrainField(territory);
+  const carved = createTerrainField(territory, marks);
+  expect(carved.sample(0, 0).elevation).toBeLessThan(
+    base.sample(0, 0).elevation - 1
+  );
+  expect(carved.sample(0, 0).mineral).toBeGreaterThan(0);
+  expect(carved.sample(12, 0)).toEqual(base.sample(12, 0));
+  const [coast] = territory.coast;
+  if (!coast) {
+    throw new Error("Missing fixture coast");
+  }
+  const geometry = terrainGeometry(territory, coast, 100, 100);
+  const positions = geometry.getAttribute("position");
+  const before = Array.from(positions.array);
+  reshapeTerrain(geometry, territory, carved);
+  let lowered = 0;
+  for (let index = 0; index < positions.count; index += 1) {
+    expect(positions.getX(index)).toBe(before[index * 3]);
+    expect(positions.getY(index)).toBe(before[index * 3 + 1]);
+    if (positions.getZ(index) < (before[index * 3 + 2] ?? 0)) {
+      lowered += 1;
+    }
+  }
+  expect(lowered).toBeGreaterThan(0);
+  reshapeTerrain(geometry, territory, base);
+  expect(Array.from(positions.array)).toEqual(before);
+  geometry.dispose();
+});
+
+it("raises label anchors without distorting their type or click bounds", () => {
+  const label = {
+    file,
+    font: "10px Georgia",
+    height: 10,
+    territory,
+    text: "shared.ts",
+    width: 48,
+    x: 0,
+    y: -4,
+  };
+  const projected = elevatedLabel(label, 6, 0.7);
+  expect(projected.y).toBeCloseTo(label.y - 6 * Math.tan(0.7));
+  expect(projected).toMatchObject({
+    font: label.font,
+    height: 10,
+    width: 48,
+    x: 0,
+  });
+  expect(label.y).toBe(-4);
+});
+
+it("darkens the saddle between two crests while keeping their summits clear", () => {
+  const pair = {
+    ...territory,
+    files: [
+      { ...file, id: "west", x: -8 },
+      { ...file, id: "east", x: 8 },
+    ],
+  };
+  const [coast] = pair.coast;
+  if (!coast) {
+    throw new Error("Missing fixture coast");
+  }
+  const geometry = terrainGeometry(pair, coast, 100, 100);
+  const positions = geometry.getAttribute("position");
+  const shade = geometry.getAttribute("occlusion");
+  const at = (x: number) => {
+    let nearest = 0;
+    let distance = Number.POSITIVE_INFINITY;
+    for (let index = 0; index < positions.count; index += 1) {
+      const next = Math.hypot(positions.getX(index) - x, positions.getY(index));
+      if (next < distance) {
+        nearest = index;
+        distance = next;
+      }
+    }
+    return shade.getX(nearest);
+  };
+  expect(at(0)).toBeGreaterThan(0.2);
+  expect(at(-8)).toBeLessThan(0.05);
+  expect(at(8)).toBeLessThan(0.05);
+  expect(shade.count).toBe(positions.count);
+  geometry.dispose();
+});

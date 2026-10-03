@@ -110,8 +110,9 @@ function FeatureEvidence({
       {feature.kind === "landmark" && (
         <>
           <p>
-            This evidence describes the file at its existing mark. Terrain
-            height follows file concentration.
+            This file keeps its position. Crests follow concentration and
+            structural importance; optional crater cuts show recorded change.
+            Exact roles and counts are given above.
           </p>
           <PlaceButton
             onSelect={onSelect}

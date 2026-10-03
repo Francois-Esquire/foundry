@@ -52,7 +52,11 @@ export function paintMap(
   matches?: BelongingRegion,
   continents: Continent[] = [],
   streams = false,
-  relief: ReliefInk[] = []
+  relief: ReliefInk[] = [],
+  lettering?: {
+    canvas: HTMLCanvasElement;
+    project: (label: MapLabel) => MapLabel;
+  }
 ): MapLabel[] {
   let belonging = initialBelonging;
   let responsibility = initialResponsibility;
@@ -155,8 +159,9 @@ export function paintMap(
     pixels
   );
   paintFileFocus(ctx, data, selected, fileId, pixels);
+  const labelContext = letteringContext(lettering?.canvas, ctx, view, data);
   const labels = paintLabels(
-    ctx,
+    labelContext,
     data,
     selected,
     fileId,
@@ -174,7 +179,8 @@ export function paintMap(
         ? new Set(activeRegion.members.map((file) => file.id))
         : undefined),
     responsibility?.composition,
-    belonging
+    belonging,
+    lettering?.project
   );
   if (view) {
     ctx.save();
@@ -194,6 +200,20 @@ export function paintMap(
     data.height / 2 - 22
   );
   return labels;
+}
+
+function letteringContext(
+  canvas: HTMLCanvasElement | undefined,
+  fallback: CanvasRenderingContext2D,
+  view: InkView | undefined,
+  data: AtlasData
+) {
+  if (!canvas) {
+    return fallback;
+  }
+  const ctx = canvas.getContext("2d");
+  collectScale(ctx, canvas, view, data);
+  return ctx;
 }
 
 function collectScale(
@@ -815,7 +835,8 @@ function paintLabels(
   } = detailLevel(view.pixelsPerUnit),
   evidenceFiles?: Set<string>,
   composition?: ResponsibilityOverlay["composition"],
-  belonging?: BelongingLayer | null
+  belonging?: BelongingLayer | null,
+  project: (label: MapLabel) => MapLabel = (label) => label
 ): MapLabel[] {
   const candidates: MapLabel[] = [];
   const add = (
@@ -893,7 +914,7 @@ function paintLabels(
   const distinct = candidates.filter(
     (label) => label.file || label.text !== focusedName
   );
-  const labels = visibleLabels(distinct, view).filter((label) => {
+  const labels = visibleLabels(distinct.map(project), view).filter((label) => {
     if (label.regionId ?? label.compositeId) {
       regionLabels += 1;
       if (regionLabels > regionLabelBudget) {

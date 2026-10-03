@@ -1,5 +1,6 @@
 import {
   BoxGeometry,
+  BufferAttribute,
   type BufferGeometry,
   Color,
   CylinderGeometry,
@@ -60,6 +61,15 @@ export function createEcosystemLayer(
         uv.setXY(i, x / data.width + 0.5, y / data.height + 0.5);
       }
       geometry.computeVertexNormals();
+      // Connecting ground has no structural crests or recorded crater cuts.
+      geometry.setAttribute(
+        "occlusion",
+        new BufferAttribute(new Float32Array(positions.count), 1)
+      );
+      geometry.setAttribute(
+        "mineral",
+        new BufferAttribute(new Float32Array(positions.count), 1)
+      );
       const mesh = new Mesh(geometry, paper);
       mesh.receiveShadow = true;
       group.add(mesh);

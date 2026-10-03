@@ -142,13 +142,20 @@ their marks remain legible; pan and zoom still reach the full atlas.
 
 Three.js uses an orthographic camera with a fixed 0.7-radian tilt. Coastlines
 remain unchanged while a triangulated surface rises from a 0.4-unit shoreline.
-File concentration controls height at two scales. A 22-unit Gaussian field
-supplies up to 6 units of broad relief; a compact 16-unit kernel supplies up to
-12 units of local crests. This reduces the inflated broad mound while resolving
-nearby file groups in the actual mesh. Coastal taper still spans 28 units.
-Normals derive from that field. There are no stacked contours or peak icons.
-Height means concentration, never quality or activity. File placement stays fixed.
-Cartographic ink stays on its original overlay plane, rendered above terrain.
+Height expresses file concentration and measured structural importance, never
+quality or live activity. Low concentration relief leaves quiet flats. Incoming
+module imports raise sharper crests on a bounded logarithmic scale; recorded
+commons and composition junctions receive a minimum structural prominence when
+internals are loaded. Local file covariance stretches each crest along its
+neighborhood. The surface takes the upper envelope of compact crests, leaving
+saddles between them instead of summing them into a swollen island. Each crest
+fits within its own coastline clearance and tapers to the sheet independently.
+Normals and concavity derive from the same field. No terrain noise, stacked
+contours or peak icons are added. File placement and coastline XY stay fixed.
+
+Cartographic ink and pointer hits share the displaced relief mesh. Lettering
+uses raised anchors on a separate overlay so glyphs remain undistorted; label
+collision and hit bounds use those projected positions. Sea ink remains flat.
 
 Source settlements retain brown ink. Tests use blue walled proving grounds;
 stories use rose semicircular theaters; configuration uses ochre buildings.
@@ -162,13 +169,14 @@ Matte mineral pigments retain quiet flats beneath engraved relief. A 48% warm
 stock wash leaves package pigments visible. The coordinate grid uses 90-unit
 major lines and 18-unit subdivisions, which fade in at 30–60 pixels of spacing.
 On land the grid is printed in world coordinates on the displaced mesh, so lines
-bend with the concentration relief. Derivative antialiasing keeps the ink fine.
+bend with the relief. Derivative antialiasing keeps the ink fine.
 The sea grid stops at land, preventing a second flat line across a hill.
 File and declaration connections still require an explicit trace.
 
-Engraved topography is generated once per scene from existing height and distance
-fields. Land levels at 3, 6, 9, 12 and 15 units use two-unit sampling; their ink
-projects at the corresponding elevation. Seven coastal rings sit 2, 3.5, 5.5, 8,
+Engraved topography is generated from the current height and distance fields.
+Land levels at 3, 6, 9, 12 and 15 units use one-unit sampling; their ink follows
+the mesh. Land contours and hachures refresh when structural or change evidence
+changes the relief. Seven coastal rings sit 2, 3.5, 5.5, 8,
 11.5, 15.5 and 20 units from land. Seven outer rings sit 3, 4.5, 6.5, 9.5, 13, 17
 and 22 units beyond the archipelago rim. Their spacing increases and ink fades
 outward; the coastal reach stays capped at 20 units. A finer 1280-pixel distance
@@ -180,14 +188,14 @@ per map unit. Land ink is warm brown; sea ink is muted teal. Contours are solid,
 with slightly stronger major lines; boundaries and dependencies retain dashes.
 Three-pixel crowding suppression and four-pixel label clearance protect reading.
 
-Neutral ambient fill and a warm directional light illuminate the paper. Raised
-land casts soft shadows onto the sea sheet. The static shadow map is generated
-once and cached. The overview current animates the sea material at at most 30 fps.
+Neutral ambient fill and a warm directional light illuminate the paper. Land uses slope shading without cast shadows on the sea. Optional props use a
+cached shadow map. The overview current animates the sea material at at most 30 fps.
 The full-screen sheet has no outer border or CSS shadow. Paper drawers and the
 selected-place inspector use `0 8px 26px #584a3328` to separate them from the map.
 
-The hit plane follows the raised paper height. Scene teardown releases both
-canvas textures, all materials and geometries, the light's
+Pointer rays intersect the relief for file and feature inspection; projected
+lettering is tested first. Scene teardown releases the ink and lettering canvas
+textures, all materials and geometries, the light's
 shadow resources, controls and renderer.
 
 Decorative coastlight follows projected coastline contours on a transparent
@@ -333,7 +341,8 @@ remain disposable presentation data; temporal stability is not guaranteed.
   at least 95% of this package's files have strictly fewer incoming imports.
   The rejected summit and crater stamps are removed. Every file retains its own
   visible mark and selection ring. Structural roles and consuming responsibilities
-  remain in Place and its keyboard index; they do not add an icon or extra height.
+  remain in Place and its keyboard index. They shape the actual relief without
+  adding icons. Every file mark remains visible on the surface.
   A module with unresolved belonging is a marsh: a patch of
   reed signs around the file, with up to two dotted drains following land
   routes part of the way toward the districts it could join. Reeds vary
@@ -367,7 +376,7 @@ remain disposable presentation data; temporal stability is not guaranteed.
   responsibility still does not draw its file graph, and nothing animates.
   A small open spring sign marks a recorded supplier endpoint unless a structural file mark
   already marks it. Muted banks replace the bright casing around each line.
-- A collapsed Map key sits on the paper at the lower left. It explains district streams, unresolved marsh, and concentration relief without implying quality.
+- A collapsed Map key sits on the paper at the lower left. It explains district streams, unresolved marsh, and structural relief without implying quality.
   Feature hover and selection report in Place and the polite live region.
   File inspection lists its structural role and measured consuming responsibilities. River
   inspection states import direction, module edges, contributing relationships
@@ -536,7 +545,7 @@ failure also falls back to direct draw and is disclosed in the panel.
 
 Land uses a rough, nonmetallic lit paper material under warm northwest light.
 No land cast shadows are added. Concavity still comes from fixed-radius samples
-of the concentration field. Hachures appear only above slope 0.24,
+of the current terrain field. Hachures appear only above slope 0.24,
 leaving gentle flats clear. There are no full-sheet fold bands or screen grain.
 Fine fibers and faint broad stock variation are stationary world-coordinate
 material texture, shared by land and sea. They fade when too small to resolve,
@@ -547,11 +556,15 @@ Recorded change evidence is optional, off initially. It reads the same survey's
 package churn report only when enabled, matched by exact workspace-relative file
 path. The index includes files with at least 3 commits and a commit percentile
 >= 0.8 among repository files of the same kind in the same history window.
-The rejected crater/volcano icons are removed. Counts, line additions/deletions,
-dates, percentile population, and complete/partial Git history remain in Place.
-No history means no inferred count. Structural peaks and churn depressions in
-the mesh require a separate decision about the height channel; the current
-terrain still represents concentration only.
+Recorded change cuts a shallow bowl into the existing mesh at each eligible
+file. Radius and maximum cut depth grow logarithmically with commit count,
+bounded at 7 and 4 map units; cuts never lift the surrounding ground or breach
+the paper base. A subdued iron pigment appears only inside the cut. A changed
+structural crest therefore has a crater, with no separate volcano icon or glow.
+Counts, line additions/deletions, dates, percentile population, and complete or
+partial Git history remain in Place. No history means no cut and no inferred
+count. Disabling the layer restores the uncut surface. Bloom starts off so
+bright paper slopes retain their edges.
 
 Sliders are uniforms and change nothing in the graph; quality, toggles, tone
 mapping, filter, and stage view rebuild it. Stage modules load on first use.
