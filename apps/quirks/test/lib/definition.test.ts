@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 
-import { step, workflow } from "~/lib/builder";
+import { step, workflow } from "~/authoring/builder";
 import { catalog } from "~/lib/catalog";
 import { isLockedNode } from "~/lib/definition";
 

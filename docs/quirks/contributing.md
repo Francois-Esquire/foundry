@@ -16,9 +16,15 @@ bun run --cwd=apps/quirks test
 bun run --cwd=apps/quirks test:package
 ```
 
-The library lives in `apps/quirks/src/lib/`; the CLI entry is
-`apps/quirks/src/cli.ts`. One tsup build emits both entries with shared chunks so
-a configuration and the CLI use the same registry. `bun run quirks` at the
+The source has three layers under `apps/quirks/src/`. `lib/` is the engine: the
+`Engine` class, the manager classes it is handed, the catalog class, and
+everything that runs a definition. It imports nothing outside itself and is
+published as `@foundry/quirks/lib`. `authoring/` is what a
+`quirks.config.ts` imports: the builders and the prebuilt steps, which
+register into the default catalog the lib exports. Everything else is the CLI and the
+dashboard, entered at `apps/quirks/src/cli.ts`. One tsup build emits every
+entry with shared chunks so a configuration, the CLI, and an embedding host use
+the same catalog. `bun run quirks` at the
 repository root runs the built `dist/cli.js`, so rebuild before checking CLI
 behavior.
 

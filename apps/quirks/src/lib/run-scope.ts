@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import type { ChannelMessage } from "@foundry/workflows/channels";
 import type { Step } from "@foundry/workflows/step";
 
+import type { HostBindings } from "./bindings";
 import { Ledger } from "./ledger";
 import type { SessionRef } from "./types";
 
@@ -85,6 +86,8 @@ export class RunScope {
   /** The config's directory. */
   readonly cwd: string;
   readonly frames = new Map<string, Frame>();
+  /** Host-only facilities for built-in bodies; authored code never sees them. */
+  readonly host: HostBindings;
   readonly id: string;
   readonly ledger: Ledger;
   /** Literal input by step path: recorded when the tree is first built, replayed on recovery. */
@@ -92,9 +95,10 @@ export class RunScope {
   readonly session: SessionRef;
   #root: Step | undefined;
 
-  constructor(id: string, cwd: string) {
+  constructor(id: string, cwd: string, host: HostBindings = {}) {
     this.id = id;
     this.cwd = cwd;
+    this.host = host;
     const previous = restored.get(id);
     restored.delete(id);
     this.ledger = new Ledger(previous?.ledger);

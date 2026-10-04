@@ -1,10 +1,8 @@
 import { execFileSync } from "node:child_process";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-
+import { weekdays } from "~/lib/schedule";
 import type { Schedule, Trigger, Weekday } from "~/lib/triggers";
-
-import { weekdays } from "~/schedule";
 
 interface PlistOptions {
   readonly label: string;

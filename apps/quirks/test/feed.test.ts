@@ -6,19 +6,19 @@ import { step } from "@foundry/quirks";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { formatCount } from "~/components/ui/count-badge";
-import { startEngine } from "~/engine";
-import { feedPayload, feedQuestionSchema } from "~/feed/entry";
-import { feedPublisher } from "~/feed/publish";
-import { feedReader, formatPosted } from "~/feed/read";
-import { registerSetupStep, SETUP_STEP } from "~/feed/setup";
-import type { FeedStore } from "~/feed/store";
-import { openFeed } from "~/feed/store";
 import { catalog } from "~/lib/catalog";
+import type { CreateEngineOptions } from "~/lib/create";
+import { createEngine } from "~/lib/create";
+import { Engine } from "~/lib/engine";
+import { feedPayload, feedQuestionSchema } from "~/lib/feed/entry";
+import { feedPublisher } from "~/lib/feed/publish";
+import type { FeedEntrySnapshot } from "~/lib/feed/read";
+import { feedReader, formatPosted } from "~/lib/feed/read";
+import type { FeedStore } from "~/lib/feed/store";
+import { openFeed } from "~/lib/feed/store";
 import { createLog, formatLogValues } from "~/lib/log";
 import { runs } from "~/lib/run-scope";
-import { registerCatalog } from "~/lib/tree";
-import { bindRuntime } from "~/runtime";
-import type { FeedEntrySnapshot } from "~/views/dashboard-model";
+import { registerSetupStep, SETUP_STEP } from "~/onboarding/setup-step";
 
 const MISSING_TITLE = /feed entries need a title/;
 const UNREADABLE_MEDIA = /cannot read media/;
@@ -48,16 +48,21 @@ function workspace(id = "ws-a", path = join(root, "project")) {
   return { id, root: path };
 }
 
-/** A dry runtime over the feed's own artifact store, bound to the catalog. */
-function bind(store: FeedStore) {
-  return bindRuntime({
+/** A started dry engine over the feed's own artifact store. */
+function engineOver(
+  store: FeedStore,
+  options: Partial<CreateEngineOptions> = {}
+): Promise<Engine> {
+  return createEngine({
     artifacts: store.artifacts,
+    catalog,
     dry: true,
     only: [],
     print: () => undefined,
     root,
     workspaceId: "ws-a",
-  });
+    ...options,
+  }).start();
 }
 
 describe("feed posts", () => {
@@ -180,14 +185,13 @@ describe("feed store", () => {
 describe("engine", () => {
   it("attributes a step's reports to its run and step before the run settles", async () => {
     const store = openFeed(undefined, workspace());
-    const runtime = bind(store);
     step("summarize")
       .input(z.object({ text: z.string() }))
       .do(({ input, report }) => {
         report.result({ body: input.text, key: "summary", title: "Summary" });
         return input.text;
       });
-    const engine = await startEngine(registerCatalog, {
+    const engine = await engineOver(store, {
       feed: store.publisher,
       print: () => undefined,
     });
@@ -206,14 +210,13 @@ describe("engine", () => {
       run: launched.id,
       step: "summarize",
     });
-    await runtime.dispose();
+    await engine.dispose();
   });
 });
 
 describe("questions", () => {
   function askingStep() {
     const store = openFeed(undefined, workspace());
-    const runtime = bind(store);
     step("deploy")
       .input(z.object({ version: z.string() }))
       .do(async ({ ask, input }) => {
@@ -225,7 +228,7 @@ describe("questions", () => {
         });
         return `${input.version}:${answer}`;
       });
-    return { runtime, store };
+    return { store };
   }
 
   async function openQuestion(read: () => Promise<FeedEntrySnapshot[]>) {
@@ -242,8 +245,8 @@ describe("questions", () => {
   }
 
   it("pause the run on an open entry and resume it with the answer", async () => {
-    const { runtime, store } = askingStep();
-    const engine = await startEngine(registerCatalog, {
+    const { store } = askingStep();
+    const engine = await engineOver(store, {
       askable: true,
       feed: store.publisher,
       print: () => undefined,
@@ -285,13 +288,13 @@ describe("questions", () => {
       NO_LONGER_WAITING
     );
     await engine.stop();
-    await runtime.dispose();
+    await engine.dispose();
   });
 
   it("cancel the run when nothing in the process can answer", async () => {
-    const { runtime, store } = askingStep();
+    const { store } = askingStep();
     const lines: string[] = [];
-    const engine = await startEngine(registerCatalog, {
+    const engine = await engineOver(store, {
       feed: store.publisher,
       print: (line) => lines.push(line),
     });
@@ -302,12 +305,12 @@ describe("questions", () => {
     expect(entry?.input?.status).toBe("cancelled");
     expect(lines.join("\n")).toContain('"Deploy?" needs an answer');
     await engine.stop();
-    await runtime.dispose();
+    await engine.dispose();
   });
 
   it("mark open questions cancelled when the engine stops", async () => {
-    const { runtime, store } = askingStep();
-    const engine = await startEngine(registerCatalog, {
+    const { store } = askingStep();
+    const engine = await engineOver(store, {
       askable: true,
       feed: store.publisher,
       print: () => undefined,
@@ -318,7 +321,7 @@ describe("questions", () => {
     await engine.stop({ cancel: true });
     const [entry] = await store.read();
     expect(entry?.input?.status).toBe("cancelled");
-    await runtime.dispose();
+    await engine.dispose();
   });
 });
 
@@ -421,10 +424,9 @@ describe("abandoned questions", () => {
 describe("onboarding", () => {
   it("posts the setup milestone from its own run", async () => {
     const store = openFeed(undefined, workspace());
-    const engine = await startEngine(registerSetupStep, {
-      feed: store.publisher,
-      print: () => undefined,
-    });
+    const engine = new Engine({ catalog, feed: store.publisher, root });
+    registerSetupStep(engine);
+    await engine.start();
     await engine.run(SETUP_STEP, {
       configPath: join(root, "quirks.config.ts"),
       draft: {

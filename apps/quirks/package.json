@@ -19,6 +19,10 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./lib": {
+      "types": "./dist/lib.d.ts",
+      "default": "./dist/lib.js"
+    },
     "./prebuilt": {
       "types": "./dist/prebuilt.d.ts",
       "default": "./dist/prebuilt.js"

@@ -1,7 +1,11 @@
 import type { StepContext } from "@foundry/workflows/step";
 import { z } from "zod";
 
-import { FEED_INPUT_KIND, FEED_POST_EVENT, feedPayload } from "~/feed/entry";
+import {
+  FEED_INPUT_KIND,
+  FEED_POST_EVENT,
+  feedPayload,
+} from "~/lib/feed/entry";
 import { createLog } from "~/lib/log";
 
 import type { Bindings } from "./bindings";

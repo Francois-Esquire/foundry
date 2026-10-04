@@ -1,20 +1,18 @@
 import type { InputField } from "~/lib/inputs";
-import type { MonitorSpec } from "~/monitor";
-
-import type { Bindings } from "./bindings";
+import type { MonitorSpec } from "~/lib/monitor";
 import type { AnyDefinition } from "./definition";
 import { fieldsFromSchema, JSON_INPUT_FIELD, jsonSchemaOf } from "./schema";
 import type { Schedule } from "./triggers";
 
 /**
- * What the config registered. Named definitions are the catalog: the CLI,
- * the dashboard, and schedules launch them by name. A name is given to the
- * builder or inferred from the top-level `const`; a definition with neither
- * is internal and never appears here. Schedules and monitors are keyed by
- * what they trigger and watch.
+ * What a host registered. Named definitions are the catalog: the engine
+ * launches them by name, as do schedules. A definition without a name is
+ * internal and never appears here. Schedules and monitors are keyed by what
+ * they trigger and watch. The engine is handed one and reads it; whoever
+ * writes the definitions fills it.
  */
 
-interface CatalogEntry {
+export interface CatalogEntry {
   readonly description?: string;
   /** The name came from the config's `const`. */
   readonly inferred?: boolean;
@@ -30,7 +28,7 @@ function where(definition: AnyDefinition): string {
   return site ? ` (${site.file}:${String(site.line)})` : "";
 }
 
-class Catalog {
+export class Catalog {
   readonly definitions = new Map<string, AnyDefinition>();
   /** Keyed like the detector step and the schedule a monitor registers. */
   readonly monitors = new Map<string, MonitorSpec>();
@@ -38,7 +36,6 @@ class Catalog {
   /** Paths of declared workspaces, as written; sandboxes may mount them. */
   readonly workspaces = new Set<string>();
   readonly #counters = new Map<string, number>();
-  #bindings: Bindings | undefined;
 
   register(definition: AnyDefinition): void {
     if (definition.name === undefined) {
@@ -106,17 +103,6 @@ class Catalog {
       });
   }
 
-  bind(bindings: Bindings): void {
-    this.#bindings = bindings;
-  }
-
-  bindings(): Bindings {
-    if (!this.#bindings) {
-      throw new Error("the runtime is not bound; the CLI binds it");
-    }
-    return this.#bindings;
-  }
-
   /** Tests only: forget everything a previous config registered. */
   reset(): void {
     this.definitions.clear();
@@ -124,8 +110,11 @@ class Catalog {
     this.monitors.clear();
     this.workspaces.clear();
     this.#counters.clear();
-    this.#bindings = undefined;
   }
 }
 
+/**
+ * The default catalog: the one a `quirks.config.ts` fills as it is imported.
+ * Nothing in the lib reads it; an engine runs whichever catalog it is handed.
+ */
 export const catalog = new Catalog();

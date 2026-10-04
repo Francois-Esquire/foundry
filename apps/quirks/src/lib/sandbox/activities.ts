@@ -6,8 +6,8 @@ import type {
   HarnessSession,
 } from "@foundry/agents/harness";
 import { z } from "zod";
-import type { FeedPublisher } from "~/feed/publish";
-import { readJson, writeJson } from "~/state/json";
+import type { FeedPublisher } from "~/lib/feed/publish";
+import { readJson, writeJson } from "~/lib/state/json";
 
 const sourceSchema = z.object({
   definition: z.string(),

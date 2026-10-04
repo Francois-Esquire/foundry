@@ -134,45 +134,66 @@ function wrap(container: Container, frame: Frame): Sandbox {
   return handle;
 }
 
-export function sandboxesManager(
-  deps: SandboxesDeps
-): (args: ManagerArgs) => Sandboxes {
-  return ({ frame, scope }) => ({
-    async open(id) {
-      const containers = await deps.containers();
-      return wrap(await containers.open(id, frame.signal), frame);
-    },
-    async start(sandbox: SandboxDefinition | SandboxSpec) {
-      const { key } = scope.claim(frame, KIND);
-      const containers = await deps.containers();
-      const recorded = scope.ledger.get<string>(key);
-      if (recorded !== undefined) {
-        // A container never outlives the process that started it: a run
-        // adopted after a restart starts a fresh one under the same key.
+export class SandboxesManager {
+  readonly #deps: SandboxesDeps;
+  #opened: Promise<Containers> | undefined;
+
+  constructor(deps: SandboxesDeps) {
+    this.#deps = deps;
+  }
+
+  /** Resolved at first use and kept: the runtime is started once. */
+  #containers(): Promise<Containers> {
+    this.#opened ??= this.#deps.containers();
+    return this.#opened;
+  }
+
+  /** What a step body sees: sandboxes that stop with its frame. */
+  scoped({ frame, scope }: ManagerArgs): Sandboxes {
+    const deps = this.#deps;
+    const opened = () => this.#containers();
+    return {
+      async open(id) {
+        const containers = await opened();
+        return wrap(await containers.open(id, frame.signal), frame);
+      },
+      async start(sandbox: SandboxDefinition | SandboxSpec) {
+        const { key } = scope.claim(frame, KIND);
+        const containers = await opened();
+        const recorded = scope.ledger.get<string>(key);
+        if (recorded !== undefined) {
+          // A container never outlives the process that started it: a run
+          // adopted after a restart starts a fresh one under the same key.
+          try {
+            return wrap(await containers.open(recorded, frame.signal), frame);
+          } catch {
+            scope.ledger.set(key, undefined);
+          }
+        }
+        const container = await containers.start(
+          constraintsFor(
+            sandbox,
+            { cwd: current.getStore()?.cwd ?? deps.root, root: deps.root },
+            deps.home
+          ),
+          frame.signal
+        );
         try {
-          return wrap(await containers.open(recorded, frame.signal), frame);
-        } catch {
-          scope.ledger.set(key, undefined);
+          if ("files" in sandbox) {
+            await container.files.copyIn(guestFiles(sandbox.files));
+          }
+        } catch (error) {
+          await container.close();
+          throw error;
         }
-      }
-      const container = await containers.start(
-        constraintsFor(
-          sandbox,
-          { cwd: current.getStore()?.cwd ?? deps.root, root: deps.root },
-          deps.home
-        ),
-        frame.signal
-      );
-      try {
-        if ("files" in sandbox) {
-          await container.files.copyIn(guestFiles(sandbox.files));
-        }
-      } catch (error) {
-        await container.close();
-        throw error;
-      }
-      scope.ledger.set(key, container.id);
-      return wrap(container, frame);
-    },
-  });
+        scope.ledger.set(key, container.id);
+        return wrap(container, frame);
+      },
+    };
+  }
+
+  /** Shut down the runtime if a sandbox ever opened it. */
+  async close(): Promise<void> {
+    await this.#opened?.then((containers) => containers.shutdown());
+  }
 }

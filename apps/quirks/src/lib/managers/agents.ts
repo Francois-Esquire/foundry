@@ -15,10 +15,10 @@ import type { Skill } from "@foundry/agents/skills";
 import type { ModelManager, TurnExecutorRef } from "@foundry/models";
 import { observeAgentTurn } from "@foundry/models";
 
-import type { AutomationService } from "~/automation/service";
-import type { HarnessActivities } from "~/sandbox/activities";
-import type { HarnessInteractions } from "~/sandbox/interactions";
-import { createSandboxSession } from "~/sandbox/session";
+import type { AutomationService } from "~/lib/automation/service";
+import type { HarnessActivities } from "~/lib/sandbox/activities";
+import type { HarnessInteractions } from "~/lib/sandbox/interactions";
+import { createSandboxSession } from "~/lib/sandbox/session";
 
 import type { ManagerArgs } from "../bindings";
 import type { Frame, LiveSession } from "../run-scope";
@@ -443,9 +443,34 @@ function retainSession(
   return wrap(harness, ref, frame, write, recorded);
 }
 
-export function agentsManager(deps: AgentsDeps): (args: ManagerArgs) => Agents {
-  return (args) => ({
-    session: (definition, options = {}) =>
-      openSession(deps, args, definition, options),
-  });
+export class AgentsManager {
+  readonly #deps: AgentsDeps;
+
+  constructor(deps: AgentsDeps) {
+    this.#deps = deps;
+  }
+
+  get models(): ModelManager {
+    return this.#deps.models;
+  }
+
+  get sessions(): SessionStore {
+    return this.#deps.sessions;
+  }
+
+  /** What a step body sees: sessions bound to its frame's signal, stream, and working directory. */
+  scoped(args: ManagerArgs): Agents {
+    return {
+      session: (definition, options = {}) =>
+        openSession(this.#deps, args, definition, options),
+    };
+  }
+
+  /**
+   * The Codex provider holds a `codex app-server` child; without this the
+   * process never exits.
+   */
+  async close(): Promise<void> {
+    await this.#deps.models.dispose();
+  }
 }

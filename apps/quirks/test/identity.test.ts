@@ -9,11 +9,12 @@ import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-
+import { resetIdentity } from "~/authoring/identity";
 import { catalog } from "~/lib/catalog";
-import { resetIdentity } from "~/lib/identity";
 
-const LIB = pathToFileURL(resolve(import.meta.dir, "../src/lib/index.ts")).href;
+const LIB = pathToFileURL(
+  resolve(import.meta.dir, "../src/authoring/index.ts")
+).href;
 const NODE_MODULES = resolve(import.meta.dir, "../../../node_modules");
 
 const dirs: string[] = [];

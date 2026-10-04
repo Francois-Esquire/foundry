@@ -12,18 +12,17 @@ import { git } from "@foundry/workspaces/git";
 import { directory } from "@foundry/workspaces/node";
 import { nodeObserver } from "@foundry/workspaces/node/watch";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-
+import { skills } from "~/authoring/resources";
 import type { ManagerArgs } from "~/lib/bindings";
-import { artifactIdFor, artifactsManager } from "~/lib/managers/artifacts";
+import { ArtifactsManager, artifactIdFor } from "~/lib/managers/artifacts";
 import {
   allowedMountRoots,
   constraintsFor,
   guestFiles,
-  sandboxesManager,
+  SandboxesManager,
 } from "~/lib/managers/sandboxes";
 import { skillResolver } from "~/lib/managers/skills";
-import { repositoryRoot, workspacesManager } from "~/lib/managers/workspaces";
-import { skills } from "~/lib/resources";
+import { repositoryRoot, WorkspacesManager } from "~/lib/managers/workspaces";
 import { current, RunScope, runs } from "~/lib/run-scope";
 import { seedRepository } from "./../helpers/repository";
 
@@ -112,9 +111,9 @@ describe("workspaces", () => {
       git()
     );
     try {
-      const manager = workspacesManager({ catalogue, root: repo });
+      const manager = new WorkspacesManager({ catalogue, root: repo });
       const a = args(repo);
-      const workspaces = manager(a);
+      const workspaces = manager.scoped(a);
       expect(workspaces.current.root).toBe(repo);
       await expect(workspaces.current.files()).resolves.toContain("README.md");
       expect(repositoryRoot(join(repo, "nested", "deeper"))).toBe(repo);
@@ -147,11 +146,11 @@ describe("workspaces", () => {
     );
     const worktreeHome = join(tmp, "state", "worktrees");
     try {
-      const workspaces = workspacesManager({
+      const workspaces = new WorkspacesManager({
         catalogue,
         root: repo,
         worktreeHome,
-      })(args(repo));
+      }).scoped(args(repo));
       const root = await workspaces.current.git.withWorktree(
         { base: "main" },
         (worktree) => Promise.resolve(worktree.root)
@@ -168,7 +167,9 @@ describe("workspaces", () => {
       directory({ observer: nodeObserver }),
       git()
     );
-    const workspaces = workspacesManager({ catalogue, root: tmp })(args());
+    const workspaces = new WorkspacesManager({ catalogue, root: tmp }).scoped(
+      args()
+    );
     expect(() => workspaces.current.git).toThrow(NOT_A_REPOSITORY);
   });
 });
@@ -176,7 +177,10 @@ describe("workspaces", () => {
 describe("artifacts", () => {
   it("keeps a declared artifact's identity and adds a version per write", async () => {
     const system = new ArtifactSystem({ store: new InMemoryArtifactStore() });
-    const manager = artifactsManager({ artifacts: system, workspaceId: "ws" });
+    const manager = new ArtifactsManager({
+      artifacts: system,
+      workspaceId: "ws",
+    });
     const report = {
       id: "artifact#1",
       kind: "artifact",
@@ -184,13 +188,15 @@ describe("artifacts", () => {
       type: "text/markdown",
     } as const;
     const a = args();
-    const artifacts = manager(a);
+    const artifacts = manager.scoped(a);
 
     const first = await artifacts.write(report, { "report.md": "# one\n" });
     expect(first.artifactId).toBe(artifactIdFor("ws", "Weekly"));
 
     const b = args();
-    const second = await manager(b).write(report, { "report.md": "# two\n" });
+    const second = await manager
+      .scoped(b)
+      .write(report, { "report.md": "# two\n" });
     expect(second.artifactId).toBe(first.artifactId);
     expect(second.contentId).not.toBe(first.contentId);
     const stored = await system.get(first.artifactId as ArtifactId);
@@ -303,13 +309,13 @@ describe("sandboxes", () => {
       runtime,
       store: createMemoryContainerStore(),
     });
-    const manager = sandboxesManager({
+    const manager = new SandboxesManager({
       containers: () => Promise.resolve(containers),
       home,
       root,
     });
     const a = args(root);
-    const sandboxes = manager(a);
+    const sandboxes = manager.scoped(a);
 
     const env = await sandboxes.start({ image: "docker.io/oven/bun:1-slim" });
     const result = await env.exec(["bun", "test"]);
@@ -339,13 +345,13 @@ describe("sandboxes", () => {
       runtime: createFakeContainerRuntime(),
       store: createMemoryContainerStore(),
     });
-    const manager = sandboxesManager({
+    const manager = new SandboxesManager({
       containers: () => Promise.resolve(containers),
       home,
       root,
     });
     const a = args(root);
-    const sandboxes = manager(a);
+    const sandboxes = manager.scoped(a);
     const env = await current.run(
       { cwd: worktree, frame: a.frame, scope: a.scope },
       () => sandboxes.start({ image: "img:1" })
@@ -396,11 +402,11 @@ describe("sandboxes", () => {
       store: createMemoryContainerStore(),
     });
     const a = args(root);
-    const sandboxes = sandboxesManager({
+    const sandboxes = new SandboxesManager({
       containers: () => Promise.resolve(containers),
       home,
       root,
-    })(a);
+    }).scoped(a);
     const env = await sandboxes.start({
       files: { "b.txt": "beta", "notes/a.txt": "alpha" },
       id: "sandbox#1",

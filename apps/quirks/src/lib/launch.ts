@@ -1,6 +1,5 @@
 import type { AnyDefinition, LockedNode } from "./definition";
 import { isLockedNode } from "./definition";
-import { canInfer } from "./identity";
 
 /**
  * What a trigger starts: a named definition and the input it was locked
@@ -14,10 +13,9 @@ export interface Launch {
 }
 
 function nameless(verb: string, definition: AnyDefinition): string {
-  const hint =
-    definition.site !== undefined && !canInfer(definition.site.file)
-      ? "; install typescript in the config's project to name it from its const, or"
-      : ";";
+  const hint = definition.uninferable
+    ? "; install typescript in the config's project to name it from its const, or"
+    : ";";
   return `${verb}: this ${definition.kind} has no name${hint} give it one: ${definition.kind}("name")`;
 }
 

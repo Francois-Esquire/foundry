@@ -1,9 +1,9 @@
 import { basename } from "node:path";
-import type { Orchestrator } from "@foundry/workflows/orchestrator";
 import type { StepContext } from "@foundry/workflows/step";
 import { Step } from "@foundry/workflows/step";
 
-import { FEED_POST_EVENT, feedPayload } from "~/feed/entry";
+import type { Engine } from "~/lib/engine";
+import { FEED_POST_EVENT, feedPayload } from "~/lib/feed/entry";
 import { type SetupDraft, STARTERS } from "~/onboarding/templates";
 
 /** Built in rather than registered from a config, so it stays out of the catalog. */
@@ -48,8 +48,8 @@ class WorkspaceSetupStep extends Step<SetupInput, void> {
   }
 }
 
-export function registerSetupStep(orchestrator: Orchestrator): void {
-  orchestrator.register(SETUP_STEP, new WorkspaceSetupStep().factory());
+export function registerSetupStep(engine: Engine): void {
+  engine.register(SETUP_STEP, new WorkspaceSetupStep().factory());
 }
 
 function setupArticle({ configPath, draft, root }: SetupInput): string {

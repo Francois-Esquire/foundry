@@ -1,4 +1,4 @@
-import type { FeedEntrySnapshot } from "./dashboard-model";
+import type { FeedEntrySnapshot } from "~/lib/feed/read";
 
 export const ALL_WORKSPACES = "all";
 

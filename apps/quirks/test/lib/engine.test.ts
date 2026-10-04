@@ -12,19 +12,15 @@ import { join } from "node:path";
 import { InMemorySessionStore } from "@foundry/agents/session";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { z } from "zod";
-
-import { startEngine } from "~/engine";
-import { openFeed } from "~/feed/store";
-import { unbound } from "~/lib/bindings";
-import { step, workflow } from "~/lib/builder";
+import { step, workflow } from "~/authoring/builder";
+import { agent } from "~/authoring/resources";
 import { catalog } from "~/lib/catalog";
-import { createLog } from "~/lib/log";
-import { agent } from "~/lib/resources";
+import type { FeedEntrySnapshot } from "~/lib/feed/read";
+import { openFeed } from "~/lib/feed/store";
 import { runs } from "~/lib/run-scope";
-import { registerCatalog } from "~/lib/tree";
-import type { FeedEntrySnapshot } from "~/views/dashboard-model";
 
 import { bindMock } from "../helpers/bindings";
+import { startEngine } from "../helpers/engine";
 
 const NOT_RUNNING_PATTERN = /not running here/;
 const CANCELLED_PATTERN = /cancelled/;
@@ -33,14 +29,6 @@ let root: string;
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "quirks-lib2-engine-"));
-  catalog.bind({
-    agents: () => unbound("agents"),
-    artifacts: () => unbound("artifacts"),
-    log: createLog(() => undefined),
-    root,
-    sandboxes: () => unbound("sandboxes"),
-    workspaces: () => unbound("workspaces"),
-  });
 });
 
 afterEach(async () => {
@@ -75,10 +63,11 @@ describe("lib2 through the engine", () => {
       return { approved, note, run: run.id };
     });
     const store = openFeed(undefined, { id: "ws", root });
-    const engine = await startEngine(registerCatalog, {
+    const engine = await startEngine({
       askable: true,
       feed: store.publisher,
       print: () => undefined,
+      root,
     });
 
     const launched = await engine.launch<{
@@ -159,10 +148,12 @@ describe("lib2 through the engine", () => {
     define();
     const first = bindMock(() => "ok", { root, sessions });
     const feedOne = openFeed(feedRoot, { id: "ws", root });
-    const one = await startEngine(registerCatalog, {
+    const one = await startEngine({
+      ...first.managers,
       askable: true,
       feed: feedOne.publisher,
       print: () => undefined,
+      root,
       state,
     });
     const launched = await one.launch<boolean>("release", {});
@@ -223,10 +214,12 @@ describe("lib2 through the engine", () => {
     const second = bindMock(() => "ok", { root, sessions });
     const feedTwo = openFeed(feedRoot, { id: "ws", root });
     const lines: string[] = [];
-    const two = await startEngine(registerCatalog, {
+    const two = await startEngine({
+      ...second.managers,
       askable: true,
       feed: feedTwo.publisher,
       print: (line) => lines.push(line),
+      root,
       state,
     });
     expect(lines).toContain(`[run] release recovered ${launched.id}`);
@@ -286,10 +279,12 @@ describe("lib2 through the engine", () => {
     define();
     const first = bindMock(() => "ok", { root });
     const feedOne = openFeed(feedRoot, { id: "ws", root });
-    const one = await startEngine(registerCatalog, {
+    const one = await startEngine({
+      ...first.managers,
       askable: true,
       feed: feedOne.publisher,
       print: () => undefined,
+      root,
       state,
     });
     const parked = await one.launch<boolean>("release", {});
@@ -324,10 +319,12 @@ describe("lib2 through the engine", () => {
     const second = bindMock(() => "ok", { root });
     const feedTwo = openFeed(feedRoot, { id: "ws", root });
     const lines: string[] = [];
-    const two = await startEngine(registerCatalog, {
+    const two = await startEngine({
+      ...second.managers,
       askable: true,
       feed: feedTwo.publisher,
       print: (line) => lines.push(line),
+      root,
       state,
     });
     expect(lines).toContain(`[run] release recovered ${parked.id}`);
@@ -356,10 +353,11 @@ describe("lib2 through the engine", () => {
       async ({ ask }) => (await ask.approval({ title: "Go?" })).approved
     );
     const feedOne = openFeed(feedRoot, { id: "ws", root });
-    const one = await startEngine(registerCatalog, {
+    const one = await startEngine({
       askable: true,
       feed: feedOne.publisher,
       print: () => undefined,
+      root,
       state,
     });
     const launched = await one.launch<boolean>("release", {});
@@ -374,9 +372,10 @@ describe("lib2 through the engine", () => {
       async ({ ask }) => (await ask.approval({ title: "Go?" })).approved
     );
     const lines: string[] = [];
-    const quiet = await startEngine(registerCatalog, {
+    const quiet = await startEngine({
       feed: openFeed(feedRoot, { id: "ws", root }).publisher,
       print: (line) => lines.push(line),
+      root,
       state,
     });
     expect((await quiet.runs()).map((run) => run.id)).not.toContain(
@@ -392,10 +391,11 @@ describe("lib2 through the engine", () => {
       async ({ ask }) => (await ask.approval({ title: "Go?" })).approved
     );
     const renamed: string[] = [];
-    const later = await startEngine(registerCatalog, {
+    const later = await startEngine({
       askable: true,
       feed: openFeed(feedRoot, { id: "ws", root }).publisher,
       print: (line) => renamed.push(line),
+      root,
       state,
     });
     expect((await later.runs()).map((run) => run.id)).not.toContain(
@@ -436,8 +436,10 @@ describe("lib2 through the engine", () => {
       ]);
       return reply.text;
     });
-    const engine = await startEngine(registerCatalog, {
+    const engine = await startEngine({
+      ...mock.managers,
       print: () => undefined,
+      root,
     });
     const launched = await engine.launch<string>("review", {});
     const status = async (wanted: string) =>
@@ -504,8 +506,10 @@ describe("lib2 through the engine", () => {
       .input(z.object({ text: z.string() }))
       .do(({ input }) => input.text.toUpperCase());
     workflow("flow", parent({ text: child({}) }));
-    const engine = await startEngine(registerCatalog, {
+    const engine = await startEngine({
+      ...mock.managers,
       print: () => undefined,
+      root,
     });
     const launched = await engine.launch<string>("flow", {});
     await started;
@@ -546,10 +550,11 @@ describe("lib2 through the engine", () => {
       return approved;
     });
     const store = openFeed(undefined, { id: "ws", root });
-    const engine = await startEngine(registerCatalog, {
+    const engine = await startEngine({
       askable: true,
       feed: store.publisher,
       print: () => undefined,
+      root,
       state,
     });
     const launched = await engine.launch<boolean>("gated", {});
@@ -590,10 +595,11 @@ describe("lib2 through the engine", () => {
         async ({ ask }) => (await ask.approval({ title: "Go?" })).approved
       );
     define();
-    const one = await startEngine(registerCatalog, {
+    const one = await startEngine({
       askable: true,
       feed: openFeed(feedRoot, { id: "ws", root }).publisher,
       print: () => undefined,
+      root,
       state,
     });
     const launched = await one.launch<boolean>("release", {});
@@ -609,10 +615,12 @@ describe("lib2 through the engine", () => {
     runs.clear();
     define();
     const rebound = bindMock(() => "ok", { root });
-    const two = await startEngine(registerCatalog, {
+    const two = await startEngine({
+      ...rebound.managers,
       askable: true,
       feed: openFeed(feedRoot, { id: "ws", root }).publisher,
       print: () => undefined,
+      root,
       state,
     });
     const file = join(state, "runs", `${launched.id}.json`);
@@ -622,9 +630,11 @@ describe("lib2 through the engine", () => {
 
     // A second process that finds the same file cannot take the run too.
     const lines: string[] = [];
-    const three = await startEngine(registerCatalog, {
+    const three = await startEngine({
+      ...rebound.managers,
       askable: true,
       print: (line) => lines.push(line),
+      root,
       state,
     });
     expect((await three.runs()).map((run) => run.id)).not.toContain(
@@ -666,10 +676,11 @@ describe("lib2 through the engine", () => {
       workflow("counting").do(() => tally({}, { n: seed }));
     };
     define();
-    const one = await startEngine(registerCatalog, {
+    const one = await startEngine({
       askable: true,
       feed: openFeed(feedRoot, { id: "ws", root }).publisher,
       print: () => undefined,
+      root,
       state,
     });
     const launched = await one.launch<number>("counting", {});
@@ -691,10 +702,12 @@ describe("lib2 through the engine", () => {
     runs.clear();
     define();
     const rebound = bindMock(() => "ok", { root });
-    const two = await startEngine(registerCatalog, {
+    const two = await startEngine({
+      ...rebound.managers,
       askable: true,
       feed: openFeed(feedRoot, { id: "ws", root }).publisher,
       print: () => undefined,
+      root,
       state,
     });
     if (!question) {
@@ -718,10 +731,11 @@ describe("lib2 through the engine", () => {
       async ({ ask }) => (await ask.approval({ title: "Go?" })).approved
     );
     const store = openFeed(undefined, { id: "ws", root });
-    const engine = await startEngine(registerCatalog, {
+    const engine = await startEngine({
       askable: true,
       feed: store.publisher,
       print: () => undefined,
+      root,
     });
     const launched = await engine.launch<boolean>("release", {});
     const question = await openEntry(
@@ -756,8 +770,9 @@ describe("lib2 through the engine", () => {
         })
       )
       .do(({ input }) => input.n);
-    const engine = await startEngine(registerCatalog, {
+    const engine = await startEngine({
       print: () => undefined,
+      root,
     });
     await expect(engine.launch("typed", { n: 3 })).rejects.toThrow(
       '"typed" input'
@@ -777,8 +792,9 @@ describe("lib2 through the engine", () => {
           });
         })
     );
-    const engine = await startEngine(registerCatalog, {
+    const engine = await startEngine({
       print: () => undefined,
+      root,
     });
     const launched = await engine.launch("wait", {});
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -802,10 +818,11 @@ describe("lib2 through the engine", () => {
       .do(({ input }) => `${input.a}+${input.b}`);
     workflow("pair", both.parallel({ a: asks({}), b: slow({}) }));
     const store = openFeed(undefined, { id: "ws", root });
-    const engine = await startEngine(registerCatalog, {
+    const engine = await startEngine({
       askable: true,
       feed: store.publisher,
       print: () => undefined,
+      root,
     });
     const launched = await engine.launch<string>("pair", {});
     const question = await openEntry(

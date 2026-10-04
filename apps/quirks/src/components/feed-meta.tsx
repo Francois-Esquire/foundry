@@ -1,6 +1,6 @@
 import type { Theme } from "~/components/ui/types";
 import { useTheme } from "~/hooks/use-theme";
-import type { FeedEntrySnapshot } from "~/views/dashboard-model";
+import type { FeedEntrySnapshot } from "~/lib/feed/read";
 
 type KindEntry = Pick<FeedEntrySnapshot, "kind" | "input">;
 

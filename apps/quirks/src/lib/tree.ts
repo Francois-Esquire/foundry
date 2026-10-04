@@ -1,15 +1,11 @@
 import { isSuspendSignal } from "@foundry/workflows/executable";
-import type {
-  Orchestrator,
-  RunExecutionContext,
-} from "@foundry/workflows/orchestrator";
+import type { RunExecutionContext } from "@foundry/workflows/orchestrator";
 import type { StepContext } from "@foundry/workflows/step";
 import { Step } from "@foundry/workflows/step";
 
 import { createLog } from "~/lib/log";
 
 import type { Bindings } from "./bindings";
-import { catalog } from "./catalog";
 import { buildContext } from "./context";
 import type {
   AnyDefinition,
@@ -209,7 +205,8 @@ export function factoryFor(
     ) as Input;
     const scope = new RunScope(
       execution?.runId ?? crypto.randomUUID(),
-      bound.root
+      bound.root,
+      bound.host
     );
     try {
       const node = await rootNode(definition, name, input, scope, bound);
@@ -246,14 +243,4 @@ async function rootNode(
     throw new Error(`"${name}": setup must return a locked node`);
   }
   return tree;
-}
-
-/** Register every named definition with the orchestrator. */
-export function registerCatalog(orchestrator: Orchestrator): void {
-  for (const definition of catalog.definitions.values()) {
-    orchestrator.register(
-      definition.name as string,
-      factoryFor(definition, () => catalog.bindings())
-    );
-  }
 }

@@ -107,34 +107,57 @@ function handle(
   };
 }
 
-export function workspacesManager(
-  deps: WorkspacesDeps
-): (args: ManagerArgs) => Workspaces {
-  const load = (path: string) =>
-    deps.catalogue.load({ path: resolve(deps.root, path) });
-  let currentLoaded: Promise<Loaded> | undefined;
-  const currentHandle = handle(
-    deps.root,
-    () => {
-      currentLoaded ??= load(".");
-      return currentLoaded;
-    },
-    () =>
-      repositoryRoot(deps.root)
-        ? Git.at(deps.root, deps.gitOptions ?? {})
-        : undefined,
-    deps.worktreeHome
-  );
-  return () => ({
-    current: currentHandle,
-    async load(ref) {
-      const workspace = await load(ref.path);
-      return handle(
-        workspace.root,
-        () => Promise.resolve(workspace),
-        () => workspace.git,
-        deps.worktreeHome
-      );
-    },
-  });
+export class WorkspacesManager {
+  readonly #deps: WorkspacesDeps;
+  readonly #current: WorkspaceHandle;
+
+  constructor(deps: WorkspacesDeps) {
+    this.#deps = deps;
+    let currentLoaded: Promise<Loaded> | undefined;
+    this.#current = handle(
+      deps.root,
+      () => {
+        currentLoaded ??= this.#load(".");
+        return currentLoaded;
+      },
+      () =>
+        repositoryRoot(deps.root)
+          ? Git.at(deps.root, deps.gitOptions ?? {})
+          : undefined,
+      deps.worktreeHome
+    );
+  }
+
+  get catalogue(): Catalogue {
+    return this.#deps.catalogue;
+  }
+
+  /** The config's directory. */
+  get root(): string {
+    return this.#deps.root;
+  }
+
+  #load(path: string): Promise<Loaded> {
+    return this.#deps.catalogue.load({ path: resolve(this.#deps.root, path) });
+  }
+
+  /** What a step body sees. Nothing here is per frame; the argument keeps the four managers alike. */
+  scoped(_args?: ManagerArgs): Workspaces {
+    return {
+      current: this.#current,
+      load: async (ref) => {
+        const workspace = await this.#load(ref.path);
+        return handle(
+          workspace.root,
+          () => Promise.resolve(workspace),
+          () => workspace.git,
+          this.#deps.worktreeHome
+        );
+      },
+    };
+  }
+
+  async close(): Promise<void> {
+    await this.#deps.catalogue.closeAll();
+  }
 }

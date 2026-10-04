@@ -1,22 +1,24 @@
 import { basename, dirname, resolve } from "node:path";
 import type { Args } from "~/args";
-import { AUTOMATION_MONITOR } from "~/automation/service";
 import { dashboardSnapshot } from "~/dashboard/snapshot";
 import { openDashboard } from "~/dashboard/terminal";
-import type { Engine } from "~/engine";
-import { startEngine } from "~/engine";
-import { registerSetupStep, SETUP_STEP, type SetupInput } from "~/feed/setup";
-import { type FeedStore, openFeed } from "~/feed/store";
+import { AUTOMATION_MONITOR } from "~/lib/automation/service";
 import { catalog } from "~/lib/catalog";
+import type { WiredEngine } from "~/lib/create";
+import { createEngine } from "~/lib/create";
+import type { Engine } from "~/lib/engine";
+import { type FeedStore, openFeed } from "~/lib/feed/store";
 import { inputFromFields } from "~/lib/schema";
-import { registerCatalog } from "~/lib/tree";
+import { readLastFinish } from "~/lib/state/schedules";
+import { workspaceState } from "~/lib/state/workspace";
 import { createConfig } from "~/onboarding/config";
+import {
+  registerSetupStep,
+  SETUP_STEP,
+  type SetupInput,
+} from "~/onboarding/setup-step";
 import type { SetupDraft } from "~/onboarding/templates";
 import { runSchedulesUntilStopped } from "~/run-loop";
-import type { Runtime } from "~/runtime";
-import { bindRuntime } from "~/runtime";
-import { readLastFinish } from "~/state/schedules";
-import { workspaceState } from "~/state/workspace";
 
 export async function runInteractive(
   args: Args,
@@ -35,10 +37,12 @@ export async function runInteractive(
   const print = (line: string) => {
     status = line;
   };
-  let runtime: Runtime | undefined;
+  // Built before it starts: `built` is what cleanup disposes, `engine` is
+  // set only once it runs, so a stop requested mid-start has nothing to stop.
+  let built: WiredEngine | undefined;
   let feed: FeedStore | undefined;
   let createdDraft: SetupDraft | undefined;
-  let engine: Engine | undefined;
+  let engine: WiredEngine | undefined;
   let loop: Promise<void> | undefined;
   let refresh: ReturnType<typeof setInterval> | undefined;
   let stopping: Promise<void> | undefined;
@@ -77,9 +81,10 @@ export async function runInteractive(
     );
     const state = args.dry ? undefined : workspace.dir;
     feed = openFeed(args.dry ? undefined : resolve(args.artifacts), workspace);
-    runtime = bindRuntime({
+    built = createEngine({
       artifacts: feed.artifacts,
       askable: true,
+      catalog,
       dry: args.dry,
       feed: feed.publisher,
       only: args.only,
@@ -88,19 +93,8 @@ export async function runInteractive(
       state,
       workspaceId: workspace.id,
     });
-    engine = await startEngine(
-      (orchestrator) => {
-        registerCatalog(orchestrator);
-        registerSetupStep(orchestrator);
-      },
-      {
-        askable: true,
-        feed: feed.publisher,
-        interactions: runtime.interactions,
-        print,
-        state,
-      }
-    );
+    registerSetupStep(built);
+    engine = await built.start();
     if (controller.signal.aborted) {
       return;
     }
@@ -114,7 +108,7 @@ export async function runInteractive(
     );
     let startedAt = Date.now();
     const runningEngine = engine;
-    const { harnesses, activities, automations } = runtime;
+    const { harnesses, activities, automations } = runningEngine;
     const readFeed = feed.read;
     const update = async () =>
       terminal.update(
@@ -237,7 +231,7 @@ export async function runInteractive(
       configPath,
       controller,
       print,
-      () => automations.schedules()
+      () => runningEngine.schedules()
     );
     await loop;
   } catch (error) {
@@ -255,7 +249,7 @@ export async function runInteractive(
       await loop;
     } finally {
       try {
-        await runtime?.dispose();
+        await built?.dispose();
       } finally {
         process.removeListener("SIGINT", stop);
         process.removeListener("SIGTERM", stop);

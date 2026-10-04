@@ -1,7 +1,7 @@
 import type { KeyEvent } from "@opentui/core";
 import { useCallback, useState } from "react";
-import type { FeedAnswer } from "~/feed/entry";
-import type { FeedEntrySnapshot } from "./dashboard-model";
+import type { FeedAnswer } from "~/lib/feed/entry";
+import type { FeedEntrySnapshot } from "~/lib/feed/read";
 import { ALL_WORKSPACES, feedScopes, scopedFeed } from "./feed-model";
 
 export type FeedFocus = "list" | "reader";

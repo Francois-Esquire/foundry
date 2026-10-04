@@ -3,16 +3,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gatewayProvider } from "@foundry/models/gateway";
 import { afterEach, expect, it } from "vitest";
-import { AutomationService } from "~/automation/service";
+import { step } from "~/authoring/builder";
 import { dashboardSnapshot } from "~/dashboard/snapshot";
-import { startEngine } from "~/engine";
-import { openFeed } from "~/feed/store";
-import { step } from "~/lib/builder";
+import { AutomationService } from "~/lib/automation/service";
 import { catalog } from "~/lib/catalog";
+import { createEngine } from "~/lib/create";
+import { openFeed } from "~/lib/feed/store";
 import { runs } from "~/lib/run-scope";
-import { registerCatalog } from "~/lib/tree";
-import { bindRuntime } from "~/runtime";
-import { tick } from "~/schedule";
+import { tick } from "~/lib/schedule";
 
 afterEach(() => {
   catalog.reset();
@@ -34,9 +32,10 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
       return "ran";
     });
     const feed = openFeed(undefined, { id: `activities-${harness}`, root });
-    const runtime = bindRuntime({
+    const engine = createEngine({
       artifacts: feed.artifacts,
       askable: true,
+      catalog,
       dry: false,
       feed: feed.publisher,
       only: [],
@@ -139,13 +138,7 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
       }
       return parentReply;
     });
-    const engine = await startEngine(registerCatalog, {
-      askable: true,
-      feed: feed.publisher,
-      interactions: runtime.interactions,
-      print: () => undefined,
-      state,
-    });
+    await engine.start();
     let passed = false;
     let settled = false;
     let failure: unknown;
@@ -170,14 +163,14 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
           expect(
             entry.input.activityId,
             JSON.stringify(
-              runtime.activities.list().map(({ event }) => ({
+              engine.activities.list().map(({ event }) => ({
                 kind: event.kind,
                 status: event.status,
                 title: event.title,
               }))
             )
           ).toBeTruthy();
-          const activity = runtime.activities
+          const activity = engine.activities
             .list()
             .find((item) => item.event.id === entry.input?.activityId);
           expect(activity?.event.kind).toBe("subagent");
@@ -205,7 +198,7 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
       expect(questions).toBe(1);
       expect(parentReply).toContain(marker);
       expect(bodyCount).toBe(1);
-      const activities = runtime.activities.list();
+      const activities = engine.activities.list();
       expect(
         activities.some(
           (record) =>
@@ -228,12 +221,12 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
           )
         ).toBe(true);
       }
-      const [automation] = runtime.automations.list();
+      const [automation] = engine.automations.list();
       expect(automation?.workflow).toBe("automation-proof");
       expect(fired).toBe(0);
       const snapshot = dashboardSnapshot(await engine.runs(), {
         activities,
-        automations: runtime.automations.list(),
+        automations: engine.automations.list(),
         feed: await feed.read(),
         harnesses: [harness],
         lastFinish: new Map(),
@@ -248,7 +241,7 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
         snapshot.triggers.find((trigger) => trigger.id === automation?.id)
           ?.managed
       ).toBe(true);
-      const restored = new AutomationService({ state });
+      const restored = new AutomationService({ catalog, state });
       const schedule = restored
         .schedules()
         .find((item) => item.key === automation?.id);
@@ -264,11 +257,11 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
         restored.schedules().some((item) => item.key === schedule.key)
       ).toBe(false);
       restored.delete(schedule.key);
-      expect(new AutomationService({ state }).list()).toHaveLength(0);
+      expect(new AutomationService({ catalog, state }).list()).toHaveLength(0);
       passed = true;
     } finally {
       await engine.stop({ cancel: true });
-      await runtime.dispose();
+      await engine.dispose();
       if (passed) {
         await rm(parent, { force: true, recursive: true });
       }

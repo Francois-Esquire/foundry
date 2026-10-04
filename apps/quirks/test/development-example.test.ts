@@ -4,8 +4,8 @@ import { basename } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { catalog } from "~/lib/catalog";
+import type { Reply } from "~/lib/models/echo";
 import { runs } from "~/lib/run-scope";
-import type { Reply } from "~/models/echo";
 import {
   developRound,
   findingsIn,

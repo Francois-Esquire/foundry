@@ -4,9 +4,9 @@ import { join } from "node:path";
 import type { RunRecord } from "@foundry/workflows/store";
 import { InMemoryOrchestratorStore } from "@foundry/workflows/store";
 
-import { isRecord, writeJson } from "~/state/json";
-import type { Lock } from "~/state/locks";
-import { acquireLock, alive } from "~/state/locks";
+import { isRecord, writeJson } from "~/lib/state/json";
+import type { Lock } from "~/lib/state/locks";
+import { acquireLock, alive } from "~/lib/state/locks";
 
 /**
  * One file per Run under `<workspace>/runs/`, so two ticks that overlap never

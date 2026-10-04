@@ -1,8 +1,8 @@
 import { metaOf } from "@foundry/agents/harness";
 import type { ToolExecutionOptions } from "ai";
 import { describe, expect, it, vi } from "vitest";
-import type { CodingToolsContainer } from "../../src/sandbox/coding-tools";
-import { createCodingTools } from "../../src/sandbox/coding-tools";
+import type { CodingToolsContainer } from "../../src/lib/sandbox/coding-tools";
+import { createCodingTools } from "../../src/lib/sandbox/coding-tools";
 
 function fixture() {
   const contents = new Map<string, Uint8Array>([

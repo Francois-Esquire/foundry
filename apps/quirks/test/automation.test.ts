@@ -3,14 +3,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { type AutomationOwner, AutomationService } from "~/automation/service";
-import { startEngine } from "~/engine";
-import { step } from "~/lib/builder";
+import { step } from "~/authoring/builder";
+import {
+  type AutomationOwner,
+  AutomationService,
+} from "~/lib/automation/service";
 import { catalog } from "~/lib/catalog";
-import { registerCatalog } from "~/lib/tree";
-import { runSchedules, tick } from "~/schedule";
-import { readJson } from "~/state/json";
+import type { Engine } from "~/lib/engine";
+import { runSchedules, tick } from "~/lib/schedule";
+import { readJson } from "~/lib/state/json";
 import { bindMock } from "./helpers/bindings";
+import { startEngine } from "./helpers/engine";
 
 const directories: string[] = [];
 const owner: AutomationOwner = {
@@ -35,7 +38,7 @@ it("persists declarative records, keeps stable ids and restores enabled state", 
   step("target")
     .input(z.object({ value: z.number() }))
     .do(({ input }) => input.value);
-  const service = new AutomationService({ state });
+  const service = new AutomationService({ catalog, state });
   const spec = {
     at: "1h",
     input: { value: 2 },
@@ -47,7 +50,7 @@ it("persists declarative records, keeps stable ids and restores enabled state", 
   service.setEnabled(record.id, false, owner);
   catalog.reset();
   step("target").do(() => 2);
-  const restored = new AutomationService({ state });
+  const restored = new AutomationService({ catalog, state });
   expect(restored.list()).toEqual([{ ...record, enabled: false }]);
   expect(restored.schedules()).toHaveLength(0);
   restored.setEnabled(record.id, true);
@@ -60,7 +63,7 @@ it("rejects changed idempotency keys, invalid target input and foreign mutation"
   step("target")
     .input(z.object({ value: z.number() }))
     .do(() => 1);
-  const service = new AutomationService({});
+  const service = new AutomationService({ catalog });
   const spec = {
     at: "1m",
     input: { value: 1 },
@@ -81,7 +84,7 @@ it("rejects changed idempotency keys, invalid target input and foreign mutation"
 
 it("constrains file sources and requires explicit HTTP permission", async () => {
   step("target").do(() => 1);
-  const service = new AutomationService({});
+  const service = new AutomationService({ catalog });
   const spec = { at: "1m", key: "job", workflow: "target" };
   await expect(
     service.create(
@@ -106,9 +109,9 @@ it("launches a dynamically created file monitor once per change through the exis
     starts += 1;
     return starts;
   });
-  const service = new AutomationService({ state });
+  const service = new AutomationService({ catalog, state });
   const bound = bindMock(() => "", { root, state });
-  const engine = await startEngine(registerCatalog, { print: () => undefined });
+  const engine = await startEngine({ ...bound.managers, root, state });
   try {
     const record = await service.create(
       {
@@ -150,7 +153,7 @@ it("waits for additions to an empty live catalogue and stops on cancellation", a
       controller.abort();
       return { id: "run", result: Promise.resolve(undefined) };
     },
-  } as unknown as Awaited<ReturnType<typeof startEngine>>;
+  } as unknown as Engine;
   await runSchedules(engine, [], {
     getSchedules: () => active,
     now: () => now,
@@ -182,9 +185,9 @@ it("does not relaunch an observed change after the started target fails", async 
     starts += 1;
     throw new Error("target failed");
   });
-  const service = new AutomationService({ state });
+  const service = new AutomationService({ catalog, state });
   const bound = bindMock(() => "", { root, state });
-  const engine = await startEngine(registerCatalog, { print: () => undefined });
+  const engine = await startEngine({ ...bound.managers, root, state });
   try {
     await service.create(
       {
@@ -213,8 +216,8 @@ it("does not relaunch an observed change after the started target fails", async 
 it("existing hosts observe persisted additions, pause, deletion and idempotent retries", async () => {
   const state = temp();
   step("target").do(() => 1);
-  const first = new AutomationService({ state });
-  const second = new AutomationService({ state });
+  const first = new AutomationService({ catalog, state });
+  const second = new AutomationService({ catalog, state });
   const spec = { at: "1s", key: "job", workflow: "target" };
   const record = await first.create(spec, owner);
   expect(second.list()).toEqual([record]);
@@ -229,7 +232,7 @@ it("existing hosts observe persisted additions, pause, deletion and idempotent r
 it("fails closed on invalid persisted sources while exposing a host-readable error", () => {
   const state = temp();
   step("target").do(() => 1);
-  const service = new AutomationService({ state });
+  const service = new AutomationService({ catalog, state });
   mkdirSync(join(state, "automations"));
   writeFileSync(join(state, "automations", "broken.json"), "bad JSON", {
     flag: "w",
@@ -253,7 +256,7 @@ it("rechecks completion and live membership under the schedule lock", async () =
     run: async () => {
       starts += 1;
     },
-  } as unknown as Awaited<ReturnType<typeof startEngine>>;
+  } as unknown as Engine;
   await tick(engine, schedule, {
     now: () => 2000,
     print: () => undefined,
@@ -284,9 +287,9 @@ it("retries a pending monitor launch after restart when setup previously failed"
   step("target").do(() => {
     starts += 1;
   });
-  const first = new AutomationService({ state });
+  const first = new AutomationService({ catalog, state });
   const bound = bindMock(() => "", { root, state });
-  const engine = await startEngine(registerCatalog, { print: () => undefined });
+  const engine = await startEngine({ ...bound.managers, root, state });
   await first.create(
     {
       at: "1s",
@@ -301,25 +304,23 @@ it("retries a pending monitor launch after restart when setup previously failed"
     throw new Error("Missing schedule");
   }
   try {
+    const failing = vi
+      .spyOn(engine, "launch")
+      .mockRejectedValue(new Error("setup unavailable"));
     await expect(
-      tick(
-        {
-          ...engine,
-          launch: async () => {
-            throw new Error("setup unavailable");
-          },
-        },
-        schedule,
-        { print: () => undefined, state }
-      )
+      tick(engine, schedule, { print: () => undefined, state })
     ).rejects.toThrow("setup unavailable");
+    failing.mockRestore();
     expect(starts).toBe(0);
   } finally {
     await engine.stop({ cancel: true });
   }
-  const restored = new AutomationService({ state });
-  const restarted = await startEngine(registerCatalog, {
+  const restored = new AutomationService({ catalog, state });
+  const restarted = await startEngine({
+    ...bound.managers,
     print: () => undefined,
+    root,
+    state,
   });
   try {
     const [recovered] = restored.schedules();
@@ -354,9 +355,13 @@ it("cancels a running monitor request when the schedule loop signal aborts", asy
       })
   );
   step("target").do(() => 1);
-  const service = new AutomationService({ allowHttp: () => true, state });
+  const service = new AutomationService({
+    allowHttp: () => true,
+    catalog,
+    state,
+  });
   const bound = bindMock(() => "", { state });
-  const engine = await startEngine(registerCatalog, { print: () => undefined });
+  const engine = await startEngine({ ...bound.managers, state });
   try {
     await service.create(
       {
@@ -393,15 +398,15 @@ it("cancels a running monitor request when the schedule loop signal aborts", asy
 it("records a visible failed tick when a restored target was removed", async () => {
   const state = temp();
   step("target").do(() => 1);
-  const first = new AutomationService({ state });
+  const first = new AutomationService({ catalog, state });
   const record = await first.create(
     { at: "1s", key: "job", workflow: "target" },
     owner
   );
   catalog.reset();
-  const restored = new AutomationService({ state });
+  const restored = new AutomationService({ catalog, state });
   const bound = bindMock(() => "", { state });
-  const engine = await startEngine(registerCatalog, { print: () => undefined });
+  const engine = await startEngine({ ...bound.managers, state });
   try {
     const [schedule] = restored.schedules();
     if (!schedule) {
@@ -422,14 +427,14 @@ it("records a visible failed tick when a restored target was removed", async () 
 it("preserves the first firing deadline when restored before any tick history exists", async () => {
   const state = temp();
   step("target").do(() => 1);
-  const first = new AutomationService({ state });
+  const first = new AutomationService({ catalog, state });
   const record = await first.create(
     { at: "1s", key: "job", workflow: "target" },
     owner
   );
   catalog.reset();
   step("target").do(() => 1);
-  const restored = new AutomationService({ state });
+  const restored = new AutomationService({ catalog, state });
   expect(restored.list()[0]?.createdAt).toBe(record.createdAt);
   expect(restored.schedules()[0]?.registeredAt).toBe(
     Date.parse(record.createdAt)
@@ -443,7 +448,7 @@ it("preserves the first firing deadline when restored before any tick history ex
       controller.abort();
       return { id: "run", result: Promise.resolve(undefined) };
     },
-  } as unknown as Awaited<ReturnType<typeof startEngine>>;
+  } as unknown as Engine;
   await runSchedules(engine, [], {
     getSchedules: () => restored.schedules(),
     now: () => now,
@@ -469,9 +474,9 @@ it("isolates pending monitor launches and first deadlines when a deleted key is 
   step("new-target").do(() => {
     launched.push("new");
   });
-  const service = new AutomationService({ state });
+  const service = new AutomationService({ catalog, state });
   const bound = bindMock(() => "", { root, state });
-  const engine = await startEngine(registerCatalog, { print: () => undefined });
+  const engine = await startEngine({ ...bound.managers, root, state });
   try {
     const original = await service.create(
       {
@@ -486,18 +491,13 @@ it("isolates pending monitor launches and first deadlines when a deleted key is 
     if (!oldSchedule) {
       throw new Error("Missing old schedule");
     }
+    const failing = vi
+      .spyOn(engine, "launch")
+      .mockRejectedValue(new Error("setup unavailable"));
     await expect(
-      tick(
-        {
-          ...engine,
-          launch: async () => {
-            throw new Error("setup unavailable");
-          },
-        },
-        oldSchedule,
-        { print: () => undefined, state }
-      )
+      tick(engine, oldSchedule, { print: () => undefined, state })
     ).rejects.toThrow("setup unavailable");
+    failing.mockRestore();
     service.delete(original.id, owner);
     const recreated = await service.create(
       {
@@ -524,7 +524,7 @@ it("isolates pending monitor launches and first deadlines when a deleted key is 
 
 it("does not dispatch an old trigger after its owner key was recreated", async () => {
   step("target").do(() => 1);
-  const service = new AutomationService({});
+  const service = new AutomationService({ catalog });
   const original = await service.create(
     { at: "1s", key: "job", workflow: "target" },
     owner
@@ -542,7 +542,7 @@ it("does not dispatch an old trigger after its owner key was recreated", async (
     run: async () => {
       starts += 1;
     },
-  } as unknown as Awaited<ReturnType<typeof startEngine>>;
+  } as unknown as Engine;
   await runSchedules(engine, [], {
     getSchedules: () => {
       reads += 1;

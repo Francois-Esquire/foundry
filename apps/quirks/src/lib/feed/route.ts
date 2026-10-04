@@ -9,8 +9,8 @@ import {
   feedPostSchema,
   feedQuestionSchema,
   readAnswer,
-} from "~/feed/entry";
-import type { FeedPublisher } from "~/feed/publish";
+} from "~/lib/feed/entry";
+import type { FeedPublisher } from "~/lib/feed/publish";
 
 interface Source {
   readonly definition: string;

@@ -6,21 +6,23 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { plugin } from "bun";
 import type { Args } from "~/args";
 import { parseArgs } from "~/args";
-import { configuredMonitorUrl } from "~/automation/configured";
-import { AUTOMATION_MONITOR, AutomationService } from "~/automation/service";
-import { startEngine } from "~/engine";
-import { openFeed } from "~/feed/store";
 import { install, launchdPlan, uninstall } from "~/launchd";
+import { configuredMonitorUrl } from "~/lib/automation/configured";
+import {
+  AUTOMATION_MONITOR,
+  AutomationService,
+} from "~/lib/automation/service";
 import { catalog } from "~/lib/catalog";
-import { registerCatalog } from "~/lib/tree";
+import { createEngine } from "~/lib/create";
+import type { Engine } from "~/lib/engine";
+import { openFeed } from "~/lib/feed/store";
+import { describeMonitor } from "~/lib/monitor";
+import { cadence, clock, tick, weekdays } from "~/lib/schedule";
+import { JsonSessionStore } from "~/lib/sessions/json-store";
+import { workspaceState } from "~/lib/state/workspace";
 import type { Schedule } from "~/lib/triggers";
-import { describeMonitor } from "~/monitor";
 import { runSchedulesUntilStopped } from "~/run-loop";
-import { bindRuntime } from "~/runtime";
-import { cadence, clock, tick, weekdays } from "~/schedule";
-import { JsonSessionStore } from "~/sessions/json-store";
 import { sessionLines } from "~/sessions/list";
-import { workspaceState } from "~/state/workspace";
 import { readStatus } from "~/status/model";
 import { statusText } from "~/status/text";
 
@@ -49,7 +51,6 @@ Each workspace (the config's directory) gets <state>/<id>/ holding
 workspace.json, runs/, schedules/, locks/ and sessions/. Feed entries from every
 workspace share the artifact store. --dry disables Quirks state persistence; custom code still runs.`;
 
-type Engine = Awaited<ReturnType<typeof startEngine>>;
 type WorkspaceState = ReturnType<typeof workspaceState>;
 
 async function loadConfiguration(
@@ -64,14 +65,16 @@ async function loadConfiguration(
   // Both entry points must share the same registry instance.
   const libraryPath = fileURLToPath(
     new URL(
-      import.meta.url.endsWith(".ts") ? "./lib/index.ts" : "./index.js",
+      import.meta.url.endsWith(".ts") ? "./authoring/index.ts" : "./index.js",
       import.meta.url
     )
   );
   const library = await import(libraryPath);
   const prebuilt = await import(
     new URL(
-      import.meta.url.endsWith(".ts") ? "./prebuilt.ts" : "./prebuilt.js",
+      import.meta.url.endsWith(".ts")
+        ? "./authoring/prebuilt.ts"
+        : "./prebuilt.js",
       import.meta.url
     ).href
   );
@@ -297,7 +300,8 @@ async function main(): Promise<void> {
   }
 
   const automations = new AutomationService({
-    allowHttp: configuredMonitorUrl,
+    allowHttp: configuredMonitorUrl(catalog),
+    catalog,
     state: stateDir,
   });
   const schedules = automations.schedules();
@@ -312,8 +316,9 @@ async function main(): Promise<void> {
     args.dry ? undefined : resolve(args.artifacts),
     workspace
   );
-  const runtime = bindRuntime({
+  const engine = createEngine({
     artifacts: feed.artifacts,
+    catalog,
     dry: args.dry,
     feed: feed.publisher,
     only: args.only,
@@ -322,17 +327,11 @@ async function main(): Promise<void> {
     state: stateDir,
     workspaceId: workspace.id,
   });
-  print(`[harnesses] ${runtime.harnesses.join(", ")}`);
-
-  const engine = await startEngine(registerCatalog, {
-    feed: feed.publisher,
-    interactions: runtime.interactions,
-    print,
-    state: stateDir,
-  });
-  const restored = new Set((await engine.runs()).map((record) => record.id));
+  print(`[harnesses] ${engine.harnesses.join(", ")}`);
 
   try {
+    await engine.start();
+    const restored = new Set((await engine.runs()).map((record) => record.id));
     const executed = await dispatchRuntimeCommand(
       args,
       engine,
@@ -340,14 +339,14 @@ async function main(): Promise<void> {
       stateDir,
       hasConfig,
       configPath,
-      () => runtime.automations.schedules()
+      () => engine.schedules()
     );
     if (executed) {
       await printNewRuns(engine, restored);
     }
   } finally {
     await engine.stop();
-    await runtime.dispose();
+    await engine.dispose();
   }
 }
 

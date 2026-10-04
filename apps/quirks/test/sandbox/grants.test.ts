@@ -26,7 +26,7 @@ import {
   GrantRevisionError,
 } from "@foundry/lib/config/authorization";
 import { afterEach, beforeEach, expect, it } from "vitest";
-import { JsonAgentGrantRepository } from "~/sandbox/grants";
+import { JsonAgentGrantRepository } from "~/lib/sandbox/grants";
 
 let directory: string;
 let path: string;
@@ -141,7 +141,10 @@ it("allows exactly one concurrent invocation and replays that claim after restar
 
 it("serializes competing claims from separate host processes", async () => {
   const grant = await repository().issue(input({ kind: "once" }));
-  const source = resolve(import.meta.dirname, "../../src/sandbox/grants.ts");
+  const source = resolve(
+    import.meta.dirname,
+    "../../src/lib/sandbox/grants.ts"
+  );
   const claim = (invocation: string) =>
     execute("bun", [
       "--eval",

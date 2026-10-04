@@ -1,5 +1,5 @@
 import { expect, it, vi } from "vitest";
-import { claudeSubscriptionToken } from "~/sandbox/credentials";
+import { claudeSubscriptionToken } from "~/lib/sandbox/credentials";
 
 it("selects the active subscription access token without returning refresh credentials", async () => {
   const readCredentials = vi.fn();

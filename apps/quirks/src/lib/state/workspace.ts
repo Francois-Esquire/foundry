@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { realpathSync } from "node:fs";
 import { join } from "node:path";
 
-import { isRecord, readJson, writeJson } from "~/state/json";
+import { isRecord, readJson, writeJson } from "~/lib/state/json";
 
 /**
  * State is scoped per workspace: the directory the config lives in, or the

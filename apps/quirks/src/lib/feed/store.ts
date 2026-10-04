@@ -3,10 +3,10 @@ import type { Artifacts } from "@foundry/artifacts";
 import { ArtifactSystem, InMemoryArtifactStore } from "@foundry/artifacts";
 import { blobFiles, JsonArtifactStore } from "@foundry/artifacts/node";
 
-import type { FeedPublisher } from "~/feed/publish";
-import { feedPublisher } from "~/feed/publish";
-import type { FeedReader } from "~/feed/read";
-import { feedReader } from "~/feed/read";
+import type { FeedPublisher } from "~/lib/feed/publish";
+import { feedPublisher } from "~/lib/feed/publish";
+import type { FeedReader } from "~/lib/feed/read";
+import { feedReader } from "~/lib/feed/read";
 
 export interface FeedStore {
   /** The shared store; declared artifacts live in it beside feed entries. */

@@ -5,14 +5,11 @@ import { ArtifactSystem, InMemoryArtifactStore } from "@foundry/artifacts";
 import { schedule, step, workflow } from "@foundry/quirks";
 import { afterEach, expect, it } from "vitest";
 import { z } from "zod";
-
 import { dashboardSnapshot } from "~/dashboard/snapshot";
-import { startEngine } from "~/engine";
 import { catalog } from "~/lib/catalog";
+import { createEngine } from "~/lib/create";
 import { runs } from "~/lib/run-scope";
-import { registerCatalog } from "~/lib/tree";
-import { bindRuntime } from "~/runtime";
-import { tick } from "~/schedule";
+import { tick } from "~/lib/schedule";
 
 const print = () => undefined;
 const options = {
@@ -27,15 +24,18 @@ const textFields = [
   { label: "Text", name: "text", required: true, type: "text" },
 ];
 
-function bind(root: string) {
-  return bindRuntime({
+/** A started dry engine over `root`; `state` makes its runs survive a restart. */
+function engineIn(root: string, state?: string) {
+  return createEngine({
     artifacts: new ArtifactSystem({ store: new InMemoryArtifactStore() }),
+    catalog,
     dry: true,
     only: [],
     print,
     root,
+    ...(state === undefined ? {} : { state }),
     workspaceId: "ws",
-  });
+  }).start();
 }
 
 afterEach(() => {
@@ -45,7 +45,6 @@ afterEach(() => {
 
 it("projects real nested runs, logs and trigger provenance, including restored history", async () => {
   const dir = mkdtempSync(join(tmpdir(), "quirks-dashboard-"));
-  const runtime = bind(dir);
   const shout = step("shout")
     .input(text)
     .do(({ input, log }) => {
@@ -64,7 +63,7 @@ it("projects real nested runs, logs and trigger provenance, including restored h
   schedule(twice({}, { text: "hi" })).every("1h");
   schedule(twice({}, { text: "other" })).every("1d");
   const [hourly, daily] = [...catalog.schedules.keys()] as [string, string];
-  let engine = await startEngine(registerCatalog, { print, state: dir });
+  let engine = await engineIn(dir, dir);
   try {
     const scheduled = catalog.schedules.get(hourly);
     if (!scheduled) {
@@ -116,18 +115,18 @@ it("projects real nested runs, logs and trigger provenance, including restored h
       "heard HI!",
     ]);
     await engine.stop();
-    engine = await startEngine(registerCatalog, { print, state: dir });
+    await engine.dispose();
+    engine = await engineIn(dir, dir);
     const restored = dashboardSnapshot(await engine.runs(), options);
     expect(restored.runs).toEqual(snapshot.runs);
   } finally {
     await engine.stop();
-    await runtime.dispose();
+    await engine.dispose();
     rmSync(dir, { force: true, recursive: true });
   }
 });
 
 it("shows a running step and cancels it on shutdown without starting queued work", async () => {
-  const runtime = bind(process.cwd());
   let announce: () => void = () => undefined;
   const started = new Promise<void>((resolve) => {
     announce = resolve;
@@ -150,7 +149,7 @@ it("shows a running step and cancels it on shutdown without starting queued work
         announce();
       })
   );
-  const engine = await startEngine(registerCatalog, { print });
+  const engine = await engineIn(process.cwd());
   try {
     const running = engine.run("wait", {}, "watch");
     const result = running.catch((error: unknown) => error);
@@ -172,6 +171,6 @@ it("shows a running step and cancels it on shutdown without starting queued work
     ).toBe(true);
     await expect(engine.run("wait", {})).rejects.toThrow("engine is stopping");
   } finally {
-    await runtime.dispose();
+    await engine.dispose();
   }
 });

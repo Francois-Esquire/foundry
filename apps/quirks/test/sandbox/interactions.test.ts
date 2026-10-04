@@ -8,18 +8,16 @@ import {
 import { createHarnessPermission } from "@foundry/agents/harness";
 import { InMemorySessionStore } from "@foundry/agents/session";
 import { afterEach, expect, it, vi } from "vitest";
-import { startEngine } from "~/engine";
-import { openFeed } from "~/feed/store";
-import { unbound } from "~/lib/bindings";
-import { step } from "~/lib/builder";
+import { step } from "~/authoring/builder";
 import { catalog } from "~/lib/catalog";
-import { createLog } from "~/lib/log";
+import type { FeedEntrySnapshot } from "~/lib/feed/read";
+import { openFeed } from "~/lib/feed/store";
 import { runs } from "~/lib/run-scope";
-import { registerCatalog } from "~/lib/tree";
-import { JsonAgentGrantRepository } from "~/sandbox/grants";
-import { HarnessInteractions } from "~/sandbox/interactions";
-import { JsonSessionStore } from "~/sessions/json-store";
-import type { FeedEntrySnapshot } from "~/views/dashboard-model";
+import { JsonAgentGrantRepository } from "~/lib/sandbox/grants";
+import { HarnessInteractions } from "~/lib/sandbox/interactions";
+import { JsonSessionStore } from "~/lib/sessions/json-store";
+
+import { startEngine } from "../helpers/engine";
 
 const source = { definition: "coding", path: ["coding"], runId: "run-1" };
 const roots: string[] = [];
@@ -202,14 +200,6 @@ it("cancels live input and rejects a stale answer without granting permission", 
 
 it("routes live answers through the real engine without suspending or replaying its step", async () => {
   const f = await fixture();
-  catalog.bind({
-    agents: () => unbound("agents"),
-    artifacts: () => unbound("artifacts"),
-    log: createLog(() => undefined),
-    root: "/workspace",
-    sandboxes: () => unbound("sandboxes"),
-    workspaces: () => unbound("workspaces"),
-  });
   let bodies = 0;
   step("coding").do(async ({ run }) => {
     bodies += 1;
@@ -224,11 +214,12 @@ it("routes live answers through the real engine without suspending or replaying 
       true
     );
   });
-  const engine = await startEngine(registerCatalog, {
+  const engine = await startEngine({
     askable: true,
     feed: f.feed.publisher,
     interactions: f.bridge,
     print: () => undefined,
+    root: "/workspace",
   });
   try {
     const launched = await engine.launch("coding", {});

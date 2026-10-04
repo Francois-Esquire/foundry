@@ -5,17 +5,16 @@ import { WorkspaceSystem } from "@foundry/workspaces";
 import { git } from "@foundry/workspaces/git";
 import { directory } from "@foundry/workspaces/node";
 import { nodeObserver } from "@foundry/workspaces/node/watch";
-
-import { CLAUDE_CODE, CODEX } from "~/harnesses";
-import type { Bindings } from "~/lib/bindings";
-import { unbound } from "~/lib/bindings";
-import { catalog } from "~/lib/catalog";
+import type { Bindings, Managers } from "~/lib/bindings";
+import { bindManagers } from "~/lib/bindings";
+import { echoGit } from "~/lib/create";
+import { CLAUDE_CODE, CODEX } from "~/lib/harnesses";
 import { createLog } from "~/lib/log";
-import { agentsManager } from "~/lib/managers/agents";
-import { workspacesManager } from "~/lib/managers/workspaces";
-import type { MockOptions, Reply } from "~/models/echo";
-import { mockModels } from "~/models/echo";
-import { echoGit } from "~/runtime";
+import { AgentsManager } from "~/lib/managers/agents";
+import { WorkspacesManager } from "~/lib/managers/workspaces";
+import type { MockOptions, Reply } from "~/lib/models/echo";
+import { mockModels } from "~/lib/models/echo";
+import { bindLaunch } from "./launch";
 
 export interface MockBindingOptions {
   /** Executors the mock models answer for; the first is the default. */
@@ -35,14 +34,17 @@ export interface MockBindingOptions {
 export interface MockBindings {
   readonly bindings: Bindings;
   dispose(): Promise<void>;
+  /** Spread into `new Engine({ ... })` or `startEngine({ ... })`. */
+  readonly managers: Required<Pick<Managers, "agents" | "workspaces">>;
   readonly sessions: SessionStore;
   readonly warnings: string[];
 }
 
 /**
- * Bind the catalog to mock models with a scripted reply, an in-memory (or
- * given) session store, and a real workspace catalogue. Sandboxes and
- * artifacts stay unbound. Call `dispose` when the test is done.
+ * Managers over mock models with a scripted reply, an in-memory (or given)
+ * session store, and a real workspace catalogue. Sandboxes and artifacts
+ * stay unwired. `launch` runs against them at once; an engine takes
+ * `managers`. Call `dispose` when the test is done.
  */
 export function bindMock(
   reply: Reply,
@@ -63,8 +65,8 @@ export function bindMock(
     git(gitOptions)
   );
   const warnings: string[] = [];
-  const bindings: Bindings = {
-    agents: agentsManager({
+  const managers = {
+    agents: new AgentsManager({
       defaultExecutor: () => first,
       models,
       sessions,
@@ -73,23 +75,22 @@ export function bindMock(
         warnings.push(message);
       },
     }),
-    artifacts: () => unbound("artifacts"),
-    host: {
-      catalogue,
-      ...(options.state === undefined ? {} : { state: options.state }),
-    },
+    workspaces: new WorkspacesManager({ catalogue, gitOptions, root }),
+  };
+  const bindings = bindManagers({
+    ...managers,
     log: createLog((_level, message) => options.log?.(message)),
     root,
-    sandboxes: () => unbound("sandboxes"),
-    workspaces: workspacesManager({ catalogue, gitOptions, root }),
-  };
-  catalog.bind(bindings);
+    ...(options.state === undefined ? {} : { state: options.state }),
+  });
+  bindLaunch(bindings);
   return {
     bindings,
     async dispose() {
-      await catalogue.closeAll();
-      await models.dispose();
+      await managers.workspaces.close();
+      await managers.agents.close();
     },
+    managers,
     sessions,
     warnings,
   };

@@ -1,4 +1,5 @@
 import type { LogEntry } from "~/components/ui/log";
+import type { FeedEntrySnapshot } from "~/lib/feed/read";
 import type { DefinitionOptions } from "~/lib/inputs";
 
 export type JsonValue =
@@ -97,51 +98,6 @@ export interface RunSnapshot {
   readonly status: RunStatus;
   readonly steps: readonly StepSnapshot[];
   readonly triggerId?: string;
-}
-
-export interface FeedMediaSnapshot {
-  /** Loaded for images only, which the reader draws inline. */
-  readonly bytes?: Uint8Array;
-  readonly kind: "image" | "video" | "audio" | "file";
-  readonly name: string;
-  /** Path inside the entry, as the markdown references it. */
-  readonly path: string;
-}
-
-export interface FeedEntrySnapshot {
-  /** Set on results that carry an artifact version. */
-  readonly artifact?: {
-    readonly artifactId: string;
-    readonly contentId: string;
-  };
-  /** Markdown article, starting with the entry's title as a heading. */
-  readonly body: string;
-  readonly definition: string;
-  readonly id: string;
-  /** Set on `input` entries: live input, deferred permission, or a workflow suspension. */
-  readonly input?: {
-    readonly answer?: string;
-    readonly sessionId?: string;
-    readonly activityId?: string;
-    readonly choices: readonly string[];
-    /** Absent on legacy and workflow suspension entries. */
-    readonly delivery?: "live" | "deferred";
-    /** Approval requests permission; a question requests input. */
-    readonly mode?: "question" | "approval";
-    /** Given with the answer to an approval. */
-    readonly note?: string;
-    readonly status: "open" | "answered" | "cancelled";
-  };
-  readonly kind: "result" | "milestone" | "input";
-  readonly media: readonly FeedMediaSnapshot[];
-  /** Display time, formatted by the host. */
-  readonly posted: string;
-  /** ISO time of the first post; entries sort newest first by it. */
-  readonly postedAt: string;
-  readonly run: string;
-  readonly step: string;
-  readonly title: string;
-  readonly workspace: { readonly id: string; readonly name: string };
 }
 
 /** Presentation data only. No runtime handles, stores, or API clients. */

@@ -2,18 +2,16 @@ import { schedule, step, workflow } from "@foundry/quirks";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
-
-import { unbound } from "~/lib/bindings";
+import { bindManagers } from "~/lib/bindings";
 import { catalog } from "~/lib/catalog";
 import { createLog } from "~/lib/log";
 import { runs } from "~/lib/run-scope";
+import { nextDue, parseEvery, runSchedules } from "~/lib/schedule";
 import { JSON_INPUT_FIELD } from "~/lib/schema";
 import type { CalendarSlot, Schedule } from "~/lib/triggers";
-import { nextDue, parseEvery, runSchedules } from "~/schedule";
 
-import { launch } from "./helpers/launch";
+import { bindLaunch, launch } from "./helpers/launch";
 
-const NOT_BOUND_PATTERN = /not bound/;
 const CALENDAR_SLOT_PATTERN = /calendar slot/;
 const CALENDAR_SLOT_PATTERN_2 = /calendar slot/;
 const CADENCE_PATTERN = /cadence/;
@@ -24,15 +22,14 @@ const NO_NAME_PATTERN = /has no name/;
 
 const text = z.object({ text: z.string() });
 
+/** No managers: these bodies only read their input and log. */
 function bindLog(lines: string[]) {
-  catalog.bind({
-    agents: () => unbound("agents"),
-    artifacts: () => unbound("artifacts"),
-    log: createLog((_level, line) => lines.push(line)),
-    root: process.cwd(),
-    sandboxes: () => unbound("sandboxes"),
-    workspaces: () => unbound("workspaces"),
-  });
+  bindLaunch(
+    bindManagers({
+      log: createLog((_level, line) => lines.push(line)),
+      root: process.cwd(),
+    })
+  );
 }
 
 afterEach(() => {
@@ -84,16 +81,13 @@ describe("definitions", () => {
     );
   });
 
-  it("run a step body against the bound runtime, only once bound", async () => {
+  it("run a step body against the bindings it is given", async () => {
     const seen = step("seen")
       .input(text)
       .do(({ input, log }) => {
         log(input.text);
         return input.text;
       });
-    await expect(launch(seen, { text: "hi" })).rejects.toThrow(
-      NOT_BOUND_PATTERN
-    );
 
     const lines: string[] = [];
     bindLog(lines);

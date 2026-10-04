@@ -1,4 +1,4 @@
-import { catalog } from "./catalog";
+import { catalog } from "~/lib/catalog";
 import type {
   AgentDefinition,
   ArtifactDefinition,
@@ -7,7 +7,7 @@ import type {
   SkillOp,
   SkillSet,
   WorkspaceDefinition,
-} from "./types";
+} from "~/lib/types";
 
 /**
  * The definition words. Each is a preset with defaults; the context creates

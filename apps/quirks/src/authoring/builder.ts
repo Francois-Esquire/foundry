@@ -1,17 +1,11 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-
-import { catalog } from "./catalog";
-import type {
-  LockedNode,
-  SetupFn,
-  StepDefinition,
-  StepFn,
-  WorkflowDefinition,
-} from "./definition";
-import { isLockedNode, lockable } from "./definition";
-import type { CallSite } from "./identity";
-import { bindingAt, callSite } from "./identity";
-import type { Input, Output } from "./schema";
+import { catalog } from "~/lib/catalog";
+import type { CallSite, LockedNode, SetupFn, StepFn } from "~/lib/definition";
+import { isLockedNode } from "~/lib/definition";
+import type { Input, Output } from "~/lib/schema";
+import { bindingAt, callSite, canInfer } from "./identity";
+import type { StepDefinition, WorkflowDefinition } from "./lock";
+import { lockable } from "./lock";
 
 /**
  * `step(name?).describe(text).input(schema).output(schema).do(fn)`.
@@ -31,6 +25,7 @@ interface Identity {
   readonly inferred?: boolean;
   readonly name?: string;
   readonly site?: CallSite;
+  readonly uninferable?: boolean;
 }
 
 function identify(
@@ -44,7 +39,12 @@ function identify(
     return {};
   }
   const bound = bindingAt(site);
-  return bound === undefined ? { site } : { inferred: true, name: bound, site };
+  if (bound !== undefined) {
+    return { inferred: true, name: bound, site };
+  }
+  // Recorded here so the engine can say why a launch has no name without
+  // knowing how names are inferred.
+  return canInfer(site.file) ? { site } : { site, uninferable: true };
 }
 
 /**

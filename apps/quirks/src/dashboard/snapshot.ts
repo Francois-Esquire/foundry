@@ -6,15 +6,15 @@ import type {
 import { StepSnapshotSchema } from "@foundry/workflows/snapshot";
 import type { RunRecord } from "@foundry/workflows/store";
 import { Option, Schema } from "effect";
-import type { AutomationRecord } from "~/automation/service";
+import type { AutomationRecord } from "~/lib/automation/service";
 import { catalog } from "~/lib/catalog";
+import type { FeedEntrySnapshot } from "~/lib/feed/read";
+import { describeMonitor } from "~/lib/monitor";
+import type { ActivityRecord } from "~/lib/sandbox/activities";
+import { cadence, clock, nextDue, weekdays } from "~/lib/schedule";
 import type { Schedule } from "~/lib/triggers";
-import { describeMonitor } from "~/monitor";
-import type { ActivityRecord } from "~/sandbox/activities";
-import { cadence, clock, nextDue, weekdays } from "~/schedule";
 import type {
   DashboardSnapshot,
-  FeedEntrySnapshot,
   HarnessActivitySnapshot,
   InputAttention,
   JsonValue,

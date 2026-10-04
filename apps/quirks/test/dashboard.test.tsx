@@ -8,7 +8,7 @@ import { dashboardSnapshot } from "../preview/snapshot";
 import { PreviewStartup } from "../preview/startup";
 import { JSONView } from "../src/components/ui/json";
 import { Log, type LogEntry } from "../src/components/ui/log";
-import type { FeedAnswer } from "../src/feed/entry";
+import type { FeedAnswer } from "../src/lib/feed/entry";
 import { DashboardView } from "../src/views/dashboard";
 import type { DashboardSnapshot } from "../src/views/dashboard-model";
 import type { RunActions } from "../src/views/run-actions";

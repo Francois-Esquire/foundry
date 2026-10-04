@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { hasCode } from "~/state/json";
+import { hasCode } from "~/lib/state/json";
 
 /**
  * `<workspace>/locks/<schedule>` holds the pid of the tick running it, so a

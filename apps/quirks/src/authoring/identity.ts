@@ -3,6 +3,7 @@ import { createRequire } from "node:module";
 import { dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type TS from "typescript";
+import type { CallSite } from "~/lib/definition";
 
 /**
  * Durable names for nameless definitions. `step()` captures where the config
@@ -12,13 +13,7 @@ import type TS from "typescript";
  * TypeScript's parser (the author's own copy) finds the binding.
  */
 
-export interface CallSite {
-  readonly column: number;
-  readonly file: string;
-  readonly line: number;
-}
-
-/** Where this module lives; frames under it belong to the lib, not the config. */
+/** Where this module lives; frames under it belong to the authoring words, not the config. */
 const LIB_DIR = dirname(fileURLToPath(import.meta.url));
 
 function pathOf(fileName: string): string {

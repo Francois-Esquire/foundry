@@ -5,10 +5,7 @@ import { FeedMetaLine } from "~/components/feed-meta";
 import { Panel } from "~/components/panel";
 import type { Theme } from "~/components/ui/types";
 import { useTheme } from "~/hooks/use-theme";
-import type {
-  FeedEntrySnapshot,
-  FeedMediaSnapshot,
-} from "~/views/dashboard-model";
+import type { FeedEntrySnapshot, FeedMediaSnapshot } from "~/lib/feed/read";
 import type { AnswerState } from "~/views/use-feed";
 import { EmptyState } from "./empty-state";
 

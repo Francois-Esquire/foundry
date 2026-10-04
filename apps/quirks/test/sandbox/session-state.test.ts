@@ -3,8 +3,8 @@ import {
   normalizeMessageMetadata,
 } from "@foundry/agents/session";
 import { expect, it } from "vitest";
-import { assertGuestSessionState } from "~/sandbox/session-state";
-import { JsonSessionStore } from "~/sessions/json-store";
+import { assertGuestSessionState } from "~/lib/sandbox/session-state";
+import { JsonSessionStore } from "~/lib/sessions/json-store";
 
 it("adopts a fresh session and preserves same-instance native resume", async () => {
   const store = new InMemorySessionStore();

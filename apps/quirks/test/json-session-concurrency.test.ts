@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { JsonSessionStore } from "~/sessions/json-store";
+import { JsonSessionStore } from "~/lib/sessions/json-store";
 
 const writes = vi.hoisted(() => ({
   fail: false,

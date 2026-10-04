@@ -14,21 +14,27 @@ import { git } from "@foundry/workspaces/git";
 import { directory } from "@foundry/workspaces/node";
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
-
-import { startEngine } from "~/engine";
-import { unbound } from "~/lib/bindings";
+import { bindManagers } from "~/lib/bindings";
 import { catalog } from "~/lib/catalog";
 import type { AnyDefinition } from "~/lib/definition";
+import type { EngineOptions } from "~/lib/engine";
 import { createLog } from "~/lib/log";
 import type { Catalogue } from "~/lib/managers/workspaces";
+import { WorkspacesManager } from "~/lib/managers/workspaces";
+import type {
+  Change,
+  Fetch,
+  MonitorContext,
+  MonitorHost,
+  MonitorSpec,
+} from "~/lib/monitor";
+import { acknowledgeLaunch, detector } from "~/lib/monitor";
 import { runs } from "~/lib/run-scope";
-import { registerCatalog } from "~/lib/tree";
-import type { Change, Fetch, MonitorContext, MonitorSpec } from "~/monitor";
-import { acknowledgeLaunch, detector } from "~/monitor";
-import { tick } from "~/schedule";
-import { isRecord, readJson } from "~/state/json";
+import { tick } from "~/lib/schedule";
+import { isRecord, readJson } from "~/lib/state/json";
 
-import { launch } from "./helpers/launch";
+import { startEngine } from "./helpers/engine";
+import { bindLaunch, launch } from "./helpers/launch";
 import { monitorContext } from "./helpers/monitor";
 
 const SHA_256_HEX_PATTERN = /^[0-9a-f]{64}$/;
@@ -46,23 +52,25 @@ afterEach(async () => {
   await Promise.all(catalogues.splice(0).map((open) => open.closeAll()));
 });
 
-/** Bind a host over `root`: what a files detector needs to read the tree. */
+/** What the last `hostIn` wired: the host a detector reads, and what an engine over it takes. */
+let hosted: MonitorHost & Pick<EngineOptions, "root" | "state" | "workspaces">;
+
+/** A host over `root`: what a files detector needs to read the tree. */
 function hostIn(root: string, state?: string) {
   const lines: string[] = [];
   const log = createLog((_level, message) => lines.push(message));
   const catalogue = new WorkspaceSystem().extend(directory(), git());
   catalogues.push(catalogue);
-  catalog.bind({
-    agents: () => unbound("agents"),
-    artifacts: () => unbound("artifacts"),
-    host: { catalogue, ...(state === undefined ? {} : { state }) },
-    log,
-    root,
-    sandboxes: () => unbound("sandboxes"),
-    workspaces: () => unbound("workspaces"),
-  });
+  const workspaces = new WorkspacesManager({ catalogue, root });
+  const stateOption = state === undefined ? {} : { state };
+  hosted = { catalogue, root, workspaces, ...stateOption };
+  bindLaunch(bindManagers({ log, root, workspaces, ...stateOption }));
   return { context: monitorContext(log), lines };
 }
+
+/** A detector body called directly, outside a run, reads the host `hostIn` wired. */
+const detectorIn: typeof detector = (key, spec, handler, options = {}) =>
+  detector(key, spec, handler, { host: () => hosted, ...options });
 
 function recorder() {
   const changes: Change[] = [];
@@ -104,7 +112,7 @@ describe("files detector", () => {
     writeFileSync(join(root, "c.txt"), "ignored\n");
     const { context } = hostIn(root);
     const { changes, contexts, handler } = recorder();
-    const detect = detector("m", spec, handler);
+    const detect = detectorIn("m", spec, handler);
 
     await expect(detect(context)).resolves.toEqual({ changed: true });
     expect(changes[0]).toMatchObject({
@@ -145,14 +153,14 @@ describe("files detector", () => {
     writeFileSync(join(root, "a.md"), "one\n");
 
     const first = recorder();
-    await detector("m", spec, first.handler)(hostIn(root, state).context);
+    await detectorIn("m", spec, first.handler)(hostIn(root, state).context);
     const stored = readJson(join(state, "monitors", "m.json"));
     const files =
       isRecord(stored) && isRecord(stored.files) ? stored.files : {};
     expect(files["a.md"]).toMatch(SHA_256_HEX_PATTERN_2);
 
     const second = recorder();
-    const detect = detector("m", spec, second.handler);
+    const detect = detectorIn("m", spec, second.handler);
     await expect(detect(hostIn(root, state).context)).resolves.toEqual({
       changed: false,
     });
@@ -169,7 +177,7 @@ describe("files detector", () => {
       symlinkSync("a.md", join(root, "link.md"));
       const { context } = hostIn(root);
       const { changes, handler } = recorder();
-      const detect = detector("m", spec, handler);
+      const detect = detectorIn("m", spec, handler);
 
       await expect(detect(context)).resolves.toEqual({ changed: true });
       expect(changes[0]).toEqual({
@@ -242,7 +250,7 @@ describe("files detector", () => {
       .input(z.object({ task: z.string() }))
       .do(({ input }) => input.task);
     let handled = 0;
-    const detect = detector("m", spec, ({ files }) => {
+    const detect = detectorIn("m", spec, ({ files }) => {
       handled += 1;
       return ship({}, { task: files?.added[0]?.path ?? "" });
     });
@@ -285,7 +293,8 @@ describe("files detector", () => {
     if (!schedule) {
       throw new Error("expected the monitor's schedule");
     }
-    const engine = await startEngine(registerCatalog, {
+    const engine = await startEngine({
+      ...hosted,
       print: () => undefined,
     });
     await expect(
@@ -319,7 +328,8 @@ describe("files detector", () => {
       join(state, "monitors", `${key}.json`),
       JSON.stringify({ pending: { input: null, workflow: "gone" }, version: 1 })
     );
-    const engine = await startEngine(registerCatalog, {
+    const engine = await startEngine({
+      ...hosted,
       print: () => undefined,
     });
     await expect(
@@ -362,7 +372,8 @@ describe("files detector", () => {
     if (!schedule) {
       throw new Error("expected the monitor's schedule");
     }
-    const engine = await startEngine(registerCatalog, {
+    const engine = await startEngine({
+      ...hosted,
       print: () => undefined,
     });
     await expect(
@@ -424,7 +435,7 @@ describe("http detector", () => {
     };
     const { context } = hostIn("/nowhere");
     const { changes, contexts, handler } = recorder();
-    const detect = detector("r", spec, handler, { fetch });
+    const detect = detectorIn("r", spec, handler, { fetch });
 
     await expect(detect(context)).resolves.toEqual({ changed: true });
     expect(changes[0]).toEqual({
@@ -460,7 +471,7 @@ describe("http detector", () => {
     const spec: MonitorSpec = { kind: "http", url: "https://example.test" };
     const { context, lines } = hostIn("/nowhere");
     const { changes, handler } = recorder();
-    const detect = detector("r", spec, handler, { fetch });
+    const detect = detectorIn("r", spec, handler, { fetch });
 
     await detect(context);
     await expect(detect(context)).resolves.toEqual({ changed: false });

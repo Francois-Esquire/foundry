@@ -5,11 +5,10 @@ import type { SessionPart, SessionStore } from "@foundry/agents/session";
 import { agent, step } from "@foundry/quirks";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-
-import { CLAUDE_CODE } from "~/harnesses";
 import { catalog } from "~/lib/catalog";
+import { CLAUDE_CODE } from "~/lib/harnesses";
 import { runs } from "~/lib/run-scope";
-import { JsonSessionStore } from "~/sessions/json-store";
+import { JsonSessionStore } from "~/lib/sessions/json-store";
 import { sessionLines } from "~/sessions/list";
 
 import type { MockBindings } from "./helpers/bindings";

@@ -1,4 +1,4 @@
-import type { JsonSessionStore } from "~/sessions/json-store";
+import type { JsonSessionStore } from "~/lib/sessions/json-store";
 
 export async function sessionLines(store: JsonSessionStore): Promise<string[]> {
   const lines: string[] = [];

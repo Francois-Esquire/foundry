@@ -2,7 +2,7 @@ import { createContainers } from "@foundry/sandbox/container/containers";
 import { createMemoryContainerStore } from "@foundry/sandbox/container/store";
 import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
 import { describe, expect, it, vi } from "vitest";
-import { guestArtifact, prepareGuest } from "~/sandbox/prepare";
+import { guestArtifact, prepareGuest } from "~/lib/sandbox/prepare";
 
 describe("guest CLI preparation", () => {
   it("pins the SDK paired native binaries for both Linux architectures", () => {

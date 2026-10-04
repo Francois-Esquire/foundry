@@ -18,7 +18,7 @@ const INTERNAL = [
  */
 const internalPaths = Object.fromEntries([
   ["~/*", ["./src/*"]],
-  ["@foundry/quirks", ["./src/lib/index.ts"]],
+  ["@foundry/quirks", ["./src/authoring/index.ts"]],
   ...INTERNAL.flatMap((name) => [
     ...(name === "lib"
       ? []
@@ -44,9 +44,10 @@ const internalPaths = Object.fromEntries([
 ]);
 
 /**
- * One build, two entries, shared chunks. A `quirks.config.ts` imports the lib
- * and the CLI imports the config; both must see the same registry instance,
- * which only holds if the registry lives in one chunk that both entries load.
+ * One build, shared chunks. A `quirks.config.ts` imports the authoring
+ * words, the CLI imports the config, and a host imports the lib; all must
+ * see the same catalog instance and run table, which only holds if those
+ * live in one chunk that every entry loads.
  *
  * Every `@foundry/*` package is inlined so the built app carries no
  * `workspace:` or `catalog:` reference; only third-party bare imports stay
@@ -61,11 +62,12 @@ export default defineConfig({
   },
   entry: {
     cli: "src/cli.ts",
-    index: "src/lib/index.ts",
-    prebuilt: "src/prebuilt.ts",
+    index: "src/authoring/index.ts",
+    lib: "src/lib/index.ts",
+    prebuilt: "src/authoring/prebuilt.ts",
   },
   esbuildOptions(options) {
-    options.alias = { "@foundry/quirks": "./src/lib/index.ts" };
+    options.alias = { "@foundry/quirks": "./src/authoring/index.ts" };
   },
   external: [/^(?!@foundry\/)[^./~]/],
   format: ["esm"],

@@ -1,8 +1,8 @@
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
-import { isRecord, readJson } from "~/state/json";
-import { alive, holderPid } from "~/state/locks";
+import { isRecord, readJson } from "~/lib/state/json";
+import { alive, holderPid } from "~/lib/state/locks";
 
 /**
  * Everything the status command shows, read straight from the state dir. Pure

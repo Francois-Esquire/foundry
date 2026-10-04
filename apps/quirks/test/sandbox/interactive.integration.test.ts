@@ -4,15 +4,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gatewayProvider } from "@foundry/models/gateway";
 import { afterEach, expect, it } from "vitest";
-import { startEngine } from "~/engine";
-import { openFeed } from "~/feed/store";
-import { step } from "~/lib/builder";
+import { step } from "~/authoring/builder";
 import { catalog } from "~/lib/catalog";
+import { createEngine } from "~/lib/create";
+import type { FeedEntrySnapshot } from "~/lib/feed/read";
+import { openFeed } from "~/lib/feed/store";
 import { runs } from "~/lib/run-scope";
-import { registerCatalog } from "~/lib/tree";
 import type { Session, SessionReply } from "~/lib/types";
-import { bindRuntime } from "~/runtime";
-import type { FeedEntrySnapshot } from "~/views/dashboard-model";
 
 afterEach(() => {
   catalog.reset();
@@ -27,9 +25,10 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
     const root = join(parent, "workspace");
     await mkdir(root);
     const feed = openFeed(undefined, { id: `interactive-${harness}`, root });
-    const runtime = bindRuntime({
+    const engine = createEngine({
       artifacts: feed.artifacts,
       askable: true,
+      catalog,
       dry: false,
       feed: feed.publisher,
       only: [],
@@ -133,12 +132,7 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
       );
       return replies;
     });
-    const engine = await startEngine(registerCatalog, {
-      askable: true,
-      feed: feed.publisher,
-      interactions: runtime.interactions,
-      print: () => undefined,
-    });
+    await engine.start();
     let settled = false;
     let failure: unknown;
     try {
@@ -230,7 +224,7 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
       expect(bodies).toBe(1);
     } finally {
       await engine.stop({ cancel: true });
-      await runtime.dispose();
+      await engine.dispose();
       await rm(parent, { force: true, recursive: true });
     }
   }, 600_000);

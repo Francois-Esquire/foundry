@@ -2,11 +2,10 @@ import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, expect, it } from "vitest";
-
-import { CODEX } from "~/harnesses";
 import { catalog } from "~/lib/catalog";
+import { CODEX } from "~/lib/harnesses";
+import type { Reply } from "~/lib/models/echo";
 import { runs } from "~/lib/run-scope";
-import type { Reply } from "~/models/echo";
 import { reviewWorktree as review } from "../examples/review-with-arguments";
 
 import type { MockBindings } from "./helpers/bindings";

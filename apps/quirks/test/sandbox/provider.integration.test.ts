@@ -8,8 +8,8 @@ import { createContainers } from "@foundry/sandbox/container/containers";
 import { createMicrosandboxRuntime } from "@foundry/sandbox/container/microsandbox-runtime";
 import { createMemoryContainerStore } from "@foundry/sandbox/container/store";
 import { expect, it } from "vitest";
-import { agentsManager } from "~/lib/managers/agents";
-import { sandboxesManager } from "~/lib/managers/sandboxes";
+import { AgentsManager } from "~/lib/managers/agents";
+import { SandboxesManager } from "~/lib/managers/sandboxes";
 import { RunScope, runs } from "~/lib/run-scope";
 
 for (const harness of ["builtin", "claude-code", "codex"] as const) {
@@ -68,60 +68,71 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
         join(root, "sum.test.ts"),
         "import { test, expect } from 'bun:test'; import { sum } from './sum'; test('adds', () => expect(sum(2, 3)).toBe(5));\n"
       );
-      const sandbox = await sandboxesManager({
+      const sandbox = await new SandboxesManager({
         containers: () => Promise.resolve(containers),
         home: root,
         root,
-      })(args).start({
-        executable: true,
-        image: "docker.io/oven/bun:1-slim",
-        network:
-          harness === "builtin"
-            ? "disabled"
-            : {
-                destinations: [
-                  {
-                    host:
-                      harness === "claude-code"
-                        ? "api.anthropic.com"
-                        : "chatgpt.com",
-                    ports: [443],
-                  },
-                ],
-                mode: "allowlist",
-              },
-      });
+      })
+        .scoped(args)
+        .start({
+          executable: true,
+          image: "docker.io/oven/bun:1-slim",
+          network:
+            harness === "builtin"
+              ? "disabled"
+              : {
+                  destinations: [
+                    {
+                      host:
+                        harness === "claude-code"
+                          ? "api.anthropic.com"
+                          : "chatgpt.com",
+                      ports: [443],
+                    },
+                  ],
+                  mode: "allowlist",
+                },
+        });
       expect((await sandbox.exec(["bun", "test"])).exitCode).not.toBe(0);
-      const session = await agentsManager({
+      const session = await new AgentsManager({
         defaultExecutor: () => ({ harness, model: modelId, provider }),
         models,
         sessions: store,
         skills: async () => [],
         warn: () => undefined,
-      })(args).session(
-        {
-          id: `fixture-${harness}`,
-          kind: "agent",
-          model: modelId,
-          prompt:
-            "Fix coding bugs in /workspace. Use the available tools and run bun test after editing. Do not change test files.",
-          provider,
-        },
-        {
-          apiKey,
-          profile: {
-            allowedTools:
-              harness === "builtin"
-                ? ["read", "write", "edit", "glob", "grep", "bash"]
-                : ["Read", "Edit", "Write", "Glob", "Grep", "Bash(bun test:*)"],
-            disallowedTools: [],
-            maxSteps: 12,
-            mode: "scheduled",
-            unresolved: "deny",
+      })
+        .scoped(args)
+        .session(
+          {
+            id: `fixture-${harness}`,
+            kind: "agent",
+            model: modelId,
+            prompt:
+              "Fix coding bugs in /workspace. Use the available tools and run bun test after editing. Do not change test files.",
+            provider,
           },
-          sandbox,
-        }
-      );
+          {
+            apiKey,
+            profile: {
+              allowedTools:
+                harness === "builtin"
+                  ? ["read", "write", "edit", "glob", "grep", "bash"]
+                  : [
+                      "Read",
+                      "Edit",
+                      "Write",
+                      "Glob",
+                      "Grep",
+                      "Bash(bun test:*)",
+                    ],
+              disallowedTools: [],
+              maxSteps: 12,
+              mode: "scheduled",
+              unresolved: "deny",
+            },
+            sandbox,
+          }
+        );
       const reply = await session.generate(
         "Read sum.ts and sum.test.ts. Correct the sum implementation and run bun test. Report its result.",
         { signal: AbortSignal.timeout(180_000) }

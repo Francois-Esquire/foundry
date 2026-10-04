@@ -1,7 +1,7 @@
 import { unbound } from "~/lib/bindings";
 import type { Log } from "~/lib/log";
+import type { MonitorInput } from "~/lib/monitor";
 import type { Context } from "~/lib/types";
-import type { MonitorInput } from "~/monitor";
 
 /**
  * The context a detector body receives when called directly: `log` and

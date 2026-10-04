@@ -2,7 +2,7 @@ import { useCallback } from "react";
 import { FeedMetaLine, isPending } from "~/components/feed-meta";
 import { Panel } from "~/components/panel";
 import { useTheme } from "~/hooks/use-theme";
-import type { FeedEntrySnapshot } from "~/views/dashboard-model";
+import type { FeedEntrySnapshot } from "~/lib/feed/read";
 import { EmptyState } from "./empty-state";
 
 function FeedRow({

@@ -11,15 +11,15 @@ import {
 import { tool as createTool } from "ai";
 import { expect, it, vi } from "vitest";
 import { z } from "zod";
-import { delegationTool } from "~/sandbox/delegate";
+import { delegationTool } from "~/lib/sandbox/delegate";
 import {
   createSandboxSession,
   type SandboxSessionSettings,
-} from "~/sandbox/session";
+} from "~/lib/sandbox/session";
 
 const builtinSettings: SandboxSessionSettings[] = [];
 vi.mock("~/lib/managers/sandboxes", () => ({ sandboxContainer: () => ({}) }));
-vi.mock("~/sandbox/builtin-session", () => ({
+vi.mock("~/lib/sandbox/builtin-session", () => ({
   createBuiltinSession: async (input: SandboxSessionSettings) => {
     builtinSettings.push(input);
     return child();

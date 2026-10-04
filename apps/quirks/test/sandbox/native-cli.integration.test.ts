@@ -8,7 +8,7 @@ import { createMicrosandboxRuntime } from "@foundry/sandbox/container/microsandb
 import { createMemoryContainerStore } from "@foundry/sandbox/container/store";
 import { prepareSandboxProcess } from "@foundry/sandbox/process";
 import { beforeAll, describe, expect, it } from "vitest";
-import { prepareGuest } from "~/sandbox/prepare";
+import { prepareGuest } from "~/lib/sandbox/prepare";
 
 describe("pinned native CLI control protocols in MicroSandbox", () => {
   let containers: Containers;

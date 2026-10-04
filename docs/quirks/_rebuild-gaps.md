@@ -52,6 +52,53 @@ is done. The residency key is unchanged (folded into the identity decision).
   commands; `sandbox({ files, image? })` seeds a scratch sandbox under
   `/workspace`; `microsandbox` is an optional peer.
 
+## Engine split landed
+
+Landed 2026-10-04. Paths in the sections above predate it.
+
+- **`src/lib` is the engine, `src/authoring` is the sugar.** The builders,
+  resource words, trigger builders, lock forms, const-name inference, and
+  prebuilt steps moved to `src/authoring`. `engine.ts`, `feed/`, `state/`,
+  `automation/`, `sandbox/`, `sessions/`, `schedule.ts`, `monitor.ts`,
+  `observe.ts`, `harnesses.ts`, and `models/echo.ts` moved into `src/lib`,
+  which now imports nothing outside itself.
+- **`Engine` is a class that is handed its parts.** The four managers are
+  classes (`AgentsManager`, `WorkspacesManager`, `SandboxesManager`,
+  `ArtifactsManager`) with `scoped(frame)` for the view a body gets. The
+  engine takes them, the catalog, the feed, automations, activities, and
+  interactions through its constructor, already instanced. It replaces
+  `startEngine` and the object `bindRuntime` returned.
+- **`createEngine` is the Quirks assembly** (`lib/create.ts`, the old
+  `bindRuntime` body). The CLI, the dashboard, and the tests call it.
+- **The catalog is no longer a lib global.** `Catalog` is a class without
+  bindings. `lib/catalog.ts` exports a default instance the authoring words
+  fill, no lib module reads it, and the host hands it to the engine. A detector reads its host from the run scope, and
+  `AutomationService` takes the catalog it registers into.
+- **`@foundry/quirks/lib`** is a third public entry over `lib/index.ts`.
+  `@foundry/quirks` and `@foundry/quirks/prebuilt` export exactly what they
+  did before.
+
+This is a milestone, not the final shape. Agreed 2026-10-04 as the next
+step:
+
+- **The engine takes the packages' own instances**, all required:
+  `ModelManager`, the session store, `WorkspaceSystem`, containers, and
+  `ArtifactSystem`. It builds and connects the managers, feed, interactions,
+  activities, and automations itself. Today it is handed prebuilt manager
+  classes, each optional, and the wiring lives in `createEngine`.
+- **The catalog leaves the engine.** The engine owns its registry and is fed
+  by explicit calls; `Catalog` returns to the authoring side as a private
+  collector the CLI copies in. Today `catalog` is a required engine option
+  and is exported from `@foundry/quirks/lib`.
+- **Primitives are usable directly**, outside a step. Today a manager only
+  exposes `scoped(frame)`.
+- **`/lib` exports shrink** to the engine, its types, and the base classes its
+  constructor takes. `createEngine` is Quirks policy and moves out of `lib/`.
+
+"One owner for the run lifecycle" below is still open: the engine class is
+where a single lifecycle hook would live, but pause, persistence, and feed
+state still react to transitions separately.
+
 ## Quirks surface today
 
 The authoring API is `step(name, (primitives, input) => …, options?)`,

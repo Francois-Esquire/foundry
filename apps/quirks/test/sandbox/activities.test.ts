@@ -6,7 +6,7 @@ import type {
   HarnessSession,
 } from "@foundry/agents/harness";
 import { afterEach, expect, it, vi } from "vitest";
-import { HarnessActivities } from "~/sandbox/activities";
+import { HarnessActivities } from "~/lib/sandbox/activities";
 
 const roots: string[] = [];
 afterEach(async () => {

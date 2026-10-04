@@ -1,8 +1,7 @@
 import { z } from "zod";
-
-import { step } from "./lib/builder";
-import { agent } from "./lib/resources";
-import type { AgentDefinition, Context } from "./lib/types";
+import type { AgentDefinition, Context } from "~/lib/types";
+import { step } from "./builder";
+import { agent } from "./resources";
 
 /**
  * Ready-made steps a config registers by calling a factory. Each opens a

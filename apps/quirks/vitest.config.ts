@@ -5,10 +5,11 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   resolve: {
     alias: {
-      "@foundry/quirks": resolve(import.meta.dirname, "src/lib/index.ts"),
+      "@foundry/quirks": resolve(import.meta.dirname, "src/authoring/index.ts"),
+      "@foundry/quirks/lib": resolve(import.meta.dirname, "src/lib/index.ts"),
       "@foundry/quirks/prebuilt": resolve(
         import.meta.dirname,
-        "src/prebuilt.ts"
+        "src/authoring/prebuilt.ts"
       ),
       "~": resolve(import.meta.dirname, "src"),
     },

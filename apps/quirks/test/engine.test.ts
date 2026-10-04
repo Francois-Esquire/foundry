@@ -3,14 +3,15 @@ import { Step } from "@foundry/workflows/step";
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 
-import { startEngine } from "~/engine";
-import { unbound } from "~/lib/bindings";
 import { catalog } from "~/lib/catalog";
-import { createLog } from "~/lib/log";
+import { Engine } from "~/lib/engine";
 import { runs } from "~/lib/run-scope";
-import { registerCatalog } from "~/lib/tree";
+
+import { startEngine } from "./helpers/engine";
 
 const RUN_EXPLODE_FAILED_PATTERN = /run "explode" failed/;
+const NOT_STARTED = /has not started/;
+const ALREADY_STARTED = /already started/;
 
 afterEach(() => {
   catalog.reset();
@@ -38,26 +39,30 @@ function collector() {
   return { lines, print: (line: string) => lines.push(line) };
 }
 
-describe("startEngine", () => {
+/** An engine with one raw factory registered beside the (empty) catalog. */
+function engineWith(
+  register: (engine: Engine) => void,
+  print: (line: string) => void = () => undefined
+): Promise<Engine> {
+  const engine = new Engine({ catalog, print, root: process.cwd() });
+  register(engine);
+  return engine.start();
+}
+
+describe("Engine", () => {
   it("dispatches a registered definition and returns its value", async () => {
-    const engine = await startEngine(
-      (orchestrator) => {
-        orchestrator.register("shout", new Shout().factory());
-      },
-      { print: () => undefined }
-    );
+    const engine = await engineWith((built) => {
+      built.register("shout", new Shout().factory());
+    });
 
     await expect(engine.run<string>("shout", "hello")).resolves.toBe("HELLO");
     await engine.stop();
   });
 
   it("records every dispatch as a Run", async () => {
-    const engine = await startEngine(
-      (orchestrator) => {
-        orchestrator.register("shout", new Shout().factory());
-      },
-      { print: () => undefined }
-    );
+    const engine = await engineWith((built) => {
+      built.register("shout", new Shout().factory());
+    });
 
     await engine.run<string>("shout", "one");
     await engine.run<string>("shout", "two");
@@ -71,12 +76,9 @@ describe("startEngine", () => {
 
   it("surfaces a failed run as a rejection naming the definition", async () => {
     const { lines, print } = collector();
-    const engine = await startEngine(
-      (orchestrator) => {
-        orchestrator.register("explode", new Explode().factory());
-      },
-      { print }
-    );
+    const engine = await engineWith((built) => {
+      built.register("explode", new Explode().factory());
+    }, print);
 
     await expect(engine.run<never>("explode", undefined)).rejects.toThrow(
       RUN_EXPLODE_FAILED_PATTERN
@@ -88,16 +90,20 @@ describe("startEngine", () => {
     await engine.stop();
   });
 
+  it("refuses work before it starts and registrations after", async () => {
+    const engine = new Engine({ catalog, root: process.cwd() });
+    await expect(engine.run("shout", "hello")).rejects.toThrow(NOT_STARTED);
+    // Stopping an engine that never started is a no-op, so cleanup is safe.
+    await engine.stop();
+    await engine.start();
+    expect(() => engine.register("shout", new Shout().factory())).toThrow(
+      ALREADY_STARTED
+    );
+    await engine.stop();
+  });
+
   it("prints step start and complete lines with the path, in order", async () => {
     const { lines, print } = collector();
-    catalog.bind({
-      agents: () => unbound("agents"),
-      artifacts: () => unbound("artifacts"),
-      log: createLog(() => undefined),
-      root: process.cwd(),
-      sandboxes: () => unbound("sandboxes"),
-      workspaces: () => unbound("workspaces"),
-    });
     const text = z.object({ text: z.string() });
     const shout = step()
       .input(text)
@@ -110,7 +116,7 @@ describe("startEngine", () => {
       .do(({ input }) =>
         join({ a: shout({}, input), b: shout({}, { text: "!" }) })
       );
-    const engine = await startEngine(registerCatalog, { print });
+    const engine = await startEngine({ print });
 
     await expect(engine.run<string>("twice", { text: "hey" })).resolves.toBe(
       "HEY!"

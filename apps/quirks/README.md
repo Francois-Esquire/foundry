@@ -148,13 +148,15 @@ requests are cancelled when their turn stops. Model questions in unattended
 runs produce a feed notice and return an explicit decline.
 
 The CLI/dashboard bind this automatically. Embedding hosts pass the same
-`feed` and `askable` settings to `bindRuntime`, and its returned `interactions`
-to `startEngine`. They can override `authority` or `question` on a session.
+`feed` and `askable` settings to `createEngine`, which wires the interactions
+into the engine it returns. They can override `authority` or `question` on a
+session.
 Custom callbacks must remain abortable and must not call the workflow `ask`
 suspension API. Custom authority stores retain responsibility for their own
 restart recovery; the default runtime persists its grants locally.
 
-Embedding hosts can register network providers through `bindRuntime.providers`.
+Embedding hosts can register network providers through `createEngine`'s
+`providers` option.
 These use the built-in coding loop with scoped guest tools, a step limit, and
 compaction. The existing OpenAI-compatible gateway provider also supports
 OpenRouter configuration. Legacy sessions without `sandbox` retain their prior
@@ -212,7 +214,7 @@ anchors the first firing across restarts. Resuming an overdue trigger fires it
 once, without queueing missed intervals. File globs stay relative to the
 configured workspace. HTTP monitors may use origins already
 selected by configured HTTP monitors; embedding hosts can supply
-`bindRuntime.allowMonitorUrl` for explicit additional destinations. Redirects
+`createEngine`'s `allowMonitorUrl` for explicit additional destinations. Redirects
 are refused. Invalid recovered records remain disabled and display diagnostics.
 
 Managed triggers show their owner and durable lifetime. Select one and press
@@ -225,6 +227,70 @@ acknowledgement can redeliver, so target workflows should tolerate duplicates.
 Embedding hosts pass `getSchedules: () => runtime.automations.schedules()` to
 `runSchedules` for live additions/removals. Durable execution requires a running
 Quirks loop or an installed host schedule. Pi integration is deferred.
+
+## Embedding the engine
+
+The CLI is one host of an engine any Bun program can run. `@foundry/quirks` is
+unchanged: the words a config writes definitions with. `@foundry/quirks/lib`
+holds the `Engine` that runs them, every part it is built from, and the
+`catalog` the config fills. `createEngine` builds the same defaults the CLI
+uses:
+
+```ts
+import {
+  catalog,
+  createEngine,
+  openFeed,
+  workspaceState,
+} from "@foundry/quirks/lib";
+
+await import("./quirks.config.ts");
+
+const workspace = workspaceState("/path/to/state", process.cwd());
+const feed = openFeed("/path/to/artifacts", workspace);
+const engine = createEngine({
+  artifacts: feed.artifacts,
+  catalog,
+  dry: false,
+  feed: feed.publisher,
+  only: [],
+  print: console.log,
+  root: workspace.root,
+  state: workspace.dir,
+  workspaceId: workspace.id,
+});
+
+await engine.start();
+const summary = await engine.run("summarize-codebase", {});
+await engine.stop();
+await engine.dispose();
+```
+
+To replace one piece and keep the rest, build it yourself and pass it as
+`instances`: any of `agents`, `workspaces`, `sandboxes`, `artifacts`, `models`,
+or `sessions`. Whatever is left out is built with the default.
+
+```ts
+import { InMemorySessionStore } from "@foundry/quirks/lib";
+
+const engine = createEngine({
+  // ...as above
+  instances: { sessions: new InMemorySessionStore() },
+});
+```
+
+For a wholly different assembly, skip `createEngine` and hand every piece to
+the constructor already instanced: `new Engine({ catalog, root, agents,
+workspaces, sandboxes, artifacts, ... })`, with `AgentsManager`,
+`WorkspacesManager`, `SandboxesManager`, and `ArtifactsManager` built over your
+own model manager, session store, workspace system, containers, and artifact
+store. A manager you leave out refuses calls from step bodies; nothing else
+depends on it. `engine.dispose()` closes the managers it holds.
+
+The package bundles its Foundry packages, so take the base classes
+(`ModelManager`, `InMemorySessionStore`, `WorkspaceSystem`, `ArtifactSystem`,
+`createContainers`, and the rest) from `@foundry/quirks/lib` as well. An
+instance built from another copy of the same class is a different type.
 
 ## Documentation
 

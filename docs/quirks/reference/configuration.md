@@ -57,8 +57,8 @@ project.
 CLI with `bun run quirks -- --config <path> …`; elsewhere run the built
 `apps/quirks/dist/cli.js` with Bun. For editor types, point the project's
 TypeScript at the built package or the repository. Importing `@foundry/quirks`
-outside the CLI registers definitions but binds no runtime; a step body run
-that way fails with `the runtime is not bound; the CLI binds it`.
+outside the CLI registers definitions and runs nothing. A program that wants
+to run them takes the `catalog` and an engine from `@foundry/quirks/lib`.
 
 ## Prebuilt steps
 

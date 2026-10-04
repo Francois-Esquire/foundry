@@ -9,9 +9,8 @@ import type { Container } from "@foundry/sandbox/container/containers";
 import { simulateReadableStream } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, it, vi } from "vitest";
-
+import { createSandboxSession } from "../../src/lib/sandbox/session";
 import type { Sandbox } from "../../src/lib/types";
-import { createSandboxSession } from "../../src/sandbox/session";
 
 const binding = vi.hoisted(() => ({
   container: undefined as Container | undefined,

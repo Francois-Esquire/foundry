@@ -6,14 +6,55 @@ import type {
 import { isGoodContent } from "@foundry/artifacts";
 import { classifyFile } from "@foundry/lib/file-classification";
 import type { z } from "zod";
-import { FEED_ENTRY_FILE, FEED_ENTRY_TYPE } from "~/feed/entry";
-import { feedMetadataSchema } from "~/feed/publish";
-import type {
-  FeedEntrySnapshot,
-  FeedMediaSnapshot,
-} from "~/views/dashboard-model";
+import { FEED_ENTRY_FILE, FEED_ENTRY_TYPE } from "~/lib/feed/entry";
+import { feedMetadataSchema } from "~/lib/feed/publish";
 
 const PAGE_SIZE = 100;
+
+export interface FeedMediaSnapshot {
+  /** Loaded for images only, which the reader draws inline. */
+  readonly bytes?: Uint8Array;
+  readonly kind: "image" | "video" | "audio" | "file";
+  readonly name: string;
+  /** Path inside the entry, as the markdown references it. */
+  readonly path: string;
+}
+
+export interface FeedEntrySnapshot {
+  /** Set on results that carry an artifact version. */
+  readonly artifact?: {
+    readonly artifactId: string;
+    readonly contentId: string;
+  };
+  /** Markdown article, starting with the entry's title as a heading. */
+  readonly body: string;
+  readonly definition: string;
+  readonly id: string;
+  /** Set on `input` entries: live input, deferred permission, or a workflow suspension. */
+  readonly input?: {
+    readonly answer?: string;
+    readonly sessionId?: string;
+    readonly activityId?: string;
+    readonly choices: readonly string[];
+    /** Absent on legacy and workflow suspension entries. */
+    readonly delivery?: "live" | "deferred";
+    /** Approval requests permission; a question requests input. */
+    readonly mode?: "question" | "approval";
+    /** Given with the answer to an approval. */
+    readonly note?: string;
+    readonly status: "open" | "answered" | "cancelled";
+  };
+  readonly kind: "result" | "milestone" | "input";
+  readonly media: readonly FeedMediaSnapshot[];
+  /** Display time, formatted by the host. */
+  readonly posted: string;
+  /** ISO time of the first post; entries sort newest first by it. */
+  readonly postedAt: string;
+  readonly run: string;
+  readonly step: string;
+  readonly title: string;
+  readonly workspace: { readonly id: string; readonly name: string };
+}
 
 export type FeedReader = (now?: Date) => Promise<FeedEntrySnapshot[]>;
 

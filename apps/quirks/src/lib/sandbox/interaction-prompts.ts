@@ -5,7 +5,7 @@ import type {
 } from "@foundry/agents/harness";
 import { redactHarnessSummary } from "@foundry/agents/harness";
 import type { AgentApprovalRequest } from "@foundry/agents/session";
-import type { FeedQuestionPayload } from "~/feed/entry";
+import type { FeedQuestionPayload } from "~/lib/feed/entry";
 
 const APPROVE_ONCE = "Approve once";
 export const APPROVE_SESSION = "Allow for this session";

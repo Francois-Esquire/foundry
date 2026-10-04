@@ -143,6 +143,28 @@ step("typed").input(z.object({ text: z.string() })).do(({ input }) => input.text
 step(123);
 `
     );
+    // A host assembles the engine itself: the config's catalog, and a
+    // manager built over base classes taken from the package's own copies.
+    writeFileSync(
+      join(consumer, "host.ts"),
+      `
+import "./quirks.config";
+import { step } from "@foundry/quirks";
+import { Engine, WorkspacesManager, WorkspaceSystem, catalog, directory, git, nodeObserver } from "@foundry/quirks/lib";
+step("host-inventory").do(async ({ workspaces }) => (await workspaces.current.files()).length);
+const root = ".";
+const catalogue = new WorkspaceSystem().extend(directory({ observer: nodeObserver }), git());
+const engine = new Engine({ catalog, root, workspaces: new WorkspacesManager({ catalogue, root }) });
+// @ts-expect-error An engine needs a catalog.
+new Engine({ root });
+await engine.start();
+const greeted = await engine.run<{ greeting: string }>("packed-workflow", { name: "host" });
+const files = await engine.run<number>("host-inventory", {});
+await engine.stop();
+await engine.dispose();
+console.log(greeted.greeting, files > 0 ? "sees files" : "sees nothing");
+`
+    );
     run(
       "bun",
       [
@@ -157,8 +179,12 @@ step(123);
         "--moduleResolution",
         "bundler",
         "types.ts",
+        "host.ts",
       ],
       consumer
+    );
+    expect(run("bun", ["host.ts"], consumer)).toContain(
+      "Hello host sees files"
     );
     const cli = join(consumer, "node_modules/.bin/quirks");
     for (const command of [[], ["run"]]) {

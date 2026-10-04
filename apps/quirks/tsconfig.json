@@ -5,8 +5,9 @@
     "types": ["bun"],
     "paths": {
       "~/*": ["./src/*"],
-      "@foundry/quirks": ["./src/lib/index.ts"],
-      "@foundry/quirks/prebuilt": ["./src/prebuilt.ts"]
+      "@foundry/quirks": ["./src/authoring/index.ts"],
+      "@foundry/quirks/lib": ["./src/lib/index.ts"],
+      "@foundry/quirks/prebuilt": ["./src/authoring/prebuilt.ts"]
     },
     "jsx": "react-jsx",
     "jsxImportSource": "@opentui/react"

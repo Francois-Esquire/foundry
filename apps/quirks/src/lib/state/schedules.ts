@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
-import { isRecord, readJson, writeJson } from "~/state/json";
+import { isRecord, readJson, writeJson } from "~/lib/state/json";
 
 /** `<workspace>/schedules/<key>.json`: the last tick and when the next is due. */
 export interface ScheduleHistory {

@@ -1,13 +1,12 @@
 import { createInMemoryAgentAuthorizer } from "@foundry/agents/authorization";
 import { InMemorySessionStore } from "@foundry/agents/session";
 import { afterEach, describe, expect, it } from "vitest";
-
-import { CLAUDE_CODE, CODEX } from "~/harnesses";
 import type { ManagerArgs } from "~/lib/bindings";
-import { agentsManager } from "~/lib/managers/agents";
+import { CLAUDE_CODE, CODEX } from "~/lib/harnesses";
+import { AgentsManager } from "~/lib/managers/agents";
+import { mockModels } from "~/lib/models/echo";
 import { RunScope, runs } from "~/lib/run-scope";
 import type { AgentDefinition } from "~/lib/types";
-import { mockModels } from "~/models/echo";
 
 const NO_TURN_PATTERN = /no agent turn is running/;
 
@@ -53,9 +52,9 @@ const reviewer: AgentDefinition = {
 describe("agents.session", () => {
   it("dry sandbox sessions use echo models without preparing a guest or reading credentials", async () => {
     const a = args();
-    const session = await agentsManager({ ...deps(), dry: true })(a).session(
-      reviewer,
-      {
+    const session = await new AgentsManager({ ...deps(), dry: true })
+      .scoped(a)
+      .session(reviewer, {
         sandbox: {
           close: () => Promise.resolve(),
           exec: () => {
@@ -63,15 +62,14 @@ describe("agents.session", () => {
           },
           id: "dry-sandbox",
         },
-      }
-    );
+      });
     expect((await session.generate("Inspect the fixture")).text).toContain(
       "Inspect the fixture"
     );
   });
 
   it("rejects sandbox-only permission and credential options on a host session", async () => {
-    const agents = agentsManager(deps())(args());
+    const agents = new AgentsManager(deps()).scoped(args());
     const authority = { policy: createInMemoryAgentAuthorizer().authorizer };
     for (const options of [
       { authority },
@@ -95,7 +93,7 @@ describe("agents.session", () => {
 
   it("opens a session on the default provider in the frame's directory and streams text", async () => {
     const a = args();
-    const agents = agentsManager(deps())(a);
+    const agents = new AgentsManager(deps()).scoped(a);
     const session = await agents.session(reviewer);
     const reply = await session.generate("Look at src.");
     expect(reply.text.startsWith("claude-code@/tmp/project:")).toBe(true);
@@ -111,14 +109,16 @@ describe("agents.session", () => {
   it("a fresh session belongs to the run's session in the store", async () => {
     const a = args();
     const d = deps();
-    const agents = agentsManager(d)(a);
+    const agents = new AgentsManager(d).scoped(a);
     const session = await agents.session(reviewer);
     const stored = await d.sessions.getSession(session.ref.id);
     expect(stored?.parentSessionId).toBe(a.scope.session.id);
     expect(await d.sessions.getSession(a.scope.session.id)).not.toBeNull();
     // Continuing a session by reference does not re-parent it.
     const other = args();
-    const again = await agentsManager(d)(other).session(reviewer, { session });
+    const again = await new AgentsManager(d)
+      .scoped(other)
+      .session(reviewer, { session });
     expect(again.ref.id).toBe(session.ref.id);
     expect((await d.sessions.getSession(session.ref.id))?.parentSessionId).toBe(
       a.scope.session.id
@@ -127,7 +127,7 @@ describe("agents.session", () => {
 
   it("honours provider and cwd overrides", async () => {
     const a = args();
-    const agents = agentsManager(deps())(a);
+    const agents = new AgentsManager(deps()).scoped(a);
     const session = await agents.session(
       { ...reviewer, provider: "codex" },
       { cwd: "/elsewhere" }
@@ -140,7 +140,7 @@ describe("agents.session", () => {
 
   it("continues a session by reference and starts fresh on another provider", async () => {
     const warnings: string[] = [];
-    const agents = agentsManager(deps(warnings))(args());
+    const agents = new AgentsManager(deps(warnings)).scoped(args());
     const first = await agents.session(reviewer);
     const again = await agents.session(reviewer, { session: first.ref });
     expect(again.ref.id).toBe(first.ref.id);
@@ -159,7 +159,7 @@ describe("agents.session", () => {
 
   it("returns the recorded session when the body replays", async () => {
     const a = args();
-    const agents = agentsManager(deps())(a);
+    const agents = new AgentsManager(deps()).scoped(a);
     const first = await agents.session(reviewer);
     const second = await agents.session(reviewer);
     expect(second.ref.id).not.toBe(first.ref.id);
@@ -172,7 +172,7 @@ describe("agents.session", () => {
 
   it("aborts a turn with the frame", async () => {
     const a = args();
-    const agents = agentsManager(deps())(a);
+    const agents = new AgentsManager(deps()).scoped(a);
     const session = await agents.session(reviewer);
     a.frame.controller.abort(new Error("step cancelled"));
     await expect(session.generate("hi")).rejects.toThrow("step cancelled");
@@ -187,7 +187,7 @@ describe("agents.session", () => {
         hold: ({ prompt }) => prompt.endsWith("slowly"),
       }
     );
-    const agents = agentsManager({ ...deps(), models })(a);
+    const agents = new AgentsManager({ ...deps(), models }).scoped(a);
     const session = await agents.session(reviewer);
     const turn = session.generate("count slowly");
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -195,7 +195,7 @@ describe("agents.session", () => {
     await expect(turn).rejects.toThrow("paused");
 
     const b = args();
-    const streaming = agentsManager({ ...deps(), models })(b);
+    const streaming = new AgentsManager({ ...deps(), models }).scoped(b);
     const streamed = (await streaming.session(reviewer)).stream("speak slowly");
     await new Promise((resolve) => setTimeout(resolve, 20));
     b.frame.controller.abort(new Error("paused"));
@@ -210,7 +210,7 @@ describe("agents.session", () => {
       ({ prompt }) => `reply to ${prompt.split("\n").at(-1) ?? ""}`,
       { hold: ({ prompt }) => prompt.endsWith("count slowly") }
     );
-    const agents = agentsManager({ ...deps(), models })(a);
+    const agents = new AgentsManager({ ...deps(), models }).scoped(a);
     const session = await agents.session(reviewer);
     const turn = session.generate("count slowly");
     // The turn is streaming its first word; hand the agent a new prompt.
@@ -230,7 +230,7 @@ describe("agents.session", () => {
       seen.push(prompt);
       return "ok";
     });
-    const agents = agentsManager({ ...deps(), models })(a);
+    const agents = new AgentsManager({ ...deps(), models }).scoped(a);
     await agents.session(reviewer);
     // Replay: the same call returns the recorded session; the host left a prompt.
     await a.scope.enter(a.frame);

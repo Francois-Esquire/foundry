@@ -22,8 +22,8 @@ import {
   INPUT_DELIVERIES,
   INPUT_STATUSES,
   type InputStatus,
-} from "~/feed/entry";
-import { alive } from "~/state/locks";
+} from "~/lib/feed/entry";
+import { alive } from "~/lib/state/locks";
 
 const PAGE_SIZE = 100;
 

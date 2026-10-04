@@ -18,7 +18,7 @@ import {
   selectExecutor,
   selectedHarnesses,
   which,
-} from "~/harnesses";
+} from "~/lib/harnesses";
 
 const UNAVAILABLE_CODEX = /codex harness is not available on this machine/;
 const NO_HARNESS = /No harness is available/;

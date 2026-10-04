@@ -4,14 +4,14 @@ import { join } from "node:path";
 import { globToRegExp } from "@foundry/lib/glob";
 
 import type { HostBindings } from "~/lib/bindings";
-import { catalog } from "~/lib/catalog";
 import type { StepFn } from "~/lib/definition";
 import { isLockedNode } from "~/lib/definition";
 import type { Launch } from "~/lib/launch";
 import { isLaunch, launchTarget } from "~/lib/launch";
+import type { Catalogue } from "~/lib/managers/workspaces";
+import { current } from "~/lib/run-scope";
+import { isRecord, readJson, stableJson, writeJson } from "~/lib/state/json";
 import type { Context } from "~/lib/types";
-
-import { isRecord, readJson, stableJson, writeJson } from "~/state/json";
 
 /**
  * A monitor is a schedule whose step detects a change and hands it to the
@@ -87,9 +87,17 @@ function sha256(text: string): string {
 
 export type Fetch = (url: string, init: RequestInit) => Promise<Response>;
 
+/** Where a detector reads the tree and keeps what it last saw. */
+export interface MonitorHost extends HostBindings {
+  /** The config's directory; a glob is matched beneath it. */
+  readonly root: string;
+}
+
 export interface DetectorOptions {
   /** Stub for tests; `globalThis.fetch` otherwise. */
   readonly fetch?: Fetch;
+  /** For a detector called outside a run; inside one, the run scope's host is used. */
+  readonly host?: () => MonitorHost;
 }
 
 /** One tick's reading: the change to hand on (none when nothing moved) and the state to keep. */
@@ -100,12 +108,19 @@ interface Observation {
   readonly state: Record<string, unknown>;
 }
 
-function requireHost(key: string): HostBindings {
-  const { host } = catalog.bindings();
-  if (!host) {
-    throw new Error(`monitor "${key}" needs a host with a workspace catalogue`);
+/** The host a detector body runs against: the one given, else its run's. */
+function hostOf(key: string, options: DetectorOptions): MonitorHost {
+  const given = options.host?.();
+  if (given) {
+    return given;
   }
-  return host;
+  const store = current.getStore();
+  if (!store) {
+    throw new Error(
+      `monitor "${key}" needs a host; it is not running in a step`
+    );
+  }
+  return { ...store.scope.host, root: store.scope.cwd };
 }
 
 function handlerContext(
@@ -166,19 +181,25 @@ export function detector(
       writeJson(file(state), { version: 1, ...value });
     }
   };
+  // A pending launch is only ever handed out by the body below, so the
+  // state dir it ran against is the one an acknowledgement writes to.
+  let seen: { readonly state: string | undefined } | undefined;
   acknowledgers.set(key, () => {
-    const { state } = requireHost(key);
-    const previous = stored(state);
+    if (!seen) {
+      return;
+    }
+    const previous = stored(seen.state);
     if (isRecord(previous) && "pending" in previous) {
       const { pending: _, ...rest } = previous;
-      store(state, rest);
+      store(seen.state, rest);
     }
   });
 
   return async (context) => {
     const { log, signal } = context;
     signal.throwIfAborted();
-    const host = requireHost(key);
+    const host = hostOf(key, options);
+    seen = { state: host.state };
     const previous = stored(host.state);
     // A launch from an earlier tick that was never started goes out again
     // before anything is polled.
@@ -186,12 +207,23 @@ export function detector(
     if (pending) {
       return { changed: true, launch: pending };
     }
+    const catalogue = spec.kind === "files" ? host.catalogue : undefined;
+    if (spec.kind === "files" && !catalogue) {
+      throw new Error(
+        `monitor "${key}" needs a host with a workspace catalogue`
+      );
+    }
     let observed: Observation;
     try {
       observed =
-        spec.kind === "files"
-          ? await observeFiles(host, catalog.bindings().root, spec, previous)
-          : await observeHttp(spec, previous, options.fetch ?? fetch, signal);
+        spec.kind === "files" && catalogue
+          ? await observeFiles(catalogue, host.root, spec, previous)
+          : await observeHttp(
+              spec as { readonly url: string },
+              previous,
+              options.fetch ?? fetch,
+              signal
+            );
     } catch (error) {
       log(`[monitor] ${key} poll failed: ${String(error)}`);
       return { changed: false };
@@ -223,15 +255,15 @@ function storedFiles(state: unknown): Map<string, string> {
 }
 
 async function observeFiles(
-  host: HostBindings,
+  catalogue: Catalogue,
   root: string,
   spec: { readonly glob: string },
   previous: unknown
 ): Promise<Observation> {
-  const workspace = await host.catalogue.load({ path: root });
+  const workspace = await catalogue.load({ path: root });
   const { entries } = await workspace.refresh();
   const pattern = globToRegExp(spec.glob);
-  const current = new Map(
+  const found = new Map(
     entries
       .filter((entry) => entry.type === "file")
       .filter((entry) => pattern.test(entry.path))
@@ -241,7 +273,7 @@ async function observeFiles(
 
   const added: FileEntry[] = [];
   const modified: FileEntry[] = [];
-  for (const [path, checksum] of current) {
+  for (const [path, checksum] of found) {
     const seen = last.get(path);
     if (seen === undefined) {
       added.push({ checksum, path });
@@ -250,13 +282,13 @@ async function observeFiles(
     }
   }
   const removed = [...last]
-    .filter(([path]) => !current.has(path))
+    .filter(([path]) => !found.has(path))
     .map(([path, checksum]) => ({ checksum, path }));
 
   const moved = added.length + modified.length + removed.length > 0;
   return {
     change: moved ? { added, kind: "files", modified, removed } : undefined,
-    state: { files: Object.fromEntries(current) },
+    state: { files: Object.fromEntries(found) },
   };
 }
 

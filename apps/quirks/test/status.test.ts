@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { writeJson } from "~/state/json";
+import { writeJson } from "~/lib/state/json";
 import { readStatus } from "~/status/model";
 
 function run(id: string, status: string, createdAt: number, pid: number) {
