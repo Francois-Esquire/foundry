@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 
 import { step, workflow } from "~/authoring/builder";
-import { catalog } from "~/lib/catalog";
+import { catalog } from "~/authoring/catalog";
 import { isLockedNode } from "~/lib/definition";
 
 const ALREADY_REGISTERED = /already registered/;

@@ -9,9 +9,10 @@ import {
 import { isAbsolute, join } from "node:path";
 import { type ToolSet, tool } from "ai";
 import { z } from "zod";
-import type { Catalog } from "~/lib/catalog";
 import type { StepFn } from "~/lib/definition";
 import { type Detection, detector, type MonitorInput } from "~/lib/monitor";
+import type { Registry } from "~/lib/registry";
+import { AUTOMATION_MONITOR } from "~/lib/registry";
 import { parseAt } from "~/lib/schedule";
 import { validate } from "~/lib/schema";
 import { stableJson, writeJson } from "~/lib/state/json";
@@ -60,29 +61,27 @@ export type AutomationSpec = z.infer<typeof specSchema>;
 export type AutomationRecord = z.infer<typeof recordSchema> & {
   readonly createdAt: string;
 };
-export const AUTOMATION_MONITOR = "__automation_monitor";
-
 const monitorInput = z.object({ id: z.string() });
 
 export interface AutomationOptions {
   /** HTTP polling is disabled unless the host explicitly permits the URL. */
   readonly allowHttp?: (url: URL) => boolean;
   /** Where targets are looked up and the triggers agents create are registered. */
-  readonly catalog: Catalog;
+  readonly registry: Registry;
   readonly state?: string;
 }
 
 /** Declarative trigger storage. Execution stays in the host's existing schedule loop. */
 export class AutomationService {
   readonly #options: AutomationOptions;
-  readonly #catalog: Catalog;
+  readonly #registry: Registry;
   readonly #records = new Map<string, AutomationRecord>();
   readonly #errors = new Map<string, string>();
   readonly #detectors = new Map<string, StepFn<MonitorInput, Detection>>();
 
   constructor(options: AutomationOptions) {
     this.#options = options;
-    this.#catalog = options.catalog;
+    this.#registry = options.registry;
     const poll: StepFn<z.infer<typeof monitorInput>, Detection> = async (
       context
     ) => {
@@ -102,8 +101,8 @@ export class AutomationService {
         input: {},
       });
     };
-    this.#catalog.definitions.delete(AUTOMATION_MONITOR);
-    this.#catalog.register({
+    this.#registry.definitions.delete(AUTOMATION_MONITOR);
+    this.#registry.define({
       fn: poll,
       input: monitorInput,
       kind: "step",
@@ -120,7 +119,7 @@ export class AutomationService {
     if (existing) {
       return existing;
     }
-    const target = this.#catalog.definitions.get(record.workflow);
+    const target = this.#registry.definitions.get(record.workflow);
     if (!target) {
       throw new Error(
         `Automation target "${record.workflow}" is not registered`
@@ -178,7 +177,7 @@ export class AutomationService {
     }
     for (const id of this.#records.keys()) {
       if (!records.has(id)) {
-        this.#catalog.schedules.delete(id);
+        this.#registry.schedules.delete(id);
         this.#detectors.delete(id);
       }
     }
@@ -186,7 +185,7 @@ export class AutomationService {
     for (const [id, record] of records) {
       this.#records.set(id, record);
       if (this.#errors.has(`${id}.json`)) {
-        this.#catalog.schedules.delete(id);
+        this.#registry.schedules.delete(id);
       } else {
         this.#register(record);
       }
@@ -253,11 +252,11 @@ export class AutomationService {
     }
   }
   #register(record: AutomationRecord): void {
-    this.#catalog.schedules.delete(record.id);
+    this.#registry.schedules.delete(record.id);
     if (!record.enabled) {
       return;
     }
-    this.#catalog.schedule({
+    this.#registry.schedule({
       input: record.source ? { id: record.id } : (record.input ?? null),
       key: record.id,
       kind: record.source ? "monitor" : "schedule",
@@ -302,7 +301,7 @@ export class AutomationService {
   }
   schedules(): readonly Schedule[] {
     this.#refresh();
-    return [...this.#catalog.schedules.values()];
+    return [...this.#registry.schedules.values()];
   }
   async create(
     raw: AutomationSpec,
@@ -311,11 +310,11 @@ export class AutomationService {
     const spec = specSchema.parse(raw);
     const owner = ownerSchema.parse(rawOwner);
     this.#checkSource(spec);
-    const target = this.#catalog.definitions.get(spec.workflow);
+    const target = this.#registry.definitions.get(spec.workflow);
     if (
       !target ||
       spec.workflow === AUTOMATION_MONITOR ||
-      this.#catalog.monitors.has(spec.workflow)
+      this.#registry.monitors.has(spec.workflow)
     ) {
       throw new Error(`Automation target "${spec.workflow}" is not launchable`);
     }
@@ -388,7 +387,7 @@ export class AutomationService {
       }
       this.#records.delete(id);
       this.#detectors.delete(id);
-      this.#catalog.schedules.delete(id);
+      this.#registry.schedules.delete(id);
     });
   }
   tools(owner: AutomationOwner): ToolSet {
@@ -411,7 +410,7 @@ export class AutomationService {
       list_automation_targets: tool({
         description: "List registered launch targets and their input schemas.",
         execute: async () =>
-          this.#catalog
+          this.#registry
             .entries()
             .filter((entry) => entry.name !== AUTOMATION_MONITOR),
         inputSchema: z.object({}),

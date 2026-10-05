@@ -10,13 +10,13 @@ import { Workflow } from "@foundry/workflows/workflow";
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { step, workflow } from "~/authoring/builder";
+import { catalog } from "~/authoring/catalog";
 import type { Bindings } from "~/lib/bindings";
-import { unbound } from "~/lib/bindings";
-import { catalog } from "~/lib/catalog";
 import type { AnyDefinition } from "~/lib/definition";
 import { createLog } from "~/lib/log";
 import { runs } from "~/lib/run-scope";
 import { factoryFor } from "~/lib/tree";
+import { unbound } from "../helpers/unbound";
 
 const TYPED_INPUT = /"typed" input: n/;
 const TYPED_OUTPUT = /"typed" output/;

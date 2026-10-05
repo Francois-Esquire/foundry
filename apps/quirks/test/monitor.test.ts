@@ -14,13 +14,11 @@ import { git } from "@foundry/workspaces/git";
 import { directory } from "@foundry/workspaces/node";
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
-import { bindManagers } from "~/lib/bindings";
-import { catalog } from "~/lib/catalog";
+import { catalog } from "~/authoring/catalog";
 import type { AnyDefinition } from "~/lib/definition";
 import type { EngineOptions } from "~/lib/engine";
 import { createLog } from "~/lib/log";
 import type { Catalogue } from "~/lib/managers/workspaces";
-import { WorkspacesManager } from "~/lib/managers/workspaces";
 import type {
   Change,
   Fetch,
@@ -33,7 +31,7 @@ import { runs } from "~/lib/run-scope";
 import { tick } from "~/lib/schedule";
 import { isRecord, readJson } from "~/lib/state/json";
 
-import { startEngine } from "./helpers/engine";
+import { startEngine, testEngine } from "./helpers/engine";
 import { bindLaunch, launch } from "./helpers/launch";
 import { monitorContext } from "./helpers/monitor";
 
@@ -61,10 +59,16 @@ function hostIn(root: string, state?: string) {
   const log = createLog((_level, message) => lines.push(message));
   const catalogue = new WorkspaceSystem().extend(directory(), git());
   catalogues.push(catalogue);
-  const workspaces = new WorkspacesManager({ catalogue, root });
   const stateOption = state === undefined ? {} : { state };
-  hosted = { catalogue, root, workspaces, ...stateOption };
-  bindLaunch(bindManagers({ log, root, workspaces, ...stateOption }));
+  hosted = { catalogue, root, workspaces: catalogue, ...stateOption };
+  bindLaunch(
+    testEngine({
+      print: (line) => lines.push(line),
+      root,
+      workspaces: catalogue,
+      ...stateOption,
+    }).bindings
+  );
   return { context: monitorContext(log), lines };
 }
 

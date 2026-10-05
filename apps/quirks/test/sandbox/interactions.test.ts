@@ -9,15 +9,15 @@ import { createHarnessPermission } from "@foundry/agents/harness";
 import { InMemorySessionStore } from "@foundry/agents/session";
 import { afterEach, expect, it, vi } from "vitest";
 import { step } from "~/authoring/builder";
-import { catalog } from "~/lib/catalog";
+import { catalog } from "~/authoring/catalog";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
-import { openFeed } from "~/lib/feed/store";
 import { runs } from "~/lib/run-scope";
 import { JsonAgentGrantRepository } from "~/lib/sandbox/grants";
 import { HarnessInteractions } from "~/lib/sandbox/interactions";
 import { JsonSessionStore } from "~/lib/sessions/json-store";
 
 import { startEngine } from "../helpers/engine";
+import { openFeed } from "../helpers/feed";
 
 const source = { definition: "coding", path: ["coding"], runId: "run-1" };
 const roots: string[] = [];
@@ -201,9 +201,11 @@ it("cancels live input and rejects a stale answer without granting permission", 
 it("routes live answers through the real engine without suspending or replaying its step", async () => {
   const f = await fixture();
   let bodies = 0;
+  // The engine builds its own bridge over the feed and sessions it is handed.
+  let bridge: HarnessInteractions | undefined;
   step("coding").do(async ({ run }) => {
     bodies += 1;
-    return f.bridge.question(
+    return bridge?.question(
       { ...source, runId: run.id },
       {
         questions: [{ id: "name", question: "Which name?" }],
@@ -215,12 +217,13 @@ it("routes live answers through the real engine without suspending or replaying 
     );
   });
   const engine = await startEngine({
+    artifacts: f.feed.artifacts,
     askable: true,
-    feed: f.feed.publisher,
-    interactions: f.bridge,
     print: () => undefined,
     root: "/workspace",
+    sessions: f.sessions,
   });
+  bridge = engine.interactions;
   try {
     const launched = await engine.launch("coding", {});
     const entry = await f.open();

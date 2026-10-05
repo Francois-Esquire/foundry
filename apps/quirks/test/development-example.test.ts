@@ -3,7 +3,7 @@ import { rm } from "node:fs/promises";
 import { basename } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { catalog } from "~/lib/catalog";
+import { catalog } from "~/authoring/catalog";
 import type { Reply } from "~/lib/models/echo";
 import { runs } from "~/lib/run-scope";
 import {

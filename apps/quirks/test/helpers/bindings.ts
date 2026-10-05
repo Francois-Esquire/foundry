@@ -1,96 +1,72 @@
 import type { SessionStore } from "@foundry/agents/session";
-import { InMemorySessionStore } from "@foundry/agents/session";
-import type { TurnExecutorRef } from "@foundry/models";
-import { WorkspaceSystem } from "@foundry/workspaces";
-import { git } from "@foundry/workspaces/git";
-import { directory } from "@foundry/workspaces/node";
-import { nodeObserver } from "@foundry/workspaces/node/watch";
-import type { Bindings, Managers } from "~/lib/bindings";
-import { bindManagers } from "~/lib/bindings";
-import { echoGit } from "~/lib/create";
-import { CLAUDE_CODE, CODEX } from "~/lib/harnesses";
-import { createLog } from "~/lib/log";
-import { AgentsManager } from "~/lib/managers/agents";
-import { WorkspacesManager } from "~/lib/managers/workspaces";
-import type { MockOptions, Reply } from "~/lib/models/echo";
-import { mockModels } from "~/lib/models/echo";
+import type { Bindings } from "~/lib/bindings";
+import type { Engine, EngineOptions } from "~/lib/engine";
+import type { Reply } from "~/lib/models/echo";
+import type { TestEngineOptions } from "./engine";
+import { testEngine, testInstances } from "./engine";
 import { bindLaunch } from "./launch";
 
-export interface MockBindingOptions {
-  /** Executors the mock models answer for; the first is the default. */
-  readonly executors?: readonly TurnExecutorRef[];
-  /** Turns to hold open until their signal fires; see `MockOptions`. */
-  readonly hold?: MockOptions["hold"];
-  /** Run git for real; the default echoes every mutation. */
-  readonly live?: boolean;
+export interface MockBindingOptions
+  extends Pick<
+    TestEngineOptions,
+    "executors" | "hold" | "live" | "root" | "sessions" | "state"
+  > {
+  /** Every line a body logs. */
   readonly log?: (line: string) => void;
-  /** The config's directory; defaults to the cwd. */
-  readonly root?: string;
-  readonly sessions?: SessionStore;
-  /** A workspace state dir for monitors; omit for in-memory. */
-  readonly state?: string;
 }
 
 export interface MockBindings {
   readonly bindings: Bindings;
   dispose(): Promise<void>;
-  /** Spread into `new Engine({ ... })` or `startEngine({ ... })`. */
-  readonly managers: Required<Pick<Managers, "agents" | "workspaces">>;
+  /** The engine the bindings belong to; never started. */
+  readonly engine: Engine;
+  /** Spread into `startEngine({ ... })` for an engine over the same models, sessions and workspaces. */
+  readonly instances: Pick<
+    EngineOptions,
+    "git" | "models" | "sessions" | "workspaces"
+  >;
   readonly sessions: SessionStore;
+  /** What the agents manager warned about. */
   readonly warnings: string[];
 }
 
+const AGENTS = "[agents] ";
+
 /**
- * Managers over mock models with a scripted reply, an in-memory (or given)
- * session store, and a real workspace catalogue. Sandboxes and artifacts
- * stay unwired. `launch` runs against them at once; an engine takes
- * `managers`. Call `dispose` when the test is done.
+ * A test engine over mock models with a scripted reply. `launch` runs
+ * against its bindings at once; an engine a test starts itself takes
+ * `instances`. Call `dispose` when the test is done.
  */
 export function bindMock(
   reply: Reply,
   options: MockBindingOptions = {}
 ): MockBindings {
-  const executors = options.executors ?? [CLAUDE_CODE, CODEX];
-  const [first = CLAUDE_CODE] = executors;
-  const models = mockModels(
-    executors,
-    reply,
-    options.hold === undefined ? {} : { hold: options.hold }
-  );
-  const sessions = options.sessions ?? new InMemorySessionStore();
-  const root = options.root ?? process.cwd();
-  const gitOptions = options.live ? {} : { run: echoGit(() => undefined) };
-  const catalogue = new WorkspaceSystem().extend(
-    directory({ observer: nodeObserver }),
-    git(gitOptions)
-  );
+  const { log, ...rest } = options;
   const warnings: string[] = [];
-  const managers = {
-    agents: new AgentsManager({
-      defaultExecutor: () => first,
-      models,
-      sessions,
-      skills: () => Promise.resolve([]),
-      warn: (message) => {
-        warnings.push(message);
-      },
-    }),
-    workspaces: new WorkspacesManager({ catalogue, gitOptions, root }),
-  };
-  const bindings = bindManagers({
-    ...managers,
-    log: createLog((_level, message) => options.log?.(message)),
-    root,
-    ...(options.state === undefined ? {} : { state: options.state }),
+  const { git, models, sessions, workspaces } = testInstances({
+    ...rest,
+    reply,
   });
-  bindLaunch(bindings);
-  return {
-    bindings,
-    async dispose() {
-      await managers.workspaces.close();
-      await managers.agents.close();
+  const engine = testEngine({
+    ...rest,
+    git,
+    models,
+    print: (line) => {
+      if (line.startsWith(AGENTS)) {
+        warnings.push(line.slice(AGENTS.length));
+      } else {
+        log?.(line);
+      }
     },
-    managers,
+    sessions,
+    workspaces,
+  });
+  bindLaunch(engine.bindings);
+  return {
+    bindings: engine.bindings,
+    dispose: () => engine.dispose(),
+    engine,
+    instances: { git, models, sessions, workspaces },
     sessions,
     warnings,
   };

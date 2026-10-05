@@ -1,11 +1,11 @@
 /**
  * The lib entry, `@foundry/quirks/lib`: everything a host needs to run Quirks
- * definitions without the CLI. Build the managers (or let `createEngine` build the
- * defaults), hand them to an `Engine` with a `Catalog`, start it, and launch
- * by name. The words a `quirks.config.ts` writes definitions with live in
- * the package's main entry; this one takes what they produce as data.
+ * definitions without the CLI. Build the five instances the `Engine` takes,
+ * tell it what can run with `define`, `schedule` and `monitor`, start it, and
+ * launch by name. The words a `quirks.config.ts` writes definitions with live
+ * in the package's main entry; this one takes what they produce as data.
  *
- * The base classes the managers are built over are re-exported from here
+ * The base classes those instances are built from are re-exported from here
  * too. The package bundles them, so these are the copies an instance has to
  * come from to be handed to the engine.
  */
@@ -26,18 +26,7 @@ export { nodeObserver } from "@foundry/workspaces/node/watch";
 
 export type { AutomationOptions } from "./automation/service";
 export { AutomationService } from "./automation/service";
-export type {
-  Bindings,
-  BindOptions,
-  HostBindings,
-  ManagerArgs,
-  Managers,
-} from "./bindings";
-export { bindManagers } from "./bindings";
-export type { CatalogEntry } from "./catalog";
-export { Catalog, catalog } from "./catalog";
-export type { CreateEngineOptions, WiredEngine } from "./create";
-export { createEngine } from "./create";
+export type { Bindings, HostBindings, ManagerArgs } from "./bindings";
 export type {
   AnyDefinition,
   LockedNode,
@@ -56,8 +45,6 @@ export type {
   FeedMediaSnapshot,
   FeedReader,
 } from "./feed/read";
-export type { FeedStore } from "./feed/store";
-export { openFeed } from "./feed/store";
 export {
   availableExecutors,
   detectHarnesses,
@@ -85,6 +72,7 @@ export type {
   MonitorSpec,
 } from "./monitor";
 export { detector } from "./monitor";
+export type { DefinitionEntry } from "./registry";
 export { HarnessActivities } from "./sandbox/activities";
 export { HarnessInteractions } from "./sandbox/interactions";
 export type { LoopOptions, TickOptions } from "./schedule";

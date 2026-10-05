@@ -1,9 +1,8 @@
-import { ArtifactSystem, InMemoryArtifactStore } from "@foundry/artifacts";
 import { step } from "@foundry/quirks";
 import type { ChannelMessage } from "@foundry/workflows/channels";
 import { afterEach, describe, expect, it } from "vitest";
-import { catalog } from "~/lib/catalog";
-import { createEngine } from "~/lib/create";
+import { catalog } from "~/authoring/catalog";
+import { createEngine } from "~/create";
 import { runs } from "~/lib/run-scope";
 
 afterEach(() => {
@@ -13,15 +12,6 @@ afterEach(() => {
 
 describe("stream", () => {
   it("streams text and data from a step body to run subscribers", async () => {
-    const engine = createEngine({
-      artifacts: new ArtifactSystem({ store: new InMemoryArtifactStore() }),
-      catalog,
-      dry: true,
-      only: [],
-      print: () => undefined,
-      root: process.cwd(),
-      workspaceId: "ws",
-    });
     step("counting").do(async ({ stream: output }) => {
       output.write("one ");
       await output.pipe(
@@ -31,6 +21,14 @@ describe("stream", () => {
         })()
       );
       return "counted";
+    });
+    const engine = createEngine({
+      catalog,
+      dry: true,
+      only: [],
+      print: () => undefined,
+      root: process.cwd(),
+      workspaceId: "ws",
     });
 
     await engine.start();

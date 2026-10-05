@@ -5,7 +5,7 @@ import type { SessionPart, SessionStore } from "@foundry/agents/session";
 import { agent, step } from "@foundry/quirks";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { catalog } from "~/lib/catalog";
+import { catalog } from "~/authoring/catalog";
 import { CLAUDE_CODE } from "~/lib/harnesses";
 import { runs } from "~/lib/run-scope";
 import { JsonSessionStore } from "~/lib/sessions/json-store";

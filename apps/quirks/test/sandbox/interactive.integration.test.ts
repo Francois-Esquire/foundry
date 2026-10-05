@@ -5,10 +5,9 @@ import { join } from "node:path";
 import { gatewayProvider } from "@foundry/models/gateway";
 import { afterEach, expect, it } from "vitest";
 import { step } from "~/authoring/builder";
-import { catalog } from "~/lib/catalog";
-import { createEngine } from "~/lib/create";
+import { catalog } from "~/authoring/catalog";
+import { createEngine } from "~/create";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
-import { openFeed } from "~/lib/feed/store";
 import { runs } from "~/lib/run-scope";
 import type { Session, SessionReply } from "~/lib/types";
 
@@ -24,13 +23,10 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
     );
     const root = join(parent, "workspace");
     await mkdir(root);
-    const feed = openFeed(undefined, { id: `interactive-${harness}`, root });
     const engine = createEngine({
-      artifacts: feed.artifacts,
       askable: true,
       catalog,
       dry: false,
-      feed: feed.publisher,
       only: [],
       print: () => undefined,
       providers:
@@ -149,7 +145,7 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
       const nextEntry = async (): Promise<FeedEntrySnapshot> => {
         const deadline = Date.now() + 180_000;
         while (Date.now() < deadline) {
-          const entry = (await feed.read()).find(
+          const entry = (await engine.feed()).find(
             (item) => item.input?.status === "open"
           );
           if (entry) {
@@ -219,7 +215,8 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
       await expect(engine.answer(entry.id, "too late")).rejects.toThrow();
       expect(existsSync(join(root, "cancelled.txt"))).toBe(false);
       expect(
-        (await feed.read()).find((item) => item.id === entry.id)?.input?.status
+        (await engine.feed()).find((item) => item.id === entry.id)?.input
+          ?.status
       ).toBe("cancelled");
       expect(bodies).toBe(1);
     } finally {

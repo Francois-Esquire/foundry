@@ -4,11 +4,10 @@ import { join } from "node:path";
 import { gatewayProvider } from "@foundry/models/gateway";
 import { afterEach, expect, it } from "vitest";
 import { step } from "~/authoring/builder";
+import { catalog } from "~/authoring/catalog";
+import { createEngine } from "~/create";
 import { dashboardSnapshot } from "~/dashboard/snapshot";
 import { AutomationService } from "~/lib/automation/service";
-import { catalog } from "~/lib/catalog";
-import { createEngine } from "~/lib/create";
-import { openFeed } from "~/lib/feed/store";
 import { runs } from "~/lib/run-scope";
 import { tick } from "~/lib/schedule";
 
@@ -31,13 +30,10 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
       await writeFile(join(root, "scheduled.txt"), "ran");
       return "ran";
     });
-    const feed = openFeed(undefined, { id: `activities-${harness}`, root });
     const engine = createEngine({
-      artifacts: feed.artifacts,
       askable: true,
       catalog,
       dry: false,
-      feed: feed.publisher,
       only: [],
       print: () => undefined,
       providers:
@@ -156,7 +152,7 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
       );
       const deadline = Date.now() + 400_000;
       while (!settled && Date.now() < deadline) {
-        const entry = (await feed.read()).find(
+        const entry = (await engine.feed()).find(
           (item) => item.input?.status === "open"
         );
         if (entry?.input?.mode === "question") {
@@ -227,10 +223,13 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
       const snapshot = dashboardSnapshot(await engine.runs(), {
         activities,
         automations: engine.automations.list(),
-        feed: await feed.read(),
+        definitions: engine.definitions(),
+        feed: await engine.feed(),
         harnesses: [harness],
         lastFinish: new Map(),
+        monitors: engine.monitors(),
         root,
+        schedules: engine.schedules(),
         startedAt: Date.now(),
         status: "ready",
       });
@@ -241,7 +240,7 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
         snapshot.triggers.find((trigger) => trigger.id === automation?.id)
           ?.managed
       ).toBe(true);
-      const restored = new AutomationService({ catalog, state });
+      const restored = new AutomationService({ registry: catalog, state });
       const schedule = restored
         .schedules()
         .find((item) => item.key === automation?.id);
@@ -257,7 +256,9 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
         restored.schedules().some((item) => item.key === schedule.key)
       ).toBe(false);
       restored.delete(schedule.key);
-      expect(new AutomationService({ catalog, state }).list()).toHaveLength(0);
+      expect(
+        new AutomationService({ registry: catalog, state }).list()
+      ).toHaveLength(0);
       passed = true;
     } finally {
       await engine.stop({ cancel: true });

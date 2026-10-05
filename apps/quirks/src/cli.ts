@@ -6,16 +6,10 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { plugin } from "bun";
 import type { Args } from "~/args";
 import { parseArgs } from "~/args";
+import { catalog } from "~/authoring/catalog";
+import { createEngine, readTriggers } from "~/create";
 import { install, launchdPlan, uninstall } from "~/launchd";
-import { configuredMonitorUrl } from "~/lib/automation/configured";
-import {
-  AUTOMATION_MONITOR,
-  AutomationService,
-} from "~/lib/automation/service";
-import { catalog } from "~/lib/catalog";
-import { createEngine } from "~/lib/create";
 import type { Engine } from "~/lib/engine";
-import { openFeed } from "~/lib/feed/store";
 import { describeMonitor } from "~/lib/monitor";
 import { cadence, clock, tick, weekdays } from "~/lib/schedule";
 import { JsonSessionStore } from "~/lib/sessions/json-store";
@@ -148,6 +142,7 @@ async function listSessions(workspace: WorkspaceState): Promise<void> {
 function manageLaunchd(
   name: string | undefined,
   target: string | undefined,
+  schedules: readonly Schedule[],
   configPath: string,
   state: string
 ): void {
@@ -160,7 +155,7 @@ function manageLaunchd(
   if (process.platform !== "darwin") {
     throw new Error("launchd is macOS only");
   }
-  const schedule = catalog.schedules.get(target);
+  const schedule = schedules.find((record) => record.key === target);
   if (!schedule) {
     throw new Error(`no schedule named "${target}"`);
   }
@@ -193,7 +188,7 @@ async function handleNonRuntimeCommand(
     return true;
   }
   if (args.command === "launchd") {
-    manageLaunchd(args.name, args.target, configPath, args.state);
+    manageLaunchd(args.name, args.target, schedules, configPath, args.state);
     return true;
   }
   return false;
@@ -205,7 +200,7 @@ async function runOnce(
   inputJson: string | undefined,
   stateDir: string | undefined
 ): Promise<void> {
-  const schedule = catalog.schedules.get(name);
+  const schedule = engine.schedules().find((record) => record.key === name);
   const input: unknown =
     inputJson === undefined ? schedule?.input : JSON.parse(inputJson);
   if (schedule) {
@@ -219,7 +214,7 @@ async function runOnce(
     }
     return;
   }
-  if (catalog.definitions.has(name) && name !== AUTOMATION_MONITOR) {
+  if (engine.definitions().some((entry) => entry.name === name)) {
     print(JSON.stringify(await engine.run<unknown>(name, input), null, 2));
     return;
   }
@@ -299,28 +294,21 @@ async function main(): Promise<void> {
     workspace.touch(hasConfig ? configPath : null);
   }
 
-  const automations = new AutomationService({
-    allowHttp: configuredMonitorUrl(catalog),
-    catalog,
-    state: stateDir,
-  });
-  const schedules = automations.schedules();
-  for (const [file, error] of Object.entries(automations.errors())) {
+  // Listing reads the triggers from disk; only a command that runs
+  // something builds the engine.
+  const triggers = readTriggers(catalog, stateDir);
+  const schedules = triggers.schedules();
+  for (const [file, error] of Object.entries(triggers.errors())) {
     print(`[automation] ${file}: ${error}`);
   }
   if (await handleNonRuntimeCommand(args, workspace, schedules, configPath)) {
     return;
   }
 
-  const feed = openFeed(
-    args.dry ? undefined : resolve(args.artifacts),
-    workspace
-  );
   const engine = createEngine({
-    artifacts: feed.artifacts,
+    artifacts: resolve(args.artifacts),
     catalog,
     dry: args.dry,
-    feed: feed.publisher,
     only: args.only,
     print,
     root: workspace.root,

@@ -84,11 +84,14 @@ const entry: FeedEntrySnapshot = {
 
 function snapshot(feed: readonly FeedEntrySnapshot[], run = record) {
   return dashboardSnapshot([run], {
+    definitions: [],
     feed,
     harnesses: [],
     lastFinish: new Map(),
+    monitors: new Map(),
     now: 200,
     root: "/workspace",
+    schedules: [],
     startedAt: 100,
     status: "Ready",
     workspaceId: "workspace",

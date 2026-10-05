@@ -11,12 +11,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Step } from "@foundry/workflows/step";
 import { describe, expect, it } from "vitest";
-import { catalog } from "~/lib/catalog";
-import { Engine } from "~/lib/engine";
 import { runSchedules, tick } from "~/lib/schedule";
 import { acquireLock } from "~/lib/state/locks";
 import { workspaceState } from "~/lib/state/workspace";
 import type { Schedule } from "~/lib/triggers";
+import { testEngine } from "./helpers/engine";
 
 const SKIPPED_RUNS_RN_BAD_JSON_PATTERN =
   /^\[state\] skipped runs\/rn-bad\.json: /;
@@ -55,7 +54,7 @@ function collector() {
 }
 
 function engineIn(state: string, print: (line: string) => void) {
-  const engine = new Engine({ catalog, print, root: process.cwd(), state });
+  const engine = testEngine({ print, state });
   engine.register("shout", new Shout().factory());
   engine.register("quiet", new Quiet().factory());
   engine.register("explode", new Explode().factory());

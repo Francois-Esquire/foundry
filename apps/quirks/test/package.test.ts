@@ -130,7 +130,7 @@ import { step, workflow } from "@foundry/quirks";
 import { z } from "zod";
 const named = z.object({ name: z.string() });
 const greet = step("packed-greet").input(named).do(({ input }) => ({ greeting: \`Hello \${input.name}\` }));
-workflow("packed-workflow").input(named).do(({ input }) => greet({}, { name: input.name }));
+export const packedWorkflow = workflow("packed-workflow").input(named).do(({ input }) => greet({}, { name: input.name }));
 `
     );
     writeFileSync(
@@ -143,26 +143,35 @@ step("typed").input(z.object({ text: z.string() })).do(({ input }) => input.text
 step(123);
 `
     );
-    // A host assembles the engine itself: the config's catalog, and a
-    // manager built over base classes taken from the package's own copies.
+    // A host builds the engine itself, from instances of the base classes
+    // taken from the package's own copies, and tells it what can run.
     writeFileSync(
       join(consumer, "host.ts"),
       `
-import "./quirks.config";
+import { packedWorkflow } from "./quirks.config";
 import { step } from "@foundry/quirks";
-import { Engine, WorkspacesManager, WorkspaceSystem, catalog, directory, git, nodeObserver } from "@foundry/quirks/lib";
-step("host-inventory").do(async ({ workspaces }) => (await workspaces.current.files()).length);
+import { ArtifactSystem, Engine, InMemoryArtifactStore, InMemorySessionStore, ModelManager, WorkspaceSystem, directory, git, nodeObserver } from "@foundry/quirks/lib";
+const inventory = step("host-inventory").do(async ({ workspaces }) => (await workspaces.current.files()).length);
 const root = ".";
-const catalogue = new WorkspaceSystem().extend(directory({ observer: nodeObserver }), git());
-const engine = new Engine({ catalog, root, workspaces: new WorkspacesManager({ catalogue, root }) });
-// @ts-expect-error An engine needs a catalog.
-new Engine({ root });
+const instances = {
+  artifacts: new ArtifactSystem({ store: new InMemoryArtifactStore() }),
+  containers: () => Promise.reject(new Error("this host has no sandbox runtime")),
+  models: new ModelManager(),
+  sessions: new InMemorySessionStore(),
+  workspaces: new WorkspaceSystem().extend(directory({ observer: nodeObserver }), git()),
+};
+const engine = new Engine({ ...instances, root, workspaceId: "host" });
+// @ts-expect-error An engine needs every instance.
+new Engine({ root, workspaceId: "host" });
+engine.define(packedWorkflow);
+engine.define(inventory);
 await engine.start();
 const greeted = await engine.run<{ greeting: string }>("packed-workflow", { name: "host" });
 const files = await engine.run<number>("host-inventory", {});
+const listed = engine.definitions().map((entry) => entry.name).join(",");
 await engine.stop();
 await engine.dispose();
-console.log(greeted.greeting, files > 0 ? "sees files" : "sees nothing");
+console.log(greeted.greeting, files > 0 ? "sees files" : "sees nothing", listed);
 `
     );
     run(
@@ -184,7 +193,7 @@ console.log(greeted.greeting, files > 0 ? "sees files" : "sees nothing");
       consumer
     );
     expect(run("bun", ["host.ts"], consumer)).toContain(
-      "Hello host sees files"
+      "Hello host sees files packed-workflow,host-inventory"
     );
     const cli = join(consumer, "node_modules/.bin/quirks");
     for (const command of [[], ["run"]]) {

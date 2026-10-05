@@ -1,9 +1,6 @@
 import type { Log } from "~/lib/log";
 
-import type { AgentsManager } from "./managers/agents";
-import type { ArtifactsManager } from "./managers/artifacts";
-import type { SandboxesManager } from "./managers/sandboxes";
-import type { Catalogue, WorkspacesManager } from "./managers/workspaces";
+import type { Catalogue } from "./managers/workspaces";
 import type { Frame, RunScope } from "./run-scope";
 import type { Agents, Artifacts, Sandboxes, Workspaces } from "./types";
 
@@ -21,70 +18,21 @@ export interface ManagerArgs {
 
 /** Host-only facilities that never reach authored code. */
 export interface HostBindings {
-  /** Absent when the engine has no workspaces manager; file monitors need it. */
+  /** The workspace system; file monitors read the tree through it. */
   readonly catalogue?: Catalogue;
-  /** The workspace state dir; undefined under `--dry`. */
+  /** The workspace state dir; undefined when nothing is persisted. */
   readonly state?: string;
 }
 
+/** The engine's managers, as a step body reaches them. */
 export interface Bindings {
   readonly agents: (args: ManagerArgs) => Agents;
   readonly artifacts: (args: ManagerArgs) => Artifacts;
   readonly host?: HostBindings;
   /** Host output for `log(...)`. */
   readonly log: Log;
-  /** The config's directory. */
+  /** The workspace root. */
   readonly root: string;
   readonly sandboxes: (args: ManagerArgs) => Sandboxes;
   readonly workspaces: (args: ManagerArgs) => Workspaces;
-}
-
-/** The manager instances an engine is given; each is built outside it. */
-export interface Managers {
-  readonly agents?: AgentsManager;
-  readonly artifacts?: ArtifactsManager;
-  readonly sandboxes?: SandboxesManager;
-  readonly workspaces?: WorkspacesManager;
-}
-
-export interface BindOptions extends Managers {
-  readonly log: Log;
-  readonly root: string;
-  readonly state?: string;
-}
-
-/** A manager that refuses every call: for hosts that have not wired one. */
-export function unbound<T extends object>(name: string): T {
-  return new Proxy({} as T, {
-    get(_target, property) {
-      if (property === "then") {
-        return;
-      }
-      throw new Error(`${name} is not available in this host`);
-    },
-  });
-}
-
-/**
- * The bindings over a set of manager instances. A manager left out refuses
- * every call, so a host wires only what its definitions use.
- */
-export function bindManagers({
-  agents,
-  artifacts,
-  log,
-  root,
-  sandboxes,
-  state,
-  workspaces,
-}: BindOptions): Bindings {
-  return {
-    agents: (args) => agents?.scoped(args) ?? unbound("agents"),
-    artifacts: (args) => artifacts?.scoped(args) ?? unbound("artifacts"),
-    host: { catalogue: workspaces?.catalogue, state },
-    log,
-    root,
-    sandboxes: (args) => sandboxes?.scoped(args) ?? unbound("sandboxes"),
-    workspaces: (args) => workspaces?.scoped(args) ?? unbound("workspaces"),
-  };
 }

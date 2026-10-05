@@ -2,14 +2,13 @@ import { schedule, step, workflow } from "@foundry/quirks";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
-import { bindManagers } from "~/lib/bindings";
-import { catalog } from "~/lib/catalog";
-import { createLog } from "~/lib/log";
+import { catalog } from "~/authoring/catalog";
 import { runs } from "~/lib/run-scope";
 import { nextDue, parseEvery, runSchedules } from "~/lib/schedule";
 import { JSON_INPUT_FIELD } from "~/lib/schema";
 import type { CalendarSlot, Schedule } from "~/lib/triggers";
 
+import { testEngine } from "./helpers/engine";
 import { bindLaunch, launch } from "./helpers/launch";
 
 const CALENDAR_SLOT_PATTERN = /calendar slot/;
@@ -22,14 +21,9 @@ const NO_NAME_PATTERN = /has no name/;
 
 const text = z.object({ text: z.string() });
 
-/** No managers: these bodies only read their input and log. */
+/** These bodies only read their input and log. */
 function bindLog(lines: string[]) {
-  bindLaunch(
-    bindManagers({
-      log: createLog((_level, line) => lines.push(line)),
-      root: process.cwd(),
-    })
-  );
+  bindLaunch(testEngine({ print: (line) => lines.push(line) }).bindings);
 }
 
 afterEach(() => {

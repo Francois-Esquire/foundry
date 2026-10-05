@@ -13,14 +13,14 @@ import { InMemorySessionStore } from "@foundry/agents/session";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { step, workflow } from "~/authoring/builder";
+import { catalog } from "~/authoring/catalog";
 import { agent } from "~/authoring/resources";
-import { catalog } from "~/lib/catalog";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
-import { openFeed } from "~/lib/feed/store";
 import { runs } from "~/lib/run-scope";
 
 import { bindMock } from "../helpers/bindings";
 import { startEngine } from "../helpers/engine";
+import { openFeed } from "../helpers/feed";
 
 const NOT_RUNNING_PATTERN = /not running here/;
 const CANCELLED_PATTERN = /cancelled/;
@@ -64,8 +64,8 @@ describe("lib2 through the engine", () => {
     });
     const store = openFeed(undefined, { id: "ws", root });
     const engine = await startEngine({
+      artifacts: store.artifacts,
       askable: true,
-      feed: store.publisher,
       print: () => undefined,
       root,
     });
@@ -149,9 +149,9 @@ describe("lib2 through the engine", () => {
     const first = bindMock(() => "ok", { root, sessions });
     const feedOne = openFeed(feedRoot, { id: "ws", root });
     const one = await startEngine({
-      ...first.managers,
+      ...first.instances,
+      artifacts: feedOne.artifacts,
       askable: true,
-      feed: feedOne.publisher,
       print: () => undefined,
       root,
       state,
@@ -215,9 +215,9 @@ describe("lib2 through the engine", () => {
     const feedTwo = openFeed(feedRoot, { id: "ws", root });
     const lines: string[] = [];
     const two = await startEngine({
-      ...second.managers,
+      ...second.instances,
+      artifacts: feedTwo.artifacts,
       askable: true,
-      feed: feedTwo.publisher,
       print: (line) => lines.push(line),
       root,
       state,
@@ -280,9 +280,9 @@ describe("lib2 through the engine", () => {
     const first = bindMock(() => "ok", { root });
     const feedOne = openFeed(feedRoot, { id: "ws", root });
     const one = await startEngine({
-      ...first.managers,
+      ...first.instances,
+      artifacts: feedOne.artifacts,
       askable: true,
-      feed: feedOne.publisher,
       print: () => undefined,
       root,
       state,
@@ -320,9 +320,9 @@ describe("lib2 through the engine", () => {
     const feedTwo = openFeed(feedRoot, { id: "ws", root });
     const lines: string[] = [];
     const two = await startEngine({
-      ...second.managers,
+      ...second.instances,
+      artifacts: feedTwo.artifacts,
       askable: true,
-      feed: feedTwo.publisher,
       print: (line) => lines.push(line),
       root,
       state,
@@ -354,8 +354,8 @@ describe("lib2 through the engine", () => {
     );
     const feedOne = openFeed(feedRoot, { id: "ws", root });
     const one = await startEngine({
+      artifacts: feedOne.artifacts,
       askable: true,
-      feed: feedOne.publisher,
       print: () => undefined,
       root,
       state,
@@ -373,7 +373,7 @@ describe("lib2 through the engine", () => {
     );
     const lines: string[] = [];
     const quiet = await startEngine({
-      feed: openFeed(feedRoot, { id: "ws", root }).publisher,
+      artifacts: openFeed(feedRoot, { id: "ws", root }).artifacts,
       print: (line) => lines.push(line),
       root,
       state,
@@ -392,8 +392,8 @@ describe("lib2 through the engine", () => {
     );
     const renamed: string[] = [];
     const later = await startEngine({
+      artifacts: openFeed(feedRoot, { id: "ws", root }).artifacts,
       askable: true,
-      feed: openFeed(feedRoot, { id: "ws", root }).publisher,
       print: (line) => renamed.push(line),
       root,
       state,
@@ -437,7 +437,7 @@ describe("lib2 through the engine", () => {
       return reply.text;
     });
     const engine = await startEngine({
-      ...mock.managers,
+      ...mock.instances,
       print: () => undefined,
       root,
     });
@@ -507,7 +507,7 @@ describe("lib2 through the engine", () => {
       .do(({ input }) => input.text.toUpperCase());
     workflow("flow", parent({ text: child({}) }));
     const engine = await startEngine({
-      ...mock.managers,
+      ...mock.instances,
       print: () => undefined,
       root,
     });
@@ -551,8 +551,8 @@ describe("lib2 through the engine", () => {
     });
     const store = openFeed(undefined, { id: "ws", root });
     const engine = await startEngine({
+      artifacts: store.artifacts,
       askable: true,
-      feed: store.publisher,
       print: () => undefined,
       root,
       state,
@@ -596,8 +596,8 @@ describe("lib2 through the engine", () => {
       );
     define();
     const one = await startEngine({
+      artifacts: openFeed(feedRoot, { id: "ws", root }).artifacts,
       askable: true,
-      feed: openFeed(feedRoot, { id: "ws", root }).publisher,
       print: () => undefined,
       root,
       state,
@@ -616,9 +616,9 @@ describe("lib2 through the engine", () => {
     define();
     const rebound = bindMock(() => "ok", { root });
     const two = await startEngine({
-      ...rebound.managers,
+      ...rebound.instances,
+      artifacts: openFeed(feedRoot, { id: "ws", root }).artifacts,
       askable: true,
-      feed: openFeed(feedRoot, { id: "ws", root }).publisher,
       print: () => undefined,
       root,
       state,
@@ -631,7 +631,7 @@ describe("lib2 through the engine", () => {
     // A second process that finds the same file cannot take the run too.
     const lines: string[] = [];
     const three = await startEngine({
-      ...rebound.managers,
+      ...rebound.instances,
       askable: true,
       print: (line) => lines.push(line),
       root,
@@ -677,8 +677,8 @@ describe("lib2 through the engine", () => {
     };
     define();
     const one = await startEngine({
+      artifacts: openFeed(feedRoot, { id: "ws", root }).artifacts,
       askable: true,
-      feed: openFeed(feedRoot, { id: "ws", root }).publisher,
       print: () => undefined,
       root,
       state,
@@ -703,9 +703,9 @@ describe("lib2 through the engine", () => {
     define();
     const rebound = bindMock(() => "ok", { root });
     const two = await startEngine({
-      ...rebound.managers,
+      ...rebound.instances,
+      artifacts: openFeed(feedRoot, { id: "ws", root }).artifacts,
       askable: true,
-      feed: openFeed(feedRoot, { id: "ws", root }).publisher,
       print: () => undefined,
       root,
       state,
@@ -732,8 +732,8 @@ describe("lib2 through the engine", () => {
     );
     const store = openFeed(undefined, { id: "ws", root });
     const engine = await startEngine({
+      artifacts: store.artifacts,
       askable: true,
-      feed: store.publisher,
       print: () => undefined,
       root,
     });
@@ -819,8 +819,8 @@ describe("lib2 through the engine", () => {
     workflow("pair", both.parallel({ a: asks({}), b: slow({}) }));
     const store = openFeed(undefined, { id: "ws", root });
     const engine = await startEngine({
+      artifacts: store.artifacts,
       askable: true,
-      feed: store.publisher,
       print: () => undefined,
       root,
     });

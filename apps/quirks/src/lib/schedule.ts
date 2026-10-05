@@ -165,7 +165,7 @@ export async function tick(
       // acknowledged and fails this tick, not every tick after it. Any other
       // failure to start (a setup that threw) leaves the launch pending, so
       // the next tick tries again.
-      if (!engine.catalog.definitions.has(launch.workflow)) {
+      if (!engine.has(launch.workflow)) {
         acknowledgeLaunch(schedule.key);
         throw new Error(
           `${schedule.key}: launch target "${launch.workflow}" is not registered`

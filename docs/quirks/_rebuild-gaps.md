@@ -78,22 +78,52 @@ Landed 2026-10-04. Paths in the sections above predate it.
   `@foundry/quirks` and `@foundry/quirks/prebuilt` export exactly what they
   did before.
 
-This is a milestone, not the final shape. Agreed 2026-10-04 as the next
-step:
+That was a milestone. The next one landed 2026-10-05:
 
-- **The engine takes the packages' own instances**, all required:
-  `ModelManager`, the session store, `WorkspaceSystem`, containers, and
-  `ArtifactSystem`. It builds and connects the managers, feed, interactions,
-  activities, and automations itself. Today it is handed prebuilt manager
-  classes, each optional, and the wiring lives in `createEngine`.
-- **The catalog leaves the engine.** The engine owns its registry and is fed
-  by explicit calls; `Catalog` returns to the authoring side as a private
-  collector the CLI copies in. Today `catalog` is a required engine option
-  and is exported from `@foundry/quirks/lib`.
-- **Primitives are usable directly**, outside a step. Today a manager only
+## Engine over the package instances
+
+- **The constructor takes the packages' own instances**, all required:
+  `models` (`ModelManager`), `sessions` (a session store), `workspaces`
+  (`WorkspaceSystem` with the directory and git layers), `containers` (or a
+  function called at the first sandbox), and `artifacts` (`ArtifactSystem`),
+  plus `root`, `workspaceId`, `state?`, and `askable?`. The engine builds the
+  four managers, the feed publisher and reader, interactions, activities,
+  automations, and the orchestrator, and hands the instances back. Nothing
+  is optional any more, so the refusing stand-in for a missing manager is
+  gone.
+- **Four optional settings carry what the instances cannot.** `print` and
+  `home` are environment. `git` and `dry` are where `--dry` still reaches
+  past the five instances: `workspaces.current.git` is built with `Git.at`
+  and cannot read the runner the system's `git()` layer was given (the
+  extension list is private to `WorkspaceSystem`, and loading the root to
+  reach it scans the tree), and a sandboxed agent session has to be told to
+  run in-process when the models are echoes. Both would go away with a small
+  change in `@foundry/workspaces` and a marker on echo providers.
+- **The catalog left the engine.** `lib/registry.ts` is the engine's own
+  registry, written through `engine.define`, `engine.schedule`, and
+  `engine.monitor` and read through `definitions()`, `schedules()`,
+  `monitors()`, and `has()`. `Catalog` is `authoring/catalog.ts`, private to
+  Quirks; it extends the registry with the declared workspace paths and
+  resource ids. Declared workspace paths never reach the engine: they are a
+  mount policy, and the host builds the containers.
+- **`createEngine` is Quirks policy and lives in `src/create.ts`.** It
+  detects harnesses, applies `--dry` (echo models, echoed git, a fake
+  container runtime), builds the five instances, and copies the catalog in
+  with `declareCatalog`. `readTriggers` reads the triggers from disk for
+  `list` and `launchd` without building an engine, because a JSON session
+  store parses every transcript when it is constructed.
+- **The dashboard asks the engine**, not the catalog, for definitions,
+  schedules, monitors, and the feed.
+
+Still to do from the 2026-10-04 list:
+
+- **Primitives are usable directly**, outside a step. A manager still only
   exposes `scoped(frame)`.
 - **`/lib` exports shrink** to the engine, its types, and the base classes its
-  constructor takes. `createEngine` is Quirks policy and moves out of `lib/`.
+  constructor takes. The loose functions are still exported.
+- **`engine.monitor` takes a detector that is already defined.** A host
+  without the authoring words has no way to build one once `detector` stops
+  being exported; the engine should take the handler.
 
 "One owner for the run lifecycle" below is still open: the engine class is
 where a single lifecycle hook would live, but pause, persistence, and feed

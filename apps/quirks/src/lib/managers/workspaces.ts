@@ -22,7 +22,7 @@ export type Catalogue = WorkspaceSystem<
 >;
 
 type Loaded = Awaited<ReturnType<Catalogue["load"]>>;
-type GitOptions = NonNullable<Parameters<typeof Git.at>[1]>;
+export type GitOptions = NonNullable<Parameters<typeof Git.at>[1]>;
 
 export interface WorkspacesDeps {
   readonly catalogue: Catalogue;

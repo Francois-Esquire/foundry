@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { catalog } from "~/lib/catalog";
+import { catalog } from "~/authoring/catalog";
 import type { AnyDefinition, LockedNode } from "~/lib/definition";
 import { launchTarget } from "~/lib/launch";
 import type { MonitorHandler, MonitorSpec } from "~/lib/monitor";

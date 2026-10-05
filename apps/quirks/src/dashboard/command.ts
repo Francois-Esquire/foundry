@@ -1,13 +1,10 @@
 import { basename, dirname, resolve } from "node:path";
 import type { Args } from "~/args";
+import { catalog } from "~/authoring/catalog";
+import { createEngine } from "~/create";
 import { dashboardSnapshot } from "~/dashboard/snapshot";
 import { openDashboard } from "~/dashboard/terminal";
-import { AUTOMATION_MONITOR } from "~/lib/automation/service";
-import { catalog } from "~/lib/catalog";
-import type { WiredEngine } from "~/lib/create";
-import { createEngine } from "~/lib/create";
 import type { Engine } from "~/lib/engine";
-import { type FeedStore, openFeed } from "~/lib/feed/store";
 import { inputFromFields } from "~/lib/schema";
 import { readLastFinish } from "~/lib/state/schedules";
 import { workspaceState } from "~/lib/state/workspace";
@@ -39,10 +36,9 @@ export async function runInteractive(
   };
   // Built before it starts: `built` is what cleanup disposes, `engine` is
   // set only once it runs, so a stop requested mid-start has nothing to stop.
-  let built: WiredEngine | undefined;
-  let feed: FeedStore | undefined;
+  let built: Engine | undefined;
   let createdDraft: SetupDraft | undefined;
-  let engine: WiredEngine | undefined;
+  let engine: Engine | undefined;
   let loop: Promise<void> | undefined;
   let refresh: ReturnType<typeof setInterval> | undefined;
   let stopping: Promise<void> | undefined;
@@ -80,13 +76,11 @@ export async function runInteractive(
       hasConfig ? dirname(configPath) : process.cwd()
     );
     const state = args.dry ? undefined : workspace.dir;
-    feed = openFeed(args.dry ? undefined : resolve(args.artifacts), workspace);
     built = createEngine({
-      artifacts: feed.artifacts,
+      artifacts: resolve(args.artifacts),
       askable: true,
       catalog,
       dry: args.dry,
-      feed: feed.publisher,
       only: args.only,
       print,
       root: workspace.root,
@@ -98,7 +92,7 @@ export async function runInteractive(
     if (controller.signal.aborted) {
       return;
     }
-    const schedules = [...catalog.schedules.values()];
+    const schedules = engine.schedules();
     const lastFinish = new Map(
       schedules.flatMap((schedule) => {
         const finish =
@@ -109,17 +103,19 @@ export async function runInteractive(
     let startedAt = Date.now();
     const runningEngine = engine;
     const { harnesses, activities, automations } = runningEngine;
-    const readFeed = feed.read;
     const update = async () =>
       terminal.update(
         dashboardSnapshot(await runningEngine.runs(), {
           activities: activities.list(),
           automationErrors: automations.errors(),
           automations: automations.list(),
-          feed: await readFeed(),
+          definitions: runningEngine.definitions(),
+          feed: await runningEngine.feed(),
           harnesses,
           lastFinish,
+          monitors: runningEngine.monitors(),
           root: workspace.root,
+          schedules: runningEngine.schedules(),
           startedAt,
           status: args.dry ? `dry · ${status}` : status,
           workspaceId: workspace.id,
@@ -164,12 +160,7 @@ export async function runInteractive(
       stream: (runId, signal) => runningEngine.stream(runId, signal),
     });
     terminal.setLauncher(async (name, input) => {
-      const definition = catalog.definitions.get(name);
-      if (
-        !definition ||
-        catalog.monitors.has(name) ||
-        name === AUTOMATION_MONITOR
-      ) {
+      if (!runningEngine.definitions().some((entry) => entry.name === name)) {
         throw new Error("This definition is not available for manual launch.");
       }
       const values =

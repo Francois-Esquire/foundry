@@ -1,4 +1,4 @@
-import { catalog } from "~/lib/catalog";
+import { catalog } from "~/authoring/catalog";
 import type {
   AgentDefinition,
   ArtifactDefinition,

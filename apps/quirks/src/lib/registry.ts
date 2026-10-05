@@ -5,14 +5,15 @@ import { fieldsFromSchema, JSON_INPUT_FIELD, jsonSchemaOf } from "./schema";
 import type { Schedule } from "./triggers";
 
 /**
- * What a host registered. Named definitions are the catalog: the engine
- * launches them by name, as do schedules. A definition without a name is
- * internal and never appears here. Schedules and monitors are keyed by what
- * they trigger and watch. The engine is handed one and reads it; whoever
- * writes the definitions fills it.
+ * What can run and what starts it: named definitions, the schedules that
+ * launch them, and the source each monitor watches. An engine owns one and
+ * is the only writer of it; a host adds to it through the engine. A
+ * definition without a name is internal and never appears here. Schedules
+ * and monitors are keyed by what they trigger and watch.
  */
 
-export interface CatalogEntry {
+/** A launchable definition, as a host lists it. */
+export interface DefinitionEntry {
   readonly description?: string;
   /** The name came from the config's `const`. */
   readonly inferred?: boolean;
@@ -23,21 +24,21 @@ export interface CatalogEntry {
   readonly name: string;
 }
 
+/** The detector step agent-created monitors share; never launchable by hand. */
+export const AUTOMATION_MONITOR = "__automation_monitor";
+
 function where(definition: AnyDefinition): string {
   const { site } = definition;
   return site ? ` (${site.file}:${String(site.line)})` : "";
 }
 
-export class Catalog {
+export class Registry {
   readonly definitions = new Map<string, AnyDefinition>();
   /** Keyed like the detector step and the schedule a monitor registers. */
   readonly monitors = new Map<string, MonitorSpec>();
   readonly schedules = new Map<string, Schedule>();
-  /** Paths of declared workspaces, as written; sandboxes may mount them. */
-  readonly workspaces = new Set<string>();
-  readonly #counters = new Map<string, number>();
 
-  register(definition: AnyDefinition): void {
+  define(definition: AnyDefinition): void {
     if (definition.name === undefined) {
       return;
     }
@@ -61,25 +62,18 @@ export class Catalog {
     this.schedules.set(record.key, record);
   }
 
-  /** The detector step is already registered under `key`. */
+  /** The detector step is already defined under `key`. */
   monitor(key: string, spec: MonitorSpec, record: Schedule): void {
     this.schedule(record);
     this.monitors.set(key, spec);
   }
 
-  /** Registration-order ids for nameless resources, e.g. `agent#2`. */
-  claimId(kind: string): string {
-    const next = (this.#counters.get(kind) ?? 0) + 1;
-    this.#counters.set(kind, next);
-    return `${kind}#${next}`;
-  }
-
   /** Launchable definitions, without monitor detectors. */
-  entries(): readonly CatalogEntry[] {
+  entries(): readonly DefinitionEntry[] {
     return [...this.definitions.values()]
       .filter(
         (definition) =>
-          definition.name !== "__automation_monitor" &&
+          definition.name !== AUTOMATION_MONITOR &&
           !this.monitors.has(definition.name as string)
       )
       .map((definition) => {
@@ -102,19 +96,4 @@ export class Catalog {
         };
       });
   }
-
-  /** Tests only: forget everything a previous config registered. */
-  reset(): void {
-    this.definitions.clear();
-    this.schedules.clear();
-    this.monitors.clear();
-    this.workspaces.clear();
-    this.#counters.clear();
-  }
 }
-
-/**
- * The default catalog: the one a `quirks.config.ts` fills as it is imported.
- * Nothing in the lib reads it; an engine runs whichever catalog it is handed.
- */
-export const catalog = new Catalog();

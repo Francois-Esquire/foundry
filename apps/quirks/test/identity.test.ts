@@ -9,8 +9,8 @@ import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { catalog } from "~/authoring/catalog";
 import { resetIdentity } from "~/authoring/identity";
-import { catalog } from "~/lib/catalog";
 
 const LIB = pathToFileURL(
   resolve(import.meta.dir, "../src/authoring/index.ts")

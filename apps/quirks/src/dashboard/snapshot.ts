@@ -7,9 +7,10 @@ import { StepSnapshotSchema } from "@foundry/workflows/snapshot";
 import type { RunRecord } from "@foundry/workflows/store";
 import { Option, Schema } from "effect";
 import type { AutomationRecord } from "~/lib/automation/service";
-import { catalog } from "~/lib/catalog";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
+import type { MonitorSpec } from "~/lib/monitor";
 import { describeMonitor } from "~/lib/monitor";
+import type { DefinitionEntry } from "~/lib/registry";
 import type { ActivityRecord } from "~/lib/sandbox/activities";
 import { cadence, clock, nextDue, weekdays } from "~/lib/schedule";
 import type { Schedule } from "~/lib/triggers";
@@ -219,8 +220,10 @@ function runSnapshot(
   };
 }
 
-function description(schedule: Schedule): string {
-  const monitor = catalog.monitors.get(schedule.key);
+function description(
+  schedule: Schedule,
+  monitor: MonitorSpec | undefined
+): string {
   if (monitor) {
     return describeMonitor(monitor);
   }
@@ -236,12 +239,18 @@ export interface SnapshotOptions {
   readonly activities?: readonly ActivityRecord[];
   readonly automationErrors?: Readonly<Record<string, string>>;
   readonly automations?: readonly AutomationRecord[];
+  /** What can be launched by hand: the engine's `definitions()`. */
+  readonly definitions: readonly DefinitionEntry[];
   /** Feed entries from every workspace, newest first. */
   readonly feed?: readonly FeedEntrySnapshot[];
   readonly harnesses: readonly string[];
   readonly lastFinish: ReadonlyMap<string, number>;
+  /** What each monitor watches, by trigger key: the engine's `monitors()`. */
+  readonly monitors: ReadonlyMap<string, MonitorSpec>;
   readonly now?: number;
   readonly root: string;
+  /** The live triggers: the engine's `schedules()`. */
+  readonly schedules: readonly Schedule[];
   readonly startedAt: number;
   readonly status: string;
   /** This workspace's id, matching `FeedEntrySnapshot.workspace.id`. */
@@ -267,58 +276,56 @@ export function dashboardSnapshot(
   const managed = new Map(
     (options.automations ?? []).map((record) => [record.id, record])
   );
-  const triggers = [...catalog.schedules.values()].map(
-    (schedule): TriggerSnapshot => {
-      const automation = managed.get(schedule.key);
-      const latest = sorted.find(
-        (run) => run.extensions.triggerId === schedule.key
-      );
-      const active = sorted.some(
-        (run) =>
-          run.extensions.triggerId === schedule.key &&
-          ["queued", "running", "suspended"].includes(run.status)
-      );
-      let status: TriggerSnapshot["status"] =
-        schedule.kind === "monitor" ? "watching" : "waiting";
-      if (latest?.status === "failed") {
-        status = "failed";
-      }
-      if (active) {
-        status = "running";
-      }
-      const finished =
-        latest?.timestamps.completedAt ??
-        latest?.timestamps.failedAt ??
-        options.lastFinish.get(schedule.key) ??
-        schedule.registeredAt ??
-        options.startedAt;
-      return {
-        ...(automation
-          ? {
-              lifetime: "durable" as const,
-              managed: true,
-              owner: automation.owner.agentId,
-            }
-          : {}),
-        configuration: json(
-          automation ?? {
-            input: schedule.input,
-            monitor: catalog.monitors.get(schedule.key),
-            trigger: schedule.trigger,
-          }
-        ),
-        description: automation
-          ? `${automation.workflow} · ${automation.source ? "change monitor" : "schedule"} · persists across sessions`
-          : description(schedule),
-        id: schedule.key,
-        kind: schedule.kind,
-        name: schedule.label,
-        next: new Date(nextDue(schedule, finished)).toLocaleString(),
-        status,
-        targetId: automation?.workflow ?? schedule.workflow,
-      };
+  const triggers = options.schedules.map((schedule): TriggerSnapshot => {
+    const automation = managed.get(schedule.key);
+    const latest = sorted.find(
+      (run) => run.extensions.triggerId === schedule.key
+    );
+    const active = sorted.some(
+      (run) =>
+        run.extensions.triggerId === schedule.key &&
+        ["queued", "running", "suspended"].includes(run.status)
+    );
+    let status: TriggerSnapshot["status"] =
+      schedule.kind === "monitor" ? "watching" : "waiting";
+    if (latest?.status === "failed") {
+      status = "failed";
     }
-  );
+    if (active) {
+      status = "running";
+    }
+    const finished =
+      latest?.timestamps.completedAt ??
+      latest?.timestamps.failedAt ??
+      options.lastFinish.get(schedule.key) ??
+      schedule.registeredAt ??
+      options.startedAt;
+    return {
+      ...(automation
+        ? {
+            lifetime: "durable" as const,
+            managed: true,
+            owner: automation.owner.agentId,
+          }
+        : {}),
+      configuration: json(
+        automation ?? {
+          input: schedule.input,
+          monitor: options.monitors.get(schedule.key),
+          trigger: schedule.trigger,
+        }
+      ),
+      description: automation
+        ? `${automation.workflow} · ${automation.source ? "change monitor" : "schedule"} · persists across sessions`
+        : description(schedule, options.monitors.get(schedule.key)),
+      id: schedule.key,
+      kind: schedule.kind,
+      name: schedule.label,
+      next: new Date(nextDue(schedule, finished)).toLocaleString(),
+      status,
+      targetId: automation?.workflow ?? schedule.workflow,
+    };
+  });
   for (const automation of managed.values()) {
     if (automation.enabled) {
       continue;
@@ -337,7 +344,7 @@ export function dashboardSnapshot(
     });
   }
   return {
-    definitions: catalog.entries().map((entry) => ({
+    definitions: options.definitions.map((entry) => ({
       description: entry.description ?? `Registered ${entry.kind}`,
       id: entry.name,
       input: entry.input,

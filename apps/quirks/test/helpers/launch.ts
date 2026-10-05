@@ -7,7 +7,7 @@ import { factoryFor } from "~/lib/tree";
 
 let bound: Bindings | undefined;
 
-/** What `launch` runs against: an engine's `bindings`, or `bindManagers(...)`. */
+/** What `launch` runs against: an engine's `bindings`. */
 export function bindLaunch(bindings: Bindings): void {
   bound = bindings;
 }

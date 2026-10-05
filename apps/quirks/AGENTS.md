@@ -21,12 +21,15 @@ to the declaration bundler through the explicit mappings in `tsup.config.ts`.
 # Quirks source layout
 
 `src/lib/` is the engine and imports nothing outside `src/lib/`: no authoring
-words, no views, no CLI. It takes definitions as data and its managers as
-instances through the `Engine` constructor; `createEngine` in `lib/create.ts`
-is the one place the Quirks defaults are assembled. `src/authoring/` is the
-config-facing sugar; it registers into the default `catalog` instance that
-`lib/catalog.ts` exports, and may import `lib/`, never the reverse. No lib
-module reads that instance: an engine runs the catalog it is handed. The
+words, no views, no CLI. The `Engine` constructor takes the packages' own
+instances (models, session store, workspace system, containers, artifact
+system), all required, and builds the managers and everything that connects
+them itself. It owns its registry and is told what can run through `define`,
+`schedule`, and `monitor`. `src/authoring/` is the config-facing sugar; it
+collects into the `catalog` in `authoring/catalog.ts`, which is private to
+Quirks, and may import `lib/`, never the reverse. `createEngine` in
+`src/create.ts` is the one place the Quirks defaults and `--dry` are decided;
+it builds the instances, constructs the engine, and copies the catalog in. The
 `@foundry/quirks` surface is what configs depend on; new engine API goes on
 `@foundry/quirks/lib`, not there. The CLI, dashboard, views, and onboarding sit
 beside them and may import both. Public entries: `@foundry/quirks`

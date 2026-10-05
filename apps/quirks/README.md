@@ -147,16 +147,16 @@ action. Deferred entries and grants survive a host restart. Live unanswered
 requests are cancelled when their turn stops. Model questions in unattended
 runs produce a feed notice and return an explicit decline.
 
-The CLI/dashboard bind this automatically. Embedding hosts pass the same
-`feed` and `askable` settings to `createEngine`, which wires the interactions
-into the engine it returns. They can override `authority` or `question` on a
-session.
+The CLI/dashboard bind this automatically. An embedding host gets the same
+from the `Engine`, which builds the interactions over the artifact system and
+session store it is handed; `askable` says whether someone can answer. A host
+can override `authority` or `question` on a session.
 Custom callbacks must remain abortable and must not call the workflow `ask`
 suspension API. Custom authority stores retain responsibility for their own
 restart recovery; the default runtime persists its grants locally.
 
-Embedding hosts can register network providers through `createEngine`'s
-`providers` option.
+Embedding hosts register network providers on the `ModelManager` they hand the
+engine.
 These use the built-in coding loop with scoped guest tools, a step limit, and
 compaction. The existing OpenAI-compatible gateway provider also supports
 OpenRouter configuration. Legacy sessions without `sandbox` retain their prior
@@ -213,9 +213,7 @@ schedule loop. Calendar times use the host's local timezone. Creation time
 anchors the first firing across restarts. Resuming an overdue trigger fires it
 once, without queueing missed intervals. File globs stay relative to the
 configured workspace. HTTP monitors may use origins already
-selected by configured HTTP monitors; embedding hosts can supply
-`createEngine`'s `allowMonitorUrl` for explicit additional destinations. Redirects
-are refused. Invalid recovered records remain disabled and display diagnostics.
+selected by configured HTTP monitors. Redirects are refused. Invalid recovered records remain disabled and display diagnostics.
 
 Managed triggers show their owner and durable lifetime. Select one and press
 `p` to pause/resume or `k` to delete it. These actions affect future firings;
@@ -224,7 +222,7 @@ remain owned by that CLI and are not silently copied into Quirks. Monitor
 startup failures retain pending delivery for retry; a crash between launch and
 acknowledgement can redeliver, so target workflows should tolerate duplicates.
 
-Embedding hosts pass `getSchedules: () => runtime.automations.schedules()` to
+Embedding hosts pass `getSchedules: () => engine.schedules()` to
 `runSchedules` for live additions/removals. Durable execution requires a running
 Quirks loop or an installed host schedule. Pi integration is deferred.
 
@@ -232,60 +230,76 @@ Quirks loop or an installed host schedule. Pi integration is deferred.
 
 The CLI is one host of an engine any Bun program can run. `@foundry/quirks` is
 unchanged: the words a config writes definitions with. `@foundry/quirks/lib`
-holds the `Engine` that runs them, every part it is built from, and the
-`catalog` the config fills. `createEngine` builds the same defaults the CLI
-uses:
+holds the `Engine` that runs them.
+
+The engine is handed five instances, one from each Foundry package, each
+already configured for the machine it runs on. It builds everything that
+connects them: the managers a step body sees, the feed, agent approvals and
+activity, the triggers agents create, and the run queue.
 
 ```ts
+import { step } from "@foundry/quirks";
 import {
-  catalog,
-  createEngine,
-  openFeed,
-  workspaceState,
+  ArtifactSystem,
+  Engine,
+  InMemoryArtifactStore,
+  InMemorySessionStore,
+  ModelManager,
+  WorkspaceSystem,
+  directory,
+  git,
+  nodeObserver,
 } from "@foundry/quirks/lib";
 
-await import("./quirks.config.ts");
-
-const workspace = workspaceState("/path/to/state", process.cwd());
-const feed = openFeed("/path/to/artifacts", workspace);
-const engine = createEngine({
-  artifacts: feed.artifacts,
-  catalog,
-  dry: false,
-  feed: feed.publisher,
-  only: [],
-  print: console.log,
-  root: workspace.root,
-  state: workspace.dir,
-  workspaceId: workspace.id,
+const engine = new Engine({
+  models: new ModelManager({ providers: [/* yours */] }),
+  sessions: new InMemorySessionStore(),
+  workspaces: new WorkspaceSystem().extend(
+    directory({ observer: nodeObserver }),
+    git()
+  ),
+  // Called at the first sandbox; `createContainers` over your runtime.
+  containers: () => Promise.reject(new Error("no sandbox runtime here")),
+  artifacts: new ArtifactSystem({ store: new InMemoryArtifactStore() }),
+  root: process.cwd(),
+  workspaceId: "my-app",
+  state: "/path/to/state", // omit and nothing survives the process
+  askable: false, // true when something in this process can answer `ask`
 });
 
+engine.define(
+  step("inventory").do(async ({ workspaces }) => workspaces.current.files())
+);
+
 await engine.start();
-const summary = await engine.run("summarize-codebase", {});
+const files = await engine.run<string[]>("inventory", {});
 await engine.stop();
 await engine.dispose();
 ```
 
-To replace one piece and keep the rest, build it yourself and pass it as
-`instances`: any of `agents`, `workspaces`, `sandboxes`, `artifacts`, `models`,
-or `sessions`. Whatever is left out is built with the default.
+All five instances are required. The engine hands them back (`engine.models`,
+`engine.sessions`, `engine.workspaces.catalogue`) and closes them in
+`dispose()`.
 
-```ts
-import { InMemorySessionStore } from "@foundry/quirks/lib";
+The engine keeps its own registry and is told what can run:
 
-const engine = createEngine({
-  // ...as above
-  instances: { sessions: new InMemorySessionStore() },
-});
-```
+- `engine.define(definition)` adds a named step or workflow. The authoring
+  words return exactly that, so `engine.define(step("x").do(...))` works.
+- `engine.schedule(record)` starts a definition on a cadence, and
+  `engine.monitor(key, source, record)` watches a source.
+- `engine.definitions()`, `engine.schedules()`, and `engine.monitors()` read
+  it back, including the triggers agents created.
 
-For a wholly different assembly, skip `createEngine` and hand every piece to
-the constructor already instanced: `new Engine({ catalog, root, agents,
-workspaces, sandboxes, artifacts, ... })`, with `AgentsManager`,
-`WorkspacesManager`, `SandboxesManager`, and `ArtifactsManager` built over your
-own model manager, session store, workspace system, containers, and artifact
-store. A manager you leave out refuses calls from step bodies; nothing else
-depends on it. `engine.dispose()` closes the managers it holds.
+Importing a `quirks.config.ts` does not fill an engine you built. The config's
+own collection is private to the CLI, which copies it into the engine it
+builds. A host that wants a config's definitions exports them from the config
+and defines them.
+
+A few optional settings cover what the five instances cannot say: `print`
+receives engine status and body `log(...)` lines, `home` is where shared
+skills are read from, `git` is how git runs on the root workspace when the
+`git()` layer was built with a custom runner, and `dry` makes agents asked
+for a sandbox run in-process instead.
 
 The package bundles its Foundry packages, so take the base classes
 (`ModelManager`, `InMemorySessionStore`, `WorkspaceSystem`, `ArtifactSystem`,

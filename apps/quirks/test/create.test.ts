@@ -1,21 +1,16 @@
 import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { InMemorySessionStore } from "@foundry/agents/session";
-import { ArtifactSystem, InMemoryArtifactStore } from "@foundry/artifacts";
 import { agent, step } from "@foundry/quirks";
-import { WorkspaceSystem } from "@foundry/workspaces";
-import { git } from "@foundry/workspaces/git";
-import { directory } from "@foundry/workspaces/node";
-import { nodeObserver } from "@foundry/workspaces/node/watch";
 import { afterEach, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { catalog } from "~/lib/catalog";
-import { createEngine, echoGit } from "~/lib/create";
+import { catalog } from "~/authoring/catalog";
+import { createEngine } from "~/create";
+import { Engine } from "~/lib/engine";
 import type * as Harnesses from "~/lib/harnesses";
-import { WorkspacesManager } from "~/lib/managers/workspaces";
 import { RunScope, runs } from "~/lib/run-scope";
 
+import { testInstances } from "./helpers/engine";
 import { bindLaunch, launch } from "./helpers/launch";
 
 vi.mock("~/lib/harnesses", async (importOriginal) => ({
@@ -30,15 +25,10 @@ afterEach(() => {
   runs.clear();
 });
 
-function artifacts() {
-  return new ArtifactSystem({ store: new InMemoryArtifactStore() });
-}
-
 it("exposes the config directory and dry-run git through the engine's workspaces", async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "runtime-")));
   const lines: string[] = [];
   const engine = createEngine({
-    artifacts: artifacts(),
     catalog,
     dry: true,
     only: [],
@@ -83,7 +73,6 @@ it("exposes the config directory and dry-run git through the engine's workspaces
 
 it("runs deterministic steps without an installed harness", async () => {
   const engine = createEngine({
-    artifacts: artifacts(),
     catalog,
     dry: false,
     only: [],
@@ -103,43 +92,48 @@ it("runs deterministic steps without an installed harness", async () => {
   }
 });
 
-it("uses the instances a host hands in and builds the rest", async () => {
-  const root = await realpath(await mkdtemp(join(tmpdir(), "create-")));
-  const sessions = new InMemorySessionStore();
-  const workspaces = new WorkspacesManager({
-    catalogue: new WorkspaceSystem().extend(
-      directory({ observer: nodeObserver }),
-      git({ run: echoGit(() => undefined) })
-    ),
-    root,
-  });
+it("declares the config to the engine it builds", () => {
+  step("count").do(() => 1);
   const engine = createEngine({
-    artifacts: artifacts(),
     catalog,
     dry: true,
-    instances: { sessions, workspaces },
     only: [],
     print: () => undefined,
-    root,
+    root: process.cwd(),
     workspaceId: "ws",
   });
+  expect(engine.definitions().map((entry) => entry.name)).toEqual(["count"]);
+  // The engine keeps its own registry: what it adds never reaches the config's.
+  expect([...catalog.definitions.keys()]).toEqual(["count"]);
+  expect(engine.has("__automation_monitor")).toBe(true);
+});
+
+it("builds an engine over the instances a host hands in", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "create-")));
+  const instances = testInstances({ root });
+  const engine = new Engine({ ...instances, root, workspaceId: "ws" });
   const reviewer = agent({ prompt: "Review." });
-  step("review").do(async ({ agents, workspaces: seen }) => {
-    const session = await agents.session(reviewer);
-    await session.generate("Look.");
-    return { root: seen.current.root, session: session.ref.id };
-  });
+  engine.define(
+    step("review").do(async ({ agents, workspaces: seen }) => {
+      const session = await agents.session(reviewer);
+      await session.generate("Look.");
+      return { root: seen.current.root, session: session.ref.id };
+    })
+  );
   try {
-    expect(engine.workspaces).toBe(workspaces);
-    // The agents manager was built here, over the store that was handed in.
-    expect(engine.agents.sessions).toBe(sessions);
+    // The instances are handed back, and the managers are built over them.
+    expect(engine.models).toBe(instances.models);
+    expect(engine.sessions).toBe(instances.sessions);
+    expect(engine.workspaces.catalogue).toBe(instances.workspaces);
     await engine.start();
     const result = await engine.run<{ root: string; session: string }>(
       "review",
       {}
     );
     expect(result.root).toBe(root);
-    await expect(sessions.getSession(result.session)).resolves.toBeDefined();
+    await expect(
+      instances.sessions.getSession(result.session)
+    ).resolves.toBeDefined();
   } finally {
     await engine.stop();
     await engine.dispose();

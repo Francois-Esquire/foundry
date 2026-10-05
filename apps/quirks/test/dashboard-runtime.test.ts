@@ -1,13 +1,13 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ArtifactSystem, InMemoryArtifactStore } from "@foundry/artifacts";
 import { schedule, step, workflow } from "@foundry/quirks";
 import { afterEach, expect, it } from "vitest";
 import { z } from "zod";
+import { catalog } from "~/authoring/catalog";
+import { createEngine } from "~/create";
 import { dashboardSnapshot } from "~/dashboard/snapshot";
-import { catalog } from "~/lib/catalog";
-import { createEngine } from "~/lib/create";
+import type { Engine } from "~/lib/engine";
 import { runs } from "~/lib/run-scope";
 import { tick } from "~/lib/schedule";
 
@@ -27,7 +27,6 @@ const textFields = [
 /** A started dry engine over `root`; `state` makes its runs survive a restart. */
 function engineIn(root: string, state?: string) {
   return createEngine({
-    artifacts: new ArtifactSystem({ store: new InMemoryArtifactStore() }),
     catalog,
     dry: true,
     only: [],
@@ -36,6 +35,16 @@ function engineIn(root: string, state?: string) {
     ...(state === undefined ? {} : { state }),
     workspaceId: "ws",
   }).start();
+}
+
+/** What the dashboard asks the engine for on every refresh. */
+function view(engine: Engine) {
+  return {
+    ...options,
+    definitions: engine.definitions(),
+    monitors: engine.monitors(),
+    schedules: engine.schedules(),
+  };
 }
 
 afterEach(() => {
@@ -70,7 +79,7 @@ it("projects real nested runs, logs and trigger provenance, including restored h
       throw new Error("missing fixture schedule");
     }
     await tick(engine, scheduled, { print, state: dir });
-    const snapshot = dashboardSnapshot(await engine.runs(), options);
+    const snapshot = dashboardSnapshot(await engine.runs(), view(engine));
     expect(snapshot.mode).toBe("live");
     // Anonymous `bang` is internal; the schema gives each entry its form.
     expect(snapshot.definitions).toEqual([
@@ -117,7 +126,7 @@ it("projects real nested runs, logs and trigger provenance, including restored h
     await engine.stop();
     await engine.dispose();
     engine = await engineIn(dir, dir);
-    const restored = dashboardSnapshot(await engine.runs(), options);
+    const restored = dashboardSnapshot(await engine.runs(), view(engine));
     expect(restored.runs).toEqual(snapshot.runs);
   } finally {
     await engine.stop();
@@ -157,7 +166,7 @@ it("shows a running step and cancels it on shutdown without starting queued work
     const queued = engine
       .run("wait", {}, "other")
       .catch((error: unknown) => error);
-    const snapshot = dashboardSnapshot(await engine.runs(), options);
+    const snapshot = dashboardSnapshot(await engine.runs(), view(engine));
     expect(
       snapshot.runs.find((run) => run.triggerId === "watch")?.steps[0]?.status
     ).toBe("running");

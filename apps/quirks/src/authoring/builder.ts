@@ -1,5 +1,5 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { catalog } from "~/lib/catalog";
+import { catalog } from "~/authoring/catalog";
 import type { CallSite, LockedNode, SetupFn, StepFn } from "~/lib/definition";
 import { isLockedNode } from "~/lib/definition";
 import type { Input, Output } from "~/lib/schema";
@@ -119,7 +119,7 @@ export class StepBuilder<I = Empty, R = Empty, Ret = unknown, O = unknown> {
       kind: "step",
       ...(this.#output === undefined ? {} : { output: this.#output }),
     });
-    catalog.register(definition);
+    catalog.define(definition);
     return definition;
   }
 }
@@ -186,7 +186,7 @@ function finishWorkflow<I, O, R = I>(
     setup: "setup" in body ? body.setup : undefined,
     tree: "tree" in body ? body.tree : undefined,
   });
-  catalog.register(definition);
+  catalog.define(definition);
   return definition;
 }
 

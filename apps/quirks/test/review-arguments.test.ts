@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, expect, it } from "vitest";
-import { catalog } from "~/lib/catalog";
+import { catalog } from "~/authoring/catalog";
 import { CODEX } from "~/lib/harnesses";
 import type { Reply } from "~/lib/models/echo";
 import { runs } from "~/lib/run-scope";

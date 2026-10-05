@@ -2,24 +2,22 @@ import { basename, join } from "node:path";
 import type { Artifacts } from "@foundry/artifacts";
 import { ArtifactSystem, InMemoryArtifactStore } from "@foundry/artifacts";
 import { blobFiles, JsonArtifactStore } from "@foundry/artifacts/node";
-
 import type { FeedPublisher } from "~/lib/feed/publish";
 import { feedPublisher } from "~/lib/feed/publish";
 import type { FeedReader } from "~/lib/feed/read";
 import { feedReader } from "~/lib/feed/read";
 
 export interface FeedStore {
-  /** The shared store; declared artifacts live in it beside feed entries. */
+  /** Hand this to an engine and it publishes to, and reads, the same feed. */
   readonly artifacts: Artifacts;
   readonly publisher: FeedPublisher;
   readonly read: FeedReader;
 }
 
 /**
- * The feed over the shared Artifact store: `<root>/records.json` plus blob
- * files in `<root>/blobs/`. One store serves every workspace; entries carry
- * their workspace so the dashboard can show all or one. `root` undefined
- * keeps everything in memory, which `--dry` always does.
+ * The feed as an engine builds it over an artifact system, held open for a
+ * test to publish and read directly: `<root>/records.json` plus blob files,
+ * or memory when `root` is undefined.
  */
 export function openFeed(
   root: string | undefined,

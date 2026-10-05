@@ -5,20 +5,21 @@ import { ArtifactSystem, InMemoryArtifactStore } from "@foundry/artifacts";
 import { step } from "@foundry/quirks";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { z } from "zod";
+import { catalog } from "~/authoring/catalog";
 import { formatCount } from "~/components/ui/count-badge";
-import { catalog } from "~/lib/catalog";
-import type { CreateEngineOptions } from "~/lib/create";
-import { createEngine } from "~/lib/create";
-import { Engine } from "~/lib/engine";
+import type { Engine } from "~/lib/engine";
 import { feedPayload, feedQuestionSchema } from "~/lib/feed/entry";
 import { feedPublisher } from "~/lib/feed/publish";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
 import { feedReader, formatPosted } from "~/lib/feed/read";
-import type { FeedStore } from "~/lib/feed/store";
-import { openFeed } from "~/lib/feed/store";
 import { createLog, formatLogValues } from "~/lib/log";
 import { runs } from "~/lib/run-scope";
 import { registerSetupStep, SETUP_STEP } from "~/onboarding/setup-step";
+
+import type { TestEngineOptions } from "./helpers/engine";
+import { startEngine, testEngine } from "./helpers/engine";
+import type { FeedStore } from "./helpers/feed";
+import { openFeed } from "./helpers/feed";
 
 const MISSING_TITLE = /feed entries need a title/;
 const UNREADABLE_MEDIA = /cannot read media/;
@@ -48,21 +49,17 @@ function workspace(id = "ws-a", path = join(root, "project")) {
   return { id, root: path };
 }
 
-/** A started dry engine over the feed's own artifact store. */
+/** A started engine over the feed's own artifact store. */
 function engineOver(
   store: FeedStore,
-  options: Partial<CreateEngineOptions> = {}
+  options: TestEngineOptions = {}
 ): Promise<Engine> {
-  return createEngine({
+  return startEngine({
     artifacts: store.artifacts,
-    catalog,
-    dry: true,
-    only: [],
-    print: () => undefined,
     root,
     workspaceId: "ws-a",
     ...options,
-  }).start();
+  });
 }
 
 describe("feed posts", () => {
@@ -192,7 +189,6 @@ describe("engine", () => {
         return input.text;
       });
     const engine = await engineOver(store, {
-      feed: store.publisher,
       print: () => undefined,
     });
 
@@ -248,7 +244,6 @@ describe("questions", () => {
     const { store } = askingStep();
     const engine = await engineOver(store, {
       askable: true,
-      feed: store.publisher,
       print: () => undefined,
     });
     const launched = await engine.launch<string>("deploy", { version: "v2" });
@@ -295,7 +290,6 @@ describe("questions", () => {
     const { store } = askingStep();
     const lines: string[] = [];
     const engine = await engineOver(store, {
-      feed: store.publisher,
       print: (line) => lines.push(line),
     });
     await expect(engine.run("deploy", { version: "v2" })).rejects.toThrow(
@@ -312,7 +306,6 @@ describe("questions", () => {
     const { store } = askingStep();
     const engine = await engineOver(store, {
       askable: true,
-      feed: store.publisher,
       print: () => undefined,
     });
     const launched = await engine.launch<string>("deploy", { version: "v2" });
@@ -424,7 +417,7 @@ describe("abandoned questions", () => {
 describe("onboarding", () => {
   it("posts the setup milestone from its own run", async () => {
     const store = openFeed(undefined, workspace());
-    const engine = new Engine({ catalog, feed: store.publisher, root });
+    const engine = testEngine({ artifacts: store.artifacts, root });
     registerSetupStep(engine);
     await engine.start();
     await engine.run(SETUP_STEP, {

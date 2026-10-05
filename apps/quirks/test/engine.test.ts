@@ -3,11 +3,11 @@ import { Step } from "@foundry/workflows/step";
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 
-import { catalog } from "~/lib/catalog";
-import { Engine } from "~/lib/engine";
+import { catalog } from "~/authoring/catalog";
+import type { Engine } from "~/lib/engine";
 import { runs } from "~/lib/run-scope";
 
-import { startEngine } from "./helpers/engine";
+import { startEngine, testEngine } from "./helpers/engine";
 
 const RUN_EXPLODE_FAILED_PATTERN = /run "explode" failed/;
 const NOT_STARTED = /has not started/;
@@ -44,7 +44,7 @@ function engineWith(
   register: (engine: Engine) => void,
   print: (line: string) => void = () => undefined
 ): Promise<Engine> {
-  const engine = new Engine({ catalog, print, root: process.cwd() });
+  const engine = testEngine({ print });
   register(engine);
   return engine.start();
 }
@@ -91,7 +91,7 @@ describe("Engine", () => {
   });
 
   it("refuses work before it starts and registrations after", async () => {
-    const engine = new Engine({ catalog, root: process.cwd() });
+    const engine = testEngine();
     await expect(engine.run("shout", "hello")).rejects.toThrow(NOT_STARTED);
     // Stopping an engine that never started is a no-op, so cleanup is safe.
     await engine.stop();
