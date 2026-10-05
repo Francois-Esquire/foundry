@@ -115,15 +115,34 @@ That was a milestone. The next one landed 2026-10-05:
 - **The dashboard asks the engine**, not the catalog, for definitions,
   schedules, monitors, and the feed.
 
-Still to do from the 2026-10-04 list:
+- **The managers work on the engine directly.** `engine.agents.session`,
+  `engine.workspaces.current` / `.load`, `engine.sandboxes.start` / `.open`,
+  and `engine.artifacts.write` / `.create` are the plain operations, usable
+  without a run and before `start()`. `scoped(frame)` is the step's view over
+  the same code and adds the ledger claim, the frame's signal, and cleanup
+  when the run settles. A session opened directly is attributed to the run id
+  `direct` on the feed and in activity, is never replayed, and is closed by
+  `dispose()`.
+- **A monitor is one record.** `engine.monitor({ key, source, trigger,
+  handler, label? })` builds the detector step and its schedule; the
+  authoring `monitor()` word collects the same record.
+- **`/lib` exports the engine, types, and package classes only**: 16 runtime
+  names, down from 41. Managers, automations, activities, and interactions
+  are exported as types. `createEngine`, the harness helpers, `detector`,
+  `tick`, `runSchedules`, `workspaceState`, and `openFeed` are no longer
+  exported.
 
-- **Primitives are usable directly**, outside a step. A manager still only
-  exposes `scoped(frame)`.
-- **`/lib` exports shrink** to the engine, its types, and the base classes its
-  constructor takes. The loose functions are still exported.
-- **`engine.monitor` takes a detector that is already defined.** A host
-  without the authoring words has no way to build one once `detector` stops
-  being exported; the engine should take the handler.
+Open after this:
+
+- **Nothing in `/lib` fires triggers.** `tick` and `runSchedules` take the
+  engine and live in `lib/schedule.ts`, but they are loose functions and the
+  loop that drives them is `src/run-loop.ts`. They belong on the engine.
+- **The MicroSandbox runtime is not exported from `/lib`.** It is an optional
+  peer whose declarations name `microsandbox` types, so how to expose it
+  needs deciding.
+- **`engine.bindings` and `engine.register`** are still public: the first is
+  what the tests' `launch` helper runs against, the second is how the
+  onboarding step registers a raw factory.
 
 "One owner for the run lifecycle" below is still open: the engine class is
 where a single lifecycle hook would live, but pause, persistence, and feed

@@ -18,8 +18,9 @@ import type {
 /**
  * Versioned outputs over the shared artifact store. A declared artifact
  * keeps its identity across runs, so each write adds a version instead of
- * a new artifact. Within a run, the n-th write in a body returns the version
- * it created the first time.
+ * a new artifact. Called on the manager, a write is just that. Through a
+ * step's view, the n-th write in a body returns the version it created the
+ * first time.
  */
 
 export interface ArtifactsDeps {
@@ -59,64 +60,73 @@ function versionOf(artifactId: string, contentId: string): ArtifactVersion {
   return { artifactId, contentId, id: `${artifactId}:${contentId}` };
 }
 
-export class ArtifactsManager {
+export class ArtifactsManager implements Artifacts {
   readonly #deps: ArtifactsDeps;
 
   constructor(deps: ArtifactsDeps) {
     this.#deps = deps;
   }
 
+  async create({
+    name,
+    type,
+    entries,
+  }: Parameters<Artifacts["create"]>[0]): Promise<ArtifactVersion> {
+    const created = await this.#deps.artifacts.create({
+      ...(entries === undefined ? {} : { entries: entriesOf(entries, type) }),
+      name,
+      type,
+    });
+    if (!created.content) {
+      throw new Error(`artifact "${name}" was created without content`);
+    }
+    return versionOf(created.id, created.content.id);
+  }
+
+  /** Adds a version to the declared artifact, creating it the first time. */
+  async write(
+    definition: ArtifactDefinition,
+    files: ArtifactFiles
+  ): Promise<ArtifactVersion> {
+    const { artifacts, workspaceId } = this.#deps;
+    const id = artifactIdFor(workspaceId, definition.name);
+    const existing = await artifacts.get(id);
+    const entries = entriesOf(files, definition.type);
+    if (existing === null) {
+      const created = await artifacts.create({
+        entries,
+        id,
+        name: definition.name,
+        type: definition.type,
+      });
+      if (!created.content) {
+        throw new Error(`artifact "${definition.name}" has no content`);
+      }
+      return versionOf(id, created.content.id);
+    }
+    if (!existing.content) {
+      throw new Error(`artifact "${definition.name}" has no content`);
+    }
+    const revised = await artifacts.revise({
+      artifactId: id,
+      changes: { put: entries, replace: true },
+      contentId: existing.content.id,
+      expectedUpdatedAt: existing.content.updatedAt,
+    });
+    return versionOf(id, revised.id);
+  }
+
   /** What a step body sees: writes counted against its frame, so a replay returns the same version. */
   scoped({ frame, scope }: ManagerArgs): Artifacts {
-    const deps = this.#deps;
     return {
-      async create({ name, type, entries }) {
-        const created = await deps.artifacts.create({
-          ...(entries === undefined
-            ? {}
-            : { entries: entriesOf(entries, type) }),
-          name,
-          type,
-        });
-        if (!created.content) {
-          throw new Error(`artifact "${name}" was created without content`);
-        }
-        return versionOf(created.id, created.content.id);
-      },
-      async write(definition: ArtifactDefinition, files: ArtifactFiles) {
+      create: (input) => this.create(input),
+      write: async (definition, files) => {
         const { key } = scope.claim(frame, KIND);
         const recorded = scope.ledger.get<ArtifactVersion>(key);
         if (recorded) {
           return recorded;
         }
-        const id = artifactIdFor(deps.workspaceId, definition.name);
-        const existing = await deps.artifacts.get(id);
-        const entries = entriesOf(files, definition.type);
-        let contentId: string;
-        if (existing === null) {
-          const created = await deps.artifacts.create({
-            entries,
-            id,
-            name: definition.name,
-            type: definition.type,
-          });
-          if (!created.content) {
-            throw new Error(`artifact "${definition.name}" has no content`);
-          }
-          contentId = created.content.id;
-        } else {
-          if (!existing.content) {
-            throw new Error(`artifact "${definition.name}" has no content`);
-          }
-          const revised = await deps.artifacts.revise({
-            artifactId: id,
-            changes: { put: entries, replace: true },
-            contentId: existing.content.id,
-            expectedUpdatedAt: existing.content.updatedAt,
-          });
-          contentId = revised.id;
-        }
-        const version = versionOf(id, contentId);
+        const version = await this.write(definition, files);
         scope.ledger.set(key, version);
         return version;
       },

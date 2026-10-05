@@ -24,14 +24,19 @@ to the declaration bundler through the explicit mappings in `tsup.config.ts`.
 words, no views, no CLI. The `Engine` constructor takes the packages' own
 instances (models, session store, workspace system, containers, artifact
 system), all required, and builds the managers and everything that connects
-them itself. It owns its registry and is told what can run through `define`,
-`schedule`, and `monitor`. `src/authoring/` is the config-facing sugar; it
+them itself. Each manager has the plain operation as a method, usable on the
+engine directly, and `scoped(frame)` for the view a step body gets, which adds
+replay, cancellation, and cleanup on top; new manager behavior goes in the
+plain method. The engine owns its registry and is told what can run through
+`define`, `schedule`, and `monitor`. `src/authoring/` is the config-facing sugar; it
 collects into the `catalog` in `authoring/catalog.ts`, which is private to
 Quirks, and may import `lib/`, never the reverse. `createEngine` in
 `src/create.ts` is the one place the Quirks defaults and `--dry` are decided;
 it builds the instances, constructs the engine, and copies the catalog in. The
 `@foundry/quirks` surface is what configs depend on; new engine API goes on
-`@foundry/quirks/lib`, not there. The CLI, dashboard, views, and onboarding sit
+`@foundry/quirks/lib`, not there. That entry exports `Engine`, types, and the
+package classes the constructor's instances are built from; do not add loose
+functions to it. The CLI, dashboard, views, and onboarding sit
 beside them and may import both. Public entries: `@foundry/quirks`
 (`authoring/index.ts`), `@foundry/quirks/prebuilt`, and
 `@foundry/quirks/lib` (`lib/index.ts`).

@@ -246,7 +246,7 @@ export interface SnapshotOptions {
   readonly harnesses: readonly string[];
   readonly lastFinish: ReadonlyMap<string, number>;
   /** What each monitor watches, by trigger key: the engine's `monitors()`. */
-  readonly monitors: ReadonlyMap<string, MonitorSpec>;
+  readonly monitors: ReadonlyMap<string, { readonly source: MonitorSpec }>;
   readonly now?: number;
   readonly root: string;
   /** The live triggers: the engine's `schedules()`. */
@@ -311,13 +311,13 @@ export function dashboardSnapshot(
       configuration: json(
         automation ?? {
           input: schedule.input,
-          monitor: options.monitors.get(schedule.key),
+          monitor: options.monitors.get(schedule.key)?.source,
           trigger: schedule.trigger,
         }
       ),
       description: automation
         ? `${automation.workflow} · ${automation.source ? "change monitor" : "schedule"} · persists across sessions`
-        : description(schedule, options.monitors.get(schedule.key)),
+        : description(schedule, options.monitors.get(schedule.key)?.source),
       id: schedule.key,
       kind: schedule.kind,
       name: schedule.label,

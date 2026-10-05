@@ -1,16 +1,30 @@
 import type { InputField } from "~/lib/inputs";
-import type { MonitorSpec } from "~/lib/monitor";
+import type { MonitorHandler, MonitorSpec } from "~/lib/monitor";
+import { detector } from "~/lib/monitor";
 import type { AnyDefinition } from "./definition";
 import { fieldsFromSchema, JSON_INPUT_FIELD, jsonSchemaOf } from "./schema";
-import type { Schedule } from "./triggers";
+import type { Schedule, Trigger } from "./triggers";
 
 /**
  * What can run and what starts it: named definitions, the schedules that
- * launch them, and the source each monitor watches. An engine owns one and
+ * launch them, and the monitors that watch a source. An engine owns one and
  * is the only writer of it; a host adds to it through the engine. A
  * definition without a name is internal and never appears here. Schedules
  * and monitors are keyed by what they trigger and watch.
  */
+
+/** A source to watch on a cadence, and what to do when it changes. */
+export interface MonitorRecord {
+  /** Called with what changed; a locked node it returns is started. */
+  readonly handler: MonitorHandler;
+  /** Names the monitor's step, its schedule, and its state file. */
+  readonly key: string;
+  /** Shown beside the trigger; the key when omitted. */
+  readonly label?: string;
+  readonly source: MonitorSpec;
+  /** How often the source is polled. */
+  readonly trigger: Trigger;
+}
 
 /** A launchable definition, as a host lists it. */
 export interface DefinitionEntry {
@@ -34,8 +48,8 @@ function where(definition: AnyDefinition): string {
 
 export class Registry {
   readonly definitions = new Map<string, AnyDefinition>();
-  /** Keyed like the detector step and the schedule a monitor registers. */
-  readonly monitors = new Map<string, MonitorSpec>();
+  /** Keyed like the detector step and the schedule each one adds. */
+  readonly monitors = new Map<string, MonitorRecord>();
   readonly schedules = new Map<string, Schedule>();
 
   define(definition: AnyDefinition): void {
@@ -62,10 +76,30 @@ export class Registry {
     this.schedules.set(record.key, record);
   }
 
-  /** The detector step is already defined under `key`. */
-  monitor(key: string, spec: MonitorSpec, record: Schedule): void {
-    this.schedule(record);
-    this.monitors.set(key, spec);
+  /**
+   * A monitor is three things under one key: a step that polls the source
+   * and calls the handler on a change, a schedule that runs that step, and
+   * the record a host lists.
+   */
+  monitor(record: MonitorRecord): void {
+    const { handler, key, source, trigger } = record;
+    if (this.schedules.has(key)) {
+      throw new Error(`schedule "${key}" already registered`);
+    }
+    this.define({
+      fn: detector(key, source, handler),
+      kind: "step",
+      name: key,
+    });
+    this.schedule({
+      input: null,
+      key,
+      kind: "monitor",
+      label: record.label ?? key,
+      trigger,
+      workflow: key,
+    });
+    this.monitors.set(key, record);
   }
 
   /** Launchable definitions, without monitor detectors. */

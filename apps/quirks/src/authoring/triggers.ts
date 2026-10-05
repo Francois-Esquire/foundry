@@ -3,11 +3,10 @@ import { catalog } from "~/authoring/catalog";
 import type { AnyDefinition, LockedNode } from "~/lib/definition";
 import { launchTarget } from "~/lib/launch";
 import type { MonitorHandler, MonitorSpec } from "~/lib/monitor";
-import { DEFAULT_EVERY, detector } from "~/lib/monitor";
+import { DEFAULT_EVERY } from "~/lib/monitor";
 import { parseAt } from "~/lib/schedule";
 import { stableJson } from "~/lib/state/json";
 import type { CalendarSlot, Trigger } from "~/lib/triggers";
-import { step } from "./builder";
 
 /**
  * Triggers. A schedule takes a definition, bare or locked, and a cadence; a
@@ -106,15 +105,7 @@ export function monitor(source: string): MonitorBuilder {
     do(handler) {
       const trigger = parseAt(every);
       const key = uniqueKey(`${slug(source)}-${sha256(source).slice(0, 6)}`);
-      step(key).do(detector(key, spec, handler));
-      catalog.monitor(key, spec, {
-        input: null,
-        key,
-        kind: "monitor",
-        label: source,
-        trigger,
-        workflow: key,
-      });
+      catalog.monitor({ handler, key, label: source, source: spec, trigger });
     },
     every(interval) {
       parseAt(interval);

@@ -37,9 +37,8 @@ import { SandboxesManager } from "~/lib/managers/sandboxes";
 import { globalSkillsDir, skillResolver } from "~/lib/managers/skills";
 import type { Catalogue, GitOptions } from "~/lib/managers/workspaces";
 import { WorkspacesManager } from "~/lib/managers/workspaces";
-import type { MonitorSpec } from "~/lib/monitor";
 import { observeSteps } from "~/lib/observe";
-import type { DefinitionEntry } from "~/lib/registry";
+import type { DefinitionEntry, MonitorRecord } from "~/lib/registry";
 import { Registry } from "~/lib/registry";
 import { PAUSE_KIND, restoreScope, runs as runScopes } from "~/lib/run-scope";
 import { HarnessActivities } from "~/lib/sandbox/activities";
@@ -212,6 +211,7 @@ export class Engine {
       dry: options.dry ?? false,
       interactions: this.interactions,
       models,
+      root,
       sessions,
       skills: skillResolver({ global: globalSkillsDir(home), workspace: root }),
       warn: (message) => print(`[agents] ${message}`),
@@ -265,8 +265,16 @@ export class Engine {
   define(definition: AnyDefinition): void {
     this.#registry.define(definition);
     if (definition.name !== undefined) {
-      this.#running?.orchestrator.register(
-        definition.name,
+      this.#adopt(definition.name);
+    }
+  }
+
+  /** Once started, a definition added to the registry goes to the Orchestrator too. */
+  #adopt(name: string): void {
+    const definition = this.#registry.definitions.get(name);
+    if (definition && this.#running) {
+      this.#running.orchestrator.register(
+        name,
         factoryFor(definition, () => this.bindings)
       );
     }
@@ -287,16 +295,18 @@ export class Engine {
     this.#registry.schedule(record);
   }
 
-  /** Watch a source on a cadence; its detector step is defined under `key`. */
-  monitor(key: string, spec: MonitorSpec, record: Schedule): void {
-    if (!this.#registry.definitions.has(key)) {
-      throw new Error(`monitor "${key}": define its detector step first`);
-    }
-    this.#registry.monitor(key, spec, record);
+  /**
+   * Watch a source on a cadence and call the handler when it changes. The
+   * monitor appears among the schedules under its key; a locked node the
+   * handler returns is started by the tick that polled.
+   */
+  monitor(record: MonitorRecord): void {
+    this.#registry.monitor(record);
+    this.#adopt(record.key);
   }
 
-  /** What each monitor watches, by key. */
-  monitors(): ReadonlyMap<string, MonitorSpec> {
+  /** The monitors a host declared, by key. */
+  monitors(): ReadonlyMap<string, MonitorRecord> {
     return this.#registry.monitors;
   }
 

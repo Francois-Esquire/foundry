@@ -21,7 +21,7 @@ import type { HarnessInteractions } from "~/lib/sandbox/interactions";
 import { createSandboxSession } from "~/lib/sandbox/session";
 
 import type { ManagerArgs } from "../bindings";
-import type { Frame, LiveSession } from "../run-scope";
+import type { LiveSession } from "../run-scope";
 import { current } from "../run-scope";
 import type {
   AgentDefinition,
@@ -35,10 +35,12 @@ import type {
 
 /**
  * Sessions over `createAgentPreset`, wired by default: the provider is the
- * harness, the working directory is the frame's, every turn is aborted with
- * the step, and its text lands on the step's stream. The n-th call in a body
- * returns the session it created the first time, so a replay continues the
- * same transcript.
+ * harness and the working directory is the workspace root. Opened through a
+ * step's view, the working directory is the frame's, every turn is aborted
+ * with the step, and its text lands on the step's stream; the n-th call in a
+ * body returns the session it created the first time, so a replay continues
+ * the same transcript. Opened on the manager there is no step: each call is
+ * a new session, and it lives until the engine is disposed.
  *
  * A host can steer a turn: the turn's own controller aborts it, the
  * partial reply is committed by the harness, and the prompt runs as the next
@@ -56,12 +58,82 @@ export interface AgentsDeps {
   readonly dry?: boolean;
   readonly interactions?: HarnessInteractions;
   readonly models: ModelManager;
+  /** The workspace root: where a session opened outside a step works. */
+  readonly root: string;
   readonly sessions: SessionStore;
   readonly skills: (set?: SkillSet) => Promise<Skill[]>;
   readonly warn: (message: string) => void;
 }
 
 const KIND = "agents.session";
+/** The run id of a session opened on the manager, outside any run. */
+const DIRECT = "direct";
+
+interface Closable {
+  close(): Promise<void> | void;
+}
+
+/** Who is asking, for approvals, activity, and the triggers an agent creates. */
+interface Source {
+  readonly definition: string;
+  readonly path: string[];
+  readonly runId: string;
+}
+
+/**
+ * What a session is opened against. Inside a step it is the frame: the call
+ * is counted for replay, turns stop with the step, and the session closes
+ * when the run settles. On the manager it is the engine itself.
+ */
+interface SessionSite {
+  /** The working directory when neither the call nor a worktree names one. */
+  readonly cwd: string;
+  /** The run's own session; a fresh session is filed under it. */
+  readonly parent?: string;
+  /** Remember the session this call opened, for the next time its body runs. */
+  record(ref: SessionRef): void;
+  /** The session this call opened the first time its body ran. */
+  readonly recorded?: SessionRef;
+  /** Close this with whatever the session belongs to. */
+  retain(closable: Closable): void;
+  /** Aborts every turn. Read per turn: a frame reissues its signal after a pause. */
+  signal(): AbortSignal;
+  readonly source: Source;
+  /** A prompt given on resume after a pause; handed out once. */
+  takeResume(): string | undefined;
+  /** Make the session steerable by a host. */
+  track(live: LiveSession): void;
+  write(value: unknown): void;
+}
+
+/** The site a step's frame is: one claim per call, in call order. */
+function frameSite(
+  { cwd, frame, scope, write }: ManagerArgs,
+  agentId: string
+): SessionSite {
+  const { key } = scope.claim(frame, KIND);
+  const recorded = scope.ledger.get<SessionRef>(key);
+  return {
+    cwd,
+    parent: scope.session.id,
+    record: (ref) => scope.ledger.set(key, ref),
+    ...(recorded === undefined ? {} : { recorded }),
+    retain: (closable) => frame.opened.add(closable),
+    signal: () => frame.signal,
+    source: {
+      definition: frame.path[0] ?? agentId,
+      path: [...frame.path],
+      runId: scope.id,
+    },
+    takeResume: () => {
+      const prompt = frame.resumePrompt;
+      frame.resumePrompt = undefined;
+      return prompt;
+    },
+    track: (live) => frame.sessions.push(live),
+    write,
+  };
+}
 
 function refOf(session: SessionRef | Session): SessionRef {
   return "ref" in session ? session.ref : session;
@@ -76,17 +148,16 @@ function textOf(message: SessionMessage): string {
 function wrap(
   harness: SessionHarness | HarnessSession,
   ref: SessionRef,
-  frame: Frame,
-  write: (value: unknown) => void,
-  recorded: boolean
+  site: SessionSite
 ): Session {
+  const { write } = site;
   const live: LiveSession = { ref };
-  frame.sessions.push(live);
+  site.track(live);
   const turnOptions = (
     turn: AbortController,
     options?: SessionStreamOptions
   ): SessionStreamOptions => {
-    const signals = [frame.signal, turn.signal];
+    const signals = [site.signal(), turn.signal];
     if (options?.signal) {
       signals.push(options.signal);
     }
@@ -100,10 +171,11 @@ function wrap(
     };
   };
   const check = () => {
-    if (frame.signal.aborted) {
-      throw frame.signal.reason instanceof Error
-        ? frame.signal.reason
-        : new Error(String(frame.signal.reason ?? "step cancelled"));
+    const signal = site.signal();
+    if (signal.aborted) {
+      throw signal.reason instanceof Error
+        ? signal.reason
+        : new Error(String(signal.reason ?? "step cancelled"));
     }
   };
   /** The turn's controller is on the live session while it runs, for steer. */
@@ -119,11 +191,13 @@ function wrap(
   };
   /** A resume prompt rides on the first turn of the session that was parked. */
   const withResume = (input: SessionInput): SessionInput => {
-    const prompt = frame.resumePrompt;
-    if (!(recorded && prompt !== undefined && typeof input === "string")) {
+    if (!(site.recorded && typeof input === "string")) {
       return input;
     }
-    frame.resumePrompt = undefined;
+    const prompt = site.takeResume();
+    if (prompt === undefined) {
+      return input;
+    }
     write(`\n[resume] ${prompt}\n`);
     return `${prompt}\n\n${input}`;
   };
@@ -213,16 +287,19 @@ function sessionIdFor(
   return crypto.randomUUID();
 }
 
-async function adoptIntoRun(
+/** File a fresh session under the run's own, or on its own outside a run. */
+async function fileSession(
   store: SessionStore,
-  runSessionId: string,
+  parent: string | undefined,
   id: string
 ): Promise<void> {
-  if ((await store.getSession(runSessionId)) === null) {
-    await store.createSession({ id: runSessionId, title: "run" });
+  if (parent !== undefined && (await store.getSession(parent)) === null) {
+    await store.createSession({ id: parent, title: "run" });
   }
   if ((await store.getSession(id)) === null) {
-    await store.createSession({ id, parentSessionId: runSessionId });
+    await store.createSession(
+      parent === undefined ? { id } : { id, parentSessionId: parent }
+    );
   }
 }
 
@@ -268,7 +345,7 @@ function validateSessionOptions(options: SessionOptions): void {
 
 async function interactionOptions(
   interactions: HarnessInteractions | undefined,
-  { frame, scope }: ManagerArgs,
+  source: Source,
   agentId: string,
   sessionId: string,
   options: SessionOptions
@@ -276,11 +353,6 @@ async function interactionOptions(
   if (!interactions) {
     return options;
   }
-  const source = {
-    definition: frame.path[0] ?? agentId,
-    path: [...frame.path],
-    runId: scope.id,
-  };
   await interactions.registerSession(
     { agentId, sessionId, source },
     options.authority?.policy
@@ -301,13 +373,11 @@ async function interactionOptions(
 
 async function openSession(
   deps: AgentsDeps,
-  { cwd, frame, scope, write }: ManagerArgs,
+  site: SessionSite,
   definition: AgentDefinition,
   options: SessionOptions
 ): Promise<Session> {
-  validateSessionOptions(options);
-  const { key } = scope.claim(frame, KIND);
-  const recorded = scope.ledger.get<SessionRef>(key);
+  const { cwd, recorded, source, write } = site;
   const wanted = options.session ? refOf(options.session) : undefined;
 
   const fallback =
@@ -324,7 +394,7 @@ async function openSession(
   // in the store the first time the run needs it, so a host can read every
   // agent the run opened through `run.session`.
   if (id !== recorded?.id && id !== wanted?.id) {
-    await adoptIntoRun(deps.sessions, scope.session.id, id);
+    await fileSession(deps.sessions, site.parent, id);
   }
 
   const skills = await deps.skills(definition.skills);
@@ -332,16 +402,11 @@ async function openSession(
     const executor = sandboxExecutor(deps.models, modelId, provider);
     const sessionOptions = await interactionOptions(
       deps.interactions,
-      { cwd, frame, scope, write },
+      source,
       definition.id,
       id,
       options
     );
-    const source = {
-      definition: frame.path[0] ?? definition.id,
-      path: [...frame.path],
-      runId: scope.id,
-    };
     const harness = await createSandboxSession({
       agentId: definition.id,
       harness: executor.harness,
@@ -373,18 +438,12 @@ async function openSession(
         .join("\n\n"),
       options: sessionOptions,
       sessionId: id,
-      signal: frame.signal,
+      signal: site.signal(),
       store: deps.sessions,
       write,
     });
     deps.activities?.attach(id, harness);
-    return retainSession(
-      harness,
-      id,
-      { cwd, frame, scope, write },
-      key,
-      recorded !== undefined
-    );
+    return retainSession(harness, id, site);
   }
   const model = deps.models.model(modelId, provider, {
     workingDirectory: options.cwd ?? current.getStore()?.cwd ?? cwd,
@@ -414,37 +473,33 @@ async function openSession(
     sessionId: id,
   });
 
-  return retainSession(
-    harness,
-    id,
-    { cwd, frame, scope, write },
-    key,
-    recorded !== undefined
-  );
+  return retainSession(harness, id, site);
 }
 
 function retainSession(
   harness: SessionHarness | HarnessSession,
   id: string,
-  { frame, scope, write }: ManagerArgs,
-  key: string,
-  recorded: boolean
+  site: SessionSite
 ): Session {
   if ("close" in harness && harness.close) {
     const { close } = harness;
-    frame.opened.add({ close: () => close.call(harness) });
+    site.retain({ close: () => close.call(harness) });
   }
   const ref: SessionRef = {
     id,
     model: harness.route.id,
     provider: harness.route.provider,
   };
-  scope.ledger.set(key, ref);
-  return wrap(harness, ref, frame, write, recorded);
+  site.record(ref);
+  return wrap(harness, ref, site);
 }
 
-export class AgentsManager {
+export class AgentsManager implements Agents {
   readonly #deps: AgentsDeps;
+  /** Stops the turns of sessions opened outside a step. */
+  readonly #closing = new AbortController();
+  /** What those sessions hold open; closed with the manager. */
+  readonly #held = new Set<Closable>();
 
   constructor(deps: AgentsDeps) {
     this.#deps = deps;
@@ -458,19 +513,60 @@ export class AgentsManager {
     return this.#deps.sessions;
   }
 
+  /**
+   * Open a session outside any step: it works in the workspace root unless
+   * the call names a directory, each call is a new session, and it stays
+   * open until the engine is disposed. Pass `onText` to a turn to stream it.
+   */
+  async session(
+    definition: AgentDefinition,
+    options: SessionOptions = {}
+  ): Promise<Session> {
+    validateSessionOptions(options);
+    return await openSession(
+      this.#deps,
+      {
+        cwd: this.#deps.root,
+        record: () => undefined,
+        retain: (closable) => this.#held.add(closable),
+        signal: () => this.#closing.signal,
+        source: { definition: definition.id, path: [], runId: DIRECT },
+        takeResume: () => undefined,
+        track: () => undefined,
+        write: () => undefined,
+      },
+      definition,
+      options
+    );
+  }
+
   /** What a step body sees: sessions bound to its frame's signal, stream, and working directory. */
   scoped(args: ManagerArgs): Agents {
     return {
-      session: (definition, options = {}) =>
-        openSession(this.#deps, args, definition, options),
+      session: async (definition, options = {}) => {
+        validateSessionOptions(options);
+        return await openSession(
+          this.#deps,
+          frameSite(args, definition.id),
+          definition,
+          options
+        );
+      },
     };
   }
 
   /**
-   * The Codex provider holds a `codex app-server` child; without this the
-   * process never exits.
+   * Stop what was opened outside a step, then the models: the Codex provider
+   * holds a `codex app-server` child, and without this the process never
+   * exits.
    */
   async close(): Promise<void> {
-    await this.#deps.models.dispose();
+    this.#closing.abort(new Error("the engine was disposed"));
+    try {
+      await Promise.allSettled([...this.#held].map((held) => held.close()));
+    } finally {
+      this.#held.clear();
+      await this.#deps.models.dispose();
+    }
   }
 }

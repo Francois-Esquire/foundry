@@ -6,6 +6,7 @@ export function configuredMonitorUrl(
 ): (url: URL) => boolean {
   return (url) =>
     [...registry.monitors.values()].some(
-      (spec) => spec.kind === "http" && new URL(spec.url).origin === url.origin
+      ({ source }) =>
+        source.kind === "http" && new URL(source.url).origin === url.origin
     );
 }

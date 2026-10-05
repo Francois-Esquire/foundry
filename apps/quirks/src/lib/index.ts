@@ -1,32 +1,44 @@
 /**
- * The lib entry, `@foundry/quirks/lib`: everything a host needs to run Quirks
- * definitions without the CLI. Build the five instances the `Engine` takes,
- * tell it what can run with `define`, `schedule` and `monitor`, start it, and
- * launch by name. The words a `quirks.config.ts` writes definitions with live
- * in the package's main entry; this one takes what they produce as data.
+ * The lib entry, `@foundry/quirks/lib`: the `Engine`, the types it speaks,
+ * and the package classes its five instances are built from. Build those,
+ * hand them to the engine, tell it what can run with `define`, `schedule`
+ * and `monitor`, start it, and launch by name; or call its managers
+ * directly. The words a `quirks.config.ts` writes definitions with live in
+ * the package's main entry; this one takes what they produce as data.
  *
- * The base classes those instances are built from are re-exported from here
- * too. The package bundles them, so these are the copies an instance has to
- * come from to be handed to the engine.
+ * The package classes are re-exported because the package bundles them:
+ * these are the copies an instance has to come from to be handed to the
+ * engine.
  */
 
+// `sessions`: where agent transcripts live.
 export type { SessionStore } from "@foundry/agents/session";
 // biome-ignore lint/performance/noBarrelFile: This is the public package entry point for programmatic hosts.
 export { InMemorySessionStore } from "@foundry/agents/session";
+// `artifacts`: versioned outputs and the feed.
 export { ArtifactSystem, InMemoryArtifactStore } from "@foundry/artifacts";
+export { blobFiles, JsonArtifactStore } from "@foundry/artifacts/node";
+// `models`: the providers agents route to.
 export type { Provider, TurnExecutorRef } from "@foundry/models";
 export { ModelManager } from "@foundry/models";
+export { claudeCodeProvider } from "@foundry/models/claude-code";
+export { codexProvider } from "@foundry/models/codex";
+// `containers`: where sandboxes run.
 export type { Containers } from "@foundry/sandbox/container/containers";
 export { createContainers } from "@foundry/sandbox/container/containers";
 export { createMemoryContainerStore } from "@foundry/sandbox/container/store";
+export type { ChannelMessage } from "@foundry/workflows/channels";
+export type { RunRecord } from "@foundry/workflows/store";
+// `workspaces`: directories and repositories.
 export { WorkspaceSystem } from "@foundry/workspaces";
 export { git } from "@foundry/workspaces/git";
 export { directory } from "@foundry/workspaces/node";
 export { nodeObserver } from "@foundry/workspaces/node/watch";
 
-export type { AutomationOptions } from "./automation/service";
-export { AutomationService } from "./automation/service";
-export type { Bindings, HostBindings, ManagerArgs } from "./bindings";
+export type {
+  AutomationRecord,
+  AutomationService,
+} from "./automation/service";
 export type {
   AnyDefinition,
   LockedNode,
@@ -35,34 +47,19 @@ export type {
   StepRecord,
   WorkflowRecord,
 } from "./definition";
-export { isLockedNode, rootLock } from "./definition";
 export type { EngineOptions } from "./engine";
 export { Engine } from "./engine";
 export type { FeedAnswer } from "./feed/entry";
-export type { FeedPublisher } from "./feed/publish";
 export type {
   FeedEntrySnapshot,
   FeedMediaSnapshot,
   FeedReader,
 } from "./feed/read";
-export {
-  availableExecutors,
-  detectHarnesses,
-  harnessModels,
-  selectExecutor,
-  selectedHarnesses,
-} from "./harnesses";
 export type { Log, LogLevel } from "./log";
-export { createLog } from "./log";
-export type { AgentsDeps } from "./managers/agents";
-export { AgentsManager } from "./managers/agents";
-export type { ArtifactsDeps } from "./managers/artifacts";
-export { ArtifactsManager } from "./managers/artifacts";
-export type { SandboxesDeps } from "./managers/sandboxes";
-export { allowedMountRoots, SandboxesManager } from "./managers/sandboxes";
-export { globalSkillsDir, skillResolver } from "./managers/skills";
-export type { Catalogue, WorkspacesDeps } from "./managers/workspaces";
-export { WorkspacesManager } from "./managers/workspaces";
+export type { AgentsManager } from "./managers/agents";
+export type { ArtifactsManager } from "./managers/artifacts";
+export type { SandboxesManager } from "./managers/sandboxes";
+export type { WorkspacesManager } from "./managers/workspaces";
 export type {
   Change,
   FileChange,
@@ -71,15 +68,10 @@ export type {
   MonitorHandler,
   MonitorSpec,
 } from "./monitor";
-export { detector } from "./monitor";
-export type { DefinitionEntry } from "./registry";
-export { HarnessActivities } from "./sandbox/activities";
-export { HarnessInteractions } from "./sandbox/interactions";
-export type { LoopOptions, TickOptions } from "./schedule";
-export { nextDue, parseAt, runSchedules, tick } from "./schedule";
+export type { DefinitionEntry, MonitorRecord } from "./registry";
+export type { ActivityRecord, HarnessActivities } from "./sandbox/activities";
+export type { HarnessInteractions } from "./sandbox/interactions";
 export { JsonSessionStore } from "./sessions/json-store";
-export type { Workspace } from "./state/workspace";
-export { workspaceState } from "./state/workspace";
 export type { CalendarSlot, Schedule, Trigger, Weekday } from "./triggers";
 export type {
   AgentDefinition,
@@ -87,11 +79,14 @@ export type {
   ArtifactDefinition,
   Artifacts,
   Context,
+  Sandbox,
   SandboxDefinition,
   Sandboxes,
   SandboxSpec,
   Session,
+  SessionOptions,
   SessionRef,
   WorkspaceDefinition,
+  WorkspaceHandle,
   Workspaces,
 } from "./types";

@@ -35,6 +35,7 @@ function deps(warnings: string[] = []) {
   return {
     defaultExecutor: () => CLAUDE_CODE,
     models,
+    root: process.cwd(),
     sessions: new InMemorySessionStore(),
     skills: () => Promise.resolve([]),
     warn: (message: string) => {

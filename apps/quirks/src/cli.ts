@@ -117,7 +117,9 @@ function listRegistry(schedules: readonly Schedule[]): void {
         : `at ${weekdays(trigger.slot).join(",") || "daily"} ${clock(trigger.slot)}`;
     const monitor = monitors.get(schedule.key);
     if (monitor) {
-      print(`[monitor] ${schedule.key} ${describeMonitor(monitor)} ${when}`);
+      print(
+        `[monitor] ${schedule.key} ${describeMonitor(monitor.source)} ${when}`
+      );
     } else {
       const input =
         schedule.input === null ? "" : ` ${JSON.stringify(schedule.input)}`;

@@ -498,11 +498,11 @@ describe("monitor factory", () => {
     const [guides, releases] = [...catalog.monitors.keys()] as [string, string];
     expect(guides).toMatch(KEY_PATTERN);
     expect(guides.startsWith("claude-md-")).toBe(true);
-    expect(catalog.monitors.get(guides)).toEqual({
+    expect(catalog.monitors.get(guides)?.source).toEqual({
       glob: "**/CLAUDE.md",
       kind: "files",
     });
-    expect(catalog.monitors.get(releases)).toEqual({
+    expect(catalog.monitors.get(releases)?.source).toEqual({
       kind: "http",
       url: "https://example.test/releases",
     });

@@ -165,13 +165,15 @@ const engine = new Engine({ ...instances, root, workspaceId: "host" });
 new Engine({ root, workspaceId: "host" });
 engine.define(packedWorkflow);
 engine.define(inventory);
+// The managers answer on the engine itself, before anything runs.
+const direct = (await engine.workspaces.current.files()).includes("host.ts");
 await engine.start();
 const greeted = await engine.run<{ greeting: string }>("packed-workflow", { name: "host" });
 const files = await engine.run<number>("host-inventory", {});
 const listed = engine.definitions().map((entry) => entry.name).join(",");
 await engine.stop();
 await engine.dispose();
-console.log(greeted.greeting, files > 0 ? "sees files" : "sees nothing", listed);
+console.log(greeted.greeting, files > 0 && direct ? "sees files" : "sees nothing", listed);
 `
     );
     run(

@@ -7,7 +7,11 @@ import type { directory } from "@foundry/workspaces/node";
 
 import type { ManagerArgs } from "../bindings";
 import { current } from "../run-scope";
-import type { WorkspaceHandle, Workspaces } from "../types";
+import type {
+  WorkspaceDefinition,
+  WorkspaceHandle,
+  Workspaces,
+} from "../types";
 
 /**
  * Directories, through the workspaces catalogue. `current` is the config's
@@ -107,14 +111,15 @@ function handle(
   };
 }
 
-export class WorkspacesManager {
+export class WorkspacesManager implements Workspaces {
   readonly #deps: WorkspacesDeps;
-  readonly #current: WorkspaceHandle;
+  /** The root workspace; nothing is read until a method needs it. */
+  readonly current: WorkspaceHandle;
 
   constructor(deps: WorkspacesDeps) {
     this.#deps = deps;
     let currentLoaded: Promise<Loaded> | undefined;
-    this.#current = handle(
+    this.current = handle(
       deps.root,
       () => {
         currentLoaded ??= this.#load(".");
@@ -128,11 +133,12 @@ export class WorkspacesManager {
     );
   }
 
-  get catalogue(): Catalogue {
+  /** The workspace system this manager was built over. */
+  get system(): Catalogue {
     return this.#deps.catalogue;
   }
 
-  /** The config's directory. */
+  /** The workspace root. */
   get root(): string {
     return this.#deps.root;
   }
@@ -141,20 +147,21 @@ export class WorkspacesManager {
     return this.#deps.catalogue.load({ path: resolve(this.#deps.root, path) });
   }
 
+  async load(
+    ref: WorkspaceDefinition | { readonly path: string }
+  ): Promise<WorkspaceHandle> {
+    const workspace = await this.#load(ref.path);
+    return handle(
+      workspace.root,
+      () => Promise.resolve(workspace),
+      () => workspace.git,
+      this.#deps.worktreeHome
+    );
+  }
+
   /** What a step body sees. Nothing here is per frame; the argument keeps the four managers alike. */
   scoped(_args?: ManagerArgs): Workspaces {
-    return {
-      current: this.#current,
-      load: async (ref) => {
-        const workspace = await this.#load(ref.path);
-        return handle(
-          workspace.root,
-          () => Promise.resolve(workspace),
-          () => workspace.git,
-          this.#deps.worktreeHome
-        );
-      },
-    };
+    return { current: this.current, load: (ref) => this.load(ref) };
   }
 
   async close(): Promise<void> {

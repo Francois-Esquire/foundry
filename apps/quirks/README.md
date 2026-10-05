@@ -222,9 +222,8 @@ remain owned by that CLI and are not silently copied into Quirks. Monitor
 startup failures retain pending delivery for retry; a crash between launch and
 acknowledgement can redeliver, so target workflows should tolerate duplicates.
 
-Embedding hosts pass `getSchedules: () => engine.schedules()` to
-`runSchedules` for live additions/removals. Durable execution requires a running
-Quirks loop or an installed host schedule. Pi integration is deferred.
+Durable execution requires a running Quirks loop or an installed host
+schedule. Pi integration is deferred.
 
 ## Embedding the engine
 
@@ -278,15 +277,38 @@ await engine.dispose();
 ```
 
 All five instances are required. The engine hands them back (`engine.models`,
-`engine.sessions`, `engine.workspaces.catalogue`) and closes them in
-`dispose()`.
+`engine.sessions`, `engine.workspaces.system`, `engine.sandboxes.containers()`)
+and closes them in `dispose()`.
+
+The managers a step body gets as `agents`, `workspaces`, `sandboxes`, and
+`artifacts` are on the engine too, with the same methods, and work without a
+run and before `start()`:
+
+```ts
+import { agent, artifact } from "@foundry/quirks";
+
+const reviewer = agent({ prompt: "Review the diff." });
+const report = artifact({ name: "review", type: "text/markdown" });
+
+const repo = await engine.workspaces.load({ path: "/path/to/repo" });
+const session = await engine.agents.session(reviewer, { cwd: repo.root });
+const reply = await session.generate("Review this.");
+const box = await engine.sandboxes.start({ image: "oven/bun:1-slim" });
+const version = await engine.artifacts.write(report, { "report.md": reply.text });
+```
+
+Inside a step these calls are tied to the step: they replay to the same
+session, sandbox, or version, stop when the step is cancelled, and close when
+the run settles. On the engine there is no step, so each call is new, a
+sandbox is yours to close, and whatever is still open closes on `dispose()`.
 
 The engine keeps its own registry and is told what can run:
 
 - `engine.define(definition)` adds a named step or workflow. The authoring
   words return exactly that, so `engine.define(step("x").do(...))` works.
-- `engine.schedule(record)` starts a definition on a cadence, and
-  `engine.monitor(key, source, record)` watches a source.
+- `engine.schedule(record)` starts a definition on a cadence.
+- `engine.monitor({ key, source, trigger, handler })` watches a glob or a URL
+  and calls the handler when it changes.
 - `engine.definitions()`, `engine.schedules()`, and `engine.monitors()` read
   it back, including the triggers agents created.
 
@@ -301,10 +323,22 @@ skills are read from, `git` is how git runs on the root workspace when the
 `git()` layer was built with a custom runner, and `dry` makes agents asked
 for a sandbox run in-process instead.
 
-The package bundles its Foundry packages, so take the base classes
-(`ModelManager`, `InMemorySessionStore`, `WorkspaceSystem`, `ArtifactSystem`,
-`createContainers`, and the rest) from `@foundry/quirks/lib` as well. An
-instance built from another copy of the same class is a different type.
+The package bundles its Foundry packages, so take the classes the five
+instances are built from out of `@foundry/quirks/lib` as well. An instance
+built from another copy of the same class is a different type. Besides
+`Engine` and its types, the entry exports only those:
+
+| Instance | Exports |
+| --- | --- |
+| `models` | `ModelManager`, `claudeCodeProvider`, `codexProvider` |
+| `sessions` | `InMemorySessionStore`, `JsonSessionStore` |
+| `workspaces` | `WorkspaceSystem`, `directory`, `git`, `nodeObserver` |
+| `containers` | `createContainers`, `createMemoryContainerStore` |
+| `artifacts` | `ArtifactSystem`, `InMemoryArtifactStore`, `JsonArtifactStore`, `blobFiles` |
+
+Two things a host cannot do through this entry yet: the MicroSandbox runtime
+`createContainers` needs is not exported, and nothing fires the triggers the
+engine holds (the CLI's schedule loop is not part of the engine).
 
 ## Documentation
 

@@ -8,7 +8,6 @@ import type {
 } from "@foundry/sandbox/container/containers";
 
 import type { ManagerArgs } from "../bindings";
-import type { Frame } from "../run-scope";
 import { current } from "../run-scope";
 import type {
   ImageSandbox,
@@ -18,7 +17,11 @@ import type {
   SandboxSpec,
 } from "../types";
 
-/** MicroSandbox lifecycle and workspace mounts, scoped to the workflow frame. */
+/**
+ * Sandbox lifecycle and workspace mounts. Called on the manager, a sandbox
+ * is the caller's to close. Through a step's view it stops with the frame
+ * and is found again on replay.
+ */
 
 export interface SandboxesDeps {
   /** Lazy: the runtime is optional and may not be installed. */
@@ -114,12 +117,16 @@ export function constraintsFor(
   };
 }
 
-function wrap(container: Container, frame: Frame): Sandbox {
+/** A handle over a container; `signal` is read at each exec, since a frame reissues its own. */
+function wrap(
+  container: Container,
+  signal: () => AbortSignal | undefined
+): Sandbox {
   const handle: Sandbox = {
     close: () => container.close(),
     async exec(argv) {
       const result = await container.commands.exec([...argv], {
-        signal: frame.signal,
+        signal: signal(),
       });
       return {
         exitCode: result.exitCode,
@@ -130,11 +137,10 @@ function wrap(container: Container, frame: Frame): Sandbox {
     id: container.id,
   };
   managedSandboxes.set(handle, container);
-  frame.opened.add(handle);
   return handle;
 }
 
-export class SandboxesManager {
+export class SandboxesManager implements Sandboxes {
   readonly #deps: SandboxesDeps;
   #opened: Promise<Containers> | undefined;
 
@@ -142,52 +148,78 @@ export class SandboxesManager {
     this.#deps = deps;
   }
 
-  /** Resolved at first use and kept: the runtime is started once. */
-  #containers(): Promise<Containers> {
+  /** The containers this manager was built over: resolved at first use and kept, so the runtime is started once. */
+  containers(): Promise<Containers> {
     this.#opened ??= this.#deps.containers();
     return this.#opened;
   }
 
-  /** What a step body sees: sandboxes that stop with its frame. */
+  async #open(id: string, signal?: AbortSignal): Promise<Container> {
+    const containers = await this.containers();
+    return containers.open(id, signal);
+  }
+
+  async #start(
+    sandbox: SandboxDefinition | SandboxSpec,
+    signal?: AbortSignal
+  ): Promise<Container> {
+    const { home, root } = this.#deps;
+    const containers = await this.containers();
+    const container = await containers.start(
+      constraintsFor(
+        sandbox,
+        { cwd: current.getStore()?.cwd ?? root, root },
+        home
+      ),
+      signal
+    );
+    try {
+      if ("files" in sandbox) {
+        await container.files.copyIn(guestFiles(sandbox.files));
+      }
+    } catch (error) {
+      await container.close();
+      throw error;
+    }
+    return container;
+  }
+
+  /** A sandbox that is already running; the caller closes the handle. */
+  async open(id: string): Promise<Sandbox> {
+    return wrap(await this.#open(id), () => undefined);
+  }
+
+  /** Start a sandbox; it runs until the caller closes it or the engine is disposed. */
+  async start(sandbox: SandboxDefinition | SandboxSpec): Promise<Sandbox> {
+    return wrap(await this.#start(sandbox), () => undefined);
+  }
+
+  /** What a step body sees: sandboxes that stop with its frame, and the same one again on replay. */
   scoped({ frame, scope }: ManagerArgs): Sandboxes {
-    const deps = this.#deps;
-    const opened = () => this.#containers();
+    const attach = (container: Container): Sandbox => {
+      const handle = wrap(container, () => frame.signal);
+      frame.opened.add(handle);
+      return handle;
+    };
     return {
-      async open(id) {
-        const containers = await opened();
-        return wrap(await containers.open(id, frame.signal), frame);
-      },
-      async start(sandbox: SandboxDefinition | SandboxSpec) {
+      open: async (id) => attach(await this.#open(id, frame.signal)),
+      start: async (sandbox) => {
         const { key } = scope.claim(frame, KIND);
-        const containers = await opened();
+        // A runtime that cannot start is an error, not a missing record.
+        await this.containers();
         const recorded = scope.ledger.get<string>(key);
         if (recorded !== undefined) {
           // A container never outlives the process that started it: a run
           // adopted after a restart starts a fresh one under the same key.
           try {
-            return wrap(await containers.open(recorded, frame.signal), frame);
+            return attach(await this.#open(recorded, frame.signal));
           } catch {
             scope.ledger.set(key, undefined);
           }
         }
-        const container = await containers.start(
-          constraintsFor(
-            sandbox,
-            { cwd: current.getStore()?.cwd ?? deps.root, root: deps.root },
-            deps.home
-          ),
-          frame.signal
-        );
-        try {
-          if ("files" in sandbox) {
-            await container.files.copyIn(guestFiles(sandbox.files));
-          }
-        } catch (error) {
-          await container.close();
-          throw error;
-        }
+        const container = await this.#start(sandbox, frame.signal);
         scope.ledger.set(key, container.id);
-        return wrap(container, frame);
+        return attach(container);
       },
     };
   }

@@ -124,7 +124,7 @@ it("builds an engine over the instances a host hands in", async () => {
     // The instances are handed back, and the managers are built over them.
     expect(engine.models).toBe(instances.models);
     expect(engine.sessions).toBe(instances.sessions);
-    expect(engine.workspaces.catalogue).toBe(instances.workspaces);
+    expect(engine.workspaces.system).toBe(instances.workspaces);
     await engine.start();
     const result = await engine.run<{ root: string; session: string }>(
       "review",

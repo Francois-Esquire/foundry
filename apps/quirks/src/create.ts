@@ -66,13 +66,16 @@ type Declarable = Pick<Engine, "define" | "monitor" | "schedule">;
 
 /** Tell `target` everything the config declared, definitions first. */
 export function declareCatalog(target: Declarable, catalog: Catalog): void {
-  for (const definition of catalog.definitions.values()) {
-    target.define(definition);
+  for (const [name, definition] of catalog.definitions) {
+    // A monitor brings its own step when it is declared below.
+    if (!catalog.monitors.has(name)) {
+      target.define(definition);
+    }
   }
   for (const record of catalog.schedules.values()) {
     const watched = catalog.monitors.get(record.key);
     if (watched) {
-      target.monitor(record.key, watched, record);
+      target.monitor(watched);
     } else {
       target.schedule(record);
     }

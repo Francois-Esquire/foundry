@@ -97,6 +97,7 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
       const session = await new AgentsManager({
         defaultExecutor: () => ({ harness, model: modelId, provider }),
         models,
+        root,
         sessions: store,
         skills: async () => [],
         warn: () => undefined,
