@@ -5,7 +5,7 @@ stands between it and a first publish. Dated 2026-09-28.
 
 ## Direction
 
-Atlas is its own package, published separately from Quirks. Today it is a
+Atlas is its own package, published separately from Marbles. Today it is a
 scan and a viewer. The next layers, in the maintainer's words:
 
 1. **Ways of understanding the codebase.** Each analysis the scan computes
@@ -30,7 +30,7 @@ Found while packaging on 2026-09-28. Each is small; together they decide
 whether a first install feels finished.
 
 - The release tooling publishes every non-private workspace under one
-  shared version from one `v*` tag. Atlas and Quirks release together until
+  shared version from one `v*` tag. Atlas and Marbles release together until
   the tooling learns per-package tags.
 - `dist/cli/atlas.js.map` ships in the tarball; `files` could exclude it.
 - Analysis workers are spawned as `bun` from the PATH rather than the

@@ -7,7 +7,7 @@ import PageLayout from "blume/components/layout/PageLayout.astro";
 const { config } = data;
 const repo = "https://github.com/Francois-Esquire/foundry";
 
-const quirksSample = `import { step } from "@foundry/quirks";
+const marblesSample = `import { step } from "@foundry/marbles";
 
 step("inspect").do(async ({ workspaces, log }) => {
   const files = await workspaces.current.files();
@@ -21,10 +21,10 @@ atlas ./my-workspace`;
 
 const setupSample = `git clone ${repo}.git
 cd foundry && bun install
-bun run quirks -- --help
+bun run marbles -- --help
 bun run --filter @foundry/atlas build && bun run atlas -- --help`;
 
-const quirksWords = [
+const marblesWords = [
   ["step", "does one piece of work"],
   ["workflow", "connects those pieces"],
   ["agent", "supplies instructions to a coding-agent harness"],
@@ -33,10 +33,10 @@ const quirksWords = [
   ["schedule", "decides when work returns"],
 ];
 
-const quirksLinks = [
-  { href: "/quirks/concepts", label: "Concepts" },
-  { href: "/quirks/use-cases", label: "Use cases" },
-  { href: "/quirks/reference/api", label: "API reference" },
+const marblesLinks = [
+  { href: "/marbles/concepts", label: "Concepts" },
+  { href: "/marbles/use-cases", label: "Use cases" },
+  { href: "/marbles/reference/api", label: "API reference" },
 ];
 
 const atlasLinks = [
@@ -76,13 +76,13 @@ const textLink =
     </h1>
     <p class="mt-6 max-w-2xl text-lg text-muted-foreground leading-relaxed">
       Two tools, one repository.
-      <strong class="text-foreground">Quirks</strong> turns recurring behaviors
+      <strong class="text-foreground">Marbles</strong> turns recurring behaviors
       into inspectable TypeScript that an agent can take part in.
       <strong class="text-foreground">Atlas</strong> draws a workspace as a map
       you can explore in the browser.
     </p>
     <div class="mt-8 flex flex-wrap gap-3">
-      <a class={primary} href={withBase("/quirks/start-here")}>Start with Quirks</a>
+      <a class={primary} href={withBase("/marbles/start-here")}>Start with Marbles</a>
       <a class={secondary} href={withBase("/atlas/start-here")}>Start with Atlas</a>
       <a class={secondary} href={repo} rel="noreferrer" target="_blank">GitHub</a>
     </div>
@@ -91,19 +91,19 @@ const textLink =
   <section class="border-border border-t">
     <div class="mx-auto grid max-w-5xl gap-10 px-6 py-16 md:grid-cols-2 md:items-start md:py-20">
       <div>
-        <p class="mb-2 font-medium text-muted-foreground text-sm">Quirks</p>
+        <p class="mb-2 font-medium text-muted-foreground text-sm">Marbles</p>
         <h2 class="font-semibold text-2xl text-foreground tracking-tight md:text-3xl">
           Behaviors as code.
         </h2>
         <p class="mt-4 text-muted-foreground leading-relaxed">
-          A <code class="text-foreground">quirks.config.ts</code> defines the
+          A <code class="text-foreground">marbles.config.ts</code> defines the
           work, where an agent participates, and what makes it run again. Run it
           once, keep it active in a terminal, or let launchd invoke it on a
           schedule. State lives on disk between invocations.
         </p>
         <ul class="mt-6 space-y-2 text-sm">
           {
-            quirksWords.map(([word, meaning]) => (
+            marblesWords.map(([word, meaning]) => (
               <li class="flex gap-3">
                 <code class="shrink-0 text-foreground">{word}</code>
                 <span class="text-muted-foreground">{meaning}</span>
@@ -113,7 +113,7 @@ const textLink =
         </ul>
         <div class="mt-6 flex flex-wrap gap-x-5 gap-y-2">
           {
-            quirksLinks.map((link) => (
+            marblesLinks.map((link) => (
               <a class={textLink} href={withBase(link.href)}>
                 {link.label}
               </a>
@@ -122,10 +122,10 @@ const textLink =
         </div>
       </div>
       <div>
-        <CodeBlock code={quirksSample} lang="ts" title="quirks.config.ts" />
+        <CodeBlock code={marblesSample} lang="ts" title="marbles.config.ts" />
         <p class="mt-3 text-muted-foreground text-sm">
           A deterministic step needs no model call. Save it and run{" "}
-          <code class="text-foreground">quirks once inspect</code>.
+          <code class="text-foreground">marbles roll inspect</code>.
         </p>
       </div>
     </div>
@@ -190,7 +190,7 @@ const textLink =
       <div class="flex flex-wrap gap-x-5 gap-y-2">
         <a class={textLink} href={repo} rel="noreferrer" target="_blank">Source</a>
         <a class={textLink} href={`${repo}/blob/main/CONTRIBUTING.md`} rel="noreferrer" target="_blank">Contributing</a>
-        <a class={textLink} href={withBase("/quirks/safety-and-limits")}>Safety and limits</a>
+        <a class={textLink} href={withBase("/marbles/safety-and-limits")}>Safety and limits</a>
       </div>
     </div>
   </footer>

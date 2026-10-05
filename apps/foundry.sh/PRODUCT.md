@@ -29,7 +29,7 @@ Documentation currently lives in `docs/`, is built by Blume, and is deployed to
 ## Evidence on hand
 
 The root README and package READMEs describe the implemented tools and libraries.
-Quirks and Atlas run from the repository; the root README says the first npm
+Marbles and Atlas run from the repository; the root README says the first npm
 release has not shipped. The repository has an MIT license. Do not invent
 customers, usage metrics, commercial availability, or release claims.
 

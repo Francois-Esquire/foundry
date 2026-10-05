@@ -5,7 +5,7 @@
       "entry": ["scripts/*.ts", "src/lib/semantics-worker.ts"],
       "ignore": ["test/lib/fixtures/**"]
     },
-    "apps/quirks": {
+    "apps/marbles": {
       "ignoreDependencies": [
         "@ai-sdk/openai-compatible",
         "@ai-sdk/provider",
@@ -20,7 +20,7 @@
         "simple-git",
         "unique-names-generator"
       ],
-      "entry": ["examples/**/*.ts", "templates/**/quirks.config.ts"]
+      "entry": ["examples/**/*.ts", "templates/**/marbles.config.ts"]
     },
     "docs": {
       "entry": ["blume.config.ts", "**/meta.ts"]
@@ -30,7 +30,7 @@
     },
     "tooling/*": {},
     ".": {
-      "entry": ["quirks.config.ts"]
+      "entry": ["marbles.config.ts"]
     }
   }
 }

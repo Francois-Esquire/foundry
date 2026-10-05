@@ -13,11 +13,11 @@ bun run test:package
 
 `validate` runs Ultracite, Sherif, TypeScript, and Knip. `test` runs the default
 package suites. `test:package` separately installs packed public packages into
-temporary projects, so it needs registry access. Quirks checks its installed
+temporary projects, so it needs registry access. Marbles checks its installed
 library, TypeScript declarations, CLI, and the registry shared by CLI and config.
 These tests do not require model credentials.
 
-Quirks has a `prepack` hook for ordinary local packing. CI builds explicitly and
+Marbles has a `prepack` hook for ordinary local packing. CI builds explicitly and
 uses `--ignore-scripts` during packing and publishing to preserve the tested build.
 
 ## Repository commands
@@ -38,8 +38,8 @@ uses `--ignore-scripts` during packing and publishing to preserve the tested bui
 | `bun run dev` | Start package development tasks |
 
 `check-types` remains an alias for `typecheck`. New package scripts use
-`typecheck`. Run one package directly with `bun run --cwd apps/quirks typecheck`,
-or use `bun run typecheck --filter=@foundry/quirks` for Turbo filtering.
+`typecheck`. Run one package directly with `bun run --cwd apps/marbles typecheck`,
+or use `bun run typecheck --filter=@foundry/marbles` for Turbo filtering.
 
 ## Package conventions
 
@@ -66,10 +66,10 @@ command with the validated environment:
 
 ```sh
 bun run env:check
-bun run env:run bun run quirks list
+bun run env:run bun run marbles list
 ```
 
-The `env:run` command accepts any command after its name. Quirks inherits the
+The `env:run` command accepts any command after its name. Marbles inherits the
 environment of the process that starts it; the published package does not
 require Varlock. Declare task-specific environment inputs in Turbo when a
 task begins using a secret.
@@ -89,7 +89,7 @@ It does not replace full validation. Dependabot checks GitHub Actions weekly.
 
 The [documentation site](https://francois-esquire.github.io/foundry/) is hosted
 on this repository's GitHub Pages. Its source lives in
-[packages/docs/quirks](packages/docs/quirks/index.md). The `@foundry/docs`
+[packages/docs/marbles](packages/docs/marbles/index.md). The `@foundry/docs`
 workspace package owns Blume and its configuration. Pages live directly in the
 package, and `blume.config.ts` names the content folders to publish.
 
@@ -121,7 +121,7 @@ does not deploy it. GitHub Pages must use GitHub Actions as its publishing sourc
 ## Changelog and versions
 
 Public packages share a release version and one `vX.Y.Z` tag. Private workspace
-versions do not participate. Only `@foundry/quirks` is public today.
+versions do not participate. Only `@foundry/marbles` is public today.
 
 `bun run changelog` uses the same Conventional Commits preset as redux.io. It
 rebuilds the repository `CHANGELOG.md` from Git history and copies it into each
@@ -132,8 +132,8 @@ requires full Git history and tags. Review the result before releasing.
 
 For a release:
 
-1. Use Conventional Commits such as `fix(quirks): handle an empty schedule` or
-   `feat(quirks): add a monitor`. Use `!` and a `BREAKING CHANGE:` footer for
+1. Use Conventional Commits such as `fix(marbles): handle an empty schedule` or
+   `feat(marbles): add a monitor`. Use `!` and a `BREAKING CHANGE:` footer for
    incompatible changes, including migration instructions.
 2. Choose a major version for incompatible changes, minor for compatible
    features, or patch for fixes. Set that version in every non-private
@@ -167,7 +167,7 @@ published and only GitHub release creation failed, use the uploaded
 ## One-time publishing setup
 
 Configure this after the package name and npm ownership are ready. The current
-name is `@foundry/quirks`; the account publishing it needs access to the `@foundry`
+name is `@foundry/marbles`; the account publishing it needs access to the `@foundry`
 organization. If the package does not yet exist on npm, bootstrap its first
 publication through npm's supported initial-publication process, then configure
 trusted publishing for subsequent versions.
@@ -202,6 +202,6 @@ Keep build and test implementations in the package.
 
 The release tooling reads root workspace patterns, excludes `private: true`,
 rejects private runtime dependencies, and publishes public dependencies before
-their consumers. Private implementation packages can be bundled, as Quirks does,
+their consumers. Private implementation packages can be bundled, as Marbles does,
 but cannot remain runtime dependencies or unresolved imports in the tarball.
 Configure npm trusted publishing for the new package before tagging a release.

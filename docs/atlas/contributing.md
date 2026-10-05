@@ -25,7 +25,7 @@ bin. The release workflow runs the same check before publishing.
 
 Atlas is a separate public package, `@foundry/atlas`, not yet published.
 The repository's release tooling publishes every non-private workspace
-under one shared version from a `v*` tag, so Atlas and Quirks will release
+under one shared version from a `v*` tag, so Atlas and Marbles will release
 together until the tooling learns per-package tags.
 
 ## Documentation

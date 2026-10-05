@@ -46,7 +46,7 @@ test("discovers manifest workspace patterns including future public packages", (
       })
     );
     for (const directory of [
-      "apps/quirks",
+      "apps/marbles",
       "packages/future",
       "tooling/private",
     ]) {
@@ -61,7 +61,7 @@ test("discovers manifest workspace patterns including future public packages", (
     }
     expect(
       publicWorkspaces(discoverWorkspaces(root)).map((pkg) => pkg.manifest.name)
-    ).toEqual(["apps/quirks", "packages/future"]);
+    ).toEqual(["apps/marbles", "packages/future"]);
   } finally {
     rmSync(root, { force: true, recursive: true });
   }

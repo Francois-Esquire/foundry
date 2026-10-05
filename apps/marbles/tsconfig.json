@@ -1,0 +1,17 @@
+{
+  "extends": "@foundry/tsconfig/base.json",
+  "compilerOptions": {
+    "lib": ["ESNext"],
+    "types": ["bun"],
+    "paths": {
+      "~/*": ["./src/*"],
+      "@foundry/marbles": ["./src/authoring/index.ts"],
+      "@foundry/marbles/lib": ["./src/lib/index.ts"],
+      "@foundry/marbles/prebuilt": ["./src/authoring/prebuilt.ts"]
+    },
+    "jsx": "react-jsx",
+    "jsxImportSource": "@opentui/react"
+  },
+  "include": ["src/**/*", "test/**/*", "preview/**/*", "templates/**/*"],
+  "exclude": ["node_modules", "dist"]
+}

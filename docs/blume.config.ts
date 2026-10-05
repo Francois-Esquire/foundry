@@ -3,8 +3,8 @@ import { defineConfig } from "blume";
 export default defineConfig({
   content: {
     include: [
-      "quirks/**/*.md",
-      "quirks/**/*.mdx",
+      "marbles/**/*.md",
+      "marbles/**/*.mdx",
       "atlas/**/*.md",
       "atlas/**/*.mdx",
     ],
@@ -19,7 +19,7 @@ export default defineConfig({
   github: { owner: "Francois-Esquire", repo: "foundry" },
   navigation: {
     tabs: [
-      { label: "Quirks", path: "/quirks" },
+      { label: "Marbles", path: "/marbles" },
       { label: "Atlas", path: "/atlas" },
     ],
   },

@@ -21,16 +21,16 @@ npm; the rest are the shared libraries they are built from.
 
 | Package | What it does | Read more |
 | --- | --- | --- |
-| [Quirks](apps/quirks) | Turns recurring behaviors into inspectable TypeScript. A `quirks.config.ts` defines steps, workflows, agents, schedules, and monitors, then runs them once, in a foreground loop, or from launchd. | [README](apps/quirks/README.md) · [Docs](https://francois-esquire.github.io/foundry/quirks/) |
+| [Marbles](apps/marbles) | Turns recurring behaviors into inspectable TypeScript. A `marbles.config.ts` defines steps, workflows, agents, schedules, and monitors, then runs them once, in a foreground loop, or from launchd. | [README](apps/marbles/README.md) · [Docs](https://francois-esquire.github.io/foundry/marbles/) |
 | [Atlas](apps/atlas) | Draws a workspace of TypeScript packages as a map you explore in the browser. Packages are islands placed by dependency, files are their settlements. | [README](apps/atlas/README.md) · [Docs](https://francois-esquire.github.io/foundry/atlas/) |
 
-Both are configured for public npm releases as `@foundry/quirks` and
+Both are configured for public npm releases as `@foundry/marbles` and
 `@foundry/atlas`, from one shared version. The first release has not shipped
 yet; until then, run them from this repository.
 
 ## Libraries
 
-Private workspace packages. Quirks bundles the ones it uses.
+Private workspace packages. Marbles bundles the ones it uses.
 
 | Package | What it does |
 | --- | --- |
@@ -48,10 +48,10 @@ Private workspace packages. Quirks bundles the ones it uses.
 ## Documentation
 
 The site at [francois-esquire.github.io/foundry](https://francois-esquire.github.io/foundry/)
-has a section per tool: [Quirks](https://francois-esquire.github.io/foundry/quirks/)
+has a section per tool: [Marbles](https://francois-esquire.github.io/foundry/marbles/)
 and [Atlas](https://francois-esquire.github.io/foundry/atlas/).
 
-The pages live in this repository under [`docs/`](docs): [`docs/quirks`](docs/quirks/index.md)
+The pages live in this repository under [`docs/`](docs): [`docs/marbles`](docs/marbles/index.md)
 and [`docs/atlas`](docs/atlas/index.md), built with Blume. Run the site locally with:
 
 ```sh
