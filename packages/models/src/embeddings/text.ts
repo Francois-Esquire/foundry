@@ -2,6 +2,7 @@ import type { EmbeddingModelV4 } from "@ai-sdk/provider";
 
 import { pipeline } from "@huggingface/transformers";
 import { cosineSimilarity, embedMany, embed as embedWithSdk } from "ai";
+import { LOCAL_EMBEDDING_MODEL_ID } from "../catalog/local";
 import { modelErrors } from "../errors";
 import type { AiLoggerSession } from "../logger";
 import { withAiLogger } from "../logger";
@@ -59,7 +60,7 @@ export async function embedViaPipeline(text: string): Promise<number[]> {
       const embedding = Array.from(output.data);
       ai.captureEmbed({
         dimensions: embedding.length,
-        model: LOCAL_MODEL_ID,
+        model: LOCAL_EMBEDDING_MODEL_ID,
         usage: { tokens: 0 },
       });
       return embedding;
@@ -144,17 +145,20 @@ export function deserializeEmbedding(json: string): number[] {
   return parsed.map(Number);
 }
 
+/** {@link topK} over rows whose embedding is still serialized. */
 export function rankBySimilarity<T extends { embedding: string }>(
   query: number[],
   rows: T[],
   limit: number
 ): { row: T; score: number }[] {
-  const scored = rows.map((row) => ({
-    row,
-    score: cosineSimilarity(query, deserializeEmbedding(row.embedding)),
-  }));
-  scored.sort((a, b) => b.score - a.score);
-  return scored.slice(0, limit);
+  return topK(
+    query,
+    rows.map((row) => ({
+      embedding: deserializeEmbedding(row.embedding),
+      item: row,
+    })),
+    limit
+  ).map(({ item, score }) => ({ row: item, score }));
 }
 
 export interface ScoredCandidate<T> {
@@ -162,15 +166,7 @@ export interface ScoredCandidate<T> {
   score: number;
 }
 
-/**
- * Rank pre-decoded embeddings by cosine similarity and keep the top `k`.
- *
- * Sibling to {@link rankBySimilarity}: that one decodes serialized
- * (`embedding: string`) DB rows, this one takes raw `number[]` vectors a caller
- * already has in hand — the shape a JSON-ranked node search produces. Signature
- * and result type intentionally mirror the desktop `@foundry-/models` `topK`,
- * so a consumer migrates by swapping the import alone.
- */
+/** Rank embeddings by cosine similarity to `query` and keep the top `k`. */
 export function topK<T>(
   query: number[],
   candidates: { item: T; embedding: number[] }[],
@@ -211,10 +207,9 @@ export function embedUsage(usage: { tokens: number } | undefined): {
 }
 
 // Local transformers.js pipeline — singleton because model load is
-// expensive. Used only by `embedViaPipeline` for the manager-less path;
-// `embed` routes through `LocalProvider` which has its own pipeline cache.
-
-const LOCAL_MODEL_ID = "Xenova/all-MiniLM-L6-v2";
+// expensive. Used only by `embedViaPipeline` for the manager-less path, on
+// the same model as the on-device catalog's embedding row; `embed` routes
+// through `LocalProvider`, which has its own cache.
 
 type FeatureExtractionPipeline = (
   text: string,
@@ -226,7 +221,7 @@ let pipelinePromise: Promise<FeatureExtractionPipeline> | null = null;
 function getPipeline(): Promise<FeatureExtractionPipeline> {
   pipelinePromise ??= pipeline(
     "feature-extraction",
-    LOCAL_MODEL_ID
+    LOCAL_EMBEDDING_MODEL_ID
   ) as Promise<FeatureExtractionPipeline>;
   return pipelinePromise;
 }

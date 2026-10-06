@@ -16,7 +16,7 @@ import {
   generateText,
   wrapLanguageModel,
 } from "ai";
-import { withLocalCosts } from "../catalog/local";
+import { LOCAL_EMBEDDING_MODEL_ID, withLocalCosts } from "../catalog/local";
 import { modelErrors } from "../errors";
 import type { ModelDownloadTarget } from "../logger";
 import { traceModelDownload } from "../logger";
@@ -114,7 +114,7 @@ export const LOCAL_DEFAULT_MODELS: LocalModelDefinition[] = [
     id: "embed",
     kind: "embedding",
     label: "all-MiniLM-L6-v2",
-    modelId: "Xenova/all-MiniLM-L6-v2",
+    modelId: LOCAL_EMBEDDING_MODEL_ID,
   },
   {
     id: "transcribe",
