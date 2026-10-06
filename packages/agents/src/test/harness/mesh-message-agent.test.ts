@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { LoopAgent } from "../../agents/loop-agent";
-import { SessionHarness } from "../../harness";
-import type { SessionEvent } from "../../session";
-import { InMemorySessionStore } from "../../session";
+import { SessionHarness } from "../../harness/session-harness";
+import type { SessionEvent } from "../../session/events";
+import { InMemorySessionStore } from "../../session/store";
 import {
   createScriptedMockModel,
   textStreamResult,
@@ -71,8 +71,8 @@ describe("SessionHarness — message_agent through the compiler", () => {
     expect(JSON.stringify(final?.output)).toContain("step one");
     expect(results.some((r) => r.preliminary)).toBe(true);
 
-    const message = await harness.store?.listMessages("s");
-    const assistant = message?.find((m) => m.role === "assistant");
+    const message = await harness.store.listMessages("s");
+    const assistant = message.find((m) => m.role === "assistant");
     const stored = assistant?.parts.filter((p) => p.type === "tool_result");
     expect(stored).toHaveLength(1);
   });

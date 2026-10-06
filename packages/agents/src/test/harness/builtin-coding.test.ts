@@ -2,8 +2,8 @@ import { tool } from "ai";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
-import { createInMemoryAgentAuthorizer } from "../../authorization";
-import { createBuiltinCodingHarness } from "../../harness";
+import { createInMemoryAgentAuthorizer } from "../../authorization/authorization";
+import { createBuiltinCodingHarness } from "../../harness/builtin-coding";
 import {
   createScriptedMockModel,
   textStreamResult,

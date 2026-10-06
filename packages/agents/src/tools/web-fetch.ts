@@ -1,7 +1,7 @@
 import { tool } from "ai";
 import { z } from "zod";
 
-import type { Capability } from "../authorization";
+import type { Capability } from "../authorization/capability";
 
 import { tagTool } from "../harness/types";
 

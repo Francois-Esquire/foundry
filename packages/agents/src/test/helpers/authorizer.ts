@@ -2,7 +2,7 @@ import type {
   AgentAuthorizationDecision,
   AgentAuthorizationRequest,
   AgentAuthorizer,
-} from "../../authorization/index";
+} from "../../authorization/authorization";
 
 /**
  * An {@link AgentAuthorizer} whose decision is a plain function of the request.

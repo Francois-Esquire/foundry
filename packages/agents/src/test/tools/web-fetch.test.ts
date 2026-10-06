@@ -4,8 +4,8 @@ import { describe, expect, it, vi } from "vitest";
 import {
   agentSubject,
   createInMemoryAgentAuthorizer,
-  describeCapability,
-} from "../../authorization";
+} from "../../authorization/authorization";
+import { describeCapability } from "../../authorization/capability";
 import { directToolEffectPort } from "../../harness/effect-port";
 import { compileTool } from "../../harness/tool-compiler";
 import { registrationsOf } from "../../harness/types";
@@ -138,7 +138,7 @@ describe("createWebFetchTools — capability", () => {
     const { registration } = build(vi.fn<FetchLike>());
     const capability = registration.capability(
       { url: "https://example.com/page?q=1" },
-      { agentId: "a1", messages: [], toolCallId: "c1" }
+      { agentId: "a1", messages: [], sessionId: "s1", toolCallId: "c1" }
     );
     expect(capability).toEqual({ domain: "example.com", kind: "web.fetch" });
     expect(describeCapability(capability)).toBe("web.fetch::example.com");
@@ -150,6 +150,7 @@ describe("createWebFetchTools — capability", () => {
       registration.capability("not an object", {
         agentId: "a1",
         messages: [],
+        sessionId: "s1",
         toolCallId: "c1",
       })
     ).toEqual({ domain: "", kind: "web.fetch" });
@@ -167,6 +168,7 @@ describe("createWebFetchTools — through the compiler", () => {
       agentId: "a1",
       effectPort: directToolEffectPort,
       policy: fakePolicy(() => ({ kind: "allow", source: "grant" })),
+      sessionId: "s1",
     });
 
     const result: unknown = await compiled.execute?.(
@@ -190,6 +192,7 @@ describe("createWebFetchTools — through the compiler", () => {
         reason: "no domain access",
         source: "policy",
       })),
+      sessionId: "s1",
     });
 
     const result: unknown = await compiled.execute?.(
@@ -209,6 +212,7 @@ describe("createWebFetchTools — through the compiler", () => {
       agentId: "a1",
       effectPort: directToolEffectPort,
       policy: fakePolicy(() => ({ kind: "requires-approval" })),
+      sessionId: "s1",
     });
 
     const needsApproval = compiled.needsApproval as (
@@ -242,6 +246,7 @@ describe("createWebFetchTools — through the compiler", () => {
           ? { kind: "allow", source: "grant" }
           : { kind: "deny", reason: "revoked", source: "policy" }
       ),
+      sessionId: "s1",
     });
 
     mode = "deny";
@@ -270,6 +275,7 @@ describe("createWebFetchTools — through the compiler", () => {
       agentId: "a1",
       effectPort: directToolEffectPort,
       policy: policy.authorizer,
+      sessionId: "s1",
     });
 
     const allowed: unknown = await compiled.execute?.(

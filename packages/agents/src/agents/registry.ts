@@ -72,30 +72,21 @@ function staleGenerationError(
  * A stable, generation-pinned raw projection. It resolves the retained preset
  * only on first invocation, so file-defined specs remain retained definitions
  * at load time rather than eagerly freezing a harness. Existing callers use
- * only invocation methods (`stream`/`generate`); other properties intentionally
- * remain outside this compatibility contract.
+ * only the invocation methods (`stream`/`generate`), so those are all it
+ * carries; every other `ToolLoopAgent` member is outside this compatibility
+ * contract.
  */
 function compatibilityEntry(entry: AgentPresetCatalogEntry): AgentEntry {
-  let projected: Promise<AgentEntry> | undefined;
-  const resolve = (): Promise<AgentEntry> => {
+  let projected: Promise<LoopAgent> | undefined;
+  const resolve = (): Promise<LoopAgent> => {
     projected ??= entry.preset.createAgent({}).then((harness) => harness.agent);
     return projected;
   };
-
-  return new Proxy(Object.create(null) as object, {
-    get(_target, property) {
-      return (...args: unknown[]) =>
-        resolve().then((agent) => {
-          const member: unknown = Reflect.get(agent, property, agent);
-          if (typeof member !== "function") {
-            throw new Error(
-              `[agents] compatibility projection for "${entry.id}" exposes invocation methods only`
-            );
-          }
-          return Reflect.apply(member, agent, args) as unknown;
-        });
-    },
-  }) as AgentEntry;
+  const invocations: Pick<LoopAgent, "generate" | "stream"> = {
+    generate: async (options) => (await resolve()).generate(options),
+    stream: async (options) => (await resolve()).stream(options),
+  };
+  return invocations as AgentEntry;
 }
 
 export function createAgentRegistry(): AgentRegistry {

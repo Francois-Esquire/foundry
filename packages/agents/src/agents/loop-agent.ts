@@ -3,6 +3,8 @@ import type {
   AgentStreamParameters,
   GenerateTextResult,
   StreamTextResult,
+  Telemetry,
+  TelemetryOptions,
   ToolLoopAgentSettings,
   ToolSet,
 } from "ai";
@@ -18,135 +20,126 @@ export type LoopAgentSettings = Omit<
   "model" | "onFinish"
 > & {
   model: AgentModel;
-  /** Opens a per-turn observation; omit to run unobserved. */
+  /** Opens one observation per `stream`/`generate` call; omit to run unobserved. */
   observe?: ObserveTurn;
   onFinish?: (result: unknown) => void;
 };
+
+/**
+ * Settings one call may override. `ToolLoopAgent` spreads a call's parameters
+ * over its own settings before preparing the call, so these reach the model
+ * call even though `AgentCallParameters` does not declare them.
+ */
+type CallSettings = Pick<
+  ToolLoopAgentSettings<never, ToolSet>,
+  "model" | "providerOptions" | "telemetry"
+>;
+
+export type LoopAgentCallParameters = AgentCallParameters<never, ToolSet> &
+  Pick<CallSettings, "providerOptions">;
+export type LoopAgentStreamParameters = AgentStreamParameters<never, ToolSet> &
+  Pick<CallSettings, "providerOptions">;
 
 export interface TurnContext {
   sessionId: string;
 }
 
+/** The thrown value a telemetry `onError` event carries. */
+function errorOf(event: unknown): unknown {
+  return typeof event === "object" && event !== null && "error" in event
+    ? event.error
+    : event;
+}
+
+/**
+ * The call settings that put one call under `observation`: its wrapped model,
+ * and its telemetry with a settle hook appended. The wide event is settled
+ * from telemetry rather than from `onFinish` or the drained stream because
+ * telemetry is where the event's tool executions and duration are folded in,
+ * and it fires however the caller consumes the result (`stream`,
+ * `toUIMessageStream`, the result promises, or `generate`). The hook goes
+ * last: the SDK runs integration hooks in order, and the host's own
+ * (evlog's) hooks are synchronous, so the event is complete by the time it
+ * settles.
+ */
+function observedCall(
+  observation: TurnObservation,
+  model: AgentModel
+): CallSettings {
+  const { integrations } = observation.telemetry;
+  const settle: Telemetry = {
+    onAbort: () => observation.emit(),
+    onEnd: () => observation.emit(),
+    onError: (event) => observation.emit(errorOf(event)),
+  };
+  const telemetry: TelemetryOptions = {
+    ...observation.telemetry,
+    integrations: [
+      ...(Array.isArray(integrations)
+        ? integrations
+        : [integrations].filter((i) => i !== undefined)),
+      settle,
+    ],
+    // The settle rides on telemetry, so telemetry must be on.
+    isEnabled: true,
+  };
+  return { model: observation.wrap(model), telemetry };
+}
+
 export class LoopAgent extends ToolLoopAgent<never, ToolSet> {
-  readonly #observation: TurnObservation | null;
+  readonly #model: AgentModel;
+  readonly #observe: ObserveTurn | undefined;
+  readonly #sessionId: string;
 
   constructor(settings: LoopAgentSettings, context: TurnContext) {
-    const { model, observe, onFinish, ...rest } = settings;
-    const observation: TurnObservation | null = observe
-      ? observe({ model: routeOf(model), sessionId: context.sessionId })
-      : null;
-
-    super({
-      ...rest,
-      model: observation ? observation.wrap(model) : model,
-      ...(observation ? { experimental_telemetry: observation.telemetry } : {}),
-      // NB: don't settle the wide event here. `onFinish` fires before the
-      // telemetry integration folds tool executions + duration into the event
-      // (that lands at stream close), so emitting now drops the `ai` field.
-      // The settle happens when the full stream is drained (see `stream`).
-      onFinish,
-    });
-
-    this.#observation = observation;
+    const { observe, ...rest } = settings;
+    super(rest);
+    this.#model = settings.model;
+    this.#observe = observe;
+    this.#sessionId = context.sessionId;
   }
 
   override async stream(
-    opts: AgentStreamParameters<never, ToolSet>
+    opts: LoopAgentStreamParameters
   ): Promise<StreamTextResult<ToolSet, Record<string, unknown>, never>> {
+    const observation = this.#open();
     try {
-      const result = await super.stream({
+      return await super.stream({
         ...opts,
+        ...(observation ? observedCall(observation, this.#model) : {}),
         experimental_transform: smoothStream({
           chunking: "line", // optional: defaults to 'word'
           delayInMs: 20, // optional: defaults to 10ms
         }),
       });
-      const observation = this.#observation;
-
-      if (!observation) {
-        return result;
-      }
-
-      const wrappedFullStream = new Proxy(result.stream, {
-        get(target, prop, receiver) {
-          if (prop === Symbol.asyncIterator) {
-            return () => {
-              const iter = target[Symbol.asyncIterator]();
-              return {
-                next: async () => {
-                  try {
-                    const nextResult = await iter.next();
-                    // Settle once the stream is exhausted — by now the telemetry
-                    // integration has folded tool executions + duration in.
-                    if (nextResult.done) {
-                      observation.emit();
-                    }
-                    return nextResult;
-                  } catch (e) {
-                    observation.emit(e);
-                    throw e;
-                  }
-                },
-                return: async (value?: unknown) => {
-                  try {
-                    const done = await iter.return?.(value);
-                    observation.emit();
-                    return done ?? { done: true, value: undefined };
-                  } catch (e) {
-                    observation.emit(e);
-                    throw e;
-                  }
-                },
-                throw: async (e?: unknown) => {
-                  try {
-                    const done = await iter.throw?.(e);
-                    observation.emit(e);
-                    return done ?? { done: true, value: undefined };
-                  } catch (err) {
-                    observation.emit(err);
-                    throw err;
-                  }
-                },
-              };
-            };
-          }
-          return Reflect.get(target, prop, receiver);
-        },
-      });
-
-      return new Proxy(result, {
-        get(target, prop, receiver) {
-          if (prop === "stream") {
-            return wrappedFullStream;
-          }
-          return Reflect.get(target, prop, receiver);
-        },
-      });
     } catch (e) {
-      this.#observation?.emit(e);
+      observation?.emit(e);
       throw e;
     }
   }
 
   override async generate(
-    opts: AgentCallParameters<never, ToolSet>
+    opts: LoopAgentCallParameters
   ): Promise<GenerateTextResult<ToolSet, Record<string, unknown>, never>> {
+    const observation = this.#open();
     try {
-      const result = await super.generate(opts);
-      this.#observation?.emit();
-      return result;
+      return await super.generate({
+        ...opts,
+        ...(observation ? observedCall(observation, this.#model) : {}),
+      });
     } catch (e) {
-      this.#observation?.emit(e);
+      observation?.emit(e);
       throw e;
     }
   }
-}
 
-export type LoopAgentConfig = LoopAgentSettings;
-
-export function createLoopAgent(
-  config: LoopAgentConfig,
-  context: TurnContext
-): LoopAgent {
-  return new LoopAgent(config, context);
+  /** One call's observation — every call is its own turn. */
+  #open(): TurnObservation | null {
+    return (
+      this.#observe?.({
+        model: routeOf(this.#model),
+        sessionId: this.#sessionId,
+      }) ?? null
+    );
+  }
 }

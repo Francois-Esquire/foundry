@@ -27,7 +27,7 @@ import type { Skill, SkillFile, SkillRegistry } from "./types";
  * new SessionHarness({
  *   tools: { ...baseTools, ...registry.tools },
  *   instructions: `${BASE_PROMPT}\n\n${registry.instructions}`,
- * }, { sessionId: "" });
+ * });
  * ```
  *
  * `add`/`remove` change the available set at any time, so a long-running agent

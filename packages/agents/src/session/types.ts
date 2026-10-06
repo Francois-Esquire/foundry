@@ -5,7 +5,7 @@
  * by the database chat shape, but kept free of any backing.
  */
 
-import type { Capability, ToolSource } from "../authorization";
+import type { Capability, ToolSource } from "../authorization/capability";
 import type {
   HarnessActivityEvent,
   HarnessToolEvent,

@@ -48,13 +48,11 @@ export function resolveBudget(
   );
   const headroom = Math.max(0, window - reservedOutput - safetyMargin);
   return {
+    hardTokenLimit: options.hardTokenLimit,
     headroom,
     reservedOutput,
     safetyMargin,
     window,
-    ...(options.hardTokenLimit === undefined
-      ? {}
-      : { hardTokenLimit: options.hardTokenLimit }),
   };
 }
 

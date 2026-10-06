@@ -2,7 +2,7 @@ import type { MCPClient, MCPClientConfig, MCPTransport } from "@ai-sdk/mcp";
 import { createMCPClient, ElicitationRequestSchema } from "@ai-sdk/mcp";
 import type { ToolSet } from "ai";
 
-import type { Capability } from "../authorization";
+import type { Capability } from "../authorization/capability";
 import { tagTool } from "../harness/types";
 import { McpEmitter } from "./emitter";
 import { spawnStdioTransport } from "./stdio";
@@ -128,9 +128,9 @@ function connectionSignature(c: McpServerDefinition): string {
 
 function summarizeServer(c: McpServerDefinition): McpServerSummary {
   const metadata = {
+    description: c.description,
     id: c.id,
-    ...(c.name === undefined ? {} : { name: c.name }),
-    ...(c.description === undefined ? {} : { description: c.description }),
+    name: c.name,
   };
   return c.transport.kind === "remote"
     ? {
@@ -146,9 +146,9 @@ function summarizeServer(c: McpServerDefinition): McpServerSummary {
         transport: {
           args: c.transport.args ?? [],
           command: c.transport.command,
-          kind: "stdio",
-          ...(c.transport.cwd === undefined ? {} : { cwd: c.transport.cwd }),
+          cwd: c.transport.cwd,
           envNames: Object.keys(c.transport.env ?? {}),
+          kind: "stdio",
         },
       };
 }
@@ -250,14 +250,12 @@ export class McpClient extends McpEmitter<McpClientEvents> {
   state(): McpServerState {
     return {
       enabled: this.enabled,
+      error: this.#error,
       id: this.id,
+      instructions: this.#instructions,
+      server: summarizeServer(this.#definition),
       status: this.#status,
       toolCount: Object.keys(this.#tools).length,
-      ...(this.#error === undefined ? {} : { error: this.#error }),
-      ...(this.#instructions === undefined
-        ? {}
-        : { instructions: this.#instructions }),
-      server: summarizeServer(this.#definition),
     };
   }
 
@@ -320,20 +318,17 @@ export class McpClient extends McpEmitter<McpClientEvents> {
   async listResources(): Promise<McpResource[]> {
     const result = await this.#connected().listResources();
     return result.resources.map((r) => ({
+      description: r.description,
+      mimeType: r.mimeType,
       name: r.name,
       uri: r.uri,
-      ...(r.description === undefined ? {} : { description: r.description }),
-      ...(r.mimeType === undefined ? {} : { mimeType: r.mimeType }),
     }));
   }
 
   async readResource(uri: string): Promise<McpResourceContent[]> {
     const result = await this.#connected().readResource({ uri });
     return result.contents.map((c) => {
-      const base = {
-        uri: c.uri,
-        ...(c.mimeType === undefined ? {} : { mimeType: c.mimeType }),
-      };
+      const base = { mimeType: c.mimeType, uri: c.uri };
       return "blob" in c
         ? { ...base, blob: asString(c.blob) }
         : { ...base, text: asString(c.text) };
@@ -343,19 +338,13 @@ export class McpClient extends McpEmitter<McpClientEvents> {
   async listPrompts(): Promise<McpPrompt[]> {
     const result = await this.#connected().experimental_listPrompts();
     return result.prompts.map((p) => ({
+      arguments: p.arguments?.map((a) => ({
+        description: a.description,
+        name: a.name,
+        required: a.required,
+      })),
+      description: p.description,
       name: p.name,
-      ...(p.description === undefined ? {} : { description: p.description }),
-      ...(p.arguments
-        ? {
-            arguments: p.arguments.map((a) => ({
-              name: a.name,
-              ...(a.description === undefined
-                ? {}
-                : { description: a.description }),
-              ...(a.required === undefined ? {} : { required: a.required }),
-            })),
-          }
-        : {}),
     }));
   }
 
@@ -364,8 +353,8 @@ export class McpClient extends McpEmitter<McpClientEvents> {
     args?: Record<string, string>
   ): Promise<McpPromptMessage[]> {
     const result = await this.#connected().experimental_getPrompt({
+      arguments: args,
       name,
-      ...(args ? { arguments: args } : {}),
     });
     return result.messages.map(toPromptMessage);
   }
@@ -476,12 +465,10 @@ export class McpClient extends McpEmitter<McpClientEvents> {
       case "notifications/message": {
         const params = notification.params ?? {};
         this.emit("log", {
-          level: typeof params.level === "string" ? params.level : "info",
-          serverId: this.id,
-          ...(typeof params.logger === "string"
-            ? { logger: params.logger }
-            : {}),
           data: params.data,
+          level: typeof params.level === "string" ? params.level : "info",
+          logger: typeof params.logger === "string" ? params.logger : undefined,
+          serverId: this.id,
         });
         return;
       }
@@ -515,14 +502,12 @@ export class McpClient extends McpEmitter<McpClientEvents> {
         transportConfig = stdio;
       } else {
         transportConfig = {
-          type: transport.protocol,
-          url: transport.url,
-          ...(transport.headers ? { headers: transport.headers } : {}),
-          ...(transport.authProvider
-            ? { authProvider: transport.authProvider }
-            : {}),
+          authProvider: transport.authProvider,
+          headers: transport.headers,
           // Reject redirects: an MCP endpoint that 30x-redirects is an SSRF risk.
           redirect: "error",
+          type: transport.protocol,
+          url: transport.url,
         };
       }
       const client = await createMCPClient({

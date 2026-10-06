@@ -1,13 +1,19 @@
 import { expect, it } from "vitest";
 
-import { createInMemoryAgentAuthorizer } from "../../authorization";
-import type { HarnessActivity, HarnessTurnDriver } from "../../harness";
+import { createInMemoryAgentAuthorizer } from "../../authorization/authorization";
 import {
-  createDriverSession,
   createHarnessActivityRecorder,
   reduceHarnessActivities,
-} from "../../harness";
-import { InMemorySessionStore, toModelMessages } from "../../session";
+} from "../../harness/activity";
+import { createDriverSession } from "../../harness/driver-session";
+import type {
+  HarnessActivity,
+  HarnessQuestionCallback,
+  HarnessTurnDriver,
+} from "../../harness/turn-driver";
+import { toModelMessages } from "../../session/converter";
+import { InMemorySessionStore } from "../../session/store";
+import { textDelta } from "../helpers/stream-parts";
 
 it("persists background activity across turns, rejects late progress, and reconstructs without model content", async () => {
   const store = new InMemorySessionStore();
@@ -33,7 +39,7 @@ it("persists background activity across turns, rejects late progress, and recons
       }
       return {
         async *[Symbol.asyncIterator]() {
-          yield { delta: "done", type: "text-delta" };
+          yield textDelta("done");
         },
       };
     },
@@ -107,7 +113,7 @@ it("marks lost activity unknown and preserves native late terminal updates", asy
         await publish(activity);
         return {
           async *[Symbol.asyncIterator]() {
-            yield { delta: "done", type: "text-delta" };
+            yield textDelta("done");
           },
         };
       },
@@ -197,23 +203,23 @@ it.each([undefined, "native-child"])(
             title: "Native work",
           });
           await options.permission({
+            activityId: nativeId,
             input: {},
             sessionId: "session",
             signal: options.signal,
             toolCallId: "tool",
             toolName: "Bash",
-            ...(nativeId ? { activityId: nativeId } : {}),
           });
           await options.question({
+            activityId: nativeId,
             questions: [{ id: "q", question: "Continue?" }],
             sessionId: "session",
             signal: options.signal,
             toolCallId: "question",
-            ...(nativeId ? { activityId: nativeId } : {}),
           });
           return {
             async *[Symbol.asyncIterator]() {
-              yield { delta: "done", type: "text-delta" };
+              yield textDelta("done");
             },
           };
         },
@@ -241,7 +247,7 @@ it.each([undefined, "native-child"])(
 it("continues delivering idle native questions after the prior turn signal aborts", async () => {
   const store = new InMemorySessionStore();
   const turn = new AbortController();
-  let question: import("../../harness").HarnessQuestionCallback | undefined;
+  let question: HarnessQuestionCallback | undefined;
   const session = createDriverSession(
     {
       agentId: "coder",
@@ -265,7 +271,7 @@ it("continues delivering idle native questions after the prior turn signal abort
         ({ question } = options);
         return {
           async *[Symbol.asyncIterator]() {
-            yield { delta: "done", type: "text-delta" };
+            yield textDelta("done");
           },
         };
       },
@@ -320,7 +326,7 @@ it("never makes the host delegation root its own parent when closing loaded hist
       async run() {
         return {
           async *[Symbol.asyncIterator]() {
-            yield { delta: "done", type: "text-delta" };
+            yield textDelta("done");
           },
         };
       },
@@ -365,7 +371,7 @@ it("preserves external completion during close and rejects stale loss of one-sho
         });
         return {
           async *[Symbol.asyncIterator]() {
-            yield { delta: "done", type: "text-delta" };
+            yield textDelta("done");
           },
         };
       },
@@ -426,7 +432,7 @@ it("checks canonical activity state before native stop after external completion
         await options.onActivity(activity);
         return {
           async *[Symbol.asyncIterator]() {
-            yield { delta: "done", type: "text-delta" };
+            yield textDelta("done");
           },
         };
       },

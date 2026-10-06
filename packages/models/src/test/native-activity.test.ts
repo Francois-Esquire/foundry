@@ -202,7 +202,9 @@ describe("native activity protocol", () => {
         turn: { id: "turn-1", status: "completed" },
       },
     });
-    expect(await result).toEqual([{ delta: "parent", type: "text-delta" }]);
+    expect(await result).toEqual([
+      { id: "", text: "parent", type: "text-delta" },
+    ]);
     expect(child.messages).toContainEqual(
       expect.objectContaining({
         method: "thread/resume",
@@ -671,7 +673,7 @@ describe("native activity protocol", () => {
       params: { threadId: "thread-1", turn: { status: "completed" } },
     });
     expect(await collect(source)).toEqual([
-      { delta: "Parent continued", type: "text-delta" },
+      { id: "", text: "Parent continued", type: "text-delta" },
     ]);
     await driver.close?.();
   });

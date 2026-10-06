@@ -216,15 +216,13 @@ export class InMemorySessionStore extends AbstractSessionStore {
   createSession(input: CreateSessionInput = {}): Promise<SessionRecord> {
     const now = Date.now();
     const record: SessionRecord = {
+      createdAt: now,
       id: input.id ?? generateId(),
       parentMessageId: input.parentMessageId ?? null,
       parentSessionId: input.parentSessionId ?? null,
+      recursionDepth: input.recursionDepth,
       status: "active",
       title: input.title ?? null,
-      ...(input.recursionDepth === undefined
-        ? {}
-        : { recursionDepth: input.recursionDepth }),
-      createdAt: now,
       updatedAt: now,
     };
     this.#sessions.set(record.id, record);
@@ -263,16 +261,14 @@ export class InMemorySessionStore extends AbstractSessionStore {
     }
     const now = Date.now();
     const message: SessionMessage = {
+      createdAt: now,
       id: generateId(),
       metadata: input.metadata,
       parts: input.parts,
       role: input.role,
       sessionId: input.sessionId,
       status: input.status ?? "complete",
-      ...(input.summarized === undefined
-        ? {}
-        : { summarized: input.summarized }),
-      createdAt: now,
+      summarized: input.summarized,
       updatedAt: now,
     };
     bucket.push(message);

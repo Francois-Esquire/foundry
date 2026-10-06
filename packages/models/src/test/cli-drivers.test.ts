@@ -45,6 +45,19 @@ describe("Claude Code native driver", () => {
                 toolName: "Bash",
                 type: "tool-call",
               });
+              controller.enqueue({
+                finishReason: { raw: "end_turn", unified: "stop" },
+                type: "finish",
+                usage: {
+                  inputTokens: {
+                    cacheRead: 8,
+                    cacheWrite: undefined,
+                    noCache: 2,
+                    total: 10,
+                  },
+                  outputTokens: { reasoning: 2, text: 3, total: 5 },
+                },
+              });
               controller.close();
             },
           }),
@@ -78,7 +91,24 @@ describe("Claude Code native driver", () => {
       })
     );
     expect(await collect(stream)).toEqual([
-      { delta: "done", id: "text-1", type: "text-delta" },
+      { id: "text-1", text: "done", type: "text-delta" },
+      {
+        finishReason: "stop",
+        rawFinishReason: "end_turn",
+        totalUsage: {
+          inputTokenDetails: {
+            cacheReadTokens: 8,
+            cacheWriteTokens: undefined,
+            noCacheTokens: 2,
+          },
+          inputTokens: 10,
+          outputTokenDetails: { reasoningTokens: 2, textTokens: 3 },
+          outputTokens: 5,
+          raw: undefined,
+          totalTokens: 15,
+        },
+        type: "finish",
+      },
     ]);
     expect(settings).toMatchObject({
       allowedTools: ["Read"],
@@ -328,7 +358,7 @@ describe("Codex native app-server driver", () => {
       params: { turn: { id: "turn-1", status: "completed" } },
     });
     expect(await collect(stream)).toEqual([
-      { delta: "done", type: "text-delta" },
+      { id: "", text: "done", type: "text-delta" },
     ]);
     expect(child.messages.map((message) => message.method).slice(0, 4)).toEqual(
       ["initialize", "initialized", "thread/start", "turn/start"]

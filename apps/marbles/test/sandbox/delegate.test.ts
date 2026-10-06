@@ -78,7 +78,7 @@ function child(
     route: { id: "model", provider: "provider" },
     sessionId: "child",
     steer: async () => undefined,
-    store: undefined,
+    store: new InMemorySessionStore(),
     stream: () => {
       throw new Error("unused");
     },

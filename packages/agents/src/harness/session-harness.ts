@@ -1,64 +1,49 @@
-import type {
-  AgentCallParameters,
-  AgentStreamParameters,
-  GenerateTextResult,
-  ModelMessage,
-  ProviderMetadata,
-  StreamTextResult,
-  ToolSet,
-} from "ai";
+import type { ModelMessage, ProviderMetadata } from "ai";
 
-import { generateId } from "ai";
-
-import type { TurnContext } from "../agents/loop-agent";
+import type { LoopAgent, TurnContext } from "../agents/loop-agent";
 import type { Mesh } from "../agents/mesh";
 import { createMesh } from "../agents/mesh";
+import type { AgentModel, ModelRoute } from "../agents/model";
 import type { AgentCompatibilityRegistry } from "../agents/registry";
 import { createAgentCompatibilityRegistry } from "../agents/registry";
+import type { AgentAuthorizer } from "../authorization/authorization";
 import { effectiveLimit, resolveBudget } from "../contexts/budget";
 import { cacheDirectivesFor, mergeProviderOptions } from "../contexts/cache";
 import { estimatingCounter } from "../contexts/counter";
 import type { SessionWindowOptions, WindowModel } from "../contexts/types";
-import type {
-  SessionInput,
-  SessionMessage,
-  SessionPart,
-  SessionRole,
-  SessionStore,
-  SessionStream,
-  StreamHandlers,
-  SummarizableStore,
-  Summarizer,
-} from "../session";
-import { InMemorySessionStore, maybeCompact } from "../session";
+import type { Summarizer } from "../session/compactor";
+import { maybeCompact } from "../session/compactor";
 import {
   toModelMessages,
   validateApprovalResponse,
 } from "../session/converter";
+import type {
+  SessionInput,
+  SessionStream,
+  StreamHandlers,
+} from "../session/events";
+import type { SessionStore, SummarizableStore } from "../session/store";
+import { InMemorySessionStore } from "../session/store";
+import type {
+  SessionMessage,
+  SessionPart,
+  SessionRole,
+} from "../session/types";
 import { composeTools } from "../tools/compose";
 import type { AgentHarnessSettings } from "./agent-harness";
 import { AgentHarness } from "./agent-harness";
-import type { StreamPart, StreamSource } from "./stream-transform";
+import type { StreamSource } from "./stream-transform";
 import { transformStream } from "./stream-transform";
 
 export type SessionHarnessSettings = AgentHarnessSettings & {
-  /** Omit to run stateless — nothing is persisted. */
+  /** Where the session's messages persist. In memory when omitted. */
   store?: SessionStore;
-  /** Adopt an existing session id, or generate one on first turn. */
-  sessionId?: string;
   /** Agent registry for multi-agent routing. Auto-created when omitted. */
   registry?: AgentCompatibilityRegistry;
   /** Mesh for inter-agent communication. Auto-created when omitted. */
   mesh?: Mesh;
   /** Node id for this harness in the mesh (defaults to "primary"). */
   nodeId?: string;
-  /**
-   * Build the per-turn tool context, passed to tools as their `context`.
-   * Receives the **resolved** session id, so tools see the real session even
-   * when it's created lazily on the first turn. Omit to fall back to the
-   * construction-time runtime context (if any).
-   */
-  toolContext?: (sessionId: string) => Record<string, unknown>;
   /**
    * Auto-compaction: before each turn, if the active context exceeds the turn
    * model's budget, fold older history into a summary. Requires a summarize-aware
@@ -87,203 +72,133 @@ export type SessionStreamOptions = {
 } & StreamHandlers;
 
 /**
- * {@link AgentHarness} extended with session persistence. Decorates
- * {@link stream} and {@link generate} with identity resolution, input append,
- * history replay, and assistant commit — all on top of {@link transformStream}.
+ * An {@link AgentHarness} run as a persisted session: each turn appends its
+ * input, replays the session's history to the agent, and commits the assistant
+ * reply — all on top of {@link transformStream}. The session id is fixed at
+ * construction (adopted or minted), and the session is created in the store on
+ * the first turn if it does not exist yet.
  */
-export class SessionHarness extends AgentHarness {
-  readonly #store: SessionStore | undefined;
-  readonly #registry: AgentCompatibilityRegistry;
-  readonly #mesh: Mesh;
-  readonly #nodeId: string;
-  readonly #toolContext:
-    | ((sessionId: string) => Record<string, unknown>)
-    | undefined;
+export class SessionHarness {
+  readonly agent: LoopAgent;
+  readonly model: AgentModel;
+  readonly route: ModelRoute;
+  readonly policy: AgentAuthorizer;
+  readonly agentId: string;
+  readonly agentGeneration?: number;
+  readonly sessionId: string;
+  readonly store: SessionStore;
+  readonly registry: AgentCompatibilityRegistry;
+  readonly mesh: Mesh;
+  readonly nodeId: string;
+  readonly #harness: AgentHarness;
   readonly #compaction: CompactionSettings | undefined;
+  /** Settles once the session is known to exist in the store. */
+  #sessionReady: Promise<void> | undefined;
   /** Construction-time providerOptions, merged under per-turn cache directives. */
   readonly #baseProviderOptions:
     | Record<string, Record<string, unknown>>
     | undefined;
-  #sessionId: string | undefined;
 
-  constructor(settings: SessionHarnessSettings, context: TurnContext) {
+  constructor(settings: SessionHarnessSettings, context?: TurnContext) {
     const {
       store = new InMemorySessionStore(),
-      sessionId,
-      registry,
-      mesh,
-      nodeId,
-      toolContext,
+      registry = createAgentCompatibilityRegistry(),
+      mesh = createMesh({ registry, store }),
+      nodeId = "primary",
       compaction,
       tools,
       ...harnessSettings
     } = settings;
-    const agentRegistry = registry ?? createAgentCompatibilityRegistry();
-    const agentMesh = mesh ?? createMesh({ registry: agentRegistry, store });
-    const resolvedNodeId = nodeId ?? "primary";
 
     // Mesh tools carry `source: "mesh"` on themselves, so the compiler keeps
     // that attribution for policy and audit even though they share one map.
-    super(
+    const harness = new AgentHarness(
       {
         ...harnessSettings,
         // Persisted summaries and host notifications are trusted system history.
         // AI SDK v7 rejects them in messages unless this is explicit.
         allowSystemInMessages: true,
-        tools: composeTools(tools, agentMesh.tools(resolvedNodeId)),
+        tools: composeTools(tools, mesh.tools(nodeId)),
       },
       context
     );
-    this.#store = store;
-    this.#sessionId = sessionId;
-    this.#registry = agentRegistry;
-    this.#mesh = agentMesh;
-    this.#nodeId = resolvedNodeId;
-    const defaultContext = harnessSettings.toolsContext;
-    this.#toolContext =
-      toolContext ?? (defaultContext ? () => defaultContext : undefined);
+    this.#harness = harness;
+    this.agent = harness.agent;
+    this.model = harness.model;
+    this.route = harness.route;
+    this.policy = harness.policy;
+    this.agentId = harness.agentId;
+    this.agentGeneration = harness.agentGeneration;
+    this.sessionId = harness.sessionId;
+    this.store = store;
+    this.registry = registry;
+    this.mesh = mesh;
+    this.nodeId = nodeId;
     this.#compaction = compaction;
     this.#baseProviderOptions = settings.providerOptions;
   }
 
-  get sessionId(): string | undefined {
-    return this.#sessionId;
-  }
-
-  get store(): SessionStore | undefined {
-    return this.#store;
-  }
-
-  get registry(): AgentCompatibilityRegistry {
-    return this.#registry;
-  }
-
-  get mesh(): Mesh {
-    return this.#mesh;
-  }
-
-  get nodeId(): string {
-    return this.#nodeId;
-  }
-
-  override stream(
+  stream(
     input: SessionInput,
-    opts?: SessionStreamOptions
-  ): SessionStream;
-  override stream(
-    opts: AgentStreamParameters<never, ToolSet>
-  ): Promise<StreamTextResult<ToolSet, Record<string, unknown>, never>>;
-  override stream(
-    inputOrOpts: SessionInput | AgentStreamParameters<never, ToolSet>,
-    opts?: SessionStreamOptions
-  ):
-    | SessionStream
-    | Promise<StreamTextResult<ToolSet, Record<string, unknown>, never>> {
-    if (typeof inputOrOpts !== "string" && !("parts" in inputOrOpts)) {
-      return super.stream(inputOrOpts);
-    }
-    return this.#sessionStream(inputOrOpts, opts ?? {});
-  }
-
-  override generate(
-    input: SessionInput,
-    opts?: SessionStreamOptions
-  ): Promise<SessionMessage>;
-  override generate(
-    opts: AgentCallParameters<never, ToolSet>
-  ): Promise<GenerateTextResult<ToolSet, Record<string, unknown>, never>>;
-  override generate(
-    inputOrOpts: SessionInput | AgentCallParameters<never, ToolSet>,
-    opts?: SessionStreamOptions
-  ):
-    | Promise<SessionMessage>
-    | Promise<GenerateTextResult<ToolSet, Record<string, unknown>, never>> {
-    if (typeof inputOrOpts !== "string" && !("parts" in inputOrOpts)) {
-      return super.generate(inputOrOpts);
-    }
-    return this.#sessionGenerate(inputOrOpts, opts ?? {});
-  }
-
-  #sessionStream(
-    input: SessionInput,
-    runOptions: SessionStreamOptions
+    options: SessionStreamOptions = {}
   ): SessionStream {
-    let resolvedSessionId: string | undefined;
+    // Set once the input is in the store: a turn rejected before then (a bad
+    // approval response) must leave the session untouched, error reply included.
+    let appended = false;
 
     const source: StreamSource = (async () => {
       const inputParts = normalizeInput(input);
       await this.#validateApprovalResponses(inputParts);
+      await this.#ensureSession();
+      await this.store.appendMessage({
+        parts: inputParts,
+        role: inputRole(inputParts),
+        sessionId: this.sessionId,
+      });
+      appended = true;
+      await this.#maybeCompact();
+      const history = await readContext(this.store, this.sessionId);
+      const messages = await toModelMessages(history, this.agent.tools);
+      const providerOptions = this.#applyCacheDirectives(messages);
 
-      let messages: ModelMessage[];
-      let experimentalContext: Record<string, unknown> | undefined;
-      if (this.#store) {
-        resolvedSessionId = await this.#ensureSession();
-        await this.#store.appendMessage({
-          parts: inputParts,
-          role: inputRole(inputParts),
-          sessionId: resolvedSessionId,
-        });
-        await this.#maybeCompact(resolvedSessionId);
-        const history = await readContext(this.#store, resolvedSessionId);
-        messages = await toModelMessages(history, this.agent.tools);
-        experimentalContext = this.#toolContext?.(resolvedSessionId);
-      } else {
-        messages = await toModelMessages(
-          [transientMessage(inputParts)],
-          this.agent.tools
-        );
-        experimentalContext = this.#toolContext?.("");
-      }
-
-      const providerOptions = this.#applyCacheDirectives(
+      const { parts } = await this.#harness.stream({
+        abortSignal: options.signal,
         messages,
-        resolvedSessionId
-      );
-
-      // The session id is only known once the first turn ensures it, so the
-      // turn's context is built here and handed to the already-built agent.
-      this.setToolsContext(experimentalContext);
-
-      const result = await super.stream({
-        messages,
-        ...(runOptions.signal ? { abortSignal: runOptions.signal } : {}),
+        // A call's options are spread over the agent's settings, so an
+        // explicit `undefined` would erase the construction-time options.
         ...(providerOptions ? { providerOptions } : {}),
       });
-      return result.stream as AsyncIterable<StreamPart>;
+      return parts;
     })();
 
-    const store = this.#store;
-    const commit = store
-      ? (message: SessionMessage): Promise<SessionMessage> => {
-          const sid = resolvedSessionId;
-          if (!sid) {
-            return Promise.resolve({ ...message, sessionId: "" });
-          }
-          return store
-            .appendMessage({
-              metadata: message.metadata,
-              parts: message.parts,
-              role: "assistant",
-              sessionId: sid,
-              status: message.status,
-            })
-            .catch(() => ({ ...message, sessionId: sid }));
-        }
-      : undefined;
+    const commit = (message: SessionMessage): Promise<SessionMessage> => {
+      const { sessionId } = this;
+      if (!appended) {
+        return Promise.resolve({ ...message, sessionId });
+      }
+      return this.store
+        .appendMessage({
+          metadata: message.metadata,
+          parts: message.parts,
+          role: "assistant",
+          sessionId,
+          status: message.status,
+        })
+        .catch(() => ({ ...message, sessionId }));
+    };
 
     return transformStream(source, {
-      handlers: runOptions,
+      commit,
+      handlers: options,
       model: this.route,
-      ...(commit ? { commit } : {}),
     });
   }
 
-  async #sessionGenerate(
+  generate(
     input: SessionInput,
-    runOptions: SessionStreamOptions
+    options: SessionStreamOptions = {}
   ): Promise<SessionMessage> {
-    const stream = this.#sessionStream(input, runOptions);
-    return stream.message;
+    return this.stream(input, options).message;
   }
 
   /**
@@ -293,18 +208,14 @@ export class SessionHarness extends AgentHarness {
    * options (OpenAI `promptCacheKey` / Google `cachedContent`) merged over the
    * agent's construction-time `providerOptions`. No-ops when the provider/model
    * is unknown; OpenAI/Google otherwise ride the stable prefix for free.
-   *
-   * Drives both turn entry points — `stream` directly and `generate` via
-   * {@link SessionHarness.#sessionGenerate}.
    */
   #applyCacheDirectives(
-    messages: ModelMessage[],
-    sessionId: string | undefined
+    messages: ModelMessage[]
   ): ProviderMetadata | undefined {
     const directives = cacheDirectivesFor({
       modelId: this.route.id,
-      ...(this.route.provider ? { provider: this.route.provider } : {}),
-      ...(sessionId ? { sessionId } : {}),
+      provider: this.route.provider,
+      sessionId: this.sessionId,
     });
 
     if (directives.breakpoint) {
@@ -331,9 +242,9 @@ export class SessionHarness extends AgentHarness {
    * contexts math lives here so the session layer stays free of it), then folds
    * older history when over the high-water mark. Never throws into the turn.
    */
-  async #maybeCompact(sessionId: string): Promise<void> {
+  async #maybeCompact(): Promise<void> {
     const c = this.#compaction;
-    const store = this.#store ? asSummarizable(this.#store) : undefined;
+    const store = asSummarizable(this.store);
     if (!(c && store)) {
       return;
     }
@@ -348,7 +259,7 @@ export class SessionHarness extends AgentHarness {
         c.window?.highWaterRatio ?? DEFAULT_COMPACTION_HIGH_WATER
       );
       const keepTokens = c.keepTokens ?? Math.floor(budget.headroom * 0.5);
-      await maybeCompact(store, c.summarizer, sessionId, {
+      await maybeCompact(store, c.summarizer, this.sessionId, {
         counter,
         keepTokens,
         limit,
@@ -361,8 +272,8 @@ export class SessionHarness extends AgentHarness {
   /**
    * Reject a malformed, duplicate, or mismatched approval response before
    * it's appended to history — and therefore before any tool can execute
-   * from it. Uses whatever history already exists for this session (or none,
-   * pre-first-turn/stateless), never the input being validated.
+   * from it. Uses whatever history already exists for this session (none
+   * before its first turn), never the input being validated.
    */
   async #validateApprovalResponses(parts: SessionPart[]): Promise<void> {
     const responses = parts.filter(
@@ -372,34 +283,31 @@ export class SessionHarness extends AgentHarness {
     if (responses.length === 0) {
       return;
     }
-    const history =
-      this.#store && this.#sessionId
-        ? await this.#store.listMessages(this.#sessionId)
-        : [];
+    const history = await this.store.listMessages(this.sessionId);
     for (const response of responses) {
       validateApprovalResponse(history, response);
     }
   }
 
-  async #ensureSession(): Promise<string> {
-    if (!this.#store) {
-      throw new Error("ensureSession called without a store");
-    }
-    if (this.#sessionId) {
-      const existing = await this.#store.getSession(this.#sessionId);
-      if (existing) {
-        return existing.id;
+  /** Create the session under its fixed id unless the store already has it —
+   *  a host may adopt an id it filed itself. Checked once per harness; a
+   *  failed check is retried on the next turn. */
+  #ensureSession(): Promise<void> {
+    this.#sessionReady ??= this.#createSessionIfMissing().catch(
+      (error: unknown) => {
+        this.#sessionReady = undefined;
+        throw error;
       }
+    );
+    return this.#sessionReady;
+  }
+
+  async #createSessionIfMissing(): Promise<void> {
+    if (!(await this.store.getSession(this.sessionId))) {
+      await this.store.createSession({ id: this.sessionId });
     }
-    const created = await this.#store.createSession({ id: this.#sessionId });
-    this.#sessionId = created.id;
-    return created.id;
   }
 }
-
-/** Thin alias for the inherited {@link AgentHarness.create}, kept for existing
- *  callers. Build-time MCP resolution is the base class's; this subclass adds
- *  only Session continuity and the session-scoped mesh. */
 
 /**
  * The messages a turn sends: the active view (summary prepended) when the store
@@ -433,17 +341,4 @@ function inputRole(parts: SessionPart[]): SessionRole {
     )
     ? "tool"
     : "user";
-}
-
-function transientMessage(parts: SessionPart[]): SessionMessage {
-  const now = Date.now();
-  return {
-    createdAt: now,
-    id: generateId(),
-    parts,
-    role: inputRole(parts),
-    sessionId: "",
-    status: "complete",
-    updatedAt: now,
-  };
 }

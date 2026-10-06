@@ -173,7 +173,7 @@ export function routed(
   route: ModelRoute,
   limits?: ModelLimits
 ): AgentModel {
-  return Object.assign(model, { route, ...(limits ? { limits } : {}) });
+  return Object.assign(model, { limits, route });
 }
 
 export type { GenerateResult, StreamResult };

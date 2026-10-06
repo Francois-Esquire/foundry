@@ -1,10 +1,16 @@
-import type { LanguageModelV4 } from "@ai-sdk/provider";
+import type {
+  LanguageModelV4,
+  LanguageModelV4StreamPart,
+  LanguageModelV4Usage,
+} from "@ai-sdk/provider";
 import {
   type HarnessPermissionRequest,
   type HarnessPermissionResult,
   type HarnessTurnDriver,
   isHarnessQuestionTool,
+  type StreamPart,
 } from "@foundry/agents/harness";
+import type { LanguageModelUsage } from "ai";
 import {
   type ClaudeCodeQueryController,
   type ClaudeCodeSettings,
@@ -434,21 +440,18 @@ function permissionToolName(
 }
 
 async function* consume(
-  stream: ReadableStream<unknown>,
+  stream: ReadableStream<LanguageModelV4StreamPart>,
   finish: () => void | Promise<void>
-) {
+): AsyncGenerator<StreamPart> {
   const reader = stream.getReader();
   try {
     let item = await reader.read();
     while (!item.done) {
-      const part = record(item.value);
-      if (
-        part.type === "text-delta" ||
-        part.type === "reasoning-delta" ||
-        part.type === "text-end" ||
-        part.type === "reasoning-end"
-      ) {
-        yield { ...part, type: String(part.type) };
+      const part = item.value;
+      if (part.type === "text-delta" || part.type === "reasoning-delta") {
+        yield { id: part.id, text: part.delta, type: part.type };
+      } else if (part.type === "text-end" || part.type === "reasoning-end") {
+        yield { id: part.id, type: part.type };
       } else if (part.type === "error") {
         yield {
           error: new Error(
@@ -457,7 +460,12 @@ async function* consume(
           type: "error",
         };
       } else if (part.type === "finish") {
-        yield { type: "finish", usage: part.usage };
+        yield {
+          finishReason: part.finishReason.unified,
+          rawFinishReason: part.finishReason.raw,
+          totalUsage: languageModelUsage(part.usage),
+          type: "finish",
+        };
       }
       item = await reader.read();
     }
@@ -465,4 +473,30 @@ async function* consume(
     reader.releaseLock();
     await finish();
   }
+}
+
+/** Provider-level usage lifted to the SDK's shape, as `streamText` does. */
+function languageModelUsage({
+  inputTokens,
+  outputTokens,
+  raw,
+}: LanguageModelV4Usage): LanguageModelUsage {
+  return {
+    inputTokenDetails: {
+      cacheReadTokens: inputTokens.cacheRead,
+      cacheWriteTokens: inputTokens.cacheWrite,
+      noCacheTokens: inputTokens.noCache,
+    },
+    inputTokens: inputTokens.total,
+    outputTokenDetails: {
+      reasoningTokens: outputTokens.reasoning,
+      textTokens: outputTokens.text,
+    },
+    outputTokens: outputTokens.total,
+    raw,
+    totalTokens:
+      inputTokens.total === undefined && outputTokens.total === undefined
+        ? undefined
+        : (inputTokens.total ?? 0) + (outputTokens.total ?? 0),
+  };
 }

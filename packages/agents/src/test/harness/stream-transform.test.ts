@@ -1,8 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { StreamPart } from "../../harness";
-import { transformStream } from "../../harness";
+import type { StreamPart } from "../../harness/stream-transform";
+import { transformStream } from "../../harness/stream-transform";
 import type { SessionEvent } from "../../session/events";
+import {
+  finish,
+  reasoningDelta,
+  textDelta,
+  toolCall,
+  toolResult,
+  usage,
+} from "../helpers/stream-parts";
 
 async function collect(stream: AsyncIterable<SessionEvent>) {
   const events: SessionEvent[] = [];
@@ -19,19 +27,19 @@ async function* source(parts: StreamPart[]): AsyncGenerator<StreamPart> {
   await Promise.resolve();
 }
 
-const flatUsage = { inputTokens: 10, outputTokens: 5, totalTokens: 15 };
+const flatUsage = usage({ inputTokens: 10, outputTokens: 5, totalTokens: 15 });
 
 const textParts: StreamPart[] = [
-  { delta: "hello there", type: "text-delta" },
-  { type: "text-end" },
-  { type: "finish", usage: flatUsage },
+  textDelta("hello there"),
+  { id: "text-1", type: "text-end" },
+  finish(flatUsage),
 ];
 
 describe("transformStream", () => {
   it("records SDK abort chunks as interruption rather than successful completion", async () => {
     const stream = transformStream(
       source([
-        { delta: "partial", type: "text-delta" },
+        textDelta("partial"),
         { reason: "Question interrupted.", type: "abort" },
       ])
     );
@@ -119,15 +127,15 @@ describe("transformStream", () => {
 
   it("captures cache read/write from the SDK's nested inputTokenDetails", async () => {
     const parts: StreamPart[] = [
-      {
-        type: "finish",
-        usage: {
-          inputTokenDetails: { cacheReadTokens: 80, cacheWriteTokens: 20 },
+      finish(
+        usage({
+          cacheReadTokens: 80,
+          cacheWriteTokens: 20,
           inputTokens: 100,
           outputTokens: 10,
           totalTokens: 110,
-        },
-      },
+        })
+      ),
     ];
 
     const stream = transformStream(source(parts));
@@ -139,34 +147,25 @@ describe("transformStream", () => {
     });
   });
 
-  it("captures cacheWriteTokens from a flat usage field", async () => {
-    const parts: StreamPart[] = [
-      {
-        type: "finish",
-        usage: { ...flatUsage, cacheWriteTokens: 7 },
-      },
-    ];
-
-    const stream = transformStream(source(parts));
+  it("captures reasoning tokens from the SDK's nested outputTokenDetails", async () => {
+    const stream = transformStream(
+      source([finish(usage({ outputTokens: 9, reasoningTokens: 4 }))])
+    );
     await collect(stream);
 
-    expect((await stream.usage).cacheWriteTokens).toBe(7);
+    expect(await stream.usage).toEqual({
+      inputTokens: 0,
+      outputTokens: 9,
+      reasoningTokens: 4,
+      totalTokens: 9,
+    });
   });
 
   it("maps tool calls and results to events and fires handlers", async () => {
     const parts: StreamPart[] = [
-      {
-        input: { q: "hello" },
-        toolCallId: "call-1",
-        toolName: "search",
-        type: "tool-call",
-      },
-      {
-        output: { hits: 2 },
-        toolCallId: "call-1",
-        type: "tool-result",
-      },
-      { type: "finish", usage: flatUsage },
+      toolCall("call-1", "search", { q: "hello" }),
+      toolResult("call-1", { hits: 2 }),
+      finish(flatUsage),
     ];
     const onToolCall = vi.fn();
     const onToolResult = vi.fn();
@@ -203,24 +202,10 @@ describe("transformStream", () => {
 
   it("forwards a preliminary tool result as an event but keeps it out of history", async () => {
     const parts: StreamPart[] = [
-      {
-        input: { agent: "planning", message: "hi" },
-        toolCallId: "call-1",
-        toolName: "message_agent",
-        type: "tool-call",
-      },
-      {
-        output: { partial: true },
-        preliminary: true,
-        toolCallId: "call-1",
-        type: "tool-result",
-      },
-      {
-        output: { partial: false },
-        toolCallId: "call-1",
-        type: "tool-result",
-      },
-      { type: "finish", usage: flatUsage },
+      toolCall("call-1", "message_agent", { agent: "planning", message: "hi" }),
+      toolResult("call-1", { partial: true }, true),
+      toolResult("call-1", { partial: false }),
+      finish(flatUsage),
     ];
     const onToolResult = vi.fn();
     const stream = transformStream(source(parts), {
@@ -249,22 +234,19 @@ describe("transformStream", () => {
   it("captures a tool-call's providerMetadata onto the tool_call part (Gemini thoughtSignature)", async () => {
     const parts: StreamPart[] = [
       {
-        input: { cmd: "ls" },
+        ...toolCall("call-1", "bash", { cmd: "ls" }),
         providerMetadata: { google: { thoughtSignature: "sig-abc" } },
-        toolCallId: "call-1",
-        toolName: "bash",
-        type: "tool-call",
       },
-      { type: "finish", usage: flatUsage },
+      finish(flatUsage),
     ];
 
     const stream = transformStream(source(parts));
     await collect(stream);
 
-    const toolCall = (await stream.message).parts.find(
+    const persisted = (await stream.message).parts.find(
       (p) => p.type === "tool_call"
     );
-    expect(toolCall).toMatchObject({
+    expect(persisted).toMatchObject({
       providerOptions: { google: { thoughtSignature: "sig-abc" } },
       type: "tool_call",
     });
@@ -284,14 +266,8 @@ describe("transformStream", () => {
     };
     const stream = transformStream(
       source([
-        {
-          input: { q: "hello" },
-          provenance,
-          toolCallId: "call-1",
-          toolName: "search",
-          type: "tool-call",
-        },
-        { type: "finish", usage: flatUsage },
+        { ...toolCall("call-1", "search", { q: "hello" }), provenance },
+        finish(flatUsage),
       ])
     );
 
@@ -315,11 +291,11 @@ describe("transformStream", () => {
 
   it("maps reasoning deltas to events", async () => {
     const parts: StreamPart[] = [
-      { delta: "thinking", type: "reasoning-delta" },
-      { type: "reasoning-end" },
-      { delta: "final", type: "text-delta" },
-      { type: "text-end" },
-      { type: "finish", usage: flatUsage },
+      reasoningDelta("thinking"),
+      { id: "reasoning-1", type: "reasoning-end" },
+      textDelta("final"),
+      { id: "text-1", type: "text-end" },
+      finish(flatUsage),
     ];
 
     const stream = transformStream(source(parts));
@@ -339,9 +315,9 @@ describe("transformStream", () => {
 
   it("forwards error events from a non-throwing error chunk and still finishes", async () => {
     const parts: StreamPart[] = [
-      { delta: "partial", type: "text-delta" },
+      textDelta("partial"),
       { error: new Error("chunk boom"), type: "error" },
-      { type: "finish", usage: flatUsage },
+      finish(flatUsage),
     ];
     const onError = vi.fn();
 
@@ -359,7 +335,7 @@ describe("transformStream", () => {
   it("emits an error event and no finish when the stream throws", async () => {
     async function* throwingSource(): AsyncGenerator<StreamPart> {
       await Promise.resolve();
-      yield { delta: "partial", type: "text-delta" };
+      yield textDelta("partial");
       throw new Error("stream boom");
     }
 
@@ -396,8 +372,8 @@ describe("transformStream", () => {
     const msg = await stream.message;
     expect(msg.id).toBe("persisted-id");
     expect(msg.sessionId).toBe("session-1");
-    const finish = events.find((e) => e.type === "finish");
-    expect(finish).toMatchObject({
+    const finished = events.find((e) => e.type === "finish");
+    expect(finished).toMatchObject({
       message: { id: "persisted-id", sessionId: "session-1" },
       type: "finish",
     });
@@ -420,7 +396,7 @@ describe("transformStream", () => {
   it("calls commit even for error messages", async () => {
     async function* throwingSource(): AsyncGenerator<StreamPart> {
       await Promise.resolve();
-      yield { delta: "partial", type: "text-delta" };
+      yield textDelta("partial");
       throw new Error("stream boom");
     }
 
@@ -459,10 +435,10 @@ describe("transformStream", () => {
         approvalId: "appr-1",
         capability,
         signature: "sig",
-        toolCall: { input: { x: 1 }, toolCallId: "call-1", toolName: "danger" },
+        toolCall: toolCall("call-1", "danger", { x: 1 }),
         type: "tool-approval-request",
       },
-      { type: "finish", usage: flatUsage },
+      finish(flatUsage),
     ];
     const onApprovalRequest = vi.fn();
 
@@ -506,5 +482,116 @@ describe("transformStream", () => {
     const stream = transformStream(source(textParts));
     await collect(stream);
     expect(await stream.outcome).toBe("complete");
+  });
+  it("closes the open text part at a tool error, so later text starts a new part", async () => {
+    const stream = transformStream(
+      source([
+        textDelta("before"),
+        toolCall("call-1", "search", { q: "x" }),
+        {
+          error: new Error("search failed"),
+          input: { q: "x" },
+          toolCallId: "call-1",
+          toolName: "search",
+          type: "tool-error",
+        },
+        textDelta("after"),
+        finish(flatUsage),
+      ])
+    );
+    await collect(stream);
+
+    expect((await stream.message).parts).toEqual([
+      { text: "before", type: "text" },
+      {
+        input: { q: "x" },
+        name: "search",
+        toolCallId: "call-1",
+        type: "tool_call",
+      },
+      {
+        isError: true,
+        output: "search failed",
+        toolCallId: "call-1",
+        type: "tool_result",
+      },
+      { text: "after", type: "text" },
+    ]);
+  });
+
+  it("keeps one text part across a driver's out-of-band activity update", async () => {
+    const event = {
+      agentId: "agent-1",
+      harness: "codex",
+      id: "activity-1",
+      kind: "subagent" as const,
+      lifetime: "session" as const,
+      revision: 1,
+      sessionId: "s1",
+      status: "running" as const,
+      title: "Child",
+    };
+    const stream = transformStream(
+      source([
+        textDelta("one "),
+        { event, type: "harness-activity" },
+        textDelta("two"),
+        finish(flatUsage),
+      ])
+    );
+    const events = await collect(stream);
+
+    expect(events).toContainEqual({ event, type: "harness-activity" });
+    expect((await stream.message).parts).toEqual([
+      { text: "one two", type: "text" },
+    ]);
+  });
+
+  it("maps a driver approval request to an event without persisting a part", async () => {
+    const approval = {
+      agentId: "agent-1",
+      approvalId: "appr-1",
+      capability: { kind: "tool.call", source: "declared", tool: "Bash" },
+      input: "Input fields: command",
+      toolCallId: "call-1",
+      toolName: "Bash",
+    } as const;
+    const onApprovalRequest = vi.fn();
+    const stream = transformStream(
+      source([{ ...approval, type: "harness-approval-request" }]),
+      { handlers: { onApprovalRequest } }
+    );
+    const events = await collect(stream);
+
+    expect(events).toContainEqual({
+      ...approval,
+      type: "tool-approval-request",
+    });
+    expect(onApprovalRequest).toHaveBeenCalledWith(approval);
+    expect((await stream.message).parts).toEqual([]);
+    expect(await stream.outcome).toBe("complete");
+  });
+
+  it("fails the turn on an approval request with no registered capability", async () => {
+    const stream = transformStream(
+      source([
+        {
+          approvalId: "appr-1",
+          toolCall: toolCall("call-1", "unknown", {}),
+          type: "tool-approval-request",
+        },
+      ])
+    );
+    await collect(stream);
+
+    const message = await stream.message;
+    expect(message.status).toBe("error");
+    expect(message.parts).toEqual([
+      {
+        message:
+          'Approval request for "unknown" carries no registered capability.',
+        type: "error",
+      },
+    ]);
   });
 });

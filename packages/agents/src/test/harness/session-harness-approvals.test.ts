@@ -2,10 +2,10 @@ import { tool } from "ai";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
-import type { Capability } from "../../authorization";
-import { SessionHarness } from "../../harness";
-import type { SessionEvent } from "../../session";
-import { InMemorySessionStore } from "../../session";
+import type { Capability } from "../../authorization/capability";
+import { SessionHarness } from "../../harness/session-harness";
+import type { SessionEvent } from "../../session/events";
+import { InMemorySessionStore } from "../../session/store";
 import {
   createScriptedMockModel,
   textStreamResult,

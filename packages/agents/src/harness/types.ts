@@ -1,6 +1,18 @@
 import type { ModelMessage, Tool, ToolSet } from "ai";
 
-import type { Capability, ToolSource } from "../authorization";
+import type { Capability, ToolSource } from "../authorization/capability";
+
+/**
+ * Who a tool call runs as: the agent preset (the authorization Subject), the
+ * preset generation when the host tracks one, and the session that scopes
+ * session-lifetime Grants. A harness fixes all three at construction, so every
+ * call it compiles carries the same identity.
+ */
+export interface AgentIdentity {
+  agentGeneration?: number;
+  agentId: string;
+  sessionId: string;
+}
 
 /**
  * Everything a registration's {@link HarnessToolRegistration.capability}
@@ -10,11 +22,9 @@ import type { Capability, ToolSource } from "../authorization";
  * call already knows," not preset-specific, so a later reusable-preset
  * contract (design: "Reusable agent preset") can reuse this shape unchanged.
  */
-export interface AgentInvocationContext {
-  agentId: string;
+export interface AgentInvocationContext extends AgentIdentity {
   experimentalContext?: unknown;
   messages: ModelMessage[];
-  sessionId?: string;
   toolCallId: string;
 }
 
@@ -99,13 +109,13 @@ export function registrationsOf(
     const meta = metaOf(tool);
     const source = meta.source ?? fallbackSource;
     return {
-      name,
-      source,
-      tool,
-      ...(meta.effectLocation ? { effectLocation: meta.effectLocation } : {}),
       capability:
         meta.capability ??
         ((): Capability => ({ kind: "tool.call", source, tool: name })),
+      effectLocation: meta.effectLocation,
+      name,
+      source,
+      tool,
     };
   });
 }
@@ -115,24 +125,21 @@ export function registrationsOf(
  * ToolEffectPort.execute} (design: "Effect boundary"). `invocationId` is the
  * idempotency/reconciliation key an externally-visible effect can key on
  * across a crash/replay boundary — derived stably per call by the compiler
- * (namespaced by agent, and session when present, over the AI SDK's own
- * `toolCallId`), so a replayed continuation reproduces the same id rather
- * than minting a new one and risking a double commit.
+ * (namespaced by agent and session over the AI SDK's own `toolCallId`), so a
+ * replayed continuation reproduces the same id rather than minting a new one
+ * and risking a double commit.
  */
-export type ToolEffectLocation = "runtime" | "host" | "executor";
-
-export interface RegisteredToolCall<TInput = unknown> {
-  agentGeneration?: number;
-  agentId: string;
+export interface RegisteredToolCall<TInput = unknown> extends AgentIdentity {
   capability: Capability;
   effectLocation: ToolEffectLocation;
   input: TInput;
   invocationId: string;
-  sessionId?: string;
   source: ToolSource;
   toolCallId: string;
   toolName: string;
 }
+
+export type ToolEffectLocation = "runtime" | "host" | "executor";
 
 /**
  * The boundary an approved runtime-owned tool effect runs through (design:

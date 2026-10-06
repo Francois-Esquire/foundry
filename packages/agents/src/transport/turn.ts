@@ -2,8 +2,9 @@ import type { UIMessageChunk } from "ai";
 
 import { z } from "zod";
 
-import type { SessionHarness } from "../harness";
-import type { SessionInput, SessionMessage, SessionUsage } from "../session";
+import type { SessionHarness } from "../harness/session-harness";
+import type { SessionInput } from "../session/events";
+import type { SessionMessage, SessionUsage } from "../session/types";
 
 import { projectToUIMessageChunks } from "./ui-stream";
 
@@ -43,10 +44,10 @@ export function toSessionInput(input: SessionTurnInput): SessionInput {
   if (input.toolResults && input.toolResults.length > 0) {
     return {
       parts: input.toolResults.map((r) => ({
+        isError: r.isError,
         output: r.output,
         toolCallId: r.toolCallId,
         type: "tool_result" as const,
-        ...(r.isError ? { isError: true } : {}),
       })),
     };
   }
@@ -90,8 +91,8 @@ export interface StreamSessionOptions {
  * the turn delta, `yield*` the result from inside the router's subscription
  * generator.
  *
- * The caller wraps the subscription's whole generator in {@link
- * import("./stream").freshIterable} before returning it — a *native* async
+ * The caller wraps the subscription's whole generator in `freshIterable`
+ * (`./stream`) before returning it — a *native* async
  * generator already carries `Symbol.asyncDispose`, and some subscription
  * transports throw trying to attach their own, so the plain `freshIterable`
  * object must be what crosses the subscription boundary.
@@ -104,11 +105,9 @@ export async function* streamSessionAgent(
   const stream = agent.stream(toSessionInput(input), {
     ...(input.model === undefined ? {} : { model: input.model }),
     ...(input.provider === undefined ? {} : { provider: input.provider }),
-    ...(options.onFinish ? { onFinish: options.onFinish } : {}),
-    ...(options.signal ? { signal: options.signal } : {}),
+    onFinish: options.onFinish,
+    signal: options.signal,
   });
 
-  yield* projectToUIMessageChunks(stream, {
-    ...(input.model === undefined ? {} : { model: input.model }),
-  });
+  yield* projectToUIMessageChunks(stream, { model: input.model });
 }

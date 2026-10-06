@@ -7,15 +7,13 @@ tool call. The package depends on no model registry: it takes a model.
 ## Quick start
 
 ```typescript
-import { createSessionHarness } from "@foundry/agents/harness";
+import { SessionHarness } from "@foundry/agents/harness";
 
-const harness = await createSessionHarness(
-  {
-    model, // any LanguageModelV4; see "The model" below
-    instructions: "You are a helpful assistant.",
-  },
-  { sessionId: "session-1" },
-);
+const harness = new SessionHarness({
+  model, // any LanguageModelV4; see "The model" below
+  instructions: "You are a helpful assistant.",
+  sessionId: "session-1", // omit for a fresh id
+});
 
 const stream = harness.stream("What changed in the last release?");
 
@@ -27,28 +25,30 @@ console.log(await stream.usage);
 ```
 
 That is the whole 80% path. History persists to an in-memory store, tool calls
-run through a permissive authorizer, and the second turn on the same
-`sessionId` sees the first.
+run through a permissive authorizer, and the next turn on the same harness sees
+the first. To resume across harnesses, share a `store` and reuse the
+`sessionId`.
 
 Everything else in this package is a swap on one of those defaults: a real
-`store`, a real `policy`, `mcp` servers, `skills`, `compaction`.
+`store`, a real `policy`, more `tools` (skills, todos, MCP servers),
+`compaction`.
 
 ## How it comes together
 
-Four layers, each a strict superset of the one below. Import at the level you
-need — a CLI probably wants `AgentHarness`, an app wants `SessionHarness`.
+Four layers, each wrapping the one below. Import at the level you need — a CLI
+probably wants `AgentHarness`, an app wants `SessionHarness`.
 
 ```
-LoopAgent          one turn: resolve a model, run the tool loop, observe cost
-  AgentHarness     + tools — MCP, skills, todos, and the authorization gate
+LoopAgent          one turn: run the tool loop over one model, observe cost
+  AgentHarness     + tools — whatever you compose (skills, todos, MCP), behind the authorization gate
     SessionHarness + a conversation — identity, history, persistence, compaction
       transport    + a wire — the turn projected as UI chunks for a subscription
 ```
 
 Three more pieces cut across all four rather than sitting in the stack:
 
-- **`consent`** decides whether a tool call may run. Every tool compiled by a
-  harness is gated, whatever layer registered it.
+- **`authorization`** decides whether a tool call may run. Every tool compiled
+  by a harness is gated, whatever source contributed it.
 - **`session`** is the record vocabulary — messages, parts, usage, the store
   interface. It names no database.
 - **`contexts`** estimates window usage and supplies provider cache directives.
@@ -56,10 +56,17 @@ Three more pieces cut across all four rather than sitting in the stack:
 
 A turn, end to end:
 
-1. `SessionHarness.stream(input)` resolves the session and appends the input.
-2. History is read back — the active view, summary-folded if compaction ran.
-3. `contexts` sizes it against the turn model's window and applies cache rules.
-4. A fresh `LoopAgent` is built with the model the resolver returns.
+1. `SessionHarness.stream(input)` validates any approval responses in the
+   input, creates the session in the store if it is not there yet, and appends
+   the input.
+2. With `compaction` set, `contexts` sizes the active history against the
+   model's window and folds older messages under a summary when it is over the
+   high-water mark.
+3. History is read back — the active view, summary first, when the store
+   supports it — converted to model messages, and the provider's cache
+   directives are applied.
+4. The `AgentHarness` built at construction streams the turn through its
+   `LoopAgent`. Model and tools are fixed per harness.
 5. Each tool call is checked against the authorizer, then executed through the
    effect port. A denial comes back as an ordinary tool result the model can
    read and route around — not a thrown error.
@@ -72,32 +79,35 @@ A turn, end to end:
 
 The composition layer. Start here.
 
-### `createSessionHarness(settings, context) => Promise<SessionHarness>`
+### `new SessionHarness(settings, context?)`
 
 ```typescript
 type SessionHarnessSettings = AgentHarnessSettings & {
   store?: SessionStore; // default: InMemorySessionStore
-  sessionId?: string; // adopt an existing session
   compaction?: CompactionSettings; // auto-fold history when the window fills
-  toolContext?: (sessionId: string) => unknown;
-  registry?: AgentCompatibilityRegistry;
-  mesh?: Mesh;
+  registry?: AgentCompatibilityRegistry; // default: a fresh one
+  mesh?: Mesh; // default: createMesh({ registry, store })
   nodeId?: string; // default: "primary"
 };
 
-type TurnContext = { sessionId: string; model?: string; provider?: string };
+type TurnContext = { sessionId: string };
 ```
 
-`SessionHarness` adds two overloads on top of `AgentHarness`:
+The session id is fixed at construction: `settings.sessionId`, else
+`context.sessionId`, else a fresh UUID. The session record is created in the
+store on the first turn unless the host already filed it. `SessionHarness`
+composes an `AgentHarness` rather than extending it, and adds the mesh's
+`list_agents` and `message_agent` tools to yours.
 
 ```typescript
 harness.stream(input: SessionInput, opts?: SessionStreamOptions): SessionStream
 harness.generate(input: SessionInput, opts?: SessionStreamOptions): Promise<SessionMessage>
+
+type SessionStreamOptions = { signal?: AbortSignal } & StreamHandlers;
 ```
 
-`SessionInput` is a string or `{ parts }`. The AI SDK's own parameter shape
-still works and passes straight through to the underlying agent, unpersisted —
-the overload picks by argument shape.
+`SessionInput` is a string or `{ parts }`. Every call is persisted; when the
+caller owns history, use `AgentHarness` directly.
 
 The returned `SessionStream` is async-iterable and carries its finals:
 
@@ -118,52 +128,93 @@ never breaks a turn if it fails:
 ```typescript
 compaction: {
   summarizer: createModelSummarizer({ model: cheapModel }),
-  model: { contextWindow: 200_000 }, // omit to size by the turn model's own limits
-  keepTokens: 20_000,          // recent history left unfolded
+  model: { id: "big-model", contextWindow: 200_000 }, // omit to size by the turn model's own limits
+  keepTokens: 20_000, // recent history left unfolded; default: half the headroom
 }
 ```
 
-### `createAgentHarness(settings, context) => Promise<AgentHarness>`
+### `new AgentHarness(settings, context?)`
 
 The same thing without a conversation. Use it when the caller owns history.
 
 ```typescript
-type AgentHarnessSettings = LoopAgentSettings & {
-  mcp?: McpManagerOptions & {
-    servers?: McpServerConfig[]; // connected by the factory
-    manager?: McpManager; // or hand over one you already run
-  };
-  skills?: Skill[];
-  todos?: TodoStore;
-  registrations?: HarnessToolRegistration[];
-  toolSets?: HarnessToolSet[];
+type AgentHarnessSettings = Omit<LoopAgentSettings, "toolsContext"> & {
+  toolsContext?: Record<string, unknown>; // the one object every tool receives as `context`
+  sessionId?: string; // fixed at construction; default: context.sessionId, else a fresh UUID
   policy?: AgentAuthorizer; // default: fully permissive
   effectPort?: ToolEffectPort; // default: direct in-process
-  agentId?: string;
+  permission?: HarnessPermissionCallback; // live approval, claimed before execution
+  agentId?: string; // default: "agent"
   agentGeneration?: number;
 };
 ```
 
-Use the factory, not `new` — the constructor never connects MCP, it only reads
-what a manager already knows. Tools compose from the built-ins, then `mcp`,
-`skills`, `toolSets` in array order, then `registrations`. On a duplicate name
-the last one wins.
+`LoopAgentSettings` is the AI SDK's `ToolLoopAgent` settings (`instructions`,
+`tools`, `stopWhen`, …) with an `AgentModel` and an optional `observe`.
 
-### Registering a tool
-
-`HarnessToolRegistration` is the sanctioned way in. The compiler preserves your
-schema, metadata, and any existing `needsApproval`, and adds capability
-derivation, the authorization check, and the effect boundary.
+`toolsContext` is handed to every tool unchanged — the same object, not a copy,
+so a host may freeze or brand it. The harness attaches its `policy` beside it
+(read back with `getPolicy` from `@foundry/agents/tools/context`) rather than
+writing a field onto it.
 
 ```typescript
-import { genericToolSet } from "@foundry/agents/harness";
-
-const set = genericToolSet("deploy", { rollback: rollbackTool });
-const harness = await createAgentHarness({ model, toolSets: [set] }, ctx);
+const { result, parts } = await harness.stream({ messages });
+const output = await harness.generate({ messages });
 ```
 
-`genericToolSet(source, tools, meta?)` wraps a plain AI SDK `ToolSet` and tags
-its provenance, which is what an audit trail and a per-source policy key on.
+`stream` returns the SDK's `StreamTextResult` as `result`, and `parts`: an
+`AsyncIterable<StreamPart>` with each tool call stamped with its registration
+provenance and each approval request with its derived capability. `StreamPart`
+is the AI SDK's `TextStreamPart<ToolSet>` with those two members widened, plus
+`HarnessStreamPart` (`harness-activity`, `harness-tool`,
+`harness-approval-request`) emitted by driver sessions.
+`transformStream(parts, options)` turns them into a `SessionStream`; that is
+what `SessionHarness` does. `generate` returns the SDK result as is.
+
+`tools` is the whole tool surface, as one AI SDK `ToolSet`. Compose it yourself
+from whatever sources apply — `registry.tools` from a skill registry,
+`createTodos().tools`, MCP tools — and join their instructions the same way.
+`composeTools` from `@foundry/agents/tools/compose` merges maps and throws on a
+duplicate name.
+
+### Tagging a tool
+
+A tool can carry `ToolMeta` — its source, how a call's capability is derived
+from its input, and where its effect runs. The compiler preserves your schema,
+metadata, and any existing `needsApproval`, and adds the authorization check
+and the effect boundary. An untagged tool is `declared` with the generic
+`tool.call` capability; a tool without `execute` passes through uncompiled.
+
+```typescript
+import { tagTool, tagTools } from "@foundry/agents/harness";
+
+const fetchDocs = tagTool(fetchDocsTool, {
+  capability: () => ({ kind: "web.fetch", domain: "docs.example.com" }),
+});
+const deployTools = tagTools({ rollback: rollbackTool }, "module");
+
+const harness = new AgentHarness({
+  model,
+  tools: { fetchDocs, ...deployTools },
+});
+```
+
+The source is what an audit trail and a per-source policy key on.
+
+### `createBuiltinCodingHarness(settings, context) => HarnessSession`
+
+A `SessionHarness` for coding work: `CODING_INSTRUCTIONS` prepended to yours,
+`stopWhen` derived from `maxSteps`, and one turn at a time behind an
+interruptible gate (no live steering). The host supplies the coding tools and
+must set `agentId`, `policy`, `tools`, `compaction`, and `maxSteps`.
+
+### `createDriverSession(settings, driver) => HarnessSession`
+
+Runs an external CLI harness — a `HarnessTurnDriver` — behind the same
+`HarnessSession` surface. Its native activity, tool events, and approvals are
+persisted to `settings.store`, and its permission requests are decided against
+`settings.policy` (asking the host's `approve` callback when one is set).
+Requires `agentId`, `policy`, `profile`, `store`, and `model` (a `ModelRoute`).
 
 ---
 
@@ -181,11 +232,12 @@ type SessionPart =
   | { type: "text"; text: string }
   | { type: "reasoning"; text: string }
   | { type: "image"; url: string; mediaType?: string }
-  | { type: "tool_call"; toolCallId: string; name: string; input: unknown; providerOptions?: … }
+  | { type: "tool_call"; toolCallId: string; name: string; input: unknown; providerOptions?: …; provenance?: ToolProvenance }
   | { type: "tool_result"; toolCallId: string; output: unknown; isError?: boolean }
   | { type: "error"; message: string }
-  | { type: "tool_approval_request"; approvalId: string; … }
-  | { type: "tool_approval_response"; approvalId: string; approved: boolean; … };
+  | { type: "tool_approval_request"; approvalId: string; capability: Capability; … }
+  | { type: "tool_approval_response"; approvalId: string; approved: boolean; … }
+  | { type: "harness_activity" | "harness_tool" | "harness_session" | "harness_question"; … };
 
 interface SessionMessage {
   id: string; sessionId: string; role: SessionRole;
@@ -233,14 +285,23 @@ corrupt history.
 type SessionEvent =
   | { type: "text-delta"; delta: string }
   | { type: "reasoning-delta"; delta: string }
-  | { type: "tool-call"; toolCallId: string; name: string; input: unknown }
+  | {
+      type: "tool-call";
+      toolCallId: string;
+      name: string;
+      input: unknown;
+      provenance?: ToolProvenance;
+    }
   | {
       type: "tool-result";
       toolCallId: string;
       output: unknown;
       isError?: boolean;
+      preliminary?: boolean; // an interim result from a generator tool
     }
   | ({ type: "tool-approval-request" } & AgentApprovalRequest)
+  | { type: "harness-activity"; event: HarnessActivityEvent }
+  | { type: "harness-tool"; event: HarnessToolEvent }
   | { type: "error"; error: Error }
   | { type: "finish"; message: SessionMessage; usage: SessionUsage };
 ```
@@ -257,36 +318,45 @@ toModelMessages(messages)     // session records → AI SDK ModelMessages
 
 ---
 
-## `@foundry/agents/consent`
+## `@foundry/agents/authorization`
 
 The gate. This module owns what a capability _is_; the mechanism — the
-Authorizer, Grants, Policy tiers — lives in `@foundry/lib/config/authorization` and
-knows no agent vocabulary.
+Authorizer, Grants, Policy tiers — lives in `@foundry/lib/config/authorization`
+and knows no agent vocabulary.
 
 ```typescript
 type Capability =
-  | { kind: "web.fetch"; … } | { kind: "mcp.tool"; … }
-  | { kind: "module.call"; … } | { kind: "fs.read"; … }
-  | DomainCommandCapability | { kind: "tool.call"; … };
+  | { kind: "web.fetch"; domain: string }
+  | { kind: "mcp.tool"; serverId: string; tool: string }
+  | { kind: "fs.read"; projectId: string; root: string }
+  | DomainCommandCapability // kind: "domain.command"
+  | { kind: "tool.call"; source: ToolSource; tool: string };
 ```
 
 ```typescript
 const { authorizer } = createInMemoryAgentAuthorizer({
-  policy: { global: "ask", byKind: { "fs.read": "allow" } },
+  policy: { global: "ask", byKind: { "fs.read": "allow", "tool.call": "ask" } },
 });
 
-const harness = await createAgentHarness({ model, policy: authorizer }, ctx);
+const harness = new AgentHarness({ model, policy: authorizer });
 ```
+
+`createInMemoryAgentAuthorizer` is the reference composition, with
+`allow`/`revoke` helpers over its Grant repository. A host with real storage
+calls `createAgentAuthorizer({ grants, policy })`; with no `policy` it falls
+back to `AGENT_ASK_BY_DEFAULT`, which asks for everything.
 
 Two properties worth knowing before you configure it:
 
 - **`tool.call` never inherits the global tier.** It is the unclassified
-  fallback, so a blanket `"allow"` must not reach it. Set it explicitly.
-- **`decide` runs twice per call, `claim` once.** The check is repeatable and
-  consumes nothing, so it can run in the SDK's `needsApproval` predicate _and_
-  in the defensive re-check inside `execute`. Authority is spent only by
-  `claim`, immediately before the effect, keyed by a stable `invocationId` so a
-  replayed continuation re-runs against its own claim.
+  fallback, so a blanket `"allow"` must not reach it. Set it explicitly in
+  `byKind`, or every untagged tool is denied.
+- **Without a `permission` callback, `decide` runs twice per call, `claim`
+  once.** The check is repeatable and consumes nothing, so it can run in the
+  SDK's `needsApproval` predicate _and_ in the defensive re-check inside
+  `execute`. Authority is spent only by `claim`, immediately before the effect,
+  keyed by a stable `invocationId` so a replayed continuation re-runs against
+  its own claim.
 
 `explainCapability` is the human framing an approval dialog shows;
 `describeCapability` is the flat line an audit log wants. This entry is
@@ -313,12 +383,13 @@ const registry = createSkillRegistry([defineSkill(source)]);
 
 registry.tools; // list_skills + load_skill
 registry.instructions; // the catalog, for the system prompt
-registry.toolSet; // both, as one HarnessToolSet
+registry.get(name); // registry.list() for all of them
 registry.add(...skills).remove(name);
 ```
 
-Pass `toolSet` to a harness and the model gets the catalog and the loaders
-together. Bundles stay in memory — the registry holds no paths.
+Spread `registry.tools` into a harness's `tools` and append
+`registry.instructions` to its instructions, and the model gets the catalog and
+the loaders together. Bundles stay in memory — the registry holds no paths.
 
 ---
 
@@ -337,7 +408,7 @@ type ObserveTurn = (turn: { sessionId; model: ModelRoute }) => TurnObservation |
 
 // ./agents/loop-agent
 class LoopAgent extends ToolLoopAgent
-createLoopAgent(settings)
+new LoopAgent(settings, { sessionId })
 ```
 
 ### The model
@@ -348,37 +419,47 @@ on every message, so a session resumes on the same one) and its `limits` (the
 window compaction sizes to). Nothing here resolves ids to models: the host does
 that once, and a per-turn change is a new harness with a different model.
 
-`observe` on the settings opens one observation per turn; the harness wraps the
-model with it and settles it when the stream drains, not on `onFinish`.
-`@foundry/models` ships `observeAgentTurn` in exactly this shape.
+`observe` on the settings opens one observation per call; the agent wraps the
+model with it and settles it from the call's telemetry hooks (end, abort, or
+error), not on `onFinish`. `@foundry/models` ships `observeAgentTurn` in
+exactly this shape.
 
 ```typescript
 // ./agents/registry
-createAgentRegistry(); // name → agent
-createAgentCompatibilityRegistry(); // + preset identity and generation
+createAgentRegistry(); // preset catalog: id + generation → AgentPreset
+createAgentCompatibilityRegistry(); // id → live agent, for meshes and agent tools
 
 // ./agents/agent-tool
 createAgentTool(config); // any agent, as a callable tool
 ```
 
 `createAgentTool` resolves subagents by string id at call time, so a parent
-never holds a direct reference. With a mesh available it loads the thread's
-prior history, streams the subagent's reply, and appends the exchange back.
+never holds a direct reference. With both a conversation store and a space —
+from its config or from the tool context's `conversations` and `space` — it
+loads the thread's prior history, streams the subagent's reply, and appends the
+exchange back.
 
 ```typescript
 // ./agents/mesh
-createMesh(opts)   // → Mesh; peers get spawn_agent / list_agents / ask_agent
+createMesh(opts)   // → Mesh; peers get list_agents / message_agent
 HUMAN              // the symbol for the human node
 
 // ./agents/spawn
-createSpawnTool(deps)
+createSpawnTool(deps)   // undefined at the depth limit
 
 // ./agents/resolve
-createAgentPreset(…)   // → AgentPreset: a configured agent, resolvable per session
+createAgentPreset(spec, surface)   // → AgentPreset: createAgent(ctx) / createSession(ctx)
+resolveAgent(spec, surface, ctx?)  // → Promise<SessionHarness>, in one step
 ```
 
-Peers talk over the ordinary tool loop, and each can spawn sub-peers —
-delegation is recursive, and `recursionDepth` is frozen at spawn.
+Peers talk over the ordinary tool loop. `createSpawnTool` delegates to a child
+session whose `recursionDepth` is frozen at spawn; at the depth limit the tool
+is withheld, so the model never sees it.
+
+An `AgentSpec` declares an agent — `id`, `prompt`, and the `tools`, `skills`,
+and `mcp` it wants by catalog name. The `AgentSurface` resolves those names;
+its `model` resolver is the only one required. Pass a factory instead of a
+surface to bind settings in code.
 
 ---
 

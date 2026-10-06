@@ -120,32 +120,32 @@ function toToolPart(
   // onto the assistant tool-call's `providerOptions` — the one path that gets
   // Gemini 3's `thoughtSignature` back into the replayed request. Attach it to
   // every state so a paused/errored call doesn't silently drop it.
-  const meta = call.providerOptions
-    ? { callProviderMetadata: call.providerOptions as ProviderMetadata }
-    : {};
+  const callProviderMetadata = call.providerOptions as
+    | ProviderMetadata
+    | undefined;
   const signature = request?.signature;
 
   // Denial is terminal regardless of whether a tool_result was also
   // persisted — the AI SDK synthesizes the denied tool-result itself.
   if (request && response && !response.approved) {
     return {
+      approval: rejectedApproval(request, response, signature),
+      callProviderMetadata,
       input: call.input,
       state: "output-denied",
       toolCallId: call.toolCallId,
       type,
-      ...meta,
-      approval: rejectedApproval(request, response, signature),
     };
   }
 
   if (request && !response) {
     return {
+      approval: pendingApproval(request, signature),
+      callProviderMetadata,
       input: call.input,
       state: "approval-requested",
       toolCallId: call.toolCallId,
       type,
-      ...meta,
-      approval: pendingApproval(request, signature),
     };
   }
 
@@ -153,43 +153,43 @@ function toToolPart(
   if (!result) {
     if (approval) {
       return {
+        approval,
+        callProviderMetadata,
         input: call.input,
         state: "approval-responded",
         toolCallId: call.toolCallId,
         type,
-        ...meta,
-        approval,
       };
     }
     return {
+      callProviderMetadata,
       input: call.input,
       state: "input-available",
       toolCallId: call.toolCallId,
       type,
-      ...meta,
     };
   }
 
   if (result.isError) {
     return {
+      approval,
+      callProviderMetadata,
       errorText: stringifyValue(result.output),
       input: call.input,
       state: "output-error",
       toolCallId: call.toolCallId,
       type,
-      ...meta,
-      ...(approval ? { approval } : {}),
     };
   }
 
   return {
+    approval,
+    callProviderMetadata,
     input: call.input,
     output: result.output,
     state: "output-available",
     toolCallId: call.toolCallId,
     type,
-    ...meta,
-    ...(approval ? { approval } : {}),
   };
 }
 
@@ -201,8 +201,8 @@ function rejectedApproval(
   return {
     approved: false,
     id: request.approvalId,
-    ...(response.reason === undefined ? {} : { reason: response.reason }),
-    ...(signature === undefined ? {} : { signature }),
+    reason: response.reason,
+    signature,
   };
 }
 
@@ -212,7 +212,7 @@ function pendingApproval(
 ): { id: string; signature?: string } {
   return {
     id: request.approvalId,
-    ...(signature === undefined ? {} : { signature }),
+    signature,
   };
 }
 
@@ -229,8 +229,8 @@ function approvedApproval(
   return {
     approved: true,
     id: request.approvalId,
-    ...(response.reason === undefined ? {} : { reason: response.reason }),
-    ...(signature === undefined ? {} : { signature }),
+    reason: response.reason,
+    signature,
   };
 }
 

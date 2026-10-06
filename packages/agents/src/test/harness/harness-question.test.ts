@@ -2,25 +2,24 @@ import { tool } from "ai";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
-import { createInMemoryAgentAuthorizer } from "../../authorization";
+import { createInMemoryAgentAuthorizer } from "../../authorization/authorization";
+import { createBuiltinCodingHarness } from "../../harness/builtin-coding";
+import { createDriverSession } from "../../harness/driver-session";
+import { createHarnessQuestionTool } from "../../harness/question";
 import type {
   DriverSessionSettings,
   HarnessQuestion,
   HarnessQuestionCallback,
   HarnessQuestionResult,
   HarnessTurnDriver,
-} from "../../harness";
-import {
-  createBuiltinCodingHarness,
-  createDriverSession,
-  createHarnessQuestionTool,
-} from "../../harness";
-import { InMemorySessionStore } from "../../session";
+} from "../../harness/turn-driver";
+import { InMemorySessionStore } from "../../session/store";
 import {
   createScriptedMockModel,
   textStreamResult,
   toolCallStreamResult,
 } from "../helpers/mock-language-model";
+import { textDelta } from "../helpers/stream-parts";
 
 const questions: [HarnessQuestion] = [
   {
@@ -60,10 +59,9 @@ function questioningDriver(): HarnessTurnDriver {
       });
       return {
         async *[Symbol.asyncIterator]() {
-          yield {
-            delta: result.outcome === "answered" ? "continued" : "declined",
-            type: "text-delta",
-          };
+          yield textDelta(
+            result.outcome === "answered" ? "continued" : "declined"
+          );
         },
       };
     },

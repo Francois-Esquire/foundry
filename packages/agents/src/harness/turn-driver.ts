@@ -1,19 +1,15 @@
+import type { ApprovalResolution } from "@foundry/lib/config/authorization";
 import type { ToolSet } from "ai";
-
 import type { ModelRoute } from "../agents/model";
-import type {
-  AgentAuthorizer,
-  ApprovalResolution,
-  Capability,
-  ToolSource,
-} from "../authorization";
+import type { AgentAuthorizer } from "../authorization/authorization";
+import type { Capability, ToolSource } from "../authorization/capability";
 import type {
   AgentApprovalRequest,
   SessionInput,
-  SessionMessage,
-  SessionStore,
   SessionStream,
-} from "../session";
+} from "../session/events";
+import type { SessionStore } from "../session/store";
+import type { SessionMessage } from "../session/types";
 import type { SessionStreamOptions } from "./session-harness";
 import type { StreamPart } from "./stream-transform";
 
@@ -26,7 +22,7 @@ export interface HarnessPermissionProfile {
 }
 
 export function validateHarnessProfile(
-  profile: HarnessPermissionProfile
+  profile: Pick<HarnessPermissionProfile, "maxSteps">
 ): void {
   if (!Number.isSafeInteger(profile.maxSteps) || profile.maxSteps < 1) {
     throw new Error("Harness maxSteps must be a positive safe integer.");
@@ -128,10 +124,10 @@ export interface HarnessSession {
   ): Promise<SessionMessage>;
   interrupt(): Promise<void>;
   readonly route: ModelRoute;
-  readonly sessionId: string | undefined;
+  readonly sessionId: string;
   steer(input: string): Promise<void>;
   stopActivity?(id: string): Promise<void>;
-  readonly store: SessionStore | undefined;
+  readonly store: SessionStore;
   stream(input: SessionInput, options?: SessionStreamOptions): SessionStream;
 }
 

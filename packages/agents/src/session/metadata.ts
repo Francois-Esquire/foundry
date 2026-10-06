@@ -1,3 +1,5 @@
+import type { LanguageModelUsage } from "ai";
+
 import type { MessageMetadata, SessionUsage } from "./types";
 
 /**
@@ -32,9 +34,9 @@ export interface RawUsage {
  * Project a store's raw metadata blob onto the canonical {@link MessageMetadata},
  * deep-picking exactly the known model / usage / timing fields and dropping the
  * rest. Store-agnostic: every persistent backend reads back the same canonical
- * shape, including the harness environment identity, so this normalization lives here once rather than being
- * re-implemented in each adapter. Returns `undefined` for an absent blob so it
- * drops cleanly out of an exactOptionalPropertyTypes object spread.
+ * shape, including the harness environment identity, so this normalization
+ * lives here once rather than being re-implemented in each adapter. Returns
+ * `undefined` for an absent blob.
  */
 export function normalizeMessageMetadata(
   raw: RawMessageMetadata | null | undefined
@@ -42,50 +44,68 @@ export function normalizeMessageMetadata(
   if (!raw) {
     return undefined;
   }
-  const usage = normalizeUsage(raw.usage);
-  return {
-    ...(raw.harnessEnvironment
-      ? {
-          harnessEnvironment: {
-            harness: raw.harnessEnvironment.harness,
-            id: raw.harnessEnvironment.id,
-          },
-        }
-      : {}),
-    ...(raw.model ? { model: raw.model } : {}),
-    ...(usage ? { usage } : {}),
-    ...(raw.timing
-      ? {
-          timing: {
-            completedAt: raw.timing.completedAt,
-            durationMs: raw.timing.durationMs,
-            startedAt: raw.timing.startedAt,
-          },
-        }
-      : {}),
-    ...(raw.notification ? { notification: raw.notification } : {}),
-  };
+  const metadata: MessageMetadata = {};
+  if (raw.harnessEnvironment) {
+    const { harness, id } = raw.harnessEnvironment;
+    metadata.harnessEnvironment = { harness, id };
+  }
+  if (raw.model) {
+    metadata.model = raw.model;
+  }
+  if (raw.usage) {
+    const {
+      cachedInputTokens,
+      cacheWriteTokens,
+      inputTokens,
+      outputTokens,
+      reasoningTokens,
+      totalTokens,
+    } = raw.usage;
+    const usage: SessionUsage = { inputTokens, outputTokens, totalTokens };
+    if (cachedInputTokens !== undefined) {
+      usage.cachedInputTokens = cachedInputTokens;
+    }
+    if (cacheWriteTokens !== undefined) {
+      usage.cacheWriteTokens = cacheWriteTokens;
+    }
+    if (reasoningTokens !== undefined) {
+      usage.reasoningTokens = reasoningTokens;
+    }
+    metadata.usage = usage;
+  }
+  if (raw.timing) {
+    const { completedAt, durationMs, startedAt } = raw.timing;
+    metadata.timing = { completedAt, durationMs, startedAt };
+  }
+  if (raw.notification) {
+    metadata.notification = raw.notification;
+  }
+  return metadata;
 }
 
-/** Narrow a store's raw usage to {@link SessionUsage}, keeping only known token fields. */
-export function normalizeUsage(
-  raw: RawUsage | null | undefined
-): SessionUsage | undefined {
-  if (!raw) {
-    return undefined;
-  }
-  return {
-    inputTokens: raw.inputTokens,
-    outputTokens: raw.outputTokens,
-    totalTokens: raw.totalTokens,
-    ...(raw.reasoningTokens === undefined
-      ? {}
-      : { reasoningTokens: raw.reasoningTokens }),
-    ...(raw.cachedInputTokens === undefined
-      ? {}
-      : { cachedInputTokens: raw.cachedInputTokens }),
-    ...(raw.cacheWriteTokens === undefined
-      ? {}
-      : { cacheWriteTokens: raw.cacheWriteTokens }),
+/**
+ * Narrow the AI SDK's turn usage to {@link SessionUsage}. Absent counts read
+ * as zero, a missing total as input plus output, and the cache and reasoning
+ * details are kept only when non-zero.
+ */
+export function normalizeUsage(usage: LanguageModelUsage): SessionUsage {
+  const inputTokens = usage.inputTokens ?? 0;
+  const outputTokens = usage.outputTokens ?? 0;
+  const result: SessionUsage = {
+    inputTokens,
+    outputTokens,
+    totalTokens: usage.totalTokens || inputTokens + outputTokens,
   };
+  const { cacheReadTokens, cacheWriteTokens } = usage.inputTokenDetails;
+  const { reasoningTokens } = usage.outputTokenDetails;
+  if (reasoningTokens) {
+    result.reasoningTokens = reasoningTokens;
+  }
+  if (cacheReadTokens) {
+    result.cachedInputTokens = cacheReadTokens;
+  }
+  if (cacheWriteTokens) {
+    result.cacheWriteTokens = cacheWriteTokens;
+  }
+  return result;
 }

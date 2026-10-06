@@ -1,6 +1,6 @@
 import type { ModelMessage } from "ai";
 
-import type { AgentAuthorizer } from "../authorization";
+import type { AgentAuthorizer } from "../authorization/authorization";
 
 export interface ConversationStore {
   append(
@@ -39,12 +39,12 @@ export function createInMemoryConversationStore(): ConversationStore {
 }
 
 export interface ToolContext {
-  mesh?: ConversationStore;
+  conversations?: ConversationStore;
   space?: string;
 }
 
 export interface ToolContextOptions {
-  mesh?: ConversationStore;
+  conversations?: ConversationStore;
   /**
    * The authority the calling harness is running under. Unlike everything
    * else here it never becomes a field on the context — see
@@ -78,7 +78,8 @@ const policies = new WeakMap<object, AgentAuthorizer>();
  * reshape (dynamically loaded tools and MCP servers change what belongs on
  * it), so this never rewrites it.
  *
- * Without a `base`, mints a plain context from the data options.
+ * Without a `base`, mints a plain context carrying only the data options
+ * that are set.
  */
 export function createToolContext<T extends object>(
   options: { policy: AgentAuthorizer },
@@ -89,9 +90,20 @@ export function createToolContext(
   options: ToolContextOptions = {},
   base?: object
 ): object {
-  const context = base ?? { mesh: options.mesh, space: options.space };
+  const context = base ?? mintToolContext(options);
   if (options.policy) {
     policies.set(context, options.policy);
+  }
+  return context;
+}
+
+function mintToolContext(options: ToolContextOptions): ToolContext {
+  const context: ToolContext = {};
+  if (options.conversations !== undefined) {
+    context.conversations = options.conversations;
+  }
+  if (options.space !== undefined) {
+    context.space = options.space;
   }
   return context;
 }
@@ -102,7 +114,7 @@ export function getConversationStore(
   if (typeof context !== "object" || context === null) {
     return undefined;
   }
-  return (context as ToolContext).mesh;
+  return (context as ToolContext).conversations;
 }
 
 export function getSpace(context: unknown): string | undefined {

@@ -13,7 +13,7 @@
  * resolves.
  */
 
-import type { CompactionSettings } from "../harness";
+import type { CompactionSettings } from "../harness/session-harness";
 import type { AgentSettings } from "./resolve";
 
 export type AgentSource =

@@ -1,6 +1,6 @@
 import type { ToolSet } from "ai";
 
-import type { Capability } from "../authorization";
+import type { Capability } from "../authorization/capability";
 import type {
   HarnessActivityEvent,
   HarnessToolEvent,

@@ -116,7 +116,7 @@ export class SessionWindow implements SessionStore {
     this.#state.set(sessionId, {
       lastEstimate: prev?.lastEstimate,
       lastInputTokens: usage.inputTokens,
-      ...(velocity === undefined ? {} : { velocity }),
+      velocity,
     });
   }
 

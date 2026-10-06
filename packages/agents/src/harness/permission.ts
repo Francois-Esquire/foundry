@@ -1,12 +1,13 @@
 import { randomUUID } from "node:crypto";
-
+import type { ApprovalResolution } from "@foundry/lib/config/authorization";
 import type {
   AgentAuthorizationDecision,
   AgentAuthorizationRequest,
-  ApprovalResolution,
-} from "../authorization";
-import type { AgentApprovalRequest, SessionPart } from "../session";
+} from "../authorization/authorization";
 import { validateApprovalResponse } from "../session/converter";
+import type { AgentApprovalRequest } from "../session/events";
+import type { SessionPart } from "../session/types";
+import { raceAbort } from "./abortable";
 import { harnessProfileDecision } from "./permission-profile";
 import { toolAuthorizationRequest } from "./tool-compiler";
 import type {
@@ -67,10 +68,8 @@ function authorizationRequest(
   >
 ): AgentAuthorizationRequest {
   return toolAuthorizationRequest({
+    agentGeneration: settings.agentGeneration,
     agentId: settings.agentId,
-    ...(settings.agentGeneration === undefined
-      ? {}
-      : { agentGeneration: settings.agentGeneration }),
     capability: request.capability ?? {
       kind: "tool.call",
       source: request.source ?? "harness",
@@ -133,22 +132,20 @@ async function recordApprovalRequest(
   waitsForApproval: boolean
 ): Promise<AgentApprovalRequest> {
   const approval: AgentApprovalRequest = {
+    activityId: request.activityId,
+    agentGeneration: settings.agentGeneration,
     agentId: settings.agentId,
     approvalId: randomUUID(),
-    ...(settings.agentGeneration === undefined
-      ? {}
-      : { agentGeneration: settings.agentGeneration }),
     capability: auth.capability,
     input: summarizeHarnessInput(request.input),
     toolCallId: request.toolCallId,
     toolName: request.toolName,
-    ...(request.activityId === undefined
-      ? {}
-      : { activityId: request.activityId }),
   };
   await settings.store.appendMessage({
     parts: [
       {
+        activityId: approval.activityId,
+        agentGeneration: settings.agentGeneration,
         agentId: settings.agentId,
         approvalId: approval.approvalId,
         approvalMode: waitsForApproval ? "live" : "deferred",
@@ -157,12 +154,6 @@ async function recordApprovalRequest(
         name: approval.toolName,
         toolCallId: approval.toolCallId,
         type: "tool_approval_request",
-        ...(approval.activityId === undefined
-          ? {}
-          : { activityId: approval.activityId }),
-        ...(settings.agentGeneration === undefined
-          ? {}
-          : { agentGeneration: settings.agentGeneration }),
       },
     ],
     role: "system",
@@ -188,7 +179,7 @@ async function resolveLiveApproval(
   if (!approve) {
     throw new Error("No live approver configured.");
   }
-  const resolution = await abortableApproval(
+  const resolution = await raceAbort(
     approve({
       ...approval,
       input: request.input,
@@ -196,47 +187,43 @@ async function resolveLiveApproval(
       sessionId: request.sessionId,
       signal: request.signal,
       ...(request.title ? { title: redactHarnessSummary(request.title) } : {}),
-      ...(request.suggestions === undefined
-        ? {}
-        : { suggestions: request.suggestions }),
+      suggestions: request.suggestions,
     }),
     request.signal
   );
   request.signal.throwIfAborted();
+  return await recordApprovalResponse(
+    settings,
+    auth,
+    request.sessionId,
+    approval.approvalId,
+    resolution
+  );
+}
+
+/** Resolve the grant through policy and record the outcome in the transcript. */
+async function recordApprovalResponse(
+  settings: Pick<HarnessAuthoritySettings, "store" | "policy">,
+  auth: AgentAuthorizationRequest,
+  sessionId: string,
+  approvalId: string,
+  resolution: ApprovalResolution
+): Promise<AgentAuthorizationDecision> {
   const decision = await settings.policy.resolveApproval(auth, resolution);
   await settings.store.appendMessage({
     parts: [
       {
-        approvalId: approval.approvalId,
+        approvalId,
         approved: decision.kind === "allow",
+        reason: decision.kind === "deny" ? decision.reason : undefined,
         scope: resolution.lifetime === "persistent" ? "always" : "once",
         type: "tool_approval_response",
-        ...(decision.kind === "deny" ? { reason: decision.reason } : {}),
       },
     ],
     role: "system",
-    sessionId: request.sessionId,
+    sessionId,
   });
   return decision;
-}
-
-async function abortableApproval<T>(
-  pending: Promise<T>,
-  signal: AbortSignal
-): Promise<T> {
-  signal.throwIfAborted();
-  let abort: (() => void) | undefined;
-  const cancelled = new Promise<never>((_resolve, reject) => {
-    abort = () => reject(signal.reason ?? new Error("Approval interrupted."));
-    signal.addEventListener("abort", abort, { once: true });
-  });
-  try {
-    return await Promise.race([pending, cancelled]);
-  } finally {
-    if (abort) {
-      signal.removeEventListener("abort", abort);
-    }
-  }
 }
 
 /** A scheduled request grants authority for a future invocation, never replays the CLI turn. */
@@ -307,18 +294,11 @@ export async function resolveHarnessApproval(
     toolCallId: part.toolCallId,
     toolName: part.name,
   });
-  const decision = await settings.policy.resolveApproval(auth, resolution);
-  await settings.store.appendMessage({
-    parts: [
-      {
-        approvalId,
-        approved: decision.kind === "allow",
-        scope: resolution.lifetime === "persistent" ? "always" : "once",
-        type: "tool_approval_response",
-        ...(decision.kind === "deny" ? { reason: decision.reason } : {}),
-      },
-    ],
-    role: "system",
+  await recordApprovalResponse(
+    settings,
+    auth,
     sessionId,
-  });
+    approvalId,
+    resolution
+  );
 }

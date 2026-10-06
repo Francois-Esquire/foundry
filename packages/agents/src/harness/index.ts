@@ -35,6 +35,7 @@ export type {
 } from "./session-harness";
 export { SessionHarness } from "./session-harness";
 export type {
+  HarnessStreamPart,
   StreamPart,
   StreamSource,
   TransformOptions,

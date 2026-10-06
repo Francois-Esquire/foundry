@@ -1,18 +1,17 @@
-import type {
-  AgentCallParameters,
-  AgentStreamParameters,
-  GenerateTextResult,
-  ModelMessage,
-  StreamTextResult,
-  ToolSet,
-} from "ai";
+import { randomUUID } from "node:crypto";
+import type { GenerateTextResult, StreamTextResult, ToolSet } from "ai";
 
-import type { LoopAgentSettings, TurnContext } from "../agents/loop-agent";
+import type {
+  LoopAgentCallParameters,
+  LoopAgentSettings,
+  LoopAgentStreamParameters,
+  TurnContext,
+} from "../agents/loop-agent";
 import { LoopAgent } from "../agents/loop-agent";
 import type { AgentModel, ModelRoute } from "../agents/model";
 import { routeOf } from "../agents/model";
-import type { AgentAuthorizer } from "../authorization";
-import { createInMemoryAgentAuthorizer } from "../authorization";
+import type { AgentAuthorizer } from "../authorization/authorization";
+import { createInMemoryAgentAuthorizer } from "../authorization/authorization";
 import { createToolContext } from "../tools/context";
 import { directToolEffectPort } from "./effect-port";
 import type { StreamPart } from "./stream-transform";
@@ -74,23 +73,15 @@ export type AgentHarnessSettings = Omit<LoopAgentSettings, "toolsContext"> & {
   /** Optional live authorization. The callback owns one claim before execution;
    * policy asks do not become SDK suspension/replay checkpoints. */
   permission?: HarnessPermissionCallback;
+  /** The session this harness acts for. A fresh id when omitted. */
+  sessionId?: string;
 };
 
-/**
- * Read a property off `target`, always invoking a function-typed value with
- * `this = target`. Backs the `stream`-augmenting proxy in {@link
- * AgentHarness.#withToolCallRegistration}: the AI SDK's `StreamTextResult`
- * methods close over private class fields, so calling one with the proxy
- * itself as `this` (the default when a method is looked up then invoked
- * through a Proxy) would fail that class's private-field brand check.
- */
-function delegateProperty(target: object, prop: string | symbol): unknown {
-  const value: unknown = Reflect.get(target, prop, target);
-  if (typeof value !== "function") {
-    return value;
-  }
-  const fn = value as (...args: unknown[]) => unknown;
-  return fn.bind(target);
+/** One streamed turn: the SDK result, and its parts with every tool call
+ *  stamped with the registration the compiler gave it. */
+export interface AgentHarnessStream {
+  readonly parts: AsyncIterable<StreamPart>;
+  readonly result: StreamTextResult<ToolSet, Record<string, unknown>, never>;
 }
 
 export class AgentHarness {
@@ -101,29 +92,30 @@ export class AgentHarness {
   readonly route: ModelRoute;
   /**
    * The authority this harness runs under — the one every compiled tool call
-   * is checked against, and the one attached to each call's tool context (see
-   * {@link AgentHarness.#toolContext}). Resolved once at construction
-   * from `settings.policy`, or the permissive default when a caller
-   * configures none. `SessionHarness` inherits it unchanged: it forwards its
-   * settings straight through `super(...)`, so a session and the agent it
-   * runs are never under two different policies.
+   * is checked against, and the one attached to its tool context. Resolved
+   * once at construction from `settings.policy`, or the permissive default
+   * when a caller configures none.
    */
   readonly policy: AgentAuthorizer;
   /** The agent preset this harness runs as — the Subject of its authorization. */
   readonly agentId: string;
   /** The preset generation, when the host tracks generations. */
   readonly agentGeneration?: number;
+  /** The session this harness acts for: the `scopeId` of every authorization
+   *  request its tools make, and the session its turns are observed under. */
+  readonly sessionId: string;
   readonly #registrationFor: ReturnType<typeof compileTools>["registrationFor"];
-  /** The object every tool of the current call receives as its `context`. */
-  #currentToolContext: Record<string, unknown>;
+  /** The object every tool receives as its `context`. */
+  readonly #toolsContext: Record<string, unknown>;
 
-  constructor(settings: AgentHarnessSettings, context: TurnContext) {
+  constructor(settings: AgentHarnessSettings, context?: TurnContext) {
     const {
       tools,
       policy,
       effectPort,
       agentId,
       agentGeneration,
+      sessionId,
       toolsContext,
       permission,
       ...rest
@@ -133,137 +125,73 @@ export class AgentHarness {
     this.route = routeOf(settings.model);
     this.policy = policy ?? defaultPermissiveAuthorizer();
     this.agentId = agentId ?? DEFAULT_AGENT_ID;
-    if (agentGeneration !== undefined) {
-      this.agentGeneration = agentGeneration;
-    }
+    this.agentGeneration = agentGeneration;
+    // Fixed before any tool is compiled: every call's authorization request is
+    // scoped by it, and a session-lifetime Grant cannot be issued without one.
+    this.sessionId = sessionId ?? context?.sessionId ?? randomUUID();
     // Every tool is compiled through the same policy/effect seam; a later
     // entry in the caller's map wins on a duplicate name, as in any spread.
     const compiled = compileTools(tools ?? {}, {
+      agentGeneration,
       agentId: this.agentId,
-      ...(agentGeneration === undefined ? {} : { agentGeneration }),
-      ...(context.sessionId ? { sessionId: context.sessionId } : {}),
       effectPort: effectPort ?? directToolEffectPort,
+      permission,
       policy: this.policy,
-      ...(permission ? { permission } : {}),
+      sessionId: this.sessionId,
     });
     this.#registrationFor = compiled.registrationFor;
+
+    // The caller's object comes back unchanged and identical — the host owns
+    // that shape, and `createToolContext` attaches the policy beside it rather
+    // than rewriting it. The SDK constrains tool context to
+    // `Record<string, unknown>`; our own context types stay interfaces, so the
+    // widening happens once, here.
+    this.#toolsContext = (
+      toolsContext === undefined
+        ? createToolContext({ policy: this.policy })
+        : createToolContext({ policy: this.policy }, toolsContext)
+    ) as Record<string, unknown>;
 
     const agentSettings: LoopAgentSettings = { ...rest, tools: compiled.tools };
     // AI SDK v7 takes tool context on the agent rather than per call, and keys
     // it by tool name. Every tool gets the *same* object, which is what the v6
     // single `experimental_context` did — identity is the contract, since hosts
     // freeze and brand what they pass (`@foundry/analyze` puts its live
-    // dispatch behind a `WeakSet`). Copying a context would strip that brand,
-    // so each entry is a getter onto the current one: the agent is built once,
-    // and a subclass can still swap in a later-resolved context (a session's id
-    // is only known on its first turn) without any copy. The SDK reads
-    // `toolsContext[toolName]` per call and never clones the map.
+    // dispatch behind a `WeakSet`), and copying would strip that brand.
     //
     // Assigned rather than inlined because the SDK types this off each tool's
     // `contextSchema`, which a broadly-typed `ToolSet` cannot express.
-    this.#currentToolContext = this.#toolContext(toolsContext);
-    const toolsContextMap: Record<string, unknown> = {};
-    for (const name of Object.keys(compiled.tools)) {
-      Object.defineProperty(toolsContextMap, name, {
-        configurable: true,
-        enumerable: true,
-        get: () => this.#currentToolContext,
-      });
-    }
     (agentSettings as { toolsContext?: Record<string, unknown> }).toolsContext =
-      toolsContextMap;
+      Object.fromEntries(
+        Object.keys(compiled.tools).map((name) => [name, this.#toolsContext])
+      );
 
-    this.agent = new LoopAgent(agentSettings, context);
+    this.agent = new LoopAgent(agentSettings, { sessionId: this.sessionId });
   }
-  async stream(
-    opts: AgentStreamParameters<never, ToolSet>
-  ): Promise<StreamTextResult<ToolSet, Record<string, unknown>, never>> {
+
+  /**
+   * Stream one turn. `parts` carries registration provenance on each tool call
+   * and the derived `capability` on each approval request — the facts the
+   * session layer persists, which only the live compiler still knows.
+   */
+  async stream(opts: LoopAgentStreamParameters): Promise<AgentHarnessStream> {
     const result = await this.agent.stream(opts);
-    return this.#withToolCallRegistration(result, opts);
-  }
-
-  /**
-   * One call's tool context: whatever the caller passed, carrying this
-   * harness's {@link AgentHarness.policy}, so a tool can reach the authority
-   * it runs under without the host threading one through its own context
-   * shape.
-   *
-   * The caller's object comes back unchanged and identical — the host owns
-   * that shape, and `createToolContext` attaches the policy beside it rather
-   * than rewriting it. A non-object context (the SDK types it `unknown`) can
-   * carry nothing and passes straight through; losing the caller's value
-   * would be the worse failure, and `getPolicy` already reports absence.
-   */
-  // AI SDK v7 constrains runtime context to a record, so a primitive context is
-  // no longer representable — every caller context flows through createToolContext.
-  #toolContext(
-    context: Record<string, unknown> | undefined
-  ): Record<string, unknown> {
-    // The SDK constrains tool context to `Record<string, unknown>`; our own
-    // context types stay interfaces, so the widening happens once, here.
-    return (
-      context === undefined
-        ? createToolContext({ policy: this.policy })
-        : createToolContext({ policy: this.policy }, context)
-    ) as Record<string, unknown>;
-  }
-
-  /**
-   * Point the agent's tool context at `context` for the calls that follow.
-   * The caller's object is carried through unchanged and identical — a host
-   * that branded it keeps that brand — so a subclass whose context only
-   * resolves per turn never has to rebuild the agent.
-   */
-  protected setToolsContext(
-    context: Record<string, unknown> | undefined
-  ): void {
-    this.#currentToolContext = this.#toolContext(context);
-  }
-
-  /**
-   * Attach registration provenance to tool calls and the derived `capability`
-   * to approval requests on `stream`. Delegates
-   * every other property/method to the real result unchanged: the AI SDK's
-   * `StreamTextResult` implementation backs its getters/methods with
-   * private class fields, so the proxy always resolves and binds against
-   * the real `target`, never the proxy itself, to avoid failing that
-   * private-field brand check.
-   */
-  #withToolCallRegistration(
-    result: StreamTextResult<ToolSet, Record<string, unknown>, never>,
-    opts: { messages?: ModelMessage[] }
-  ): StreamTextResult<ToolSet, Record<string, unknown>, never> {
-    const registrationFor = this.#registrationFor;
-    const call = {
-      agentId: this.agentId,
-      // The context the tools of this call actually receive. v7 binds it to the
-      // agent, so it is read here rather than off the call's parameters —
-      // capability derivation needs the host's branded object, not `undefined`.
-      experimentalContext: this.#currentToolContext,
-      messages: opts.messages ?? [],
-      ...(this.agentGeneration === undefined
-        ? {}
-        : { agentGeneration: this.agentGeneration }),
+    return {
+      parts: withToolCallRegistration(result.stream, this.#registrationFor, {
+        experimentalContext: this.#toolsContext,
+        messages: opts.messages ?? [],
+      }),
+      result,
     };
-    const handler: ProxyHandler<
-      StreamTextResult<ToolSet, Record<string, unknown>, never>
-    > = {
-      get(target, prop) {
-        if (prop === "stream") {
-          return withToolCallRegistration(
-            target.stream as unknown as AsyncIterable<StreamPart>,
-            registrationFor,
-            call
-          );
-        }
-        return delegateProperty(target, prop);
-      },
-    };
-    return new Proxy(result, handler);
   }
 
+  /**
+   * Run one turn to completion. There are no parts to stamp: the compiled
+   * tools authorize every call just as they do when streaming, and the
+   * provenance stamping only serves the session layer, which always streams.
+   */
   generate(
-    opts: AgentCallParameters<never, ToolSet>
+    opts: LoopAgentCallParameters
   ): Promise<GenerateTextResult<ToolSet, Record<string, unknown>, never>> {
     return this.agent.generate(opts);
   }

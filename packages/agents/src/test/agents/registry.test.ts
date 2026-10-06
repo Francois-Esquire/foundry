@@ -3,7 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 import type { AgentEntry } from "../../agents/registry";
 import { createAgentRegistry, resolveAgentEntry } from "../../agents/registry";
 import type { AgentPreset } from "../../agents/resolve";
-import type { AgentHarness, SessionHarness } from "../../harness";
+import type { AgentHarness } from "../../harness/agent-harness";
+import type { SessionHarness } from "../../harness/session-harness";
 
 const ALREADY_REGISTERED_AT_GENERATION_1_PATTERN =
   /already registered at generation 1/;

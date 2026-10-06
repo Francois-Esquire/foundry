@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { AgentAuthorizer } from "../../authorization";
+import type { AgentAuthorizer } from "../../authorization/authorization";
 import {
   createInMemoryConversationStore,
   createToolContext,
@@ -17,21 +17,35 @@ function fakePolicy(): AgentAuthorizer {
 describe("createToolContext (engine-free base)", () => {
   it("defaults to an empty context", () => {
     const ctx = createToolContext();
-    expect(ctx.mesh).toBeUndefined();
-    expect(ctx.space).toBeUndefined();
+    expect(Reflect.ownKeys(ctx)).toEqual([]);
   });
 
-  it("threads mesh + space through the options bag", () => {
-    const mesh = createInMemoryConversationStore();
-    const ctx = createToolContext({ mesh, space: "boot-1" });
-    expect(ctx.mesh).toBe(mesh);
+  it("threads conversations + space through the options bag", () => {
+    const conversations = createInMemoryConversationStore();
+    const ctx = createToolContext({ conversations, space: "boot-1" });
+    expect(ctx.conversations).toBe(conversations);
     expect(ctx.space).toBe("boot-1");
   });
 
+  it("carries only the options that are set", () => {
+    const ctx = createToolContext({ space: "boot-3" });
+    expect(Reflect.ownKeys(ctx)).toEqual(["space"]);
+  });
+
+  it("attaches a policy beside a minted context, never onto it", () => {
+    const policy = fakePolicy();
+    const ctx = createToolContext({ policy });
+    expect(Reflect.ownKeys(ctx)).toEqual([]);
+    expect(getPolicy(ctx)).toBe(policy);
+  });
+
   it("getConversationStore / getSpace read off an opaque tool context", () => {
-    const mesh = createInMemoryConversationStore();
-    const opaque: unknown = createToolContext({ mesh, space: "boot-9" });
-    expect(getConversationStore(opaque)).toBe(mesh);
+    const conversations = createInMemoryConversationStore();
+    const opaque: unknown = createToolContext({
+      conversations,
+      space: "boot-9",
+    });
+    expect(getConversationStore(opaque)).toBe(conversations);
     expect(getSpace(opaque)).toBe("boot-9");
 
     const bare: unknown = createToolContext();
@@ -56,14 +70,14 @@ describe("createToolContext — attaching a policy to a host's own context", () 
   });
 
   it("leaves the host's own shape entirely alone — it owns what goes on it", () => {
-    const mesh = createInMemoryConversationStore();
+    const conversations = createInMemoryConversationStore();
     const policy = fakePolicy();
-    const base = { engine: "the-engine", mesh, space: "host-space" };
+    const base = { conversations, engine: "the-engine", space: "host-space" };
 
     const context: unknown = createToolContext({ policy }, base);
 
     expect((context as { engine: string }).engine).toBe("the-engine");
-    expect(getConversationStore(context)).toBe(mesh);
+    expect(getConversationStore(context)).toBe(conversations);
     expect(getSpace(context)).toBe("host-space");
     expect(getPolicy(context)).toBe(policy);
   });

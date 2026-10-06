@@ -2,6 +2,8 @@ import type { Tool } from "ai";
 import { tool } from "ai";
 import { z } from "zod";
 
+import { raceAbort } from "./abortable";
+
 import type {
   HarnessQuestionCallback,
   HarnessQuestionRequest,
@@ -182,17 +184,8 @@ async function waitForAnswer(
   pending: Promise<HarnessQuestionResult>,
   signal: AbortSignal
 ): Promise<HarnessQuestionResult> {
-  signal.throwIfAborted();
-  let abort: (() => void) | undefined;
-  const cancellation = new Promise<never>((_resolve, reject) => {
-    abort = () =>
-      reject(
-        signal.reason ?? new DOMException("Question interrupted.", "AbortError")
-      );
-    signal.addEventListener("abort", abort, { once: true });
-  });
   try {
-    return await Promise.race([pending, cancellation]);
+    return await raceAbort(pending, signal);
   } catch (error) {
     if (signal.aborted) {
       throw error;
@@ -200,10 +193,6 @@ async function waitForAnswer(
     // Host exceptions may echo credentials or answer values into the transcript.
     // biome-ignore lint/style/useErrorCause: Original exceptions may contain secrets and must not reach host event logs.
     throw new Error("Host question handler failed.");
-  } finally {
-    if (abort) {
-      signal.removeEventListener("abort", abort);
-    }
   }
 }
 

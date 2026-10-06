@@ -7,7 +7,7 @@ import { z } from "zod";
 import type {
   AgentAuthorizationDecision,
   AgentAuthorizer,
-} from "../../authorization";
+} from "../../authorization/authorization";
 import { compileRegistrations } from "../../harness/tool-compiler";
 import type { RegisteredToolCall, ToolEffectPort } from "../../harness/types";
 import { registrationsOf } from "../../harness/types";
@@ -66,6 +66,7 @@ describe("tool effect seam", () => {
       agentId: "a1",
       effectPort: port,
       policy: allowPolicy(),
+      sessionId: "s1",
     });
 
     const out: unknown = await compiled.tools.echo?.execute?.(
@@ -91,6 +92,7 @@ describe("tool effect seam", () => {
       agentId: "a1",
       effectPort: port,
       policy: fakeAuthorizer(() => denyDecision),
+      sessionId: "s1",
     });
 
     const out: unknown = await compiled.tools.echo?.execute?.(

@@ -3,18 +3,18 @@ import { describe, expect, it, vi } from "vitest";
 import {
   agentSubject,
   createInMemoryAgentAuthorizer,
-} from "../../authorization";
-import type {
-  HarnessAuthoritySettings,
-  HarnessPermissionRequest,
-} from "../../harness";
+} from "../../authorization/authorization";
 import {
   createHarnessPermission,
   redactHarnessSummary,
   resolveHarnessApproval,
   summarizeHarnessInput,
-} from "../../harness";
-import { InMemorySessionStore } from "../../session";
+} from "../../harness/permission";
+import type {
+  HarnessAuthoritySettings,
+  HarnessPermissionRequest,
+} from "../../harness/turn-driver";
+import { InMemorySessionStore } from "../../session/store";
 
 function request(
   signal = new AbortController().signal

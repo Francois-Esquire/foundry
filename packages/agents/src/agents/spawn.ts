@@ -67,19 +67,17 @@ export function createSpawnTool(deps: SpawnDeps) {
 
       // (2) mint the child + write linkage + freeze depth, in one createSession call (§0, ruling 0007).
       const childSession = await deps.store.createSession({
+        parentMessageId: deps.parentMessageId,
         parentSessionId: deps.parentSession.id,
-        ...(deps.parentMessageId === undefined
-          ? {}
-          : { parentMessageId: deps.parentMessageId }),
         recursionDepth: parentDepth + 1,
       });
 
       // (3) run bound to the CHILD session (never the parent's). The delegation prompt
       //     is the ONLY parent→child channel (Invariant 6).
       const run = await deps.runAgent(agent, {
+        abortSignal,
         prompt,
         session: childSession,
-        ...(abortSignal ? { abortSignal } : {}),
       });
 
       // (4) foreground: collapse ONLY the final result (ruling 0008 R2).

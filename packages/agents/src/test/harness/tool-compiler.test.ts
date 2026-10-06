@@ -1,19 +1,18 @@
-import type { Tool, ToolExecutionOptions } from "ai";
+import type { TextStreamPart, Tool, ToolExecutionOptions, ToolSet } from "ai";
 
 import { tool } from "ai";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-
-import type { CommandAuthorityDefinition } from "../../authorization";
-import {
-  classifyCommandCapability,
-  createInMemoryAgentAuthorizer,
-} from "../../authorization";
+import type { AgentAuthorizationRequest } from "../../authorization/authorization";
+import { createInMemoryAgentAuthorizer } from "../../authorization/authorization";
+import type { CommandAuthorityDefinition } from "../../authorization/capability";
+import { classifyCommandCapability } from "../../authorization/capability";
 import { directToolEffectPort } from "../../harness/effect-port";
 import {
   compileRegistrations,
   compileTool,
   compileTools,
+  toolAuthorizationRequest,
   withToolCallRegistration,
 } from "../../harness/tool-compiler";
 import type {
@@ -101,6 +100,7 @@ describe("tool-compiler — compileTool", () => {
       agentId: "a1",
       effectPort: port,
       policy: fakePolicy(() => ({ kind: "allow", source: "grant" })),
+      sessionId: "s1",
     });
 
     const result: unknown = await compiled.execute?.(
@@ -129,6 +129,7 @@ describe("tool-compiler — compileTool", () => {
       agentId: "a1",
       effectPort: port,
       policy: fakePolicy(() => ({ kind: "allow", source: "grant" })),
+      sessionId: "s1",
     });
 
     // What the AI SDK checks: a synchronous async-iterable return, not a Promise.
@@ -161,6 +162,7 @@ describe("tool-compiler — compileTool", () => {
         reason: "nope",
         source: "policy",
       })),
+      sessionId: "s1",
     });
     const result = compiled.execute?.(
       { x: 1 },
@@ -187,6 +189,7 @@ describe("tool-compiler — compileTool", () => {
         reason: "nope",
         source: "policy",
       })),
+      sessionId: "s1",
     });
 
     const result: unknown = await compiled.execute?.(
@@ -206,6 +209,7 @@ describe("tool-compiler — compileTool", () => {
       agentId: "a1",
       effectPort: directToolEffectPort,
       policy: fakePolicy(() => ({ kind: "requires-approval" })),
+      sessionId: "s1",
     });
 
     const needs = await needsApproval(compiled, { x: 1 }, callOptions("c1"));
@@ -229,6 +233,7 @@ describe("tool-compiler — compileTool", () => {
       agentId: "a1",
       effectPort: directToolEffectPort,
       policy: fakePolicy(() => ({ kind: "requires-approval" })),
+      sessionId: "s1",
     });
     const messages = [
       {
@@ -268,6 +273,7 @@ describe("tool-compiler — compileTool", () => {
       agentId: "a1",
       effectPort: directToolEffectPort,
       policy: fakePolicy(() => ({ kind: "allow", source: "grant" })),
+      sessionId: "s1",
     });
 
     const messages = [
@@ -313,6 +319,7 @@ describe("tool-compiler — compileTool", () => {
       agentId: "a1",
       effectPort: directToolEffectPort,
       policy: fakePolicy(() => ({ kind: "allow", source: "grant" })),
+      sessionId: "s1",
     });
 
     const needs = await needsApproval(compiled, { x: 1 }, callOptions("c1"));
@@ -333,6 +340,7 @@ describe("tool-compiler — compileTool", () => {
       agentId: "a1",
       effectPort: directToolEffectPort,
       policy,
+      sessionId: "s1",
     });
 
     // The grant is revoked between the human's approval and the continuation
@@ -356,6 +364,7 @@ describe("tool-compiler — compileTool", () => {
       agentId: "a1",
       effectPort: directToolEffectPort,
       policy: fakePolicy(() => ({ kind: "allow", source: "grant" })),
+      sessionId: "s1",
     });
 
     await expect(
@@ -375,6 +384,7 @@ describe("tool-compiler — compileTool", () => {
       agentId: "a1",
       effectPort: directToolEffectPort,
       policy: fakePolicy(() => ({ kind: "allow", source: "grant" })),
+      sessionId: "s1",
     });
 
     const result: unknown = await compiled.execute?.(
@@ -392,6 +402,7 @@ describe("tool-compiler — compileTool", () => {
       agentId: "a1",
       effectPort: directToolEffectPort,
       policy: fakePolicy(() => ({ kind: "allow", source: "grant" })),
+      sessionId: "s1",
     });
 
     await compiled.execute?.({ x: 1 }, callOptions("c1"));
@@ -483,6 +494,7 @@ describe("tool-compiler — compileTool", () => {
       agentId: "a1",
       effectPort: directToolEffectPort,
       policy: fakePolicy(() => ({ kind: "allow", source: "grant" })),
+      sessionId: "s1",
     });
 
     expect(
@@ -535,9 +547,49 @@ describe("tool-compiler — compileTool", () => {
       agentId: "a1",
       effectPort: directToolEffectPort,
       policy: fakePolicy(() => ({ kind: "allow", source: "grant" })),
+      sessionId: "s1",
     });
 
     expect(compiled).toBe(clientTool);
+  });
+});
+
+describe("tool-compiler — toolAuthorizationRequest", () => {
+  it("asks exactly what a compiled call asks, invocation id included", async () => {
+    const requests: AgentAuthorizationRequest[] = [];
+    const compiled = compileRegistrations([registrationFor(() => "ran")], {
+      agentGeneration: 2,
+      agentId: "a1",
+      effectPort: directToolEffectPort,
+      policy: fakePolicy((request) => {
+        requests.push(request);
+        return { kind: "allow", source: "grant" };
+      }),
+      sessionId: "s1",
+    });
+
+    await compiled.tools.double?.execute?.({ x: 1 }, callOptions("c1"));
+    const registration = compiled.registrationFor(
+      "double",
+      { x: 1 },
+      { messages: [], toolCallId: "c1" }
+    );
+
+    expect(requests[0]).toEqual(
+      toolAuthorizationRequest({
+        agentGeneration: 2,
+        agentId: "a1",
+        capability: { kind: "tool.call", source: "declared", tool: "double" },
+        input: { x: 1 },
+        sessionId: "s1",
+        tool: { name: "double", source: "declared" },
+        toolCallId: "c1",
+      })
+    );
+    expect(requests[0]).toMatchObject({
+      invocationId: registration?.invocationId,
+      scopeId: "s1",
+    });
   });
 });
 
@@ -564,6 +616,7 @@ describe("tool-compiler — tagged tools", () => {
         agentId: "a1",
         effectPort: directToolEffectPort,
         policy: fakePolicy(() => ({ kind: "allow", source: "grant" })),
+        sessionId: "s1",
       }
     );
 
@@ -610,6 +663,7 @@ describe("tool-compiler — plain tool map", () => {
       agentId: "a1",
       effectPort: directToolEffectPort,
       policy,
+      sessionId: "s1",
     });
 
     const result: unknown = await compiled.tools.legacy?.execute?.(
@@ -655,8 +709,9 @@ describe("tool-compiler — withToolCallRegistration", () => {
       agentId: "a1",
       effectPort: directToolEffectPort,
       policy: fakePolicy(() => ({ kind: "allow", source: "grant" })),
+      sessionId: "s1",
     });
-    const source = singleChunk({
+    const source = singleChunk<TextStreamPart<ToolSet>>({
       input: { x: 1 },
       toolCallId: "c1",
       toolName: "double",
@@ -667,7 +722,7 @@ describe("tool-compiler — withToolCallRegistration", () => {
     for await (const chunk of withToolCallRegistration(
       source,
       compiled.registrationFor,
-      { agentId: "a1", messages: [] }
+      { messages: [] }
     )) {
       out.push(chunk);
     }
@@ -683,7 +738,8 @@ describe("tool-compiler — withToolCallRegistration", () => {
             tool: "double",
           },
           effectLocation: "runtime",
-          invocationId: "a1:c1",
+          invocationId: "a1:s1:c1",
+          sessionId: "s1",
           source: "mcp",
         },
         toolCallId: "c1",

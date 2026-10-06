@@ -138,13 +138,12 @@ export function createCodexEvents(options: EventOptions) {
             ),
             type: "error",
           }),
-        "item/agentMessage/delta": () =>
-          push({ delta: String(params.delta ?? ""), type: "text-delta" }),
+        "item/agentMessage/delta": () => push(deltaPart("text-delta", params)),
         "item/completed": () => itemEvent(params, false),
         "item/reasoning/summaryTextDelta": () =>
-          push({ delta: String(params.delta ?? ""), type: "reasoning-delta" }),
+          push(deltaPart("reasoning-delta", params)),
         "item/reasoning/textDelta": () =>
-          push({ delta: String(params.delta ?? ""), type: "reasoning-delta" }),
+          push(deltaPart("reasoning-delta", params)),
         "item/started": () => itemEvent(params, true),
         "thread/tokenUsage/updated": () => push(usagePart(params)),
         "turn/completed": async () => {
@@ -200,16 +199,40 @@ function toolOutcome(
   return "ran";
 }
 
+function deltaPart(
+  type: "text-delta" | "reasoning-delta",
+  params: Record<string, unknown>
+): StreamPart {
+  return {
+    id: String(params.itemId ?? ""),
+    text: String(params.delta ?? ""),
+    type,
+  };
+}
+
+/** Codex reports usage as it changes; each update replaces the turn's total. */
 function usagePart(params: Record<string, unknown>): StreamPart {
   const usage = record(record(params.tokenUsage).last);
   return {
-    type: "finish",
-    usage: {
-      inputTokens: usage.inputTokens ?? 0,
-      outputTokens: usage.outputTokens ?? 0,
-      totalTokens: usage.totalTokens ?? 0,
+    finishReason: "other",
+    rawFinishReason: undefined,
+    totalUsage: {
+      inputTokenDetails: {
+        cacheReadTokens: undefined,
+        cacheWriteTokens: undefined,
+        noCacheTokens: undefined,
+      },
+      inputTokens: tokenCount(usage.inputTokens),
+      outputTokenDetails: { reasoningTokens: undefined, textTokens: undefined },
+      outputTokens: tokenCount(usage.outputTokens),
+      totalTokens: tokenCount(usage.totalTokens),
     },
+    type: "finish",
   };
+}
+
+function tokenCount(value: unknown): number {
+  return typeof value === "number" ? value : 0;
 }
 
 function itemToolName(item: Record<string, unknown>): string {

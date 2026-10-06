@@ -4,29 +4,37 @@ import {
   normalizeMessageMetadata,
   normalizeUsage,
 } from "../../session/metadata";
+import { usage } from "../helpers/stream-parts";
 
 describe("normalizeUsage", () => {
-  it("returns undefined for an absent blob", () => {
-    expect(normalizeUsage(null)).toBeUndefined();
-    expect(normalizeUsage(undefined)).toBeUndefined();
-  });
-
-  it("keeps the required token fields and drops absent optionals", () => {
+  it("keeps the token counts and drops absent details", () => {
     expect(
-      normalizeUsage({ inputTokens: 10, outputTokens: 5, totalTokens: 15 })
+      normalizeUsage(
+        usage({ inputTokens: 10, outputTokens: 5, totalTokens: 15 })
+      )
     ).toEqual({ inputTokens: 10, outputTokens: 5, totalTokens: 15 });
   });
 
-  it("carries cache-read and cache-write tokens when present", () => {
+  it("reads absent counts as zero and derives a missing total", () => {
+    expect(normalizeUsage(usage({ inputTokens: 3, outputTokens: 4 }))).toEqual({
+      inputTokens: 3,
+      outputTokens: 4,
+      totalTokens: 7,
+    });
+  });
+
+  it("lifts cache and reasoning tokens out of the SDK's nested details", () => {
     expect(
-      normalizeUsage({
-        cachedInputTokens: 8,
-        cacheWriteTokens: 3,
-        inputTokens: 10,
-        outputTokens: 5,
-        reasoningTokens: 2,
-        totalTokens: 15,
-      })
+      normalizeUsage(
+        usage({
+          cacheReadTokens: 8,
+          cacheWriteTokens: 3,
+          inputTokens: 10,
+          outputTokens: 5,
+          reasoningTokens: 2,
+          totalTokens: 15,
+        })
+      )
     ).toEqual({
       cachedInputTokens: 8,
       cacheWriteTokens: 3,
@@ -35,17 +43,6 @@ describe("normalizeUsage", () => {
       reasoningTokens: 2,
       totalTokens: 15,
     });
-  });
-
-  it("drops unknown fields a store may carry", () => {
-    const result = normalizeUsage({
-      inputTokens: 1,
-      outputTokens: 1,
-      // @ts-expect-error — a store row may carry fields outside the canonical shape
-      somethingElse: 99,
-      totalTokens: 2,
-    });
-    expect(result).not.toHaveProperty("somethingElse");
   });
 });
 
@@ -74,6 +71,26 @@ describe("normalizeMessageMetadata", () => {
       },
       timing: { completedAt: 3, durationMs: 2, startedAt: 1 },
       usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+    });
+  });
+
+  it("deep-picks the known usage fields a store row carries", () => {
+    expect(
+      normalizeMessageMetadata({
+        usage: {
+          cachedInputTokens: 8,
+          inputTokens: 1,
+          outputTokens: 1,
+          // @ts-expect-error — a store row may carry fields outside the canonical shape
+          somethingElse: 99,
+          totalTokens: 2,
+        },
+      })?.usage
+    ).toStrictEqual({
+      cachedInputTokens: 8,
+      inputTokens: 1,
+      outputTokens: 1,
+      totalTokens: 2,
     });
   });
 

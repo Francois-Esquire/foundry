@@ -5,11 +5,13 @@ import { z } from "zod";
 import type {
   AgentAuthorizationRequest,
   AgentAuthorizer,
-} from "../../authorization";
-import { AgentHarness, SessionHarness, tagTool } from "../../harness";
+} from "../../authorization/authorization";
+import { AgentHarness } from "../../harness/agent-harness";
+import { SessionHarness } from "../../harness/session-harness";
 import { toolAuthorizationContext } from "../../harness/tool-compiler";
-import type { SessionEvent } from "../../session";
-import { InMemorySessionStore } from "../../session";
+import { tagTool } from "../../harness/types";
+import type { SessionEvent } from "../../session/events";
+import { InMemorySessionStore } from "../../session/store";
 import { fakeAuthorizer } from "../helpers/authorizer";
 import {
   createScriptedMockModel,
@@ -84,17 +86,14 @@ describe("SessionHarness — mesh tool attribution", () => {
 
 describe("AgentHarness — duplicate tool name precedence", () => {
   it("the later entry in the tools map wins on a duplicate name, tagged or not", () => {
-    const harness = new AgentHarness(
-      {
-        instructions: "x",
-        model: createScriptedMockModel({}),
-        tools: {
-          ...{ dup: noopTool("first") },
-          ...{ dup: tagTool(noopTool("second"), { source: "skill" }) },
-        },
+    const harness = new AgentHarness({
+      instructions: "x",
+      model: createScriptedMockModel({}),
+      tools: {
+        ...{ dup: noopTool("first") },
+        ...{ dup: tagTool(noopTool("second"), { source: "skill" }) },
       },
-      { sessionId: "" }
-    );
+    });
 
     expect(harness.agent.tools.dup?.description).toBe("second");
   });
@@ -102,14 +101,11 @@ describe("AgentHarness — duplicate tool name precedence", () => {
   it("rejects a caller tool that collides with a mesh tool", () => {
     expect(
       () =>
-        new SessionHarness(
-          {
-            instructions: "x",
-            model: createScriptedMockModel({}),
-            tools: { list_agents: noopTool("mine") },
-          },
-          { sessionId: "" }
-        )
+        new SessionHarness({
+          instructions: "x",
+          model: createScriptedMockModel({}),
+          tools: { list_agents: noopTool("mine") },
+        })
     ).toThrow("Duplicate tool binding: list_agents");
   });
 });

@@ -1,4 +1,5 @@
-import type { SessionMessage } from "../session";
+import type { SessionStore } from "../session/store";
+import type { SessionMessage } from "../session/types";
 import { redactHarnessSummary } from "./permission";
 import type { HarnessActivity, HarnessActivityEvent } from "./turn-driver";
 
@@ -27,16 +28,13 @@ export function isActivityActive(activity: HarnessActivityEvent): boolean {
   return activity.status === "running" || activity.status === "waiting";
 }
 
-const activityWrites = new WeakMap<
-  import("../session").SessionStore,
-  Map<string, Promise<void>>
->();
+const activityWrites = new WeakMap<SessionStore, Map<string, Promise<void>>>();
 
 export function createHarnessActivityRecorder(settings: {
   agentId: string;
   harness: string;
   sessionId: string;
-  store: import("../session").SessionStore;
+  store: SessionStore;
   onActivity?: (event: HarnessActivityEvent) => void | Promise<void>;
 }): (activity: HarnessActivity) => Promise<HarnessActivityEvent | undefined> {
   let writes = activityWrites.get(settings.store);

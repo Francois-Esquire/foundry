@@ -1,10 +1,11 @@
 import { tool } from "ai";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { createInMemoryAgentAuthorizer } from "../../authorization";
-import { SessionHarness, tagTool } from "../../harness";
-import type { SessionEvent } from "../../session";
-import { InMemorySessionStore } from "../../session";
+import { createInMemoryAgentAuthorizer } from "../../authorization/authorization";
+import { SessionHarness } from "../../harness/session-harness";
+import { tagTool } from "../../harness/types";
+import type { SessionEvent } from "../../session/events";
+import { InMemorySessionStore } from "../../session/store";
 import {
   createScriptedMockModel,
   toolCallStreamResult,
@@ -82,9 +83,9 @@ describe("stream-transform capability seam (task-03)", () => {
 
     // The persisted Session part carries the same capability, since
     // `transformStream` (task-02) writes whatever it reads off the event.
-    const messages = await harness.store?.listMessages("s1");
+    const messages = await harness.store.listMessages("s1");
     const persistedRequest = messages
-      ?.flatMap((m) => m.parts)
+      .flatMap((m) => m.parts)
       .find((p) => p.type === "tool_approval_request");
     expect(persistedRequest).toMatchObject({
       capability: { kind: "mcp.tool", serverId: "s", tool: "dangerous" },

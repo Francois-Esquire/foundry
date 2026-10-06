@@ -15,10 +15,12 @@ import type { AgentSpec } from "../../agents/spec";
 import type {
   AgentAuthorizationRequest,
   AgentAuthorizer,
-} from "../../authorization";
-import { AgentHarness, SessionHarness, tagTool } from "../../harness";
-import { InMemorySessionStore } from "../../session";
-import type { Skill } from "../../skills";
+} from "../../authorization/authorization";
+import { AgentHarness } from "../../harness/agent-harness";
+import { SessionHarness } from "../../harness/session-harness";
+import { tagTool } from "../../harness/types";
+import { InMemorySessionStore } from "../../session/store";
+import type { Skill } from "../../skills/types";
 import { fakeAuthorizer } from "../helpers/authorizer";
 import {
   createScriptedMockModel,
@@ -213,7 +215,6 @@ describe("createAgentPreset", () => {
       const overrideRegistry = createAgentCompatibilityRegistry();
       const overrideMesh = createMesh({ registry: overrideRegistry });
       const observe = vi.fn(() => null);
-      const toolContext = vi.fn((id: string) => ({ sessionId: id }));
       const preset = createAgentPreset(
         { id: "configured", prompt: "", role: "researcher" },
         () => ({
@@ -224,7 +225,6 @@ describe("createAgentPreset", () => {
           registry,
           sessionId: "default-session",
           store,
-          toolContext,
         })
       );
       const harness = await preset.createSession(
@@ -245,9 +245,9 @@ describe("createAgentPreset", () => {
       expect(harness.nodeId).toBe("worker");
       expect(expectedMesh.get("worker")).toMatchObject({ role: "researcher" });
       expect(harness.registry.get("configured")).toBe(harness.agent);
+      expect(harness.sessionId).toBe(sessionId);
       await harness.generate("go");
-      expect(await expectedStore.getSession(sessionId)).toBeDefined();
-      expect(toolContext).toHaveBeenCalledWith(sessionId);
+      expect(await expectedStore.getSession(sessionId)).toBeTruthy();
       expect(observe).toHaveBeenCalledWith(
         expect.objectContaining({ sessionId })
       );
@@ -458,10 +458,10 @@ describe("createAgentPreset", () => {
         callback
           ? () => ({
               ...settings,
-              toolContext: () => ({
+              toolsContext: {
+                ...settings.toolsContext,
                 artifactId: "artifact",
-                setting: "domain",
-              }),
+              },
             })
           : {
               ...settings,
@@ -483,7 +483,8 @@ describe("createAgentPreset", () => {
         setting: "invocation",
       });
       const context = contexts[0] as { sessionId: string };
-      expect(await store.getSession(context.sessionId)).toBeDefined();
+      expect(context.sessionId).toBe(harness.sessionId);
+      expect(await store.getSession(context.sessionId)).toBeTruthy();
       if (callback) {
         expect(contexts[0]).toHaveProperty("artifactId", "artifact");
       }

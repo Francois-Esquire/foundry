@@ -105,8 +105,6 @@ const LOOP_AGENT_CONSTRUCTOR = /new\s+(?:LoopAgent|ToolLoopAgent)\s*\(/;
  * (`compileRegistrations`/`compiled.tools`) or carries no tools at all.
  */
 const KNOWN_CONSTRUCTOR_SITES: Readonly<Record<string, string>> = {
-  "packages/agents/src/agents/loop-agent.ts":
-    "`createLoopAgent`, a thin `new LoopAgent(config, context)` factory around the same class `AgentHarness` wraps. No production caller exists anywhere in the repo (searched at `packages/agents/src/agents/loop-agent.ts` and `apps/`); it is dead exported surface, not a live bypass.",
   "packages/agents/src/harness/agent-harness.ts":
     "the harness itself; tools are `compiled.tools` from `compileRegistrations` — every tool source passed through the one policy/effect-gated compiler.",
 };

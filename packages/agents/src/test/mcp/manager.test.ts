@@ -1,18 +1,17 @@
 import { tool } from "ai";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
+import { metaOf } from "../../harness/types";
+import { McpClient } from "../../mcp/client";
+import { McpManager } from "../../mcp/manager";
 
-const createMCPClient = vi.fn();
+const { createMCPClient } = vi.hoisted(() => ({ createMCPClient: vi.fn() }));
 vi.mock("@ai-sdk/mcp", () => ({
   createMCPClient,
   ElicitationRequestSchema: {},
 }));
 /** The stdio seam; the mocked client never starts what it returns. */
 const spawnStdio = vi.fn((config: unknown) => ({ config }) as never);
-
-const { McpClient } = await import("../../mcp/client");
-const { McpManager } = await import("../../mcp/manager");
-const { metaOf } = await import("../../harness/types");
 
 /** A fake SDK client returning the named tools, with a spyable `close`. */
 function fakeClient(toolNames: string[]) {

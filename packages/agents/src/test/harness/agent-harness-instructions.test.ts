@@ -1,8 +1,8 @@
 import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, it } from "vitest";
-import { SessionHarness } from "../../harness";
-import { InMemorySessionStore } from "../../session";
-import { createSkillRegistry } from "../../skills";
+import { SessionHarness } from "../../harness/session-harness";
+import { InMemorySessionStore } from "../../session/store";
+import { createSkillRegistry } from "../../skills/registry";
 import { textStreamResult } from "../helpers/mock-language-model";
 
 /** A model that records the prompt the harness hands the provider. */

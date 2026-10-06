@@ -1,15 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { SessionHarness } from "../../harness";
+import { SessionHarness } from "../../harness/session-harness";
+import type { Summarizer } from "../../session/compactor";
+import type { SessionEvent } from "../../session/events";
 import type {
   CreateMessageInput,
   CreateSessionInput,
-  SessionEvent,
   SessionStore,
-  Summarizer,
   UpdateMessageInput,
   UpdateSessionInput,
-} from "../../session";
-import { InMemorySessionStore } from "../../session";
+} from "../../session/store";
+import { InMemorySessionStore } from "../../session/store";
 import {
   createScriptedMockModel,
   usageStreamResult,

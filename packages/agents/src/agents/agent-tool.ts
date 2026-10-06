@@ -16,8 +16,8 @@ import { resolveAgentEntry } from "./registry";
 export interface AgentToolConfig<TOOLS extends ToolSet = ToolSet> {
   agent: ToolLoopAgent<never, TOOLS> | AgentEntry | string;
   agentName: string;
+  conversations?: ConversationStore;
   description: string;
-  mesh?: ConversationStore;
   promptDescription: string;
   registry?: AgentCompatibilityProjection;
   space?: string;
@@ -31,7 +31,7 @@ export function createAgentTool<TOOLS extends ToolSet = ToolSet>(
     description,
     promptDescription,
     agentName,
-    mesh: ctorMesh,
+    conversations: ctorConversations,
     space: ctorSpace,
   } = config;
 
@@ -43,13 +43,15 @@ export function createAgentTool<TOOLS extends ToolSet = ToolSet>(
   return tool({
     description,
     async *execute({ prompt, thread }, { abortSignal, context }) {
-      const mesh = ctorMesh ?? getConversationStore(context);
+      const conversations = ctorConversations ?? getConversationStore(context);
       const space = ctorSpace ?? getSpace(context);
       const threadId = thread ?? defaultThread();
-      const stateful = mesh !== undefined && space !== undefined;
+      const stateful = conversations !== undefined && space !== undefined;
 
       const userMessage: ModelMessage = { content: prompt, role: "user" };
-      const history = stateful ? mesh.load(space, agentName, threadId) : [];
+      const history = stateful
+        ? conversations.load(space, agentName, threadId)
+        : [];
 
       const result = stateful
         ? await agent.stream({
@@ -72,7 +74,7 @@ export function createAgentTool<TOOLS extends ToolSet = ToolSet>(
 
       if (stateful) {
         const { response } = await result.finalStep;
-        mesh.append(space, agentName, threadId, [
+        conversations.append(space, agentName, threadId, [
           userMessage,
           ...response.messages,
         ]);

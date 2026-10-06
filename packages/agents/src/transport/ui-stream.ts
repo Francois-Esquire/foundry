@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import type { LanguageModelUsage, UIMessageChunk } from "ai";
 
-import type { SessionStream, SessionUsage } from "../session";
+import type { SessionStream } from "../session/events";
+import type { SessionUsage } from "../session/types";
 
 export interface ProjectOptions {
   /** Resolved model id, surfaced in the leading `start` chunk's metadata. */
@@ -50,11 +51,9 @@ export async function* projectToUIMessageChunks(
         yield* closeRuns(runs);
         yield {
           approvalId: event.approvalId,
+          signature: event.signature,
           toolCallId: event.toolCallId,
           type: "tool-approval-request",
-          ...(event.signature === undefined
-            ? {}
-            : { signature: event.signature }),
         };
         break;
       }

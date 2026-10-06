@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import type { SessionInput, SessionMessage, SessionStream } from "../session";
+import type { SessionInput, SessionStream } from "../session/events";
 import {
   createHarnessActivityRecorder,
   isActivityActive,
@@ -21,6 +21,11 @@ import type {
   HarnessTurnDriver,
 } from "./turn-driver";
 import { validateHarnessProfile } from "./turn-driver";
+import type { GatedTurn } from "./turn-gate";
+import { createTurnGate } from "./turn-gate";
+
+/** A turn's parts, plus the failure `drive` hands its own source to rethrow. */
+type DriverQueuePart = StreamPart | { type: "driver-error"; error: unknown };
 
 export function createDriverSession(
   settings: DriverSessionSettings,
@@ -28,9 +33,7 @@ export function createDriverSession(
 ): HarnessSession {
   validateHarnessProfile(settings.profile);
   const sessionId = settings.sessionId ?? randomUUID();
-  let active: AbortController | undefined;
-  let activeMessage: Promise<SessionMessage> | undefined;
-  let closed = false;
+  const gate = createTurnGate("Harness");
   const lifetime = new AbortController();
   const persistActivity = createHarnessActivityRecorder({
     ...settings,
@@ -39,7 +42,7 @@ export function createDriverSession(
   });
   const recordActivity = async (
     activity: HarnessActivity,
-    queue?: EventQueue<StreamPart>
+    queue?: EventQueue<DriverQueuePart>
   ) => {
     const event = await persistActivity({
       ...activity,
@@ -54,22 +57,13 @@ export function createDriverSession(
     }
   };
 
-  const stream = (
+  const runTurn = (
+    turn: GatedTurn,
     input: SessionInput,
-    options: SessionStreamOptions = {}
+    options: SessionStreamOptions
   ): SessionStream => {
-    if (closed) {
-      throw new Error("Harness session is closed.");
-    }
-    if (active) {
-      throw new Error("A harness session can run only one turn at a time.");
-    }
-    const controller = new AbortController();
-    active = controller;
-    const signal = options.signal
-      ? AbortSignal.any([controller.signal, options.signal])
-      : controller.signal;
-    const queue = createEventQueue<StreamPart>();
+    const { signal } = turn;
+    const queue = createEventQueue<DriverQueuePart>();
 
     const recordTool = async (event: HarnessToolEvent) => {
       const safe = {
@@ -113,53 +107,10 @@ export function createDriverSession(
         });
         const source = await driver.run({
           input,
-          sessionId,
-          ...(mapping?.type === "harness_session"
-            ? { nativeSessionId: mapping.nativeSessionId }
-            : {}),
-          permission: withParentActivity(
-            createHarnessPermission({
-              ...settings,
-              onApprovalRequest: async (request) => {
-                await settings.onApprovalRequest?.(request);
-                queue.push({ ...request, type: "harness-approval-request" });
-              },
-            }),
-            settings.parentActivityId
-          ),
-          profile: settings.profile,
-          question: withParentActivity(
-            createHarnessQuestionCallback({
-              question: settings.question,
-              record: async (request, outcome, answerCount) => {
-                await settings.store.appendMessage({
-                  parts: [
-                    {
-                      harness: driver.id,
-                      outcome,
-                      questionCount: request.questions.length,
-                      toolCallId: request.toolCallId,
-                      type: "harness_question",
-                      ...(request.activityId === undefined
-                        ? {}
-                        : { activityId: request.activityId }),
-                      ...(answerCount === undefined ? {} : { answerCount }),
-                    },
-                  ],
-                  role: "system",
-                  sessionId,
-                });
-              },
-              sessionId,
-              signal: () =>
-                active === controller
-                  ? AbortSignal.any([signal, lifetime.signal])
-                  : lifetime.signal,
-            }),
-            settings.parentActivityId
-          ),
-          signal,
-          ...(settings.tools ? { tools: settings.tools } : {}),
+          nativeSessionId:
+            mapping?.type === "harness_session"
+              ? mapping.nativeSessionId
+              : undefined,
           onActivity: (activity) => recordActivity(activity, queue),
           onSessionId: async (nativeSessionId) => {
             await settings.store.appendMessage({
@@ -175,6 +126,53 @@ export function createDriverSession(
             });
           },
           onToolEvent: recordTool,
+          permission: withParentActivity(
+            createHarnessPermission({
+              ...settings,
+              onApprovalRequest: async (request) => {
+                await settings.onApprovalRequest?.(request);
+                const {
+                  approvalMode: _approvalMode,
+                  sessionId: _sessionId,
+                  ...approval
+                } = request;
+                queue.push({ ...approval, type: "harness-approval-request" });
+              },
+            }),
+            settings.parentActivityId
+          ),
+          profile: settings.profile,
+          question: withParentActivity(
+            createHarnessQuestionCallback({
+              question: settings.question,
+              record: async (request, outcome, answerCount) => {
+                await settings.store.appendMessage({
+                  parts: [
+                    {
+                      activityId: request.activityId,
+                      answerCount,
+                      harness: driver.id,
+                      outcome,
+                      questionCount: request.questions.length,
+                      toolCallId: request.toolCallId,
+                      type: "harness_question",
+                    },
+                  ],
+                  role: "system",
+                  sessionId,
+                });
+              },
+              sessionId,
+              signal: () =>
+                turn.isActive()
+                  ? AbortSignal.any([signal, lifetime.signal])
+                  : lifetime.signal,
+            }),
+            settings.parentActivityId
+          ),
+          sessionId,
+          signal,
+          tools: settings.tools,
         });
         await pumpDriverParts(source, signal, queue);
       } catch (error) {
@@ -212,16 +210,10 @@ export function createDriverSession(
       handlers: options,
       model: settings.model,
     });
-    const settled = () => {
-      if (active === controller) {
-        active = undefined;
-        activeMessage = undefined;
-      }
-    };
-    activeMessage = result.message;
-    result.message.then(settled, settled);
     return result;
   };
+  const stream = (input: SessionInput, options: SessionStreamOptions = {}) =>
+    gate.run(options.signal, (turn) => runTurn(turn, input, options));
 
   return {
     capabilities: driver.capabilities,
@@ -245,10 +237,8 @@ export function createDriverSession(
         }
       : {}),
     async close() {
-      closed = true;
       lifetime.abort(new Error("Harness session closed."));
-      const terminal = activeMessage;
-      active?.abort(new Error("Harness session closed."));
+      const terminal = gate.close();
       try {
         await driver.close?.();
       } finally {
@@ -269,7 +259,7 @@ export function createDriverSession(
       if (!driver.capabilities.interruption) {
         throw new Error(`${driver.id} does not support interruption.`);
       }
-      active?.abort(new Error("Harness turn interrupted."));
+      gate.interrupt();
       await driver.interrupt?.();
     },
     route: settings.model,
@@ -278,7 +268,7 @@ export function createDriverSession(
       if (!(driver.capabilities.steering && driver.steer)) {
         throw new Error(`${driver.id} does not support steering.`);
       }
-      if (!active) {
+      if (!gate.active) {
         throw new Error("Cannot steer a harness without an active turn.");
       }
       await driver.steer(input);
@@ -291,7 +281,7 @@ export function createDriverSession(
 async function pumpDriverParts(
   source: AsyncIterable<StreamPart>,
   signal: AbortSignal,
-  queue: EventQueue<StreamPart>
+  queue: EventQueue<DriverQueuePart>
 ): Promise<void> {
   for await (const part of source) {
     signal.throwIfAborted();

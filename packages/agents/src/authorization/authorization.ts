@@ -57,7 +57,7 @@ export function agentSubject(id: string, generation?: number): AgentSubject {
   return {
     id,
     namespace: AGENT_SUBJECT_NAMESPACE,
-    ...(generation === undefined ? {} : { version: generation }),
+    version: generation,
   };
 }
 
@@ -228,11 +228,11 @@ export function createAgentAuthorizer(
     failClosedReason: agentFailClosedReason,
     grants: options.grants,
     kindOf: (capability) => capability.kind,
+    now: options.now,
     policy:
       "current" in configured
         ? { current: () => withFailClosed(configured.current()) }
         : withFailClosed(configured),
-    ...(options.now === undefined ? {} : { now: options.now }),
   });
 }
 

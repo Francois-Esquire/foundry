@@ -3,27 +3,23 @@ import type { Tool } from "ai";
 import { tool } from "ai";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { createInMemoryAgentAuthorizer } from "../../authorization";
+import { createInMemoryAgentAuthorizer } from "../../authorization/authorization";
+import { SessionHarness } from "../../harness/session-harness";
 import { metaOf } from "../../harness/types";
-import type { SessionEvent } from "../../session";
-import { InMemorySessionStore } from "../../session";
+import { McpClient } from "../../mcp/client";
+import type { SessionEvent } from "../../session/events";
+import { InMemorySessionStore } from "../../session/store";
 import {
   createScriptedMockModel,
   textStreamResult,
   toolCallStreamResult,
 } from "../helpers/mock-language-model";
 
-const createMCPClient = vi.fn();
+const { createMCPClient } = vi.hoisted(() => ({ createMCPClient: vi.fn() }));
 vi.mock("@ai-sdk/mcp", () => ({
   createMCPClient,
   ElicitationRequestSchema: {},
 }));
-
-// Dynamic: both transitively import "@ai-sdk/mcp" (via `../../mcp/client`), so they
-// must load after the mock above is registered — a static import would
-// resolve before this file's own body runs and see the real module.
-const { McpClient } = await import("../../mcp/client");
-const { SessionHarness } = await import("../../harness");
 
 beforeEach(() => {
   createMCPClient.mockReset();

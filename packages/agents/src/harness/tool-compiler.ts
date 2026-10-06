@@ -1,18 +1,26 @@
-import type { ModelMessage, Tool, ToolExecutionOptions, ToolSet } from "ai";
+import type {
+  ModelMessage,
+  TextStreamPart,
+  Tool,
+  ToolExecutionOptions,
+  ToolSet,
+  TypedToolCall,
+} from "ai";
 
 import { z } from "zod";
 
 import type {
   AgentAuthorizationRequest,
   AgentAuthorizer,
-  Capability,
-  ToolSource,
-} from "../authorization";
-import { agentSubject } from "../authorization";
+} from "../authorization/authorization";
+import { agentSubject } from "../authorization/authorization";
+import type { Capability, ToolSource } from "../authorization/capability";
 import { createEventQueue } from "./event-queue";
 import { isHarnessQuestionTool } from "./question";
+import type { StreamPart } from "./stream-transform";
 import type { HarnessPermissionCallback } from "./turn-driver";
 import type {
+  AgentIdentity,
   AgentInvocationContext,
   HarnessToolRegistration,
   RegisteredToolCall,
@@ -23,25 +31,17 @@ import { registrationsOf } from "./types";
 
 /** Everything the compiler needs beyond the registrations themselves — the
  *  harness's own identity plus the authorization/effect boundaries it was
- *  built with (or defaulted to). */
-export interface ToolCompilerDeps {
-  /** The preset generation this harness was built from. Bumping it retires
-   *  every Grant issued to the previous generation. */
-  agentGeneration?: number;
-  agentId: string;
+ *  built with (or defaulted to). Bumping `agentGeneration` retires every
+ *  Grant issued to the previous generation. */
+export interface ToolCompilerDeps extends AgentIdentity {
   effectPort: ToolEffectPort;
   permission?: HarnessPermissionCallback;
   policy: AgentAuthorizer;
-  sessionId?: string;
 }
 
-/** Per-call facts available when a chunk needs a capability but isn't going
- *  through `needsApproval`/`execute` itself. */
-interface ToolCallContext {
-  experimentalContext?: unknown;
-  messages: ModelMessage[];
-  toolCallId: string;
-}
+/** The per-call half of an {@link AgentInvocationContext}: what one call
+ *  knows beyond the identity the harness fixed at construction. */
+type ToolCallContext = Omit<AgentInvocationContext, keyof AgentIdentity>;
 
 export interface CompiledTools {
   registrationFor: (
@@ -68,52 +68,41 @@ function deniedOutput(reason: string): PolicyDeniedOutput {
 }
 
 /**
- * Stable `invocationId` for one logical tool call — namespaced by agent
- * (and session, when present) over the AI SDK's own `toolCallId`, which is
- * already durable across a replayed continuation (an approval resolution or
- * a suspend/resume re-runs `execute` with the same `toolCallId`, never a
- * fresh one). Deliberately not `randomUUID()`: an externally visible effect
- * keys idempotency on `invocationId` (design: "Effect boundary"), so a
- * replay must reproduce the same id, not mint a new one and risk a double
- * commit.
+ * Stable `invocationId` for one logical tool call — namespaced by agent and
+ * session over the AI SDK's own `toolCallId`, which is already durable across
+ * a replayed continuation (an approval resolution or a suspend/resume re-runs
+ * `execute` with the same `toolCallId`, never a fresh one). Deliberately not
+ * `randomUUID()`: an externally visible effect keys idempotency on
+ * `invocationId` (design: "Effect boundary"), so a replay must reproduce the
+ * same id, not mint a new one and risk a double commit.
  */
 function deriveInvocationId(
-  deps: Pick<ToolCompilerDeps, "agentId" | "sessionId">,
+  { agentId, sessionId }: AgentIdentity,
   toolCallId: string
 ): string {
-  return deps.sessionId
-    ? `${deps.agentId}:${deps.sessionId}:${toolCallId}`
-    : `${deps.agentId}:${toolCallId}`;
+  return `${agentId}:${sessionId}:${toolCallId}`;
 }
 
 /** Build the one platform-agnostic call envelope before effect execution
  *  specializes. Callers describe effect ownership with `effectLocation`;
  *  terms such as browser, renderer, server, or client belong to adapters. */
-export function registerToolCall<TInput>(args: {
-  readonly agentId: string;
-  readonly agentGeneration?: number;
-  readonly sessionId?: string;
-  readonly toolCallId: string;
-  readonly toolName: string;
-  readonly source: ToolSource;
-  readonly capability: Capability;
-  readonly effectLocation: ToolEffectLocation;
-  readonly input: TInput;
-}): RegisteredToolCall<TInput> {
+export function registerToolCall<TInput>(
+  args: Omit<RegisteredToolCall<TInput>, "invocationId">
+): RegisteredToolCall<TInput> {
   return {
-    agentId: args.agentId,
+    ...args,
     invocationId: deriveInvocationId(args, args.toolCallId),
-    ...(args.agentGeneration === undefined
-      ? {}
-      : { agentGeneration: args.agentGeneration }),
-    ...(args.sessionId ? { sessionId: args.sessionId } : {}),
-    capability: args.capability,
-    effectLocation: args.effectLocation,
-    input: args.input,
-    source: args.source,
-    toolCallId: args.toolCallId,
-    toolName: args.toolName,
   };
+}
+
+/** Just the identity fields of `deps`, so they can be spread without
+ *  carrying the policy and effect port along. */
+function identityOf({
+  agentGeneration,
+  agentId,
+  sessionId,
+}: AgentIdentity): AgentIdentity {
+  return { agentGeneration, agentId, sessionId };
 }
 
 function registrationEffectLocation(
@@ -131,37 +120,16 @@ function registeredCallFor<TInput>(
   deps: ToolCompilerDeps,
   call: ToolCallContext
 ): RegisteredToolCall<TInput> {
+  const identity = identityOf(deps);
   return registerToolCall({
-    agentId: deps.agentId,
-    ...(deps.agentGeneration === undefined
-      ? {}
-      : { agentGeneration: deps.agentGeneration }),
-    ...(deps.sessionId ? { sessionId: deps.sessionId } : {}),
-    capability: registration.capability(
-      input,
-      buildCapabilityContext(deps, call)
-    ),
+    ...identity,
+    capability: registration.capability(input, { ...identity, ...call }),
     effectLocation: registrationEffectLocation(registration),
     input,
     source: registration.source,
     toolCallId: call.toolCallId,
     toolName: registration.name,
   });
-}
-
-function buildCapabilityContext(
-  deps: ToolCompilerDeps,
-  call: ToolCallContext
-): AgentInvocationContext {
-  return {
-    agentId: deps.agentId,
-    ...(deps.sessionId ? { sessionId: deps.sessionId } : {}),
-    messages: call.messages,
-    toolCallId: call.toolCallId,
-    ...(call.experimentalContext === undefined
-      ? {}
-      : { experimentalContext: call.experimentalContext }),
-  };
 }
 
 /**
@@ -190,18 +158,23 @@ export function toolAuthorizationContext(
     : undefined;
 }
 
+interface ToolAuthorizationRequestArgs extends AgentIdentity {
+  readonly capability: Capability;
+  readonly input: unknown;
+  readonly tool: { readonly name: string; readonly source: ToolSource };
+  readonly toolCallId: string;
+}
+
 /**
- * One tool call's ask, in the shared authorization vocabulary.
+ * One tool call's ask, in the shared authorization vocabulary — the request a
+ * compiled call builds, exported for a caller that must decide about a tool
+ * the compiler never sees.
  *
  * The Subject is the agent preset, which is what stops two presets exposing the
  * same tool name from sharing authority. `scopeId` is the session, so a
  * session-lifetime Grant cannot leak into another session. The agent and tool
  * identity the audit trail needs rides on `context` — the decision itself is a
  * function of Subject and Capability alone.
- */
-/**
- * Build the same request a compiled call builds, for a caller that must decide
- * about a tool the compiler never sees.
  *
  * A tool with no `execute` is passed through uncompiled, so its calls carry no
  * capability and reach no policy. A host that gates those itself must ask the
@@ -215,43 +188,29 @@ export function toolAuthorizationContext(
  * call it read off a persisted message, where the capability is already known
  * and no live registration is in hand.
  */
-interface ToolAuthorizationRequestArgs {
-  readonly agentGeneration?: number;
-  readonly agentId: string;
-  readonly capability: Capability;
-  readonly input: unknown;
-  readonly sessionId?: string;
-  readonly tool: { readonly name: string; readonly source: ToolSource };
-  readonly toolCallId: string;
-}
-
 export function toolAuthorizationRequest(
-  args: ToolAuthorizationRequestArgs | RegisteredToolCall
+  args: ToolAuthorizationRequestArgs
 ): AgentAuthorizationRequest {
-  const registered = "toolName" in args;
-  const tool = registered
-    ? { name: args.toolName, source: args.source }
-    : args.tool;
   return {
     capability: args.capability,
-    invocationId: registered
-      ? args.invocationId
-      : deriveInvocationId(
-          {
-            agentId: args.agentId,
-            ...(args.sessionId ? { sessionId: args.sessionId } : {}),
-          },
-          args.toolCallId
-        ),
-    subject: agentSubject(args.agentId, args.agentGeneration),
-    ...(args.sessionId ? { scopeId: args.sessionId } : {}),
     context: {
       agentId: args.agentId,
-      ...(args.sessionId ? { sessionId: args.sessionId } : {}),
       input: args.input,
-      tool,
+      sessionId: args.sessionId,
+      tool: args.tool,
     } satisfies ToolAuthorizationContext,
+    invocationId: deriveInvocationId(args, args.toolCallId),
+    scopeId: args.sessionId,
+    subject: agentSubject(args.agentId, args.agentGeneration),
   };
+}
+
+/** {@link toolAuthorizationRequest} for a call the compiler registered. */
+function requestFor(call: RegisteredToolCall): AgentAuthorizationRequest {
+  return toolAuthorizationRequest({
+    ...call,
+    tool: { name: call.toolName, source: call.source },
+  });
 }
 
 /** Mirrors the AI SDK's own `isApprovalNeeded` (not exported publicly) so a
@@ -342,6 +301,104 @@ function wasApprovalGrantedFor(
 }
 
 /**
+ * How a compiled tool is authorized — chosen once per compile from whether the
+ * harness was given a live permission callback.
+ */
+interface ToolAuthorization {
+  /** Decide, resolve a replayed approval, and claim. Returns the denial to
+   *  hand the model instead of running, or `undefined` once authority is
+   *  taken. */
+  authorize(
+    call: RegisteredToolCall,
+    options: ToolExecutionOptions<unknown>
+  ): Promise<PolicyDeniedOutput | undefined>;
+  /** Whether policy alone parks this call on the SDK's approval checkpoint. */
+  requiresApproval(call: RegisteredToolCall): Promise<boolean>;
+}
+
+/** Policy-only authorization: an `"ask"` becomes an SDK approval checkpoint,
+ *  and the human's answer comes back as a replayed approval. */
+function policyAuthorization(policy: AgentAuthorizer): ToolAuthorization {
+  return {
+    async authorize(call, options) {
+      const request = requestFor(call);
+      let decision = await policy.decide(request);
+      if (decision.kind === "deny") {
+        return deniedOutput(decision.reason);
+      }
+      if (decision.kind === "requires-approval") {
+        if (!wasApprovalGrantedFor(options.toolCallId, options.messages)) {
+          // Unreachable in the normal flow — `needsApproval` stops the AI SDK
+          // from calling `execute` at all until a human resolves this. Denied
+          // defensively anyway: no tool execute is reachable before current
+          // authorization.
+          return deniedOutput("Approval required but not yet resolved.");
+        }
+        // The SDK has already matched and validated the request/response pair,
+        // so this is a real human "yes" for this exact call. Resolving it here
+        // turns it into invocation authority the claim below can take; leaving
+        // it unresolved would make `claim` refuse it and turn a genuine approval
+        // into a denial. `once` on purpose: a persisted answer is written by the
+        // approval router, not manufactured from a replayed transcript.
+        decision = await policy.resolveApproval(request, { approved: true });
+        if (decision.kind !== "allow") {
+          return deniedOutput(
+            decision.kind === "deny"
+              ? decision.reason
+              : "Approval required but not yet resolved."
+          );
+        }
+      }
+
+      // The effect boundary. Authority is consumed exactly here, idempotently by
+      // `invocationId`, so a replayed continuation re-runs against its own claim
+      // rather than spending a second one-shot Grant.
+      const claim = await policy.claim(request, decision);
+      return claim.kind === "authorized"
+        ? undefined
+        : deniedOutput(claim.reason);
+    },
+    async requiresApproval(call) {
+      // `decide` is repeatable and consumes nothing, which is what makes it safe
+      // to run here as well as in `execute`. Authority is taken once, at the
+      // effect boundary, by `claim`.
+      const decision = await policy.decide(requestFor(call));
+      return decision.kind === "requires-approval";
+    },
+  };
+}
+
+/** Live authorization: the permission callback asks and owns one claim at
+ *  `execute`, so policy asks never become SDK suspension/replay checkpoints. */
+function liveAuthorization(
+  permission: HarnessPermissionCallback,
+  policy: AgentAuthorizer
+): ToolAuthorization {
+  return {
+    async authorize(call, options) {
+      // A repeatable check first, so an explicit refusal never reaches the callback.
+      const current = await policy.decide(requestFor(call));
+      if (current.kind === "deny") {
+        return deniedOutput(current.reason);
+      }
+      const result = await permission({
+        capability: call.capability,
+        input: call.input,
+        sessionId: call.sessionId,
+        signal: options.abortSignal ?? new AbortController().signal,
+        source: call.source,
+        toolCallId: call.toolCallId,
+        toolName: call.toolName,
+      });
+      return result.behavior === "allow"
+        ? undefined
+        : deniedOutput(result.message);
+    },
+    requiresApproval: () => Promise.resolve(false),
+  };
+}
+
+/**
  * Compile one {@link HarnessToolRegistration} into a real AI SDK {@link
  * Tool}. Preserves the original tool's schema, `toModelOutput`, metadata,
  * provider options, and any existing `needsApproval` predicate untouched;
@@ -365,6 +422,18 @@ export function compileTool(
   }
 
   const originalNeedsApproval = original.needsApproval;
+  const authorization = deps.permission
+    ? liveAuthorization(deps.permission, deps.policy)
+    : policyAuthorization(deps.policy);
+  const callFor = (
+    input: unknown,
+    options: { toolCallId: string; messages: ModelMessage[]; context: unknown }
+  ): RegisteredToolCall =>
+    registeredCallFor(registration, input, deps, {
+      experimentalContext: options.context,
+      messages: options.messages,
+      toolCallId: options.toolCallId,
+    });
 
   const needsApproval = async (
     input: unknown,
@@ -384,92 +453,19 @@ export function compileTool(
       return true;
     }
 
-    if (deps.permission) {
-      return false;
-    }
-
-    const call = registeredCallFor(registration, input, deps, {
-      experimentalContext: options.context,
-      messages: options.messages,
-      toolCallId: options.toolCallId,
-    });
-    // `decide` is repeatable and consumes nothing, which is what makes it safe
-    // to run here as well as in `execute`. Authority is taken once, at the
-    // effect boundary, by `claim`.
-    const decision = await deps.policy.decide(toolAuthorizationRequest(call));
-    return decision.kind === "requires-approval";
-  };
-
-  /** Decide, resolve a replayed approval, and claim — or produce the denial. */
-  const authorize = async (
-    input: unknown,
-    options: ToolExecutionOptions<unknown>
-  ): Promise<{ call: RegisteredToolCall } | { denied: unknown }> => {
-    const call = registeredCallFor(registration, input, deps, {
-      experimentalContext: options.context,
-      messages: options.messages,
-      toolCallId: options.toolCallId,
-    });
-    const request = toolAuthorizationRequest(call);
-    if (deps.permission) {
-      return authorizeLiveCall(call, options, deps.permission, deps.policy);
-    }
-    let decision = await deps.policy.decide(request);
-    const approvedReplay = wasApprovalGrantedFor(
-      options.toolCallId,
-      options.messages
-    );
-
-    if (decision.kind === "deny") {
-      return { denied: deniedOutput(decision.reason) };
-    }
-    if (decision.kind === "requires-approval") {
-      if (!approvedReplay) {
-        // Unreachable in the normal flow — `needsApproval` above stops the AI
-        // SDK from calling `execute` at all until a human resolves this.
-        // Denied defensively anyway: no tool execute is reachable before
-        // current authorization.
-        return {
-          denied: deniedOutput("Approval required but not yet resolved."),
-        };
-      }
-      // The SDK has already matched and validated the request/response pair,
-      // so this is a real human "yes" for this exact call. Resolving it here
-      // turns it into invocation authority the claim below can take; leaving
-      // it unresolved would make `claim` refuse it and turn a genuine approval
-      // into a denial. `once` on purpose: a persisted answer is written by the
-      // approval router, not manufactured from a replayed transcript.
-      decision = await deps.policy.resolveApproval(request, { approved: true });
-      if (decision.kind !== "allow") {
-        return {
-          denied: deniedOutput(
-            decision.kind === "deny"
-              ? decision.reason
-              : "Approval required but not yet resolved."
-          ),
-        };
-      }
-    }
-
-    // The effect boundary. Authority is consumed exactly here, idempotently by
-    // `invocationId`, so a replayed continuation re-runs against its own claim
-    // rather than spending a second one-shot Grant.
-    const claim = await deps.policy.claim(request, decision);
-    if (claim.kind !== "authorized") {
-      return { denied: deniedOutput(claim.reason) };
-    }
-    return { call };
+    return authorization.requiresApproval(callFor(input, options));
   };
 
   const execute = async (
     input: unknown,
     options: ToolExecutionOptions<unknown>
   ): Promise<unknown> => {
-    const gate = await authorize(input, options);
-    if ("denied" in gate) {
-      return gate.denied;
+    const call = callFor(input, options);
+    const denied = await authorization.authorize(call, options);
+    if (denied) {
+      return denied;
     }
-    return deps.effectPort.execute(gate.call, () =>
+    return deps.effectPort.execute(call, () =>
       Promise.resolve(originalExecute(input, options))
     );
   };
@@ -485,14 +481,15 @@ export function compileTool(
     input: unknown,
     options: ToolExecutionOptions<unknown>
   ): AsyncGenerator<unknown, void, undefined> {
-    const gate = await authorize(input, options);
-    if ("denied" in gate) {
-      yield gate.denied;
+    const call = callFor(input, options);
+    const denied = await authorization.authorize(call, options);
+    if (denied) {
+      yield denied;
       return;
     }
     const queue = createEventQueue<unknown>();
     const effect = deps.effectPort
-      .execute(gate.call, async () => {
+      .execute(call, async () => {
         const iterable = originalExecute(
           input,
           options
@@ -527,31 +524,6 @@ export function compileTool(
     execute: streaming ? streamingExecute : execute,
     needsApproval,
   };
-}
-
-async function authorizeLiveCall(
-  call: RegisteredToolCall,
-  options: ToolExecutionOptions<unknown>,
-  permissionCallback: HarnessPermissionCallback,
-  policy: AgentAuthorizer
-): Promise<{ call: RegisteredToolCall } | { denied: unknown }> {
-  // The live callback owns one claim; this repeatable check preserves explicit refusals.
-  const current = await policy.decide(toolAuthorizationRequest(call));
-  if (current.kind === "deny") {
-    return { denied: deniedOutput(current.reason) };
-  }
-  const permission = await permissionCallback({
-    capability: call.capability,
-    input: call.input,
-    sessionId: call.sessionId ?? "",
-    signal: options.abortSignal ?? new AbortController().signal,
-    source: call.source,
-    toolCallId: call.toolCallId,
-    toolName: call.toolName,
-  });
-  return permission.behavior === "allow"
-    ? { call }
-    : { denied: deniedOutput(permission.message) };
 }
 
 function isAsyncGeneratorFunction(fn: unknown): boolean {
@@ -606,102 +578,51 @@ export function compileRegistrations(
  * gain provenance that the Session layer can persist without reconstructing it
  * from a tool name later.
  */
-export function withToolCallRegistration<
-  T extends { type: string } & Record<string, unknown>,
->(
-  stream: AsyncIterable<T>,
+export function withToolCallRegistration(
+  stream: AsyncIterable<TextStreamPart<ToolSet>>,
   registrationFor: CompiledTools["registrationFor"],
-  call: {
-    messages: ModelMessage[];
-    experimentalContext?: unknown;
-    agentId: string;
-    agentGeneration?: number;
-  }
-): AsyncIterable<T> {
-  return mapAsyncIterable(stream, (chunk) => {
-    const toolCall = streamedToolCall(chunk);
-    if (!toolCall) {
-      return chunk;
+  call: Omit<ToolCallContext, "toolCallId">
+): AsyncIterable<StreamPart> {
+  const register = ({ input, toolCallId, toolName }: TypedToolCall<ToolSet>) =>
+    registrationFor(toolName, input, { ...call, toolCallId });
+  return mapAsyncIterable(stream, (part): StreamPart => {
+    if (part.type === "tool-approval-request") {
+      const registration = register(part.toolCall);
+      return registration
+        ? {
+            ...part,
+            agentGeneration: registration.agentGeneration,
+            agentId: registration.agentId,
+            capability: registration.capability,
+          }
+        : part;
     }
-    const registration = registrationFor(toolCall.toolName, toolCall.input, {
-      experimentalContext: call.experimentalContext,
-      messages: call.messages,
-      toolCallId: toolCall.toolCallId,
-    });
+    if (part.type !== "tool-call") {
+      return part;
+    }
+    const registration = register(part);
     if (!registration) {
-      return chunk;
+      return part;
     }
-
-    if (chunk.type === "tool-approval-request") {
-      return {
-        ...chunk,
-        agentId: call.agentId,
-        capability: registration.capability,
-        ...(call.agentGeneration === undefined
-          ? {}
-          : { agentGeneration: call.agentGeneration }),
-      };
-    }
-
     return {
-      ...chunk,
+      ...part,
       provenance: {
+        agentGeneration: registration.agentGeneration,
         agentId: registration.agentId,
         capability: registration.capability,
         effectLocation: registration.effectLocation,
         invocationId: registration.invocationId,
+        sessionId: registration.sessionId,
         source: registration.source,
-        ...(registration.agentGeneration === undefined
-          ? {}
-          : { agentGeneration: registration.agentGeneration }),
-        ...(registration.sessionId
-          ? { sessionId: registration.sessionId }
-          : {}),
       },
     };
   });
 }
 
-function streamedToolCall(
-  chunk: { type: string } & Record<string, unknown>
-): { toolCallId: string; toolName: string; input: unknown } | undefined {
-  if (chunk.type === "tool-call") {
-    const toolCallId = stringField(chunk, "toolCallId");
-    const toolName =
-      stringField(chunk, "toolName") ?? stringField(chunk, "name");
-    if (!(toolCallId && toolName)) {
-      return undefined;
-    }
-    return { input: chunk.input ?? chunk.args, toolCallId, toolName };
-  }
-  if (chunk.type !== "tool-approval-request") {
-    return undefined;
-  }
-  const nested = chunk.toolCall;
-  if (typeof nested !== "object" || nested === null) {
-    return undefined;
-  }
-  const toolCall = nested as Record<string, unknown>;
-  const toolCallId = stringField(toolCall, "toolCallId");
-  const toolName = stringField(toolCall, "toolName");
-  if (!(toolCallId && toolName)) {
-    return undefined;
-  }
-  return { input: toolCall.input, toolCallId, toolName };
-}
-
-function stringField(
-  value: Record<string, unknown>,
-  key: string
-): string | undefined {
-  const field = value[key];
-  return typeof field === "string" && field.length > 0 ? field : undefined;
-}
-
-async function* mapAsyncIterable<T>(
+async function* mapAsyncIterable<T, U>(
   source: AsyncIterable<T>,
-  fn: (item: T) => T
-): AsyncIterable<T> {
+  fn: (item: T) => U
+): AsyncIterable<U> {
   for await (const item of source) {
     yield fn(item);
   }

@@ -1,10 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { createInMemoryAgentAuthorizer } from "../../authorization";
-import type { DriverSessionSettings, HarnessTurnDriver } from "../../harness";
-import { createDriverSession } from "../../harness";
-import type { SessionEvent } from "../../session";
-import { InMemorySessionStore } from "../../session";
+import { createInMemoryAgentAuthorizer } from "../../authorization/authorization";
+import { createDriverSession } from "../../harness/driver-session";
+import type {
+  DriverSessionSettings,
+  HarnessTurnDriver,
+} from "../../harness/turn-driver";
+import type { SessionEvent } from "../../session/events";
+import { InMemorySessionStore } from "../../session/store";
+import { textDelta } from "../helpers/stream-parts";
 
 function settings(
   store = new InMemorySessionStore(),
@@ -46,7 +50,7 @@ function driver(): HarnessTurnDriver {
       });
       return {
         async *[Symbol.asyncIterator]() {
-          yield { delta: "done", type: "text-delta" };
+          yield textDelta("done");
         },
       };
     }),

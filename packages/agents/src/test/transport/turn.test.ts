@@ -1,13 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import type { SessionHarness } from "../../harness";
+import type { SessionHarness } from "../../harness/session-harness";
 import type {
   SessionInput,
-  SessionMessage,
   SessionStream,
-  SessionUsage,
   StreamOptions,
-} from "../../session";
+} from "../../session/events";
+import type { SessionMessage, SessionUsage } from "../../session/types";
 
 import {
   streamSessionAgent,

@@ -1,8 +1,5 @@
 import { encodeAddress } from "@foundry/lib/config/authorization";
 import { describe, expect, it } from "vitest";
-
-import type { Capability } from "../../authorization";
-
 import {
   AGENT_ASK_BY_DEFAULT,
   agentAddressing,
@@ -10,7 +7,8 @@ import {
   agentSubject,
   createAgentAuthorizer,
   createInMemoryAgentAuthorizer,
-} from "../../authorization";
+} from "../../authorization/authorization";
+import type { Capability } from "../../authorization/capability";
 
 const CHAT = agentSubject("chat");
 const CANVAS = agentSubject("canvas");

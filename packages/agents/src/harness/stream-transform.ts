@@ -1,23 +1,58 @@
 import { randomUUID } from "node:crypto";
+import type { TextStreamPart, ToolSet } from "ai";
 
 import type { ModelRoute } from "../agents/model";
-import type { Capability } from "../authorization";
+import type {
+  AgentApprovalRequest,
+  SessionEvent,
+  SessionStream,
+  SessionTurnOutcome,
+  StreamHandlers,
+} from "../session/events";
+import { normalizeUsage } from "../session/metadata";
+import { stringifyValue } from "../session/serialize";
 import type {
   MessageMetadata,
   MessageStatus,
-  SessionEvent,
   SessionMessage,
   SessionPart,
-  SessionStream,
-  SessionTurnOutcome,
   SessionUsage,
-  StreamHandlers,
   ToolProvenance,
-} from "../session";
+} from "../session/types";
 
 import { createEventQueue } from "./event-queue";
+import type { HarnessActivityEvent, HarnessToolEvent } from "./turn-driver";
 
-export type StreamPart = { type: string } & Record<string, unknown>;
+type SdkStreamPart = TextStreamPart<ToolSet>;
+
+/** The SDK's tool call, carrying the provenance `withToolCallRegistration`
+ *  stamps on it. */
+type RegisteredToolCallPart = Extract<SdkStreamPart, { type: "tool-call" }> & {
+  provenance?: ToolProvenance;
+};
+
+/** The SDK's approval request, carrying the authority
+ *  `withToolCallRegistration` stamps on it. Absent for an unregistered tool. */
+type RegisteredApprovalRequestPart = Extract<
+  SdkStreamPart,
+  { type: "tool-approval-request" }
+> &
+  Partial<
+    Pick<AgentApprovalRequest, "agentGeneration" | "agentId" | "capability">
+  >;
+
+/** Parts the harness mints beside the model's: a CLI driver session's native
+ *  activity, tool, and approval observations. */
+export type HarnessStreamPart =
+  | { type: "harness-activity"; event: HarnessActivityEvent }
+  | { type: "harness-tool"; event: HarnessToolEvent }
+  | ({ type: "harness-approval-request" } & AgentApprovalRequest);
+
+export type StreamPart =
+  | Exclude<SdkStreamPart, { type: "tool-call" | "tool-approval-request" }>
+  | RegisteredToolCallPart
+  | RegisteredApprovalRequestPart
+  | HarnessStreamPart;
 
 export type StreamSource =
   | AsyncIterable<StreamPart>
@@ -31,6 +66,8 @@ export interface TransformOptions {
   /** The route that ran the turn — recorded on `metadata.model`. */
   model?: ModelRoute;
 }
+
+type AccumulatingPart = Extract<SessionPart, { type: "text" | "reasoning" }>;
 
 /**
  * Transform a raw model stream into a {@link SessionStream}: map each model part
@@ -85,37 +122,23 @@ export function transformStream(
         handlers?.onToolCall?.({
           input: event.input,
           name: event.name,
+          provenance: event.provenance,
           toolCallId: event.toolCallId,
-          ...(event.provenance ? { provenance: event.provenance } : {}),
         });
         break;
       case "tool-result":
         handlers?.onToolResult?.({
           isError: event.isError,
           output: event.output,
+          preliminary: event.preliminary,
           toolCallId: event.toolCallId,
-          ...(event.preliminary ? { preliminary: true } : {}),
         });
         break;
-      case "tool-approval-request":
-        handlers?.onApprovalRequest?.({
-          ...(event.activityId === undefined
-            ? {}
-            : { activityId: event.activityId }),
-          approvalId: event.approvalId,
-          capability: event.capability,
-          input: event.input,
-          toolCallId: event.toolCallId,
-          toolName: event.toolName,
-          ...(event.signature === undefined
-            ? {}
-            : { signature: event.signature }),
-          ...(event.agentId === undefined ? {} : { agentId: event.agentId }),
-          ...(event.agentGeneration === undefined
-            ? {}
-            : { agentGeneration: event.agentGeneration }),
-        });
+      case "tool-approval-request": {
+        const { type: _type, ...request } = event;
+        handlers?.onApprovalRequest?.(request);
         break;
+      }
       case "error":
         handlers?.onError?.(event.error);
         break;
@@ -132,10 +155,24 @@ export function transformStream(
     const startedAt = Date.now();
     const parts: SessionPart[] = [];
     let textBuf = "";
-    let textIdx: number | null = null;
-    let reasoningIdx: number | null = null;
+    // The text or reasoning part deltas are appending to. Any other part
+    // entering history closes it, so later deltas start a part after it.
+    let open: AccumulatingPart | undefined;
     let usageAcc: SessionUsage = emptyUsage();
     let hasApprovalRequest = false;
+
+    const append = (part: SessionPart) => {
+      parts.push(part);
+      open = undefined;
+    };
+    const accumulate = (type: AccumulatingPart["type"], delta: string) => {
+      if (open?.type !== type) {
+        const part: AccumulatingPart = { text: "", type };
+        parts.push(part);
+        open = part;
+      }
+      open.text += delta;
+    };
 
     const finalize = async (
       status: MessageStatus,
@@ -168,177 +205,156 @@ export function transformStream(
       return committed;
     };
 
-    try {
-      const stream = await source;
-      const consume: Record<string, (event: StreamPart) => void> = {
-        abort: (event) => {
-          throw new Error(
-            typeof event.reason === "string"
-              ? event.reason
-              : "Harness turn interrupted."
-          );
-        },
-        error: (event) => {
-          const error = toError(event.error);
-          parts.push({ message: error.message, type: "error" });
-          emit({ error, type: "error" });
-        },
-        finish: (event) => {
-          usageAcc = normalizeUsage(event.totalUsage ?? event.usage);
-        },
-        "harness-activity": (part) => {
-          const event =
-            part.event as import("./turn-driver").HarnessActivityEvent;
-          emit({ event, type: "harness-activity" });
-        },
-        "harness-approval-request": (event) => {
-          const approval = readApprovalRequest(event);
-          emit({ ...approval, type: "tool-approval-request" });
-        },
-        "harness-tool": (part) => {
-          const event = part.event as import("./turn-driver").HarnessToolEvent;
-          // Driver sessions persist native events immediately, before completion.
-          emit({ event, type: "harness-tool" });
-        },
-        "reasoning-delta": (event) => {
-          const delta = readString(event, ["text", "delta"]);
-          if (!delta) {
-            return;
+    const toolCall = (part: RegisteredToolCallPart) => {
+      const { input, provenance, providerMetadata, toolCallId, toolName } =
+        part;
+      const call: Extract<SessionPart, { type: "tool_call" }> = {
+        input,
+        name: toolName,
+        toolCallId,
+        type: "tool_call",
+      };
+      // Preserve provider metadata (e.g. Gemini 3's `thoughtSignature`)
+      // so a persisted + replayed tool call stays valid on the next turn.
+      if (providerMetadata) {
+        call.providerOptions = providerMetadata;
+      }
+      if (provenance) {
+        call.provenance = provenance;
+      }
+      append(call);
+      emit({
+        input,
+        name: toolName,
+        provenance,
+        toolCallId,
+        type: "tool-call",
+      });
+    };
+
+    const approvalRequest = (part: RegisteredApprovalRequestPart) => {
+      const { approvalId, capability, signature, toolCall: call } = part;
+      // The emitting source attaches the capability at its registration seam;
+      // without one there is no authority the request could be resolved under.
+      if (!capability) {
+        throw new Error(
+          `Approval request for "${call.toolName}" carries no registered capability.`
+        );
+      }
+      const approval: AgentApprovalRequest = {
+        approvalId,
+        capability,
+        input: call.input,
+        toolCallId: call.toolCallId,
+        toolName: call.toolName,
+      };
+      if (signature) {
+        approval.signature = signature;
+      }
+      if (part.agentId) {
+        approval.agentId = part.agentId;
+      }
+      if (part.agentGeneration !== undefined) {
+        approval.agentGeneration = part.agentGeneration;
+      }
+      hasApprovalRequest = true;
+      append({
+        approvalId,
+        capability,
+        input: call.input,
+        name: call.toolName,
+        signature,
+        toolCallId: call.toolCallId,
+        type: "tool_approval_request",
+      });
+      emit({ ...approval, type: "tool-approval-request" });
+    };
+
+    // biome-ignore-start lint/suspicious/noUnnecessaryConditions: Biome cannot resolve the AI SDK's `TextStreamPart` union, so it sees only the harness members of `StreamPart`; tsc validates each case label against the full union.
+    const consume = (part: StreamPart) => {
+      switch (part.type) {
+        case "text-delta":
+          if (part.text) {
+            accumulate("text", part.text);
+            textBuf += part.text;
+            emit({ delta: part.text, type: "text-delta" });
           }
-          if (reasoningIdx === null) {
-            parts.push({ text: "", type: "reasoning" });
-            reasoningIdx = parts.length - 1;
+          break;
+        case "reasoning-delta":
+          if (part.text) {
+            accumulate("reasoning", part.text);
+            emit({ delta: part.text, type: "reasoning-delta" });
           }
-          const part = parts[reasoningIdx];
-          if (part?.type === "reasoning") {
-            part.text += delta;
+          break;
+        case "text-end":
+        case "reasoning-end":
+          open = undefined;
+          break;
+        case "tool-call":
+          toolCall(part);
+          break;
+        case "tool-result":
+          // A generator tool yields interim results the SDK flags
+          // `preliminary`; only the final one belongs in history.
+          if (part.preliminary) {
+            emit({
+              output: part.output,
+              preliminary: true,
+              toolCallId: part.toolCallId,
+              type: "tool-result",
+            });
+            break;
           }
-          textIdx = null;
-          emit({ delta, type: "reasoning-delta" });
-        },
-        "reasoning-end": () => {
-          reasoningIdx = null;
-        },
-        "text-delta": (event) => {
-          const delta = readString(event, ["text", "delta"]);
-          if (!delta) {
-            return;
-          }
-          if (textIdx === null) {
-            parts.push({ text: "", type: "text" });
-            textIdx = parts.length - 1;
-          }
-          const part = parts[textIdx];
-          if (part?.type === "text") {
-            part.text += delta;
-          }
-          textBuf += delta;
-          reasoningIdx = null;
-          emit({ delta, type: "text-delta" });
-        },
-        "text-end": () => {
-          textIdx = null;
-        },
-        "tool-approval-request": (event) => {
-          const approval = readApprovalRequest(event);
-          const {
-            agentGeneration,
-            agentId,
-            approvalId,
-            capability,
-            input,
-            signature,
-            toolCallId,
-            toolName,
-          } = approval;
-          hasApprovalRequest = true;
-          parts.push({
-            approvalId,
-            capability,
-            input,
-            name: toolName,
-            toolCallId,
-            type: "tool_approval_request",
-            ...(signature ? { signature } : {}),
-          });
-          textIdx = null;
-          reasoningIdx = null;
-          emit({
-            approvalId,
-            capability,
-            input,
-            toolCallId,
-            toolName,
-            type: "tool-approval-request",
-            ...(signature ? { signature } : {}),
-            ...(agentId ? { agentId } : {}),
-            ...(agentGeneration === undefined ? {} : { agentGeneration }),
-          });
-        },
-        "tool-call": (event) => {
-          const toolCallId = readString(event, ["toolCallId"]);
-          const name = readString(event, ["toolName", "name"]);
-          const callInput = event.input ?? event.args;
-          // Preserve provider metadata (e.g. Gemini 3's `thoughtSignature`)
-          // so a persisted + replayed tool call stays valid on the next turn.
-          const providerOptions = readProviderMetadata(event);
-          const provenance = readToolProvenance(event.provenance);
-          parts.push({
-            input: callInput,
-            name,
-            toolCallId,
-            type: "tool_call",
-            ...(providerOptions ? { providerOptions } : {}),
-            ...(provenance ? { provenance } : {}),
-          });
-          textIdx = null;
-          reasoningIdx = null;
-          emit({
-            input: callInput,
-            name,
-            toolCallId,
-            type: "tool-call",
-            ...(provenance ? { provenance } : {}),
-          });
-        },
-        "tool-error": (event) => {
-          const toolCallId = readString(event, ["toolCallId"]);
-          const messageText = errMessage(event.error);
-          parts.push({
-            isError: true,
-            output: messageText,
-            toolCallId,
+          append({
+            output: part.output,
+            toolCallId: part.toolCallId,
             type: "tool_result",
           });
           emit({
-            isError: true,
-            output: messageText,
-            toolCallId,
+            output: part.output,
+            toolCallId: part.toolCallId,
             type: "tool-result",
           });
-        },
-        "tool-result": (event) => {
-          const toolCallId = readString(event, ["toolCallId"]);
-          const output = event.output ?? event.result;
-          // A generator tool yields interim results the SDK flags
-          // `preliminary`; only the final one belongs in history.
-          if (event.preliminary === true) {
-            emit({
-              output,
-              preliminary: true,
-              toolCallId,
-              type: "tool-result",
-            });
-            return;
-          }
-          parts.push({ output, toolCallId, type: "tool_result" });
-          textIdx = null;
-          reasoningIdx = null;
-          emit({ output, toolCallId, type: "tool-result" });
-        },
-      };
-      for await (const event of stream) {
-        consume[event.type]?.(event);
+          break;
+        case "tool-error": {
+          const output = toError(part.error).message;
+          const { toolCallId } = part;
+          append({ isError: true, output, toolCallId, type: "tool_result" });
+          emit({ isError: true, output, toolCallId, type: "tool-result" });
+          break;
+        }
+        case "tool-approval-request":
+          approvalRequest(part);
+          break;
+        case "harness-approval-request":
+          emit({ ...part, type: "tool-approval-request" });
+          break;
+        // Driver sessions persist native events immediately, before completion.
+        case "harness-activity":
+        case "harness-tool":
+          emit(part);
+          break;
+        case "error": {
+          const error = toError(part.error);
+          append({ message: error.message, type: "error" });
+          emit({ error, type: "error" });
+          break;
+        }
+        case "abort":
+          throw new Error(part.reason ?? "Harness turn interrupted.");
+        case "finish":
+          usageAcc = normalizeUsage(part.totalUsage);
+          break;
+        default:
+          break;
+      }
+    };
+    // biome-ignore-end lint/suspicious/noUnnecessaryConditions: see above
+
+    try {
+      const stream = await source;
+      for await (const part of stream) {
+        consume(part);
       }
 
       await finalize("complete");
@@ -383,55 +399,6 @@ function emptyUsage(): SessionUsage {
   return { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
 }
 
-function num(value: unknown): number {
-  return typeof value === "number" && Number.isFinite(value) ? value : 0;
-}
-
-function normalizeUsage(value: unknown): SessionUsage {
-  const record = (value ?? {}) as Record<string, unknown>;
-  const inputTokens = num(record.inputTokens) || num(record.promptTokens);
-  const outputTokens = num(record.outputTokens) || num(record.completionTokens);
-  const totalTokens = num(record.totalTokens) || inputTokens + outputTokens;
-  const reasoningTokens = num(record.reasoningTokens);
-  // Cache read/write: prefer the flat fields, fall back to the SDK's nested
-  // `inputTokenDetails` (where v5+ reports `cacheReadTokens` / `cacheWriteTokens`).
-  const cachedInputTokens = readUsageField(
-    record,
-    "cachedInputTokens",
-    "cacheReadTokens"
-  );
-  const cacheWriteTokens = readUsageField(
-    record,
-    "cacheWriteTokens",
-    "cacheWriteTokens"
-  );
-  return {
-    inputTokens,
-    outputTokens,
-    totalTokens,
-    ...(reasoningTokens ? { reasoningTokens } : {}),
-    ...(cachedInputTokens ? { cachedInputTokens } : {}),
-    ...(cacheWriteTokens ? { cacheWriteTokens } : {}),
-  };
-}
-
-/** Read a usage token field, preferring the flat key and falling back to the
- *  SDK's nested `inputTokenDetails` bag. */
-function readUsageField(
-  record: Record<string, unknown>,
-  flatKey: string,
-  detailKey: string
-): number {
-  const flat = num(record[flatKey]);
-  if (flat) {
-    return flat;
-  }
-  const details = record.inputTokenDetails;
-  return details && typeof details === "object"
-    ? num((details as Record<string, unknown>)[detailKey])
-    : 0;
-}
-
 function buildMetadata(
   model: ModelRoute | undefined,
   usage: SessionUsage,
@@ -442,9 +409,9 @@ function buildMetadata(
     ...(model
       ? {
           model: {
+            harness: model.harness,
             id: model.id,
-            ...(model.provider ? { provider: model.provider } : {}),
-            ...(model.harness ? { harness: model.harness } : {}),
+            provider: model.provider,
           },
         }
       : {}),
@@ -453,123 +420,6 @@ function buildMetadata(
   };
 }
 
-function errMessage(value: unknown): string {
-  if (value instanceof Error) {
-    return value.message;
-  }
-  if (typeof value === "string") {
-    return value;
-  }
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return String(value);
-  }
-}
-
 function toError(value: unknown): Error {
-  return value instanceof Error ? value : new Error(errMessage(value));
-}
-
-function readString(ev: StreamPart, keys: string[]): string {
-  for (const key of keys) {
-    const value = ev[key];
-    if (typeof value === "string") {
-      return value;
-    }
-  }
-  return "";
-}
-
-/** Read a string field off a loosely-typed nested bag (e.g. a chunk's `toolCall`). */
-function stringField(
-  bag: Record<string, unknown> | undefined,
-  key: string
-): string {
-  const value = bag?.[key];
-  return typeof value === "string" ? value : "";
-}
-
-/** Read the AI SDK provider-metadata bag off a stream part (it arrives as
- *  `providerMetadata` on the model stream; tolerate `providerOptions` too). */
-interface ApprovalRequestFields {
-  activityId: string | undefined;
-  agentGeneration: number | undefined;
-  agentId: string | undefined;
-  approvalId: string;
-  capability: Capability;
-  input: unknown;
-  signature: string | undefined;
-  toolCallId: string;
-  toolName: string;
-}
-
-function readApprovalRequest(event: StreamPart): ApprovalRequestFields {
-  const toolCall = nestedToolCall(event.toolCall);
-  return {
-    activityId: readString(event, ["activityId"]) || undefined,
-    agentGeneration:
-      typeof event.agentGeneration === "number"
-        ? event.agentGeneration
-        : undefined,
-    agentId: readString(event, ["agentId"]) || undefined,
-    approvalId: readString(event, ["approvalId"]),
-    // Not resolvable from the raw stream chunk alone — the emitting source is
-    // responsible for attaching the capability at its registration seam.
-    capability: event.capability as Capability,
-    input: toolCall ? toolCall.input : event.input,
-    signature: readString(event, ["signature"]) || undefined,
-    toolCallId:
-      stringField(toolCall, "toolCallId") || readString(event, ["toolCallId"]),
-    toolName:
-      stringField(toolCall, "toolName") ||
-      readString(event, ["toolName", "name"]),
-  };
-}
-
-function nestedToolCall(value: unknown): Record<string, unknown> | undefined {
-  return value && typeof value === "object"
-    ? (value as Record<string, unknown>)
-    : undefined;
-}
-
-function readProviderMetadata(
-  ev: StreamPart
-): Record<string, Record<string, unknown>> | undefined {
-  const value = ev.providerMetadata ?? ev.providerOptions;
-  return value && typeof value === "object"
-    ? (value as Record<string, Record<string, unknown>>)
-    : undefined;
-}
-
-function readToolProvenance(value: unknown): ToolProvenance | undefined {
-  if (typeof value !== "object" || value === null) {
-    return undefined;
-  }
-  const candidate = value as Partial<ToolProvenance>;
-  if (
-    !["runtime", "host", "executor"].includes(
-      candidate.effectLocation as string
-    ) ||
-    typeof candidate.invocationId !== "string" ||
-    !isToolProvenanceSource(candidate.source)
-  ) {
-    return undefined;
-  }
-  return candidate as ToolProvenance;
-}
-
-function isToolProvenanceSource(
-  value: unknown
-): value is ToolProvenance["source"] {
-  return [
-    "declared",
-    "builtin",
-    "skill",
-    "mcp",
-    "mesh",
-    "module",
-    "external",
-    "harness",
-  ].includes(value as string);
+  return value instanceof Error ? value : new Error(stringifyValue(value));
 }

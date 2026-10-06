@@ -64,10 +64,10 @@ function childEnv(custom: Record<string, string> = {}): Record<string, string> {
  */
 export const sdkStdioTransport: SpawnStdio = (config) =>
   new Experimental_StdioMCPTransport({
+    args: config.args,
     command: config.command,
-    ...(config.args ? { args: config.args } : {}),
     ...(config.cwd ? { cwd: config.cwd } : {}),
-    ...(config.env ? { env: config.env } : {}),
+    env: config.env,
     stderr: "ignore",
   });
 
@@ -128,12 +128,12 @@ export const spawnStdioTransport: SpawnStdio = (config, hooks) => {
       }
       return new Promise<void>((resolve, reject) => {
         const proc = spawn(config.command, config.args ?? [], {
+          cwd: config.cwd,
           env: childEnv(config.env),
           shell: false,
           stdio: ["pipe", "pipe", "pipe"],
           // Electron on Windows would otherwise flash a console window per server.
           windowsHide: process.platform === "win32" && "type" in process,
-          ...(config.cwd === undefined ? {} : { cwd: config.cwd }),
         });
         child = proc;
         proc.once("spawn", resolve);

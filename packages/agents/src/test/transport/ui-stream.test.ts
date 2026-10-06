@@ -3,12 +3,8 @@ import type { UIMessage, UIMessageChunk } from "ai";
 import { readUIMessageStream } from "ai";
 import { describe, expect, test } from "vitest";
 
-import type {
-  SessionEvent,
-  SessionMessage,
-  SessionStream,
-  SessionUsage,
-} from "../../session";
+import type { SessionEvent, SessionStream } from "../../session/events";
+import type { SessionMessage, SessionUsage } from "../../session/types";
 
 import { projectToUIMessageChunks } from "../../transport/ui-stream";
 
@@ -35,10 +31,7 @@ function streamOf(events: SessionEvent[]): SessionStream {
 
 async function collect(stream: SessionStream, model?: string) {
   const chunks: UIMessageChunk[] = [];
-  for await (const chunk of projectToUIMessageChunks(
-    stream,
-    model ? { model } : {}
-  )) {
+  for await (const chunk of projectToUIMessageChunks(stream, { model })) {
     chunks.push(chunk);
   }
   return chunks;

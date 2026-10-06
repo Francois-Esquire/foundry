@@ -1,17 +1,19 @@
+import { randomUUID } from "node:crypto";
 import type { ToolSet } from "ai";
 
-import type { AgentAuthorizer } from "../authorization";
+import type { AgentAuthorizer } from "../authorization/authorization";
+import type { AgentHarnessSettings } from "../harness/agent-harness";
+import { AgentHarness } from "../harness/agent-harness";
 import type {
-  AgentHarnessSettings,
   CompactionSettings,
   SessionHarnessSettings,
-  ToolEffectPort,
-} from "../harness";
-import { AgentHarness, SessionHarness } from "../harness";
-import { createModelSummarizer } from "../session";
+} from "../harness/session-harness";
+import { SessionHarness } from "../harness/session-harness";
+import type { ToolEffectPort } from "../harness/types";
+import { createModelSummarizer } from "../session/compactor";
 import type { SessionStore } from "../session/store";
-import type { Skill } from "../skills";
-import { createSkillRegistry } from "../skills";
+import { createSkillRegistry } from "../skills/registry";
+import type { Skill } from "../skills/types";
 import { composeTools } from "../tools/compose";
 import { createTodos } from "../tools/todos";
 import type { Mesh } from "./mesh";
@@ -28,6 +30,7 @@ export type AgentSettings = Omit<
   | "agentGeneration"
   | "policy"
   | "effectPort"
+  | "sessionId"
 >;
 
 export interface AgentExecutionContext {
@@ -92,28 +95,8 @@ interface Configuration {
 }
 
 function splitSettings(settings: SessionHarnessSettings): Configuration {
-  const {
-    store,
-    sessionId,
-    mesh,
-    registry,
-    nodeId,
-    compaction,
-    toolContext,
-    ...agent
-  } = settings;
-  return {
-    agent,
-    session: {
-      compaction,
-      mesh,
-      nodeId,
-      registry,
-      sessionId,
-      store,
-      toolContext,
-    },
-  };
+  const { store, mesh, registry, nodeId, compaction, ...agent } = settings;
+  return { agent, session: { compaction, mesh, nodeId, registry, store } };
 }
 
 async function resolveTools(
@@ -176,27 +159,33 @@ async function provisionSpec(
     spec.mcp?.length && surface.mcp ? await surface.mcp(spec.mcp) : undefined;
   const domainTools = await resolveTools(spec, surface, context);
   return {
-    model,
-    ...(surface.observe ? { observe: surface.observe } : {}),
     instructions: [context.instructions ?? spec.prompt, skills?.instructions]
       .filter(Boolean)
       .join("\n\n"),
+    model,
+    observe: surface.observe,
+    policy: surface.policy,
     tools: composeTools(
       createTodos().tools,
       skills?.tools,
       mcpTools,
       domainTools
     ),
-    ...(surface.toolsContext ? { toolsContext: surface.toolsContext } : {}),
-    ...(surface.policy ? { policy: surface.policy } : {}),
+    toolsContext: surface.toolsContext,
   };
 }
 
+/**
+ * The one merge of defaults, spec, and invocation. The session id is fixed here
+ * — invoked, else the configured default, else fresh — because the tool context
+ * carries it and the harness scopes every authorization request by it.
+ */
 function configureAgent(
   spec: AgentSpec,
   defaults: AgentHarnessSettings,
   context: AgentPresetContext
 ): AgentHarnessSettings {
+  const sessionId = context.sessionId ?? defaults.sessionId ?? randomUUID();
   return {
     ...defaults,
     ...spec.settings,
@@ -209,10 +198,12 @@ function configureAgent(
     ...(context.model ? { model: context.model } : {}),
     ...(context.policy ? { policy: context.policy } : {}),
     ...(context.effectPort ? { effectPort: context.effectPort } : {}),
+    sessionId,
     tools: composeTools(defaults.tools, context.tools),
     toolsContext: {
       ...defaults.toolsContext,
       ...context.toolsContext,
+      sessionId,
       ...(context.execution ? { execution: context.execution } : {}),
     },
   };
@@ -258,15 +249,7 @@ function configureSession(
       ? (session.nodeId ?? spec.mesh?.node ?? spec.id)
       : session.nodeId,
     registry: mesh?.registry ?? session.registry,
-    sessionId: context.sessionId ?? session.sessionId,
     store: context.sessionStore ?? session.store,
-    toolContext: (sessionId) => ({
-      ...agent.toolsContext,
-      ...session.toolContext?.(sessionId),
-      ...context.toolsContext,
-      ...(sessionId ? { sessionId } : {}),
-      ...(context.execution ? { execution: context.execution } : {}),
-    }),
   };
 }
 
@@ -300,10 +283,8 @@ export function createAgentPreset(
 
   return {
     async createAgent(context = {}) {
-      const { agent, session } = await configure(context);
-      return new AgentHarness(agent, {
-        sessionId: context.sessionId ?? session.sessionId ?? "",
-      });
+      const { agent } = await configure(context);
+      return new AgentHarness(agent);
     },
     async createSession(context = {}) {
       const settings = configureSession(
@@ -311,9 +292,7 @@ export function createAgentPreset(
         await configure(context),
         context
       );
-      const harness = new SessionHarness(settings, {
-        sessionId: settings.sessionId ?? "",
-      });
+      const harness = new SessionHarness(settings);
       if (settings.mesh) {
         settings.mesh.register(harness.nodeId, {
           agent: harness.agent,

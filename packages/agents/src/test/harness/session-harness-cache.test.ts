@@ -1,8 +1,8 @@
 import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, it } from "vitest";
-import { SessionHarness } from "../../harness";
-import type { SessionEvent } from "../../session";
-import { InMemorySessionStore } from "../../session";
+import { SessionHarness } from "../../harness/session-harness";
+import type { SessionEvent } from "../../session/events";
+import { InMemorySessionStore } from "../../session/store";
 import { routed, textStreamResult } from "../helpers/mock-language-model";
 
 /** A model that records the call options the harness hands the provider. */
@@ -142,5 +142,20 @@ describe("SessionHarness — provider caching", () => {
     expect(lastMessage(captured.prompt)?.providerOptions?.anthropic).toEqual({
       cacheControl: { type: "ephemeral" },
     });
+  });
+
+  it("keeps construction-time providerOptions on a turn with no request-level directive", async () => {
+    const { model, captured } = capturingModel();
+    const harness = new SessionHarness({
+      instructions: "x",
+      model: routed(model, { id: "m", provider: "gateway" }),
+      providerOptions: { gateway: { order: ["a"] } },
+      store: new InMemorySessionStore(),
+      tools: {},
+    });
+
+    await drain(harness.stream("hi"));
+
+    expect(captured.providerOptions).toEqual({ gateway: { order: ["a"] } });
   });
 });
