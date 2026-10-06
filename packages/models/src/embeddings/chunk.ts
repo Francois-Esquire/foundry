@@ -69,9 +69,10 @@ export function chunk(
     case "fixed-cutoff":
       return fixedCutoff(text, strategy.maxChars, resourceId);
     default:
-      break;
+      throw new Error(
+        `[foundry/embeddings] unknown chunk strategy: ${JSON.stringify(strategy satisfies never)}`
+      );
   }
-  return undefined as never;
 }
 
 function wholeChunk(text: string, resourceId?: string): Chunk {

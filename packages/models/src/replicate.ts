@@ -1,6 +1,7 @@
 import { createReplicate } from "@ai-sdk/replicate";
 import { modelErrors } from "./errors";
 import type { Provider, ProviderBinding } from "./provider";
+import { configured } from "./provider";
 import type { ProviderModelDefinition } from "./types";
 
 export interface ReplicateProviderConfig {
@@ -59,7 +60,6 @@ export const REPLICATE_DEFAULT_MODELS: ProviderModelDefinition[] = [
   },
 ];
 
-/** Replicate, through the AI SDK adapter. The token lives here and nowhere else. */
 /** Registers `replicate` while `replicateApiToken` is present; a removed token scrubs the client first. */
 export const replicateBinding: ProviderBinding<ReplicateProviderConfig> = {
   clear: (provider) => provider.configure?.({ apiToken: undefined }),
@@ -72,24 +72,22 @@ export const replicateBinding: ProviderBinding<ReplicateProviderConfig> = {
   update: (provider, config) => provider.configure?.({ ...config }),
 };
 
+/** Replicate, through the AI SDK adapter. The token lives here and nowhere else. */
 export function replicateProvider(
   options: ReplicateProviderOptions = {}
 ): Provider<ReplicateProviderConfig> {
-  let config = options.config ?? {};
-  let sdk = createReplicate({ apiToken: config.apiToken ?? "" });
+  const vendor = configured(options.config ?? {}, (config) =>
+    createReplicate({ apiToken: config.apiToken ?? "" })
+  );
 
   const provider: Provider<ReplicateProviderConfig> = {
     get available() {
-      const { apiToken } = config;
-      return apiToken !== null && apiToken !== undefined;
+      return vendor.config.apiToken !== undefined;
     },
-    configure: (patch) => {
-      config = { ...config, ...patch };
-      sdk = createReplicate({ apiToken: config.apiToken ?? "" });
-    },
+    configure: vendor.configure,
     harness: "studio",
     id: options.id ?? "replicate",
-    imageModel: (modelId) => sdk.imageModel(modelId),
+    imageModel: (modelId) => vendor.client.imageModel(modelId),
     languageModel: () => {
       throw modelErrors.CAPABILITY_UNSUPPORTED({
         capability: "text models",
@@ -98,7 +96,7 @@ export function replicateProvider(
     },
     models: options.models ?? REPLICATE_DEFAULT_MODELS,
     offline: false,
-    videoModel: (modelId) => sdk.videoModel(modelId),
+    videoModel: (modelId) => vendor.client.videoModel(modelId),
   };
   return provider;
 }

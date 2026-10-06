@@ -2,6 +2,7 @@ import { createCodexAppServer } from "ai-sdk-provider-codex-cli";
 import { fromCodexListing } from "./catalog/codex";
 import { enrichFromSnapshot } from "./catalog/models-dev-snapshot";
 import type { Provider } from "./provider";
+import { configured } from "./provider";
 import type { ProviderModelDefinition } from "./types";
 
 export type {
@@ -56,32 +57,28 @@ export const CODEX_DEFAULT_MODELS: ProviderModelDefinition[] = [
 export function codexProvider(
   options: CodexProviderOptions = {}
 ): Provider<CodexProviderConfig> {
-  let config = options.config ?? {};
-  let sdk = build(config);
+  const vendor = configured(options.config ?? {}, build);
 
   return {
     get available() {
-      return config.available ?? false;
+      return vendor.config.available ?? false;
     },
-    configure: (patch) => {
-      config = { ...config, ...patch };
-      sdk = build(config);
-    },
+    configure: vendor.configure,
     // Gated on availability: spawning a binary that is not installed would
     // turn a missing optional tool into a startup error. The listing carries
     // ids and little else; models.dev supplies windows and capabilities.
     discover: async () => {
-      if (!(config.available ?? false)) {
+      if (!(vendor.config.available ?? false)) {
         return [];
       }
-      const { models } = await sdk.listModels();
+      const { models } = await vendor.client.listModels();
       return enrichFromSnapshot(fromCodexListing(models));
     },
-    dispose: () => sdk.close(),
+    dispose: () => vendor.client.close(),
     harness: "codex",
     id: options.id ?? "codex",
     languageModel: (modelId, opts) =>
-      sdk.languageModel(
+      vendor.client.languageModel(
         modelId,
         opts?.workingDirectory ? { cwd: opts.workingDirectory } : undefined
       ),

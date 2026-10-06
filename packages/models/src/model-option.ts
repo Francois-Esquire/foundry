@@ -19,7 +19,7 @@ const MODEL_ID_WORD_SEPARATOR_PATTERN = /[-_\s]+/;
 
 /**
  * The harness that runs a turn in-app, as opposed to shelling out to an
- * installed CLI. Matches `ModelProvider.harness`'s default.
+ * installed CLI. The `harness` every network provider declares.
  */
 export const STUDIO_HARNESS = "studio";
 

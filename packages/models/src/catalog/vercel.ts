@@ -5,6 +5,7 @@ import type {
   ModelKind,
   ProviderModelDefinition,
 } from "../types";
+import { tokenLimits } from "./limits";
 
 interface VercelRestPricingTier {
   cost: string;
@@ -83,21 +84,6 @@ function vercelDefinition(
     ...(limits ? { limits } : {}),
     ...(capabilities ? { capabilities } : {}),
   };
-}
-
-function tokenLimits(
-  contextWindow: number | null | undefined,
-  maxTokens: number | null | undefined
-): { maxInputTokens?: number; maxOutputTokens?: number } | undefined {
-  const limits = {
-    ...(contextWindow === null || contextWindow === undefined
-      ? {}
-      : { maxInputTokens: contextWindow }),
-    ...(maxTokens === null || maxTokens === undefined
-      ? {}
-      : { maxOutputTokens: maxTokens }),
-  };
-  return Object.keys(limits).length > 0 ? limits : undefined;
 }
 
 /** Parse a per-token decimal string into USD per 1M tokens. */

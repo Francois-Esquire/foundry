@@ -4,6 +4,7 @@ import type {
   ModelKind,
   ProviderModelDefinition,
 } from "../types";
+import { tokenLimits } from "./limits";
 
 export interface GatewayModelGroup {
   input_cost_per_token?: number | null;
@@ -61,21 +62,6 @@ function gatewayDefinition(
     ...(capabilities ? { capabilities } : {}),
     ...(params ? { params } : {}),
   };
-}
-
-function tokenLimits(
-  maxInputTokens: number | null | undefined,
-  maxOutputTokens: number | null | undefined
-): { maxInputTokens?: number; maxOutputTokens?: number } | undefined {
-  const limits = {
-    ...(maxInputTokens === null || maxInputTokens === undefined
-      ? {}
-      : { maxInputTokens }),
-    ...(maxOutputTokens === null || maxOutputTokens === undefined
-      ? {}
-      : { maxOutputTokens }),
-  };
-  return Object.keys(limits).length > 0 ? limits : undefined;
 }
 
 function normalizeCosts(group: GatewayModelGroup): ModelCosts | undefined {

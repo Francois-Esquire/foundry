@@ -98,9 +98,8 @@ async function run(
       };
     }
     default:
-      break;
+      return unhandled(input);
   }
-  return undefined as never;
 }
 
 async function subscribe(
@@ -146,9 +145,8 @@ function promptFields(prompt: SegmentationPrompt): Record<string, unknown> {
         ],
       };
     default:
-      break;
+      return unhandled(prompt);
   }
-  return undefined as never;
 }
 
 async function toMasks(
@@ -267,6 +265,11 @@ function number(value: unknown): number | undefined {
 
 function string(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
+}
+
+/** Compile-time exhaustiveness, and a loud failure if a caller slips past it. */
+function unhandled(value: never): never {
+  throw new Error(`[fal] unhandled media request: ${JSON.stringify(value)}`);
 }
 
 function malformed(what: string): Error {

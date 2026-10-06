@@ -263,3 +263,31 @@ export function operationsOf(
 export function servesKind(provider: Provider, kind: ModelKind): boolean {
   return provider.models.some((m) => m.kind === kind);
 }
+
+/**
+ * A provider's config and the vendor client built from it. A patch rebuilds
+ * the client in the same step, so the two never disagree.
+ */
+export function configured<TConfig extends object, TClient>(
+  initial: TConfig,
+  build: (config: TConfig) => TClient
+): {
+  readonly client: TClient;
+  readonly config: TConfig;
+  configure(patch: Partial<TConfig>): void;
+} {
+  let config = initial;
+  let client = build(config);
+  return {
+    get client() {
+      return client;
+    },
+    get config() {
+      return config;
+    },
+    configure(patch) {
+      config = { ...config, ...patch };
+      client = build(config);
+    },
+  };
+}

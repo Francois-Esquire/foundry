@@ -3,6 +3,7 @@ import type { ClaudeCodeProviderSettings } from "ai-sdk-provider-claude-code";
 import { createClaudeCode } from "ai-sdk-provider-claude-code";
 
 import type { Provider } from "./provider";
+import { configured } from "./provider";
 import type { ProviderModelDefinition } from "./types";
 
 export type { ClaudeCodeDriverOptions } from "./harness/claude-code";
@@ -50,21 +51,17 @@ export const CLAUDE_CODE_DEFAULT_MODELS: ProviderModelDefinition[] = [
 export function claudeCodeProvider(
   options: ClaudeCodeProviderOptions = {}
 ): Provider<ClaudeCodeProviderConfig> {
-  let config = options.config ?? {};
-  let sdk = createClaudeCode(config);
+  const vendor = configured(options.config ?? {}, createClaudeCode);
 
   return {
     get available() {
-      return config.available ?? false;
+      return vendor.config.available ?? false;
     },
-    configure: (patch) => {
-      config = { ...config, ...patch };
-      sdk = createClaudeCode(config);
-    },
+    configure: vendor.configure,
     harness: "claude-code",
     id: options.id ?? "claude-code",
     languageModel: (modelId, opts) =>
-      sdk.languageModel(
+      vendor.client.languageModel(
         modelId,
         opts?.workingDirectory ? { cwd: opts.workingDirectory } : undefined
       ),

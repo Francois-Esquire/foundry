@@ -32,6 +32,20 @@ export const modelErrors = defineErrorCatalog("models", {
     status: 500,
     why: "The embedding backend returned a different count than requested.",
   },
+  EXECUTOR_HARNESS_MISMATCH: {
+    message: ({
+      expected,
+      harness,
+      provider,
+    }: {
+      expected: string;
+      harness: string;
+      provider: string;
+    }) =>
+      `Executor harness "${harness}" does not own provider "${provider}" (expected "${expected}").`,
+    status: 422,
+    why: "A provider's models run only under the harness that serves them, so a durable route must name the matching pair.",
+  },
   INVALID_CHUNK_CUTOFF: {
     message: ({ maxChars }: { maxChars: number }) =>
       `fixed-cutoff requires maxChars > 0, got ${maxChars}`,

@@ -3,6 +3,7 @@ import { createFalClient } from "@fal-ai/client";
 import { modelErrors } from "../errors";
 import type { LiveAccess } from "../live/types";
 import type { Provider, ProviderBinding } from "../provider";
+import { configured } from "../provider";
 import type { ProviderModelDefinition } from "../types";
 import { FAL_DEFAULT_MODELS } from "./catalog";
 import type { FalFetch, FalRuntime } from "./client";
@@ -61,46 +62,46 @@ export function falCredentialAccess(apiKey: string): LiveAccess {
 export function falProvider(
   options: FalProviderOptions = {}
 ): Provider<FalProviderConfig> {
-  let config = options.config ?? {};
-  let sdk = createFal(sdkSettings(config));
-  let runtime = runtimeFor(config);
+  const vendor = configured(options.config ?? {}, (config) => ({
+    runtime: runtimeFor(config),
+    sdk: createFal(sdkSettings(config)),
+  }));
 
   const provider: Provider<FalProviderConfig> = {
     get available() {
-      return runtime !== null;
+      return vendor.client.runtime !== null;
     },
-    configure: (patch) => {
-      config = { ...config, ...patch };
-      sdk = createFal(sdkSettings(config));
-      runtime = runtimeFor(config);
-    },
+    configure: vendor.configure,
     grant: (modelId, operation) =>
       falGrant({
         modelId,
         models: provider.models,
         operation,
-        ...(config.proxyUrl === undefined ? {} : { proxyUrl: config.proxyUrl }),
+        ...(vendor.config.proxyUrl === undefined
+          ? {}
+          : { proxyUrl: vendor.config.proxyUrl }),
         providerId: provider.id,
-        runtime,
+        runtime: vendor.client.runtime,
       }),
     harness: "studio",
     id: options.id ?? "fal",
     // `createFal()` names these `speech` and `transcription`, not the
     // `ProviderV4` optional `speechModel`/`transcriptionModel`, so `fromSdk`
     // would type-check and then drop both kinds. They are mapped by hand.
-    imageModel: (modelId) => sdk.imageModel(modelId),
+    imageModel: (modelId) => vendor.client.sdk.imageModel(modelId),
     languageModel: () => {
       throw modelErrors.CAPABILITY_UNSUPPORTED({
         capability: "text models",
         provider: provider.id,
       });
     },
-    mediaModel: (modelId) => falMediaModel(modelId, () => runtime),
+    mediaModel: (modelId) =>
+      falMediaModel(modelId, () => vendor.client.runtime),
     models: options.models ?? FAL_DEFAULT_MODELS,
     offline: false,
-    speechModel: (modelId) => sdk.speech(modelId),
-    transcriptionModel: (modelId) => sdk.transcription(modelId),
-    videoModel: (modelId) => sdk.videoModel(modelId),
+    speechModel: (modelId) => vendor.client.sdk.speech(modelId),
+    transcriptionModel: (modelId) => vendor.client.sdk.transcription(modelId),
+    videoModel: (modelId) => vendor.client.sdk.videoModel(modelId),
   };
   return provider;
 }

@@ -7,6 +7,7 @@ import { VERCEL_DEFAULT_MODELS } from "./catalog/defaults";
 import type { VercelRestModelList } from "./catalog/vercel";
 import { fromVercelRest } from "./catalog/vercel";
 import type { Provider, ProviderBinding } from "./provider";
+import { configured } from "./provider";
 import type { ModelKind, ProviderModelDefinition } from "./types";
 
 const TRAILING_SLASHES_PATTERN = /\/+$/;
@@ -51,22 +52,17 @@ export const vercelBinding: ProviderBinding<VercelProviderConfig> = {
 export function vercelProvider(
   options: VercelProviderOptions = {}
 ): Provider<VercelProviderConfig> {
-  let config = options.config ?? {};
-  let gateway = build(config);
+  const vendor = configured(options.config ?? {}, build);
 
   return {
     get available() {
-      const { apiKey } = config;
-      return apiKey !== null && apiKey !== undefined;
+      return vendor.config.apiKey !== undefined;
     },
-    configure: (patch) => {
-      config = { ...config, ...patch };
-      gateway = build(config);
-    },
+    configure: vendor.configure,
     defaults:
       options.defaults ?? (options.models ? undefined : VERCEL_DEFAULTS),
     discover: async () => {
-      const base = (config.baseURL ?? VERCEL_GATEWAY_BASE_URL).replace(
+      const base = (vendor.config.baseURL ?? VERCEL_GATEWAY_BASE_URL).replace(
         TRAILING_SLASHES_PATTERN,
         ""
       );
@@ -84,17 +80,17 @@ export function vercelProvider(
       }
       return fromVercelRest(payload);
     },
-    embeddingModel: (modelId) => gateway.embeddingModel(modelId),
+    embeddingModel: (modelId) => vendor.client.embeddingModel(modelId),
     harness: "studio",
     id: options.id ?? "vercel",
-    imageModel: (modelId) => gateway.imageModel(modelId),
+    imageModel: (modelId) => vendor.client.imageModel(modelId),
     // Reasoning models served through the gateway (Qwen 3, etc.) stream their
     // chain-of-thought inline as `<think>…</think>`; the middleware peels it
     // into `reasoning-*` events. No-op for models that never emit the tag.
     languageModel: (modelId) =>
       wrapLanguageModel({
         middleware: extractReasoningMiddleware({ tagName: "think" }),
-        model: gateway.languageModel(modelId),
+        model: vendor.client.languageModel(modelId),
       }),
     models: options.models ?? VERCEL_DEFAULT_MODELS,
     offline: false,

@@ -330,9 +330,11 @@ export class ModelManager {
       throw modelErrors.NO_USABLE_PROVIDER({ kind: "text" });
     }
     if (harnessId !== undefined && harnessId !== provider.harness) {
-      throw new Error(
-        `[models] executor harness "${harnessId}" does not own provider "${provider.id}" (expected "${provider.harness}")`
-      );
+      throw modelErrors.EXECUTOR_HARNESS_MISMATCH({
+        expected: provider.harness,
+        harness: harnessId,
+        provider: provider.id,
+      });
     }
     return Object.freeze({
       harness: provider.harness,
