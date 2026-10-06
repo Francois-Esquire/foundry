@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { fakeProvider } from "./helpers/model";
 
@@ -25,7 +25,6 @@ const { ModelManager } = await import("../manager");
 const { LocalProvider } = await import("../local/provider");
 const { configureModelObservability } = await import("../logger");
 const { falBinding, falProvider } = await import("../fal/provider");
-const { setFalRuntime } = await import("../fal/client");
 const { gatewayBinding } = await import("../gateway");
 const { replicateBinding } = await import("../replicate");
 const { vercelBinding, vercelProvider } = await import("../vercel");
@@ -149,10 +148,6 @@ function imageBearer(id: string) {
 }
 
 describe("ModelManager.configure — fal and replicate lifecycle", () => {
-  afterEach(() => {
-    setFalRuntime(null);
-  });
-
   it("registers fal on falApiKey and offers its rows as available", () => {
     const manager = seeded();
     expect(manager.has("fal")).toBe(false);

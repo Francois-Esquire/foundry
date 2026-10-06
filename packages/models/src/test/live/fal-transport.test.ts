@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { FalEndpointClient } from "../../fal/client";
 import type { TransportHandlers } from "../../live/transport";
 
 import { target, token } from "../helpers/live-double";
@@ -7,7 +8,6 @@ import { target, token } from "../helpers/live-double";
 const LUCY_PATTERN = /lucy/i;
 const DECLARES_NO_TOKEN_OPTION_PATTERN = /declares no token option/;
 const LUCY_PATTERN_2 = /lucy/i;
-const KEY_OWNING_PROCESS_PATTERN = /key-owning process/;
 
 const state = vi.hoisted(() => ({
   configs: [] as Record<string, unknown>[],
@@ -115,10 +115,25 @@ describe("the socket transport", () => {
     expect(state.connects[0]?.handler).not.toHaveProperty("tokenProvider");
   });
 
-  it("refuses credential access when the configured-client holder is empty", async () => {
-    await expect(
-      connectFalSocket(target(), { kind: "credential" }, OPENING, handlers())
-    ).rejects.toThrow(KEY_OWNING_PROCESS_PATTERN);
+  it("connects through the client a credential access carries", async () => {
+    const apps: string[] = [];
+    const client = {
+      realtime: {
+        connect: (app: string) => {
+          apps.push(app);
+          return { close: () => undefined, send: () => undefined };
+        },
+      },
+    } as unknown as FalEndpointClient;
+    await connectFalSocket(
+      target(),
+      { client, kind: "credential" },
+      OPENING,
+      handlers()
+    );
+    expect(apps).toEqual([target().modelId]);
+    // No client of its own: nothing reads an ambient key.
+    expect(state.configs).toEqual([]);
   });
 
   it("sends a frame on the endpoint's declared image_url field, base64", async () => {

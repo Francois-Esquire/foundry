@@ -1,8 +1,7 @@
 import type { Media } from "../types";
 import type { HostAdapter } from "./core";
 import { openCore } from "./core";
-import { connectFalSocket } from "./fal-socket";
-import { connectFalWebRtc } from "./fal-webrtc";
+import { falTransports } from "./fal";
 import type { Sampler } from "./sampler";
 import { sampleStream } from "./sampler";
 import type {
@@ -41,9 +40,6 @@ export async function open(
   access: LiveAccess,
   options: BrowserLiveOptions
 ): Promise<BrowserLiveInteraction> {
-  // `credential` needs no check here: the configured-client holder is empty in
-  // any process that never called `configure`, which is always a browser
-  // build, and `openCore` refuses on exactly that.
   const adapter: HostAdapter = {
     data: () => {
       // `onData` is the Node entry's surface; a browser caller has no use for
@@ -56,7 +52,7 @@ export async function open(
   const core = await openCore({
     access,
     adapter,
-    connect: { socket: connectFalSocket, webrtc: connectFalWebRtc },
+    connect: falTransports,
     options,
     target,
   });

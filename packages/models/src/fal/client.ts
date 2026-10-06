@@ -42,17 +42,6 @@ export interface FalRuntime {
   readonly fetch: FalFetch;
 }
 
-let runtime: FalRuntime | null = null;
-
-/** Empty until `falProvider.configure` supplies a key; cleared when it is removed. */
-export function getFalRuntime(): FalRuntime | null {
-  return runtime;
-}
-
-export function setFalRuntime(next: FalRuntime | null): void {
-  runtime = next;
-}
-
 export function buildFalRuntime(
   credentials: string,
   fetchImpl: FalFetch = (input, init) => globalThis.fetch(input, init)

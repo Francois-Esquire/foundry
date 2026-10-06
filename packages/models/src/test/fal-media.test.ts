@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import type { FalEndpointClient, FalFetch } from "../fal/client";
-import { getFalRuntime, setFalRuntime } from "../fal/client";
+import type { FalEndpointClient, FalFetch, FalRuntime } from "../fal/client";
 import { falMediaModel } from "../fal/media";
 import { falProvider } from "../fal/provider";
 import type { MediaInput, SegmentationPrompt } from "../types";
@@ -22,7 +21,10 @@ interface Harness {
   uploads: Blob[];
 }
 
-/** A stubbed client and fetch in the module-level holder the Provider sets. */
+/** The runtime `media` reads, standing in for a keyed Provider's own. */
+let current: FalRuntime | null = null;
+
+/** A stubbed client and fetch, installed as the runtime `media` reads. */
 function install(
   data: unknown,
   options: { subscribe?: FalEndpointClient["subscribe"] } = {}
@@ -58,12 +60,12 @@ function install(
     fetched.push(input);
     return Promise.resolve(new Response(new Uint8Array([1, 2, 3])));
   };
-  setFalRuntime({ client, credentials: "fal_key", fetch: stubFetch });
+  current = { client, credentials: "fal_key", fetch: stubFetch };
   return { calls, client, fetched, uploads };
 }
 
 function media(endpointId: string) {
-  return falMediaModel(endpointId, () => true);
+  return falMediaModel(endpointId, () => current);
 }
 
 const IMAGE_INPUT: MediaInput = {
@@ -73,7 +75,7 @@ const IMAGE_INPUT: MediaInput = {
 };
 
 afterEach(() => {
-  setFalRuntime(null);
+  current = null;
 });
 
 describe("falMediaModel — segment-image", () => {
@@ -269,11 +271,5 @@ describe("falMediaModel — refusal and abort", () => {
     );
     expect(harness.uploads).toHaveLength(0);
     expect(harness.calls).toHaveLength(0);
-  });
-
-  it("leaves a configured client in place when an unkeyed Provider is built", () => {
-    const harness = install(SEGMENT_IMAGE);
-    falProvider();
-    expect(getFalRuntime()?.client).toBe(harness.client);
   });
 });

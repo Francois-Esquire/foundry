@@ -1,10 +1,12 @@
 import { createFal } from "@ai-sdk/fal";
+import { createFalClient } from "@fal-ai/client";
 import { modelErrors } from "../errors";
+import type { LiveAccess } from "../live/types";
 import type { Provider, ProviderBinding } from "../provider";
 import type { ProviderModelDefinition } from "../types";
 import { FAL_DEFAULT_MODELS } from "./catalog";
-import type { FalFetch } from "./client";
-import { buildFalRuntime, getFalRuntime, setFalRuntime } from "./client";
+import type { FalFetch, FalRuntime } from "./client";
+import { buildFalRuntime } from "./client";
 import { falGrant } from "./grant";
 import { falMediaModel } from "./media";
 
@@ -27,7 +29,7 @@ export interface FalProviderOptions {
 
 /**
  * Registers `fal` while `falApiKey` is present. A removed key scrubs the
- * shared client before the drop, so no configured runtime is left behind.
+ * Provider's client before the drop, so no configured runtime is left behind.
  */
 export const falBinding: ProviderBinding<FalProviderConfig> = {
   clear: (provider) => provider.configure?.({ apiKey: undefined }),
@@ -37,6 +39,18 @@ export const falBinding: ProviderBinding<FalProviderConfig> = {
   id: "fal",
   update: (provider, config) => provider.configure?.({ ...config }),
 };
+
+/**
+ * Live access for the key-owning process itself: the configured client rides
+ * on the access, so only a holder of the key can construct one. `grant` never
+ * produces it; it is for opening a live interaction in this process.
+ */
+export function falCredentialAccess(apiKey: string): LiveAccess {
+  return {
+    client: createFalClient({ credentials: apiKey }),
+    kind: "credential",
+  };
+}
 
 /**
  * FAL. Request-mode image, video, speech, and transcription run through the AI
@@ -49,33 +63,25 @@ export function falProvider(
 ): Provider<FalProviderConfig> {
   let config = options.config ?? {};
   let sdk = createFal(sdkSettings(config));
-  // Only a key writes the shared holder. An unkeyed Provider constructed
-  // alongside a keyed one must not clear the client out from under it;
-  // clearing is `configure`'s, where a key was deliberately removed.
-  const { apiKey } = config;
-  if (apiKey !== null && apiKey !== undefined) {
-    applyRuntime(config);
-  }
+  let runtime = runtimeFor(config);
 
   const provider: Provider<FalProviderConfig> = {
     get available() {
-      const configuredApiKey = config.apiKey;
-      return configuredApiKey !== null && configuredApiKey !== undefined;
+      return runtime !== null;
     },
     configure: (patch) => {
       config = { ...config, ...patch };
       sdk = createFal(sdkSettings(config));
-      applyRuntime(config);
+      runtime = runtimeFor(config);
     },
     grant: (modelId, operation) =>
       falGrant({
-        available: provider.available,
         modelId,
         models: provider.models,
         operation,
         ...(config.proxyUrl === undefined ? {} : { proxyUrl: config.proxyUrl }),
         providerId: provider.id,
-        runtime: getFalRuntime(),
+        runtime,
       }),
     harness: "studio",
     id: options.id ?? "fal",
@@ -89,7 +95,7 @@ export function falProvider(
         provider: provider.id,
       });
     },
-    mediaModel: (modelId) => falMediaModel(modelId, () => provider.available),
+    mediaModel: (modelId) => falMediaModel(modelId, () => runtime),
     models: options.models ?? FAL_DEFAULT_MODELS,
     offline: false,
     speechModel: (modelId) => sdk.speech(modelId),
@@ -107,11 +113,8 @@ function sdkSettings(config: FalProviderConfig) {
   };
 }
 
-function applyRuntime(config: FalProviderConfig): void {
-  const { apiKey } = config;
-  setFalRuntime(
-    apiKey === null || apiKey === undefined
-      ? null
-      : buildFalRuntime(apiKey, config.fetch)
-  );
+function runtimeFor(config: FalProviderConfig): FalRuntime | null {
+  return config.apiKey === undefined
+    ? null
+    : buildFalRuntime(config.apiKey, config.fetch);
 }

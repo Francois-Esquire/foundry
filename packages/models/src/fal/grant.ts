@@ -17,12 +17,12 @@ const FAL_REST_URL = "https://rest.fal.ai";
 const TOKEN_EXPIRATION_SECONDS = 120;
 
 export interface FalGrantRequest {
-  readonly available: boolean;
   readonly modelId: string;
   readonly models: readonly ProviderModelDefinition[];
   readonly operation: OperationName;
   readonly providerId: string;
   readonly proxyUrl?: string;
+  /** Present exactly when the Provider holds a key. */
   readonly runtime: FalRuntime | null;
 }
 
@@ -49,7 +49,7 @@ export async function falGrant(request: FalGrantRequest): Promise<LiveAccess> {
       provider: request.providerId,
     });
   }
-  if (!(request.available && request.runtime)) {
+  if (!request.runtime) {
     throw modelErrors.NO_USABLE_PROVIDER({ kind: request.operation });
   }
   if (request.proxyUrl !== undefined) {

@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { FalFetch } from "../fal/client";
-import { setFalRuntime } from "../fal/client";
 import { falProvider } from "../fal/provider";
 import type { Provider } from "../provider";
 import type { ProviderModelDefinition } from "../types";
@@ -100,7 +99,6 @@ const TWO_LIVE: ProviderModelDefinition[] = [
 
 afterEach(() => {
   sent.length = 0;
-  setFalRuntime(null);
 });
 
 describe("FAL grant", () => {

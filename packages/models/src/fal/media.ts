@@ -8,7 +8,6 @@ import type {
   SegmentationPrompt,
 } from "../types";
 import type { FalRuntime } from "./client";
-import { getFalRuntime } from "./client";
 
 /** A vendor payload, read field by field so nothing untranslated escapes. */
 type Payload = Record<string, unknown>;
@@ -20,18 +19,15 @@ type Payload = Record<string, unknown>;
  */
 export function falMediaModel(
   endpointId: string,
-  available: () => boolean
+  runtime: () => FalRuntime | null
 ): MediaModel {
   return {
     run: async (input, options) => {
-      if (!available()) {
+      const configured = runtime();
+      if (!configured) {
         throw modelErrors.NO_USABLE_PROVIDER({ kind: input.operation });
       }
-      const runtime = getFalRuntime();
-      if (!runtime) {
-        throw modelErrors.NO_USABLE_PROVIDER({ kind: input.operation });
-      }
-      return run(runtime, endpointId, input, options?.signal);
+      return await run(configured, endpointId, input, options?.signal);
     },
   };
 }

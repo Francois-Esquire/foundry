@@ -18,7 +18,7 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 import { FAL_DEFAULT_MODELS } from "../../fal/catalog";
-import { falProvider } from "../../fal/provider";
+import { falCredentialAccess, falProvider } from "../../fal/provider";
 import type { LiveAccess, LiveTarget } from "../../live/types";
 import { operationsOf } from "../../provider";
 import type { CapabilityFact, OperationName } from "../../types";
@@ -78,17 +78,12 @@ describe.skipIf(!FAL_KEY)("FAL live vendor obligations", () => {
   }, 60_000);
 
   it("negotiates a continuous session and records a segment (H3 Max Director)", async () => {
-    provider();
     const { open } = await import("../../live/node/index");
     const target = liveTarget(H3, "generate-video");
 
-    const live = await open(
-      target,
-      { kind: "credential" },
-      {
-        direction: { prompt: "a harbour at dawn" },
-      }
-    );
+    const live = await open(target, falCredentialAccess(FAL_KEY ?? ""), {
+      direction: { prompt: "a harbour at dawn" },
+    });
     await new Promise((resolve) => setTimeout(resolve, 20_000));
     expect(live.tracks.length).toBeGreaterThan(0);
 

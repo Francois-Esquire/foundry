@@ -1,3 +1,4 @@
+import type { FalEndpointClient } from "../fal/client";
 import type { CapabilityFact, InputForm, Media, OperationName } from "../types";
 
 /**
@@ -21,8 +22,10 @@ export interface LiveTarget {
 }
 
 /**
- * How a party outside the key-owning process reaches a vendor. `credential` is
- * constructible only inside that process and is never produced by `grant`.
+ * How an interaction reaches a vendor. `token` and `proxy` are what `grant`
+ * hands a party outside the key-owning process. `credential` carries that
+ * process's configured client, so only a holder of the key can construct one
+ * (see `falCredentialAccess`); `grant` never produces it.
  */
 export type LiveAccess =
   | {
@@ -31,7 +34,7 @@ export type LiveAccess =
       readonly expiresAt: number;
     }
   | { readonly kind: "proxy"; readonly url: string }
-  | { readonly kind: "credential" };
+  | { readonly kind: "credential"; readonly client: FalEndpointClient };
 
 /** What the Model is being asked for right now. Replaced by `direct`. */
 export interface LiveDirection {

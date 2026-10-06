@@ -11,7 +11,6 @@ const NO_LIVE_FACT_PATTERN = /no live fact/;
 const DECLARES_OPERATION_GENERATE_IMAGE_PATTERN =
   /declares operation "generate-image"/;
 const EXPIRED_PATTERN = /expired/;
-const KEY_OWNING_PROCESS_PATTERN = /key-owning process/;
 const DOES_NOT_ACCEPT_A_FEED_PATTERN = /does not accept a feed/;
 const REQUIRES_A_FEED_AT_OPEN_PATTERN = /requires a feed at open/;
 const OPENING_SEND_REFUSED_PATTERN = /opening send refused/;
@@ -145,13 +144,6 @@ describe("open refusals", () => {
         { direction: { prompt: "p" } }
       )
     ).rejects.toThrow(EXPIRED_PATTERN);
-    expect(socket.connects).toBe(0);
-  });
-
-  it("rejects credential access with no configured client", async () => {
-    await expect(
-      open(target(), { kind: "credential" }, { direction: { prompt: "p" } })
-    ).rejects.toThrow(KEY_OWNING_PROCESS_PATTERN);
     expect(socket.connects).toBe(0);
   });
 

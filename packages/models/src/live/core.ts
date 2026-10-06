@@ -1,7 +1,5 @@
 import { modelErrors } from "../errors";
-import { getFalRuntime } from "../fal/client";
 import type { InputForm, Media } from "../types";
-import { credentialUnavailable } from "./fal-access";
 import type {
   Connect,
   Transport,
@@ -52,7 +50,6 @@ export class LiveCore {
   #lastSendAt = 0;
   #throttleTimer: ReturnType<typeof setTimeout> | null = null;
   #expiryTimer: ReturnType<typeof setTimeout> | null = null;
-  #closedFired = false as boolean;
   readonly #correlations = new Map<string, { sequence: number; id?: string }>();
   #lastSentSequence = 1;
   #nextCorrelation = 0;
@@ -140,53 +137,51 @@ export class LiveCore {
   }
 
   /** Wired to the transport's handlers by `openCore`. */
-  handlers(): TransportHandlers {
-    return {
-      close: (reason, message) => {
-        this.#terminate("disconnected", reason, message);
-      },
-      data: (raw) => {
-        if (this.#state !== "open") {
-          return;
-        }
-        this.#adapter.data(raw);
-      },
-      error: () => {
-        // A transport error that is not a loss of the session is not a state
-        // change; the transports report loss through `close`.
-      },
-      media: (media) => {
-        if (this.#state !== "open") {
-          return;
-        }
-        this.#adapter.media(media, this.#sequence);
-      },
-      message: (message) => {
-        if (this.#state !== "open") {
-          return;
-        }
-        const echoed =
-          message.correlation === undefined
-            ? undefined
-            : this.#correlations.get(message.correlation);
-        if (message.correlation !== undefined) {
-          this.#correlations.delete(message.correlation);
-        }
-        this.#options.onResult?.({
-          // Committed time, not delivery time: the sequence the echoed send
-          // carried, or — for a transport that echoes nothing — the sequence
-          // the most recent accepted input carried. The fallback is dead on
-          // every transport that ships here: the socket path echoes
-          // `request_id`, and the continuous path delivers media rather than
-          // messages. It exists for a transport with no echo field, and is
-          // still committed-time rather than latest-at-delivery.
-          direction: echoed?.sequence ?? this.#lastSentSequence,
-          media: message.media,
-          ...(echoed?.id === undefined ? {} : { input: echoed.id }),
-        });
-      },
-    };
-  }
+  readonly handlers: TransportHandlers = {
+    close: (reason, message) => {
+      this.#terminate("disconnected", reason, message);
+    },
+    data: (raw) => {
+      if (this.#state !== "open") {
+        return;
+      }
+      this.#adapter.data(raw);
+    },
+    error: () => {
+      // A transport error that is not a loss of the session is not a state
+      // change; the transports report loss through `close`.
+    },
+    media: (media) => {
+      if (this.#state !== "open") {
+        return;
+      }
+      this.#adapter.media(media, this.#sequence);
+    },
+    message: (message) => {
+      if (this.#state !== "open") {
+        return;
+      }
+      const echoed =
+        message.correlation === undefined
+          ? undefined
+          : this.#correlations.get(message.correlation);
+      if (message.correlation !== undefined) {
+        this.#correlations.delete(message.correlation);
+      }
+      this.#options.onResult?.({
+        // Committed time, not delivery time: the sequence the echoed send
+        // carried, or — for a transport that echoes nothing — the sequence
+        // the most recent accepted input carried. The fallback is dead on
+        // every transport that ships here: the socket path echoes
+        // `request_id`, and the continuous path delivers media rather than
+        // messages. It exists for a transport with no echo field, and is
+        // still committed-time rather than latest-at-delivery.
+        direction: echoed?.sequence ?? this.#lastSentSequence,
+        media: message.media,
+        ...(echoed?.id === undefined ? {} : { input: echoed.id }),
+      });
+    },
+  };
 
   armExpiry(expiresAt: number): void {
     this.#expiryTimer = setTimeout(
@@ -287,10 +282,9 @@ export class LiveCore {
     reason: LiveClosedReason,
     message?: string
   ): void {
-    if (this.#closedFired) {
+    if (this.#state !== "open") {
       return;
     }
-    this.#closedFired = true;
     this.#state = state;
     this.#pendingFrame = null;
     if (this.#throttleTimer !== null) {
@@ -333,11 +327,6 @@ export async function openCore(request: CoreRequest): Promise<LiveCore> {
     throw modelErrors.LIVE_ACCESS_UNAVAILABLE({
       reason: "the supplied access token has expired",
     });
-  }
-  // Prechecked here as well as in the transport, so a refused `credential`
-  // never reaches a connect at all.
-  if (request.access.kind === "credential" && getFalRuntime() === null) {
-    throw credentialUnavailable();
   }
   if (request.options.feed !== undefined && !fact.inputs.includes("feed")) {
     throw modelErrors.LIVE_OPEN_REFUSED({
@@ -386,11 +375,11 @@ export async function openCore(request: CoreRequest): Promise<LiveCore> {
         : { peerConnectionFactory: request.peerConnectionFactory }),
     },
     {
-      close: (reason, message) => core?.handlers().close(reason, message),
-      data: (raw) => core?.handlers().data(raw),
-      error: (error) => core?.handlers().error(error),
-      media: (media) => core?.handlers().media(media),
-      message: (message) => core?.handlers().message(message),
+      close: (reason, message) => core?.handlers.close(reason, message),
+      data: (raw) => core?.handlers.data(raw),
+      error: (error) => core?.handlers.error(error),
+      media: (media) => core?.handlers.media(media),
+      message: (message) => core?.handlers.message(message),
     }
   );
   core = new LiveCore(transport, request, fact.inputs);

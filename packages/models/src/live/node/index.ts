@@ -3,8 +3,7 @@ import { modelErrors } from "../../errors";
 import type { Media } from "../../types";
 import type { HostAdapter } from "../core";
 import { openCore } from "../core";
-import { connectFalSocket } from "../fal-socket";
-import { connectFalWebRtc } from "../fal-webrtc";
+import { falTransports } from "../fal";
 import type {
   LiveAccess,
   LiveInteraction,
@@ -78,7 +77,7 @@ export async function open(
   const core = await openCore({
     access,
     adapter,
-    connect: { socket: connectFalSocket, webrtc: connectFalWebRtc },
+    connect: falTransports,
     // Both extensions take a `localStream`, so a Node caller's single track is
     // wrapped in the `MediaStream` the runtime installed — the same
     // constructor the client itself reaches for. It happens here, in the entry

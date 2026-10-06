@@ -1,13 +1,10 @@
 import { createFalClient } from "@fal-ai/client";
-import { modelErrors } from "../errors";
 import type { FalEndpointClient } from "../fal/client";
-import { getFalRuntime } from "../fal/client";
 import type { LiveAccess } from "./types";
 
 /**
- * How a `LiveAccess` becomes a client, for both transports. `credential` is the
- * configured-client holder, which is empty in any process that never called
- * `configure` — always the case in a browser build.
+ * How a `LiveAccess` becomes a client, for both transports. `credential`
+ * already carries the key-owning process's configured client.
  *
  * `proxyUrl` carries `when: "always"` rather than a bare string. A string
  * normalizes to `{ url }` with no `when` (`config.js:59`) and
@@ -24,27 +21,11 @@ import type { LiveAccess } from "./types";
  */
 export function falClientFor(access: LiveAccess): FalEndpointClient {
   if (access.kind === "credential") {
-    const runtime = getFalRuntime();
-    if (runtime === null) {
-      throw credentialUnavailable();
-    }
-    return runtime.client;
+    return access.client;
   }
   return createFalClient(
     access.kind === "proxy"
       ? { credentials: "", proxyUrl: { url: access.url, when: "always" } }
       : { credentials: "" }
   ) satisfies FalEndpointClient;
-}
-
-/**
- * Owned here so `openCore`'s precheck — which is what keeps a rejected `open`
- * from ever reaching a transport — and the transports themselves refuse
- * `credential` in one voice.
- */
-export function credentialUnavailable(): Error {
-  return modelErrors.LIVE_ACCESS_UNAVAILABLE({
-    reason:
-      "credential access needs the key-owning process; no configured client is present",
-  });
 }
