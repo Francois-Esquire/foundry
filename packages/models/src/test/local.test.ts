@@ -205,6 +205,29 @@ describe("LocalProvider", () => {
     expect(provider.latestProgress).toMatchObject({ progress: 42 });
   });
 
+  it("reports progress to every instance, since the model loads once for all", () => {
+    const first = new LocalProvider();
+    const second = new LocalProvider();
+    const events: unknown[] = [];
+    second.events.on("download-progress", (event) => {
+      events.push(event);
+    });
+
+    // The first instance builds the cached model; the second reuses it.
+    text(first);
+    text(second);
+    expect(mockLanguageModel).toHaveBeenCalledTimes(1);
+    lastSettings()?.rawInitProgressCallback?.({
+      file: "model.onnx_data",
+      progress: 42,
+      status: "progress",
+    });
+
+    expect(events).toHaveLength(1);
+    expect(second.latestProgress).toMatchObject({ progress: 42 });
+    expect(second.progress(LOCAL_DEFAULTS.text ?? "text")).toBeCloseTo(0.42);
+  });
+
   it("transcribe() returns text with timestamped segments from the raw pipeline", async () => {
     const provider = new LocalProvider();
     const result = await provider.transcribe(new Float32Array(16_000));

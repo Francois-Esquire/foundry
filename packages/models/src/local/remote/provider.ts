@@ -1,5 +1,4 @@
 import { EventEmitter } from "node:events";
-import path from "node:path";
 import type {
   EmbeddingModelV4,
   EmbeddingModelV4CallOptions,
@@ -9,34 +8,19 @@ import type {
   LanguageModelV4GenerateResult,
   LanguageModelV4StreamPart,
 } from "@ai-sdk/provider";
-
-import { env } from "@huggingface/transformers";
-import { withLocalCosts } from "../../catalog/local";
 import { resolveDefinition } from "../../provider";
 import type {
-  ModelKind,
   TranscribeInput,
   TranscribeOptions,
   TranscribeResult,
 } from "../../types";
-import {
-  LOCAL_DEFAULT_MODELS,
-  LOCAL_DEFAULTS,
-  modelWeightsPresent,
-  toFloat32,
-} from "../provider";
-import type {
-  LocalLoadStatus,
-  LocalModelDefinition,
-  LocalProviderSurface,
-} from "../surface";
+import type { LocalProviderOptions } from "../provider";
+import { OnDeviceProvider, toFloat32 } from "../provider";
+import type { LocalLoadStatus, LocalProviderSurface } from "../surface";
 import type { HostTransport, WorkerRequest } from "./protocol";
 import { encodeAudio } from "./protocol";
 
-export interface RemoteLocalProviderOptions {
-  defaults?: Partial<Record<ModelKind, string>>;
-  id?: string;
-  models?: LocalModelDefinition[];
+export interface RemoteLocalProviderOptions extends LocalProviderOptions {
   transport: HostTransport;
 }
 
@@ -57,14 +41,11 @@ interface Pending {
  * a background round-trip per call — one poll tick stale, which the polling UI
  * absorbs. The downloaded-probe reads the shared disk directly.
  */
-export class RemoteLocalProvider implements LocalProviderSurface {
-  readonly id: string;
-  readonly harness = "studio";
-  readonly offline = true;
-  readonly available = true;
+export class RemoteLocalProvider
+  extends OnDeviceProvider
+  implements LocalProviderSurface
+{
   readonly events = new EventEmitter();
-  readonly defaults: Partial<Record<ModelKind, string>>;
-  models: LocalModelDefinition[];
 
   private readonly transport: HostTransport;
   private readonly pending = new Map<number, Pending>();
@@ -75,9 +56,7 @@ export class RemoteLocalProvider implements LocalProviderSurface {
   private readonly progressCache = new Map<string, number | null>();
 
   constructor(options: RemoteLocalProviderOptions) {
-    this.id = options.id ?? "local";
-    this.models = withLocalCosts(options.models ?? LOCAL_DEFAULT_MODELS);
-    this.defaults = options.defaults ?? LOCAL_DEFAULTS;
+    super(options);
     this.transport = options.transport;
 
     this.transport.onMessage((msg) => {
@@ -255,26 +234,6 @@ export class RemoteLocalProvider implements LocalProviderSurface {
       .then((value) => this.progressCache.set(id, value as number | null))
       .catch(() => undefined);
     return this.progressCache.get(id) ?? null;
-  }
-
-  /** Same on-disk probe as the in-process provider — the cache dir is shared. */
-  async isDownloaded(id: string): Promise<boolean> {
-    const def = this.models.find((m) => m.id === id);
-    const { cacheDir } = env;
-    if (!(def && cacheDir)) {
-      return false;
-    }
-    return modelWeightsPresent(path.join(cacheDir, def.modelId));
-  }
-
-  async downloadedModels(): Promise<string[]> {
-    const ids: string[] = [];
-    for (const def of this.models) {
-      if (await this.isDownloaded(def.id)) {
-        ids.push(def.id);
-      }
-    }
-    return ids;
   }
 
   /**

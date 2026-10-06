@@ -152,28 +152,88 @@ function downloadTarget(def: LocalModelDefinition): ModelDownloadTarget {
   };
 }
 
-/** On-device inference through transformers-js, in this process. */
-export class LocalProvider implements LocalProviderSurface {
-  readonly id: string;
-  readonly harness = "studio";
-  readonly offline = true;
+/**
+ * What both on-device providers share: the catalog, the role's fixed facts,
+ * and the weight probes, which read the one transformers-js cache dir from
+ * whichever process asks.
+ */
+export abstract class OnDeviceProvider {
   readonly available = true;
-  readonly events = new EventEmitter();
   readonly defaults: Partial<Record<ModelKind, string>>;
+  readonly harness = "studio";
+  readonly id: string;
   models: LocalModelDefinition[];
+  readonly offline = true;
 
-  latestProgress: LocalDownloadProgress | null = null;
-  loadedModel: LocalLoadedModel | null = null;
+  constructor(options: LocalProviderOptions = {}) {
+    this.id = options.id ?? "local";
+    // On-device rows always carry explicit zero costs — see catalog/local.
+    this.models = withLocalCosts(options.models ?? LOCAL_DEFAULT_MODELS);
+    this.defaults = options.defaults ?? LOCAL_DEFAULTS;
+  }
 
   /**
-   * Per-file download progress, keyed by modelId → file. A model pulls several
-   * files concurrently, so aggregating across them gives a more honest overall
-   * percent than `latestProgress`'s single file.
+   * True when a row's weights are already in the transformers-js cache.
+   * transformers-js exposes no cache query, so this probes the layout directly.
+   * Unknown ids and an unset cache dir report not-downloaded rather than throw.
    */
-  private readonly _filesByModel = new Map<
-    string,
-    Map<string, LocalFileProgress>
-  >();
+  async isDownloaded(id: string): Promise<boolean> {
+    const def = this.models.find((m) => m.id === id);
+    const { cacheDir } = env;
+    if (!(def && cacheDir)) {
+      return false;
+    }
+    return await modelWeightsPresent(path.join(cacheDir, def.modelId));
+  }
+
+  async downloadedModels(): Promise<string[]> {
+    const present = await Promise.all(
+      this.models.map((def) => this.isDownloaded(def.id))
+    );
+    return this.models
+      .filter((_, index) => present[index])
+      .map((def) => def.id);
+  }
+}
+
+/**
+ * Download progress for the process. It is shared by every `LocalProvider`
+ * because the model caches it reports on are: a model loads once, for every
+ * instance, so its progress belongs to all of them.
+ */
+interface DownloadState {
+  readonly events: EventEmitter;
+  /**
+   * Per-file progress, keyed by modelId → file. A model pulls several files
+   * concurrently, so aggregating across them gives a more honest overall
+   * percent than `latest`'s single file.
+   */
+  readonly files: Map<string, Map<string, LocalFileProgress>>;
+  latest: LocalDownloadProgress | null;
+  loaded: LocalLoadedModel | null;
+}
+
+/** On-device inference through transformers-js, in this process. */
+export class LocalProvider
+  extends OnDeviceProvider
+  implements LocalProviderSurface
+{
+  private static readonly downloads: DownloadState = {
+    events: new EventEmitter(),
+    files: new Map(),
+    latest: null,
+    loaded: null,
+  };
+
+  readonly events = LocalProvider.downloads.events;
+
+  get latestProgress(): LocalDownloadProgress | null {
+    return LocalProvider.downloads.latest;
+  }
+
+  get loadedModel(): LocalLoadedModel | null {
+    return LocalProvider.downloads.loaded;
+  }
 
   private _preload: Promise<void> | null = null;
   private _preloadState: LocalLoadState = "idle";
@@ -192,19 +252,17 @@ export class LocalProvider implements LocalProviderSurface {
   /** Raw ASR pipelines; segment timings only survive the raw pipeline. */
   private static readonly _asrCache = new Map<string, Promise<AsrPipe>>();
 
-  /** Test-only: the static caches must be empty between cases. */
+  /** Test-only: the static caches and download state must be empty between cases. */
   static clearCache(): void {
     LocalProvider._languageCache.clear();
     LocalProvider._embeddingCache.clear();
     LocalProvider._transcriptionCache.clear();
     LocalProvider._asrCache.clear();
-  }
-
-  constructor(options: LocalProviderOptions = {}) {
-    this.id = options.id ?? "local";
-    // On-device rows always carry explicit zero costs — see catalog/local.
-    this.models = withLocalCosts(options.models ?? LOCAL_DEFAULT_MODELS);
-    this.defaults = options.defaults ?? LOCAL_DEFAULTS;
+    const { downloads } = LocalProvider;
+    downloads.events.removeAllListeners();
+    downloads.files.clear();
+    downloads.latest = null;
+    downloads.loaded = null;
   }
 
   /**
@@ -339,12 +397,12 @@ export class LocalProvider implements LocalProviderSurface {
           info.status === "done" ||
           (typeof progressVal === "number" && progressVal >= 100);
         if (terminal) {
-          this.latestProgress = null;
-          this._filesByModel.delete(def.modelId);
+          LocalProvider.downloads.latest = null;
+          LocalProvider.downloads.files.delete(def.modelId);
           this.markLoaded(def);
           trace.finish(info.status);
         } else if (typeof progressVal === "number") {
-          this.latestProgress = event;
+          LocalProvider.downloads.latest = event;
           this.trackFile(def.modelId, event);
         }
         this.events.emit("download-progress", event);
@@ -357,10 +415,11 @@ export class LocalProvider implements LocalProviderSurface {
     if (!event.file) {
       return;
     }
-    let files = this._filesByModel.get(modelId);
+    const { downloads } = LocalProvider;
+    let files = downloads.files.get(modelId);
     if (!files) {
       files = new Map();
-      this._filesByModel.set(modelId, files);
+      downloads.files.set(modelId, files);
     }
     const prev = files.get(event.file);
     const total = event.total ?? prev?.total ?? 0;
@@ -376,7 +435,7 @@ export class LocalProvider implements LocalProviderSurface {
 
   /** Mean progress (0..1) across a model's in-flight files, or null when idle. */
   aggregateProgress(modelId: string): number | null {
-    const files = this._filesByModel.get(modelId);
+    const files = LocalProvider.downloads.files.get(modelId);
     if (!files || files.size === 0) {
       return null;
     }
@@ -389,7 +448,7 @@ export class LocalProvider implements LocalProviderSurface {
 
   /** Snapshot of the in-flight files for a model (empty when none). */
   downloadFiles(modelId: string): LocalFileProgress[] {
-    const files = this._filesByModel.get(modelId);
+    const files = LocalProvider.downloads.files.get(modelId);
     return files ? [...files.values()].map((f) => ({ ...f })) : [];
   }
 
@@ -397,7 +456,7 @@ export class LocalProvider implements LocalProviderSurface {
   overallProgress(): number | null {
     let sum = 0;
     let count = 0;
-    for (const files of this._filesByModel.values()) {
+    for (const files of LocalProvider.downloads.files.values()) {
       for (const f of files.values()) {
         sum += f.progress;
         count += 1;
@@ -447,7 +506,7 @@ export class LocalProvider implements LocalProviderSurface {
       modelId: def.modelId,
       ...(dtype ? { dtype } : {}),
     };
-    this.loadedModel = loaded;
+    LocalProvider.downloads.loaded = loaded;
     this.events.emit("model-loaded", loaded);
   }
 
@@ -476,30 +535,6 @@ export class LocalProvider implements LocalProviderSurface {
   progress(id: string): number | null {
     const def = this.models.find((m) => m.id === id);
     return def ? this.aggregateProgress(def.modelId) : null;
-  }
-
-  /**
-   * True when a row's weights are already in the transformers-js cache.
-   * transformers-js exposes no cache query, so this probes the layout directly.
-   * Unknown ids and an unset cache dir report not-downloaded rather than throw.
-   */
-  async isDownloaded(id: string): Promise<boolean> {
-    const def = this.models.find((m) => m.id === id);
-    const { cacheDir } = env;
-    if (!(def && cacheDir)) {
-      return false;
-    }
-    return modelWeightsPresent(path.join(cacheDir, def.modelId));
-  }
-
-  async downloadedModels(): Promise<string[]> {
-    const ids: string[] = [];
-    for (const def of this.models) {
-      if (await this.isDownloaded(def.id)) {
-        ids.push(def.id);
-      }
-    }
-    return ids;
   }
 
   private row(id: string): LocalModelDefinition {
