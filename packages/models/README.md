@@ -82,10 +82,21 @@ models.register(
 );
 ```
 
-Built-in factories are exposed only where hosts use them: `falProvider`
-(`@foundry/models/fal`), `claudeCodeProvider` (`/claude-code`), and
-`codexProvider` (`/codex`). The root entry exports the contract and manager;
-provider adapters and on-device runtime modules otherwise stay internal.
+Each built-in factory is its own subpath, so a host bundles only what it
+registers: `vercelProvider` (`@foundry/models/vercel`), `gatewayProvider`
+(`/gateway`), `falProvider` (`/fal`), `replicateProvider` (`/replicate`),
+`claudeCodeProvider` (`/claude-code`), and `codexProvider` (`/codex`). The root
+entry exports the contract and manager only.
+
+| Subpath | What it holds |
+| --- | --- |
+| `/local` | `LocalProvider` and `configureCache`: on-device transformers-js |
+| `/local/remote` | `forkLocalWorker`: the worker process and its IPC transport |
+| `/local/remote/provider` | `RemoteLocalProvider`: the local surface over that transport |
+| `/live`, `/live/node` | Live interactions, browser and Node |
+| `/catalog/*` | Catalog adapters and the bundled models.dev snapshot |
+| `/embeddings/*` | Chunking, embedding, and ranking |
+| `/model-option`, `/cost` | Pure leaves; see below |
 
 The credentialed factories also export a **binding** (`vercelBinding`,
 `gatewayBinding`, `falBinding`, `replicateBinding`): how that provider follows
@@ -170,7 +181,7 @@ Errors are a defined catalog (`modelErrors`), so callers branch on the code.
 
 - Types resolve from `dist/`. Build this package before a consumer typechecks
   against a changed public API.
-- Chunking and local-runtime modules remain internal to this package.
+- `/local` loads transformers-js; the root entry never does.
 
 ## Local checks
 

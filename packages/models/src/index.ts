@@ -6,9 +6,9 @@ export type { LanguageModelV4, ProviderV4 } from "@ai-sdk/provider";
 /** Live access shapes only; the interaction itself is not in this entry. */
 export type { LiveAccess, LiveTarget } from "./live/types";
 /**
- * Only the on-device *surface* lives here. The runtime (`LocalProvider`, the
- * worker bridge, `configureCache`) is behind `@foundry/models/local` so that
- * importing the registry never loads transformers-js.
+ * Only the on-device *surface* lives here. The runtime (`LocalProvider`,
+ * `configureCache`) is behind `@foundry/models/local` and the worker bridge
+ * behind `/local/remote`, so importing the registry never loads transformers-js.
  */
 export type {
   LocalDownloadProgress,
@@ -65,8 +65,8 @@ export type {
 /**
  * Providers are not in this entry. Each is its own subpath so a host bundles
  * only what it registers: `@foundry/models/vercel`, `/gateway`, `/fal`,
- * `/replicate`, `/claude-code`, `/codex`, and the bundled catalog snapshots
- * behind `/catalog`.
+ * `/replicate`, `/claude-code`, `/codex`, and the catalog adapters behind
+ * `/catalog/*`.
  */
 
 export { modelAudit } from "./audit";

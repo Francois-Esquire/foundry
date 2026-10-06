@@ -2,7 +2,7 @@
   "name": "@foundry/models",
   "version": "0.0.1",
   "private": true,
-  "description": "Unified model package \u2014 local model lifecycle (download/cache/load) + remote provider registry. Hosts ModelManager today; local model loading lands here as the package matures.",
+  "description": "Unified model registry: remote providers, CLI harnesses, on-device models, and their catalogs behind one ModelManager.",
   "license": "MIT",
   "type": "module",
   "exports": {
@@ -30,13 +30,45 @@
       "types": "./dist/src/codex.d.ts",
       "import": "./src/codex.ts"
     },
+    "./local": {
+      "types": "./dist/src/local/provider.d.ts",
+      "import": "./src/local/provider.ts"
+    },
     "./local/remote": {
       "types": "./dist/src/local/remote/transport.d.ts",
       "import": "./src/local/remote/transport.ts"
     },
+    "./local/remote/provider": {
+      "types": "./dist/src/local/remote/provider.d.ts",
+      "import": "./src/local/remote/provider.ts"
+    },
     "./gateway": {
       "types": "./dist/src/gateway.d.ts",
       "import": "./src/gateway.ts"
+    },
+    "./vercel": {
+      "types": "./dist/src/vercel.d.ts",
+      "import": "./src/vercel.ts"
+    },
+    "./replicate": {
+      "types": "./dist/src/replicate.d.ts",
+      "import": "./src/replicate.ts"
+    },
+    "./model-option": {
+      "types": "./dist/src/model-option.d.ts",
+      "import": "./src/model-option.ts"
+    },
+    "./cost": {
+      "types": "./dist/src/cost.d.ts",
+      "import": "./src/cost.ts"
+    },
+    "./catalog/*": {
+      "types": "./dist/src/catalog/*.d.ts",
+      "import": "./src/catalog/*.ts"
+    },
+    "./embeddings/*": {
+      "types": "./dist/src/embeddings/*.d.ts",
+      "import": "./src/embeddings/*.ts"
     }
   },
   "files": [
