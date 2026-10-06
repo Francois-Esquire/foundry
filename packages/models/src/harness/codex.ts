@@ -59,6 +59,13 @@ export function createCodexDriver(
     { turnId: string; abort: AbortController }
   >();
   const subscribedChildren = new Set<string>();
+  /** What every thread and turn request states the same way. */
+  const turnDefaults = {
+    approvalPolicy: "untrusted",
+    approvalsReviewer: "user",
+    cwd: options.cwd,
+    model: options.modelId,
+  } as const;
   const finishTurn = () => {
     running = false;
     turnId = undefined;
@@ -120,15 +127,7 @@ export function createCodexDriver(
             ? AbortSignal.any([signal, childTurn.abort.signal])
             : signal,
         },
-        (toolName, toolCallId, input, outcome, reason) =>
-          liveEvents.emit(
-            toolName,
-            toolCallId,
-            input,
-            outcome,
-            reason,
-            activityId
-          ),
+        (report) => liveEvents.report({ ...report, activityId }),
         activityId
       );
     } catch (error) {
@@ -255,7 +254,8 @@ export function createCodexDriver(
       }
       run.signal.throwIfAborted();
       const sandbox = codexSandbox(run.profile, options.sandboxPolicy);
-      inputText(run.input);
+      // Refused before any process starts: only text crosses to the CLI.
+      const text = inputText(run.input);
       running = true;
       currentRun = run;
       queue = eventStream<StreamPart>();
@@ -282,11 +282,8 @@ export function createCodexDriver(
           await liveConnection.request(
             resumeId ? "thread/resume" : "thread/start",
             {
-              approvalPolicy: "untrusted",
-              approvalsReviewer: "user",
-              cwd: options.cwd,
+              ...turnDefaults,
               developerInstructions: options.instructions ?? "",
-              model: options.modelId,
               sandbox,
               ...threadIdentity,
             }
@@ -300,13 +297,8 @@ export function createCodexDriver(
         await run.onSessionId(threadId);
         const turn = record(
           await liveConnection.request("turn/start", {
-            approvalPolicy: "untrusted",
-            approvalsReviewer: "user",
-            cwd: options.cwd,
-            input: [
-              { text: inputText(run.input), text_elements: [], type: "text" },
-            ],
-            model: options.modelId,
+            ...turnDefaults,
+            input: [{ text, text_elements: [], type: "text" }],
             sandboxPolicy:
               sandbox === "read-only"
                 ? { type: "readOnly" }

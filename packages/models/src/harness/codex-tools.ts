@@ -4,9 +4,8 @@ import {
 } from "@foundry/agents/harness";
 import { asSchema } from "ai";
 import type { AppServerConnection } from "./app-server";
-import type { EmitTool } from "./codex-events";
 import { askQuestions, nativeQuestions } from "./questions";
-import type { DriverRun } from "./shared";
+import type { DriverRun, ReportTool } from "./shared";
 export async function dynamicTools(run: DriverRun) {
   const result: {
     name: string;
@@ -51,11 +50,11 @@ export async function answerRequest(
   params: Record<string, unknown>,
   id: string | number,
   run: DriverRun,
-  emit: EmitTool,
+  report: ReportTool,
   activityId?: string
 ) {
   if (method === "item/tool/call") {
-    await callHostTool(connection, params, id, run, emit, activityId);
+    await callHostTool(connection, params, id, run, report, activityId);
     return;
   }
   if (
@@ -75,7 +74,13 @@ export async function answerRequest(
       toolName,
     });
     if (result.behavior === "deny") {
-      await emit(toolName, toolCallId, params, "refused", result.message);
+      await report({
+        input: params,
+        outcome: "refused",
+        reason: result.message,
+        toolCallId,
+        toolName,
+      });
     }
     const response =
       method === "item/permissions/requestApproval"
@@ -88,7 +93,7 @@ export async function answerRequest(
     return;
   }
   if (method === "item/tool/requestUserInput") {
-    await answerUserQuestion(connection, params, id, run, emit);
+    await answerUserQuestion(connection, params, id, run, report);
     return;
   }
   if (method === "mcpServer/elicitation/request") {
@@ -103,21 +108,16 @@ async function answerUserQuestion(
   params: Record<string, unknown>,
   id: string | number,
   run: DriverRun,
-  emit: EmitTool
+  report: ReportTool
 ) {
   const toolCallId = String(params.itemId ?? id);
-  await emit("requestUserInput", toolCallId, params, "started");
+  const call = { input: params, toolCallId, toolName: "requestUserInput" };
+  await report({ ...call, outcome: "started" });
   try {
     const questions = nativeQuestions(params.questions, toolCallId, "codex");
     const result = await askQuestions(run, toolCallId, questions, run.signal);
     if (result.outcome === "declined") {
-      await emit(
-        "requestUserInput",
-        toolCallId,
-        params,
-        "refused",
-        result.reason
-      );
+      await report({ ...call, outcome: "refused", reason: result.reason });
       connection.respondError(id, result.reason);
       return;
     }
@@ -125,16 +125,16 @@ async function answerUserQuestion(
     for (const question of questions) {
       answers[question.id] = { answers: result.answers[question.id] ?? [] };
     }
-    await emit("requestUserInput", toolCallId, params, "ran");
+    await report({ ...call, outcome: "ran" });
     connection.respond(id, { answers });
   } catch (error) {
-    await emit(
-      "requestUserInput",
-      toolCallId,
-      params,
-      "failed",
-      run.signal.aborted ? "Question canceled" : "Question request failed"
-    );
+    await report({
+      ...call,
+      outcome: "failed",
+      reason: run.signal.aborted
+        ? "Question canceled"
+        : "Question request failed",
+    });
     throw error;
   }
 }
@@ -144,12 +144,13 @@ async function callHostTool(
   params: Record<string, unknown>,
   id: string | number,
   run: DriverRun,
-  emit: EmitTool,
+  report: ReportTool,
   activityId?: string
 ) {
   const toolName = String(params.tool);
   const toolCallId = String(params.callId ?? id);
-  await emit(toolName, toolCallId, params.arguments, "started");
+  const call = { input: params.arguments, toolCallId, toolName };
+  await report({ ...call, outcome: "started" });
   const tool = run.tools?.[toolName];
   const result: HarnessPermissionResult =
     tool && isHarnessQuestionTool(tool)
@@ -162,13 +163,7 @@ async function callHostTool(
           toolName,
         });
   if (result.behavior === "deny") {
-    await emit(
-      toolName,
-      toolCallId,
-      params.arguments,
-      "refused",
-      result.message
-    );
+    await report({ ...call, outcome: "refused", reason: result.message });
     connection.respond(id, toolResponse(result.message, false));
     return;
   }
@@ -198,7 +193,7 @@ async function callHostTool(
     ) {
       throw new Error("Streaming host tools are not supported by Codex.");
     }
-    await emit(toolName, toolCallId, params.arguments, "ran");
+    await report({ ...call, outcome: "ran" });
     connection.respond(
       id,
       toolResponse(
@@ -209,13 +204,7 @@ async function callHostTool(
       )
     );
   } catch {
-    await emit(
-      toolName,
-      toolCallId,
-      params.arguments,
-      "failed",
-      "Host tool failed"
-    );
+    await report({ ...call, outcome: "failed", reason: "Host tool failed" });
     connection.respond(id, toolResponse("Host tool failed", false));
   }
 }

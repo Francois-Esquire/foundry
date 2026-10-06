@@ -1,16 +1,5 @@
-import type {
-  LanguageModelV4,
-  LanguageModelV4StreamPart,
-  LanguageModelV4Usage,
-} from "@ai-sdk/provider";
-import {
-  type HarnessPermissionRequest,
-  type HarnessPermissionResult,
-  type HarnessTurnDriver,
-  isHarnessQuestionTool,
-  type StreamPart,
-} from "@foundry/agents/harness";
-import type { LanguageModelUsage } from "ai";
+import type { LanguageModelV4 } from "@ai-sdk/provider";
+import type { HarnessTurnDriver } from "@foundry/agents/harness";
 import {
   type ClaudeCodeQueryController,
   type ClaudeCodeSettings,
@@ -18,9 +7,17 @@ import {
   createClaudeCode,
   type MessageInjector,
 } from "ai-sdk-provider-claude-code";
-import { createNativeActivities } from "./native-activity";
-import { answerClaudeQuestion } from "./questions";
-import { inputSummary, inputText, record } from "./shared";
+import {
+  claudeActivityHooks,
+  claudeMessages,
+  consume,
+} from "./claude-code-events";
+import { createClaudeTools } from "./claude-code-tools";
+import {
+  createNativeActivities,
+  type NativeActivities,
+} from "./native-activity";
+import { inputText } from "./shared";
 
 export interface ClaudeCodeDriverOptions {
   agentId: string;
@@ -45,7 +42,7 @@ export function createClaudeCodeDriver(
   let controller: ClaudeCodeQueryController | undefined;
   let injector: MessageInjector | undefined;
   let active: AbortController | undefined;
-  let activities: ReturnType<typeof createNativeActivities> | undefined;
+  let activities: NativeActivities | undefined;
   const modelFactory =
     options.createModel ??
     ((modelId, settings) =>
@@ -75,276 +72,36 @@ export function createClaudeCodeDriver(
       run.signal.addEventListener("abort", forwardAbort, { once: true });
       const runActivities = createNativeActivities(run, crypto.randomUUID());
       activities = runActivities;
-      const seen = new Set<string>();
-      const toolActivities = new Map<string, string>();
-      const questionReplies = new Map<
-        string,
-        Promise<HarnessPermissionResult>
-      >();
-      const questionReply = (
-        toolCallId: string,
-        input: unknown,
-        signal: AbortSignal
-      ) => {
-        let reply = questionReplies.get(toolCallId);
-        if (!reply) {
-          reply = answerClaudeQuestion(
-            {
-              ...run,
-              question: (request) =>
-                run.question({
-                  ...request,
-                  activityId: toolActivities.get(toolCallId),
-                }),
-            },
-            toolCallId,
-            record(input),
-            signal
-          );
-          questionReplies.set(toolCallId, reply);
-        }
-        return reply;
+      const tools = createClaudeTools({
+        activities: runActivities,
+        agentId: options.agentId,
+        run,
+        signal: abort.signal,
+      });
+      // The turn stays active until its activities have closed, so a next
+      // turn cannot start while this one's activities are still settling.
+      const finish = async () => {
+        await runActivities.close();
+        activities = undefined;
+        run.signal.removeEventListener("abort", forwardAbort);
+        active = undefined;
+        controller = undefined;
+        injector = undefined;
       };
-      const permission = async (
-        request: HarnessPermissionRequest
-      ): Promise<HarnessPermissionResult> => {
-        if (request.toolName === "AskUserQuestion") {
-          await emit(
-            request.toolName,
-            request.toolCallId,
-            request.input,
-            "started"
-          );
-          try {
-            return await questionReply(
-              request.toolCallId,
-              request.input,
-              request.signal
-            );
-          } catch (error) {
-            await emit(
-              request.toolName,
-              request.toolCallId,
-              request.input,
-              "failed",
-              request.signal.aborted
-                ? "Question canceled"
-                : "Question request failed"
-            );
-            throw error;
-          }
-        }
-        const toolName = permissionToolName(request.toolName, run.tools);
-        const hostTool = run.tools?.[toolName];
-        if (hostTool && isHarnessQuestionTool(hostTool)) {
-          return { behavior: "allow", updatedInput: request.input };
-        }
-        return await run.permission({ ...request, toolName });
-      };
-      let { nativeSessionId } = run;
-      const emit = async (
-        toolName: string,
-        toolCallId: string,
-        input: unknown,
-        outcome: "started" | "ran" | "refused" | "failed",
-        reason?: string
-      ) => {
-        const key = `${toolCallId}:${outcome}`;
-        if (seen.has(key)) {
-          return;
-        }
-        seen.add(key);
-        await run.onToolEvent({
-          activityId: toolActivities.get(toolCallId),
-          agentId: options.agentId,
-          harness: "claude-code",
-          inputSummary: inputSummary(input),
-          outcome,
-          sessionId: run.sessionId,
-          toolCallId,
-          toolName,
-          ...(reason ? { reason } : {}),
-        });
-      };
-      const attributeTool = (data: Record<string, unknown>) => {
-        if (
-          typeof data.agent_id === "string" &&
-          typeof data.tool_use_id === "string"
-        ) {
-          toolActivities.set(data.tool_use_id, runActivities.id(data.agent_id));
-        }
-      };
-      const observeTool = async (
-        data: Record<string, unknown>,
-        outcome: string
-      ) => {
-        if (outcome === "ran") {
-          await runActivities.claudeTool(data);
-        }
-      };
-      const hook =
-        (outcome: "started" | "ran" | "failed") =>
-        async (...args: unknown[]) => {
-          const data = record(args[0]);
-          attributeTool(data);
-          await observeTool(data, outcome);
-          const toolName = String(data.tool_name ?? "unknown");
-          const toolCallId = String(data.tool_use_id ?? args[1] ?? "unknown");
-          await emit(
-            toolName,
-            toolCallId,
-            data.tool_input,
-            outcome,
-            outcome === "failed" ? "CLI tool failed" : undefined
-          );
-          if (outcome === "started") {
-            const result = await permission({
-              activityId: toolActivities.get(toolCallId),
-              input: data.tool_input,
-              sessionId: run.sessionId,
-              signal: hookSignal(args[2], abort.signal),
-              toolCallId,
-              toolName,
-            });
-            if (result.behavior === "deny") {
-              await emit(
-                toolName,
-                toolCallId,
-                data.tool_input,
-                "refused",
-                result.message
-              );
-              return {
-                hookSpecificOutput: {
-                  hookEventName: "PreToolUse",
-                  permissionDecision: "deny",
-                  permissionDecisionReason: result.message,
-                },
-              };
-            }
-            return {
-              hookSpecificOutput: {
-                hookEventName: "PreToolUse",
-                permissionDecision: "allow",
-                ...(result.updatedInput === undefined
-                  ? {}
-                  : { updatedInput: result.updatedInput }),
-              },
-            };
-          }
-          return {};
-        };
       const settings: ClaudeCodeSettings = {
         ...options.settings,
         allowedTools: [...run.profile.allowedTools],
-        canUseTool: async (toolName, input, context) => {
-          if (context.agentID) {
-            toolActivities.set(
-              context.toolUseID,
-              runActivities.id(context.agentID)
-            );
-          }
-          const result = await permission({
-            activityId: toolActivities.get(context.toolUseID),
-            input,
-            sessionId: run.sessionId,
-            signal: AbortSignal.any([abort.signal, context.signal]),
-            suggestions: context.suggestions,
-            title: context.title,
-            toolCallId: context.toolUseID,
-            toolName,
-          });
-          if (result.behavior === "deny") {
-            await emit(
-              toolName,
-              context.toolUseID,
-              input,
-              "refused",
-              result.message
-            );
-            return result;
-          }
-          return {
-            behavior: "allow",
-            updatedInput: record(result.updatedInput ?? input),
-          };
-        },
+        canUseTool: tools.canUseTool,
         continue: false,
         cwd: options.cwd,
         disallowedTools: [...run.profile.disallowedTools],
-        hooks: {
-          PostToolUse: [{ hooks: [hook("ran")] }],
-          PostToolUseFailure: [{ hooks: [hook("failed")] }],
-          PreToolUse: [{ hooks: [hook("started")] }],
-          Stop: [
-            {
-              hooks: [
-                async (data) => {
-                  await runActivities.claudeSchedules(record(data));
-                  return {};
-                },
-              ],
-            },
-          ],
-          SubagentStart: [
-            {
-              hooks: [
-                async (data) => {
-                  await runActivities.claudeHook(record(data));
-                  return {};
-                },
-              ],
-            },
-          ],
-          SubagentStop: [
-            {
-              hooks: [
-                async (data) => {
-                  await runActivities.claudeHook(record(data));
-                  return {};
-                },
-              ],
-            },
-          ],
-        },
+        hooks: { ...tools.hooks, ...claudeActivityHooks(runActivities) },
         logger: false,
         maxTurns: run.profile.maxSteps,
         onQueryControllerCreated: (value) => {
           controller = value;
         },
-        onSdkMessage: async (message) => {
-          const data = record(message);
-          await runActivities.claudeMessage(data);
-          if (
-            typeof data.session_id === "string" &&
-            data.session_id &&
-            data.session_id !== nativeSessionId
-          ) {
-            nativeSessionId = data.session_id;
-            await run.onSessionId(nativeSessionId);
-          }
-          if (Array.isArray(data.permission_denials)) {
-            for (const denied of data.permission_denials) {
-              const denial = record(denied);
-              await emit(
-                String(denial.tool_name ?? "unknown"),
-                String(denial.tool_use_id ?? "unknown"),
-                denial.tool_input,
-                "refused",
-                "CLI permission policy refused the tool call"
-              );
-            }
-          }
-          if (data.type === "system" && data.subtype === "permission_denied") {
-            await emit(
-              String(data.tool_name ?? "unknown"),
-              String(data.tool_use_id ?? "unknown"),
-              data.tool_input,
-              "refused",
-              "CLI permission policy refused the tool call"
-            );
-          }
-        },
+        onSdkMessage: claudeMessages(run, runActivities, tools.report),
         onStreamStart: (value) => {
           injector = value;
         },
@@ -379,19 +136,9 @@ export function createClaudeCodeDriver(
             },
           ],
         });
-        return consume(result.stream, async () => {
-          await runActivities.close();
-          activities = undefined;
-          run.signal.removeEventListener("abort", forwardAbort);
-          active = undefined;
-          controller = undefined;
-          injector = undefined;
-        });
+        return consume(result.stream, finish);
       } catch (error) {
-        await runActivities.close();
-        activities = undefined;
-        active = undefined;
-        run.signal.removeEventListener("abort", forwardAbort);
+        await finish();
         throw error;
       }
     },
@@ -418,85 +165,5 @@ export function createClaudeCodeDriver(
       }
       await controller.stopTask(taskId);
     },
-  };
-}
-
-function hookSignal(value: unknown, parent: AbortSignal): AbortSignal {
-  const { signal } = record(value);
-  return signal instanceof AbortSignal
-    ? AbortSignal.any([parent, signal])
-    : parent;
-}
-
-function permissionToolName(
-  toolName: string,
-  tools: Parameters<HarnessTurnDriver["run"]>[0]["tools"]
-): string {
-  const prefix = "mcp__foundry__";
-  const localName = toolName.startsWith(prefix)
-    ? toolName.slice(prefix.length)
-    : toolName;
-  return tools?.[localName] ? localName : toolName;
-}
-
-async function* consume(
-  stream: ReadableStream<LanguageModelV4StreamPart>,
-  finish: () => void | Promise<void>
-): AsyncGenerator<StreamPart> {
-  const reader = stream.getReader();
-  try {
-    let item = await reader.read();
-    while (!item.done) {
-      const part = item.value;
-      if (part.type === "text-delta" || part.type === "reasoning-delta") {
-        yield { id: part.id, text: part.delta, type: part.type };
-      } else if (part.type === "text-end" || part.type === "reasoning-end") {
-        yield { id: part.id, type: part.type };
-      } else if (part.type === "error") {
-        yield {
-          error: new Error(
-            "Claude Code turn failed; raw CLI diagnostics are withheld."
-          ),
-          type: "error",
-        };
-      } else if (part.type === "finish") {
-        yield {
-          finishReason: part.finishReason.unified,
-          rawFinishReason: part.finishReason.raw,
-          totalUsage: languageModelUsage(part.usage),
-          type: "finish",
-        };
-      }
-      item = await reader.read();
-    }
-  } finally {
-    reader.releaseLock();
-    await finish();
-  }
-}
-
-/** Provider-level usage lifted to the SDK's shape, as `streamText` does. */
-function languageModelUsage({
-  inputTokens,
-  outputTokens,
-  raw,
-}: LanguageModelV4Usage): LanguageModelUsage {
-  return {
-    inputTokenDetails: {
-      cacheReadTokens: inputTokens.cacheRead,
-      cacheWriteTokens: inputTokens.cacheWrite,
-      noCacheTokens: inputTokens.noCache,
-    },
-    inputTokens: inputTokens.total,
-    outputTokenDetails: {
-      reasoningTokens: outputTokens.reasoning,
-      textTokens: outputTokens.text,
-    },
-    outputTokens: outputTokens.total,
-    raw,
-    totalTokens:
-      inputTokens.total === undefined && outputTokens.total === undefined
-        ? undefined
-        : (inputTokens.total ?? 0) + (outputTokens.total ?? 0),
   };
 }

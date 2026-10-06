@@ -1,6 +1,37 @@
 import type { HarnessActivity } from "@foundry/agents/harness";
 import { type DriverRun, record } from "./shared";
 
+type ActivityStatus = HarnessActivity["status"];
+
+const CLAUDE_TASK_STATUS: Record<string, ActivityStatus> = {
+  completed: "complete",
+  failed: "failed",
+  killed: "cancelled",
+  paused: "waiting",
+  pending: "waiting",
+  running: "running",
+  stopped: "cancelled",
+};
+
+const CODEX_AGENT_STATUS: Record<string, ActivityStatus> = {
+  completed: "complete",
+  errored: "failed",
+  interrupted: "waiting",
+  notFound: "unknown",
+  pendingInit: "waiting",
+  running: "running",
+  shutdown: "cancelled",
+};
+
+const CODEX_TURN_STATUS: Record<string, ActivityStatus> = {
+  completed: "complete",
+  failed: "failed",
+  inProgress: "running",
+  interrupted: "waiting",
+};
+
+export type NativeActivities = ReturnType<typeof createNativeActivities>;
+
 /** IDs belong to a CLI process, not a resumable transcript. */
 export function createNativeActivities(
   initialRun: DriverRun,
@@ -76,15 +107,6 @@ export function createNativeActivities(
         return;
       }
       const patch = record(data.patch);
-      const statuses: Record<string, HarnessActivity["status"]> = {
-        completed: "complete",
-        failed: "failed",
-        killed: "cancelled",
-        paused: "waiting",
-        pending: "waiting",
-        running: "running",
-        stopped: "cancelled",
-      };
       if (
         ![
           "task_started",
@@ -100,7 +122,7 @@ export function createNativeActivities(
       const description = data.description ?? patch.description;
       let status = activities.get(data.task_id)?.status ?? "unknown";
       if (typeof nativeStatus === "string") {
-        status = statuses[nativeStatus] ?? "unknown";
+        status = activityStatus(nativeStatus, CLAUDE_TASK_STATUS);
       } else if (
         data.subtype === "task_started" ||
         data.subtype === "task_progress"
@@ -197,15 +219,6 @@ export function createNativeActivities(
         ? item.receiverThreadIds
         : [];
       const children = new Set([...receivers, ...Object.keys(states)]);
-      const statuses: Record<string, HarnessActivity["status"]> = {
-        completed: "complete",
-        errored: "failed",
-        interrupted: "waiting",
-        notFound: "unknown",
-        pendingInit: "waiting",
-        running: "running",
-        shutdown: "cancelled",
-      };
       const parentId =
         item.tool === "spawnAgent" &&
         typeof item.senderThreadId === "string" &&
@@ -221,7 +234,7 @@ export function createNativeActivities(
         await publish(child, {
           kind: "subagent",
           ...(parentId ? { parentId } : {}),
-          ...codexState(state, statuses),
+          ...codexState(state),
           title: "Codex subagent",
         });
         if (canObserveCodexChild(state.status)) {
@@ -231,19 +244,10 @@ export function createNativeActivities(
       return ids;
     },
     async codexTurn(threadId: string, status: unknown, controllable = false) {
-      const statuses: Record<string, HarnessActivity["status"]> = {
-        completed: "complete",
-        failed: "failed",
-        inProgress: "running",
-        interrupted: "waiting",
-      };
       await publish(threadId, {
         actions: controllable && status === "inProgress" ? ["stop"] : [],
         kind: "subagent",
-        status:
-          typeof status === "string"
-            ? (statuses[status] ?? "unknown")
-            : "unknown",
+        status: activityStatus(status, CODEX_TURN_STATUS),
         title: "Codex subagent",
       });
     },
@@ -290,17 +294,16 @@ function canObserveCodexChild(status: unknown): boolean {
 
 function activityStatus(
   value: unknown,
-  statuses: Record<string, HarnessActivity["status"]>
-): HarnessActivity["status"] {
-  return typeof value === "string" ? (statuses[value] ?? "unknown") : "unknown";
+  statuses: Record<string, ActivityStatus>
+): ActivityStatus {
+  return typeof value === "string" && Object.hasOwn(statuses, value)
+    ? (statuses[value] ?? "unknown")
+    : "unknown";
 }
 
-function codexState(
-  state: Record<string, unknown>,
-  statuses: Record<string, HarnessActivity["status"]>
-): Partial<HarnessActivity> {
+function codexState(state: Record<string, unknown>): Partial<HarnessActivity> {
   return {
-    status: activityStatus(state.status, statuses),
+    status: activityStatus(state.status, CODEX_AGENT_STATUS),
     ...(state.status === "running" ? {} : { actions: [] }),
     ...(typeof state.message === "string" ? { summary: state.message } : {}),
   };

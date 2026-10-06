@@ -1,14 +1,6 @@
 import type { StreamPart } from "@foundry/agents/harness";
 import { createNativeActivities } from "./native-activity";
-import { type DriverRun, inputSummary, record } from "./shared";
-export type EmitTool = (
-  toolName: string,
-  toolCallId: string,
-  input: unknown,
-  outcome: "started" | "ran" | "refused" | "failed",
-  reason?: string,
-  activityId?: string
-) => Promise<void>;
+import { type DriverRun, record, toolReporter } from "./shared";
 
 interface EventOptions {
   agentId: string;
@@ -26,43 +18,18 @@ export function createCodexEvents(options: EventOptions) {
   let { run } = options;
   const { push } = options;
   const activities = createNativeActivities(run, crypto.randomUUID());
-  const seen = new Set<string>();
+  const tools = toolReporter(options.agentId, "codex", () => run);
   let steps = 0;
-  const emit: EmitTool = async (
-    toolName,
-    toolCallId,
-    input,
-    outcome,
-    reason,
-    activityId
-  ) => {
-    const key = `${toolCallId}:${outcome}`;
-    if (seen.has(key)) {
-      return;
-    }
-    seen.add(key);
-    await run.onToolEvent({
-      ...(activityId ? { activityId } : {}),
-      agentId: options.agentId,
-      harness: "codex",
-      inputSummary: inputSummary(input),
-      outcome,
-      sessionId: run.sessionId,
-      toolCallId,
-      toolName,
-      ...(reason ? { reason } : {}),
-    });
-  };
+  /** A child thread's activity; the parent thread runs under none. */
+  const activityId = (threadId: unknown) =>
+    typeof threadId === "string" && !options.isParentThread(threadId)
+      ? activities.id(threadId)
+      : undefined;
   const itemEvent = async (
     params: Record<string, unknown>,
     started: boolean
   ) => {
     const item = record(params.item);
-    const activityId =
-      typeof params.threadId === "string" &&
-      !options.isParentThread(params.threadId)
-        ? activities.id(params.threadId)
-        : undefined;
     for (const child of await activities.codexItem(item)) {
       try {
         await options.subscribeChild(child);
@@ -75,28 +42,31 @@ export function createCodexEvents(options: EventOptions) {
     }
     const toolCallId = String(item.id ?? "unknown");
     const name = itemToolName(item);
+    const report = {
+      activityId: activityId(params.threadId),
+      input: item,
+      toolCallId,
+      toolName: name,
+    };
     if (!started) {
       const outcome = toolOutcome(item);
-      await emit(
-        name,
-        toolCallId,
-        item,
+      await tools.report({
+        ...report,
         outcome,
-        outcome === "ran" ? undefined : `CLI tool ${outcome}`,
-        activityId
-      );
+        ...(outcome === "ran" ? {} : { reason: `CLI tool ${outcome}` }),
+      });
       return;
     }
     steps += 1;
-    await emit(name, toolCallId, item, "started", undefined, activityId);
+    await tools.report({ ...report, outcome: "started" });
     if (steps > run.profile.maxSteps) {
-      await emit(
-        name,
+      await tools.report({
+        input: item,
+        outcome: "refused",
+        reason: "Harness tool step limit exceeded",
         toolCallId,
-        item,
-        "refused",
-        "Harness tool step limit exceeded"
-      );
+        toolName: name,
+      });
       push({
         error: new Error("Codex exceeded the harness tool step limit."),
         type: "error",
@@ -105,12 +75,8 @@ export function createCodexEvents(options: EventOptions) {
     }
   };
   return {
-    activityId: (threadId: unknown) =>
-      typeof threadId === "string" && !options.isParentThread(threadId)
-        ? activities.id(threadId)
-        : undefined,
+    activityId,
     close: activities.close,
-    emit,
     async receive(method: string, params: Record<string, unknown>) {
       const parent = options.isParentThread(params.threadId);
       if (
@@ -162,10 +128,11 @@ export function createCodexEvents(options: EventOptions) {
       };
       await handlers[method]?.();
     },
+    report: tools.report,
     setRun(value: DriverRun) {
       run = value;
       activities.setRun(value);
-      seen.clear();
+      tools.reset();
       steps = 0;
     },
     stoppableNativeId: activities.taskId,
