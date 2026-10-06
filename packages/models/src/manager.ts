@@ -125,6 +125,7 @@ export class ModelManager {
 
   register(provider: Provider): void {
     this._providers.set(provider.id, provider);
+    this.applySettingsDefaults(provider.id);
     this.syncCosts();
   }
 
@@ -133,8 +134,14 @@ export class ModelManager {
     this._bindings.set(binding.id, binding);
   }
 
+  /** Drops the provider and any Kind default routed to it. */
   unregister(id: string): void {
     this._providers.delete(id);
+    for (const [kind, entry] of this._defaults) {
+      if (entry.provider === id) {
+        this._defaults.delete(kind);
+      }
+    }
   }
 
   has(id: string): boolean {
@@ -660,14 +667,18 @@ export class ModelManager {
     }
   }
 
-  /** Mirror `settings.defaults` onto routing; entries naming an unregistered provider wait for it. */
-  private applySettingsDefaults(): void {
+  /**
+   * Mirror `settings.defaults` onto routing. An entry naming an unregistered
+   * provider waits for it: `register` applies just that provider's entries.
+   */
+  private applySettingsDefaults(only?: string): void {
     const defaults = this.settings.get("defaults");
     if (!defaults) {
       return;
     }
     for (const [kind, entry] of Object.entries(defaults)) {
-      if (this.has(entry.provider)) {
+      const waiting = only === undefined || entry.provider === only;
+      if (waiting && this.has(entry.provider)) {
         this.setDefault(kind as ModelKind, entry);
       }
     }

@@ -35,6 +35,31 @@ describe("ModelManager registry", () => {
     expect(manager.has("a")).toBe(false);
   });
 
+  it("unregister drops a kind default routed to it, so routing falls through", () => {
+    const a = fakeProvider("a");
+    const b = fakeProvider("b");
+    const manager = new ModelManager({
+      defaults: { text: { provider: "b" } },
+      providers: [a, b],
+    });
+    manager.unregister("b");
+    expect(manager.getDefault("text")).toBeNull();
+    manager.model();
+    expect(a.calls).toHaveLength(1);
+  });
+
+  it("applies a settings default once the provider it names registers", () => {
+    const manager = new ModelManager({
+      providers: [fakeProvider("a")],
+      settings: { defaults: { text: { provider: "late" } } },
+    });
+    expect(manager.getDefault("text")).toBeNull();
+    const late = fakeProvider("late");
+    manager.register(late);
+    manager.model();
+    expect(late.calls).toHaveLength(1);
+  });
+
   it("setDefault rejects an unregistered provider", () => {
     const manager = new ModelManager();
     expect(() => {
