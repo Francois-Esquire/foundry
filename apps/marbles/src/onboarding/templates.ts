@@ -29,7 +29,7 @@ export interface SetupDraft {
   readonly template: StarterId;
 }
 const STEP_NAME = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
-export function renderConfig(draft: SetupDraft): string {
+export function renderModule(draft: SetupDraft): string {
   const starter = STARTERS.find((item) => item.id === draft.template);
   if (!starter) {
     throw new Error("Choose a starter template.");

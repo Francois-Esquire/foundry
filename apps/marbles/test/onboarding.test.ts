@@ -10,9 +10,9 @@ import {
   inputProblem,
   parseInputs,
 } from "~/lib/inputs";
-import { createConfig } from "~/onboarding/config";
+import { createStarter } from "~/onboarding/create";
 import {
-  renderConfig,
+  renderModule,
   type SetupDraft,
   STARTERS,
 } from "~/onboarding/templates";
@@ -60,7 +60,7 @@ for (const starter of STARTERS) {
     const dir = await mkdtemp(join(tmpdir(), "marbles-starter-"));
     try {
       const config = join(dir, "marbles.config.ts");
-      await createConfig(config, {
+      await createStarter(config, {
         ...draft,
         instructions: 'Use "quotes" and\nnewlines safely.',
         name: starter.name,
@@ -85,26 +85,26 @@ for (const starter of STARTERS) {
   }, 25_000);
 }
 
-it("never overwrites a config, including concurrent creation", async () => {
+it("never overwrites a starter module, including concurrent creation", async () => {
   const dir = await mkdtemp(join(tmpdir(), "marbles-exclusive-"));
   try {
     const path = join(dir, "marbles.config.ts");
     const attempts = await Promise.allSettled([
-      createConfig(path, draft),
-      createConfig(path, draft),
+      createStarter(path, draft),
+      createStarter(path, draft),
     ]);
     expect(
       attempts.filter((result) => result.status === "fulfilled")
     ).toHaveLength(1);
     const original = await readFile(path, "utf8");
     await expect(
-      createConfig(path, { ...draft, name: "changed" })
+      createStarter(path, { ...draft, name: "changed" })
     ).rejects.toThrow("not overwritten");
     expect(await readFile(path, "utf8")).toBe(original);
     await expect(
-      createConfig(join(dir, "missing", "marbles.config.ts"), draft)
-    ).rejects.toThrow();
-    expect(() => renderConfig({ ...draft, name: "unsafe name" })).toThrow();
+      createStarter(join(dir, "missing", "marbles.config.ts"), draft)
+    ).resolves.toBe(join(dir, "missing", "marbles.config.ts"));
+    expect(() => renderModule({ ...draft, name: "unsafe name" })).toThrow();
   } finally {
     await rm(dir, { force: true, recursive: true });
   }

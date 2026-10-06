@@ -1,8 +1,8 @@
 # Try the review launch form
 
 The example registers one step, `review-worktree`, when it loads. The
-repository's `marbles.config.ts` imports it alongside the Product summary step;
-it also loads on its own with `--config apps/marbles/examples/review-with-arguments.ts`.
+repository's `.foundry/marbles/review.ts` imports it alongside the Product summary step;
+it also loads on its own with `--source apps/marbles/examples/review-with-arguments.ts`.
 
 From the monorepo root:
 

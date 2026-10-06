@@ -6,14 +6,14 @@ import type TS from "typescript";
 import type { CallSite } from "~/lib/definition";
 
 /**
- * Durable names for nameless definitions. `step()` captures where the config
+ * Durable names for nameless definitions. `step()` captures where the module
  * called it; when the definition is finished, the top-level `const` whose
  * initializer contains that call names it. The file is read as source: Bun
- * loads `marbles.config.ts` without a transpile step, so positions match, and
+ * loads authoring modules without a transpile step, so positions match, and
  * TypeScript's parser (the author's own copy) finds the binding.
  */
 
-/** Where this module lives; frames under it belong to the authoring words, not the config. */
+/** Where this module lives; frames under it belong to the authoring words, not the authored module. */
 const LIB_DIR = dirname(fileURLToPath(import.meta.url));
 
 function pathOf(fileName: string): string {
@@ -56,7 +56,7 @@ type Parser = Pick<
 
 const parsers = new Map<string, Parser | null>();
 
-/** The author's `typescript`, resolved from the config's location; `null` when absent. */
+/** The author's `typescript`, resolved from the module's location; `null` when absent. */
 function parserFor(file: string): Parser | null {
   const dir = dirname(file);
   const cached = parsers.get(dir);

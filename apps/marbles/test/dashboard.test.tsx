@@ -738,7 +738,7 @@ test("splash gates entry until ready and shows counts from the loaded snapshot",
     width: 70,
   });
   await flush(setup);
-  expect(setup.captureCharFrame()).toContain("Loading config");
+  expect(setup.captureCharFrame()).toContain("Loading marbles");
   expect(setup.captureCharFrame()).not.toContain("loaded");
   expect(
     setup.renderer.root.findDescendantById("splash:enter")
@@ -753,7 +753,7 @@ test("splash gates entry until ready and shows counts from the loaded snapshot",
   );
   await flush(setup);
   const frame = setup.captureCharFrame();
-  expect(frame).toContain("Config loaded");
+  expect(frame).toContain("Marbles loaded");
   expect(frame).toContain("3 loaded");
   expect(frame).toContain("1 schedule · 2 monitors");
   expect(frame).toContain("4 loaded");
@@ -895,13 +895,13 @@ test("preview loads its config, waits for entry, and opens the dashboard once", 
     width: 70,
   });
   await flush(setup);
-  expect(setup.captureCharFrame()).toContain("Loading config");
+  expect(setup.captureCharFrame()).toContain("Loading marbles");
   await press(setup, "RETURN");
   await act(async () => {
     await sleep(1000);
   });
   await flush(setup);
-  expect(setup.captureCharFrame()).toContain("Config loaded");
+  expect(setup.captureCharFrame()).toContain("Marbles loaded");
   expect(setup.captureCharFrame()).not.toContain("1 Triggers");
   await press(setup, "RETURN");
   expect(setup.captureCharFrame()).toContain("1 Triggers");
@@ -909,7 +909,7 @@ test("preview loads its config, waits for entry, and opens the dashboard once", 
   expect(setup.captureCharFrame()).toContain("3 Runs");
   expect(setup.captureCharFrame()).not.toContain("Overview  Input");
   await click(setup, "nav:home");
-  expect(setup.captureCharFrame()).not.toContain("Config loaded");
+  expect(setup.captureCharFrame()).not.toContain("Marbles loaded");
 });
 
 test("clicking marbles and the h shortcut return home without losing run selection", async () => {

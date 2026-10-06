@@ -106,7 +106,7 @@ export const dashboardSnapshot: DashboardSnapshot = {
         "",
         "Marbles now runs in `~/code/foundry/foundry`.",
         "",
-        "- **Config:** `marbles.config.ts`",
+        "- **Source:** `.foundry/marbles/summary.ts`",
         "- **First step:** `summary`",
       ].join("\n"),
       definition: "marbles.workspace-setup",

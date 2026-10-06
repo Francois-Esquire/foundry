@@ -20,18 +20,19 @@ The source has three layers under `apps/marbles/src/`. `lib/` is the engine: the
 `Engine` class, the managers it builds over the package instances it is
 handed, its registry, and everything that runs a definition. It imports
 nothing outside itself and is published as `@foundry/marbles/lib`. `authoring/`
-is what a `marbles.config.ts` imports: the builders and the prebuilt steps,
+is what authoring modules import: the builders and the prebuilt steps,
 which collect into a catalog private to Marbles. Everything else is the CLI and
 the dashboard, entered at `apps/marbles/src/cli.ts`; `src/create.ts` builds the
 engine they run and copies the catalog into it. One tsup build emits every
-entry with shared chunks so a configuration and the CLI use the same catalog. `bun run marbles` at the
-repository root runs the built `dist/cli.js`, so rebuild before checking CLI
-behavior.
+entry with shared chunks so modules and the CLI use the same catalog.
+`src/source.ts` owns discovery; `src/onboarding/` creates starter modules.
+Neither belongs in `lib/`. `bun run marbles` at the
+repository root runs the built `dist/cli.js`, so rebuild before checking the CLI.
 
 The default tests mock provider operations: `vitest` for the library and
 engine, `bun test` for the terminal views and source-position identity.
 Package checks separately install a tarball into a temporary consumer project
-and exercise the library, declarations, and CLI. They also load a config
+and exercise the library, declarations, and CLI. They also load a module
 outside any project installation and run a deterministic step without
 providers on `PATH`. They require registry access.
 
@@ -44,7 +45,7 @@ changelog currently contains repository-wide release history.
 Project skills for coding agents live in the top-level `skills/` directory, one
 folder per skill with a `SKILL.md`, laid out for the
 [skills CLI](https://github.com/vercel-labs/skills)
-(`npx skills add Francois-Esquire/foundry --skill marbles-config`). A skill is
+(`npx skills add Francois-Esquire/foundry --skill marbles-module`). A skill is
 self-contained: an installed copy cannot read this repository, so
 `skills/marbles-config/references/api.md` restates the authoring API from
 `_api-alt.md`. A change to the API doc changes the skill in the same commit.
@@ -78,9 +79,9 @@ Where a public page and the code disagree, the code wins and the page changes;
 where `_api-alt.md` and the code disagree, the difference is recorded under
 its open items.
 
-Every code sample on a public page loads: extract it into a scratch config
+Every code sample on a public page loads: extract it into a scratch module
 with `zod` and `typescript` resolvable beside it, then run it with
-`bun run marbles -- --config <path> --dry-run list` and, where a step is named,
+`bun run marbles -- --source <path> --dry-run list` and, where a step is named,
 `--dry-run roll <name>`.
 
 CI publishes the built site to GitHub Pages after a successful documentation

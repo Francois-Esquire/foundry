@@ -8,21 +8,22 @@ the command is `bun run marbles -- …`; elsewhere run the built CLI directly.
 
 ```sh
 # inside the Foundry repository
-bun run marbles -- --config ./marbles.config.ts list
+bun run marbles -- list
 
 # elsewhere, with the built CLI
-bun /path/to/foundry/apps/marbles/dist/cli.js --config ./marbles.config.ts list
+bun /path/to/foundry/apps/marbles/dist/cli.js list
 ```
 
 The pages below write `marbles …` for the command. Substitute either form.
 
 ## Commands
 
-| Command | Behavior |
+| Command | Action |
 | --- | --- |
 | No command or `run` | Open the splash and live dashboard; Enter starts triggers. Piped, start at once. |
-| `help`, `--help`, `-h` | Print usage without loading the configuration. |
-| `list` | Print every named step and workflow, then each schedule and monitor with its key and cadence. Loads the config; runs no step body. |
+| `help`, `--help`, `-h` | Print usage without loading modules. |
+| `init [developer \| design \| product]` | Create a starter module in `.foundry/marbles`, without running it or overwriting it. Defaults to Product. |
+| `list` | Print every named step and workflow, then each schedule and monitor with its key and cadence. Loads the module; runs no step body. |
 | `roll <name-or-key> [--input <json>]` | Dispatch one step, workflow, schedule, or monitor now, print its result as JSON, and exit. |
 | `status` | Read every workspace under the state root: foreground process, schedules, recent runs, session count. Needs no running Marbles process. |
 | `sessions` | List the current workspace's agent sessions: id, message count, last update, and whether a compaction summary exists. |
@@ -32,7 +33,7 @@ The pages below write `marbles …` for the command. Substitute either form.
 `run` starts every trigger and takes no name. `marbles run <name>` prints a
 pointer to `roll <name>` and exits 1.
 
-Every command except `help` imports the configuration first. Keep module
+Every command except `help` and `init` imports the discovered modules first. Keep module
 scope to declarations: importing the file must not do work.
 
 `roll` accepts three kinds of argument. A definition name runs that step or
@@ -60,7 +61,8 @@ the [launchd guide](/marbles/guides/launchd).
 
 | Flag | Default | Meaning |
 | --- | --- | --- |
-| `--config <path>` | `./marbles.config.ts` | Configuration module. If absent, interactive startup offers setup; other commands run with an empty registry. |
+| `--source <path>` | `./.foundry/marbles` | Authoring folder or single module. Missing sources offer setup in the dashboard; other commands use an empty catalog. |
+| `--config <path>` | Same as `--source` | Compatibility alias. A legacy `marbles.config.ts` is used when the default folder is absent. |
 | `--state <dir>` | `~/.foundry/marbles` | Root directory for workspace state. |
 | `--artifacts <dir>` | `artifacts/` beside the state root | Shared artifact store holding declared artifacts and feed entries from every workspace. |
 | `--input <json>` | A schedule's input, or none | Input for `roll`. Overrides a schedule's recorded input. |
@@ -68,7 +70,7 @@ the [launchd guide](/marbles/guides/launchd).
 | `--dry-run` | Off | Echo agent turns, git mutations, and sandbox commands instead of running them, and write no state. See [safety and limits](/marbles/safety-and-limits). |
 
 The older spelling `--dry` is still read as `--dry-run`. A later occurrence of a value flag wins. Under `--dry-run` every allowed harness
-is echoed, installed or not, so a config loads on a machine with neither CLI.
+is echoed, installed or not, so a module loads on a machine with neither CLI.
 
 ## The dashboard
 

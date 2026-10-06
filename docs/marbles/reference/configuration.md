@@ -1,29 +1,76 @@
 ---
-title: Configuration
-description: Where the config lives, how names register, module resolution, prebuilt steps, and the launch form.
+title: Authoring
+description: Folder discovery, ignored files, workspace roots, setup, names, and module resolution.
 ---
 
-The CLI looks for `./marbles.config.ts`, or the path passed to `--config`, and
-imports it before every command except `help`. Calling one of the nine words
-from `@foundry/marbles` registers what it describes; nothing is exported. A
-valid empty config registers nothing and skips onboarding.
+Marbles loads modules from `.foundry/marbles/` under the current working
+directory. There is no required entrypoint or configuration object. Calling
+`step`, `workflow`, `schedule`, or `monitor` registers definitions and triggers
+as modules load. Exports are optional and useful for sharing definitions.
 
-If the file is absent, interactive startup offers three starters: Developer
-(`codeReview`), Design (`prototype`), and Product (`summarizeCodebase`). Each
-writes a one-call config that registers one prebuilt step. Setup writes the
-file only when Create is activated and refuses to overwrite an existing one.
-Skipping setup opens an empty dashboard. Piped commands run with an empty
-registry when the config is absent.
+## Discovery and ignored files
+
+Discovery walks subdirectories and imports JavaScript and TypeScript modules
+in sorted path order: `.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.jsx`, `.mjs`, and
+`.cjs`. A module also imported by another module executes only once per process.
+Names must be unique across the whole catalog.
+
+A leading underscore excludes a file or directory from automatic discovery.
+`_helpers.ts` is skipped; `_dashboard/` and everything inside it are skipped.
+A trailing underscore has no special meaning. Ignored code can still be
+imported normally, including any registrations or side effects it performs.
+The convention controls discovery, not permissions or execution isolation.
+
+Hidden entries, `node_modules`, TypeScript declaration files, and symlink
+entries are also skipped. Other files, such as Markdown or images, are not
+imported automatically. Put tests and micro apps under underscore directories
+when their source must not load at startup.
+
+```text
+.foundry/marbles/
+  review.ts                 automatically loaded
+  releases/watch.ts         automatically loaded
+  _shared/agents.ts         imported by other modules when needed
+  _apps/dashboard/server.ts started explicitly by a step when needed
+  _test/review.test.ts       loaded by your test runner
+```
+
+Keep top-level code to declarations. Start servers and other work in step
+bodies, rather than during module import. Discovery is a startup operation;
+restart Marbles after changing modules.
+
+## Setup
+
+Run `marbles init` from the project root to create
+`.foundry/marbles/summarize-codebase.ts`. `marbles init developer` creates
+`code-review.ts`; `marbles init design` creates `prototype.ts`.
+The default starter is `product`. Setup creates parent directories, writes
+one prebuilt-step declaration, runs no step body, and refuses to overwrite
+an existing target file. It can add a different starter to an existing folder.
+
+If the authoring folder is absent, interactive startup offers the same
+Developer, Design, and Product starters with editable instructions, name,
+and harness selection. It writes only when Create is activated. Skipping
+setup opens an empty dashboard without creating the folder. An existing
+empty folder registers nothing and skips setup. Piped commands use an empty
+catalog when no source exists.
 
 ## The workspace
 
-The directory that contains the config is the workspace, whatever the
-shell's working directory was. Every agent session and sandbox runs there,
-`workspaces.current` is it, relative paths in `workspace({ path })` and in
-`report` media resolve from it, and its state lives under
-`~/.foundry/marbles/<workspace-id>`. Put the config at the root of the project
-the automation should work on. Without a config the working directory stands
-in.
+With `.foundry/marbles`, the workspace is the project directory above
+`.foundry`, not the authoringdirectory. Agent sessions, sandbox workspaces,
+`workspaces.current`, relative workspace paths, and report media use that
+project root. State lives under `~/.foundry/marbles/<workspace-id>`.
+
+`--source <path>` selects another directory or a single module. A custom
+directory is itself the workspace; a single module uses its containing
+directory. Selecting `.foundry/marbles` or a module inside it uses
+the project root even when invoked from another workingdirectory.
+
+`--config` remains an alias for `--source`. When the default folder is absent,
+an existing `./marbles.config.ts` still loads for compatibility. The folder
+takes precedence when both exist. With no source, the working directory is
+the workspace. `help` and `init` do not import authoring modules.
 
 ## Names and the catalog
 
@@ -32,13 +79,13 @@ A named step or workflow is a marble, and together they are the catalog:
 Marbles panel, and a schedule or monitor can target one.
 A name is the builder's first argument, `step("review")`. A step or workflow
 built without one takes the name of the top-level `const` it is assigned to,
-read from the config's source with the project's own `typescript`, which is
-an optional peer resolved from the config's location. Without `typescript`,
+read from the module's source with the project's own `typescript`, which is
+an optional peer resolved from the module's location. Without `typescript`,
 or when the definition is made inside a function or inline, it stays
 internal: usable by reference, absent from `list`, and refused as a trigger
 target with an error that says to name it.
 
-A repeated name fails when the config loads. The error names the position of
+A repeated name fails when the module loads. The error names the position of
 each registration and says when one came from a `const`. Schedules and
 monitors have no names; they are keyed by what they trigger and watch. See
 [triggers](/marbles/reference/api#triggers).
@@ -49,13 +96,13 @@ sets are presets, not catalog entries. Only steps and workflows are launched.
 ## Package resolution
 
 The CLI supplies `@foundry/marbles` and `@foundry/marbles/prebuilt` to the
-config module itself, through a Bun loader plugin, so the config and the CLI
-share one registry. Any other library the config imports, such as `zod`, must
-resolve from the config's directory in the usual way. Install it in that
+authoring module itself, through a Bun loader plugin, so the modules and the CLI
+share one registry. Any other library the module imports, such as `zod`, must
+resolve relative to the importing file in the usual way. Install it in that
 project.
 
 `@foundry/marbles` is not on npm yet. Inside the Foundry repository run the
-CLI with `bun run marbles -- --config <path> …`; elsewhere run the built
+CLI with `bun run marbles -- --source <path> …`; elsewhere run the built
 `apps/marbles/dist/cli.js` with Bun. For editor types, point the project's
 TypeScript at the built package or the repository. Importing `@foundry/marbles`
 outside the CLI registers definitions and runs nothing. A program that wants
@@ -89,7 +136,7 @@ working directory, cancellation, and streaming are already wired. Options are
 | `reviewSession(options?)` | `{ sessionId? }` | A review that continues the same conversation on every run (default id `code-review`) |
 
 The default names are the factory names in kebab case. Composed examples
-live in `apps/marbles/examples/` in the repository; load one with `--config`
+live in `apps/marbles/examples/` in the repository; load one with `--source`
 or copy from it. They are not registered by the CLI.
 
 ## The launch form

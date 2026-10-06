@@ -1,4 +1,4 @@
-import { basename, dirname, resolve } from "node:path";
+import { basename, resolve } from "node:path";
 import type { Args } from "~/args";
 import { catalog } from "~/authoring/catalog";
 import { createEngine } from "~/create";
@@ -8,7 +8,7 @@ import type { Engine } from "~/lib/engine";
 import { inputFromFields } from "~/lib/schema";
 import { readLastFinish } from "~/lib/state/schedules";
 import { workspaceState } from "~/lib/state/workspace";
-import { createConfig } from "~/onboarding/config";
+import { createStarter } from "~/onboarding/create";
 import {
   registerSetupStep,
   SETUP_STEP,
@@ -16,21 +16,19 @@ import {
 } from "~/onboarding/setup-step";
 import type { SetupDraft } from "~/onboarding/templates";
 import { runSchedulesUntilStopped } from "~/run-loop";
+import { resolveSource, sourceRoot } from "~/source";
 
 export async function runInteractive(
   args: Args,
-  loadConfiguration: (
-    path: string,
-    print: (line: string) => void
-  ) => Promise<boolean>
+  loadSource: (path: string, print: (line: string) => void) => Promise<boolean>
 ): Promise<void> {
   const controller = new AbortController();
-  const configPath = resolve(args.config);
+  const configPath = resolveSource(args.config);
   const terminal = await openDashboard(
-    basename(dirname(configPath)),
+    basename(sourceRoot(configPath)),
     controller
   );
-  let status = "Loading config";
+  let status = "Loading marbles";
   const print = (line: string) => {
     status = line;
   };
@@ -38,6 +36,7 @@ export async function runInteractive(
   // set only once it runs, so a stop requested mid-start has nothing to stop.
   let built: Engine | undefined;
   let createdDraft: SetupDraft | undefined;
+  let createdFile: string | undefined;
   let engine: Engine | undefined;
   let loop: Promise<void> | undefined;
   let refresh: ReturnType<typeof setInterval> | undefined;
@@ -52,17 +51,17 @@ export async function runInteractive(
   process.once("SIGTERM", stop);
   process.once("SIGINT", stop);
   try {
-    let hasConfig = await loadConfiguration(configPath, print);
+    let hasConfig = await loadSource(configPath, print);
     if (!(hasConfig || controller.signal.aborted)) {
       hasConfig = await terminal.onboard(configPath, async (draft) => {
-        await createConfig(configPath, draft);
+        createdFile = await createStarter(configPath, draft);
         createdDraft = draft;
         try {
-          await loadConfiguration(configPath, print);
+          await loadSource(configPath, print);
         } catch (error) {
           catalog.reset();
           throw new Error(
-            `Config was created but could not load: ${String(error)}. Fix it and restart Marbles.`,
+            `Starter was created but could not load: ${String(error)}. Fix it and restart Marbles.`,
             { cause: error }
           );
         }
@@ -73,7 +72,7 @@ export async function runInteractive(
     }
     const workspace = workspaceState(
       resolve(args.state),
-      hasConfig ? dirname(configPath) : process.cwd()
+      hasConfig ? sourceRoot(configPath) : process.cwd()
     );
     const state = args.dry ? undefined : workspace.dir;
     built = createEngine({
@@ -180,12 +179,12 @@ export async function runInteractive(
       return launched.id;
     });
     postSetupMilestone(runningEngine, print, createdDraft, {
-      configPath,
+      configPath: createdFile ?? configPath,
       root: workspace.root,
     });
     status = hasConfig
-      ? "Config loaded"
-      : "No config found · add marbles.config.ts to register triggers";
+      ? "Marbles loaded"
+      : "No authoring folder found · run marbles init";
     await update();
     if (!(await terminal.entry)) {
       return;

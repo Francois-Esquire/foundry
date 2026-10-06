@@ -1,18 +1,18 @@
 ---
 title: Concepts
-description: The vocabulary of a local behavior.
+description: The vocabulary of a local automation.
 ---
 
-A behavior connects work, observation, timing, and continuity. Nine words
-declare those parts in `marbles.config.ts`. Calling one registers it; nothing
-is exported.
+A automation connects work, observation, timing, and continuity. Nine words
+declare those parts in modules under `.foundry/marbles/`. Calling the authoring
+words registers definitions and triggers; exports are optional.
 
 | Word | Kind | What it declares |
 | --- | --- | --- |
 | `step` | work | One unit of work: optional input and output schemas, then a body. |
 | `workflow` | work | A name around a tree of steps, or setup that returns one. |
 | `agent` | definition | Who does model work: a prompt, optionally a provider, a model, and skills. |
-| `workspace` | definition | Another directory to work on. The config's own is implicit. |
+| `workspace` | definition | Another directory to work on. The current workspace is implicit. |
 | `sandbox` | definition | An isolated place to run commands, mounting a workspace or seeded with files. |
 | `artifact` | definition | A versioned output that keeps its identity across runs. |
 | `skills` | definition | A set of skills an agent takes, built by chaining. |
@@ -42,8 +42,8 @@ workflow.
 | Run | One dispatched workflow or step, with its own session, stream, and cancellation. |
 | Context | The one object a step body receives: `input`, `agents`, `workspaces`, `sandboxes`, `artifacts`, `ask`, `report`, `log`, `stream`, `signal`, `run`. |
 | Session | A retained agent conversation, continued by reference within a run or across runs. |
-| Workspace | The directory that holds the config, and the scope of its persisted state. Without a config, the working directory. |
+| Workspace | The workspace root, and the scope of its persisted state. Without a module, the working directory. |
 | Provider | An installed coding-agent CLI that runs model turns. Claude Code and Codex are supported today. |
 | Key | What names a schedule or monitor: derived from its target and input, or its source. |
 
-Continue with [behaviors as code](/marbles/concepts/behaviors-as-code).
+Continue with [automations as code](/marbles/concepts/automation-as-code).

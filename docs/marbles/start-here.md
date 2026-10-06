@@ -1,6 +1,6 @@
 ---
 title: Start Here
-description: Get the Marbles CLI running and dispatch a deterministic behavior once or on a schedule.
+description: Get the Marbles CLI running and dispatch a deterministic automation once or on a schedule.
 ---
 
 `@foundry/marbles` is not published to npm yet. It runs from the Foundry
@@ -21,11 +21,23 @@ bun /path/to/foundry/apps/marbles/dist/cli.js --help
 ```
 
 The rest of these pages write `marbles …`; substitute either form. Point the
-CLI at a config outside the repository with `--config <path>`.
+CLI at an authoring folder or module outside the repository with `--source <path>`.
 
-## Create one behavior
+## Set up a workspace
 
-Save this as `marbles.config.ts` in the directory you want to inspect:
+Run `marbles init` from your project root for a codebase-summary starter.
+Choose `marbles init developer` for code review or `marbles init design`
+for a prototype step. Opening `marbles` without an authoring folder offers
+interactive setup instead.
+
+The following example needs no agent harness. Create `.foundry/marbles/`
+if it does not exist, then add the module below. Files and directories with
+a leading underscore are skipped by discovery but remain importable. See
+[authoring](/marbles/reference/configuration) for helpers and micro apps.
+
+## Create one step
+
+Save this as `.foundry/marbles/inspect.ts` in the directory you want to inspect:
 
 ```ts
 import { schedule, step } from "@foundry/marbles";
@@ -39,15 +51,15 @@ const inspect = step("inspect").do(async ({ workspaces, log }) => {
 schedule(inspect).every("1h");
 ```
 
-The step lists the files of the directory that holds the config and returns
+The step lists the files of the workspace root and returns
 their count. It makes no model calls and needs no installed agent harness.
 
 ## Run and inspect
 
 ```sh
-marbles --config ./marbles.config.ts list
-marbles --config ./marbles.config.ts once inspect
-marbles --config ./marbles.config.ts status
+marbles list
+marbles roll inspect
+marbles status
 ```
 
 `list` prints the step and the schedule with its key, `inspect`, and cadence.
@@ -75,13 +87,13 @@ step("explain").do(async ({ agents }) => {
 ```
 
 Run `marbles roll explain`, then `marbles sessions` to see the conversation it
-kept. The session runs in the config's directory without being told; the
-prompt supplies behavioral instructions, not permissions. Read
+kept. The session runs in the workspace root without being told; the
+prompt supplies agent instructions, not permissions. Read
 [safety and limits](/marbles/safety-and-limits) before using agents on work
 you care about.
 
 ## Next steps
 
 - [Concepts](/marbles/concepts) explains the nine words and how they compose.
-- [Your first behavior](/marbles/guides/first-behavior) composes a small workflow.
+- [Your first workflow](/marbles/guides/first-workflow) composes a small workflow.
 - [CLI reference](/marbles/reference/cli) covers every command and flag.

@@ -1,9 +1,9 @@
 import { Registry } from "~/lib/registry";
 
 /**
- * What a `marbles.config.ts` declared, collected as it is imported. The
+ * What authoring modules declared, collected as they are imported. The
  * authoring words write here and nothing in the lib reads it: the CLI copies
- * it into the engine it builds. It also keeps what only a config has, the
+ * it into the engine it builds. It also keeps what only authoring has, the
  * declared workspace paths and the ids of nameless resources.
  */
 export class Catalog extends Registry {
@@ -18,7 +18,7 @@ export class Catalog extends Registry {
     return `${kind}#${next}`;
   }
 
-  /** Tests and a failed config load: forget everything declared so far. */
+  /** Tests and a failed source load: forget everything declared so far. */
   reset(): void {
     this.definitions.clear();
     this.schedules.clear();

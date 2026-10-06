@@ -5,7 +5,7 @@ description: Let macOS start a fresh Marbles process for each scheduled tick.
 
 On macOS, launchd owns the clock and Marbles exits after each tick.
 
-From the directory containing the [Start Here configuration](/marbles/start-here),
+From the directory containing the [Start Here workspace](/marbles/start-here),
 whose schedule `list` prints with the key `inspect`:
 
 ```sh
@@ -22,8 +22,8 @@ writes:
 ```
 
 The plist records the Bun and CLI paths in use at installation, the absolute
-configuration path, the state root, the working directory, and an explicit
-`PATH`. Each tick runs `marbles roll <key> --config … --state …`. Output goes
+authoring path, the state root, the working directory, and an explicit
+`PATH`. Each tick runs `marbles roll <key> --source … --state …`. Output goes
 to:
 
 ```text
@@ -34,7 +34,7 @@ Installation uses `launchctl bootstrap`. Reinstallation unloads the previous
 registration before loading the new one. If loading or unloading fails,
 Marbles prints the error and the corresponding manual command.
 
-Each tick imports the configuration again, so changes to behavior code take
+Each tick imports the modules again, so changes to automation code take
 effect on the next invocation. Reinstall when changing the cadence or the
 captured paths and environment.
 
@@ -44,10 +44,10 @@ under launchd. The generated agent does not run at load.
 
 A launchd tick has nobody to answer a question. A run that reaches
 `ask.approval` or `ask.question` under a tick is cancelled at the ask, and its
-outcome is recorded as failed for that tick. Behaviors that ask belong on the
+outcome is recorded as failed for that tick. Automations that ask belong on the
 dashboard, or on a schedule that fires while the dashboard is open.
 
-LaunchAgent labels contain only the key. Two projects whose configs produce
+LaunchAgent labels contain only the key. Two projects whose modules produce
 the same key collide; name the targets differently. `--dry-run` does not prevent
 launchd installation or removal.
 

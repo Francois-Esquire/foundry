@@ -1,18 +1,18 @@
 ---
 title: Introducing Marbles
-description: Programmable local behavior in nine TypeScript words.
+description: Programmable local automation in nine TypeScript words.
 sidebar:
   hidden: true
 ---
 
-Marbles turns recurring behaviors into inspectable TypeScript. This first release
+Marbles turns recurring automations into inspectable TypeScript. This first release
 introduces a local package and CLI for defining what should happen, what should
 be watched, when it should run, and where an agent may participate. Nine words,
 `step`, `workflow`, `agent`, `workspace`, `sandbox`, `artifact`, `skills`,
 `schedule`, and `monitor`, let a small deterministic task grow into a composed
-behavior without leaving ordinary code.
+automation without leaving ordinary code.
 
-Behaviors run once, remain active in a foreground dashboard, or execute through
+Automations run once, remain active in a foreground dashboard, or execute through
 fresh processes scheduled by launchd. Claude Code and Codex provide the current
 providers for model turns. Disk-backed run files, schedule records, monitor
 observations, and agent sessions carry context between invocations. Step

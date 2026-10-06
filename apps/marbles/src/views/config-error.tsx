@@ -18,10 +18,10 @@ export function ConfigErrorView({
     }
   });
   return (
-    <SetupFlow title="Config could not load">
+    <SetupFlow title="Marbles could not load">
       <text>{message}</text>
       <Action
-        label="Enter · Close and fix config"
+        label="Enter · Close and fix module"
         onAction={onClose}
         value="close"
       />

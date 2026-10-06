@@ -91,7 +91,7 @@ export interface MonitorBuilder {
 
 /**
  * One string: `http://` or `https://` is polled and fires when the body
- * changes; anything else is a glob over the config's directory and fires
+ * changes; anything else is a glob over the workspace root and fires
  * when a matching file changes.
  */
 export function monitor(source: string): MonitorBuilder {

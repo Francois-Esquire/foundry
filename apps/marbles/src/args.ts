@@ -1,5 +1,6 @@
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { DEFAULT_SOURCE } from "~/source";
 
 export interface Args {
   /** Shared Artifact store; the feed lives here. Defaults beside the state root. */
@@ -20,6 +21,7 @@ const VALUE_FLAGS = {
   "--artifacts": "artifacts",
   "--config": "config",
   "--input": "inputJson",
+  "--source": "config",
   "--state": "state",
 } as const;
 type ValueFlag = keyof typeof VALUE_FLAGS;
@@ -64,7 +66,7 @@ export function parseArgs(argv: readonly string[]): Args {
     // its feed beside it rather than in the user's home.
     artifacts: values.artifacts ?? join(dirname(resolve(state)), "artifacts"),
     command,
-    config: values.config ?? "./marbles.config.ts",
+    config: values.config ?? DEFAULT_SOURCE,
     dry,
     inputJson: values.inputJson,
     name,

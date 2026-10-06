@@ -110,15 +110,15 @@ export function SplashView({
           text="MARBLES"
         />
         <text fg={theme.colors.mutedForeground} wrapMode="none">
-          {workspace} · {preview ? "config preview" : "workspace"}
+          {workspace} · {preview ? "module preview" : "workspace"}
         </text>
         {state.status === "loading" ? (
-          <LoadingIndicator label="Loading config" />
+          <LoadingIndicator label="Loading marbles" />
         ) : (
           <text fg={theme.colors.success}>
             {state.hasConfig === false
-              ? "No config · setup skipped"
-              : "✓ Config loaded"}
+              ? "No source · setup skipped"
+              : "✓ Marbles loaded"}
           </text>
         )}
         <StartupSummary

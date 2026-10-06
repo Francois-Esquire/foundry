@@ -58,7 +58,7 @@ function setupArticle({ configPath, draft, root }: SetupInput): string {
   return [
     `Marbles now runs in \`${root}\`.`,
     "",
-    `- **Config:** \`${basename(configPath)}\``,
+    `- **Source:** \`${basename(configPath)}\``,
     `- **Starter:** ${starter ? `${starter.label}: ${starter.description}` : draft.template}`,
     `- **First step:** \`${draft.name}\``,
     `- **Harness:** ${harness}`,

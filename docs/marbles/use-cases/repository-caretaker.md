@@ -3,7 +3,7 @@ title: Repository Caretaker
 description: Detect instruction changes before asking for judgment.
 ---
 
-This configuration observes instruction files. The monitor performs change
+This module observes instruction files. The monitor performs change
 detection; an agent investigates what the change means in context.
 
 ```ts
@@ -33,7 +33,7 @@ marbles
 The first poll establishes a baseline and reports existing files as added;
 later polls report `added`, `modified`, and `removed` with their digests. The
 observation advances only after the handler resolves. The session runs in the
-config's directory, so the agent can read `git log` itself; there is no
+workspace root, so the agent can read `git log` itself; there is no
 dedicated Git-history monitor, and the directory scanner does not look inside
 `.git`.
 

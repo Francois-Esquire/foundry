@@ -27,7 +27,7 @@ export function LaunchView({
   const fields = definition.input?.fields;
   const problem = fields
     ? inputProblem(fields)
-    : "Arguments are not declared for this definition. Add input metadata in marbles.config.ts, or use marbles roll with --input.";
+    : "Arguments are not declared for this definition. Add input metadata in your marble module, or use marbles roll with --input.";
   const submit = useCallback(
     async (input: unknown) => {
       if (pending.current.has("submit") || quitting) {

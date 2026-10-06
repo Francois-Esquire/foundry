@@ -3,7 +3,7 @@ title: Compose a workflow
 description: Hand one step's result to another, run independent work together, and give a workflow input.
 ---
 
-Save this as its own configuration, or replace the first guide's definitions:
+Save this as `.foundry/marbles/workflow.ts`, or replace the first guide's definitions:
 
 ```ts
 import { step, workflow } from "@foundry/marbles";
@@ -32,7 +32,7 @@ the dashboard the child is `greeting-report.text`: keys name steps, so choose
 keys that read well.
 
 The parent declares its children in `.input()` like any other input, and each
-child's output is checked against its key when the config loads. A child
+child's output is checked against its key when the module loads. A child
 whose `.output()` does not fit, or a key the parent does not declare, is an
 error before anything runs.
 

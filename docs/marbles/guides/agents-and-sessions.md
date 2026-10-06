@@ -55,7 +55,7 @@ may still miss changes or misinterpret history.
   call in the body returns the session it opened the first time, with its
   transcript, so keep those calls in a fixed order.
 - **Wired by default.** The session runs in the step's working directory,
-  which is the config's directory or, inside a worktree callback, the
+  which is the workspace root or, inside a worktree callback, the
   worktree. Its turns write to the step's stream and stop when the step is
   cancelled or paused. Pass `{ cwd }` only to leave that default.
 - **Compaction is off.** `{ compaction: true }` lets older history be

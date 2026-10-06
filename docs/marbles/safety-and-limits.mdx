@@ -25,7 +25,7 @@ monitors still scan, HTTP monitors still use the network, and Git status can
 still read the working tree. Worktree helpers still allocate a temporary
 directory even though their Git commands are echoed. Clients and tools you
 construct independently do not inherit these substitutions. Read the bodies
-before running `roll` on a config you did not write.
+before running `roll` on a module you did not write.
 
 :::note
 `--dry-run` does not prevent `launchd install` or `launchd uninstall` from changing
@@ -37,9 +37,9 @@ not to contain arbitrary code.
 
 A working directory sets context, not a security boundary, and a sandbox
 mounts the step's workspace read/write. A prompt asking an agent not to edit
-is a behavioral instruction, not an enforceable permission. Authentication and
+is a agent instruction, not an enforceable permission. Authentication and
 available tools belong to the installed Claude Code or Codex CLI. Review their
-configuration before granting a behavior access to your work.
+configuration before granting an automation access to your work.
 
 LaunchAgent jobs run as the installing user. Marbles exits between launchd ticks;
 it is not a resident daemon. Schedule locks skip overlapping ticks for the same

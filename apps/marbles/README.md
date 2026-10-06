@@ -1,6 +1,6 @@
 # Marbles
 
-**Marbles turns recurring behaviors into inspectable TypeScript.**
+**Marbles turns recurring automations into inspectable TypeScript.**
 
 Composable local automation, with agents where judgment is useful. Define what
 should happen, what should be watched, when it should run, and where an agent
@@ -19,10 +19,10 @@ from this repository:
 ```sh
 bun run marbles -- --help                 # from the repository root
 cd apps/marbles && bun run build          # then, from anywhere:
-bun /path/to/foundry/apps/marbles/dist/cli.js --config ./marbles.config.ts list
+bun /path/to/foundry/apps/marbles/dist/cli.js list
 ```
 
-Create `marbles.config.ts`:
+Create `.foundry/marbles/inspect.ts`:
 
 ```ts
 import { readdir } from "node:fs/promises";
@@ -45,11 +45,11 @@ marbles status
 ```
 
 In a terminal, `marbles` and `marbles run` open the splash, load your
-configuration and saved run history, then wait for Enter or a click. Enter opens
+authoring modules and saved run history, then wait for Enter or a click. Enter opens
 the Triggers, Marbles, and Runs dashboard and starts schedules and monitors.
-A missing config opens a guided setup for Developer/code review, Design/prototype,
+A missing authoring folder opens a guided setup for Developer/code review, Design/prototype,
 or Product/codebase summary. It creates only your selected prebuilt step.
-A valid empty configuration opens the dashboard directly; nothing registers by
+An existing empty authoring folder opens the dashboard directly; nothing registers by
 default. `marbles --help` prints usage. Piped or redirected runs use plain text
 and start immediately.
 
@@ -61,14 +61,34 @@ in their context and should pass it to work Marbles does not own, such as
 `fetch`. Cancellation does not undo side effects.
 
 Deterministic steps need no agent harness. For model operations, install and
-authenticate Claude Code or Codex. The CLI resolves configuration imports of
+authenticate Claude Code or Codex. The CLI resolves authoring imports of
 `@foundry/marbles` and `@foundry/marbles/prebuilt` to its own installation; a
-schema library such as `zod` must resolve from the config's directory.
+schema library such as `zod` must resolve relative to the importing file.
 
 State is saved to disk between invocations. `--dry-run` echoes agent turns, git
 mutations, and sandbox commands instead of running them and writes no state;
 it does not contain custom code, monitor I/O, or launchd installation and
 removal. Working directories are execution context, not security sandboxes.
+
+## Authoring folder
+
+Run `marbles init` from your project root to create
+`.foundry/marbles/summarize-codebase.ts`. Choose `init developer` for code
+review or `init design` for a prototype. Setup creates directories and one
+starter module, refuses to overwrite it, and runs no step body.
+
+Marbles recursively imports JavaScript and TypeScript modules from
+`.foundry/marbles` in sorted path order. Files and directories beginning
+with `_` are excluded from discovery, so `_shared/`, `_apps/`, and `_test/`
+can hold ordinary code. They remain importable. Hidden entries, declaration
+files, `node_modules`, and symlink entries are skipped too.
+
+The workspace is the project above `.foundry`, so moving authoring code
+into this folder does not move agent sessions or relative workspace paths.
+`--source` selects a different folder or single module. Custom folders use
+themselves as the workspace; standalone files use their containing folder.
+`--config` remains an alias, and a legacy `marbles.config.ts` loads when the
+default folder is absent. Restart after editing modules.
 
 ## Start with a prebuilt step
 
@@ -228,7 +248,7 @@ schedule. Pi integration is deferred.
 ## Embedding the engine
 
 The CLI is one host of an engine any Bun program can run. `@foundry/marbles` is
-unchanged: the words a config writes definitions with. `@foundry/marbles/lib`
+unchanged: the words a module writes definitions with. `@foundry/marbles/lib`
 holds the `Engine` that runs them.
 
 The engine is handed five instances, one from each Foundry package, each
@@ -312,9 +332,9 @@ The engine keeps its own registry and is told what can run:
 - `engine.definitions()`, `engine.schedules()`, and `engine.monitors()` read
   it back, including the triggers agents created.
 
-Importing a `marbles.config.ts` does not fill an engine you built. The config's
+Importing a `.foundry/marbles/inspect.ts` does not fill an engine you built. The module's
 own collection is private to the CLI, which copies it into the engine it
-builds. A host that wants a config's definitions exports them from the config
+builds. A host that wants a module's definitions exports them from the module
 and defines them.
 
 A few optional settings cover what the five instances cannot say: `print`

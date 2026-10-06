@@ -1,9 +1,9 @@
 ---
 title: API reference
-description: The nine words of marbles.config.ts, the builder, locking, the context, triggers, and what replays.
+description: The nine authoring words, the builder, locking, the context, triggers, and what replays.
 ---
 
-Everything a `marbles.config.ts` can say. Where this page and the running
+Everything an authoring module can say. Where this page and the running
 library disagree, the library's error message is the truth for today.
 
 ## The nine words
@@ -17,7 +17,7 @@ import {
 | Word | Kind | Shape | Purpose |
 | --- | --- | --- | --- |
 | `agent` | definition | `agent({ prompt, model?, provider?, skills? })` | Who does model work, with defaults. |
-| `workspace` | definition | `workspace({ path })` | Another directory to work on. The config's own is implicit. |
+| `workspace` | definition | `workspace({ path })` | Another directory to work on. The current workspace is implicit. |
 | `sandbox` | definition | `sandbox({ image, mount?, resources? })` or `sandbox({ files, image?, resources? })` | An isolated place to run commands. |
 | `artifact` | definition | `artifact({ name, type })` | A versioned output; each run adds a version. |
 | `skills` | definition | `skills.load().add(glob).pick(...names)` | A skill set an agent takes. |
@@ -38,7 +38,7 @@ the spot.
 ```ts
 const reviewer = agent({ prompt: "Review without editing.", provider: "codex" });
 const drafter = agent({ prompt: "Draft the page.", provider: "claude-code" });
-const site = workspace({ path: "../marketing-site" });          // relative to the config
+const site = workspace({ path: "../marketing-site" });          // relative to the workspace root
 const box = sandbox({ image: "docker.io/oven/bun:1-slim", mount: "." });
 const scratch = sandbox({ files: { "main.py": "print(1)" } });  // seeded under /workspace
 const weeklyReport = artifact({ name: "Weekly report", type: "text/markdown" });
@@ -55,7 +55,7 @@ const reviewing = skills.load().add("./skills/review/*").pick("caveman");
   its own. A sandbox may mount it.
 - **`sandbox`.** The image form mounts a workspace read/write at `/workspace`.
   `mount` is `"."`, the default, meaning the step's working directory: the
-  config's directory, or the worktree inside a worktree callback. Or a
+  workspace root, or the worktree inside a worktree callback. Or a
   declared workspace, `mount: site`. Nothing else is mountable; another host
   path fails at run time with `escapes the trusted host roots`. `~/.foundry`,
   `~/.claude`, and `~/.codex` mount read-only when they exist. The `files`
@@ -82,7 +82,7 @@ step(name?)          // a builder
 - A string first argument makes the step launchable by that name. A repeated
   name fails at load. Without a name the step takes the name of the top-level
   `const` it is assigned to when the project's `typescript` resolves from the
-  config's directory; otherwise it is internal. See
+  workspace root; otherwise it is internal. See
   [names and the catalog](/marbles/reference/configuration#names-and-the-catalog).
 - Schemas come before `.do()` so the body is typed from them. `.input()`
   gives the TypeScript type, validation at launch, the dashboard's launch
@@ -151,7 +151,7 @@ step().do(async ({ input, agents, workspaces, sandboxes, artifacts, ask, report,
 | --- | --- |
 | `input` | Typed input, validated against `.input(schema)`. |
 | `agents` | `session(def, { cwd?, session?, compaction? })` → `{ generate(prompt) → { text, … }, stream(prompt), ref, harness }`. |
-| `workspaces` | `current` (the config's directory) and `load(def \| { path })` → `{ root, files(), git }`. |
+| `workspaces` | `current` (the workspace root) and `load(def \| { path })` → `{ root, files(), git }`. |
 | `sandboxes` | `start(def \| spec)` → `{ exec(argv) → { exitCode, stdout, stderr }, close(), id }`; `open(id)`. |
 | `artifacts` | `write(def, files)` adds a version; `create({ name, type, entries })` makes one on the spot. |
 | `ask` | `approval({ title, body?, key? })` → `{ approved, note? }`; `question({ title, body?, choices?, key? })` → `string`. |
@@ -193,7 +193,7 @@ await fetch(url, { signal });
   the harness's stream. `ref` is a small serializable handle (`id`, and the
   `model` and `provider` it opened with) for continuing the session later.
   `compaction: true` summarizes older history with the turn model.
-- **Workspaces.** `current.git` throws when the config's directory is not a
+- **Workspaces.** `current.git` throws when the workspace root is not a
   repository. `withWorktree({ base, branch?, home? }, body)` cuts a checkout
   under the workspace's state, runs `body` with the working directory
   narrowed to it, and removes it on return; a `branch` outlives the worktree.
@@ -205,7 +205,7 @@ await fetch(url, { signal });
   by position in the body; `key` is optional, for updating one entry across
   steps.
 - **Report.** Entries are fire-and-forget and land on the run and the feed.
-  `media` paths resolve from the config's directory and are copied into the
+  `media` paths resolve from the workspace root and are copied into the
   entry; refer to them in the body as `media/<file name>`. `report.artifact`
   writes a version, posts a result entry titled after the artifact unless
   `entry.title` says otherwise, and returns the version.
@@ -218,7 +218,7 @@ await fetch(url, { signal });
 
 A monitor's handler gets the same object with `files` or `response` in place
 of `input`, plus `change`. `files` is `{ added, modified, removed }`, each a
-`{ path, checksum }[]` with `path` relative to the config's directory; read
+`{ path, checksum }[]` with `path` relative to the workspace root; read
 one with `node:fs` from `resolve(workspaces.current.root, path)`. `response`
 is a standard `Response` over the polled body. `change` carries the diff:
 the file lists, or `{ status, previous, current }` for HTTP.
@@ -250,7 +250,7 @@ monitor("https://tracker.example.com/latest").every("10m")
   when it parses, as text otherwise, and compares it with the last hash. A
   body that carries noise such as a timestamp fires every poll; read
   `response` and return early when nothing of interest changed. Anything
-  else is a glob over the config's directory, polled; `files` lists what was
+  else is a glob over the workspace root, polled; `files` lists what was
   added, modified, or removed since the last poll. `.every` defaults to one
   minute. `.do(fn)` is terminal.
 - **A handler that returns a locked node starts it**, attributed to the
@@ -270,7 +270,7 @@ monitor("https://tracker.example.com/latest").every("10m")
 
 ## Composition and durability
 
-Context is layered: config (its directory and its state folder under
+Context is layered: workspace (its root and its state folder under
 `~/.foundry`) → definition (prompt, provider, model) → workflow (the run) →
 step (stream, log, signal) → call (`{ cwd }`, `{ session }`). Inner layers
 override outer ones.
@@ -323,7 +323,7 @@ trigger types (`Schedule`, `ScheduleBuilder`, `MonitorBuilder`,
 
 ## Not available yet
 
-Do not write configs that depend on these.
+Do not write modules that depend on these.
 
 - Race, branch, and loops between steps. Only series and parallel.
 - A built-in model provider. No `provider` means the first installed CLI.

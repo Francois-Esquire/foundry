@@ -28,15 +28,20 @@ them itself. Each manager has the plain operation as a method, usable on the
 engine directly, and `scoped(frame)` for the view a step body gets, which adds
 replay, cancellation, and cleanup on top; new manager behavior goes in the
 plain method. The engine owns its registry and is told what can run through
-`define`, `schedule`, and `monitor`. `src/authoring/` is the config-facing sugar; it
+`define`, `schedule`, and `monitor`. `src/authoring/` is the module-authoring sugar; it
 collects into the `catalog` in `authoring/catalog.ts`, which is private to
 Marbles, and may import `lib/`, never the reverse. `createEngine` in
 `src/create.ts` is the one place the Marbles defaults and `--dry-run` are decided;
 it builds the instances, constructs the engine, and copies the catalog in. The
-`@foundry/marbles` surface is what configs depend on; new engine API goes on
+`@foundry/marbles` surface is what authoring modules depend on; new engine API goes on
 `@foundry/marbles/lib`, not there. That entry exports `Engine`, types, and the
 package classes the constructor's instances are built from; do not add loose
 functions to it. The CLI, dashboard, views, and onboarding sit
 beside them and may import both. Public entries: `@foundry/marbles`
 (`authoring/index.ts`), `@foundry/marbles/prebuilt`, and
 `@foundry/marbles/lib` (`lib/index.ts`).
+
+`src/source.ts` owns filesystem discovery for the CLI. Setup belongs in
+`src/onboarding/`, never `src/lib/`. The default authoring folder is
+`.foundry/marbles`; leading-underscore files and directories are excluded
+from discovery but can be imported. The workspace root stays above `.foundry`.

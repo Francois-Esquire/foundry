@@ -5,8 +5,7 @@ description: Disk layout, recovery of parked runs, locks, and the limits of cont
 
 ## Persisted state
 
-The default state root is `~/.foundry/marbles`. Each workspace, the directory
-that holds the config, gets a directory named by the first twelve hex digits
+The default state root is `~/.foundry/marbles`. Each workspace, the project root above `.foundry/marbles`, gets a directory named by the first twelve hex digits
 of the SHA-256 of its canonical path. Listing the state root is the registry
 of every workspace this machine has run.
 
@@ -28,7 +27,8 @@ of every workspace this machine has run.
 Every file is written to a temporary name and renamed, so a concurrent reader
 never sees a half-written file. Run files are `version: 2`; the other
 Marbles-owned records are `version: 1`. Session files use the session store's
-own format. Version 1 run files still load.
+own format. Version 1 run files still load. The persisted `config` field keeps
+its existing spelling and records the authoring folder or single-module path.
 
 A run file carries, under `marbles`, three things the run scope recorded:
 
@@ -38,7 +38,7 @@ A run file carries, under `marbles`, three things the run scope recorded:
   position returns the recorded thing.
 - **literals**: the input each node was locked with when the run started.
   A recovered run executes against these, whatever a rebuilt tree or an
-  edited config would give.
+  edited module would give.
 - **session**: the run's own session id. Agent sessions opened in the run
   are children of it.
 
@@ -65,7 +65,7 @@ run is waiting or working.
 When the engine starts it reads every run file. A settled run always loads,
 as history. A suspended run is adopted when four things hold: this process
 can answer questions (the dashboard can; `roll` and a launchd tick cannot),
-the step it ran is still registered in the config, the process that wrote the
+the step it ran is still registered in the module, the process that wrote the
 file is gone, and `locks/run-<runId>` is free. Adoption rewrites the file with
 the new pid and holds the lock until the run settles or the process stops, so
 two dashboards never both resume one run. The run parks again, its question

@@ -15,11 +15,11 @@ describe("parseArgs", () => {
       expect(parseArgs([flag]).command).toBe("help");
     }
   });
-  it("defaults to the repo config and the home state dir", () => {
+  it("defaults to the authoring folder and the home state dir", () => {
     expect(parseArgs([])).toEqual({
       artifacts: join(homedir(), ".foundry", "artifacts"),
       command: "run",
-      config: "./marbles.config.ts",
+      config: "./.foundry/marbles",
       dry: false,
       inputJson: undefined,
       name: undefined,
@@ -71,7 +71,13 @@ describe("parseArgs", () => {
 
   it("keeps the default when a flag has no value", () => {
     const args = parseArgs(["list", "--config"]);
-    expect(args.config).toBe("./marbles.config.ts");
+    expect(args.config).toBe("./.foundry/marbles");
     expect(parseArgs(["list", "--harness"]).only).toEqual([]);
   });
+});
+
+it("accepts --source with the same last-value precedence as --config", () => {
+  expect(parseArgs(["--config", "old.ts", "--source", "new"]).config).toBe(
+    "new"
+  );
 });

@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { plugin } from "bun";
 import type { Args } from "~/args";
@@ -15,8 +15,11 @@ import { cadence, clock, tick, weekdays } from "~/lib/schedule";
 import { JsonSessionStore } from "~/lib/sessions/json-store";
 import { workspaceState } from "~/lib/state/workspace";
 import type { Schedule } from "~/lib/triggers";
+import { createStarter } from "~/onboarding/create";
+import { STARTERS } from "~/onboarding/templates";
 import { runSchedulesUntilStopped } from "~/run-loop";
 import { sessionLines } from "~/sessions/list";
+import { resolveSource, sourceFiles, sourceRoot } from "~/source";
 import { readStatus } from "~/status/model";
 import { statusText } from "~/status/text";
 
@@ -24,9 +27,10 @@ const print = (line: string) => {
   process.stdout.write(`${line}\n`);
 };
 
-const USAGE = `marbles — programmable local behaviors
+const USAGE = `marbles — programmable workspace automation
 
   [run]                      open the dashboard and start triggers after Enter
+  init [starter]             create a starter module (developer | design | product)
   help, --help, -h            show this help
   roll <name> [--input json] dispatch one workflow or schedule now, then exit
   list                       workflows, schedules, and when each is next due
@@ -35,27 +39,26 @@ const USAGE = `marbles — programmable local behaviors
   launchd install <name>     write and load ~/Library/LaunchAgents/com.foundry.marbles.<name>.plist
   launchd uninstall <name>   unload and remove it
 
-  --config <path>    config module (default: ./marbles.config.ts, optional)
+  --source <path>    authoring folder or module (default: ./.foundry/marbles)
+  --config <path>    compatibility alias for --source
   --state <dir>      state root (default: ~/.foundry/marbles)
   --artifacts <dir>  artifact store holding the feed (default: artifacts/ beside the state root)
   --dry-run          echo every model turn and git mutation instead of running them
   --harness <id>     use only this harness (claude-code | codex); repeatable
 
-Each workspace (the config's directory) gets <state>/<id>/ holding
+Each workspace (the project above .foundry/marbles) gets <state>/<id>/ holding
 workspace.json, runs/, schedules/, locks/ and sessions/. Feed entries from every
 workspace share the artifact store. --dry-run disables Marbles state persistence; custom code still runs.`;
 
 type WorkspaceState = ReturnType<typeof workspaceState>;
 
-async function loadConfiguration(
-  configPath: string,
-  log = print
-): Promise<boolean> {
-  if (!existsSync(configPath)) {
+async function loadSource(configPath: string, log = print): Promise<boolean> {
+  const files = sourceFiles(configPath);
+  if (files === undefined) {
     return false;
   }
 
-  // Configs use this installation even outside a project with node_modules.
+  // Authoring modules use this installation even outside a project with node_modules.
   // Both entry points must share the same registry instance.
   const libraryPath = fileURLToPath(
     new URL(
@@ -73,7 +76,7 @@ async function loadConfiguration(
     ).href
   );
   plugin({
-    name: "marbles-config-library",
+    name: "marbles-source-library",
     setup(builder) {
       builder.module("@foundry/marbles/prebuilt", () => ({
         exports: prebuilt,
@@ -86,8 +89,10 @@ async function loadConfiguration(
     },
     target: "bun",
   });
-  await import(pathToFileURL(configPath).href);
-  log(`[config] ${configPath}`);
+  for (const file of files) {
+    await import(pathToFileURL(file).href);
+  }
+  log(`[source] ${configPath}`);
   return true;
 }
 
@@ -269,6 +274,23 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (args.command === "init") {
+    const starter = STARTERS.find(
+      (item) => item.id === (args.name ?? "product")
+    );
+    if (!starter || args.target !== undefined) {
+      throw new Error("init takes one starter: developer, design, or product");
+    }
+    const file = await createStarter(resolve(args.config), {
+      harness: "auto",
+      instructions: "",
+      name: starter.name,
+      template: starter.id,
+    });
+    print(`Created ${file}`);
+    return;
+  }
+
   // `run` starts every trigger and takes no name; a name here would
   // otherwise be dropped and the dashboard opened instead.
   if (args.command === "run" && args.name !== undefined) {
@@ -279,15 +301,15 @@ async function main(): Promise<void> {
 
   if (args.command === "run" && process.stdout.isTTY && process.stdin.isTTY) {
     const { runInteractive } = await import("~/dashboard/command");
-    await runInteractive(args, loadConfiguration);
+    await runInteractive(args, loadSource);
     return;
   }
 
-  const configPath = resolve(args.config);
-  const hasConfig = await loadConfiguration(configPath);
+  const configPath = resolveSource(args.config);
+  const hasConfig = await loadSource(configPath);
   const workspace = workspaceState(
     resolve(args.state),
-    hasConfig ? dirname(configPath) : process.cwd()
+    hasConfig ? sourceRoot(configPath) : process.cwd()
   );
   // The one place --dry-run is applied to the state dir: everything downstream
   // takes `stateDir` and writes nothing when it is undefined.

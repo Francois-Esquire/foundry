@@ -44,7 +44,7 @@ export function StartupSummary({
       <text fg={theme.colors.mutedForeground}>
         {counts
           ? `${countLabel(counts.runs, "run")} available`
-          : "Reading configuration..."}
+          : "Reading modules..."}
       </text>
     </box>
   );

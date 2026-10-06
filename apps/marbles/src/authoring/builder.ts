@@ -10,7 +10,7 @@ import { lockable } from "./lock";
 /**
  * `step(name?).describe(text).input(schema).output(schema).do(fn)`.
  * Schemas come before the body so `do` is typed from them. A name makes the
- * definition launchable from outside the config. Without one, the top-level
+ * definition launchable from outside the module. Without one, the top-level
  * `const` it is assigned to names it; a definition made inside a function or
  * inline stays internal.
  */

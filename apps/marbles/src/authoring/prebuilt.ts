@@ -4,7 +4,7 @@ import { step } from "./builder";
 import { agent } from "./resources";
 
 /**
- * Ready-made steps a config registers by calling a factory. Each opens a
+ * Ready-made steps a module registers by calling a factory. Each opens a
  * read-only reviewing agent through the context, so the working directory,
  * cancellation, and streaming are already wired.
  */
@@ -52,7 +52,7 @@ async function ask(
   return { provider: session.ref.provider, text: reply.text };
 }
 
-/** Factories register only the step explicitly requested by the config. */
+/** Factories register only the step explicitly requested by the module. */
 export function summarizeCodebase(options: PrebuiltOptions = {}) {
   const definition = reviewer(options);
   return step(options.name ?? "summarize-codebase")

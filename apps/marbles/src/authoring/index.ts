@@ -41,7 +41,7 @@ export type {
   WorkspaceHandle,
   Workspaces,
 } from "~/lib/types";
-// biome-ignore lint/performance/noBarrelFile: This is the public package entry point for configuration imports.
+// biome-ignore lint/performance/noBarrelFile: This is the public package entry point for authoring imports.
 export { step, workflow } from "./builder";
 export type { StepDefinition, WorkflowDefinition } from "./lock";
 export { agent, artifact, sandbox, skills, workspace } from "./resources";

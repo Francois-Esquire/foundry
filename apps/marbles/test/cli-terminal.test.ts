@@ -148,7 +148,7 @@ test("a config error restores the terminal and exits instead of leaving the spla
     }
   );
   try {
-    await until(() => output.includes("Config could not load"));
+    await until(() => output.includes("Marbles could not load"));
     child.terminal?.write("\r");
     await until(() => child.exitCode !== null);
     expect(await child.exited).not.toBe(0);
@@ -205,9 +205,10 @@ async function openTestCli(config: string) {
   };
 }
 
-test("missing config creates a Product starter without executing it, then launches from Marbles", async () => {
+test("missing authoring folder creates a Product starter without executing it, then launches from Marbles", async () => {
   const dir = mkdtempSync(join(tmpdir(), "marbles-setup-"));
-  const config = join(dir, "marbles.config.ts");
+  const config = join(dir, ".foundry", "marbles");
+  const file = join(config, "summarize-codebase.ts");
   const terminal = await openTestCli(config);
   try {
     await terminal.see("Choose a starter");
@@ -222,7 +223,7 @@ test("missing config creates a Product starter without executing it, then launch
     expect(existsSync(config)).toBe(false);
     await terminal.send("\r");
     await terminal.see("Press Enter to enter");
-    expect(readFileSync(config, "utf8")).toContain("@foundry/marbles/prebuilt");
+    expect(readFileSync(file, "utf8")).toContain("@foundry/marbles/prebuilt");
     await terminal.send("\r");
     await terminal.see("2 Marbles");
     await terminal.send("2");

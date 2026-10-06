@@ -10,7 +10,7 @@ in the working tree, then has a second agent review the uncommitted changes
 against it; the reviewer's verdict comes back as findings.
 
 ```sh
-marbles roll develop-round --config apps/marbles/examples/development.ts --dry-run \
+marbles roll develop-round --source apps/marbles/examples/development.ts --dry-run \
   --input '{"task":"Add a --json flag to list"}'
 ```
 
@@ -21,7 +21,7 @@ independently prove verification passed.
 
 ## Compose your own round
 
-This configuration keeps the implementation off your working tree by cutting
+This module keeps the implementation off your working tree by cutting
 a worktree, and hands the branch, not the directory, to the review:
 
 ```ts
@@ -78,6 +78,6 @@ completion; the [API reference](/marbles/reference/api#definitions) shows a
 sandbox doing that.
 
 For an independent review of any revision in a temporary checkout, add
-`reviewInWorktree()` from `@foundry/marbles/prebuilt` to your config and run
+`reviewInWorktree()` from `@foundry/marbles/prebuilt` to your module and run
 `marbles roll review-in-worktree --input '{"repository":".","base":"main"}'`.
 Worktree isolation is not a security sandbox.

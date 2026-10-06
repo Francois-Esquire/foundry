@@ -8,7 +8,7 @@ import { SetupFlow, SetupStep } from "~/components/ui/setup-flow";
 import { useTheme } from "~/hooks/use-theme";
 import type { InputField, InputValues } from "~/lib/inputs";
 import {
-  renderConfig,
+  renderModule,
   type SetupDraft,
   STARTERS,
 } from "~/onboarding/templates";
@@ -134,7 +134,7 @@ export function OnboardingView({
         name: String(values.name ?? ""),
       };
       try {
-        renderConfig(configured);
+        renderModule(configured);
         setDraft(configured);
         setError(undefined);
         setStage("review");
@@ -189,7 +189,9 @@ export function OnboardingView({
       }
       title="Set up your workspace"
     >
-      <text fg={theme.colors.mutedForeground}>No config found · {path}</text>
+      <text fg={theme.colors.mutedForeground}>
+        No authoring folder found · {path}
+      </text>
       <SetupStep status={stepStatus(stage, "template")}>
         Choose a starter · {starter.label}
       </SetupStep>
@@ -233,15 +235,15 @@ export function OnboardingView({
           key={draft.template}
           onCancel={back}
           onSubmit={review}
-          submitLabel="Review config"
+          submitLabel="Review module"
         />
       )}
       <SetupStep status={stepStatus(stage, "review")}>
-        Review and create config
+        Review and create module
       </SetupStep>
       {stage === "review" && (
         <box flexDirection="column" gap={1}>
-          <text fg={theme.colors.foreground}>{renderConfig(draft)}</text>
+          <text fg={theme.colors.foreground}>{renderModule(draft)}</text>
           <text fg={theme.colors.mutedForeground}>
             One step · no workflows or triggers · nothing runs during setup
           </text>
@@ -249,7 +251,7 @@ export function OnboardingView({
           <Action
             active
             id="setup:create"
-            label={busy ? "Creating config..." : "Enter · Create config"}
+            label={busy ? "Creating module..." : "Enter · Create module"}
             onAction={create}
             value="create"
           />

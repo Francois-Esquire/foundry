@@ -20,7 +20,7 @@
         "simple-git",
         "unique-names-generator"
       ],
-      "entry": ["examples/**/*.ts", "templates/**/marbles.config.ts"]
+      "entry": ["examples/**/*.ts", "templates/**/*.ts"]
     },
     "docs": {
       "entry": ["blume.config.ts", "**/meta.ts"]
@@ -30,7 +30,11 @@
     },
     "tooling/*": {},
     ".": {
-      "entry": ["marbles.config.ts"]
+      "entry": [
+        ".foundry/marbles/**/*.ts",
+        "!.foundry/marbles/**/_*",
+        "!.foundry/marbles/**/_*/**"
+      ]
     }
   }
 }

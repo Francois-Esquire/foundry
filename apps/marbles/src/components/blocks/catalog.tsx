@@ -43,7 +43,7 @@ export function TriggersBlock({
           description={
             searching
               ? "Try another search or clear filters."
-              : "Add schedule() or monitor() in marbles.config.ts when you want automatic runs."
+              : "Add schedule() or monitor() in .foundry/marbles when you want automatic runs."
           }
           onReset={searching ? onReset : undefined}
           title={
@@ -100,7 +100,7 @@ export function DefinitionsBlock({
           description={
             searching
               ? "Try another search or clear filters."
-              : "Choose a starter during setup, or add a prebuilt step in marbles.config.ts."
+              : "Choose a starter during setup, or add a prebuilt step in .foundry/marbles."
           }
           onReset={searching ? onReset : undefined}
           title={

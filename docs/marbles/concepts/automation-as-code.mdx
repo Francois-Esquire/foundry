@@ -1,25 +1,25 @@
 ---
-title: Behaviors as code
+title: Automation as code
 description: Give recurring work an explicit shape without making every decision agentic.
 ---
 
-A behavior is broader than its workflow. A reviewer has instructions and a
+An automation is broader than its workflow. A reviewer has instructions and a
 conversation. It also needs a reason to return, a view of what changed, and a
 place to record what happened. The tree describes the work; observation,
 timing, and state give that work continuity.
 
-Some behaviors run once. Others wake on a schedule or react to a changed file.
+Some automations run once. Others wake on a schedule or react to a changed file.
 Some remember earlier visits. Each can combine deterministic operations with
 model judgment. Reading a checksum need not involve a model; deciding whether
 an instruction contradicts the rest of a repository might.
 
 The coding-agent CLI runs the agentic loop. Marbles decides where that loop
-belongs within a larger behavior. A step can open a session, ask a person a
+belongs within a larger automation. A step can open a session, ask a person a
 question, validate the answer with ordinary code, and pass the result onward.
 Existing TypeScript libraries remain available in every body.
 
 :::note
-“Behavior” describes the composition. There is no `marble()` word or
+“Automation” describes the composition. There is no `marble()` word or
 first-class Marble runtime object. A marble is the name for a step or
 workflow you can launch.
 :::
@@ -27,6 +27,6 @@ workflow you can launch.
 Keep the smallest useful version. A single step can be enough. Add a tree
 when results need to flow between steps, a session when history helps, an
 artifact when output should accumulate versions, and a monitor or schedule
-when the behavior should return.
+when the automation should return.
 
 [Composition](/marbles/concepts/composition) shows how these parts fit together.

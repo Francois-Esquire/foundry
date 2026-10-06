@@ -35,7 +35,7 @@ The rules that follow from this shape:
 
 - **Children first, input second.** An object of locked nodes keyed by name,
   then literal values for the step's own input. The two merge into the
-  parent's `input`; a key in both is an error when the config loads.
+  parent's `input`; a key in both is an error when the module loads.
 - **Keys name steps.** `findings` and `exitCode` are the children's names in
   the dashboard, in logs, on resume, and in the parent's schema.
 - **The parent runs last** and declares its children's results in `.input()`

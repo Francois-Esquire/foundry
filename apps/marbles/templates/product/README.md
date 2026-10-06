@@ -4,8 +4,9 @@ This starter registers one step, `summarize-codebase`, to explain a repository
 to a product teammate. It asks the selected CLI harness for a short summary
 with file references. It creates no workflows, schedules, or monitors.
 
-Copy `marbles.config.ts` from this folder to your repository root when no config
-exists. The Foundry root config was created from this template. Onboarding generates the same prebuilt-step registration.
+Run `marbles init product` from your project root, or copy
+`summarize-codebase.ts` into `.foundry/marbles/`. Setup generates the same
+prebuilt-step registration without overwriting an existing module.
 
 From the Foundry repository root, run either harness explicitly:
 
@@ -15,7 +16,7 @@ bun run marbles roll summarize-codebase --harness claude-code --state .cache/mar
 ```
 
 Each command requires an installed, authenticated CLI. Add `--dry-run` to check
-config loading and harness selection without calling the provider. Without
+module loading and harness selection without calling the provider. Without
 `--harness`, the step uses Marbles' first detected executor.
 
 The prompt requests read-only inspection of the root README, package manifest,

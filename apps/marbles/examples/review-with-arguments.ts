@@ -42,7 +42,7 @@ export const argumentsSchema = z.object({
     .min(1)
     .default(defaults.worktree)
     .describe(
-      "An existing Git checkout. Relative paths start at marbles.config.ts."
+      "An existing Git checkout. Relative paths start at the workspace root."
     ),
 });
 
@@ -101,7 +101,7 @@ async function review({ agents, input, log, workspaces }: Context<Arguments>) {
   };
 }
 
-/** Registered when this module loads, as a config or imported by one. */
+/** Registered when this module loads, through discovery or an explicit import. */
 export const reviewWorktree = step("review-worktree")
   .describe(
     "Choose a checkout, point at some code, and tune a read-only review."

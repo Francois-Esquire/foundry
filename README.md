@@ -21,7 +21,7 @@ npm; the rest are the shared libraries they are built from.
 
 | Package | What it does | Read more |
 | --- | --- | --- |
-| [Marbles](apps/marbles) | Turns recurring behaviors into inspectable TypeScript. A `marbles.config.ts` defines steps, workflows, agents, schedules, and monitors, then runs them once, in a foreground loop, or from launchd. | [README](apps/marbles/README.md) · [Docs](https://francois-esquire.github.io/foundry/marbles/) |
+| [Marbles](apps/marbles) | Turns recurring automations into inspectable TypeScript. Modules in `.foundry/marbles/` define steps, workflows, agents, schedules, and monitors, then runs them once, in a foreground loop, or from launchd. | [README](apps/marbles/README.md) · [Docs](https://francois-esquire.github.io/foundry/marbles/) |
 | [Atlas](apps/atlas) | Draws a workspace of TypeScript packages as a map you explore in the browser. Packages are islands placed by dependency, files are their settlements. | [README](apps/atlas/README.md) · [Docs](https://francois-esquire.github.io/foundry/atlas/) |
 
 Both are configured for public npm releases as `@foundry/marbles` and

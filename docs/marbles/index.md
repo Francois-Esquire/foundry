@@ -5,13 +5,13 @@ sidebar:
   label: Introduction
 ---
 
-**Marbles turns recurring behaviors into inspectable TypeScript.**
+**Marbles turns recurring automations into inspectable TypeScript.**
 
 A modern coding-agent harness combines model turns, tools, instructions, and
 conversation history. Marbles gives those ingredients a place in ordinary code,
 alongside workflows, observation, scheduling, and disk-backed state. A harness
 becomes something you build with. You decide where its agentic loop belongs
-within a larger behavior.
+within a larger automation.
 
 Define what should happen, what should be watched, when it should run, and where
 an agent may participate. Run it once, keep it active in a terminal, or let
@@ -31,7 +31,7 @@ Code + Workflows + Agents + Schedules + Monitors + Persistent State
   deliberate cadence. This is an application blueprint, with transport supplied
   by your code.
 
-Small behaviors can stay small. Start with one deterministic step:
+Small automations can stay small. Start with one deterministic step:
 
 ```ts
 import { step } from "@foundry/marbles";
@@ -43,12 +43,12 @@ step("inspect").do(async ({ workspaces, log }) => {
 });
 ```
 
-The step does not need model judgment. Other behaviors can combine deterministic
+The step does not need model judgment. Other automations can combine deterministic
 operations with a coding agent, retain a conversation across runs, or react when
 a source changes.
 
-Save it as `marbles.config.ts` and run `marbles roll inspect`. The
+Save it as `.foundry/marbles/inspect.ts` and run `marbles roll inspect`. The
 [nine words](/marbles/concepts) let that function grow into something that
 composes work, observes change, remembers, and returns.
 
-[Build your first behavior](/marbles/start-here) · [Walk through the Software Factory](/marbles/walkthroughs/software-factory) · [Explore use cases](/marbles/use-cases)
+[Build your first automation](/marbles/start-here) · [Walk through the Software Factory](/marbles/walkthroughs/software-factory) · [Explore use cases](/marbles/use-cases)

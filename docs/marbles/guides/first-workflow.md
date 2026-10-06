@@ -1,9 +1,9 @@
 ---
-title: Your first behavior
+title: Your first workflow
 description: Turn a deterministic function into a step with typed input, then name a workflow around it.
 ---
 
-After [getting the CLI running](/marbles/start-here), save this configuration
+After [getting the CLI running](/marbles/start-here), save this module as `.foundry/marbles/review.ts`
 in a project that has `zod` installed:
 
 ```ts
@@ -36,7 +36,7 @@ Three things to notice:
 - **Schemas come before the body.** `.input(schema)` gives the body its type,
   validates what `--input` and the dashboard send, and builds the launch
   form. Any [Standard Schema](https://standardschema.dev) library works; the
-  docs use zod. It must resolve from the config's directory, because the CLI
+  docs use zod. It must resolve from the importing file, because the CLI
   supplies `@foundry/marbles` itself but not the schema library.
 - **The body receives one object.** Destructure `input` and whatever else it
   needs: `log`, `agents`, `workspaces`, `ask`, `report`. The

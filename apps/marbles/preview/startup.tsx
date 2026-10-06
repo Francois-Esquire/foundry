@@ -42,7 +42,7 @@ export function PreviewStartup({ onClose }: { readonly onClose: () => void }) {
   if (process.argv.includes("--config-error")) {
     return (
       <ConfigErrorView
-        message="Preview: marbles.config.ts could not load. Check its imports and syntax."
+        message="Preview: a marble module could not load. Check its imports and syntax."
         onClose={onClose}
       />
     );
@@ -53,7 +53,7 @@ export function PreviewStartup({ onClose }: { readonly onClose: () => void }) {
         onClose={onClose}
         onCreate={create}
         onSkip={finishSetup}
-        path="./marbles.config.ts (preview only)"
+        path="./.foundry/marbles (preview only)"
       />
     );
   }

@@ -1,12 +1,12 @@
 ---
 title: The Software Factory
-description: The software lifecycle as inputs, marbles, and outputs, in one configuration you can save and run.
+description: The software lifecycle as inputs, marbles, and outputs, in one module you can save and run.
 ---
 
 A factory takes materials in, works them at stations, and sends products out.
 Software has the same shape. A task comes in; someone implements it, someone
 tests it, someone reviews it, someone decides; a branch, a verdict, and a
-report come out. This walkthrough builds that line as one `marbles.config.ts`,
+report come out. This walkthrough builds that line as one `.foundry/marbles/software-factory.ts`,
 one station at a time, and then wires it to a clock and a feed.
 
 Every excerpt below is cut from the complete file at the end. Save that file
@@ -120,7 +120,7 @@ const review = step("review")
 ```
 
 `review` is named explicitly, so it is also launchable on its own:
-`marbles roll review` reviews the config's directory.
+`marbles roll review` reviews the workspace root.
 
 ## Decide
 
@@ -214,7 +214,7 @@ read the body and return `undefined` when nothing of interest changed.
 
 ## Run the factory
 
-Save the complete file below as `marbles.config.ts` in a Git repository.
+Save the complete file below as `.foundry/marbles/software-factory.ts` in a Git repository.
 
 ```sh
 marbles --dry-run list
@@ -240,7 +240,7 @@ it. For the Friday schedule without a terminal, see
 
 Loops and retries are not available. A rejected `approve` ends the run;
 launch `ship` again with the findings appended to the task. `test` verifies
-the config's directory, not `implement`'s branch; to test the branch, give
+the workspace root, not `implement`'s branch; to test the branch, give
 `test` a `branch` input and run it inside a worktree callback the way
 `implement` does. The [implement-review pattern](/marbles/use-cases/implement-review)
 goes further into that handoff.
@@ -340,5 +340,5 @@ monitor("https://tracker.example.com/issues/latest")
   .do(async ({ response }) => ship({}, { task: (await response.json()).title }));
 ```
 
-Continue with the [use cases](/marbles/use-cases) for behaviors that watch a
+Continue with the [use cases](/marbles/use-cases) for automations that watch a
 repository, remember earlier findings, or keep a correspondence.

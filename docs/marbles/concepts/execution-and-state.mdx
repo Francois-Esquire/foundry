@@ -3,19 +3,19 @@ title: Execution and state
 description: Fresh processes share continuity without a resident daemon, and a parked run outlives the process that parked it.
 ---
 
-Each command starts a fresh process. First, importing `marbles.config.ts`
+Each command starts a fresh process. First, importing modules from `.foundry/marbles`
 registers definitions. Then the CLI binds the runtime step bodies receive:
 providers, workspaces, sandboxes, artifacts, sessions, and logging. Finally it
 dispatches work.
 
 “Register, then bind” means describing work before choosing its runtime.
-It lets one config support inspection, real execution, and dry substitutions.
+It lets one module support inspection, real execution, and dry substitutions.
 Calling a word does not execute a step body. Ordinary code at module scope
 still runs during import, even for inspection commands.
 
 ```mermaid
 flowchart LR
-    C[Import config] --> D[Register definitions]
+    C[Discover and import modules] --> D[Register definitions]
     D --> B[Bind runtime]
     B --> H[Load history, adopt parked runs]
     H --> R[Dispatch work]
@@ -36,7 +36,7 @@ sequenceDiagram
     participant D as Disk state
     L->>Q: Start scheduled tick
     D->>Q: Load history and prior observations
-    Q->>Q: Execute behavior
+    Q->>Q: Execute automation
     Q->>D: Save outcome and continuity
     Q-->>L: Exit
 ```
@@ -44,7 +44,7 @@ sequenceDiagram
 launchd owns the clock. Marbles owns execution and continuity. Nothing remains
 resident between its launchd ticks.
 
-State belongs to the configuration directory. A session continued by
+State belongs to the workspace root. A session continued by
 reference reuses its conversation after the previous process exits. A file
 monitor compares today's digests with the last handled observation. A
 declared artifact gains a version per run.

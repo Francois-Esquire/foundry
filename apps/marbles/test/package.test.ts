@@ -205,7 +205,7 @@ console.log(greeted.greeting, files > 0 && direct ? "sees files" : "sees nothing
       expect(terminal.output).toContain("Runs");
     }
     expect(run("bun", [cli, "--help"], consumer)).toContain(
-      "programmable local behaviors"
+      "programmable workspace automation"
     );
     expect(run("bun", [cli, "list", "--dry-run"], consumer)).toContain(
       "[workflow] packed-workflow"
@@ -227,8 +227,11 @@ console.log(greeted.greeting, files > 0 && direct ? "sees files" : "sees nothing
     expect(
       run("bun", [cli, "status", "--state", join(consumer, "state")], consumer)
     ).toBeDefined();
+    writeFileSync(join(standalone, "workspace-marker.txt"), "workspace root");
+    const authoring = join(standalone, ".foundry", "marbles");
+    mkdirSync(authoring, { recursive: true });
     writeFileSync(
-      join(standalone, "marbles.config.ts"),
+      join(authoring, "inventory.ts"),
       `
 import { step } from "@foundry/marbles";
 step("inventory").do(async ({ workspaces }) => ({ paths: await workspaces.current.files() }));
@@ -245,9 +248,12 @@ step("inventory").do(async ({ workspaces }) => ({ paths: await workspaces.curren
         timeout: 30_000,
       }
     );
-    expect(inventory).toContain("marbles.config.ts");
+    expect(inventory).toContain("workspace-marker.txt");
     for (const directory of [consumer, standalone]) {
-      const config = join(directory, "marbles.config.ts");
+      const config =
+        directory === standalone
+          ? join(authoring, "inventory.ts")
+          : join(directory, "marbles.config.ts");
       writeFileSync(config, 'import "@foundry/marbles/prebuilt";');
       expect(run(cli, ["list", "--dry-run"], directory)).not.toContain(
         "[step]"
