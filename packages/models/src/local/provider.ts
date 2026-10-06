@@ -147,7 +147,7 @@ function downloadTarget(def: LocalModelDefinition): ModelDownloadTarget {
   return {
     modelId: def.modelId,
     ...(def.label ? { label: def.label } : {}),
-    kind: def.kind ?? "text",
+    kind: def.kind,
     ...(dtype ? { dtype } : {}),
   };
 }
@@ -442,7 +442,7 @@ export class LocalProvider implements LocalProviderSurface {
   private markLoaded(def: LocalModelDefinition): void {
     const dtype = dtypeOf(def);
     const loaded: LocalLoadedModel = {
-      kind: def.kind ?? "text",
+      kind: def.kind,
       label: def.label,
       modelId: def.modelId,
       ...(dtype ? { dtype } : {}),
@@ -458,7 +458,7 @@ export class LocalProvider implements LocalProviderSurface {
    */
   async download(id: string): Promise<void> {
     const def = this.row(id);
-    const kind = def.kind ?? "text";
+    const { kind } = def;
     if (kind === "embedding") {
       await embed({ model: this.embeddingModel(def.modelId), value: "" });
     } else if (kind === "transcription") {

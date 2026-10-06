@@ -260,13 +260,14 @@ export class ModelManager {
     const provider = this.providerForOperation(operation, mode, options);
     const model = options.model
       ? this.rowOf(provider, options.model)
-      : (this.defaultRowFor(provider, operation, mode, options) ??
-        provider.models.find((m) => factFor(m, operation, mode)));
-    if (!model) {
-      throw capabilityUnsupported(provider, operation, mode);
-    }
-    const fact = factFor(model, operation, mode);
-    if (!fact) {
+      : (this.defaultRowFor(
+          provider,
+          operation,
+          mode,
+          options.provider !== undefined
+        ) ?? provider.models.find((m) => factFor(m, operation, mode)));
+    const fact = model && factFor(model, operation, mode);
+    if (!(model && fact)) {
       throw capabilityUnsupported(provider, operation, mode);
     }
     if (!provider.available) {
@@ -360,7 +361,7 @@ export class ModelManager {
       return local && servesKind(local, kind) ? local.id : null;
     }
     const usable = (p: Provider | undefined): p is Provider =>
-      p?.available === true && !p.offline && servesKind(p, kind);
+      p !== undefined && isOnline(p) && servesKind(p, kind);
     const preferred = this._providers.get(
       this._defaults.get(kind)?.provider ?? ""
     );
@@ -482,21 +483,45 @@ export class ModelManager {
     providerId: string | undefined,
     modelId: string | undefined
   ): { provider: Provider; def: ProviderModelDefinition } {
-    if (this._offline) {
-      const provider = this.airplaneProviderFor(kind, providerId);
-      return { def: resolveDefinition(provider, kind, modelId), provider };
-    }
-    const kindDefault = providerId ? undefined : this._defaults.get(kind);
+    const provider = this._offline
+      ? this.airplaneProviderFor(kind, providerId)
+      : this.routedProvider(kind, providerId);
+    const preferred =
+      modelId ?? this.configuredModel(kind, provider, providerId !== undefined);
+    return { def: resolveDefinition(provider, kind, preferred), provider };
+  }
+
+  private routedProvider(
+    kind: ModelKind,
+    providerId: string | undefined
+  ): Provider {
     const id =
-      providerId ?? kindDefault?.provider ?? this.defaultProviderFor(kind);
+      providerId ??
+      this._defaults.get(kind)?.provider ??
+      this.defaultProviderFor(kind);
     if (!id) {
       throw modelErrors.NO_USABLE_PROVIDER({ kind });
     }
-    const provider = this.get(id);
-    return {
-      def: resolveDefinition(provider, kind, modelId ?? kindDefault?.modelId),
-      provider,
-    };
+    return this.get(id);
+  }
+
+  /**
+   * The model a configured Kind default names on `provider`. Consulted only
+   * when the manager chose the provider: a caller who named one, or Airplane
+   * Mode, bypasses the manager's defaults.
+   */
+  private configuredModel(
+    kind: ModelKind,
+    provider: Provider,
+    explicit: boolean
+  ): string | undefined {
+    if (explicit || this._offline) {
+      return undefined;
+    }
+    const configured = this._defaults.get(kind);
+    return configured?.provider === provider.id
+      ? configured.modelId
+      : undefined;
   }
 
   private tryResolve(
@@ -531,13 +556,11 @@ export class ModelManager {
       (options.model === undefined || def.id === options.model) &&
       factFor(def, operation, mode) !== undefined;
     const candidates = [...this._providers.values()].filter(
-      (p) => p.available && !p.offline && p.models.some(bears)
+      (p) => isOnline(p) && p.models.some(bears)
     );
     const preferred = candidates.find((p) =>
       p.models.some(
-        (def) =>
-          bears(def) &&
-          this._defaults.get(def.kind ?? "text")?.provider === p.id
+        (def) => bears(def) && this._defaults.get(def.kind)?.provider === p.id
       )
     );
     const chosen = preferred ?? candidates[0];
@@ -548,33 +571,25 @@ export class ModelManager {
   }
 
   /**
-   * The row a configured Kind default names, read through the same layers
-   * `resolve` consults — `KindDefault.modelId`, then the Provider's own
-   * `defaults[kind]` — and gated the same way, so a caller who named a
-   * Provider, or Airplane Mode, sees the manager layer no more than `resolve`
-   * does. Only rows already bearing the fact are considered: a default set for
-   * a Kind was never a promise about an Operation, so one that bears no fact
-   * here falls through rather than refusing an Operation the Provider serves.
+   * The row the defaults name for its Kind, read through the same layers
+   * `resolve` consults: the configured Kind default, then the Provider's own.
+   * Only rows already bearing the fact count: a default set for a Kind was
+   * never a promise about an Operation, so one that bears no fact here falls
+   * through rather than refusing an Operation the Provider serves.
    */
   private defaultRowFor(
     provider: Provider,
     operation: OperationName,
     mode: InteractionMode,
-    options: OperationSelectionOptions
+    explicit: boolean
   ): ProviderModelDefinition | undefined {
-    const skipKindDefault = options.provider !== undefined || this._offline;
-    return provider.models.find((row) => {
-      if (!factFor(row, operation, mode)) {
-        return false;
-      }
-      const kind = row.kind ?? "text";
-      const configured = skipKindDefault ? undefined : this._defaults.get(kind);
-      const preferred =
-        (configured?.provider === provider.id
-          ? configured.modelId
-          : undefined) ?? provider.defaults?.[kind];
-      return preferred === row.id;
-    });
+    return provider.models.find(
+      (row) =>
+        factFor(row, operation, mode) !== undefined &&
+        row.id ===
+          (this.configuredModel(row.kind, provider, explicit) ??
+            provider.defaults?.[row.kind])
+    );
   }
 
   /**
@@ -706,6 +721,11 @@ function capabilityUnsupported(
   mode: InteractionMode
 ) {
   return unsupported(provider, `the ${operation} Operation in ${mode} mode`);
+}
+
+/** Credentialed and network-backed: what routes without the local role. */
+function isOnline(provider: Provider): boolean {
+  return provider.available && !provider.offline;
 }
 
 /** The row's first fact for this Operation and mode, if it bears one. */

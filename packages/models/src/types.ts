@@ -117,7 +117,7 @@ export interface ProviderModelDefinition {
   /** Output vector size for embedding models. Drives default chunk sizing. */
   dimensions?: number;
   id: string;
-  kind?: ModelKind;
+  kind: ModelKind;
   label?: string;
   limits?: ModelLimits;
   modelId: string;

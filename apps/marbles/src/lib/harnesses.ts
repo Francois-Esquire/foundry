@@ -3,7 +3,7 @@ import { delimiter, join } from "node:path";
 
 import type { TurnExecutorRef } from "@foundry/models";
 
-import { ModelManager } from "@foundry/models";
+import { ModelManager, servesKind } from "@foundry/models";
 import { claudeCodeProvider } from "@foundry/models/claude-code";
 import { codexProvider } from "@foundry/models/codex";
 
@@ -94,7 +94,7 @@ export function selectExecutor(
     .list()
     .filter(
       (registered) =>
-        registered.models.some((entry) => (entry.kind ?? "text") === "text") &&
+        servesKind(registered, "text") &&
         (harness === undefined || registered.harness === harness)
     );
   const provider = candidates.find((candidate) => candidate.available);

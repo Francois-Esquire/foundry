@@ -35,12 +35,6 @@ describe("operationsOf", () => {
     }
   });
 
-  it("treats a row without a kind as text, matching resolveDefinition", () => {
-    expect(
-      operationsOf({ id: "row", modelId: "wire" }).map((f) => f.operation)
-    ).toEqual(["generate-text", "reformat-text"]);
-  });
-
   it("keeps required a subset of inputs on every derived fact", () => {
     for (const [kind] of DERIVED) {
       for (const fact of operationsOf({ id: "row", kind, modelId: "wire" })) {

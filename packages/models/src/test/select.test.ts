@@ -152,6 +152,7 @@ describe("select by Capability fact", () => {
     const { manager } = withCatalog([
       {
         id: "img-1",
+        kind: "image",
         modelId: "upstream/img",
         operations: [fact("generate-image", ["image/png"])],
       },
@@ -404,6 +405,7 @@ describe("select provider resolution", () => {
     const local = fakeLocal([
       {
         id: "on-device",
+        kind: "image",
         modelId: "device/img",
         operations: [fact("generate-image", ["image/png"])],
       },
@@ -421,6 +423,7 @@ describe("select provider resolution", () => {
     const local = fakeLocal([
       {
         id: "on-device",
+        kind: "image",
         modelId: "device/img",
         operations: [fact("generate-image", ["image/png"])],
       },

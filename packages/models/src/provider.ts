@@ -156,15 +156,14 @@ export function resolveDefinition(
   kind: ModelKind,
   id?: string
 ): ProviderModelDefinition {
-  const kindOf = (def: ProviderModelDefinition) => def.kind ?? "text";
   if (id) {
     const found = provider.models.find((m) => m.id === id);
     if (!found) {
       return { id, kind, modelId: id };
     }
-    if (kindOf(found) !== kind) {
+    if (found.kind !== kind) {
       throw modelErrors.MODEL_KIND_MISMATCH({
-        actual: kindOf(found),
+        actual: found.kind,
         expected: kind,
         model: found.id,
         provider: provider.id,
@@ -173,17 +172,13 @@ export function resolveDefinition(
     return found;
   }
   const preferred = provider.defaults?.[kind];
-  const dflt = preferred
-    ? provider.models.find((m) => m.id === preferred)
-    : undefined;
-  if (dflt && kindOf(dflt) === kind) {
-    return dflt;
-  }
-  const first = provider.models.find((m) => kindOf(m) === kind);
-  if (!first) {
+  const row =
+    provider.models.find((m) => m.id === preferred && m.kind === kind) ??
+    provider.models.find((m) => m.kind === kind);
+  if (!row) {
     throw modelErrors.NO_MODEL_OF_KIND({ kind, provider: provider.id });
   }
-  return first;
+  return row;
 }
 
 /**
@@ -262,9 +257,9 @@ export function operationsOf(
   if (def.operations) {
     return def.operations;
   }
-  return DERIVED_FACTS[def.kind ?? "text"] ?? [];
+  return DERIVED_FACTS[def.kind] ?? [];
 }
 
 export function servesKind(provider: Provider, kind: ModelKind): boolean {
-  return provider.models.some((m) => (m.kind ?? "text") === kind);
+  return provider.models.some((m) => m.kind === kind);
 }
