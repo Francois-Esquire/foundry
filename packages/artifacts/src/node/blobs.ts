@@ -1,17 +1,11 @@
 const BLOB_FILENAME = /^[a-f0-9-]+(?:\.tmp)?$/;
 
 import { constants } from "node:fs";
-import {
-  mkdir,
-  open,
-  readdir,
-  realpath,
-  rename,
-  unlink,
-} from "node:fs/promises";
+import { mkdir, open, readdir, realpath, unlink } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
 import type { BlobFiles } from "../blob";
+import { hasErrorCode, writeAtomically } from "./fs";
 
 export function blobFiles(root: string): BlobFiles {
   const directory = resolve(root);
@@ -38,28 +32,21 @@ export function blobFiles(root: string): BlobFiles {
     async publish(bytes) {
       const base = await ready();
       const path = crypto.randomUUID();
-      const temporary = join(base, `${path}.tmp`);
+      await writeAtomically(
+        join(base, path),
+        join(base, `${path}.tmp`),
+        bytes,
+        {
+          readOnly: true,
+        }
+      );
+      const folder = await open(base, "r");
       try {
-        const file = await open(temporary, "wx", 0o600);
-        try {
-          await file.writeFile(bytes);
-          await file.sync();
-          await file.chmod(0o400);
-        } finally {
-          await file.close();
-        }
-        await rename(temporary, join(base, path));
-        const folder = await open(base, "r");
-        try {
-          await folder.sync();
-        } finally {
-          await folder.close();
-        }
-        return path;
-      } catch (error) {
-        await unlink(temporary).catch(() => undefined);
-        throw error;
+        await folder.sync();
+      } finally {
+        await folder.close();
       }
+      return path;
     },
     async *read(path, { start, end }) {
       const file = await open(
@@ -95,13 +82,7 @@ export function blobFiles(root: string): BlobFiles {
       try {
         await unlink(join(await ready(), filename(path)));
       } catch (error) {
-        if (
-          !(
-            error instanceof Error &&
-            "code" in error &&
-            error.code === "ENOENT"
-          )
-        ) {
+        if (!hasErrorCode(error, "ENOENT")) {
           throw error;
         }
       }

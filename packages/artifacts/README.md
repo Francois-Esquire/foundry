@@ -4,12 +4,17 @@ Package constants live in `@foundry/artifacts/constants`. General MIME helpers l
 
 `@foundry/artifacts` defines the shared Artifact vocabulary and the
 [`Artifacts`](src/substrate.ts) contract. An Artifact keeps stable product identity
-while its active Content changes. `ArtifactSystem` owns behavior and accepts an
+while its active Content changes. `ArtifactManager` owns behavior and accepts an
 `ArtifactStore`: `InMemoryArtifactStore` here or a host-provided persistent store.
 
 Content extends the shared `StorageTree` vocabulary with `blobId` on file entries.
 Paths map to files, directories, symlinks, sockets, devices, or pipes. Only files
-reference blobs. Blob identity is independent of digest and byte location.
+reference blobs. A blob is a stored object: its id is a stable handle, and its
+digest describes the bytes it holds now. When a file's object is referenced by
+that file alone, new bytes rewrite the object in place under the same id. A
+shared object is copied on write, so frozen Content never changes. New objects
+reuse an existing object with the same digest. Files larger than one chunk are
+stored as immutable chunks, whether the bytes arrive whole or streamed.
 File reads extend Core's `FileRepresentation` with loaded bytes or a stream;
 reading a non-file returns `null`. Import shared descriptors directly from Core.
 
@@ -48,13 +53,13 @@ export function createPage(artifacts: Artifacts) {
 ```
 
 The returned `ArtifactResolved` contains the Artifact and its active Content.
-Create a system with the included in-memory store:
+Create a manager with the included in-memory store:
 
 ```ts
-import { ArtifactSystem, InMemoryArtifactStore } from "@foundry/artifacts";
+import { ArtifactManager, InMemoryArtifactStore } from "@foundry/artifacts";
 
 export function createArtifacts() {
-  return new ArtifactSystem({ store: new InMemoryArtifactStore() });
+  return new ArtifactManager({ store: new InMemoryArtifactStore() });
 }
 ```
 
@@ -107,10 +112,11 @@ registrations and Module runtime resolution. Module constants live in
 
 An Artifact is the stable thing consumers point at. Content is one version of its files
 and version metadata. The Artifact points to zero or one active Content; other versions
-remain addressable in its timeline. See the [glossary](GLOSSARY.md) for exact terms.
+remain addressable in its timeline.
 
 Artifact status and Content state answer different questions. Freezing ready Content
-publishes a draft Artifact and makes that Content immutable. Explicit revision creates
+publishes a draft Artifact and makes that Content immutable. Only an explicit `freeze`
+(or the `freeze` option of `create` and `write`) publishes. Explicit revision creates
 new ready Content without replacing Artifact identity or publishing the Artifact.
 
 ## Work with versions
@@ -129,17 +135,19 @@ change; top-level `label`/`pinned` annotations and the separate tag remain edita
 
 `freeze` makes ready Content immutable. `select` moves the Artifact pointer to ready or
 frozen Content belonging to that same Artifact without copying it. `fork` freezes a
-ready source when needed, then creates a new Artifact from its StorageTree and metadata.
+ready source when needed, without publishing it, then creates a new Artifact from its
+StorageTree and metadata.
 
 Use `expectedContentId` or `expectedUpdatedAt` when a write must not overwrite a newer
 selection or edit. A failed fence throws `StaleContentError` with the current Content
 identifier and update time so the caller can reload or reconcile.
 
+Revisions and forks inherit metadata except provenance (`sessionId`, `messageId`,
+`runId`, `generation`, `failure`) and record `from`. Frozen Content keeps its metadata
+except the `label` and `pinned` annotations. Both lists live in `src/content.ts`.
+
 Generation contributions use ordinary writes or explicit revisions. Legacy generating
 and failed Content remains available for diagnosis and cleanup.
-
-The [architecture guide](ARCHITECTURE.md) traces direct writes, generation, files,
-transactions, deletion, and retention.
 
 ## Use safely
 
@@ -148,7 +156,8 @@ unusable Content does not mean the Artifact identity is missing. Selecting unusa
 Content cannot displace usable Content.
 
 Use `transaction` when several Artifact operations must commit or roll back together.
-Use the callback's scoped handle for every grouped operation:
+The callback receives an `ArtifactOperations` handle; use it for every grouped
+operation. It expires when the transaction settles:
 
 ```ts
 await artifacts.transaction(async (transaction) => {
@@ -190,17 +199,20 @@ await ws.save({ fileId, text, expectedDigest });
 ```
 
 `load` opens an existing Artifact; creation stays with `artifacts.create`, discovery
-with `artifacts.list`. Each directory follows its Artifact's active Content. Scans
+with `artifacts.list`. Each directory follows its Artifact's active Content. Records
+are authoritative: a directory removed outside the filesystem is restored. Delete
+the Artifact with `filesystem.remove(root)` or `artifacts.delete`. Scans
 use the tree metadata without reading every blob or applying ignore rules.
 
 Workspace edits and observed CLI changes use Artifact operations. Artifact writes
 apply directory changes before returning success. `observe` reports committed
 changes; required application uses `bind` and does not depend on events.
 
-Use `blobFiles(root)` as `ArtifactSystem`'s optional `files` capability to store blob
+Use `blobFiles(root)` as `ArtifactManager`'s optional `files` capability to store blob
 bytes in files. Those backing files remain separate from editable directories.
-Changed bytes are staged before record commit. Shared blobs are replaced, and
-cleanup removes only unreferenced bytes. `ArtifactApplicationError` means records
+Changed bytes are staged before record commit. A rewritten object's previous
+backing file and every unreferenced blob are removed after commit. Each operation
+reclaims the blobs it released; `sweep` is the full backstop. `ArtifactApplicationError` means records
 committed but directory application needs recovery. `filesystem.recover()` restores
 directories from records and removes abandoned backing files. Close Workspaces
 and the filesystem when their owner stops.
@@ -208,7 +220,9 @@ and the filesystem when their owner stops.
 ## Public entries
 
 Import the contract, model, errors, identifiers, artifact cursor, MIME values,
-`digestTree`, the system, and the in-memory store from `@foundry/artifacts`. Shared hashing,
+`digestTree`, the manager, and the in-memory store from `@foundry/artifacts`.
+`fileResponse` in `@foundry/artifacts/delivery` builds a ranged HTTP `Response`
+for one stored file. Shared hashing,
 canonical JSON, and Base64 helpers live in `@foundry/lib/digest`,
 `@foundry/lib/json`, and `@foundry/lib/encoding`.
 
@@ -216,11 +230,13 @@ canonical JSON, and Base64 helpers live in `@foundry/lib/digest`,
 `@foundry/core/pagination`: `items`, exact filtered `total`, and optional
 `nextCursor`. Shared pagination helpers live in `@foundry/lib/pagination`.
 
-Persistent stores implement `ArtifactStore`; a SQLite adapter is not included in
-this repository. `JsonArtifactStore` from `@foundry/artifacts/node` keeps every
+Persistent stores implement `ArtifactStore`: every record access happens through
+the `ArtifactStoreTransaction` its `transaction` method supplies. That interface
+documents the integrity rules a store must enforce. A SQLite adapter is not
+included in this repository. `JsonArtifactStore` from `@foundry/artifacts/node` keeps every
 record in one JSON file, rewritten per commit under a `<path>.lock` file so
 several processes can share it. Pair it with `blobFiles` for bytes. It suits a
-local feed's scale, not a large catalogue. Neither the shared system nor the in-memory store imports Node
+local feed's scale, not a large catalogue. Neither the manager nor the in-memory store imports Node
 or SQLite.
 
 ## Development
@@ -234,7 +250,7 @@ bun run check packages/artifacts
 bun run build --filter=@foundry/artifacts
 ```
 
-Package tests own system, blob, and directory behavior. Shared suites in
-`@foundry/artifacts/testing/store` and `@foundry/artifacts/testing/system` also
+Package tests own manager, blob, and directory behavior. Shared suites in
+`@foundry/artifacts/testing/store` and `@foundry/artifacts/testing/manager` also
 support host-provided store implementations. Hosts own their persistence and
 migration tests. Lib owns encoding and pagination helper tests.

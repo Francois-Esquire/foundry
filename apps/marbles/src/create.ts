@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 import type { SessionStore } from "@foundry/agents/session";
 import { InMemorySessionStore } from "@foundry/agents/session";
 import type { Artifacts } from "@foundry/artifacts";
-import { ArtifactSystem, InMemoryArtifactStore } from "@foundry/artifacts";
+import { ArtifactManager, InMemoryArtifactStore } from "@foundry/artifacts";
 import { blobFiles, JsonArtifactStore } from "@foundry/artifacts/node";
 import type { ModelManager, Provider } from "@foundry/models";
 import type { Containers } from "@foundry/sandbox/container/containers";
@@ -103,8 +103,8 @@ export function readTriggers(
 /** The shared artifact system: JSON records and blob files under `dir`, or memory. */
 function artifactsAt(dir: string | undefined): Artifacts {
   return dir === undefined
-    ? new ArtifactSystem({ store: new InMemoryArtifactStore() })
-    : new ArtifactSystem({
+    ? new ArtifactManager({ store: new InMemoryArtifactStore() })
+    : new ArtifactManager({
         files: blobFiles(join(dir, "blobs")),
         store: new JsonArtifactStore({ path: join(dir, "records.json") }),
       });

@@ -1,7 +1,7 @@
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { InMemorySessionStore } from "@foundry/agents/session";
-import { ArtifactSystem, InMemoryArtifactStore } from "@foundry/artifacts";
+import { ArtifactManager, InMemoryArtifactStore } from "@foundry/artifacts";
 import type { TurnExecutorRef } from "@foundry/models";
 import { createContainers } from "@foundry/sandbox/container/containers";
 import { createMemoryContainerStore } from "@foundry/sandbox/container/store";
@@ -45,7 +45,7 @@ export function testInstances(
   return {
     artifacts:
       options.artifacts ??
-      new ArtifactSystem({ store: new InMemoryArtifactStore() }),
+      new ArtifactManager({ store: new InMemoryArtifactStore() }),
     containers:
       options.containers ??
       (() =>

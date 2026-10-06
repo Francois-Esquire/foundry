@@ -227,7 +227,7 @@ Marbles decorations.
 | --- | --- |
 | `workspaces` | `WorkspaceSystem` (`@foundry/workspaces`, with `directory()` and `git()`) |
 | `sandboxes` | The containers registry (`createContainers` in `@foundry/sandbox`) |
-| `artifacts` | `ArtifactSystem` (`@foundry/artifacts`) |
+| `artifacts` | `ArtifactManager` (`@foundry/artifacts`) |
 | `agents` | Sessions (`createAgentPreset(spec).createSession()` returns a `SessionHarness`; a `SessionStore` persists them; no single class yet) |
 
 What Marbles adds to each of these keys:
@@ -683,7 +683,7 @@ const drafter = agent({ prompt: "Draft the page.", model: "anthropic/claude-sonn
 | Keys | Step paths. Siblings read results with `ctx.resultOf(key)`. |
 | `stream` | `ctx.write` / `ctx.pipe`, or `yield` from an async generator body. Channels are per run, so any depth reaches the run's stream. |
 | `ask.question`, `ask.approval` | A suspension (`suspendForApproval`), resumed by `(stepPath, name, occurrence)`. |
-| `report.*` | A run event on the stream plus a persisted entry; `report.artifact` calls `ArtifactSystem.revise`. |
+| `report.*` | A run event on the stream plus a persisted entry; `report.artifact` calls `ArtifactManager.revise`. |
 | Names | The Orchestrator registry. Recovery rebuilds runs by name. |
 | Persistence, resume | Per-run Snapshot, the queue, `orchestrator.recover()`. |
 | Workflow setup | **Differs.** The package makes the body a durable step; this API does not. |

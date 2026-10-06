@@ -2,7 +2,7 @@ import { withParentDirectories } from "@foundry/core/storage";
 import { digestJson } from "@foundry/lib/digest";
 import { describe, expect, it } from "vitest";
 
-import { digestTree } from "../tree";
+import { digestTree } from "../content";
 
 const file = {
   bytes: 3,

@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
+import { ArtifactManager } from "../manager";
 import { InMemoryArtifactStore } from "../memory";
 import { resolveReference } from "../references";
 import type { ArtifactBase } from "../registry";
 import { createRegistry } from "../registry";
-import { ArtifactSystem } from "../system";
 import { required } from "./helpers/required";
 
 describe("Artifact registry", () => {
@@ -82,7 +82,7 @@ describe("Artifact registry", () => {
   });
 
   it("resolves in-memory build output and leaves async execution to its host", async () => {
-    const artifacts = new ArtifactSystem({
+    const artifacts = new ArtifactManager({
       store: new InMemoryArtifactStore(),
     });
     const artifact = await artifacts.create({

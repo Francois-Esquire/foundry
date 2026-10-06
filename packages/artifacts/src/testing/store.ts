@@ -1,8 +1,22 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { ArtifactStore, Content, StoredFile } from "../index";
+import type {
+  ArtifactOperations,
+  ArtifactStore,
+  ArtifactStoreTransaction,
+  Content,
+  StoredFile,
+} from "../index";
 
-import { ArtifactSystem, StaleContentError } from "../index";
+import { ArtifactManager, StaleContentError } from "../index";
+
+/** Run a read-only store transaction, for inspecting records in tests. */
+export function readStore<T>(
+  store: ArtifactStore,
+  read: (store: ArtifactStoreTransaction) => Promise<T>
+): Promise<T> {
+  return store.transaction(read, { readOnly: true });
+}
 
 function file(content: Content): StoredFile {
   const entry = content.tree["file.txt"];
@@ -19,7 +33,7 @@ export function describeArtifactStore(
   describe(`${name} Artifact store conformance`, () => {
     it("preserves shared blobs through fork edits and only reclaims the final reference", async () => {
       const store = createStore();
-      const artifacts = new ArtifactSystem({ store });
+      const artifacts = new ArtifactManager({ store });
       const original = await artifacts.create({
         entries: { "file.txt": { bytes: crypto.randomUUID() } },
         name: "Original",
@@ -41,14 +55,20 @@ export function describeArtifactStore(
       const replacement = file(edited).blobId;
       expect(replacement).not.toBe(originalBlob);
       await artifacts.delete(original.id);
-      expect(await store.getBlob(originalBlob)).toBeNull();
-      expect(await store.getBlob(replacement)).not.toBeNull();
+      expect(
+        await readStore(store, (scoped) => scoped.getBlob(originalBlob))
+      ).toBeNull();
+      expect(
+        await readStore(store, (scoped) => scoped.getBlob(replacement))
+      ).not.toBeNull();
       await artifacts.delete(fork.id);
-      expect(await store.getBlob(replacement)).toBeNull();
+      expect(
+        await readStore(store, (scoped) => scoped.getBlob(replacement))
+      ).toBeNull();
     });
 
     it("reuses an exclusive ready blob and enforces concurrent write fences", async () => {
-      const artifacts = new ArtifactSystem({ store: createStore() });
+      const artifacts = new ArtifactManager({ store: createStore() });
       const original = await artifacts.create({
         entries: { "file.txt": { bytes: crypto.randomUUID() } },
         name: "Exclusive",
@@ -78,11 +98,11 @@ export function describeArtifactStore(
     });
 
     it("rolls back records and notifications and expires scoped handles", async () => {
-      const artifacts = new ArtifactSystem({ store: createStore() });
+      const artifacts = new ArtifactManager({ store: createStore() });
       const changed = vi.fn();
       artifacts.observe(changed);
-      let scoped: ArtifactSystem | undefined;
-      let id: Awaited<ReturnType<ArtifactSystem["create"]>>["id"] | undefined;
+      let scoped: ArtifactOperations | undefined;
+      let id: Awaited<ReturnType<ArtifactManager["create"]>>["id"] | undefined;
       await expect(
         artifacts.transaction(async (transaction) => {
           scoped = transaction;
@@ -104,7 +124,7 @@ export function describeArtifactStore(
 
     it("refuses writes from a read-only snapshot", async () => {
       const store = createStore();
-      const artifacts = new ArtifactSystem({ store });
+      const artifacts = new ArtifactManager({ store });
       const original = await artifacts.create({
         name: "Read-only",
         type: "text/plain",

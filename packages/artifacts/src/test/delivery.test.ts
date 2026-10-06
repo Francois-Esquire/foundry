@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { fileResponse } from "../delivery";
+import { ArtifactManager } from "../manager";
 import { InMemoryArtifactStore } from "../memory";
-import { ArtifactSystem } from "../system";
 import { required } from "./helpers/required";
 
 async function fixture() {
-  const artifacts = new ArtifactSystem({ store: new InMemoryArtifactStore() });
+  const artifacts = new ArtifactManager({ store: new InMemoryArtifactStore() });
   const artifact = await artifacts.create({
     entries: {
       "assets/clip.mp4": { bytes: "0123456789", mime: "video/mp4" },

@@ -1,6 +1,6 @@
 import { basename, join } from "node:path";
 import type { Artifacts } from "@foundry/artifacts";
-import { ArtifactSystem, InMemoryArtifactStore } from "@foundry/artifacts";
+import { ArtifactManager, InMemoryArtifactStore } from "@foundry/artifacts";
 import { blobFiles, JsonArtifactStore } from "@foundry/artifacts/node";
 import type { FeedPublisher } from "~/lib/feed/publish";
 import { feedPublisher } from "~/lib/feed/publish";
@@ -25,8 +25,8 @@ export function openFeed(
 ): FeedStore {
   const artifacts: Artifacts =
     root === undefined
-      ? new ArtifactSystem({ store: new InMemoryArtifactStore() })
-      : new ArtifactSystem({
+      ? new ArtifactManager({ store: new InMemoryArtifactStore() })
+      : new ArtifactManager({
           files: blobFiles(join(root, "blobs")),
           store: new JsonArtifactStore({ path: join(root, "records.json") }),
         });

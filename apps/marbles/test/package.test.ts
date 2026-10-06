@@ -150,11 +150,11 @@ step(123);
       `
 import { packedWorkflow } from "./marbles.config";
 import { step } from "@foundry/marbles";
-import { ArtifactSystem, Engine, InMemoryArtifactStore, InMemorySessionStore, ModelManager, WorkspaceSystem, directory, git, nodeObserver } from "@foundry/marbles/lib";
+import { ArtifactManager, Engine, InMemoryArtifactStore, InMemorySessionStore, ModelManager, WorkspaceSystem, directory, git, nodeObserver } from "@foundry/marbles/lib";
 const inventory = step("host-inventory").do(async ({ workspaces }) => (await workspaces.current.files()).length);
 const root = ".";
 const instances = {
-  artifacts: new ArtifactSystem({ store: new InMemoryArtifactStore() }),
+  artifacts: new ArtifactManager({ store: new InMemoryArtifactStore() }),
   containers: () => Promise.reject(new Error("this host has no sandbox runtime")),
   models: new ModelManager(),
   sessions: new InMemorySessionStore(),

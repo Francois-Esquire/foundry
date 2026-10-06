@@ -1,9 +1,9 @@
 import type { StorageEntry } from "@foundry/core/storage";
 import { isStoragePath } from "@foundry/core/storage";
 import { z } from "zod";
+import { isUsableContent, rootPath } from "./content";
 import { artifactIdSchema, contentIdSchema } from "./ref";
-import type { Artifact, Artifacts, Content } from "./substrate";
-import { isGoodContent, rootPath } from "./tree";
+import type { Artifact, ArtifactOperations, Content } from "./substrate";
 
 export const ArtifactReferenceSchema = z.strictObject({
   artifactId: artifactIdSchema,
@@ -36,7 +36,7 @@ export type ReferenceResult =
     };
 
 export async function resolveReference(
-  artifacts: Pick<Artifacts, "get" | "getContent">,
+  artifacts: Pick<ArtifactOperations, "get" | "getContent">,
   reference: ArtifactReference
 ): Promise<ReferenceResult> {
   const resolved = await artifacts.get(reference.artifactId);
@@ -44,7 +44,7 @@ export async function resolveReference(
     return { reason: "artifact-missing", status: "unavailable" };
   }
   const { content: current, ...artifact } = resolved;
-  let content: Content | null = isGoodContent(current) ? current : null;
+  let content: Content | null = isUsableContent(current) ? current : null;
   if (reference.contentId !== undefined) {
     content = await artifacts.getContent(reference.contentId);
     if (!content) {
@@ -53,7 +53,7 @@ export async function resolveReference(
     if (content.artifactId !== artifact.id) {
       return { reason: "content-mismatch", status: "unavailable" };
     }
-    if (!isGoodContent(content)) {
+    if (!isUsableContent(content)) {
       return { reason: "content-unusable", status: "unavailable" };
     }
   }

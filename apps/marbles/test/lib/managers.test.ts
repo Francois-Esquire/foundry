@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ArtifactId, ContentId } from "@foundry/artifacts";
-import { ArtifactSystem, InMemoryArtifactStore } from "@foundry/artifacts";
+import { ArtifactManager, InMemoryArtifactStore } from "@foundry/artifacts";
 import { createContainers } from "@foundry/sandbox/container/containers";
 import { createMemoryContainerStore } from "@foundry/sandbox/container/store";
 import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
@@ -176,7 +176,7 @@ describe("workspaces", () => {
 
 describe("artifacts", () => {
   it("keeps a declared artifact's identity and adds a version per write", async () => {
-    const system = new ArtifactSystem({ store: new InMemoryArtifactStore() });
+    const system = new ArtifactManager({ store: new InMemoryArtifactStore() });
     const manager = new ArtifactsManager({
       artifacts: system,
       workspaceId: "ws",

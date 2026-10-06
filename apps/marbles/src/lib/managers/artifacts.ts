@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type {
   ArtifactId,
-  Artifacts as ArtifactStore,
+  ArtifactOperations,
   FileInputs,
 } from "@foundry/artifacts";
 import { artifactIdSchema } from "@foundry/artifacts";
@@ -24,7 +24,7 @@ import type {
  */
 
 export interface ArtifactsDeps {
-  readonly artifacts: Pick<ArtifactStore, "create" | "get" | "revise">;
+  readonly artifacts: Pick<ArtifactOperations, "create" | "get" | "revise">;
   /** Part of a declared artifact's identity, so two configs never collide. */
   readonly workspaceId: string;
 }

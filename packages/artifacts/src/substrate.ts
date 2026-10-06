@@ -6,14 +6,14 @@ import type {
 } from "@foundry/core/storage";
 
 import type { ContentTree } from "./blob";
-import type { ArtifactCursor } from "./pagination";
-import type { ArtifactId, BlobId, ContentId } from "./ref";
 import type {
   ArtifactLifecycleStatus,
   ArtifactMetadata,
   ContentMetadata,
   ContentState,
-} from "./tree";
+} from "./content";
+import type { ArtifactCursor } from "./listing";
+import type { ArtifactId, BlobId, ContentId } from "./ref";
 
 /**
  * The Artifact substrate: a thing people point at, and the versions of what
@@ -147,10 +147,9 @@ export interface ListContentsInput {
 
 export type ContentSummary = Omit<Content, "tree">;
 
-export interface Artifacts {
+/** Every Artifact read and write. A transaction handle exposes exactly these. */
+export interface ArtifactOperations {
   archive(artifactId: ArtifactId): Promise<Artifact>;
-  /** Required downstream application, awaited after the outer commit. */
-  bind(apply: (artifactId: ArtifactId) => Promise<void>): () => void;
   clearFailedContent(input: {
     readonly artifactId: ArtifactId;
     readonly expectedContentId: ContentId;
@@ -170,11 +169,13 @@ export interface Artifacts {
     artifactId: ArtifactId,
     by: { readonly sessionId: string; readonly messageId: string }
   ): Promise<Content | null>;
+  /** Copy usable Content into a new Artifact; a ready source freezes unpublished. */
   fork(input: {
     readonly id?: ArtifactId;
     readonly contentId: ContentId;
     readonly name?: string;
   }): Promise<ArtifactResolved>;
+  /** Make usable Content immutable and publish its draft Artifact. */
   freeze(
     contentId: ContentId,
     option?: FreezeOption & { readonly expectedUpdatedAt?: Date }
@@ -189,7 +190,6 @@ export interface Artifacts {
     artifactId: ArtifactId,
     input?: ListContentsInput
   ): Promise<readonly ContentSummary[]>;
-  observe(changed: (artifactId: ArtifactId) => void): () => void;
   patchArtifactMetadata(
     artifactId: ArtifactId,
     patch: Readonly<Record<string, unknown>>
@@ -199,6 +199,7 @@ export interface Artifacts {
   /**
    * Read a byte interval of a stored file, clamped to [0, byteLength); `null`
    * only when the file is absent. An out-of-bounds range clamps, never throws.
+   * Inside a transaction, consume the body before the transaction settles.
    */
   readFileRange(
     contentId: ContentId,
@@ -212,8 +213,8 @@ export interface Artifacts {
   /** `metadata.entry`, else the only file, else `index.html`, else null. */
   readRoot(contentId: ContentId): Promise<FileResolved | null>;
   readThumbnail(contentId: ContentId): Promise<FileResolved | null>;
-  recover(): Promise<void>;
   rename(artifactId: ArtifactId, name: string): Promise<Artifact>;
+  /** Freeze the source unpublished and select a ready successor. */
   revise(input: ReviseInput): Promise<ContentResolved>;
   select(input: {
     readonly artifactId: ArtifactId;
@@ -227,21 +228,32 @@ export interface Artifacts {
 
   /**
    * Reclaim: delete unfrozen, unpointed, unpinned Contents older than
-   * `olderThan`, then every blob no tree names. Eager blob reclaim on
-   * ready-row overwrite happens inside `write`; this is the backstop.
+   * `olderThan`, then every blob nothing references. Each operation already
+   * reclaims the blobs it released; this full scan is the backstop.
    */
   sweep(input: { readonly olderThan: Date }): Promise<{
     readonly contents: number;
     readonly blobs: number;
   }>;
   tag(contentId: ContentId, tag: string | null): Promise<Content>;
-
-  /** Use the supplied handle for every operation in the transaction. */
-  transaction<T>(operation: (artifacts: Artifacts) => Promise<T>): Promise<T>;
   unarchive(artifactId: ArtifactId): Promise<Artifact>;
 
   /**
    * Edit ready Content in place or create the first Content. Frozen Content refuses.
    */
   write(input: WriteInput): Promise<ContentResolved>;
+}
+
+/** The root Artifact manager: operations plus commit-time integration. */
+export interface Artifacts extends ArtifactOperations {
+  /** Required downstream application, awaited after each commit. */
+  bind(apply: (artifactId: ArtifactId) => Promise<void>): () => void;
+  /** Reports committed changes. */
+  observe(changed: (artifactId: ArtifactId) => void): () => void;
+  /** Remove abandoned backing files, then reapply every Artifact. */
+  recover(): Promise<void>;
+  /** Run grouped operations through the supplied handle; they commit together. */
+  transaction<T>(
+    operation: (artifacts: ArtifactOperations) => Promise<T>
+  ): Promise<T>;
 }

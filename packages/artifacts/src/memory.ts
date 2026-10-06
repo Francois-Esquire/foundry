@@ -5,10 +5,10 @@ import { pageFromRows, pageLimit } from "@foundry/lib/pagination";
 
 import type { Blob } from "./blob";
 import { validateBlob } from "./blob";
-import type { ArtifactCursor } from "./pagination";
-import { artifactCursor, normalizeArtifactQuery } from "./pagination";
+import type { ArtifactCursor } from "./listing";
+import { artifactCursor, normalizeArtifactQuery } from "./listing";
 import type { ArtifactId, BlobId, ContentId } from "./ref";
-import type { ArtifactStore } from "./store";
+import type { ArtifactStore, ArtifactStoreTransaction } from "./store";
 import type {
   Artifact,
   Content,
@@ -17,9 +17,9 @@ import type {
 } from "./substrate";
 
 interface Records {
-  artifacts: Map<ArtifactId, Artifact>;
-  blobs: Map<BlobId, Blob>;
-  contents: Map<ContentId, Content>;
+  readonly artifacts: Map<ArtifactId, Artifact>;
+  readonly blobs: Map<BlobId, Blob>;
+  readonly contents: Map<ContentId, Content>;
 }
 
 /** A store's records as plain arrays: what a persistent host loads and saves. */
@@ -40,119 +40,96 @@ export interface InMemoryArtifactStoreOptions {
   readonly records?: ArtifactRecords;
 }
 
-interface Transaction {
-  active: boolean;
-  readonly callbacks: (() => Promise<void>)[];
-  readonly readOnly: boolean;
-}
-
+/** Serialized transactions over copy-on-write maps of cloned records. */
 export class InMemoryArtifactStore implements ArtifactStore {
-  #records: Records = {
-    artifacts: new Map(),
-    blobs: new Map(),
-    contents: new Map(),
-  };
+  #records: Records;
   #pending: Promise<void> = Promise.resolve();
   readonly #commit: InMemoryArtifactStoreOptions["commit"];
-  // biome-ignore lint/style/useReadonlyClassProperties: Transaction setup assigns this field on a scoped instance.
-  #transaction: Transaction | undefined;
 
   constructor(options: InMemoryArtifactStoreOptions = {}) {
     this.#commit = options.commit;
-    if (options.records) {
-      const { artifacts, blobs, contents } = structuredClone(options.records);
-      this.#records = {
-        artifacts: new Map(artifacts.map((row) => [row.id, row])),
-        blobs: new Map(blobs.map((row) => [row.id, row])),
-        contents: new Map(contents.map((row) => [row.id, row])),
-      };
-    }
+    const { artifacts, blobs, contents } = structuredClone(
+      options.records ?? { artifacts: [], blobs: [], contents: [] }
+    );
+    this.#records = {
+      artifacts: new Map(artifacts.map((row) => [row.id, row])),
+      blobs: new Map(blobs.map((row) => [row.id, row])),
+      contents: new Map(contents.map((row) => [row.id, row])),
+    };
   }
 
-  /** A clone of every record, outside any transaction. */
+  /** A clone of every committed record. */
   async records(): Promise<ArtifactRecords> {
-    await this.#ready();
+    await this.#pending;
     return recordsOf(this.#records);
   }
 
   async transaction<T>(
-    operation: (store: ArtifactStore) => Promise<T>,
+    operation: (store: ArtifactStoreTransaction) => Promise<T>,
     options?: { readonly readOnly?: boolean }
   ): Promise<T> {
-    if (this.#transaction) {
-      this.#assertActive();
-      return operation(this);
-    }
     const previous = this.#pending;
     let release!: () => void;
     this.#pending = new Promise<void>((resolve) => {
       release = resolve;
     });
     await previous;
-    const scoped = new InMemoryArtifactStore();
-    scoped.#records = {
-      artifacts: new Map(this.#records.artifacts),
-      blobs: new Map(this.#records.blobs),
-      contents: new Map(this.#records.contents),
-    };
-    const transaction: Transaction = {
-      active: true,
-      callbacks: [],
-      readOnly: options?.readOnly ?? false,
-    };
-    scoped.#transaction = transaction;
+    const transaction = new InMemoryTransaction(
+      {
+        artifacts: new Map(this.#records.artifacts),
+        blobs: new Map(this.#records.blobs),
+        contents: new Map(this.#records.contents),
+      },
+      options?.readOnly ?? false
+    );
     let result: T;
     try {
-      result = await operation(scoped);
+      result = await operation(transaction);
       if (this.#commit && !transaction.readOnly) {
-        await this.#commit(recordsOf(scoped.#records));
+        await this.#commit(recordsOf(transaction.records));
       }
-      this.#records = scoped.#records;
+      this.#records = transaction.records;
     } finally {
-      transaction.active = false;
+      transaction.settle();
       release();
     }
-    const failures: unknown[] = [];
-    for (const callback of transaction.callbacks) {
-      try {
-        await callback();
-      } catch (error) {
-        failures.push(error);
-      }
-    }
-    if (failures.length === 1) {
-      throw failures[0];
-    }
-    if (failures.length > 1) {
-      throw new StorageApplicationError(
-        "Committed transaction application failed",
-        {
-          cause: new AggregateError(
-            failures,
-            "Artifact after-commit callbacks failed"
-          ),
-        }
-      );
-    }
+    await runAfterCommit(transaction.callbacks);
     return result;
+  }
+}
+
+class InMemoryTransaction implements ArtifactStoreTransaction {
+  readonly records: Records;
+  readonly readOnly: boolean;
+  readonly callbacks: (() => Promise<void>)[] = [];
+  #active: boolean;
+
+  constructor(records: Records, readOnly: boolean) {
+    this.records = records;
+    this.readOnly = readOnly;
+    this.#active = true;
+  }
+
+  settle(): void {
+    this.#active = false;
   }
 
   afterCommit(operation: () => Promise<void>): void {
-    const transaction = this.#assertWritable();
-    transaction.callbacks.push(operation);
+    this.#assertWritable();
+    this.callbacks.push(operation);
   }
 
   async getArtifact(id: ArtifactId): Promise<Artifact | null> {
-    await this.#ready();
-    return structuredClone(this.#records.artifacts.get(id) ?? null);
+    this.#assertActive();
+    return structuredClone(this.records.artifacts.get(id) ?? null);
   }
 
   async listArtifacts(
     input: ListArtifactsInput
   ): Promise<Page<Artifact, ArtifactCursor>> {
-    await this.#ready();
+    this.#assertActive();
     const query = normalizeArtifactQuery(input.query)?.toLowerCase();
-    const matches = [...this.#records.artifacts.values()]
+    const matches = [...this.records.artifacts.values()]
       .filter(
         (row) =>
           ((input.includeArchived ?? false) || row.status !== "archived") &&
@@ -178,42 +155,40 @@ export class InMemoryArtifactStore implements ArtifactStore {
   }
 
   async putArtifact(artifact: Artifact): Promise<void> {
-    await this.#ready();
     this.#assertWritable();
     if (
       artifact.contentId !== null &&
-      this.#records.contents.get(artifact.contentId)?.artifactId !== artifact.id
+      this.records.contents.get(artifact.contentId)?.artifactId !== artifact.id
     ) {
       throw new Error("Artifact pointer must name its own Content");
     }
-    this.#records.artifacts.set(artifact.id, structuredClone(artifact));
+    this.records.artifacts.set(artifact.id, structuredClone(artifact));
   }
 
   async deleteArtifact(id: ArtifactId): Promise<void> {
-    await this.#ready();
     this.#assertWritable();
-    this.#records.artifacts.delete(id);
-    for (const content of this.#records.contents.values()) {
+    this.records.artifacts.delete(id);
+    for (const content of this.records.contents.values()) {
       if (content.artifactId === id) {
-        this.#records.contents.delete(content.id);
+        this.records.contents.delete(content.id);
       }
     }
   }
 
   async getContent(id: ContentId): Promise<Content | null> {
-    await this.#ready();
-    return structuredClone(this.#records.contents.get(id) ?? null);
+    this.#assertActive();
+    return structuredClone(this.records.contents.get(id) ?? null);
   }
 
   async listContents(
     artifactId?: ArtifactId,
     input: ListContentsInput = {}
   ): Promise<readonly Content[]> {
-    await this.#ready();
+    this.#assertActive();
     const states =
       typeof input.state === "string" ? [input.state] : input.state;
     return structuredClone(
-      [...this.#records.contents.values()]
+      [...this.records.contents.values()]
         .filter(
           (row) =>
             (artifactId === undefined || row.artifactId === artifactId) &&
@@ -225,76 +200,71 @@ export class InMemoryArtifactStore implements ArtifactStore {
   }
 
   async putContent(content: Content): Promise<void> {
-    await this.#ready();
     this.#assertWritable();
-    if (!this.#records.artifacts.has(content.artifactId)) {
+    if (!this.records.artifacts.has(content.artifactId)) {
       throw new Error("Content requires an Artifact");
     }
-    this.#records.contents.set(content.id, structuredClone(content));
+    this.records.contents.set(content.id, structuredClone(content));
   }
 
   async deleteContent(id: ContentId): Promise<void> {
-    await this.#ready();
     this.#assertWritable();
     if (
-      [...this.#records.artifacts.values()].some(
+      [...this.records.artifacts.values()].some(
         (artifact) => artifact.contentId === id
       )
     ) {
       throw new Error("Cannot delete active Content");
     }
-    this.#records.contents.delete(id);
+    this.records.contents.delete(id);
   }
 
   async getBlob(id: BlobId): Promise<Blob | null> {
-    await this.#ready();
-    return structuredClone(this.#records.blobs.get(id) ?? null);
+    this.#assertActive();
+    return structuredClone(this.records.blobs.get(id) ?? null);
   }
 
   async findBlob(digest: string): Promise<Blob | null> {
-    await this.#ready();
+    this.#assertActive();
     return structuredClone(
-      [...this.#records.blobs.values()].find(
-        (blob) => blob.digest === digest
-      ) ?? null
+      [...this.records.blobs.values()].find((blob) => blob.digest === digest) ??
+        null
     );
   }
 
   async listBlobs(): Promise<readonly Pick<Blob, "id" | "path">[]> {
-    await this.#ready();
-    return [...this.#records.blobs.values()].map((blob) => ({
+    this.#assertActive();
+    return [...this.records.blobs.values()].map((blob) => ({
       id: blob.id,
       ...(blob.path ? { path: blob.path } : {}),
     }));
   }
 
   async putBlob(blob: Blob): Promise<void> {
-    await this.#ready();
     this.#assertWritable();
     validateBlob(blob);
     if (
       blob.path !== undefined &&
-      [...this.#records.blobs.values()].some(
+      [...this.records.blobs.values()].some(
         (other) => other.id !== blob.id && other.path === blob.path
       )
     ) {
       throw new Error("Blob backing path already belongs to another blob");
     }
-    this.#records.blobs.set(blob.id, structuredClone(blob));
+    this.records.blobs.set(blob.id, structuredClone(blob));
   }
 
   async deleteBlob(id: BlobId): Promise<void> {
-    await this.#ready();
     this.#assertWritable();
-    this.#records.blobs.delete(id);
+    this.records.blobs.delete(id);
   }
 
   async isBlobReferenced(
     id: BlobId,
     except?: { readonly contentId: ContentId; readonly path: string }
   ): Promise<boolean> {
-    await this.#ready();
-    for (const content of this.#records.contents.values()) {
+    this.#assertActive();
+    for (const content of this.records.contents.values()) {
       for (const [path, node] of Object.entries(content.tree)) {
         if (
           node.type === "file" &&
@@ -305,34 +275,50 @@ export class InMemoryArtifactStore implements ArtifactStore {
         }
       }
     }
-    return [...this.#records.blobs.values()].some((blob) =>
+    return [...this.records.blobs.values()].some((blob) =>
       blob.chunks?.includes(id)
     );
   }
 
-  async #ready(): Promise<void> {
-    if (this.#transaction) {
-      this.#assertActive();
-    } else {
-      await this.#pending;
-    }
-  }
-
   #assertActive(): void {
-    if (!this.#transaction?.active) {
+    if (!this.#active) {
       throw new Error("Artifact transaction has settled");
     }
   }
 
-  #assertWritable(): Transaction {
-    const transaction = this.#transaction;
-    if (!transaction?.active) {
-      throw new Error("Artifact transaction has settled");
-    }
-    if (transaction.readOnly) {
+  #assertWritable(): void {
+    this.#assertActive();
+    if (this.readOnly) {
       throw new Error("Artifact transaction is read-only");
     }
-    return transaction;
+  }
+}
+
+/** Run every callback; one failure rethrows as-is, several aggregate. */
+async function runAfterCommit(
+  callbacks: readonly (() => Promise<void>)[]
+): Promise<void> {
+  const failures: unknown[] = [];
+  for (const callback of callbacks) {
+    try {
+      await callback();
+    } catch (error) {
+      failures.push(error);
+    }
+  }
+  if (failures.length === 1) {
+    throw failures[0];
+  }
+  if (failures.length > 1) {
+    throw new StorageApplicationError(
+      "Committed transaction application failed",
+      {
+        cause: new AggregateError(
+          failures,
+          "Artifact after-commit callbacks failed"
+        ),
+      }
+    );
   }
 }
 

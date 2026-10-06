@@ -2,10 +2,10 @@ const BYTE_RANGE = /^bytes=(\d+)-(\d*)$/;
 
 import { isStoragePath } from "@foundry/core/storage";
 
-import type { Artifacts, Content } from "./substrate";
+import type { ArtifactOperations, Content } from "./substrate";
 
 export async function fileResponse(
-  artifacts: Pick<Artifacts, "readFileRange">,
+  artifacts: Pick<ArtifactOperations, "readFileRange">,
   content: Content,
   path: string,
   options: {

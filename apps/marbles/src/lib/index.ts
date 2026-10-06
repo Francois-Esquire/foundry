@@ -16,7 +16,7 @@ export type { SessionStore } from "@foundry/agents/session";
 // biome-ignore lint/performance/noBarrelFile: This is the public package entry point for programmatic hosts.
 export { InMemorySessionStore } from "@foundry/agents/session";
 // `artifacts`: versioned outputs and the feed.
-export { ArtifactSystem, InMemoryArtifactStore } from "@foundry/artifacts";
+export { ArtifactManager, InMemoryArtifactStore } from "@foundry/artifacts";
 export { blobFiles, JsonArtifactStore } from "@foundry/artifacts/node";
 // `models`: the providers agents route to.
 export type { Provider, TurnExecutorRef } from "@foundry/models";

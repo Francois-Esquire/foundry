@@ -259,7 +259,7 @@ activity, the triggers agents create, and the run queue.
 ```ts
 import { step } from "@foundry/marbles";
 import {
-  ArtifactSystem,
+  ArtifactManager,
   Engine,
   InMemoryArtifactStore,
   InMemorySessionStore,
@@ -279,7 +279,7 @@ const engine = new Engine({
   ),
   // Called at the first sandbox; `createContainers` over your runtime.
   containers: () => Promise.reject(new Error("no sandbox runtime here")),
-  artifacts: new ArtifactSystem({ store: new InMemoryArtifactStore() }),
+  artifacts: new ArtifactManager({ store: new InMemoryArtifactStore() }),
   root: process.cwd(),
   workspaceId: "my-app",
   state: "/path/to/state", // omit and nothing survives the process
@@ -354,7 +354,7 @@ built from another copy of the same class is a different type. Besides
 | `sessions` | `InMemorySessionStore`, `JsonSessionStore` |
 | `workspaces` | `WorkspaceSystem`, `directory`, `git`, `nodeObserver` |
 | `containers` | `createContainers`, `createMemoryContainerStore` |
-| `artifacts` | `ArtifactSystem`, `InMemoryArtifactStore`, `JsonArtifactStore`, `blobFiles` |
+| `artifacts` | `ArtifactManager`, `InMemoryArtifactStore`, `JsonArtifactStore`, `blobFiles` |
 
 Two things a host cannot do through this entry yet: the MicroSandbox runtime
 `createContainers` needs is not exported, and nothing fires the triggers the

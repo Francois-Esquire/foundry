@@ -7,17 +7,17 @@ import {
   WorkspaceSystem,
 } from "@foundry/workspaces";
 import { onTestFinished } from "vitest";
+import { ArtifactManager } from "../../manager";
 import { InMemoryArtifactStore } from "../../memory";
 import { artifactFileSystem, blobFiles } from "../../node";
 import type { EntryInputs } from "../../substrate";
-import { ArtifactSystem } from "../../system";
 
 export async function fixture(entries: EntryInputs = {}, files = false) {
   const root = await realpath(
     await mkdtemp(join(tmpdir(), "artifact-directory-"))
   );
   const store = new InMemoryArtifactStore();
-  const artifacts = new ArtifactSystem({
+  const artifacts = new ArtifactManager({
     store,
     ...(files ? { files: blobFiles(join(root, ".blobs")) } : {}),
   });

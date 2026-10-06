@@ -3,7 +3,7 @@ import type {
   ArtifactResolved,
   Artifacts,
 } from "@foundry/artifacts";
-import { isGoodContent } from "@foundry/artifacts";
+import { isUsableContent } from "@foundry/artifacts";
 import { classifyFile } from "@foundry/lib/file-classification";
 import type { z } from "zod";
 import { FEED_ENTRY_FILE, FEED_ENTRY_TYPE } from "~/lib/feed/entry";
@@ -77,7 +77,7 @@ export function feedReader(
     artifact: ArtifactResolved
   ): Promise<Omit<FeedEntrySnapshot, "posted"> | undefined> {
     const { content } = artifact;
-    if (!isGoodContent(content)) {
+    if (!isUsableContent(content)) {
       return;
     }
     const version = `${content.id}:${content.updatedAt.toISOString()}`;

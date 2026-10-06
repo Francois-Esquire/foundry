@@ -1,32 +1,16 @@
-import {
-  lstat,
-  mkdir,
-  open,
-  readdir,
-  readFile,
-  readlink,
-  realpath,
-  rename,
-  rm,
-  symlink,
-  unlink,
-} from "node:fs/promises";
-import { basename, dirname, join, relative, resolve, sep } from "node:path";
+import { mkdir, readdir, realpath, rm } from "node:fs/promises";
+import { join, relative, resolve, sep } from "node:path";
 
 import type {
   StorageNode,
   StorageTree,
   StorageWriter,
 } from "@foundry/core/storage";
-import {
-  isStoragePath,
-  StorageConflictError,
-  validateStorageTree,
-} from "@foundry/core/storage";
-import { sha256Hex } from "@foundry/lib/digest";
+import { isStoragePath, StorageConflictError } from "@foundry/core/storage";
 import { isFilesystemPathWithin } from "@foundry/lib/paths";
 import type { WorkspaceFileSystem } from "@foundry/workspaces";
 import { WorkspaceSourceUnavailableError } from "@foundry/workspaces";
+import { isUsableContent } from "../content";
 import {
   ArtifactNotFoundError,
   ContentStateError,
@@ -34,8 +18,19 @@ import {
 } from "../errors";
 import type { ArtifactId } from "../ref";
 import { artifactIdSchema } from "../ref";
-import type { ArtifactResolved, Artifacts, EntryInputs } from "../substrate";
-import { isGoodContent } from "../tree";
+import type {
+  ArtifactOperations,
+  ArtifactResolved,
+  Artifacts,
+  EntryInput,
+  WriteFence,
+} from "../substrate";
+import { lstatOrNull } from "./fs";
+import { materialize } from "./materialize";
+import { descriptor, diffDirectory } from "./scan";
+
+const POLL_INTERVAL_MS = 1000;
+const DOTS = /\./g;
 
 export interface ArtifactFileSystem
   extends WorkspaceFileSystem<ArtifactRef>,
@@ -58,6 +53,7 @@ export interface ArtifactRef {
 }
 
 interface DirectoryState {
+  /** The Artifact last written to disk; polled while set. */
   applied: ArtifactResolved | undefined;
   readonly failures: Set<(error: unknown) => void>;
   readonly id: ArtifactId;
@@ -68,6 +64,18 @@ interface DirectoryState {
   timer?: ReturnType<typeof setInterval>;
 }
 
+interface MutateOptions {
+  /** Refuse a path that already has an entry. */
+  readonly exclusive?: boolean;
+  /** Replace only a file whose digest still matches. */
+  readonly expectedDigest?: string;
+}
+
+/**
+ * One directory per Artifact, mirroring its active Content. Artifact commits
+ * apply to disk before returning; disk edits are polled and written back
+ * through Artifact operations, fenced against the Content last applied.
+ */
 export function artifactFileSystem(options: {
   readonly artifacts: Artifacts;
   readonly root: string;
@@ -102,10 +110,14 @@ export function artifactFileSystem(options: {
       id,
       listeners: new Set(),
       pending: Promise.resolve(),
-      root: join(base, encodeURIComponent(id).replace(/\./g, "%2E")),
+      root: join(base, directoryName(id)),
     };
     directories.set(id, state);
-    state.timer = setInterval(() => {
+    return state;
+  }
+
+  function startPolling(state: DirectoryState): void {
+    state.timer ??= setInterval(() => {
       state.observing ??= observe(state)
         .catch((error: unknown) => {
           if (!state.failures.size) {
@@ -118,9 +130,13 @@ export function artifactFileSystem(options: {
         .finally(() => {
           state.observing = undefined;
         });
-    }, 1000);
+    }, POLL_INTERVAL_MS);
     state.timer.unref();
-    return state;
+  }
+
+  function stopPolling(state: DirectoryState): void {
+    clearInterval(state.timer);
+    state.timer = undefined;
   }
 
   async function locate(
@@ -158,15 +174,8 @@ export function artifactFileSystem(options: {
 
   async function current(id: ArtifactId): Promise<ArtifactResolved> {
     const artifact = await artifacts.get(id);
-    if (
-      !artifact ||
-      artifact.status === "archived" ||
-      (artifact.content && !isGoodContent(artifact.content))
-    ) {
-      throw new WorkspaceSourceUnavailableError(
-        "Artifact source is unavailable",
-        { issue: "unavailable" }
-      );
+    if (!artifact || unavailable(artifact)) {
+      throw sourceUnavailable();
     }
     return artifact;
   }
@@ -174,69 +183,25 @@ export function artifactFileSystem(options: {
   async function apply(id: ArtifactId): Promise<void> {
     const state = await directory(id);
     await serialize(state, () =>
-      // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Keep filesystem confinement and type replacement inside the serialized transaction.
       artifacts.transaction(async (transaction) => {
         const artifact = await transaction.get(id);
         if (artifact) {
-          const tree = artifact.content?.tree ?? {};
-          validateStorageTree(tree);
-          await ensureDirectory(state.root);
-          await prune(state.root, "", tree);
-          for (const [path, node] of Object.entries(tree).sort(
-            ([a], [b]) => a.split("/").length - b.split("/").length
-          )) {
-            const target = join(state.root, ...path.split("/"));
-            await confinedParents(state.root, target);
-            if (node.type === "directory") {
-              await ensureDirectory(target);
-            } else if (node.type === "symlink") {
-              const existing = await stat(target);
-              if (
-                !existing?.isSymbolicLink() ||
-                (await readlink(target)) !== node.target
-              ) {
-                await rm(target, { force: true, recursive: true });
-                await symlink(node.target, target);
-              }
-            } else if (node.type === "file" && artifact.content) {
-              const existing = await stat(target);
-              if (
-                existing?.isFile() &&
-                (await sha256Hex(await readFile(target))) === node.digest
-              ) {
-                continue;
-              }
-              if (existing && !existing.isFile()) {
-                await rm(target, { force: true, recursive: true });
-              }
-              const file = await transaction.readFileRange(
-                artifact.content.id,
-                path,
-                { start: 0 }
-              );
-              if (!file) {
-                throw new Error(`Missing Artifact file: ${path}`);
-              }
-              await replace(target, file.body);
-            } else {
-              const existing = await stat(target);
-              if (
-                existing &&
-                !(
-                  (node.type === "socket" && existing.isSocket()) ||
-                  (node.type === "pipe" && existing.isFIFO()) ||
-                  (node.type === "device" &&
-                    (existing.isBlockDevice() || existing.isCharacterDevice()))
-                )
-              ) {
-                await rm(target, { force: true, recursive: true });
-              }
+          const { content } = artifact;
+          await materialize(state.root, content?.tree ?? {}, async (path) => {
+            const file =
+              content &&
+              (await transaction.readFileRange(content.id, path, { start: 0 }));
+            if (!file) {
+              throw new Error(`Missing Artifact file: ${path}`);
             }
-          }
+            return file.body;
+          });
           state.applied = artifact;
+          startPolling(state);
         } else {
           await rm(state.root, { force: true, recursive: true });
           state.applied = undefined;
+          stopPolling(state);
         }
         for (const changed of state.listeners) {
           changed();
@@ -249,9 +214,8 @@ export function artifactFileSystem(options: {
 
   async function mutate(
     path: string,
-    entry: EntryInputs[string] | null,
-    expectedDigest?: string,
-    exclusive = false
+    entry: EntryInput | null,
+    preconditions: MutateOptions = {}
   ): Promise<void> {
     const located = await locate(path);
     if (!located.path) {
@@ -261,54 +225,24 @@ export function artifactFileSystem(options: {
       await artifacts.delete(located.state.id);
       return;
     }
-    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Keep optimistic conflict checks and mutation inside one transaction.
     await artifacts.transaction(async (transaction) => {
       const artifact = await transaction.get(located.state.id);
       if (!artifact) {
         throw new ArtifactNotFoundError(located.state.id);
       }
-      if (artifact.status === "archived") {
-        throw new WorkspaceSourceUnavailableError(
-          "Artifact source is unavailable",
-          { issue: "unavailable" }
-        );
-      }
-      const currentEntry = artifact.content?.tree[located.path];
-      if (exclusive && currentEntry) {
-        throw new Error("Artifact entry already exists");
-      }
-      if (expectedDigest !== undefined && currentEntry?.type !== "file") {
-        throw new Error("Cannot replace a non-file entry");
-      }
-      if (
-        expectedDigest !== undefined &&
-        currentEntry?.type === "file" &&
-        currentEntry.digest !== expectedDigest &&
-        artifact.content
-      ) {
-        const file = await transaction.readFile(
-          artifact.content.id,
-          located.path
-        );
-        throw new StorageConflictError(file?.blob ?? new Uint8Array());
-      }
-      const replacement =
-        entry !== null &&
-        (entry.type === undefined || entry.type === "file") &&
-        entry.mime === undefined &&
-        currentEntry?.type === "file"
-          ? { ...entry, mime: currentEntry.mime }
-          : entry;
+      const existing = await checkMutation(
+        transaction,
+        artifact,
+        located.path,
+        preconditions
+      );
       await transaction.write({
         artifactId: artifact.id,
-        expectedContentId: artifact.contentId,
-        ...(artifact.content
-          ? { expectedUpdatedAt: artifact.content.updatedAt }
-          : {}),
+        ...fenceOf(artifact),
         changes:
-          replacement === null
+          entry === null
             ? { remove: [located.path] }
-            : { put: { [located.path]: replacement } },
+            : { put: { [located.path]: inheritMime(entry, existing) } },
       });
     });
   }
@@ -318,68 +252,25 @@ export function artifactFileSystem(options: {
       return;
     }
     const latest = await artifacts.get(state.id);
-    if (
+    const changedElsewhere =
       latest?.contentId !== state.applied.contentId ||
       latest.content?.updatedAt.getTime() !==
-        state.applied.content?.updatedAt.getTime()
-    ) {
+        state.applied.content?.updatedAt.getTime();
+    // Records are authoritative: a removed directory is restored, never a deletion.
+    if (changedElsewhere || !(await lstatOrNull(state.root))) {
       await apply(state.id);
       return;
     }
-    if (!(await stat(state.root))) {
-      try {
-        await artifacts.delete(state.id);
-      } catch (error) {
-        await apply(state.id);
-        throw error;
-      }
-      return;
-    }
-    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Keep disk comparison against one serialized baseline.
     const observed = await serialize(state, async () => {
       const baseline = state.applied;
       if (!baseline) {
         return null;
       }
-      const tree = baseline.content?.tree ?? {};
-      const disk = await scan(state.root);
-      const put = Object.create(null) as Record<string, EntryInputs[string]>;
-      const remove: string[] = [];
-      for (const [path, node] of Object.entries(disk)) {
-        const previous = tree[path];
-        if (
-          node.type === "file" &&
-          previous?.type === "file" &&
-          node.digest === previous.digest &&
-          node.bytes === previous.bytes
-        ) {
-          continue;
-        }
-        if (
-          node.type !== "file" &&
-          JSON.stringify(node) === JSON.stringify(descriptor(previous))
-        ) {
-          continue;
-        }
-        put[path] =
-          node.type === "file"
-            ? {
-                bytes: await readFile(join(state.root, ...path.split("/"))),
-                mime: previous?.type === "file" ? previous.mime : null,
-              }
-            : node;
-      }
-      for (const [path, node] of Object.entries(tree)) {
-        if (
-          !(path in disk) &&
-          ["file", "directory", "symlink"].includes(node.type)
-        ) {
-          remove.push(path);
-        }
-      }
-      return Object.keys(put).length || remove.length
-        ? { baseline, put, remove }
-        : null;
+      const changes = await diffDirectory(
+        state.root,
+        baseline.content?.tree ?? {}
+      );
+      return changes && { baseline, changes };
     });
     if (!observed) {
       return;
@@ -387,11 +278,8 @@ export function artifactFileSystem(options: {
     try {
       await artifacts.write({
         artifactId: state.id,
-        expectedContentId: observed.baseline.contentId,
-        ...(observed.baseline.content
-          ? { expectedUpdatedAt: observed.baseline.content.updatedAt }
-          : {}),
-        changes: { put: observed.put, remove: observed.remove },
+        ...fenceOf(observed.baseline),
+        changes: observed.changes,
       });
     } catch (error) {
       if (
@@ -412,7 +300,7 @@ export function artifactFileSystem(options: {
       }
       unbind();
       for (const state of directories.values()) {
-        clearInterval(state.timer);
+        stopPolling(state);
       }
       await Promise.all(
         [...directories.values()].flatMap((state) =>
@@ -422,14 +310,14 @@ export function artifactFileSystem(options: {
       directories.clear();
       closed = true;
     },
-    createFile: (path, bytes) => mutate(path, { bytes }, undefined, true),
+    createFile: (path, bytes) => mutate(path, { bytes }, { exclusive: true }),
     async lstat(path) {
       const located = await locate(path);
       const artifact = await current(located.state.id);
       if (!located.path) {
         return { type: "directory" };
       }
-      const node = artifact.content?.tree[located.path];
+      const node = entryAt(artifact, located.path);
       if (!node) {
         throw new Error("Artifact entry does not exist");
       }
@@ -438,17 +326,22 @@ export function artifactFileSystem(options: {
     mkdir: (path) => mutate(path, { type: "directory" }),
     async readDirectory(path) {
       const located = await locate(path);
-      const tree = (await current(located.state.id)).content?.tree ?? {};
-      if (located.path && tree[located.path]?.type !== "directory") {
+      const artifact = await current(located.state.id);
+      if (
+        located.path &&
+        entryAt(artifact, located.path)?.type !== "directory"
+      ) {
         throw new Error("Artifact entry is not a directory");
       }
       const prefix = located.path ? `${located.path}/` : "";
-      return Object.entries(tree).flatMap(([entryPath, node]) => {
-        const name = entryPath.slice(prefix.length);
-        return entryPath.startsWith(prefix) && name && !name.includes("/")
-          ? [{ name, type: node.type }]
-          : [];
-      });
+      return Object.entries(artifact.content?.tree ?? {}).flatMap(
+        ([entryPath, node]) => {
+          const name = entryPath.slice(prefix.length);
+          return entryPath.startsWith(prefix) && name && !name.includes("/")
+            ? [{ name, type: node.type }]
+            : [];
+        }
+      );
     },
     async readFile(path) {
       const located = await locate(path);
@@ -463,9 +356,7 @@ export function artifactFileSystem(options: {
     },
     async readLink(path) {
       const located = await locate(path);
-      const node = (await current(located.state.id)).content?.tree[
-        located.path
-      ];
+      const node = entryAt(await current(located.state.id), located.path);
       if (node?.type !== "symlink") {
         throw new Error("Artifact entry is not a symlink");
       }
@@ -475,7 +366,7 @@ export function artifactFileSystem(options: {
       const located = await locate(path);
       const artifact = await current(located.state.id);
       const node: StorageNode | undefined = located.path
-        ? artifact.content?.tree[located.path]
+        ? entryAt(artifact, located.path)
         : { type: "directory" };
       if (!node) {
         throw new Error("Artifact entry does not exist");
@@ -494,35 +385,16 @@ export function artifactFileSystem(options: {
       for (const entry of await readdir(await ready(), {
         withFileTypes: true,
       })) {
-        if (entry.name.startsWith(".")) {
-          continue;
-        }
-        let id: ArtifactId;
-        try {
-          id = artifactIdSchema.parse(decodeURIComponent(entry.name));
-        } catch {
-          continue;
-        }
-        if (encodeURIComponent(id).replace(/\./g, "%2E") !== entry.name) {
-          continue;
-        }
-        if (!(await artifacts.get(id))) {
+        const id = artifactIdFromDirectory(entry.name);
+        if (id !== null && !(await artifacts.get(id))) {
           await apply(id);
         }
       }
     },
     reference: "artifactId",
     remove: (path) => mutate(path, null),
-    async replaceFile(path, bytes, expectedDigest) {
-      const located = await locate(path);
-      const entry = (await current(located.state.id)).content?.tree[
-        located.path
-      ];
-      if (entry?.type !== "file") {
-        throw new Error("Cannot replace a non-file entry");
-      }
-      await mutate(path, { bytes, mime: entry.mime }, expectedDigest);
-    },
+    replaceFile: (path, bytes, expectedDigest) =>
+      mutate(path, { bytes }, { expectedDigest }),
     async resolve({ artifactId }) {
       const id = artifactIdSchema.parse(artifactId);
       const artifact = await artifacts.get(id);
@@ -563,127 +435,97 @@ export function artifactFileSystem(options: {
   };
 }
 
-function descriptor(node: StorageNode): StorageNode;
-function descriptor(node: StorageNode | undefined): StorageNode | undefined;
-function descriptor(node: StorageNode | undefined): StorageNode | undefined {
-  if (node?.type !== "file") {
-    return node;
+/** Dots are encoded so no directory is named `.` or `..`. */
+function directoryName(id: ArtifactId): string {
+  return encodeURIComponent(id).replace(DOTS, "%2E");
+}
+
+/** The Artifact a directory names, or null for anything else in the root. */
+function artifactIdFromDirectory(name: string): ArtifactId | null {
+  if (name.startsWith(".")) {
+    return null;
   }
+  const parsed = artifactIdSchema.safeParse(safeDecode(name));
+  return parsed.success && directoryName(parsed.data) === name
+    ? parsed.data
+    : null;
+}
+
+function safeDecode(name: string): string {
+  try {
+    return decodeURIComponent(name);
+  } catch {
+    return "";
+  }
+}
+
+/** Archived Artifacts and unusable Content cannot back a directory. */
+function unavailable(artifact: ArtifactResolved): boolean {
+  return (
+    artifact.status === "archived" ||
+    (artifact.content !== null && !isUsableContent(artifact.content))
+  );
+}
+
+function sourceUnavailable(): WorkspaceSourceUnavailableError {
+  return new WorkspaceSourceUnavailableError("Artifact source is unavailable", {
+    issue: "unavailable",
+  });
+}
+
+function entryAt(
+  artifact: ArtifactResolved,
+  path: string
+): StorageNode | undefined {
+  const tree = artifact.content?.tree;
+  return tree && Object.hasOwn(tree, path) ? tree[path] : undefined;
+}
+
+/** The entry at `path` once the mutation's preconditions hold. */
+async function checkMutation(
+  transaction: ArtifactOperations,
+  artifact: ArtifactResolved,
+  path: string,
+  { expectedDigest, exclusive = false }: MutateOptions
+): Promise<StorageNode | undefined> {
+  if (unavailable(artifact)) {
+    throw sourceUnavailable();
+  }
+  const existing = entryAt(artifact, path);
+  if (exclusive && existing) {
+    throw new Error("Artifact entry already exists");
+  }
+  if (expectedDigest === undefined) {
+    return existing;
+  }
+  if (existing?.type !== "file") {
+    throw new Error("Cannot replace a non-file entry");
+  }
+  if (existing.digest !== expectedDigest && artifact.content) {
+    const file = await transaction.readFile(artifact.content.id, path);
+    throw new StorageConflictError(file?.blob ?? new Uint8Array());
+  }
+  return existing;
+}
+
+/** Fence a write against the Content that `artifact` last showed. */
+function fenceOf(artifact: ArtifactResolved): WriteFence {
   return {
-    bytes: node.bytes,
-    digest: node.digest,
-    mime: node.mime,
-    type: "file",
+    expectedContentId: artifact.contentId,
+    ...(artifact.content
+      ? { expectedUpdatedAt: artifact.content.updatedAt }
+      : {}),
   };
 }
 
-async function stat(path: string) {
-  try {
-    return await lstat(path);
-  } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
-      return null;
-    }
-    throw error;
-  }
-}
-
-async function ensureDirectory(path: string): Promise<void> {
-  const existing = await stat(path);
-  if (existing && !existing.isDirectory()) {
-    await rm(path, { force: true, recursive: true });
-  }
-  await mkdir(path, { recursive: true });
-}
-
-async function confinedParents(root: string, target: string): Promise<void> {
-  let parent = dirname(target);
-  while (parent !== root) {
-    if (!isFilesystemPathWithin(root, parent, sep)) {
-      throw new Error("Path escapes Artifact root");
-    }
-    const entry = await stat(parent);
-    if (!entry?.isDirectory()) {
-      throw new Error("Artifact parent is not a directory");
-    }
-    parent = dirname(parent);
-  }
-  if (!(await lstat(root)).isDirectory()) {
-    throw new Error("Artifact root is not a directory");
-  }
-}
-
-async function prune(
-  root: string,
-  prefix: string,
-  tree: StorageTree
-): Promise<void> {
-  for (const entry of await readdir(root, { withFileTypes: true })) {
-    const path = `${prefix}${entry.name}`;
-    const node = tree[path];
-    const target = join(root, entry.name);
-    if (!Object.hasOwn(tree, path)) {
-      await rm(target, { force: true, recursive: true });
-    } else if (entry.isDirectory() && node?.type === "directory") {
-      await prune(target, `${path}/`, tree);
-    }
-  }
-}
-
-async function replace(
-  path: string,
-  bytes: AsyncIterable<Uint8Array>
-): Promise<void> {
-  const temporary = join(
-    dirname(path),
-    `.${basename(path)}.${crypto.randomUUID()}.tmp`
-  );
-  try {
-    const file = await open(temporary, "wx", 0o600);
-    try {
-      for await (const part of bytes) {
-        await file.writeFile(part);
-      }
-      await file.sync();
-    } finally {
-      await file.close();
-    }
-    await rename(temporary, path);
-  } catch (error) {
-    await unlink(temporary).catch(() => undefined);
-    throw error;
-  }
-}
-
-async function scan(root: string): Promise<StorageTree> {
-  const tree = Object.create(null) as Record<string, StorageNode>;
-  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: All storage node types are handled by the same traversal.
-  async function walk(directory: string, prefix: string): Promise<void> {
-    for (const entry of await readdir(directory, { withFileTypes: true })) {
-      const path = `${prefix}${entry.name}`;
-      const target = join(directory, entry.name);
-      if (entry.isSymbolicLink()) {
-        tree[path] = { target: await readlink(target), type: "symlink" };
-      } else if (entry.isDirectory()) {
-        tree[path] = { type: "directory" };
-        await walk(target, `${path}/`);
-      } else if (entry.isFile()) {
-        const bytes = await readFile(target);
-        tree[path] = {
-          bytes: bytes.byteLength,
-          digest: await sha256Hex(bytes),
-          mime: null,
-          type: "file",
-        };
-      } else if (entry.isSocket()) {
-        tree[path] = { type: "socket" };
-      } else if (entry.isFIFO()) {
-        tree[path] = { type: "pipe" };
-      } else if (entry.isBlockDevice() || entry.isCharacterDevice()) {
-        tree[path] = { type: "device" };
-      }
-    }
-  }
-  await walk(root, "");
-  return tree;
+/** A replacement file keeps the MIME type of the file it replaces. */
+function inheritMime(
+  entry: EntryInput,
+  existing: StorageNode | undefined
+): EntryInput {
+  return (entry.type === undefined || entry.type === "file") &&
+    entry.mime === undefined &&
+    existing?.type === "file"
+    ? { ...entry, mime: existing.mime }
+    : entry;
 }

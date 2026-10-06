@@ -11,7 +11,7 @@ describe("Artifact package public surface", () => {
     expect(artifacts).toHaveProperty("contentIdSchema");
     expect(artifacts).toHaveProperty("StaleContentError");
     expect(artifacts).not.toHaveProperty("base64ToBytes");
-    expect(artifacts).toHaveProperty("ArtifactSystem");
+    expect(artifacts).toHaveProperty("ArtifactManager");
     expect(artifacts).toHaveProperty("InMemoryArtifactStore");
     expect(artifacts).toHaveProperty("blobIdSchema");
     expect(artifacts).not.toHaveProperty("artifactFileSystem");

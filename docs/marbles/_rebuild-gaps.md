@@ -85,7 +85,7 @@ That was a milestone. The next one landed 2026-10-05:
 - **The constructor takes the packages' own instances**, all required:
   `models` (`ModelManager`), `sessions` (a session store), `workspaces`
   (`WorkspaceSystem` with the directory and git layers), `containers` (or a
-  function called at the first sandbox), and `artifacts` (`ArtifactSystem`),
+  function called at the first sandbox), and `artifacts` (`ArtifactManager`),
   plus `root`, `workspaceId`, `state?`, and `askable?`. The engine builds the
   four managers, the feed publisher and reader, interactions, activities,
   automations, and the orchestrator, and hands the instances back. Nothing

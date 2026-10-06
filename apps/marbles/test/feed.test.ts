@@ -1,7 +1,7 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ArtifactSystem, InMemoryArtifactStore } from "@foundry/artifacts";
+import { ArtifactManager, InMemoryArtifactStore } from "@foundry/artifacts";
 import { step } from "@foundry/marbles";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -374,7 +374,7 @@ describe("abandoned questions", () => {
   });
 
   it("cancel open questions whose process exited and keep live ones", async () => {
-    const artifacts = new ArtifactSystem({
+    const artifacts = new ArtifactManager({
       store: new InMemoryArtifactStore(),
     });
     const site = { id: "ws-a", name: "a", root };

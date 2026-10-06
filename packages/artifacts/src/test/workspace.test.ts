@@ -272,6 +272,23 @@ describe("bidirectional changes", () => {
     );
   });
 
+  it("restores a directory removed outside the filesystem", async () => {
+    const { artifacts, artifact, load } = await fixture({
+      "notes.md": { bytes: "kept" },
+    });
+    const workspace = await load();
+    await rm(workspace.root, { force: true, recursive: true });
+    await vi.waitFor(
+      async () => {
+        expect(await readFile(join(workspace.root, "notes.md"), "utf8")).toBe(
+          "kept"
+        );
+      },
+      { timeout: 4000 }
+    );
+    expect(await artifacts.get(artifact.id)).toEqual(artifact);
+  });
+
   it("filesystem root deletion removes the Artifact", async () => {
     const { artifacts, artifact, filesystem, load } = await fixture({
       "notes.md": { bytes: "a" },

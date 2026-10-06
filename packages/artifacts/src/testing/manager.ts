@@ -6,16 +6,16 @@ import type {
   Content,
   ContentId,
 } from "../index";
-
 import {
+  ArtifactManager,
   ArtifactNotFoundError,
-  ArtifactSystem,
   ContentStateError,
   DuplicateTagError,
   FilePointerError,
   InvalidArtifactInputError,
   StaleContentError,
 } from "../index";
+import { readStore } from "./store";
 
 const text = (value: string, mime = "text/html") => ({ bytes: value, mime });
 function contentOf(artifact: ArtifactResolved): Content {
@@ -24,23 +24,22 @@ function contentOf(artifact: ArtifactResolved): Content {
   }
   return artifact.content;
 }
-export function describeArtifactSystem(
+export function describeArtifactManager(
   name: string,
   createStore: () => ArtifactStore
 ): void {
   function harness() {
     const store = createStore();
     const mutations: string[] = [];
-    const artifacts = new ArtifactSystem({
-      onMutation: (id) => mutations.push(id),
-      store,
-    });
+    const artifacts = new ArtifactManager({ store });
+    artifacts.observe((id) => mutations.push(id));
     return { artifacts, mutations, store };
   }
-  describe(`${name} Artifact system`, () => {
+  describe(`${name} Artifact manager`, () => {
     test("stores structural entries without blobs and removes directories recursively", async () => {
       const { artifacts, store } = harness();
-      const before = (await store.listBlobs()).length;
+      const before = (await readStore(store, (scoped) => scoped.listBlobs()))
+        .length;
       const artifact = await artifacts.create({
         entries: {
           device: { type: "device" },
@@ -63,7 +62,9 @@ export function describeArtifactSystem(
         src: { type: "directory" },
         "src/file.txt": { bytes: 18, type: "file" },
       });
-      expect((await store.listBlobs()).length).toBe(before + 1);
+      expect(
+        (await readStore(store, (scoped) => scoped.listBlobs())).length
+      ).toBe(before + 1);
       for (const path of ["empty", "src", "link", "socket", "pipe", "device"]) {
         expect(await artifacts.readFile(content.id, path)).toBeNull();
       }
@@ -85,7 +86,9 @@ export function describeArtifactSystem(
       expect(written.tree).not.toHaveProperty("src");
       expect(written.tree).not.toHaveProperty("src/file.txt");
       expect(written.tree.empty).toEqual({ type: "directory" });
-      expect((await store.listBlobs()).length).toBe(before);
+      expect(
+        (await readStore(store, (scoped) => scoped.listBlobs())).length
+      ).toBe(before);
     });
     test("explicit revision preserves predecessors without publication and rolls back invalid contributions", async () => {
       const { artifacts, store, mutations } = harness();
@@ -100,7 +103,8 @@ export function describeArtifactSystem(
         type: "text/html",
       });
       const source = contentOf(artifact);
-      const count = (await store.listBlobs()).length;
+      const count = (await readStore(store, (scoped) => scoped.listBlobs()))
+        .length;
       const notifications = mutations.length;
       await expect(
         artifacts.revise({
@@ -111,7 +115,9 @@ export function describeArtifactSystem(
         })
       ).rejects.toBeInstanceOf(FilePointerError);
       expect(await artifacts.get(artifact.id)).toEqual(artifact);
-      expect((await store.listBlobs()).length).toBe(count);
+      expect(
+        (await readStore(store, (scoped) => scoped.listBlobs())).length
+      ).toBe(count);
       expect(mutations).toHaveLength(notifications);
       const successor = await artifacts.revise({
         artifactId: artifact.id,
@@ -208,7 +214,8 @@ export function describeArtifactSystem(
     });
     test("create with files, autosave in place, publish, edit after freeze", async () => {
       const { store, artifacts, mutations } = harness();
-      const before = (await store.listBlobs()).length;
+      const before = (await readStore(store, (scoped) => scoped.listBlobs()))
+        .length;
 
       const created = await artifacts.create({
         entries: {
@@ -225,7 +232,9 @@ export function describeArtifactSystem(
         "index.html",
         "style.css",
       ]);
-      expect((await store.listBlobs()).length).toBe(before + 2);
+      expect(
+        (await readStore(store, (scoped) => scoped.listBlobs())).length
+      ).toBe(before + 2);
       const firstId = first.id;
 
       // autosave rewrites the ready row and reclaims the replaced blob
@@ -236,7 +245,9 @@ export function describeArtifactSystem(
       });
       expect(saved.id).toBe(firstId);
       expect(saved.digest).not.toBe(first.digest);
-      expect((await store.listBlobs()).length).toBe(before + 2);
+      expect(
+        (await readStore(store, (scoped) => scoped.listBlobs())).length
+      ).toBe(before + 2);
       await new Promise((resolve) => setTimeout(resolve, 2));
 
       // publish = freeze in place; artifact becomes published
@@ -262,7 +273,9 @@ export function describeArtifactSystem(
       expect(edited.artifact.contentId).toBe(edited.id);
       expect(edited.tree["index.html"]).toEqual(published.tree["index.html"]);
       // the frozen row still names the old css blob, so nothing was reclaimed
-      expect((await store.listBlobs()).length).toBe(before + 3);
+      expect(
+        (await readStore(store, (scoped) => scoped.listBlobs())).length
+      ).toBe(before + 3);
 
       const timeline = await artifacts.listContents(created.id);
       expect(timeline.map((c) => c.state)).toEqual(["frozen", "ready"]);

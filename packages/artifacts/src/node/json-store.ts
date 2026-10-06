@@ -1,20 +1,11 @@
-import { mkdir, open, readFile, rename, stat, unlink } from "node:fs/promises";
+import { mkdir, open, readFile, stat, unlink } from "node:fs/promises";
 import { dirname } from "node:path";
-import type { Page } from "@foundry/core/pagination";
 import { base64ToBytes, bytesToBase64 } from "@foundry/lib/encoding";
 
-import type { Blob } from "../blob";
 import type { ArtifactRecords } from "../memory";
 import { InMemoryArtifactStore } from "../memory";
-import type { ArtifactCursor } from "../pagination";
-import type { ArtifactId, BlobId, ContentId } from "../ref";
-import type { ArtifactStore } from "../store";
-import type {
-  Artifact,
-  Content,
-  ListArtifactsInput,
-  ListContentsInput,
-} from "../substrate";
+import type { ArtifactStore, ArtifactStoreTransaction } from "../store";
+import { hasErrorCode, writeAtomically } from "./fs";
 
 const FORMAT_VERSION = 1;
 const LOCK_RETRY_MS = 25;
@@ -53,7 +44,7 @@ export class JsonArtifactStore implements ArtifactStore {
   }
 
   transaction<T>(
-    operation: (store: ArtifactStore) => Promise<T>,
+    operation: (store: ArtifactStoreTransaction) => Promise<T>,
     options?: { readonly readOnly?: boolean }
   ): Promise<T> {
     if (options?.readOnly) {
@@ -74,74 +65,6 @@ export class JsonArtifactStore implements ArtifactStore {
     return run;
   }
 
-  afterCommit(): void {
-    throw new Error("Artifact transaction has settled");
-  }
-
-  async getArtifact(id: ArtifactId): Promise<Artifact | null> {
-    return (await this.#current()).getArtifact(id);
-  }
-
-  async listArtifacts(
-    input: ListArtifactsInput
-  ): Promise<Page<Artifact, ArtifactCursor>> {
-    return (await this.#current()).listArtifacts(input);
-  }
-
-  async putArtifact(artifact: Artifact): Promise<void> {
-    return (await this.#current()).putArtifact(artifact);
-  }
-
-  async deleteArtifact(id: ArtifactId): Promise<void> {
-    return (await this.#current()).deleteArtifact(id);
-  }
-
-  async getContent(id: ContentId): Promise<Content | null> {
-    return (await this.#current()).getContent(id);
-  }
-
-  async listContents(
-    artifactId?: ArtifactId,
-    input?: ListContentsInput
-  ): Promise<readonly Content[]> {
-    return (await this.#current()).listContents(artifactId, input);
-  }
-
-  async putContent(content: Content): Promise<void> {
-    return (await this.#current()).putContent(content);
-  }
-
-  async deleteContent(id: ContentId): Promise<void> {
-    return (await this.#current()).deleteContent(id);
-  }
-
-  async getBlob(id: BlobId): Promise<Blob | null> {
-    return (await this.#current()).getBlob(id);
-  }
-
-  async findBlob(digest: string): Promise<Blob | null> {
-    return (await this.#current()).findBlob(digest);
-  }
-
-  async listBlobs(): Promise<readonly Pick<Blob, "id" | "path">[]> {
-    return (await this.#current()).listBlobs();
-  }
-
-  async putBlob(blob: Blob): Promise<void> {
-    return (await this.#current()).putBlob(blob);
-  }
-
-  async deleteBlob(id: BlobId): Promise<void> {
-    return (await this.#current()).deleteBlob(id);
-  }
-
-  async isBlobReferenced(
-    id: BlobId,
-    except?: { readonly contentId: ContentId; readonly path: string }
-  ): Promise<boolean> {
-    return (await this.#current()).isBlobReferenced(id, except);
-  }
-
   /** The in-memory records, reloaded when another writer replaced the file. */
   async #current(): Promise<InMemoryArtifactStore> {
     const version = await fileVersion(this.#path);
@@ -160,20 +83,11 @@ export class JsonArtifactStore implements ArtifactStore {
 
   async #save(records: ArtifactRecords): Promise<void> {
     await mkdir(dirname(this.#path), { recursive: true });
-    const temporary = `${this.#path}.${crypto.randomUUID()}.tmp`;
-    try {
-      const file = await open(temporary, "wx", 0o600);
-      try {
-        await file.writeFile(encodeRecords(records));
-        await file.sync();
-      } finally {
-        await file.close();
-      }
-      await rename(temporary, this.#path);
-    } catch (error) {
-      await unlink(temporary).catch(() => undefined);
-      throw error;
-    }
+    await writeAtomically(
+      this.#path,
+      `${this.#path}.${crypto.randomUUID()}.tmp`,
+      encodeRecords(records)
+    );
     this.#version = await fileVersion(this.#path);
   }
 }
@@ -183,7 +97,7 @@ async function fileVersion(path: string): Promise<string | undefined> {
     const stats = await stat(path);
     return `${stats.ino}:${stats.mtimeMs}:${stats.size}`;
   } catch (error) {
-    if (isMissing(error)) {
+    if (hasErrorCode(error, "ENOENT")) {
       return;
     }
     throw error;
@@ -210,10 +124,7 @@ async function lock(
       }
       return () => unlink(path).catch(() => undefined);
     } catch (error) {
-      if (
-        !(error instanceof Error && "code" in error) ||
-        error.code !== "EEXIST"
-      ) {
+      if (!hasErrorCode(error, "EEXIST")) {
         throw error;
       }
     }
@@ -241,12 +152,8 @@ function alive(pid: number): boolean {
     process.kill(pid, 0);
     return true;
   } catch (error) {
-    return error instanceof Error && "code" in error && error.code === "EPERM";
+    return hasErrorCode(error, "EPERM");
   }
-}
-
-function isMissing(error: unknown): boolean {
-  return error instanceof Error && "code" in error && error.code === "ENOENT";
 }
 
 // ── Encoding ──

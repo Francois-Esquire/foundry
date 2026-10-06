@@ -17,6 +17,15 @@ export type BlobSource =
       readonly path?: never;
     };
 
+/**
+ * A stored object. File entries reference it by `id`; `digest` and
+ * `byteLength` describe the bytes it holds now. An object referenced by one
+ * file entry alone is rewritten in place when that entry's bytes change, so
+ * its id stays stable. A shared object is never rewritten: the editing entry
+ * gets a new object, which keeps frozen Content immutable.
+ *
+ * Large objects hold `chunks`: immutable leaf blobs of `CHUNK_BYTES` each.
+ */
 export type Blob = BlobSource & {
   readonly id: BlobId;
   readonly digest: string;

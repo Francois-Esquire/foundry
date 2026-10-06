@@ -1,18 +1,18 @@
 import { describe, expect, it, vi } from "vitest";
+import { ArtifactManager } from "../manager";
 import { InMemoryArtifactStore } from "../memory";
 import { artifactIdSchema, contentIdSchema } from "../ref";
 import { resolveReference } from "../references";
 import type { Content } from "../substrate";
-import { ArtifactSystem } from "../system";
 import { required } from "./helpers/required";
 
-function system() {
-  return new ArtifactSystem({ store: new InMemoryArtifactStore() });
+function manager() {
+  return new ArtifactManager({ store: new InMemoryArtifactStore() });
 }
 
 describe("Artifact references", () => {
   it("uses current Content by default and preserves a selected historical version", async () => {
-    const artifacts = system();
+    const artifacts = manager();
     const created = await artifacts.create({
       entries: { "index.html": { bytes: "old" } },
       freeze: { tag: "v1" },
@@ -53,7 +53,7 @@ describe("Artifact references", () => {
   });
 
   it("prefers explicit files over declared build output without reading bytes", async () => {
-    const artifacts = system();
+    const artifacts = manager();
     const created = await artifacts.create({
       entries: {
         "index.html": { bytes: "root" },
@@ -82,7 +82,7 @@ describe("Artifact references", () => {
     { expected: "index.html", paths: ["index.html", "style.css"] },
     { expected: null, paths: ["one.txt", "two.txt"] },
   ])("chooses the default for $paths", async ({ paths, expected }) => {
-    const artifacts = system();
+    const artifacts = manager();
     const artifact = await artifacts.create({
       entries: Object.fromEntries(paths.map((path) => [path, { bytes: path }])),
       name: "Files",
@@ -94,7 +94,7 @@ describe("Artifact references", () => {
   });
 
   it("retains empty artifacts and unmatched routes for specialized handlers", async () => {
-    const artifacts = system();
+    const artifacts = manager();
     const artifact = await artifacts.create({ name: "Module", type: "module" });
     expect(
       await resolveReference(artifacts, { artifactId: artifact.id })
@@ -118,7 +118,7 @@ describe("Artifact references", () => {
   });
 
   it("preserves structural entries and does not replace a missing explicit file", async () => {
-    const artifacts = system();
+    const artifacts = manager();
     const artifact = await artifacts.create({
       entries: {
         empty: { type: "directory" },
@@ -149,7 +149,7 @@ describe("Artifact references", () => {
   });
 
   it("reports missing identities and rejects Content from another artifact", async () => {
-    const artifacts = system();
+    const artifacts = manager();
     const first = await artifacts.create({ name: "First", type: "text/plain" });
     const second = await artifacts.create({
       entries: { "a.txt": { bytes: "a" } },
@@ -178,7 +178,7 @@ describe("Artifact references", () => {
   it.each(["generating", "failed"] as const)(
     "retains identity while %s and refuses explicit unusable Content",
     async (state) => {
-      const artifacts = system();
+      const artifacts = manager();
       const artifact = await artifacts.create({
         entries: {},
         name: "Pending",
@@ -204,7 +204,7 @@ describe("Artifact references", () => {
   it.each(["", "../secret", "/absolute", "a/../b", "a\\b", "a\0b", "a//b"])(
     "refuses invalid path %j",
     async (path) => {
-      const artifacts = system();
+      const artifacts = manager();
       const artifact = await artifacts.create({ name: "Empty", type: "files" });
       expect(
         await resolveReference(artifacts, { artifactId: artifact.id, path })
@@ -213,7 +213,7 @@ describe("Artifact references", () => {
   );
 
   it("reports a broken declared entry instead of falling back to another file", async () => {
-    const artifacts = system();
+    const artifacts = manager();
     const artifact = await artifacts.create({
       entries: { "index.html": { bytes: "page" } },
       name: "Broken",

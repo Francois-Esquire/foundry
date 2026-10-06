@@ -15,6 +15,18 @@ export {
   MAX_FILE_BYTES,
   MAX_TREE_BYTES,
 } from "./constants";
+export type {
+  ArtifactLifecycleStatus,
+  ArtifactMetadata,
+  ContentMetadata,
+  ContentState,
+} from "./content";
+export {
+  digestTree,
+  filePointers,
+  isUsableContent,
+  rootPath,
+} from "./content";
 export {
   ArtifactApplicationError,
   ArtifactError,
@@ -30,18 +42,20 @@ export {
   InvalidArtifactInputError,
   StaleContentError,
 } from "./errors";
+export type { ArtifactCursor } from "./listing";
+export { artifactCursor, normalizeArtifactQuery } from "./listing";
+export { ArtifactManager, type ArtifactManagerOptions } from "./manager";
 export {
   type ArtifactRecords,
   InMemoryArtifactStore,
   type InMemoryArtifactStoreOptions,
 } from "./memory";
-export type { ArtifactCursor } from "./pagination";
-export { artifactCursor, normalizeArtifactQuery } from "./pagination";
 export type { ArtifactId, BlobId, ContentId } from "./ref";
 export { artifactIdSchema, blobIdSchema, contentIdSchema } from "./ref";
-export type { ArtifactStore } from "./store";
+export type { ArtifactStore, ArtifactStoreTransaction } from "./store";
 export type {
   Artifact,
+  ArtifactOperations,
   ArtifactResolved,
   Artifacts,
   Content,
@@ -62,11 +76,3 @@ export type {
   WriteFence,
   WriteInput,
 } from "./substrate";
-export { ArtifactSystem, type ArtifactSystemOptions } from "./system";
-export type {
-  ArtifactLifecycleStatus,
-  ArtifactMetadata,
-  ContentMetadata,
-  ContentState,
-} from "./tree";
-export { digestTree, filePointers, isGoodContent, rootPath } from "./tree";

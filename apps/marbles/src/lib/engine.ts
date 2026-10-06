@@ -5,7 +5,7 @@ import {
   createInMemoryAgentAuthorizer,
 } from "@foundry/agents/authorization";
 import type { SessionStore } from "@foundry/agents/session";
-import type { Artifacts as ArtifactStore } from "@foundry/artifacts";
+import type { Artifacts as ArtifactSubstrate } from "@foundry/artifacts";
 import { Config } from "@foundry/lib/config";
 import type { ModelManager } from "@foundry/models";
 import type { Containers } from "@foundry/sandbox/container/containers";
@@ -70,7 +70,7 @@ import type { Schedule } from "~/lib/triggers";
 
 export interface EngineOptions {
   /** Versioned outputs and the feed; one system may serve many workspaces. */
-  readonly artifacts: ArtifactStore;
+  readonly artifacts: ArtifactSubstrate;
   /**
    * Whether someone can answer `ask` in this process (a dashboard).
    * Otherwise a question cancels its run rather than pausing it forever, and

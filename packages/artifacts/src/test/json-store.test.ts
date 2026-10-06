@@ -4,10 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 
-import { ArtifactSystem } from "../index";
+import { ArtifactManager } from "../index";
 import { blobFiles, JsonArtifactStore } from "../node";
+import { describeArtifactManager } from "../testing/manager";
 import { describeArtifactStore } from "../testing/store";
-import { describeArtifactSystem } from "../testing/system";
 
 const root = mkdtempSync(join(tmpdir(), "artifact-json-"));
 afterAll(() => rm(root, { force: true, recursive: true }));
@@ -16,12 +16,12 @@ const recordsPath = () => join(root, crypto.randomUUID(), "records.json");
 const store = () => new JsonArtifactStore({ path: recordsPath() });
 
 describeArtifactStore("JSON", store);
-describeArtifactSystem("JSON", store);
+describeArtifactManager("JSON", store);
 
 describe("JSON Artifact store persistence", () => {
   it("reopens committed Artifacts with dates and inline bytes intact", async () => {
     const path = recordsPath();
-    const created = await new ArtifactSystem({
+    const created = await new ArtifactManager({
       store: new JsonArtifactStore({ path }),
     }).create({
       entries: { "entry.md": { bytes: "# Hello", mime: "text/markdown" } },
@@ -30,7 +30,7 @@ describe("JSON Artifact store persistence", () => {
       type: "text/markdown",
     });
 
-    const reopened = new ArtifactSystem({
+    const reopened = new ArtifactManager({
       store: new JsonArtifactStore({ path }),
     });
     const artifact = await reopened.get(created.id);
@@ -45,10 +45,10 @@ describe("JSON Artifact store persistence", () => {
 
   it("keeps every write when two stores share one file", async () => {
     const path = recordsPath();
-    const first = new ArtifactSystem({
+    const first = new ArtifactManager({
       store: new JsonArtifactStore({ path }),
     });
-    const second = new ArtifactSystem({
+    const second = new ArtifactManager({
       store: new JsonArtifactStore({ path }),
     });
     await Promise.all(
@@ -65,7 +65,7 @@ describe("JSON Artifact store persistence", () => {
 
   it("stores file bytes as blob files beside the records", async () => {
     const directory = join(root, crypto.randomUUID());
-    const artifacts = new ArtifactSystem({
+    const artifacts = new ArtifactManager({
       files: blobFiles(join(directory, "blobs")),
       store: new JsonArtifactStore({ path: join(directory, "records.json") }),
     });
@@ -81,7 +81,7 @@ describe("JSON Artifact store persistence", () => {
 
   it("refuses an unreadable records file instead of starting empty", async () => {
     const path = recordsPath();
-    const artifacts = new ArtifactSystem({
+    const artifacts = new ArtifactManager({
       store: new JsonArtifactStore({ path }),
     });
     await artifacts.create({ name: "Kept", type: "text/plain" });
