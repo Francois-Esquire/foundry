@@ -4,6 +4,7 @@ import type { Path, ValueAt } from "@foundry/lib/config/types";
 import { z } from "zod";
 
 import type { KindDefault, ModelKind } from "./types";
+import { MODEL_KINDS } from "./types";
 
 export interface AgentConfigType {
   defaults?: Partial<Record<ModelKind, KindDefault>>;
@@ -16,8 +17,18 @@ export interface AgentConfigEvents {
   changed: [next: Readonly<AgentConfigType>, prev: Readonly<AgentConfigType>];
 }
 
+const KindDefaultSchema = z.object({
+  modelId: z.string().optional(),
+  provider: z.string(),
+});
+
 const AgentConfigSchema = z
-  .object({ maxTokens: z.number().optional() })
+  .object({
+    defaults: z
+      .partialRecord(z.enum(MODEL_KINDS), KindDefaultSchema)
+      .optional(),
+    maxTokens: z.number().optional(),
+  })
   .catchall(z.unknown());
 
 export class AgentConfig extends ReactiveStore<Record<string, unknown>> {

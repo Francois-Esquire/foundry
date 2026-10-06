@@ -11,6 +11,20 @@ describe("AgentConfig — validates its own config", () => {
     }).toThrow();
     expect(c.get("maxTokens")).toBe(100);
   });
+
+  it("validates kind defaults, the routing the manager reads", () => {
+    const c = new AgentConfig();
+    c.set("defaults", { text: { modelId: "m", provider: "p" } });
+    expect(() => {
+      c.set("defaults", { txt: { provider: "p" } } as never);
+    }).toThrow();
+    expect(() => {
+      c.set("defaults.text", { modelId: "m" } as never);
+    }).toThrow();
+    expect(c.get("defaults")).toEqual({
+      text: { modelId: "m", provider: "p" },
+    });
+  });
 });
 
 describe("AgentConfig — mountable into a global Config", () => {

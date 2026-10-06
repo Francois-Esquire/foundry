@@ -1,15 +1,18 @@
 import type { Provider } from "./provider";
 
-export type ModelKind =
-  | "text"
-  | "embedding"
-  | "transcription"
-  | "image"
-  | "video"
-  | "speech"
-  | "music"
-  | "sound"
-  | "segmentation";
+export const MODEL_KINDS = [
+  "text",
+  "embedding",
+  "transcription",
+  "image",
+  "video",
+  "speech",
+  "music",
+  "sound",
+  "segmentation",
+] as const;
+
+export type ModelKind = (typeof MODEL_KINDS)[number];
 
 /** One thing a caller can ask a Model to do. Names are persisted by hosts. */
 export type OperationName =
