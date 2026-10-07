@@ -1,4 +1,7 @@
-import type { LanguageModelV4 } from "@ai-sdk/provider";
+import type {
+  LanguageModelV4,
+  LanguageModelV4StreamPart,
+} from "@ai-sdk/provider";
 
 import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, it } from "vitest";
@@ -55,6 +58,26 @@ function recordingObserver(): { observe: ObserveTurn; opened: Opened[] } {
   return { observe, opened };
 }
 
+/** A model stream that delivers a line of text — `smoothStream` releases
+ *  text by the line — and then never finishes, so only its consumer can end
+ *  the turn. */
+function unfinishedStreamResult(): {
+  stream: ReadableStream<LanguageModelV4StreamPart>;
+} {
+  return {
+    stream: new ReadableStream({
+      start: (controller) => {
+        controller.enqueue({ id: "text-1", type: "text-start" });
+        controller.enqueue({
+          delta: "partial\n",
+          id: "text-1",
+          type: "text-delta",
+        });
+      },
+    }),
+  };
+}
+
 describe("LoopAgent — observation", () => {
   it("observes each streamed session turn under its own observation, settled once", async () => {
     const { observe, opened } = recordingObserver();
@@ -95,6 +118,42 @@ describe("LoopAgent — observation", () => {
       expect(turn.model.doGenerateCalls).toHaveLength(1);
       expect(turn.settled).toEqual([{ afterEnd: true, error: undefined }]);
     }
+  });
+
+  it("settles a streamed turn its consumer abandons partway", async () => {
+    const { observe, opened } = recordingObserver();
+    const harness = new AgentHarness({
+      instructions: "x",
+      model: createScriptedMockModel({ stream: [unfinishedStreamResult()] }),
+      observe,
+    });
+
+    const { parts } = await harness.stream({ prompt: "go" });
+    for await (const part of parts) {
+      if (part.type === "text-delta") {
+        break;
+      }
+    }
+
+    expect(opened[0]?.settled).toEqual([{ afterEnd: false, error: undefined }]);
+  });
+
+  it("settles a session turn whose stream handler throws", async () => {
+    const { observe, opened } = recordingObserver();
+    const harness = new SessionHarness({
+      instructions: "x",
+      model: createScriptedMockModel({ stream: [unfinishedStreamResult()] }),
+      observe,
+    });
+
+    const reply = await harness.generate("go", {
+      onText: () => {
+        throw new Error("handler failed");
+      },
+    });
+
+    expect(reply.status).toBe("error");
+    expect(opened[0]?.settled).toEqual([{ afterEnd: false, error: undefined }]);
   });
 
   it("settles a turn whose model fails with the error", async () => {

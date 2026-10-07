@@ -24,7 +24,7 @@ export type {
   StreamOptions,
 } from "./events";
 export type { RawMessageMetadata, RawUsage } from "./metadata";
-export { normalizeMessageMetadata, normalizeUsage } from "./metadata";
+export { normalizeMessageMetadata } from "./metadata";
 export type {
   CreateMessageInput,
   CreateSessionInput,

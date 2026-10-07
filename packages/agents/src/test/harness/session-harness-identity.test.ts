@@ -98,4 +98,18 @@ describe("SessionHarness — session identity", () => {
       "assistant",
     ]);
   });
+
+  it('mints an id for an empty one rather than sharing the session ""', () => {
+    const settings = {
+      instructions: "x",
+      model: createScriptedMockModel({}),
+      sessionId: "",
+    };
+
+    const first = new SessionHarness(settings);
+    const second = new SessionHarness(settings);
+
+    expect(first.sessionId).not.toBe("");
+    expect(first.sessionId).not.toBe(second.sessionId);
+  });
 });

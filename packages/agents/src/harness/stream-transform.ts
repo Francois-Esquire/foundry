@@ -173,6 +173,13 @@ export function transformStream(
       }
       open.text += delta;
     };
+    // An end closes only its own kind: a reasoning block can end after text
+    // has started, and the text must stay one part.
+    const close = (type: AccumulatingPart["type"]) => {
+      if (open?.type === type) {
+        open = undefined;
+      }
+    };
 
     const finalize = async (
       status: MessageStatus,
@@ -287,8 +294,10 @@ export function transformStream(
           }
           break;
         case "text-end":
+          close("text");
+          break;
         case "reasoning-end":
-          open = undefined;
+          close("reasoning");
           break;
         case "tool-call":
           toolCall(part);

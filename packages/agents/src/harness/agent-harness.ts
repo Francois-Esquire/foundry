@@ -73,7 +73,7 @@ export type AgentHarnessSettings = Omit<LoopAgentSettings, "toolsContext"> & {
   /** Optional live authorization. The callback owns one claim before execution;
    * policy asks do not become SDK suspension/replay checkpoints. */
   permission?: HarnessPermissionCallback;
-  /** The session this harness acts for. A fresh id when omitted. */
+  /** The session this harness acts for. A fresh id when omitted or empty. */
   sessionId?: string;
 };
 
@@ -128,7 +128,7 @@ export class AgentHarness {
     this.agentGeneration = agentGeneration;
     // Fixed before any tool is compiled: every call's authorization request is
     // scoped by it, and a session-lifetime Grant cannot be issued without one.
-    this.sessionId = sessionId ?? context?.sessionId ?? randomUUID();
+    this.sessionId = sessionId || context?.sessionId || randomUUID();
     // Every tool is compiled through the same policy/effect seam; a later
     // entry in the caller's map wins on a duplicate name, as in any spread.
     const compiled = compileTools(tools ?? {}, {

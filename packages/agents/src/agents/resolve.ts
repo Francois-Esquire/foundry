@@ -185,7 +185,7 @@ function configureAgent(
   defaults: AgentHarnessSettings,
   context: AgentPresetContext
 ): AgentHarnessSettings {
-  const sessionId = context.sessionId ?? defaults.sessionId ?? randomUUID();
+  const sessionId = context.sessionId || defaults.sessionId || randomUUID();
   return {
     ...defaults,
     ...spec.settings,

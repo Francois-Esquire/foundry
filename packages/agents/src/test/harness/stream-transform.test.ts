@@ -519,6 +519,24 @@ describe("transformStream", () => {
     ]);
   });
 
+  it("keeps text open when a reasoning block ends inside it", async () => {
+    const stream = transformStream(
+      source([
+        reasoningDelta("thinking"),
+        textDelta("a"),
+        { id: "reasoning-1", type: "reasoning-end" },
+        textDelta("b"),
+        finish(flatUsage),
+      ])
+    );
+    await collect(stream);
+
+    expect((await stream.message).parts).toEqual([
+      { text: "thinking", type: "reasoning" },
+      { text: "ab", type: "text" },
+    ]);
+  });
+
   it("keeps one text part across a driver's out-of-band activity update", async () => {
     const event = {
       agentId: "agent-1",

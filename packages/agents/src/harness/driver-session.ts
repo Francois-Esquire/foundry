@@ -32,7 +32,7 @@ export function createDriverSession(
   driver: HarnessTurnDriver
 ): HarnessSession {
   validateHarnessProfile(settings.profile);
-  const sessionId = settings.sessionId ?? randomUUID();
+  const sessionId = settings.sessionId || randomUUID();
   const gate = createTurnGate("Harness");
   const lifetime = new AbortController();
   const persistActivity = createHarnessActivityRecorder({
