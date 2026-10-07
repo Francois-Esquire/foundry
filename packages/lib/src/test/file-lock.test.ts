@@ -1,10 +1,12 @@
 import { spawnSync } from "node:child_process";
 import {
+  mkdir,
   mkdtemp,
   readdir,
   readFile,
   rm,
   stat,
+  utimes,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -15,7 +17,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   acquireFileLock,
   FileLockTimeoutError,
+  lockHolder,
   processAlive,
+  tryFileLock,
   withFileLock,
 } from "../file-lock";
 
@@ -89,7 +93,7 @@ describe("file locks", () => {
     expect(await readdir(directory)).toEqual([]);
   });
 
-  it("hands a dead holder's lock to exactly one of many waiting breakers", async () => {
+  it("lets many waiters take a dead holder's lock in turn, one at a time", async () => {
     await writeFile(lock, String(exitedPid()));
     let holding = 0;
     let most = 0;
@@ -141,6 +145,62 @@ describe("file locks", () => {
     await writeFile(lock, "999999999");
     await second();
     expect(await readFile(lock, "utf8")).toBe("999999999");
+  });
+
+  it("tries once: takes a free lock, or names its holder without waiting", async () => {
+    const first = tryFileLock(lock);
+    expect(first).toHaveProperty("release");
+    expect(lockHolder(lock)).toBe(process.pid);
+
+    expect(tryFileLock(lock, { breakStale: true })).toEqual({
+      holder: process.pid,
+    });
+    if ("release" in first) {
+      first.release();
+    }
+    expect(lockHolder(lock)).toBeUndefined();
+    expect(await readdir(directory)).toEqual([]);
+  });
+
+  it("takes over a dead holder's lock in one try only when asked", async () => {
+    const dead = exitedPid();
+    await writeFile(lock, String(dead));
+
+    expect(tryFileLock(lock)).toEqual({ holder: dead });
+    const taken = tryFileLock(lock, { breakStale: true });
+    expect(taken).toHaveProperty("release");
+    expect(lockHolder(lock)).toBe(process.pid);
+  });
+
+  it("waits out a lock its creator has not written its pid to yet", async () => {
+    await writeFile(lock, "");
+    expect(tryFileLock(lock, { breakStale: true })).toEqual({
+      empty: true,
+      holder: undefined,
+    });
+    expect(await readFile(lock, "utf8")).toBe("");
+  });
+
+  it("breaks a lock left empty for 30s, only when asked", async () => {
+    await writeFile(lock, "");
+    const old = new Date(Date.now() - 60_000);
+    await utimes(lock, old, old);
+
+    expect(tryFileLock(lock)).toEqual({ empty: true, holder: undefined });
+    const taken = tryFileLock(lock, { breakStale: true });
+    expect(taken).toHaveProperty("release");
+    expect(lockHolder(lock)).toBe(process.pid);
+  });
+
+  it("never breaks a lock it cannot read, however old", async () => {
+    await mkdir(lock);
+    const old = new Date(Date.now() - 60_000);
+    await utimes(lock, old, old);
+
+    expect(tryFileLock(lock, { breakStale: true })).toEqual({
+      holder: undefined,
+    });
+    expect((await stat(lock)).isDirectory()).toBe(true);
   });
 
   it("releases after a failed operation", async () => {

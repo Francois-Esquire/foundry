@@ -47,7 +47,7 @@ function ready(
       onClose={close}
       onEnter={enterSplash}
       preview
-      state={{ counts, status: "ready" }}
+      state={{ counts, hasConfig: true, status: "ready" }}
       workspace={workspace}
     />
   );
@@ -64,6 +64,7 @@ test("splash gates entry until ready and shows counts from the loaded snapshot",
   await act(async () =>
     updateSplash?.({
       counts: summarizeConfig(dashboardSnapshot),
+      hasConfig: true,
       status: "ready",
     })
   );

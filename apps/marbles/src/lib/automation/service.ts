@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { isAbsolute } from "node:path";
+import { canonicalizeJson } from "@foundry/lib/json";
 import { type ToolSet, tool } from "ai";
 import { z } from "zod";
 import type { StepFn } from "~/lib/definition";
@@ -9,7 +10,7 @@ import type { Registry } from "~/lib/registry";
 import { AUTOMATION_MONITOR } from "~/lib/registry";
 import { parseAt } from "~/lib/schedule";
 import { validate } from "~/lib/schema";
-import { stableJson } from "~/lib/state/json";
+import { jsonData } from "~/lib/state/json";
 import type { StateStore, StoredDocument } from "~/lib/state/store";
 import type { Schedule } from "~/lib/triggers";
 import { WEEKDAYS } from "~/lib/triggers";
@@ -212,7 +213,7 @@ export class AutomationService {
     const lock = this.#store.lock(`edit-${id}`);
     if ("holder" in lock) {
       throw new Error(
-        "Automation is being edited by another host; retry the operation"
+        `Automation is being edited by another host (held by ${lock.holder}); retry the operation`
       );
     }
     try {
@@ -302,7 +303,7 @@ export class AutomationService {
       );
     }
     const creationKey = `automation-${createHash("sha256")
-      .update(stableJson([owner.agentId, owner.sessionId, spec.key]))
+      .update(canonicalizeJson([owner.agentId, owner.sessionId, spec.key]))
       .digest("hex")
       .slice(0, 24)}`;
     return this.#edit(creationKey, () => {
@@ -311,7 +312,11 @@ export class AutomationService {
           existing.key === spec.key && sameOwner(existing.owner, owner)
       );
       if (previous) {
-        if (stableJson(specSchema.parse(previous)) !== stableJson(spec)) {
+        // `jsonData`: a spec built in code may carry an `undefined` member.
+        if (
+          canonicalizeJson(jsonData(specSchema.parse(previous))) !==
+          canonicalizeJson(jsonData(spec))
+        ) {
           throw new Error(
             "Automation key already exists with different settings"
           );

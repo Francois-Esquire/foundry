@@ -134,6 +134,9 @@ export function lockable<D extends AnyDefinition>(
 ): D {
   const call = (children: Children, literal?: Record<string, unknown>) =>
     lock(definition, "series", children, literal);
+  // The function becomes a `D` only once the loop below defines the
+  // record's fields on it; TypeScript cannot follow `defineProperty`, so the
+  // one cast names the finished object up front for the closures above.
   const definition = call as unknown as D;
   const members: Record<string, unknown> = {
     ...fields,

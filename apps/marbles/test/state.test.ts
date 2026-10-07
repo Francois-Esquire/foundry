@@ -5,6 +5,7 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -166,19 +167,62 @@ describe("locks", () => {
     mkdirSync(join(state, "locks"));
 
     writeFileSync(join(state, "locks", "s"), String(process.pid));
-    expect(acquireLock(state, "s")).toBe(process.pid);
+    expect(acquireLock(state, "s")).toEqual({
+      holder: `pid ${String(process.pid)}`,
+    });
 
     const dead = spawnSync("true").pid;
     writeFileSync(join(state, "locks", "s"), String(dead));
     const lock = acquireLock(state, "s");
-    expect(typeof lock).toBe("object");
+    expect(lock).toHaveProperty("release");
     expect(readFileSync(join(state, "locks", "s"), "utf8")).toBe(
       String(process.pid)
     );
-    if (typeof lock === "object") {
+    if ("release" in lock) {
       lock.release();
     }
-    expect(existsSync(join(state, "locks", "s"))).toBe(false);
+    expect(readdirSync(join(state, "locks"))).toEqual([]);
+  });
+
+  it("waits out a lock being taken, and breaks one left empty", () => {
+    const state = mkdtempSync(join(tmpdir(), "marbles-state-"));
+    mkdirSync(join(state, "locks"));
+    const path = join(state, "locks", "s");
+    writeFileSync(path, "");
+
+    expect(acquireLock(state, "s")).toEqual({
+      holder: "a process that is taking it now; retry",
+    });
+    expect(readFileSync(path, "utf8")).toBe("");
+
+    const old = new Date(Date.now() - 60_000);
+    utimesSync(path, old, old);
+    expect(acquireLock(state, "s")).toHaveProperty("release");
+    expect(readFileSync(path, "utf8")).toBe(String(process.pid));
+  });
+
+  it("never breaks a lock that is not a pid, and says how to clear it", () => {
+    const state = mkdtempSync(join(tmpdir(), "marbles-state-"));
+    mkdirSync(join(state, "locks"));
+    const path = join(state, "locks", "s");
+    writeFileSync(path, "by hand");
+
+    expect(acquireLock(state, "s")).toEqual({
+      holder: `an unknown process (if none is running, remove ${path})`,
+    });
+    expect(readFileSync(path, "utf8")).toBe("by hand");
+  });
+
+  it("releases only a lock it still holds", () => {
+    const state = mkdtempSync(join(tmpdir(), "marbles-state-"));
+    const lock = acquireLock(state, "s");
+    if (!("release" in lock)) {
+      throw new Error("expected the lock");
+    }
+    // Taken over meanwhile, as by a breaker that judged this process gone.
+    writeFileSync(join(state, "locks", "s"), "999999999");
+    lock.release();
+    expect(readFileSync(join(state, "locks", "s"), "utf8")).toBe("999999999");
   });
 });
 

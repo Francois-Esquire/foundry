@@ -18,7 +18,6 @@ vi.mock("~/lib/harnesses", async (importOriginal) => ({
 
 const print = () => undefined;
 const options = {
-  harnesses: [],
   lastFinish: new Map<string, number>(),
   root: "/tmp/workspace",
   startedAt: 1000,

@@ -1,7 +1,10 @@
+import { TERMINAL_RUN_STATUSES } from "~/lib/state/runs";
+
 /**
  * What the views make of a status: the groups that decide which controls a
- * run offers, and the label and tone it is shown with. `lib/state/runs.ts`
- * keeps its own terminal set because lib imports nothing from the host.
+ * run offers, and the label and tone it is shown with. Settled is the
+ * engine's own set; `paused` and `skipped` are what the dashboard snapshot
+ * adds for steps.
  */
 
 export type RunStatus =
@@ -20,17 +23,12 @@ export type InputAttention = "approval" | "question";
 /** The colour family a status reads in; StatusLabel maps it to the theme. */
 export type StatusTone = "neutral" | "info" | "success" | "warning" | "error";
 
-const TERMINAL: ReadonlySet<string> = new Set([
-  "complete",
-  "failed",
-  "cancelled",
-]);
 const ACTIVE: ReadonlySet<string> = new Set(["queued", "running", "suspended"]);
 const PAUSED: ReadonlySet<string> = new Set(["suspended", "paused"]);
 
 /** Settled for good: nothing will run, resume, or need cancelling. */
 export function isTerminal(status: string): boolean {
-  return TERMINAL.has(status);
+  return TERMINAL_RUN_STATUSES.has(status);
 }
 
 /** Still occupying its trigger: queued, running, or waiting to resume. */

@@ -10,6 +10,7 @@ import type {
 } from "@foundry/artifacts";
 import { artifactIdSchema } from "@foundry/artifacts";
 import { classifyFile } from "@foundry/lib/file-classification";
+import { processAlive } from "@foundry/lib/file-lock";
 import { collectPages } from "@foundry/lib/pagination";
 import { z } from "zod";
 import {
@@ -25,7 +26,6 @@ import {
   INPUT_STATUSES,
   type InputStatus,
 } from "~/lib/feed/entry";
-import { alive } from "~/lib/state/locks";
 
 const PAGE_SIZE = 100;
 
@@ -135,7 +135,7 @@ export function feedPublisher(
     readonly isAlive?: (pid: number) => boolean;
   } = {}
 ): FeedPublisher {
-  const { pid = process.pid, isAlive = alive } = options;
+  const { pid = process.pid, isAlive = processAlive } = options;
   let queue: Promise<unknown> = Promise.resolve();
   function serialized<T>(write: () => Promise<T>): Promise<T> {
     const next = queue.then(write);

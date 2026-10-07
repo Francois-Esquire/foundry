@@ -227,7 +227,6 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
         automations: engine.automations.list(),
         definitions: engine.definitions(),
         feed: await engine.feed(),
-        harnesses: [harness],
         lastFinish: new Map(),
         monitors: engine.monitors(),
         root,

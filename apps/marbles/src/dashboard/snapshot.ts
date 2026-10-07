@@ -238,8 +238,6 @@ export interface SnapshotOptions {
   readonly definitions: readonly DefinitionEntry[];
   /** Feed entries from every workspace, newest first. */
   readonly feed?: readonly FeedEntrySnapshot[];
-  /** Unread: the dashboard shows no harness list. */
-  readonly harnesses: readonly string[];
   readonly lastFinish: ReadonlyMap<string, number>;
   /** What each monitor watches, by trigger key: the engine's `monitors()`. */
   readonly monitors: ReadonlyMap<string, { readonly source: MonitorSpec }>;

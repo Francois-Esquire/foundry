@@ -170,22 +170,15 @@ export const JSON_INPUT_FIELD: InputField = {
 };
 
 /**
- * Launch-form fields for a schema: one per property of a flat object of
- * strings, numbers, booleans, and string enums. Anything else becomes a
- * single JSON field. `undefined` when the schema exposes no JSON Schema;
- * the caller decides what that means, since a schema without a form
- * representation still takes input.
+ * Launch-form fields for a schema's JSON Schema (`jsonSchemaOf`): one per
+ * property of a flat object of strings, numbers, booleans, and string
+ * enums. Anything else becomes a single JSON field.
  */
-export function fieldsFromSchema(
-  schema: StandardSchemaV1
-): readonly InputField[] | undefined {
-  const json = jsonSchemaOf(schema);
-  if (!json) {
-    return undefined;
-  }
-  const jsonField = JSON_INPUT_FIELD;
+export function fieldsFromJsonSchema(
+  json: Readonly<Record<string, unknown>>
+): readonly InputField[] {
   if (json.type !== "object" || !isRecord(json.properties)) {
-    return [jsonField];
+    return [JSON_INPUT_FIELD];
   }
   const required = new Set(
     Array.isArray(json.required)
@@ -195,11 +188,11 @@ export function fieldsFromSchema(
   const fields: InputField[] = [];
   for (const [key, property] of Object.entries(json.properties)) {
     if (!isRecord(property)) {
-      return [jsonField];
+      return [JSON_INPUT_FIELD];
     }
     const field = fieldFrom(key, property, required.has(key));
     if (!field) {
-      return [jsonField];
+      return [JSON_INPUT_FIELD];
     }
     fields.push(field);
   }

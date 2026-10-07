@@ -87,7 +87,7 @@ export async function runInteractive(args: Flags): Promise<void> {
     );
     let startedAt = Date.now();
     const runningEngine = engine;
-    const { harnesses, activities, automations } = runningEngine;
+    const { activities, automations } = runningEngine;
     const update = async () =>
       terminal.update(
         dashboardSnapshot(await runningEngine.runs(), {
@@ -96,7 +96,6 @@ export async function runInteractive(args: Flags): Promise<void> {
           automations: automations.list(),
           definitions: runningEngine.definitions(),
           feed: await runningEngine.feed(),
-          harnesses,
           lastFinish,
           monitors: runningEngine.monitors(),
           root: workspace.root,
@@ -107,62 +106,63 @@ export async function runInteractive(args: Flags): Promise<void> {
         }),
         hasConfig
       );
-    terminal.setAnswerer(async (entryId, answer) => {
-      await runningEngine.answer(entryId, answer);
-      await update();
-    });
-    terminal.setRunActions({
-      async cancel(runId) {
-        await runningEngine.cancel(runId);
+    terminal.connect({
+      async answer(entryId, answer) {
+        await runningEngine.answer(entryId, answer);
         await update();
       },
-      async deleteTrigger(id) {
-        automations.delete(id);
-        await update();
-      },
-      async pause(runId, stepId) {
-        if (!runningEngine.pause(runId, stepId)) {
-          throw new Error("This step is not running in this process.");
+      async launch(name, input) {
+        if (!runningEngine.definitions().some((entry) => entry.name === name)) {
+          throw new Error(
+            "This definition is not available for manual launch."
+          );
         }
+        // The factory is the one parser: it validates at dispatch, a bad
+        // value rejects the launch and the form shows that, and a transform
+        // runs once.
+        const launched = await runningEngine.launch(
+          name,
+          inputFromFields(input ?? {})
+        );
+        launched.result.catch((error: unknown) =>
+          print(`[run] ${String(error)}`)
+        );
         await update();
+        return launched.id;
       },
-      async resume(runId, stepId, prompt) {
-        await runningEngine.resume(runId, stepId, prompt);
-        await update();
+      runs: {
+        async cancel(runId) {
+          await runningEngine.cancel(runId);
+          await update();
+        },
+        async deleteTrigger(id) {
+          automations.delete(id);
+          await update();
+        },
+        async pause(runId, stepId) {
+          if (!runningEngine.pause(runId, stepId)) {
+            throw new Error("This step is not running in this process.");
+          }
+          await update();
+        },
+        async resume(runId, stepId, prompt) {
+          await runningEngine.resume(runId, stepId, prompt);
+          await update();
+        },
+        async setTriggerEnabled(id, enabled) {
+          automations.setEnabled(id, enabled);
+          await update();
+        },
+        steer(runId, stepId, prompt) {
+          runningEngine.steer(runId, stepId, prompt);
+          return Promise.resolve();
+        },
+        async stopActivity(sessionId, activityId) {
+          await activities.stop(sessionId, activityId);
+          await update();
+        },
+        stream: (runId, signal) => runningEngine.stream(runId, signal),
       },
-      async setTriggerEnabled(id, enabled) {
-        automations.setEnabled(id, enabled);
-        await update();
-      },
-      steer(runId, stepId, prompt) {
-        runningEngine.steer(runId, stepId, prompt);
-        return Promise.resolve();
-      },
-      async stopActivity(sessionId, activityId) {
-        await activities.stop(sessionId, activityId);
-        await update();
-      },
-      stream: (runId, signal) => runningEngine.stream(runId, signal),
-    });
-    terminal.setLauncher(async (name, input) => {
-      if (!runningEngine.definitions().some((entry) => entry.name === name)) {
-        throw new Error("This definition is not available for manual launch.");
-      }
-      const values =
-        typeof input === "object" && input !== null && !Array.isArray(input)
-          ? (input as Record<string, unknown>)
-          : {};
-      // The factory is the one parser: it validates at dispatch, a bad value
-      // rejects the launch and the form shows that, and a transform runs once.
-      const launched = await runningEngine.launch(
-        name,
-        inputFromFields(values)
-      );
-      launched.result.catch((error: unknown) =>
-        print(`[run] ${String(error)}`)
-      );
-      await update();
-      return launched.id;
     });
     postSetupMilestone(runningEngine, print, createdDraft, {
       configPath: createdFile ?? configPath,

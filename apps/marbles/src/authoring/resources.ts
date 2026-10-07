@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
+import { canonicalizeJson } from "@foundry/lib/json";
 import { catalog } from "~/authoring/catalog";
-import { stableJson } from "~/lib/state/json";
 import type {
   AgentDefinition,
   ArtifactDefinition,
@@ -42,7 +42,7 @@ export function agent(spec: {
   }
   const digest = createHash("sha256")
     .update(
-      stableJson([rest.prompt, rest.provider ?? null, rest.model ?? null])
+      canonicalizeJson([rest.prompt, rest.provider ?? null, rest.model ?? null])
     )
     .digest("hex");
   const site = callSite();

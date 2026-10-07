@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { globToRegExp } from "@foundry/lib/glob";
+import { canonicalizeJson } from "@foundry/lib/json";
 import { z } from "zod";
 
 import type { HostBindings } from "~/lib/bindings";
@@ -10,7 +11,7 @@ import type { Launch } from "~/lib/launch";
 import { isLaunch, launchTarget } from "~/lib/launch";
 import type { Catalogue } from "~/lib/managers/workspaces";
 import { current } from "~/lib/run-scope";
-import { isRecord, stableJson } from "~/lib/state/json";
+import { isRecord, jsonData } from "~/lib/state/json";
 import type { StateStore } from "~/lib/state/store";
 import type { Context } from "~/lib/types";
 
@@ -315,7 +316,8 @@ async function observeHttp(
   } catch {
     // Not JSON; the text is the body.
   }
-  const hash = sha256(stableJson(body));
+  // `jsonData`: JSON text can hold a number too large to be finite.
+  const hash = sha256(canonicalizeJson(jsonData(body)));
   const last = isRecord(previous) ? previous : undefined;
   return {
     change:

@@ -1,45 +1,68 @@
 import { spawnSync } from "node:child_process";
-import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { rmSync, writeFileSync } from "node:fs";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
-import { acquireFileLock, processAlive } from "../file-lock";
+import { acquireFileLock, processAlive, tryFileLock } from "../file-lock";
 
 /** Faults injected into the lock's own file operations. */
 const faults = vi.hoisted(() => ({
-  /** The next handle opened fails to write. */
+  /** Run once, just before this path is read for the `nth` time (from 1). */
+  beforeRead: undefined as
+    | { readonly path: string; nth: number; readonly run: () => void }
+    | undefined,
+  /** Run once, just before this path is next removed. */
+  beforeRemoval: undefined as
+    | { readonly path: string; readonly run: () => void }
+    | undefined,
+  /** The next write to a lock file fails. */
   failWrite: false,
-  /** The next removal of this path is held back this long. */
-  slowRemoval: undefined as { path: string; ms: number } | undefined,
 }));
 
-vi.mock("node:fs/promises", async (original) => {
-  const actual = await original<typeof import("node:fs/promises")>();
+vi.mock("node:fs", async (original) => {
+  const actual = await original<typeof import("node:fs")>();
   return {
     ...actual,
-    open: async (...args: Parameters<typeof actual.open>) => {
-      const handle = await actual.open(...args);
-      if (!faults.failWrite) {
-        return handle;
+    readFileSync: (...args: Parameters<typeof actual.readFileSync>) => {
+      const hook = faults.beforeRead;
+      if (hook && args[0] === hook.path) {
+        hook.nth -= 1;
+        if (hook.nth === 0) {
+          faults.beforeRead = undefined;
+          hook.run();
+        }
       }
-      faults.failWrite = false;
-      return {
-        close: () => handle.close(),
-        writeFile: () => Promise.reject(new Error("disk full")),
-      };
+      return actual.readFileSync(...args);
     },
-    rm: async (...args: Parameters<typeof actual.rm>) => {
-      const slow = faults.slowRemoval;
-      if (slow && args[0] === slow.path) {
-        faults.slowRemoval = undefined;
-        await new Promise((done) => setTimeout(done, slow.ms));
+    rmSync: (...args: Parameters<typeof actual.rmSync>) => {
+      const hook = faults.beforeRemoval;
+      if (hook && args[0] === hook.path) {
+        faults.beforeRemoval = undefined;
+        hook.run();
       }
-      return actual.rm(...args);
+      actual.rmSync(...args);
+    },
+    writeSync: (...args: Parameters<typeof actual.writeSync>) => {
+      if (faults.failWrite) {
+        faults.failWrite = false;
+        throw new Error("disk full");
+      }
+      return actual.writeSync(...args);
     },
   };
 });
+
+/** A pid that was running a moment ago and is not now. */
+function exitedPid(): number {
+  const { pid } = spawnSync(process.execPath, ["-e", ""]);
+  if (pid === undefined || processAlive(pid)) {
+    throw new Error("could not find an exited pid");
+  }
+  return pid;
+}
 
 let directory: string;
 let lock: string;
@@ -51,7 +74,8 @@ beforeEach(async () => {
 
 afterEach(async () => {
   faults.failWrite = false;
-  faults.slowRemoval = undefined;
+  faults.beforeRead = undefined;
+  faults.beforeRemoval = undefined;
   await rm(directory, { force: true, recursive: true });
 });
 
@@ -64,32 +88,63 @@ it("removes a lock whose holder could not be recorded, so it cannot wedge", asyn
   await release();
 });
 
-it("does not let a slow breaker remove the lock another breaker took", async () => {
-  const { pid: dead } = spawnSync(process.execPath, ["-e", ""]);
-  if (dead === undefined || processAlive(dead)) {
-    throw new Error("could not find an exited pid");
-  }
+it("does not let a breaker remove the lock another breaker took", async () => {
+  const dead = exitedPid();
   await writeFile(lock, String(dead));
-  // The first breaker to remove the stale lock is slow about it. Without
-  // turns, the second removes it too, takes the lock, and then loses it to
-  // the first breaker's late removal: both would hold the lock.
-  faults.slowRemoval = { ms: 40, path: lock };
-  let holding = 0;
-  let most = 0;
-  const hold = async () => {
-    const release = await acquireFileLock(lock, {
-      breakStale: true,
-      retryMs: 1,
-    });
-    holding += 1;
-    most = Math.max(most, holding);
-    await new Promise((done) => setTimeout(done, 80));
-    holding -= 1;
-    await release();
+  // Another process tries the same stale lock in the instant this one is
+  // about to remove it. Without turns, it removes the stale lock too and
+  // takes it, and then loses it to this breaker's removal: both would hold
+  // the lock.
+  let other: ReturnType<typeof tryFileLock> | undefined;
+  faults.beforeRemoval = {
+    path: lock,
+    run: () => {
+      other = tryFileLock(lock, { breakStale: true });
+    },
   };
 
-  await Promise.all([hold(), hold()]);
+  const attempt = tryFileLock(lock, { breakStale: true });
 
-  expect(most).toBe(1);
+  expect(other).toEqual({ holder: dead });
+  expect("release" in attempt).toBe(true);
+  if ("release" in attempt) {
+    attempt.release();
+  }
   expect(await readdir(directory)).toEqual([]);
+});
+
+it("takes a lock released between its attempt and the read of its holder", async () => {
+  await writeFile(lock, String(process.pid));
+  // The holder lets go just as this attempt finds the file taken.
+  faults.beforeRead = {
+    nth: 1,
+    path: lock,
+    run: () => {
+      rmSync(lock);
+    },
+  };
+
+  const attempt = tryFileLock(lock);
+
+  expect(attempt).toHaveProperty("release");
+  expect(await readFile(lock, "utf8")).toBe(String(process.pid));
+});
+
+it("leaves a lock alone that changed hands before its breaker's turn came", async () => {
+  const dead = exitedPid();
+  await writeFile(lock, String(dead));
+  // The first read judges the dead holder's lock abandoned. By the second,
+  // made under the breaking turn, another process has broken it and holds
+  // it: this breaker must see that and leave the new holder's lock alone.
+  const other = process.ppid;
+  faults.beforeRead = {
+    nth: 2,
+    path: lock,
+    run: () => {
+      writeFileSync(lock, String(other));
+    },
+  };
+
+  expect(tryFileLock(lock, { breakStale: true })).toEqual({ holder: other });
+  expect(await readFile(lock, "utf8")).toBe(String(other));
 });

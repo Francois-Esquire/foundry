@@ -1,24 +1,31 @@
 import { createCliRenderer } from "@opentui/core";
 import { createRoot } from "@opentui/react";
 import { useSyncExternalStore } from "react";
-import { useTheme } from "~/hooks/use-theme";
+import { theme } from "~/components/ui/theme";
 import type { SetupDraft } from "~/onboarding/templates";
 import { ConfigErrorView } from "~/views/config-error";
 import { DashboardView } from "~/views/dashboard";
 import type { DashboardSnapshot } from "~/views/dashboard-model";
 import { OnboardingView } from "~/views/onboarding";
-import type { RunActions } from "~/views/run-actions";
+import type { Launcher, RunActions } from "~/views/run-actions";
 import { SplashView } from "~/views/splash";
 import { summarizeConfig } from "~/views/splash-model";
 import type { AnswerHandler } from "~/views/use-feed";
 
+/** What the dashboard can do in the host once its engine runs; published once. */
+interface HostActions {
+  readonly answer: AnswerHandler;
+  readonly launch: Launcher;
+  readonly runs: RunActions;
+}
+
 interface Screen {
-  readonly actions?: RunActions;
   readonly entered: boolean;
   readonly error?: string;
-  readonly hasConfig?: boolean;
-  readonly onAnswer?: AnswerHandler;
-  readonly onLaunch?: (name: string, input: unknown) => Promise<string>;
+  /** Whether a source was loaded; read with the first snapshot. */
+  readonly hasConfig: boolean;
+  /** Absent until the engine runs: the splash and onboarding need none. */
+  readonly host?: HostActions;
   readonly setup?: {
     readonly path: string;
     readonly onCreate: (draft: SetupDraft) => Promise<void>;
@@ -42,17 +49,8 @@ function DashboardApp({
   readonly onEnter: () => void;
   readonly onClose: () => void;
 }) {
-  const theme = useTheme();
-  const {
-    actions,
-    entered,
-    snapshot,
-    setup,
-    error,
-    hasConfig,
-    onAnswer,
-    onLaunch,
-  } = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  const { entered, snapshot, setup, error, hasConfig, host } =
+    useSyncExternalStore(store.subscribe, store.getSnapshot);
   if (error) {
     return <ConfigErrorView message={error} onClose={onClose} />;
   }
@@ -69,10 +67,10 @@ function DashboardApp({
   if (entered && snapshot) {
     return (
       <DashboardView
-        actions={actions}
-        onAnswer={onAnswer}
+        actions={host?.runs}
+        onAnswer={host?.answer}
         onClose={onClose}
-        onLaunch={onLaunch}
+        onLaunch={host?.launch}
         snapshot={snapshot}
         toolbar={
           <text fg={theme.colors.mutedForeground} wrapMode="none">
@@ -107,7 +105,7 @@ export async function openDashboard(
     exitSignals: [],
   });
   const listeners = new Set<() => void>();
-  let screen: Screen = { entered: false };
+  let screen: Screen = { entered: false, hasConfig: false };
   const store: ScreenStore = {
     getSnapshot: () => screen,
     subscribe(listener) {
@@ -167,6 +165,9 @@ export async function openDashboard(
   );
   return {
     close: actions.close,
+    connect(host: HostActions) {
+      publish({ ...screen, host });
+    },
     entry,
     async failure(error: unknown) {
       publish({ ...screen, error: String(error), setup: undefined });
@@ -203,16 +204,7 @@ export async function openDashboard(
         });
       });
     },
-    setAnswerer(onAnswer: AnswerHandler) {
-      publish({ ...screen, onAnswer });
-    },
-    setLauncher(onLaunch: (name: string, input: unknown) => Promise<string>) {
-      publish({ ...screen, onLaunch });
-    },
-    setRunActions(runActions: RunActions) {
-      publish({ ...screen, actions: runActions });
-    },
-    update(snapshot: DashboardSnapshot, hasConfig = true) {
+    update(snapshot: DashboardSnapshot, hasConfig: boolean) {
       publish({ ...screen, hasConfig, snapshot });
     },
   };

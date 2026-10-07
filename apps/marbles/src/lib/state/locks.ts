@@ -1,60 +1,53 @@
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
-import { hasCode } from "~/lib/state/json";
+import type { FileLockHolder } from "@foundry/lib/file-lock";
+import { processAlive, tryFileLock } from "@foundry/lib/file-lock";
 
 /**
- * `<workspace>/locks/<schedule>` holds the pid of the tick running it, so a
+ * `<dir>/locks/<name>` holds the pid of the process that has it, so a
  * launchd tick that lands while the previous one is still going skips rather
- * than doubles up. Created with `wx` so two ticks cannot both win; a lock
- * whose pid is dead is stale and gets replaced.
+ * than doubles up, and two processes never adopt one parked run. It is the
+ * `@foundry/lib/file-lock` protocol taken without waiting: a lock whose
+ * holder has exited, or that stayed empty for 30s (its creator died before
+ * writing its pid), is broken and taken over, one breaker at a time through
+ * `<name>.break`. A file that is neither a pid nor empty is never broken.
  */
 
 export interface Lock {
+  /** Give the lock up, once; a lock someone else has taken since is left alone. */
   release(): void;
 }
 
-/** The lock, or the pid of the live process holding it. */
-export function acquireLock(dir: string, name: string): Lock | number {
-  const path = join(dir, "locks", name);
+/** A lock someone else has; `holder` says who, for people: `pid 1234`, `this process`. */
+export interface HeldLock {
+  readonly holder: string;
+}
+
+/** The lock, or who holds it now. */
+export function acquireLock(dir: string, name: string): Lock | HeldLock {
   mkdirSync(join(dir, "locks"), { recursive: true });
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    try {
-      writeFileSync(path, String(process.pid), { flag: "wx" });
-      return {
-        release: () => {
-          rmSync(path, { force: true });
-        },
-      };
-    } catch (error) {
-      if (!hasCode(error, "EEXIST")) {
-        throw error;
-      }
-    }
-    const holder = holderPid(path);
-    if (holder !== undefined && alive(holder)) {
-      return holder;
-    }
-    rmSync(path, { force: true });
-  }
-  throw new Error(`lock ${name} keeps changing hands`);
+  const path = join(dir, "locks", name);
+  const attempt = tryFileLock(path, { breakStale: true });
+  return "release" in attempt
+    ? attempt
+    : { holder: describeHolder(path, attempt) };
 }
 
-export function holderPid(path: string): number | undefined {
-  try {
-    const pid = Number(readFileSync(path, "utf8"));
-    return Number.isInteger(pid) && pid > 0 ? pid : undefined;
-  } catch {
-    return undefined;
+function describeHolder(
+  path: string,
+  { empty, holder }: FileLockHolder
+): string {
+  if (empty) {
+    return "a process that is taking it now; retry";
   }
-}
-
-/** `EPERM` counts as alive: the pid exists but belongs to another user. */
-export function alive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return hasCode(error, "EPERM");
+  if (holder === undefined) {
+    return `an unknown process (if none is running, remove ${path})`;
   }
+  if (processAlive(holder)) {
+    return `pid ${String(holder)}`;
+  }
+  // Only while another process has the turn to break it, or a crashed one
+  // left that turn behind.
+  return `pid ${String(holder)}, which has exited (if no process is taking the lock over, remove ${path}.break)`;
 }

@@ -7,8 +7,9 @@ import { SetupFlow } from "~/components/ui/setup-flow";
 import { Text } from "~/components/ui/text";
 import { useAsyncAction } from "~/hooks/use-async-action";
 import { useQuitGuard } from "~/hooks/use-quit-guard";
-import { inputProblem } from "~/lib/inputs";
+import { type InputValues, inputProblem } from "~/lib/inputs";
 import type { DefinitionSnapshot } from "./dashboard-model";
+import type { Launcher } from "./run-actions";
 
 export function LaunchView({
   definition,
@@ -18,7 +19,7 @@ export function LaunchView({
   onClose,
 }: {
   readonly definition: DefinitionSnapshot;
-  readonly onLaunch: (name: string, input: unknown) => Promise<string>;
+  readonly onLaunch: Launcher;
   readonly onStarted: (id: string) => void;
   readonly onCancel: () => void;
   readonly onClose: () => void;
@@ -30,7 +31,7 @@ export function LaunchView({
     ? inputProblem(fields)
     : "Arguments are not declared for this definition. Add input metadata in your marble module, or use marbles roll with --input.";
   const submit = useCallback(
-    (input: unknown) => {
+    (input: InputValues) => {
       if (!quit.quitting) {
         launch.run(async () => onStarted(await onLaunch(definition.id, input)));
       }

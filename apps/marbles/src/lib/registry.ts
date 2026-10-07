@@ -1,9 +1,10 @@
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { InputField } from "~/lib/inputs";
 import type { MonitorHandler, MonitorSpec } from "~/lib/monitor";
 import { detector, handlerResponse } from "~/lib/monitor";
 import type { AnyDefinition, NamedDefinition } from "./definition";
 import { isNamed, quoteOrigin } from "./definition";
-import { fieldsFromSchema, JSON_INPUT_FIELD, jsonSchemaOf } from "./schema";
+import { fieldsFromJsonSchema, JSON_INPUT_FIELD, jsonSchemaOf } from "./schema";
 import type { Schedule, Trigger } from "./triggers";
 
 /**
@@ -120,21 +121,30 @@ export class Registry {
       )
       .map((definition) => {
         const schema = definition.input;
-        // No schema: no arguments. A schema the library cannot describe as
-        // JSON Schema still takes input, as one JSON field.
-        const fields = schema
-          ? (fieldsFromSchema(schema) ?? [JSON_INPUT_FIELD])
-          : [];
         const inputSchema = schema ? jsonSchemaOf(schema) : undefined;
         return {
           ...(definition.description === undefined
             ? {}
             : { description: definition.description }),
-          input: { fields },
+          input: { fields: formFields(schema, inputSchema) },
           ...(inputSchema === undefined ? {} : { inputSchema }),
           kind: definition.kind,
           name: definition.name,
         };
       });
   }
+}
+
+/**
+ * No schema: no arguments. A schema the library cannot describe as JSON
+ * Schema still takes input, as one JSON field.
+ */
+function formFields(
+  schema: StandardSchemaV1 | undefined,
+  json: Record<string, unknown> | undefined
+): readonly InputField[] {
+  if (!schema) {
+    return [];
+  }
+  return json ? fieldsFromJsonSchema(json) : [JSON_INPUT_FIELD];
 }

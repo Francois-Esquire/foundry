@@ -1,11 +1,13 @@
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
 import {
-  fieldsFromSchema,
+  fieldsFromJsonSchema,
   inputFromFields,
   inputKeysOf,
   JSON_FIELD,
+  jsonSchemaOf,
   SchemaError,
   validate,
 } from "~/lib/schema";
@@ -31,7 +33,13 @@ describe("validate", () => {
   });
 });
 
-describe("fieldsFromSchema", () => {
+/** Fields as `Registry.entries` derives them: from the schema's JSON Schema. */
+function fieldsFromSchema(schema: StandardSchemaV1) {
+  const json = jsonSchemaOf(schema);
+  return json && fieldsFromJsonSchema(json);
+}
+
+describe("fieldsFromJsonSchema", () => {
   it("maps a flat object of scalars and enums", () => {
     const schema = z.object({
       count: z.number().min(1).max(9).default(3),

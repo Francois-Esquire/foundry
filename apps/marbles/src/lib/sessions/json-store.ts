@@ -101,7 +101,11 @@ const SUFFIX = ".json";
 /** How long a mutation waits for another live process's write. */
 const LOCK_WAIT_MS = 10_000;
 
-/** Mutations queued per file path, shared by every store in this process. */
+/**
+ * Mutations queued per file path. Process-wide on purpose: two stores over
+ * one directory must still take turns, and the file lock they also take is
+ * not reentrant, so it cannot order writers within one process.
+ */
 const queue = new KeyedQueue();
 
 /** A session's file as it is now. */

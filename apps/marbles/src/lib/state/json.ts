@@ -1,15 +1,31 @@
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import {
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname } from "node:path";
 
-import { hasErrorCode } from "@foundry/lib/atomic-file";
-import { generateId } from "ai";
+import type { JsonValue } from "@foundry/lib/json";
 
-/** Temp-and-rename, so a concurrent reader never sees a half-written file. */
+/**
+ * Temp-and-rename, so a concurrent reader never sees a half-written file. The
+ * temporary is created exclusively and removed if the write fails. Sync,
+ * like the state store and run files it writes; `writeFileAtomic`
+ * (`@foundry/lib/atomic-file`) is the async writer with fsync for data that
+ * must survive a crash.
+ */
 export function writeJson(path: string, value: unknown): void {
   mkdirSync(dirname(path), { recursive: true });
-  const temp = `${path}.${generateId()}.tmp`;
-  writeFileSync(temp, JSON.stringify(value, null, 2));
-  renameSync(temp, path);
+  const temp = `${path}.${randomUUID()}.tmp`;
+  try {
+    writeFileSync(temp, JSON.stringify(value, null, 2), { flag: "wx" });
+    renameSync(temp, path);
+  } finally {
+    rmSync(temp, { force: true });
+  }
 }
 
 /** `undefined` for a missing or unparsable file: state is advisory, never fatal. */
@@ -25,26 +41,35 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-/** Kept for existing callers; new code imports `hasErrorCode` from `@foundry/lib/atomic-file`. */
-export function hasCode(error: unknown, code: string): boolean {
-  return hasErrorCode(error, code);
-}
-
 /**
- * JSON with sorted keys, so equal values hash equal. `undefined` reads as null.
- * For plain JSON data the output is byte-identical to `canonicalizeJson`
- * (`@foundry/lib/json`), which throws on `undefined` and non-plain objects
- * instead; switch a caller once nothing but plain data can reach it.
+ * `value` as plain JSON data, for `canonicalizeJson` (`@foundry/lib/json`)
+ * to hash or compare when it may hold what that refuses. The coercions are
+ * the ones trigger keys have always been hashed with, so they must not
+ * change, or existing schedules would get new keys: `undefined` and
+ * non-finite numbers read as null, any object as its own enumerable keys, so
+ * a `Date` reads as `{}`, and a bigint throws. Functions and symbols read as
+ * null too; the serializer this replaced wrote invalid JSON for them
+ * (`"f":undefined`, or an empty array slot), so no real persisted key used it.
  */
-export function stableJson(value: unknown): string {
+export function jsonData(value: unknown): JsonValue {
   if (Array.isArray(value)) {
-    return `[${value.map(stableJson).join(",")}]`;
+    return value.map(jsonData);
   }
   if (isRecord(value)) {
-    const entries = Object.keys(value)
-      .sort()
-      .map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`);
-    return `{${entries.join(",")}}`;
+    return Object.fromEntries(
+      Object.entries(value).map(([key, member]) => [key, jsonData(member)])
+    );
   }
-  return value === undefined ? "null" : JSON.stringify(value);
+  switch (typeof value) {
+    case "boolean":
+    case "string":
+      return value;
+    case "number":
+      return Number.isFinite(value) ? value : null;
+    case "bigint":
+      // As `JSON.stringify` does.
+      throw new TypeError("a bigint has no JSON form");
+    default:
+      return null;
+  }
 }

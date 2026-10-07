@@ -86,7 +86,6 @@ function snapshot(feed: readonly FeedEntrySnapshot[], run = record) {
   return dashboardSnapshot([run], {
     definitions: [],
     feed,
-    harnesses: [],
     lastFinish: new Map(),
     monitors: new Map(),
     now: 200,

@@ -12,7 +12,8 @@ export type SplashState =
   | { readonly status: "loading" }
   | {
       readonly status: "ready";
-      readonly hasConfig?: boolean;
+      /** False when setup was skipped and no source loaded. */
+      readonly hasConfig: boolean;
       readonly counts: StartupCounts;
     };
 

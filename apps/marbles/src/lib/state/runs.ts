@@ -1,12 +1,12 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-
+import { processAlive } from "@foundry/lib/file-lock";
 import type { RunRecord } from "@foundry/workflows/store";
 import { InMemoryOrchestratorStore } from "@foundry/workflows/store";
 
 import { isRecord, writeJson } from "~/lib/state/json";
 import type { Lock } from "~/lib/state/locks";
-import { acquireLock, alive } from "~/lib/state/locks";
+import { acquireLock } from "~/lib/state/locks";
 
 /**
  * One file per Run under `<workspace>/runs/`, so two ticks that overlap never
@@ -32,7 +32,12 @@ export interface RunExtras {
   readonly session: { readonly id: string };
 }
 
-const TERMINAL = new Set(["complete", "failed", "cancelled"]);
+/** Run statuses that are settled for good: nothing will run, resume, or need cancelling. */
+export const TERMINAL_RUN_STATUSES: ReadonlySet<string> = new Set([
+  "complete",
+  "failed",
+  "cancelled",
+]);
 const EMPTY: Snapshot = {
   frames: [],
   jobs: [],
@@ -193,7 +198,7 @@ function readRun(
   if (run === undefined) {
     throw new Error("run is missing");
   }
-  if (TERMINAL.has(run.status)) {
+  if (TERMINAL_RUN_STATUSES.has(run.status)) {
     return { snapshot };
   }
   if (run.status !== "suspended") {
@@ -203,14 +208,14 @@ function readRun(
     throw new Error("run is suspended; nothing here can resume it");
   }
   const owner = typeof file.pid === "number" ? file.pid : undefined;
-  if (owner !== undefined && owner !== process.pid && alive(owner)) {
+  if (owner !== undefined && owner !== process.pid && processAlive(owner)) {
     throw new Error(`run is suspended in pid ${String(owner)}`);
   }
   // The claim is the lock, not the pid in the file: two processes reading
   // the same dead pid cannot both win it.
   const lock = acquireLock(dir, `run-${run.id}`);
-  if (typeof lock === "number") {
-    throw new Error(`run is suspended in pid ${String(lock)}`);
+  if ("holder" in lock) {
+    throw new Error(`run is suspended in ${lock.holder}`);
   }
   return {
     recovered: { extras: extrasOf(file), id: run.id, lock },

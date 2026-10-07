@@ -25,7 +25,7 @@ import {
   visibleLists,
 } from "./dashboard-state";
 import type { CatalogSelection } from "./dashboard-tree";
-import type { RunActions } from "./run-actions";
+import type { Launcher, RunActions } from "./run-actions";
 import { type AnswerHandler, useFeed } from "./use-feed";
 
 export interface DashboardOptions {
@@ -34,7 +34,7 @@ export interface DashboardOptions {
   /** Answer an open input entry; absent where nothing can resume the run. */
   readonly onAnswer?: AnswerHandler;
   readonly onClose: () => void;
-  readonly onLaunch?: (name: string, input: unknown) => Promise<string>;
+  readonly onLaunch?: Launcher;
   /** Keys the dashboard leaves alone, for the preview's own controls. */
   readonly onShortcut?: (key: KeyEvent) => void;
   readonly snapshot: DashboardSnapshot;

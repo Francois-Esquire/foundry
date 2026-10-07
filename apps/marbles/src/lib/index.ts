@@ -85,9 +85,9 @@ export type { HarnessInteractions } from "./sandbox/interactions";
 export type { SandboxAuthority } from "./sandbox/session";
 export type { JsonSessionStoreOptions } from "./sessions/json-store";
 export { JsonSessionStore } from "./sessions/json-store";
-export type { Lock } from "./state/locks";
+export type { HeldLock, Lock } from "./state/locks";
+export { TERMINAL_RUN_STATUSES } from "./state/runs";
 export type {
-  HeldLock,
   StateCollection,
   StateStore,
   StoredDocument,

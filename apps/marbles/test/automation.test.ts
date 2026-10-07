@@ -96,6 +96,23 @@ it("persists declarative records, keeps stable ids and restores enabled state", 
   expect(restored.list()).toHaveLength(0);
 });
 
+it("names who holds an automation's edit lock", async () => {
+  const state = temp();
+  step("target").do(() => 1);
+  const service = serviceAt(state);
+  const record = await service.create(
+    { at: "1h", key: "k", workflow: "target" },
+    owner
+  );
+  // Another host is mid-edit: its pid is in the lock file.
+  mkdirSync(join(state, "locks"), { recursive: true });
+  writeFileSync(join(state, "locks", `edit-${record.id}`), String(process.pid));
+
+  expect(() => service.setEnabled(record.id, false, owner)).toThrow(
+    `Automation is being edited by another host (held by pid ${String(process.pid)}); retry the operation`
+  );
+});
+
 it("rejects changed idempotency keys, invalid target input and foreign mutation", async () => {
   step("target")
     .input(z.object({ value: z.number() }))

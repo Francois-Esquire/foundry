@@ -1,9 +1,10 @@
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
+import { lockHolder, processAlive } from "@foundry/lib/file-lock";
+
 import { isRecord, readJson } from "~/lib/state/json";
-import { alive, holderPid } from "~/lib/state/locks";
-import { isTerminal } from "~/views/run-status";
+import { TERMINAL_RUN_STATUSES } from "~/lib/state/runs";
 
 /**
  * Everything the status command shows, read straight from the state dir. Pure
@@ -78,7 +79,7 @@ function readWorkspace(dir: string): WorkspaceStatus | undefined {
       ? heartbeat.pid
       : null;
   return {
-    alive: pid !== null && alive(pid),
+    alive: pid !== null && processAlive(pid),
     config: typeof meta.config === "string" ? meta.config : null,
     id: meta.id,
     lastSeen: typeof meta.lastSeen === "string" ? meta.lastSeen : null,
@@ -95,8 +96,8 @@ function readSchedules(dir: string): ScheduleStatus[] {
   const locks = join(dir, "locks");
   const running = new Map<string, number>();
   for (const name of listFiles(locks)) {
-    const holder = holderPid(join(locks, name));
-    if (holder !== undefined && alive(holder)) {
+    const holder = lockHolder(join(locks, name));
+    if (holder !== undefined && processAlive(holder)) {
       running.set(name, holder);
     }
   }
@@ -150,7 +151,9 @@ function readRun(path: string): RunSummary | undefined {
   return {
     createdAt: run.timestamps.createdAt,
     id: run.id,
-    orphaned: !isTerminal(run.status) && (owner === undefined || !alive(owner)),
+    orphaned:
+      !TERMINAL_RUN_STATUSES.has(run.status) &&
+      (owner === undefined || !processAlive(owner)),
     status: run.status,
     step: run.step,
   };

@@ -1,4 +1,14 @@
 import type { ChannelMessage } from "@foundry/workflows/channels";
+import type { InputValues } from "~/lib/inputs";
+
+/**
+ * Start a definition by name with the launch form's values, or none for one
+ * that launches directly; resolves to the new run's id.
+ */
+export type Launcher = (
+  name: string,
+  input: InputValues | undefined
+) => Promise<string>;
 
 /**
  * What a host lets the dashboard do to a live run. None of it is authored

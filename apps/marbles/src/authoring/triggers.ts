@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
+import { canonicalizeJson } from "@foundry/lib/json";
 import { catalog } from "~/authoring/catalog";
 import type { AnyDefinition, LockedNode } from "~/lib/definition";
 import { launchTarget } from "~/lib/launch";
 import type { MonitorHandler, MonitorSpec } from "~/lib/monitor";
 import { DEFAULT_EVERY } from "~/lib/monitor";
 import { parseAt } from "~/lib/schedule";
-import { stableJson } from "~/lib/state/json";
+import { jsonData } from "~/lib/state/json";
 import type { CalendarSlot, Trigger } from "~/lib/triggers";
 
 /**
@@ -46,7 +47,7 @@ export function schedule(target: AnyDefinition | LockedNode): ScheduleBuilder {
   const register = (trigger: Trigger) => {
     const hasInput = launch.input !== null;
     const base = hasInput
-      ? `${slug(launch.workflow)}-${sha256(stableJson(launch.input)).slice(0, 8)}`
+      ? `${slug(launch.workflow)}-${sha256(canonicalizeJson(jsonData(launch.input))).slice(0, 8)}`
       : slug(launch.workflow);
     catalog.schedule({
       input: launch.input,

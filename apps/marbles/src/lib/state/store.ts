@@ -8,7 +8,7 @@ import {
 import { join } from "node:path";
 
 import { writeJson } from "~/lib/state/json";
-import type { Lock } from "~/lib/state/locks";
+import type { HeldLock, Lock } from "~/lib/state/locks";
 import { acquireLock } from "~/lib/state/locks";
 
 /**
@@ -34,11 +34,6 @@ export type StoredDocument = {
   /** The document exists but could not be read. */
   | { readonly error: string; readonly value?: undefined }
 );
-
-/** A lock someone else has; `holder` says who, for people: `pid 1234`, `this process`. */
-export interface HeldLock {
-  readonly holder: string;
-}
 
 /**
  * Keys and lock names become file names, so each must be one plain name:
@@ -134,8 +129,7 @@ export class JsonStateStore implements StateStore {
   }
 
   lock(name: string): Lock | HeldLock {
-    const lock = acquireLock(this.#dir, plainName("lock name", name));
-    return typeof lock === "number" ? { holder: `pid ${String(lock)}` } : lock;
+    return acquireLock(this.#dir, plainName("lock name", name));
   }
 
   read(collection: StateCollection, key: string): unknown {

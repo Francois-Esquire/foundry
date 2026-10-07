@@ -105,9 +105,7 @@ export function SplashView({
           <LoadingIndicator label="Loading marbles" />
         ) : (
           <text fg={theme.colors.success}>
-            {state.hasConfig === false
-              ? "No source · setup skipped"
-              : "✓ Marbles loaded"}
+            {state.hasConfig ? "✓ Marbles loaded" : "No source · setup skipped"}
           </text>
         )}
         <StartupSummary

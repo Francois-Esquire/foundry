@@ -67,7 +67,11 @@ export function PreviewStartup({ onClose }: { readonly onClose: () => void }) {
       preview
       state={
         ready
-          ? { counts: summarizeConfig(dashboardSnapshot), status: "ready" }
+          ? {
+              counts: summarizeConfig(dashboardSnapshot),
+              hasConfig: true,
+              status: "ready",
+            }
           : { status: "loading" }
       }
       workspace={dashboardSnapshot.workspace}
