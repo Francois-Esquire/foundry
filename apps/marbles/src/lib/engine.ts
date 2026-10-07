@@ -16,7 +16,6 @@ import type { Factory } from "@foundry/workflows/orchestrator";
 import { Orchestrator } from "@foundry/workflows/orchestrator";
 import type { RunRecord } from "@foundry/workflows/store";
 import { InMemoryOrchestratorStore } from "@foundry/workflows/store";
-import type { WorkflowState } from "@foundry/workflows/workflow";
 
 import { configuredMonitorUrl } from "~/lib/automation/configured";
 import { AutomationService } from "~/lib/automation/service";
@@ -40,7 +39,8 @@ import { WorkspacesManager } from "~/lib/managers/workspaces";
 import { observeSteps } from "~/lib/observe";
 import type { DefinitionEntry, MonitorRecord } from "~/lib/registry";
 import { Registry } from "~/lib/registry";
-import { PAUSE_KIND, restoreScope, runs as runScopes } from "~/lib/run-scope";
+import type { ReadonlyRunScopes } from "~/lib/run-scope";
+import { PAUSE_KIND, RunScopes } from "~/lib/run-scope";
 import { HarnessActivities } from "~/lib/sandbox/activities";
 import { JsonAgentGrantRepository } from "~/lib/sandbox/grants";
 import { HarnessInteractions } from "~/lib/sandbox/interactions";
@@ -110,6 +110,27 @@ export interface EngineOptions {
   readonly workspaces: Catalogue;
 }
 
+/**
+ * A run this process dispatched or adopted, from then until it settles:
+ * what a host reads of it while it is live, and what is owed on disk.
+ */
+interface HeldRun {
+  readonly dispatched: Dispatched<unknown>;
+  /** Ownership of an adopted run's file; released once it settles or the process stops. */
+  lock?: Lock;
+  /**
+   * Not yet written since it was dispatched. Persisting is not the run: a
+   * failed write warns and the value still returns.
+   */
+  unsaved: boolean;
+}
+
+/** Give up a held run's file, once: another process may take it from here. */
+function release(held: HeldRun): void {
+  held.lock?.release();
+  held.lock = undefined;
+}
+
 /** What a started engine holds; absent until `start` and after a failed one. */
 interface Running {
   readonly orchestrator: Orchestrator;
@@ -137,6 +158,8 @@ export class Engine {
   readonly models: ModelManager;
   readonly root: string;
   readonly sandboxes: SandboxesManager;
+  /** The scope of every run this engine holds, for hosts that steer or inspect. */
+  readonly scopes: ReadonlyRunScopes;
   readonly sessions: SessionStore;
   readonly state: string | undefined;
   readonly workspaceId: string;
@@ -148,20 +171,14 @@ export class Engine {
   readonly #publisher: FeedPublisher;
   readonly #print: (line: string) => void;
   readonly #registry = new Registry();
-  /** Raw factories registered beside the definitions, applied in order at start. */
-  readonly #extra: ((orchestrator: Orchestrator) => void)[] = [];
-  // Runs this process dispatched or adopted and has not written since they
-  // last changed. Persisting is not the run: a failed write warns and the
-  // value still returns.
-  readonly #unsaved = new Set<string>();
-  readonly #active = new Map<string, () => WorkflowState>();
-  readonly #subscribers = new Map<
-    string,
-    (signal?: AbortSignal) => ReadableStream<ChannelMessage>
-  >();
+  readonly #scopes = new RunScopes();
+  /**
+   * Raw factories registered beside the definitions, by name, applied in
+   * order at start. Each keeps its own factory's types by registering itself.
+   */
+  readonly #extra = new Map<string, (orchestrator: Orchestrator) => void>();
+  readonly #held = new Map<string, HeldRun>();
   readonly #dispatching = new Set<Promise<unknown>>();
-  // Ownership of adopted runs; released once a run settles or the process stops.
-  readonly #locks = new Map<string, Lock>();
   #running: Running | undefined;
   #phase: "new" | "started" | "stopping" = "new";
 
@@ -173,6 +190,7 @@ export class Engine {
     const { containers } = options;
     this.models = models;
     this.root = root;
+    this.scopes = this.#scopes;
     this.sessions = sessions;
     this.state = state;
     this.workspaceId = workspaceId;
@@ -204,9 +222,19 @@ export class Engine {
       sessions,
       ...(state ? { pendingPath: join(state, "agent-approvals.json") } : {}),
     });
+    const sandboxes = new SandboxesManager({
+      containers:
+        typeof containers === "function"
+          ? containers
+          : () => Promise.resolve(containers),
+      home,
+      root,
+    });
+    this.sandboxes = sandboxes;
     this.agents = new AgentsManager({
       activities: this.activities,
       automations: this.automations,
+      containerOf: (sandbox) => sandboxes.containerOf(sandbox),
       defaultExecutor: () => selectExecutor(models),
       dry: options.dry ?? false,
       interactions: this.interactions,
@@ -219,14 +247,6 @@ export class Engine {
     this.artifacts = new ArtifactsManager({
       artifacts: options.artifacts,
       workspaceId,
-    });
-    this.sandboxes = new SandboxesManager({
-      containers:
-        typeof containers === "function"
-          ? containers
-          : () => Promise.resolve(containers),
-      home,
-      root,
     });
     this.workspaces = new WorkspacesManager({
       catalogue: options.workspaces,
@@ -275,7 +295,7 @@ export class Engine {
     if (definition && this.#running) {
       this.#running.orchestrator.register(
         name,
-        factoryFor(definition, () => this.bindings)
+        factoryFor(definition, () => this.bindings, this.#scopes)
       );
     }
   }
@@ -305,6 +325,16 @@ export class Engine {
     this.#adopt(record.key);
   }
 
+  /**
+   * A monitor's launch has been started: its detector drops the pending
+   * launch, so the next poll reads the source again. Until then every tick
+   * hands the same launch out, so a crash between seeing a change and
+   * starting its run does not lose it. The schedule loop calls this.
+   */
+  acknowledge(key: string): void {
+    this.#registry.detectors.get(key)?.acknowledge();
+  }
+
   /** The monitors a host declared, by key. */
   monitors(): ReadonlyMap<string, MonitorRecord> {
     return this.#registry.monitors;
@@ -322,18 +352,23 @@ export class Engine {
     if (this.#phase !== "new") {
       throw new Error(`register("${name}"): the engine has already started`);
     }
-    this.#extra.push((orchestrator) => orchestrator.register(name, factory));
+    if (this.#extra.has(name)) {
+      throw new Error(`register("${name}"): already registered`);
+    }
+    this.#extra.set(name, (orchestrator) =>
+      orchestrator.register(name, factory)
+    );
   }
 
   /** Every named definition, then what the host registered beside them. */
   #registerAll(orchestrator: Orchestrator): void {
-    for (const definition of this.#registry.definitions.values()) {
+    for (const [name, definition] of this.#registry.definitions) {
       orchestrator.register(
-        definition.name as string,
-        factoryFor(definition, () => this.bindings)
+        name,
+        factoryFor(definition, () => this.bindings, this.#scopes)
       );
     }
-    for (const register of this.#extra) {
+    for (const register of this.#extra.values()) {
       register(orchestrator);
     }
   }
@@ -352,19 +387,17 @@ export class Engine {
     contributeQueueConfig(config, { concurrency: 1, defaultName: "marbles" });
     // The store is built before the Orchestrator that registers definitions,
     // and a recovered run whose definition is gone would fail the start. So
-    // the names are collected first; registering only ever registers.
-    const registered = new Set<string>();
-    this.#registerAll({
-      register: (name: string) => registered.add(name),
-    } as unknown as Orchestrator);
+    // only runs under a name that will be registered are recovered.
+    const registered = (name: string) =>
+      this.#registry.definitions.has(name) || this.#extra.has(name);
     const loaded =
       state === undefined
         ? undefined
         : loadRuns(state, print, {
-            recover: (run) => askable && registered.has(run.step),
+            recover: (run) => askable && registered(run.step),
           });
     for (const [runId, extras] of loaded?.recovered ?? []) {
-      restoreScope(runId, extras);
+      this.#scopes.recover(runId, extras);
     }
     const store = new InMemoryOrchestratorStore(
       loaded === undefined ? {} : { snapshot: loaded.snapshot }
@@ -382,32 +415,31 @@ export class Engine {
     // as soon as its answer is in, before the run goes on: a crash after that
     // finds a run that was mid-flight, which is skipped, not a stale question
     // that would be asked again over work already done.
-    const held = (runId: string) =>
-      this.#unsaved.has(runId) || this.#active.has(runId);
     orchestrator.on("suspended", (payload) => {
-      if (held(payload.runId)) {
+      if (this.#held.has(payload.runId)) {
         this.#save(payload.runId);
       }
     });
     orchestrator.on("resumed", (payload) => {
-      if (held(payload.runId)) {
+      if (this.#held.has(payload.runId)) {
         this.#save(payload.runId);
       }
     });
-    for (const [runId, lock] of loaded?.locks ?? []) {
-      this.#locks.set(runId, lock);
-    }
 
     // Adopt what the store recovered: follow each parked run and keep its
     // question open under this process before abandoned entries are swept.
     for (const runId of loaded?.recovered.keys() ?? []) {
+      const lock = loaded?.locks.get(runId);
       const dispatched = await orchestrator.get(runId);
       const record = store.snapshot().runs.find((run) => run.id === runId);
       if (!(dispatched && record)) {
+        // Nothing here can follow it, so nothing here should own it.
+        lock?.release();
+        this.#scopes.forget(runId);
         continue;
       }
       print(`[run] ${record.step} recovered ${runId}`);
-      this.#track(record.step, dispatched);
+      this.#track(record.step, dispatched, lock);
       // The file now names this process as the owner.
       this.#save(runId);
       await router.adopt(record.step, runId);
@@ -428,7 +460,7 @@ export class Engine {
   }
 
   #extrasOf(runId: string): RunExtras | undefined {
-    const scope = runScopes.get(runId);
+    const scope = this.scopes.get(runId);
     return scope
       ? {
           ledger: scope.ledger.toJSON(),
@@ -439,7 +471,10 @@ export class Engine {
   }
 
   #save(runId: string, extras = this.#extrasOf(runId)): void {
-    this.#unsaved.delete(runId);
+    const held = this.#held.get(runId);
+    if (held) {
+      held.unsaved = false;
+    }
     if (this.state === undefined) {
       return;
     }
@@ -450,19 +485,14 @@ export class Engine {
     }
   }
 
-  #release(runId: string): void {
-    this.#locks.get(runId)?.release();
-    this.#locks.delete(runId);
-  }
-
   /** Follow a run to its end: print its steps, route its posts, write it back. */
-  #track<O>(name: string, dispatched: Dispatched<O>): Promise<O> {
+  #track<O>(name: string, dispatched: Dispatched<O>, lock?: Lock): Promise<O> {
     const { router } = this.#live();
-    this.#active.set(dispatched.id, () => dispatched.workflow.state);
-    this.#subscribers.set(dispatched.id, (signal) =>
-      dispatched.workflow.root.subscribe(signal)
-    );
-    this.#unsaved.add(dispatched.id);
+    this.#held.set(dispatched.id, {
+      dispatched,
+      ...(lock === undefined ? {} : { lock }),
+      unsaved: true,
+    });
     const routed = router.observe(name, dispatched.id);
     const observed = observeSteps(
       name,
@@ -485,11 +515,13 @@ export class Engine {
       // Close what the run opened through the context; its ledger is read
       // first, since settling forgets the scope.
       const extras = this.#extrasOf(dispatched.id);
-      await runScopes.get(dispatched.id)?.settle();
-      this.#active.delete(dispatched.id);
-      this.#subscribers.delete(dispatched.id);
+      await this.#scopes.settle(dispatched.id);
+      const held = this.#held.get(dispatched.id);
+      this.#held.delete(dispatched.id);
       this.#save(dispatched.id, extras);
-      this.#release(dispatched.id);
+      if (held) {
+        release(held);
+      }
       if (settled.status !== "complete") {
         throw new Error(
           settled.status === "failed"
@@ -506,7 +538,7 @@ export class Engine {
   }
 
   #scopeOf(runId: string) {
-    const scope = runScopes.get(runId);
+    const scope = this.scopes.get(runId);
     if (!scope) {
       throw new Error(`run ${runId} is not running here`);
     }
@@ -550,7 +582,7 @@ export class Engine {
    * suspended. `false` when no such step is running here.
    */
   pause(runId: string, stepId: string, reason?: string): boolean {
-    return runScopes.get(runId)?.pause(stepId, reason) ?? false;
+    return this.scopes.get(runId)?.pause(stepId, reason) ?? false;
   }
 
   /**
@@ -606,7 +638,7 @@ export class Engine {
       this.#live()
         .store.snapshot()
         .runs.map((record) => {
-          const current = this.#active.get(record.id)?.();
+          const current = this.#held.get(record.id)?.dispatched.workflow.state;
           return current
             ? {
                 ...record,
@@ -662,12 +694,14 @@ export class Engine {
       );
     }
     await orchestrator.drain();
-    for (const runId of [...this.#unsaved]) {
-      this.#save(runId);
+    for (const [runId, held] of this.#held) {
+      if (held.unsaved) {
+        this.#save(runId);
+      }
     }
     await orchestrator.stop();
-    for (const runId of [...this.#locks.keys()]) {
-      this.#release(runId);
+    for (const held of this.#held.values()) {
+      release(held);
     }
   }
 
@@ -679,7 +713,7 @@ export class Engine {
     runId: string,
     signal?: AbortSignal
   ): ReadableStream<ChannelMessage> | undefined {
-    return this.#subscribers.get(runId)?.(signal);
+    return this.#held.get(runId)?.dispatched.workflow.root.subscribe(signal);
   }
 
   /**

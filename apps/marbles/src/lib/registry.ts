@@ -1,7 +1,8 @@
 import type { InputField } from "~/lib/inputs";
-import type { MonitorHandler, MonitorSpec } from "~/lib/monitor";
+import type { Detector, MonitorHandler, MonitorSpec } from "~/lib/monitor";
 import { detector } from "~/lib/monitor";
-import type { AnyDefinition } from "./definition";
+import type { AnyDefinition, NamedDefinition } from "./definition";
+import { isNamed, quoteOrigin } from "./definition";
 import { fieldsFromSchema, JSON_INPUT_FIELD, jsonSchemaOf } from "./schema";
 import type { Schedule, Trigger } from "./triggers";
 
@@ -29,8 +30,6 @@ export interface MonitorRecord {
 /** A launchable definition, as a host lists it. */
 export interface DefinitionEntry {
   readonly description?: string;
-  /** The name came from the config's `const`. */
-  readonly inferred?: boolean;
   /** Launch-form fields; an empty list means no arguments. */
   readonly input: { readonly fields: readonly InputField[] };
   readonly inputSchema?: Record<string, unknown>;
@@ -41,29 +40,26 @@ export interface DefinitionEntry {
 /** The detector step agent-created monitors share; never launchable by hand. */
 export const AUTOMATION_MONITOR = "__automation_monitor";
 
-function where(definition: AnyDefinition): string {
-  const { site } = definition;
-  return site ? ` (${site.file}:${String(site.line)})` : "";
-}
-
 export class Registry {
-  readonly definitions = new Map<string, AnyDefinition>();
+  readonly definitions = new Map<string, NamedDefinition>();
+  /**
+   * The detector behind each monitor schedule, by schedule key: the
+   * monitors declared here and those agents created. A tick acknowledges a
+   * launch it started through these.
+   */
+  readonly detectors = new Map<string, Detector>();
   /** Keyed like the detector step and the schedule each one adds. */
   readonly monitors = new Map<string, MonitorRecord>();
   readonly schedules = new Map<string, Schedule>();
 
   define(definition: AnyDefinition): void {
-    if (definition.name === undefined) {
+    if (!isNamed(definition)) {
       return;
     }
     const taken = this.definitions.get(definition.name);
     if (taken) {
       throw new Error(
-        `"${definition.name}" already registered${where(taken)}; ${
-          definition.inferred || taken.inferred
-            ? `the name comes from a const${where(definition)}; rename one or name it explicitly`
-            : `second registration${where(definition)}`
-        }`
+        `"${definition.name}" already registered${quoteOrigin(taken.origin)}; second registration${quoteOrigin(definition.origin)}`
       );
     }
     this.definitions.set(definition.name, definition);
@@ -86,11 +82,9 @@ export class Registry {
     if (this.schedules.has(key)) {
       throw new Error(`schedule "${key}" already registered`);
     }
-    this.define({
-      fn: detector(key, source, handler),
-      kind: "step",
-      name: key,
-    });
+    const watching = detector(key, source, handler);
+    this.define({ fn: watching.body, kind: "step", name: key });
+    this.detectors.set(key, watching);
     this.schedule({
       input: null,
       key,
@@ -108,7 +102,7 @@ export class Registry {
       .filter(
         (definition) =>
           definition.name !== AUTOMATION_MONITOR &&
-          !this.monitors.has(definition.name as string)
+          !this.monitors.has(definition.name)
       )
       .map((definition) => {
         const schema = definition.input;
@@ -122,11 +116,10 @@ export class Registry {
           ...(definition.description === undefined
             ? {}
             : { description: definition.description }),
-          ...(definition.inferred ? { inferred: true } : {}),
           input: { fields },
           ...(inputSchema === undefined ? {} : { inputSchema }),
           kind: definition.kind,
-          name: definition.name as string,
+          name: definition.name,
         };
       });
   }

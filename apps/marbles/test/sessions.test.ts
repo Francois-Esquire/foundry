@@ -7,7 +7,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { catalog } from "~/authoring/catalog";
 import { CLAUDE_CODE } from "~/lib/harnesses";
-import { runs } from "~/lib/run-scope";
 import { JsonSessionStore } from "~/lib/sessions/json-store";
 import { sessionLines } from "~/sessions/list";
 
@@ -19,7 +18,6 @@ let mock: MockBindings | undefined;
 
 afterEach(async () => {
   catalog.reset();
-  runs.clear();
   vi.useRealTimers();
   await mock?.dispose();
   mock = undefined;

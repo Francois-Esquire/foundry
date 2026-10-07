@@ -144,32 +144,33 @@ function detection(key: string, handled: unknown): Detection {
   return { changed: true };
 }
 
-/** How each live detector clears its pending launch, by monitor key. */
-const acknowledgers = new Map<string, () => void>();
-
-/** The tick that started a monitor's launch calls this; the next tick polls again. */
-export function acknowledgeLaunch(key: string): void {
-  acknowledgers.get(key)?.();
-}
-
 function pendingLaunch(previous: unknown): Launch | undefined {
   return isRecord(previous) && isLaunch(previous.pending)
     ? previous.pending
     : undefined;
 }
 
+/** A monitor's step body, and how the launch it handed out is cleared. */
+export interface Detector {
+  /** The tick that started the pending launch calls this; the next poll looks again. */
+  acknowledge(): void;
+  readonly body: StepFn<MonitorInput, Detection>;
+}
+
 /**
  * The step body a monitor registers: read what is there, diff it against the
  * last tick, run the handler only when something changed. State is written
  * after the handler resolves, so a throwing handler sees the same change
- * again next tick. A failed poll logs and keeps the last state.
+ * again next tick. A failed poll logs and keeps the last state. Whoever
+ * registers the body keeps the detector, so the tick that starts its launch
+ * can acknowledge it.
  */
 export function detector(
   key: string,
   spec: MonitorSpec,
   handler: MonitorHandler,
   options: DetectorOptions = {}
-): StepFn<MonitorInput, Detection> {
+): Detector {
   let memory: unknown;
   const file = (state: string) => join(state, "monitors", `${key}.json`);
   const stored = (state: string | undefined) =>
@@ -184,7 +185,7 @@ export function detector(
   // A pending launch is only ever handed out by the body below, so the
   // state dir it ran against is the one an acknowledgement writes to.
   let seen: { readonly state: string | undefined } | undefined;
-  acknowledgers.set(key, () => {
+  const acknowledge = () => {
     if (!seen) {
       return;
     }
@@ -193,9 +194,9 @@ export function detector(
       const { pending: _, ...rest } = previous;
       store(seen.state, rest);
     }
-  });
+  };
 
-  return async (context) => {
+  const body: StepFn<MonitorInput, Detection> = async (context) => {
     const { log, signal } = context;
     signal.throwIfAborted();
     const host = hostOf(key, options);
@@ -243,6 +244,7 @@ export function detector(
     });
     return detected;
   };
+  return { acknowledge, body };
 }
 
 function storedFiles(state: unknown): Map<string, string> {

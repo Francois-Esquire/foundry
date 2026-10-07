@@ -42,6 +42,7 @@ export type {
 export type {
   AnyDefinition,
   LockedNode,
+  NamedDefinition,
   SetupFn,
   StepFn,
   StepRecord,
@@ -69,6 +70,7 @@ export type {
   MonitorSpec,
 } from "./monitor";
 export type { DefinitionEntry, MonitorRecord } from "./registry";
+export type { ReadonlyRunScopes, RunScope } from "./run-scope";
 export type { ActivityRecord, HarnessActivities } from "./sandbox/activities";
 export type { HarnessInteractions } from "./sandbox/interactions";
 export { JsonSessionStore } from "./sessions/json-store";

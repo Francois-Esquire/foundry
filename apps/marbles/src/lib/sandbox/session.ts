@@ -12,9 +12,9 @@ import {
 import type { SessionStore } from "@foundry/agents/session";
 import { createClaudeCodeDriver } from "@foundry/models/claude-code";
 import { createCodexDriver } from "@foundry/models/codex";
+import type { Container } from "@foundry/sandbox/container/containers";
 import { prepareSandboxProcess } from "@foundry/sandbox/process";
 import type { ToolSet } from "ai";
-import { sandboxContainer } from "~/lib/managers/sandboxes";
 import type { SessionOptions } from "~/lib/types";
 import { createBuiltinSession } from "./builtin-session";
 import {
@@ -43,6 +43,8 @@ const BUILTIN_SCHEDULED_PROFILE: HarnessPermissionProfile = {
 
 export interface SandboxSessionSettings {
   agentId: string;
+  /** The container behind `options.sandbox`; the harness runs inside it. */
+  container: Container;
   delegation?: DelegationScope;
   harness?: string;
   hostCwd?: string;
@@ -83,7 +85,7 @@ export async function createSandboxSession(
     throw new Error("A sandbox is required.");
   }
 
-  const container = sandboxContainer(options.sandbox);
+  const { container } = settings;
   const harness = settings.harness ?? settings.provider;
   const isCli = harness === "claude-code" || harness === "codex";
   const profile =

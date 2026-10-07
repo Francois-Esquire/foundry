@@ -10,7 +10,7 @@ import { createMemoryContainerStore } from "@foundry/sandbox/container/store";
 import { expect, it } from "vitest";
 import { AgentsManager } from "~/lib/managers/agents";
 import { SandboxesManager } from "~/lib/managers/sandboxes";
-import { RunScope, runs } from "~/lib/run-scope";
+import { RunScope } from "~/lib/run-scope";
 
 for (const harness of ["builtin", "claude-code", "codex"] as const) {
   it(`${harness} fixes a failing fixture and runs its tests in MicroSandbox`, async () => {
@@ -54,7 +54,6 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
     const frame = scope.frame(["coding"]);
     const written: unknown[] = [];
     const args = {
-      cwd: root,
       frame,
       scope,
       write: (value: unknown) => written.push(value),
@@ -68,33 +67,33 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
         join(root, "sum.test.ts"),
         "import { test, expect } from 'bun:test'; import { sum } from './sum'; test('adds', () => expect(sum(2, 3)).toBe(5));\n"
       );
-      const sandbox = await new SandboxesManager({
+      const sandboxes = new SandboxesManager({
         containers: () => Promise.resolve(containers),
         home: root,
         root,
-      })
-        .scoped(args)
-        .start({
-          executable: true,
-          image: "docker.io/oven/bun:1-slim",
-          network:
-            harness === "builtin"
-              ? "disabled"
-              : {
-                  destinations: [
-                    {
-                      host:
-                        harness === "claude-code"
-                          ? "api.anthropic.com"
-                          : "chatgpt.com",
-                      ports: [443],
-                    },
-                  ],
-                  mode: "allowlist",
-                },
-        });
+      });
+      const sandbox = await sandboxes.scoped(args).start({
+        executable: true,
+        image: "docker.io/oven/bun:1-slim",
+        network:
+          harness === "builtin"
+            ? "disabled"
+            : {
+                destinations: [
+                  {
+                    host:
+                      harness === "claude-code"
+                        ? "api.anthropic.com"
+                        : "chatgpt.com",
+                    ports: [443],
+                  },
+                ],
+                mode: "allowlist",
+              },
+      });
       expect((await sandbox.exec(["bun", "test"])).exitCode).not.toBe(0);
       const session = await new AgentsManager({
+        containerOf: (handle) => sandboxes.containerOf(handle),
         defaultExecutor: () => ({ harness, model: modelId, provider }),
         models,
         root,
@@ -162,7 +161,6 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
       await scope.settle();
       await containers.shutdown();
       await models.dispose();
-      runs.clear();
       await rm(root, { force: true, recursive: true });
     }
   });

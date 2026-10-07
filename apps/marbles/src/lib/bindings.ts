@@ -6,11 +6,12 @@ import type { Agents, Artifacts, Sandboxes, Workspaces } from "./types";
 
 /**
  * What a step body's context is built from: the four package-backed
- * managers, scoped to one frame so each can attach to the frame's signal,
- * stream, and working directory, and where output goes.
+ * managers, scoped to one frame so each can attach to the frame's signal
+ * and stream, and where output goes. The working directory is not here: it
+ * is the run's root unless a worktree callback narrowed it, and
+ * `workingDirectory` reads that when the work starts.
  */
 export interface ManagerArgs {
-  readonly cwd: string;
   readonly frame: Frame;
   readonly scope: RunScope;
   readonly write: (value: unknown) => void;

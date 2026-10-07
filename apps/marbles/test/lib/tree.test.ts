@@ -14,13 +14,14 @@ import { catalog } from "~/authoring/catalog";
 import type { Bindings } from "~/lib/bindings";
 import type { AnyDefinition } from "~/lib/definition";
 import { createLog } from "~/lib/log";
-import { runs } from "~/lib/run-scope";
+import { RunScopes } from "~/lib/run-scope";
 import { factoryFor } from "~/lib/tree";
+import { named } from "../helpers/launch";
 import { unbound } from "../helpers/unbound";
 
 const TYPED_INPUT = /"typed" input: n/;
 const TYPED_OUTPUT = /"typed" output/;
-const ONLY_NAMED = /only named definitions/;
+const NESTED_WORKFLOW = /"inner": a workflow can only be the root of a run/;
 
 const lines: string[] = [];
 
@@ -33,14 +34,20 @@ const bindings: Bindings = {
   workspaces: () => unbound("workspaces"),
 };
 
+let scopes = new RunScopes();
+
 afterEach(() => {
   catalog.reset();
   lines.length = 0;
-  runs.clear();
+  scopes = new RunScopes();
 });
 
 async function launch(definition: AnyDefinition, input: unknown = {}) {
-  const root = await factoryFor(definition, () => bindings)(input, undefined);
+  const root = await factoryFor(
+    named(definition),
+    () => bindings,
+    scopes
+  )(input, undefined);
   const wf = Workflow.attach(root, input);
   return { root, wf };
 }
@@ -140,7 +147,7 @@ describe("trees", () => {
       .do(({ input }) => (input.n > 0 ? "ok" : (42 as unknown as string)));
 
     await expect(
-      factoryFor(typed, () => bindings)({ n: "x" }, undefined)
+      factoryFor(named(typed), () => bindings, scopes)({ n: "x" }, undefined)
     ).rejects.toThrow(TYPED_INPUT);
 
     await expect((await launch(typed, { n: 1 })).wf.run()).resolves.toBe("ok");
@@ -316,7 +323,7 @@ describe("trees", () => {
     await expect(wf.run()).rejects.toThrow("unrecoverable");
     expect(wf.status).toBe("failed");
     expect(seen).toEqual([true]);
-    expect(runs.size).toBe(1);
+    expect(scopes.size).toBe(1);
   });
 
   it("exposes the run scope with id, path, and a stable session reference", async () => {
@@ -331,7 +338,7 @@ describe("trees", () => {
     const result = await wf.run();
     expect(observed?.path).toEqual(["peek"]);
     expect(observed?.session).toBe(result);
-    expect(runs.get(observed?.id ?? "")).toBeDefined();
+    expect(scopes.get(observed?.id ?? "")).toBeDefined();
   });
 
   it("a failing parallel sibling aborts the others, and the run fails only once they have stopped", async () => {
@@ -371,15 +378,28 @@ describe("trees", () => {
       .input(z.object({ n: z.number() }))
       .do(({ input }) => input.n);
     await expect(
-      factoryFor(typed, () => bindings)({ n: "x" }, undefined)
+      factoryFor(named(typed), () => bindings, scopes)({ n: "x" }, undefined)
     ).rejects.toThrow(TYPED_INPUT);
     const broken = workflow("broken").do(() => {
       throw new Error("no tree today");
     });
     await expect(
-      factoryFor(broken, () => bindings)({}, undefined)
+      factoryFor(named(broken), () => bindings, scopes)({}, undefined)
     ).rejects.toThrow("no tree today");
-    expect(runs.size).toBe(0);
+    expect(scopes.size).toBe(0);
+  });
+
+  it("rejects a workflow inside a run's tree before any body runs", async () => {
+    let ran = 0;
+    const leaf = step().do(() => {
+      ran += 1;
+      return 1;
+    });
+    const inner = workflow("inner", leaf({}));
+    const outer = workflow("outer").do(() => inner({}));
+    await expect(launch(outer)).rejects.toThrow(NESTED_WORKFLOW);
+    expect(ran).toBe(0);
+    expect(scopes.size).toBe(0);
   });
 
   it("parses launch input once, so a transform sees the raw value", async () => {
@@ -390,10 +410,5 @@ describe("trees", () => {
       n: 2,
       type: "number",
     });
-  });
-
-  it("refuses to launch an anonymous definition", () => {
-    const anonymous = step().do(() => 1);
-    expect(() => factoryFor(anonymous, () => bindings)).toThrow(ONLY_NAMED);
   });
 });

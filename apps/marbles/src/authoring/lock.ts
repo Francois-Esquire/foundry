@@ -95,6 +95,13 @@ function lock(
         `${describe(definition)}: child "${key}" is not a locked node; call the definition first`
       );
     }
+    // A workflow's setup builds the tree its run executes; inside another
+    // tree nothing would run that setup.
+    if (child.definition.kind === "workflow") {
+      throw new Error(
+        `${describe(definition)}: child "${key}" is a workflow; a workflow can only be the root of a run, so lock its steps here instead`
+      );
+    }
   }
   const input = literal ?? {};
   const collision = pairs.find(([key]) => key in input);

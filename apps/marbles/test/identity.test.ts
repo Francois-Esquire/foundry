@@ -16,6 +16,7 @@ const LIB = pathToFileURL(
   resolve(import.meta.dir, "../src/authoring/index.ts")
 ).href;
 const NODE_MODULES = resolve(import.meta.dir, "../../../node_modules");
+const AGENT_DIGEST = /^agent-[0-9a-f]{16}$/;
 
 const dirs: string[] = [];
 
@@ -44,7 +45,7 @@ async function load(dir: string, source: string, name = "marbles.config") {
   const file = join(dir, `${name}-${String(counter)}.ts`);
   writeFileSync(
     file,
-    `import { schedule, step, workflow } from ${JSON.stringify(LIB)};\n${source}`
+    `import { agent, schedule, step, workflow } from ${JSON.stringify(LIB)};\n${source}`
   );
   return await import(pathToFileURL(file).href);
 }
@@ -62,13 +63,15 @@ export const weekly = workflow(() => review({}));
 schedule(implement).every("1h");
 `
   );
-  expect(
-    catalog.entries().map((entry) => [entry.name, entry.inferred])
-  ).toEqual([
-    ["review", true],
-    ["implement", true],
-    ["weekly", true],
+  expect(catalog.entries().map((entry) => entry.name)).toEqual([
+    "review",
+    "implement",
+    "weekly",
   ]);
+  // Each says where it was declared, for a collision to quote.
+  expect(catalog.definitions.get("review")?.origin).toContain(
+    `${dir}/marbles.config-`
+  );
   expect(catalog.schedules.get("implement")).toMatchObject({
     label: "implement",
     workflow: "implement",
@@ -135,11 +138,13 @@ test("two files binding the same const name collide with both positions", async 
   expect(failure).toContain("comes from a const");
 });
 
-test("the stack formatter is restored after a capture", async () => {
+test("the stack settings are restored after a capture", async () => {
   const dir = configDir();
   const before = Error.prepareStackTrace;
+  const limit = Error.stackTraceLimit;
   await load(dir, "export const x = step().do(() => 1);\n");
   expect(Error.prepareStackTrace).toBe(before);
+  expect(Error.stackTraceLimit).toBe(limit);
   expect(new Error("plain").stack).toContain("plain");
 });
 
@@ -160,4 +165,42 @@ try {
   expect(module.orphan.name).toBeUndefined();
   expect(catalog.entries()).toEqual([]);
   expect(module.failure).toContain("install typescript");
+});
+
+test("an agent's id is its name, else its const, never its position among the others", async () => {
+  const dir = configDir();
+  const module = await load(
+    dir,
+    `
+export const reviewer = agent({ prompt: "Review." });
+export const writer = agent({ name: "docs-writer", prompt: "Write." });
+export const ids = [reviewer.id, writer.id];
+`
+  );
+  expect(module.ids).toEqual(["reviewer", "docs-writer"]);
+});
+
+test("a nameless agent outside a const is known by what it is, so reordering keeps its id", async () => {
+  const dir = configDir();
+  const make = (first: string, second: string) => `
+const make = (prompt: string, provider?: string) => agent({ prompt, provider });
+export const ids = Object.fromEntries(
+  [${first}, ${second}].map((made) => [made.prompt, made.id])
+);
+`;
+  const one = await load(
+    dir,
+    make('make("Review.")', 'make("Write.", "codex")')
+  );
+  catalog.reset();
+  const two = await load(
+    dir,
+    make('make("Write.", "codex")', 'make("Review.")')
+  );
+  expect(two.ids).toEqual(one.ids);
+  expect(Object.values(one.ids)).toEqual([
+    expect.stringMatching(AGENT_DIGEST),
+    expect.stringMatching(AGENT_DIGEST),
+  ]);
+  expect(one.ids["Review."]).not.toBe(one.ids["Write."]);
 });

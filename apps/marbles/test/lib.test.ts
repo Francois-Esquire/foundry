@@ -3,7 +3,6 @@ import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { catalog } from "~/authoring/catalog";
-import { runs } from "~/lib/run-scope";
 import { nextDue, parseEvery, runSchedules } from "~/lib/schedule";
 import { JSON_INPUT_FIELD } from "~/lib/schema";
 import type { CalendarSlot, Schedule } from "~/lib/triggers";
@@ -17,7 +16,7 @@ const CADENCE_PATTERN = /cadence/;
 const POSITIVE_CADENCE_PATTERN = /must be a positive interval/;
 const ALREADY_REGISTERED_PATTERN = /already registered/;
 const SHOUT_KEY_PATTERN = /^shout-[0-9a-f]{8}$/;
-const WRAP_PATTERN = /wrap it in workflow/;
+const WRAP_PATTERN = /wrap it in a named workflow/;
 const NO_NAME_PATTERN = /has no name/;
 
 const text = z.object({ text: z.string() });
@@ -29,7 +28,6 @@ function bindLog(lines: string[]) {
 
 afterEach(() => {
   catalog.reset();
-  runs.clear();
 });
 
 describe("definitions", () => {

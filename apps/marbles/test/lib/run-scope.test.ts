@@ -1,16 +1,66 @@
+import { Step } from "@foundry/workflows/step";
 import { describe, expect, it } from "vitest";
 
 import { Ledger } from "~/lib/ledger";
-import { RunScope, raceAbort, runs } from "~/lib/run-scope";
+import { RunScope, RunScopes, raceAbort } from "~/lib/run-scope";
 
-describe("RunScope", () => {
-  it("registers itself while live and forgets itself on settle", async () => {
-    const scope = new RunScope("run-1", "/tmp");
-    expect(runs.get("run-1")).toBe(scope);
-    await scope.settle();
-    expect(runs.has("run-1")).toBe(false);
+/** A root with nothing to do, for a scope to attach. */
+const idle = () =>
+  Promise.resolve(
+    Step.create<unknown, unknown>({
+      execute: () => Promise.resolve(undefined),
+      input: {},
+      name: "root",
+    })
+  );
+
+describe("RunScopes", () => {
+  it("holds a scope once its root is built and forgets it on settle", async () => {
+    const scopes = new RunScopes();
+    let opened: RunScope | undefined;
+    await scopes.open("run-1", "/tmp", undefined, (scope) => {
+      opened = scope;
+      expect(scopes.has("run-1")).toBe(false);
+      return idle();
+    });
+    expect(scopes.get("run-1")).toBe(opened);
+    expect([...scopes]).toEqual([opened]);
+    await scopes.settle("run-1");
+    expect(scopes.size).toBe(0);
   });
 
+  it("holds nothing when the build throws", async () => {
+    const scopes = new RunScopes();
+    await expect(
+      scopes.open("run-1", "/tmp", undefined, () =>
+        Promise.reject(new Error("no tree"))
+      )
+    ).rejects.toThrow("no tree");
+    expect(scopes.size).toBe(0);
+  });
+
+  it("opens a recovered run with what it recorded, once", async () => {
+    const scopes = new RunScopes();
+    scopes.recover("run-1", {
+      ledger: { "marbles:root|ask|0": "yes" },
+      literals: { root: { n: 1 } },
+      session: { id: "session-1" },
+    });
+    await scopes.open("run-1", "/tmp", undefined, (scope) => {
+      expect(scope.session.id).toBe("session-1");
+      expect(scope.ledger.get("marbles:root|ask|0")).toBe("yes");
+      expect(scope.literal(["root"], { n: 2 })).toEqual({ n: 1 });
+      return idle();
+    });
+    await scopes.settle("run-1");
+    await scopes.open("run-1", "/tmp", undefined, (scope) => {
+      expect(scope.session.id).not.toBe("session-1");
+      return idle();
+    });
+  });
+});
+
+describe("RunScope", () => {
   it("creates one frame per path and chains its signal under the run's", () => {
     const scope = new RunScope("run-2", "/tmp");
     const frame = scope.frame(["root", "a"]);
@@ -20,7 +70,6 @@ describe("RunScope", () => {
     scope.abort(new Error("stop"));
     expect(frame.signal.aborted).toBe(true);
     expect(scope.frame(["root", "b"]).signal.aborted).toBe(true);
-    runs.delete("run-2");
   });
 
   it("counts occurrences per kind and restarts them when the body re-enters", async () => {
@@ -34,7 +83,6 @@ describe("RunScope", () => {
     expect(scope.claim(frame, "session").occurrence).toBe(0);
     await scope.enter(frame);
     expect(scope.claim(frame, "ask").occurrence).toBe(0);
-    runs.delete("run-3");
   });
 
   it("waits for detached children before a body re-enters", async () => {
@@ -52,7 +100,6 @@ describe("RunScope", () => {
     await scope.enter(frame);
     expect(settled).toBe(true);
     expect(frame.detached).toEqual([]);
-    runs.delete("run-4");
   });
 
   it("closes what frames opened when it settles", async () => {
@@ -101,7 +148,6 @@ describe("RunScope", () => {
     await expect(raceAbort(frame, Promise.resolve("x"))).rejects.toThrow(
       "cancelled"
     );
-    runs.delete("run-6");
   });
 });
 

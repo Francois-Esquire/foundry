@@ -8,7 +8,6 @@ import { catalog } from "~/authoring/catalog";
 import { createEngine } from "~/create";
 import { dashboardSnapshot } from "~/dashboard/snapshot";
 import type { Engine } from "~/lib/engine";
-import { runs } from "~/lib/run-scope";
 import { tick } from "~/lib/schedule";
 
 const print = () => undefined;
@@ -49,7 +48,6 @@ function view(engine: Engine) {
 
 afterEach(() => {
   catalog.reset();
-  runs.clear();
 });
 
 it("projects real nested runs, logs and trigger provenance, including restored history", async () => {

@@ -3,19 +3,18 @@ import type { RunExecutionContext } from "@foundry/workflows/orchestrator";
 import type { StepContext } from "@foundry/workflows/step";
 import { Step } from "@foundry/workflows/step";
 
-import { createLog } from "~/lib/log";
-
 import type { Bindings } from "./bindings";
 import { buildContext } from "./context";
 import type {
   AnyDefinition,
   LockedNode,
+  NamedDefinition,
   StepRecord,
   WorkflowRecord,
 } from "./definition";
-import { rootLock } from "./definition";
-import type { Frame } from "./run-scope";
-import { current, PAUSE_KIND, RunScope, raceAbort, runs } from "./run-scope";
+import { isLockedNode, rootLock } from "./definition";
+import type { Frame, RunScope, RunScopes } from "./run-scope";
+import { current, PAUSE_KIND, raceAbort } from "./run-scope";
 import { validate } from "./schema";
 
 /**
@@ -29,8 +28,48 @@ import { validate } from "./schema";
 
 type Input = Readonly<Record<string, unknown>>;
 
+/** A node a run executes: a step, with steps all the way down. */
+interface StepNode extends LockedNode {
+  readonly children: readonly (readonly [string, StepNode])[];
+  readonly definition: StepRecord<Input, unknown>;
+}
+
 function describe(definition: AnyDefinition, key: string): string {
   return definition.name ? `"${definition.name}"` : `"${key}"`;
+}
+
+function isStep(
+  definition: AnyDefinition
+): definition is StepRecord<Input, unknown> {
+  return definition.kind === "step";
+}
+
+function isWorkflow(
+  definition: AnyDefinition
+): definition is WorkflowRecord<Input> {
+  return definition.kind === "workflow";
+}
+
+/**
+ * Check the whole tree before any of it runs: a workflow is a run's root
+ * and its setup builds the tree, so a workflow node inside that tree has
+ * nothing that could execute it.
+ */
+function stepTree(node: LockedNode, key: string): StepNode {
+  const { definition } = node;
+  if (!isStep(definition)) {
+    throw new Error(
+      `${describe(definition, key)}: a workflow can only be the root of a run, not a node in its tree`
+    );
+  }
+  return {
+    ...node,
+    children: node.children.map(([childKey, child]) => [
+      childKey,
+      stepTree(child, childKey),
+    ]),
+    definition,
+  };
 }
 
 async function driveSeries(
@@ -79,7 +118,7 @@ async function driveParallel(
 }
 
 async function runBody(
-  node: LockedNode,
+  node: StepNode,
   key: string,
   ctx: StepContext,
   scope: RunScope,
@@ -92,29 +131,22 @@ async function runBody(
       ? await driveParallel(ctx.children, scope, frame)
       : await driveSeries(ctx.children);
   const merged: Input = { ...results, ...node.literal };
-  const where = describe(node.definition, key);
+  const { definition } = node;
+  const where = describe(definition, key);
   // A root's literal was parsed at launch; parsing it again would feed a
   // transform its own output.
   const input = (
-    node.definition.input && !node.parsed
-      ? await validate(node.definition.input, merged, `${where} input`)
+    definition.input && !node.parsed
+      ? await validate(definition.input, merged, `${where} input`)
       : merged
   ) as Input;
-  if (node.definition.kind === "workflow") {
-    throw new Error(
-      `${where}: a workflow can only be the root of a run in phase 1`
-    );
-  }
-  const definition = node.definition as StepRecord<Input, unknown>;
   const store = { cwd: scope.cwd, frame, scope };
   let output: unknown;
   let attempt: Promise<unknown> | undefined;
   try {
     attempt = current.run(store, () =>
       Promise.resolve(
-        definition.fn(
-          buildContext({ bindings, ctx, cwd: scope.cwd, frame, input, scope })
-        )
+        definition.fn(buildContext({ bindings, ctx, frame, input, scope }))
       )
     );
     output = await raceAbort(frame, attempt);
@@ -152,14 +184,14 @@ async function runBody(
  * against the input it started with, not what a rebuilt tree would give.
  */
 function materialize(
-  fresh: LockedNode,
+  fresh: StepNode,
   key: string,
   scope: RunScope,
   bindings: Bindings,
   parent: readonly string[] = []
 ): Step<unknown, unknown> {
   const path = [...parent, key];
-  const node: LockedNode = {
+  const node: StepNode = {
     ...fresh,
     literal: scope.literal(path, fresh.literal),
   };
@@ -176,47 +208,42 @@ function materialize(
   });
 }
 
-function requireName(definition: AnyDefinition): string {
-  if (definition.name === undefined) {
-    throw new Error("only named definitions can be launched");
-  }
-  return definition.name;
-}
-
 /** Adapt a named definition to the orchestrator's factory contract. */
 export type DefinitionFactory = (
   input: unknown,
   execution?: RunExecutionContext
 ) => Promise<Step<unknown, unknown>>;
 
+/**
+ * Each run's scope is opened in `scopes`, which holds it only once its tree
+ * is built: a launch rejected on its input or by its setup leaves nothing
+ * in the run table.
+ */
 export function factoryFor(
-  definition: AnyDefinition,
-  bindings: () => Bindings
+  definition: NamedDefinition,
+  bindings: () => Bindings,
+  scopes: RunScopes
 ): DefinitionFactory {
-  const name = requireName(definition);
+  const { name } = definition;
   return async (rawInput, execution) => {
     const bound = bindings();
-    // Parse before a scope exists: a rejected launch must leave nothing in
-    // the run table.
     const input = (
       definition.input
         ? await validate(definition.input, rawInput ?? {}, `"${name}" input`)
         : (rawInput ?? {})
     ) as Input;
-    const scope = new RunScope(
+    return await scopes.open(
       execution?.runId ?? crypto.randomUUID(),
       bound.root,
-      bound.host
+      bound.host,
+      async (scope) =>
+        materialize(
+          stepTree(await rootNode(definition, name, input, scope, bound), name),
+          name,
+          scope,
+          bound
+        )
     );
-    try {
-      const node = await rootNode(definition, name, input, scope, bound);
-      const root = materialize(node, name, scope, bindings());
-      scope.attach(root);
-      return root;
-    } catch (error) {
-      runs.delete(scope.id);
-      throw error;
-    }
   };
 }
 
@@ -227,19 +254,15 @@ async function rootNode(
   scope: RunScope,
   bindings: Bindings
 ): Promise<LockedNode> {
-  if (definition.kind === "step") {
+  if (!isWorkflow(definition)) {
     return rootLock(definition, input);
   }
-  const workflow = definition as WorkflowRecord<Input>;
-  if (workflow.tree) {
-    return workflow.tree;
-  }
-  if (!workflow.setup) {
-    throw new Error(`"${name}": a workflow needs a tree or setup`);
-  }
-  const log = createLog((level, message) => bindings.log[level](message));
-  const tree = await workflow.setup({ input, log, run: { id: scope.id } });
-  if (!(typeof tree === "object" && tree !== null && tree.kind === "node")) {
+  const tree: unknown = await definition.setup({
+    input,
+    log: bindings.log,
+    run: { id: scope.id },
+  });
+  if (!isLockedNode(tree)) {
     throw new Error(`"${name}": setup must return a locked node`);
   }
   return tree;

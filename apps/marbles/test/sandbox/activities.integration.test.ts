@@ -8,12 +8,10 @@ import { catalog } from "~/authoring/catalog";
 import { createEngine } from "~/create";
 import { dashboardSnapshot } from "~/dashboard/snapshot";
 import { AutomationService } from "~/lib/automation/service";
-import { runs } from "~/lib/run-scope";
 import { tick } from "~/lib/schedule";
 
 afterEach(() => {
   catalog.reset();
-  runs.clear();
 });
 for (const harness of ["builtin", "claude-code", "codex"] as const) {
   it(`${harness} exposes real child activity and creates a durable schedule through MicroSandbox`, async () => {

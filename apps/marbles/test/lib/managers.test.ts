@@ -23,7 +23,7 @@ import {
 } from "~/lib/managers/sandboxes";
 import { skillResolver } from "~/lib/managers/skills";
 import { repositoryRoot, WorkspacesManager } from "~/lib/managers/workspaces";
-import { current, RunScope, runs } from "~/lib/run-scope";
+import { current, RunScope } from "~/lib/run-scope";
 import { seedRepository } from "./../helpers/repository";
 
 const NOT_A_REPOSITORY = /not a git repository/;
@@ -36,7 +36,6 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  runs.clear();
   await rm(tmp, { force: true, recursive: true });
 });
 
@@ -44,7 +43,7 @@ function args(cwd = tmp): ManagerArgs & { readonly written: unknown[] } {
   const scope = new RunScope(`run-${Math.random()}`, cwd);
   const frame = scope.frame(["root"]);
   const written: unknown[] = [];
-  return { cwd, frame, scope, write: (value) => written.push(value), written };
+  return { frame, scope, write: (value) => written.push(value), written };
 }
 
 async function skill(dir: string, name: string, description = name) {

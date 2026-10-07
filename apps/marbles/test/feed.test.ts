@@ -13,7 +13,6 @@ import { feedPublisher } from "~/lib/feed/publish";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
 import { feedReader, formatPosted } from "~/lib/feed/read";
 import { createLog, formatLogValues } from "~/lib/log";
-import { runs } from "~/lib/run-scope";
 import { registerSetupStep, SETUP_STEP } from "~/onboarding/setup-step";
 
 import type { TestEngineOptions } from "./helpers/engine";
@@ -41,7 +40,6 @@ beforeEach(async () => {
 
 afterEach(async () => {
   catalog.reset();
-  runs.clear();
   await rm(root, { force: true, recursive: true });
 });
 

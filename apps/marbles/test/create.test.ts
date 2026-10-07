@@ -8,7 +8,7 @@ import { catalog } from "~/authoring/catalog";
 import { createEngine } from "~/create";
 import { Engine } from "~/lib/engine";
 import type * as Harnesses from "~/lib/harnesses";
-import { RunScope, runs } from "~/lib/run-scope";
+import { RunScope } from "~/lib/run-scope";
 
 import { testInstances } from "./helpers/engine";
 import { bindLaunch, launch } from "./helpers/launch";
@@ -22,7 +22,6 @@ const NOT_A_REPOSITORY = /not a git repository/;
 
 afterEach(() => {
   catalog.reset();
-  runs.clear();
 });
 
 it("exposes the config directory and dry-run git through the engine's workspaces", async () => {
@@ -42,7 +41,6 @@ it("exposes the config directory and dry-run git through the engine's workspaces
     expect(engine.harnesses).toEqual(["claude-code", "codex"]);
     await writeFile(join(root, "notes.md"), "initial");
     const workspaces = engine.bindings.workspaces({
-      cwd: root,
       frame: scope.frame(["root"]),
       scope,
       write: () => undefined,

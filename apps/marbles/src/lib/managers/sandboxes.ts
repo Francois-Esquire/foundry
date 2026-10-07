@@ -8,7 +8,7 @@ import type {
 } from "@foundry/sandbox/container/containers";
 
 import type { ManagerArgs } from "../bindings";
-import { current } from "../run-scope";
+import { workingDirectory } from "../run-scope";
 import type {
   ImageSandbox,
   Sandbox,
@@ -33,15 +33,6 @@ export interface SandboxesDeps {
 }
 
 const WORKSPACE_TARGET = "/workspace";
-const managedSandboxes = new WeakMap<Sandbox, Container>();
-
-export function sandboxContainer(sandbox: Sandbox): Container {
-  const container = managedSandboxes.get(sandbox);
-  if (!container) {
-    throw new Error("The sandbox must be opened by this Marbles runtime.");
-  }
-  return container;
-}
 const KIND = "sandboxes.start";
 
 /** Where a sandbox's mounts resolve from. */
@@ -122,7 +113,7 @@ function wrap(
   container: Container,
   signal: () => AbortSignal | undefined
 ): Sandbox {
-  const handle: Sandbox = {
+  return {
     close: () => container.close(),
     async exec(argv) {
       const result = await container.commands.exec([...argv], {
@@ -136,16 +127,34 @@ function wrap(
     },
     id: container.id,
   };
-  managedSandboxes.set(handle, container);
-  return handle;
 }
 
 export class SandboxesManager implements Sandboxes {
   readonly #deps: SandboxesDeps;
+  /** The container behind each handle this manager gave out. */
+  readonly #handles = new WeakMap<Sandbox, Container>();
   #opened: Promise<Containers> | undefined;
 
   constructor(deps: SandboxesDeps) {
     this.#deps = deps;
+  }
+
+  /**
+   * The container behind a handle this manager gave out, for what runs a
+   * harness inside it. A handle from anywhere else has no container here.
+   */
+  containerOf(sandbox: Sandbox): Container {
+    const container = this.#handles.get(sandbox);
+    if (!container) {
+      throw new Error("The sandbox must be opened by this engine.");
+    }
+    return container;
+  }
+
+  #handle(container: Container, signal: () => AbortSignal | undefined) {
+    const handle = wrap(container, signal);
+    this.#handles.set(handle, container);
+    return handle;
   }
 
   /** The containers this manager was built over: resolved at first use and kept, so the runtime is started once. */
@@ -166,11 +175,7 @@ export class SandboxesManager implements Sandboxes {
     const { home, root } = this.#deps;
     const containers = await this.containers();
     const container = await containers.start(
-      constraintsFor(
-        sandbox,
-        { cwd: current.getStore()?.cwd ?? root, root },
-        home
-      ),
+      constraintsFor(sandbox, { cwd: workingDirectory(root), root }, home),
       signal
     );
     try {
@@ -186,18 +191,18 @@ export class SandboxesManager implements Sandboxes {
 
   /** A sandbox that is already running; the caller closes the handle. */
   async open(id: string): Promise<Sandbox> {
-    return wrap(await this.#open(id), () => undefined);
+    return this.#handle(await this.#open(id), () => undefined);
   }
 
   /** Start a sandbox; it runs until the caller closes it or the engine is disposed. */
   async start(sandbox: SandboxDefinition | SandboxSpec): Promise<Sandbox> {
-    return wrap(await this.#start(sandbox), () => undefined);
+    return this.#handle(await this.#start(sandbox), () => undefined);
   }
 
   /** What a step body sees: sandboxes that stop with its frame, and the same one again on replay. */
   scoped({ frame, scope }: ManagerArgs): Sandboxes {
     const attach = (container: Container): Sandbox => {
-      const handle = wrap(container, () => frame.signal);
+      const handle = this.#handle(container, () => frame.signal);
       frame.opened.add(handle);
       return handle;
     };

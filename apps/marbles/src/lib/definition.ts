@@ -9,13 +9,6 @@ import type { Context, SetupContext } from "./types";
  * how a host writes them is its own business.
  */
 
-/** Where the host's source asked for a definition. */
-export interface CallSite {
-  readonly column: number;
-  readonly file: string;
-  readonly line: number;
-}
-
 export type StepFn<I, O> = (context: Context<I>) => O | Promise<O>;
 export type SetupFn<I, O = unknown> = (
   context: SetupContext<I>
@@ -25,6 +18,10 @@ export interface LockedNode<O = unknown> {
   /** Phantom: the node's output type. */
   readonly __output?: O;
   readonly children: readonly (readonly [string, LockedNode])[];
+  /**
+   * A workflow appears here only as what a trigger launches, a node with
+   * no children; inside the tree a run executes, every node is a step.
+   */
   readonly definition: AnyDefinition;
   readonly kind: "node";
   readonly literal: Readonly<Record<string, unknown>>;
@@ -35,14 +32,19 @@ export interface LockedNode<O = unknown> {
 
 export interface Shared {
   readonly description?: string;
-  /** Set when `name` came from the config's `const`, not the call. */
-  readonly inferred?: boolean;
   readonly input?: StandardSchemaV1;
   readonly name?: string;
-  /** Where the config called the builder; only kept for nameless calls. */
-  readonly site?: CallSite;
-  /** Set on a nameless definition whose project has no `typescript` to name it from its const. */
-  readonly uninferable?: boolean;
+  /**
+   * How the author can name a nameless definition, in the host's words.
+   * The engine appends it when a launch needs a name it does not have.
+   */
+  readonly nameHint?: string;
+  /**
+   * Where the host declared this definition, as a person would look for it
+   * (a file and line). The engine only quotes it, in messages about the
+   * definition such as a duplicate name.
+   */
+  readonly origin?: string;
 }
 
 /**
@@ -58,14 +60,30 @@ export interface StepRecord<I = never, O = unknown> extends Shared {
   readonly output?: StandardSchemaV1;
 }
 
-/** The data of a workflow definition: a tree, or setup that returns one. */
+/**
+ * The data of a workflow definition: setup that returns the tree a run
+ * executes. A tree known up front is a setup that returns it.
+ */
 export interface WorkflowRecord<I = never> extends Shared {
   readonly kind: "workflow";
-  readonly setup: SetupFn<I> | undefined;
-  readonly tree: LockedNode | undefined;
+  readonly setup: SetupFn<I>;
 }
 
 export type AnyDefinition = StepRecord | WorkflowRecord;
+
+/** ` (origin)` for a message, or nothing when the host did not say. */
+export function quoteOrigin(origin: string | undefined): string {
+  return origin === undefined ? "" : ` (${origin})`;
+}
+
+/** A definition with a name: what a registry holds and an engine launches. */
+export type NamedDefinition = AnyDefinition & { readonly name: string };
+
+export function isNamed(
+  definition: AnyDefinition
+): definition is NamedDefinition {
+  return definition.name !== undefined;
+}
 
 export function isLockedNode(value: unknown): value is LockedNode {
   return (

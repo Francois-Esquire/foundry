@@ -5,7 +5,6 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { catalog } from "~/authoring/catalog";
 import type { Reply } from "~/lib/models/echo";
-import { runs } from "~/lib/run-scope";
 import {
   developRound,
   findingsIn,
@@ -27,7 +26,6 @@ const repositories: string[] = [];
 
 afterEach(async () => {
   catalog.reset();
-  runs.clear();
   await mock?.dispose();
   mock = undefined;
   await Promise.all(

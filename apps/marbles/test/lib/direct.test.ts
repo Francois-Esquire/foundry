@@ -14,7 +14,6 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { catalog } from "~/authoring/catalog";
 import { agent, artifact } from "~/authoring/resources";
 import type { Engine } from "~/lib/engine";
-import { runs } from "~/lib/run-scope";
 
 import { testEngine } from "../helpers/engine";
 
@@ -31,7 +30,6 @@ afterEach(async () => {
   await engine?.dispose();
   engine = undefined;
   catalog.reset();
-  runs.clear();
   await rm(root, { force: true, recursive: true });
 });
 

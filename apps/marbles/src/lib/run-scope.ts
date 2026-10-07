@@ -7,11 +7,12 @@ import { Ledger } from "./ledger";
 import type { SessionRef } from "./types";
 
 /**
- * One RunScope per run, created by the definition's factory. It owns the
- * run-level abort controller, the frame table, the ledger, and the run's
- * session reference. Frames are per step path; each has its own controller
- * chained under the run's. Bodies find their frame through async context,
- * which is also how a worktree callback narrows the working directory.
+ * One RunScope per run, opened through its engine's RunScopes by the
+ * definition's factory. It owns the run-level abort controller, the frame
+ * table, the ledger, and the run's session reference. Frames are per step
+ * path; each has its own controller chained under the run's. Bodies find
+ * their frame through async context, which is also how a worktree callback
+ * narrows the working directory.
  */
 
 interface Closable {
@@ -59,10 +60,23 @@ export interface Current {
   readonly scope: RunScope;
 }
 
+/**
+ * The frame a body is running in, found through async context. This one
+ * stays module-level on purpose: it holds no state of its own, only what
+ * each `run` call hands its callback, so two engines in one process never
+ * see each other's frames. Threading it through every manager call instead
+ * would put the frame in every signature an author's body reaches.
+ */
 export const current = new AsyncLocalStorage<Current>();
 
-/** Every live run in this process, for hosts that steer or inspect. */
-export const runs = new Map<string, RunScope>();
+/**
+ * The directory work started now runs in: the worktree a callback narrowed
+ * the frame to, else `fallback` (the run's root, or the workspace root
+ * outside any run).
+ */
+export function workingDirectory(fallback: string): string {
+  return current.getStore()?.cwd ?? fallback;
+}
 
 type Literal = Readonly<Record<string, unknown>>;
 
@@ -72,13 +86,6 @@ export interface RestoredScope {
   /** Each node's literal input by step path, as locked when the run started. */
   readonly literals?: Readonly<Record<string, Literal>>;
   readonly session: SessionRef;
-}
-
-const restored = new Map<string, RestoredScope>();
-
-/** The engine hands over a recovered run's state before the Orchestrator rebuilds it. */
-export function restoreScope(runId: string, state: RestoredScope): void {
-  restored.set(runId, state);
 }
 
 export class RunScope {
@@ -95,18 +102,21 @@ export class RunScope {
   readonly session: SessionRef;
   #root: Step | undefined;
 
-  constructor(id: string, cwd: string, host: HostBindings = {}) {
+  /** `previous` is what a recovered run recorded; a new run starts empty. */
+  constructor(
+    id: string,
+    cwd: string,
+    host: HostBindings = {},
+    previous?: RestoredScope
+  ) {
     this.id = id;
     this.cwd = cwd;
     this.host = host;
-    const previous = restored.get(id);
-    restored.delete(id);
     this.ledger = new Ledger(previous?.ledger);
     this.session = previous?.session ?? { id: crypto.randomUUID() };
     for (const [key, literal] of Object.entries(previous?.literals ?? {})) {
       this.literals.set(key, literal);
     }
-    runs.set(id, this);
   }
 
   /**
@@ -278,7 +288,7 @@ export class RunScope {
     return { key: Ledger.key(frame.path, kind, occurrence), occurrence };
   }
 
-  /** Close everything the run opened and forget the run. */
+  /** Close everything the run opened, last opened first. */
   async settle(): Promise<void> {
     for (const frame of [...this.frames.values()].reverse()) {
       for (const handle of [...frame.opened].reverse()) {
@@ -290,7 +300,82 @@ export class RunScope {
       }
       frame.opened.clear();
     }
-    runs.delete(this.id);
+  }
+}
+
+/**
+ * What a host reads of the run scopes an engine holds: each live run's
+ * scope, to steer or inspect. Opening and settling stay with the engine,
+ * which keeps its own record of each run beside its scope.
+ */
+export interface ReadonlyRunScopes extends Iterable<RunScope> {
+  get(runId: string): RunScope | undefined;
+  has(runId: string): boolean;
+  readonly size: number;
+}
+
+/**
+ * The run scopes one engine holds. A scope is opened when the Orchestrator
+ * builds a run's tree and held once that tree is attached, so a launch
+ * rejected while building leaves nothing behind; it is forgotten when the
+ * run settles. A run recovered from an earlier process is handed its
+ * recorded state here before the Orchestrator rebuilds it, and its scope
+ * takes that state when it opens.
+ */
+export class RunScopes implements ReadonlyRunScopes {
+  readonly #live = new Map<string, RunScope>();
+  readonly #recovered = new Map<string, RestoredScope>();
+
+  /** What a parked run recorded, for its scope when the run is rebuilt. */
+  recover(runId: string, state: RestoredScope): void {
+    this.#recovered.set(runId, state);
+  }
+
+  /**
+   * Build a run's root in a fresh scope, then hold the scope. A recovered
+   * run's scope starts from what it recorded, which is consumed whether or
+   * not the build succeeds.
+   */
+  async open(
+    id: string,
+    cwd: string,
+    host: HostBindings | undefined,
+    build: (scope: RunScope) => Promise<Step>
+  ): Promise<Step> {
+    const previous = this.#recovered.get(id);
+    this.#recovered.delete(id);
+    const scope = new RunScope(id, cwd, host, previous);
+    const root = await build(scope);
+    scope.attach(root);
+    this.#live.set(id, scope);
+    return root;
+  }
+
+  /** Drop what a recovered run recorded when nothing here will rebuild it. */
+  forget(runId: string): void {
+    this.#recovered.delete(runId);
+  }
+
+  get(runId: string): RunScope | undefined {
+    return this.#live.get(runId);
+  }
+
+  has(runId: string): boolean {
+    return this.#live.has(runId);
+  }
+
+  get size(): number {
+    return this.#live.size;
+  }
+
+  /** Close what a run opened and forget it; nothing for a run not held here. */
+  async settle(runId: string): Promise<void> {
+    await this.#live.get(runId)?.settle();
+    this.#live.delete(runId);
+  }
+
+  [Symbol.iterator](): IterableIterator<RunScope> {
+    return this.#live.values();
   }
 }
 

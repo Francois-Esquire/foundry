@@ -4,6 +4,7 @@ import { z } from "zod";
 import { step, workflow } from "~/authoring/builder";
 import { catalog } from "~/authoring/catalog";
 import { isLockedNode } from "~/lib/definition";
+import { createLog } from "~/lib/log";
 
 const ALREADY_REGISTERED = /already registered/;
 const CHILD_AND_INPUT = /both a child and an input key/;
@@ -11,6 +12,7 @@ const UNDECLARED_CHILD = /"other" is not an input key \(declared: findings\)/;
 const UNDECLARED_CHILD_TYPED = /"other" is not an input key/;
 const NOT_A_NODE = /not a locked node/;
 const EXPECTED_NODE = /expected a locked node/;
+const WORKFLOW_CHILD = /child "a" is a workflow/;
 
 afterEach(() => {
   catalog.reset();
@@ -86,14 +88,30 @@ describe("definitions and locking", () => {
     ).toThrow(NOT_A_NODE);
   });
 
-  it("workflow accepts a tree, a function returning one, or the builder", () => {
+  it("rejects a workflow as a child: only a run's root may be one", () => {
+    const inner = workflow("inner", step().do(() => 1)({}));
+    const parent = step()
+      .input(z.object({ a: z.number() }))
+      .do(({ input }) => input.a);
+    expect(() => parent({ a: inner({}) })).toThrow(WORKFLOW_CHILD);
+  });
+
+  it("workflow accepts a tree, a function returning one, or the builder", async () => {
     const leaf = step().do(() => 1);
-    const fromTree = workflow("a", leaf({}));
+    const tree = leaf({});
+    const fromTree = workflow("a", tree);
     const fromFn = workflow("b", () => leaf({}));
     const fromBuilder = workflow("c")
       .input(z.object({ task: z.string() }))
       .do(() => leaf({}));
-    expect(fromTree.tree).toBeDefined();
+    // A tree known up front is a setup that returns it.
+    expect(
+      await fromTree.setup({
+        input: {},
+        log: createLog(() => undefined),
+        run: { id: "run" },
+      })
+    ).toBe(tree);
     expect(fromFn.setup).toBeDefined();
     expect(fromBuilder.setup).toBeDefined();
     expect(fromBuilder.input).toBeDefined();

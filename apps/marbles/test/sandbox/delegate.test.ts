@@ -8,6 +8,7 @@ import {
   InMemorySessionStore,
   type SessionMessage,
 } from "@foundry/agents/session";
+import type { Container } from "@foundry/sandbox/container/containers";
 import { tool as createTool } from "ai";
 import { expect, it, vi } from "vitest";
 import { z } from "zod";
@@ -18,7 +19,6 @@ import {
 } from "~/lib/sandbox/session";
 
 const builtinSettings: SandboxSessionSettings[] = [];
-vi.mock("~/lib/managers/sandboxes", () => ({ sandboxContainer: () => ({}) }));
 vi.mock("~/lib/sandbox/builtin-session", () => ({
   createBuiltinSession: async (input: SandboxSessionSettings) => {
     builtinSettings.push(input);
@@ -29,6 +29,7 @@ vi.mock("~/lib/sandbox/builtin-session", () => ({
 function settings(): SandboxSessionSettings {
   return {
     agentId: "worker",
+    container: {} as Container,
     harness: "codex",
     instructions: "Parent instructions",
     modelId: "model",

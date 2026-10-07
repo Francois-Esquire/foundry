@@ -16,7 +16,6 @@ import { step, workflow } from "~/authoring/builder";
 import { catalog } from "~/authoring/catalog";
 import { agent } from "~/authoring/resources";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
-import { runs } from "~/lib/run-scope";
 
 import { bindMock } from "../helpers/bindings";
 import { startEngine } from "../helpers/engine";
@@ -33,7 +32,6 @@ beforeEach(async () => {
 
 afterEach(async () => {
   catalog.reset();
-  runs.clear();
   await rm(root, { force: true, recursive: true });
 });
 
@@ -90,7 +88,7 @@ describe("lib2 through the engine", () => {
       step: "release",
       title: "Release v2",
     });
-    expect(runs.has(launched.id)).toBe(true);
+    expect(engine.scopes.has(launched.id)).toBe(true);
     if (!question) {
       throw new Error("expected an open approval");
     }
@@ -104,7 +102,7 @@ describe("lib2 through the engine", () => {
       note: "after the docs land",
       run: launched.id,
     });
-    expect(runs.has(launched.id)).toBe(false);
+    expect(engine.scopes.has(launched.id)).toBe(false);
 
     const entries = await store.read();
     expect(entries.map((entry) => [entry.kind, entry.title]).sort()).toEqual([
@@ -165,7 +163,7 @@ describe("lib2 through the engine", () => {
     if (!question) {
       throw new Error("expected an open approval");
     }
-    const scope = runs.get(launched.id);
+    const scope = one.scopes.get(launched.id);
     const recordedSession = scope?.ledger.toJSON();
     const runSession = scope?.session.id;
     expect(Object.keys(recordedSession ?? {})).toHaveLength(1);
@@ -209,7 +207,6 @@ describe("lib2 through the engine", () => {
 
     // Process two: adopt the parked run, answer, and finish it.
     catalog.reset();
-    runs.clear();
     define();
     const second = bindMock(() => "ok", { root, sessions });
     const feedTwo = openFeed(feedRoot, { id: "ws", root });
@@ -248,7 +245,7 @@ describe("lib2 through the engine", () => {
     // The body ran once per process; the ledger gave the second run the
     // session the first opened instead of a new one.
     expect(bodies).toHaveLength(2);
-    expect(runs.has(launched.id)).toBe(false);
+    expect(two.scopes.has(launched.id)).toBe(false);
     expect(existsSync(join(state, "runs", file as string))).toBe(true);
     await two.stop();
     await second.dispose();
@@ -314,7 +311,6 @@ describe("lib2 through the engine", () => {
 
     // Process two: the parked run is adopted; the cancelled one is not.
     catalog.reset();
-    runs.clear();
     define();
     const second = bindMock(() => "ok", { root });
     const feedTwo = openFeed(feedRoot, { id: "ws", root });
@@ -367,7 +363,6 @@ describe("lib2 through the engine", () => {
 
     // Not askable: the run is skipped, not adopted, and not cancelled.
     catalog.reset();
-    runs.clear();
     step("release").do(
       async ({ ask }) => (await ask.approval({ title: "Go?" })).approved
     );
@@ -386,7 +381,6 @@ describe("lib2 through the engine", () => {
 
     // Askable, but the step was renamed: skipped with a warning, no crash.
     catalog.reset();
-    runs.clear();
     step("ship").do(
       async ({ ask }) => (await ask.approval({ title: "Go?" })).approved
     );
@@ -612,7 +606,6 @@ describe("lib2 through the engine", () => {
     await one.stop();
 
     catalog.reset();
-    runs.clear();
     define();
     const rebound = bindMock(() => "ok", { root });
     const two = await startEngine({
@@ -699,7 +692,6 @@ describe("lib2 through the engine", () => {
     // The setup would now lock a different value; the recovered run keeps its own.
     seed = 2;
     catalog.reset();
-    runs.clear();
     define();
     const rebound = bindMock(() => "ok", { root });
     const two = await startEngine({

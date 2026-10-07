@@ -1,7 +1,6 @@
 import { Cron } from "croner";
 import type { Engine } from "~/lib/engine";
 import { isLaunch } from "~/lib/launch";
-import { acknowledgeLaunch } from "~/lib/monitor";
 import { isRecord } from "~/lib/state/json";
 import { acquireLock } from "~/lib/state/locks";
 import type { ScheduleHistory } from "~/lib/state/schedules";
@@ -173,7 +172,7 @@ export async function tick(
       // failure to start (a setup that threw) leaves the launch pending, so
       // the next tick tries again.
       if (!engine.has(launch.workflow)) {
-        acknowledgeLaunch(schedule.key);
+        engine.acknowledge(schedule.key);
         throw new Error(
           `${schedule.key}: launch target "${launch.workflow}" is not registered`
         );
@@ -183,7 +182,7 @@ export async function tick(
         launch.input,
         schedule.key
       );
-      acknowledgeLaunch(schedule.key);
+      engine.acknowledge(schedule.key);
       value = await awaitScheduledRun(engine, started, options.signal);
     }
     status = "complete";

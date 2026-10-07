@@ -12,12 +12,8 @@ import { describe, expect, it, vi } from "vitest";
 import { createSandboxSession } from "../../src/lib/sandbox/session";
 import type { Sandbox } from "../../src/lib/types";
 
-const binding = vi.hoisted(() => ({
-  container: undefined as Container | undefined,
-}));
-vi.mock("~/lib/managers/sandboxes", () => ({
-  sandboxContainer: () => binding.container,
-}));
+/** The container the last `guest()` built; a session opens over it. */
+const binding: { container: Container | undefined } = { container: undefined };
 vi.mock("@foundry/models/claude-code", () => ({
   createClaudeCodeDriver: () => {
     throw new Error("CLI not expected");
@@ -129,8 +125,12 @@ async function session(
     write?: (value: unknown) => void;
   } = {}
 ) {
+  if (!binding.container) {
+    throw new Error("call guest() before opening a session");
+  }
   return createSandboxSession({
     agentId: "coder",
+    container: binding.container,
     instructions: "Make one change and run tests.",
     model: network,
     modelId: "gateway-model",

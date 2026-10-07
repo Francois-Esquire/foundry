@@ -5,7 +5,6 @@ import { z } from "zod";
 
 import { catalog } from "~/authoring/catalog";
 import type { Engine } from "~/lib/engine";
-import { runs } from "~/lib/run-scope";
 
 import { startEngine, testEngine } from "./helpers/engine";
 
@@ -15,7 +14,6 @@ const ALREADY_STARTED = /already started/;
 
 afterEach(() => {
   catalog.reset();
-  runs.clear();
 });
 
 class Shout extends Step<string, string> {

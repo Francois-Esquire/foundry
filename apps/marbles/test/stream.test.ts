@@ -3,11 +3,9 @@ import type { ChannelMessage } from "@foundry/workflows/channels";
 import { afterEach, describe, expect, it } from "vitest";
 import { catalog } from "~/authoring/catalog";
 import { createEngine } from "~/create";
-import { runs } from "~/lib/run-scope";
 
 afterEach(() => {
   catalog.reset();
-  runs.clear();
 });
 
 describe("stream", () => {

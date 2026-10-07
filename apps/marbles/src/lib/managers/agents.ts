@@ -14,6 +14,7 @@ import { createModelSummarizer } from "@foundry/agents/session";
 import type { Skill } from "@foundry/agents/skills";
 import type { ModelManager, TurnExecutorRef } from "@foundry/models";
 import { observeAgentTurn } from "@foundry/models";
+import type { Container } from "@foundry/sandbox/container/containers";
 
 import type { AutomationService } from "~/lib/automation/service";
 import type { HarnessActivities } from "~/lib/sandbox/activities";
@@ -22,10 +23,11 @@ import { createSandboxSession } from "~/lib/sandbox/session";
 
 import type { ManagerArgs } from "../bindings";
 import type { LiveSession } from "../run-scope";
-import { current } from "../run-scope";
+import { workingDirectory } from "../run-scope";
 import type {
   AgentDefinition,
   Agents,
+  Sandbox,
   Session,
   SessionOptions,
   SessionRef,
@@ -52,6 +54,8 @@ import type {
 export interface AgentsDeps {
   readonly activities?: HarnessActivities;
   readonly automations?: AutomationService;
+  /** The container behind a sandbox handle; a sandbox session's harness runs in it. */
+  readonly containerOf: (sandbox: Sandbox) => Container;
   /** The route when an agent names neither model nor provider. */
   readonly defaultExecutor: () => TurnExecutorRef;
   /** Simulation uses echo models and never prepares a guest or reads credentials. */
@@ -86,7 +90,7 @@ interface Source {
  * when the run settles. On the manager it is the engine itself.
  */
 interface SessionSite {
-  /** The working directory when neither the call nor a worktree names one. */
+  /** The working directory when neither the call nor a worktree names one: the run's root, or the workspace root. */
   readonly cwd: string;
   /** The run's own session; a fresh session is filed under it. */
   readonly parent?: string;
@@ -108,13 +112,13 @@ interface SessionSite {
 
 /** The site a step's frame is: one claim per call, in call order. */
 function frameSite(
-  { cwd, frame, scope, write }: ManagerArgs,
+  { frame, scope, write }: ManagerArgs,
   agentId: string
 ): SessionSite {
   const { key } = scope.claim(frame, KIND);
   const recorded = scope.ledger.get<SessionRef>(key);
   return {
-    cwd,
+    cwd: scope.cwd,
     parent: scope.session.id,
     record: (ref) => scope.ledger.set(key, ref),
     ...(recorded === undefined ? {} : { recorded }),
@@ -371,82 +375,128 @@ async function interactionOptions(
   };
 }
 
+/** Where a session's turns go: the agent's own route, else the engine's default. */
+interface Route {
+  readonly modelId: string | undefined;
+  readonly provider: string | undefined;
+}
+
+/** What both kinds of session are opened with, once the route and id are settled. */
+interface Opening {
+  readonly definition: AgentDefinition;
+  readonly id: string;
+  readonly options: SessionOptions;
+  readonly route: Route;
+  readonly site: SessionSite;
+  readonly skills: Skill[];
+}
+
+/**
+ * The route, the session id, and the skills, then a sandbox session or a
+ * local one. A fresh session is a child of the run's own session, which is
+ * created in the store the first time the run needs it, so a host can read
+ * every agent the run opened through `run.session`.
+ */
 async function openSession(
   deps: AgentsDeps,
   site: SessionSite,
   definition: AgentDefinition,
   options: SessionOptions
 ): Promise<Session> {
-  const { cwd, recorded, source, write } = site;
   const wanted = options.session ? refOf(options.session) : undefined;
-
   const fallback =
     definition.provider === undefined && definition.model === undefined
       ? deps.defaultExecutor()
       : undefined;
-  const provider = definition.provider ?? fallback?.provider;
-  const modelId = definition.model ?? fallback?.model;
-  // A worktree callback narrows the working directory through the async
-  // store; a session opened inside it runs there unless the call says otherwise.
-
-  const id = sessionIdFor(recorded, wanted, provider, deps.warn);
-  // A fresh session is a child of the run's own session, which is created
-  // in the store the first time the run needs it, so a host can read every
-  // agent the run opened through `run.session`.
-  if (id !== recorded?.id && id !== wanted?.id) {
+  const route: Route = {
+    modelId: definition.model ?? fallback?.model,
+    provider: definition.provider ?? fallback?.provider,
+  };
+  const id = sessionIdFor(site.recorded, wanted, route.provider, deps.warn);
+  if (id !== site.recorded?.id && id !== wanted?.id) {
     await fileSession(deps.sessions, site.parent, id);
   }
+  const opening: Opening = {
+    definition,
+    id,
+    options,
+    route,
+    site,
+    skills: await deps.skills(definition.skills),
+  };
+  const harness =
+    options.sandbox && !deps.dry
+      ? await openSandboxSession(deps, opening, options.sandbox)
+      : await openLocalSession(deps, opening);
+  return retainSession(harness, id, site);
+}
 
-  const skills = await deps.skills(definition.skills);
-  if (options.sandbox && !deps.dry) {
-    const executor = sandboxExecutor(deps.models, modelId, provider);
-    const sessionOptions = await interactionOptions(
-      deps.interactions,
-      source,
-      definition.id,
-      id,
-      options
-    );
-    const harness = await createSandboxSession({
-      agentId: definition.id,
-      harness: executor.harness,
-      hostCwd: current.getStore()?.cwd ?? cwd,
-      hostToolsForSession: (sessionId) =>
-        deps.automations?.tools({
-          agentId: definition.id,
-          sessionId,
-          source,
-        }) ?? {},
-      modelId: executor.model,
-      onActivity: deps.activities
-        ? (event) => deps.activities?.record(event, source)
-        : undefined,
-      onChildSession: (sessionId, activityId, session) =>
-        deps.activities?.attach(sessionId, session, activityId),
-      provider: executor.provider,
-      registerChildSession: (sessionId) =>
-        deps.interactions?.registerSession(
-          { agentId: definition.id, sessionId, source },
-          sessionOptions.authority?.policy
-        ) ?? Promise.resolve(),
-      ...sandboxModel(deps.models, executor),
-      instructions: [
-        definition.prompt,
-        ...skills.map((skill) => skill.instructions ?? ""),
-      ]
-        .filter(Boolean)
-        .join("\n\n"),
-      options: sessionOptions,
-      sessionId: id,
-      signal: site.signal(),
-      store: deps.sessions,
-      write,
-    });
-    deps.activities?.attach(id, harness);
-    return retainSession(harness, id, site);
-  }
+/** A harness inside the sandbox's container, with approvals, questions, and activity routed to the host. */
+async function openSandboxSession(
+  deps: AgentsDeps,
+  { definition, id, options, route, site, skills }: Opening,
+  sandbox: Sandbox
+): Promise<HarnessSession> {
+  const { source } = site;
+  const executor = sandboxExecutor(deps.models, route.modelId, route.provider);
+  const sessionOptions = await interactionOptions(
+    deps.interactions,
+    source,
+    definition.id,
+    id,
+    options
+  );
+  const harness = await createSandboxSession({
+    agentId: definition.id,
+    container: deps.containerOf(sandbox),
+    harness: executor.harness,
+    hostCwd: workingDirectory(site.cwd),
+    hostToolsForSession: (sessionId) =>
+      deps.automations?.tools({
+        agentId: definition.id,
+        sessionId,
+        source,
+      }) ?? {},
+    modelId: executor.model,
+    onActivity: deps.activities
+      ? (event) => deps.activities?.record(event, source)
+      : undefined,
+    onChildSession: (sessionId, activityId, session) =>
+      deps.activities?.attach(sessionId, session, activityId),
+    provider: executor.provider,
+    registerChildSession: (sessionId) =>
+      deps.interactions?.registerSession(
+        { agentId: definition.id, sessionId, source },
+        sessionOptions.authority?.policy
+      ) ?? Promise.resolve(),
+    ...sandboxModel(deps.models, executor),
+    instructions: [
+      definition.prompt,
+      ...skills.map((skill) => skill.instructions ?? ""),
+    ]
+      .filter(Boolean)
+      .join("\n\n"),
+    options: sessionOptions,
+    sessionId: id,
+    signal: site.signal(),
+    store: deps.sessions,
+    write: site.write,
+  });
+  deps.activities?.attach(id, harness);
+  return harness;
+}
+
+/**
+ * An agent preset in this process. It works where the call says, else in
+ * the worktree a callback narrowed the frame to, else the site's directory.
+ */
+async function openLocalSession(
+  deps: AgentsDeps,
+  { definition, id, options, route, site, skills }: Opening
+): Promise<SessionHarness> {
+  const { modelId, provider } = route;
   const model = deps.models.model(modelId, provider, {
-    workingDirectory: options.cwd ?? current.getStore()?.cwd ?? cwd,
+    workingDirectory: options.cwd ?? workingDirectory(site.cwd),
   });
   const spec: AgentSpec = {
     id: definition.id,
@@ -455,7 +505,7 @@ async function openSession(
     ...(provider === undefined ? {} : { provider }),
     skills: skills.map((skill) => skill.name),
   };
-  const harness = await createAgentPreset(spec, {
+  return await createAgentPreset(spec, {
     model: () => model,
     observe: observeAgentTurn,
     skills: () => Promise.resolve(skills),
@@ -472,8 +522,6 @@ async function openSession(
     model,
     sessionId: id,
   });
-
-  return retainSession(harness, id, site);
 }
 
 function retainSession(

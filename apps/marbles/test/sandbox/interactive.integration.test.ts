@@ -8,12 +8,10 @@ import { step } from "~/authoring/builder";
 import { catalog } from "~/authoring/catalog";
 import { createEngine } from "~/create";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
-import { runs } from "~/lib/run-scope";
 import type { Session, SessionReply } from "~/lib/types";
 
 afterEach(() => {
   catalog.reset();
-  runs.clear();
 });
 
 for (const harness of ["builtin", "claude-code", "codex"] as const) {

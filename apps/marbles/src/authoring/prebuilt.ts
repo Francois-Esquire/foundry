@@ -23,8 +23,10 @@ const BOUNDED =
   "Inspect the root README and package.json, list top-level app/package directories, and read at most six additional documentation or source files. Return only the final answer, with file references and explicit assumptions.";
 const DEFAULT_TIMEOUT_MS = 120_000;
 
-function reviewer(options: PrebuiltOptions): AgentDefinition {
+/** Named after its step, so its approvals follow the step, not the module's binding. */
+function reviewer(name: string, options: PrebuiltOptions): AgentDefinition {
   return agent({
+    name,
     prompt: [READ_ONLY, options.instructions ?? ""].join("\n").trim(),
     ...(options.provider === undefined ? {} : { provider: options.provider }),
   });
@@ -54,8 +56,9 @@ async function ask(
 
 /** Factories register only the step explicitly requested by the module. */
 export function summarizeCodebase(options: PrebuiltOptions = {}) {
-  const definition = reviewer(options);
-  return step(options.name ?? "summarize-codebase")
+  const name = options.name ?? "summarize-codebase";
+  const definition = reviewer(name, options);
+  return step(name)
     .describe("A short, read-only codebase orientation for a product teammate.")
     .do(async (context) => {
       const result = await ask(
@@ -69,8 +72,9 @@ export function summarizeCodebase(options: PrebuiltOptions = {}) {
 }
 
 export function codeReview(options: PrebuiltOptions = {}) {
-  const definition = reviewer(options);
-  return step(options.name ?? "code-review")
+  const name = options.name ?? "code-review";
+  const definition = reviewer(name, options);
+  return step(name)
     .describe("Read-only code review with actionable findings.")
     .do((context) =>
       ask(
@@ -83,8 +87,9 @@ export function codeReview(options: PrebuiltOptions = {}) {
 }
 
 export function prototype(options: PrebuiltOptions = {}) {
-  const definition = reviewer(options);
-  return step(options.name ?? "prototype")
+  const name = options.name ?? "prototype";
+  const definition = reviewer(name, options);
+  return step(name)
     .describe("Generate a small HTML/CSS prototype from a design brief.")
     .input(
       z.object({
@@ -111,15 +116,16 @@ export function promptStep(
   options: PrebuiltOptions = {},
   description = "A prompt against the codebase."
 ) {
-  const definition = reviewer(options);
+  const definition = reviewer(name, options);
   return step(name)
     .describe(description)
     .do((context) => ask(context, definition, options, prompt));
 }
 
 export function reviewInWorktree(options: PrebuiltOptions = {}) {
-  const definition = reviewer(options);
-  return step(options.name ?? "review-in-worktree")
+  const name = options.name ?? "review-in-worktree";
+  const definition = reviewer(name, options);
+  return step(name)
     .describe("Review a revision in a temporary worktree.")
     .input(
       z.object({
@@ -144,8 +150,9 @@ export function reviewInWorktree(options: PrebuiltOptions = {}) {
 }
 
 export function reviewSession(options: PrebuiltOptions = {}) {
-  const definition = reviewer(options);
-  return step(options.name ?? "review-session")
+  const name = options.name ?? "review-session";
+  const definition = reviewer(name, options);
+  return step(name)
     .describe("A review that retains its conversation across runs.")
     .input(
       z.object({

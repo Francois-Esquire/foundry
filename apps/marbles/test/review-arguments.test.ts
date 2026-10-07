@@ -5,7 +5,6 @@ import { afterAll, beforeAll, expect, it } from "vitest";
 import { catalog } from "~/authoring/catalog";
 import { CODEX } from "~/lib/harnesses";
 import type { Reply } from "~/lib/models/echo";
-import { runs } from "~/lib/run-scope";
 import { reviewWorktree as review } from "../examples/review-with-arguments";
 
 import type { MockBindings } from "./helpers/bindings";
@@ -35,7 +34,6 @@ beforeAll(async () => {
 afterAll(async () => {
   await mock.dispose();
   catalog.reset();
-  runs.clear();
   await rm(root, { force: true, recursive: true });
 });
 

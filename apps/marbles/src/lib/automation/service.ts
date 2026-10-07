@@ -10,7 +10,7 @@ import { isAbsolute, join } from "node:path";
 import { type ToolSet, tool } from "ai";
 import { z } from "zod";
 import type { StepFn } from "~/lib/definition";
-import { type Detection, detector, type MonitorInput } from "~/lib/monitor";
+import { type Detection, type Detector, detector } from "~/lib/monitor";
 import type { Registry } from "~/lib/registry";
 import { AUTOMATION_MONITOR } from "~/lib/registry";
 import { parseAt } from "~/lib/schedule";
@@ -77,7 +77,6 @@ export class AutomationService {
   readonly #registry: Registry;
   readonly #records = new Map<string, AutomationRecord>();
   readonly #errors = new Map<string, string>();
-  readonly #detectors = new Map<string, StepFn<MonitorInput, Detection>>();
 
   constructor(options: AutomationOptions) {
     this.#options = options;
@@ -93,10 +92,7 @@ export class AutomationService {
       ) {
         return { changed: false };
       }
-      return await this.#detectorFor(
-        record,
-        record.source
-      )({
+      return await this.#detectorFor(record, record.source).body({
         ...context,
         input: {},
       });
@@ -111,11 +107,12 @@ export class AutomationService {
     this.#refresh();
   }
 
+  /** Kept in the registry under the record's id, which is its schedule's key. */
   #detectorFor(
     record: AutomationRecord,
     watched: NonNullable<AutomationRecord["source"]>
-  ): StepFn<MonitorInput, Detection> {
-    const existing = this.#detectors.get(record.id);
+  ): Detector {
+    const existing = this.#registry.detectors.get(record.id);
     if (existing) {
       return existing;
     }
@@ -141,7 +138,7 @@ export class AutomationService {
           await fetch(url, { ...init, redirect: "error" }),
       }
     );
-    this.#detectors.set(record.id, poll);
+    this.#registry.detectors.set(record.id, poll);
     return poll;
   }
 
@@ -178,7 +175,7 @@ export class AutomationService {
     for (const id of this.#records.keys()) {
       if (!records.has(id)) {
         this.#registry.schedules.delete(id);
-        this.#detectors.delete(id);
+        this.#registry.detectors.delete(id);
       }
     }
     this.#records.clear();
@@ -381,7 +378,7 @@ export class AutomationService {
         unlinkSync(join(directory, `${id}.json`));
       }
       this.#records.delete(id);
-      this.#detectors.delete(id);
+      this.#registry.detectors.delete(id);
       this.#registry.schedules.delete(id);
     });
   }

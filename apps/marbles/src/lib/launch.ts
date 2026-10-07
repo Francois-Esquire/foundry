@@ -13,10 +13,9 @@ export interface Launch {
 }
 
 function nameless(verb: string, definition: AnyDefinition): string {
-  const hint = definition.uninferable
-    ? "; install typescript in the config's project to name it from its const, or"
-    : ";";
-  return `${verb}: this ${definition.kind} has no name${hint} give it one: ${definition.kind}("name")`;
+  const hint =
+    definition.nameHint === undefined ? "" : `; ${definition.nameHint}`;
+  return `${verb}: this ${definition.kind} has no name${hint}`;
 }
 
 export function launchTarget(
@@ -26,7 +25,7 @@ export function launchTarget(
   const node = isLockedNode(target) ? target : undefined;
   if (node && node.children.length > 0) {
     throw new Error(
-      `${verb}: a locked tree has children; wrap it in workflow(name, tree) first`
+      `${verb}: a locked tree has children; wrap it in a named workflow first`
     );
   }
   const definition = node ? node.definition : (target as AnyDefinition);

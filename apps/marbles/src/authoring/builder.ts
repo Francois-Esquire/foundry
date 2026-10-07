@@ -1,9 +1,10 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { catalog } from "~/authoring/catalog";
-import type { CallSite, LockedNode, SetupFn, StepFn } from "~/lib/definition";
+import type { LockedNode, SetupFn, Shared, StepFn } from "~/lib/definition";
 import { isLockedNode } from "~/lib/definition";
 import type { Input, Output } from "~/lib/schema";
-import { bindingAt, callSite, canInfer } from "./identity";
+import type { CallSite } from "./identity";
+import { bindingAt, callSite, canInfer, originOf } from "./identity";
 import type { StepDefinition, WorkflowDefinition } from "./lock";
 import { lockable } from "./lock";
 
@@ -20,31 +21,41 @@ type Empty = Record<string, never>;
 /** What a node produces: the output schema's type, else the body's return. */
 type Produces<O, X> = unknown extends O ? X : O;
 
-/** The name to register under: the given one, else the binding's, else none. */
+/**
+ * The name to register under (the given one, else the binding's, else
+ * none), with where the call was and how to name it, in the words the
+ * engine quotes back without knowing how names are inferred.
+ */
 interface Identity {
-  readonly inferred?: boolean;
-  readonly name?: string;
-  readonly site?: CallSite;
-  readonly uninferable?: boolean;
+  readonly fields: Pick<Shared, "name" | "nameHint" | "origin">;
+  /** The name came from the config's `const`, not the call. */
+  readonly inferred: boolean;
 }
 
 function identify(
+  kind: "step" | "workflow",
   name: string | undefined,
   site: CallSite | undefined
 ): Identity {
-  if (name !== undefined) {
-    return { name };
-  }
+  const explicit = `give it one: ${kind}("name")`;
   if (site === undefined) {
-    return {};
+    return {
+      fields: name === undefined ? { nameHint: explicit } : { name },
+      inferred: false,
+    };
+  }
+  const origin = originOf(site);
+  if (name !== undefined) {
+    return { fields: { name, origin }, inferred: false };
   }
   const bound = bindingAt(site);
   if (bound !== undefined) {
-    return { inferred: true, name: bound, site };
+    return { fields: { name: bound, origin }, inferred: true };
   }
-  // Recorded here so the engine can say why a launch has no name without
-  // knowing how names are inferred.
-  return canInfer(site.file) ? { site } : { site, uninferable: true };
+  const nameHint = canInfer(site.file)
+    ? explicit
+    : `install typescript in the config's project to name it from its const, or ${explicit}`;
+  return { fields: { nameHint, origin }, inferred: false };
 }
 
 /**
@@ -109,23 +120,24 @@ export class StepBuilder<I = Empty, R = Empty, Ret = unknown, O = unknown> {
   }
 
   do<X extends Ret>(fn: StepFn<I, X>): StepDefinition<I, Produces<O, X>, R> {
+    const identity = identify("step", this.#name, this.#site);
     const definition = lockable<StepDefinition<I, Produces<O, X>, R>>({
       ...(this.#description === undefined
         ? {}
         : { description: this.#description }),
       fn,
-      ...identify(this.#name, this.#site),
+      ...identity.fields,
       ...(this.#input === undefined ? {} : { input: this.#input }),
       kind: "step",
       ...(this.#output === undefined ? {} : { output: this.#output }),
     });
-    catalog.define(definition);
+    catalog.define(definition, identity.inferred);
     return definition;
   }
 }
 
 export function step(name?: string): StepBuilder {
-  return new StepBuilder(name, name === undefined ? callSite() : undefined);
+  return new StepBuilder(name, callSite());
 }
 
 export class WorkflowBuilder<I = Empty, R = Empty> {
@@ -164,10 +176,10 @@ export class WorkflowBuilder<I = Empty, R = Empty> {
   /** Setup: prepares things and returns the tree. Not durable. */
   do<O>(setup: SetupFn<I, O>): WorkflowDefinition<I, O, R> {
     return finishWorkflow<I, O, R>(
-      identify(this.#name, this.#site),
+      identify("workflow", this.#name, this.#site),
       this.#description,
       this.#input,
-      { setup }
+      setup
     );
   }
 }
@@ -176,17 +188,16 @@ function finishWorkflow<I, O, R = I>(
   identity: Identity,
   description: string | undefined,
   input: StandardSchemaV1 | undefined,
-  body: { setup: SetupFn<I, O> } | { tree: LockedNode<O> }
+  setup: SetupFn<I, O>
 ): WorkflowDefinition<I, O, R> {
   const definition = lockable<WorkflowDefinition<I, O, R>>({
     ...(description === undefined ? {} : { description }),
-    ...identity,
+    ...identity.fields,
     ...(input === undefined ? {} : { input }),
     kind: "workflow",
-    setup: "setup" in body ? body.setup : undefined,
-    tree: "tree" in body ? body.tree : undefined,
+    setup,
   });
-  catalog.define(definition);
+  catalog.define(definition, identity.inferred);
   return definition;
 }
 
@@ -203,20 +214,20 @@ export function workflow(
   second?: TreeArg
 ): WorkflowDefinition | WorkflowBuilder {
   const name = typeof first === "string" ? first : undefined;
-  const site = name === undefined ? callSite() : undefined;
+  const site = callSite();
   const tree = typeof first === "string" ? second : first;
   if (tree === undefined) {
     return new WorkflowBuilder(name, site);
   }
+  const identity = identify("workflow", name, site);
   if (typeof tree === "function") {
-    return finishWorkflow(identify(name, site), undefined, undefined, {
-      setup: () => tree(),
-    });
+    return finishWorkflow(identity, undefined, undefined, () => tree());
   }
   if (!isLockedNode(tree)) {
     throw new Error(
       `workflow(${name ? `"${name}"` : ""}): expected a locked node or a function returning one`
     );
   }
-  return finishWorkflow(identify(name, site), undefined, undefined, { tree });
+  // A tree known up front is a setup that returns it.
+  return finishWorkflow(identity, undefined, undefined, () => tree);
 }

@@ -15,6 +15,7 @@ import type {
   ApprovalRequest,
   ArtifactDefinition,
   ArtifactFiles,
+  Artifacts,
   Ask,
   Context,
   Question,
@@ -141,11 +142,18 @@ function buildAsk(args: AskArgs): Ask {
 }
 
 interface ReportArgs extends AskArgs {
-  readonly context: () => Context<unknown>;
+  /** Writes an artifact version through the step's own view, so a replay returns the same one. */
+  readonly artifacts: () => Artifacts;
   readonly root: string;
 }
 
-function buildReport({ ctx, frame, root, scope, context }: ReportArgs): Report {
+function buildReport({
+  artifacts,
+  ctx,
+  frame,
+  root,
+  scope,
+}: ReportArgs): Report {
   const post = (
     kind: "milestone" | "result",
     entry: ReportEntry,
@@ -172,7 +180,7 @@ function buildReport({ ctx, frame, root, scope, context }: ReportArgs): Report {
       files: ArtifactFiles,
       entry?: Partial<ReportEntry>
     ) {
-      const version = await context().artifacts.write(definition, files);
+      const version = await artifacts().write(definition, files);
       post(
         "result",
         { ...entry, title: entry?.title ?? definition.name },
@@ -188,7 +196,6 @@ function buildReport({ ctx, frame, root, scope, context }: ReportArgs): Report {
 export interface ContextArgs<I> {
   readonly bindings: Bindings;
   readonly ctx: StepContext;
-  readonly cwd: string;
   readonly frame: Frame;
   readonly input: I;
   readonly scope: RunScope;
@@ -197,13 +204,12 @@ export interface ContextArgs<I> {
 export function buildContext<I>({
   bindings,
   ctx,
-  cwd,
   frame,
   input,
   scope,
 }: ContextArgs<I>): Context<I> {
   const write = (value: unknown) => ctx.write(value);
-  const managerArgs = { cwd, frame, scope, write };
+  const managerArgs = { frame, scope, write };
   const run: Run = {
     abort: (reason) => scope.abort(reason),
     id: scope.id,
@@ -219,8 +225,7 @@ export function buildContext<I>({
     bindings.log[level](message);
   });
   const askArgs = { ctx, frame, scope };
-  let built: Context<I> | undefined;
-  const context: Context<I> = {
+  return {
     get agents() {
       return bindings.agents(managerArgs);
     },
@@ -232,7 +237,7 @@ export function buildContext<I>({
     log,
     report: buildReport({
       ...askArgs,
-      context: () => built as Context<unknown>,
+      artifacts: () => bindings.artifacts(managerArgs),
       root: bindings.root,
     }),
     run,
@@ -248,6 +253,4 @@ export function buildContext<I>({
       return bindings.workspaces(managerArgs);
     },
   };
-  built = context;
-  return context;
 }

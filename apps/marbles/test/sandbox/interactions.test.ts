@@ -11,7 +11,6 @@ import { afterEach, expect, it, vi } from "vitest";
 import { step } from "~/authoring/builder";
 import { catalog } from "~/authoring/catalog";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
-import { runs } from "~/lib/run-scope";
 import { JsonAgentGrantRepository } from "~/lib/sandbox/grants";
 import { HarnessInteractions } from "~/lib/sandbox/interactions";
 import { JsonSessionStore } from "~/lib/sessions/json-store";
@@ -23,7 +22,6 @@ const source = { definition: "coding", path: ["coding"], runId: "run-1" };
 const roots: string[] = [];
 afterEach(async () => {
   catalog.reset();
-  runs.clear();
   for (const root of roots.splice(0)) {
     await rm(root, { force: true, recursive: true });
   }

@@ -3,15 +3,27 @@ import { createRequire } from "node:module";
 import { dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type TS from "typescript";
-import type { CallSite } from "~/lib/definition";
 
 /**
  * Durable names for nameless definitions. `step()` captures where the module
  * called it; when the definition is finished, the top-level `const` whose
- * initializer contains that call names it. The file is read as source: Bun
- * loads authoring modules without a transpile step, so positions match, and
- * TypeScript's parser (the author's own copy) finds the binding.
+ * initializer contains that call names it. The file is read as source, so
+ * positions are taken from the formatted stack, which a transpiling host
+ * maps back to the source, and TypeScript's parser (the author's own copy)
+ * finds the binding.
  */
+
+/** Where the authored module called a definition word. */
+export interface CallSite {
+  readonly column: number;
+  readonly file: string;
+  readonly line: number;
+}
+
+/** A call site as a person looks for it: `file:line`. */
+export function originOf(site: CallSite): string {
+  return `${site.file}:${String(site.line)}`;
+}
 
 /** Where this module lives; frames under it belong to the authoring words, not the authored module. */
 const LIB_DIR = dirname(fileURLToPath(import.meta.url));
@@ -20,31 +32,48 @@ function pathOf(fileName: string): string {
   return fileName.startsWith("file://") ? fileURLToPath(fileName) : fileName;
 }
 
-/** The first frame outside the lib, or `undefined` when there is none. */
-export function callSite(): CallSite | undefined {
-  const previous = Error.prepareStackTrace;
-  Error.prepareStackTrace = (_error, structured) => structured;
-  const holder: { stack?: unknown } = {};
-  let sites: NodeJS.CallSite[] = [];
+/**
+ * One line of a formatted stack, `at fn (file:line:col)` or `at
+ * file:line:col`, as V8 and Bun both print it.
+ */
+const FRAME = /^\s*at\s+(?:.*?\()?(.+?):(\d+):(\d+)\)?$/;
+
+/** Frames to read past the authoring words before giving up. */
+const STACK_DEPTH = 50;
+
+/** A stack deep enough to reach past the authoring words, as the host formats it. */
+function formattedStack(): unknown {
+  const limit = Error.stackTraceLimit;
+  Error.stackTraceLimit = STACK_DEPTH;
   try {
-    Error.captureStackTrace(holder, callSite);
-    // Formatting is lazy in V8: read the stack while our formatter is in place.
-    sites = Array.isArray(holder.stack) ? holder.stack : [];
+    return new Error("call site").stack;
   } finally {
-    Error.prepareStackTrace = previous;
+    Error.stackTraceLimit = limit;
   }
-  for (const site of sites) {
-    const fileName = site.getFileName();
-    const line = site.getLineNumber();
-    const column = site.getColumnNumber();
-    if (!fileName || line === null || column === null) {
+}
+
+/**
+ * The first frame outside the lib, or `undefined` when there is none. The
+ * formatted stack is read, not the structured one: a host that transpiles
+ * the module (vitest, tsx, node with source maps) installs a formatter that
+ * maps positions back to the source, and the source is what is parsed.
+ */
+export function callSite(): CallSite | undefined {
+  const stack = formattedStack();
+  if (typeof stack !== "string") {
+    return undefined;
+  }
+  for (const text of stack.split("\n")) {
+    const match = FRAME.exec(text);
+    if (!match) {
       continue;
     }
+    const [, fileName = "", line = "", column = ""] = match;
     const file = pathOf(fileName);
     if (file.startsWith(LIB_DIR) || file.startsWith("node:")) {
       continue;
     }
-    return { column, file, line };
+    return { column: Number(column), file, line: Number(line) };
   }
   return undefined;
 }

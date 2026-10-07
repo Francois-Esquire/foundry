@@ -1,25 +1,20 @@
 import { createInMemoryAgentAuthorizer } from "@foundry/agents/authorization";
 import { InMemorySessionStore } from "@foundry/agents/session";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { ManagerArgs } from "~/lib/bindings";
 import { CLAUDE_CODE, CODEX } from "~/lib/harnesses";
 import { AgentsManager } from "~/lib/managers/agents";
 import { mockModels } from "~/lib/models/echo";
-import { RunScope, runs } from "~/lib/run-scope";
+import { RunScope } from "~/lib/run-scope";
 import type { AgentDefinition } from "~/lib/types";
 
 const NO_TURN_PATTERN = /no agent turn is running/;
-
-afterEach(() => {
-  runs.clear();
-});
 
 function args(): ManagerArgs & { readonly written: string[] } {
   const scope = new RunScope(`run-${Math.random()}`, "/tmp/project");
   const frame = scope.frame(["root", "review"]);
   const written: string[] = [];
   return {
-    cwd: "/tmp/project",
     frame,
     scope,
     write: (value) => written.push(String(value)),
@@ -33,6 +28,9 @@ function deps(warnings: string[] = []) {
     ({ executor, prompt, cwd }) => `${executor.provider}@${cwd}: ${prompt}`
   );
   return {
+    containerOf: (): never => {
+      throw new Error("no sandbox in these tests");
+    },
     defaultExecutor: () => CLAUDE_CODE,
     models,
     root: process.cwd(),
