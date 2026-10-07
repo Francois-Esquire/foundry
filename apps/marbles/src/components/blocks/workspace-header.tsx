@@ -1,5 +1,6 @@
-import { Action } from "~/components/action";
-import { useTheme } from "~/hooks/use-theme";
+import { Action } from "~/components/ui/action";
+import { Text } from "~/components/ui/text";
+import { theme } from "~/components/ui/theme";
 
 export function WorkspaceHeader({
   workspace,
@@ -10,7 +11,6 @@ export function WorkspaceHeader({
   readonly preview: boolean;
   readonly onHome: () => void;
 }) {
-  const theme = useTheme();
   return (
     <box flexDirection="row" flexShrink={0} gap={1} height={1}>
       <Action
@@ -21,9 +21,9 @@ export function WorkspaceHeader({
         value="home"
       />
       <text fg={theme.colors.mutedForeground}>/</text>
-      <text fg={theme.colors.foreground} flexGrow={1} wrapMode="none">
+      <Text flexGrow={1} wrapMode="none">
         <strong>{workspace}</strong>
-      </text>
+      </Text>
       <text fg={theme.colors.mutedForeground}>
         {preview ? "preview" : "live"}
       </text>

@@ -1,11 +1,12 @@
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
-import { useCallback, useState } from "react";
-import { Action } from "~/components/action";
+import { useCallback } from "react";
 import { QuitDialog } from "~/components/blocks/quit-dialog";
 import { StartupSummary } from "~/components/blocks/startup-summary";
+import { Action } from "~/components/ui/action";
 import { LoadingIndicator } from "~/components/ui/loading-indicator";
 import { SparkleField } from "~/components/ui/sparkle-field";
-import { useTheme } from "~/hooks/use-theme";
+import { theme } from "~/components/ui/theme";
+import { useQuitGuard } from "~/hooks/use-quit-guard";
 import type { SplashState } from "./splash-model";
 
 /** Card border plus its horizontal padding, both sides. */
@@ -29,33 +30,21 @@ export function SplashView({
   readonly onEnter: () => void;
   readonly onClose: () => void;
 }) {
-  const theme = useTheme();
   const dimensions = useTerminalDimensions();
   const compact = dimensions.height < 26;
-  const [quitting, setQuitting] = useState(false);
-  const cancelQuit = useCallback(() => setQuitting(false), []);
+  const quit = useQuitGuard(onClose);
+  const { quitting } = quit;
   const enter = useCallback(() => {
     if (state.status === "ready" && !quitting) {
       onEnter();
     }
   }, [onEnter, quitting, state.status]);
   useKeyboard((key) => {
-    if (key.ctrl && key.name === "c") {
-      key.preventDefault();
-      if (!key.repeated) {
-        if (quitting) {
-          onClose();
-        } else {
-          setQuitting(true);
-        }
-      }
-      return;
-    }
-    if (quitting) {
+    if (quit.handleKey(key)) {
       return;
     }
     if (key.name === "q") {
-      setQuitting(true);
+      quit.ask();
     } else if (key.name === "return" || key.name === "enter") {
       key.preventDefault();
       enter();
@@ -142,7 +131,7 @@ export function SplashView({
       </box>
       {quitting && (
         <QuitDialog
-          onCancel={cancelQuit}
+          onCancel={quit.cancel}
           onConfirm={onClose}
           preview={preview}
         />

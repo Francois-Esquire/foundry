@@ -121,9 +121,7 @@ export const dashboardSnapshot: DashboardSnapshot = {
       workspace: { id: "ws-foundry", name: "foundry" },
     },
   ],
-  harnesses: ["claude-code", "codex"],
   mode: "snapshot",
-  root: "~/code/foundry/foundry",
   runs: [
     {
       definitionId: "docs",

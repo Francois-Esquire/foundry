@@ -1,59 +1,17 @@
-// Adapted from termcn.
-export type BorderStyle = "single" | "double" | "rounded" | "heavy";
+/** Data the primitives display: views build it, primitives only read it. */
 
-interface ColorTokens {
-  accent: string;
-  accentForeground: string;
-  background: string;
-  border: string;
-  error: string;
-  errorForeground: string;
-  focusRing: string;
-  foreground: string;
-  info: string;
-  infoForeground: string;
-  muted: string;
-  mutedForeground: string;
-  primary: string;
-  primaryForeground: string;
-  secondary: string;
-  secondaryForeground: string;
-  selection: string;
-  selectionForeground: string;
-  success: string;
-  successForeground: string;
-  warning: string;
-  warningForeground: string;
-}
+export type JsonValue =
+  | null
+  | boolean
+  | number
+  | string
+  | readonly JsonValue[]
+  | { readonly [key: string]: JsonValue };
 
-interface SpacingTokens {
-  0: number;
-  1: number;
-  2: number;
-  3: number;
-  4: number;
-  6: number;
-  8: number;
-}
-
-interface TypographyTokens {
-  base: string;
-  bold: boolean;
-  lg: string;
-  sm: string;
-  xl: string;
-}
-
-interface BorderTokens {
-  color: string;
-  focusColor: string;
-  style: BorderStyle;
-}
-
-export interface Theme {
-  border: BorderTokens;
-  colors: ColorTokens;
-  name: string;
-  spacing: SpacingTokens;
-  typography: TypographyTokens;
+export interface LogEntry {
+  readonly id: string;
+  readonly level: "debug" | "info" | "warn" | "error";
+  readonly message: string;
+  readonly stepId?: string;
+  readonly timestamp: string;
 }

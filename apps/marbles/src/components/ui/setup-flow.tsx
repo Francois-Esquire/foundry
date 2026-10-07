@@ -10,7 +10,7 @@ import {
   useEffect,
   useRef,
 } from "react";
-import { useTheme } from "~/hooks/use-theme";
+import { theme } from "~/components/ui/theme";
 
 export function SetupFlow({
   children,
@@ -26,7 +26,6 @@ export function SetupFlow({
     (id: string) => scroll.current?.scrollChildIntoView(id),
     []
   );
-  const theme = useTheme();
   const dimensions = useTerminalDimensions();
   return (
     <box
@@ -71,7 +70,6 @@ export function SetupStep({
   readonly status: "done" | "active" | "pending" | "error";
   readonly children: ReactNode;
 }) {
-  const theme = useTheme();
   const color = status === "error" ? theme.colors.error : theme.colors.primary;
   return (
     <box flexDirection="column" marginTop={1}>

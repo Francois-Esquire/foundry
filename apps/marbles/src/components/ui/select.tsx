@@ -1,7 +1,7 @@
 // Adapted from termcn OpenTUI Select: controlled selection, scoped focus, and mouse support.
 import { useKeyboard } from "@opentui/react";
-import { Action } from "~/components/action";
-import { useTheme } from "~/hooks/use-theme";
+import { Action } from "~/components/ui/action";
+import { theme } from "~/components/ui/theme";
 
 export function Select({
   options,
@@ -19,7 +19,6 @@ export function Select({
   readonly focused: boolean;
   readonly id: string;
 }) {
-  const theme = useTheme();
   useKeyboard((key) => {
     if (
       !(focused && ["up", "down", "left", "right", "space"].includes(key.name))

@@ -1,6 +1,6 @@
 import { RGBA } from "@opentui/core";
 import { useEffect, useState } from "react";
-import { useTheme } from "~/hooks/use-theme";
+import { theme } from "~/components/ui/theme";
 
 import { createSparkles } from "./sparkle-geometry";
 
@@ -28,7 +28,6 @@ export function SparkleField({
   readonly height: number;
   readonly paused?: boolean;
 }) {
-  const theme = useTheme();
   const background = RGBA.fromHex(theme.colors.background);
   const [tick, setTick] = useState(0);
   useEffect(() => {

@@ -1,6 +1,7 @@
 import { useKeyboard } from "@opentui/react";
-import { Action } from "~/components/action";
+import { Action } from "~/components/ui/action";
 import { SetupFlow } from "~/components/ui/setup-flow";
+import { Text } from "~/components/ui/text";
 
 export function ConfigErrorView({
   message,
@@ -19,7 +20,7 @@ export function ConfigErrorView({
   });
   return (
     <SetupFlow title="Marbles could not load">
-      <text>{message}</text>
+      <Text>{message}</Text>
       <Action
         label="Enter · Close and fix module"
         onAction={onClose}

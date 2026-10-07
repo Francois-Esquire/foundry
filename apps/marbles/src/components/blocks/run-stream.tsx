@@ -1,7 +1,7 @@
 import type { ChannelMessage } from "@foundry/workflows/channels";
 import { useEffect, useState } from "react";
 import { Text } from "~/components/ui/text";
-import { useTheme } from "~/hooks/use-theme";
+import { theme } from "~/components/ui/theme";
 import type { RunActions } from "~/views/run-actions";
 
 const TAIL_LINES = 12;
@@ -30,7 +30,6 @@ export function RunStream({
   readonly stepId?: string;
   readonly source?: RunActions["stream"];
 }) {
-  const theme = useTheme();
   const [text, setText] = useState("");
   const [live, setLive] = useState(false);
   useEffect(() => {
@@ -80,13 +79,9 @@ export function RunStream({
     <box flexDirection="column" flexShrink={0}>
       {text.length === 0 && <Text>Waiting for output…</Text>}
       {lines.map((line, index) => (
-        <text
-          fg={theme.colors.foreground}
-          key={`${String(index)}:${line}`}
-          wrapMode="none"
-        >
+        <Text key={`${String(index)}:${line}`} wrapMode="none">
           {line}
-        </text>
+        </Text>
       ))}
       <text fg={theme.colors.mutedForeground}>
         {live ? "Live" : "Ended"} · last {String(TAIL_LINES)} lines · s steer ·

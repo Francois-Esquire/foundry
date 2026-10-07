@@ -1,5 +1,5 @@
-import type { KeyEvent } from "@opentui/core";
 import { useCallback, useState } from "react";
+import { useAsyncAction } from "~/hooks/use-async-action";
 import type { FeedAnswer } from "~/lib/feed/entry";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
 import { ALL_WORKSPACES, feedScopes, scopedFeed } from "./feed-model";
@@ -9,51 +9,50 @@ export type AnswerHandler = (
   entryId: string,
   answer: FeedAnswer
 ) => Promise<void>;
-const CHOICE_KEY = /^[1-9]$/;
 
 /**
  * Answering the selected input entry: number keys pick a choice; without
  * choices, `a` opens a text field. On an approval the number key opens the
  * field for an optional note first; Enter sends the choice with it. The
  * entry flips to answered on the next snapshot, which also closes the field.
+ * The dashboard's command table maps the keys onto these.
  */
 function useAnswer(entry?: FeedEntrySnapshot, onAnswer?: AnswerHandler) {
   const [typing, setTyping] = useState(false);
   const [draft, setDraft] = useState("");
   /** The approval choice waiting on its note. */
   const [choosing, setChoosing] = useState<string>();
-  const [sending, setSending] = useState<string>();
-  const [failure, setFailure] = useState<{ id: string; message: string }>();
+  /** The entry the last answer went to; its progress shows only there. */
+  const [target, setTarget] = useState<string>();
+  const delivery = useAsyncAction();
   const question =
     onAnswer && entry?.input?.status === "open" ? entry : undefined;
   const choices = question?.input?.choices ?? [];
   const approval = question?.input?.mode === "approval";
 
+  const cancel = useCallback(() => {
+    setTyping(false);
+    setChoosing(undefined);
+    setDraft("");
+  }, []);
+  const start = useCallback(() => setTyping(true), []);
+
   const submit = useCallback(
-    async (answer: FeedAnswer) => {
+    (answer: FeedAnswer) => {
       const choice = (
         typeof answer === "string" ? answer : answer.choice
       ).trim();
-      if (!(question && onAnswer && choice) || sending) {
+      if (!(question && onAnswer && choice)) {
         return;
       }
-      setSending(question.id);
-      setFailure(undefined);
-      try {
-        await onAnswer(question.id, answer);
-        setTyping(false);
-        setChoosing(undefined);
-        setDraft("");
-      } catch (error) {
-        setFailure({
-          id: question.id,
-          message: error instanceof Error ? error.message : String(error),
-        });
-      } finally {
-        setSending(undefined);
-      }
+      const { id } = question;
+      delivery.run(async () => {
+        setTarget(id);
+        await onAnswer(id, answer);
+        cancel();
+      });
     },
-    [question, onAnswer, sending]
+    [question, onAnswer, delivery.run, cancel]
   );
 
   /** A choice: sent at once, or held for a note on an approval. */
@@ -64,7 +63,7 @@ function useAnswer(entry?: FeedEntrySnapshot, onAnswer?: AnswerHandler) {
         setTyping(true);
         return;
       }
-      submit(choice).catch(() => undefined);
+      submit(choice);
     },
     [approval, submit]
   );
@@ -75,47 +74,21 @@ function useAnswer(entry?: FeedEntrySnapshot, onAnswer?: AnswerHandler) {
       choosing === undefined
         ? draft
         : { choice: choosing, ...(note ? { note } : {}) };
-    submit(answer).catch(() => undefined);
+    submit(answer);
   }, [submit, draft, choosing]);
 
-  function handleKey(key: KeyEvent): boolean {
-    if (!question) {
-      return false;
-    }
-    if (typing) {
-      // The text field has the keys; only Esc belongs to the feed.
-      if (key.name === "escape") {
-        setTyping(false);
-        setChoosing(undefined);
-        setDraft("");
-      }
-      return true;
-    }
-    if (choices.length > 0 && CHOICE_KEY.test(key.sequence)) {
-      const choice = choices[Number(key.sequence) - 1];
-      if (choice !== undefined) {
-        choose(choice);
-      }
-      return true;
-    }
-    if (choices.length === 0 && key.name === "a") {
-      setTyping(true);
-      return true;
-    }
-    return false;
-  }
-
   return {
+    cancel,
+    choices,
     choose,
     /** Set while an approval choice waits for its optional note. */
     choosing: typing ? choosing : undefined,
     draft,
-    error: failure?.id === entry?.id ? failure?.message : undefined,
-    handleKey,
+    error: target === entry?.id ? delivery.error : undefined,
     question,
-    sending: sending !== undefined && sending === question?.id,
+    sending: delivery.busy && target === question?.id,
     setDraft,
-    submit,
+    start,
     submitDraft,
     typing: typing && question !== undefined,
   };
@@ -166,64 +139,30 @@ export function useFeed(
     setSelectedId(undefined);
   }, []);
 
-  function move(direction: number) {
+  function move(by: number) {
     const index = selected ? visible.indexOf(selected) : -1;
-    const next =
-      visible[Math.max(0, Math.min(visible.length - 1, index + direction))];
+    const next = visible[Math.max(0, Math.min(visible.length - 1, index + by))];
     if (next) {
       setSelectedId(next.id);
     }
   }
 
-  const answer = useAnswer(selected, onAnswer);
-
-  /** Returns true when the key belonged to the feed. */
-  function handleKey(key: KeyEvent): boolean {
-    if (answer.handleKey(key)) {
-      return true;
-    }
-    if (key.name === "w") {
-      cycleScope();
-      return true;
-    }
-    if (key.name === "x") {
-      resetScope();
-      return true;
-    }
-    if (focus === "reader") {
-      if (key.name === "escape" || key.name === "left" || key.name === "tab") {
-        setFocus("list");
-        return true;
-      }
-      return false;
-    }
-    switch (key.name) {
-      case "up":
-      case "k":
-        move(-1);
-        return true;
-      case "down":
-      case "j":
-        move(1);
-        return true;
-      case "return":
-      case "enter":
-      case "right":
-      case "tab":
-        if (selected) {
-          setFocus("reader");
-        }
-        return true;
-      default:
-        return false;
+  /** The reader takes the keyboard, when there is an entry to read. */
+  function read() {
+    if (selected) {
+      setFocus("reader");
     }
   }
 
+  const answer = useAnswer(selected, onAnswer);
+
   return {
     answer,
+    browse: () => setFocus("list"),
     cycleScope,
     focus,
-    handleKey,
+    move,
+    read,
     resetScope,
     scope: activeScope,
     scopeCount: scopes.length,

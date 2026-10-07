@@ -1,4 +1,4 @@
-import { Action } from "~/components/action";
+import { Action } from "~/components/ui/action";
 import { KeyValue } from "~/components/ui/key-value";
 import { Text } from "~/components/ui/text";
 import type {
@@ -6,7 +6,7 @@ import type {
   HarnessActivitySnapshot,
   RunSnapshot,
 } from "~/views/dashboard-model";
-import { runStatusLabel } from "~/views/dashboard-model";
+import { statusDisplay } from "~/views/run-status";
 
 export function ActivityDetails({
   activity,
@@ -31,7 +31,7 @@ export function ActivityDetails({
       <KeyValue
         items={[
           { key: "Kind", value: activity.kind },
-          { key: "Status", value: runStatusLabel(activity) },
+          { key: "Status", value: statusDisplay(activity).label },
           { key: "Harness", value: activity.harness },
           { key: "Agent", value: activity.agentId },
           { key: "Lifetime", value: activity.lifetime },

@@ -1,5 +1,6 @@
 import { Dialog } from "~/components/ui/dialog";
-import { useTheme } from "~/hooks/use-theme";
+import { Text } from "~/components/ui/text";
+import { theme } from "~/components/ui/theme";
 
 export function QuitDialog({
   onCancel,
@@ -10,7 +11,6 @@ export function QuitDialog({
   readonly onConfirm: () => void;
   readonly preview: boolean;
 }) {
-  const theme = useTheme();
   return (
     <Dialog
       cancelLabel="Keep open"
@@ -21,13 +21,11 @@ export function QuitDialog({
       title="Quit Marbles?"
       variant="danger"
     >
-      <text fg={theme.colors.foreground}>
-        Quitting stops schedules and monitoring for this session.
-      </text>
-      <text fg={theme.colors.foreground}>
+      <Text>Quitting stops schedules and monitoring for this session.</Text>
+      <Text>
         Saved results and successful monitor checkpoints are kept for the next
         launch.
-      </text>
+      </Text>
       <text fg={theme.colors.warning}>
         Running steps are cancelled. Runs waiting on an answer, or paused, are
         kept and resume on the next launch.

@@ -6,6 +6,7 @@ import type {
 import { StepSnapshotSchema } from "@foundry/workflows/snapshot";
 import type { RunRecord } from "@foundry/workflows/store";
 import { Option, Schema } from "effect";
+import type { JsonValue } from "~/components/ui/types";
 import type { AutomationRecord } from "~/lib/automation/service";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
 import type { MonitorSpec } from "~/lib/monitor";
@@ -17,12 +18,11 @@ import type { Schedule } from "~/lib/triggers";
 import type {
   DashboardSnapshot,
   HarnessActivitySnapshot,
-  InputAttention,
-  JsonValue,
   RunSnapshot,
   StepSnapshot,
   TriggerSnapshot,
 } from "~/views/dashboard-model";
+import { type InputAttention, isActive } from "~/views/run-status";
 
 const decodeTrace = Schema.decodeUnknownOption(
   Schema.Struct({
@@ -243,6 +243,7 @@ export interface SnapshotOptions {
   readonly definitions: readonly DefinitionEntry[];
   /** Feed entries from every workspace, newest first. */
   readonly feed?: readonly FeedEntrySnapshot[];
+  /** Unread: the dashboard shows no harness list. */
   readonly harnesses: readonly string[];
   readonly lastFinish: ReadonlyMap<string, number>;
   /** What each monitor watches, by trigger key: the engine's `monitors()`. */
@@ -282,9 +283,7 @@ export function dashboardSnapshot(
       (run) => run.extensions.triggerId === schedule.key
     );
     const active = sorted.some(
-      (run) =>
-        run.extensions.triggerId === schedule.key &&
-        ["queued", "running", "suspended"].includes(run.status)
+      (run) => run.extensions.triggerId === schedule.key && isActive(run.status)
     );
     let status: TriggerSnapshot["status"] =
       schedule.kind === "monitor" ? "watching" : "waiting";
@@ -352,12 +351,10 @@ export function dashboardSnapshot(
       name: entry.name,
     })),
     feed: options.feed ?? [],
-    harnesses: options.harnesses,
     mode: "live",
     notices: Object.entries(options.automationErrors ?? {}).map(
       ([file, error]) => `Automation unavailable (${file}): ${error}`
     ),
-    root: options.root,
     runs,
     status: options.status,
     triggers,

@@ -1,9 +1,9 @@
-import { KindBadge } from "~/components/kind-badge";
-import { Panel } from "~/components/panel";
-import { SelectableRow } from "~/components/selectable-row";
-import { StatusLabel } from "~/components/status-label";
+import { KindBadge } from "~/components/blocks/kind-badge";
+import { StatusLabel } from "~/components/blocks/status-label";
+import { Panel } from "~/components/ui/panel";
+import { SelectableRow } from "~/components/ui/selectable-row";
 import { Text } from "~/components/ui/text";
-import { useTheme } from "~/hooks/use-theme";
+import { theme } from "~/components/ui/theme";
 import {
   type DashboardSelection,
   type DefinitionSnapshot,
@@ -30,7 +30,6 @@ export function TriggersBlock({
 }: CatalogProps & {
   readonly items: readonly TriggerSnapshot[];
 }) {
-  const theme = useTheme();
   return (
     <Panel
       active={active}
@@ -63,7 +62,7 @@ export function TriggersBlock({
             <KindBadge kind={item.kind} />
             <Text wrapMode="none">{item.name}</Text>
             <box flexShrink={0}>
-              <StatusLabel status={item.status} />
+              <StatusLabel item={item} />
             </box>
             <text
               fg={theme.colors.mutedForeground}

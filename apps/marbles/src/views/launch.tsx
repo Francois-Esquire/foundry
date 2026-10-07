@@ -1,9 +1,12 @@
 import { useKeyboard } from "@opentui/react";
-import { useCallback, useRef, useState } from "react";
-import { Action } from "~/components/action";
+import { useCallback } from "react";
 import { ArgumentForm } from "~/components/blocks/argument-form";
 import { QuitDialog } from "~/components/blocks/quit-dialog";
+import { Action } from "~/components/ui/action";
 import { SetupFlow } from "~/components/ui/setup-flow";
+import { Text } from "~/components/ui/text";
+import { useAsyncAction } from "~/hooks/use-async-action";
+import { useQuitGuard } from "~/hooks/use-quit-guard";
 import { inputProblem } from "~/lib/inputs";
 import type { DefinitionSnapshot } from "./dashboard-model";
 
@@ -20,60 +23,39 @@ export function LaunchView({
   readonly onCancel: () => void;
   readonly onClose: () => void;
 }) {
-  const [error, setError] = useState<string>();
-  const [busy, setBusy] = useState(false);
-  const [quitting, setQuitting] = useState(false);
-  const pending = useRef(new Set<string>());
+  const quit = useQuitGuard(onClose);
+  const launch = useAsyncAction();
   const fields = definition.input?.fields;
   const problem = fields
     ? inputProblem(fields)
     : "Arguments are not declared for this definition. Add input metadata in your marble module, or use marbles roll with --input.";
   const submit = useCallback(
-    async (input: unknown) => {
-      if (pending.current.has("submit") || quitting) {
-        return;
-      }
-      pending.current.add("submit");
-      setBusy(true);
-      setError(undefined);
-      try {
-        onStarted(await onLaunch(definition.id, input));
-      } catch (failure) {
-        setError(String(failure));
-      } finally {
-        pending.current.delete("submit");
-        setBusy(false);
+    (input: unknown) => {
+      if (!quit.quitting) {
+        launch.run(async () => onStarted(await onLaunch(definition.id, input)));
       }
     },
-    [definition.id, onLaunch, onStarted, quitting]
+    [definition.id, onLaunch, onStarted, quit.quitting, launch.run]
   );
   const cancel = useCallback(() => {
-    if (!quitting) {
+    if (!quit.quitting) {
       onCancel();
     }
-  }, [onCancel, quitting]);
-  const cancelQuit = useCallback(() => setQuitting(false), []);
+  }, [onCancel, quit.quitting]);
   useKeyboard((key) => {
-    if (key.ctrl && key.name === "c") {
-      key.preventDefault();
-      if (!key.repeated) {
-        if (quitting) {
-          onClose();
-        } else {
-          setQuitting(true);
-        }
-      }
+    if (quit.handleKey(key)) {
+      return;
     }
-    if (problem && key.name === "escape" && !quitting) {
+    if (problem && key.name === "escape") {
       onCancel();
     }
   });
   return (
     <SetupFlow
       overlay={
-        quitting && (
+        quit.quitting && (
           <QuitDialog
-            onCancel={cancelQuit}
+            onCancel={quit.cancel}
             onConfirm={onClose}
             preview={false}
           />
@@ -81,10 +63,10 @@ export function LaunchView({
       }
       title={`Launch ${definition.name}`}
     >
-      <text>{definition.description}</text>
+      <Text>{definition.description}</Text>
       {problem ? (
         <box flexDirection="column">
-          <text>{problem}</text>
+          <Text>{problem}</Text>
           <Action
             id="launch:back"
             label="Esc · Back to catalog"
@@ -94,9 +76,9 @@ export function LaunchView({
         </box>
       ) : (
         <ArgumentForm
-          active={!quitting}
-          busy={busy}
-          error={error}
+          active={!quit.quitting}
+          busy={launch.busy}
+          error={launch.error}
           fields={fields ?? []}
           onCancel={onCancel}
           onSubmit={submit}

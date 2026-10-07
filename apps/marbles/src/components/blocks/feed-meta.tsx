@@ -1,5 +1,4 @@
-import type { Theme } from "~/components/ui/types";
-import { useTheme } from "~/hooks/use-theme";
+import { theme } from "~/components/ui/theme";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
 
 type KindEntry = Pick<FeedEntrySnapshot, "kind" | "input">;
@@ -10,10 +9,10 @@ export function isPending(entry: KindEntry): boolean {
 }
 
 /** An input entry reads by what it needs now, not by its kind. */
-function kindStyle(
-  entry: KindEntry,
-  theme: Theme
-): { readonly label: string; readonly color: string } {
+function kindStyle(entry: KindEntry): {
+  readonly label: string;
+  readonly color: string;
+} {
   if (entry.kind === "result") {
     return { color: theme.colors.success, label: "result" };
   }
@@ -41,8 +40,7 @@ export function FeedMetaLine({
   readonly entry: KindEntry;
   readonly details: readonly (string | undefined)[];
 }) {
-  const theme = useTheme();
-  const { color, label } = kindStyle(entry, theme);
+  const { color, label } = kindStyle(entry);
   const shown = details.filter(
     (detail): detail is string => detail !== undefined && detail !== ""
   );

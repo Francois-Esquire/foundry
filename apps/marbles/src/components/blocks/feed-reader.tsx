@@ -1,10 +1,11 @@
 import { SyntaxStyle } from "@opentui/core";
 import { useCallback, useEffect, useMemo } from "react";
-import { Action } from "~/components/action";
-import { FeedMetaLine } from "~/components/feed-meta";
-import { Panel } from "~/components/panel";
-import type { Theme } from "~/components/ui/types";
-import { useTheme } from "~/hooks/use-theme";
+import { FeedMetaLine } from "~/components/blocks/feed-meta";
+import { Action } from "~/components/ui/action";
+import { Panel } from "~/components/ui/panel";
+import { Text } from "~/components/ui/text";
+import { TextInput } from "~/components/ui/text-input";
+import { theme } from "~/components/ui/theme";
 import type { FeedEntrySnapshot, FeedMediaSnapshot } from "~/lib/feed/read";
 import type { AnswerState } from "~/views/use-feed";
 import { EmptyState } from "./empty-state";
@@ -14,7 +15,7 @@ const IMAGE_WIDTH = 56;
 const MEDIA_ICON = { audio: "♪", file: "□", image: "▣", video: "▶" } as const;
 
 /** Markdown scopes from OpenTUI's Tree-sitter grammar, in the theme's colors. */
-function markdownStyle(theme: Theme): SyntaxStyle {
+function markdownStyle(): SyntaxStyle {
   const { colors } = theme;
   return SyntaxStyle.fromStyles({
     comment: { fg: colors.mutedForeground, italic: true },
@@ -41,7 +42,6 @@ function markdownStyle(theme: Theme): SyntaxStyle {
 }
 
 function MediaItem({ media }: { readonly media: FeedMediaSnapshot }) {
-  const theme = useTheme();
   return (
     <box flexDirection="column" flexShrink={0} paddingTop={1}>
       <text fg={theme.colors.mutedForeground} wrapMode="none">
@@ -93,7 +93,6 @@ function AnswerSection({
   readonly entry: FeedEntrySnapshot;
   readonly answer: AnswerState;
 }) {
-  const theme = useTheme();
   const choose = useCallback(
     (choice: string) => {
       answer.choose(choice);
@@ -128,19 +127,12 @@ function AnswerSection({
   if (answer.typing) {
     control = (
       <box flexDirection="row" height={1}>
-        <text fg={theme.colors.foreground}>
-          {answer.choosing ? `${answer.choosing} · note › ` : "› "}
-        </text>
-        <input
-          backgroundColor={theme.colors.muted}
-          cursorColor={theme.colors.primary}
+        <Text>{answer.choosing ? `${answer.choosing} · note › ` : "› "}</Text>
+        <TextInput
           flexGrow={1}
           focused
-          focusedBackgroundColor={theme.colors.muted}
-          focusedTextColor={theme.colors.foreground}
           onInput={answer.setDraft}
           onSubmit={answer.submitDraft}
-          textColor={theme.colors.foreground}
           value={answer.draft}
         />
       </box>
@@ -193,8 +185,7 @@ export function FeedReader({
   readonly active: boolean;
   readonly answer: AnswerState;
 }) {
-  const theme = useTheme();
-  const style = useMemo(() => markdownStyle(theme), [theme]);
+  const style = useMemo(markdownStyle, []);
   useEffect(() => () => style.destroy(), [style]);
   if (!entry) {
     return (
@@ -232,9 +223,9 @@ export function FeedReader({
       <AnswerSection answer={answer} entry={entry} />
       {entry.media.length > 0 && (
         <box flexDirection="column" flexShrink={0} paddingTop={1}>
-          <text fg={theme.colors.foreground}>
+          <Text>
             <strong>Media</strong>
-          </text>
+          </Text>
           {entry.media.map((media) => (
             <MediaItem key={media.path} media={media} />
           ))}

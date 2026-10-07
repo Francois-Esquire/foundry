@@ -1,9 +1,10 @@
 import type { KeyEvent } from "@opentui/core";
 import { useCallback, useEffect, useState } from "react";
 import { Text } from "~/components/ui/text";
-import { Action } from "../src/components/action";
+import { Action } from "../src/components/ui/action";
+import type { JsonValue } from "../src/components/ui/types";
 import { DashboardView } from "../src/views/dashboard";
-import type { JsonValue, RunSnapshot } from "../src/views/dashboard-model";
+import type { RunSnapshot } from "../src/views/dashboard-model";
 import { previewScenarios } from "./scenarios";
 
 type PreviewAction = "previous" | "next" | "play" | "advance" | "reset";

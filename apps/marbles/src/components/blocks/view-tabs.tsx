@@ -1,8 +1,7 @@
 import { useCallback } from "react";
 import { CountBadge } from "~/components/ui/count-badge";
-import { useTheme } from "~/hooks/use-theme";
-
-export type DashboardViewKey = "dashboard" | "feed";
+import { theme } from "~/components/ui/theme";
+import type { DashboardViewKey } from "~/views/dashboard-state";
 
 function ViewTab({
   view,
@@ -17,7 +16,6 @@ function ViewTab({
   readonly active: boolean;
   readonly onChange: (view: DashboardViewKey) => void;
 }) {
-  const theme = useTheme();
   const press = useCallback(() => onChange(view), [onChange, view]);
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: Terminal tab; Shift+D and Shift+F are its keyboard equivalents.
@@ -48,7 +46,6 @@ export function ViewTabs({
   readonly feedCount: number;
   readonly onChange: (view: DashboardViewKey) => void;
 }) {
-  const theme = useTheme();
   return (
     <box flexDirection="row" flexShrink={0} gap={3} height={1}>
       <ViewTab

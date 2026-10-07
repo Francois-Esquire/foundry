@@ -1,27 +1,9 @@
-import type { LogEntry } from "~/components/ui/log";
+import type { JsonValue, LogEntry } from "~/components/ui/types";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
 import type { DefinitionOptions } from "~/lib/inputs";
-
-export type JsonValue =
-  | null
-  | boolean
-  | number
-  | string
-  | readonly JsonValue[]
-  | { readonly [key: string]: JsonValue };
+import type { InputAttention, RunStatus } from "./run-status";
 
 export type ItemKind = "schedule" | "monitor" | "workflow" | "step";
-type RunStatus =
-  | "queued"
-  | "running"
-  | "complete"
-  | "failed"
-  | "cancelled"
-  | "suspended"
-  | "paused"
-  | "skipped";
-
-export type InputAttention = "approval" | "question";
 
 export interface TriggerSnapshot {
   readonly configuration?: JsonValue;
@@ -105,10 +87,8 @@ export interface DashboardSnapshot {
   readonly definitions: readonly DefinitionSnapshot[];
   /** Entries from every workspace, newest first; the view filters by workspace. */
   readonly feed: readonly FeedEntrySnapshot[];
-  readonly harnesses: readonly string[];
   readonly mode: "snapshot" | "live";
   readonly notices?: readonly string[];
-  readonly root: string;
   readonly runs: readonly RunSnapshot[];
   readonly status: string;
   readonly triggers: readonly TriggerSnapshot[];
@@ -126,6 +106,29 @@ export type DashboardSelection =
       readonly stepId?: string;
       readonly activityId?: string;
       readonly sessionId?: string;
+    };
+
+/** What a selection points at in one snapshot. */
+export type ResolvedSelection =
+  | { readonly kind: "none" }
+  /** Selected earlier, and missing from this snapshot; `run` when only its step or activity is. */
+  | {
+      readonly kind: "gone";
+      readonly selection: DashboardSelection;
+      readonly run?: RunSnapshot;
+    }
+  | { readonly kind: "trigger"; readonly trigger: TriggerSnapshot }
+  | { readonly kind: "definition"; readonly definition: DefinitionSnapshot }
+  /** A run, or one of its steps: `path` runs from a top-level step down to it. */
+  | {
+      readonly kind: "run";
+      readonly run: RunSnapshot;
+      readonly path: readonly StepSnapshot[];
+    }
+  | {
+      readonly kind: "activity";
+      readonly run: RunSnapshot;
+      readonly activity: HarnessActivitySnapshot;
     };
 
 export function flattenSteps(
@@ -148,32 +151,80 @@ export function selectionKey(selection: DashboardSelection): string {
   return `${selection.kind}:${selection.id}`;
 }
 
-/** Display attention without replacing the status used by execution controls. */
-export function runStatusLabel(item: {
-  readonly attention?: InputAttention;
-  readonly status: string;
-}): string {
-  if (item.attention === "approval") {
-    return "Waiting for approval";
+function stepPath(
+  steps: readonly StepSnapshot[],
+  id: string
+): readonly StepSnapshot[] {
+  for (const step of steps) {
+    if (step.id === id) {
+      return [step];
+    }
+    const children = stepPath(step.children, id);
+    if (children.length) {
+      return [step, ...children];
+    }
   }
-  if (item.attention === "question") {
-    return "Waiting for answer";
-  }
-  return item.status;
+  return [];
 }
 
-export function selectedActivity(
+function resolveRun(
   run: RunSnapshot,
-  selection: DashboardSelection
-): HarnessActivitySnapshot | undefined {
-  if (selection.kind !== "run" || selection.activityId === undefined) {
-    return undefined;
+  selection: Extract<DashboardSelection, { kind: "run" }>
+): ResolvedSelection {
+  if (selection.activityId !== undefined) {
+    const activity = run.activities?.find(
+      (item) =>
+        item.id === selection.activityId &&
+        item.sessionId === selection.sessionId
+    );
+    return activity
+      ? { activity, kind: "activity", run }
+      : { kind: "gone", run, selection };
   }
-  return run.activities?.find(
-    (activity) =>
-      activity.id === selection.activityId &&
-      activity.sessionId === selection.sessionId
-  );
+  if (selection.stepId === undefined) {
+    return { kind: "run", path: [], run };
+  }
+  const path = stepPath(run.steps, selection.stepId);
+  return path.length
+    ? { kind: "run", path, run }
+    : { kind: "gone", run, selection };
+}
+
+/** Look a selection up once; every view and command reads the result. */
+export function resolveSelection(
+  snapshot: DashboardSnapshot,
+  selection: DashboardSelection | undefined
+): ResolvedSelection {
+  if (!selection) {
+    return { kind: "none" };
+  }
+  if (selection.kind === "trigger") {
+    const trigger = snapshot.triggers.find((item) => item.id === selection.id);
+    return trigger ? { kind: "trigger", trigger } : { kind: "gone", selection };
+  }
+  if (selection.kind === "definition") {
+    const definition = snapshot.definitions.find(
+      (item) => item.id === selection.id
+    );
+    return definition
+      ? { definition, kind: "definition" }
+      : { kind: "gone", selection };
+  }
+  const run = snapshot.runs.find((item) => item.id === selection.id);
+  return run ? resolveRun(run, selection) : { kind: "gone", selection };
+}
+
+/**
+ * The step a run control applies to: the selected step, else the run's root,
+ * whose frame is keyed by the definition's name.
+ */
+export function actionTarget(
+  resolved: Extract<ResolvedSelection, { kind: "run" }>
+): { readonly stepId: string; readonly status: string } {
+  const step = resolved.path.at(-1);
+  return step
+    ? { status: step.status, stepId: step.id }
+    : { status: resolved.run.status, stepId: resolved.run.definitionId };
 }
 
 export function canStopActivity(activity: HarnessActivitySnapshot): boolean {

@@ -1,16 +1,9 @@
 // Adapted from termcn's OpenTUI Log.
 import { useKeyboard } from "@opentui/react";
 import { useState } from "react";
-import { Text } from "~/components/ui/text";
-import { useTheme } from "~/hooks/use-theme";
-
-export interface LogEntry {
-  readonly id: string;
-  readonly level: "debug" | "info" | "warn" | "error";
-  readonly message: string;
-  readonly stepId?: string;
-  readonly timestamp: string;
-}
+import { Text } from "./text";
+import { theme } from "./theme";
+import type { LogEntry } from "./types";
 
 export function Log({
   entries,
@@ -21,7 +14,6 @@ export function Log({
   readonly focused: boolean;
   readonly height?: number;
 }) {
-  const theme = useTheme();
   const [offset, setOffset] = useState(0);
   const [follow, setFollow] = useState(false);
   const max = Math.max(0, entries.length - height);
