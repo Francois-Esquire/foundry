@@ -146,6 +146,77 @@ export function foldSet(
 }
 
 /**
+ * The record a store creates for `input`. Absent optionals are left out rather
+ * than set to `undefined`, so a store that serializes the record reads back
+ * exactly what it wrote. Stores build records here so they agree on the shape.
+ */
+export function newSessionRecord(
+  input: CreateSessionInput = {},
+  now: number = Date.now()
+): SessionRecord {
+  return {
+    createdAt: now,
+    id: input.id ?? generateId(),
+    parentMessageId: input.parentMessageId ?? null,
+    parentSessionId: input.parentSessionId ?? null,
+    ...(input.recursionDepth === undefined
+      ? {}
+      : { recursionDepth: input.recursionDepth }),
+    status: "active",
+    title: input.title ?? null,
+    updatedAt: now,
+  };
+}
+
+/** `current` with the fields `patch` sets, stamped `updatedAt: now`. */
+export function patchSessionRecord(
+  current: SessionRecord,
+  patch: UpdateSessionInput,
+  now: number = Date.now()
+): SessionRecord {
+  return {
+    ...current,
+    ...(patch.title === undefined ? {} : { title: patch.title }),
+    ...(patch.status === undefined ? {} : { status: patch.status }),
+    updatedAt: now,
+  };
+}
+
+/** The message a store appends for `input`, with a fresh id; absent optionals left out. */
+export function newSessionMessage(
+  input: CreateMessageInput,
+  now: number = Date.now()
+): SessionMessage {
+  return {
+    createdAt: now,
+    id: generateId(),
+    ...(input.metadata === undefined ? {} : { metadata: input.metadata }),
+    parts: input.parts,
+    role: input.role,
+    sessionId: input.sessionId,
+    status: input.status ?? "complete",
+    ...(input.summarized === undefined ? {} : { summarized: input.summarized }),
+    updatedAt: now,
+  };
+}
+
+/** `current` with the fields `patch` sets, stamped `updatedAt: now`. */
+export function patchSessionMessage(
+  current: SessionMessage,
+  patch: UpdateMessageInput,
+  now: number = Date.now()
+): SessionMessage {
+  return {
+    ...current,
+    ...(patch.parts === undefined ? {} : { parts: patch.parts }),
+    ...(patch.status === undefined ? {} : { status: patch.status }),
+    ...(patch.metadata === undefined ? {} : { metadata: patch.metadata }),
+    ...(patch.summarized === undefined ? {} : { summarized: patch.summarized }),
+    updatedAt: now,
+  };
+}
+
+/**
  * Base for any session store: subclasses supply the raw CRUD; this provides the
  * shared summarize + active-view behavior so every store (in-memory, db DAO)
  * folds history identically.
@@ -214,17 +285,7 @@ export class InMemorySessionStore extends AbstractSessionStore {
   readonly #messages = new Map<string, SessionMessage[]>();
 
   createSession(input: CreateSessionInput = {}): Promise<SessionRecord> {
-    const now = Date.now();
-    const record: SessionRecord = {
-      createdAt: now,
-      id: input.id ?? generateId(),
-      parentMessageId: input.parentMessageId ?? null,
-      parentSessionId: input.parentSessionId ?? null,
-      recursionDepth: input.recursionDepth,
-      status: "active",
-      title: input.title ?? null,
-      updatedAt: now,
-    };
+    const record = newSessionRecord(input);
     this.#sessions.set(record.id, record);
     this.#messages.set(record.id, []);
     return Promise.resolve(record);
@@ -242,12 +303,7 @@ export class InMemorySessionStore extends AbstractSessionStore {
     if (!current) {
       return Promise.resolve(null);
     }
-    const next: SessionRecord = {
-      ...current,
-      ...(patch.title === undefined ? {} : { title: patch.title }),
-      ...(patch.status === undefined ? {} : { status: patch.status }),
-      updatedAt: Date.now(),
-    };
+    const next = patchSessionRecord(current, patch);
     this.#sessions.set(id, next);
     return Promise.resolve(next);
   }
@@ -259,18 +315,7 @@ export class InMemorySessionStore extends AbstractSessionStore {
         new Error(`[session-store] unknown session: ${input.sessionId}`)
       );
     }
-    const now = Date.now();
-    const message: SessionMessage = {
-      createdAt: now,
-      id: generateId(),
-      metadata: input.metadata,
-      parts: input.parts,
-      role: input.role,
-      sessionId: input.sessionId,
-      status: input.status ?? "complete",
-      summarized: input.summarized,
-      updatedAt: now,
-    };
+    const message = newSessionMessage(input);
     bucket.push(message);
     return Promise.resolve(message);
   }
@@ -288,16 +333,7 @@ export class InMemorySessionStore extends AbstractSessionStore {
       if (!current) {
         continue;
       }
-      const next: SessionMessage = {
-        ...current,
-        ...(patch.parts === undefined ? {} : { parts: patch.parts }),
-        ...(patch.status === undefined ? {} : { status: patch.status }),
-        ...(patch.metadata === undefined ? {} : { metadata: patch.metadata }),
-        ...(patch.summarized === undefined
-          ? {}
-          : { summarized: patch.summarized }),
-        updatedAt: Date.now(),
-      };
+      const next = patchSessionMessage(current, patch);
       bucket[idx] = next;
       return Promise.resolve(next);
     }

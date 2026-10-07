@@ -75,3 +75,4 @@ export {
   describeCapability,
   explainCapability,
 } from "./capability";
+export { agentSubjectSchema, capabilitySchema } from "./schema";

@@ -40,6 +40,10 @@ export {
   foldSet,
   InMemorySessionStore,
   messagesToSummarize,
+  newSessionMessage,
+  newSessionRecord,
+  patchSessionMessage,
+  patchSessionRecord,
 } from "./store";
 
 export type { SummarizeSessionDeps, Summary, SummaryStore } from "./summary";

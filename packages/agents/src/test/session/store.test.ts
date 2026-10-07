@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { InMemorySessionStore, messagesToSummarize } from "../../session/store";
+import {
+  InMemorySessionStore,
+  messagesToSummarize,
+  newSessionMessage,
+  newSessionRecord,
+  patchSessionMessage,
+  patchSessionRecord,
+} from "../../session/store";
 import type { SessionMessage, SessionPart } from "../../session/types";
 
 const UNKNOWN_SESSION_PATTERN = /unknown session/;
@@ -177,6 +184,48 @@ describe("InMemorySessionStore", () => {
     expect(session.parentSessionId).toBeNull();
     expect(session.parentMessageId).toBeNull();
     expect(session.recursionDepth).toBeUndefined();
+  });
+});
+
+describe("session record and message builders", () => {
+  it("leave absent optionals out, so a serialized record reads back unchanged", () => {
+    const record = newSessionRecord({ id: "s1" }, 5);
+    const message = newSessionMessage(
+      { parts: text("hi"), role: "user", sessionId: "s1" },
+      6
+    );
+
+    expect(record).toStrictEqual({
+      createdAt: 5,
+      id: "s1",
+      parentMessageId: null,
+      parentSessionId: null,
+      status: "active",
+      title: null,
+      updatedAt: 5,
+    });
+    expect(JSON.parse(JSON.stringify(message))).toStrictEqual(message);
+    expect(Object.keys(message)).not.toContain("metadata");
+    expect(Object.keys(message)).not.toContain("summarized");
+  });
+
+  it("patch only the fields a patch sets and restamp updatedAt", () => {
+    const record = newSessionRecord({ title: "t" }, 1);
+    expect(patchSessionRecord(record, { status: "archived" }, 2)).toEqual({
+      ...record,
+      status: "archived",
+      updatedAt: 2,
+    });
+
+    const message = newSessionMessage(
+      { parts: text("a"), role: "assistant", sessionId: record.id },
+      1
+    );
+    expect(patchSessionMessage(message, { summarized: true }, 3)).toEqual({
+      ...message,
+      summarized: true,
+      updatedAt: 3,
+    });
   });
 });
 
