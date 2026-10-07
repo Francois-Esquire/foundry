@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
+import { hasErrorCode } from "@foundry/lib/atomic-file";
 import { generateId } from "ai";
 
 /** Temp-and-rename, so a concurrent reader never sees a half-written file. */
@@ -24,11 +25,17 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/** Kept for existing callers; new code imports `hasErrorCode` from `@foundry/lib/atomic-file`. */
 export function hasCode(error: unknown, code: string): boolean {
-  return error instanceof Error && "code" in error && error.code === code;
+  return hasErrorCode(error, code);
 }
 
-/** JSON with sorted keys, so equal values hash equal. `undefined` reads as null. */
+/**
+ * JSON with sorted keys, so equal values hash equal. `undefined` reads as null.
+ * For plain JSON data the output is byte-identical to `canonicalizeJson`
+ * (`@foundry/lib/json`), which throws on `undefined` and non-plain objects
+ * instead; switch a caller once nothing but plain data can reach it.
+ */
 export function stableJson(value: unknown): string {
   if (Array.isArray(value)) {
     return `[${value.map(stableJson).join(",")}]`;

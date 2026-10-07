@@ -76,6 +76,8 @@ describe("session disk write ordering", () => {
     ).toEqual(["tool attempted", "approval required"]);
   });
 
+  // The file is the truth: a message whose write failed was never stored, and
+  // the next append builds on what is on disk.
   it("continues persistence after an earlier write failure", async () => {
     const directory = await mkdtemp(join(tmpdir(), "marbles-session-order-"));
     directories.push(directory);
@@ -94,8 +96,12 @@ describe("session disk write ordering", () => {
       role: "system",
       sessionId: "session",
     });
-    expect(
-      await new JsonSessionStore(directory).listMessages("session")
-    ).toHaveLength(2);
+    const messages = await new JsonSessionStore(directory).listMessages(
+      "session"
+    );
+    expect(messages.map((message) => message.parts[0])).toEqual([
+      { text: "second", type: "text" },
+    ]);
+    await expect(store.listMessages("session")).resolves.toHaveLength(1);
   });
 });

@@ -4,11 +4,13 @@ import { basename } from "node:path";
 import type {
   ArtifactCursor,
   ArtifactId,
+  ArtifactResolved,
   Artifacts,
   FileInputs,
 } from "@foundry/artifacts";
 import { artifactIdSchema } from "@foundry/artifacts";
 import { classifyFile } from "@foundry/lib/file-classification";
+import { collectPages } from "@foundry/lib/pagination";
 import { z } from "zod";
 import {
   ASK_MODES,
@@ -35,7 +37,7 @@ export interface FeedWorkspace {
 }
 
 /** Where a post came from; the engine knows this, the step body does not. */
-interface FeedSource {
+export interface FeedSource {
   readonly definition: string;
   readonly path: readonly string[];
   readonly runId: string;
@@ -64,7 +66,7 @@ export interface FeedPublisher {
 }
 
 /** Provenance stored in each entry's Content metadata under `feed`. */
-export const feedMetadataSchema = z.object({
+const feedMetadataSchema = z.object({
   /** Present on results that carry an artifact version. */
   artifact: z
     .object({ artifactId: z.string(), contentId: z.string() })
@@ -96,7 +98,35 @@ export const feedMetadataSchema = z.object({
   title: z.string(),
   workspace: z.object({ id: z.string(), name: z.string(), root: z.string() }),
 });
-type FeedMetadata = z.infer<typeof feedMetadataSchema>;
+export type FeedMetadata = z.infer<typeof feedMetadataSchema>;
+
+/** A feed entry's Artifact with its parsed provenance. */
+export interface FeedArtifact {
+  readonly artifact: ArtifactResolved;
+  readonly feed: FeedMetadata;
+}
+
+/**
+ * Every feed entry in the store, in list order. Entries whose metadata this
+ * version cannot read are skipped, not fatal.
+ */
+export async function listFeedEntries(
+  artifacts: Pick<Artifacts, "list">
+): Promise<FeedArtifact[]> {
+  const found = await collectPages((cursor: ArtifactCursor | undefined) =>
+    artifacts.list({
+      limit: PAGE_SIZE,
+      type: FEED_ENTRY_TYPE,
+      ...(cursor ? { cursor } : {}),
+    })
+  );
+  return found.flatMap((artifact) => {
+    const parsed = feedMetadataSchema.safeParse(
+      artifact.content?.metadata.feed
+    );
+    return parsed.success ? [{ artifact, feed: parsed.data }] : [];
+  });
+}
 
 /**
  * Writes entries into an Artifact store. Ids hash workspace, run, step path
@@ -168,51 +198,39 @@ export function feedPublisher(
   }
   async function cancelAbandoned(): Promise<number> {
     let cancelled = 0;
-    let cursor: ArtifactCursor | undefined;
-    do {
-      const page = await artifacts.list({
-        limit: PAGE_SIZE,
-        type: FEED_ENTRY_TYPE,
-        ...(cursor ? { cursor } : {}),
-      });
-      for (const artifact of page.items) {
-        const parsed = feedMetadataSchema.safeParse(
-          artifact.content?.metadata.feed
-        );
-        const input = parsed.success ? parsed.data.input : undefined;
-        if (
-          !(parsed.success && input) ||
-          input.status !== "open" ||
-          input.delivery === "deferred" ||
-          (input.pid !== undefined && isAlive(input.pid))
-        ) {
-          continue;
-        }
-        const { pid: _owner, ...rest } = input;
-        const feed: FeedMetadata = {
-          ...parsed.data,
-          input: { ...rest, status: "cancelled" },
-        };
-        await artifacts.write({
-          artifactId: artifact.id,
-          changes: {
-            put: {
-              [FEED_ENTRY_FILE]: {
-                bytes: article({
-                  body: rest.body ?? "",
-                  input: feed.input,
-                  title: feed.title,
-                }),
-                mime: "text/markdown",
-              },
+    // Listed in full first: rewriting entries while paging could reorder pages.
+    for (const { artifact, feed: saved } of await listFeedEntries(artifacts)) {
+      const { input } = saved;
+      if (
+        input?.status !== "open" ||
+        input.delivery === "deferred" ||
+        (input.pid !== undefined && isAlive(input.pid))
+      ) {
+        continue;
+      }
+      const { pid: _owner, ...rest } = input;
+      const feed: FeedMetadata = {
+        ...saved,
+        input: { ...rest, status: "cancelled" },
+      };
+      await artifacts.write({
+        artifactId: artifact.id,
+        changes: {
+          put: {
+            [FEED_ENTRY_FILE]: {
+              bytes: article({
+                body: rest.body ?? "",
+                input: feed.input,
+                title: feed.title,
+              }),
+              mime: "text/markdown",
             },
           },
-          metadata: { feed },
-        });
-        cancelled += 1;
-      }
-      cursor = page.nextCursor;
-    } while (cursor);
+        },
+        metadata: { feed },
+      });
+      cancelled += 1;
+    }
     return cancelled;
   }
   return {

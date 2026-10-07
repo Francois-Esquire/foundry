@@ -1,5 +1,4 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { readJsonFile, writeFileAtomic } from "@foundry/lib/atomic-file";
 import { z } from "zod";
 
 const recordSchema = z.object({
@@ -16,45 +15,61 @@ const recordSchema = z.object({
 export type DeferredApproval = z.infer<typeof recordSchema>;
 const sessionSchema = recordSchema.omit({ approvalId: true });
 export type InteractionSession = z.infer<typeof sessionSchema>;
+const savedSchema = z.object({
+  requests: z.array(recordSchema),
+  sessions: z.array(sessionSchema),
+});
+type Saved = z.infer<typeof savedSchema>;
+
+/** Where the references live: a private file, or nowhere for a host without state. */
+interface Backing {
+  load(): Promise<Saved>;
+  save(saved: Saved): Promise<void>;
+}
+
+const EMPTY: Saved = { requests: [], sessions: [] };
+
+const memory: Backing = {
+  load: () => Promise.resolve(EMPTY),
+  save: () => Promise.resolve(),
+};
+
+function file(path: string): Backing {
+  return {
+    async load() {
+      const value = await readJsonFile(path);
+      return value === undefined ? EMPTY : savedSchema.parse(value);
+    },
+    save: (saved) =>
+      writeFileAtomic(path, JSON.stringify(saved), {
+        createDirectory: true,
+        mode: 0o600,
+      }),
+  };
+}
 
 /** Only references to canonical session requests are stored here, never tool inputs. */
 export class DeferredApprovals {
-  readonly #path: string | undefined;
+  readonly #backing: Backing;
   readonly #records = new Map<string, DeferredApproval>();
   readonly #sessions = new Map<string, InteractionSession>();
   #writes: Promise<void> = Promise.resolve();
 
+  /** Without a path, references are kept for this process only. */
   constructor(path?: string) {
-    this.#path = path;
+    this.#backing = path ? file(path) : memory;
   }
 
   async load(): Promise<{
     requests: readonly DeferredApproval[];
     sessions: readonly InteractionSession[];
   }> {
-    if (this.#path) {
-      let raw: string;
-      try {
-        raw = await readFile(this.#path, "utf8");
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-          return { requests: [], sessions: [] };
-        }
-        throw error;
-      }
-      const saved = z
-        .object({
-          requests: z.array(recordSchema),
-          sessions: z.array(sessionSchema),
-        })
-        .parse(JSON.parse(raw));
-      for (const session of saved.sessions) {
-        this.#sessions.set(session.sessionId, session);
-      }
-      const records = saved.requests;
-      for (const record of records) {
-        this.#records.set(record.approvalId, record);
-      }
+    const saved = await this.#backing.load();
+    for (const session of saved.sessions) {
+      this.#sessions.set(session.sessionId, session);
+    }
+    for (const record of saved.requests) {
+      this.#records.set(record.approvalId, record);
     }
     return {
       requests: [...this.#records.values()],
@@ -78,20 +93,11 @@ export class DeferredApprovals {
   }
 
   #save(): Promise<void> {
-    const path = this.#path;
-    if (!path) {
-      return Promise.resolve();
-    }
-    const data = JSON.stringify({
+    const saved = {
       requests: [...this.#records.values()],
       sessions: [...this.#sessions.values()],
-    });
-    const save = async () => {
-      await mkdir(dirname(path), { recursive: true });
-      const temporary = `${path}.${crypto.randomUUID()}.tmp`;
-      await writeFile(temporary, data, { mode: 0o600 });
-      await rename(temporary, path);
     };
+    const save = () => this.#backing.save(saved);
     this.#writes = this.#writes.then(save, save);
     return this.#writes;
   }

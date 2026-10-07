@@ -1,15 +1,10 @@
-import type {
-  ArtifactCursor,
-  ArtifactResolved,
-  Artifacts,
-} from "@foundry/artifacts";
+import type { Artifacts } from "@foundry/artifacts";
 import { isUsableContent } from "@foundry/artifacts";
 import { classifyFile } from "@foundry/lib/file-classification";
-import type { z } from "zod";
-import { FEED_ENTRY_FILE, FEED_ENTRY_TYPE } from "~/lib/feed/entry";
-import { feedMetadataSchema } from "~/lib/feed/publish";
-
-const PAGE_SIZE = 100;
+import type { AskMode, InputDelivery, InputStatus } from "~/lib/feed/entry";
+import { FEED_ENTRY_FILE } from "~/lib/feed/entry";
+import type { FeedArtifact, FeedMetadata } from "~/lib/feed/publish";
+import { listFeedEntries } from "~/lib/feed/publish";
 
 export interface FeedMediaSnapshot {
   /** Loaded for images only, which the reader draws inline. */
@@ -37,12 +32,12 @@ export interface FeedEntrySnapshot {
     readonly activityId?: string;
     readonly choices: readonly string[];
     /** Absent on legacy and workflow suspension entries. */
-    readonly delivery?: "live" | "deferred";
+    readonly delivery?: InputDelivery;
     /** Approval requests permission; a question requests input. */
-    readonly mode?: "question" | "approval";
+    readonly mode?: AskMode;
     /** Given with the answer to an approval. */
     readonly note?: string;
-    readonly status: "open" | "answered" | "cancelled";
+    readonly status: InputStatus;
   };
   readonly kind: "result" | "milestone" | "input";
   readonly media: readonly FeedMediaSnapshot[];
@@ -73,9 +68,10 @@ export function feedReader(
       readonly version: string;
     }
   >();
-  async function load(
-    artifact: ArtifactResolved
-  ): Promise<Omit<FeedEntrySnapshot, "posted"> | undefined> {
+  async function load({
+    artifact,
+    feed,
+  }: FeedArtifact): Promise<Omit<FeedEntrySnapshot, "posted"> | undefined> {
     const { content } = artifact;
     if (!isUsableContent(content)) {
       return;
@@ -85,11 +81,6 @@ export function feedReader(
     if (cached?.version === version) {
       return cached.entry;
     }
-    const parsed = feedMetadataSchema.safeParse(content.metadata.feed);
-    if (!parsed.success) {
-      return;
-    }
-    const feed = parsed.data;
     const body = await artifacts.readFile(content.id, FEED_ENTRY_FILE);
     const media = await Promise.all(
       feed.media.map(async (path): Promise<FeedMediaSnapshot> => {
@@ -128,18 +119,9 @@ export function feedReader(
     return entry;
   }
   return async (now = new Date()) => {
-    const artifactsFound: ArtifactResolved[] = [];
-    let cursor: ArtifactCursor | undefined;
-    do {
-      const page = await artifacts.list({
-        limit: PAGE_SIZE,
-        type: FEED_ENTRY_TYPE,
-        ...(cursor ? { cursor } : {}),
-      });
-      artifactsFound.push(...page.items);
-      cursor = page.nextCursor;
-    } while (cursor);
-    const entries = await Promise.all(artifactsFound.map(load));
+    const entries = await Promise.all(
+      (await listFeedEntries(artifacts)).map(load)
+    );
     return entries
       .filter((entry) => entry !== undefined)
       .sort((a, b) => b.postedAt.localeCompare(a.postedAt))
@@ -167,20 +149,17 @@ export function formatPosted(at: Date, now: Date): string {
   return `${day} ${time}`;
 }
 
-type FeedInput = NonNullable<z.infer<typeof feedMetadataSchema>["input"]>;
-
-/** The input entry's state, without undefined keys so snapshots compare equal. */
-function inputSnapshot(
-  input: FeedInput
-): NonNullable<FeedEntrySnapshot["input"]> {
-  return {
-    ...(input.answer === undefined ? {} : { answer: input.answer }),
-    choices: input.choices,
-    ...(input.activityId === undefined ? {} : { activityId: input.activityId }),
-    ...(input.sessionId === undefined ? {} : { sessionId: input.sessionId }),
-    ...(input.delivery === undefined ? {} : { delivery: input.delivery }),
-    ...(input.mode === undefined ? {} : { mode: input.mode }),
-    ...(input.note === undefined ? {} : { note: input.note }),
-    status: input.status,
-  };
+/**
+ * The input entry's state for a reader: the stored metadata without the
+ * question body (the article carries it) and the owning pid (bookkeeping).
+ * Parsed metadata has no undefined keys, so snapshots compare equal.
+ */
+function inputSnapshot({
+  body: _body,
+  pid: _pid,
+  ...input
+}: NonNullable<FeedMetadata["input"]>): NonNullable<
+  FeedEntrySnapshot["input"]
+> {
+  return input;
 }

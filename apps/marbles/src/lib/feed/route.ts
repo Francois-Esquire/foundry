@@ -10,19 +10,13 @@ import {
   feedQuestionSchema,
   readAnswer,
 } from "~/lib/feed/entry";
-import type { FeedPublisher } from "~/lib/feed/publish";
-
-interface Source {
-  readonly definition: string;
-  readonly path: readonly string[];
-  readonly runId: string;
-}
+import type { FeedPublisher, FeedSource } from "~/lib/feed/publish";
 
 interface OpenQuestion {
   readonly name: string;
   readonly occurrence: number;
   readonly question: FeedQuestionPayload;
-  readonly source: Source;
+  readonly source: FeedSource;
 }
 
 export interface FeedRouter {
@@ -185,7 +179,7 @@ export function feedRouter(options: {
 
     observe(definition, runId) {
       const writes: Promise<unknown>[] = [];
-      const source = (event: ChannelEvent): Source => ({
+      const source = (event: ChannelEvent): FeedSource => ({
         definition,
         path: [definition, ...event.path.slice(1)],
         runId,

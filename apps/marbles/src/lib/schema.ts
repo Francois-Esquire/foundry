@@ -4,6 +4,7 @@ import type {
 } from "@standard-schema/spec";
 
 import type { InputField } from "~/lib/inputs";
+import { isRecord } from "~/lib/state/json";
 
 /**
  * Schemas are any Standard Schema. Validation and types need only that; the
@@ -67,10 +68,6 @@ export function jsonSchemaOf(
   } catch {
     return undefined;
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /** Top-level property names of an object schema, when knowable. */

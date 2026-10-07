@@ -33,7 +33,9 @@ interface FeedArtifactLink {
 }
 
 export const ASK_MODES = ["question", "approval"] as const;
+export type AskMode = (typeof ASK_MODES)[number];
 export const INPUT_DELIVERIES = ["live", "deferred"] as const;
+export type InputDelivery = (typeof INPUT_DELIVERIES)[number];
 
 /** A note is short: it rides along with an approval, it is not the report. */
 const MAX_NOTE = 2000;
@@ -131,5 +133,3 @@ export const feedQuestionSchema = z.object({
   title: z.string().trim().min(1, "questions need a title"),
 });
 export type FeedQuestionPayload = z.infer<typeof feedQuestionSchema>;
-
-/** Outside a step there is no run to attribute an entry to. */
