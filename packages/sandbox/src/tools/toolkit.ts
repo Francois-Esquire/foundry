@@ -79,9 +79,25 @@ export interface SandboxToolkit {
   readonly workingDirectory: string;
 }
 
+/** What a {@link SandboxToolkitOptions.resolvePath} call may do with the path. */
+export interface SandboxPathAccess {
+  /** True when the call may create the path, so it need not exist yet. */
+  readonly create: boolean;
+}
+
 export interface SandboxToolkitOptions extends SandboxToolGuards {
   /**
-   * Which tools the caller intends to mount. The toolkit still builds all six
+   * Maps every path a tool hands to the sandbox, after it has resolved against
+   * the working directory. A host that jails the agent canonicalizes or refuses
+   * here, in one place, instead of wrapping each facet method. Messages and
+   * audit records keep the resolved path. Default: the path unchanged.
+   */
+  readonly resolvePath?: (
+    path: string,
+    access: SandboxPathAccess
+  ) => Promise<string>;
+  /**
+   * Which tools the caller intends to mount. The toolkit still builds all seven
    * — a caller passes on only what it wants — but the instruction block
    * narrows to match, so an agent is never told about a tool it does not
    * have. A read-only mount is `["read", "grep", "glob"]`.
@@ -97,6 +113,12 @@ export function createSandboxToolkit(
 ): SandboxToolkit {
   let workdir = normalizeSandboxWorkingDirectory(sandbox.workingDirectory);
   const resolve = (path: string): string => normalizeSandboxPath(path, workdir);
+  const { resolvePath = (path: string) => Promise.resolve(path) } = options;
+  /** The path a facet call receives: resolved, then through the host policy. */
+  const reading = (path: string): Promise<string> =>
+    resolvePath(path, { create: false });
+  const writing = (path: string): Promise<string> =>
+    resolvePath(path, { create: true });
 
   const guards = guardState(options);
   const defineTool = <Schema extends z.ZodType>(
@@ -126,7 +148,9 @@ export function createSandboxToolkit(
     "read",
     readDefinition,
     async ({ file_path, offset, limit }) => {
-      const bytes = await sandbox.files.readFile(resolve(file_path));
+      const bytes = await sandbox.files.readFile(
+        await reading(resolve(file_path))
+      );
       return numberLines(new TextDecoder().decode(bytes), offset, limit);
     },
     namedPath("file_path")
@@ -137,7 +161,7 @@ export function createSandboxToolkit(
     writeDefinition,
     async ({ file_path, content }) => {
       const path = resolve(file_path);
-      await sandbox.files.writeFile(path, content);
+      await sandbox.files.writeFile(await writing(path), content);
       const bytes = new TextEncoder().encode(content).byteLength;
       return `Wrote ${bytes} byte${bytes === 1 ? "" : "s"} to ${path}`;
     },
@@ -152,7 +176,9 @@ export function createSandboxToolkit(
         throw new Error("old_string and new_string are identical.");
       }
       const path = resolve(file_path);
-      const text = new TextDecoder().decode(await sandbox.files.readFile(path));
+      const text = new TextDecoder().decode(
+        await sandbox.files.readFile(await reading(path))
+      );
       const count = occurrences(text, old_string);
       if (count === 0) {
         throw new Error(`old_string not found in ${path}.`);
@@ -164,7 +190,7 @@ export function createSandboxToolkit(
       }
       // split/join avoids String.replace's substitution pitfalls
       await sandbox.files.writeFile(
-        path,
+        await writing(path),
         text.split(old_string).join(new_string)
       );
       const replacements = replace_all ? count : 1;
@@ -189,13 +215,13 @@ export function createSandboxToolkit(
       // command here would be wrong, not slow — see the facet's own note.
       if (sandbox.files.search) {
         const matches = await sandbox.files.search(pattern, {
-          path: target,
+          path: await reading(target),
           ...(fileGlob === undefined ? {} : { glob: fileGlob }),
           caseInsensitive: case_insensitive,
         });
         return formatMatches(matches, relative, output_mode, line_numbers);
       }
-      const argv = grepCommand(target, {
+      const argv = grepCommand(await reading(target), {
         case_insensitive,
         glob: fileGlob,
         line_numbers,
@@ -232,7 +258,9 @@ export function createSandboxToolkit(
     async ({ pattern, path }) => {
       const base = resolve(path ?? workdir);
       const regex = globToRegExp(pattern);
-      const entries = await sandbox.files.list(base, { recursive: true });
+      const entries = await sandbox.files.list(await reading(base), {
+        recursive: true,
+      });
       const prefix = base === "/" ? "/" : `${base}/`;
       const found = entries
         .filter((entry) => entry.type === "file")
@@ -248,14 +276,14 @@ export function createSandboxToolkit(
     cdDefinition,
     async ({ path }) => {
       const target = changeDirectory(path, workdir);
-      if (!(await sandbox.files.isDirectory(target))) {
+      if (!(await sandbox.files.isDirectory(await reading(target)))) {
         throw new SandboxError(
           "invalid-contract",
           `sandbox working directory does not exist or is not a directory: ${target}`,
           { details: { path: target } }
         );
       }
-      const entries = await sandbox.files.list(target);
+      const entries = await sandbox.files.list(await reading(target));
       workdir = target;
       return entries.length === 0
         ? `Working directory is now ${target} (it is empty, or not a directory).`

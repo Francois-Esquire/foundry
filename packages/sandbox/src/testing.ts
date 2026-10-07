@@ -4,6 +4,7 @@
  * hypervisor.
  */
 
+import { ACTIVE_CONTAINER_RESOURCE_STATUSES } from "./container/constants";
 import type {
   ContainerExecOptions,
   ContainerInstance,
@@ -175,12 +176,7 @@ export function createFakeContainerRuntime(
         return Promise.reject(new Error(`remove failed for ${name}`));
       }
       const instance = liveByName(name);
-      if (
-        instance.nativeStatus === "starting" ||
-        instance.nativeStatus === "running" ||
-        instance.nativeStatus === "paused" ||
-        instance.nativeStatus === "draining"
-      ) {
+      if (ACTIVE_CONTAINER_RESOURCE_STATUSES.has(instance.nativeStatus)) {
         return Promise.reject(
           new Error(`sandbox ${name} must be stopped before removal`)
         );

@@ -1,4 +1,6 @@
+import { DEFAULT_SANDBOX_WORKING_DIRECTORY } from "../constants";
 import type { ContainerRowStatus } from "./store";
+import type { ContainerResourceStatus } from "./types";
 
 /**
  * Default base image. Debian slim: a microVM boots its own kernel, and the
@@ -7,7 +9,7 @@ import type { ContainerRowStatus } from "./store";
 export const DEFAULT_CONTAINER_IMAGE = "docker.io/library/debian:trixie-slim";
 
 /** Working directory created inside the guest and used as the exec `cwd` default. */
-export const DEFAULT_CONTAINER_WORKDIR = "/workspace";
+export const DEFAULT_CONTAINER_WORKDIR = DEFAULT_SANDBOX_WORKING_DIRECTORY;
 
 /**
  * Broad ownership label every sandbox carries. Predates the scoped labels
@@ -58,6 +60,13 @@ export const CONTAINER_ROW_STATUSES: readonly ContainerRowStatus[] =
     "stopped",
     "failed",
   ]);
+
+/** Native statuses a resource must leave, via stop, before it can be removed. */
+export const ACTIVE_CONTAINER_RESOURCE_STATUSES: ReadonlySet<ContainerResourceStatus> =
+  new Set(["starting", "running", "paused", "draining"]);
+
+/** Mount and service ids: lowercase, portable, bounded. */
+export const CONTAINER_PORTABLE_ID_PATTERN = /^[a-z][a-z0-9-]{0,63}$/;
 
 export const CONTAINER_SANDBOX_CONSTRAINTS_FORMAT =
   "foundry.sandbox.container/1" as const;

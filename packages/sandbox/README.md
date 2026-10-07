@@ -161,10 +161,16 @@ createSandboxToolSchemas(options?): SandboxToolSchemas; // shapes only, no bindi
 ```typescript
 interface SandboxToolkitOptions extends SandboxToolGuards {
   tools?: readonly SandboxToolName[]; // restrict the set
+  resolvePath?: (path: string, access: { create: boolean }) => Promise<string>; // host path policy
   limits?: SandboxToolLimits;
   audit?: SandboxToolAudit;
 }
 ```
+
+`resolvePath` sees every path a tool is about to hand the sandbox, already
+resolved against the working directory. A host that jails the agent to a
+workspace canonicalizes or refuses there once, rather than wrapping each facet
+method or the commands the toolkit builds.
 
 `createSandboxToolSchemas` gives you the descriptions and input schemas with no
 sandbox attached — for a renderer that needs to _describe_ the tools before one

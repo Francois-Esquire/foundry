@@ -1,6 +1,7 @@
 import { SandboxError } from "../errors";
 import { assertNotAborted } from "../sandbox";
 import {
+  ACTIVE_CONTAINER_RESOURCE_STATUSES,
   CONTAINER_ID_LABEL,
   CONTAINER_INSTANCE_LABEL,
   CONTAINER_MANAGED_BY_LABEL,
@@ -25,7 +26,7 @@ import type {
   ContainerSandbox,
 } from "./types";
 
-export interface CreateContainersOptions<TNative = unknown> {
+export interface CreateContainersOptions {
   /** Canonical host directories a spec may bind mounts from. */
   readonly allowedMountRoots?: readonly string[];
   /** Defaults applied under every spec: image, workdir, labels. */
@@ -34,7 +35,7 @@ export interface CreateContainersOptions<TNative = unknown> {
   readonly instanceLabel: string;
   /** Guest directory every mount target must equal or fall under. */
   readonly mountTargetRoot?: string;
-  readonly runtime: ContainerRuntime<TNative>;
+  readonly runtime: ContainerRuntime;
   readonly store: ContainerStore;
 }
 
@@ -80,11 +81,11 @@ export interface Container extends ContainerFacets {
   readonly row: ContainerRow;
 }
 
-interface Live<TNative> {
+interface Live {
   facets: ContainerFacets;
   handles: number;
   row: ContainerRow;
-  sandbox: ContainerSandbox<TNative>;
+  sandbox: ContainerSandbox;
 }
 
 /**
@@ -93,12 +94,10 @@ interface Live<TNative> {
  * new native name, after removing whatever the runtime still holds under the
  * old one.
  */
-export function createContainers<TNative = unknown>(
-  options: CreateContainersOptions<TNative>
-): Containers {
+export function createContainers(options: CreateContainersOptions): Containers {
   const { runtime, store } = options;
-  const live = new Map<string, Live<TNative>>();
-  const pending = new Map<string, Promise<Live<TNative>>>();
+  const live = new Map<string, Live>();
+  const pending = new Map<string, Promise<Live>>();
   const releasing = new Map<string, Promise<void>>();
   let stopped = false;
 
@@ -121,7 +120,7 @@ export function createContainers<TNative = unknown>(
     entry: { row: ContainerRow },
     constraints: ContainerSandboxConstraints,
     signal: AbortSignal | undefined
-  ): Promise<Pick<Live<TNative>, "sandbox" | "facets">> => {
+  ): Promise<Pick<Live, "sandbox" | "facets">> => {
     assertNotAborted(signal, "container start was cancelled");
     const { row } = entry;
     const nativeId = nextNativeId(row);
@@ -139,7 +138,7 @@ export function createContainers<TNative = unknown>(
       name: nativeId,
     };
     await update(entry, { nativeId });
-    let sandbox: ContainerSandbox<TNative>;
+    let sandbox: ContainerSandbox;
     let mounts: readonly ContainerMountSpec[];
     try {
       mounts = await resolveContainerMountSpecs(
@@ -169,16 +168,16 @@ export function createContainers<TNative = unknown>(
     row: ContainerRow,
     constraints: ContainerSandboxConstraints,
     signal: AbortSignal | undefined
-  ): Promise<Live<TNative>> => {
+  ): Promise<Live> => {
     const entry = { row };
     await update(entry, { status: "starting" });
     const booted = await boot(entry, constraints, signal);
-    const created: Live<TNative> = { ...booted, handles: 0, row: entry.row };
+    const created: Live = { ...booted, handles: 0, row: entry.row };
     live.set(row.id, created);
     return created;
   };
 
-  const release = (entry: Live<TNative>): Promise<void> => {
+  const release = (entry: Live): Promise<void> => {
     live.delete(entry.row.id);
     const done = (async () => {
       await entry.sandbox.remove();
@@ -192,7 +191,7 @@ export function createContainers<TNative = unknown>(
   const released = (id: string): Promise<void> | undefined =>
     releasing.get(id)?.catch(() => undefined);
 
-  const handleFor = (entry: Live<TNative>): Container => {
+  const handleFor = (entry: Live): Container => {
     entry.handles += 1;
     let closed = false;
     return Object.freeze({
@@ -396,8 +395,8 @@ function nextNativeId(row: ContainerRow): string {
   return `${row.id}-${String(generation)}`;
 }
 
-async function removeNative<TNative>(
-  runtime: ContainerRuntime<TNative>,
+async function removeNative(
+  runtime: ContainerRuntime,
   name: string
 ): Promise<void> {
   // Best effort: a VM that was already gone is the expected case.
@@ -413,23 +412,18 @@ async function removeNative<TNative>(
   }
 }
 
-async function dispose<TNative>(
-  runtime: ContainerRuntime<TNative>,
+async function dispose(
+  runtime: ContainerRuntime,
   resource: ContainerResourceSummary
 ): Promise<void> {
-  if (
-    resource.status === "starting" ||
-    resource.status === "running" ||
-    resource.status === "paused" ||
-    resource.status === "draining"
-  ) {
+  if (ACTIVE_CONTAINER_RESOURCE_STATUSES.has(resource.status)) {
     await runtime.stopResource(resource.name);
   }
   await runtime.removeResource(resource.name);
 }
 
-async function enumerate<TNative>(
-  runtime: ContainerRuntime<TNative>,
+async function enumerate(
+  runtime: ContainerRuntime,
   labels: Readonly<Record<string, string>>,
   signal: AbortSignal | undefined
 ): Promise<readonly ContainerResourceSummary[]> {

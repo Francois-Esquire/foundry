@@ -312,7 +312,7 @@ export interface ContainerInstance<TNative = unknown> {
   stat(path: string): Promise<SandboxDirectoryEntry["type"] | undefined>;
   stop(): Promise<void>;
   /** Strict storage operations for consumers of the Core storage contract. */
-  readonly storage?: Storage;
+  readonly storage: Storage;
   /** Write a file, creating parent directories. */
   writeFile(path: string, content: Uint8Array): Promise<void>;
 }

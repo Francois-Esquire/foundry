@@ -20,11 +20,15 @@ import type {
   SandboxStartServiceInput,
   SandboxVolumesFacet,
 } from "../types";
+import { CONTAINER_PORTABLE_ID_PATTERN } from "./constants";
 import type { ContainerSandboxMount } from "./constraints";
+import { isTcpPort } from "./ports";
 import type { ContainerMountSpec, ContainerSandbox } from "./types";
 
-const SERVICE_ID_PATTERN = /^[a-z][a-z0-9-]{0,63}$/;
 const ENVIRONMENT_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const DEFAULT_TERMINATION_GRACE_MS = 5000;
+const MAX_TERMINATION_GRACE_MS = 30_000;
+const DEFAULT_READINESS_INTERVAL_MS = 50;
 
 /** What one VM's services and volumes track between calls. */
 interface ContainerState {
@@ -47,8 +51,8 @@ export interface ContainerFacets extends Sandbox {
 }
 
 /** Module-internal: the registry builds each handle from this. */
-export function containerFacets<TNative>(
-  sandbox: ContainerSandbox<TNative>,
+export function containerFacets(
+  sandbox: ContainerSandbox,
   mounts: readonly ContainerMountSpec[],
   mountCapability: boolean
 ): ContainerFacets {
@@ -134,9 +138,9 @@ export function containerFacets<TNative>(
   });
 }
 
-function createContainerVolumesFacet<TNative>(
+function createContainerVolumesFacet(
   handle: ContainerState,
-  sandbox: ContainerSandbox<TNative>
+  sandbox: ContainerSandbox
 ): SandboxVolumesFacet {
   return Object.freeze({
     list: () =>
@@ -179,9 +183,9 @@ function createContainerVolumesFacet<TNative>(
   });
 }
 
-function createContainerServicesFacet<TNative>(
+function createContainerServicesFacet(
   handle: ContainerState,
-  sandbox: ContainerSandbox<TNative>
+  sandbox: ContainerSandbox
 ): SandboxServicesFacet {
   return Object.freeze({
     list: () => Promise.resolve(Object.freeze([...handle.services.values()])),
@@ -236,7 +240,8 @@ function createContainerServicesFacet<TNative>(
         }
         terminationRequested = true;
         await process.signal(15).catch(() => undefined);
-        const graceMs = input.terminationGraceMs ?? 5000;
+        const graceMs =
+          input.terminationGraceMs ?? DEFAULT_TERMINATION_GRACE_MS;
         const graceful = await raceExit(exit, graceMs);
         if (graceful !== undefined) {
           return graceful;
@@ -284,7 +289,7 @@ function createContainerServicesFacet<TNative>(
 }
 
 function validateServiceInput(input: SandboxStartServiceInput): void {
-  if (!SERVICE_ID_PATTERN.test(input.id)) {
+  if (!CONTAINER_PORTABLE_ID_PATTERN.test(input.id)) {
     throw new SandboxError(
       "invalid-contract",
       "sandbox service id must be a lowercase portable identifier"
@@ -305,8 +310,8 @@ function validateServiceInput(input: SandboxStartServiceInput): void {
       "sandbox service argv exceeds its bounded contract"
     );
   }
-  const graceMs = input.terminationGraceMs ?? 5000;
-  if (!Number.isInteger(graceMs) || graceMs < 0 || graceMs > 30_000) {
+  const graceMs = input.terminationGraceMs ?? DEFAULT_TERMINATION_GRACE_MS;
+  if (!isIntegerBetween(graceMs, 0, MAX_TERMINATION_GRACE_MS)) {
     throw new SandboxError(
       "invalid-contract",
       "sandbox service termination grace must be between 0 and 30000ms"
@@ -331,18 +336,15 @@ function validateServiceInput(input: SandboxStartServiceInput): void {
       );
     }
   }
+  const { readiness } = input;
   if (
-    input.readiness.kind === "tcp" &&
-    (!Number.isInteger(input.readiness.port) ||
-      input.readiness.port < 1 ||
-      input.readiness.port > 65_535 ||
-      !Number.isInteger(input.readiness.timeoutMs) ||
-      input.readiness.timeoutMs < 1 ||
-      input.readiness.timeoutMs > 120_000 ||
-      (input.readiness.intervalMs !== undefined &&
-        (!Number.isInteger(input.readiness.intervalMs) ||
-          input.readiness.intervalMs < 10 ||
-          input.readiness.intervalMs > 1000)))
+    readiness.kind === "tcp" &&
+    !(
+      isTcpPort(readiness.port) &&
+      isIntegerBetween(readiness.timeoutMs, 1, 120_000) &&
+      (readiness.intervalMs === undefined ||
+        isIntegerBetween(readiness.intervalMs, 10, 1000))
+    )
   ) {
     throw new SandboxError(
       "invalid-contract",
@@ -351,8 +353,8 @@ function validateServiceInput(input: SandboxStartServiceInput): void {
   }
 }
 
-async function waitForServiceReadiness<TNative>(
-  sandbox: ContainerSandbox<TNative>,
+async function waitForServiceReadiness(
+  sandbox: ContainerSandbox,
   input: SandboxStartServiceInput,
   exit: Promise<SandboxServiceExit>
 ): Promise<void> {
@@ -367,10 +369,9 @@ async function waitForServiceReadiness<TNative>(
     );
   }
   const deadline = Date.now() + input.readiness.timeoutMs;
-  const intervalMs = Math.min(
-    Math.max(input.readiness.intervalMs ?? 50, 10),
-    1000
-  );
+  // Already bounded by `validateServiceInput`.
+  const intervalMs =
+    input.readiness.intervalMs ?? DEFAULT_READINESS_INTERVAL_MS;
   while (Date.now() < deadline) {
     const outcome = await Promise.race([
       probeTcp("127.0.0.1", hostPort).then((ready) =>
@@ -393,6 +394,10 @@ async function waitForServiceReadiness<TNative>(
     "provider-failed",
     `sandbox service "${input.id}" did not become ready before timeout`
   );
+}
+
+function isIntegerBetween(value: number, min: number, max: number): boolean {
+  return Number.isInteger(value) && value >= min && value <= max;
 }
 
 function probeTcp(host: string, port: number): Promise<boolean> {

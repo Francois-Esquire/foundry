@@ -74,41 +74,16 @@ export function createCodingTools(
   const toolkit = createSandboxToolkit(
     {
       commands: {
-        async exec(command, execOptions) {
-          if (Array.isArray(command)) {
-            // The toolkit's grep is argv, never model-supplied shell text.
-            const argv = [...command];
-            const targetIndex = argv[0] === "find" ? 1 : argv.length - 1;
-            const target = argv[targetIndex];
-            if (target === undefined) {
-              throw new Error("Missing coding search path.");
-            }
-            argv[targetIndex] = await canonicalPath(target);
-            return container.commands.exec(argv, {
-              ...execOptions,
-              cwd: workspace,
-            });
-          }
-          return container.commands.exec(command, {
-            ...execOptions,
-            cwd: workspace,
-          });
-        },
+        exec: (command, execOptions) =>
+          container.commands.exec(command, { ...execOptions, cwd: workspace }),
       },
-      files: {
-        ...container.files,
-        isDirectory: async (path) =>
-          container.files.isDirectory(await canonicalPath(path)),
-        list: async (path, listOptions) =>
-          container.files.list(await canonicalPath(path), listOptions),
-        readFile: async (path) =>
-          container.files.readFile(await canonicalPath(path)),
-        writeFile: async (path, content) =>
-          container.files.writeFile(await canonicalPath(path, true), content),
-      },
+      files: container.files,
       workingDirectory: workspace,
     },
-    { tools: ["read", "write", "edit", "glob", "grep", "bash"] }
+    {
+      resolvePath: (path, { create }) => canonicalPath(path, create),
+      tools: ["read", "write", "edit", "glob", "grep", "bash"],
+    }
   );
   const { read, write, edit, glob, grep, bash } = toolkit.tools;
   return tagTools({ bash, edit, glob, grep, read, write }, "builtin");

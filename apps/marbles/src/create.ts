@@ -158,7 +158,7 @@ function containersFor(
         home
       ),
       instanceLabel: `marbles-${workspaceId}`,
-      runtime: (await runtime()) as never,
+      runtime: await runtime(),
       store: createMemoryContainerStore(),
     });
   };

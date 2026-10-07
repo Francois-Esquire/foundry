@@ -1,5 +1,4 @@
 import { Buffer } from "node:buffer";
-import { createServer } from "node:net";
 import { normalizeSandboxPath } from "../path";
 import type {
   SandboxCommand,
@@ -18,12 +17,12 @@ import {
   DEFAULT_CONTAINER_MEMORY_MIB,
   DEFAULT_CONTAINER_WORKDIR,
 } from "./constants";
+import { assertGuestPorts, reserveHostPorts } from "./ports";
 import type {
   ContainerConfig,
   ContainerExecOptions,
   ContainerInstance,
   ContainerMountSpec,
-  ContainerPortMapping,
   ContainerProcess,
   ContainerRuntime,
   ContainerSandbox,
@@ -131,58 +130,6 @@ export async function resolveContainerSpec(
   };
 }
 
-/**
- * Pick a free loopback port per requested guest port. The microVM runtime
- * wants the host port up front, so it is chosen here. The listener is closed
- * before the VM binds it, which leaves a small window where another process
- * could take the port — the boot then fails loudly rather than silently
- * mis-binding.
- */
-async function reserveHostPorts(
-  guestPorts: readonly number[]
-): Promise<readonly ContainerPortMapping[]> {
-  const mappings: ContainerPortMapping[] = [];
-  for (const guestPort of guestPorts) {
-    mappings.push({
-      guestPort,
-      host: "127.0.0.1",
-      hostPort: await freeLoopbackPort(),
-    });
-  }
-  return mappings;
-}
-
-function assertGuestPorts(guestPorts: readonly number[]): void {
-  const seen = new Set<number>();
-  for (const port of guestPorts) {
-    if (!Number.isSafeInteger(port) || port < 1 || port > 65_535) {
-      throw new RangeError("guest ports must be integers from 1 through 65535");
-    }
-    if (seen.has(port)) {
-      throw new RangeError("guest ports must be unique");
-    }
-    seen.add(port);
-  }
-}
-
-function freeLoopbackPort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const probe = createServer();
-    probe.once("error", reject);
-    probe.listen(0, "127.0.0.1", () => {
-      const address = probe.address();
-      const port = typeof address === "object" && address ? address.port : 0;
-      probe.close(() => {
-        if (port > 0) {
-          resolve(port);
-        } else {
-          reject(new Error("could not reserve a host port"));
-        }
-      });
-    });
-  });
-}
-
 /** Lazy-load the microsandbox adapter (avoids the native addon in fake-only paths). */
 async function defaultRuntime<TNative>(): Promise<ContainerRuntime<TNative>> {
   const { createMicrosandboxRuntime } = await import("./microsandbox-runtime");
@@ -219,9 +166,6 @@ class ContainerSandboxHandle<TNative> implements ContainerSandbox<TNative> {
   get storage() {
     this.assertActive("storage");
     const { storage } = this.instance;
-    if (!storage) {
-      throw new Error("Container runtime does not implement strict storage");
-    }
     const at = (path: string) => {
       this.assertActive("storage");
       return normalizeSandboxPath(path, this.workdir);
@@ -325,18 +269,9 @@ class ContainerSandboxHandle<TNative> implements ContainerSandbox<TNative> {
     }
 
     const out: Record<string, Uint8Array> = {};
-    const pending = [path];
-    while (pending.length > 0) {
-      const dir = pending.pop();
-      if (dir === undefined) {
-        continue;
-      }
-      for (const entry of await this.instance.list(dir)) {
-        if (entry.type === "directory") {
-          pending.push(entry.path);
-        } else if (entry.type === "file") {
-          out[entry.path] = await this.instance.readFile(entry.path);
-        }
+    for (const entry of await this.listDirectory(path, true)) {
+      if (entry.type === "file") {
+        out[entry.path] = await this.instance.readFile(entry.path);
       }
     }
     return out;

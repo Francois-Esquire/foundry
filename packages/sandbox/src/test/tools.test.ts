@@ -250,6 +250,57 @@ describe("createSandboxToolkit", () => {
       toolkit.tools.read.execute({ file_path: "../outside" }, NO_OPTIONS)
     ).rejects.toMatchObject({ code: "invalid-contract" });
   });
+
+  it("hands every facet path through the host's resolvePath, once resolved", async () => {
+    const fake = createFakeSandbox({
+      commands: [
+        {
+          command: ["grep", "-r", "-e", "hi", "/workspace/real"],
+          stdout: "/workspace/real/notes.txt:hi\n",
+        },
+      ],
+      files: { "real/notes.txt": "hi" },
+    });
+    const seen: [string, boolean][] = [];
+    const toolkit = createSandboxToolkit(fake.sandbox, {
+      resolvePath: (path, { create }) => {
+        seen.push([path, create]);
+        return Promise.resolve(path.replace("/link", "/real"));
+      },
+    });
+
+    await expect(
+      toolkit.tools.read.execute({ file_path: "link/notes.txt" }, NO_OPTIONS)
+    ).resolves.toBe("     1\thi");
+    await expect(
+      toolkit.tools.write.execute(
+        { content: "new", file_path: "link/new.txt" },
+        NO_OPTIONS
+      )
+    ).resolves.toBe("Wrote 3 bytes to /workspace/link/new.txt");
+    await expect(
+      toolkit.tools.read.execute({ file_path: "real/new.txt" }, NO_OPTIONS)
+    ).resolves.toBe("     1\tnew");
+    await expect(
+      toolkit.tools.grep.execute(
+        {
+          case_insensitive: false,
+          line_numbers: false,
+          output_mode: "content",
+          path: "link",
+          pattern: "hi",
+        },
+        NO_OPTIONS
+      )
+    ).resolves.toBe("/workspace/real/notes.txt:hi");
+
+    expect(seen).toEqual([
+      ["/workspace/link/notes.txt", false],
+      ["/workspace/link/new.txt", true],
+      ["/workspace/real/new.txt", false],
+      ["/workspace/link", false],
+    ]);
+  });
 });
 
 describe("createSandboxToolkit — cd", () => {
@@ -472,7 +523,7 @@ function inputFor(name: (typeof TOOL_NAMES)[number]): Record<string, unknown> {
 }
 
 describe("createSandboxToolSchemas", () => {
-  it("publishes the same six tools with no implementation to intercept", () => {
+  it("publishes the same seven tools with no implementation to intercept", () => {
     const schemas = createSandboxToolSchemas();
 
     expect(Object.keys(schemas.tools)).toEqual(

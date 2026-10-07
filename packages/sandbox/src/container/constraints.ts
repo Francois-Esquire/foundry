@@ -1,5 +1,8 @@
 import { z } from "zod";
-import { CONTAINER_SANDBOX_CONSTRAINTS_FORMAT } from "./constants";
+import {
+  CONTAINER_PORTABLE_ID_PATTERN,
+  CONTAINER_SANDBOX_CONSTRAINTS_FORMAT,
+} from "./constants";
 import type { ContainerConfig } from "./types";
 
 const publicEnvironmentName =
@@ -28,7 +31,7 @@ const mountSchema = z
   .object({
     access: z.enum(["read-only", "read-write"]),
     executable: z.boolean().optional(),
-    id: z.string().regex(/^[a-z][a-z0-9-]{0,63}$/),
+    id: z.string().regex(CONTAINER_PORTABLE_ID_PATTERN),
     source: z.string().min(1).max(4096),
     // Which guest root a target may fall under is the provider's
     // `mountTargetRoot` option, checked at mount resolution, not here.

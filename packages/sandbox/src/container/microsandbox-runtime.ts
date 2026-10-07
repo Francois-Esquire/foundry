@@ -15,10 +15,12 @@ import type {
   SandboxShell,
 } from "../types";
 import { pipedProcess } from "./piped-process";
+import { isTcpPort } from "./ports";
 import { guestStorage } from "./storage";
 import type {
   ContainerExecOptions,
   ContainerInstance,
+  ContainerNetworkAllowlist,
   ContainerProcess,
   ContainerRuntime,
   ContainerSpec,
@@ -87,6 +89,9 @@ const PULL_POLICY = {
   missing: "if-missing",
   never: "never",
 } as const;
+
+/** Allowlisted destinations without explicit ports are HTTPS only. */
+const DEFAULT_ALLOWLIST_PORT = 443;
 
 const DENY_GUEST_EGRESS_POLICY: MicrosandboxNetworkPolicy = Object.freeze({
   defaultEgress: "deny",
@@ -293,35 +298,11 @@ function configureNetwork(builder: SandboxBuilder, spec: ContainerSpec): void {
   // Keep the interface present for a loopback-only Program mapping, then deny
   // all guest egress through the native policy instead.
   configurable.network((network) => {
-    let configured = spec.disableNetwork
-      ? network.policy(DENY_GUEST_EGRESS_POLICY)
-      : network;
+    let configured = network;
     if (typeof spec.network === "object") {
-      const { destinations } = spec.network;
-      const interceptedPorts = [
-        ...new Set(
-          destinations.flatMap((destination) => destination.ports ?? [443])
-        ),
-      ];
-      configured = network
-        .policy({
-          defaultEgress: "deny",
-          defaultIngress: "allow",
-          rules: destinations.map((destination) => ({
-            action: "allow",
-            destination: { domain: destination.host, kind: "domain" },
-            direction: "egress",
-            ports: (destination.ports ?? [443]).map((port) => ({
-              end: port,
-              start: port,
-            })),
-            protocols: ["tcp"],
-          })),
-        })
-        .strict(true)
-        .tls((tls) =>
-          tls.interceptedPorts(interceptedPorts).verifyUpstream(true)
-        );
+      configured = allowlistNetwork(network, spec.network);
+    } else if (spec.disableNetwork) {
+      configured = network.policy(DENY_GUEST_EGRESS_POLICY);
     }
     for (const mapping of spec.ports) {
       assertPrivatePortMapping(mapping);
@@ -335,20 +316,38 @@ function configureNetwork(builder: SandboxBuilder, spec: ContainerSpec): void {
   });
 }
 
+/** Deny egress except TLS to the listed hosts, which the runtime verifies upstream. */
+function allowlistNetwork(
+  network: MicrosandboxNetworkBuilder,
+  { destinations }: ContainerNetworkAllowlist
+): MicrosandboxNetworkBuilder {
+  const portsOf = (
+    destination: ContainerNetworkAllowlist["destinations"][number]
+  ) => destination.ports ?? [DEFAULT_ALLOWLIST_PORT];
+  const interceptedPorts = [...new Set(destinations.flatMap(portsOf))];
+  return network
+    .policy({
+      defaultEgress: "deny",
+      defaultIngress: "allow",
+      rules: destinations.map((destination) => ({
+        action: "allow",
+        destination: { domain: destination.host, kind: "domain" },
+        direction: "egress",
+        ports: portsOf(destination).map((port) => ({ end: port, start: port })),
+        protocols: ["tcp"],
+      })),
+    })
+    .strict(true)
+    .tls((tls) => tls.interceptedPorts(interceptedPorts).verifyUpstream(true));
+}
+
 function assertPrivatePortMapping(
   mapping: ContainerSpec["ports"][number]
 ): void {
   if (mapping.host !== "127.0.0.1") {
     throw new TypeError("VM ports may bind only to the loopback interface");
   }
-  if (
-    !Number.isSafeInteger(mapping.guestPort) ||
-    mapping.guestPort < 1 ||
-    mapping.guestPort > 65_535 ||
-    !Number.isSafeInteger(mapping.hostPort) ||
-    mapping.hostPort < 1 ||
-    mapping.hostPort > 65_535
-  ) {
+  if (!(isTcpPort(mapping.guestPort) && isTcpPort(mapping.hostPort))) {
     throw new RangeError("VM port mappings must contain valid TCP ports");
   }
 }

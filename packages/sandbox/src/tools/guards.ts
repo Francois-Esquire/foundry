@@ -108,21 +108,20 @@ function clip(
  * audit event per call on every exit path. `pathOf` reports which path the
  * call resolved to, for the record only.
  */
-export function guardExecute<Execute extends (...args: never[]) => unknown>(
+export function guardExecute<Input, Options>(
   name: SandboxToolName,
-  execute: Execute,
+  execute: (input: Input, options: Options) => Promise<unknown>,
   state: GuardState,
   pathOf: (input: unknown) => string | undefined
-): Execute {
-  const guarded = async (...args: never[]): Promise<unknown> => {
-    const input: unknown = args[0];
+): (input: Input, options: Options) => Promise<unknown> {
+  return async (input, options) => {
     if (!takeCall(state)) {
       const error = new SandboxRateLimitError(state.maxCallsPerMinute);
       record(state, { input, name, outcome: "refused", reason: "rate" });
       throw error;
     }
     try {
-      const raw: unknown = await execute(...args);
+      const raw = await execute(input, options);
       const { output, truncated } = clip(raw, state.maxOutputChars);
       record(state, {
         input,
@@ -143,7 +142,6 @@ export function guardExecute<Execute extends (...args: never[]) => unknown>(
       throw error;
     }
   };
-  return guarded as unknown as Execute;
 }
 
 export interface GuardState {
