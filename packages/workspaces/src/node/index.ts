@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import {
   chmod,
   link,
@@ -75,17 +75,33 @@ function entryStats(stats: {
   return { type: "unknown" };
 }
 
-export const nodeFileSystem: Storage & StorageFileCreator = {
-  async createFile(path, bytes) {
-    const temp = join(dirname(path), `.${basename(path)}.${randomUUID()}.tmp`);
+/**
+ * An exclusive sibling of `path` holding exactly `bytes`, synced and closed.
+ * A failed write removes it; once returned, the caller links or renames it
+ * into place and owns its removal.
+ */
+async function writeSibling(path: string, bytes: Uint8Array): Promise<string> {
+  const temp = join(dirname(path), `.${basename(path)}.${randomUUID()}.tmp`);
+  const handle = await open(temp, "wx", 0o600);
+  try {
     try {
-      const handle = await open(temp, "wx", 0o600);
-      try {
-        await handle.writeFile(bytes);
-        await handle.sync();
-      } finally {
-        await handle.close();
-      }
+      await handle.writeFile(bytes);
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+  } catch (error) {
+    await unlink(temp).catch(() => undefined);
+    throw error;
+  }
+  return temp;
+}
+
+export const nodeFileSystem: Storage & StorageFileCreator = {
+  /** Links a complete sibling into place, so the new name never shows partial bytes. */
+  async createFile(path, bytes) {
+    const temp = await writeSibling(path, bytes);
+    try {
       await link(temp, path);
     } finally {
       await unlink(temp).catch(() => undefined);
@@ -124,15 +140,8 @@ export const nodeFileSystem: Storage & StorageFileCreator = {
     }
     // biome-ignore lint/suspicious/noBitwiseOperators: Filesystem permissions are a bit mask.
     const mode = stats.mode & 0o7777;
-    const temp = join(dirname(path), `.${basename(path)}.${randomUUID()}.tmp`);
+    const temp = await writeSibling(path, bytes);
     try {
-      const handle = await open(temp, "wx", 0o600);
-      try {
-        await handle.writeFile(bytes);
-        await handle.sync();
-      } finally {
-        await handle.close();
-      }
       await chmod(temp, mode);
       await rename(temp, path);
     } catch (error) {
@@ -146,7 +155,3 @@ export const nodeFileSystem: Storage & StorageFileCreator = {
     await writeFile(path, content);
   },
 };
-
-export function sha256Hex(bytes: Uint8Array): string {
-  return createHash("sha256").update(bytes).digest("hex");
-}

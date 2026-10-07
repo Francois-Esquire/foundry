@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   directory,
-  InMemoryWorkspaceStore,
+  MemoryWorkspaceStore,
   WorkspaceSystem,
 } from "@foundry/workspaces";
 import { onTestFinished } from "vitest";
@@ -22,7 +22,7 @@ export async function fixture(entries: EntryInputs = {}, files = false) {
     ...(files ? { files: blobFiles(join(root, ".blobs")) } : {}),
   });
   const filesystem = artifactFileSystem({ artifacts, root });
-  const catalog = new InMemoryWorkspaceStore();
+  const catalog = new MemoryWorkspaceStore();
   const system = new WorkspaceSystem({ store: catalog }).extend(
     directory({ filesystem, source: "artifact" })
   );

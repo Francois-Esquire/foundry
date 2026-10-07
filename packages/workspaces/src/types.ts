@@ -1,4 +1,3 @@
-import type { Page, PageInput } from "@foundry/core/pagination";
 import type {
   AtomicStorageWriter,
   FileNode,
@@ -15,13 +14,14 @@ import type {
   FileKind,
 } from "@foundry/lib/file-classification";
 import type { Ignore } from "ignore";
-import type { z } from "zod";
+import type { WorkspaceCatalog } from "./catalog";
 import type { Workspace } from "./instance";
-import type { workspaceEntryIdSchema, workspaceIdSchema } from "./workspace";
 
-export type WorkspaceId = z.infer<typeof workspaceIdSchema>;
+export type WorkspaceId = string & { readonly __brand: "WorkspaceId" };
 
-export type WorkspaceEntryId = z.infer<typeof workspaceEntryIdSchema>;
+export type WorkspaceEntryId = string & {
+  readonly __brand: "WorkspaceEntryId";
+};
 
 /**
  * Where a Workspace's bytes come from. `kind` is the string a layer claims
@@ -34,11 +34,9 @@ export interface WorkspaceSource {
   readonly sourceId: string | null;
 }
 
-/** The durable registration of one source: what the store holds, as the domain reads it. */
+/** The durable registration of one source, exactly as the store holds it. */
 export interface WorkspaceRegistration {
   readonly createdAt: Date;
-  readonly description: string | null;
-  readonly documentation: string | null;
   readonly id: WorkspaceId;
   /** The last successful complete source observation, including an empty diff. */
   readonly lastReconciledAt: Date;
@@ -46,6 +44,9 @@ export interface WorkspaceRegistration {
   readonly source: WorkspaceSource;
   readonly updatedAt: Date;
 }
+
+/** What a layer's `identify` produces; the system adds identity and time. */
+export type WorkspaceIdentity = Pick<WorkspaceRegistration, "name" | "source">;
 
 interface WorkspaceEntryMetadata {
   readonly createdAt: Date;
@@ -78,7 +79,6 @@ export interface WorkspaceChange {
  */
 export interface WorkspaceSummary {
   readonly createdAt: Date;
-  readonly description: string | null;
   readonly fileCount: number;
   readonly id: WorkspaceId;
   readonly lastReconciledAt: Date;
@@ -117,22 +117,28 @@ export interface SaveFileCommand {
   readonly text: string;
 }
 
+/** One new File: a root-relative path and its complete UTF-8 text. */
+export interface CreateFileCommand {
+  readonly path: string;
+  readonly text: string;
+}
+
 /** The source text after a read or write, versioned by its own digest. */
 export interface FileTextSnapshot extends Pick<FileNode, "digest" | "bytes"> {
   readonly text: string;
 }
 
 /**
- * The closed save outcomes.
+ * The closed write outcomes, shared by save and create.
  *
  * `saved` is computed from the bytes actually written; `catalog` reports
- * whether the one-File observation also committed (`refresh-required` means
- * the bytes are on disk but the catalog needs ordinary reconciliation — the
- * caller must adopt the snapshot and never resend the bytes). `conflict`
- * carries the current source snapshot so recovery is an explicit choice.
- * `stale` means the File is no longer representable as writable text (gone,
- * a directory, a symlink, or binary). `failed` guarantees
- * this command left the original source bytes unchanged.
+ * whether the catalog also caught up (`refresh-required` means the bytes are
+ * at the source but the catalog needs ordinary reconciliation — the caller
+ * must adopt the snapshot and never resend the bytes). `conflict` carries the
+ * current source snapshot so recovery is an explicit choice. `stale` means
+ * the File is no longer representable as writable text (gone, a directory, a
+ * symlink, or binary). `failed` guarantees this command left the original
+ * source bytes unchanged.
  */
 export type SaveFileResult =
   | {
@@ -146,9 +152,9 @@ export type SaveFileResult =
   | { readonly kind: "failed"; readonly reason: string };
 
 /**
- * What a layer's write reports back to `save`. The layer owns the conflict
- * check because it already holds the current bytes; the root turns `written`
- * into the saved snapshot and the catalog observation.
+ * What a layer's write reports back. The layer owns the conflict check
+ * because it already holds the current bytes; the root turns `written` into
+ * the saved snapshot and the catalog update.
  */
 export type WriteOutcome =
   | { readonly kind: "written"; readonly application?: "pending" }
@@ -173,139 +179,24 @@ export interface WorkspaceView {
   readonly workspace: WorkspaceSummary;
 }
 
-/**
- * Store-owned Workspace state. The `source`/`sourceId`/`path` triple is the
- * persistence encoding of the domain's `WorkspaceSource`; the system converts
- * between the two and never leaks this shape outward.
- */
-export interface StoredWorkspaceRecord {
-  readonly createdAt: Date;
-  readonly description: string | null;
-  readonly documentation: string | null;
-  readonly id: WorkspaceId;
-  readonly lastReconciledAt: Date;
-  readonly name: string;
-  readonly path: string;
-  /** The string the layer that owns this source claims. */
-  readonly source: string;
-  readonly sourceId: string | null;
-  readonly updatedAt: Date;
-}
-
 export type ObservedFacts =
   | (FileRepresentation & FileClassification)
   | (Exclude<StorageEntry, { readonly type: "file" }> & {
       readonly name: string;
     });
 
-/**
- * `workspace-exists` names the Workspace already registered for this source —
- * matched on the canonical root, or on a non-null source reference. One source
- * cannot have two competing catalogs, so both spellings of "already taken"
- * resolve to the incumbent rather than failing.
- */
-export type CommitCreateResult =
-  | { readonly kind: "committed" }
-  | { readonly kind: "workspace-exists"; readonly existingId: WorkspaceId };
-
-/** One reconciliation's exact diff, applied or not applied as a whole. */
+/** One catalog change, applied or refused as a whole. */
 export interface WorkspaceCatalogChange {
-  readonly deletedIds: readonly WorkspaceEntryId[];
+  /** The rows removed, as last known. */
+  readonly deleted: readonly WorkspaceEntry[];
   readonly inserted: readonly WorkspaceEntry[];
   readonly updated: readonly WorkspaceEntry[];
 }
 
-export type CommitReconcileResult =
-  | { readonly kind: "committed" }
-  | { readonly kind: "workspace-not-found" }
-  | { readonly kind: "conflict"; readonly reason: string };
-
-/**
- * Refusals are explicit: a missing Workspace or File, or a row whose stored
- * path no longer matches the observation's, must never become an insert or a
- * replacement row.
- */
-export type CommitFileObservationResult =
-  | { readonly kind: "committed" }
-  | { readonly kind: "workspace-not-found" }
-  | { readonly kind: "file-not-found" }
-  | { readonly kind: "path-mismatch" };
-
-export type RemoveWorkspaceResult =
-  | { readonly kind: "removed" }
-  | { readonly kind: "not-found" };
-
-/**
- * Persistence capability consumed by WorkspaceSystem.
- *
- * Implementations store canonical records and own atomicity. They do not
- * canonicalize paths, scan sources, classify content, match moves, or choose
- * domain errors — that is WorkspaceSystem behavior.
- */
-export interface WorkspaceStore {
-  /** Run after the outer transaction commits; discard on rollback. Run immediately without a transaction. */
-  afterCommit: (callback: () => void) => void;
-
-  /** Inserts one Workspace and its complete initial catalog together. */
-  commitCreate: (input: {
-    readonly workspace: StoredWorkspaceRecord;
-    readonly entries: readonly WorkspaceEntry[];
-  }) => Promise<CommitCreateResult>;
-
-  /**
-   * Records what one successful source write observed about one File — the
-   * facts of the bytes just written, applied atomically to the existing row.
-   * Not a content store, not a second reconciliation, and never an identity
-   * allocator: it refuses rather than inserting.
-   */
-  commitFileObservation: (input: {
-    readonly workspaceId: WorkspaceId;
-    readonly fileId: WorkspaceEntryId;
-    readonly observed: Extract<ObservedFacts, { readonly type: "file" }>;
-    readonly updatedAt: Date;
-  }) => Promise<CommitFileObservationResult>;
-
-  /** Applies one reconciliation diff, or none of it. */
-  commitReconcile: (input: {
-    readonly workspaceId: WorkspaceId;
-    /** Set only when the observation changed the File catalog. */
-    readonly updatedAt?: Date;
-    readonly lastReconciledAt: Date;
-    readonly change: WorkspaceCatalogChange;
-  }) => Promise<CommitReconcileResult>;
-  countFiles: (workspaceId: WorkspaceId) => Promise<number>;
-  /** Looks a Workspace up by its canonical root, which is unique per source. */
-  findWorkspaceByPath: (path: string) => Promise<StoredWorkspaceRecord | null>;
-  getEntry: (
-    workspaceId: WorkspaceId,
-    entryId: WorkspaceEntryId
-  ) => Promise<WorkspaceEntry | null>;
-  getWorkspace: (
-    workspaceId: WorkspaceId
-  ) => Promise<StoredWorkspaceRecord | null>;
-  listEntries: (workspaceId: WorkspaceId) => Promise<readonly WorkspaceEntry[]>;
-  listWorkspaces: (
-    input?: PageInput<number>
-  ) => Promise<Page<StoredWorkspaceRecord, number>>;
-
-  removeWorkspace: (workspaceId: WorkspaceId) => Promise<RemoveWorkspaceResult>;
-
-  renameWorkspace: (
-    workspaceId: WorkspaceId,
-    name: string,
-    updatedAt: Date
-  ) => Promise<StoredWorkspaceRecord | null>;
-}
-
-export type WorkspaceIdentity = Pick<
-  StoredWorkspaceRecord,
-  "name" | "source" | "sourceId" | "path"
->;
-
 /**
  * One layer the system may wrap around a Workspace at open.
  *
- * `applies` is asked with the stored record alone; `wrap` is a class mixin.
+ * `applies` is asked with the registration alone; `wrap` is a class mixin.
  * Layers are applied in registration order, each extending the class the
  * previous one returned, so `super` runs the whole chain. The layer that
  * answers `scan`/`readFile`/`writeFile` must come first for its source;
@@ -326,7 +217,7 @@ export interface WorkspaceExtension<
   Floor = unknown,
   Cap = unknown,
 > {
-  applies: (record: StoredWorkspaceRecord) => Promise<boolean> | boolean;
+  applies: (registration: WorkspaceRegistration) => Promise<boolean> | boolean;
   identify?(ref: Ref): Promise<WorkspaceIdentity> | WorkspaceIdentity;
   readonly name: string;
   /** The key of `Ref` that names this layer's source. Absent on an additive layer. */
@@ -376,6 +267,13 @@ type UnionToIntersection<U> = (
   ? I
   : unknown;
 
+/** What a filesystem's `resolve` hands back for a ref. */
+export interface ResolvedSource {
+  readonly name?: string;
+  readonly path: string;
+  readonly sourceId?: string;
+}
+
 export interface WorkspaceFileSystem<
   Ref extends object = { readonly path: string },
 > extends StorageReader,
@@ -383,50 +281,41 @@ export interface WorkspaceFileSystem<
     Partial<StorageObserver>,
     Partial<StorageFileCreator> {
   readonly reference?: keyof Ref & string;
-  resolve?(ref: Ref): Promise<{
-    readonly path: string;
-    readonly name?: string;
-    readonly sourceId?: string;
-  }>;
+  resolve?(ref: Ref): Promise<ResolvedSource>;
   /** An authoritative inventory bypasses filesystem ignore rules and byte hashing. */
   tree?(root: string): Promise<StorageTree>;
 }
 
-/**
- * What every instance shares with the system that made it.
- *
- * The two maps are the system's, never the instance's: two instances of the
- * same id must join the same running observation and the same save/scan
- * chain, or the serialization guarantee below is silently lost.
- */
+/** What every instance shares with the system that made it. */
 export interface WorkspaceContext {
-  readonly changed?: (change: WorkspaceChange) => void;
+  /** Owns every rule over the catalog and publishes what it commits. */
+  readonly catalog: WorkspaceCatalog;
   /** Tells the system an instance is finished with, so it stops and forgets it. */
   readonly close: (workspaceId: WorkspaceId) => Promise<void>;
-  /** The observation currently running for a Workspace, if any. */
-  readonly observing: Map<WorkspaceId, Promise<WorkspaceSourceStatus>>;
+  /** Receives background failures no caller is waiting on. */
+  readonly report: (error: unknown) => void;
   /**
-   * Per-Workspace exclusion shared by observations and saves. A scan that
-   * read pre-write bytes must not commit after a save's targeted observation
-   * — serializing both makes the save's facts land in a gap no stale broad
-   * commit can close. In-process only; a second system over the same store
-   * remains the documented persistence-collision case.
+   * Runs `task` after every observation, save, and removal already queued for
+   * this Workspace. The queue belongs to the system, not the instance: an
+   * instance reopened while its predecessor's work is still in flight must
+   * wait behind it, or two scans of one source commit the same arrival twice.
+   * A scan that read pre-write bytes must not commit after a save's own
+   * catalog update either. In-process only; a second system over the same
+   * store remains the documented collision case.
    */
-  readonly serialized: Map<WorkspaceId, Promise<void>>;
-  readonly store: WorkspaceStore;
+  readonly serialize: <T>(
+    workspaceId: WorkspaceId,
+    task: () => Promise<T>
+  ) => Promise<T>;
 }
 
 /**
- * What a layer extends. Every layer takes `(record, context)`; the rest
+ * What a layer extends. Every layer takes `(registration, context)`; the rest
  * signature is TypeScript's requirement for a mixin base (TS2545), not a
  * looser contract.
  */
 // biome-ignore lint/suspicious/noExplicitAny: The generic mixin constructor requires an any[] rest parameter under TS2545.
 export type WorkspaceCtor<T = Workspace> = new (...args: any[]) => T;
-
-export interface WorkspaceSystemOptions {
-  readonly store?: WorkspaceStore;
-}
 
 /**
  * Git-compatible ignore evaluation over a stack of `.gitignore` files.

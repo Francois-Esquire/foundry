@@ -1,30 +1,40 @@
 import type { Page, PageInput } from "@foundry/core/pagination";
+import { WorkspaceCatalog } from "./catalog";
 import {
   InvalidWorkspaceInputError,
   WorkspaceNotFoundError,
   WorkspaceSourceUnavailableError,
   WorkspaceSourceUnsupportedError,
 } from "./errors";
-import { InMemoryWorkspaceStore } from "./in-memory-workspace-store";
-import { initialEntries, Workspace } from "./instance";
+import { Workspace } from "./instance";
+import { MemoryWorkspaceStore } from "./memory-store";
+import { initialEntries } from "./reconcile";
+import type { WorkspaceStore } from "./store";
 import type {
   AnyWorkspaceExtension,
   CapOf,
   FloorFor,
   RefOf,
-  StoredWorkspaceRecord,
   WorkspaceChange,
   WorkspaceContext,
   WorkspaceCtor,
   WorkspaceId,
   WorkspaceIdentity,
-  WorkspaceSystemOptions,
+  WorkspaceRegistration,
 } from "./types";
+
+export interface WorkspaceSystemOptions {
+  /** Receives background failures: observations and change listeners. */
+  readonly onError?: (error: unknown) => void;
+  readonly store?: WorkspaceStore;
+}
+
+type ChangeListener = (change: WorkspaceChange) => void | Promise<void>;
 
 /**
  * Composes and owns Workspace instances.
  *
- * Registered extensions decide what a stored record becomes: at `open` each
+ * Registered extensions decide what a registration becomes: at `open` each
  * is asked whether it applies, and the ones that do are layered over the
  * root in registration order. The system holds one live instance per id and
  * runs its lifecycle; nothing else starts or stops one.
@@ -37,60 +47,35 @@ export class WorkspaceSystem<
   Exts extends readonly AnyWorkspaceExtension[] = [],
 > {
   private readonly context: WorkspaceContext;
-  private readonly listeners = new Set<
-    (change: WorkspaceChange) => void | Promise<void>
-  >();
+  private readonly listeners = new Set<ChangeListener>();
   private readonly extensions: AnyWorkspaceExtension[] = [];
   private readonly closing = new Map<WorkspaceId, Promise<void>>();
   private readonly opened = new Map<
     WorkspaceId,
     Promise<Workspace & CapOf<Exts>>
   >();
+  private readonly queues = new Map<WorkspaceId, Promise<void>>();
 
   constructor(options: WorkspaceSystemOptions = {}) {
     this.context = {
-      changed: (change) => {
-        this.publish(change);
-      },
+      catalog: new WorkspaceCatalog(
+        options.store ?? new MemoryWorkspaceStore(),
+        (changes) => {
+          this.publish(changes);
+        }
+      ),
       close: (workspaceId) => this.close(workspaceId),
-      observing: new Map(),
-      serialized: new Map(),
-      store: options.store ?? new InMemoryWorkspaceStore(),
+      report: options.onError ?? reportError,
+      serialize: (workspaceId, task) => this.serialize(workspaceId, task),
     };
   }
 
   /** Future changes from this system; no replay. Listener failures do not fail committed operations. */
-  on(
-    _event: "change",
-    listener: (change: WorkspaceChange) => void | Promise<void>
-  ): () => void {
+  on(_event: "change", listener: ChangeListener): () => void {
     this.listeners.add(listener);
     return () => {
       this.listeners.delete(listener);
     };
-  }
-
-  private publish(change: WorkspaceChange): void {
-    if (this.listeners.size === 0) {
-      return;
-    }
-    const snapshot = structuredClone(change);
-    const listeners = [...this.listeners];
-    this.context.store.afterCommit(() => {
-      for (const listener of listeners) {
-        if (!this.listeners.has(listener)) {
-          continue;
-        }
-        try {
-          const result = listener(structuredClone(snapshot));
-          if (result) {
-            result.catch(reportListenerError);
-          }
-        } catch (error) {
-          reportListenerError(error);
-        }
-      }
-    });
   }
 
   /** Later extensions wrap earlier ones. Affects instances opened from now on. */
@@ -113,11 +98,11 @@ export class WorkspaceSystem<
     }
 
     const opening = (async () => {
-      const record = await this.context.store.getWorkspace(workspaceId);
-      if (!record) {
+      const registration = await this.context.catalog.getWorkspace(workspaceId);
+      if (!registration) {
         throw new WorkspaceNotFoundError(workspaceId);
       }
-      const workspace = await this.instantiate(record);
+      const workspace = await this.instantiate(registration);
       try {
         await Workspace.start(workspace);
       } catch (error) {
@@ -162,9 +147,9 @@ export class WorkspaceSystem<
   async list(
     input: PageInput<number> = {}
   ): Promise<Page<Workspace & CapOf<Exts>, number>> {
-    const page = await this.context.store.listWorkspaces(input);
+    const page = await this.context.catalog.listWorkspaces(input);
     const items = await Promise.all(
-      page.items.map((record) => this.open(record.id))
+      page.items.map((registration) => this.open(registration.id))
     );
     return { ...page, items };
   }
@@ -172,7 +157,7 @@ export class WorkspaceSystem<
   /**
    * Register a source by its ref — `{ path }`, `{ artifactId }` — and hand
    * back its Workspace. The floor whose key the ref carries turns it into an
-   * identity; `create` does the rest.
+   * identity; registration does the rest.
    */
   async load<R extends RefOf<Exts>>(
     ref: R
@@ -185,87 +170,131 @@ export class WorkspaceSystem<
         `No registered layer accepts a ref with keys ${Object.keys(ref).join(", ")}`
       );
     }
-    const workspace = await this.create(await floor.identify(ref));
+    const workspace = await this.register(await floor.identify(ref));
     return workspace as Workspace & CapOf<Exts> & FloorFor<Exts, R>;
   }
 
   /**
    * Register one source and catalog it, or hand back the Workspace already
-   * registered over its path, reconciled.
+   * registered over it, reconciled.
    *
    * The complete inventory is built before anything is written, so a failed
-   * first scan creates nothing. Reloading is one of the moments the design
-   * reconciles: it runs literally the path `refresh` runs, and throws when
-   * the source cannot be observed, so it says the same thing a first load
-   * would rather than returning an instance over a status it discarded.
+   * first scan creates nothing. An incumbent — found up front, or winning a
+   * concurrent registration — runs literally the path `refresh` runs and
+   * throws when its source cannot be observed, so it says the same thing a
+   * first load would.
    */
-  async create(identity: WorkspaceIdentity): Promise<Workspace & CapOf<Exts>> {
-    const existing = await this.context.store.findWorkspaceByPath(
-      identity.path
+  private async register(
+    identity: WorkspaceIdentity
+  ): Promise<Workspace & CapOf<Exts>> {
+    const existing = await this.context.catalog.findWorkspaceByPath(
+      identity.source.path
     );
     if (existing) {
-      const workspace = await this.open(existing.id);
-      const view = await workspace.refresh();
-      if (view.source.kind !== "reconciled") {
-        throw new WorkspaceSourceUnavailableError(view.source.reason, {
-          issue: view.source.kind,
-        });
-      }
-      return workspace;
+      return this.reconciled(existing.id);
     }
 
     const createdAt = new Date();
-    const record: StoredWorkspaceRecord = {
+    const registration: WorkspaceRegistration = {
       createdAt,
-      description: null,
-      documentation: null,
       id: crypto.randomUUID() as WorkspaceId,
       lastReconciledAt: createdAt,
       updatedAt: createdAt,
       ...identity,
     };
-
     // Composed but never started or cached: it exists to run the first scan.
-    const probe = await this.instantiate(record);
-    const candidates = await probe.scan();
-    const entries = initialEntries(record.id, candidates, createdAt);
-    const result = await this.context.store.commitCreate({
-      entries,
-      workspace: record,
-    });
-    if (result.kind === "committed") {
-      for (const entry of entries) {
-        this.publish({ action: "add", entry });
-      }
-    }
-    return this.open(
-      result.kind === "workspace-exists" ? result.existingId : record.id
+    const probe = await this.instantiate(registration);
+    const entries = initialEntries(
+      registration.id,
+      await probe.scan(),
+      createdAt
     );
+    const result = await this.context.catalog.create({
+      entries,
+      workspace: registration,
+    });
+    return result.kind === "committed"
+      ? this.open(registration.id)
+      : this.reconciled(result.existingId);
+  }
+
+  private async reconciled(
+    workspaceId: WorkspaceId
+  ): Promise<Workspace & CapOf<Exts>> {
+    const workspace = await this.open(workspaceId);
+    const view = await workspace.refresh();
+    if (view.source.kind !== "reconciled") {
+      throw new WorkspaceSourceUnavailableError(view.source.reason, {
+        issue: view.source.kind,
+      });
+    }
+    return workspace;
   }
 
   private async instantiate(
-    record: StoredWorkspaceRecord
+    registration: WorkspaceRegistration
   ): Promise<Workspace & CapOf<Exts>> {
     let Composed: WorkspaceCtor = Workspace;
     for (const extension of this.extensions) {
-      // Operations are intentionally sequential to preserve observation and mutation order.
-      if (await extension.applies(record)) {
+      // Operations are intentionally sequential to preserve layer order.
+      if (await extension.applies(registration)) {
         Composed = extension.wrap(Composed);
       }
     }
     // The composed class is built at runtime; `Exts` is the static record of
     // what it was built from.
-    const workspace = new Composed(record, this.context) as Workspace &
+    const workspace = new Composed(registration, this.context) as Workspace &
       CapOf<Exts>;
-    // A record no registered layer claims composes to the bare root, which
+    // A registration no layer claims composes to the bare root, which
     // constructs fine and fails on first use. Refused here, by name, instead.
     if (!Workspace.hasFloor(workspace)) {
-      throw new WorkspaceSourceUnsupportedError(record.source);
+      throw new WorkspaceSourceUnsupportedError(registration.source.kind);
     }
     return workspace;
   }
+
+  /** Chains one task after whatever already runs for this Workspace. */
+  private serialize<T>(
+    workspaceId: WorkspaceId,
+    task: () => Promise<T>
+  ): Promise<T> {
+    const previous = this.queues.get(workspaceId) ?? Promise.resolve();
+    const run = previous.then(task, task);
+    const tail = run.then(
+      () => undefined,
+      () => undefined
+    );
+    this.queues.set(workspaceId, tail);
+    tail.then(() => {
+      if (this.queues.get(workspaceId) === tail) {
+        this.queues.delete(workspaceId);
+      }
+    });
+    return run;
+  }
+
+  private publish(changes: readonly WorkspaceChange[]): void {
+    for (const change of changes) {
+      for (const listener of [...this.listeners]) {
+        if (this.listeners.has(listener)) {
+          this.deliver(listener, change);
+        }
+      }
+    }
+  }
+
+  private deliver(listener: ChangeListener, change: WorkspaceChange): void {
+    try {
+      const result = listener(structuredClone(change));
+      if (result) {
+        result.catch(this.context.report);
+      }
+    } catch (error) {
+      this.context.report(error);
+    }
+  }
 }
 
-function reportListenerError(error: unknown): void {
-  console.error("[workspaces] change listener failed:", error);
+function reportError(error: unknown): void {
+  console.error("[workspaces]", error);
 }

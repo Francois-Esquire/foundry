@@ -14,6 +14,11 @@ export function joinFilesystemPath(
   return `${base.endsWith(separator) ? base : `${base}${separator}`}${segment}`;
 }
 
+/** The final non-empty segment; a trailing separator does not count as one. */
+export function lastPathSegment(path: string, separator = "/"): string {
+  return path.split(separator).filter(Boolean).at(-1) ?? path;
+}
+
 /** Both paths must already be canonical. This does not resolve symlinks or traversal. */
 export function isFilesystemPathWithin(
   root: string,

@@ -49,6 +49,7 @@ const gitStatus = await ws.git?.status();
 await ws.refresh(); // reconcile → { workspace, entries, source }
 await ws.read(fileId);
 await ws.save({ fileId, text, expectedDigest });
+await ws.createFile({ path: "notes/todo.md", text });
 await ws.rename(name);
 await ws.registration(); // trusted: carries the source root
 await ws.remove(); // forgets the registration and closes the instance
@@ -67,16 +68,33 @@ unsubscribe();
 ```
 
 Add/change carries the committed entry; delete carries its last known value.
-Registration, refresh, save, and removal can emit changes. Removal forgets
-catalog entries without deleting source files. Unchanged observations emit
-nothing. Delivery is in-process, with no replay; listeners receive detached
-payloads and their failures do not fail committed operations. Closing an
-instance does not unsubscribe system listeners.
+Registration, refresh, save, create, and removal can emit changes; every one
+is published by the catalog the moment it commits. Removal forgets catalog
+entries without deleting source files. Unchanged observations emit nothing.
+Delivery is in-process, with no replay; listeners receive detached payloads
+and their failures go to `onError` (default: `console.error`) rather than
+failing committed operations. Closing an instance does not unsubscribe system
+listeners. Changes made outside this system are observed on the next refresh.
+Enable storage observation to refresh automatically.
 
-Stores implement `afterCommit(callback)` to defer delivery until the outer
-transaction commits and discard callbacks on rollback. The in-memory store
-runs callbacks immediately. Changes made outside this system are observed on
-the next refresh. Enable storage observation to refresh automatically.
+## Persistence
+
+`WorkspaceStore` is the persistence seam: it keeps registrations and their
+entries and applies one write atomically, and enforces nothing else.
+`MemoryWorkspaceStore` is the default. Supply another store to persist
+elsewhere:
+
+```ts
+const workspaces = new WorkspaceSystem({ store, onError: log });
+```
+
+The system drives a catalog over that store, and the catalog owns every rule:
+one Workspace per canonical root and per source reference, entries owned by
+their Workspace, a valid tree after every change, and each change applied
+whole or refused. A store implementation therefore only persists; those rules
+come with the system. Catalog mutations and per-Workspace observations, saves,
+and removals each run one at a time in-process; a second system over the same
+store can still interleave.
 
 Storage observation is optional. `directory({ filesystem, observer })` uses an
 explicit `StorageObserver`, or the filesystem's own `watch` capability when
@@ -98,12 +116,12 @@ await workspaces.closeAll();
 The Node adapter tries optional `@parcel/watcher`, then recursive `fs.watch`.
 If neither starts, or the active watcher reports failure, it polls. Native
 watching stays outside the portable root import. For storage without a native
-signal, pass `polling(intervalMs)` from `@foundry/workspaces/observation`.
+signal, pass `polling(intervalMs)` from `@foundry/workspaces`.
 Polling and native watchers observe current state; they do not record every
 intermediate write or provide a durable event log.
 
-A layer is a `WorkspaceExtension`: `applies(record)` decides from the stored
-row, `wrap(Base)` is the mixin. Layers apply in registration order, each
+A layer is a `WorkspaceExtension`: `applies(registration)` decides from the
+stored registration, `wrap(Base)` is the mixin. Layers apply in registration order, each
 extending the class the previous one returned, so `super` runs the chain. The
 layer that answers `scan`, `readFile`, and `writeFile` must come first for its
 source; anything after it only adds. A record no layer claims is refused at
@@ -123,31 +141,27 @@ Composition by hand needs no registry:
 import { WithDirectory, Workspace } from "@foundry/workspaces";
 
 const Cls = WithDirectory(Workspace, { filesystem });
-const ws = new Cls(record, context);
+const ws = new Cls(registration, context); // context: catalog, serialize, report, close
 ```
 
 `start` and `stop` are protected hooks the system alone calls; a layer that
 holds a resource overrides them and calls `super`.
 
 An instance fixes `id` and `source` at construction and reads everything else
-from the store per call, so two instances of one id never disagree and both
-join the same in-flight observation.
-
-`WorkspaceStore` is the persistence capability the system consumes.
-`InMemoryWorkspaceStore` is the default. Supply another `WorkspaceStore` to
-persist registrations and entry catalogs elsewhere.
+from the catalog per call, so two instances of one id never disagree. Every
+refresh scans after it was asked — it never joins a scan already in flight —
+and an instance reopened while its predecessor's work is still running waits
+behind it.
 
 `@foundry/workspaces/node` also exports `WithDirectory` with default disk
-storage, `nodeFileSystem`, and the synchronous `sha256Hex` helper.
+storage and `nodeFileSystem`.
 
 Git is opt-in on `@foundry/workspaces/git`: the `git()` layer, plus
 `Git.at(root)`, `Git.open(root)`, `Git.isRepository(root)`, and worktrees on
 the resulting `Git`.
 
-The exported conformance suite remains available at
-`@foundry/workspaces/tests/helpers/workspace-system-conformance` for adapter
-implementations. Its source lives in `src/test/helpers/`; the public subpath
-is retained for compatibility.
+A store conformance suite for new `WorkspaceStore` implementations lives in
+`src/test/helpers/store-conformance.ts`.
 
 Tests live in `src/test/`. The build emits declarations; runtime exports resolve
 to TypeScript source. Run lint and formatting checks from the repository root.

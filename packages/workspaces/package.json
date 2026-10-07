@@ -11,20 +11,20 @@
       "import": "./src/index.ts",
       "default": "./src/index.ts"
     },
+    "./git": {
+      "types": "./dist/node/git.d.ts",
+      "import": "./src/node/git.ts",
+      "default": "./src/node/git.ts"
+    },
     "./node": {
       "types": "./dist/node/index.d.ts",
       "import": "./src/node/index.ts",
       "default": "./src/node/index.ts"
     },
-    "./*": {
-      "types": "./dist/*.d.ts",
-      "import": "./src/*.ts",
-      "default": "./src/*.ts"
-    },
-    "./tests/helpers/workspace-system-conformance": {
-      "types": "./dist/test/helpers/workspace-system-conformance.d.ts",
-      "import": "./src/test/helpers/workspace-system-conformance.ts",
-      "default": "./src/test/helpers/workspace-system-conformance.ts"
+    "./node/watch": {
+      "types": "./dist/node/watch.d.ts",
+      "import": "./src/node/watch.ts",
+      "default": "./src/node/watch.ts"
     }
   },
   "files": [
@@ -43,8 +43,7 @@
     "@foundry/core": "workspace:*",
     "@foundry/lib": "workspace:*",
     "ignore": "^7.0.6",
-    "simple-git": "^3.36.0",
-    "zod": "^4.4.3"
+    "simple-git": "^3.36.0"
   },
   "devDependencies": {
     "@foundry/tsconfig": "workspace:*",

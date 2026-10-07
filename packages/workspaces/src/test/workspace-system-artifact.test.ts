@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { classifyFile } from "@foundry/lib/file-classification";
 import { afterAll, describe, expect, it } from "vitest";
 import { WorkspaceSourceUnavailableError } from "../errors";
-import { InMemoryWorkspaceStore } from "../in-memory-workspace-store";
+import { MemoryWorkspaceStore } from "../memory-store";
 import { nodeFileSystem } from "../node";
 import type {
   FileContentResult,
@@ -15,7 +15,6 @@ import type {
   WorkspaceFile,
   WriteOutcome,
 } from "../types";
-import type { WorkspaceSystem } from "../workspace-system";
 
 import { directorySystem } from "./helpers/directory-system";
 
@@ -180,26 +179,21 @@ function WithFake<B extends WorkspaceCtor>(Base: B, trees: FakeTrees) {
   };
 }
 
-function fake(trees: FakeTrees): WorkspaceExtension {
-  return {
-    applies: (record) => record.source === FAKE_SOURCE,
-    name: "fake",
-    wrap: (Base) => WithFake(Base, trees),
-  };
+interface FakeRef {
+  readonly fake: string;
 }
 
-function addFake(
-  system: Pick<WorkspaceSystem, "create">,
-  trees: FakeTrees,
-  id: string
-) {
-  trees.require(id);
-  return system.create({
-    name: "Fixture",
-    path: `fake://${id}`,
-    source: FAKE_SOURCE,
-    sourceId: id,
-  });
+function fake(trees: FakeTrees): WorkspaceExtension<FakeRef> {
+  return {
+    applies: (registration) => registration.source.kind === FAKE_SOURCE,
+    identify: ({ fake: id }) => ({
+      name: "Fixture",
+      source: { kind: FAKE_SOURCE, path: `fake://${id}`, sourceId: id },
+    }),
+    name: "fake",
+    ref: "fake",
+    wrap: (Base) => WithFake(Base, trees),
+  };
 }
 
 const encode = (value: string | Uint8Array) =>
@@ -210,9 +204,13 @@ const digest = (bytes: Uint8Array) =>
 function seed(files: Files = TREE) {
   const trees = new FakeTrees();
   const id = trees.seed(files);
-  const store = new InMemoryWorkspaceStore();
+  const store = new MemoryWorkspaceStore();
   const system = directorySystem({ store }).extend(fake(trees));
-  return { add: () => addFake(system, trees, id), id, store, system, trees };
+  const add = () => {
+    trees.require(id);
+    return system.load({ fake: id });
+  };
+  return { add, id, store, system, trees };
 }
 
 describe("create over a registered layer", () => {
@@ -232,9 +230,7 @@ describe("create over a registered layer", () => {
       sourceKind: FAKE_SOURCE,
     });
     expect(await store.getWorkspace(workspace.id)).toMatchObject({
-      path: `fake://${id}`,
-      source: FAKE_SOURCE,
-      sourceId: id,
+      source: { kind: FAKE_SOURCE, path: `fake://${id}`, sourceId: id },
     });
     expect((await workspace.files()).map((file) => file.path)).toEqual([
       "README.md",
@@ -277,14 +273,9 @@ describe("create over a registered layer", () => {
     const { trees, id, system } = seed();
     trees.remove(id);
 
-    await expect(
-      system.create({
-        name: "Fixture",
-        path: `fake://${id}`,
-        source: FAKE_SOURCE,
-        sourceId: id,
-      })
-    ).rejects.toBeInstanceOf(WorkspaceSourceUnavailableError);
+    await expect(system.load({ fake: id })).rejects.toBeInstanceOf(
+      WorkspaceSourceUnavailableError
+    );
     expect((await system.list()).items).toEqual([]);
   });
 });

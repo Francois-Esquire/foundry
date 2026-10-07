@@ -107,7 +107,7 @@ describe("diffCatalog", () => {
     for (const observed of observations) {
       const change = diff([before], [observed]);
       expect(change.inserted).toEqual([]);
-      expect(change.deletedIds).toEqual([]);
+      expect(change.deleted.map((entry) => entry.id)).toEqual([]);
       const expected = {
         ...observed,
         createdAt: BORN,
@@ -144,7 +144,7 @@ describe("diffCatalog", () => {
     );
 
     expect(change.inserted).toEqual([]);
-    expect(change.deletedIds).toEqual([]);
+    expect(change.deleted.map((entry) => entry.id)).toEqual([]);
     expect(change.updated).toEqual([
       {
         ...before,
@@ -163,7 +163,7 @@ describe("diffCatalog", () => {
     const change = diff([kept, gone], [candidate("a.md"), candidate("c.md")]);
 
     expect(change.updated).toEqual([]);
-    expect(change.deletedIds).toEqual([gone.id]);
+    expect(change.deleted.map((entry) => entry.id)).toEqual([gone.id]);
     expect(change.inserted).toHaveLength(1);
     expect(change.inserted[0]).toMatchObject({
       createdAt: AT,
@@ -196,7 +196,7 @@ describe("diffCatalog", () => {
     );
 
     expect(change.inserted).toEqual([]);
-    expect(change.deletedIds).toEqual([]);
+    expect(change.deleted.map((entry) => entry.id)).toEqual([]);
     expect(change.updated).toEqual([
       {
         ...before,
@@ -238,7 +238,9 @@ describe("diffCatalog", () => {
     );
 
     expect(change.updated).toEqual([]);
-    expect(new Set(change.deletedIds)).toEqual(new Set([first.id, second.id]));
+    expect(new Set(change.deleted.map((entry) => entry.id))).toEqual(
+      new Set([first.id, second.id])
+    );
     expect(change.inserted.map((file) => file.path)).toEqual([
       "moved/a.md",
       "moved/b.md",
@@ -287,9 +289,9 @@ describe("diffCatalog", () => {
     );
 
     expect(oneToMany.updated).toEqual([]);
-    expect(oneToMany.deletedIds).toEqual([single.id]);
+    expect(oneToMany.deleted.map((entry) => entry.id)).toEqual([single.id]);
     expect(manyToOne.updated).toEqual([]);
-    expect(manyToOne.deletedIds).toHaveLength(2);
+    expect(manyToOne.deleted).toHaveLength(2);
     expect(manyToOne.inserted).toHaveLength(1);
   });
 
@@ -315,7 +317,7 @@ describe("diffCatalog", () => {
     // move rule. But every zero-byte file has that fingerprint, so `.gitkeep`
     // and a new empty `index.ts` are not evidence of anything.
     expect(change.updated).toEqual([]);
-    expect(change.deletedIds).toEqual([placeholder.id]);
+    expect(change.deleted.map((entry) => entry.id)).toEqual([placeholder.id]);
     expect(change.inserted).toHaveLength(1);
     expect(change.inserted[0]?.id).not.toBe(placeholder.id);
     expect(change.inserted[0]?.createdAt).toBe(AT);
@@ -347,7 +349,7 @@ describe("diffCatalog", () => {
     // The original still stands at its own path, so it is matched there and is
     // never a departure. The copy has nothing to have moved from.
     expect(change.updated).toEqual([]);
-    expect(change.deletedIds).toEqual([]);
+    expect(change.deleted.map((entry) => entry.id)).toEqual([]);
     expect(change.inserted.map((file) => file.path)).toEqual(["copy.md"]);
   });
 
@@ -371,7 +373,7 @@ describe("diffCatalog", () => {
 
     // Nothing connects the two: the path moved and the bytes changed. This is
     // the documented ambiguous outcome, not a gap.
-    expect(change.deletedIds).toEqual([before.id]);
+    expect(change.deleted.map((entry) => entry.id)).toEqual([before.id]);
     expect(change.inserted).toHaveLength(1);
     expect(change.updated).toEqual([]);
   });
@@ -412,7 +414,7 @@ describe("diffCatalog", () => {
         updatedAt: AT,
       },
     ]);
-    expect(change.deletedIds).toEqual([renamed.id]);
+    expect(change.deleted.map((entry) => entry.id)).toEqual([renamed.id]);
     expect(change.inserted).toEqual([]);
   });
 
@@ -434,7 +436,7 @@ describe("diffCatalog", () => {
       ]
     );
 
-    expect(change.deletedIds).toEqual([before.id]);
+    expect(change.deleted.map((entry) => entry.id)).toEqual([before.id]);
     expect(change.inserted).toHaveLength(1);
   });
 
@@ -467,7 +469,7 @@ describe("diffCatalog", () => {
       [edited.id, "README.md"],
       [movedFrom.id, "docs/guide.md"],
     ]);
-    expect(change.deletedIds).toEqual([removed.id]);
+    expect(change.deleted.map((entry) => entry.id)).toEqual([removed.id]);
     expect(change.inserted.map((file) => file.path)).toEqual(["added.md"]);
   });
 });

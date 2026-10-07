@@ -1,5 +1,5 @@
 import type { StorageSubscription } from "@foundry/core/storage";
-import { isStoragePath, storageTree } from "@foundry/core/storage";
+import { isStoragePath } from "@foundry/core/storage";
 import { sha256Hex } from "@foundry/lib/digest";
 import { decodeText } from "@foundry/lib/encoding";
 import {
@@ -11,14 +11,14 @@ import {
   WorkspaceSourceUnsupportedError,
 } from "./errors";
 import { nextWorkspaceObservation, observe } from "./observation";
-import { createEntryRecord, diffCatalog, isEmptyChange } from "./reconcile";
+import { diffCatalog, isEmptyChange, newEntryId } from "./reconcile";
 import type {
+  CreateFileCommand,
   FileContentResult,
   FileTextSnapshot,
   ObservedFacts,
   SaveFileCommand,
   SaveFileResult,
-  StoredWorkspaceRecord,
   WorkspaceContext,
   WorkspaceEntry,
   WorkspaceEntryId,
@@ -31,7 +31,8 @@ import type {
   WorkspaceView,
   WriteOutcome,
 } from "./types";
-import { workspaceSummary } from "./workspace";
+
+type CatalogState = "current" | "refresh-required";
 
 /**
  * The root of every Workspace: identity, catalog, reconciliation, and the
@@ -39,13 +40,13 @@ import { workspaceSummary } from "./workspace";
  * A layer over it (a directory, an Artifact) answers `scan`, `readFile`, and
  * `writeFile`; further layers add capabilities on top.
  *
- * Not declared `abstract`, though the three source primitives are abstract
- * in every sense that matters: TypeScript would then require every mixin
- * to be abstract too, and nothing could construct the composed class. The
- * system checks for a floor at open instead.
+ * Not declared `abstract`, though the source primitives are abstract in every
+ * sense that matters: TypeScript would then require every mixin to be
+ * abstract too, and nothing could construct the composed class. The system
+ * checks for a floor at open instead.
  *
  * Identity and source are fixed at construction; everything else is read
- * from the store on every call, so an instance never goes stale and two
+ * from the catalog on every call, so an instance never goes stale and two
  * instances of the same id never disagree.
  */
 export class Workspace {
@@ -54,9 +55,9 @@ export class Workspace {
   protected readonly context: WorkspaceContext;
   private observation: StorageSubscription | undefined;
 
-  constructor(record: StoredWorkspaceRecord, context: WorkspaceContext) {
-    this.id = record.id;
-    this.source = toRegistration(record).source;
+  constructor(registration: WorkspaceRegistration, context: WorkspaceContext) {
+    this.id = registration.id;
+    this.source = registration.source;
     this.context = context;
   }
 
@@ -103,6 +104,7 @@ export class Workspace {
     );
   }
 
+  /** Create one File at a valid storage path that nothing occupies yet. */
   protected insertFile(
     _path: string,
     _bytes: Uint8Array
@@ -116,12 +118,8 @@ export class Workspace {
   protected async start(): Promise<void> {
     this.observation = await observe(
       (changed, failed) => this.watch(changed, failed),
-      // Manual refreshes must scan after a watcher's older source snapshot.
-      () =>
-        this.serialize(async () => this.observeSource(await this.require())),
-      (error) => {
-        console.error("[workspaces] observation failed", error);
-      }
+      () => this.reconcile(),
+      this.context.report
     );
   }
 
@@ -139,16 +137,15 @@ export class Workspace {
   }
 
   /** The registration alone. Cheap, always current, and never scans. */
-  async registration(): Promise<WorkspaceRegistration> {
-    return toRegistration(await this.require());
+  registration(): Promise<WorkspaceRegistration> {
+    return this.require();
   }
 
   /** What a caller outside the trust boundary may see. */
   async summary(): Promise<WorkspaceSummary> {
-    const record = await this.require();
-    return workspaceSummary(
-      toRegistration(record),
-      await this.context.store.countFiles(record.id)
+    return summarize(
+      await this.require(),
+      await this.context.catalog.countFiles(this.id)
     );
   }
 
@@ -161,26 +158,25 @@ export class Workspace {
    * — marking every File absent would turn a temporary outage into data loss.
    */
   async refresh(): Promise<WorkspaceView> {
-    const workspace = await this.require();
-    const source = await this.reconcile(workspace);
+    await this.require();
+    const source = await this.reconcile();
 
-    // One read of the rows answers both the catalog and its count. Asking the
-    // store twice would let a concurrent writer land between them and produce
-    // a view whose `fileCount` disagrees with its own `files`.
+    // One read of the rows answers both the catalog and its count, so the
+    // view's `fileCount` can never disagree with its own entries.
     const current = await this.require();
-    const rows = await this.context.store.listEntries(this.id);
+    const entries = await this.context.catalog.listEntries(this.id);
     return {
-      entries: rows.map((row) => ({ ...row })),
+      entries,
       source,
-      workspace: workspaceSummary(
-        toRegistration(current),
-        rows.filter((row) => row.type === "file").length
+      workspace: summarize(
+        current,
+        entries.filter((entry) => entry.type === "file").length
       ),
     };
   }
 
   async rename(name: string): Promise<WorkspaceRegistration> {
-    const renamed = await this.context.store.renameWorkspace(
+    const renamed = await this.context.catalog.rename(
       this.id,
       normalizeWorkspaceName(name),
       new Date()
@@ -188,7 +184,7 @@ export class Workspace {
     if (!renamed) {
       throw new WorkspaceNotFoundError(this.id);
     }
-    return toRegistration(renamed);
+    return renamed;
   }
 
   /**
@@ -197,27 +193,24 @@ export class Workspace {
    */
   async remove(): Promise<void> {
     await this.serialize(async () => {
-      const entries = await this.context.store.listEntries(this.id);
-      const result = await this.context.store.removeWorkspace(this.id);
+      const result = await this.context.catalog.remove(this.id);
       if (result.kind === "not-found") {
         throw new WorkspaceNotFoundError(this.id);
-      }
-      for (const entry of entries) {
-        this.context.changed?.({ action: "delete", entry });
       }
     });
     await this.context.close(this.id);
   }
 
   async files(): Promise<readonly WorkspaceFile[]> {
-    await this.require();
-    const rows = await this.context.store.listEntries(this.id);
-    return rows.filter((row): row is WorkspaceFile => row.type === "file");
+    const entries = await this.entries();
+    return entries.filter(
+      (entry): entry is WorkspaceFile => entry.type === "file"
+    );
   }
 
   async entries(): Promise<readonly WorkspaceEntry[]> {
     await this.require();
-    return this.context.store.listEntries(this.id);
+    return this.context.catalog.listEntries(this.id);
   }
 
   /**
@@ -226,101 +219,83 @@ export class Workspace {
    */
   async read(fileId: WorkspaceEntryId): Promise<FileContentResult> {
     await this.require();
-    const file = await this.context.store.getEntry(this.id, fileId);
-    if (!file) {
-      throw new WorkspaceFileNotFoundError(this.id, fileId);
-    }
-    if (file.type !== "file") {
-      return {
-        kind: "stale",
-        reason: `${file.path} is a ${file.type}, not a regular file`,
-      };
-    }
-    return this.readFile(file);
+    const entry = await this.catalogEntry(fileId);
+    return entry.type === "file" ? this.readFile(entry) : notRegular(entry);
   }
 
   /**
    * Replace one File's bytes with the command's UTF-8 draft.
    *
    * The expected digest is the version of the exact bytes the caller last
-   * read. The write and its catalog observation are serialized with this
-   * system's own observations so a concurrent reconciliation cannot restore
-   * pre-write facts; a second system over the same store can still interleave
-   * (optimistic concurrency across systems).
+   * read. The write and its catalog update are serialized with this system's
+   * own observations so a concurrent reconciliation cannot restore pre-write
+   * facts.
    */
-  async save(command: SaveFileCommand): Promise<SaveFileResult> {
-    return this.serialize(() => this.performSave(command));
+  save(command: SaveFileCommand): Promise<SaveFileResult> {
+    return this.serialize(async () => {
+      const workspace = await this.require();
+      const file = await this.catalogEntry(command.fileId);
+      if (file.type !== "file") {
+        return notRegular(file);
+      }
+      return this.write(
+        file.path,
+        command.text,
+        (bytes) => this.writeFile(file, bytes, command.expectedDigest),
+        (snapshot) => this.recordWrite(workspace, file, snapshot)
+      );
+    });
   }
 
-  async createFile(command: {
-    readonly path: string;
-    readonly text: string;
-  }): Promise<SaveFileResult> {
+  /**
+   * Create one File from UTF-8 text. Whether a new path joins the catalog is
+   * the scan's decision — ignore rules live there — so the catalog catches up
+   * through an ordinary observation rather than a one-row insert.
+   */
+  createFile(command: CreateFileCommand): Promise<SaveFileResult> {
     return this.serialize(async () => {
       const workspace = await this.require();
       if (!isStoragePath(command.path)) {
         return { kind: "failed", reason: "Invalid relative storage path" };
       }
-      const bytes = new TextEncoder().encode(command.text);
-      const text = decodeText(bytes);
-      if (text === null) {
-        return { kind: "failed", reason: "File cannot be saved as UTF-8 text" };
-      }
-      const outcome = await this.insertFile(command.path, bytes);
-      if (outcome.kind !== "written") {
-        return outcome;
-      }
-      let catalog: "current" | "refresh-required" = "refresh-required";
-      if (outcome.application !== "pending") {
-        try {
-          if ((await this.observeSource(workspace)).kind === "reconciled") {
-            catalog = "current";
-          }
-        } catch {
-          // Creation committed; a failed catalog update must not invite another write.
-        }
-      }
-      return {
-        catalog,
-        kind: "saved",
-        snapshot: {
-          bytes: bytes.byteLength,
-          digest: await sha256Hex(bytes),
-          text,
-        },
-        ...(outcome.application ? { application: outcome.application } : {}),
-      };
+      return this.write(
+        command.path,
+        command.text,
+        (bytes) => this.insertFile(command.path, bytes),
+        async () =>
+          (await this.observeSource(workspace)).kind === "reconciled"
+            ? "current"
+            : "refresh-required"
+      );
     });
   }
 
-  private async performSave(command: SaveFileCommand): Promise<SaveFileResult> {
-    const workspace = await this.require();
-    const file = await this.context.store.getEntry(this.id, command.fileId);
-    if (!file) {
-      throw new WorkspaceFileNotFoundError(this.id, command.fileId);
-    }
-
-    if (file.type !== "file") {
-      return {
-        kind: "stale",
-        reason: `${file.path} is a ${file.type}, not a regular file`,
-      };
-    }
-
-    // The returned snapshot must be truthful about the bytes at the source, so
-    // the draft is encoded first and the write is refused when those bytes
-    // would not decode back to text (a draft containing NUL would turn the
-    // File binary and break every later read/save round-trip).
-    const bytes = new TextEncoder().encode(command.text);
+  /**
+   * The one write flow behind save and create.
+   *
+   * The draft is encoded first and refused when those bytes would not decode
+   * back to text, so the returned snapshot is truthful about the bytes at the
+   * source (a draft containing NUL would turn the File binary and break every
+   * later read/save round-trip). Once the layer reports `written`, the bytes
+   * are at the source: a catalog that cannot catch up is `refresh-required`,
+   * never a failed write and never an invitation to resend.
+   */
+  private async write(
+    path: string,
+    text: string,
+    put: (bytes: Uint8Array) => Promise<WriteOutcome>,
+    record: (snapshot: FileTextSnapshot) => Promise<CatalogState>
+  ): Promise<SaveFileResult> {
+    const bytes = new TextEncoder().encode(text);
     const written = decodeText(bytes);
     if (written === null) {
       return {
         kind: "failed",
-        reason: `The draft for ${file.path} cannot be saved as UTF-8 text`,
+        reason: `The draft for ${path} cannot be saved as UTF-8 text`,
       };
     }
 
-    const outcome = await this.writeFile(file, bytes, command.expectedDigest);
+    const outcome = await put(bytes);
     if (outcome.kind !== "written") {
       return outcome;
     }
@@ -330,132 +305,72 @@ export class Workspace {
       digest: await sha256Hex(bytes),
       text: written,
     };
-    return {
-      catalog:
-        outcome.application === "pending"
-          ? "refresh-required"
-          : await this.recordWrite(workspace, file, snapshot),
-      kind: "saved",
-      snapshot,
-      ...(outcome.application === undefined
-        ? {}
-        : { application: outcome.application }),
-    };
+    if (outcome.application === "pending") {
+      return {
+        application: "pending",
+        catalog: "refresh-required",
+        kind: "saved",
+        snapshot,
+      };
+    }
+    const catalog = await record(snapshot).catch(
+      (): CatalogState => "refresh-required"
+    );
+    return { catalog, kind: "saved", snapshot };
   }
 
-  /**
-   * The one-File catalog observation after a successful replacement. The
-   * bytes are already at the source, so any refusal or failure here is
-   * truthfully `refresh-required` — never a failed save, and never a byte
-   * retry; the caller schedules ordinary reconciliation.
-   */
+  /** The one-File catalog update after a successful replacement. */
   private async recordWrite(
-    workspace: StoredWorkspaceRecord,
+    workspace: WorkspaceRegistration,
     file: WorkspaceFile,
     snapshot: FileTextSnapshot
-  ): Promise<"current" | "refresh-required"> {
-    try {
-      const updatedAt = nextWorkspaceObservation(workspace.lastReconciledAt);
-      const result = await this.context.store.commitFileObservation({
-        fileId: file.id,
-        observed: {
-          bytes: snapshot.bytes,
-          digest: snapshot.digest,
-          extension: file.extension,
-          kind: file.kind,
-          mime: file.mime,
-          name: file.name,
-          path: file.path,
-          type: "file",
-        },
-        updatedAt,
-        workspaceId: workspace.id,
-      });
-      if (
-        result.kind === "committed" &&
-        (file.digest !== snapshot.digest || file.bytes !== snapshot.bytes)
-      ) {
-        this.context.changed?.({
-          action: "change",
-          entry: {
+  ): Promise<CatalogState> {
+    if (file.digest === snapshot.digest && file.bytes === snapshot.bytes) {
+      return "current";
+    }
+    const updatedAt = nextWorkspaceObservation(workspace.lastReconciledAt);
+    const result = await this.context.catalog.applyChange({
+      change: {
+        deleted: [],
+        inserted: [],
+        updated: [
+          {
             ...file,
             bytes: snapshot.bytes,
             digest: snapshot.digest,
             updatedAt,
           },
-        });
-      }
-      return result.kind === "committed" ? "current" : "refresh-required";
-    } catch {
-      // The store's own words may carry the absolute database path; they stay
-      // out of the result entirely — the outcome alone says what to do next.
-      return "refresh-required";
-    }
-  }
-
-  /**
-   * One observation per Workspace at a time.
-   *
-   * Two overlapping observations both see the same arrival missing, both
-   * allocate an id for it, and the second commit collides on the unique
-   * `(workspaceId, path)` pair — surfacing as a persistence exception, which
-   * is precisely the shape this system refuses for source-side trouble.
-   * A renderer that opens and refreshes together reaches that today, so the
-   * second caller joins the observation already running instead.
-   */
-  private reconcile(
-    workspace: StoredWorkspaceRecord
-  ): Promise<WorkspaceSourceStatus> {
-    const { observing } = this.context;
-    const running = observing.get(this.id);
-    if (running) {
-      return running;
-    }
-
-    const started = this.serialize(() => this.observeSource(workspace)).finally(
-      () => {
-        observing.delete(this.id);
-      }
-    );
-    observing.set(this.id, started);
-    return started;
-  }
-
-  /** Chains one task after whatever observation or save currently runs. */
-  private serialize<T>(task: () => Promise<T>): Promise<T> {
-    const { serialized } = this.context;
-    const previous = serialized.get(this.id) ?? Promise.resolve();
-    const run = previous.then(task, task);
-    const tail = run.then(
-      () => undefined,
-      () => undefined
-    );
-    serialized.set(this.id, tail);
-    tail.then(() => {
-      if (serialized.get(this.id) === tail) {
-        serialized.delete(this.id);
-      }
+        ],
+      },
+      updatedAt,
+      workspaceId: this.id,
     });
-    return run;
+    return result.kind === "committed" ? "current" : "refresh-required";
   }
 
   /**
-   * One complete observation applied as one catalog.
+   * One observation, queued behind every save and observation already
+   * pending, reading the registration only once it runs. A caller that
+   * changed the source and then refreshes therefore always gets a scan that
+   * began after its change — never one already in flight.
+   */
+  private reconcile(): Promise<WorkspaceSourceStatus> {
+    return this.serialize(async () => this.observeSource(await this.require()));
+  }
+
+  private serialize<T>(task: () => Promise<T>): Promise<T> {
+    return this.context.serialize(this.id, task);
+  }
+
+  /**
+   * One complete observation applied as one catalog change.
    *
-   * The scan finishes entirely before the store is touched, so a source that
-   * failed halfway through never reaches a mutation. The rows are reloaded as
-   * late as possible for the same reason. That reload and the commit are not
-   * one transaction — the store contract takes a computed change, so identity
-   * policy stays here rather than moving into the store. What the store does
-   * guarantee is that the change applies whole or not at all, and that its own
-   * path and ownership rules reject a diff it cannot accept, leaving the prior
-   * catalog exact. The guard above prevents a race between two observations of
-   * this system instance; a second system over the same database — another
-   * process, or a rebuilt one — can still collide here, and that surfaces as a
-   * persistence failure rather than a source status.
+   * The scan finishes entirely before the catalog is touched, so a source that
+   * failed halfway through never reaches a mutation. The catalog refuses a
+   * change that no longer matches its rows and leaves the prior catalog exact.
    */
   private async observeSource(
-    workspace: StoredWorkspaceRecord
+    workspace: WorkspaceRegistration
   ): Promise<WorkspaceSourceStatus> {
     let candidates: readonly ObservedFacts[];
     try {
@@ -471,24 +386,20 @@ export class Workspace {
     // same clock tick still have a strict order. Catalog timestamps retain the
     // same value only when an actual File change is committed.
     const at = nextWorkspaceObservation(workspace.lastReconciledAt);
-    const existing = await this.context.store.listEntries(workspace.id);
     const change = diffCatalog({
       at,
       candidates,
-      existing,
-      newEntryId: () => crypto.randomUUID() as WorkspaceEntryId,
+      existing: await this.context.catalog.listEntries(workspace.id),
+      newEntryId,
       workspaceId: workspace.id,
     });
-    const result = await this.context.store.commitReconcile({
-      workspaceId: workspace.id,
-      ...(isEmptyChange(change) ? {} : { updatedAt: at }),
+    const result = await this.context.catalog.applyChange({
       change,
       lastReconciledAt: at,
+      ...(isEmptyChange(change) ? {} : { updatedAt: at }),
+      workspaceId: workspace.id,
     });
     if (result.kind === "conflict") {
-      // The reason is the store's own words — for SQLite, the driver's message,
-      // which embeds the absolute database path. It travels as a cause for the
-      // log and never as message text that could reach a renderer.
       throw new WorkspacePersistenceError(
         `Could not reconcile Workspace ${workspace.id}`,
         { cause: result.reason }
@@ -497,61 +408,50 @@ export class Workspace {
     if (result.kind === "workspace-not-found") {
       throw new WorkspaceNotFoundError(workspace.id);
     }
-    const deleted = new Set(change.deletedIds);
-    for (const entry of existing) {
-      if (deleted.has(entry.id)) {
-        this.context.changed?.({ action: "delete", entry });
-      }
-    }
-    for (const entry of change.updated) {
-      this.context.changed?.({ action: "change", entry });
-    }
-    for (const entry of change.inserted) {
-      this.context.changed?.({ action: "add", entry });
-    }
     return { kind: "reconciled" };
   }
 
-  private async require(): Promise<StoredWorkspaceRecord> {
-    const record = await this.context.store.getWorkspace(this.id);
-    if (!record) {
+  private async catalogEntry(
+    entryId: WorkspaceEntryId
+  ): Promise<WorkspaceEntry> {
+    const entry = await this.context.catalog.getEntry(this.id, entryId);
+    if (!entry) {
+      throw new WorkspaceFileNotFoundError(this.id, entryId);
+    }
+    return entry;
+  }
+
+  private async require(): Promise<WorkspaceRegistration> {
+    const registration = await this.context.catalog.getWorkspace(this.id);
+    if (!registration) {
       throw new WorkspaceNotFoundError(this.id);
     }
-    return record;
+    return registration;
   }
 }
 
-/** Initial entries use the same identity allocation as reconciliation. */
-export function initialEntries(
-  workspaceId: WorkspaceId,
-  candidates: readonly ObservedFacts[],
-  createdAt: Date
-): WorkspaceEntry[] {
-  storageTree(candidates);
-  return candidates.map((candidate) =>
-    createEntryRecord(
-      workspaceId,
-      candidate,
-      createdAt,
-      crypto.randomUUID() as WorkspaceEntryId
-    )
-  );
+function notRegular(entry: WorkspaceEntry): {
+  readonly kind: "stale";
+  readonly reason: string;
+} {
+  return {
+    kind: "stale",
+    reason: `${entry.path} is a ${entry.type}, not a regular file`,
+  };
 }
 
-function toRegistration(record: StoredWorkspaceRecord): WorkspaceRegistration {
+function summarize(
+  workspace: WorkspaceRegistration,
+  fileCount: number
+): WorkspaceSummary {
   return {
-    createdAt: record.createdAt,
-    description: record.description,
-    documentation: record.documentation,
-    id: record.id,
-    lastReconciledAt: record.lastReconciledAt,
-    name: record.name,
-    source: {
-      kind: record.source,
-      path: record.path,
-      sourceId: record.sourceId,
-    },
-    updatedAt: record.updatedAt,
+    createdAt: workspace.createdAt,
+    fileCount,
+    id: workspace.id,
+    lastReconciledAt: workspace.lastReconciledAt,
+    name: workspace.name,
+    sourceKind: workspace.source.kind,
+    updatedAt: workspace.updatedAt,
   };
 }
 

@@ -1,19 +1,23 @@
 import type { DirectoryEntry, StorageReader } from "@foundry/core/storage";
 import { byCodeUnit } from "@foundry/lib/ordering";
-import { joinFilesystemPath, normalizeStoragePath } from "@foundry/lib/paths";
+import {
+  joinFilesystemPath,
+  lastPathSegment,
+  normalizeStoragePath,
+} from "@foundry/lib/paths";
 import ignore from "ignore";
 import { BASELINE_IGNORE_PATTERNS } from "./constants";
 import { sourceIssueFor, WorkspaceSourceUnavailableError } from "./errors";
 import type { IgnoreScope, WalkedEntry } from "./types";
 
-export function baselineIgnoreScope(): IgnoreScope {
+function baselineIgnoreScope(): IgnoreScope {
   return {
     base: "",
     matcher: ignore().add([...BASELINE_IGNORE_PATTERNS]),
   };
 }
 
-export function gitignoreScope(base: string, contents: string): IgnoreScope {
+function gitignoreScope(base: string, contents: string): IgnoreScope {
   return { base, matcher: ignore().add(contents) };
 }
 
@@ -30,7 +34,7 @@ export function gitignoreScope(base: string, contents: string): IgnoreScope {
  * Pruning an excluded directory before descending is not a gap in that rule:
  * Git cannot re-include a path inside an excluded directory either.
  */
-export function isIgnored(
+function isIgnored(
   scopes: readonly IgnoreScope[],
   relativePath: string,
   isDirectory: boolean
@@ -77,9 +81,10 @@ export async function walkEntries(
 }
 
 /**
- * Two source names that normalize to one path would be one File row in SQLite
- * and two in memory. Refusing the whole observation keeps both stores honest
- * rather than letting the persistence choice decide what happened.
+ * Two source names that normalize to one path cannot both be catalogued.
+ * Refusing the whole observation keeps the catalog honest rather than letting
+ * whichever name sorted last silently win. Only the final component of each
+ * raw name is reported — the rest of an absolute path never travels.
  *
  * This is only reachable on a filesystem that lets two names differing solely
  * by Unicode composition coexist in one directory. It is a real conflict in
@@ -95,16 +100,11 @@ function assertDistinctPaths(
     if (previous?.relativePath === file.relativePath) {
       throw new WorkspaceSourceUnavailableError(
         `Two source entries normalize to one Workspace path (${file.relativePath}). ` +
-          `Rename one of them; their raw names are ${JSON.stringify(basenameOf(previous.absolutePath, separator))} ` +
-          `and ${JSON.stringify(basenameOf(file.absolutePath, separator))}.`
+          `Rename one of them; their raw names are ${JSON.stringify(lastPathSegment(previous.absolutePath, separator))} ` +
+          `and ${JSON.stringify(lastPathSegment(file.absolutePath, separator))}.`
       );
     }
   }
-}
-
-/** The final component only — the rest of an absolute path never travels. */
-function basenameOf(absolutePath: string, separator: string): string {
-  return absolutePath.split(separator).at(-1) ?? absolutePath;
 }
 
 async function walkDirectory(

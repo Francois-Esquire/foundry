@@ -1,8 +1,9 @@
+import { WorkspaceCatalog } from "../catalog";
+import type { WorkspaceStore } from "../store";
 import type {
   SaveFileResult,
   WorkspaceFileSystem,
   WorkspaceId,
-  WorkspaceStore,
 } from "../types";
 
 /**
@@ -31,15 +32,16 @@ import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { WorkspaceFileNotFoundError, WorkspaceNotFoundError } from "../errors";
 
-import { InMemoryWorkspaceStore } from "../in-memory-workspace-store";
-import { nodeFileSystem, sha256Hex } from "../node";
+import { MemoryWorkspaceStore } from "../memory-store";
+import { nodeFileSystem } from "../node";
+import { sha256Hex } from "./helpers/digest";
 
 import { directorySystem } from "./helpers/directory-system";
 import {
   fileRecord,
   hostWorkspace,
   newWorkspaceEntryId,
-} from "./helpers/workspace-system-conformance";
+} from "./helpers/fixtures";
 
 const roots: string[] = [];
 
@@ -114,7 +116,7 @@ async function opened(
   filesystem: WorkspaceFileSystem = nodeFileSystem
 ) {
   const root = await makeRoot(tree);
-  const store = new InMemoryWorkspaceStore();
+  const store = new MemoryWorkspaceStore();
   const system = directorySystem({ filesystem, store });
   const workspace = await system.load({ path: root });
   const files = await workspace.files();
@@ -364,12 +366,13 @@ describe("save refusals", () => {
 
   it("refuses a stored path that lexically escapes the root", async () => {
     const root = await makeRoot({ "safe.md": "x" });
-    const store = new InMemoryWorkspaceStore();
+    const store = new MemoryWorkspaceStore();
+    const catalog = new WorkspaceCatalog(store, () => undefined);
     const registered = hostWorkspace({ path: root });
     const escaping = fileRecord(registered.id, { path: "../evil.md" });
-    expect(() =>
-      store.commitCreate({ entries: [escaping], workspace: registered })
-    ).toThrow("Invalid storage path");
+    await expect(
+      catalog.create({ entries: [escaping], workspace: registered })
+    ).rejects.toThrow("Invalid storage path");
     expect(await store.getWorkspace(registered.id)).toBeNull();
 
     await expect(lstat(join(root, "..", "evil.md"))).rejects.toMatchObject({
@@ -488,39 +491,44 @@ describe("save refusals", () => {
 });
 
 describe("catalog observation after write", () => {
-  function observationFault(
-    store: InMemoryWorkspaceStore,
-    fail: () => ReturnType<WorkspaceStore["commitFileObservation"]>
-  ): WorkspaceStore {
+  /** The memory store, with one fault armed after setup. */
+  function faultyStore(inner: MemoryWorkspaceStore) {
+    let fault: "commit" | "missing-row" | undefined;
+    const store: WorkspaceStore = {
+      commit: (write) =>
+        fault === "commit"
+          ? Promise.reject(new Error("catalog write refused"))
+          : inner.commit(write),
+      findWorkspaceByPath: (path) => inner.findWorkspaceByPath(path),
+      findWorkspaceBySourceId: (sourceId) =>
+        inner.findWorkspaceBySourceId(sourceId),
+      getEntry: (workspaceId, entryId) => inner.getEntry(workspaceId, entryId),
+      getWorkspace: (workspaceId) => inner.getWorkspace(workspaceId),
+      // The row disappears between the save's read and its catalog update.
+      listEntries: (workspaceId) =>
+        fault === "missing-row"
+          ? Promise.resolve([])
+          : inner.listEntries(workspaceId),
+      listWorkspaces: (input) => inner.listWorkspaces(input),
+      removeWorkspace: (workspaceId) => inner.removeWorkspace(workspaceId),
+    };
     return {
-      afterCommit: (callback) => {
-        store.afterCommit(callback);
+      arm: (next: "commit" | "missing-row") => {
+        fault = next;
       },
-      commitCreate: (input) => store.commitCreate(input),
-      commitFileObservation: () => fail(),
-      commitReconcile: (input) => store.commitReconcile(input),
-      countFiles: (workspaceId) => store.countFiles(workspaceId),
-      findWorkspaceByPath: (path) => store.findWorkspaceByPath(path),
-      getEntry: (workspaceId, fileId) => store.getEntry(workspaceId, fileId),
-      getWorkspace: (workspaceId) => store.getWorkspace(workspaceId),
-      listEntries: (workspaceId) => store.listEntries(workspaceId),
-      listWorkspaces: () => store.listWorkspaces(),
-      removeWorkspace: (workspaceId) => store.removeWorkspace(workspaceId),
-      renameWorkspace: (workspaceId, name, updatedAt) =>
-        store.renameWorkspace(workspaceId, name, updatedAt),
+      store,
     };
   }
 
   it("returns saved/refresh-required when the catalog commit throws, then reconciles", async () => {
     const { filesystem, writes } = countingWrites();
     const root = await makeRoot({ "README.md": "first" });
-    const inner = new InMemoryWorkspaceStore();
-    const faulty = observationFault(inner, () =>
-      Promise.reject(new Error("catalog write refused"))
-    );
-    const system = directorySystem({ filesystem, store: faulty });
+    const inner = new MemoryWorkspaceStore();
+    const faulty = faultyStore(inner);
+    const system = directorySystem({ filesystem, store: faulty.store });
     const workspace = await system.load({ path: root });
     const file = one(await workspace.files());
+    faulty.arm("commit");
 
     const result = await workspace.save({
       expectedDigest: digestOf("first"),
@@ -551,15 +559,13 @@ describe("catalog observation after write", () => {
     expect(writes()).toBe(1);
   });
 
-  it("returns saved/refresh-required when the store refuses the observation", async () => {
+  it("returns saved/refresh-required when the catalog refuses the update", async () => {
     const root = await makeRoot({ "README.md": "first" });
-    const inner = new InMemoryWorkspaceStore();
-    const refusing = observationFault(inner, () =>
-      Promise.resolve({ kind: "path-mismatch" as const })
-    );
-    const system = directorySystem({ store: refusing });
+    const faulty = faultyStore(new MemoryWorkspaceStore());
+    const system = directorySystem({ store: faulty.store });
     const workspace = await system.load({ path: root });
     const file = one(await workspace.files());
+    faulty.arm("missing-row");
 
     const result = await workspace.save({
       expectedDigest: digestOf("first"),
@@ -575,7 +581,7 @@ describe("catalog observation after write", () => {
 
   it("serializes a save behind a running observation so stale facts never land last", async () => {
     const root = await makeRoot({ "README.md": "first" });
-    const store = new InMemoryWorkspaceStore();
+    const store = new MemoryWorkspaceStore();
     let release: (() => void) | undefined;
     const gate = new Promise<void>((resolve) => {
       release = resolve;

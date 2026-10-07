@@ -26,9 +26,11 @@ describe("loading Artifact directories", () => {
     expect(firstWorkspace.id).not.toBe(secondWorkspace.id);
     expect((await load()).id).toBe(firstWorkspace.id);
     expect(await catalog.getWorkspace(firstWorkspace.id)).toMatchObject({
-      path: join(root, artifact.id),
-      source: "artifact",
-      sourceId: artifact.id,
+      source: {
+        kind: "artifact",
+        path: join(root, artifact.id),
+        sourceId: artifact.id,
+      },
     });
     expect(
       await readFile(join(secondWorkspace.root, "second.md"), "utf8")

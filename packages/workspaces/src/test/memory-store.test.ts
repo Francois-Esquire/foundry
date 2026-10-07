@@ -4,23 +4,17 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it, vi } from "vitest";
 
-import { InMemoryWorkspaceStore } from "../in-memory-workspace-store";
+import { MemoryWorkspaceStore } from "../memory-store";
 import { directory } from "../node";
 import { WorkspaceSystem } from "../workspace-system";
-import {
-  describeWorkspaceSystemConformance,
-  hostWorkspace,
-  newRoot,
-} from "./helpers/workspace-system-conformance";
+import { hostWorkspace, newRoot, seed } from "./helpers/fixtures";
+import { describeWorkspaceStoreConformance } from "./helpers/store-conformance";
 
-describeWorkspaceSystemConformance("in-memory", () => {
-  const store = new InMemoryWorkspaceStore();
-  return { store, system: new WorkspaceSystem({ store }).extend(directory()) };
-});
+describeWorkspaceStoreConformance("memory", () => new MemoryWorkspaceStore());
 
 describe("WorkspaceSystem construction", () => {
   it("opens only the requested page and retains the catalog total", async () => {
-    const store = new InMemoryWorkspaceStore();
+    const store = new MemoryWorkspaceStore();
     const system = new WorkspaceSystem({ store }).extend(directory());
     const first = hostWorkspace({
       createdAt: new Date(1),
@@ -30,8 +24,8 @@ describe("WorkspaceSystem construction", () => {
       createdAt: new Date(2),
       path: newRoot("second"),
     });
-    await store.commitCreate({ entries: [], workspace: first });
-    await store.commitCreate({ entries: [], workspace: second });
+    await seed(store, first);
+    await seed(store, second);
     const open = vi.spyOn(system, "open");
     const page = await system.list({ limit: 1 });
     expect(page.total).toBe(2);
@@ -56,10 +50,10 @@ describe("WorkspaceSystem construction", () => {
   });
 
   it("reads through an injected store instead of its own default", async () => {
-    const store = new InMemoryWorkspaceStore();
+    const store = new MemoryWorkspaceStore();
     const system = new WorkspaceSystem({ store }).extend(directory());
     const workspace = hostWorkspace({ path: newRoot("injected") });
-    await store.commitCreate({ entries: [], workspace });
+    await seed(store, workspace);
 
     expect((await system.list()).items.map((w) => w.id)).toEqual([
       workspace.id,
@@ -69,9 +63,9 @@ describe("WorkspaceSystem construction", () => {
 
 describe("@foundry/workspaces dependencies", () => {
   /**
-   * The package is composed by Studio's main process but must run outside it,
-   * so a dependency pointing back at persistence, the Electron host, or the app
-   * is a design failure rather than a lint preference.
+   * The package must run standalone, so a dependency pointing at a database
+   * package, the Electron host, or an app is a design failure rather than a
+   * lint preference.
    */
   it("names no database, Electron, or app dependency", () => {
     const manifest = JSON.parse(

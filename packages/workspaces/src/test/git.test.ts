@@ -5,15 +5,14 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 
 import { afterAll, describe, expect, it } from "vitest";
-
-import type { GitPathStatus } from "../git";
-
-import { Git, git as gitLayer, WithGit } from "../git";
-import { InMemoryWorkspaceStore } from "../in-memory-workspace-store";
+import { WorkspaceCatalog } from "../catalog";
 import { Workspace } from "../instance";
+import { MemoryWorkspaceStore } from "../memory-store";
 import { WithDirectory } from "../node";
+import type { GitPathStatus } from "../node/git";
+import { Git, git as gitLayer, WithGit } from "../node/git";
 import { directorySystem } from "./helpers/directory-system";
-import { hostWorkspace } from "./helpers/workspace-system-conformance";
+import { hostWorkspace, seed } from "./helpers/fixtures";
 
 /**
  * `Git` over real temporary repositories.
@@ -453,16 +452,16 @@ describe("WithGit", () => {
 
   it("composes by hand over the directory layer", async () => {
     const root = await realpath(await makeRepository({ "README.md": "hello" }));
-    const store = new InMemoryWorkspaceStore();
+    const store = new MemoryWorkspaceStore();
     const record = hostWorkspace({ path: root });
-    await store.commitCreate({ entries: [], workspace: record });
+    await seed(store, record);
     const Composed = WithGit(WithDirectory(Workspace));
 
     const workspace = new Composed(record, {
+      catalog: new WorkspaceCatalog(store, () => undefined),
       close: () => Promise.resolve(),
-      observing: new Map(),
-      serialized: new Map(),
-      store,
+      report: () => undefined,
+      serialize: (_workspaceId, task) => task(),
     });
 
     expect(workspace.git.root).toBe(root);
@@ -473,15 +472,11 @@ describe("WithGit", () => {
 
   it("does not write while answering", async () => {
     const root = await makeRepository({ "README.md": "hello" });
-    const store = new InMemoryWorkspaceStore();
+    const store = new MemoryWorkspaceStore();
     const system = directorySystem({ store }).extend(gitLayer());
     const added = await system.load({ path: root });
     const writes: string[] = [];
-    for (const method of [
-      "commitCreate",
-      "commitReconcile",
-      "removeWorkspace",
-    ] as const) {
+    for (const method of ["commit", "removeWorkspace"] as const) {
       const original = store[method].bind(store);
       (store as unknown as Record<string, unknown>)[method] = (
         ...args: unknown[]
@@ -498,7 +493,7 @@ describe("WithGit", () => {
     // that the instrumentation never fired.
     await writeFile(join(root, "arrived.md"), "new file");
     await added.refresh();
-    expect(writes).toEqual(["commitReconcile"]);
+    expect(writes).toEqual(["commit"]);
   });
 });
 

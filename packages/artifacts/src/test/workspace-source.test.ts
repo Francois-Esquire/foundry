@@ -1,9 +1,10 @@
+import { sha256Hex } from "@foundry/lib/digest";
 import { byCodeUnit } from "@foundry/lib/ordering";
 import {
   scanDirectory,
   WorkspaceSourceUnavailableError,
 } from "@foundry/workspaces";
-import { nodeFileSystem, sha256Hex } from "@foundry/workspaces/node";
+import { nodeFileSystem } from "@foundry/workspaces/node";
 import { describe, expect, it, vi } from "vitest";
 
 import type { EntryInputs } from "../substrate";
@@ -129,7 +130,7 @@ describe("Artifact directory inventory", () => {
           path: "src/app.ts",
         }),
         expect.objectContaining({
-          digest: sha256Hex(BINARY),
+          digest: await sha256Hex(BINARY),
           kind: "image",
           mime: "image/png",
           path: "media/logo.png",

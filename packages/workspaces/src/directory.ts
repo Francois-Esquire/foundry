@@ -4,33 +4,40 @@ import type {
   StorageReader,
 } from "@foundry/core/storage";
 import {
+  isStoragePath,
   StorageApplicationError,
   StorageConflictError,
 } from "@foundry/core/storage";
 import { sha256Hex } from "@foundry/lib/digest";
 import { decodeText, decodeUtf8 } from "@foundry/lib/encoding";
-import { classifyFile } from "@foundry/lib/file-classification";
 import { isTextMime } from "@foundry/lib/mime";
-import { isFilesystemPathWithin, joinFilesystemPath } from "@foundry/lib/paths";
+import {
+  isFilesystemPathWithin,
+  joinFilesystemPath,
+  lastPathSegment,
+} from "@foundry/lib/paths";
 import { DIRECTORY_SOURCE } from "./constants";
-import { errorCode, WorkspaceSourceUnavailableError } from "./errors";
+import {
+  errorCode,
+  InvalidWorkspaceInputError,
+  WorkspaceSourceUnavailableError,
+} from "./errors";
 import {
   canonicalizeRoot,
   resolveStoredPath,
-  scanDirectory,
+  scanSource,
   verifyRoot,
 } from "./scanner";
 import type {
   FileContentResult,
   ObservedFacts,
+  ResolvedSource,
   WorkspaceCtor,
   WorkspaceExtension,
   WorkspaceFile,
   WorkspaceFileSystem,
   WriteOutcome,
 } from "./types";
-
-const DRIVE_PREFIX_PATTERN = /^[a-zA-Z]:/;
 
 export interface DirectoryOptions<Ref extends object = DirectoryRef> {
   readonly filesystem: WorkspaceFileSystem<Ref>;
@@ -66,43 +73,8 @@ export function WithDirectory<
       return this.source.path;
     }
 
-    async scan(): Promise<readonly ObservedFacts[]> {
-      if (filesystem.tree) {
-        try {
-          return Object.entries(await filesystem.tree(this.root)).map(
-            ([path, node]) => {
-              if (node.type !== "file") {
-                return {
-                  ...node,
-                  name: path.slice(path.lastIndexOf("/") + 1),
-                  path,
-                };
-              }
-              const classification = classifyFile(path);
-              return {
-                ...classification,
-                bytes: node.bytes,
-                digest: node.digest,
-                mime: node.mime ?? classification.mime,
-                path,
-                type: node.type,
-              };
-            }
-          );
-        } catch (cause) {
-          if (cause instanceof WorkspaceSourceUnavailableError) {
-            throw cause;
-          }
-          throw new WorkspaceSourceUnavailableError(
-            "Could not read the Workspace tree",
-            {
-              cause,
-              issue: "scan-failed",
-            }
-          );
-        }
-      }
-      return scanDirectory(filesystem, this.root);
+    scan(): Promise<readonly ObservedFacts[]> {
+      return scanSource(filesystem, this.root);
     }
 
     protected watch(changed: () => void, failed: (error: unknown) => void) {
@@ -209,9 +181,6 @@ export function WithDirectory<
           reason: "This storage does not support file creation",
         };
       }
-      if (escapesRoot(path)) {
-        return { kind: "failed", reason: "Path escapes the Workspace root" };
-      }
       const rootFailure = await verifyWorkspaceRoot(filesystem, this.root);
       if (rootFailure) {
         return { kind: "failed", reason: rootFailure.reason };
@@ -271,7 +240,7 @@ export function WithDirectory<
     private async resolveBytes(
       file: WorkspaceFile
     ): Promise<ResolvedBytes | ResolveFailure> {
-      if (escapesRoot(file.path)) {
+      if (!isStoragePath(file.path)) {
         return escapePathFailure(file.path);
       }
 
@@ -332,8 +301,8 @@ export interface DirectoryRef {
 }
 
 /**
- * The directory layer as an extension: claims every `"host"` record and
- * turns `{ path }` into an identity.
+ * The directory layer as an extension: claims every record of its source
+ * kind and turns a ref into an identity.
  *
  * A duplicate canonical root — including a different spelling of the same
  * directory, and including a concurrent load that wins the race — resolves
@@ -343,25 +312,15 @@ export function directory<Ref extends object = DirectoryRef>(
   options: DirectoryOptions<Ref>
 ): WorkspaceExtension<Ref, DirectoryCapable> {
   const { filesystem } = options;
+  const kind = options.source ?? DIRECTORY_SOURCE;
   return {
-    applies: (record) => record.source === (options.source ?? DIRECTORY_SOURCE),
+    applies: (registration) => registration.source.kind === kind,
     async identify(ref) {
-      const resolved = filesystem.resolve ? await filesystem.resolve(ref) : ref;
-      if (!("path" in resolved) || typeof resolved.path !== "string") {
-        throw new Error("Directory reference requires a path resolver");
-      }
+      const resolved = await resolveSource(filesystem, ref);
       const root = await canonicalizeRoot(filesystem, resolved.path);
       return {
-        name:
-          "name" in resolved && typeof resolved.name === "string"
-            ? resolved.name
-            : basenameOf(root, filesystem.separator),
-        path: root,
-        source: options.source ?? DIRECTORY_SOURCE,
-        sourceId:
-          "sourceId" in resolved && typeof resolved.sourceId === "string"
-            ? resolved.sourceId
-            : null,
+        name: resolved.name ?? lastPathSegment(root, filesystem.separator),
+        source: { kind, path: root, sourceId: resolved.sourceId ?? null },
       };
     },
     name: "directory",
@@ -370,9 +329,20 @@ export function directory<Ref extends object = DirectoryRef>(
   };
 }
 
-function basenameOf(root: string, separator: string): string {
-  const segments = root.split(separator).filter(Boolean);
-  return segments.at(-1) ?? root;
+/** The filesystem's own resolver, or the ref itself when it names a path. */
+function resolveSource<Ref extends object>(
+  filesystem: WorkspaceFileSystem<Ref>,
+  ref: Ref
+): Promise<ResolvedSource> | ResolvedSource {
+  if (filesystem.resolve) {
+    return filesystem.resolve(ref);
+  }
+  if ("path" in ref && typeof ref.path === "string") {
+    return { path: ref.path };
+  }
+  throw new InvalidWorkspaceInputError(
+    "A directory ref needs a path or a filesystem resolver"
+  );
 }
 
 function failure(
@@ -466,8 +436,8 @@ async function readStoredFile(
     return await filesystem.readFile(resolved);
   } catch (error) {
     // The error's own message embeds the absolute path Node was opening,
-    // and this reason crosses to the renderer. Only the relative path and
-    // a code.
+    // and this reason reaches callers outside the trust boundary. Only the
+    // relative path and a code.
     return failure(
       "read-error",
       `Could not read ${path} (${errorCode(error)})`
@@ -531,11 +501,4 @@ function saveKindFor(issue: ResolveFailure["issue"]): "stale" | "failed" {
     case "read-error":
       return "failed";
   }
-}
-
-function escapesRoot(relativePath: string): boolean {
-  if (relativePath.startsWith("/") || DRIVE_PREFIX_PATTERN.test(relativePath)) {
-    return true;
-  }
-  return relativePath.split("/").includes("..");
 }

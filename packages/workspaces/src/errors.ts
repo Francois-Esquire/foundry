@@ -1,9 +1,15 @@
 import type { WorkspaceSourceIssue } from "./types";
 
-/** The errno alone, never the message, which carries the absolute path. */
+/**
+ * The errno, or the error's class name — never the message, which carries the
+ * absolute path.
+ */
 export function errorCode(error: unknown): string {
   const code: unknown = (error as { code?: unknown } | null)?.code;
-  return typeof code === "string" ? code : "unknown";
+  if (typeof code === "string") {
+    return code;
+  }
+  return error instanceof Error ? error.name : "unknown";
 }
 
 export class WorkspaceSystemError extends Error {
@@ -46,8 +52,19 @@ export class WorkspaceSourceUnavailableError extends WorkspaceSystemError {
  * message embeds the absolute path.
  */
 export function sourceIssueFor(cause: unknown): WorkspaceSourceIssue {
-  const code: unknown = (cause as { code?: unknown } | null)?.code;
+  const code = errorCode(cause);
   return code === "EACCES" || code === "EPERM" ? "unreadable" : "scan-failed";
+}
+
+/**
+ * A root that is not there is `unavailable`; every other errno means the same
+ * thing at the root as it does one directory deeper.
+ */
+export function rootIssueFor(cause: unknown): WorkspaceSourceIssue {
+  const code = errorCode(cause);
+  return code === "ENOENT" || code === "ENOTDIR"
+    ? "unavailable"
+    : sourceIssueFor(cause);
 }
 
 export class WorkspacePersistenceError extends WorkspaceSystemError {}

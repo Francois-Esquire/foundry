@@ -1,4 +1,3 @@
-import { storageTree } from "@foundry/core/storage";
 import type {
   ObservedFacts,
   WorkspaceCatalogChange,
@@ -22,7 +21,6 @@ export function diffCatalog(input: {
   readonly at: Date;
   readonly newEntryId: () => WorkspaceEntryId;
 }): WorkspaceCatalogChange {
-  storageTree(input.candidates);
   const existingByPath = new Map(input.existing.map((row) => [row.path, row]));
   const matchedIds = new Set<WorkspaceEntryId>();
   const updated: WorkspaceEntry[] = [];
@@ -81,9 +79,7 @@ export function diffCatalog(input: {
   }
 
   return {
-    deletedIds: departures
-      .filter((row) => !moved.has(row.id))
-      .map((row) => row.id),
+    deleted: departures.filter((row) => !moved.has(row.id)),
     inserted,
     updated,
   };
@@ -93,7 +89,7 @@ export function isEmptyChange(change: WorkspaceCatalogChange): boolean {
   return (
     change.inserted.length === 0 &&
     change.updated.length === 0 &&
-    change.deletedIds.length === 0
+    change.deleted.length === 0
   );
 }
 
@@ -150,7 +146,22 @@ function observed(
   };
 }
 
-export function createEntryRecord(
+/** Initial entries use the same identity allocation as reconciliation. */
+export function initialEntries(
+  workspaceId: WorkspaceId,
+  candidates: readonly ObservedFacts[],
+  createdAt: Date
+): WorkspaceEntry[] {
+  return candidates.map((candidate) =>
+    createEntryRecord(workspaceId, candidate, createdAt, newEntryId())
+  );
+}
+
+export function newEntryId(): WorkspaceEntryId {
+  return crypto.randomUUID() as WorkspaceEntryId;
+}
+
+function createEntryRecord(
   workspaceId: WorkspaceId,
   candidate: ObservedFacts,
   at: Date,

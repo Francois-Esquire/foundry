@@ -22,7 +22,12 @@ function fixture() {
   });
   const system = new WorkspaceSystem().extend({
     applies: () => true,
+    identify: () => ({
+      name: "test",
+      source: { kind: "memory", path: "memory:test", sourceId: null },
+    }),
     name: "memory",
+    ref: "memory",
     wrap: (Base) =>
       class extends Base {
         scan() {
@@ -45,13 +50,7 @@ function fixture() {
       nextScan = value;
     },
     closed,
-    open: () =>
-      system.create({
-        name: "test",
-        path: "memory:test",
-        source: "memory",
-        sourceId: null,
-      }),
+    open: () => system.load({ memory: "test" }),
     scan,
     setEntries: (value: readonly ObservedFacts[]) => {
       entries = value;

@@ -4,15 +4,15 @@ import { join } from "node:path";
 import type { StorageReader } from "@foundry/core/storage";
 import { normalizeStoragePath } from "@foundry/lib/paths";
 import { afterAll, describe, expect, it } from "vitest";
-import { BASELINE_IGNORE_VERSION } from "../constants";
 import {
   InvalidWorkspaceInputError,
   WorkspaceSourceUnavailableError,
 } from "../errors";
-import { nodeFileSystem, sha256Hex } from "../node";
+import { nodeFileSystem } from "../node";
 import { canonicalizeRoot, scanDirectory, verifyRoot } from "../scanner";
 import { walkEntries } from "../traverse";
 import type { WorkspaceFileSystem } from "../types";
+import { sha256Hex } from "./helpers/digest";
 
 const roots: string[] = [];
 
@@ -64,8 +64,8 @@ describe("canonicalizeRoot", () => {
   it("echoes no absolute path in its refusal messages", async () => {
     const { root } = await makeRoot({ "README.md": "hi" });
 
-    // These messages become tRPC error text, so the selected root would reach
-    // the renderer through them.
+    // These messages reach callers outside the trust boundary, so the selected
+    // root would leak through them.
     for (const selected of [join(root, "README.md"), join(root, "absent")]) {
       const failure = await canonicalizeRoot(nodeFileSystem, selected).then(
         () => null,
@@ -192,7 +192,6 @@ describe("scanDirectory inclusion", () => {
       "README.md": "hi",
     });
 
-    expect(BASELINE_IGNORE_VERSION).toBe(1);
     expect(
       (await scanDirectory(nodeFileSystem, canonical)).map((c) => c.path)
     ).toEqual(["README.md"]);

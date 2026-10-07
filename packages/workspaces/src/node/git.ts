@@ -1,13 +1,13 @@
-import type { WorkspaceCtor, WorkspaceExtension } from "./types";
-
-const WORKTREE_PREFIX_PATTERN = /^worktree /;
-const BRANCH_PREFIX_PATTERN = /^branch refs\/heads\//;
-
 import { mkdtemp, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative, sep } from "node:path";
 import { byCodeUnit } from "@foundry/lib/ordering";
 import simpleGit from "simple-git";
+import { errorCode } from "../errors";
+import type { WorkspaceCtor, WorkspaceExtension } from "../types";
+
+const WORKTREE_PREFIX_PATTERN = /^worktree /;
+const BRANCH_PREFIX_PATTERN = /^branch refs\/heads\//;
 
 /**
  * Git over one working tree.
@@ -262,7 +262,7 @@ export function git(
   options: GitOptions = {}
 ): WorkspaceExtension<never, unknown, Partial<GitCapable>> {
   return {
-    applies: (record) => Git.isRepository(record.path),
+    applies: (registration) => Git.isRepository(registration.source.path),
     name: "git",
     wrap: (Base) => WithGit(Base, options),
   };
@@ -398,12 +398,4 @@ function strip(prefix: string, path: string): string | null {
  */
 function isChanged(column: string): boolean {
   return column !== " " && column !== "?" && column !== "";
-}
-
-function errorCode(error: unknown): string {
-  const code: unknown = (error as { code?: unknown } | null)?.code;
-  if (typeof code === "string") {
-    return code;
-  }
-  return error instanceof Error ? error.name : "unknown";
 }

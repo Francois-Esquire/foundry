@@ -1,15 +1,22 @@
-import type { DirectoryEntry, StorageReader } from "@foundry/core/storage";
-import { storageTree } from "@foundry/core/storage";
+import type {
+  DirectoryEntry,
+  StorageNode,
+  StorageReader,
+  StorageTree,
+} from "@foundry/core/storage";
+import { validateStorageTree } from "@foundry/core/storage";
 import { sha256Hex } from "@foundry/lib/digest";
 import { classifyFile } from "@foundry/lib/file-classification";
-import { joinFilesystemPath } from "@foundry/lib/paths";
+import { byCodeUnit } from "@foundry/lib/ordering";
+import { joinFilesystemPath, lastPathSegment } from "@foundry/lib/paths";
 import {
   InvalidWorkspaceInputError,
+  rootIssueFor,
   sourceIssueFor,
   WorkspaceSourceUnavailableError,
 } from "./errors";
 import { walkEntries } from "./traverse";
-import type { ObservedFacts, WorkspaceSourceIssue } from "./types";
+import type { ObservedFacts, WalkedEntry, WorkspaceFileSystem } from "./types";
 
 /**
  * The canonical absolute root a Workspace stores.
@@ -21,9 +28,9 @@ export async function canonicalizeRoot(
   filesystem: Pick<StorageReader, "lstat" | "realpath">,
   selected: string
 ): Promise<string> {
-  // None of these messages echo the selected path. They are mapped straight
-  // onto a tRPC error, and the renderer must never learn an absolute root —
-  // not as data and not as error text. The cause carries the detail for a log.
+  // None of these messages echo the selected path. They reach callers outside
+  // the trust boundary, which must never learn an absolute root — not as data
+  // and not as error text. The cause carries the detail for a log.
   let canonical: string;
   try {
     canonical = await filesystem.realpath(selected);
@@ -98,18 +105,6 @@ export async function verifyRoot(
 }
 
 /**
- * A root that is not there is `unavailable`; every other errno means the same
- * thing at the root as it does one directory deeper, so it goes through the
- * same classifier rather than being flattened to "gone".
- */
-function rootIssueFor(cause: unknown): WorkspaceSourceIssue {
-  const code: unknown = (cause as { code?: unknown } | null)?.code;
-  return code === "ENOENT" || code === "ENOTDIR"
-    ? "unavailable"
-    : sourceIssueFor(cause);
-}
-
-/**
  * The source's own spelling of one stored relative path, or null when no such
  * File is there.
  *
@@ -163,7 +158,35 @@ async function exists(
 }
 
 /**
- * The complete candidate inventory for one canonical root.
+ * The complete inventory of one root, as the facts a catalog stores.
+ *
+ * A filesystem with its own authoritative `tree` answers directly; any other
+ * is walked and read. Either way the result is validated once, here.
+ */
+export async function scanSource(
+  filesystem: StorageReader & Pick<WorkspaceFileSystem, "tree">,
+  canonicalRoot: string
+): Promise<readonly ObservedFacts[]> {
+  if (!filesystem.tree) {
+    return scanDirectory(filesystem, canonicalRoot);
+  }
+  let tree: StorageTree;
+  try {
+    tree = await filesystem.tree(canonicalRoot);
+  } catch (cause) {
+    if (cause instanceof WorkspaceSourceUnavailableError) {
+      throw cause;
+    }
+    throw new WorkspaceSourceUnavailableError(
+      "Could not read the Workspace tree",
+      { cause, issue: "scan-failed" }
+    );
+  }
+  return factsOf(tree);
+}
+
+/**
+ * The complete candidate inventory of one canonical root, walked and read.
  *
  * Everything is observed before anything is returned. A traversal, stat, or
  * read failure aborts the whole scan — a partial inventory committed as a
@@ -174,58 +197,73 @@ export async function scanDirectory(
   canonicalRoot: string
 ): Promise<readonly ObservedFacts[]> {
   await verifyRoot(filesystem, canonicalRoot);
-  const walked = await walkEntries(filesystem, canonicalRoot);
-  const candidates: ObservedFacts[] = [];
+  const nodes: [string, StorageNode][] = [];
+  for (const entry of await walkEntries(filesystem, canonicalRoot)) {
+    // Operations are intentionally sequential to preserve observation order.
+    nodes.push([entry.relativePath, await readNode(filesystem, entry)]);
+  }
+  return factsOf(Object.fromEntries(nodes));
+}
 
-  for (const file of walked) {
-    const path = file.relativePath;
-    const name = path.slice(path.lastIndexOf("/") + 1);
-    if (file.type !== "file") {
-      if (file.type === "symlink") {
-        try {
-          const target = await filesystem.readLink(file.absolutePath);
-          candidates.push({ name, path, target, type: "symlink" });
-        } catch (cause) {
-          throw new WorkspaceSourceUnavailableError(
-            `Could not read link ${path}`,
-            { cause }
-          );
-        }
-      } else {
-        candidates.push({ name, path, type: file.type });
-      }
-      continue;
-    }
-    // One opened byte sequence answers both the digest and the size. A
-    // metadata-only size would let the two disagree about which moment they
-    // observed.
-    let bytes: Uint8Array;
+async function readNode(
+  filesystem: StorageReader,
+  entry: WalkedEntry
+): Promise<StorageNode> {
+  const path = entry.relativePath;
+  if (entry.type === "symlink") {
     try {
-      // Operations are intentionally sequential to preserve observation and mutation order.
-      bytes = await filesystem.readFile(file.absolutePath);
-    } catch (error) {
-      throw new WorkspaceSourceUnavailableError(
-        `Could not read ${file.relativePath}`,
-        { cause: error, issue: sourceIssueFor(error) }
-      );
+      const target = await filesystem.readLink(entry.absolutePath);
+      return { target, type: "symlink" };
+    } catch (cause) {
+      throw new WorkspaceSourceUnavailableError(`Could not read link ${path}`, {
+        cause,
+      });
     }
-    const classification = classifyFile(file.relativePath);
-    candidates.push({
-      bytes: bytes.byteLength,
-      digest: await sha256Hex(bytes),
-      extension: classification.extension,
-      kind: classification.kind,
-      mime: classification.mime,
-      name: classification.name,
-      path: file.relativePath,
-      type: "file",
+  }
+  if (entry.type !== "file") {
+    return { type: entry.type };
+  }
+  // One opened byte sequence answers both the digest and the size. A
+  // metadata-only size would let the two disagree about which moment they
+  // observed. Mime is left to classification.
+  let bytes: Uint8Array;
+  try {
+    bytes = await filesystem.readFile(entry.absolutePath);
+  } catch (error) {
+    throw new WorkspaceSourceUnavailableError(`Could not read ${path}`, {
+      cause: error,
+      issue: sourceIssueFor(error),
     });
   }
+  return {
+    bytes: bytes.byteLength,
+    digest: await sha256Hex(bytes),
+    mime: null,
+    type: "file",
+  };
+}
 
+/** The facts of every entry in a valid tree, in code-unit path order. */
+function factsOf(tree: StorageTree): ObservedFacts[] {
   try {
-    storageTree(candidates);
+    validateStorageTree(tree);
   } catch (cause) {
     throw new WorkspaceSourceUnavailableError("Invalid source tree", { cause });
   }
-  return candidates;
+  return Object.entries(tree)
+    .sort(byCodeUnit(([path]) => path))
+    .map(([path, node]): ObservedFacts => {
+      if (node.type !== "file") {
+        return { ...node, name: lastPathSegment(path), path };
+      }
+      const classification = classifyFile(path);
+      return {
+        ...classification,
+        bytes: node.bytes,
+        digest: node.digest,
+        mime: node.mime ?? classification.mime,
+        path,
+        type: "file",
+      };
+    });
 }
