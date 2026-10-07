@@ -1,5 +1,6 @@
 import { Readable, Writable } from "node:stream";
 import { finished } from "node:stream/promises";
+import { SandboxError } from "./errors";
 import { ProcessController, processError } from "./process-controller";
 import type { SandboxPipedProcess } from "./types";
 
@@ -49,7 +50,10 @@ export function prepareSandboxProcess(
         )
       ) {
         child.kill("SIGKILL");
-        throw new Error("Sandbox spawn hook requires Node byte streams");
+        throw new SandboxError(
+          "invalid-contract",
+          "Sandbox spawn hook requires Node byte streams"
+        );
       }
       child.stdout.on("error", (error: Error) => process.fail(error));
       child.stderr.on("error", (error: Error) => process.fail(error));

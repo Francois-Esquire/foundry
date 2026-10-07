@@ -4,7 +4,6 @@ import { isAbsolute, relative, resolve } from "node:path";
 
 import type { Storage, StorageObserver } from "@foundry/core/storage";
 import { SandboxError } from "../errors";
-import { normalizeSandboxPath } from "../path";
 import { sandboxFromAdapter } from "../sandbox";
 import type {
   Sandbox,
@@ -198,9 +197,7 @@ function createContainerServicesFacet(
         );
       }
       const process = await sandbox.startProcess([...input.argv], {
-        ...(input.cwd === undefined
-          ? {}
-          : { cwd: normalizeSandboxPath(input.cwd, sandbox.workdir) }),
+        ...(input.cwd === undefined ? {} : { cwd: input.cwd }),
         ...(input.environment === undefined
           ? {}
           : { environment: { ...input.environment } }),

@@ -1,4 +1,5 @@
 import { Buffer } from "node:buffer";
+import { SandboxError } from "../errors";
 import { normalizeSandboxPath } from "../path";
 import type {
   SandboxCommand,
@@ -195,7 +196,7 @@ class ContainerSandboxHandle<TNative> implements ContainerSandbox<TNative> {
     );
   }
 
-  startProcess(
+  async startProcess(
     command: SandboxCommand,
     options: SandboxExecOptions = {}
   ): Promise<ContainerProcess> {
@@ -222,9 +223,19 @@ class ContainerSandboxHandle<TNative> implements ContainerSandbox<TNative> {
     );
   }
 
+  /**
+   * Every process — exec, spawn, start, shell — resolves `cwd` the same way:
+   * relative to the working directory, refused if it escapes or is malformed.
+   */
+  private cwd(cwd: string | undefined): string {
+    return cwd === undefined
+      ? this.spec.workdir
+      : normalizeSandboxPath(cwd, this.spec.workdir);
+  }
+
   private execOptions(options: SandboxExecOptions): ContainerExecOptions {
     return {
-      cwd: options.cwd ?? this.spec.workdir,
+      cwd: this.cwd(options.cwd),
       env: { ...this.spec.env, ...options.environment },
       ...(options.user === undefined ? {} : { user: options.user }),
       ...(options.signal === undefined ? {} : { signal: options.signal }),
@@ -258,7 +269,9 @@ class ContainerSandboxHandle<TNative> implements ContainerSandbox<TNative> {
     this.assertActive("copyOut");
     const type = await this.instance.stat(path);
     if (type === undefined) {
-      throw new Error(`No file found at ${path}`);
+      throw new SandboxError("invalid-contract", `No file found at ${path}`, {
+        details: { path },
+      });
     }
     if (type === "file") {
       return { [path]: await this.instance.readFile(path) };
@@ -312,7 +325,7 @@ class ContainerSandboxHandle<TNative> implements ContainerSandbox<TNative> {
       ? normalizeCommand(options.command)
       : ["/bin/sh"];
     return this.instance.execStream(command, {
-      cwd: options.cwd ?? this.spec.workdir,
+      cwd: this.cwd(options.cwd),
       env: { ...this.spec.env, ...options.environment },
     });
   }
@@ -330,7 +343,7 @@ class ContainerSandboxHandle<TNative> implements ContainerSandbox<TNative> {
     if (this.#status !== "running") {
       return;
     }
-    this.lifetime.abort(new Error("Sandbox stopped"));
+    this.lifetime.abort(new SandboxError("cancelled", "Sandbox stopped"));
     await this.instance.stop();
     this.#status = "stopped";
   }
@@ -339,7 +352,7 @@ class ContainerSandboxHandle<TNative> implements ContainerSandbox<TNative> {
     if (this.#status === "removed") {
       return;
     }
-    this.lifetime.abort(new Error("Sandbox removed"));
+    this.lifetime.abort(new SandboxError("cancelled", "Sandbox removed"));
     await this.instance.remove();
     this.#status = "removed";
   }
@@ -350,7 +363,10 @@ class ContainerSandboxHandle<TNative> implements ContainerSandbox<TNative> {
 
   private assertActive(op: string) {
     if (this.#status === "removed") {
-      throw new Error(`Cannot ${op}: sandbox ${this.id} has been removed`);
+      throw new SandboxError(
+        "invalid-transition",
+        `Cannot ${op}: sandbox ${this.id} has been removed`
+      );
     }
   }
 }

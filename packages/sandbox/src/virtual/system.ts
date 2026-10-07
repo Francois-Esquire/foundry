@@ -205,7 +205,11 @@ function virtualFilesystemFacet(
       const target = at(path);
       const stats = await fs.lstat(target);
       if (!stats.isFile || stats.isSymbolicLink) {
-        throw new Error(`Cannot replace a non-regular file: ${target}`);
+        throw new SandboxError(
+          "invalid-contract",
+          `Cannot replace a non-regular file: ${target}`,
+          { details: { path: target } }
+        );
       }
       const resolved = await fs.realpath(target);
       const slash = resolved.lastIndexOf("/");

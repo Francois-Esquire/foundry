@@ -29,7 +29,11 @@ import type {
 export interface CreateContainersOptions {
   /** Canonical host directories a spec may bind mounts from. */
   readonly allowedMountRoots?: readonly string[];
-  /** Defaults applied under every spec: image, workdir, labels. */
+  /**
+   * Defaults every spec resolves over: a field the spec sets wins, `env` and
+   * labels merge key by key, and the rest — pull policy, network, resources —
+   * falls back to these. The registry always assigns the native name.
+   */
   readonly config?: ContainerConfig;
   /** Host-derived label separating this data directory's VMs from any other. */
   readonly instanceLabel: string;

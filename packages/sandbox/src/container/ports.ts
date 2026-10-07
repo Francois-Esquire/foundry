@@ -1,5 +1,6 @@
 import { createServer } from "node:net";
 
+import { SandboxError } from "../errors";
 import type { ContainerPortMapping } from "./types";
 
 const MAX_TCP_PORT = 65_535;
@@ -12,10 +13,16 @@ export function assertGuestPorts(guestPorts: readonly number[]): void {
   const seen = new Set<number>();
   for (const port of guestPorts) {
     if (!isTcpPort(port)) {
-      throw new RangeError("guest ports must be integers from 1 through 65535");
+      throw new SandboxError(
+        "invalid-contract",
+        "guest ports must be integers from 1 through 65535",
+        { details: { port } }
+      );
     }
     if (seen.has(port)) {
-      throw new RangeError("guest ports must be unique");
+      throw new SandboxError("invalid-contract", "guest ports must be unique", {
+        details: { port },
+      });
     }
     seen.add(port);
   }
@@ -53,7 +60,9 @@ function freeLoopbackPort(): Promise<number> {
         if (port > 0) {
           resolve(port);
         } else {
-          reject(new Error("could not reserve a host port"));
+          reject(
+            new SandboxError("provider-failed", "could not reserve a host port")
+          );
         }
       });
     });

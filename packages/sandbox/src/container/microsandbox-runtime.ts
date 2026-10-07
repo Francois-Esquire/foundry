@@ -8,7 +8,7 @@ import type {
   Sandbox as MicroSandbox,
   SandboxBuilder,
 } from "microsandbox";
-
+import { SandboxError } from "../errors";
 import type {
   SandboxDirectoryEntry,
   SandboxExecResult,
@@ -345,10 +345,16 @@ function assertPrivatePortMapping(
   mapping: ContainerSpec["ports"][number]
 ): void {
   if (mapping.host !== "127.0.0.1") {
-    throw new TypeError("VM ports may bind only to the loopback interface");
+    throw new SandboxError(
+      "invalid-contract",
+      "VM ports may bind only to the loopback interface"
+    );
   }
   if (!(isTcpPort(mapping.guestPort) && isTcpPort(mapping.hostPort))) {
-    throw new RangeError("VM port mappings must contain valid TCP ports");
+    throw new SandboxError(
+      "invalid-contract",
+      "VM port mappings must contain valid TCP ports"
+    );
   }
 }
 
@@ -375,7 +381,7 @@ class MicrosandboxInstance implements ContainerInstance<MicroSandbox> {
   ): Promise<SandboxExecResult> {
     const [cmd, ...args] = command;
     if (cmd === undefined) {
-      throw new Error("exec requires a command");
+      throw new SandboxError("invalid-contract", "exec requires a command");
     }
 
     // The SDK has no AbortSignal seam, so a cancellable exec goes through the
@@ -403,7 +409,10 @@ class MicrosandboxInstance implements ContainerInstance<MicroSandbox> {
   ): Promise<SandboxShell> {
     const [cmd, ...args] = command;
     if (cmd === undefined) {
-      throw new Error("execStream requires a command");
+      throw new SandboxError(
+        "invalid-contract",
+        "execStream requires a command"
+      );
     }
 
     // A TTY merges stdout+stderr into the single un-framed stream a terminal
@@ -459,7 +468,10 @@ class MicrosandboxInstance implements ContainerInstance<MicroSandbox> {
   ): Promise<ContainerProcess> {
     const [cmd, ...args] = command;
     if (cmd === undefined) {
-      throw new Error("startProcess requires a command");
+      throw new SandboxError(
+        "invalid-contract",
+        "startProcess requires a command"
+      );
     }
     const handle = await this.native.execStreamWith(cmd, (builder) =>
       configureExec(builder, args, options).tty(false).stdinNull()
@@ -477,12 +489,13 @@ class MicrosandboxInstance implements ContainerInstance<MicroSandbox> {
     options.signal?.throwIfAborted();
     const [cmd, ...args] = command;
     if (cmd === undefined) {
-      throw new Error("spawn requires a command");
+      throw new SandboxError("invalid-contract", "spawn requires a command");
     }
     const cancellation = Promise.withResolvers<never>();
     const abort = () =>
       cancellation.reject(
-        options.signal?.reason ?? new Error("Process launch aborted")
+        options.signal?.reason ??
+          new SandboxError("cancelled", "Process launch aborted")
       );
     options.signal?.addEventListener("abort", abort, { once: true });
     try {
@@ -631,7 +644,7 @@ async function collectWithSignal(
 ): Promise<SandboxExecResult> {
   if (signal.aborted) {
     await handle.kill().catch(() => undefined);
-    throw new Error("exec aborted");
+    throw new SandboxError("cancelled", "exec aborted");
   }
   // Raced rather than polled, so an abort rejects immediately instead of
   // waiting for the killed process to finish draining.
@@ -639,7 +652,7 @@ async function collectWithSignal(
   const aborted = new Promise<never>((_resolve, reject) => {
     onAbort = () => {
       handle.kill().catch(() => undefined);
-      reject(new Error("exec aborted"));
+      reject(new SandboxError("cancelled", "exec aborted"));
     };
     signal.addEventListener("abort", onAbort, { once: true });
   });

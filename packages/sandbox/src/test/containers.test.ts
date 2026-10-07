@@ -37,6 +37,53 @@ function fixture(instanceLabel = "instance-a") {
 }
 
 describe("containers registry", () => {
+  it("resolves every spec over the registry's config defaults", async () => {
+    const runtime = createFakeContainerRuntime();
+    const containers = createContainers({
+      config: {
+        env: { NODE_ENV: "production", TZ: "UTC" },
+        image: "docker.io/library/alpine:3",
+        labels: { team: "core" },
+        network: "unrestricted",
+        pull: "never",
+      },
+      instanceLabel: "defaults",
+      runtime,
+      store: createMemoryContainerStore(),
+    });
+
+    const inherited = await containers.start({
+      format: "foundry.sandbox.container/1",
+    });
+    expect(runtime.instances[0]?.spec).toMatchObject({
+      disableNetwork: false,
+      env: { NODE_ENV: "production", TZ: "UTC" },
+      image: "docker.io/library/alpine:3",
+      labels: { team: "core" },
+      network: "unrestricted",
+      pull: "never",
+    });
+
+    const own = await containers.start({
+      format: "foundry.sandbox.container/1",
+      image: "docker.io/oven/bun:1",
+      labels: { team: "edge" },
+      network: "disabled",
+      publicEnvironment: { NODE_ENV: "test" },
+    });
+    expect(runtime.instances[1]?.spec).toMatchObject({
+      disableNetwork: true,
+      env: { NODE_ENV: "test", TZ: "UTC" },
+      image: "docker.io/oven/bun:1",
+      labels: { team: "edge" },
+      network: "disabled",
+      pull: "never",
+    });
+
+    await inherited.close();
+    await own.close();
+  });
+
   it("start inserts a row, boots a labeled VM, and hands back a ready sandbox", async () => {
     const { runtime, store, containers } = fixture();
     const c = await containers.start(SPEC);

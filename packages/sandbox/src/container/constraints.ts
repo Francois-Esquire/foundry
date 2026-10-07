@@ -130,42 +130,51 @@ export type ContainerSandboxMount = NonNullable<
   ContainerSandboxConstraints["mounts"]
 >[number];
 
+/**
+ * The container config approved constraints describe, over the registry's
+ * own defaults: a field the constraints set wins, `env` and `labels` merge
+ * key by key, and anything the constraints leave out — pull policy, network,
+ * resource fields — falls back to `defaults`.
+ */
 export function containerSandboxConfigFromConstraints(
   constraints: ContainerSandboxConstraints | undefined,
-  fallback: ContainerConfig = {}
+  defaults: ContainerConfig = {}
 ): ContainerConfig {
   if (constraints === undefined) {
-    return fallback;
+    return defaults;
   }
+  const { network, resources } = constraints;
   return Object.freeze({
-    ...(constraints.image === undefined ? {} : { image: constraints.image }),
-    ...(constraints.workdir === undefined
+    ...defaults,
+    ...defined({
+      detached: constraints.detached,
+      env: merged(defaults.env, constraints.publicEnvironment),
+      image: constraints.image,
+      labels: merged(defaults.labels, constraints.labels),
+      ports: constraints.ports && [...constraints.ports],
+      resources: resources && { ...defaults.resources, ...defined(resources) },
+      workdir: constraints.workdir,
+    }),
+    ...(network === undefined
       ? {}
-      : { workdir: constraints.workdir }),
-    ...(constraints.publicEnvironment === undefined
-      ? {}
-      : { env: { ...constraints.publicEnvironment } }),
-    ...(constraints.labels === undefined
-      ? {}
-      : { labels: { ...constraints.labels } }),
-    ...(constraints.ports === undefined
-      ? {}
-      : { ports: [...constraints.ports] }),
-    ...(constraints.resources === undefined
-      ? {}
-      : {
-          resources: {
-            cpus: constraints.resources.cpus,
-            memoryBytes: constraints.resources.memoryBytes,
-            pids: constraints.resources.pids,
-          },
-        }),
-    disableNetwork: constraints.network !== "unrestricted",
-    ...(constraints.network === undefined
-      ? {}
-      : { network: constraints.network }),
-    ...(constraints.detached === undefined
-      ? {}
-      : { detached: constraints.detached }),
+      : { disableNetwork: network !== "unrestricted", network }),
   });
+}
+
+function merged(
+  base: Readonly<Record<string, string>> | undefined,
+  overrides: Readonly<Record<string, string>> | undefined
+): Record<string, string> | undefined {
+  return base === undefined && overrides === undefined
+    ? undefined
+    : { ...base, ...overrides };
+}
+
+/** Only the fields that are set, so spreading never clears a default. */
+function defined<T extends object>(
+  fields: T
+): { [K in keyof T]?: Exclude<T[K], undefined> } {
+  return Object.fromEntries(
+    Object.entries(fields).filter(([, value]) => value !== undefined)
+  ) as { [K in keyof T]?: Exclude<T[K], undefined> };
 }

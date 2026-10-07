@@ -480,8 +480,12 @@ function grepCommand(
   return ["grep", "-r", ...flags, "-e", input.pattern, target];
 }
 
-function grepError(stderr: string, exitCode: number): Error {
-  return new Error(`grep failed: ${stderr.trim() || `exit ${exitCode}`}`);
+function grepError(stderr: string, exitCode: number): SandboxError {
+  return new SandboxError(
+    "provider-failed",
+    `grep failed: ${stderr.trim() || `exit ${exitCode}`}`,
+    { details: { exitCode } }
+  );
 }
 
 function combineSignals(

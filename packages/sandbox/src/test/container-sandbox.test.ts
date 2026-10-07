@@ -1,6 +1,6 @@
 import { Buffer } from "node:buffer";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   createContainerSandbox,
@@ -59,6 +59,10 @@ describe("resolveContainerSpec", () => {
     await expect(resolveContainerSpec({ ports: [3000, 3000] })).rejects.toThrow(
       DUPLICATE_PORT_ERROR
     );
+    await expect(resolveContainerSpec({ ports: [0] })).rejects.toMatchObject({
+      code: "invalid-contract",
+      name: "SandboxError",
+    });
   });
 });
 
@@ -136,6 +140,48 @@ describe("container sandbox", () => {
     expect(box.workdir).toBe("/srv");
   });
 
+  it("resolves cwd the same way for exec, spawn, start, and shell", async () => {
+    await using box = await createContainerSandbox(
+      { workdir: "/srv" },
+      { runtime: createFakeContainerRuntime() }
+    );
+    const instance = box.native;
+    const seen: string[] = [];
+    const record = (
+      _command: string[],
+      options: { readonly cwd: string }
+    ): never => {
+      seen.push(options.cwd);
+      return undefined as never;
+    };
+    vi.spyOn(instance, "exec").mockImplementation(record);
+    vi.spyOn(instance, "spawn").mockImplementation(record);
+    vi.spyOn(instance, "startProcess").mockImplementation(record);
+    vi.spyOn(instance, "execStream").mockImplementation(record);
+
+    await box.exec(["true"], { cwd: "app" });
+    await box.spawn(["true"], { cwd: "app/src" });
+    await box.startProcess(["true"], { cwd: "/opt/./tool" });
+    await box.openShell({ cwd: "app" });
+    await box.exec(["true"]);
+    expect(seen).toEqual([
+      "/srv/app",
+      "/srv/app/src",
+      "/opt/tool",
+      "/srv/app",
+      "/srv",
+    ]);
+
+    for (const run of [
+      () => box.exec(["true"], { cwd: "../etc" }),
+      () => box.spawn(["true"], { cwd: "../etc" }),
+      () => box.startProcess(["true"], { cwd: "../etc" }),
+      () => box.openShell({ cwd: "../etc" }),
+    ]) {
+      await expect(run()).rejects.toMatchObject({ code: "invalid-contract" });
+    }
+  });
+
   it("copies a directory tree out as a flat path map", async () => {
     const runtime = createFakeContainerRuntime({
       files: {
@@ -187,5 +233,8 @@ describe("container sandbox", () => {
     expect(runtime.instances[0]?.removed).toBe(true);
     expect(box.status).toBe("removed");
     await expect(box.exec(["true"])).rejects.toThrow(REMOVED_CONTAINER_ERROR);
+    await expect(box.exec(["true"])).rejects.toMatchObject({
+      code: "invalid-transition",
+    });
   });
 });

@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
+import { SandboxError } from "./errors";
 import type { SandboxPipedProcess } from "./types";
 
 export function processError(value: unknown): Error {
@@ -42,7 +43,12 @@ export class ProcessController
     for (const stream of [this.stdout, this.stderr]) {
       stream.once("close", () => {
         if (!this.settled) {
-          this.fail(new Error("Process output closed before completion"));
+          this.fail(
+            new SandboxError(
+              "provider-failed",
+              "Process output closed before completion"
+            )
+          );
         }
       });
     }

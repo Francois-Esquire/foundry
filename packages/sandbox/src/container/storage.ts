@@ -2,6 +2,7 @@ import { posix } from "node:path";
 
 import type { EntryStats, Storage } from "@foundry/core/storage";
 
+import { SandboxError } from "../errors";
 import type { SandboxExecResult } from "../types";
 
 interface GuestFiles {
@@ -42,7 +43,11 @@ export function guestStorage(
   const run = async (argv: string[]): Promise<string> => {
     const result = await exec(argv);
     if (result.exitCode !== 0) {
-      throw new Error(result.stderr || `${argv[0]} failed`);
+      throw new SandboxError(
+        "provider-failed",
+        result.stderr || `${argv[0]} failed`,
+        { details: { command: argv[0], exitCode: result.exitCode } }
+      );
     }
     return result.stdout;
   };
@@ -74,20 +79,30 @@ export function guestStorage(
     async readLink(path) {
       const result = await run(["readlink", "-z", "--", path]);
       if (!result.endsWith("\0")) {
-        throw new Error("Guest readlink returned no target");
+        throw new SandboxError(
+          "provider-failed",
+          "Guest readlink returned no target"
+        );
       }
       return result.slice(0, -1);
     },
     async realpath(path) {
       const result = await run(["readlink", "-ez", "--", path]);
       if (!result.endsWith("\0")) {
-        throw new Error("Guest readlink returned no canonical path");
+        throw new SandboxError(
+          "provider-failed",
+          "Guest readlink returned no canonical path"
+        );
       }
       return result.slice(0, -1);
     },
     async replaceFile(path, bytes) {
       if ((await inspect(path)).type !== "file") {
-        throw new Error(`Cannot replace a non-regular file: ${path}`);
+        throw new SandboxError(
+          "invalid-contract",
+          `Cannot replace a non-regular file: ${path}`,
+          { details: { path } }
+        );
       }
       const { mode } = await fs.stat(path);
       const temp = posix.join(

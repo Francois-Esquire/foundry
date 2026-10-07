@@ -2,6 +2,7 @@ import { once } from "node:events";
 import { constants } from "node:os";
 import { Writable } from "node:stream";
 import type { ExecHandle, ExecSink } from "microsandbox";
+import { SandboxError } from "../errors";
 import { ProcessController, processError } from "../process-controller";
 import type { SandboxPipedProcess } from "../types";
 
@@ -15,7 +16,10 @@ export async function pipedProcess(
     sink = await handle.takeStdin();
     signal?.throwIfAborted();
     if (!sink) {
-      throw new Error("Piped process did not provide stdin");
+      throw new SandboxError(
+        "provider-failed",
+        "Piped process did not provide stdin"
+      );
     }
   } catch (error) {
     await handle.kill();
@@ -28,7 +32,10 @@ export async function pipedProcess(
         ? value
         : constants.signals[value as NodeJS.Signals];
     if (number === undefined) {
-      throw new Error(`Unknown process signal: ${value}`);
+      throw new SandboxError(
+        "invalid-contract",
+        `Unknown process signal: ${value}`
+      );
     }
     await handle.signal(number);
   });
@@ -73,7 +80,10 @@ async function forwardOutput(
     // SDK 0.6.18 emits undefined for a failed guest spawn despite its declaration.
     if (event === undefined) {
       await handle.wait();
-      throw new Error("MicroSandbox returned an invalid exec event");
+      throw new SandboxError(
+        "provider-failed",
+        "MicroSandbox returned an invalid exec event"
+      );
     }
     if (event.kind === "stdout" || event.kind === "stderr") {
       const output = event.kind === "stdout" ? process.stdout : process.stderr;
