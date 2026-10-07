@@ -100,32 +100,25 @@ const feedMetadataSchema = z.object({
 });
 export type FeedMetadata = z.infer<typeof feedMetadataSchema>;
 
-/** A feed entry's Artifact with its parsed provenance. */
-export interface FeedArtifact {
-  readonly artifact: ArtifactResolved;
-  readonly feed: FeedMetadata;
-}
-
-/**
- * Every feed entry in the store, in list order. Entries whose metadata this
- * version cannot read are skipped, not fatal.
- */
-export async function listFeedEntries(
+/** Every feed entry Artifact in the store, in list order, all pages. */
+export function listFeedArtifacts(
   artifacts: Pick<Artifacts, "list">
-): Promise<FeedArtifact[]> {
-  const found = await collectPages((cursor: ArtifactCursor | undefined) =>
+): Promise<ArtifactResolved[]> {
+  return collectPages((cursor: ArtifactCursor | undefined) =>
     artifacts.list({
       limit: PAGE_SIZE,
       type: FEED_ENTRY_TYPE,
       ...(cursor ? { cursor } : {}),
     })
   );
-  return found.flatMap((artifact) => {
-    const parsed = feedMetadataSchema.safeParse(
-      artifact.content?.metadata.feed
-    );
-    return parsed.success ? [{ artifact, feed: parsed.data }] : [];
-  });
+}
+
+/** The entry's provenance, or `undefined` when this version cannot read it. */
+export function feedMetadataOf(
+  artifact: ArtifactResolved
+): FeedMetadata | undefined {
+  const parsed = feedMetadataSchema.safeParse(artifact.content?.metadata.feed);
+  return parsed.success ? parsed.data : undefined;
 }
 
 /**
@@ -199,9 +192,11 @@ export function feedPublisher(
   async function cancelAbandoned(): Promise<number> {
     let cancelled = 0;
     // Listed in full first: rewriting entries while paging could reorder pages.
-    for (const { artifact, feed: saved } of await listFeedEntries(artifacts)) {
-      const { input } = saved;
+    for (const artifact of await listFeedArtifacts(artifacts)) {
+      const saved = feedMetadataOf(artifact);
+      const input = saved?.input;
       if (
+        !saved ||
         input?.status !== "open" ||
         input.delivery === "deferred" ||
         (input.pid !== undefined && isAlive(input.pid))

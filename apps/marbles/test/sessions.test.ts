@@ -1,4 +1,5 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SessionPart, SessionStore } from "@foundry/agents/session";
@@ -160,13 +161,103 @@ describe("JsonSessionStore across instances", () => {
     await expect(store.getSession("broken")).resolves.toBeNull();
     await expect(
       store.appendMessage({ parts, role: "user", sessionId: "wrong" })
-    ).rejects.toThrow("unknown session");
+    ).rejects.toThrow("not a readable session");
     expect(warnings).toEqual(
       expect.arrayContaining([
         "[sessions] skipped broken.json: not JSON",
         "[sessions] skipped wrong.json: not a session file",
       ])
     );
+  });
+
+  it("never replaces an unreadable file with a fresh session", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "marbles-sessions-"));
+    const path = join(dir, "nightly.json");
+    writeFileSync(path, "{damaged");
+    const store = new JsonSessionStore(dir);
+
+    // The harness creates a session it cannot find; here that must fail loudly.
+    await expect(store.getSession("nightly")).resolves.toBeNull();
+    await expect(store.createSession({ id: "nightly" })).rejects.toThrow(
+      "repair or remove it"
+    );
+    expect(readFileSync(path, "utf8")).toBe("{damaged");
+  });
+
+  it("resumes, not resets, a session two stores both found missing", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "marbles-sessions-"));
+    const first = new JsonSessionStore(dir);
+    const second = new JsonSessionStore(dir);
+    const created = await first.createSession({ id: "s", title: "first" });
+    await first.appendMessage({ parts, role: "user", sessionId: "s" });
+
+    await expect(
+      second.createSession({ id: "s", title: "second" })
+    ).resolves.toMatchObject({
+      createdAt: created.createdAt,
+      id: "s",
+      title: "first",
+    });
+    await expect(second.listMessages("s")).resolves.toHaveLength(1);
+  });
+
+  it("builds on what another process wrote to the file", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "marbles-sessions-"));
+    const path = join(dir, "s.json");
+    const store = new JsonSessionStore(dir);
+    const message = (id: string, createdAt: number) => ({
+      createdAt,
+      id,
+      parts,
+      role: "user",
+      sessionId: "s",
+      status: "complete",
+      updatedAt: createdAt,
+    });
+    // Another process, with nothing in common but the file.
+    writeFileSync(
+      path,
+      JSON.stringify({
+        messages: [message("outside-1", 1)],
+        session: {
+          createdAt: 1,
+          id: "s",
+          status: "active",
+          title: null,
+          updatedAt: 1,
+        },
+      })
+    );
+
+    const mine = await store.appendMessage({
+      parts,
+      role: "assistant",
+      sessionId: "s",
+    });
+    const saved = JSON.parse(readFileSync(path, "utf8"));
+    saved.messages.push(message("outside-2", 3));
+    writeFileSync(path, JSON.stringify(saved));
+    await store.updateMessage("outside-2", { status: "error" });
+
+    const ids = (await store.listMessages("s")).map((m) => m.id);
+    expect(ids).toEqual(["outside-1", mine.id, "outside-2"]);
+    await expect(store.listMessages("s")).resolves.toMatchObject([
+      {},
+      {},
+      { status: "error" },
+    ]);
+  });
+
+  it("takes over a lock left by a process that exited", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "marbles-sessions-"));
+    const store = new JsonSessionStore(dir);
+    await store.createSession({ id: "s" });
+    const { pid } = spawnSync(process.execPath, ["-e", ""]);
+    writeFileSync(join(dir, "s.json.lock"), String(pid));
+
+    await store.appendMessage({ parts, role: "user", sessionId: "s" });
+    await expect(store.listMessages("s")).resolves.toHaveLength(1);
+    expect(existsSync(join(dir, "s.json.lock"))).toBe(false);
   });
 });
 

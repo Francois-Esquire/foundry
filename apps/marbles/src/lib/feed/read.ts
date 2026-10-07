@@ -1,10 +1,10 @@
-import type { Artifacts } from "@foundry/artifacts";
+import type { ArtifactResolved, Artifacts } from "@foundry/artifacts";
 import { isUsableContent } from "@foundry/artifacts";
 import { classifyFile } from "@foundry/lib/file-classification";
 import type { AskMode, InputDelivery, InputStatus } from "~/lib/feed/entry";
 import { FEED_ENTRY_FILE } from "~/lib/feed/entry";
-import type { FeedArtifact, FeedMetadata } from "~/lib/feed/publish";
-import { listFeedEntries } from "~/lib/feed/publish";
+import type { FeedMetadata } from "~/lib/feed/publish";
+import { feedMetadataOf, listFeedArtifacts } from "~/lib/feed/publish";
 
 export interface FeedMediaSnapshot {
   /** Loaded for images only, which the reader draws inline. */
@@ -68,10 +68,9 @@ export function feedReader(
       readonly version: string;
     }
   >();
-  async function load({
-    artifact,
-    feed,
-  }: FeedArtifact): Promise<Omit<FeedEntrySnapshot, "posted"> | undefined> {
+  async function load(
+    artifact: ArtifactResolved
+  ): Promise<Omit<FeedEntrySnapshot, "posted"> | undefined> {
     const { content } = artifact;
     if (!isUsableContent(content)) {
       return;
@@ -80,6 +79,11 @@ export function feedReader(
     const cached = cache.get(artifact.id);
     if (cached?.version === version) {
       return cached.entry;
+    }
+    // Parsed only for a new or changed entry: the dashboard polls this.
+    const feed = feedMetadataOf(artifact);
+    if (!feed) {
+      return;
     }
     const body = await artifacts.readFile(content.id, FEED_ENTRY_FILE);
     const media = await Promise.all(
@@ -120,7 +124,7 @@ export function feedReader(
   }
   return async (now = new Date()) => {
     const entries = await Promise.all(
-      (await listFeedEntries(artifacts)).map(load)
+      (await listFeedArtifacts(artifacts)).map(load)
     );
     return entries
       .filter((entry) => entry !== undefined)

@@ -83,6 +83,7 @@ export type { ReadonlyRunScopes, RunScope } from "./run-scope";
 export type { ActivityRecord, HarnessActivities } from "./sandbox/activities";
 export type { HarnessInteractions } from "./sandbox/interactions";
 export type { SandboxAuthority } from "./sandbox/session";
+export type { JsonSessionStoreOptions } from "./sessions/json-store";
 export { JsonSessionStore } from "./sessions/json-store";
 export type { Lock } from "./state/locks";
 export type {

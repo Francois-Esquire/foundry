@@ -139,10 +139,13 @@ function modelsFor({
   return models;
 }
 
-function sessionsFor(state: string | undefined): SessionStore {
+function sessionsFor(
+  state: string | undefined,
+  print: (line: string) => void
+): SessionStore {
   return state === undefined
     ? new InMemorySessionStore()
-    : new JsonSessionStore(join(state, "sessions"));
+    : new JsonSessionStore(join(state, "sessions"), { warn: print });
 }
 
 /** Started at the first sandbox: the runtime is optional and slow to start. */
@@ -189,7 +192,7 @@ export function createEngine(options: CreateEngineOptions): Engine {
     models: modelsFor(options),
     print,
     root,
-    sessions: sessionsFor(state),
+    sessions: sessionsFor(state, print),
     state,
     workspaceId,
     worktrees,

@@ -16,12 +16,17 @@ import type {
 import {
   AbstractSessionStore,
   foldSet,
+  MESSAGE_STATUSES,
   newSessionMessage,
   newSessionRecord,
   patchSessionMessage,
   patchSessionRecord,
+  SESSION_ROLES,
+  SESSION_STATUSES,
 } from "@foundry/agents/session";
 import { hasErrorCode, writeFileAtomic } from "@foundry/lib/atomic-file";
+import { FileLockTimeoutError, withFileLock } from "@foundry/lib/file-lock";
+import { KeyedQueue } from "@foundry/lib/keyed-queue";
 import { z } from "zod";
 import { isRecord } from "~/lib/state/json";
 
@@ -34,10 +39,18 @@ import { isRecord } from "~/lib/state/json";
  * dashboard, a launchd `roll`) wrote is seen, and appending here does not
  * overwrite what it appended. Each mutation is one read-change-write of one
  * file through a temp-and-rename, which is what makes `summarize` atomic.
- * Mutations of one file are queued in this process, across store instances.
- * Two processes changing the same session in the same instant can still lose
- * one change: there is no cross-process lock, because a lock a crashed process
- * left behind would stall every session.
+ * Mutations of one file take turns: queued within this process across store
+ * instances, and across processes under `<sessionId>.json.lock`, which holds
+ * the writer's pid. A lock whose process has exited is replaced, so a crash
+ * cannot stall a session.
+ *
+ * A file that exists but does not read as a session is never overwritten:
+ * reads skip it (and say so through `warn`), and mutations, `createSession`
+ * included, throw until someone repairs or removes it.
+ *
+ * `createSession` with the id of a session that exists returns that session
+ * unchanged, like `InMemorySessionStore`: two hosts that both saw it missing
+ * must not reset each other's history.
  *
  * Deliberately not a database. The session id is the file name, so a
  * scheduled workflow that names its session finds it again next process.
@@ -53,10 +66,6 @@ export interface JsonSessionStoreOptions {
   readonly warn?: (line: string) => void;
 }
 
-const SESSION_STATUSES = ["active", "archived", "error"] as const;
-const MESSAGE_STATUSES = ["streaming", "complete", "error"] as const;
-const ROLES = ["user", "assistant", "system", "tool", "summary"] as const;
-
 /** The shape the store relies on; unknown keys are kept, so a rewrite never drops them. */
 const sessionFileSchema: z.ZodType<SessionFile> = z.object({
   messages: z.array(
@@ -69,7 +78,7 @@ const sessionFileSchema: z.ZodType<SessionFile> = z.object({
           (part) => isRecord(part) && typeof part.type === "string"
         )
       ),
-      role: z.enum(ROLES),
+      role: z.enum(SESSION_ROLES),
       sessionId: z.string(),
       status: z.enum(MESSAGE_STATUSES),
       summarized: z.boolean().optional(),
@@ -89,9 +98,17 @@ const sessionFileSchema: z.ZodType<SessionFile> = z.object({
 });
 
 const SUFFIX = ".json";
+/** How long a mutation waits for another live process's write. */
+const LOCK_WAIT_MS = 10_000;
 
 /** Mutations queued per file path, shared by every store in this process. */
-const queues = new Map<string, Promise<void>>();
+const queue = new KeyedQueue();
+
+/** A session's file as it is now. */
+type Read =
+  | { readonly kind: "missing" }
+  | { readonly kind: "unreadable"; readonly reason: string }
+  | { readonly kind: "session"; readonly file: SessionFile };
 
 type Change<T> = (file: SessionFile | undefined) =>
   | {
@@ -127,25 +144,29 @@ export class JsonSessionStore extends AbstractSessionStore {
         }
         throw error;
       }
-      const file = this.#parse(id, contents);
-      if (file) {
-        records.push(file.session);
+      const read = this.#parse(id, contents);
+      if (read.kind === "session") {
+        records.push(read.file.session);
+      } else if (read.kind === "unreadable") {
+        this.#skipped(id, read.reason);
       }
     }
     return records.sort((a, b) => b.updatedAt - a.updatedAt);
   }
 
+  /** Creates the session, or returns the one already filed under `input.id`. */
   async createSession(input: CreateSessionInput = {}): Promise<SessionRecord> {
     const session = newSessionRecord(input);
-    await this.#change(session.id, () => ({
-      file: { messages: [], session },
-      result: session,
-    }));
-    return session;
+    const created = await this.#change(session.id, (file) =>
+      file
+        ? { result: file.session }
+        : { file: { messages: [], session }, result: session }
+    );
+    return created ?? session;
   }
 
   async getSession(id: string): Promise<SessionRecord | null> {
-    return (await this.#read(id))?.session ?? null;
+    return (await this.#readable(id))?.session ?? null;
   }
 
   async updateSession(
@@ -206,9 +227,17 @@ export class JsonSessionStore extends AbstractSessionStore {
         return updated;
       }
     }
-    // Not where it was last seen, or written by another process: look everywhere.
+    // Not where it was last seen, or written by another process: look in
+    // every readable session. An unreadable one cannot hold it.
     for (const sessionId of this.#ids()) {
       if (sessionId === owner) {
+        continue;
+      }
+      const read = await this.#read(sessionId);
+      if (
+        read.kind !== "session" ||
+        !read.file.messages.some((message) => message.id === id)
+      ) {
         continue;
       }
       const updated = await this.#change(sessionId, update);
@@ -220,7 +249,7 @@ export class JsonSessionStore extends AbstractSessionStore {
   }
 
   async listMessages(sessionId: string): Promise<SessionMessage[]> {
-    return [...((await this.#read(sessionId))?.messages ?? [])];
+    return [...((await this.#readable(sessionId))?.messages ?? [])];
   }
 
   /** The base implementation is a loop of writes; this is one. */
@@ -271,70 +300,103 @@ export class JsonSessionStore extends AbstractSessionStore {
       .map((entry) => entry.slice(0, -SUFFIX.length));
   }
 
-  /** The session's file as it is now; `undefined` when missing or unreadable. */
-  async #read(id: string): Promise<SessionFile | undefined> {
+  #skipped(id: string, reason: string): void {
+    this.#warn(`[sessions] skipped ${id}${SUFFIX}: ${reason}`);
+  }
+
+  /** The session for a read: an unreadable file reads as absent, with a warning. */
+  async #readable(id: string): Promise<SessionFile | undefined> {
+    const read = await this.#read(id);
+    if (read.kind === "unreadable") {
+      this.#skipped(id, read.reason);
+    }
+    return read.kind === "session" ? read.file : undefined;
+  }
+
+  async #read(id: string): Promise<Read> {
     let contents: string;
     try {
       contents = await readFile(this.#path(id), "utf8");
     } catch (error) {
       if (hasErrorCode(error, "ENOENT")) {
-        return;
+        return { kind: "missing" };
       }
       throw error;
     }
     return this.#parse(id, contents);
   }
 
-  #parse(id: string, contents: string): SessionFile | undefined {
+  #parse(id: string, contents: string): Read {
     let value: unknown;
     try {
       value = JSON.parse(contents);
     } catch {
-      this.#warn(`[sessions] skipped ${id}${SUFFIX}: not JSON`);
-      return;
+      return { kind: "unreadable", reason: "not JSON" };
     }
     const parsed = sessionFileSchema.safeParse(value);
     if (!parsed.success) {
-      this.#warn(`[sessions] skipped ${id}${SUFFIX}: not a session file`);
-      return;
+      return { kind: "unreadable", reason: "not a session file" };
     }
     if (parsed.data.session.id !== id) {
-      this.#warn(
-        `[sessions] skipped ${id}${SUFFIX}: holds session ${parsed.data.session.id}`
-      );
-      return;
+      return {
+        kind: "unreadable",
+        reason: `holds session ${parsed.data.session.id}`,
+      };
     }
     for (const message of parsed.data.messages) {
       this.#owners.set(message.id, id);
     }
-    return parsed.data;
+    return { file: parsed.data, kind: "session" };
   }
 
   /**
    * Read the session's file afresh, apply `change`, and write what it returns,
-   * queued behind every other change to that file in this process. Resolves to
-   * the change's result, or `undefined` when it declined.
+   * taking turns with every other change to that file (see the module
+   * comment). Resolves to the change's result, or `undefined` when it
+   * declined. Throws, writing nothing, when the file exists but is unreadable.
    */
-  async #change<T>(id: string, change: Change<T>): Promise<T | undefined> {
+  #change<T>(id: string, change: Change<T>): Promise<T | undefined> {
     const path = this.#path(id);
-    const previous = queues.get(path) ?? Promise.resolve();
-    const { promise: pending, resolve: done } = Promise.withResolvers<void>();
-    queues.set(path, pending);
-    try {
-      await previous;
-      const outcome = change(await this.#read(id));
-      if (outcome?.file) {
-        await writeFileAtomic(path, JSON.stringify(outcome.file, null, 2));
-        for (const message of outcome.file.messages) {
-          this.#owners.set(message.id, id);
+    return queue.run(path, () =>
+      this.#locked(id, path, async () => {
+        const read = await this.#read(id);
+        if (read.kind === "unreadable") {
+          throw new Error(
+            `[json-session-store] ${path} is not a readable session (${read.reason}); repair or remove it`
+          );
         }
+        const outcome = change(read.kind === "session" ? read.file : undefined);
+        if (outcome?.file) {
+          await writeFileAtomic(path, JSON.stringify(outcome.file, null, 2));
+          for (const message of outcome.file.messages) {
+            this.#owners.set(message.id, id);
+          }
+        }
+        return outcome?.result;
+      })
+    );
+  }
+
+  async #locked<T>(
+    id: string,
+    path: string,
+    operation: () => Promise<T>
+  ): Promise<T> {
+    try {
+      return await withFileLock(`${path}.lock`, operation, {
+        breakStale: true,
+        waitMs: LOCK_WAIT_MS,
+      });
+    } catch (error) {
+      if (!(error instanceof FileLockTimeoutError)) {
+        throw error;
       }
-      return outcome?.result;
-    } finally {
-      done();
-      if (queues.get(path) === pending) {
-        queues.delete(path);
-      }
+      const holder =
+        error.holder === undefined ? "" : ` by process ${String(error.holder)}`;
+      throw new Error(
+        `[json-session-store] session ${id} is locked${holder} (${error.path})`,
+        { cause: error }
+      );
     }
   }
 }
