@@ -22,9 +22,13 @@ export interface LaunchdPlan {
 }
 
 export interface PlanOptions {
+  /** Artifact store the scheduled run publishes its feed to. */
+  readonly artifacts: string;
   readonly config: string;
   readonly cwd: string;
   readonly home: string;
+  /** `--harness` selection carried into the scheduled run; empty keeps every detected harness. */
+  readonly only: readonly string[];
   readonly path: string;
   readonly state: string;
 }
@@ -136,6 +140,9 @@ export function launchdPlan(
       options.config,
       "--state",
       options.state,
+      "--artifacts",
+      options.artifacts,
+      ...options.only.flatMap((id) => ["--harness", id]),
     ],
     trigger: schedule.trigger,
     workingDirectory: options.cwd,
@@ -185,6 +192,24 @@ export function install(
     print(`[launchd] load failed: ${message(error)}`);
     print(`launchctl ${args.join(" ")}`);
   }
+}
+
+/** What `install` or `uninstall` would do, printed under `--dry-run` instead of done. */
+export function preview(
+  action: "install" | "uninstall",
+  plan: LaunchdPlan,
+  print: (line: string) => void
+): void {
+  const bootout = `launchctl bootout ${domain()}/${plan.label}`;
+  if (action === "install") {
+    print(`[launchd] would write ${plan.plistPath}`);
+    print(plan.plist.trimEnd());
+    print(bootout);
+    print(`launchctl bootstrap ${domain()} ${plan.plistPath}`);
+    return;
+  }
+  print(bootout);
+  print(`[launchd] would remove ${plan.plistPath}`);
 }
 
 /** Unloads by label, so it still works once the plist is gone, then removes the file. */

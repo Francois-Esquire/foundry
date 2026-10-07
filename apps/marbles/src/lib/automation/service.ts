@@ -243,13 +243,8 @@ export class AutomationService {
         throw new Error("HTTP monitor URL is not permitted by the host");
       }
     }
-    const trigger = parseAt(spec.at);
-    if (
-      trigger.kind === "interval" &&
-      (!Number.isSafeInteger(trigger.ms) || trigger.ms <= 0)
-    ) {
-      throw new Error("Automation cadence must be a positive safe interval");
-    }
+    // Throws on an unreadable cadence or slot before anything is saved.
+    parseAt(spec.at);
   }
   #register(record: AutomationRecord): void {
     this.#registry.schedules.delete(record.id);

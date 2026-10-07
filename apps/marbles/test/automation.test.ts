@@ -84,6 +84,17 @@ it("rejects changed idempotency keys, invalid target input and foreign mutation"
   ).toThrow("another agent");
 });
 
+it("rejects a cadence too long to schedule", async () => {
+  step("target").do(() => 1);
+  const service = new AutomationService({ registry: catalog });
+  await expect(
+    service.create(
+      { at: "9007199254740993d", key: "job", workflow: "target" },
+      owner
+    )
+  ).rejects.toThrow("must be a positive interval");
+});
+
 it("constrains file sources and requires explicit HTTP permission", async () => {
   step("target").do(() => 1);
   const service = new AutomationService({ registry: catalog });

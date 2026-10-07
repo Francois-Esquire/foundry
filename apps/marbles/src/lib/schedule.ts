@@ -23,7 +23,14 @@ export function parseEvery(every: string): number {
   if (!match || unit === undefined) {
     throw new Error(`cannot read cadence "${every}" (want e.g. 30m, 6h, 1d)`);
   }
-  return Number(match[1]) * unit;
+  const ms = Number(match[1]) * unit;
+  // Zero would fire in a hot loop; past a safe integer the sum in nextDue drifts.
+  if (!Number.isSafeInteger(ms) || ms <= 0) {
+    throw new Error(
+      `cadence "${every}" must be a positive interval that fits in a safe integer`
+    );
+  }
+  return ms;
 }
 
 /** Milliseconds back to the largest unit that divides them: `30s`, `10m`, `6h`. */

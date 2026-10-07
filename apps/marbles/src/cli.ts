@@ -8,7 +8,7 @@ import type { Args } from "~/args";
 import { parseArgs } from "~/args";
 import { catalog } from "~/authoring/catalog";
 import { createEngine, readTriggers } from "~/create";
-import { install, launchdPlan, uninstall } from "~/launchd";
+import { install, launchdPlan, preview, uninstall } from "~/launchd";
 import type { Engine } from "~/lib/engine";
 import { describeMonitor } from "~/lib/monitor";
 import { cadence, clock, tick, weekdays } from "~/lib/schedule";
@@ -48,7 +48,8 @@ const USAGE = `marbles — programmable workspace automation
 
 Each workspace (the project above .foundry/marbles) gets <state>/<id>/ holding
 workspace.json, runs/, schedules/, locks/ and sessions/. Feed entries from every
-workspace share the artifact store. --dry-run disables Marbles state persistence; custom code still runs.`;
+workspace share the artifact store. --dry-run disables Marbles state persistence; custom code still runs.
+Under --dry-run, launchd prints the plist and launchctl commands instead of running them.`;
 
 type WorkspaceState = ReturnType<typeof workspaceState>;
 
@@ -147,12 +148,11 @@ async function listSessions(workspace: WorkspaceState): Promise<void> {
 }
 
 function manageLaunchd(
-  name: string | undefined,
-  target: string | undefined,
+  args: Args,
   schedules: readonly Schedule[],
-  configPath: string,
-  state: string
+  configPath: string
 ): void {
+  const { name, target } = args;
   if (name !== "install" && name !== "uninstall") {
     throw new Error("launchd takes install or uninstall");
   }
@@ -167,13 +167,17 @@ function manageLaunchd(
     throw new Error(`no schedule named "${target}"`);
   }
   const plan = launchdPlan(schedule, {
+    artifacts: resolve(args.artifacts),
     config: configPath,
     cwd: process.cwd(),
     home: homedir(),
+    only: args.only,
     path: process.env.PATH ?? "",
-    state: resolve(state),
+    state: resolve(args.state),
   });
-  if (name === "install") {
+  if (args.dry) {
+    preview(name, plan, print);
+  } else if (name === "install") {
     install(plan, print);
   } else {
     uninstall(plan, print);
@@ -195,7 +199,7 @@ async function handleNonRuntimeCommand(
     return true;
   }
   if (args.command === "launchd") {
-    manageLaunchd(args.name, args.target, schedules, configPath, args.state);
+    manageLaunchd(args, schedules, configPath);
     return true;
   }
   return false;

@@ -14,6 +14,7 @@ import { bindLaunch, launch } from "./helpers/launch";
 const CALENDAR_SLOT_PATTERN = /calendar slot/;
 const CALENDAR_SLOT_PATTERN_2 = /calendar slot/;
 const CADENCE_PATTERN = /cadence/;
+const POSITIVE_CADENCE_PATTERN = /must be a positive interval/;
 const ALREADY_REGISTERED_PATTERN = /already registered/;
 const SHOUT_KEY_PATTERN = /^shout-[0-9a-f]{8}$/;
 const WRAP_PATTERN = /wrap it in workflow/;
@@ -180,6 +181,14 @@ describe("cadence", () => {
     expect(parseEvery("90s")).toBe(90_000);
     expect(parseEvery("1d")).toBe(86_400_000);
     expect(() => parseEvery("weekly")).toThrow(CADENCE_PATTERN);
+  });
+
+  it("rejects a zero or unsafe interval", () => {
+    expect(() => parseEvery("0s")).toThrow(POSITIVE_CADENCE_PATTERN);
+    expect(() => parseEvery("000m")).toThrow(POSITIVE_CADENCE_PATTERN);
+    expect(() => parseEvery("9007199254740993d")).toThrow(
+      POSITIVE_CADENCE_PATTERN
+    );
   });
 
   it("fires from the last completion, so a mid-run tick is skipped", async () => {

@@ -1,9 +1,17 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
-import { install, launchdPlan, uninstall } from "~/launchd";
+import { install, launchdPlan, preview, uninstall } from "~/launchd";
 import type { Schedule, Trigger } from "~/lib/triggers";
 
 const homes: string[] = [];
@@ -30,9 +38,11 @@ const schedule: Schedule = {
 };
 
 const options = {
+  artifacts: "/repo/artifacts",
   config: "/repo/marbles.config.ts",
   cwd: "/repo",
   home: "/home",
+  only: [],
   path: "/usr/bin",
   state: "/repo/.marbles",
 };
@@ -43,13 +53,7 @@ const planWith = (trigger: Trigger) =>
 describe("launchdPlan", () => {
   it("names the label and plist after the schedule", () => {
     const home = fakeHome();
-    const plan = launchdPlan(schedule, {
-      config: "/repo/marbles.config.ts",
-      cwd: "/repo",
-      home,
-      path: "/usr/bin",
-      state: "/repo/.marbles",
-    });
+    const plan = launchdPlan(schedule, { ...options, home });
     expect(plan.label).toBe("com.foundry.marbles.twice-hourly");
     expect(plan.plistPath).toBe(
       join(home, "Library/LaunchAgents/com.foundry.marbles.twice-hourly.plist")
@@ -66,13 +70,27 @@ describe("launchdPlan", () => {
     expect(plan.plist).toContain("<false/>");
   });
 
+  it("carries the artifact store and harness selection into the run", () => {
+    const { plist } = launchdPlan(schedule, {
+      ...options,
+      only: ["codex", "claude-code"],
+    });
+    expect(plist).toContain(`    <string>--state</string>
+    <string>/repo/.marbles</string>
+    <string>--artifacts</string>
+    <string>/repo/artifacts</string>
+    <string>--harness</string>
+    <string>codex</string>
+    <string>--harness</string>
+    <string>claude-code</string>
+  </array>`);
+  });
+
   it("escapes XML in values", () => {
     const plan = launchdPlan(schedule, {
-      config: "/repo/marbles.config.ts",
-      cwd: "/repo",
+      ...options,
       home: fakeHome(),
       path: "/usr/bin:/opt/a&b/bin",
-      state: "/repo/.marbles",
     });
     expect(plan.plist).toContain("<string>/usr/bin:/opt/a&amp;b/bin</string>");
     expect(plan.plist).not.toContain("a&b");
@@ -166,5 +184,78 @@ describe("install / uninstall", () => {
     uninstall(plan, (line) => lines.push(line), failing);
     expect(existsSync(plan.plistPath)).toBe(false);
     expect(lines).toContain(`launchctl bootout ${domain}/${plan.label}`);
+  });
+
+  it("previews without writing or calling launchctl", () => {
+    const home = fakeHome();
+    const lines: string[] = [];
+    const plan = launchdPlan(schedule, { ...options, home });
+
+    preview("install", plan, (line) => lines.push(line));
+    expect(lines).toEqual([
+      `[launchd] would write ${plan.plistPath}`,
+      plan.plist.trimEnd(),
+      `launchctl bootout ${domain}/${plan.label}`,
+      `launchctl bootstrap ${domain} ${plan.plistPath}`,
+    ]);
+    expect(existsSync(join(home, "Library"))).toBe(false);
+
+    lines.length = 0;
+    preview("uninstall", plan, (line) => lines.push(line));
+    expect(lines).toEqual([
+      `launchctl bootout ${domain}/${plan.label}`,
+      `[launchd] would remove ${plan.plistPath}`,
+    ]);
+  });
+});
+
+describe("marbles launchd --dry-run", () => {
+  it("prints the plan with the run's flags and installs nothing", () => {
+    const root = fakeHome();
+    const source = join(root, ".foundry", "marbles");
+    mkdirSync(source, { recursive: true });
+    writeFileSync(
+      join(source, "ping.ts"),
+      `import { schedule, step } from "@foundry/marbles";
+schedule(step("ping").do(() => 1)).every("1h");`
+    );
+    const home = join(root, "home");
+    const argv = [
+      resolve("src/cli.ts"),
+      "launchd",
+      "install",
+      "ping",
+      "--dry-run",
+      "--harness",
+      "codex",
+      "--artifacts",
+      join(root, "feed"),
+      "--state",
+      join(root, "state"),
+    ];
+    const run = () =>
+      execFileSync("bun", argv, {
+        cwd: root,
+        encoding: "utf8",
+        env: { ...process.env, HOME: home },
+        stdio: ["ignore", "pipe", "pipe"],
+        timeout: 15_000,
+      });
+    if (process.platform !== "darwin") {
+      expect(run).toThrow("macOS only");
+      return;
+    }
+    const output = run();
+    expect(output).toContain(
+      `[launchd] would write ${join(home, "Library/LaunchAgents/com.foundry.marbles.ping.plist")}`
+    );
+    expect(output).toContain(`<string>--artifacts</string>
+    <string>${join(root, "feed")}</string>
+    <string>--harness</string>
+    <string>codex</string>`);
+    // Bun writes its own cache under ~/Library, so check the launchd paths.
+    expect(existsSync(join(home, "Library/LaunchAgents"))).toBe(false);
+    expect(existsSync(join(home, "Library/Logs"))).toBe(false);
+    expect(existsSync(join(root, "state"))).toBe(false);
   });
 });
