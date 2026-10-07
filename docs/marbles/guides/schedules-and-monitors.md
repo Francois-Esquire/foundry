@@ -71,8 +71,8 @@ schedule(inspect).every("30m");
 schedule(inspect).at({ weekday: "mon", hour: 9, minute: 30 });
 ```
 
-Import `schedule` alongside `step`. An interval is an integer with `s`, `m`,
-`h`, or `d`. Calendar times are machine-local; `weekday` is a day or an
+Import `schedule` alongside `step`. An interval is a positive integer with
+`s`, `m`, `h`, or `d`. Calendar times are machine-local; `weekday` is a day or an
 array, omitted for every day. A schedule's key is its target's name, with a
 short hash of the input when a locked node carries one; the two above share
 a target and no input, so the second is keyed `inspect-2`.

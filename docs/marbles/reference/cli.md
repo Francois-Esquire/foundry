@@ -23,18 +23,27 @@ The pages below write `marbles …` for the command. Substitute either form.
 | No command or `run` | Open the splash and live dashboard; Enter starts triggers. Piped, start at once. |
 | `help`, `--help`, `-h` | Print usage without loading modules. |
 | `init [developer \| design \| product]` | Create a starter module in `.foundry/marbles`, without running it or overwriting it. Defaults to Product. |
-| `list` | Print every named step and workflow, then each schedule and monitor with its key and cadence. Loads the module; runs no step body. |
+| `list` | Print every named step and workflow, then each schedule and monitor with its key and cadence (`every 1h`, `daily at 09:00`, `mon, fri at 09:00`): configured schedules, configured monitors, then triggers agents created. Loads the module; runs no step body. |
 | `roll <name-or-key> [--input <json>]` | Dispatch one step, workflow, schedule, or monitor now, print its result as JSON, and exit. |
-| `status` | Read every workspace under the state root: foreground process, schedules, recent runs, session count. Needs no running Marbles process. |
-| `sessions` | List the current workspace's agent sessions: id, message count, last update, and whether a compaction summary exists. |
+| `status` | Read every workspace under the state root: foreground process, schedules, recent runs, session count. Needs no running Marbles process and loads no module. |
+| `sessions` | List the current workspace's agent sessions: id, message count, last update, and whether a compaction summary exists. Loads no module. |
 | `launchd install <key>` | Write and load a macOS LaunchAgent that runs `roll <key>` on the trigger's cadence. |
 | `launchd uninstall <key>` | Unload and remove that LaunchAgent. |
 
 `run` starts every trigger and takes no name. `marbles run <name>` prints a
 pointer to `roll <name>` and exits 1.
 
-Every command except `help` and `init` imports the discovered modules first. Keep module
-scope to declarations: importing the file must not do work.
+The command line is checked before anything loads. An unknown command, the
+wrong arguments for a command (`roll` without a name or with two, extra
+words after `list`, `status`, or `sessions`, an unknown starter), or an
+unknown `--harness` id prints the problem and the usage to stderr and exits
+1, without importing a module or touching state.
+
+`run`, `roll`, `list`, and `launchd` import the discovered modules first;
+`help`, `init`, `status`, and `sessions` do not. Keep module scope to
+declarations: importing the file must not do work. Only commands that run
+something under a state root (`run`, `roll`, and the dashboard after Enter)
+record the workspace in `workspace.json`, and never under `--dry-run`.
 
 `roll` accepts three kinds of argument. A definition name runs that step or
 workflow with `--input`, or with no input. A schedule key runs the schedule's
@@ -53,8 +62,12 @@ while the dashboard is open.
 
 `launchd` needs macOS and a key `list` prints. It writes
 `~/Library/LaunchAgents/com.foundry.marbles.<key>.plist`, which runs the
-current Bun and CLI with `roll <key> --config <path> --state <dir>` from the
-current directory, and sends output to `~/Library/Logs/marbles/<key>.log`. See
+current Bun and CLI with `roll <key> --config <path> --state <dir>
+--artifacts <dir>`, plus each `--harness` given, from the current directory,
+and sends output to `~/Library/Logs/marbles/<key>.log`. Under `--dry-run` it
+changes nothing: `install` prints the plist path and contents and the
+`launchctl` commands, `uninstall` the `launchctl bootout` command and the
+plist it would remove. See
 the [launchd guide](/marbles/guides/launchd).
 
 ## Flags
@@ -66,7 +79,7 @@ the [launchd guide](/marbles/guides/launchd).
 | `--state <dir>` | `~/.foundry/marbles` | Root directory for workspace state. |
 | `--artifacts <dir>` | `artifacts/` beside the state root | Shared artifact store holding declared artifacts and feed entries from every workspace. |
 | `--input <json>` | A schedule's input, or none | Input for `roll`. Overrides a schedule's recorded input. |
-| `--harness <id>` | Every detected harness | Keep only `claude-code` or `codex`. Repeatable. |
+| `--harness <id>` | Every detected harness | Keep only `claude-code` or `codex`. Repeatable. Any other id is a usage error. Every harness left is available to agents that name a `provider`; the first, Claude Code before Codex, is the default for agents that do not. |
 | `--dry-run` | Off | Echo agent turns, git mutations, and sandbox commands instead of running them, and write no state. See [safety and limits](/marbles/safety-and-limits). |
 
 The older spelling `--dry` is still read as `--dry-run`. A later occurrence of a value flag wins. Under `--dry-run` every allowed harness
@@ -87,11 +100,11 @@ workspace, newest first. Each tab shows its count, capped at 99+.
 | ← / →, Space | Collapse or expand run branches; change inspector tab |
 | `l` in Marbles | Launch the selected step or workflow; a schema opens a form (Tab moves, Ctrl+Enter submits, Esc cancels) |
 | `f` in Marbles | Filter runs to this schedule, monitor, workflow, or step; `x` clears |
-| `s` / `p` / `k` on a run | Steer the running agent, pause or resume the step, cancel the run |
+| `s` / `p` / `k` on a run | Steer the running agent, pause or resume the step, cancel the run. Each shows only when the run's status allows it: steer and pause while running, resume while paused, cancel until the run settles |
 | `a` / `e`, `b` | Jump to the active step or failure; return from step details to the run |
 | `/` | Search the focused marble or run list |
 | `f` in logs | Toggle following new log lines |
-| `w` / `x` in the Feed | Cycle the workspace filter; show every workspace |
+| `w` / `x` in the Feed | Cycle the workspace filter (all workspaces, this workspace, then any other that has posted); show every workspace |
 | 1–9 / `a` in the Feed | Answer an open question by choice, or type a free-text answer. An approval takes an optional note after the choice |
 | `h` | Return to the dashboard |
 | `?` | Keyboard help |

@@ -50,8 +50,10 @@ the Triggers, Marbles, and Runs dashboard and starts schedules and monitors.
 A missing authoring folder opens a guided setup for Developer/code review, Design/prototype,
 or Product/codebase summary. It creates only your selected prebuilt step.
 An existing empty authoring folder opens the dashboard directly; nothing registers by
-default. `marbles --help` prints usage. Piped or redirected runs use plain text
-and start immediately.
+default. `marbles --help` prints usage. A command line Marbles cannot run (an
+unknown command or `--harness` id, or the wrong arguments) prints the problem
+and the usage to stderr and exits 1 before any module loads. Piped or
+redirected runs use plain text and start immediately.
 
 Press `q` or Ctrl+C to open the quit dialog; Ctrl+C again confirms. Quitting
 stops triggers and cancels queued and running runs. A run parked on a question
@@ -61,15 +63,26 @@ in their context and should pass it to work Marbles does not own, such as
 `fetch`. Cancellation does not undo side effects.
 
 Deterministic steps need no agent harness. For model operations, install and
-authenticate Claude Code or Codex. The CLI resolves authoring imports of
+authenticate Claude Code or Codex. Marbles uses the first one it finds, Claude
+Code first; `--harness codex` (or `claude-code`, repeatable) keeps only the
+ones named. The CLI resolves authoring imports of
 `@foundry/marbles` and `@foundry/marbles/prebuilt` to its own installation; a
 schema library such as `zod` must resolve relative to the importing file.
 
-State is saved to disk between invocations. `--dry-run` echoes agent turns, git
-mutations, and sandbox commands instead of running them and writes no state;
-it does not contain custom code or monitor I/O. Under `--dry-run`, `launchd`
-prints the plist and launchctl commands instead of running them. Working
-directories are execution context, not security sandboxes.
+State is saved to disk between invocations, under
+`~/.foundry/marbles/<workspace-id>/`: runs, schedule history, sessions, grants,
+and the triggers agents create. `status` and `sessions` read it without
+loading your modules. `--dry-run` echoes agent turns, git mutations, and
+sandbox commands instead of running them and writes no state; it does not
+contain custom code or monitor I/O. Under `--dry-run`, `launchd` prints the
+plist and launchctl commands instead of running them. Working directories are
+execution context, not security sandboxes.
+
+A tick or a session write takes a lock file that names its process. The lock of
+a process that has exited is taken over, one process at a time, through a
+short-lived `<lock>.break` file. If a crash leaves a `.break` behind, delete it
+and takeover resumes. See the
+[state reference](https://francois-esquire.github.io/foundry/marbles/reference/state/).
 
 ## Authoring folder
 
@@ -168,6 +181,14 @@ action. Deferred entries and grants survive a host restart. Live unanswered
 requests are cancelled when their turn stops. Model questions in unattended
 runs produce a feed notice and return an explicit decline.
 
+Grants and the triggers an agent creates are filed under the agent's id, so
+the id must stay the same when the module around it changes. It is
+`agent({ name })` when given, else the top-level `const` the call is assigned
+to, else `agent-` and a digest of its prompt, provider, and model. Two
+different agents with one id fail at import; rename one or name it. A
+trigger also belongs to the session that created it: `list_automations`
+shows only the calling session's own.
+
 The CLI/dashboard bind this automatically. An embedding host gets the same
 from the `Engine`, which builds the interactions over the artifact system and
 session store it is handed; `askable` says whether someone can answer. A host
@@ -250,7 +271,9 @@ schedule. Pi integration is deferred.
 
 The CLI is one host of an engine any Bun program can run. `@foundry/marbles` is
 unchanged: the words a module writes definitions with. `@foundry/marbles/lib`
-holds the `Engine` that runs them.
+holds the `Engine` that runs them. A program builds one from explicit
+instances, then drives and inspects it without the CLI, the dashboard, or the
+authoring words.
 
 The engine is handed an instance from each Foundry package, each already
 configured for the machine it runs on. It builds everything that
@@ -296,6 +319,9 @@ host that brings its own `WorkspaceSystem` builds its `git()` layer with the
 same options it passes as `git`. The engine hands the instances back
 (`engine.models`, `engine.sessions`, `engine.workspaces.system`,
 `engine.sandboxes.containers()`) and closes them in `dispose()`.
+`engine.store` is the state store it keeps trigger state in, and
+`engine.scopes` is a read-only view of the runs in flight: each run's
+`RunScope` by run id.
 
 The managers a step body gets as `agents`, `workspaces`, `sandboxes`, and
 `artifacts` are on the engine too, with the same methods, and work without a
@@ -318,6 +344,8 @@ Inside a step these calls are tied to the step: they replay to the same
 session, sandbox, or version, stop when the step is cancelled, and close when
 the run settles. On the engine there is no step, so each call is new, a
 sandbox is yours to close, and whatever is still open closes on `dispose()`.
+`engine.sandboxes.containerOf(box)` returns the container behind a sandbox
+the engine opened.
 
 The engine keeps its own registry and is told what can run:
 
@@ -339,12 +367,16 @@ receives engine status and body `log(...)` lines, `home` is where shared
 skills are read from, `git` is how git runs (for example a runner that echoes
 instead), `worktrees` is where worktrees are cut when a step names no `home`
 (`Engine.worktreesFor(state)` by default), and `dry` makes agents asked for a
-sandbox run in-process instead.
+sandbox run in-process instead. `store` is the `StateStore` that keeps
+schedule history, monitor observations, and the triggers agents create, with
+the locks that keep two ticks apart. It defaults to a `JsonStateStore` over
+`state`, or an `InMemoryStateStore` without one; both are exported.
 
 The package bundles its Foundry packages, so take the classes the
 instances are built from out of `@foundry/marbles/lib` as well. An instance
 built from another copy of the same class is a different type. Besides
-`Engine` and its types, the entry exports only those:
+`Engine`, its types, and three constants (`CLI_HARNESS_IDS`, `CLI_HARNESSES`,
+`TERMINAL_RUN_STATUSES`), the entry exports only those:
 
 | Instance | Exports |
 | --- | --- |
@@ -353,6 +385,7 @@ built from another copy of the same class is a different type. Besides
 | `workspaces` | `WorkspaceSystem`, `directory`, `git`, `nodeObserver` |
 | `containers` | `createContainers`, `createMemoryContainerStore` |
 | `artifacts` | `ArtifactManager`, `InMemoryArtifactStore`, `JsonArtifactStore`, `blobFiles` |
+| `store` | `JsonStateStore`, `InMemoryStateStore` |
 
 Two things a host cannot do through this entry yet: the MicroSandbox runtime
 `createContainers` needs is not exported, and nothing fires the triggers the

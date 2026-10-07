@@ -22,8 +22,9 @@ handed, its registry, and everything that runs a definition. It imports
 nothing outside itself and is published as `@foundry/marbles/lib`. `authoring/`
 is what authoring modules import: the builders and the prebuilt steps,
 which collect into a catalog private to Marbles. Everything else is the CLI and
-the dashboard, entered at `apps/marbles/src/cli.ts`; `src/create.ts` builds the
-engine they run and copies the catalog into it. One tsup build emits every
+the dashboard, entered at `apps/marbles/src/cli.ts`; `src/host.ts` starts
+either one, and `src/create.ts` builds the engine they run and copies the
+catalog into it. One tsup build emits every
 entry with shared chunks so modules and the CLI use the same catalog.
 `src/source.ts` owns discovery; `src/onboarding/` creates starter modules.
 Neither belongs in `lib/`. `bun run marbles` at the

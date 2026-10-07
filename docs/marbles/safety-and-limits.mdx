@@ -15,9 +15,9 @@ and `generate().text` is the echoed prompt. Git commands issued through
 `workspaces` are printed and not run. Sandbox commands are printed and return
 exit 0 with empty output, so a failure branch never runs under `--dry-run`.
 Nothing is written under the state root or the artifact store: runs,
-schedule history, monitor observations, sessions, and feed entries live in
-memory and end with the process, and a run parked on a question is cancelled
-at quit.
+schedule history, monitor observations, sessions, grants, and feed entries
+live in memory and end with the process, and a run parked on a question is
+cancelled at quit.
 
 Step bodies still execute ordinary code and can produce side effects. A raw
 `fetch`, a file write, or a child process in a body happens for real. File
@@ -28,9 +28,10 @@ construct independently do not inherit these substitutions. Read the bodies
 before running `roll` on a module you did not write.
 
 :::note
-`--dry-run` does not prevent `launchd install` or `launchd uninstall` from changing
-LaunchAgent files and invoking `launchctl`. Use it to inspect managed execution,
-not to contain arbitrary code.
+Under `--dry-run`, `launchd install` and `launchd uninstall` print what they
+would do (the plist and the `launchctl` commands) instead of changing
+LaunchAgent files. Use `--dry-run`
+to inspect managed execution, not to contain arbitrary code.
 :::
 
 ## Agents and authority

@@ -22,9 +22,10 @@ writes:
 ```
 
 The plist records the Bun and CLI paths in use at installation, the absolute
-authoring path, the state root, the working directory, and an explicit
-`PATH`. Each tick runs `marbles roll <key> --source … --state …`. Output goes
-to:
+authoring path, the state root, the artifact store, any `--harness`
+selection, the working directory, and an explicit `PATH`. Each tick runs
+`marbles roll <key> --config … --state … --artifacts …`, with one
+`--harness <id>` per harness given at installation. Output goes to:
 
 ```text
 ~/Library/Logs/marbles/<key>.log
@@ -48,8 +49,13 @@ outcome is recorded as failed for that tick. Automations that ask belong on the
 dashboard, or on a schedule that fires while the dashboard is open.
 
 LaunchAgent labels contain only the key. Two projects whose modules produce
-the same key collide; name the targets differently. `--dry-run` does not prevent
-launchd installation or removal.
+the same key collide; name the targets differently.
+
+To see what installation or removal would do, add `--dry-run`. `install`
+prints the plist path and contents and the `launchctl` commands; `uninstall`
+prints the `launchctl bootout` command and the plist it would remove. Nothing
+is written, loaded, or removed. The macOS check still applies. Triggers that agents created are not
+read under `--dry-run`, so only configured keys can be previewed.
 
 ## Inspect and operate
 

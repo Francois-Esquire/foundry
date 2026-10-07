@@ -26,7 +26,7 @@ import {
 
 | Word | Kind | Shape | Purpose |
 | --- | --- | --- | --- |
-| `agent` | definition | `agent({ prompt, model?, provider?, skills? })` | Who does model work, with defaults. |
+| `agent` | definition | `agent({ name?, prompt, model?, provider?, skills? })` | Who does model work, with defaults. |
 | `workspace` | definition | `workspace({ path })` | Another directory to work on. The config's own is implicit. |
 | `sandbox` | definition | `sandbox({ image, mount?, resources? })` or `sandbox({ files, image? })` | An isolated place to run commands. |
 | `artifact` | definition | `artifact({ name, type })` | A versioned output; each run adds a version. |
@@ -58,7 +58,10 @@ const reviewing = skills.load().add("./skills/review/*").pick("caveman");
   `provider` is `"codex"` or `"claude-code"`; omitted means the first
   installed CLI. `model` is optional: omit it for the provider's default, or
   set an id the provider serves. It does not pick the provider, and an
-  unknown id is passed through with a warning.
+  unknown id is passed through with a warning. The agent's id (what its tool
+  grants and created triggers are kept under) is `name`, else the top-level
+  `const` it is assigned to, else a digest of prompt, provider, and model.
+  Two different agents with one id fail at load; name one.
 - `sandbox` with `image` mounts a workspace read/write at `/workspace`.
   `mount` is `"."` (the default): the step's working directory, which is the
   config's directory or, inside a worktree callback, the worktree. Or a
@@ -270,7 +273,8 @@ marbles launchd install <key>      # macOS agent for one schedule or monitor
 
 - No subcommand opens the dashboard and starts the triggers.
 - `--dry-run` echoes every agent turn, git mutation, and sandbox command, and
-  keeps no state. Agent turns return the echoed prompt as `text`; sandbox
+  keeps no state. `launchd` under `--dry-run` prints the plist and the
+  `launchctl` commands instead of running them. Agent turns return the echoed prompt as `text`; sandbox
   commands return exit 0 with empty output. Custom code in step bodies still
   runs.
 - The CLI supplies `@foundry/marbles` to the config module itself; a schema

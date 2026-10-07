@@ -70,7 +70,7 @@ one before it, so writing them in order keeps types flowing forward.
    Siblings never talk to each other. A tree with children cannot be
    scheduled directly; wrap it: `workflow("weekly", tree)`. A workflow is a
    definition too: `weekly({})` locks it, which is what a monitor handler
-   returns to launch it.
+   returns to launch it. A workflow is only ever a root, never a child.
 6. **Add triggers last.** `schedule(weekly).at({ weekday: "fri", hour: 16 })`,
    `schedule(review({}, { target: "packages" })).every("6h")`,
    `monitor("docs/**/*.md").do(…)`, `monitor("https://…").every("5m").do(…)`.
@@ -133,8 +133,8 @@ why they exist lets you design around them instead of hitting them.
   `{ findings, exitCode }` declares both in its schema. Each child's output is
   checked against that key at lock time, which is where mismatches surface.
 - **A trigger target is a named definition or a childless lock of one.**
-  `schedule(publish.parallel({ … }))` throws `wrap it in workflow(name,
-  tree) first`. A nameless target throws `has no name`; name it. A monitor
+  `schedule(publish.parallel({ … }))` throws `wrap it in a named workflow
+  first`. A nameless target throws `has no name`; name it. A monitor
   launches only what its handler *returns as a lock*: `ship({}, { task })`
   or `nightly({})`. A bare definition returned is ignored.
 - **An `ask` needs the dashboard.** Only a process that can show the question
@@ -213,7 +213,9 @@ The error text is the diagnosis. The common ones:
 | Error contains | Cause | Fix |
 | --- | --- | --- |
 | `has no name … give it one: step("name")` | A nameless step used as a trigger or launch target, and no `typescript` to infer from | Name the step |
-| `a locked tree has children; wrap it in workflow(name, tree) first` | A tree passed to `schedule` or returned from a monitor | Wrap it, then schedule the workflow |
+| `a locked tree has children; wrap it in a named workflow first` | A tree passed to `schedule` or returned from a monitor | Wrap it: `workflow("name", tree)`, then schedule the workflow |
+| `a workflow can only be the root of a run` | A workflow locked as a child of another tree | Lock its steps there instead |
+| `agent "x" already declared … with a different prompt or route` | Two different agents resolve to one id (same `name` or `const`) | Rename one or give it `name` |
 | `already registered` | Two definitions share a name; the message says whether one came from a `const` and where | Rename one or name it explicitly |
 | `child "x" is not a locked node; call the definition first` | A definition passed as a child without calling it | `x({})` |
 | `child "x" is not an input key (declared: …)` | The parent's `.input()` does not declare that child key | Add it to the schema or rename the key |

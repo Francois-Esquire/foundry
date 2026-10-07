@@ -17,18 +17,47 @@ of every workspace this machine has run.
   schedules/<key>.json    kind, label, lastStart, lastFinish, lastStatus, nextDue
   monitors/<key>.json     the last observation: file digests, or the HTTP body and
                           its hash; plus a pending launch until it has started
+  automations/<id>.json   a trigger an agent created: target, cadence, source, owner
   locks/<key>             pid of the tick running a schedule or monitor
   locks/run-<runId>       pid of the process that owns a recovered run
+  locks/edit-<id>         pid of the process changing an agent-created trigger
+  locks/<name>.break      transient: the process taking over a dead holder's lock
   heartbeat.json          pid and start time of the foreground `run` loop
   sessions/<id>.json      agent conversations
+  sessions/<id>.json.lock pid of the process writing that session
+  agent-grants.json       tool grants approved for future runs, by agent id
+  agent-grants.json.lock  pid of the process changing grants; never taken over,
+                          so remove it by hand if its process is gone
+  agent-approvals.json    refused requests waiting in the feed as future permissions
+  harness-activities/     native subagent and background activity, for the dashboard
   worktrees/              temporary worktrees cut by `withWorktree`
 ```
 
-Every file is written to a temporary name and renamed, so a concurrent reader
-never sees a half-written file. Run files are `version: 2`; the other
+Grants and agent-created triggers are kept under the agent's id: its `name`,
+else the top-level `const` it is assigned to, else a digest of its prompt,
+provider, and model. Renaming an agent gives it a new id, and so does
+editing the prompt, provider, or model of one with neither a `name` nor a
+`const`. Its earlier grants are then asked for again, and the triggers it
+created keep firing but leave its `list_automations`. A trigger also belongs
+to the session that created it: `list_automations` shows only the calling
+session's own.
+
+Every record is written to a temporary name and renamed, so a concurrent
+reader never sees a half-written file. Lock files are created in place
+(below). Run files are `version: 2`; the other
 Marbles-owned records are `version: 1`. Session files use the session store's
 own format. Version 1 run files still load. The persisted `config` field keeps
 its existing spelling and records the authoring folder or single-module path.
+`workspace.json` is written only by a command that runs something here (`run`,
+`roll`, the dashboard after Enter); `list`, `status`, `sessions`, and
+`launchd` leave an empty state root empty.
+
+Session files are read again for every operation, and each change is a
+read-change-write under `<id>.json.lock`, so two processes appending to one
+session keep both messages. A session file that cannot be read is skipped
+with a warning and never overwritten; changing that session fails until the
+file is repaired or removed. Creating a session under an id that already
+exists returns the existing one.
 
 A run file carries, under `marbles`, three things the run scope recorded:
 
@@ -87,11 +116,35 @@ previous tick's completion, seeded from the recorded `lastFinish` so a restart
 keeps the cadence. Missed interval ticks do not queue. Calendar slots are
 evaluated in machine-local time.
 
-A tick takes `locks/<key>` before it runs. If another live process holds it,
-`roll <key>` prints a skipped message and exits successfully. A lock whose
-pid is dead is stale and is replaced. `roll <definition-name>` takes no lock.
-Two schedules with different keys have different locks even when they target
-the same workflow.
+A tick takes `locks/<key>` before it runs. If another process holds it,
+`roll <key>` prints `skipped: held by <holder>` and exits successfully.
+`roll <definition-name>` takes no lock. Two schedules with different keys
+have different locks even when they target the same workflow.
+
+Every lock under `locks/`, and each session's `<id>.json.lock`, is a file
+created exclusively with mode `0o600` that holds the owner's pid:
+
+- A lock whose pid has exited is broken by one process at a time. That
+  process creates `<lock>.break`, reads the lock again, removes it if it
+  still names the same dead pid, removes `.break`, and then tries to create
+  the lock; another process may create it first. A `.break` left by a
+  crashed process stops anyone breaking that lock until it is removed.
+- A lock file that is still empty (its creator has not written its pid yet)
+  is left alone for 30 seconds; after that it counts as abandoned and is
+  broken the same way.
+- A lock file that holds anything else is never removed.
+- A process releases a lock only while it still names that process, so a
+  late release never removes a lock someone else has taken.
+
+A tick or edit that finds `locks/<name>` held does not wait. It reports the
+holder: `pid N`; `a process that is taking it now; retry` for a fresh empty
+lock; `pid N, which has exited (if no process is taking the lock over,
+remove <path>.break)` when a `.break` is in the way; or `an unknown process
+(if none is running, remove <path>)` for a file that is neither. A session
+write waits up to 10 seconds for `<id>.json.lock`, then fails with
+`[json-session-store] session <id> is locked by process N. If no Marbles
+process is using it, remove <path> (and <path>.break, if present) and
+retry.`
 
 Monitors are polled on their cadence. A poll compares what it sees with the
 last recorded observation; the handler runs only when something changed, and

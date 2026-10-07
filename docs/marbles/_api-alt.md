@@ -157,7 +157,7 @@ inline stays internal.
 
 | Word | Kind | Shape | Purpose |
 | --- | --- | --- | --- |
-| `agent` | definition | `agent({ prompt, model?, provider?, skills? })` | Who does model work, with its default context. `skills` takes a skill set. |
+| `agent` | definition | `agent({ name?, prompt, model?, provider?, skills? })` | Who does model work, with its default context. `skills` takes a skill set. Its id (grants and created triggers are kept under it) is `name`, else the top-level `const`, else a digest of prompt and route. |
 | `workspace` | definition | `workspace({ path })` | Another directory to work on. The config's own is implicit. |
 | `sandbox` | definition | `sandbox({ image, mount?, resources? })` or `sandbox({ files, image? })` | An isolated place to run commands; the files form is a scratch sandbox seeded under `/workspace`. |
 | `artifact` | definition | `artifact({ name, type })` | A versioned output. |
@@ -746,8 +746,9 @@ Pending decisions from the first library, still open against this API.
 - **Workspace identity in labels.** Launchd labels are
   `com.foundry.marbles.<key>`; two projects with the same trigger key collide.
   A retained session id shared across repositories has the same problem.
-- **Dry runs and launchd.** Decide whether `--dry-run` should also refuse launchd
-  mutations and temporary worktree directories.
+- **Dry runs and worktrees.** Under `--dry-run`, `launchd` now prints the plist
+  and the `launchctl` commands instead of running them. Still open: whether
+  dry runs should stop allocating temporary worktree directories.
 - **Run stream retention.** Settled runs keep their event and chunk history
   in memory until the engine stops; long-lived dashboards streaming agent
   output need a trim or a dispose.

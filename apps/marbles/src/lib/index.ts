@@ -1,10 +1,12 @@
 /**
  * The lib entry, `@foundry/marbles/lib`: the `Engine`, the types it speaks,
- * and the package classes its five instances are built from. Build those,
- * hand them to the engine, tell it what can run with `define`, `schedule`
- * and `monitor`, start it, and launch by name; or call its managers
- * directly. The words a `marbles.config.ts` writes definitions with live in
- * the package's main entry; this one takes what they produce as data.
+ * the package classes its instances are built from, and three constants
+ * (`CLI_HARNESS_IDS`, `CLI_HARNESSES`, `TERMINAL_RUN_STATUSES`). Build the
+ * instances, hand them to the engine, tell it what can run with `define`,
+ * `schedule` and `monitor`, start it, and launch by name; or call its
+ * managers directly.
+ * The words an authoring module writes definitions with live in the
+ * package's main entry; this one takes what they produce as data.
  *
  * The package classes are re-exported because the package bundles them:
  * these are the copies an instance has to come from to be handed to the

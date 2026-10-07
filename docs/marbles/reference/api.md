@@ -16,7 +16,7 @@ import {
 
 | Word | Kind | Shape | Purpose |
 | --- | --- | --- | --- |
-| `agent` | definition | `agent({ prompt, model?, provider?, skills? })` | Who does model work, with defaults. |
+| `agent` | definition | `agent({ name?, prompt, model?, provider?, skills? })` | Who does model work, with defaults. |
 | `workspace` | definition | `workspace({ path })` | Another directory to work on. The current workspace is implicit. |
 | `sandbox` | definition | `sandbox({ image, mount?, resources? })` or `sandbox({ files, image?, resources? })` | An isolated place to run commands. |
 | `artifact` | definition | `artifact({ name, type })` | A versioned output; each run adds a version. |
@@ -50,7 +50,12 @@ const reviewing = skills.load().add("./skills/review/*").pick("caveman");
   installed CLI, Claude Code before Codex. `model` is optional: omit it for
   the provider's default, or set an id the provider serves. It does not pick
   the provider; an id the provider does not know is passed through with a
-  warning, and `--dry-run` rejects it. `skills` takes a skill set.
+  warning, and `--dry-run` rejects it. `skills` takes a skill set. Tool
+  grants and the triggers the agent creates are kept under its id: `name`
+  when given, else the top-level `const` it is assigned to, else `agent-`
+  and a digest of its prompt, provider, and model. Two different agents with
+  one id fail at load with `already declared … with a different prompt or
+  route`; the same agent declared twice is fine.
 - **`workspace`.** A directory preset. It has no state or dashboard entry of
   its own. A sandbox may mount it.
 - **`sandbox`.** The image form mounts a workspace read/write at `/workspace`.
@@ -133,7 +138,9 @@ publish.parallel({ a: x({}), b: y({}) });             // children together
 - One definition can be locked many times; each lock is its own node.
 - `.parallel` is the only combinator besides the default series. There is no
   race, branch, or loop yet. A workflow is a definition too: `weekly({})`
-  locks it.
+  locks it. A workflow lock is only ever the root of a run, launched,
+  scheduled, or returned by a monitor. As a child in another tree it throws
+  `a workflow can only be the root of a run`.
 
 In a parallel group the first failure fails the run; the siblings are
 aborted and awaited before the failure is reported. A sibling that parks on
@@ -240,11 +247,11 @@ monitor("https://tracker.example.com/latest").every("10m")
 
 - **`schedule(target)`** takes a named step or workflow, bare or as a
   childless lock. A lock carries its input, so there is no input field. A
-  lock with children throws `wrap it in workflow(name, tree) first`; a
+  lock with children throws `wrap it in a named workflow first`; a
   nameless target throws `has no name`. `.at(slot)` or `.every(interval)` is
   the terminal call. `weekday` is `"sun"` through `"sat"` or an array; omit
-  it for every day. `minute` defaults to zero. An interval is an integer
-  with `s`, `m`, `h`, or `d`.
+  it for every day. `minute` defaults to zero. An interval is a positive
+  integer with `s`, `m`, `h`, or `d`; `"0s"` is refused.
 - **`monitor(source)`** takes one string. `http://` or `https://` is polled
   and fires when the body changes: each poll hashes the body, as stable JSON
   when it parses, as text otherwise, and compares it with the last hash. A

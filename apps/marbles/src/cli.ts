@@ -37,7 +37,7 @@ const USAGE = `marbles — programmable workspace automation
   init [starter]             create a starter module (developer | design | product)
   help, --help, -h            show this help
   roll <name> [--input json] dispatch one workflow or schedule now, then exit
-  list                       workflows, schedules, and when each is next due
+  list                       workflows, then each schedule and monitor with its cadence
   status                     every workspace under --state: loop, schedules, runs
   sessions                   sessions under --state: id, messages, updated, summary
   launchd install <name>     write and load ~/Library/LaunchAgents/com.foundry.marbles.<name>.plist

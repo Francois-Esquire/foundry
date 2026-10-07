@@ -58,14 +58,14 @@ catalog when no source exists.
 ## The workspace
 
 With `.foundry/marbles`, the workspace is the project directory above
-`.foundry`, not the authoringdirectory. Agent sessions, sandbox workspaces,
+`.foundry`, not the authoring directory. Agent sessions, sandbox workspaces,
 `workspaces.current`, relative workspace paths, and report media use that
 project root. State lives under `~/.foundry/marbles/<workspace-id>`.
 
 `--source <path>` selects another directory or a single module. A custom
 directory is itself the workspace; a single module uses its containing
 directory. Selecting `.foundry/marbles` or a module inside it uses
-the project root even when invoked from another workingdirectory.
+the project root even when invoked from another working directory.
 
 `--config` remains an alias for `--source`. When the default folder is absent,
 an existing `./marbles.config.ts` still loads for compatibility. The folder
