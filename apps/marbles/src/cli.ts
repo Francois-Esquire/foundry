@@ -17,9 +17,8 @@ import { install, launchdPlan, preview, uninstall } from "~/launchd";
 import type { Engine } from "~/lib/engine";
 import type { MonitorSpec } from "~/lib/monitor";
 import { describeMonitor } from "~/lib/monitor";
-import { cadence, clock, tick, weekdays } from "~/lib/schedule";
+import { describeTrigger, tick } from "~/lib/schedule";
 import { JsonSessionStore } from "~/lib/sessions/json-store";
-import type { Schedule } from "~/lib/triggers";
 import { createStarter } from "~/onboarding/create";
 import { DEFAULT_HARNESS, STARTERS } from "~/onboarding/templates";
 import { runSchedulesUntilStopped } from "~/run-loop";
@@ -117,12 +116,6 @@ async function listSessions(
   }
 }
 
-function when({ trigger }: Schedule): string {
-  return trigger.kind === "interval"
-    ? `every ${cadence(trigger.ms)}`
-    : `at ${weekdays(trigger.slot).join(",") || "daily"} ${clock(trigger.slot)}`;
-}
-
 function listTriggers(
   _args: Args,
   _opened: OpenedWorkspace,
@@ -143,13 +136,13 @@ function listTriggers(
       schedule.kind === "monitor" ? watched(schedule.key) : undefined;
     if (source) {
       print(
-        `[monitor] ${schedule.key} ${describeMonitor(source)} ${when(schedule)}`
+        `[monitor] ${schedule.key} ${describeMonitor(source)} ${describeTrigger(schedule.trigger)}`
       );
     } else {
       const input =
         schedule.input === null ? "" : ` ${JSON.stringify(schedule.input)}`;
       print(
-        `[schedule] ${schedule.key} → ${schedule.workflow}${input} ${when(schedule)}`
+        `[schedule] ${schedule.key} → ${schedule.workflow}${input} ${describeTrigger(schedule.trigger)}`
       );
     }
   }
@@ -192,11 +185,7 @@ async function roll(args: ArgsOf<"roll">, engine: Engine): Promise<void> {
   const input: unknown =
     args.inputJson === undefined ? schedule?.input : JSON.parse(args.inputJson);
   if (schedule) {
-    const result = await tick(
-      engine,
-      { ...schedule, input },
-      { print, state: engine.state }
-    );
+    const result = await tick(engine, { ...schedule, input }, { print });
     if (result) {
       print(JSON.stringify(result.value, null, 2));
     }
@@ -236,10 +225,10 @@ async function printNewRuns(engine: Engine, restored: ReadonlySet<string>) {
   }
 }
 
-/** Agent-created trigger files that could not be read. */
+/** Agent-created triggers that cannot run, by id, and why. */
 function printErrors(automations: Triggers["automations"]): void {
-  for (const [file, error] of Object.entries(automations.errors())) {
-    print(`[automation] ${file}: ${error}`);
+  for (const [id, error] of Object.entries(automations.errors())) {
+    print(`[automation] ${id}: ${error}`);
   }
 }
 

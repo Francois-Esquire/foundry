@@ -11,6 +11,7 @@ import { expect, it } from "vitest";
 import { AgentsManager } from "~/lib/managers/agents";
 import { SandboxesManager } from "~/lib/managers/sandboxes";
 import { RunScope } from "~/lib/run-scope";
+import { testEngine } from "../helpers/engine";
 
 for (const harness of ["builtin", "claude-code", "codex"] as const) {
   it(`${harness} fixes a failing fixture and runs its tests in MicroSandbox`, async () => {
@@ -92,9 +93,15 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
               },
       });
       expect((await sandbox.exec(["bun", "test"])).exitCode).not.toBe(0);
+      // Approvals, activity and automations as an engine would wire them.
+      const host = testEngine({ root, sessions: store });
       const session = await new AgentsManager({
+        activities: host.activities,
+        automations: host.automations,
         containerOf: (handle) => sandboxes.containerOf(handle),
         defaultExecutor: () => ({ harness, model: modelId, provider }),
+        dry: false,
+        interactions: host.interactions,
         models,
         root,
         sessions: store,

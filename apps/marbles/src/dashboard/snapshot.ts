@@ -12,7 +12,7 @@ import type { MonitorSpec } from "~/lib/monitor";
 import { describeMonitor } from "~/lib/monitor";
 import type { DefinitionEntry } from "~/lib/registry";
 import type { ActivityRecord } from "~/lib/sandbox/activities";
-import { cadence, clock, nextDue, weekdays } from "~/lib/schedule";
+import { describeTrigger, nextDue } from "~/lib/schedule";
 import type { Schedule } from "~/lib/triggers";
 import type { JsonValue } from "~/model/json";
 import type {
@@ -227,12 +227,7 @@ function description(
   if (monitor) {
     return describeMonitor(monitor);
   }
-  const { trigger } = schedule;
-  const when =
-    trigger.kind === "interval"
-      ? `every ${cadence(trigger.ms)}`
-      : `${weekdays(trigger.slot).join(", ") || "daily"} at ${clock(trigger.slot)}`;
-  return `${schedule.workflow} · ${when}`;
+  return `${schedule.workflow} · ${describeTrigger(schedule.trigger)}`;
 }
 
 export interface SnapshotOptions {
@@ -353,7 +348,7 @@ export function dashboardSnapshot(
     feed: options.feed ?? [],
     mode: "live",
     notices: Object.entries(options.automationErrors ?? {}).map(
-      ([file, error]) => `Automation unavailable (${file}): ${error}`
+      ([id, error]) => `Automation unavailable (${id}): ${error}`
     ),
     runs,
     status: options.status,

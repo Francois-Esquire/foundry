@@ -9,6 +9,8 @@ import { createEngine } from "~/create";
 import { dashboardSnapshot } from "~/dashboard/snapshot";
 import { AutomationService } from "~/lib/automation/service";
 import { tick } from "~/lib/schedule";
+import { JsonStateStore } from "~/lib/state/store";
+import { declared } from "../helpers/engine";
 
 afterEach(() => {
   catalog.reset();
@@ -240,7 +242,10 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
         snapshot.triggers.find((trigger) => trigger.id === automation?.id)
           ?.managed
       ).toBe(true);
-      const restored = new AutomationService({ registry: catalog, state });
+      const restored = new AutomationService({
+        registry: declared(),
+        store: new JsonStateStore(state),
+      });
       const schedule = restored
         .schedules()
         .find((item) => item.key === automation?.id);
@@ -248,7 +253,7 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
       if (!schedule) {
         throw new Error("Missing restored schedule");
       }
-      await tick(engine, schedule, { print: () => undefined, state });
+      await tick(engine, schedule, { print: () => undefined });
       expect(fired).toBe(1);
       expect(await readFile(join(root, "scheduled.txt"), "utf8")).toBe("ran");
       restored.setEnabled(schedule.key, false);
@@ -257,7 +262,10 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
       ).toBe(false);
       restored.delete(schedule.key);
       expect(
-        new AutomationService({ registry: catalog, state }).list()
+        new AutomationService({
+          registry: declared(),
+          store: new JsonStateStore(state),
+        }).list()
       ).toHaveLength(0);
       passed = true;
     } finally {

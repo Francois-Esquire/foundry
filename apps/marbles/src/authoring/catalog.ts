@@ -1,14 +1,22 @@
-import type { AnyDefinition } from "~/lib/definition";
-import { quoteOrigin } from "~/lib/definition";
-import { Registry } from "~/lib/registry";
+import type { AnyDefinition, NamedDefinition } from "~/lib/definition";
+import { isNamed, quoteOrigin } from "~/lib/definition";
+import type { MonitorRecord } from "~/lib/registry";
+import type { Schedule } from "~/lib/triggers";
 
 /**
  * What authoring modules declared, collected as they are imported. The
  * authoring words write here and nothing in the lib reads it: the CLI copies
- * it into the engine it builds. It also keeps what only authoring has, the
- * declared workspace paths and the ids of nameless resources.
+ * it into the engine it builds, which turns each monitor into its step and
+ * schedule. It also keeps what only authoring has, the declared workspace
+ * paths and the ids of nameless resources.
  */
-export class Catalog extends Registry {
+export class Catalog {
+  /** Named definitions, by name; a nameless one is internal and not kept. */
+  readonly definitions = new Map<string, NamedDefinition>();
+  /** Declared monitors, by key. */
+  readonly monitors = new Map<string, MonitorRecord>();
+  /** Declared schedules, by key. */
+  readonly schedules = new Map<string, Schedule>();
   /** Paths of declared workspaces, as written; sandboxes may mount them. */
   readonly workspaces = new Set<string>();
   readonly #counters = new Map<string, number>();
@@ -21,21 +29,62 @@ export class Catalog extends Registry {
   >();
 
   /**
-   * The registry's check, with authoring's advice when a name was inferred:
+   * A name is taken once, checked as the module is imported so the error
+   * names both places. When a name was inferred, the advice is authoring's:
    * two `const`s with one name in different files collide, and the fix is
    * in the source.
    */
-  override define(definition: AnyDefinition, inferred = false): void {
+  define(definition: AnyDefinition, inferred = false): void {
+    if (!isNamed(definition)) {
+      return;
+    }
     const { name } = definition;
-    const taken = name === undefined ? undefined : this.definitions.get(name);
-    if (taken && (inferred || this.#inferred.has(taken.name))) {
+    const taken = this.definitions.get(name);
+    if (taken && (inferred || this.#inferred.has(name))) {
       throw new Error(
-        `"${taken.name}" already registered${quoteOrigin(taken.origin)}; the name comes from a const${quoteOrigin(definition.origin)}; rename one or name it explicitly`
+        `"${name}" already registered${quoteOrigin(taken.origin)}; the name comes from a const${quoteOrigin(definition.origin)}; rename one or name it explicitly`
       );
     }
-    super.define(definition);
-    if (name !== undefined && inferred) {
+    if (taken) {
+      throw new Error(
+        `"${name}" already registered${quoteOrigin(taken.origin)}; second registration${quoteOrigin(definition.origin)}`
+      );
+    }
+    this.definitions.set(name, definition);
+    if (inferred) {
       this.#inferred.add(name);
+    }
+  }
+
+  schedule(record: Schedule): void {
+    if (this.#keyTaken(record.key)) {
+      throw new Error(`schedule "${record.key}" already registered`);
+    }
+    this.schedules.set(record.key, record);
+  }
+
+  monitor(record: MonitorRecord): void {
+    if (this.#keyTaken(record.key)) {
+      throw new Error(`schedule "${record.key}" already registered`);
+    }
+    this.monitors.set(record.key, record);
+  }
+
+  /** Schedules and monitors share one key space: each names a trigger. */
+  #keyTaken(key: string): boolean {
+    return this.schedules.has(key) || this.monitors.has(key);
+  }
+
+  /** A trigger key not yet taken: `base`, else `base-2`, `base-3`, … in registration order. */
+  uniqueKey(base: string): string {
+    if (!this.#keyTaken(base)) {
+      return base;
+    }
+    for (let n = 2; ; n += 1) {
+      const candidate = `${base}-${String(n)}`;
+      if (!this.#keyTaken(candidate)) {
+        return candidate;
+      }
     }
   }
 
@@ -68,7 +117,6 @@ export class Catalog extends Registry {
     this.definitions.clear();
     this.schedules.clear();
     this.monitors.clear();
-    this.detectors.clear();
     this.workspaces.clear();
     this.#counters.clear();
     this.#inferred.clear();

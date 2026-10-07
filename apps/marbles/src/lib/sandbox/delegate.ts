@@ -54,7 +54,7 @@ export function delegationTool(
         await settings.registerChildSession?.(id);
         const record = createHarnessActivityRecorder({
           agentId: settings.agentId,
-          harness: settings.harness ?? settings.provider,
+          harness: settings.harness,
           onActivity: settings.onActivity,
           sessionId: id,
           store: settings.store,

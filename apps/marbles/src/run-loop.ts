@@ -53,15 +53,7 @@ export async function runSchedulesUntilStopped(
     });
   }
   try {
-    await runSchedules(engine, engine.schedules(), {
-      getSchedules: () => engine.schedules(),
-      print,
-      signal: controller.signal,
-      state,
-    });
-    // Nothing scheduled still means "run until stopped": the dashboard and
-    // manual launches live on this loop.
-    await untilAborted(controller.signal);
+    await runSchedules(engine, { print, signal: controller.signal });
   } finally {
     controller.abort();
     process.removeListener("SIGINT", stop);
@@ -71,13 +63,4 @@ export async function runSchedulesUntilStopped(
       rmSync(heartbeat, { force: true });
     }
   }
-}
-
-function untilAborted(signal: AbortSignal): Promise<void> {
-  if (signal.aborted) {
-    return Promise.resolve();
-  }
-  return new Promise((resolve) => {
-    signal.addEventListener("abort", () => resolve(), { once: true });
-  });
 }

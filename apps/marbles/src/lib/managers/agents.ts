@@ -19,6 +19,7 @@ import type { Container } from "@foundry/sandbox/container/containers";
 import type { AutomationService } from "~/lib/automation/service";
 import type { HarnessActivities } from "~/lib/sandbox/activities";
 import type { HarnessInteractions } from "~/lib/sandbox/interactions";
+import type { SandboxSessionOptions } from "~/lib/sandbox/session";
 import { createSandboxSession } from "~/lib/sandbox/session";
 
 import type { ManagerArgs } from "../bindings";
@@ -52,15 +53,18 @@ import type {
  */
 
 export interface AgentsDeps {
-  readonly activities?: HarnessActivities;
-  readonly automations?: AutomationService;
+  /** What agents inside sandboxes are doing, recorded per session. */
+  readonly activities: HarnessActivities;
+  /** The triggers a sandboxed agent may create, offered to it as tools. */
+  readonly automations: AutomationService;
   /** The container behind a sandbox handle; a sandbox session's harness runs in it. */
   readonly containerOf: (sandbox: Sandbox) => Container;
   /** The route when an agent names neither model nor provider. */
   readonly defaultExecutor: () => TurnExecutorRef;
   /** Simulation uses echo models and never prepares a guest or reads credentials. */
-  readonly dry?: boolean;
-  readonly interactions?: HarnessInteractions;
+  readonly dry: boolean;
+  /** Approvals and questions from sandboxed agents, routed to the host. */
+  readonly interactions: HarnessInteractions;
   readonly models: ModelManager;
   /** The workspace root: where a session opened outside a step works. */
   readonly root: string;
@@ -348,15 +352,12 @@ function validateSessionOptions(options: SessionOptions): void {
 }
 
 async function interactionOptions(
-  interactions: HarnessInteractions | undefined,
+  interactions: HarnessInteractions,
   source: Source,
   agentId: string,
   sessionId: string,
   options: SessionOptions
-): Promise<SessionOptions> {
-  if (!interactions) {
-    return options;
-  }
+): Promise<SandboxSessionOptions> {
   await interactions.registerSession(
     { agentId, sessionId, source },
     options.authority?.policy
@@ -452,23 +453,17 @@ async function openSandboxSession(
     harness: executor.harness,
     hostCwd: workingDirectory(site.cwd),
     hostToolsForSession: (sessionId) =>
-      deps.automations?.tools({
-        agentId: definition.id,
-        sessionId,
-        source,
-      }) ?? {},
+      deps.automations.tools({ agentId: definition.id, sessionId, source }),
     modelId: executor.model,
-    onActivity: deps.activities
-      ? (event) => deps.activities?.record(event, source)
-      : undefined,
+    onActivity: (event) => deps.activities.record(event, source),
     onChildSession: (sessionId, activityId, session) =>
-      deps.activities?.attach(sessionId, session, activityId),
+      deps.activities.attach(sessionId, session, activityId),
     provider: executor.provider,
     registerChildSession: (sessionId) =>
-      deps.interactions?.registerSession(
+      deps.interactions.registerSession(
         { agentId: definition.id, sessionId, source },
-        sessionOptions.authority?.policy
-      ) ?? Promise.resolve(),
+        sessionOptions.authority.policy
+      ),
     ...sandboxModel(deps.models, executor),
     instructions: [
       definition.prompt,
@@ -482,7 +477,7 @@ async function openSandboxSession(
     store: deps.sessions,
     write: site.write,
   });
-  deps.activities?.attach(id, harness);
+  deps.activities.attach(id, harness);
   return harness;
 }
 

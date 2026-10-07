@@ -6,7 +6,7 @@ import { openDashboard } from "~/dashboard/terminal";
 import { hostEngine, loadSource, openWorkspace, touchWorkspace } from "~/host";
 import type { Engine } from "~/lib/engine";
 import { inputFromFields } from "~/lib/schema";
-import { readLastFinish } from "~/lib/state/schedules";
+import { lastFinish as recordedFinish } from "~/lib/state/schedules";
 import { createStarter } from "~/onboarding/create";
 import {
   registerSetupStep,
@@ -77,12 +77,11 @@ export async function runInteractive(args: Flags): Promise<void> {
     if (controller.signal.aborted) {
       return;
     }
+    const { store } = engine;
     const schedules = engine.schedules();
-    const { state } = engine;
     const lastFinish = new Map(
       schedules.flatMap((schedule) => {
-        const finish =
-          state === undefined ? undefined : readLastFinish(state, schedule.key);
+        const finish = recordedFinish(store, schedule.key);
         return finish === undefined ? [] : [[schedule.key, finish] as const];
       })
     );

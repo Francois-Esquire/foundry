@@ -21,16 +21,20 @@ import { createLog } from "~/lib/log";
 import type { Catalogue } from "~/lib/managers/workspaces";
 import type {
   Change,
+  DetectorOptions,
   Fetch,
   MonitorContext,
+  MonitorHandler,
   MonitorHost,
   MonitorSpec,
 } from "~/lib/monitor";
-import { detector } from "~/lib/monitor";
+import { acknowledgeLaunch, detector, handlerResponse } from "~/lib/monitor";
 import { tick } from "~/lib/schedule";
 import { isRecord, readJson } from "~/lib/state/json";
+import type { StateStore } from "~/lib/state/store";
+import { InMemoryStateStore, JsonStateStore } from "~/lib/state/store";
 
-import { startEngine, testEngine } from "./helpers/engine";
+import { declared, startEngine, testEngine } from "./helpers/engine";
 import { bindLaunch, launch } from "./helpers/launch";
 import { monitorContext } from "./helpers/monitor";
 
@@ -49,7 +53,10 @@ afterEach(async () => {
 });
 
 /** What the last `hostIn` wired: the host a detector reads, and what an engine over it takes. */
-let hosted: MonitorHost & Pick<EngineOptions, "root" | "state" | "workspaces">;
+let hosted: MonitorHost & { readonly store: StateStore } & Pick<
+    EngineOptions,
+    "root" | "state" | "workspaces"
+  >;
 
 /** A host over `root`: what a files detector needs to read the tree. */
 function hostIn(root: string, state?: string) {
@@ -58,11 +65,14 @@ function hostIn(root: string, state?: string) {
   const catalogue = new WorkspaceSystem().extend(directory(), git());
   catalogues.push(catalogue);
   const stateOption = state === undefined ? {} : { state };
-  hosted = { catalogue, root, workspaces: catalogue, ...stateOption };
+  const store =
+    state === undefined ? new InMemoryStateStore() : new JsonStateStore(state);
+  hosted = { catalogue, root, store, workspaces: catalogue, ...stateOption };
   bindLaunch(
     testEngine({
       print: (line) => lines.push(line),
       root,
+      store,
       workspaces: catalogue,
       ...stateOption,
     }).bindings
@@ -71,8 +81,16 @@ function hostIn(root: string, state?: string) {
 }
 
 /** A detector body called directly, outside a run, reads the host `hostIn` wired. */
-const detectorIn: typeof detector = (key, spec, handler, options = {}) =>
-  detector(key, spec, handler, { host: () => hosted, ...options });
+const detectorIn = (
+  key: string,
+  spec: MonitorSpec,
+  handler: MonitorHandler,
+  options: DetectorOptions = {}
+) =>
+  detector(key, spec, handlerResponse(key, handler), {
+    host: () => hosted,
+    ...options,
+  });
 
 function recorder() {
   const changes: Change[] = [];
@@ -116,7 +134,7 @@ describe("files detector", () => {
     const { changes, contexts, handler } = recorder();
     const detect = detectorIn("m", spec, handler);
 
-    await expect(detect.body(context)).resolves.toEqual({ changed: true });
+    await expect(detect(context)).resolves.toEqual({ changed: true });
     expect(changes[0]).toMatchObject({
       kind: "files",
       modified: [],
@@ -130,11 +148,11 @@ describe("files detector", () => {
     expect(contexts[0]?.input).toEqual({});
     expect(typeof contexts[0]?.log).toBe("function");
 
-    await expect(detect.body(context)).resolves.toEqual({ changed: false });
+    await expect(detect(context)).resolves.toEqual({ changed: false });
     expect(changes).toHaveLength(1);
 
     writeFileSync(join(root, "a.md"), "one more\n");
-    await detect.body(context);
+    await detect(context);
     expect(changes[1]).toMatchObject({
       added: [],
       modified: [{ path: "a.md" }],
@@ -142,7 +160,7 @@ describe("files detector", () => {
     });
 
     rmSync(join(root, "sub", "b.md"));
-    await detect.body(context);
+    await detect(context);
     const removed = changes[2]?.kind === "files" ? changes[2].removed : [];
     expect(removed).toHaveLength(1);
     expect(removed[0]?.path).toBe("sub/b.md");
@@ -155,9 +173,7 @@ describe("files detector", () => {
     writeFileSync(join(root, "a.md"), "one\n");
 
     const first = recorder();
-    await detectorIn("m", spec, first.handler).body(
-      hostIn(root, state).context
-    );
+    await detectorIn("m", spec, first.handler)(hostIn(root, state).context);
     const stored = readJson(join(state, "monitors", "m.json"));
     const files =
       isRecord(stored) && isRecord(stored.files) ? stored.files : {};
@@ -165,11 +181,11 @@ describe("files detector", () => {
 
     const second = recorder();
     const detect = detectorIn("m", spec, second.handler);
-    await expect(detect.body(hostIn(root, state).context)).resolves.toEqual({
+    await expect(detect(hostIn(root, state).context)).resolves.toEqual({
       changed: false,
     });
     writeFileSync(join(root, "a.md"), "two\n");
-    await detect.body(hostIn(root, state).context);
+    await detect(hostIn(root, state).context);
     expect(second.changes[0]).toMatchObject({ modified: [{ path: "a.md" }] });
   });
 
@@ -183,7 +199,7 @@ describe("files detector", () => {
       const { changes, handler } = recorder();
       const detect = detectorIn("m", spec, handler);
 
-      await expect(detect.body(context)).resolves.toEqual({ changed: true });
+      await expect(detect(context)).resolves.toEqual({ changed: true });
       expect(changes[0]).toEqual({
         added: [
           {
@@ -197,7 +213,7 @@ describe("files detector", () => {
       });
       rmSync(join(root, "empty.md"), { recursive: true });
       rmSync(join(root, "link.md"));
-      await expect(detect.body(context)).resolves.toEqual({
+      await expect(detect(context)).resolves.toEqual({
         changed: false,
       });
     } finally {
@@ -212,7 +228,7 @@ describe("files detector", () => {
     monitor("**/*.md").do(handler);
     hostIn(root);
     const [key] = [...catalog.monitors.keys()] as [string];
-    const guides = catalog.definitions.get(key);
+    const guides = declared().definitions.get(key);
     if (!guides) {
       throw new Error("expected the detector step");
     }
@@ -238,7 +254,7 @@ describe("files detector", () => {
     );
     hostIn(root);
     const [key] = [...catalog.monitors.keys()] as [string];
-    const detect = catalog.definitions.get(key) as AnyDefinition;
+    const detect = declared().definitions.get(key) as AnyDefinition;
 
     await expect(launch(detect)).resolves.toEqual({
       changed: true,
@@ -263,18 +279,18 @@ describe("files detector", () => {
       changed: true,
       launch: { input: { task: "guide.md" }, workflow: "ship" },
     };
-    await expect(detect.body(context)).resolves.toEqual(expected);
+    await expect(detect(context)).resolves.toEqual(expected);
     expect(readJson(join(state, "monitors", "m.json"))).toMatchObject({
       pending: expected.launch,
     });
     // Nothing changed, but the launch was never started: out it goes again,
     // without asking the handler.
-    await expect(detect.body(context)).resolves.toEqual(expected);
+    await expect(detect(context)).resolves.toEqual(expected);
     expect(handled).toBe(1);
-    detect.acknowledge();
+    acknowledgeLaunch(hosted.store, "m");
     const stored = readJson(join(state, "monitors", "m.json"));
     expect(isRecord(stored) && "pending" in stored).toBe(false);
-    await expect(detect.body(context)).resolves.toEqual({ changed: false });
+    await expect(detect(context)).resolves.toEqual({ changed: false });
   });
 
   it("a tick starts the launch once, and a target that fails is not started again", async () => {
@@ -293,7 +309,7 @@ describe("files detector", () => {
     );
     hostIn(root, state);
     const [key] = [...catalog.monitors.keys()] as [string];
-    const schedule = catalog.schedules.get(key);
+    const schedule = declared().schedules.get(key);
     if (!schedule) {
       throw new Error("expected the monitor's schedule");
     }
@@ -323,7 +339,7 @@ describe("files detector", () => {
     monitor("**/*.md").do(() => undefined);
     hostIn(root, state);
     const [key] = [...catalog.monitors.keys()] as [string];
-    const schedule = catalog.schedules.get(key);
+    const schedule = declared().schedules.get(key);
     if (!schedule) {
       throw new Error("expected the monitor's schedule");
     }
@@ -372,7 +388,7 @@ describe("files detector", () => {
     });
     hostIn(root, state);
     const [key] = [...catalog.monitors.keys()] as [string];
-    const schedule = catalog.schedules.get(key);
+    const schedule = declared().schedules.get(key);
     if (!schedule) {
       throw new Error("expected the monitor's schedule");
     }
@@ -404,7 +420,7 @@ describe("files detector", () => {
     monitor("**/*.md").do(() => b({ a: a({}) }));
     hostIn(root);
     const [key] = [...catalog.monitors.keys()] as [string];
-    const detect = catalog.definitions.get(key) as AnyDefinition;
+    const detect = declared().definitions.get(key) as AnyDefinition;
     await expect(launch(detect)).rejects.toThrow(WRAP_PATTERN);
   });
 });
@@ -441,7 +457,7 @@ describe("http detector", () => {
     const { changes, contexts, handler } = recorder();
     const detect = detectorIn("r", spec, handler, { fetch });
 
-    await expect(detect.body(context)).resolves.toEqual({ changed: true });
+    await expect(detect(context)).resolves.toEqual({ changed: true });
     expect(changes[0]).toEqual({
       current: { tags: ["v1"] },
       kind: "http",
@@ -453,10 +469,12 @@ describe("http detector", () => {
     await expect(contexts[0]?.response?.json()).resolves.toEqual({
       tags: ["v1"],
     });
+    // `files` is only for a glob.
+    expect(contexts[0]).not.toHaveProperty("files");
 
-    await expect(detect.body(context)).resolves.toEqual({ changed: false });
+    await expect(detect(context)).resolves.toEqual({ changed: false });
 
-    await detect.body(context);
+    await detect(context);
     expect(changes[1]).toMatchObject({
       current: { tags: ["v1", "v2"] },
       previous: { tags: ["v1"] },
@@ -477,14 +495,14 @@ describe("http detector", () => {
     const { changes, handler } = recorder();
     const detect = detectorIn("r", spec, handler, { fetch });
 
-    await detect.body(context);
-    await expect(detect.body(context)).resolves.toEqual({ changed: false });
-    await expect(detect.body(context)).resolves.toEqual({ changed: false });
+    await detect(context);
+    await expect(detect(context)).resolves.toEqual({ changed: false });
+    await expect(detect(context)).resolves.toEqual({ changed: false });
     expect(lines).toEqual([
       "[monitor] r poll failed: Error: HTTP 500",
       "[monitor] r poll failed: Error: offline",
     ]);
-    await expect(detect.body(context)).resolves.toEqual({ changed: false });
+    await expect(detect(context)).resolves.toEqual({ changed: false });
     expect(changes).toHaveLength(1);
   });
 });
@@ -506,8 +524,10 @@ describe("monitor factory", () => {
       kind: "http",
       url: "https://example.test/releases",
     });
-    expect(catalog.definitions.has(guides)).toBe(true);
-    expect(catalog.schedules.get(guides)).toEqual({
+    // The engine turns each into a detector step and its schedule.
+    const registry = declared();
+    expect(registry.definitions.has(guides)).toBe(true);
+    expect(registry.schedules.get(guides)).toEqual({
       input: null,
       key: guides,
       kind: "monitor",
@@ -515,12 +535,12 @@ describe("monitor factory", () => {
       trigger: { kind: "interval", ms: 60_000 },
       workflow: guides,
     });
-    expect(catalog.schedules.get(releases)?.trigger).toEqual({
+    expect(registry.schedules.get(releases)?.trigger).toEqual({
       kind: "interval",
       ms: 300_000,
     });
     // Detectors are internal: they never appear as launchable entries.
-    expect(catalog.entries()).toEqual([]);
+    expect(registry.entries()).toEqual([]);
   });
 
   it("gives the same source a second key", () => {

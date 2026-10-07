@@ -63,7 +63,7 @@ export const weekly = workflow(() => review({}));
 schedule(implement).every("1h");
 `
   );
-  expect(catalog.entries().map((entry) => entry.name)).toEqual([
+  expect([...catalog.definitions.keys()]).toEqual([
     "review",
     "implement",
     "weekly",
@@ -96,7 +96,7 @@ try {
 `
   );
   expect(module.both).toEqual([undefined, undefined]);
-  expect(catalog.entries()).toEqual([]);
+  expect(catalog.definitions.size).toBe(0);
   expect(module.failure).toContain("has no name");
   expect(module.failure).not.toContain("install typescript");
 });
@@ -115,12 +115,11 @@ export const names = [job.name, named.name, chained.name];
 `
   );
   expect(module.names).toEqual(["job", "named-flow", "chained"]);
-  expect(
-    catalog
-      .entries()
-      .map((entry) => entry.name)
-      .sort()
-  ).toEqual(["chained", "job", "named-flow"]);
+  expect([...catalog.definitions.keys()].sort()).toEqual([
+    "chained",
+    "job",
+    "named-flow",
+  ]);
 });
 
 test("two files binding the same const name collide with both positions", async () => {
@@ -163,7 +162,7 @@ try {
 `
   );
   expect(module.orphan.name).toBeUndefined();
-  expect(catalog.entries()).toEqual([]);
+  expect(catalog.definitions.size).toBe(0);
   expect(module.failure).toContain("install typescript");
 });
 

@@ -51,6 +51,8 @@ import { HarnessInteractions } from "~/lib/sandbox/interactions";
 import type { Lock } from "~/lib/state/locks";
 import type { RunExtras } from "~/lib/state/runs";
 import { loadRuns, saveRun } from "~/lib/state/runs";
+import type { StateStore } from "~/lib/state/store";
+import { InMemoryStateStore, JsonStateStore } from "~/lib/state/store";
 import { factoryFor } from "~/lib/tree";
 import type { Schedule } from "~/lib/triggers";
 
@@ -111,6 +113,12 @@ export interface EngineOptions {
   readonly sessions: SessionStore;
   /** Workspace state dir. Omit for in-memory: nothing survives the process. */
   readonly state?: string;
+  /**
+   * Where triggers keep their history, monitors what they saw, and agents
+   * the triggers they create, with the locks that keep two ticks apart. By
+   * default a `JsonStateStore` over `state`, or in memory without one.
+   */
+  readonly store?: StateStore;
   /** Identity of this workspace: part of a declared artifact's id and of every feed entry. */
   readonly workspaceId: string;
   /**
@@ -182,6 +190,8 @@ export class Engine {
   readonly scopes: ReadonlyRunScopes;
   readonly sessions: SessionStore;
   readonly state: string | undefined;
+  /** Trigger history, monitor state, agent-created triggers, and their locks. */
+  readonly store: StateStore;
   readonly workspaceId: string;
   readonly workspaces: WorkspacesManager;
   /** Where worktrees are cut; a host lets its sandboxes mount what is inside. */
@@ -222,6 +232,11 @@ export class Engine {
     this.scopes = this.#scopes;
     this.sessions = sessions;
     this.state = state;
+    this.store =
+      options.store ??
+      (state === undefined
+        ? new InMemoryStateStore()
+        : new JsonStateStore(state));
     this.workspaceId = workspaceId;
     this.worktrees = options.worktrees ?? Engine.worktreesFor(state);
     const catalogue =
@@ -242,7 +257,7 @@ export class Engine {
     this.automations = new AutomationService({
       allowHttp: configuredMonitorUrl(this.#registry),
       registry: this.#registry,
-      state,
+      store: this.store,
     });
     this.interactions = new HarnessInteractions({
       askable,
@@ -292,7 +307,7 @@ export class Engine {
     this.bindings = {
       agents: (args) => this.agents.scoped(args),
       artifacts: (args) => this.artifacts.scoped(args),
-      host: { catalogue, state },
+      host: { catalogue, store: this.store },
       log: createLog((_level, message) => print(message)),
       root,
       sandboxes: (args) => this.sandboxes.scoped(args),
@@ -358,16 +373,6 @@ export class Engine {
   monitor(record: MonitorRecord): void {
     this.#registry.monitor(record);
     this.#adopt(record.key);
-  }
-
-  /**
-   * A monitor's launch has been started: its detector drops the pending
-   * launch, so the next poll reads the source again. Until then every tick
-   * hands the same launch out, so a crash between seeing a change and
-   * starting its run does not lose it. The schedule loop calls this.
-   */
-  acknowledge(key: string): void {
-    this.#registry.detectors.get(key)?.acknowledge();
   }
 
   /** The monitors a host declared, by key. */

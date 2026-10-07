@@ -74,6 +74,14 @@ export type { ReadonlyRunScopes, RunScope } from "./run-scope";
 export type { ActivityRecord, HarnessActivities } from "./sandbox/activities";
 export type { HarnessInteractions } from "./sandbox/interactions";
 export { JsonSessionStore } from "./sessions/json-store";
+export type { Lock } from "./state/locks";
+export type {
+  HeldLock,
+  StateCollection,
+  StateStore,
+  StoredDocument,
+} from "./state/store";
+export { InMemoryStateStore, JsonStateStore } from "./state/store";
 export type { CalendarSlot, Schedule, Trigger, Weekday } from "./triggers";
 export type {
   AgentDefinition,

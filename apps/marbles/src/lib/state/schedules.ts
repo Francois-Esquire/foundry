@@ -1,9 +1,7 @@
-import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { isRecord } from "~/lib/state/json";
+import type { StateStore } from "~/lib/state/store";
 
-import { isRecord, readJson, writeJson } from "~/lib/state/json";
-
-/** `<workspace>/schedules/<key>.json`: the last tick and when the next is due. */
+/** A schedule's document in the `schedules` collection: the last tick and when the next is due. */
 export interface ScheduleHistory {
   /** Recorded so `status`, which never loads the config, can label a monitor. */
   readonly kind?: "schedule" | "monitor";
@@ -15,24 +13,20 @@ export interface ScheduleHistory {
   readonly nextDue: string;
 }
 
-export function writeScheduleHistory(
-  dir: string,
-  name: string,
+export function recordTick(
+  store: StateStore,
+  key: string,
   history: ScheduleHistory
 ): void {
-  writeJson(join(dir, "schedules", `${name}.json`), { version: 1, ...history });
+  store.write("schedules", key, { version: 1, ...history });
 }
 
-/** Only the field the loop seeds from; the rest is for humans and `status`. */
-export function readLastFinish(dir: string, name: string): number | undefined {
-  const path = join(dir, "schedules", `${name}.json`);
-  if (!existsSync(path)) {
-    return undefined;
-  }
-  const parsed = readJson(path);
+/** When the schedule's last recorded tick finished; the rest is for humans and `status`. */
+export function lastFinish(store: StateStore, key: string): number | undefined {
+  const recorded = store.read("schedules", key);
   const finished =
-    isRecord(parsed) && typeof parsed.lastFinish === "string"
-      ? Date.parse(parsed.lastFinish)
+    isRecord(recorded) && typeof recorded.lastFinish === "string"
+      ? Date.parse(recorded.lastFinish)
       : Number.NaN;
   return Number.isNaN(finished) ? undefined : finished;
 }

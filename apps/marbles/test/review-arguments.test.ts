@@ -9,6 +9,7 @@ import { reviewWorktree as review } from "../examples/review-with-arguments";
 
 import type { MockBindings } from "./helpers/bindings";
 import { bindMock } from "./helpers/bindings";
+import { declared } from "./helpers/engine";
 import { launch } from "./helpers/launch";
 
 let root: string;
@@ -38,7 +39,7 @@ afterAll(async () => {
 });
 
 it("describes its arguments as launch-form fields from the schema", () => {
-  const entry = catalog
+  const entry = declared()
     .entries()
     .find((item) => item.name === "review-worktree");
   expect(entry?.kind).toBe("step");

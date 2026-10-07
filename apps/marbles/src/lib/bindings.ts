@@ -1,4 +1,5 @@
 import type { Log } from "~/lib/log";
+import type { StateStore } from "~/lib/state/store";
 
 import type { Catalogue } from "./managers/workspaces";
 import type { Frame, RunScope } from "./run-scope";
@@ -21,8 +22,8 @@ export interface ManagerArgs {
 export interface HostBindings {
   /** The workspace system; file monitors read the tree through it. */
   readonly catalogue?: Catalogue;
-  /** The workspace state dir; undefined when nothing is persisted. */
-  readonly state?: string;
+  /** The engine's state store; monitors keep what they last saw in it. */
+  readonly store?: StateStore;
 }
 
 /** The engine's managers, as a step body reaches them. */

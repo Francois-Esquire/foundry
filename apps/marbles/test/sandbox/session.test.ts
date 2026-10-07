@@ -9,6 +9,7 @@ import type { Container } from "@foundry/sandbox/container/containers";
 import { simulateReadableStream } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, it, vi } from "vitest";
+import type { SandboxSessionOptions } from "../../src/lib/sandbox/session";
 import { createSandboxSession } from "../../src/lib/sandbox/session";
 import type { Sandbox } from "../../src/lib/types";
 
@@ -118,7 +119,7 @@ const { signal } = new AbortController();
 
 async function session(
   network: MockLanguageModelV4,
-  overrides: Parameters<typeof createSandboxSession>[0]["options"] = {},
+  overrides: Partial<SandboxSessionOptions> = {},
   context: {
     store?: InMemorySessionStore;
     signal?: AbortSignal;
@@ -131,10 +132,15 @@ async function session(
   return createSandboxSession({
     agentId: "coder",
     container: binding.container,
+    harness: "builtin",
     instructions: "Make one change and run tests.",
     model: network,
     modelId: "gateway-model",
-    options: { sandbox, ...overrides },
+    options: {
+      authority: { policy: createInMemoryAgentAuthorizer().authorizer },
+      sandbox,
+      ...overrides,
+    },
     provider: "gateway",
     sessionId: "session",
     signal: context.signal ?? signal,

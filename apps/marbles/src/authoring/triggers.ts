@@ -34,19 +34,6 @@ function sha256(text: string): string {
   return createHash("sha256").update(text).digest("hex");
 }
 
-/** Registration-order suffix for an exact duplicate key. */
-function uniqueKey(base: string): string {
-  if (!catalog.schedules.has(base)) {
-    return base;
-  }
-  for (let n = 2; ; n += 1) {
-    const candidate = `${base}-${String(n)}`;
-    if (!catalog.schedules.has(candidate)) {
-      return candidate;
-    }
-  }
-}
-
 export interface ScheduleBuilder {
   /** A calendar slot: `{ weekday: "fri", hour: 16 }`. */
   at(slot: CalendarSlot): void;
@@ -63,7 +50,7 @@ export function schedule(target: AnyDefinition | LockedNode): ScheduleBuilder {
       : slug(launch.workflow);
     catalog.schedule({
       input: launch.input,
-      key: uniqueKey(base),
+      key: catalog.uniqueKey(base),
       kind: "schedule",
       label: hasInput
         ? `${launch.workflow} ${JSON.stringify(launch.input)}`
@@ -104,7 +91,9 @@ export function monitor(source: string): MonitorBuilder {
   const build = (every: string): MonitorBuilder => ({
     do(handler) {
       const trigger = parseAt(every);
-      const key = uniqueKey(`${slug(source)}-${sha256(source).slice(0, 6)}`);
+      const key = catalog.uniqueKey(
+        `${slug(source)}-${sha256(source).slice(0, 6)}`
+      );
       catalog.monitor({ handler, key, label: source, source: spec, trigger });
     },
     every(interval) {

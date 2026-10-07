@@ -4,7 +4,18 @@
  * and `roll <key>`.
  */
 
-export type Weekday = "sun" | "mon" | "tue" | "wed" | "thu" | "fri" | "sat";
+/** Cron order: Sunday first. */
+export const WEEKDAYS = [
+  "sun",
+  "mon",
+  "tue",
+  "wed",
+  "thu",
+  "fri",
+  "sat",
+] as const;
+
+export type Weekday = (typeof WEEKDAYS)[number];
 
 /** A wall-clock slot in machine-local time; no `weekday` means every day. */
 export interface CalendarSlot {

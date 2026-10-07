@@ -11,8 +11,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Step } from "@foundry/workflows/step";
 import { describe, expect, it } from "vitest";
+import type { ScheduledEngine } from "~/lib/schedule";
 import { runSchedules, tick } from "~/lib/schedule";
 import { acquireLock } from "~/lib/state/locks";
+import type { StateStore } from "~/lib/state/store";
+import { InMemoryStateStore, JsonStateStore } from "~/lib/state/store";
 import { workspaceState } from "~/lib/state/workspace";
 import type { Schedule } from "~/lib/triggers";
 import { testEngine } from "./helpers/engine";
@@ -23,6 +26,7 @@ const SKIPPED_RUNS_RN_HOLLOW_JSON_PATTERN =
   /^\[state\] skipped runs\/rn-hollow\.json: /;
 const SHORT_HEX_ID_PATTERN = /^[0-9a-f]{12}$/;
 const BOOM_PATTERN = /boom/;
+const PLAIN_NAME = /must be a plain name/;
 
 class Shout extends Step<string, string> {
   readonly definitionKey = "test.shout";
@@ -193,7 +197,7 @@ describe("schedule state", () => {
     const { lines, print } = collector();
     const engine = await engineIn(state, print);
 
-    const result = await tick(engine, schedule, { print, state });
+    const result = await tick(engine, schedule, { print });
     expect(result).toEqual({ value: "HI" });
     expect(existsSync(join(state, "locks", "s"))).toBe(false);
     const history = readJson(join(state, "schedules", "s.json"));
@@ -210,7 +214,7 @@ describe("schedule state", () => {
     expect(history.label).toBe("shout hi");
 
     await expect(
-      tick(engine, { ...schedule, workflow: "explode" }, { print, state })
+      tick(engine, { ...schedule, workflow: "explode" }, { print })
     ).rejects.toThrow(BOOM_PATTERN);
     expect(readJson(join(state, "schedules", "s.json"))).toMatchObject({
       lastStatus: "failed",
@@ -218,11 +222,9 @@ describe("schedule state", () => {
     expect(existsSync(join(state, "locks", "s"))).toBe(false);
 
     writeFileSync(join(state, "locks", "s"), String(process.pid));
-    await expect(tick(engine, schedule, { print, state })).resolves.toBe(
-      undefined
-    );
+    await expect(tick(engine, schedule, { print })).resolves.toBe(undefined);
     expect(lines).toContain(
-      `[schedule] s skipped: running as pid ${String(process.pid)}`
+      `[schedule] s skipped: held by pid ${String(process.pid)}`
     );
     await engine.stop();
   });
@@ -243,14 +245,18 @@ describe("schedule state", () => {
     let clock = 100;
     const controller = new AbortController();
     const engine = {
-      run: () => {
+      cancel: () => Promise.resolve(),
+      has: () => true,
+      launch: () => {
         dispatched.push(clock);
         controller.abort();
-        return Promise.resolve(undefined);
+        return Promise.resolve({ id: "run", result: Promise.resolve() });
       },
-    };
+      schedules: () => [schedule],
+      store: new JsonStateStore(state),
+    } as ScheduledEngine;
 
-    await runSchedules(engine as never, [schedule], {
+    await runSchedules(engine, {
       now: () => clock,
       print: () => undefined,
       signal: controller.signal,
@@ -258,7 +264,6 @@ describe("schedule state", () => {
         clock += ms;
         return Promise.resolve();
       },
-      state,
     });
     // Without the seed the first tick would wait until 110.
     expect(dispatched).toEqual([105]);
@@ -266,5 +271,112 @@ describe("schedule state", () => {
       lastFinish: new Date(105).toISOString(),
       nextDue: new Date(115).toISOString(),
     });
+  });
+});
+
+describe.each([
+  [
+    "JsonStateStore",
+    () => new JsonStateStore(mkdtempSync(join(tmpdir(), "marbles-store-"))),
+    `pid ${String(process.pid)}`,
+  ],
+  ["InMemoryStateStore", () => new InMemoryStateStore(), "this process"],
+] as const)("%s", (_name, open: () => StateStore, holder: string) => {
+  it("reads, lists and removes documents by collection and key", () => {
+    const store = open();
+    expect(store.read("monitors", "m")).toBeUndefined();
+    expect(store.list("monitors")).toEqual([]);
+    store.write("monitors", "m", { seen: [1] });
+    store.write("monitors", "a", { seen: [] });
+    store.write("schedules", "m", { other: true });
+    expect(store.read("monitors", "m")).toEqual({ seen: [1] });
+    expect(
+      store.list("monitors").map(({ key, value }) => [key, value])
+    ).toEqual([
+      ["a", { seen: [] }],
+      ["m", { seen: [1] }],
+    ]);
+    expect(store.list("monitors")[0]?.modified).toBeGreaterThan(0);
+    store.remove("monitors", "m");
+    store.remove("monitors", "never");
+    expect(store.read("monitors", "m")).toBeUndefined();
+    expect(store.read("schedules", "m")).toEqual({ other: true });
+  });
+
+  it("hands out copies, never its own documents", () => {
+    const store = open();
+    const written = { files: { "a.md": "1" } };
+    store.write("monitors", "m", written);
+    written.files["a.md"] = "2";
+    const read = store.read("monitors", "m") as typeof written;
+    read.files["a.md"] = "3";
+    expect(store.read("monitors", "m")).toEqual({ files: { "a.md": "1" } });
+  });
+
+  it("moves a collection's revision on every write and removal, and only then", () => {
+    const store = open();
+    const empty = store.revision("automations");
+    expect(store.revision("automations")).toBe(empty);
+    store.write("automations", "x", { n: 1 });
+    const one = store.revision("automations");
+    expect(one).not.toBe(empty);
+    store.write("monitors", "x", { n: 1 });
+    expect(store.revision("automations")).toBe(one);
+    store.write("automations", "x", { n: 1 });
+    const rewritten = store.revision("automations");
+    expect(rewritten).not.toBe(one);
+    store.remove("automations", "x");
+    expect(store.revision("automations")).not.toBe(rewritten);
+  });
+
+  it("holds a lock for one holder until it is released, and says who holds it", () => {
+    const store = open();
+    const lock = store.lock("s");
+    if ("holder" in lock) {
+      throw new Error("expected the lock");
+    }
+    expect(store.lock("s")).toEqual({ holder });
+    const other = store.lock("t");
+    expect(other).toHaveProperty("release");
+    lock.release();
+    const again = store.lock("s");
+    expect(again).toHaveProperty("release");
+    for (const held of [again, other]) {
+      if ("release" in held) {
+        held.release();
+      }
+    }
+  });
+
+  it("refuses a key or lock name that is not one plain name", () => {
+    const store = open();
+    for (const name of ["", ".", "..", "a/b", "../escape", "a\\b", "nul\0"]) {
+      expect(() => store.write("monitors", name, {})).toThrow(PLAIN_NAME);
+      expect(() => store.read("monitors", name)).toThrow(PLAIN_NAME);
+      expect(() => store.remove("monitors", name)).toThrow(PLAIN_NAME);
+      expect(() => store.lock(name)).toThrow(PLAIN_NAME);
+    }
+    expect(store.list("monitors")).toEqual([]);
+    store.write("monitors", "automation-1.v2", {});
+    expect(store.read("monitors", "automation-1.v2")).toEqual({});
+  });
+});
+
+describe("JsonStateStore", () => {
+  it("keeps the layout status reads, and lists an unreadable document with its error", () => {
+    const state = mkdtempSync(join(tmpdir(), "marbles-store-"));
+    const store = new JsonStateStore(state);
+    store.write("schedules", "s", { lastFinish: "x", version: 1 });
+    expect(readJson(join(state, "schedules", "s.json"))).toEqual({
+      lastFinish: "x",
+      version: 1,
+    });
+    writeFileSync(join(state, "schedules", "broken.json"), "{ nope");
+    writeFileSync(join(state, "schedules", "notes.txt"), "ignored");
+    const [broken, kept] = store.list("schedules");
+    expect(broken?.key).toBe("broken");
+    expect(broken?.error).toContain("SyntaxError");
+    expect(store.read("schedules", "broken")).toBeUndefined();
+    expect(kept).toMatchObject({ key: "s", value: { lastFinish: "x" } });
   });
 });

@@ -3,10 +3,12 @@ import { InMemorySessionStore } from "@foundry/agents/session";
 import { describe, expect, it } from "vitest";
 import type { ManagerArgs } from "~/lib/bindings";
 import { CLAUDE_CODE, CODEX } from "~/lib/harnesses";
+import type { AgentsDeps } from "~/lib/managers/agents";
 import { AgentsManager } from "~/lib/managers/agents";
 import { mockModels } from "~/lib/models/echo";
 import { RunScope } from "~/lib/run-scope";
 import type { AgentDefinition } from "~/lib/types";
+import { testEngine } from "../helpers/engine";
 
 const NO_TURN_PATTERN = /no agent turn is running/;
 
@@ -22,16 +24,23 @@ function args(): ManagerArgs & { readonly written: string[] } {
   };
 }
 
-function deps(warnings: string[] = []) {
+/** Supplies the approvals, activity, and automations an engine would hand the manager. */
+const host = testEngine();
+
+function deps(warnings: string[] = []): AgentsDeps {
   const models = mockModels(
     [CLAUDE_CODE, CODEX],
     ({ executor, prompt, cwd }) => `${executor.provider}@${cwd}: ${prompt}`
   );
   return {
+    activities: host.activities,
+    automations: host.automations,
     containerOf: (): never => {
       throw new Error("no sandbox in these tests");
     },
     defaultExecutor: () => CLAUDE_CODE,
+    dry: false,
+    interactions: host.interactions,
     models,
     root: process.cwd(),
     sessions: new InMemorySessionStore(),

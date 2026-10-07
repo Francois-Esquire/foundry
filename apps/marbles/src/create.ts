@@ -26,6 +26,7 @@ import { allowedMountRoots } from "~/lib/managers/sandboxes";
 import { echoModels } from "~/lib/models/echo";
 import { Registry } from "~/lib/registry";
 import { JsonSessionStore } from "~/lib/sessions/json-store";
+import { InMemoryStateStore, JsonStateStore } from "~/lib/state/store";
 
 /**
  * The engine as Marbles runs it. The machine is inspected and the flags are
@@ -70,19 +71,14 @@ type Declarable = Pick<Engine, "define" | "monitor" | "schedule">;
 
 /** Tell `target` everything the config declared, definitions first. */
 export function declareCatalog(target: Declarable, catalog: Catalog): void {
-  for (const [name, definition] of catalog.definitions) {
-    // A monitor brings its own step when it is declared below.
-    if (!catalog.monitors.has(name)) {
-      target.define(definition);
-    }
+  for (const definition of catalog.definitions.values()) {
+    target.define(definition);
   }
   for (const record of catalog.schedules.values()) {
-    const watched = catalog.monitors.get(record.key);
-    if (watched) {
-      target.monitor(watched);
-    } else {
-      target.schedule(record);
-    }
+    target.schedule(record);
+  }
+  for (const record of catalog.monitors.values()) {
+    target.monitor(record);
   }
 }
 
@@ -104,10 +100,14 @@ export function readTriggers(
 ): Triggers {
   const registry = new Registry();
   declareCatalog(registry, catalog);
+  const state = persisted(dry, stateDir);
   const automations = new AutomationService({
     allowHttp: configuredMonitorUrl(registry),
     registry,
-    state: persisted(dry, stateDir),
+    store:
+      state === undefined
+        ? new InMemoryStateStore()
+        : new JsonStateStore(state),
   });
   return { automations, registry };
 }

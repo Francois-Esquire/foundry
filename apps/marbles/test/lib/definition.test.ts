@@ -5,6 +5,7 @@ import { step, workflow } from "~/authoring/builder";
 import { catalog } from "~/authoring/catalog";
 import { isLockedNode } from "~/lib/definition";
 import { createLog } from "~/lib/log";
+import { declared } from "../helpers/engine";
 
 const ALREADY_REGISTERED = /already registered/;
 const CHILD_AND_INPUT = /both a child and an input key/;
@@ -178,7 +179,7 @@ describe("definitions and locking", () => {
     expect(def.description).toBe("A typed step");
     expect(def.input).toBeDefined();
     expect(def.output).toBeDefined();
-    const [entry] = catalog.entries();
+    const [entry] = declared().entries();
     expect(entry).toMatchObject({
       description: "A typed step",
       kind: "step",

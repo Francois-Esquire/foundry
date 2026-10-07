@@ -85,7 +85,7 @@ it("projects real nested runs, logs and trigger provenance, including restored h
     if (!scheduled) {
       throw new Error("missing fixture schedule");
     }
-    await tick(engine, scheduled, { print, state: engine.state });
+    await tick(engine, scheduled, { print });
     const snapshot = dashboardSnapshot(await engine.runs(), view(engine));
     expect(snapshot.mode).toBe("live");
     // Anonymous `bang` is internal; the schema gives each entry its form.

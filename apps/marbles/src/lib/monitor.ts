@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
-import { join } from "node:path";
 
 import { globToRegExp } from "@foundry/lib/glob";
+import { z } from "zod";
 
 import type { HostBindings } from "~/lib/bindings";
 import type { StepFn } from "~/lib/definition";
@@ -10,25 +10,30 @@ import type { Launch } from "~/lib/launch";
 import { isLaunch, launchTarget } from "~/lib/launch";
 import type { Catalogue } from "~/lib/managers/workspaces";
 import { current } from "~/lib/run-scope";
-import { isRecord, readJson, stableJson, writeJson } from "~/lib/state/json";
+import { isRecord, stableJson } from "~/lib/state/json";
+import type { StateStore } from "~/lib/state/store";
 import type { Context } from "~/lib/types";
 
 /**
  * A monitor is a schedule whose step detects a change and hands it to the
- * config's handler. Last-seen state lives in `<workspace>/monitors/<key>.json`
- * so a launchd tick knows what changed since the previous one; under `--dry-run`
- * it lives in the closure and dies with the process.
+ * config's handler. What it last saw is the `monitors` document under its
+ * key in the engine's state store, so a launchd tick knows what changed
+ * since the previous one.
  *
- * A launch the handler asked for is written into that state as `pending`
- * and handed back on every tick until the tick that started it
+ * A launch the handler asked for is written into that document as
+ * `pending` and handed back on every tick until the tick that started it
  * acknowledges it, so a crash between the observation and the start does
  * not lose the launch. Started is delivered: a target that then fails or is
  * cancelled is not started again, any more than a schedule's run would be.
  */
 
-export type MonitorSpec =
-  | { readonly glob: string; readonly kind: "files" }
-  | { readonly kind: "http"; readonly url: string };
+/** What a monitor watches: a glob under the workspace root, or a URL. */
+export const monitorSpecSchema = z.discriminatedUnion("kind", [
+  z.object({ glob: z.string().min(1), kind: z.literal("files") }),
+  z.object({ kind: z.literal("http"), url: z.string().url() }),
+]);
+
+export type MonitorSpec = Readonly<z.infer<typeof monitorSpecSchema>>;
 
 interface FileEntry {
   readonly checksum: string;
@@ -63,11 +68,17 @@ export type MonitorInput = Record<string, never>;
  */
 export interface MonitorContext extends Context<MonitorInput> {
   readonly change: Change;
+  /** A glob's diff, the same object as `change`, so a handler can destructure it without narrowing. */
   readonly files?: FileChange;
   readonly response?: Response;
 }
 
 export type MonitorHandler = (context: MonitorContext) => unknown;
+
+/** What a detector does with a change: the launch to hand its tick, if any. */
+export type MonitorResponse = (
+  context: MonitorContext
+) => Launch | undefined | Promise<Launch | undefined>;
 
 /** The detector step's output; `launch` is what the handler asked to start. */
 export interface Detection {
@@ -123,25 +134,17 @@ function hostOf(key: string, options: DetectorOptions): MonitorHost {
   return { ...store.scope.host, root: store.scope.cwd };
 }
 
-function handlerContext(
-  context: Context<MonitorInput>,
-  change: Change,
-  response?: Response
-): MonitorContext {
-  return {
-    ...context,
-    change,
-    ...(change.kind === "files" ? { files: change } : {}),
-    ...(response === undefined ? {} : { response }),
+/** A config handler as a detector's response: a locked node it returns is started. */
+export function handlerResponse(
+  key: string,
+  handler: MonitorHandler
+): MonitorResponse {
+  return async (context) => {
+    const handled = await handler(context);
+    return isLockedNode(handled)
+      ? launchTarget(handled, `monitor "${key}"`)
+      : undefined;
   };
-}
-
-/** A handler that returns a locked node asks the tick to start it. */
-function detection(key: string, handled: unknown): Detection {
-  if (isLockedNode(handled)) {
-    return { changed: true, launch: launchTarget(handled, `monitor "${key}"`) };
-  }
-  return { changed: true };
 }
 
 function pendingLaunch(previous: unknown): Launch | undefined {
@@ -150,81 +153,78 @@ function pendingLaunch(previous: unknown): Launch | undefined {
     : undefined;
 }
 
-/** A monitor's step body, and how the launch it handed out is cleared. */
-export interface Detector {
-  /** The tick that started the pending launch calls this; the next poll looks again. */
-  acknowledge(): void;
-  readonly body: StepFn<MonitorInput, Detection>;
+/**
+ * The tick that started (or gave up on) a monitor's pending launch clears
+ * it, so the next poll reads the source again.
+ */
+export function acknowledgeLaunch(store: StateStore, key: string): void {
+  const previous = store.read("monitors", key);
+  if (isRecord(previous) && "pending" in previous) {
+    const { pending: _, ...rest } = previous;
+    store.write("monitors", key, rest);
+  }
+}
+
+function storeOf(key: string, host: MonitorHost): StateStore {
+  if (!host.store) {
+    throw new Error(`monitor "${key}" needs a host with a state store`);
+  }
+  return host.store;
+}
+
+/** Read the source; a files monitor without a catalogue is the host's mistake, not a failed poll. */
+function observer(
+  key: string,
+  spec: MonitorSpec,
+  host: MonitorHost,
+  fetchImpl: Fetch
+): (previous: unknown, signal: AbortSignal) => Promise<Observation> {
+  switch (spec.kind) {
+    case "files": {
+      const { catalogue } = host;
+      if (!catalogue) {
+        throw new Error(
+          `monitor "${key}" needs a host with a workspace catalogue`
+        );
+      }
+      return (previous) => observeFiles(catalogue, host.root, spec, previous);
+    }
+    case "http":
+      return (previous, signal) =>
+        observeHttp(spec, previous, fetchImpl, signal);
+    default:
+      throw new Error(`unknown monitor ${String(spec satisfies never)}`);
+  }
 }
 
 /**
  * The step body a monitor registers: read what is there, diff it against the
- * last tick, run the handler only when something changed. State is written
- * after the handler resolves, so a throwing handler sees the same change
- * again next tick. A failed poll logs and keeps the last state. Whoever
- * registers the body keeps the detector, so the tick that starts its launch
- * can acknowledge it.
+ * last tick, respond only when something changed. State is written after
+ * the response resolves, so a throwing handler sees the same change again
+ * next tick. A failed poll logs and keeps the last state.
  */
 export function detector(
   key: string,
   spec: MonitorSpec,
-  handler: MonitorHandler,
+  respond: MonitorResponse,
   options: DetectorOptions = {}
-): Detector {
-  let memory: unknown;
-  const file = (state: string) => join(state, "monitors", `${key}.json`);
-  const stored = (state: string | undefined) =>
-    state === undefined ? memory : readJson(file(state));
-  const store = (state: string | undefined, value: Record<string, unknown>) => {
-    if (state === undefined) {
-      memory = value;
-    } else {
-      writeJson(file(state), { version: 1, ...value });
-    }
-  };
-  // A pending launch is only ever handed out by the body below, so the
-  // state dir it ran against is the one an acknowledgement writes to.
-  let seen: { readonly state: string | undefined } | undefined;
-  const acknowledge = () => {
-    if (!seen) {
-      return;
-    }
-    const previous = stored(seen.state);
-    if (isRecord(previous) && "pending" in previous) {
-      const { pending: _, ...rest } = previous;
-      store(seen.state, rest);
-    }
-  };
-
-  const body: StepFn<MonitorInput, Detection> = async (context) => {
+): StepFn<MonitorInput, Detection> {
+  return async (context) => {
     const { log, signal } = context;
     signal.throwIfAborted();
     const host = hostOf(key, options);
-    seen = { state: host.state };
-    const previous = stored(host.state);
+    const store = storeOf(key, host);
+    const previous = store.read("monitors", key);
     // A launch from an earlier tick that was never started goes out again
     // before anything is polled.
     const pending = pendingLaunch(previous);
     if (pending) {
       return { changed: true, launch: pending };
     }
-    const catalogue = spec.kind === "files" ? host.catalogue : undefined;
-    if (spec.kind === "files" && !catalogue) {
-      throw new Error(
-        `monitor "${key}" needs a host with a workspace catalogue`
-      );
-    }
+    const observe = observer(key, spec, host, options.fetch ?? fetch);
     let observed: Observation;
     try {
-      observed =
-        spec.kind === "files" && catalogue
-          ? await observeFiles(catalogue, host.root, spec, previous)
-          : await observeHttp(
-              spec as { readonly url: string },
-              previous,
-              options.fetch ?? fetch,
-              signal
-            );
+      observed = await observe(previous, signal);
     } catch (error) {
       log(`[monitor] ${key} poll failed: ${String(error)}`);
       return { changed: false };
@@ -233,18 +233,22 @@ export function detector(
     if (observed.change === undefined) {
       return { changed: false };
     }
-    const handled = await handler(
-      handlerContext(context, observed.change, observed.response)
-    );
-    signal.throwIfAborted();
-    const detected = detection(key, handled);
-    store(host.state, {
-      ...observed.state,
-      ...(detected.launch === undefined ? {} : { pending: detected.launch }),
+    const launch = await respond({
+      ...context,
+      change: observed.change,
+      ...(observed.change.kind === "files" ? { files: observed.change } : {}),
+      ...(observed.response === undefined
+        ? {}
+        : { response: observed.response }),
     });
-    return detected;
+    signal.throwIfAborted();
+    store.write("monitors", key, {
+      version: 1,
+      ...observed.state,
+      ...(launch === undefined ? {} : { pending: launch }),
+    });
+    return launch === undefined ? { changed: true } : { changed: true, launch };
   };
-  return { acknowledge, body };
 }
 
 function storedFiles(state: unknown): Map<string, string> {

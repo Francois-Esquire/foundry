@@ -1,22 +1,25 @@
-import { createInMemoryAgentAuthorizer } from "@foundry/agents/authorization";
 import type {
   AgentModel,
   HarnessActivityEvent,
+  HarnessAuthoritySettings,
   HarnessPermissionProfile,
   HarnessSession,
 } from "@foundry/agents/harness";
 import {
+  createBuiltinCodingHarness,
   createDriverSession,
+  createHarnessPermission,
   createHarnessQuestionTool,
 } from "@foundry/agents/harness";
 import type { SessionStore } from "@foundry/agents/session";
+import { createModelSummarizer } from "@foundry/agents/session";
 import { createClaudeCodeDriver } from "@foundry/models/claude-code";
 import { createCodexDriver } from "@foundry/models/codex";
 import type { Container } from "@foundry/sandbox/container/containers";
 import { prepareSandboxProcess } from "@foundry/sandbox/process";
-import type { ToolSet } from "ai";
+import type { Tool, ToolSet } from "ai";
 import type { SessionOptions } from "~/lib/types";
-import { createBuiltinSession } from "./builtin-session";
+import { createCodingTools } from "./coding-tools";
 import {
   claudeSubscriptionToken,
   codexSubscriptionTokens,
@@ -41,12 +44,24 @@ const BUILTIN_SCHEDULED_PROFILE: HarnessPermissionProfile = {
   unresolved: "deny",
 };
 
+/** Who decides what a sandboxed agent may do, and who hears about it. */
+type SandboxAuthority = Pick<
+  HarnessAuthoritySettings,
+  "approve" | "onApprovalRequest" | "policy"
+>;
+
+/** A session's options once the host has resolved its authority. */
+export interface SandboxSessionOptions extends SessionOptions {
+  readonly authority: SandboxAuthority;
+}
+
 export interface SandboxSessionSettings {
   agentId: string;
   /** The container behind `options.sandbox`; the harness runs inside it. */
   container: Container;
   delegation?: DelegationScope;
-  harness?: string;
+  /** `claude-code` or `codex` run their CLI in the guest; any other runs the built-in coding harness. */
+  harness: string;
   hostCwd?: string;
   hostTools?: ToolSet;
   hostToolsForSession?: (sessionId: string) => ToolSet;
@@ -59,7 +74,7 @@ export interface SandboxSessionSettings {
     activityId: string,
     session: HarnessSession
   ) => void;
-  options: SessionOptions;
+  options: SandboxSessionOptions;
   parentActivityId?: string;
   provider: string;
   registerChildSession?: (sessionId: string) => Promise<void>;
@@ -67,6 +82,12 @@ export interface SandboxSessionSettings {
   signal: AbortSignal;
   store: SessionStore;
   write: (value: unknown) => void;
+}
+
+/** What both kinds of harness are handed alike: approvals and the `ask_user` tool. */
+interface SessionShared {
+  readonly approvals: Pick<SandboxAuthority, "approve" | "onApprovalRequest">;
+  readonly askUser: Tool;
 }
 
 export async function createSandboxSession(
@@ -80,19 +101,86 @@ export async function createSandboxSession(
       delegate: delegationTool(input, createSandboxSession),
     },
   };
-  const { options } = settings;
+  const { harness, options } = settings;
   if (!options.sandbox) {
     throw new Error("A sandbox is required.");
   }
-
-  const { container } = settings;
-  const harness = settings.harness ?? settings.provider;
-  const isCli = harness === "claude-code" || harness === "codex";
-  const profile =
-    options.profile ?? (isCli ? SCHEDULED_PROFILE : BUILTIN_SCHEDULED_PROFILE);
-  if (harness !== "claude-code" && harness !== "codex") {
-    return createBuiltinSession(settings, container, profile);
+  const { authority } = options;
+  const shared: SessionShared = {
+    approvals: {
+      ...(authority.approve ? { approve: authority.approve } : {}),
+      async onApprovalRequest(request) {
+        settings.write({ request, type: "harness-approval" });
+        await authority.onApprovalRequest?.(request);
+      },
+    },
+    askUser: createHarnessQuestionTool({
+      question: options.question,
+      sessionId: settings.sessionId,
+    }),
+  };
+  if (harness === "claude-code" || harness === "codex") {
+    return await cliSession(settings, harness, shared);
   }
+  return builtinSession(settings, shared);
+}
+
+/** The built-in coding harness on a network model, its tools working in the guest. */
+function builtinSession(
+  settings: SandboxSessionSettings,
+  { approvals, askUser }: SessionShared
+): HarnessSession {
+  const { container, model, options } = settings;
+  if (!model) {
+    throw new Error(
+      "A registered network model is required for built-in coding."
+    );
+  }
+  const profile = options.profile ?? BUILTIN_SCHEDULED_PROFILE;
+  const { policy } = options.authority;
+  const permission = createHarnessPermission({
+    agentId: settings.agentId,
+    policy,
+    profile,
+    store: settings.store,
+    ...approvals,
+  });
+  return createBuiltinCodingHarness(
+    {
+      agentId: settings.agentId,
+      compaction: {
+        summarizer: createModelSummarizer({ model }),
+        ...(typeof options.compaction === "object" ? options.compaction : {}),
+      },
+      instructions: settings.instructions,
+      maxSteps: profile.maxSteps,
+      model,
+      permission: (request) =>
+        permission({
+          ...request,
+          activityId: request.activityId ?? settings.parentActivityId,
+        }),
+      policy,
+      sessionId: settings.sessionId,
+      store: settings.store,
+      tools: {
+        ...settings.hostTools,
+        ...createCodingTools(container, { workspacePath: "/workspace" }),
+        ask_user: askUser,
+      },
+    },
+    { sessionId: settings.sessionId }
+  );
+}
+
+/** A native CLI harness prepared in the guest, driven from the host. */
+async function cliSession(
+  settings: SandboxSessionSettings,
+  harness: "claude-code" | "codex",
+  { approvals, askUser }: SessionShared
+): Promise<HarnessSession> {
+  const { container, options } = settings;
+  const profile = options.profile ?? SCHEDULED_PROFILE;
   const { nativeId } = container.row;
   if (!nativeId) {
     throw new Error("Sandbox has no active guest instance.");
@@ -173,34 +261,18 @@ export async function createSandboxSession(
         provider: settings.provider,
       },
       parentActivityId: settings.parentActivityId,
-      policy:
-        options.authority?.policy ??
-        createInMemoryAgentAuthorizer({
-          policy: { byKind: { "tool.call": "ask" }, global: "ask" },
-        }).authorizer,
+      policy: options.authority.policy,
       profile,
       sessionId: settings.sessionId,
       store: settings.store,
-      ...(options.authority?.approve
-        ? { approve: options.authority.approve }
-        : {}),
+      ...approvals,
       onActivity: async (event) => {
         settings.write({ event, type: "harness-activity" });
         await settings.onActivity?.(event);
       },
-      onApprovalRequest: async (request) => {
-        settings.write({ request, type: "harness-approval" });
-        await options.authority?.onApprovalRequest?.(request);
-      },
       onToolEvent: (event) => settings.write({ event, type: "harness-tool" }),
       question: options.question,
-      tools: {
-        ...settings.hostTools,
-        ask_user: createHarnessQuestionTool({
-          question: options.question,
-          sessionId: settings.sessionId,
-        }),
-      },
+      tools: { ...settings.hostTools, ask_user: askUser },
     },
     driver
   );

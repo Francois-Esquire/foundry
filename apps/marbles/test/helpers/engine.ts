@@ -17,6 +17,7 @@ import { Engine } from "~/lib/engine";
 import { CLAUDE_CODE, CODEX } from "~/lib/harnesses";
 import type { MockOptions, Reply } from "~/lib/models/echo";
 import { mockModels } from "~/lib/models/echo";
+import { Registry } from "~/lib/registry";
 
 /** A home with nothing in it, so no test reads the developer's own skills. */
 const NO_HOME = join(tmpdir(), "marbles-test-no-home");
@@ -102,4 +103,11 @@ export function testEngine(options: TestEngineOptions = {}): Engine {
 /** A started `testEngine`. */
 export function startEngine(options: TestEngineOptions = {}): Promise<Engine> {
   return testEngine(options).start();
+}
+
+/** What the authoring catalog declares, as an engine's registry would hold it. */
+export function declared(): Registry {
+  const registry = new Registry();
+  declareCatalog(registry, catalog);
+  return registry;
 }

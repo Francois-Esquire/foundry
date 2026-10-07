@@ -3,11 +3,18 @@ import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { catalog } from "~/authoring/catalog";
-import { nextDue, parseEvery, runSchedules } from "~/lib/schedule";
+import type { ScheduledEngine } from "~/lib/schedule";
+import {
+  describeTrigger,
+  nextDue,
+  parseEvery,
+  runSchedules,
+} from "~/lib/schedule";
 import { JSON_INPUT_FIELD } from "~/lib/schema";
+import { InMemoryStateStore } from "~/lib/state/store";
 import type { CalendarSlot, Schedule } from "~/lib/triggers";
 
-import { testEngine } from "./helpers/engine";
+import { declared, testEngine } from "./helpers/engine";
 import { bindLaunch, launch } from "./helpers/launch";
 
 const CALENDAR_SLOT_PATTERN = /calendar slot/;
@@ -20,6 +27,23 @@ const WRAP_PATTERN = /wrap it in a named workflow/;
 const NO_NAME_PATTERN = /has no name/;
 
 const text = z.object({ text: z.string() });
+
+/** An engine as the loop sees it: these triggers, a memory store, a stub launch. */
+function loopEngine(
+  schedules: readonly Schedule[],
+  started: () => void
+): ScheduledEngine {
+  return {
+    cancel: () => Promise.resolve(),
+    has: () => true,
+    launch: () => {
+      started();
+      return Promise.resolve({ id: "run", result: Promise.resolve() });
+    },
+    schedules: () => schedules,
+    store: new InMemoryStateStore(),
+  } as ScheduledEngine;
+}
 
 /** These bodies only read their input and log. */
 function bindLog(lines: string[]) {
@@ -38,7 +62,11 @@ describe("definitions", () => {
     expect(catalog.definitions.get("shout")).toBe(shout);
     expect(shout.name).toBe("shout");
     workflow("loud", shout({}, { text: "hi" }));
-    expect(catalog.entries().map((entry) => [entry.kind, entry.name])).toEqual([
+    expect(
+      declared()
+        .entries()
+        .map((entry) => [entry.kind, entry.name])
+    ).toEqual([
       ["step", "shout"],
       ["workflow", "loud"],
     ]);
@@ -60,7 +88,9 @@ describe("definitions", () => {
       .do(({ input }) => input.n);
     step("bare").do(() => 1);
     expect(
-      catalog.entries().map((entry) => [entry.name, entry.input.fields])
+      declared()
+        .entries()
+        .map((entry) => [entry.name, entry.input.fields])
     ).toEqual([
       ["opaque", [JSON_INPUT_FIELD]],
       ["bare", []],
@@ -193,16 +223,6 @@ describe("cadence", () => {
     const dispatched: number[] = [];
     let clock = 0;
     const controller = new AbortController();
-    const engine = {
-      run: () => {
-        dispatched.push(clock);
-        clock += 25;
-        if (dispatched.length === 3) {
-          controller.abort();
-        }
-        return Promise.resolve(undefined);
-      },
-    };
     const every: Schedule = {
       input: null,
       key: "e",
@@ -211,9 +231,16 @@ describe("cadence", () => {
       trigger: { kind: "interval", ms: 10 },
       workflow: "w",
     };
+    const engine = loopEngine([every], () => {
+      dispatched.push(clock);
+      clock += 25;
+      if (dispatched.length === 3) {
+        controller.abort();
+      }
+    });
     expect(nextDue(every, 100)).toBe(110);
 
-    await runSchedules(engine as never, [every], {
+    await runSchedules(engine, {
       now: () => clock,
       print: () => undefined,
       signal: controller.signal,
@@ -224,6 +251,61 @@ describe("cadence", () => {
     });
     // Each run takes 25 > cadence 10; the next fires 10 after completion.
     expect(dispatched).toEqual([10, 45, 80]);
+  });
+
+  it("waits a cadence after a tick another holder skipped, rather than spinning", async () => {
+    let clock = 0;
+    const controller = new AbortController();
+    const every: Schedule = {
+      input: null,
+      key: "held",
+      kind: "schedule",
+      label: "held",
+      trigger: { kind: "interval", ms: 10 },
+      workflow: "w",
+    };
+    const engine = loopEngine([every], () => {
+      throw new Error("a held trigger must not start");
+    });
+    const held = engine.store.lock("held");
+    const skipped: number[] = [];
+    await runSchedules(engine, {
+      now: () => clock,
+      print: (line) => {
+        if (line.includes("skipped")) {
+          skipped.push(clock);
+        }
+        if (skipped.length === 3) {
+          controller.abort();
+        }
+      },
+      signal: controller.signal,
+      sleep: (ms) => {
+        clock += ms;
+        return Promise.resolve();
+      },
+    });
+    expect(skipped).toEqual([10, 20, 30]);
+    if ("release" in held) {
+      held.release();
+    }
+  });
+});
+
+describe("describeTrigger", () => {
+  it("reads an interval, a daily slot, and weekdays", () => {
+    expect(describeTrigger({ kind: "interval", ms: 21_600_000 })).toBe(
+      "every 6h"
+    );
+    expect(
+      describeTrigger({ kind: "calendar", slot: { hour: 9, minute: 5 } })
+    ).toBe("daily at 09:05");
+    expect(
+      describeTrigger({
+        kind: "calendar",
+        slot: { hour: 16, weekday: ["mon", "fri"] },
+      })
+    ).toBe("mon, fri at 16:00");
   });
 });
 

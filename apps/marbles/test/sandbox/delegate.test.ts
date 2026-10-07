@@ -1,5 +1,6 @@
 import { createInMemoryAgentAuthorizer } from "@foundry/agents/authorization";
 import type {
+  AgentModel,
   HarnessQuestionRequest,
   HarnessQuestionResult,
   HarnessSession,
@@ -9,6 +10,7 @@ import {
   type SessionMessage,
 } from "@foundry/agents/session";
 import type { Container } from "@foundry/sandbox/container/containers";
+import type { ToolSet } from "ai";
 import { tool as createTool } from "ai";
 import { expect, it, vi } from "vitest";
 import { z } from "zod";
@@ -18,9 +20,17 @@ import {
   type SandboxSessionSettings,
 } from "~/lib/sandbox/session";
 
-const builtinSettings: SandboxSessionSettings[] = [];
-vi.mock("~/lib/sandbox/builtin-session", () => ({
-  createBuiltinSession: async (input: SandboxSessionSettings) => {
+/** What the built-in harness was opened with: its session id and its tools. */
+const builtinSettings: {
+  readonly sessionId?: string;
+  readonly tools?: ToolSet;
+}[] = [];
+vi.mock("@foundry/agents/harness", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@foundry/agents/harness")>()),
+  createBuiltinCodingHarness: (input: {
+    readonly sessionId?: string;
+    readonly tools?: ToolSet;
+  }) => {
     builtinSettings.push(input);
     return child();
   },
@@ -288,6 +298,8 @@ it("rebuilds host tools for the child's own session through the actual session f
   builtinSettings.length = 0;
   const parent = settings();
   parent.harness = "builtin";
+  // The built-in path needs a network model; the harness itself is stubbed.
+  parent.model = {} as AgentModel;
   parent.hostToolsForSession = (sessionId) => ({
     owned: createTool({
       execute: async () => sessionId,
@@ -296,7 +308,7 @@ it("rebuilds host tools for the child's own session through the actual session f
   });
   await createSandboxSession(parent);
   const [rootSettings] = builtinSettings;
-  const delegate = rootSettings?.hostTools?.delegate;
+  const delegate = rootSettings?.tools?.delegate;
   if (!delegate?.execute) {
     throw new Error("Missing delegate tool");
   }
@@ -305,7 +317,7 @@ it("rebuilds host tools for the child's own session through the actual session f
     { context: {}, messages: [], toolCallId: "delegate-call" }
   );
   const [, childSettings] = builtinSettings;
-  const owned = childSettings?.hostTools?.owned;
+  const owned = childSettings?.tools?.owned;
   if (!owned?.execute) {
     throw new Error("Missing child tool");
   }
