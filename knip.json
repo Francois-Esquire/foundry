@@ -11,6 +11,7 @@
         "@ai-sdk/provider",
         "@ai-sdk/provider-utils",
         "@browser-ai/transformers-js",
+        "@fal-ai/client",
         "@foundry/core",
         "@noble/hashes",
         "ai-sdk-provider-claude-code",

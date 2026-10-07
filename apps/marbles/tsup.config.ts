@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { defineConfig } from "tsup";
 
 const INTERNAL = [
@@ -11,36 +12,39 @@ const INTERNAL = [
   "workspaces",
 ];
 
+type PackageExports = Record<string, string | { import?: string }>;
+
+/**
+ * One package's `exports`, as `paths` entries to its source. Read from the
+ * manifest so a public subpath whose file differs from its name (`./git` is
+ * `src/node/git.ts`) cannot drift from the map.
+ */
+function exportPaths(name: string): [string, string[]][] {
+  const root = `../../packages/${name}`;
+  const { exports } = JSON.parse(
+    readFileSync(`${root}/package.json`, "utf8")
+  ) as { exports: PackageExports };
+  return Object.entries(exports).flatMap(([subpath, target]) => {
+    const file = typeof target === "string" ? target : target.import;
+    return file?.endsWith(".ts")
+      ? [
+          [
+            `@foundry/${name}${subpath.slice(1)}`,
+            [`${root}/${file.slice("./".length, -".ts".length)}`],
+          ],
+        ]
+      : [];
+  });
+}
+
 /**
  * The types pass resolves with a pre-`exports` resolver, so every internal
- * package is mapped straight to its source; entries whose public file differs
- * from its name are spelled out.
+ * package's public entries are mapped straight to their source.
  */
 const internalPaths = Object.fromEntries([
   ["~/*", ["./src/*"]],
   ["@foundry/marbles", ["./src/authoring/index.ts"]],
-  ...INTERNAL.flatMap((name) => [
-    ...(name === "lib"
-      ? []
-      : [[`@foundry/${name}`, [`../../packages/${name}/src/index`]]]),
-    [
-      `@foundry/${name}/*`,
-      [`../../packages/${name}/src/*`, `../../packages/${name}/src/*/index`],
-    ],
-  ]),
-  ["@foundry/lib/config", ["../../packages/lib/src/config/config"]],
-  [
-    "@foundry/workflows/channels",
-    ["../../packages/workflows/src/channels-public"],
-  ],
-  [
-    "@foundry/workflows/executable",
-    ["../../packages/workflows/src/executable-public"],
-  ],
-  [
-    "@foundry/workflows/snapshot",
-    ["../../packages/workflows/src/snapshot-public"],
-  ],
+  ...INTERNAL.flatMap(exportPaths),
 ]);
 
 /**
