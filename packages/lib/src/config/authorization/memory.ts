@@ -20,90 +20,50 @@ import type {
 } from "./certificate";
 import { CertificateVersionError } from "./certificate";
 import type { Grant, GrantClaim, GrantInput, GrantRepository } from "./grant";
-import { GrantClaimError, GrantRevisionError } from "./grant";
+import type { GrantEntry } from "./grant-state";
+import {
+  claimGrant,
+  grantIdFor,
+  isLiveGrant,
+  issuedGrant,
+  revokeGrant,
+} from "./grant-state";
 
 export interface InMemoryGrantRepositoryOptions {
   /** Injected so expiry is testable. Defaults to `Date.now`. */
   readonly now?: () => number;
 }
 
-interface StoredGrant<S extends AuthorizationSubject, C> {
-  /** The claim that consumed this Grant, if it was one-shot and has been taken. */
-  claim?: GrantClaim;
-  grant: Grant<S, C>;
-  revoked: boolean;
-}
-
 /**
  * Reference {@link GrantRepository}. Deny by default: no address starts with a
- * live Grant.
+ * live Grant. Its transitions are the shared ones in `./grant-state`.
  */
 export function createInMemoryGrantRepository<
   S extends AuthorizationSubject,
   C,
 >(options: InMemoryGrantRepositoryOptions = {}): GrantRepository<S, C> {
   const { now = Date.now } = options;
-  const stored = new Map<string, StoredGrant<S, C>>();
+  const stored = new Map<string, GrantEntry<S, C>>();
   /** Address key → the ids issued at it, so `find` is a lookup and not a scan. */
   const byAddress = new Map<string, Set<string>>();
   let sequence = 0;
 
-  function isLive(entry: StoredGrant<S, C>, at: number): boolean {
-    if (entry.revoked) {
-      return false;
-    }
-    const { expiresAt } = entry.grant;
-    return expiresAt === undefined || expiresAt > at;
-  }
-
   return {
     claimOnce(grantId: string, invocationId: string): Promise<GrantClaim> {
-      const entry = stored.get(grantId);
-      if (!entry) {
-        return Promise.reject(
-          new GrantClaimError(grantId, `Grant ${grantId} does not exist.`)
-        );
-      }
-
-      // Checked before liveness: a one-shot Grant is revoked *by* being
-      // claimed, so the invocation that spent it must still be able to replay.
-      // Reading liveness first would make a legitimate retry look revoked.
-      if (entry.claim) {
-        if (entry.claim.invocationId === invocationId) {
-          return Promise.resolve(entry.claim);
-        }
-        return Promise.reject(
-          new GrantClaimError(
-            grantId,
-            `Grant ${grantId} is one-shot and was already claimed by another invocation.`
-          )
-        );
-      }
-
-      if (!isLive(entry, now())) {
-        return Promise.reject(
-          new GrantClaimError(
-            grantId,
-            `Grant ${grantId} is revoked or expired.`
-          )
-        );
-      }
-
-      // Lifetimes other than `once` are not consumed. The call still returns a
-      // claim so the effect boundary has exactly one code path.
-      if (entry.grant.lifetime.kind !== "once") {
-        return Promise.resolve({
+      try {
+        const { claim, next } = claimGrant(
+          stored.get(grantId),
           grantId,
           invocationId,
-          revision: entry.grant.revision,
-        });
+          now()
+        );
+        if (next) {
+          stored.set(grantId, next);
+        }
+        return Promise.resolve(claim);
+      } catch (error) {
+        return Promise.reject(error);
       }
-
-      const revision = entry.grant.revision + 1;
-      entry.grant = { ...entry.grant, revision };
-      entry.revoked = true;
-      entry.claim = { grantId, invocationId, revision };
-      return Promise.resolve(entry.claim);
     },
 
     find(
@@ -118,7 +78,7 @@ export function createInMemoryGrantRepository<
       const live: Grant<S, C>[] = [];
       for (const id of ids) {
         const entry = stored.get(id);
-        if (entry && isLive(entry, at)) {
+        if (entry && isLiveGrant(entry, at)) {
           live.push(entry.grant);
         }
       }
@@ -126,64 +86,31 @@ export function createInMemoryGrantRepository<
     },
     issue(input: GrantInput<S, C>): Promise<Grant<S, C>> {
       sequence += 1;
-      const id = `grant_${String(sequence)}`;
-      const grant: Grant<S, C> = {
-        address: input.address,
-        capability: input.capability,
-        id,
-        issuedAt: now(),
-        lifetime: input.lifetime,
-        provenance: input.provenance,
-        revision: 1,
-        ...(input.expiresAt === undefined
-          ? {}
-          : { expiresAt: input.expiresAt }),
-        ...(input.certificateId === undefined
-          ? {}
-          : { certificateId: input.certificateId }),
-      };
-      stored.set(id, { grant, revoked: false });
+      const grant = issuedGrant(input, grantIdFor(sequence), now());
+      stored.set(grant.id, { grant, revoked: false });
 
       const key = encodeAddress(input.address);
       const ids = byAddress.get(key) ?? new Set<string>();
-      ids.add(id);
+      ids.add(grant.id);
       byAddress.set(key, ids);
 
       return Promise.resolve(grant);
     },
 
     revoke(grantId: string, expectedRevision?: number): Promise<void> {
-      const entry = stored.get(grantId);
-      // A Grant this repository never issued cannot have moved under anyone.
-      if (!entry) {
-        return Promise.resolve();
-      }
-
-      // Checked before the already-revoked short-circuit. Claiming and revoking
-      // are both terminal, so every stale revision *also* looks like "already
-      // gone" — answering that first would make `expectedRevision` unreachable
-      // and silently turn a lost race into a success.
-      if (
-        expectedRevision !== undefined &&
-        expectedRevision !== entry.grant.revision
-      ) {
-        return Promise.reject(
-          new GrantRevisionError(
-            grantId,
-            expectedRevision,
-            entry.grant.revision
-          )
+      try {
+        const next = revokeGrant(
+          stored.get(grantId),
+          grantId,
+          expectedRevision
         );
-      }
-
-      // Revoking authority that is already gone is the state the caller wanted.
-      if (entry.revoked) {
+        if (next) {
+          stored.set(grantId, next);
+        }
         return Promise.resolve();
+      } catch (error) {
+        return Promise.reject(error);
       }
-
-      entry.revoked = true;
-      entry.grant = { ...entry.grant, revision: entry.grant.revision + 1 };
-      return Promise.resolve();
     },
   };
 }

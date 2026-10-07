@@ -8,6 +8,7 @@ import packageJson from "../../package.json";
 // biome-ignore lint/performance/noNamespaceImport: This test inspects the complete public export surface.
 import * as authorization from "../config/authorization";
 import { addressDigest } from "../config/authorization/digest";
+import { FileGrantRepository } from "../config/authorization/file";
 
 const SUSPEND_CALL_PATTERN = /\bsuspend\s*[(:]/;
 
@@ -28,9 +29,13 @@ const SUSPEND_CALL_PATTERN = /\bsuspend\s*[(:]/;
  *    vocabulary through `@foundry/agents/authorization`, and a bundler serving
  *    unbundled ESM evaluates every re-export on the way — so one `node:*`
  *    import anywhere in the barrel's graph throws in a browser before any of it
- *    runs, called or not. `digest.ts` is the sole exception, and is kept off
- *    the barrel for that reason.
+ *    runs, called or not. `digest.ts` and the file-backed grant repository in
+ *    `file.ts` are the only exceptions, and are kept off the barrel for that
+ *    reason.
  */
+
+/** The node-bound modules, each reached by its own subpath and never through the barrel. */
+const NODE_BOUND = ["digest.ts", "file.ts"];
 
 const AUTHORIZATION_DIR = resolve(
   dirname(fileURLToPath(import.meta.url)),
@@ -127,15 +132,21 @@ describe("@foundry/lib/config/authorization boundaries", () => {
 
   it("stays renderer-importable — no node builtin reachable from the barrel", () => {
     const offenders = sourceFiles()
-      .filter((file) => !file.endsWith("digest.ts"))
+      .filter((file) => !NODE_BOUND.some((name) => file.endsWith(`/${name}`)))
       .filter((file) => readFileSync(file, "utf8").includes('from "node:'));
 
     expect(offenders).toEqual([]);
   });
 
-  it("keeps the digest off the barrel, since it is the one node-bound module", () => {
+  it("keeps the node-bound modules off the barrel", () => {
     expect(Object.keys(authorization)).not.toContain("addressDigest");
+    expect(Object.keys(authorization)).not.toContain("FileGrantRepository");
     expect(addressDigest).toBeTypeOf("function");
+    expect(FileGrantRepository).toBeTypeOf("function");
+    const barrel = readFileSync(join(AUTHORIZATION_DIR, "index.ts"), "utf8");
+    for (const name of NODE_BOUND) {
+      expect(barrel).not.toContain(`"./${name.replace(".ts", "")}"`);
+    }
   });
 
   it("owns no suspend port — authorization decides, execution waits", () => {

@@ -9,6 +9,7 @@
  * agent or module concept that leaked into it.
  */
 
+import { z } from "zod";
 import type {
   AuthorizationAddressing,
   AuthorizationSubject,
@@ -65,6 +66,18 @@ export function testAddressing(
     },
   };
 }
+
+/** Strict schemas for this vocabulary, for adapters that validate what they read back. */
+export const testSubjectSchema = z.strictObject({
+  id: z.string(),
+  namespace: z.string(),
+  version: z.int().nonnegative().optional(),
+});
+
+export const testCapabilitySchema = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("fs.read"), root: z.string() }),
+  z.strictObject({ kind: z.literal("tool.call"), name: z.string() }),
+]);
 
 /** A clock a test drives by hand. */
 export function testClock(start = 1000): {

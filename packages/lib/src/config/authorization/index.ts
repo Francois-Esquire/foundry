@@ -31,8 +31,9 @@
  *
  * This barrel is renderer-importable — a host's approval UI reaches the
  * vocabulary through it, and an unbundled ESM graph evaluates every re-export.
- * Nothing here may import a node builtin, directly or transitively. The one
- * module that needs one is `./digest`, deliberately left off this barrel.
+ * Nothing here may import a node builtin, directly or transitively. The two
+ * modules that need one, `./digest` and the file-backed grant repository in
+ * `./file`, are deliberately left off this barrel.
  */
 
 export type {
