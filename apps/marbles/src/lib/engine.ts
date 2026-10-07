@@ -16,6 +16,10 @@ import type { Factory } from "@foundry/workflows/orchestrator";
 import { Orchestrator } from "@foundry/workflows/orchestrator";
 import type { RunRecord } from "@foundry/workflows/store";
 import { InMemoryOrchestratorStore } from "@foundry/workflows/store";
+import { WorkspaceSystem } from "@foundry/workspaces";
+import { git } from "@foundry/workspaces/git";
+import { directory } from "@foundry/workspaces/node";
+import { nodeObserver } from "@foundry/workspaces/node/watch";
 
 import { configuredMonitorUrl } from "~/lib/automation/configured";
 import { AutomationService } from "~/lib/automation/service";
@@ -88,8 +92,11 @@ export interface EngineOptions {
    */
   readonly dry?: boolean;
   /**
-   * How git runs on the root workspace. Give what the `git()` layer of
-   * `workspaces` was built with when that is not the default.
+   * How git runs: on the root workspace, and in the `git()` layer of the
+   * workspace system the engine builds when `workspaces` is omitted. A host
+   * that brings its own system gives this what that layer was built with;
+   * the system cannot hand its git back for a path without registering and
+   * scanning it, and the root workspace stays unread until a step needs it.
    */
   readonly git?: GitOptions;
   /** The user's home, for skills shared across workspaces; the OS home by default. */
@@ -106,8 +113,17 @@ export interface EngineOptions {
   readonly state?: string;
   /** Identity of this workspace: part of a declared artifact's id and of every feed entry. */
   readonly workspaceId: string;
-  /** Directories and repositories, with the `directory` and `git` layers. */
-  readonly workspaces: Catalogue;
+  /**
+   * Directories and repositories, with the `directory` and `git` layers. By
+   * default a system over the local filesystem, watched, whose git runs as
+   * `git` says.
+   */
+  readonly workspaces?: Catalogue;
+  /**
+   * Where worktrees are cut when a step names no `home`; by default
+   * `Engine.worktreesFor(state)`.
+   */
+  readonly worktrees?: string;
 }
 
 /**
@@ -115,7 +131,6 @@ export interface EngineOptions {
  * what a host reads of it while it is live, and what is owed on disk.
  */
 interface HeldRun {
-  readonly dispatched: Dispatched<unknown>;
   /** Ownership of an adopted run's file; released once it settles or the process stops. */
   lock?: Lock;
   /**
@@ -123,6 +138,11 @@ interface HeldRun {
    * failed write warns and the value still returns.
    */
   unsaved: boolean;
+  /**
+   * What is read of it while it is live. None of it depends on the run's
+   * output type, which the workflow's private runtime holds invariantly.
+   */
+  readonly workflow: Pick<Dispatched<unknown>["workflow"], "root" | "state">;
 }
 
 /** Give up a held run's file, once: another process may take it from here. */
@@ -182,6 +202,15 @@ export class Engine {
   #running: Running | undefined;
   #phase: "new" | "started" | "stopping" = "new";
 
+  /**
+   * Where an engine over `state` cuts worktrees by default: inside the state
+   * dir, or under the OS temp dir without one. A dir Marbles owns, so a host
+   * may let its sandboxes mount what is inside.
+   */
+  static worktreesFor(state: string | undefined): string {
+    return join(state ?? join(tmpdir(), "marbles"), "worktrees");
+  }
+
   constructor(options: EngineOptions) {
     const { models, root, sessions, state, workspaceId } = options;
     const print = options.print ?? (() => undefined);
@@ -194,7 +223,13 @@ export class Engine {
     this.sessions = sessions;
     this.state = state;
     this.workspaceId = workspaceId;
-    this.worktrees = join(state ?? join(tmpdir(), "marbles"), "worktrees");
+    this.worktrees = options.worktrees ?? Engine.worktreesFor(state);
+    const catalogue =
+      options.workspaces ??
+      new WorkspaceSystem().extend(
+        directory({ observer: nodeObserver }),
+        git(options.git ?? {})
+      );
     this.#askable = askable;
     this.#print = print;
     this.#publisher = feedPublisher(options.artifacts, {
@@ -249,7 +284,7 @@ export class Engine {
       workspaceId,
     });
     this.workspaces = new WorkspacesManager({
-      catalogue: options.workspaces,
+      catalogue,
       gitOptions: options.git ?? {},
       root,
       worktreeHome: this.worktrees,
@@ -257,7 +292,7 @@ export class Engine {
     this.bindings = {
       agents: (args) => this.agents.scoped(args),
       artifacts: (args) => this.artifacts.scoped(args),
-      host: { catalogue: options.workspaces, state },
+      host: { catalogue, state },
       log: createLog((_level, message) => print(message)),
       root,
       sandboxes: (args) => this.sandboxes.scoped(args),
@@ -489,7 +524,7 @@ export class Engine {
   #track<O>(name: string, dispatched: Dispatched<O>, lock?: Lock): Promise<O> {
     const { router } = this.#live();
     this.#held.set(dispatched.id, {
-      dispatched,
+      workflow: dispatched.workflow,
       ...(lock === undefined ? {} : { lock }),
       unsaved: true,
     });
@@ -638,7 +673,7 @@ export class Engine {
       this.#live()
         .store.snapshot()
         .runs.map((record) => {
-          const current = this.#held.get(record.id)?.dispatched.workflow.state;
+          const current = this.#held.get(record.id)?.workflow.state;
           return current
             ? {
                 ...record,
@@ -713,7 +748,7 @@ export class Engine {
     runId: string,
     signal?: AbortSignal
   ): ReadableStream<ChannelMessage> | undefined {
-    return this.#held.get(runId)?.dispatched.workflow.root.subscribe(signal);
+    return this.#held.get(runId)?.workflow.root.subscribe(signal);
   }
 
   /**

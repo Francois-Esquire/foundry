@@ -411,7 +411,10 @@ it("cancels a running monitor request when the schedule loop signal aborts", asy
 it("records a visible failed tick when a restored target was removed", async () => {
   const state = temp();
   step("target").do(() => 1);
-  const first = readTriggers(catalog, state);
+  const first = readTriggers(catalog, {
+    dry: false,
+    stateDir: state,
+  }).automations;
   const record = await first.create(
     { at: "1s", key: "job", workflow: "target" },
     owner

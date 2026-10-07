@@ -39,7 +39,7 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
             ]
           : [],
       root,
-      state: join(parent, "state"),
+      stateDir: join(parent, "state"),
       workspaceId: "interactive",
     });
     const model = {

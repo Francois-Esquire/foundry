@@ -1,16 +1,26 @@
 import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import {
   mkdir,
   mkdtemp,
   readFile,
+  realpath,
   rm,
   symlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { expect, it } from "vitest";
+import { afterEach, expect, it } from "vitest";
+import { step } from "~/authoring/builder";
+import { catalog } from "~/authoring/catalog";
+import { readTriggers } from "~/create";
+import { workspaceState } from "~/lib/state/workspace";
 import { sourceFiles, sourceRoot } from "~/source";
+
+afterEach(() => {
+  catalog.reset();
+});
 
 const CLI = resolve("src/cli.ts");
 function cli(root: string, ...args: string[]): string {
@@ -129,3 +139,55 @@ it("init creates a starter without running it and refuses to overwrite it", asyn
     await rm(root, { force: true, recursive: true });
   }
 }, 60_000);
+
+it("lists what agents created from the same triggers, and leaves the state root alone", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "marbles-list-")));
+  try {
+    const config = join(root, "marbles.config.ts");
+    await writeFile(
+      config,
+      'import { step } from "@foundry/marbles"; step("target").do(() => 1);'
+    );
+    const state = join(root, "state");
+    const { dir } = workspaceState(state, root);
+    step("target").do(() => 1);
+    const { automations } = readTriggers(catalog, {
+      dry: false,
+      stateDir: dir,
+    });
+    const owner = {
+      agentId: "worker",
+      sessionId: "session",
+      source: { definition: "work", path: ["work"], runId: "run" },
+    };
+    const watching = await automations.create(
+      {
+        at: "1m",
+        key: "notes",
+        source: { glob: "*.md", kind: "files" },
+        workflow: "target",
+      },
+      owner
+    );
+    const hourly = await automations.create(
+      { at: "1h", key: "hourly", workflow: "target" },
+      owner
+    );
+    const listed = cli(root, "list", "--config", config, "--state", state)
+      .split("\n")
+      .filter((line) => line.startsWith("["));
+    // Agent-created triggers come in the order their files are read.
+    expect(listed.toSorted()).toEqual(
+      [
+        `[source] ${config}`,
+        "[step] target",
+        `[monitor] ${watching.id} files *.md every 1m`,
+        `[schedule] ${hourly.id} → target every 1h`,
+      ].toSorted()
+    );
+    // A listing records nothing: only an engine that persists touches it.
+    expect(existsSync(join(dir, "workspace.json"))).toBe(false);
+  } finally {
+    await rm(root, { force: true, recursive: true });
+  }
+}, 30_000);

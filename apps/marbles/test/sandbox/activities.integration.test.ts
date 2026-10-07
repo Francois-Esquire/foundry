@@ -48,7 +48,7 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
             ]
           : [],
       root,
-      state,
+      stateDir: state,
       workspaceId: `activities-${harness}`,
     });
     const model = {

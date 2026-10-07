@@ -2,24 +2,28 @@
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
-import { plugin } from "bun";
-import type { Args } from "~/args";
-import { parseArgs } from "~/args";
-import { catalog } from "~/authoring/catalog";
-import { createEngine, readTriggers } from "~/create";
+import type { Args, ArgsOf, Command, Flags } from "~/args";
+import { parseArgs, UsageError } from "~/args";
+import type { Triggers } from "~/create";
+import type { OpenedWorkspace } from "~/host";
+import {
+  findWorkspace,
+  hostEngine,
+  hostTriggers,
+  openWorkspace,
+  touchWorkspace,
+} from "~/host";
 import { install, launchdPlan, preview, uninstall } from "~/launchd";
 import type { Engine } from "~/lib/engine";
+import type { MonitorSpec } from "~/lib/monitor";
 import { describeMonitor } from "~/lib/monitor";
 import { cadence, clock, tick, weekdays } from "~/lib/schedule";
 import { JsonSessionStore } from "~/lib/sessions/json-store";
-import { workspaceState } from "~/lib/state/workspace";
 import type { Schedule } from "~/lib/triggers";
 import { createStarter } from "~/onboarding/create";
-import { STARTERS } from "~/onboarding/templates";
+import { DEFAULT_HARNESS, STARTERS } from "~/onboarding/templates";
 import { runSchedulesUntilStopped } from "~/run-loop";
 import { sessionLines } from "~/sessions/list";
-import { resolveSource, sourceFiles, sourceRoot } from "~/source";
 import { readStatus } from "~/status/model";
 import { statusText } from "~/status/text";
 
@@ -51,57 +55,46 @@ workspace.json, runs/, schedules/, locks/ and sessions/. Feed entries from every
 workspace share the artifact store. --dry-run disables Marbles state persistence; custom code still runs.
 Under --dry-run, launchd prints the plist and launchctl commands instead of running them.`;
 
-type WorkspaceState = ReturnType<typeof workspaceState>;
+/**
+ * What a command needs before it runs, each step a superset of the last:
+ * `workspace` finds the source without executing it, `triggers` loads it
+ * and reads what would run, `engine` builds and starts one.
+ */
+type Handler<A extends Flags> =
+  | { readonly needs: "nothing"; run(args: A): Promise<void> | void }
+  | {
+      readonly needs: "workspace";
+      run(args: A, opened: OpenedWorkspace): Promise<void> | void;
+    }
+  | {
+      readonly needs: "triggers";
+      run(args: A, opened: OpenedWorkspace, triggers: Triggers): void;
+    }
+  | {
+      readonly needs: "engine";
+      run(args: A, engine: Engine, opened: OpenedWorkspace): Promise<void>;
+    };
 
-async function loadSource(configPath: string, log = print): Promise<boolean> {
-  const files = sourceFiles(configPath);
-  if (files === undefined) {
-    return false;
+async function createStarterModule(args: ArgsOf<"init">): Promise<void> {
+  const starter = STARTERS.find((item) => item.id === args.starter);
+  if (!starter) {
+    throw new Error(`no starter "${args.starter}"`);
   }
-
-  // Authoring modules use this installation even outside a project with node_modules.
-  // Both entry points must share the same registry instance.
-  const libraryPath = fileURLToPath(
-    new URL(
-      import.meta.url.endsWith(".ts") ? "./authoring/index.ts" : "./index.js",
-      import.meta.url
-    )
-  );
-  const library = await import(libraryPath);
-  const prebuilt = await import(
-    new URL(
-      import.meta.url.endsWith(".ts")
-        ? "./authoring/prebuilt.ts"
-        : "./prebuilt.js",
-      import.meta.url
-    ).href
-  );
-  plugin({
-    name: "marbles-source-library",
-    setup(builder) {
-      builder.module("@foundry/marbles/prebuilt", () => ({
-        exports: prebuilt,
-        loader: "object",
-      }));
-      builder.module("@foundry/marbles", () => ({
-        exports: library,
-        loader: "object",
-      }));
-    },
-    target: "bun",
+  const file = await createStarter(resolve(args.config), {
+    harness: DEFAULT_HARNESS,
+    instructions: "",
+    name: starter.name,
+    template: starter.id,
   });
-  for (const file of files) {
-    await import(pathToFileURL(file).href);
-  }
-  log(`[source] ${configPath}`);
-  return true;
+  print(`Created ${file}`);
 }
 
+/** Reads files only: an empty state root stays empty. */
 async function showStatus(
-  workspace: WorkspaceState,
-  state: string
+  args: Args,
+  { workspace }: OpenedWorkspace
 ): Promise<void> {
-  const report = readStatus(resolve(state));
+  const report = readStatus(resolve(args.state));
   if (process.stdout.isTTY && process.stdin.isTTY) {
     const { showStatus: renderStatus } = await import("~/status/view");
     await renderStatus({ here: workspace.id, report });
@@ -110,33 +103,10 @@ async function showStatus(
   print(statusText(report, workspace.id));
 }
 
-function listRegistry(schedules: readonly Schedule[]): void {
-  const { monitors } = catalog;
-  for (const entry of catalog.entries()) {
-    print(`[${entry.kind}] ${entry.name}`);
-  }
-  for (const schedule of schedules) {
-    const { trigger } = schedule;
-    const when =
-      trigger.kind === "interval"
-        ? `every ${cadence(trigger.ms)}`
-        : `at ${weekdays(trigger.slot).join(",") || "daily"} ${clock(trigger.slot)}`;
-    const monitor = monitors.get(schedule.key);
-    if (monitor) {
-      print(
-        `[monitor] ${schedule.key} ${describeMonitor(monitor.source)} ${when}`
-      );
-    } else {
-      const input =
-        schedule.input === null ? "" : ` ${JSON.stringify(schedule.input)}`;
-      print(
-        `[schedule] ${schedule.key} → ${schedule.workflow}${input} ${when}`
-      );
-    }
-  }
-}
-
-async function listSessions(workspace: WorkspaceState): Promise<void> {
+async function listSessions(
+  _args: Args,
+  { workspace }: OpenedWorkspace
+): Promise<void> {
   const dir = join(workspace.dir, "sessions");
   // The store mkdirs on construction; a listing must not leave one behind.
   if (!existsSync(dir)) {
@@ -147,24 +117,56 @@ async function listSessions(workspace: WorkspaceState): Promise<void> {
   }
 }
 
-function manageLaunchd(
-  args: Args,
-  schedules: readonly Schedule[],
-  configPath: string
+function when({ trigger }: Schedule): string {
+  return trigger.kind === "interval"
+    ? `every ${cadence(trigger.ms)}`
+    : `at ${weekdays(trigger.slot).join(",") || "daily"} ${clock(trigger.slot)}`;
+}
+
+function listTriggers(
+  _args: Args,
+  _opened: OpenedWorkspace,
+  triggers: Triggers
 ): void {
-  const { name, target } = args;
-  if (name !== "install" && name !== "uninstall") {
-    throw new Error("launchd takes install or uninstall");
+  const { automations, registry } = triggers;
+  const created = new Map(
+    automations.list().map((record) => [record.id, record.source])
+  );
+  /** What a monitor schedule watches: declared in the config, or by an agent. */
+  const watched = (key: string): MonitorSpec | undefined =>
+    registry.monitors.get(key)?.source ?? created.get(key);
+  for (const entry of registry.entries()) {
+    print(`[${entry.kind}] ${entry.name}`);
   }
-  if (target === undefined) {
-    throw new Error("launchd needs a schedule");
+  for (const schedule of automations.schedules()) {
+    const source =
+      schedule.kind === "monitor" ? watched(schedule.key) : undefined;
+    if (source) {
+      print(
+        `[monitor] ${schedule.key} ${describeMonitor(source)} ${when(schedule)}`
+      );
+    } else {
+      const input =
+        schedule.input === null ? "" : ` ${JSON.stringify(schedule.input)}`;
+      print(
+        `[schedule] ${schedule.key} → ${schedule.workflow}${input} ${when(schedule)}`
+      );
+    }
   }
+}
+
+function manageLaunchd(
+  args: ArgsOf<"launchd">,
+  { configPath }: OpenedWorkspace,
+  { automations }: Triggers
+): void {
+  const { action, schedule: key } = args;
   if (process.platform !== "darwin") {
     throw new Error("launchd is macOS only");
   }
-  const schedule = schedules.find((record) => record.key === target);
+  const schedule = automations.schedules().find((record) => record.key === key);
   if (!schedule) {
-    throw new Error(`no schedule named "${target}"`);
+    throw new Error(`no schedule named "${key}"`);
   }
   const plan = launchdPlan(schedule, {
     artifacts: resolve(args.artifacts),
@@ -176,49 +178,24 @@ function manageLaunchd(
     state: resolve(args.state),
   });
   if (args.dry) {
-    preview(name, plan, print);
-  } else if (name === "install") {
+    preview(action, plan, print);
+  } else if (action === "install") {
     install(plan, print);
   } else {
     uninstall(plan, print);
   }
 }
 
-async function handleNonRuntimeCommand(
-  args: Args,
-  workspace: WorkspaceState,
-  schedules: readonly Schedule[],
-  configPath: string
-): Promise<boolean> {
-  if (args.command === "list") {
-    listRegistry(schedules);
-    return true;
-  }
-  if (args.command === "sessions") {
-    await listSessions(workspace);
-    return true;
-  }
-  if (args.command === "launchd") {
-    manageLaunchd(args, schedules, configPath);
-    return true;
-  }
-  return false;
-}
-
-async function runOnce(
-  engine: Engine,
-  name: string,
-  inputJson: string | undefined,
-  stateDir: string | undefined
-): Promise<void> {
+async function roll(args: ArgsOf<"roll">, engine: Engine): Promise<void> {
+  const { name } = args;
   const schedule = engine.schedules().find((record) => record.key === name);
   const input: unknown =
-    inputJson === undefined ? schedule?.input : JSON.parse(inputJson);
+    args.inputJson === undefined ? schedule?.input : JSON.parse(args.inputJson);
   if (schedule) {
     const result = await tick(
       engine,
       { ...schedule, input },
-      { print, state: stateDir }
+      { print, state: engine.state }
     );
     if (result) {
       print(JSON.stringify(result.value, null, 2));
@@ -232,36 +209,24 @@ async function runOnce(
   throw new Error(`no workflow or schedule named "${name}"`);
 }
 
-async function dispatchRuntimeCommand(
-  args: Args,
+async function runUntilStopped(
+  _args: Args,
   engine: Engine,
-  schedules: readonly Schedule[],
-  stateDir: string | undefined,
-  hasConfig: boolean,
-  configPath: string,
-  getSchedules: () => readonly Schedule[]
-): Promise<boolean> {
-  if (args.command === "roll" && args.name) {
-    await runOnce(engine, args.name, args.inputJson, stateDir);
-    return true;
-  }
-  if (args.command === "run") {
-    await runSchedulesUntilStopped(
-      engine,
-      schedules,
-      stateDir,
-      hasConfig,
-      configPath,
-      undefined,
-      print,
-      getSchedules
-    );
-    return true;
-  }
-  print(USAGE);
-  process.exitCode = 1;
-  return false;
+  { config }: OpenedWorkspace
+): Promise<void> {
+  await runSchedulesUntilStopped(engine, { config, print });
 }
+
+const COMMANDS: { readonly [C in Command]: Handler<ArgsOf<C>> } = {
+  help: { needs: "nothing", run: () => print(USAGE) },
+  init: { needs: "nothing", run: createStarterModule },
+  launchd: { needs: "triggers", run: manageLaunchd },
+  list: { needs: "triggers", run: listTriggers },
+  roll: { needs: "engine", run: roll },
+  run: { needs: "engine", run: runUntilStopped },
+  sessions: { needs: "workspace", run: listSessions },
+  status: { needs: "workspace", run: showStatus },
+};
 
 async function printNewRuns(engine: Engine, restored: ReadonlySet<string>) {
   for (const record of await engine.runs()) {
@@ -271,107 +236,80 @@ async function printNewRuns(engine: Engine, restored: ReadonlySet<string>) {
   }
 }
 
-async function main(): Promise<void> {
-  const args = parseArgs(process.argv.slice(2));
-  if (args.command === "help") {
-    print(USAGE);
-    return;
-  }
-
-  if (args.command === "init") {
-    const starter = STARTERS.find(
-      (item) => item.id === (args.name ?? "product")
-    );
-    if (!starter || args.target !== undefined) {
-      throw new Error("init takes one starter: developer, design, or product");
-    }
-    const file = await createStarter(resolve(args.config), {
-      harness: "auto",
-      instructions: "",
-      name: starter.name,
-      template: starter.id,
-    });
-    print(`Created ${file}`);
-    return;
-  }
-
-  // `run` starts every trigger and takes no name; a name here would
-  // otherwise be dropped and the dashboard opened instead.
-  if (args.command === "run" && args.name !== undefined) {
-    print(`run takes no name. To run one now: marbles roll ${args.name}`);
-    process.exitCode = 1;
-    return;
-  }
-
-  if (args.command === "run" && process.stdout.isTTY && process.stdin.isTTY) {
-    const { runInteractive } = await import("~/dashboard/command");
-    await runInteractive(args, loadSource);
-    return;
-  }
-
-  const configPath = resolveSource(args.config);
-  const hasConfig = await loadSource(configPath);
-  const workspace = workspaceState(
-    resolve(args.state),
-    hasConfig ? sourceRoot(configPath) : process.cwd()
-  );
-  // The one place --dry-run is applied to the state dir: everything downstream
-  // takes `stateDir` and writes nothing when it is undefined.
-  const stateDir = args.dry ? undefined : workspace.dir;
-
-  // Reads files only, so it runs before this workspace is touched or the
-  // engine is built: an empty state root stays empty.
-  if (args.command === "status") {
-    await showStatus(workspace, args.state);
-    return;
-  }
-
-  if (stateDir !== undefined) {
-    workspace.touch(hasConfig ? configPath : null);
-  }
-
-  // Listing reads the triggers from disk; only a command that runs
-  // something builds the engine.
-  const triggers = readTriggers(catalog, stateDir);
-  const schedules = triggers.schedules();
-  for (const [file, error] of Object.entries(triggers.errors())) {
+/** Agent-created trigger files that could not be read. */
+function printErrors(automations: Triggers["automations"]): void {
+  for (const [file, error] of Object.entries(automations.errors())) {
     print(`[automation] ${file}: ${error}`);
   }
-  if (await handleNonRuntimeCommand(args, workspace, schedules, configPath)) {
-    return;
-  }
+}
 
-  const engine = createEngine({
-    artifacts: resolve(args.artifacts),
-    catalog,
-    dry: args.dry,
-    only: args.only,
-    print,
-    root: workspace.root,
-    state: stateDir,
-    workspaceId: workspace.id,
-  });
+async function withEngine(
+  args: Flags,
+  run: (engine: Engine, opened: OpenedWorkspace) => Promise<void>
+): Promise<void> {
+  const opened = await openWorkspace(args, { print });
+  const engine = hostEngine(args, opened, { print });
+  touchWorkspace(engine, opened);
+  printErrors(engine.automations);
   print(`[harnesses] ${engine.harnesses.join(", ")}`);
-
   try {
     await engine.start();
     const restored = new Set((await engine.runs()).map((record) => record.id));
-    const executed = await dispatchRuntimeCommand(
-      args,
-      engine,
-      schedules,
-      stateDir,
-      hasConfig,
-      configPath,
-      () => engine.schedules()
-    );
-    if (executed) {
-      await printNewRuns(engine, restored);
-    }
+    await run(engine, opened);
+    await printNewRuns(engine, restored);
   } finally {
     await engine.stop();
     await engine.dispose();
   }
+}
+
+async function dispatch<C extends Command>(
+  command: C,
+  args: ArgsOf<C>
+): Promise<void> {
+  const handler: Handler<ArgsOf<C>> = COMMANDS[command];
+  switch (handler.needs) {
+    case "nothing":
+      await handler.run(args);
+      return;
+    case "workspace":
+      await handler.run(args, findWorkspace(args));
+      return;
+    case "triggers": {
+      const opened = await openWorkspace(args, { print });
+      const triggers = hostTriggers(args, opened);
+      printErrors(triggers.automations);
+      handler.run(args, opened, triggers);
+      return;
+    }
+    case "engine":
+      await withEngine(args, (engine, opened) =>
+        handler.run(args, engine, opened)
+      );
+      return;
+    default:
+      throw new Error(`no handler for ${String(handler satisfies never)}`);
+  }
+}
+
+async function main(): Promise<void> {
+  let args: Args;
+  try {
+    args = parseArgs(process.argv.slice(2));
+  } catch (error) {
+    if (!(error instanceof UsageError)) {
+      throw error;
+    }
+    process.stderr.write(`${error.message}\n\n${USAGE}\n`);
+    process.exitCode = 1;
+    return;
+  }
+  if (args.command === "run" && process.stdout.isTTY && process.stdin.isTTY) {
+    const { runInteractive } = await import("~/dashboard/command");
+    await runInteractive(args);
+    return;
+  }
+  await dispatch(args.command, args);
 }
 
 await main();

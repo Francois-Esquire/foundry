@@ -1,13 +1,12 @@
-import { basename, resolve } from "node:path";
-import type { Args } from "~/args";
+import { basename } from "node:path";
+import type { Flags } from "~/args";
 import { catalog } from "~/authoring/catalog";
-import { createEngine } from "~/create";
 import { dashboardSnapshot } from "~/dashboard/snapshot";
 import { openDashboard } from "~/dashboard/terminal";
+import { hostEngine, loadSource, openWorkspace, touchWorkspace } from "~/host";
 import type { Engine } from "~/lib/engine";
 import { inputFromFields } from "~/lib/schema";
 import { readLastFinish } from "~/lib/state/schedules";
-import { workspaceState } from "~/lib/state/workspace";
 import { createStarter } from "~/onboarding/create";
 import {
   registerSetupStep,
@@ -18,14 +17,10 @@ import type { SetupDraft } from "~/onboarding/templates";
 import { runSchedulesUntilStopped } from "~/run-loop";
 import { resolveSource, sourceRoot } from "~/source";
 
-export async function runInteractive(
-  args: Args,
-  loadSource: (path: string, print: (line: string) => void) => Promise<boolean>
-): Promise<void> {
+export async function runInteractive(args: Flags): Promise<void> {
   const controller = new AbortController();
-  const configPath = resolveSource(args.config);
   const terminal = await openDashboard(
-    basename(sourceRoot(configPath)),
+    basename(sourceRoot(resolveSource(args.config))),
     controller
   );
   let status = "Loading marbles";
@@ -47,51 +42,43 @@ export async function runInteractive(
     // Attach immediately: cleanup below awaits and reports any failure.
     stopping?.catch(() => undefined);
   };
+  // The one place this process stops on a signal: the schedule loop below
+  // is handed the controller's signal and registers none of its own.
   controller.signal.addEventListener("abort", stop, { once: true });
   process.once("SIGTERM", stop);
   process.once("SIGINT", stop);
   try {
-    let hasConfig = await loadSource(configPath, print);
-    if (!(hasConfig || controller.signal.aborted)) {
-      hasConfig = await terminal.onboard(configPath, async (draft) => {
-        createdFile = await createStarter(configPath, draft);
-        createdDraft = draft;
-        try {
-          await loadSource(configPath, print);
-        } catch (error) {
-          catalog.reset();
-          throw new Error(
-            `Starter was created but could not load: ${String(error)}. Fix it and restart Marbles.`,
-            { cause: error }
-          );
-        }
-      });
-    }
+    const opened = await openWorkspace(args, {
+      onMissing: async (missing) =>
+        !controller.signal.aborted &&
+        (await terminal.onboard(missing, async (draft) => {
+          createdFile = await createStarter(missing, draft);
+          createdDraft = draft;
+          try {
+            await loadSource(missing, print);
+          } catch (error) {
+            catalog.reset();
+            throw new Error(
+              `Starter was created but could not load: ${String(error)}. Fix it and restart Marbles.`,
+              { cause: error }
+            );
+          }
+        })),
+      print,
+    });
     if (controller.signal.aborted) {
       return;
     }
-    const workspace = workspaceState(
-      resolve(args.state),
-      hasConfig ? sourceRoot(configPath) : process.cwd()
-    );
-    const state = args.dry ? undefined : workspace.dir;
-    built = createEngine({
-      artifacts: resolve(args.artifacts),
-      askable: true,
-      catalog,
-      dry: args.dry,
-      only: args.only,
-      print,
-      root: workspace.root,
-      state,
-      workspaceId: workspace.id,
-    });
+    const { config, configPath, workspace } = opened;
+    const hasConfig = config !== null;
+    built = hostEngine(args, opened, { askable: true, print });
     registerSetupStep(built);
     engine = await built.start();
     if (controller.signal.aborted) {
       return;
     }
     const schedules = engine.schedules();
+    const { state } = engine;
     const lastFinish = new Map(
       schedules.flatMap((schedule) => {
         const finish =
@@ -190,9 +177,7 @@ export async function runInteractive(
       return;
     }
     startedAt = Date.now();
-    if (state !== undefined) {
-      workspace.touch(hasConfig ? configPath : null);
-    }
+    touchWorkspace(runningEngine, opened);
     status =
       schedules.length === 0
         ? "Ready · no triggers configured"
@@ -213,16 +198,11 @@ export async function runInteractive(
           updating = false;
         });
     }, 200);
-    loop = runSchedulesUntilStopped(
-      engine,
-      schedules,
-      state,
-      hasConfig,
-      configPath,
-      controller,
+    loop = runSchedulesUntilStopped(runningEngine, {
+      config,
       print,
-      () => runningEngine.schedules()
-    );
+      signal: controller.signal,
+    });
     await loop;
   } catch (error) {
     process.exitCode = 1;

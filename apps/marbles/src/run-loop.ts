@@ -3,44 +3,62 @@ import { join } from "node:path";
 import type { Engine } from "~/lib/engine";
 import { runSchedules } from "~/lib/schedule";
 import { writeJson } from "~/lib/state/json";
-import type { Schedule } from "~/lib/triggers";
 
+export interface RunLoopOptions {
+  /** The authoring source the heartbeat names; null without one. */
+  readonly config: string | null;
+  readonly print?: (line: string) => void;
+  /**
+   * Stops the loop. Without one the loop stops on SIGINT or SIGTERM; a host
+   * that passes one decides itself what stops it.
+   */
+  readonly signal?: AbortSignal;
+}
+
+/**
+ * Run the engine's schedules, including those agents add later, until
+ * stopped. While it runs, a heartbeat in the engine's state dir tells
+ * `status` this workspace has a live loop.
+ */
 export async function runSchedulesUntilStopped(
   engine: Engine,
-  schedules: readonly Schedule[],
-  stateDir: string | undefined,
-  hasConfig: boolean,
-  configPath: string,
-  controller: AbortController = new AbortController(),
-  print: (line: string) => void = (line) => {
-    process.stdout.write(`${line}\n`);
-  },
-  getSchedules?: () => readonly Schedule[]
+  {
+    config,
+    print = (line) => {
+      process.stdout.write(`${line}\n`);
+    },
+    signal,
+  }: RunLoopOptions
 ): Promise<void> {
-  if (controller.signal.aborted) {
+  if (signal?.aborted) {
     return;
   }
+  const controller = new AbortController();
   const stop = () => controller.abort();
-  process.once("SIGINT", stop);
-  process.once("SIGTERM", stop);
+  if (signal === undefined) {
+    process.once("SIGINT", stop);
+    process.once("SIGTERM", stop);
+  } else {
+    signal.addEventListener("abort", stop, { once: true });
+  }
+  const { state } = engine;
   const heartbeat =
-    stateDir === undefined ? undefined : join(stateDir, "heartbeat.json");
+    state === undefined ? undefined : join(state, "heartbeat.json");
   if (heartbeat !== undefined) {
     writeJson(heartbeat, {
-      config: hasConfig ? configPath : null,
+      config,
       pid: process.pid,
       startedAt: new Date().toISOString(),
       version: 1,
     });
   }
-  const options = {
-    getSchedules,
-    print,
-    signal: controller.signal,
-    state: stateDir,
-  };
   try {
-    await runSchedules(engine, schedules, options);
+    await runSchedules(engine, engine.schedules(), {
+      getSchedules: () => engine.schedules(),
+      print,
+      signal: controller.signal,
+      state,
+    });
     // Nothing scheduled still means "run until stopped": the dashboard and
     // manual launches live on this loop.
     await untilAborted(controller.signal);
@@ -48,6 +66,7 @@ export async function runSchedulesUntilStopped(
     controller.abort();
     process.removeListener("SIGINT", stop);
     process.removeListener("SIGTERM", stop);
+    signal?.removeEventListener("abort", stop);
     if (heartbeat !== undefined) {
       rmSync(heartbeat, { force: true });
     }

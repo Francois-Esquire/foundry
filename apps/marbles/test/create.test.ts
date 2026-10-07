@@ -1,4 +1,12 @@
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  realpath,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { agent, step } from "@foundry/marbles";
@@ -69,6 +77,28 @@ it("exposes the config directory and dry-run git through the engine's workspaces
   }
 });
 
+it("echoes git under dry in the workspace system the engine builds, too", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "runtime-git-")));
+  execFileSync("git", ["init", "--quiet"], { cwd: root });
+  const lines: string[] = [];
+  const engine = createEngine({
+    catalog,
+    dry: true,
+    only: [],
+    print: (line) => lines.push(line),
+    root,
+    workspaceId: "ws",
+  });
+  try {
+    const loaded = await engine.workspaces.system.load({ path: root });
+    await loaded.git?.withWorktree({ base: "HEAD" }, () => Promise.resolve());
+    expect(lines.some((line) => line.includes("git worktree add"))).toBe(true);
+  } finally {
+    await engine.dispose();
+    await rm(root, { force: true, recursive: true });
+  }
+});
+
 it("runs deterministic steps without an installed harness", async () => {
   const engine = createEngine({
     catalog,
@@ -87,6 +117,54 @@ it("runs deterministic steps without an installed harness", async () => {
     await expect(launch(count, { text: "hello" })).resolves.toBe(5);
   } finally {
     await engine.dispose();
+  }
+});
+
+it("persists nothing under dry, even when handed a state dir", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "create-dry-"));
+  const reviewer = agent({ prompt: "Review." });
+  step("review").do(async ({ agents }) => {
+    const session = await agents.session(reviewer);
+    return (await session.generate("Look.")).text;
+  });
+  const engine = createEngine({
+    catalog,
+    dry: true,
+    only: [],
+    print: () => undefined,
+    root: process.cwd(),
+    stateDir,
+    workspaceId: "ws",
+  });
+  try {
+    expect(engine.state).toBeUndefined();
+    await engine.start();
+    await engine.run("review", {});
+    await engine.stop();
+    await engine.dispose();
+    expect(await readdir(stateDir)).toEqual([]);
+  } finally {
+    await rm(stateDir, { force: true, recursive: true });
+  }
+});
+
+it("keeps a persisting engine's worktrees under its state dir", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "create-state-"));
+  const engine = createEngine({
+    catalog,
+    dry: false,
+    only: [],
+    print: () => undefined,
+    root: process.cwd(),
+    stateDir,
+    workspaceId: "ws",
+  });
+  try {
+    expect(engine.state).toBe(stateDir);
+    expect(engine.worktrees).toBe(join(stateDir, "worktrees"));
+  } finally {
+    await engine.dispose();
+    await rm(stateDir, { force: true, recursive: true });
   }
 });
 

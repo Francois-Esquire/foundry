@@ -2,13 +2,19 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { schedule, step, workflow } from "@foundry/marbles";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { catalog } from "~/authoring/catalog";
 import { createEngine } from "~/create";
 import { dashboardSnapshot } from "~/dashboard/snapshot";
 import type { Engine } from "~/lib/engine";
+import type * as Harnesses from "~/lib/harnesses";
 import { tick } from "~/lib/schedule";
+
+vi.mock("~/lib/harnesses", async (importOriginal) => ({
+  ...(await importOriginal<typeof Harnesses>()),
+  detectHarnesses: () => ({ claudeCode: false, codex: null }),
+}));
 
 const print = () => undefined;
 const options = {
@@ -23,15 +29,18 @@ const textFields = [
   { label: "Text", name: "text", required: true, type: "text" },
 ];
 
-/** A started dry engine over `root`; `state` makes its runs survive a restart. */
-function engineIn(root: string, state?: string) {
+/**
+ * A started engine over `root`; `stateDir` makes its runs survive a restart.
+ * Not dry, which would persist nothing; these steps run no agent or git.
+ */
+function engineIn(root: string, stateDir?: string) {
   return createEngine({
     catalog,
-    dry: true,
+    dry: false,
     only: [],
     print,
     root,
-    ...(state === undefined ? {} : { state }),
+    stateDir,
     workspaceId: "ws",
   }).start();
 }
@@ -76,7 +85,7 @@ it("projects real nested runs, logs and trigger provenance, including restored h
     if (!scheduled) {
       throw new Error("missing fixture schedule");
     }
-    await tick(engine, scheduled, { print, state: dir });
+    await tick(engine, scheduled, { print, state: engine.state });
     const snapshot = dashboardSnapshot(await engine.runs(), view(engine));
     expect(snapshot.mode).toBe("live");
     // Anonymous `bang` is internal; the schema gives each entry its form.

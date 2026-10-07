@@ -22,9 +22,9 @@ to the declaration bundler through the explicit mappings in `tsup.config.ts`.
 
 `src/lib/` is the engine and imports nothing outside `src/lib/`: no authoring
 words, no views, no CLI. The `Engine` constructor takes the packages' own
-instances (models, session store, workspace system, containers, artifact
-system), all required, and builds the managers and everything that connects
-them itself. Each manager has the plain operation as a method, usable on the
+instances (models, session store, containers, artifact system, all required;
+a workspace system, which it builds from its `git` option when omitted), and
+builds the managers and everything that connects them itself. Each manager has the plain operation as a method, usable on the
 engine directly, and `scoped(frame)` for the view a step body gets, which adds
 replay, cancellation, and cleanup on top; new manager behavior goes in the
 plain method. The engine owns its registry and is told what can run through
@@ -41,7 +41,10 @@ beside them and may import both. Public entries: `@foundry/marbles`
 (`authoring/index.ts`), `@foundry/marbles/prebuilt`, and
 `@foundry/marbles/lib` (`lib/index.ts`).
 
-`src/source.ts` owns filesystem discovery for the CLI. Setup belongs in
+`src/source.ts` owns filesystem discovery for the CLI. `src/host.ts` is where
+the CLI and the dashboard start: it loads the source, places the workspace
+under the state root, and builds the engine through `createEngine`, so each
+host decision is made once. Setup belongs in
 `src/onboarding/`, never `src/lib/`. The default authoring folder is
 `.foundry/marbles`; leading-underscore files and directories are excluded
 from discovery but can be imported. The workspace root stays above `.foundry`.

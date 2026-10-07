@@ -10,7 +10,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { sleep, spawn, stripANSI } from "bun";
+import { sleep, spawn, spawnSync, stripANSI } from "bun";
 
 /** Configs live in a tmpdir with no node_modules, so zod is imported by URL. */
 const ZOD = import.meta.resolve("zod");
@@ -312,6 +312,42 @@ workflow("manual").input(message).do(({ input }) => echo({}, input));
     expect(await terminal.child.exited).toBe(0);
   } finally {
     await terminal.dispose();
+    rmSync(dir, { force: true, recursive: true });
+  }
+}, 15_000);
+
+test("a command line that cannot run prints usage and touches nothing", () => {
+  const dir = mkdtempSync(join(tmpdir(), "marbles-usage-"));
+  const config = join(dir, "marbles.config.ts");
+  const imported = join(dir, "imported");
+  const state = join(dir, "state");
+  writeFileSync(
+    config,
+    `import { writeFileSync } from "node:fs";
+writeFileSync(${JSON.stringify(imported)}, "imported");`
+  );
+  try {
+    for (const command of [["bogus"], ["roll"], ["list", "--harness", "foo"]]) {
+      const child = spawnSync(
+        [
+          process.execPath,
+          resolve("src/cli.ts"),
+          ...command,
+          "--config",
+          config,
+          "--state",
+          state,
+        ],
+        { stderr: "pipe", stdout: "pipe" }
+      );
+      expect(child.exitCode).toBe(1);
+      expect(child.stderr.toString()).toContain(
+        "programmable workspace automation"
+      );
+      expect(existsSync(imported)).toBe(false);
+      expect(existsSync(state)).toBe(false);
+    }
+  } finally {
     rmSync(dir, { force: true, recursive: true });
   }
 }, 15_000);

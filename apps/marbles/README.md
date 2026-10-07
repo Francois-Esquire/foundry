@@ -67,8 +67,9 @@ schema library such as `zod` must resolve relative to the importing file.
 
 State is saved to disk between invocations. `--dry-run` echoes agent turns, git
 mutations, and sandbox commands instead of running them and writes no state;
-it does not contain custom code, monitor I/O, or launchd installation and
-removal. Working directories are execution context, not security sandboxes.
+it does not contain custom code or monitor I/O. Under `--dry-run`, `launchd`
+prints the plist and launchctl commands instead of running them. Working
+directories are execution context, not security sandboxes.
 
 ## Authoring folder
 
@@ -251,8 +252,8 @@ The CLI is one host of an engine any Bun program can run. `@foundry/marbles` is
 unchanged: the words a module writes definitions with. `@foundry/marbles/lib`
 holds the `Engine` that runs them.
 
-The engine is handed five instances, one from each Foundry package, each
-already configured for the machine it runs on. It builds everything that
+The engine is handed an instance from each Foundry package, each already
+configured for the machine it runs on. It builds everything that
 connects them: the managers a step body sees, the feed, agent approvals and
 activity, the triggers agents create, and the run queue.
 
@@ -264,19 +265,11 @@ import {
   InMemoryArtifactStore,
   InMemorySessionStore,
   ModelManager,
-  WorkspaceSystem,
-  directory,
-  git,
-  nodeObserver,
 } from "@foundry/marbles/lib";
 
 const engine = new Engine({
   models: new ModelManager({ providers: [/* yours */] }),
   sessions: new InMemorySessionStore(),
-  workspaces: new WorkspaceSystem().extend(
-    directory({ observer: nodeObserver }),
-    git()
-  ),
   // Called at the first sandbox; `createContainers` over your runtime.
   containers: () => Promise.reject(new Error("no sandbox runtime here")),
   artifacts: new ArtifactManager({ store: new InMemoryArtifactStore() }),
@@ -296,9 +289,13 @@ await engine.stop();
 await engine.dispose();
 ```
 
-All five instances are required. The engine hands them back (`engine.models`,
-`engine.sessions`, `engine.workspaces.system`, `engine.sandboxes.containers()`)
-and closes them in `dispose()`.
+`models`, `sessions`, `containers`, and `artifacts` are required. `workspaces`
+is optional: without it the engine builds a workspace system over the local
+filesystem, watched, whose `git()` layer runs git as the `git` option says. A
+host that brings its own `WorkspaceSystem` builds its `git()` layer with the
+same options it passes as `git`. The engine hands the instances back
+(`engine.models`, `engine.sessions`, `engine.workspaces.system`,
+`engine.sandboxes.containers()`) and closes them in `dispose()`.
 
 The managers a step body gets as `agents`, `workspaces`, `sandboxes`, and
 `artifacts` are on the engine too, with the same methods, and work without a
@@ -337,13 +334,14 @@ own collection is private to the CLI, which copies it into the engine it
 builds. A host that wants a module's definitions exports them from the module
 and defines them.
 
-A few optional settings cover what the five instances cannot say: `print`
+A few optional settings cover what the instances cannot say: `print`
 receives engine status and body `log(...)` lines, `home` is where shared
-skills are read from, `git` is how git runs on the root workspace when the
-`git()` layer was built with a custom runner, and `dry` makes agents asked
-for a sandbox run in-process instead.
+skills are read from, `git` is how git runs (for example a runner that echoes
+instead), `worktrees` is where worktrees are cut when a step names no `home`
+(`Engine.worktreesFor(state)` by default), and `dry` makes agents asked for a
+sandbox run in-process instead.
 
-The package bundles its Foundry packages, so take the classes the five
+The package bundles its Foundry packages, so take the classes the
 instances are built from out of `@foundry/marbles/lib` as well. An instance
 built from another copy of the same class is a different type. Besides
 `Engine` and its types, the entry exports only those:

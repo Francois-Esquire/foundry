@@ -11,11 +11,7 @@ import type { Containers } from "@foundry/sandbox/container/containers";
 import { createContainers } from "@foundry/sandbox/container/containers";
 import { createMemoryContainerStore } from "@foundry/sandbox/container/store";
 import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
-import { WorkspaceSystem } from "@foundry/workspaces";
 import type { GitRun } from "@foundry/workspaces/git";
-import { git } from "@foundry/workspaces/git";
-import { directory } from "@foundry/workspaces/node";
-import { nodeObserver } from "@foundry/workspaces/node/watch";
 import type { Catalog } from "~/authoring/catalog";
 import { configuredMonitorUrl } from "~/lib/automation/configured";
 import { AutomationService } from "~/lib/automation/service";
@@ -55,10 +51,18 @@ export interface CreateEngineOptions {
   readonly providers?: readonly Provider[];
   /** The workspace root: the config's directory, or the cwd without one. */
   readonly root: string;
-  /** Workspace state dir; the CLI omits it under `--dry-run`, so nothing is written. */
-  readonly state?: string;
+  /**
+   * This workspace's state dir. Under `dry` the engine gets none, so nothing
+   * is written there; omit it for an engine that persists nothing either way.
+   */
+  readonly stateDir?: string;
   /** Identity of this workspace's state; part of a declared artifact's id. */
   readonly workspaceId: string;
+}
+
+/** The one place `--dry-run` reaches the state dir: a dry engine persists nothing. */
+function persisted(dry: boolean, stateDir: string | undefined) {
+  return dry ? undefined : stateDir;
 }
 
 /** What `define`, `schedule` and `monitor` are called on: an engine, or a bare registry. */
@@ -82,22 +86,30 @@ export function declareCatalog(target: Declarable, catalog: Catalog): void {
   }
 }
 
+/** What an engine would trigger: the config's declarations and what agents created. */
+export interface Triggers {
+  /** The triggers agents created, read from the state dir. */
+  readonly automations: AutomationService;
+  /** What the config declared, and the step agent-created monitors share. */
+  readonly registry: Registry;
+}
+
 /**
- * The triggers an engine over this state dir would have, read without
- * building one: what the config declared plus what agents created. For
- * commands that only list.
+ * The triggers an engine created with these options would have, read
+ * without building one. For commands that only list.
  */
 export function readTriggers(
   catalog: Catalog,
-  state: string | undefined
-): AutomationService {
+  { dry, stateDir }: Pick<CreateEngineOptions, "dry" | "stateDir">
+): Triggers {
   const registry = new Registry();
   declareCatalog(registry, catalog);
-  return new AutomationService({
+  const automations = new AutomationService({
     allowHttp: configuredMonitorUrl(registry),
     registry,
-    state,
+    state: persisted(dry, stateDir),
   });
+  return { automations, registry };
 }
 
 /** The shared artifact system: JSON records and blob files under `dir`, or memory. */
@@ -127,17 +139,17 @@ function modelsFor({
   return models;
 }
 
-function sessionsFor({ dry, state }: CreateEngineOptions): SessionStore {
-  return state === undefined || dry
+function sessionsFor(state: string | undefined): SessionStore {
+  return state === undefined
     ? new InMemorySessionStore()
     : new JsonSessionStore(join(state, "sessions"));
 }
 
-/** Resolved at the first sandbox, once the engine knows where worktrees are cut. */
+/** Started at the first sandbox: the runtime is optional and slow to start. */
 function containersFor(
   { catalog, dry, print, root, workspaceId }: CreateEngineOptions,
   home: string,
-  worktrees: () => string
+  worktreeHome: string
 ): () => Promise<Containers> {
   // `--dry-run` echoes every command a sandbox would run, like git and the
   // models, so a config with sandboxes runs end to end with nothing installed.
@@ -149,7 +161,6 @@ function containersFor(
         );
   return async () => {
     // Worktrees are cut there so a sandbox opened inside one may mount it.
-    const worktreeHome = worktrees();
     mkdirSync(worktreeHome, { recursive: true });
     const declared = [...catalog.workspaces].map((path) => resolve(root, path));
     return createContainers({
@@ -168,24 +179,24 @@ function containersFor(
 export function createEngine(options: CreateEngineOptions): Engine {
   const { catalog, dry, print, root, workspaceId } = options;
   const home = options.home ?? homedir();
-  const gitOptions = dry ? { run: echoGit(print) } : {};
-  const engine: Engine = new Engine({
+  const state = persisted(dry, options.stateDir);
+  // Its sandboxes may mount what is cut there; see `containersFor`.
+  const worktrees = Engine.worktreesFor(state);
+  const engine = new Engine({
     artifacts: artifactsAt(dry ? undefined : options.artifacts),
     askable: options.askable,
-    containers: containersFor(options, home, () => engine.worktrees),
+    containers: containersFor(options, home, worktrees),
     dry,
-    git: gitOptions,
+    // The engine's workspace system and its root workspace both run git so.
+    git: dry ? { run: echoGit(print) } : {},
     home,
     models: modelsFor(options),
     print,
     root,
-    sessions: sessionsFor(options),
-    state: options.state,
+    sessions: sessionsFor(state),
+    state,
     workspaceId,
-    workspaces: new WorkspaceSystem().extend(
-      directory({ observer: nodeObserver }),
-      git(gitOptions)
-    ),
+    worktrees,
   });
   declareCatalog(engine, catalog);
   return engine;

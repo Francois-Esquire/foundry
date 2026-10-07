@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { parseArgs } from "~/args";
+import { parseArgs, UsageError } from "~/args";
 
 describe("parseArgs", () => {
   it("treats no command and explicit run identically, while help stays explicit", () => {
@@ -22,10 +22,8 @@ describe("parseArgs", () => {
       config: "./.foundry/marbles",
       dry: false,
       inputJson: undefined,
-      name: undefined,
       only: [],
       state: join(homedir(), ".foundry", "marbles"),
-      target: undefined,
     });
   });
 
@@ -40,9 +38,11 @@ describe("parseArgs", () => {
       "--config",
       "/c.ts",
     ]);
-    expect(args.command).toBe("launchd");
-    expect(args.name).toBe("install");
-    expect(args.target).toBe("guides");
+    expect(args).toMatchObject({
+      action: "install",
+      command: "launchd",
+      schedule: "guides",
+    });
     expect(args.dry).toBe(true);
     expect(args.state).toBe("/s");
     expect(args.config).toBe("/c.ts");
@@ -50,8 +50,7 @@ describe("parseArgs", () => {
 
   it("still reads the older --dry spelling as a flag, never as a positional", () => {
     const args = parseArgs(["roll", "ask", "--dry"]);
-    expect(args.dry).toBe(true);
-    expect(args.target).toBeUndefined();
+    expect(args).toMatchObject({ command: "roll", dry: true, name: "ask" });
   });
 
   it("keeps --input raw and collects every --harness", () => {
@@ -80,4 +79,33 @@ it("accepts --source with the same last-value precedence as --config", () => {
   expect(parseArgs(["--config", "old.ts", "--source", "new"]).config).toBe(
     "new"
   );
+});
+
+it("refuses a command line that cannot run, before anything else happens", () => {
+  const refusals: [readonly string[], string][] = [
+    [["bogus"], 'unknown command "bogus"'],
+    [["roll"], "roll takes one workflow or schedule name"],
+    [["roll", "a", "b"], "roll takes one workflow or schedule name"],
+    [["run", "ping"], "run takes no name. To run one now: marbles roll ping"],
+    [
+      ["init", "unknown"],
+      "init takes one starter: developer, design, or product",
+    ],
+    [["launchd", "start", "ping"], "launchd takes install or uninstall"],
+    [["launchd", "install"], "launchd needs a schedule"],
+    [["list", "extra"], "list takes no arguments"],
+    [
+      ["--harness", "foo"],
+      'unknown harness "foo"; --harness takes claude-code or codex',
+    ],
+  ];
+  for (const [argv, message] of refusals) {
+    expect(() => parseArgs(argv)).toThrow(UsageError);
+    expect(() => parseArgs(argv)).toThrow(message);
+  }
+  // Help wins over whatever else is on the line.
+  expect(parseArgs(["bogus", "--help"]).command).toBe("help");
+  expect(parseArgs(["--help", "--harness", "foo"]).command).toBe("help");
+  // A default is decided where the line is read, not by the command.
+  expect(parseArgs(["init"])).toMatchObject({ starter: "product" });
 });

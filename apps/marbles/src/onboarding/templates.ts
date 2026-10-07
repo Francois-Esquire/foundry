@@ -21,9 +21,15 @@ export const STARTERS = [
     name: "summarize-codebase",
   },
 ] as const;
-type StarterId = (typeof STARTERS)[number]["id"];
+export type StarterId = (typeof STARTERS)[number]["id"];
+/** What `marbles init` creates when no starter is named. */
+export const DEFAULT_STARTER: StarterId = "product";
+/** The harness a starter routes to; "auto" takes the first available one. */
+const HARNESS_CHOICES = ["auto", "codex", "claude-code"] as const;
+export type HarnessChoice = (typeof HARNESS_CHOICES)[number];
+export const DEFAULT_HARNESS: HarnessChoice = "auto";
 export interface SetupDraft {
-  readonly harness: "auto" | "codex" | "claude-code";
+  readonly harness: HarnessChoice;
   readonly instructions: string;
   readonly name: string;
   readonly template: StarterId;
@@ -39,7 +45,7 @@ export function renderModule(draft: SetupDraft): string {
       "Use a step name starting with a letter, followed by letters, numbers, hyphens, or underscores."
     );
   }
-  if (!["auto", "codex", "claude-code"].includes(draft.harness)) {
+  if (!HARNESS_CHOICES.includes(draft.harness)) {
     throw new Error("Choose an available harness option.");
   }
   const options = {
