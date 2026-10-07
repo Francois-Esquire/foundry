@@ -2,8 +2,8 @@
 import type { MouseEvent } from "@opentui/core";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import { type ReactNode, useCallback, useState } from "react";
-import { Action } from "~/components/action";
-import { useTheme } from "~/hooks/use-theme";
+import { Action } from "~/components/ui/action";
+import { theme } from "~/components/ui/theme";
 
 function blockMouse(event: MouseEvent) {
   event.preventDefault();
@@ -30,7 +30,6 @@ export function Dialog({
   readonly variant?: "default" | "danger";
   readonly hint?: string;
 }) {
-  const theme = useTheme();
   const dimensions = useTerminalDimensions();
   const [confirmFocused, setConfirmFocused] = useState(false);
   const choose = useCallback(

@@ -1,6 +1,6 @@
 import type { MouseEvent } from "@opentui/core";
 import { useCallback } from "react";
-import { useTheme } from "~/hooks/use-theme";
+import { theme } from "~/components/ui/theme";
 
 /** Mouse action with keyboard equivalents supplied by the containing view. */
 export function Action<T>({
@@ -16,7 +16,6 @@ export function Action<T>({
   readonly active?: boolean;
   readonly id?: string;
 }) {
-  const theme = useTheme();
   const press = useCallback(
     (event: MouseEvent) => {
       event.stopPropagation();

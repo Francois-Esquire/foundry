@@ -45,7 +45,7 @@
     "test": "bun run test:unit && bun run test:tui",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:package": "bun test test/package.test.ts",
-    "test:tui": "bun test test/status-view.test.ts test/dashboard.test.tsx test/cli-terminal.test.ts test/setup-launch.test.tsx test/identity.test.ts",
+    "test:tui": "bun test test/status-view.test.ts test/dashboard.test.tsx test/dashboard-controls.test.tsx test/dashboard-feed.test.tsx test/dashboard-quit.test.tsx test/splash.test.tsx test/preview.test.tsx test/ui.test.tsx test/cli-terminal.test.ts test/setup-launch.test.tsx test/identity.test.ts",
     "test:unit": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"

@@ -1,14 +1,10 @@
-import { Action } from "~/components/action";
-import { KindBadge } from "~/components/kind-badge";
-import { Panel } from "~/components/panel";
-import { SelectableRow } from "~/components/selectable-row";
-import { StatusLabel } from "~/components/status-label";
+import { KindBadge } from "~/components/blocks/kind-badge";
+import { StatusLabel } from "~/components/blocks/status-label";
+import { Action } from "~/components/ui/action";
+import { Panel } from "~/components/ui/panel";
+import { SelectableRow } from "~/components/ui/selectable-row";
 import { Text } from "~/components/ui/text";
-import {
-  type DashboardSelection,
-  runStatusLabel,
-  selectionKey,
-} from "~/views/dashboard-model";
+import { type DashboardSelection, selectionKey } from "~/views/dashboard-model";
 import type { RunRow } from "~/views/dashboard-tree";
 import { EmptyState } from "./empty-state";
 
@@ -82,7 +78,7 @@ export function RunsBlock({
             row.selection.kind === "run" &&
             row.selection.activityId === undefined && <KindBadge kind="step" />}
           <Text>{row.name}</Text>
-          <StatusLabel status={runStatusLabel(row)} />
+          <StatusLabel item={row} />
           <Text>{row.elapsed}</Text>
           {row.depth === 0 && <Text>· {row.selection.id}</Text>}
         </SelectableRow>

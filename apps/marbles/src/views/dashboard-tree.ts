@@ -3,11 +3,11 @@ import {
   type DashboardSnapshot,
   flattenSteps,
   type HarnessActivitySnapshot,
-  type InputAttention,
   type RunSnapshot,
   type StepSnapshot,
   selectionKey,
 } from "./dashboard-model";
+import type { InputAttention } from "./run-status";
 
 export type CatalogSelection = Exclude<DashboardSelection, { kind: "run" }>;
 

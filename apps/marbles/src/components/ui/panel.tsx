@@ -1,6 +1,6 @@
 import type { ScrollBoxRenderable } from "@opentui/core";
 import { type ReactNode, useEffect, useRef } from "react";
-import { useTheme } from "~/hooks/use-theme";
+import { theme } from "~/components/ui/theme";
 
 export function Panel({
   title,
@@ -19,7 +19,6 @@ export function Panel({
   readonly resetKey?: string;
   readonly children: ReactNode;
 }) {
-  const theme = useTheme();
   const scroll = useRef<ScrollBoxRenderable>(null);
   useEffect(() => {
     if (selectedId) {

@@ -3,6 +3,7 @@ import { join } from "node:path";
 
 import { isRecord, readJson } from "~/lib/state/json";
 import { alive, holderPid } from "~/lib/state/locks";
+import { isTerminal } from "~/views/run-status";
 
 /**
  * Everything the status command shows, read straight from the state dir. Pure
@@ -54,7 +55,6 @@ interface RunSummary {
   readonly step: string;
 }
 
-const TERMINAL = new Set(["complete", "failed", "cancelled"]);
 const RECENT = 5;
 
 export function readStatus(stateRoot: string): StatusReport {
@@ -150,8 +150,7 @@ function readRun(path: string): RunSummary | undefined {
   return {
     createdAt: run.timestamps.createdAt,
     id: run.id,
-    orphaned:
-      !TERMINAL.has(run.status) && (owner === undefined || !alive(owner)),
+    orphaned: !isTerminal(run.status) && (owner === undefined || !alive(owner)),
     status: run.status,
     step: run.step,
   };

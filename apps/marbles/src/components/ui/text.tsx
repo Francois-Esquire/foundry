@@ -1,9 +1,11 @@
 import type { TextProps } from "@opentui/react";
-import { useTheme } from "~/hooks/use-theme";
+import { theme } from "./theme";
 
-/** Body text uses the theme even when the terminal's default foreground differs. */
+/**
+ * Body text. Every view paints the theme background, so text takes the theme
+ * foreground rather than the terminal default, which may not contrast with it.
+ */
 export function Text({ children, fg, ...props }: TextProps) {
-  const theme = useTheme();
   return (
     <text {...props} fg={fg ?? theme.colors.foreground}>
       {children}

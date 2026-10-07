@@ -1,6 +1,6 @@
 // Adapted from termcn's OpenTUI Tabs.
 import type { ReactNode } from "react";
-import { Action } from "~/components/action";
+import { Action } from "~/components/ui/action";
 
 export function Tabs<T extends string>({
   tabs,

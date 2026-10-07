@@ -1,11 +1,14 @@
 import { useKeyboard } from "@opentui/react";
-import { useCallback, useRef, useState } from "react";
-import { Action } from "~/components/action";
+import { useCallback, useState } from "react";
 import { ArgumentForm } from "~/components/blocks/argument-form";
 import { QuitDialog } from "~/components/blocks/quit-dialog";
+import { Action } from "~/components/ui/action";
 import { Select } from "~/components/ui/select";
 import { SetupFlow, SetupStep } from "~/components/ui/setup-flow";
-import { useTheme } from "~/hooks/use-theme";
+import { Text } from "~/components/ui/text";
+import { theme } from "~/components/ui/theme";
+import { errorMessage, useAsyncAction } from "~/hooks/use-async-action";
+import { useQuitGuard } from "~/hooks/use-quit-guard";
 import type { InputField, InputValues } from "~/lib/inputs";
 import {
   renderModule,
@@ -55,7 +58,6 @@ export function OnboardingView({
   readonly onSkip: () => void;
   readonly onClose: () => void;
 }) {
-  const theme = useTheme();
   const [draft, setDraft] = useState<SetupDraft>({
     harness: "auto",
     instructions: "",
@@ -65,35 +67,26 @@ export function OnboardingView({
   const [stage, setStage] = useState<"template" | "settings" | "review">(
     "template"
   );
-  const [error, setError] = useState<string>();
-  const [busy, setBusy] = useState(false);
-  const pending = useRef(new Set<string>());
-  const [quitting, setQuitting] = useState(false);
+  /** Settings that cannot render into a module. */
+  const [invalid, setInvalid] = useState<string>();
+  const creation = useAsyncAction();
+  const quit = useQuitGuard(onClose);
+  const { quitting } = quit;
   const starter =
     STARTERS.find((item) => item.id === draft.template) ?? STARTERS[2];
-  const create = useCallback(async () => {
-    if (pending.current.has("submit") || quitting) {
-      return;
+  const create = useCallback(() => {
+    if (!quitting) {
+      creation.run(() => onCreate(draft));
     }
-    pending.current.add("submit");
-    setBusy(true);
-    setError(undefined);
-    try {
-      await onCreate(draft);
-    } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure));
-    } finally {
-      pending.current.delete("submit");
-      setBusy(false);
-    }
-  }, [draft, onCreate, quitting]);
+  }, [draft, onCreate, quitting, creation.run]);
   const back = useCallback(() => {
-    if (quitting || pending.current.has("submit")) {
+    if (quitting || creation.busy) {
       return;
     }
-    setError(undefined);
+    setInvalid(undefined);
+    creation.clear();
     setStage(stage === "review" ? "settings" : "template");
-  }, [stage, quitting]);
+  }, [stage, quitting, creation.busy, creation.clear]);
   const next = useCallback(() => {
     if (!quitting) {
       setStage("settings");
@@ -104,7 +97,6 @@ export function OnboardingView({
       onSkip();
     }
   }, [quitting, onSkip]);
-  const cancelQuit = useCallback(() => setQuitting(false), []);
   const chooseTemplate = useCallback(
     (value: string) => {
       if (quitting) {
@@ -136,33 +128,21 @@ export function OnboardingView({
       try {
         renderModule(configured);
         setDraft(configured);
-        setError(undefined);
+        setInvalid(undefined);
         setStage("review");
       } catch (failure) {
-        setError(String(failure));
+        setInvalid(errorMessage(failure));
       }
     },
     [draft]
   );
   const goBack = stage === "template" ? skip : back;
   useKeyboard((key) => {
-    if (key.ctrl && key.name === "c") {
-      key.preventDefault();
-      if (key.repeated) {
-        return;
-      }
-      if (quitting) {
-        onClose();
-      } else {
-        setQuitting(true);
-      }
-      return;
-    }
-    if (quitting || busy || stage === "settings") {
+    if (quit.handleKey(key) || creation.busy || stage === "settings") {
       return;
     }
     if (key.name === "q") {
-      setQuitting(true);
+      quit.ask();
     }
     if (key.name === "escape") {
       goBack();
@@ -181,7 +161,7 @@ export function OnboardingView({
       overlay={
         quitting && (
           <QuitDialog
-            onCancel={cancelQuit}
+            onCancel={quit.cancel}
             onConfirm={onClose}
             preview={false}
           />
@@ -225,7 +205,7 @@ export function OnboardingView({
       {stage === "settings" && (
         <ArgumentForm
           active={!quitting}
-          error={error}
+          error={invalid}
           fields={SETTINGS}
           initialValues={{
             harness: draft.harness,
@@ -243,19 +223,23 @@ export function OnboardingView({
       </SetupStep>
       {stage === "review" && (
         <box flexDirection="column" gap={1}>
-          <text fg={theme.colors.foreground}>{renderModule(draft)}</text>
+          <Text>{renderModule(draft)}</Text>
           <text fg={theme.colors.mutedForeground}>
             One step · no workflows or triggers · nothing runs during setup
           </text>
-          {error && <text fg={theme.colors.error}>{error}</text>}
+          {creation.error && (
+            <text fg={theme.colors.error}>{creation.error}</text>
+          )}
           <Action
             active
             id="setup:create"
-            label={busy ? "Creating module..." : "Enter · Create module"}
+            label={
+              creation.busy ? "Creating module..." : "Enter · Create module"
+            }
             onAction={create}
             value="create"
           />
-          {!busy && (
+          {!creation.busy && (
             <Action
               id="setup:back"
               label="Esc · Back"

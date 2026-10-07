@@ -3,9 +3,9 @@ import { Text } from "~/components/ui/text";
 import {
   flattenSteps,
   type RunSnapshot,
-  runStatusLabel,
   type StepSnapshot,
 } from "~/views/dashboard-model";
+import { statusDisplay } from "~/views/run-status";
 
 export function RunOverview({
   run,
@@ -25,7 +25,7 @@ export function RunOverview({
       <KeyValue
         items={[
           { key: "Run", value: run.id },
-          { key: "Status", value: runStatusLabel(run) },
+          { key: "Status", value: statusDisplay(run).label },
           { key: "Trigger", value: trigger },
           { key: "Started", value: run.started },
           { key: "Elapsed", value: run.elapsed },
@@ -57,7 +57,7 @@ export function StepOverview({
         items={[
           { key: "Run", value: run.id },
           { key: "Step", value: step.id },
-          { key: "Status", value: runStatusLabel(step) },
+          { key: "Status", value: statusDisplay(step).label },
           { key: "Elapsed", value: step.elapsed ?? "Not recorded" },
           { key: "Children", value: String(step.children.length) },
         ]}

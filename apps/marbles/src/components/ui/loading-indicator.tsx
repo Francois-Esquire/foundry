@@ -1,10 +1,9 @@
 import { useEffect, useState } from "react";
-import { useTheme } from "~/hooks/use-theme";
+import { theme } from "~/components/ui/theme";
 
 const FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 export function LoadingIndicator({ label }: { readonly label: string }) {
-  const theme = useTheme();
   const [frame, setFrame] = useState(0);
   useEffect(() => {
     const timer = setInterval(

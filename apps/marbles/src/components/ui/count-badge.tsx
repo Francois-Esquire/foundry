@@ -1,4 +1,4 @@
-import { useTheme } from "~/hooks/use-theme";
+import { theme } from "~/components/ui/theme";
 
 const MAX_COUNT = 99;
 
@@ -14,7 +14,6 @@ export function CountBadge({
   readonly count: number;
   readonly active?: boolean;
 }) {
-  const theme = useTheme();
   return (
     <text
       bg={active ? theme.colors.primary : theme.colors.muted}

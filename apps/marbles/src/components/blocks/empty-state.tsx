@@ -1,5 +1,6 @@
-import { Action } from "~/components/action";
-import { useTheme } from "~/hooks/use-theme";
+import { Action } from "~/components/ui/action";
+import { Text } from "~/components/ui/text";
+import { theme } from "~/components/ui/theme";
 
 export function EmptyState({
   title,
@@ -10,12 +11,11 @@ export function EmptyState({
   readonly description: string;
   readonly onReset?: () => void;
 }) {
-  const theme = useTheme();
   return (
     <box flexDirection="column" paddingX={1}>
-      <text fg={theme.colors.foreground}>
+      <Text>
         <strong>◇ {title}</strong>
-      </text>
+      </Text>
       <text fg={theme.colors.mutedForeground}>{description}</text>
       {onReset && (
         <Action

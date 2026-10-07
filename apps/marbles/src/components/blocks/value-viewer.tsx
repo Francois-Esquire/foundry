@@ -1,6 +1,6 @@
 import { JSONView } from "~/components/ui/json";
 import { Text } from "~/components/ui/text";
-import type { JsonValue } from "~/views/dashboard-model";
+import type { JsonValue } from "~/model/json";
 
 export function ValueViewer({
   value,

@@ -1,10 +1,11 @@
 import type { TextareaRenderable } from "@opentui/core";
 import { useKeyboard } from "@opentui/react";
 import { useCallback, useRef, useState } from "react";
-import { Action } from "~/components/action";
+import { Action } from "~/components/ui/action";
 import { Select } from "~/components/ui/select";
 import { useFormFocus } from "~/components/ui/setup-flow";
-import { useTheme } from "~/hooks/use-theme";
+import { TextInput } from "~/components/ui/text-input";
+import { theme } from "~/components/ui/theme";
 import {
   type InputField,
   type InputValues,
@@ -24,7 +25,6 @@ function Field({
   readonly focused: boolean;
   readonly onChange: (name: string, value: string | boolean) => void;
 }) {
-  const theme = useTheme();
   const editor = useRef<TextareaRenderable>(null);
   const change = useCallback(
     (next: string) =>
@@ -73,14 +73,10 @@ function Field({
     );
   }
   return (
-    <input
-      backgroundColor={theme.colors.muted}
+    <TextInput
       focused={focused}
-      focusedBackgroundColor={theme.colors.muted}
-      focusedTextColor={theme.colors.foreground}
       id={`field:${field.name}`}
       onInput={change}
-      textColor={theme.colors.foreground}
       value={String(value ?? "")}
     />
   );
@@ -105,7 +101,6 @@ export function ArgumentForm({
   readonly error?: string;
   readonly active?: boolean;
 }) {
-  const theme = useTheme();
   const [values, setValues] = useState(
     () => initialValues ?? inputDefaults(fields)
   );

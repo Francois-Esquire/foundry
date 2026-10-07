@@ -1,51 +1,34 @@
-import { Action } from "~/components/action";
-import { KindBadge } from "~/components/kind-badge";
-import { Panel } from "~/components/panel";
-import { SelectableRow } from "~/components/selectable-row";
-import { StatusLabel } from "~/components/status-label";
+import { KindBadge } from "~/components/blocks/kind-badge";
+import { StatusLabel } from "~/components/blocks/status-label";
+import { Action } from "~/components/ui/action";
 import { KeyValue } from "~/components/ui/key-value";
+import { Panel } from "~/components/ui/panel";
+import { SelectableRow } from "~/components/ui/selectable-row";
 import { Tabs } from "~/components/ui/tabs";
 import { Text } from "~/components/ui/text";
 import type {
   DashboardSelection,
   DashboardSnapshot,
+  DefinitionSnapshot,
+  ResolvedSelection,
   RunSnapshot,
   StepSnapshot,
+  TriggerSnapshot,
 } from "~/views/dashboard-model";
-import {
-  runStatusLabel,
-  selectedActivity,
-  selectionKey,
-} from "~/views/dashboard-model";
+import { selectionKey } from "~/views/dashboard-model";
+import type { InspectorTab } from "~/views/dashboard-state";
 import { type CatalogSelection, scopedRuns } from "~/views/dashboard-tree";
 import type { RunActions } from "~/views/run-actions";
-import type { InspectorTab } from "~/views/use-dashboard";
 import { ActivityDetails } from "./activity-details";
 import { RunLogs } from "./run-logs";
 import { RunOverview, StepOverview } from "./run-overview";
 import { RunStream } from "./run-stream";
 import { ValueViewer } from "./value-viewer";
 
-function stepPath(
-  steps: readonly StepSnapshot[],
-  id?: string
-): readonly StepSnapshot[] {
-  for (const step of steps) {
-    if (step.id === id) {
-      return [step];
-    }
-    const children = stepPath(step.children, id);
-    if (children.length) {
-      return [step, ...children];
-    }
-  }
-  return [];
-}
-
 function RunInspector({
   run,
+  path,
   snapshot,
-  selection,
   focused,
   tab,
   onTab,
@@ -53,27 +36,16 @@ function RunInspector({
   stream,
 }: {
   readonly run: RunSnapshot;
+  /** From a top-level step down to the inspected one; empty for the run. */
+  readonly path: readonly StepSnapshot[];
   readonly snapshot: DashboardSnapshot;
-  readonly selection: Extract<DashboardSelection, { kind: "run" }>;
   readonly focused: boolean;
   readonly tab: InspectorTab;
   readonly onTab: (tab: InspectorTab) => void;
   readonly onInspect: (selection: DashboardSelection) => void;
   readonly stream?: RunActions["stream"];
 }) {
-  if (selection.activityId !== undefined) {
-    const activity = selectedActivity(run, selection);
-    return activity ? (
-      <ActivityDetails activity={activity} onInspect={onInspect} run={run} />
-    ) : (
-      <Text>This activity is no longer available in run {run.id}.</Text>
-    );
-  }
-  const path = stepPath(run.steps, selection.stepId);
   const step = path.at(-1);
-  if (selection.stepId && !step) {
-    return <Text>This step is no longer available in run {run.id}.</Text>;
-  }
   const subject = step ?? run;
   const trigger =
     snapshot.triggers.find((item) => item.id === run.triggerId)?.name ??
@@ -155,64 +127,62 @@ function RunInspector({
 
 function CatalogDetails({
   snapshot,
-  selection,
+  item,
   onInspect,
   onFilter,
   onLaunch,
 }: {
   readonly snapshot: DashboardSnapshot;
-  readonly selection: CatalogSelection;
+  readonly item:
+    | { readonly kind: "trigger"; readonly value: TriggerSnapshot }
+    | { readonly kind: "definition"; readonly value: DefinitionSnapshot };
   readonly onInspect: (selection: DashboardSelection) => void;
   readonly onFilter: (selection: CatalogSelection) => void;
   readonly onLaunch?: (id: string) => void;
 }) {
-  const item =
-    selection.kind === "trigger"
-      ? snapshot.triggers.find((entry) => entry.id === selection.id)
-      : snapshot.definitions.find((entry) => entry.id === selection.id);
-  if (!item) {
-    return <Text>This item is no longer available.</Text>;
-  }
+  const { value } = item;
+  const selection: CatalogSelection = { id: value.id, kind: item.kind };
   const runs = scopedRuns(snapshot, selection);
   return (
     <box flexDirection="column" gap={1}>
-      <KindBadge kind={item.kind} />
+      <KindBadge kind={value.kind} />
       <Text>
-        <strong>{item.name}</strong>
+        <strong>{value.name}</strong>
       </Text>
-      <Text>{item.description}</Text>
-      {"targetId" in item && (
+      <Text>{value.description}</Text>
+      {item.kind === "trigger" && (
         <KeyValue
           items={[
             {
               key: "Target",
               value:
-                snapshot.definitions.find((entry) => entry.id === item.targetId)
-                  ?.name ?? item.targetId,
+                snapshot.definitions.find(
+                  (entry) => entry.id === item.value.targetId
+                )?.name ?? item.value.targetId,
             },
-            { key: "Status", value: item.status },
-            ...("owner" in item && item.owner
-              ? [{ key: "Owner", value: item.owner }]
+            { key: "Status", value: item.value.status },
+            ...(item.value.owner
+              ? [{ key: "Owner", value: item.value.owner }]
               : []),
-            ...("lifetime" in item && item.lifetime
-              ? [{ key: "Lifetime", value: item.lifetime }]
+            ...(item.value.lifetime
+              ? [{ key: "Lifetime", value: item.value.lifetime }]
               : []),
-            { key: "Next", value: item.next ?? "Waiting for an event" },
+            { key: "Next", value: item.value.next ?? "Waiting for an event" },
           ]}
         />
       )}
-      {"configuration" in item && item.configuration !== undefined && (
+      {item.kind === "trigger" && item.value.configuration !== undefined && (
         <Text>
-          Configuration: {JSON.stringify(item.configuration, null, 2)}
+          Configuration: {JSON.stringify(item.value.configuration, null, 2)}
         </Text>
       )}
-      {selection.kind === "definition" && onLaunch && (
+      {item.kind === "definition" && onLaunch && (
         <Action
           active
           id="catalog:launch"
           label="l Launch"
           onAction={onLaunch}
-          value={selection.id}
+          value={value.id}
         />
       )}
       <Action
@@ -231,16 +201,33 @@ function CatalogDetails({
           value={{ id: run.id, kind: "run" }}
         >
           <Text>{run.id}</Text>
-          <StatusLabel status={runStatusLabel(run)} />
+          <StatusLabel item={run} />
         </SelectableRow>
       ))}
     </box>
   );
 }
 
+/** Why a selection shows nothing: it has dropped out of the snapshot. */
+function goneMessage(
+  resolved: Extract<ResolvedSelection, { kind: "gone" }>
+): string {
+  const { run, selection } = resolved;
+  if (selection.kind !== "run") {
+    return "This item is no longer available.";
+  }
+  if (!run) {
+    return "This run is no longer available.";
+  }
+  return selection.activityId === undefined
+    ? `This step is no longer available in run ${run.id}.`
+    : `This activity is no longer available in run ${run.id}.`;
+}
+
 export function DetailsBlock({
   snapshot,
   selection,
+  resolved,
   active,
   tab,
   onTab,
@@ -251,6 +238,7 @@ export function DetailsBlock({
 }: {
   readonly snapshot: DashboardSnapshot;
   readonly selection?: DashboardSelection;
+  readonly resolved: ResolvedSelection;
   readonly active: boolean;
   readonly tab: InspectorTab;
   readonly onTab: (tab: InspectorTab) => void;
@@ -262,30 +250,44 @@ export function DetailsBlock({
   let content = (
     <Text>Select a schedule, monitor, definition, run, or step.</Text>
   );
-  if (selection?.kind === "run") {
-    const run = snapshot.runs.find((item) => item.id === selection.id);
-    content = run ? (
+  if (resolved.kind === "gone") {
+    content = <Text>{goneMessage(resolved)}</Text>;
+  }
+  if (resolved.kind === "activity") {
+    content = (
+      <ActivityDetails
+        activity={resolved.activity}
+        onInspect={onInspect}
+        run={resolved.run}
+      />
+    );
+  }
+  if (resolved.kind === "run") {
+    content = (
       <RunInspector
         focused={active}
-        key={selectionKey(selection)}
+        key={selection && selectionKey(selection)}
         onInspect={onInspect}
         onTab={onTab}
-        run={run}
-        selection={selection}
+        path={resolved.path}
+        run={resolved.run}
         snapshot={snapshot}
         stream={stream}
         tab={tab}
       />
-    ) : (
-      <Text>This run is no longer available.</Text>
     );
-  } else if (selection) {
+  }
+  if (resolved.kind === "trigger" || resolved.kind === "definition") {
     content = (
       <CatalogDetails
+        item={
+          resolved.kind === "trigger"
+            ? { kind: "trigger", value: resolved.trigger }
+            : { kind: "definition", value: resolved.definition }
+        }
         onFilter={onFilter}
         onInspect={onInspect}
         onLaunch={onLaunch}
-        selection={selection}
         snapshot={snapshot}
       />
     );

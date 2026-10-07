@@ -4,7 +4,7 @@
 import type { ReactNode } from "react";
 import { useMemo } from "react";
 
-import { useTheme } from "~/hooks/use-theme";
+import { theme } from "~/components/ui/theme";
 
 interface KeyValueItem {
   color?: string;
@@ -27,8 +27,6 @@ export const KeyValue = ({
   keyColor,
   valueColor,
 }: KeyValueProps) => {
-  const theme = useTheme();
-
   const resolvedKeyWidth = useMemo(() => {
     if (keyWidth !== undefined) {
       return keyWidth;

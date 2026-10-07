@@ -1,9 +1,9 @@
-// Adapted from termcn.
-import { createContext, useContext } from "react";
-import { defaultTheme } from "~/components/ui/theme";
+import { theme } from "~/components/ui/theme";
 
-const ThemeContext = createContext(defaultTheme);
-
+/**
+ * Only `dashboard/terminal.tsx` still calls this; views import `theme`.
+ * Delete it once that host reads the constant too.
+ */
 export function useTheme() {
-  return useContext(ThemeContext);
+  return theme;
 }

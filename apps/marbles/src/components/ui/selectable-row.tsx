@@ -1,5 +1,6 @@
 import { type ReactNode, useCallback } from "react";
-import { useTheme } from "~/hooks/use-theme";
+import { theme } from "~/components/ui/theme";
+import { Text } from "./text";
 
 export function SelectableRow<T>({
   id,
@@ -16,7 +17,6 @@ export function SelectableRow<T>({
   readonly children: ReactNode;
   readonly depth?: number;
 }) {
-  const theme = useTheme();
   const handleSelect = useCallback(() => onSelect(value), [onSelect, value]);
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: OpenTUI boxes are terminal controls; DashboardView provides keyboard navigation.
@@ -29,9 +29,7 @@ export function SelectableRow<T>({
       onMouseDown={handleSelect}
       paddingLeft={depth * 2}
     >
-      <text fg={theme.colors.foreground} flexShrink={0}>
-        {selected ? "›" : " "}
-      </text>
+      <Text flexShrink={0}>{selected ? "›" : " "}</Text>
       {children}
     </box>
   );

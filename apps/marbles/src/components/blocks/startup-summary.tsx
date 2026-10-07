@@ -1,4 +1,5 @@
-import { useTheme } from "~/hooks/use-theme";
+import { Text } from "~/components/ui/text";
+import { theme } from "~/components/ui/theme";
 import type { StartupCounts } from "~/views/splash-model";
 
 function countLabel(value: number, label: string): string {
@@ -12,11 +13,10 @@ export function StartupSummary({
   readonly counts?: StartupCounts;
   readonly compact: boolean;
 }) {
-  const theme = useTheme();
   return (
     <box flexDirection="column" width="100%">
       <box flexDirection="row" justifyContent="space-between">
-        <text fg={theme.colors.foreground}>Triggers</text>
+        <Text>Triggers</Text>
         <text fg={theme.colors.accent}>
           {counts ? `${counts.schedules + counts.monitors} loaded` : "—"}
         </text>
@@ -31,7 +31,7 @@ export function StartupSummary({
         justifyContent="space-between"
         marginTop={compact ? 0 : 1}
       >
-        <text fg={theme.colors.foreground}>Marbles</text>
+        <Text>Marbles</Text>
         <text fg={theme.colors.accent}>
           {counts ? `${counts.workflows + counts.steps} loaded` : "—"}
         </text>
