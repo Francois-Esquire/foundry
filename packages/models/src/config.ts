@@ -1,4 +1,3 @@
-import { setDeepPreserveUndefined } from "@foundry/lib/config/helpers";
 import { ReactiveStore } from "@foundry/lib/config/reactive-store";
 import type { Path, ValueAt } from "@foundry/lib/config/types";
 import { z } from "zod";
@@ -31,9 +30,15 @@ const AgentConfigSchema = z
   })
   .catchall(z.unknown());
 
+/**
+ * Holds a config that always satisfies its schema: the initial values are
+ * checked on construction and every commit (`set`, `patch`, `reset`) before
+ * it lands, so an invalid value is refused where it enters, never discovered
+ * by a later, unrelated write.
+ */
 export class AgentConfig extends ReactiveStore<Record<string, unknown>> {
   constructor(initial: AgentConfigType = {}) {
-    super(initial as Record<string, unknown>);
+    super(validated(initial as Record<string, unknown>));
   }
 
   get<P extends Path<AgentConfigType>>(path: P): ValueAt<AgentConfigType, P>;
@@ -48,14 +53,19 @@ export class AgentConfig extends ReactiveStore<Record<string, unknown>> {
   ): void;
   override set(path: string, value: unknown): void;
   override set(path: string, value: unknown): void {
-    // Validate the would-be next config before committing; an invalid write
-    // throws and leaves the value untouched.
-    const candidate = setDeepPreserveUndefined(
-      this._values,
-      path.split("."),
-      value
-    );
-    AgentConfigSchema.parse(candidate);
     super.set(path, value);
   }
+
+  /** An invalid next config throws and leaves the value untouched. */
+  protected override commit(
+    before: Record<string, unknown>,
+    after: Record<string, unknown>
+  ): void {
+    super.commit(before, validated(after));
+  }
+}
+
+function validated(config: Record<string, unknown>): Record<string, unknown> {
+  AgentConfigSchema.parse(config);
+  return config;
 }

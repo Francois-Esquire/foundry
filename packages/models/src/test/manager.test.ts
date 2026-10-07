@@ -35,17 +35,20 @@ describe("ModelManager registry", () => {
     expect(manager.has("a")).toBe(false);
   });
 
-  it("unregister drops a kind default routed to it, so routing falls through", () => {
+  it("routes past a kind default while its provider is gone, and back on its return", () => {
     const a = fakeProvider("a");
     const b = fakeProvider("b");
     const manager = new ModelManager({
-      defaults: { text: { provider: "b" } },
+      defaults: { text: { modelId: "fast", provider: "b" } },
       providers: [a, b],
     });
     manager.unregister("b");
-    expect(manager.getDefault("text")).toBeNull();
     manager.model();
-    expect(a.calls).toHaveLength(1);
+    expect(a.calls).toEqual(["text:upstream/smart"]);
+
+    manager.register(b);
+    manager.model();
+    expect(b.calls).toEqual(["text:fast"]);
   });
 
   it("applies a settings default once the provider it names registers", () => {

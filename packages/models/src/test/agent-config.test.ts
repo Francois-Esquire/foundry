@@ -25,6 +25,23 @@ describe("AgentConfig — validates its own config", () => {
       text: { modelId: "m", provider: "p" },
     });
   });
+
+  it("refuses invalid initial values at construction, not on a later write", () => {
+    expect(
+      () =>
+        new AgentConfig({
+          defaults: { text: { modelId: null, provider: "p" } },
+        } as never)
+    ).toThrow();
+  });
+
+  it("validates a patch like a set", () => {
+    const c = new AgentConfig({ maxTokens: 100 });
+    expect(() => {
+      c.patch({ maxTokens: "lots" });
+    }).toThrow();
+    expect(c.get("maxTokens")).toBe(100);
+  });
 });
 
 describe("AgentConfig — mountable into a global Config", () => {

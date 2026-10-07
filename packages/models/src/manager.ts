@@ -134,14 +134,12 @@ export class ModelManager {
     this._bindings.set(binding.id, binding);
   }
 
-  /** Drops the provider and any Kind default routed to it. */
+  /**
+   * Drops the provider. A Kind default routed to it is kept: routing passes
+   * over it while the provider is gone and follows it again on `register`.
+   */
   unregister(id: string): void {
     this._providers.delete(id);
-    for (const [kind, entry] of this._defaults) {
-      if (entry.provider === id) {
-        this._defaults.delete(kind);
-      }
-    }
   }
 
   has(id: string): boolean {
@@ -166,6 +164,7 @@ export class ModelManager {
     return provider && isLocalProvider(provider) ? provider : null;
   }
 
+  /** The configured default, which may name a provider not registered now. */
   getDefault(kind: ModelKind): KindDefault | null {
     return this._defaults.get(kind) ?? null;
   }
@@ -504,10 +503,12 @@ export class ModelManager {
     kind: ModelKind,
     providerId: string | undefined
   ): Provider {
+    const configured = this._defaults.get(kind)?.provider;
     const id =
       providerId ??
-      this._defaults.get(kind)?.provider ??
-      this.defaultProviderFor(kind);
+      (configured !== undefined && this.has(configured)
+        ? configured
+        : this.defaultProviderFor(kind));
     if (!id) {
       throw modelErrors.NO_USABLE_PROVIDER({ kind });
     }
