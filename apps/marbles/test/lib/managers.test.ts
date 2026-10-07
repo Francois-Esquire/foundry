@@ -222,8 +222,6 @@ describe("artifacts", () => {
 
 describe("sandboxes", () => {
   it("mounts only explicit workspaces and never host credential directories", async () => {
-    const home = join(tmp, "home");
-    await mkdir(join(home, ".claude"), { recursive: true });
     const root = join(tmp, "project");
     await mkdir(root, { recursive: true });
     const site = {
@@ -234,7 +232,7 @@ describe("sandboxes", () => {
     await mkdir(join(tmp, "site"), { recursive: true });
 
     const dirs = { cwd: root, root };
-    const plain = constraintsFor({ image: "img:1" }, dirs, home);
+    const plain = constraintsFor({ image: "img:1" }, dirs);
     expect(plain).toEqual({
       format: "foundry.sandbox.container/1",
       image: "img:1",
@@ -251,8 +249,7 @@ describe("sandboxes", () => {
     });
     const sized = constraintsFor(
       { image: "img:1", mount: site, resources: { cpus: 2 } },
-      dirs,
-      home
+      dirs
     );
     expect(sized.mounts?.[0]?.source).toBe(join(tmp, "site"));
     expect(sized.resources).toEqual({ cpus: 2 });
@@ -265,8 +262,7 @@ describe("sandboxes", () => {
           mode: "allowlist",
         },
       },
-      dirs,
-      home
+      dirs
     );
     expect(executable.mounts?.[0]?.executable).toBe(true);
     expect(executable.network).toEqual({
@@ -277,14 +273,14 @@ describe("sandboxes", () => {
     // relative to the config's directory.
     const inWorktree = { cwd: join(tmp, "wt"), root };
     expect(
-      constraintsFor({ image: "img:1" }, inWorktree, home).mounts?.[0]?.source
+      constraintsFor({ image: "img:1" }, inWorktree).mounts?.[0]?.source
     ).toBe(join(tmp, "wt"));
     expect(
-      constraintsFor({ image: "img:1", mount: site }, inWorktree, home)
-        .mounts?.[0]?.source
+      constraintsFor({ image: "img:1", mount: site }, inWorktree).mounts?.[0]
+        ?.source
     ).toBe(join(tmp, "site"));
     // Only host folders that exist are allowed; the registry canonicalizes them.
-    expect(allowedMountRoots([root, join(tmp, "site")], home)).toEqual([
+    expect(allowedMountRoots([root, join(tmp, "site")])).toEqual([
       root,
       join(tmp, "site"),
     ]);
@@ -292,9 +288,7 @@ describe("sandboxes", () => {
 
   it("starts containers, runs commands, closes with the run, and reopens on replay", async () => {
     const root = join(tmp, "project");
-    const home = join(tmp, "home");
     await mkdir(root, { recursive: true });
-    await mkdir(home, { recursive: true });
     const commands: string[][] = [];
     const runtime = createFakeContainerRuntime({
       exec: (command) => {
@@ -303,14 +297,13 @@ describe("sandboxes", () => {
       },
     });
     const containers = createContainers({
-      allowedMountRoots: allowedMountRoots([root], home),
+      allowedMountRoots: allowedMountRoots([root]),
       instanceLabel: "test",
       runtime,
       store: createMemoryContainerStore(),
     });
     const manager = new SandboxesManager({
       containers: () => Promise.resolve(containers),
-      home,
       root,
     });
     const a = args(root);
@@ -332,21 +325,18 @@ describe("sandboxes", () => {
 
   it("a sandbox started inside a worktree callback mounts the worktree", async () => {
     const root = join(tmp, "project");
-    const home = join(tmp, "home");
     const worktreeHome = join(tmp, "state", "worktrees");
     const worktree = join(worktreeHome, "worktree-abc");
     await mkdir(root, { recursive: true });
-    await mkdir(home, { recursive: true });
     await mkdir(worktree, { recursive: true });
     const containers = createContainers({
-      allowedMountRoots: allowedMountRoots([root, worktreeHome], home),
+      allowedMountRoots: allowedMountRoots([root, worktreeHome]),
       instanceLabel: "test",
       runtime: createFakeContainerRuntime(),
       store: createMemoryContainerStore(),
     });
     const manager = new SandboxesManager({
       containers: () => Promise.resolve(containers),
-      home,
       root,
     });
     const a = args(root);
@@ -370,13 +360,10 @@ describe("sandboxes", () => {
 
   it("a files sandbox mounts nothing and seeds its files under /workspace", async () => {
     const root = join(tmp, "project");
-    const home = join(tmp, "home");
     await mkdir(root, { recursive: true });
-    await mkdir(home, { recursive: true });
     const scratch = constraintsFor(
       { files: { "a.txt": "x" }, image: "img:2" },
-      { cwd: root, root },
-      home
+      { cwd: root, root }
     );
     expect(scratch).toEqual({
       format: "foundry.sandbox.container/1",
@@ -385,8 +372,7 @@ describe("sandboxes", () => {
       workdir: "/workspace",
     });
     expect(
-      constraintsFor({ files: { "a.txt": "x" } }, { cwd: root, root }, home)
-        .image
+      constraintsFor({ files: { "a.txt": "x" } }, { cwd: root, root }).image
     ).toBe(undefined);
     expect(guestFiles({ "/etc/motd": "hi", "a.txt": "x" })).toEqual({
       "/etc/motd": "hi",
@@ -395,7 +381,7 @@ describe("sandboxes", () => {
 
     const runtime = createFakeContainerRuntime();
     const containers = createContainers({
-      allowedMountRoots: allowedMountRoots([root], home),
+      allowedMountRoots: allowedMountRoots([root]),
       instanceLabel: "test",
       runtime,
       store: createMemoryContainerStore(),
@@ -403,7 +389,6 @@ describe("sandboxes", () => {
     const a = args(root);
     const sandboxes = new SandboxesManager({
       containers: () => Promise.resolve(containers),
-      home,
       root,
     }).scoped(a);
     const env = await sandboxes.start({

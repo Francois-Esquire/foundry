@@ -4,6 +4,7 @@ import type {
   HarnessAuthoritySettings,
   HarnessPermissionProfile,
   HarnessSession,
+  HarnessTurnDriver,
 } from "@foundry/agents/harness";
 import {
   createBuiltinCodingHarness,
@@ -15,17 +16,20 @@ import type { SessionStore } from "@foundry/agents/session";
 import { createModelSummarizer } from "@foundry/agents/session";
 import { createClaudeCodeDriver } from "@foundry/models/claude-code";
 import { createCodexDriver } from "@foundry/models/codex";
+import { DEFAULT_SANDBOX_WORKING_DIRECTORY } from "@foundry/sandbox/constants";
 import type { Container } from "@foundry/sandbox/container/containers";
 import { prepareSandboxProcess } from "@foundry/sandbox/process";
 import type { Tool, ToolSet } from "ai";
+import {
+  type CliHarness,
+  type GuestAuth,
+  isCliHarness,
+} from "~/lib/cli-harnesses";
 import type { SessionOptions } from "~/lib/types";
 import { createCodingTools } from "./coding-tools";
-import {
-  claudeSubscriptionToken,
-  codexSubscriptionTokens,
-} from "./credentials";
+import { codexSubscriptionTokens, guestAuth } from "./credentials";
 import { type DelegationScope, delegationTool } from "./delegate";
-import { prepareGuest } from "./prepare";
+import { type PreparedGuest, prepareGuest } from "./prepare";
 import { assertGuestSessionState } from "./session-state";
 
 const SCHEDULED_PROFILE: HarnessPermissionProfile = {
@@ -44,8 +48,11 @@ const BUILTIN_SCHEDULED_PROFILE: HarnessPermissionProfile = {
   unresolved: "deny",
 };
 
-/** Who decides what a sandboxed agent may do, and who hears about it. */
-type SandboxAuthority = Pick<
+/**
+ * Who decides what a sandboxed agent may do, and who hears about it. A host
+ * builds one with `HarnessInteractions.authority`.
+ */
+export type SandboxAuthority = Pick<
   HarnessAuthoritySettings,
   "approve" | "onApprovalRequest" | "policy"
 >;
@@ -60,20 +67,20 @@ export interface SandboxSessionSettings {
   /** The container behind `options.sandbox`; the harness runs inside it. */
   container: Container;
   delegation?: DelegationScope;
-  /** `claude-code` or `codex` run their CLI in the guest; any other runs the built-in coding harness. */
+  /** A CLI harness runs its CLI in the guest; any other runs the built-in coding harness. */
   harness: string;
   hostCwd?: string;
-  hostTools?: ToolSet;
+  /** Host tools for one session; a delegated child gets its own. */
   hostToolsForSession?: (sessionId: string) => ToolSet;
   instructions: string;
   model?: AgentModel;
   modelId: string;
   onActivity?: (event: HarnessActivityEvent) => void | Promise<void>;
+  /** Track a delegated child; the delegate drives and closes the session this returns. */
   onChildSession?: (
     sessionId: string,
-    activityId: string,
     session: HarnessSession
-  ) => void;
+  ) => HarnessSession;
   options: SandboxSessionOptions;
   parentActivityId?: string;
   provider: string;
@@ -84,23 +91,17 @@ export interface SandboxSessionSettings {
   write: (value: unknown) => void;
 }
 
-/** What both kinds of harness are handed alike: approvals and the `ask_user` tool. */
+/** What both kinds of harness are handed alike: approvals, `ask_user`, and the host's tools. */
 interface SessionShared {
   readonly approvals: Pick<SandboxAuthority, "approve" | "onApprovalRequest">;
   readonly askUser: Tool;
+  /** This session's host tools and `delegate`. */
+  readonly hostTools: ToolSet;
 }
 
 export async function createSandboxSession(
-  input: SandboxSessionSettings
+  settings: SandboxSessionSettings
 ): Promise<HarnessSession> {
-  const settings = {
-    ...input,
-    hostTools: {
-      ...input.hostTools,
-      ...input.hostToolsForSession?.(input.sessionId),
-      delegate: delegationTool(input, createSandboxSession),
-    },
-  };
   const { harness, options } = settings;
   if (!options.sandbox) {
     throw new Error("A sandbox is required.");
@@ -118,8 +119,12 @@ export async function createSandboxSession(
       question: options.question,
       sessionId: settings.sessionId,
     }),
+    hostTools: {
+      ...settings.hostToolsForSession?.(settings.sessionId),
+      delegate: delegationTool(settings, createSandboxSession),
+    },
   };
-  if (harness === "claude-code" || harness === "codex") {
+  if (isCliHarness(harness)) {
     return await cliSession(settings, harness, shared);
   }
   return builtinSession(settings, shared);
@@ -128,7 +133,7 @@ export async function createSandboxSession(
 /** The built-in coding harness on a network model, its tools working in the guest. */
 function builtinSession(
   settings: SandboxSessionSettings,
-  { approvals, askUser }: SessionShared
+  { approvals, askUser, hostTools }: SessionShared
 ): HarnessSession {
   const { container, model, options } = settings;
   if (!model) {
@@ -164,8 +169,8 @@ function builtinSession(
       sessionId: settings.sessionId,
       store: settings.store,
       tools: {
-        ...settings.hostTools,
-        ...createCodingTools(container, { workspacePath: "/workspace" }),
+        ...hostTools,
+        ...createCodingTools(container),
         ask_user: askUser,
       },
     },
@@ -173,11 +178,73 @@ function builtinSession(
   );
 }
 
+/** What a CLI harness's driver is built from, once its guest is ready. */
+interface DriverInput<H extends CliHarness> {
+  readonly auth: GuestAuth<H>;
+  readonly guest: PreparedGuest;
+  readonly settings: SandboxSessionSettings;
+}
+
+/** Each CLI harness's host driver, spawning its CLI in the guest. */
+const DRIVERS: {
+  readonly [H in CliHarness]: (input: DriverInput<H>) => HarnessTurnDriver;
+} = {
+  "claude-code": ({ guest, settings }) =>
+    createClaudeCodeDriver({
+      agentId: settings.agentId,
+      cwd: settings.hostCwd ?? process.cwd(),
+      modelId: settings.modelId,
+      settings: {
+        env: { ...guest.environment },
+        pathToClaudeCodeExecutable: guest.executable,
+        systemPrompt: settings.instructions,
+      },
+      spawnClaudeCodeProcess: (spawn) =>
+        prepareSandboxProcess(() =>
+          settings.container.processes.spawn(
+            [guest.executable, ...spawn.args],
+            {
+              cwd: DEFAULT_SANDBOX_WORKING_DIRECTORY,
+              environment: guest.environment,
+              signal: spawn.signal
+                ? AbortSignal.any([settings.signal, spawn.signal])
+                : settings.signal,
+            }
+          )
+        ),
+    }),
+  codex: ({ auth, guest, settings }) =>
+    createCodexDriver({
+      agentId: settings.agentId,
+      binPath: guest.executable,
+      cwd: DEFAULT_SANDBOX_WORKING_DIRECTORY,
+      env: guest.environment,
+      instructions: settings.instructions,
+      modelId: settings.modelId,
+      ...(auth.kind === "chatgpt"
+        ? {
+            chatgptAuthTokens: auth.tokens,
+            refreshChatgptAuthTokens: () => codexSubscriptionTokens(),
+          }
+        : {}),
+      spawn: (argv, spawn) =>
+        Promise.resolve(
+          prepareSandboxProcess(() =>
+            settings.container.processes.spawn(argv, {
+              cwd: DEFAULT_SANDBOX_WORKING_DIRECTORY,
+              environment: guest.environment,
+              signal: AbortSignal.any([settings.signal, spawn.signal]),
+            })
+          )
+        ),
+    }),
+};
+
 /** A native CLI harness prepared in the guest, driven from the host. */
-async function cliSession(
+async function cliSession<H extends CliHarness>(
   settings: SandboxSessionSettings,
-  harness: "claude-code" | "codex",
-  { approvals, askUser }: SessionShared
+  harness: H,
+  { approvals, askUser, hostTools }: SessionShared
 ): Promise<HarnessSession> {
   const { container, options } = settings;
   const profile = options.profile ?? SCHEDULED_PROFILE;
@@ -191,67 +258,14 @@ async function cliSession(
     harness,
     nativeId
   );
-  const chatgptAuthTokens =
-    harness === "codex" && !options.apiKey
-      ? await codexSubscriptionTokens()
-      : undefined;
+  const auth = await guestAuth(harness, options);
   const guest = await prepareGuest(container, {
-    externalAuthentication: chatgptAuthTokens !== undefined,
-    ...(harness === "claude-code" && !options.apiKey
-      ? {
-          oauthToken: await claudeSubscriptionToken({
-            oauthToken: options.oauthToken,
-          }),
-        }
-      : { apiKey: options.apiKey }),
+    auth,
     harness,
     sessionId: settings.sessionId,
     signal: settings.signal,
   });
-  const driver =
-    harness === "claude-code"
-      ? createClaudeCodeDriver({
-          agentId: settings.agentId,
-          cwd: settings.hostCwd ?? process.cwd(),
-          modelId: settings.modelId,
-          settings: {
-            env: { ...guest.environment },
-            pathToClaudeCodeExecutable: guest.executable,
-            systemPrompt: settings.instructions,
-          },
-          spawnClaudeCodeProcess: (spawn) =>
-            prepareSandboxProcess(() =>
-              container.processes.spawn([guest.executable, ...spawn.args], {
-                cwd: "/workspace",
-                environment: guest.environment,
-                signal: spawn.signal
-                  ? AbortSignal.any([settings.signal, spawn.signal])
-                  : settings.signal,
-              })
-            ),
-        })
-      : createCodexDriver({
-          agentId: settings.agentId,
-          binPath: guest.executable,
-          chatgptAuthTokens,
-          cwd: "/workspace",
-          env: guest.environment,
-          instructions: settings.instructions,
-          modelId: settings.modelId,
-          refreshChatgptAuthTokens: chatgptAuthTokens
-            ? () => codexSubscriptionTokens()
-            : undefined,
-          spawn: (argv, spawn) =>
-            Promise.resolve(
-              prepareSandboxProcess(() =>
-                container.processes.spawn(argv, {
-                  cwd: "/workspace",
-                  environment: guest.environment,
-                  signal: AbortSignal.any([settings.signal, spawn.signal]),
-                })
-              )
-            ),
-        });
+  const driver = DRIVERS[harness]({ auth, guest, settings });
   return createDriverSession(
     {
       agentId: settings.agentId,
@@ -272,7 +286,7 @@ async function cliSession(
       },
       onToolEvent: (event) => settings.write({ event, type: "harness-tool" }),
       question: options.question,
-      tools: { ...settings.hostTools, ask_user: askUser },
+      tools: { ...hostTools, ask_user: askUser },
     },
     driver
   );

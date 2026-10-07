@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { allowedExecutors } from "~/lib/harnesses";
+import { CLI_HARNESS_IDS, isCliHarness } from "~/lib/cli-harnesses";
 import type { StarterId } from "~/onboarding/templates";
 import { DEFAULT_STARTER, STARTERS } from "~/onboarding/templates";
 import { DEFAULT_SOURCE } from "~/source";
@@ -103,9 +103,6 @@ function isCommand(name: string): name is Command {
   return Object.hasOwn(GRAMMAR, name);
 }
 
-/** Every harness `--harness` may select. */
-const HARNESS_IDS = allowedExecutors([]).map((executor) => executor.harness);
-
 /** The flags, which every command reads alike. */
 export interface Flags {
   /** Shared Artifact store; the feed lives here. Defaults beside the state root. */
@@ -140,10 +137,10 @@ function isValueFlag(arg: string): arg is ValueFlag {
 
 /** Refuse a `--harness` id Marbles does not have. */
 function checkHarnesses(only: readonly string[]): void {
-  const unknown = only.find((id) => !HARNESS_IDS.includes(id));
+  const unknown = only.find((id) => !isCliHarness(id));
   if (unknown !== undefined) {
     throw new UsageError(
-      `unknown harness "${unknown}"; --harness takes ${HARNESS_IDS.join(" or ")}`
+      `unknown harness "${unknown}"; --harness takes ${CLI_HARNESS_IDS.join(" or ")}`
     );
   }
 }

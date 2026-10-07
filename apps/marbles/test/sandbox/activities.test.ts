@@ -96,14 +96,45 @@ it("persists activity, ignores stale events, and revokes live controls after res
 it("stops only the selected live child and rejects stale actions after close", async () => {
   const host = new HarnessActivities();
   const child = session();
-  host.attach(event.sessionId, child, event.id);
+  // A delegated child's activity id in its parent is its own session id.
+  const childEvent = { ...event, sessionId: event.id };
+  const tracked = host.attach(childEvent.sessionId, child, {
+    delegated: true,
+  });
+  await host.record(childEvent, source);
+  await host.stop(childEvent.sessionId, childEvent.id);
+  expect(child.interrupt).toHaveBeenCalledOnce();
+  expect(child.stopActivity).not.toHaveBeenCalled();
+  await expect(
+    host.stop(childEvent.sessionId, "another-child")
+  ).rejects.toThrow();
+  await tracked.close?.();
+  expect(child.close).toHaveBeenCalledOnce();
+  expect(host.list()[0]?.event.status).toBe("unknown");
+  await expect(
+    host.stop(childEvent.sessionId, childEvent.id)
+  ).rejects.toThrow();
+});
+
+it("tracks a session through a wrapper and leaves the original untouched", async () => {
+  const host = new HarnessActivities();
+  const original = session();
+  const { close, stopActivity } = original;
+  const tracked = host.attach(event.sessionId, original);
+  expect(tracked).not.toBe(original);
+  expect(original.close).toBe(close);
+  expect(original.stopActivity).toBe(stopActivity);
+  expect(tracked.sessionId).toBe(original.sessionId);
   await host.record(event, source);
   await host.stop(event.sessionId, event.id);
-  expect(child.interrupt).toHaveBeenCalledOnce();
-  await expect(host.stop(event.sessionId, "another-child")).rejects.toThrow();
-  await child.close?.();
-  expect(host.list()[0]?.event.status).toBe("unknown");
-  await expect(host.stop(event.sessionId, event.id)).rejects.toThrow();
+  expect(original.stopActivity).toHaveBeenCalledWith(event.id);
+  // Closing the original directly does not reach the host; the wrapper does.
+  await original.close?.();
+  await host.stop(event.sessionId, event.id);
+  await tracked.close?.();
+  await expect(host.stop(event.sessionId, event.id)).rejects.toThrow(
+    "cannot be stopped"
+  );
 });
 it("keeps identically named native children from separate sessions and runs distinct", async () => {
   const host = new HarnessActivities();

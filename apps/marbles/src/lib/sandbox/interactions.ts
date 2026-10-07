@@ -10,6 +10,7 @@ import type {
 import { resolveHarnessApproval } from "@foundry/agents/harness";
 import type {
   AgentApprovalRequest,
+  SessionMessage,
   SessionStore,
 } from "@foundry/agents/session";
 import {
@@ -23,34 +24,33 @@ import {
   DeferredApprovals,
   type InteractionSession,
 } from "./deferred-approvals";
-
-type Source = DeferredApproval["source"];
-type ApprovalNotice = AgentApprovalRequest & {
-  sessionId: string;
-  approvalMode: "live" | "deferred";
-};
-type LiveApproval = Parameters<
-  NonNullable<HarnessAuthoritySettings["approve"]>
->[0];
-
 import {
-  APPROVE_FUTURE,
-  APPROVE_SESSION,
   approvalPrompt,
-  DENY,
   deferredPrompt,
-  OTHER,
-  questionAnswer,
+  type LiveApproval,
+  type Prompt,
+  type PromptAnswer,
   questionPrompt,
 } from "./interaction-prompts";
+import type { SandboxAuthority } from "./session";
+
+type Source = DeferredApproval["source"];
+/** A deferred approval request whose agent is known. */
+type DeferredNotice = AgentApprovalRequest & {
+  agentId: string;
+  approvalMode: "live" | "deferred";
+  sessionId: string;
+};
 
 interface PendingInput {
   active(): boolean;
-  answer(answer: ReturnType<typeof readAnswer>): Promise<void>;
+  answer(answer: PromptAnswer): Promise<void>;
   busy: boolean;
   readonly durable: boolean;
   question: FeedQuestionPayload;
   readonly source: Source;
+  /** The choice that reopens the question for a typed answer; cleared once used. */
+  writeIn?: string;
 }
 
 export interface HarnessInteractionsOptions {
@@ -68,6 +68,12 @@ export class HarnessInteractions {
   readonly #deferred: DeferredApprovals;
   readonly #waits = new Set<Promise<unknown>>();
   readonly #shutdown = new AbortController();
+  /**
+   * Authorities this host built over its own policy. Only their deferred
+   * approvals are kept across restarts: a custom policy's grants would not
+   * be there to resolve them. Kept here so no caller can claim it.
+   */
+  readonly #durable = new WeakSet<SandboxAuthority>();
 
   constructor(options: HarnessInteractionsOptions) {
     this.#options = options;
@@ -79,50 +85,33 @@ export class HarnessInteractions {
     const records = new Map(
       saved.requests.map((record) => [record.approvalId, record])
     );
+    const histories = await this.#histories([
+      ...saved.sessions.map((session) => session.sessionId),
+      ...saved.requests.map((record) => record.sessionId),
+    ]);
     for (const session of saved.sessions) {
-      const history = await this.#options.sessions.listMessages(
-        session.sessionId
-      );
-      for (const part of history.flatMap((message) => message.parts)) {
+      const history = histories.get(session.sessionId);
+      for (const request of history?.requests.values() ?? []) {
         if (
-          part.type === "tool_approval_request" &&
-          part.approvalMode === "deferred" &&
-          part.agentId === session.agentId &&
-          part.agentGeneration === session.agentGeneration &&
-          !records.has(part.approvalId) &&
-          !history.some((message) =>
-            message.parts.some(
-              (answer) =>
-                answer.type === "tool_approval_response" &&
-                answer.approvalId === part.approvalId
-            )
-          )
+          request.approvalMode === "deferred" &&
+          request.agentId === session.agentId &&
+          request.agentGeneration === session.agentGeneration &&
+          !records.has(request.approvalId) &&
+          !history?.responses.has(request.approvalId)
         ) {
-          records.set(part.approvalId, {
+          records.set(request.approvalId, {
             ...session,
-            approvalId: part.approvalId,
+            approvalId: request.approvalId,
           });
         }
       }
     }
     for (const record of records.values()) {
-      const history = await this.#options.sessions.listMessages(
-        record.sessionId
-      );
-      const parts = history.flatMap((message) => message.parts);
-      const request = parts.find(
-        (part) =>
-          part.type === "tool_approval_request" &&
-          part.approvalId === record.approvalId
-      );
-      const response = parts.find(
-        (part) =>
-          part.type === "tool_approval_response" &&
-          part.approvalId === record.approvalId
-      );
+      const history = histories.get(record.sessionId);
+      const request = history?.requests.get(record.approvalId);
+      const response = history?.responses.get(record.approvalId);
       if (
-        request?.type !== "tool_approval_request" ||
-        request.approvalMode !== "deferred" ||
+        request?.approvalMode !== "deferred" ||
         request.agentId !== record.agentId ||
         request.agentGeneration !== record.agentGeneration
       ) {
@@ -140,7 +129,8 @@ export class HarnessInteractions {
         },
         record.source,
         this.#options.policy,
-        response?.type === "tool_approval_response" ? response : undefined
+        true,
+        response
       );
       if (response) {
         await this.#deferred.remove(record.approvalId);
@@ -148,11 +138,42 @@ export class HarnessInteractions {
     }
   }
 
+  /** Each session's approval requests and responses by approval id, read once per session. */
+  async #histories(
+    sessionIds: readonly string[]
+  ): Promise<Map<string, ApprovalHistory>> {
+    const unique = [...new Set(sessionIds)];
+    const loaded = await Promise.all(
+      unique.map(async (sessionId) => {
+        const history: ApprovalHistory = {
+          requests: new Map(),
+          responses: new Map(),
+        };
+        const messages = await this.#options.sessions.listMessages(sessionId);
+        for (const part of messages.flatMap((message) => message.parts)) {
+          if (part.type === "tool_approval_request") {
+            if (!history.requests.has(part.approvalId)) {
+              history.requests.set(part.approvalId, part);
+            }
+          } else if (
+            part.type === "tool_approval_response" &&
+            !history.responses.has(part.approvalId)
+          ) {
+            history.responses.set(part.approvalId, part);
+          }
+        }
+        return [sessionId, history] as const;
+      })
+    );
+    return new Map(loaded);
+  }
+
+  /** Keep a session's deferred approvals across restarts, when `authority` came from this host's own policy. */
   registerSession(
     session: InteractionSession,
-    policy?: AgentAuthorizer
+    authority: SandboxAuthority
   ): Promise<void> {
-    return !policy || policy === this.#options.policy
+    return this.#durable.has(authority)
       ? this.#deferred.register(session)
       : Promise.resolve();
   }
@@ -163,41 +184,48 @@ export class HarnessInteractions {
       HarnessAuthoritySettings,
       "policy" | "approve" | "onApprovalRequest"
     >
-  ): Pick<
-    HarnessAuthoritySettings,
-    "policy" | "approve" | "onApprovalRequest"
-  > {
+  ): SandboxAuthority {
     const policy = override?.policy ?? this.#options.policy;
+    const durable = policy === this.#options.policy;
     const approve =
       override?.approve ??
       (this.#options.askable
         ? (request: LiveApproval) => this.#approve(source, request)
         : undefined);
-    return {
+    const authority: SandboxAuthority = {
       policy,
       ...(approve ? { approve } : {}),
       onApprovalRequest: async (request) => {
         if (request.approvalMode === "deferred") {
-          if (!request.agentId) {
+          const { agentId } = request;
+          if (!agentId) {
             throw new Error("Approval has no agent identity.");
           }
-          const record: DeferredApproval = {
-            agentId: request.agentId,
-            approvalId: request.approvalId,
-            sessionId: request.sessionId,
-            source,
-            ...(request.agentGeneration === undefined
-              ? {}
-              : { agentGeneration: request.agentGeneration }),
-          };
-          if (policy === this.#options.policy) {
-            await this.#deferred.put(record);
+          if (durable) {
+            await this.#deferred.put({
+              agentId,
+              approvalId: request.approvalId,
+              sessionId: request.sessionId,
+              source,
+              ...(request.agentGeneration === undefined
+                ? {}
+                : { agentGeneration: request.agentGeneration }),
+            });
           }
-          await this.#publishDeferred(request, source, policy);
+          await this.#publishDeferred(
+            { ...request, agentId },
+            source,
+            policy,
+            durable
+          );
         }
         await override?.onApprovalRequest?.(request);
       },
     };
+    if (durable) {
+      this.#durable.add(authority);
+    }
+    return authority;
   }
 
   async question(
@@ -229,8 +257,7 @@ export class HarnessInteractions {
       const result = await this.#wait(
         source,
         questionPrompt(request, question),
-        request.signal,
-        (answer) => questionAnswer(question, answer.choice)
+        request.signal
       );
       if (!result) {
         return { outcome: "declined", reason: "The user declined to answer." };
@@ -260,12 +287,9 @@ export class HarnessInteractions {
     }
     pending.busy = true;
     try {
-      if (
-        pending.question.mode === "question" &&
-        pending.question.choices.includes(OTHER) &&
-        answer.choice === OTHER
-      ) {
+      if (pending.writeIn !== undefined && answer.choice === pending.writeIn) {
         pending.question = { ...pending.question, choices: [] };
+        pending.writeIn = undefined;
         await this.#options.feed.publishInput(
           pending.question,
           pending.source,
@@ -300,39 +324,28 @@ export class HarnessInteractions {
   }
 
   #approve(source: Source, request: LiveApproval): Promise<ApprovalResolution> {
-    return this.#wait(
-      source,
-      approvalPrompt(request),
-      request.signal,
-      (answer) => ({
-        approved: answer.choice !== DENY,
-        lifetime: answer.choice === APPROVE_SESSION ? "session" : "once",
-        ...(answer.note ? { reason: answer.note } : {}),
-      })
-    );
+    return this.#wait(source, approvalPrompt(request), request.signal);
   }
 
   async #publishDeferred(
-    request: ApprovalNotice,
+    request: DeferredNotice,
     source: Source,
     policy: AgentAuthorizer,
+    durable: boolean,
     response?: { approved: boolean; reason?: string }
   ): Promise<void> {
     const { agentId } = request;
-    if (!agentId) {
-      throw new Error("Approval has no agent identity.");
-    }
-    const durable = policy === this.#options.policy;
-    const question = deferredPrompt(request, durable);
+    const prompt = deferredPrompt(request, durable);
+    const { question } = prompt;
     if (response) {
       await this.#options.feed.publishInput(question, source, {
-        answer: response.approved ? APPROVE_FUTURE : DENY,
+        answer: prompt.choiceFor(response.approved),
         status: "answered",
         ...(response.reason ? { note: response.reason } : {}),
       });
       return;
     }
-    let resolved: ReturnType<typeof readAnswer> | undefined;
+    let resolved: PromptAnswer | undefined;
     const id = await this.#options.feed.publishInput(question, source, {
       status: "open",
     });
@@ -350,7 +363,7 @@ export class HarnessInteractions {
             request.sessionId,
             request.approvalId,
             {
-              approved: answer.choice === APPROVE_FUTURE,
+              approved: prompt.parse(answer),
               lifetime: "persistent",
               ...(answer.note ? { reason: answer.note } : {}),
             }
@@ -371,12 +384,7 @@ export class HarnessInteractions {
     });
   }
 
-  #wait<T>(
-    source: Source,
-    question: FeedQuestionPayload,
-    signal: AbortSignal,
-    parse: (answer: ReturnType<typeof readAnswer>) => T
-  ): Promise<T> {
+  #wait<T>(source: Source, prompt: Prompt<T>, signal: AbortSignal): Promise<T> {
     if (this.#shutdown.signal.aborted) {
       return Promise.reject(
         new Error("The host is no longer accepting agent input.")
@@ -384,9 +392,8 @@ export class HarnessInteractions {
     }
     const pending = this.#open(
       source,
-      question,
-      AbortSignal.any([signal, this.#shutdown.signal]),
-      parse
+      prompt,
+      AbortSignal.any([signal, this.#shutdown.signal])
     );
     this.#waits.add(pending);
     pending.finally(() => this.#waits.delete(pending)).catch(() => undefined);
@@ -395,9 +402,8 @@ export class HarnessInteractions {
 
   async #open<T>(
     source: Source,
-    question: FeedQuestionPayload,
-    signal: AbortSignal,
-    parse: (answer: ReturnType<typeof readAnswer>) => T
+    { parse, question, writeIn }: Prompt<T>,
+    signal: AbortSignal
   ): Promise<T> {
     signal.throwIfAborted();
     const id = await this.#options.feed.publishInput(question, source, {
@@ -426,6 +432,7 @@ export class HarnessInteractions {
         durable: false,
         question,
         source,
+        ...(writeIn === undefined ? {} : { writeIn }),
       });
       signal.addEventListener("abort", cancel, { once: true });
       if (signal.aborted || this.#shutdown.signal.aborted) {
@@ -445,3 +452,19 @@ export class HarnessInteractions {
     }
   }
 }
+
+/** One session's approval requests and responses, by approval id. */
+interface ApprovalHistory {
+  readonly requests: Map<string, ApprovalRequestPart>;
+  readonly responses: Map<string, ApprovalResponsePart>;
+}
+
+type MessagePart = SessionMessage["parts"][number];
+type ApprovalRequestPart = Extract<
+  MessagePart,
+  { type: "tool_approval_request" }
+>;
+type ApprovalResponsePart = Extract<
+  MessagePart,
+  { type: "tool_approval_response" }
+>;

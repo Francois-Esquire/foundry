@@ -6,6 +6,7 @@ import type { TurnExecutorRef } from "@foundry/models";
 import { ModelManager, servesKind } from "@foundry/models";
 import { claudeCodeProvider } from "@foundry/models/claude-code";
 import { codexProvider } from "@foundry/models/codex";
+import { CLI_HARNESS_IDS, CLI_HARNESSES } from "~/lib/cli-harnesses";
 
 /**
  * Machine detection, which `@foundry/models` deliberately never does: a
@@ -46,17 +47,15 @@ export function detectHarnesses(): HarnessAvailability {
   };
 }
 
-export const CLAUDE_CODE: TurnExecutorRef = {
-  harness: "claude-code",
-  model: "opus",
-  provider: "claude-code",
-};
+export const CLAUDE_CODE: TurnExecutorRef =
+  CLI_HARNESSES["claude-code"].executor;
 
-export const CODEX: TurnExecutorRef = {
-  harness: "codex",
-  model: "gpt-5.5",
-  provider: "codex",
-};
+export const CODEX: TurnExecutorRef = CLI_HARNESSES.codex.executor;
+
+/** Each CLI harness's default route, in preference order. */
+const CLI_EXECUTORS: readonly TurnExecutorRef[] = CLI_HARNESS_IDS.map(
+  (id) => CLI_HARNESSES[id].executor
+);
 
 /** Detection narrowed to `--harness`; an empty selection keeps every harness. */
 export function selectedHarnesses(
@@ -76,7 +75,7 @@ export function selectedHarnesses(
 export function allowedExecutors(
   only: readonly string[]
 ): readonly TurnExecutorRef[] {
-  return [CLAUDE_CODE, CODEX].filter(
+  return CLI_EXECUTORS.filter(
     (executor) => only.length === 0 || only.includes(executor.harness)
   );
 }
@@ -106,7 +105,7 @@ export function selectExecutor(
     );
   }
   // Keep each CLI harness's established default rather than its first model.
-  const preferred = [CLAUDE_CODE, CODEX].find(
+  const preferred = CLI_EXECUTORS.find(
     (executor) => executor.provider === provider.id
   )?.model;
   const model = provider.models.some((entry) => entry.id === preferred)

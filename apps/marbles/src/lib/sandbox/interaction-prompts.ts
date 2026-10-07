@@ -1,3 +1,4 @@
+import type { ApprovalResolution } from "@foundry/agents/authorization";
 import type {
   HarnessAuthoritySettings,
   HarnessQuestion,
@@ -5,81 +6,117 @@ import type {
 } from "@foundry/agents/harness";
 import { redactHarnessSummary } from "@foundry/agents/harness";
 import type { AgentApprovalRequest } from "@foundry/agents/session";
-import type { FeedQuestionPayload } from "~/lib/feed/entry";
+import type { FeedQuestionPayload, readAnswer } from "~/lib/feed/entry";
 
 const APPROVE_ONCE = "Approve once";
-export const APPROVE_SESSION = "Allow for this session";
-export const APPROVE_FUTURE = "Allow future runs";
-export const DENY = "Deny";
-export const OTHER = "Write another answer";
+const APPROVE_SESSION = "Allow for this session";
+const APPROVE_FUTURE = "Allow future runs";
+const DENY = "Deny";
+const OTHER = "Write another answer";
 const DECLINE = "Decline to answer";
-type LiveApproval = Parameters<
+
+/** A live approval request, as the harness hands it to the host. */
+export type LiveApproval = Parameters<
   NonNullable<HarnessAuthoritySettings["approve"]>
 >[0];
 
-export function approvalPrompt(request: LiveApproval): FeedQuestionPayload {
+/** An answer from the feed, already checked against the offered choices. */
+export type PromptAnswer = ReturnType<typeof readAnswer>;
+
+/** A question for a person and how to read their answer to it. */
+export interface Prompt<T> {
+  parse(answer: PromptAnswer): T;
+  readonly question: FeedQuestionPayload;
+  /** The choice that asks for a typed answer instead, when one is offered. */
+  readonly writeIn?: string;
+}
+
+/** A deferred approval can also be shown answered, from a response already recorded. */
+interface DeferredPrompt extends Prompt<boolean> {
+  /** The choice that stands for a recorded approval or denial. */
+  choiceFor(approved: boolean): string;
+}
+
+export function approvalPrompt(
+  request: LiveApproval
+): Prompt<ApprovalResolution> {
   return {
-    activityId: request.activityId,
-    body: `Agent: ${request.agentId}\n\nTool: ${request.toolName}\n\n${operationSummary(request.input)}\n\nA session grant applies to this tool for this agent, not just these arguments.`,
-    choices: [APPROVE_ONCE, APPROVE_SESSION, DENY],
-    delivery: "live",
-    key: request.approvalId,
-    mode: "approval",
-    sessionId: request.sessionId,
-    title: request.title ?? `Allow ${request.toolName}?`,
+    parse: (answer) => ({
+      approved: answer.choice !== DENY,
+      lifetime: answer.choice === APPROVE_SESSION ? "session" : "once",
+      ...(answer.note ? { reason: answer.note } : {}),
+    }),
+    question: {
+      activityId: request.activityId,
+      body: `Agent: ${request.agentId}\n\nTool: ${request.toolName}\n\n${operationSummary(request.input)}\n\nA session grant applies to this tool for this agent, not just these arguments.`,
+      choices: [APPROVE_ONCE, APPROVE_SESSION, DENY],
+      delivery: "live",
+      key: request.approvalId,
+      mode: "approval",
+      sessionId: request.sessionId,
+      title: request.title ?? `Allow ${request.toolName}?`,
+    },
   };
 }
 
+/** A refused action's grant for future runs; `durable` when it waits across restarts. */
 export function deferredPrompt(
   request: AgentApprovalRequest,
-  durable = true
-): FeedQuestionPayload {
+  durable: boolean
+): DeferredPrompt {
   return {
-    activityId: request.activityId,
-    body: `Agent: ${request.agentId}\n\nTool: ${request.toolName}\n\n${String(request.input)}\n\nThe action was refused. Approval grants this tool to this agent in future runs; it does not replay the refused action.`,
-    choices: [APPROVE_FUTURE, DENY],
-    ...(durable ? { delivery: "deferred" as const } : {}),
-    key: request.approvalId,
-    mode: "approval",
-    title: `Future permission: ${request.toolName}`,
+    choiceFor: (approved) => (approved ? APPROVE_FUTURE : DENY),
+    parse: (answer) => answer.choice === APPROVE_FUTURE,
+    question: {
+      activityId: request.activityId,
+      body: `Agent: ${request.agentId}\n\nTool: ${request.toolName}\n\n${String(request.input)}\n\nThe action was refused. Approval grants this tool to this agent in future runs; it does not replay the refused action.`,
+      choices: [APPROVE_FUTURE, DENY],
+      ...(durable ? { delivery: "deferred" as const } : {}),
+      key: request.approvalId,
+      mode: "approval",
+      title: `Future permission: ${request.toolName}`,
+    },
   };
 }
 
+/** One question; its answer is the selections, or undefined when declined. */
 export function questionPrompt(
   request: HarnessQuestionRequest,
   question: HarnessQuestion
-): FeedQuestionPayload {
+): Prompt<string[] | undefined> {
   const labels = question.options?.map((option) => option.label) ?? [];
-  const choices =
+  const offered =
     !question.multiSelect &&
     labels.length > 0 &&
     labels.length <= 7 &&
     !labels.includes(OTHER) &&
-    !labels.includes(DECLINE)
-      ? [...labels, OTHER, DECLINE]
-      : [];
+    !labels.includes(DECLINE);
   return {
-    activityId: request.activityId,
-    body: [
-      question.question,
-      ...(question.options ?? []).map(
-        (option) =>
-          `- ${option.label}${option.description ? `: ${option.description}` : ""}`
-      ),
-      question.multiSelect
-        ? "Enter one or more answers, separated by semicolons. Type /decline to decline."
-        : "Type /decline to decline.",
-    ].join("\n\n"),
-    choices,
-    delivery: "live",
-    key: `question:${request.sessionId}:${request.toolCallId}:${question.id}`,
-    mode: "question",
-    sessionId: request.sessionId,
-    title: question.header ?? question.question,
+    parse: (answer) => questionAnswer(question, answer.choice),
+    question: {
+      activityId: request.activityId,
+      body: [
+        question.question,
+        ...(question.options ?? []).map(
+          (option) =>
+            `- ${option.label}${option.description ? `: ${option.description}` : ""}`
+        ),
+        question.multiSelect
+          ? "Enter one or more answers, separated by semicolons. Type /decline to decline."
+          : "Type /decline to decline.",
+      ].join("\n\n"),
+      choices: offered ? [...labels, OTHER, DECLINE] : [],
+      delivery: "live",
+      key: `question:${request.sessionId}:${request.toolCallId}:${question.id}`,
+      mode: "question",
+      sessionId: request.sessionId,
+      title: question.header ?? question.question,
+    },
+    ...(offered ? { writeIn: OTHER } : {}),
   };
 }
 
-export function questionAnswer(
+function questionAnswer(
   question: HarnessQuestion,
   choice: string
 ): string[] | undefined {

@@ -40,6 +40,15 @@ export type {
   AutomationService,
 } from "./automation/service";
 export type {
+  CliHarness,
+  CliHarnessDescriptor,
+  GuestArchitecture,
+  GuestArtifact,
+  GuestAuth,
+  GuestFile,
+} from "./cli-harnesses";
+export { CLI_HARNESS_IDS, CLI_HARNESSES } from "./cli-harnesses";
+export type {
   AnyDefinition,
   LockedNode,
   NamedDefinition,
@@ -73,6 +82,7 @@ export type { DefinitionEntry, MonitorRecord } from "./registry";
 export type { ReadonlyRunScopes, RunScope } from "./run-scope";
 export type { ActivityRecord, HarnessActivities } from "./sandbox/activities";
 export type { HarnessInteractions } from "./sandbox/interactions";
+export type { SandboxAuthority } from "./sandbox/session";
 export { JsonSessionStore } from "./sessions/json-store";
 export type { Lock } from "./state/locks";
 export type {

@@ -230,8 +230,9 @@ it("records a failed child turn and releases its concurrency slot", async () => 
 it("stopping a managed child aborts its task and delegates to the harness interrupt", async () => {
   const parent = settings();
   let attached: HarnessSession | undefined;
-  parent.onChildSession = (_id, _activityId, attachedSession) => {
+  parent.onChildSession = (_id, attachedSession) => {
     attached = attachedSession;
+    return attachedSession;
   };
   let entered: () => void = () => undefined;
   const generating = new Promise<void>((resolve) => {
@@ -256,10 +257,23 @@ it("stopping a managed child aborts its task and delegates to the harness interr
     () => "cancelled"
   );
   await generating;
+  expect(attached).not.toBe(session);
+  expect(session.interrupt).toBe(interrupt);
   await attached?.interrupt();
   expect(await outcome).toBe("cancelled");
   expect(interrupt).toHaveBeenCalledOnce();
   expect(session.close).toHaveBeenCalledOnce();
+});
+
+it("drives and closes the session the host tracks the child as", async () => {
+  const parent = settings();
+  const session = child();
+  const tracked = child();
+  parent.onChildSession = () => tracked;
+  const result = await invoke(delegationTool(parent, async () => session));
+  expect(result).toMatchObject({ text: "Task result" });
+  expect(tracked.close).toHaveBeenCalledOnce();
+  expect(session.close).not.toHaveBeenCalled();
 });
 
 it("links child questions and nested activity updates to the managed activity", async () => {

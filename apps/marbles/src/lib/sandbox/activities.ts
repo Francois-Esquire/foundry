@@ -8,6 +8,7 @@ import type {
 import { z } from "zod";
 import type { FeedPublisher } from "~/lib/feed/publish";
 import { readJson, writeJson } from "~/lib/state/json";
+import { wrapSession } from "./wrapped-session";
 
 const sourceSchema = z.object({
   definition: z.string(),
@@ -74,39 +75,48 @@ export class HarnessActivities {
     }
   }
 
+  /**
+   * Track a live session so its activities can be stopped, and forget it
+   * when it closes. Returns the session to hold and close in its place. A
+   * `delegated` session is a child task whose session id is also its
+   * activity id in the parent, so stopping that activity interrupts it.
+   */
   attach(
     sessionId: string,
     session: HarnessSession,
-    managedActivityId?: string
-  ): void {
-    const close = session.close?.bind(session);
+    { delegated = false }: { readonly delegated?: boolean } = {}
+  ): HarnessSession {
     const stopActivity = session.stopActivity?.bind(session);
-    if (managedActivityId) {
-      session.stopActivity = (id) => {
-        if (id === managedActivityId) {
-          return session.interrupt();
+    const tracked = wrapSession(session, {
+      close: async () => {
+        try {
+          await session.close?.();
+        } finally {
+          if (this.#sessions.get(sessionId) === tracked) {
+            this.#sessions.delete(sessionId);
+            this.#observed.delete(sessionId);
+          }
         }
-        if (stopActivity) {
-          return stopActivity(id);
-        }
-        return Promise.reject(new Error("This activity cannot be stopped."));
-      };
-    }
-    session.close = async () => {
-      try {
-        await close?.();
-      } finally {
-        if (this.#sessions.get(sessionId) === session) {
-          this.#sessions.delete(sessionId);
-          this.#observed.delete(sessionId);
-        }
-      }
-    };
-    this.#sessions.set(sessionId, session);
-    this.#observed.set(
-      sessionId,
-      new Set(managedActivityId ? [managedActivityId] : [])
-    );
+      },
+      ...(delegated
+        ? {
+            stopActivity: (id: string) => {
+              if (id === sessionId) {
+                return session.interrupt();
+              }
+              if (stopActivity) {
+                return stopActivity(id);
+              }
+              return Promise.reject(
+                new Error("This activity cannot be stopped.")
+              );
+            },
+          }
+        : {}),
+    });
+    this.#sessions.set(sessionId, tracked);
+    this.#observed.set(sessionId, new Set(delegated ? [sessionId] : []));
+    return tracked;
   }
 
   async record(

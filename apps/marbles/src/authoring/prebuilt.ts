@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { CliHarness } from "~/lib/cli-harnesses";
 import type { AgentDefinition, Context } from "~/lib/types";
 import { step } from "./builder";
 import { agent } from "./resources";
@@ -12,8 +13,8 @@ import { agent } from "./resources";
 export interface PrebuiltOptions {
   readonly instructions?: string;
   readonly name?: string;
-  /** `codex` or `claude-code`; omit for the first available. */
-  readonly provider?: "codex" | "claude-code";
+  /** A CLI harness, `claude-code` or `codex`; omit for the first available. */
+  readonly provider?: CliHarness;
   readonly timeoutMs?: number;
 }
 

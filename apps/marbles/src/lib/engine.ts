@@ -277,7 +277,6 @@ export class Engine {
         typeof containers === "function"
           ? containers
           : () => Promise.resolve(containers),
-      home,
       root,
     });
     this.sandboxes = sandboxes;

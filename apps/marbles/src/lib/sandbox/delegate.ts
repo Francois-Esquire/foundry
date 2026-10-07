@@ -6,6 +6,7 @@ import {
 import { tool } from "ai";
 import { z } from "zod";
 import type { SandboxSessionSettings } from "./session";
+import { wrapSession } from "./wrapped-session";
 
 export interface DelegationScope {
   budget: { started: number; active: number };
@@ -67,7 +68,7 @@ export function delegationTool(
         };
         await record({ ...activity, actions: ["stop"], status: "running" });
         try {
-          child = await open({
+          const opened = await open({
             ...settings,
             delegation: { budget: scope.budget, depth: scope.depth + 1 },
             options: {
@@ -84,12 +85,15 @@ export function delegationTool(
             sessionId: id,
             signal,
           });
-          const interrupt = child.interrupt.bind(child);
-          child.interrupt = async () => {
-            stopped.abort(new Error("Child task cancelled."));
-            await interrupt();
-          };
-          settings.onChildSession?.(id, id, child);
+          const stoppable = wrapSession(opened, {
+            interrupt: async () => {
+              stopped.abort(new Error("Child task cancelled."));
+              await opened.interrupt();
+            },
+          });
+          // Held before the host sees it, so a throwing callback still closes it.
+          child = stoppable;
+          child = settings.onChildSession?.(id, stoppable) ?? stoppable;
           const reply = await child.generate(task, { signal });
           signal.throwIfAborted();
           if (reply.status === "error") {

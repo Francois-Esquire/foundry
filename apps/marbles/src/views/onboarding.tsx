@@ -11,9 +11,14 @@ import { errorMessage, useAsyncAction } from "~/hooks/use-async-action";
 import { useQuitGuard } from "~/hooks/use-quit-guard";
 import type { InputField, InputValues } from "~/lib/inputs";
 import {
+  DEFAULT_DRAFT,
+  DEFAULT_HARNESS,
+  HARNESS_CHOICES,
+  isHarnessChoice,
   renderModule,
   type SetupDraft,
   STARTERS,
+  starterFor,
 } from "~/onboarding/templates";
 
 const SETTINGS: readonly InputField[] = [
@@ -22,11 +27,7 @@ const SETTINGS: readonly InputField[] = [
   {
     label: "Harness",
     name: "harness",
-    options: [
-      { label: "First available", value: "auto" },
-      { label: "Codex", value: "codex" },
-      { label: "Claude Code", value: "claude-code" },
-    ],
+    options: HARNESS_CHOICES,
     required: true,
     type: "select",
   },
@@ -58,12 +59,7 @@ export function OnboardingView({
   readonly onSkip: () => void;
   readonly onClose: () => void;
 }) {
-  const [draft, setDraft] = useState<SetupDraft>({
-    harness: "auto",
-    instructions: "",
-    name: "summarize-codebase",
-    template: "product",
-  });
+  const [draft, setDraft] = useState<SetupDraft>(DEFAULT_DRAFT);
   const [stage, setStage] = useState<"template" | "settings" | "review">(
     "template"
   );
@@ -72,8 +68,7 @@ export function OnboardingView({
   const creation = useAsyncAction();
   const quit = useQuitGuard(onClose);
   const { quitting } = quit;
-  const starter =
-    STARTERS.find((item) => item.id === draft.template) ?? STARTERS[2];
+  const starter = starterFor(draft.template);
   const create = useCallback(() => {
     if (!quitting) {
       creation.run(() => onCreate(draft));
@@ -115,10 +110,9 @@ export function OnboardingView({
   );
   const review = useCallback(
     (values: InputValues) => {
-      const harness =
-        values.harness === "codex" || values.harness === "claude-code"
-          ? values.harness
-          : "auto";
+      const harness = isHarnessChoice(values.harness)
+        ? values.harness
+        : DEFAULT_HARNESS;
       const configured: SetupDraft = {
         ...draft,
         harness,

@@ -70,7 +70,6 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
       );
       const sandboxes = new SandboxesManager({
         containers: () => Promise.resolve(containers),
-        home: root,
         root,
       });
       const sandbox = await sandboxes.scoped(args).start({

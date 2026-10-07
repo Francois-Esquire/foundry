@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { z } from "zod";
+import type { CliHarness, GuestAuth } from "~/lib/cli-harnesses";
 
 const execute = promisify(execFile);
 const claudeLogin = z.object({
@@ -91,4 +92,52 @@ export async function claudeSubscriptionToken(
   throw new Error(
     "Claude Code subscription login is unavailable or expired. Sign in with Claude Code on the host, or supply CLAUDE_CODE_OAUTH_TOKEN from claude setup-token."
   );
+}
+
+/** A host login for each CLI harness, used when the session brings no API key. */
+type SubscriptionLogins = {
+  readonly [H in CliHarness]: (oauthToken?: string) => Promise<GuestAuth<H>>;
+};
+
+const SUBSCRIPTIONS: SubscriptionLogins = {
+  "claude-code": async (oauthToken) => ({
+    kind: "oauth",
+    token: await claudeSubscriptionToken({ oauthToken }),
+  }),
+  codex: async () => ({
+    kind: "chatgpt",
+    tokens: await codexSubscriptionTokens(),
+  }),
+};
+
+/**
+ * A guest session's credentials, decided once: the session's API key, else
+ * the host's subscription login for that harness (`logins`, replaceable for
+ * tests). A blank credential is
+ * refused rather than sent to the guest.
+ */
+export async function guestAuth<H extends CliHarness>(
+  harness: H,
+  options: { readonly apiKey?: string; readonly oauthToken?: string },
+  logins: SubscriptionLogins = SUBSCRIPTIONS
+): Promise<GuestAuth<H>> {
+  const auth: GuestAuth<H> = options.apiKey
+    ? { apiKey: options.apiKey, kind: "apiKey" }
+    : await logins[harness](options.oauthToken);
+  if (isBlank(auth)) {
+    throw new Error(`${harness} requires explicit per-session authentication.`);
+  }
+  return auth;
+}
+
+/** A key or token of only whitespace; Codex's login file is validated when read. */
+function isBlank(auth: GuestAuth): boolean {
+  switch (auth.kind) {
+    case "apiKey":
+      return !auth.apiKey.trim();
+    case "oauth":
+      return !auth.token.trim();
+    default:
+      return false;
+  }
 }

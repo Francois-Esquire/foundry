@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
+import { DEFAULT_SANDBOX_WORKING_DIRECTORY } from "@foundry/sandbox/constants";
 import { CONTAINER_SANDBOX_CONSTRAINTS_FORMAT } from "@foundry/sandbox/container/constants";
 import type { ContainerSandboxConstraints } from "@foundry/sandbox/container/constraints";
 import type {
@@ -26,13 +27,11 @@ import type {
 export interface SandboxesDeps {
   /** Lazy: the runtime is optional and may not be installed. */
   readonly containers: () => Promise<Containers>;
-  /** The user's home; host configuration folders live under it. */
-  readonly home: string;
   /** The config's directory. */
   readonly root: string;
 }
 
-const WORKSPACE_TARGET = "/workspace";
+const WORKSPACE_TARGET = DEFAULT_SANDBOX_WORKING_DIRECTORY;
 const KIND = "sandboxes.start";
 
 /** Where a sandbox's mounts resolve from. */
@@ -64,10 +63,7 @@ export function guestFiles(
 }
 
 /** Only explicitly supplied workspace roots are eligible for mounting. */
-export function allowedMountRoots(
-  roots: readonly string[],
-  _home?: string
-): string[] {
+export function allowedMountRoots(roots: readonly string[]): string[] {
   return [...new Set(roots.map((root) => resolve(root)))].filter((dir) =>
     existsSync(dir)
   );
@@ -75,8 +71,7 @@ export function allowedMountRoots(
 
 export function constraintsFor(
   spec: SandboxSpec,
-  dirs: MountDirs,
-  _home?: string
+  dirs: MountDirs
 ): ContainerSandboxConstraints {
   const resources = {
     ...(spec.resources?.cpus === undefined
@@ -172,10 +167,10 @@ export class SandboxesManager implements Sandboxes {
     sandbox: SandboxDefinition | SandboxSpec,
     signal?: AbortSignal
   ): Promise<Container> {
-    const { home, root } = this.#deps;
+    const { root } = this.#deps;
     const containers = await this.containers();
     const container = await containers.start(
-      constraintsFor(sandbox, { cwd: workingDirectory(root), root }, home),
+      constraintsFor(sandbox, { cwd: workingDirectory(root), root }),
       signal
     );
     try {

@@ -14,6 +14,7 @@ import {
   touchWorkspace,
 } from "~/host";
 import { install, launchdPlan, preview, uninstall } from "~/launchd";
+import { CLI_HARNESS_IDS } from "~/lib/cli-harnesses";
 import type { Engine } from "~/lib/engine";
 import type { MonitorSpec } from "~/lib/monitor";
 import { describeMonitor } from "~/lib/monitor";
@@ -47,7 +48,7 @@ const USAGE = `marbles — programmable workspace automation
   --state <dir>      state root (default: ~/.foundry/marbles)
   --artifacts <dir>  artifact store holding the feed (default: artifacts/ beside the state root)
   --dry-run          echo every model turn and git mutation instead of running them
-  --harness <id>     use only this harness (claude-code | codex); repeatable
+  --harness <id>     use only this harness (${CLI_HARNESS_IDS.join(" | ")}); repeatable
 
 Each workspace (the project above .foundry/marbles) gets <state>/<id>/ holding
 workspace.json, runs/, schedules/, locks/ and sessions/. Feed entries from every

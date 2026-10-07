@@ -148,7 +148,6 @@ function sessionsFor(state: string | undefined): SessionStore {
 /** Started at the first sandbox: the runtime is optional and slow to start. */
 function containersFor(
   { catalog, dry, print, root, workspaceId }: CreateEngineOptions,
-  home: string,
   worktreeHome: string
 ): () => Promise<Containers> {
   // `--dry-run` echoes every command a sandbox would run, like git and the
@@ -164,10 +163,7 @@ function containersFor(
     mkdirSync(worktreeHome, { recursive: true });
     const declared = [...catalog.workspaces].map((path) => resolve(root, path));
     return createContainers({
-      allowedMountRoots: allowedMountRoots(
-        [root, worktreeHome, ...declared],
-        home
-      ),
+      allowedMountRoots: allowedMountRoots([root, worktreeHome, ...declared]),
       instanceLabel: `marbles-${workspaceId}`,
       runtime: await runtime(),
       store: createMemoryContainerStore(),
@@ -185,7 +181,7 @@ export function createEngine(options: CreateEngineOptions): Engine {
   const engine = new Engine({
     artifacts: artifactsAt(dry ? undefined : options.artifacts),
     askable: options.askable,
-    containers: containersFor(options, home, worktrees),
+    containers: containersFor(options, worktrees),
     dry,
     // The engine's workspace system and its root workspace both run git so.
     git: dry ? { run: echoGit(print) } : {},

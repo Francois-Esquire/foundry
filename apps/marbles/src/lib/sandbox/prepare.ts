@@ -6,8 +6,14 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import type { Container } from "@foundry/sandbox/container/containers";
 import { z } from "zod";
+import {
+  CLI_HARNESSES,
+  type CliHarness,
+  type GuestArtifact,
+  type GuestAuth,
+  isGuestArchitecture,
+} from "~/lib/cli-harnesses";
 
-export type GuestHarness = "claude-code" | "codex";
 const execute = promisify(execFile);
 const manifestSchema = z.object({
   dist: z.object({
@@ -16,54 +22,17 @@ const manifestSchema = z.object({
   }),
 });
 
-/** These are paired with the installed host SDK and tested app-server protocol. */
-export function guestArtifact(harness: GuestHarness, architecture: string) {
-  const architectures: Record<string, string> = {
-    aarch64: "arm64",
-    x86_64: "x64",
-  };
-  const arch = architectures[architecture.trim()];
-  if (!arch) {
-    throw new Error(`Unsupported guest architecture: ${architecture.trim()}`);
+/** The pinned guest files for a CLI harness on the architecture `uname -m` printed. */
+export function guestArtifact(
+  harness: CliHarness,
+  architecture: string
+): GuestArtifact {
+  const machine = architecture.trim();
+  if (!isGuestArchitecture(machine)) {
+    throw new Error(`Unsupported guest architecture: ${machine}`);
   }
-  if (harness === "claude-code") {
-    return {
-      executable: "/opt/foundry/bin/claude",
-      files: [
-        {
-          executable: true,
-          member: "package/claude",
-          path: "/opt/foundry/bin/claude",
-        },
-      ],
-      member: "package/claude",
-      packageName: `@anthropic-ai/claude-agent-sdk-linux-${arch}`,
-      version: "0.3.205",
-    };
-  }
-  const prefix = `package/vendor/${arch === "arm64" ? "aarch64" : "x86_64"}-unknown-linux-musl`;
-  const members = [
-    "bin/codex",
-    "bin/codex-code-mode-host",
-    "codex-resources/bwrap",
-    "codex-resources/zsh/bin/zsh",
-    "codex-path/rg",
-    "codex-package.json",
-  ];
-  return {
-    executable: "/opt/foundry/bin/codex",
-    files: members.map((member) => ({
-      executable: member !== "codex-package.json",
-      member: `${prefix}/${member}`,
-      path: `/opt/foundry/${member}`,
-    })),
-    member: `package/vendor/${arch === "arm64" ? "aarch64" : "x86_64"}-unknown-linux-musl/bin/codex`,
-    packageName: "@openai/codex",
-    version: `0.144.6-linux-${arch}`,
-  };
+  return CLI_HARNESSES[harness].artifact(machine);
 }
-
-type GuestArtifact = ReturnType<typeof guestArtifact>;
 
 /** Download on the host, verify npm integrity, and extract only the pinned runtime files. */
 async function downloadGuestCli(
@@ -124,31 +93,18 @@ export interface PreparedGuest {
 }
 
 /** Provision before the turn; credentials exist only in each child's environment. */
-interface PrepareGuestOptions {
-  apiKey?: string;
-  download?: typeof downloadGuestCli;
-  externalAuthentication?: boolean;
-  harness: GuestHarness;
-  oauthToken?: string;
-  sessionId: string;
-  signal: AbortSignal;
+interface PrepareGuestOptions<H extends CliHarness> {
+  readonly auth: GuestAuth<H>;
+  readonly download?: typeof downloadGuestCli;
+  readonly harness: H;
+  readonly sessionId: string;
+  readonly signal: AbortSignal;
 }
 
-export async function prepareGuest(
+export async function prepareGuest<H extends CliHarness>(
   container: Container,
-  options: PrepareGuestOptions
+  options: PrepareGuestOptions<H>
 ): Promise<PreparedGuest> {
-  if (
-    !(
-      options.externalAuthentication ||
-      options.apiKey?.trim() ||
-      (options.harness === "claude-code" && options.oauthToken?.trim())
-    )
-  ) {
-    throw new Error(
-      `${options.harness} requires explicit per-session authentication.`
-    );
-  }
   const exec = async (argv: string[]) => {
     const result = await container.commands.exec(argv, {
       signal: options.signal,
@@ -160,9 +116,15 @@ export async function prepareGuest(
     }
     return result.stdout;
   };
+  const descriptor = CLI_HARNESSES[options.harness];
   const artifact = guestArtifact(options.harness, await exec(["uname", "-m"]));
   const state = `/var/lib/foundry/sessions/${createHash("sha256").update(options.sessionId).digest("hex")}`;
-  await exec(["mkdir", "-p", "/opt/foundry/bin", state]);
+  await exec([
+    "mkdir",
+    "-p",
+    "/opt/foundry/bin",
+    `${state}/${descriptor.stateDir}`,
+  ]);
   const exists = await container.commands.exec(
     ["sh", "-c", 'test -x "$1"', "check-cli", artifact.executable],
     { signal: options.signal }
@@ -173,8 +135,6 @@ export async function prepareGuest(
           signal: options.signal,
         })
       : { exitCode: 127, stdout: "" };
-  const expectedVersion =
-    options.harness === "claude-code" ? "2.1.205" : "0.144.6";
   const supportsPresent = await container.commands.exec(
     [
       "sh",
@@ -187,7 +147,7 @@ export async function prepareGuest(
   );
   if (
     installed.exitCode !== 0 ||
-    !installed.stdout.includes(expectedVersion) ||
+    !installed.stdout.includes(descriptor.expectedVersion) ||
     supportsPresent.exitCode !== 0
   ) {
     const files = await (options.download ?? downloadGuestCli)(
@@ -200,7 +160,7 @@ export async function prepareGuest(
     }
     if (
       !(await exec([artifact.executable, "--version"])).includes(
-        expectedVersion
+        descriptor.expectedVersion
       )
     ) {
       throw new Error(
@@ -208,32 +168,13 @@ export async function prepareGuest(
       );
     }
   }
-  const environment = guestEnvironment(state, options);
-  await exec(["mkdir", "-p", `${state}/claude`, `${state}/codex`]);
-  return { environment, executable: artifact.executable };
-}
-
-function guestEnvironment(
-  state: string,
-  options: Pick<PrepareGuestOptions, "harness" | "apiKey" | "oauthToken">
-): Readonly<Record<string, string>> {
-  const environment = {
-    HOME: state,
-    LANG: "C.UTF-8",
-    PATH: "/opt/foundry/bin:/opt/foundry/codex-path:/usr/local/bin:/usr/bin:/bin",
-  };
-  if (options.harness === "claude-code") {
-    return {
-      ...environment,
-      CLAUDE_CONFIG_DIR: `${state}/claude`,
-      ...(options.oauthToken
-        ? { CLAUDE_CODE_OAUTH_TOKEN: options.oauthToken }
-        : { ANTHROPIC_API_KEY: options.apiKey ?? "" }),
-    };
-  }
   return {
-    ...environment,
-    CODEX_HOME: `${state}/codex`,
-    ...(options.apiKey ? { OPENAI_API_KEY: options.apiKey } : {}),
+    environment: {
+      HOME: state,
+      LANG: "C.UTF-8",
+      PATH: "/opt/foundry/bin:/opt/foundry/codex-path:/usr/local/bin:/usr/bin:/bin",
+      ...descriptor.env(state, options.auth),
+    },
+    executable: artifact.executable,
   };
 }

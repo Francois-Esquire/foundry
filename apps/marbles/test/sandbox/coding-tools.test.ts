@@ -12,15 +12,14 @@ function fixture() {
   const container: CodingToolsContainer = {
     commands: {
       exec: vi.fn(async (command) => {
-        if (typeof command !== "string" && command[0] === "test") {
-          const target = command[2] ?? "";
-          const exists =
-            command[1] === "-L"
-              ? links.has(target)
-              : target === "/workspace" ||
-                contents.has(target) ||
-                links.has(target);
-          return { exitCode: exists ? 0 : 1, stderr: "", stdout: "" };
+        if (typeof command !== "string" && command[3] === "check-absent") {
+          // `test -e "$1" || test -L "$1"`: present, or a dangling link.
+          const target = command[4] ?? "";
+          const present =
+            target === "/workspace" ||
+            contents.has(target) ||
+            links.has(target);
+          return { exitCode: present ? 0 : 1, stderr: "", stdout: "" };
         }
         return { exitCode: 0, stderr: "", stdout: "checked" };
       }),
@@ -63,7 +62,6 @@ function fixture() {
         );
       }),
     },
-    workingDirectory: "/workspace",
   };
   return { container, contents, links, tools: createCodingTools(container) };
 }
@@ -150,6 +148,28 @@ describe("sandbox coding tools", () => {
     ).rejects.toThrow("escapes");
     expect(container.files.readFile).not.toHaveBeenCalled();
     expect(container.files.writeFile).not.toHaveBeenCalled();
+  });
+
+  it("checks the workspace root once, and refuses one that is not canonical", async () => {
+    const { tools, container } = fixture();
+    const realpath = vi.spyOn(container.files, "realpath");
+    await call(tools, "read", { file_path: "a.ts" });
+    await call(tools, "read", { file_path: "a.ts" });
+    expect(
+      realpath.mock.calls.filter(([path]) => path === "/workspace")
+    ).toHaveLength(1);
+
+    const moved = fixture();
+    moved.links.set("/workspace", "/elsewhere");
+    await expect(
+      call(moved.tools, "read", { file_path: "a.ts" })
+    ).rejects.toThrow("canonical");
+
+    // A failed check is not remembered: once the root resolves, tools work.
+    moved.links.delete("/workspace");
+    expect(await call(moved.tools, "read", { file_path: "a.ts" })).toContain(
+      "const x = 1;"
+    );
   });
 
   it("runs shell commands in the VM workspace and forwards turn cancellation", async () => {

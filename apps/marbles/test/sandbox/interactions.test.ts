@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -303,11 +304,10 @@ it("recovers a canonical deferred request even if its publication callback never
   roots.push(root);
   const pendingPath = join(root, "pending.json");
   const f = await fixture(pendingPath);
-  await f.bridge.registerSession({
-    agentId: "coder",
-    sessionId: "session-1",
-    source,
-  });
+  await f.bridge.registerSession(
+    { agentId: "coder", sessionId: "session-1", source },
+    f.bridge.authority(source)
+  );
   const permission = createHarnessPermission({
     agentId: "coder",
     policy: f.policy,
@@ -343,6 +343,28 @@ it("recovers a canonical deferred request even if its publication callback never
     behavior: "allow",
   });
   await restored.close();
+});
+
+it("keeps sessions across restarts only under an authority the host built over its own policy", async () => {
+  const root = await mkdtemp(join(tmpdir(), "marbles-durable-"));
+  roots.push(root);
+  const pendingPath = join(root, "pending.json");
+  const f = await fixture(pendingPath);
+  const session = { agentId: "coder", sessionId: "session-1", source };
+  const custom = createInMemoryAgentAuthorizer().authorizer;
+  await f.bridge.registerSession(
+    session,
+    f.bridge.authority(source, { policy: custom })
+  );
+  // A hand-built authority cannot claim durability, even over the host's policy.
+  await f.bridge.registerSession(session, { policy: f.policy });
+  await f.bridge.registerSession(session, {
+    ...f.bridge.authority(source),
+  });
+  expect(existsSync(pendingPath)).toBe(false);
+  await f.bridge.registerSession(session, f.bridge.authority(source));
+  expect(existsSync(pendingPath)).toBe(true);
+  await f.bridge.close();
 });
 
 it("repairs a deferred answer's feed state after publication failed without issuing another grant", async () => {
@@ -439,11 +461,10 @@ it("remembers a deferred grant after reopening both session and authority stores
   };
   const first = open();
   await first.sessions.createSession({ id: "previous-run" });
-  await first.bridge.registerSession({
-    agentId: "coder",
-    sessionId: "previous-run",
-    source,
-  });
+  await first.bridge.registerSession(
+    { agentId: "coder", sessionId: "previous-run", source },
+    first.bridge.authority(source)
+  );
   const request = {
     input: { command: "bun test" },
     sessionId: "previous-run",

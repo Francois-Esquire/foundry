@@ -14,9 +14,11 @@ import { createModelSummarizer } from "@foundry/agents/session";
 import type { Skill } from "@foundry/agents/skills";
 import type { ModelManager, TurnExecutorRef } from "@foundry/models";
 import { observeAgentTurn } from "@foundry/models";
+import { DEFAULT_SANDBOX_WORKING_DIRECTORY } from "@foundry/sandbox/constants";
 import type { Container } from "@foundry/sandbox/container/containers";
 
 import type { AutomationService } from "~/lib/automation/service";
+import { isCliHarness } from "~/lib/cli-harnesses";
 import type { HarnessActivities } from "~/lib/sandbox/activities";
 import type { HarnessInteractions } from "~/lib/sandbox/interactions";
 import type { SandboxSessionOptions } from "~/lib/sandbox/session";
@@ -311,19 +313,21 @@ async function fileSession(
   }
 }
 
+/** A CLI harness runs its own CLI in the guest; any other harness needs the network model. */
 function sandboxModel(models: ModelManager, executor: TurnExecutorRef) {
-  if (executor.harness === "claude-code" || executor.harness === "codex") {
+  if (isCliHarness(executor.harness)) {
     return {};
   }
   return { model: models.model(executor.model, executor.provider) };
 }
 
+/** A CLI harness's provider shares its id, and runs any model it is named with. */
 function sandboxExecutor(
   models: ModelManager,
   model: string | undefined,
   provider: string | undefined
 ): TurnExecutorRef {
-  if (model && (provider === "claude-code" || provider === "codex")) {
+  if (model && isCliHarness(provider)) {
     return { harness: provider, model, provider };
   }
   return models.resolveTextExecutor(model, provider);
@@ -332,7 +336,7 @@ function sandboxExecutor(
 function validateSessionOptions(options: SessionOptions): void {
   if (options.sandbox && options.cwd !== undefined) {
     throw new Error(
-      "Sandbox sessions run in /workspace. Select the workspace through the sandbox mount."
+      `Sandbox sessions run in ${DEFAULT_SANDBOX_WORKING_DIRECTORY}. Select the workspace through the sandbox mount.`
     );
   }
   if (
@@ -351,6 +355,7 @@ function validateSessionOptions(options: SessionOptions): void {
   }
 }
 
+/** A sandbox session's options with its authority settled, and the session registered under it. */
 async function interactionOptions(
   interactions: HarnessInteractions,
   source: Source,
@@ -358,13 +363,11 @@ async function interactionOptions(
   sessionId: string,
   options: SessionOptions
 ): Promise<SandboxSessionOptions> {
-  await interactions.registerSession(
-    { agentId, sessionId, source },
-    options.authority?.policy
-  );
+  const authority = interactions.authority(source, options.authority);
+  await interactions.registerSession({ agentId, sessionId, source }, authority);
   return {
     ...options,
-    authority: interactions.authority(source, options.authority),
+    authority,
     question:
       options.question ??
       ((request) =>
@@ -456,13 +459,13 @@ async function openSandboxSession(
       deps.automations.tools({ agentId: definition.id, sessionId, source }),
     modelId: executor.model,
     onActivity: (event) => deps.activities.record(event, source),
-    onChildSession: (sessionId, activityId, session) =>
-      deps.activities.attach(sessionId, session, activityId),
+    onChildSession: (sessionId, session) =>
+      deps.activities.attach(sessionId, session, { delegated: true }),
     provider: executor.provider,
     registerChildSession: (sessionId) =>
       deps.interactions.registerSession(
         { agentId: definition.id, sessionId, source },
-        sessionOptions.authority.policy
+        sessionOptions.authority
       ),
     ...sandboxModel(deps.models, executor),
     instructions: [
@@ -477,8 +480,7 @@ async function openSandboxSession(
     store: deps.sessions,
     write: site.write,
   });
-  deps.activities.attach(id, harness);
-  return harness;
+  return deps.activities.attach(id, harness);
 }
 
 /**
