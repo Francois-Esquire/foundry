@@ -59,6 +59,21 @@ describe("InMemorySessionStore", () => {
     expect(session.title).toBe("Hello");
   });
 
+  it("resumes, not resets, a session created again under its id", async () => {
+    const store = new InMemorySessionStore();
+    const first = await store.createSession({ id: "known", title: "Hello" });
+    await store.appendMessage({
+      parts: text("kept"),
+      role: "user",
+      sessionId: "known",
+    });
+
+    await expect(
+      store.createSession({ id: "known", title: "Other" })
+    ).resolves.toEqual(first);
+    await expect(store.listMessages("known")).resolves.toHaveLength(1);
+  });
+
   it("returns null for an unknown session", async () => {
     const store = new InMemorySessionStore();
     expect(await store.getSession("nope")).toBeNull();

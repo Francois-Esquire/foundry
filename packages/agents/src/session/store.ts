@@ -36,7 +36,12 @@ export interface SessionStore {
 }
 
 export interface CreateSessionInput {
-  /** Adopt a specific id (e.g. to resume a known session). Generated if absent. */
+  /**
+   * Adopt a specific id (e.g. to resume a known session). Generated if absent.
+   * When a session with this id already exists, `createSession` returns it
+   * unchanged, history included, and ignores the other fields: two callers
+   * that both saw it missing must not reset each other.
+   */
   id?: string;
   /** The invoking parent message id. */
   parentMessageId?: string;
@@ -285,6 +290,11 @@ export class InMemorySessionStore extends AbstractSessionStore {
   readonly #messages = new Map<string, SessionMessage[]>();
 
   createSession(input: CreateSessionInput = {}): Promise<SessionRecord> {
+    const existing =
+      input.id === undefined ? undefined : this.#sessions.get(input.id);
+    if (existing) {
+      return Promise.resolve(existing);
+    }
     const record = newSessionRecord(input);
     this.#sessions.set(record.id, record);
     this.#messages.set(record.id, []);

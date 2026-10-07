@@ -9,21 +9,12 @@
  * cannot drift.
  */
 
+import type { Exactly } from "@foundry/lib/exactly";
 import { z } from "zod";
 
 import type { AgentSubject } from "./authorization";
 import { AGENT_SUBJECT_NAMESPACE } from "./authorization";
 import type { Capability } from "./capability";
-
-/**
- * `T` when the schema's output and `T` are assignable both ways, else
- * `never` — which makes the annotated schema constant fail to typecheck.
- */
-type Exactly<Output, T> = [Output] extends [T]
-  ? [T] extends [Output]
-    ? T
-    : never
-  : never;
 
 const toolSources = z.enum([
   "declared",

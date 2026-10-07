@@ -1,5 +1,8 @@
+import type { Exactly } from "@foundry/lib/exactly";
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 
+import type { AgentSubject } from "../../authorization/authorization";
 import { agentSubject } from "../../authorization/authorization";
 import type { Capability } from "../../authorization/capability";
 import {
@@ -57,6 +60,26 @@ describe("agentSubjectSchema", () => {
       agentSubjectSchema.safeParse({ id: "helper", namespace: "module" })
         .success
     ).toBe(false);
+  });
+
+  it("pins the schemas to their types at compile time", () => {
+    const missingKind = z.discriminatedUnion("kind", [
+      z.strictObject({ domain: z.string(), kind: z.literal("web.fetch") }),
+    ]);
+    const extraField = z.strictObject({
+      id: z.string(),
+      namespace: z.literal("agent"),
+      owner: z.string(),
+    });
+    // @ts-expect-error A schema missing a Capability kind collapses to never.
+    const capability: z.ZodType<
+      Exactly<z.infer<typeof missingKind>, Capability>
+    > = missingKind;
+    // @ts-expect-error A schema requiring a field AgentSubject lacks collapses to never.
+    const subject: z.ZodType<
+      Exactly<z.infer<typeof extraField>, AgentSubject>
+    > = extraField;
+    expect([capability, subject]).toEqual([missingKind, extraField]);
   });
 
   it("accepts what agentSubject builds once serialized", () => {

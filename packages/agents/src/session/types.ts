@@ -32,8 +32,15 @@ export interface ToolCallResult {
   readonly toolCallId: string;
 }
 
+export const SESSION_ROLES = [
+  "user",
+  "assistant",
+  "system",
+  "tool",
+  "summary",
+] as const;
 /** `"summary"` is a synthetic role: a folded block standing in for earlier messages. */
-export type SessionRole = "user" | "assistant" | "system" | "tool" | "summary";
+export type SessionRole = (typeof SESSION_ROLES)[number];
 
 /**
  * Discriminated union of message parts. The on-the-wire/persisted form of
@@ -154,7 +161,8 @@ export interface MessageMetadata {
   usage?: SessionUsage;
 }
 
-export type MessageStatus = "streaming" | "complete" | "error";
+export const MESSAGE_STATUSES = ["streaming", "complete", "error"] as const;
+export type MessageStatus = (typeof MESSAGE_STATUSES)[number];
 
 export interface SessionMessage {
   /** Epoch ms — kept as a number, not a Date, so the record serializes cleanly. */
@@ -170,7 +178,8 @@ export interface SessionMessage {
   updatedAt: number;
 }
 
-export type SessionStatus = "active" | "archived" | "error";
+export const SESSION_STATUSES = ["active", "archived", "error"] as const;
+export type SessionStatus = (typeof SESSION_STATUSES)[number];
 
 export interface SessionRecord {
   createdAt: number;
