@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SessionPart, SessionStore } from "@foundry/agents/session";
+import { processAlive } from "@foundry/lib/file-lock";
 import { agent, step } from "@foundry/marbles";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
@@ -253,6 +254,7 @@ describe("JsonSessionStore across instances", () => {
     const store = new JsonSessionStore(dir);
     await store.createSession({ id: "s" });
     const { pid } = spawnSync(process.execPath, ["-e", ""]);
+    expect(pid !== undefined && processAlive(pid)).toBe(false);
     writeFileSync(join(dir, "s.json.lock"), String(pid));
 
     await store.appendMessage({ parts, role: "user", sessionId: "s" });

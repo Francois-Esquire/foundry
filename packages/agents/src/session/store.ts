@@ -21,6 +21,7 @@ import type {
  */
 export interface SessionStore {
   appendMessage(input: CreateMessageInput): Promise<SessionMessage>;
+  /** Creates a session; one already filed under `input.id` is returned unchanged, history kept. */
   createSession(input?: CreateSessionInput): Promise<SessionRecord>;
   getSession(id: string): Promise<SessionRecord | null>;
   /** Messages for a session, in insertion order. */

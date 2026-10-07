@@ -3,8 +3,13 @@
  *
  * Pins a runtime schema to a hand-written type: annotate the schema constant
  * as `ZodType<Exactly<z.infer<typeof schema>, T>>` and it stops typechecking
- * the moment either side gains, loses, or changes a member. (Assignability
- * ignores `readonly`, so a mutable schema output can pin a readonly type.)
+ * when either side gains a required member, loses a member the other
+ * requires, or changes a member's type.
+ *
+ * Mutual assignability is weaker than equality. It does not catch an
+ * optional member present on only one side (a strict schema would then
+ * accept a key the type never declares), and it ignores `readonly`, which is
+ * what lets a mutable schema output pin a readonly type.
  */
 export type Exactly<Output, T> = [Output] extends [T]
   ? [T] extends [Output]

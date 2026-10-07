@@ -1,5 +1,12 @@
 import { spawnSync } from "node:child_process";
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -11,7 +18,6 @@ import {
   processAlive,
   withFileLock,
 } from "../file-lock";
-import { KeyedQueue } from "../keyed-queue";
 
 let directory: string;
 let lock: string;
@@ -28,45 +34,11 @@ afterEach(async () => {
 /** A pid that was running a moment ago and is not now. */
 function exitedPid(): number {
   const { pid } = spawnSync(process.execPath, ["-e", ""]);
-  if (pid === undefined) {
-    throw new Error("could not start a process");
+  if (pid === undefined || processAlive(pid)) {
+    throw new Error("could not find an exited pid");
   }
   return pid;
 }
-
-describe("KeyedQueue", () => {
-  it("runs one key's operations in call order, other keys alongside", async () => {
-    const queue = new KeyedQueue();
-    const order: string[] = [];
-    const { promise: gate, resolve: open } = Promise.withResolvers<void>();
-
-    const first = queue.run("a", async () => {
-      await gate;
-      order.push("a1");
-    });
-    const second = queue.run("a", () => {
-      order.push("a2");
-      return Promise.resolve();
-    });
-    await queue.run("b", () => {
-      order.push("b1");
-      return Promise.resolve();
-    });
-    open();
-    await Promise.all([first, second]);
-
-    expect(order).toEqual(["b1", "a1", "a2"]);
-  });
-
-  it("keeps going after a failed operation", async () => {
-    const queue = new KeyedQueue();
-    const failed = queue.run("a", () => Promise.reject(new Error("boom")));
-    const next = queue.run("a", () => Promise.resolve("ran"));
-
-    await expect(failed).rejects.toThrow("boom");
-    await expect(next).resolves.toBe("ran");
-  });
-});
 
 describe("file locks", () => {
   it("records the holder and removes the file on release", async () => {
@@ -106,7 +78,6 @@ describe("file locks", () => {
 
   it("breaks a dead holder's lock only when asked", async () => {
     const dead = exitedPid();
-    expect(processAlive(dead)).toBe(false);
     await writeFile(lock, String(dead));
 
     await expect(acquireFileLock(lock, { waitMs: 30 })).rejects.toMatchObject({
@@ -115,6 +86,40 @@ describe("file locks", () => {
     const release = await acquireFileLock(lock, { breakStale: true });
     expect(await readFile(lock, "utf8")).toBe(String(process.pid));
     await release();
+    expect(await readdir(directory)).toEqual([]);
+  });
+
+  it("hands a dead holder's lock to exactly one of many waiting breakers", async () => {
+    await writeFile(lock, String(exitedPid()));
+    let holding = 0;
+    let most = 0;
+
+    await Promise.all(
+      Array.from({ length: 12 }, () =>
+        withFileLock(
+          lock,
+          async () => {
+            holding += 1;
+            most = Math.max(most, holding);
+            await new Promise((done) => setTimeout(done, 2));
+            holding -= 1;
+          },
+          { breakStale: true, retryMs: 1 }
+        )
+      )
+    );
+
+    expect(most).toBe(1);
+    expect(await readdir(directory)).toEqual([]);
+  });
+
+  it("stops breaking while a breaker's turn file is left behind", async () => {
+    await writeFile(lock, String(exitedPid()));
+    await writeFile(`${lock}.break`, "");
+
+    await expect(
+      acquireFileLock(lock, { breakStale: true, waitMs: 30 })
+    ).rejects.toBeInstanceOf(FileLockTimeoutError);
   });
 
   it("never breaks a lock that records no holder", async () => {
@@ -122,6 +127,20 @@ describe("file locks", () => {
     await expect(
       acquireFileLock(lock, { breakStale: true, waitMs: 30 })
     ).rejects.toBeInstanceOf(FileLockTimeoutError);
+  });
+
+  it("releases once, and never a lock someone else holds now", async () => {
+    const first = await acquireFileLock(lock);
+    await first();
+    const second = await acquireFileLock(lock);
+
+    await first();
+    expect(await readFile(lock, "utf8")).toBe(String(process.pid));
+
+    // Removed by hand and taken by another process meanwhile.
+    await writeFile(lock, "999999999");
+    await second();
+    expect(await readFile(lock, "utf8")).toBe("999999999");
   });
 
   it("releases after a failed operation", async () => {

@@ -394,7 +394,7 @@ export class JsonSessionStore extends AbstractSessionStore {
       const holder =
         error.holder === undefined ? "" : ` by process ${String(error.holder)}`;
       throw new Error(
-        `[json-session-store] session ${id} is locked${holder} (${error.path})`,
+        `[json-session-store] session ${id} is locked${holder}. If no Marbles process is using it, remove ${error.path} (and ${error.path}.break, if present) and retry.`,
         { cause: error }
       );
     }

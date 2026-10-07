@@ -76,8 +76,14 @@ export async function writeFileAtomic(
   }
 }
 
-/** Platforms that cannot open or flush a directory (Windows, some filesystems) say so with these. */
-const UNSYNCABLE_DIRECTORY = ["EINVAL", "EISDIR", "ENOTSUP", "EPERM"];
+/**
+ * Platforms and filesystems that cannot open or flush a directory (Windows,
+ * some network and FUSE mounts, a directory without read permission) say so
+ * with these. They are swallowed: the rename has already landed, so the
+ * write succeeded and only its durability across a crash is weaker. Any other
+ * error is reported, though the file has by then been replaced.
+ */
+const UNSYNCABLE_DIRECTORY = ["EACCES", "EINVAL", "EISDIR", "ENOTSUP", "EPERM"];
 
 async function syncDirectory(path: string): Promise<void> {
   try {
