@@ -99,7 +99,7 @@ function context({
   /** Press a key; returns what the command did, or undefined when nothing took it. */
   function press(pressed: KeyPress) {
     const command = commandFor(pressed, built);
-    command?.run?.(dashboard, pressed);
+    command?.run(dashboard, pressed);
     return command ? calls.splice(0) : undefined;
   }
   return { context: built, press };

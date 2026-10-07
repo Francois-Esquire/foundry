@@ -71,26 +71,42 @@ const SECTIONS = [
 ] as const;
 type Section = (typeof SECTIONS)[number];
 
-/**
- * One key binding: the keys it takes, when it applies, what it does, and how
- * the footer and keyboard help describe it. Without `keys`, a focused
- * component (a log, a JSON viewer, a text field, a scrollbox, a form) owns
- * the key and the entry only describes it.
- */
-interface Command {
+/** How the footer and keyboard help describe an entry. */
+interface Described {
   /** What it does, for keyboard help; absent when the footer label says enough. */
   readonly help?: string;
   /** The key as keyboard help writes it. */
   readonly key: string;
-  /** Key names or typed sequences, or a test for anything subtler. */
-  readonly keys?: readonly string[] | ((key: KeyPress) => boolean);
   /** Footer text while it applies. */
   readonly label?: string | ((context: CommandContext) => string);
   /** In the bottom line with quit and help, not the pane's line. */
   readonly lasting?: boolean;
-  readonly run?: (dashboard: Dashboard, key: KeyPress) => void;
   readonly section: Section;
+}
+
+/** A key the dashboard handles: the keys it takes, when, and what it does. */
+interface Binding extends Described {
+  /** Key names or typed sequences, or a test for anything subtler. */
+  readonly keys: readonly string[] | ((key: KeyPress) => boolean);
+  readonly run: (dashboard: Dashboard, key: KeyPress) => void;
   readonly when: (context: CommandContext) => boolean;
+}
+
+/**
+ * A key something focused owns (a log, a JSON viewer, a text field, a
+ * scrollbox, a form), only described here. With `when` it shows in the footer
+ * while that holds; without, it is keyboard help only.
+ */
+interface Hint extends Described {
+  readonly keys?: never;
+  readonly run?: never;
+  readonly when?: (context: CommandContext) => boolean;
+}
+
+type Command = Binding | Hint;
+
+function isBinding(command: Command): command is Binding {
+  return command.run !== undefined;
 }
 
 const CHOICE_KEY = /^[1-9]$/;
@@ -206,15 +222,14 @@ function viewShortcut(key: KeyPress): "dashboard" | "feed" | undefined {
   return undefined;
 }
 
-const PANE_KEYS: Readonly<Record<string, BrowserPane>> = {
+const PANE_KEYS: Readonly<Record<"1" | "2" | "3", BrowserPane>> = {
   1: "trigger",
   2: "definition",
   3: "run",
-  m: "definition",
 };
 
-function never(): boolean {
-  return false;
+function isPaneKey(name: string): name is keyof typeof PANE_KEYS {
+  return Object.hasOwn(PANE_KEYS, name);
 }
 
 /**
@@ -375,9 +390,12 @@ const COMMANDS: readonly Command[] = [
   {
     help: "Focus Triggers / Marbles / Runs",
     key: "1 / 2 / 3",
-    keys: ["1", "2", "3"],
-    run: (dashboard, key) =>
-      dashboard.send({ pane: PANE_KEYS[key.name] ?? "run", type: "focus" }),
+    keys: (key) => isPaneKey(key.name),
+    run: (dashboard, key) => {
+      if (isPaneKey(key.name)) {
+        dashboard.send({ pane: PANE_KEYS[key.name], type: "focus" });
+      }
+    },
     section: "Dashboard",
     when: onDashboard,
   },
@@ -734,15 +752,11 @@ const COMMANDS: readonly Command[] = [
     help: "Move focus / submit arguments",
     key: "Tab / Ctrl+Enter",
     section: "Forms",
-    when: never,
   },
 ];
 
-function takes(command: Command, key: KeyPress): boolean {
+function takes(command: Binding, key: KeyPress): boolean {
   const { keys } = command;
-  if (keys === undefined) {
-    return false;
-  }
   if (typeof keys === "function") {
     return keys(key);
   }
@@ -753,10 +767,9 @@ function takes(command: Command, key: KeyPress): boolean {
 export function commandFor(
   key: KeyPress,
   context: CommandContext
-): Command | undefined {
-  return COMMANDS.find(
-    (command) =>
-      command.run !== undefined && takes(command, key) && command.when(context)
+): Binding | undefined {
+  return COMMANDS.filter(isBinding).find(
+    (command) => takes(command, key) && command.when(context)
   );
 }
 
@@ -766,7 +779,7 @@ function labels(context: CommandContext, lasting: boolean): string[] {
     if (label === undefined || Boolean(command.lasting) !== lasting) {
       return [];
     }
-    if (!command.when(context)) {
+    if (!command.when?.(context)) {
       return [];
     }
     return [typeof label === "string" ? label : label(context)];

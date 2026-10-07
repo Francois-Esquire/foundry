@@ -6,7 +6,6 @@ import type {
 import { StepSnapshotSchema } from "@foundry/workflows/snapshot";
 import type { RunRecord } from "@foundry/workflows/store";
 import { Option, Schema } from "effect";
-import type { JsonValue } from "~/components/ui/types";
 import type { AutomationRecord } from "~/lib/automation/service";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
 import type { MonitorSpec } from "~/lib/monitor";
@@ -15,6 +14,7 @@ import type { DefinitionEntry } from "~/lib/registry";
 import type { ActivityRecord } from "~/lib/sandbox/activities";
 import { cadence, clock, nextDue, weekdays } from "~/lib/schedule";
 import type { Schedule } from "~/lib/triggers";
+import type { JsonValue } from "~/model/json";
 import type {
   DashboardSnapshot,
   HarnessActivitySnapshot,

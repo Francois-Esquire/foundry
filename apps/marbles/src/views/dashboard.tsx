@@ -83,11 +83,13 @@ function PromptBar({
   draft,
   onInput,
   onSubmit,
+  quitting,
 }: {
   readonly prompt: RunPrompt;
   readonly draft: string;
   readonly onInput: (value: string) => void;
   readonly onSubmit: () => void;
+  readonly quitting: boolean;
 }) {
   const label =
     prompt.kind === "steer"
@@ -98,7 +100,7 @@ function PromptBar({
       <Text>{label}</Text>
       <TextInput
         flexGrow={1}
-        focused
+        focused={!quitting}
         onInput={onInput}
         onSubmit={onSubmit}
         value={draft}
@@ -249,6 +251,7 @@ export function DashboardView({
           onInput={ui.setDraft}
           onSubmit={ui.submitPrompt}
           prompt={state.prompt}
+          quitting={ui.quit.quitting}
         />
       )}
       {!state.help && (

@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { act, useEffect, useState } from "react";
 import { JSONView } from "../src/components/ui/json";
 import { Log } from "../src/components/ui/log";
-import type { LogEntry } from "../src/components/ui/types";
+import type { LogEntry } from "../src/model/log";
 import { flush, mount, press, unmount } from "./helpers/render";
 
 afterEach(unmount);

@@ -1,6 +1,7 @@
-import type { JsonValue, LogEntry } from "~/components/ui/types";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
 import type { DefinitionOptions } from "~/lib/inputs";
+import type { JsonValue } from "~/model/json";
+import type { LogEntry } from "~/model/log";
 import type { InputAttention, RunStatus } from "./run-status";
 
 export type ItemKind = "schedule" | "monitor" | "workflow" | "step";

@@ -1,9 +1,9 @@
 // Adapted from termcn's OpenTUI Log.
 import { useKeyboard } from "@opentui/react";
 import { useState } from "react";
+import type { LogEntry } from "~/model/log";
 import { Text } from "./text";
 import { theme } from "./theme";
-import type { LogEntry } from "./types";
 
 export function Log({
   entries,

@@ -2,9 +2,9 @@
 import type { ScrollBoxRenderable } from "@opentui/core";
 import { useKeyboard } from "@opentui/react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { JsonValue } from "~/model/json";
 import { SelectableRow } from "./selectable-row";
 import { Text } from "./text";
-import type { JsonValue } from "./types";
 
 interface JsonLine {
   readonly branch: boolean;

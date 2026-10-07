@@ -98,9 +98,8 @@ the original medium background, warm foreground, and bright accent colors.
 
 ## Composition
 
-- `src/components/ui/`: adapted termcn Badge, Tabs, Key Value, JSON, Log, Dialog, themed text, and theme.
-- `src/components/`: panels, kind badges, status labels, selectable rows, actions.
-- `src/components/blocks/`: catalogs, run tree, inspector, overview, values, logs, help, quit confirmation, workspace header.
+- `src/components/ui/`: adapted termcn Tabs, Key Value, JSON, Log, Dialog, themed text, and theme, plus panels, selectable rows, actions, and the text input. Nothing in `ui/` imports views or lib.
+- `src/components/blocks/`: kind badges, status labels, catalogs, run tree, inspector, overview, values, logs, help, quit confirmation, workspace header.
 - `src/views/dashboard.tsx`: layout and host toolbar slot.
 - `src/views/splash.tsx`: centered loading/ready screen.
 - `src/views/splash-model.ts`: startup state and snapshot counts.

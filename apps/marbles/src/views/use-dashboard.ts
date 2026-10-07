@@ -112,7 +112,7 @@ export function useDashboard({
     if (!capturesKeys(context)) {
       onShortcut?.(key);
     }
-    command?.run?.(
+    command?.run(
       { ...context, act: control.run, launch, quit: quit.ask, send },
       key
     );
