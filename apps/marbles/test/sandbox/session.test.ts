@@ -150,6 +150,81 @@ async function session(
 }
 
 describe("built-in sandbox session factory", () => {
+  it.each(["disabled", "default", "enabled", "custom"] as const)(
+    "honours %s compaction for over-budget retained history",
+    async (mode) => {
+      guest();
+      const store = new InMemorySessionStore();
+      await store.createSession({ id: "session" });
+      for (const role of ["user", "assistant"] as const) {
+        await store.appendMessage({
+          parts: [{ text: "history ".repeat(1000), type: "text" }],
+          role,
+          sessionId: "session",
+        });
+      }
+      const network = Object.assign(model([]), {
+        limits: { contextWindow: 100, maxOutputTokens: 0 },
+      });
+      const generate = vi.spyOn(network, "doGenerate").mockResolvedValue({
+        content: [{ text: "retained summary", type: "text" }],
+        finishReason: { raw: undefined, unified: "stop" },
+        usage,
+        warnings: [],
+      });
+      const summarize = vi.fn(async () => "custom summary");
+      const options: Record<typeof mode, Partial<SandboxSessionOptions>> = {
+        custom: { compaction: { keepTokens: 1, summarizer: { summarize } } },
+        default: {},
+        disabled: { compaction: false },
+        enabled: { compaction: true },
+      };
+      const harness = await session(network, options[mode], { store });
+      try {
+        expect((await harness.generate("continue")).status).toBe("complete");
+        const summaries = (await store.listMessages("session")).filter(
+          (message) => message.role === "summary"
+        );
+        expect(summaries).toHaveLength(mode === "disabled" ? 0 : 1);
+        expect(generate).toHaveBeenCalledTimes(
+          mode === "default" || mode === "enabled" ? 1 : 0
+        );
+        expect(summarize).toHaveBeenCalledTimes(mode === "custom" ? 1 : 0);
+      } finally {
+        await harness.close?.();
+      }
+    }
+  );
+
+  it.each([true, false, {}] as const)(
+    "rejects native CLI compaction option %j before preparing the guest",
+    async (compaction) => {
+      guest();
+      if (!binding.container) {
+        throw new Error("expected guest");
+      }
+      await expect(
+        createSandboxSession({
+          agentId: "coder",
+          container: binding.container,
+          harness: "claude-code",
+          instructions: "inspect",
+          modelId: "sonnet",
+          options: {
+            authority: { policy: createInMemoryAgentAuthorizer().authorizer },
+            compaction,
+            sandbox,
+          },
+          provider: "claude-code",
+          sessionId: "session",
+          signal,
+          store: new InMemorySessionStore(),
+          write: () => undefined,
+        })
+      ).rejects.toThrow("manage their own compaction");
+    }
+  );
+
   it("runs a gateway tool loop over guest files and commands with one grant claim per effect", async () => {
     const fake = guest();
     const authority = createInMemoryAgentAuthorizer();

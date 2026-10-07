@@ -16,11 +16,11 @@ export const CODING_INSTRUCTIONS =
 
 export type BuiltinCodingSettings = Omit<
   SessionHarnessSettings,
-  "tools" | "stopWhen" | "compaction"
+  "tools" | "stopWhen"
 > &
-  Required<
-    Pick<SessionHarnessSettings, "agentId" | "policy" | "tools" | "compaction">
-  > & { maxSteps: number };
+  Required<Pick<SessionHarnessSettings, "agentId" | "policy" | "tools">> & {
+    maxSteps: number;
+  };
 
 /** The host supplies coding tools and their execution environment. No Sandbox dependency. */
 export function createBuiltinCodingHarness(

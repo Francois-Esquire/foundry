@@ -267,7 +267,7 @@ describe("cadence", () => {
     const engine = loopEngine([every], () => {
       throw new Error("a held trigger must not start");
     });
-    const held = engine.store.lock("held");
+    const held = engine.store.lock("schedule:held");
     const skipped: number[] = [];
     await runSchedules(engine, {
       now: () => clock,

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { lockHolder, processAlive } from "@foundry/lib/file-lock";
 
 import { isRecord, readJson } from "~/lib/state/json";
+import { scheduleKeyOfLock } from "~/lib/state/locks";
 import { TERMINAL_RUN_STATUSES } from "~/lib/state/runs";
 
 /**
@@ -96,9 +97,13 @@ function readSchedules(dir: string): ScheduleStatus[] {
   const locks = join(dir, "locks");
   const running = new Map<string, number>();
   for (const name of listFiles(locks)) {
+    const key = scheduleKeyOfLock(name);
+    if (key === undefined) {
+      continue;
+    }
     const holder = lockHolder(join(locks, name));
     if (holder !== undefined && processAlive(holder)) {
-      running.set(name, holder);
+      running.set(key, holder);
     }
   }
   const names = new Set([

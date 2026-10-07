@@ -267,6 +267,16 @@ acknowledgement can redeliver, so target workflows should tolerate duplicates.
 Durable execution requires a running Marbles loop or an installed host
 schedule. Pi integration is deferred.
 
+Host sessions accept `cwd`; sandbox sessions select their workspace through
+mounts and accept permission profiles, question handlers, and credentials.
+These option sets are distinct in TypeScript. Network-model sessions accept
+`compaction: true` or custom settings, and `false` disables compaction.
+Compaction defaults off on the host and on for the built-in sandbox coding
+harness. Native CLI sessions manage their own compaction and reject host
+compaction settings. Both `generate` and `stream` follow steering prompts;
+a steered stream emits one final finish event, and its final promises describe
+the last turn.
+
 ## Embedding the engine
 
 The CLI is one host of an engine any Bun program can run. `@foundry/marbles` is

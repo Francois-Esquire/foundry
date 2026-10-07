@@ -4,6 +4,7 @@ import type { Launch } from "~/lib/launch";
 import { isLaunch } from "~/lib/launch";
 import { acknowledgeLaunch } from "~/lib/monitor";
 import { isRecord } from "~/lib/state/json";
+import { scheduleLockName } from "~/lib/state/locks";
 import type { ScheduleHistory } from "~/lib/state/schedules";
 import { lastFinish, recordTick } from "~/lib/state/schedules";
 import type { CalendarSlot, Schedule, Trigger, Weekday } from "~/lib/triggers";
@@ -140,7 +141,7 @@ export async function tick(
 ): Promise<{ readonly value: unknown } | undefined> {
   const { store } = engine;
   const now = options.now ?? Date.now;
-  const lock = store.lock(schedule.key);
+  const lock = store.lock(scheduleLockName(schedule.key));
   if ("holder" in lock) {
     options.print(`[schedule] ${schedule.key} skipped: held by ${lock.holder}`);
     return undefined;

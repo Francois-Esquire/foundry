@@ -243,7 +243,7 @@ describe("schedule state", () => {
 
     const result = await tick(engine, schedule, { print });
     expect(result).toEqual({ value: "HI" });
-    expect(existsSync(join(state, "locks", "s"))).toBe(false);
+    expect(existsSync(join(state, "locks", "schedule:s"))).toBe(false);
     const history = readJson(join(state, "schedules", "s.json"));
     expect(history.lastStatus).toBe("complete");
     expect(Object.keys(history).sort()).toEqual([
@@ -263,9 +263,9 @@ describe("schedule state", () => {
     expect(readJson(join(state, "schedules", "s.json"))).toMatchObject({
       lastStatus: "failed",
     });
-    expect(existsSync(join(state, "locks", "s"))).toBe(false);
+    expect(existsSync(join(state, "locks", "schedule:s"))).toBe(false);
 
-    writeFileSync(join(state, "locks", "s"), String(process.pid));
+    writeFileSync(join(state, "locks", "schedule:s"), String(process.pid));
     await expect(tick(engine, schedule, { print })).resolves.toBe(undefined);
     expect(lines).toContain(
       `[schedule] s skipped: held by pid ${String(process.pid)}`

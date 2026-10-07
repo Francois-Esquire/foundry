@@ -1,16 +1,7 @@
 import type { AgentSpec } from "@foundry/agents/agents/index";
 import { createAgentPreset } from "@foundry/agents/agents/index";
-import type {
-  HarnessSession,
-  SessionHarness,
-  SessionStreamOptions,
-} from "@foundry/agents/harness";
-import type {
-  SessionInput,
-  SessionMessage,
-  SessionStore,
-} from "@foundry/agents/session";
-import { createModelSummarizer } from "@foundry/agents/session";
+import type { HarnessSession, SessionHarness } from "@foundry/agents/harness";
+import type { SessionStore } from "@foundry/agents/session";
 import type { Skill } from "@foundry/agents/skills";
 import type { ModelManager, TurnExecutorRef } from "@foundry/models";
 import { observeAgentTurn } from "@foundry/models";
@@ -23,7 +14,6 @@ import type { HarnessActivities } from "~/lib/sandbox/activities";
 import type { HarnessInteractions } from "~/lib/sandbox/interactions";
 import type { SandboxSessionOptions } from "~/lib/sandbox/session";
 import { createSandboxSession } from "~/lib/sandbox/session";
-
 import type { ManagerArgs } from "../bindings";
 import type { LiveSession } from "../run-scope";
 import { workingDirectory } from "../run-scope";
@@ -31,12 +21,14 @@ import type {
   AgentDefinition,
   Agents,
   Sandbox,
+  SandboxAgentOptions,
   Session,
   SessionOptions,
   SessionRef,
-  SessionReply,
   SkillSet,
 } from "../types";
+import { type SessionTurnSite, wrapAgentSession } from "./agent-turns";
+import { resolveCompaction } from "./session-options";
 
 /**
  * Sessions over `createAgentPreset`, wired by default: the provider is the
@@ -95,7 +87,7 @@ interface Source {
  * is counted for replay, turns stop with the step, and the session closes
  * when the run settles. On the manager it is the engine itself.
  */
-interface SessionSite {
+interface SessionSite extends SessionTurnSite {
   /** The working directory when neither the call nor a worktree names one: the run's root, or the workspace root. */
   readonly cwd: string;
   /** The run's own session; a fresh session is filed under it. */
@@ -147,133 +139,6 @@ function frameSite(
 
 function refOf(session: SessionRef | Session): SessionRef {
   return "ref" in session ? session.ref : session;
-}
-
-function textOf(message: SessionMessage): string {
-  return message.parts
-    .flatMap((part) => (part.type === "text" ? [part.text] : []))
-    .join("\n");
-}
-
-function wrap(
-  harness: SessionHarness | HarnessSession,
-  ref: SessionRef,
-  site: SessionSite
-): Session {
-  const { write } = site;
-  const live: LiveSession = { ref };
-  site.track(live);
-  const turnOptions = (
-    turn: AbortController,
-    options?: SessionStreamOptions
-  ): SessionStreamOptions => {
-    const signals = [site.signal(), turn.signal];
-    if (options?.signal) {
-      signals.push(options.signal);
-    }
-    return {
-      ...options,
-      onText: (delta) => {
-        write(delta);
-        options?.onText?.(delta);
-      },
-      signal: AbortSignal.any(signals),
-    };
-  };
-  const check = () => {
-    const signal = site.signal();
-    if (signal.aborted) {
-      throw signal.reason instanceof Error
-        ? signal.reason
-        : new Error(String(signal.reason ?? "step cancelled"));
-    }
-  };
-  /** The turn's controller is on the live session while it runs, for steer. */
-  const begin = (): AbortController => {
-    const turn = new AbortController();
-    live.turn = turn;
-    return turn;
-  };
-  const end = (turn: AbortController) => {
-    if (live.turn === turn) {
-      live.turn = undefined;
-    }
-  };
-  /** A resume prompt rides on the first turn of the session that was parked. */
-  const withResume = (input: SessionInput): SessionInput => {
-    if (!(site.recorded && typeof input === "string")) {
-      return input;
-    }
-    const prompt = site.takeResume();
-    if (prompt === undefined) {
-      return input;
-    }
-    write(`\n[resume] ${prompt}\n`);
-    return `${prompt}\n\n${input}`;
-  };
-  /**
-   * A turn cut short by the step's abort is committed by the harness and
-   * resolves as if complete; the check afterwards is what keeps authored
-   * code from running on after a pause or a cancellation.
-   */
-  const settled = <T>(value: Promise<T>): Promise<T> => {
-    const checked = value.then((result) => {
-      check();
-      return result;
-    });
-    checked.catch(() => undefined);
-    return checked;
-  };
-  return {
-    async generate(input, options): Promise<SessionReply> {
-      check();
-      const turn = begin();
-      let message: SessionMessage;
-      try {
-        message = await harness.generate(
-          withResume(input),
-          turnOptions(turn, options)
-        );
-      } finally {
-        end(turn);
-      }
-      check();
-      while (live.steer !== undefined) {
-        const prompt = live.steer;
-        live.steer = undefined;
-        write(`\n[steer] ${prompt}\n`);
-        const next = begin();
-        try {
-          message = await harness.generate(prompt, turnOptions(next, options));
-        } finally {
-          end(next);
-        }
-        check();
-      }
-      return { ...message, text: textOf(message) };
-    },
-    harness,
-    ref,
-    stream(input, options) {
-      check();
-      const turn = begin();
-      const stream = harness.stream(
-        withResume(input),
-        turnOptions(turn, options)
-      );
-      stream.message.finally(() => end(turn)).catch(() => undefined);
-      return {
-        async *[Symbol.asyncIterator]() {
-          yield* stream;
-          check();
-        },
-        message: settled(stream.message),
-        outcome: settled(stream.outcome),
-        text: settled(stream.text),
-        usage: settled(stream.usage),
-      };
-    },
-  };
 }
 
 /** The recorded id on replay, the wanted one when its provider matches, else fresh. */
@@ -361,7 +226,7 @@ async function interactionOptions(
   source: Source,
   agentId: string,
   sessionId: string,
-  options: SessionOptions
+  options: SandboxAgentOptions
 ): Promise<SandboxSessionOptions> {
   const authority = interactions.authority(source, options.authority);
   await interactions.registerSession({ agentId, sessionId, source }, authority);
@@ -430,7 +295,7 @@ async function openSession(
   };
   const harness =
     options.sandbox && !deps.dry
-      ? await openSandboxSession(deps, opening, options.sandbox)
+      ? await openSandboxSession(deps, { ...opening, options }, options.sandbox)
       : await openLocalSession(deps, opening);
   return retainSession(harness, id, site);
 }
@@ -438,7 +303,14 @@ async function openSession(
 /** A harness inside the sandbox's container, with approvals, questions, and activity routed to the host. */
 async function openSandboxSession(
   deps: AgentsDeps,
-  { definition, id, options, route, site, skills }: Opening,
+  {
+    definition,
+    id,
+    options,
+    route,
+    site,
+    skills,
+  }: Omit<Opening, "options"> & { readonly options: SandboxAgentOptions },
   sandbox: Sandbox
 ): Promise<HarnessSession> {
   const { source } = site;
@@ -508,14 +380,7 @@ async function openLocalSession(
     skills: () => Promise.resolve(skills),
     store: deps.sessions,
   }).createSession({
-    ...(options.compaction
-      ? {
-          compaction: {
-            summarizer: createModelSummarizer({ model }),
-            ...(options.compaction === true ? {} : options.compaction),
-          },
-        }
-      : {}),
+    compaction: resolveCompaction(options.compaction, model),
     model,
     sessionId: id,
   });
@@ -536,7 +401,7 @@ function retainSession(
     provider: harness.route.provider,
   };
   site.record(ref);
-  return wrap(harness, ref, site);
+  return wrapAgentSession(harness, ref, site);
 }
 
 export class AgentsManager implements Agents {

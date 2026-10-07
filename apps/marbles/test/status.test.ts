@@ -106,10 +106,18 @@ describe("readStatus", () => {
   it("reports a live lock as running and ignores a dead one", () => {
     const { state, dir } = layout();
     mkdirSync(join(dir, "locks"));
-    writeFileSync(join(dir, "locks", "guides"), String(process.pid));
-    writeFileSync(join(dir, "locks", "fresh"), String(process.pid));
-    writeFileSync(join(dir, "locks", "stale"), String(spawnSync("true").pid));
+    writeFileSync(join(dir, "locks", "schedule:guides"), String(process.pid));
+    writeFileSync(join(dir, "locks", "schedule:fresh"), String(process.pid));
+    writeFileSync(
+      join(dir, "locks", "schedule:stale"),
+      String(spawnSync("true").pid)
+    );
 
+    writeFileSync(join(dir, "locks", "run-probe"), String(process.pid));
+    writeFileSync(
+      join(dir, "locks", "edit-automation-probe"),
+      String(process.pid)
+    );
     const schedules = readStatus(state).workspaces[0]?.schedules;
     expect(schedules).toEqual([
       expect.objectContaining({ name: "fresh", running: process.pid }),

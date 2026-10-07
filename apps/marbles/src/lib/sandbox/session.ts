@@ -13,7 +13,6 @@ import {
   createHarnessQuestionTool,
 } from "@foundry/agents/harness";
 import type { SessionStore } from "@foundry/agents/session";
-import { createModelSummarizer } from "@foundry/agents/session";
 import { createClaudeCodeDriver } from "@foundry/models/claude-code";
 import { createCodexDriver } from "@foundry/models/codex";
 import { DEFAULT_SANDBOX_WORKING_DIRECTORY } from "@foundry/sandbox/constants";
@@ -25,7 +24,8 @@ import {
   type GuestAuth,
   isCliHarness,
 } from "~/lib/cli-harnesses";
-import type { SessionOptions } from "~/lib/types";
+import type { SandboxAgentOptions } from "~/lib/types";
+import { resolveCompaction } from "../managers/session-options";
 import { createCodingTools } from "./coding-tools";
 import { codexSubscriptionTokens, guestAuth } from "./credentials";
 import { type DelegationScope, delegationTool } from "./delegate";
@@ -58,7 +58,7 @@ export type SandboxAuthority = Pick<
 >;
 
 /** A session's options once the host has resolved its authority. */
-export interface SandboxSessionOptions extends SessionOptions {
+export interface SandboxSessionOptions extends SandboxAgentOptions {
   readonly authority: SandboxAuthority;
 }
 
@@ -153,10 +153,7 @@ function builtinSession(
   return createBuiltinCodingHarness(
     {
       agentId: settings.agentId,
-      compaction: {
-        summarizer: createModelSummarizer({ model }),
-        ...(typeof options.compaction === "object" ? options.compaction : {}),
-      },
+      compaction: resolveCompaction(options.compaction ?? true, model),
       instructions: settings.instructions,
       maxSteps: profile.maxSteps,
       model,
@@ -247,6 +244,11 @@ async function cliSession<H extends CliHarness>(
   { approvals, askUser, hostTools }: SessionShared
 ): Promise<HarnessSession> {
   const { container, options } = settings;
+  if (options.compaction !== undefined) {
+    throw new Error(
+      "Native CLI sessions manage their own compaction; compaction settings require a network model."
+    );
+  }
   const profile = options.profile ?? SCHEDULED_PROFILE;
   const { nativeId } = container.row;
   if (!nativeId) {

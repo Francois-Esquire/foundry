@@ -15,11 +15,14 @@ export async function observeSteps<I, O, X extends BaseContext>(
   name: string,
   workflow: Workflow<I, O, X>,
   print: (line: string) => void,
-  onEvent?: (event: ChannelEvent) => void
+  onEvent?: (event: ChannelEvent) => void,
+  stop?: AbortSignal
 ): Promise<void> {
   const rootDepth = workflow.root.path.length;
   const reader = workflow.root.subscribe().getReader();
-  const { signal } = workflow.root;
+  const signal = stop
+    ? AbortSignal.any([workflow.root.signal, stop])
+    : workflow.root.signal;
   const cancel = () => {
     reader.cancel().catch(() => undefined);
   };

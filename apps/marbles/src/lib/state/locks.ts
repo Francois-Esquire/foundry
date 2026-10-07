@@ -51,3 +51,16 @@ function describeHolder(
   // left that turn behind.
   return `pid ${String(holder)}, which has exited (if no process is taking the lock over, remove ${path}.break)`;
 }
+
+/** Schedule locks have their own namespace, separate from recovery and record edits. */
+const SCHEDULE_PREFIX = "schedule:";
+
+export function scheduleLockName(key: string): string {
+  return `${SCHEDULE_PREFIX}${key}`;
+}
+
+export function scheduleKeyOfLock(name: string): string | undefined {
+  return name.startsWith(SCHEDULE_PREFIX)
+    ? name.slice(SCHEDULE_PREFIX.length)
+    : undefined;
+}

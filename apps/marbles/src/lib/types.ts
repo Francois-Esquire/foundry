@@ -104,27 +104,42 @@ export interface SessionRef {
   readonly provider?: string;
 }
 
-export interface SessionOptions {
+interface SharedSessionOptions {
+  /** Enable automatic compaction or supply its settings; false disables it. */
+  readonly compaction?: boolean | Partial<CompactionSettings>;
+  /** Continue this session instead of starting a new one. */
+  readonly session?: SessionRef | Session;
+}
+
+interface HostSessionOptions extends SharedSessionOptions {
+  readonly apiKey?: never;
+  readonly authority?: never;
+  readonly cwd?: string;
+  readonly oauthToken?: never;
+  readonly profile?: never;
+  readonly question?: never;
+  readonly sandbox?: never;
+}
+
+export interface SandboxAgentOptions extends SharedSessionOptions {
   /** Explicit per-session key; never persisted with the sandbox or session. */
   readonly apiKey?: string;
   readonly authority?: Pick<
     HarnessAuthoritySettings,
     "policy" | "approve" | "onApprovalRequest"
   >;
+  readonly cwd?: never;
 
-  readonly compaction?: boolean | Partial<CompactionSettings>;
-  /** Overrides the composed working directory. */
-  readonly cwd?: string;
   /** Claude subscription token; defaults to the host Claude Code login. */
   readonly oauthToken?: string;
   readonly profile?: HarnessPermissionProfile;
   /** Host handler for model questions; the dashboard supplies one by default. */
   readonly question?: HarnessQuestionCallback;
   /** Run the harness inside an already started MicroSandbox. */
-  readonly sandbox?: Sandbox;
-  /** Continue this session instead of starting a new one. */
-  readonly session?: SessionRef | Session;
+  readonly sandbox: Sandbox;
 }
+
+export type SessionOptions = HostSessionOptions | SandboxAgentOptions;
 
 export type SessionReply = SessionMessage & { readonly text: string };
 

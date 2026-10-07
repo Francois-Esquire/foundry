@@ -50,7 +50,7 @@ import { JsonAgentGrantRepository } from "~/lib/sandbox/grants";
 import { HarnessInteractions } from "~/lib/sandbox/interactions";
 import type { Lock } from "~/lib/state/locks";
 import type { RunExtras } from "~/lib/state/runs";
-import { loadRuns, saveRun } from "~/lib/state/runs";
+import { loadRuns, saveRun, TERMINAL_RUN_STATUSES } from "~/lib/state/runs";
 import type { StateStore } from "~/lib/state/store";
 import { InMemoryStateStore, JsonStateStore } from "~/lib/state/store";
 import { factoryFor } from "~/lib/tree";
@@ -139,6 +139,8 @@ export interface EngineOptions {
  * what a host reads of it while it is live, and what is owed on disk.
  */
 interface HeldRun {
+  /** Execution, publication, cleanup, and persistence, owned together. */
+  finalized?: Promise<unknown>;
   /** Ownership of an adopted run's file; released once it settles or the process stops. */
   lock?: Lock;
   /**
@@ -210,7 +212,10 @@ export class Engine {
   readonly #held = new Map<string, HeldRun>();
   readonly #dispatching = new Set<Promise<unknown>>();
   #running: Running | undefined;
-  #phase: "new" | "started" | "stopping" = "new";
+  #phase: "new" | "starting" | "started" | "failed" | "stopping" = "new";
+  #starting: Promise<this> | undefined;
+  #stopping: Promise<void> | undefined;
+  #disposing: Promise<void> | undefined;
 
   /**
    * Where an engine over `state` cuts worktrees by default: inside the state
@@ -413,11 +418,19 @@ export class Engine {
   }
 
   /** Build the Orchestrator, register what can run, and adopt what an earlier process parked. */
-  async start(): Promise<this> {
-    if (this.#phase !== "new") {
-      throw new Error("the engine has already started");
+  start(): Promise<this> {
+    if (this.#disposing) {
+      return Promise.reject(new Error("the engine was disposed"));
     }
-    this.#phase = "started";
+    if (this.#phase !== "new") {
+      return Promise.reject(new Error("the engine has already started"));
+    }
+    this.#phase = "starting";
+    this.#starting = this.#start();
+    return this.#starting;
+  }
+
+  async #start(): Promise<this> {
     const { state } = this;
     const askable = this.#askable;
     const feed = this.#publisher;
@@ -435,59 +448,90 @@ export class Engine {
         : loadRuns(state, print, {
             recover: (run) => askable && registered(run.step),
           });
-    for (const [runId, extras] of loaded?.recovered ?? []) {
-      this.#scopes.recover(runId, extras);
+    let orchestrator: Orchestrator | undefined;
+    try {
+      for (const [runId, extras] of loaded?.recovered ?? []) {
+        this.#scopes.recover(runId, extras);
+      }
+      const store = new InMemoryOrchestratorStore(
+        loaded === undefined ? {} : { snapshot: loaded.snapshot }
+      );
+
+      orchestrator = new Orchestrator({ config, store });
+      await orchestrator.setup();
+      this.#registerAll(orchestrator);
+      await orchestrator.start();
+      const router = feedRouter({ askable, feed, orchestrator, print });
+      const recovered: {
+        name: string;
+        dispatched: Dispatched<unknown>;
+        lock?: Lock;
+      }[] = [];
+
+      // A parked run is written as soon as it parks, so a crash or a quit while
+      // it waits leaves a file the next process can adopt. It is written again
+      // as soon as its answer is in, before the run goes on: a crash after that
+      // finds a run that was mid-flight, which is skipped, not a stale question
+      // that would be asked again over work already done.
+      orchestrator.on("suspended", (payload) => {
+        if (this.#held.has(payload.runId)) {
+          this.#save(payload.runId);
+        }
+      });
+      orchestrator.on("resumed", (payload) => {
+        if (this.#held.has(payload.runId)) {
+          this.#save(payload.runId);
+        }
+      });
+
+      // Adopt what the store recovered: follow each parked run and keep its
+      // question open under this process before abandoned entries are swept.
+      for (const runId of loaded?.recovered.keys() ?? []) {
+        const lock = loaded?.locks.get(runId);
+        const dispatched = await orchestrator.get(runId);
+        const record = store.snapshot().runs.find((run) => run.id === runId);
+        if (!(dispatched && record)) {
+          // Nothing here can follow it, so nothing here should own it.
+          lock?.release();
+          this.#scopes.forget(runId);
+          continue;
+        }
+        print(`[run] ${record.step} recovered ${runId}`);
+        recovered.push({ dispatched, lock, name: record.step });
+        await router.adopt(record.step, runId);
+      }
+      await this.interactions.restore();
+      // A crashed dashboard never cancelled its open questions; nothing can answer them now.
+      await feed
+        .cancelAbandoned()
+        .catch((error: unknown) => print(`[feed] ${String(error)}`));
+      this.#running = { orchestrator, router, store };
+      for (const { name, dispatched, lock } of recovered) {
+        this.#track(name, dispatched, lock);
+        this.#save(dispatched.id);
+      }
+      this.#phase = "started";
+    } catch (error) {
+      this.#phase = "failed";
+      try {
+        try {
+          await orchestrator?.stop();
+        } finally {
+          for (const scope of this.#scopes) {
+            scope.abort(error);
+            await this.#scopes.settle(scope.id);
+          }
+        }
+      } finally {
+        for (const [runId, lock] of loaded?.locks ?? []) {
+          lock.release();
+          this.#scopes.forget(runId);
+        }
+        this.#held.clear();
+        this.#running = undefined;
+      }
+      throw error;
     }
-    const store = new InMemoryOrchestratorStore(
-      loaded === undefined ? {} : { snapshot: loaded.snapshot }
-    );
-
-    const orchestrator = new Orchestrator({ config, store });
-    await orchestrator.setup();
-    this.#registerAll(orchestrator);
-    await orchestrator.start();
-    const router = feedRouter({ askable, feed, orchestrator, print });
-    this.#running = { orchestrator, router, store };
-
-    // A parked run is written as soon as it parks, so a crash or a quit while
-    // it waits leaves a file the next process can adopt. It is written again
-    // as soon as its answer is in, before the run goes on: a crash after that
-    // finds a run that was mid-flight, which is skipped, not a stale question
-    // that would be asked again over work already done.
-    orchestrator.on("suspended", (payload) => {
-      if (this.#held.has(payload.runId)) {
-        this.#save(payload.runId);
-      }
-    });
-    orchestrator.on("resumed", (payload) => {
-      if (this.#held.has(payload.runId)) {
-        this.#save(payload.runId);
-      }
-    });
-
-    // Adopt what the store recovered: follow each parked run and keep its
-    // question open under this process before abandoned entries are swept.
-    for (const runId of loaded?.recovered.keys() ?? []) {
-      const lock = loaded?.locks.get(runId);
-      const dispatched = await orchestrator.get(runId);
-      const record = store.snapshot().runs.find((run) => run.id === runId);
-      if (!(dispatched && record)) {
-        // Nothing here can follow it, so nothing here should own it.
-        lock?.release();
-        this.#scopes.forget(runId);
-        continue;
-      }
-      print(`[run] ${record.step} recovered ${runId}`);
-      this.#track(record.step, dispatched, lock);
-      // The file now names this process as the owner.
-      this.#save(runId);
-      await router.adopt(record.step, runId);
-    }
-    await this.interactions.restore();
-    // A crashed dashboard never cancelled its open questions; nothing can answer them now.
-    await feed
-      .cancelAbandoned()
-      .catch((error: unknown) => print(`[feed] ${String(error)}`));
     return this;
   }
 
@@ -511,14 +555,14 @@ export class Engine {
 
   #save(runId: string, extras = this.#extrasOf(runId)): void {
     const held = this.#held.get(runId);
-    if (held) {
-      held.unsaved = false;
-    }
     if (this.state === undefined) {
       return;
     }
     try {
       saveRun(this.state, this.#live().store.snapshot(), runId, extras);
+      if (held) {
+        held.unsaved = false;
+      }
     } catch (error) {
       this.#print(`[state] run ${runId} not saved: ${String(error)}`);
     }
@@ -527,50 +571,62 @@ export class Engine {
   /** Follow a run to its end: print its steps, route its posts, write it back. */
   #track<O>(name: string, dispatched: Dispatched<O>, lock?: Lock): Promise<O> {
     const { router } = this.#live();
-    this.#held.set(dispatched.id, {
+    const held: HeldRun = {
       workflow: dispatched.workflow,
       ...(lock === undefined ? {} : { lock }),
       unsaved: true,
-    });
+    };
+    this.#held.set(dispatched.id, held);
     const routed = router.observe(name, dispatched.id);
+    const observing = new AbortController();
     const observed = observeSteps(
       name,
       dispatched.workflow,
       this.#print,
-      routed.onEvent
+      routed.onEvent,
+      observing.signal
     );
     // The queue handle settles once its side effects are applied; the
     // workflow's own result carries the typed value.
     const complete = async () => {
-      await dispatched.result();
-      const settled = await dispatched.workflow.result();
-      await observed;
-      await routed.settled();
-      // A run that ends without its answer (cancelled, or failed by a
-      // sibling) takes its question with it: the entry follows the run.
-      if (settled.status !== "complete") {
-        await router.close(dispatched.id);
+      try {
+        const [execution, observation] = await Promise.allSettled([
+          dispatched.result().catch((error: unknown) => {
+            observing.abort(error);
+            throw error;
+          }),
+          observed,
+        ]);
+        await routed.settled();
+        const settled = await dispatched.workflow.result();
+        if (settled.status !== "complete") {
+          await router.close(dispatched.id);
+          throw new Error(
+            settled.status === "failed"
+              ? `run "${name}" failed: ${settled.error.message}`
+              : `run "${name}" was cancelled: ${settled.reason ?? "no reason"}`
+          );
+        }
+        if (execution.status === "rejected") {
+          throw execution.reason;
+        }
+        if (observation.status === "rejected") {
+          throw observation.reason;
+        }
+        return settled.value;
+      } finally {
+        const extras = this.#extrasOf(dispatched.id);
+        try {
+          await this.#scopes.settle(dispatched.id);
+          this.#save(dispatched.id, extras);
+        } finally {
+          this.#held.delete(dispatched.id);
+          release(held);
+        }
       }
-      // Close what the run opened through the context; its ledger is read
-      // first, since settling forgets the scope.
-      const extras = this.#extrasOf(dispatched.id);
-      await this.#scopes.settle(dispatched.id);
-      const held = this.#held.get(dispatched.id);
-      this.#held.delete(dispatched.id);
-      this.#save(dispatched.id, extras);
-      if (held) {
-        release(held);
-      }
-      if (settled.status !== "complete") {
-        throw new Error(
-          settled.status === "failed"
-            ? `run "${name}" failed: ${settled.error.message}`
-            : `run "${name}" was cancelled: ${settled.reason ?? "no reason"}`
-        );
-      }
-      return settled.value;
     };
     const result = complete();
+    held.finalized = result;
     // The host may attach after the first snapshot refresh.
     result.catch(() => undefined);
     return result;
@@ -603,17 +659,26 @@ export class Engine {
     triggerId?: string
   ): Promise<{ readonly id: string; readonly result: Promise<O> }> {
     const { orchestrator } = this.#live();
-    if (this.#phase === "stopping") {
-      throw new Error("engine is stopping");
+    if (this.#phase !== "started") {
+      throw new Error(
+        this.#phase === "stopping"
+          ? "engine is stopping"
+          : "engine has not finished starting"
+      );
     }
     const dispatch = orchestrator.run<unknown, O>(name, input, {
       extensions: triggerId === undefined ? {} : { triggerId },
     });
-    this.#dispatching.add(dispatch);
-    const dispatched = await dispatch.finally(() =>
-      this.#dispatching.delete(dispatch)
-    );
-    return { id: dispatched.id, result: this.#track(name, dispatched) };
+    const tracking = dispatch.then((dispatched) => ({
+      id: dispatched.id,
+      result: this.#track(name, dispatched),
+    }));
+    this.#dispatching.add(tracking);
+    try {
+      return await tracking;
+    } finally {
+      this.#dispatching.delete(tracking);
+    }
   }
 
   /**
@@ -706,41 +771,68 @@ export class Engine {
    * question and is adopted by the next process that can answer. Does
    * nothing on an engine that never started.
    */
-  async stop(options?: { readonly cancel?: boolean }): Promise<void> {
-    if (!this.#running) {
-      return;
-    }
-    const { orchestrator, router, store } = this.#running;
-    this.#phase = "stopping";
-    await this.interactions.close();
-    // With a state dir a parked run is written and adopted by the next
-    // process that can answer, so a quit keeps it and its open question.
-    // Without one, nothing can resume it, so its entry says so.
-    const parkedSurvive = this.state !== undefined;
-    if (!parkedSurvive) {
-      await router.cancelOpen();
-    }
-    await Promise.allSettled([...this.#dispatching]);
-    if (options?.cancel) {
-      const doomed = parkedSurvive
-        ? ["queued", "running"]
-        : ["queued", "running", "suspended"];
-      await Promise.all(
-        store
-          .snapshot()
-          .runs.filter((run) => doomed.includes(run.status))
-          .map((run) => orchestrator.cancelRun(run.id))
+  stop(options?: { readonly cancel?: boolean }): Promise<void> {
+    if (this.#phase === "starting") {
+      return (
+        this.#starting?.then(
+          () => this.stop(options),
+          () => undefined
+        ) ?? Promise.resolve()
       );
     }
-    await orchestrator.drain();
-    for (const [runId, held] of this.#held) {
-      if (held.unsaved) {
-        this.#save(runId);
-      }
+    if (!this.#running) {
+      return Promise.resolve();
     }
-    await orchestrator.stop();
-    for (const held of this.#held.values()) {
-      release(held);
+    this.#phase = "stopping";
+    this.#stopping ??= this.#stop(this.#running, options?.cancel ?? false);
+    return this.#stopping;
+  }
+
+  async #stop(
+    { orchestrator, router }: Running,
+    cancel: boolean
+  ): Promise<void> {
+    try {
+      await this.interactions.close();
+      // With a state dir a parked run is written and adopted by the next
+      // process that can answer, so a quit keeps it and its open question.
+      // Without one, nothing can resume it, so its entry says so.
+      const parkedSurvive = this.state !== undefined;
+      if (!parkedSurvive) {
+        await router.cancelOpen();
+      }
+      await Promise.allSettled([...this.#dispatching]);
+      if (cancel) {
+        const doomed = parkedSurvive
+          ? ["queued", "running"]
+          : ["queued", "running", "suspended"];
+        await Promise.all(
+          [...this.#held]
+            .filter(([, held]) => doomed.includes(held.workflow.state.status))
+            .map(([runId]) => orchestrator.cancelRun(runId))
+        );
+      }
+      await orchestrator.drain();
+      await Promise.allSettled(
+        [...this.#held]
+          .filter(([, held]) =>
+            TERMINAL_RUN_STATUSES.has(held.workflow.state.status)
+          )
+          .map(([, held]) => held.finalized)
+      );
+      for (const [runId, held] of this.#held) {
+        if (held.unsaved) {
+          this.#save(runId);
+        }
+      }
+    } finally {
+      try {
+        await orchestrator.stop();
+      } finally {
+        for (const held of this.#held.values()) {
+          release(held);
+        }
+      }
     }
   }
 
@@ -756,12 +848,22 @@ export class Engine {
   }
 
   /**
-   * Close what this engine was handed, after `stop`: the workspace system,
+   * Stop execution and close what this engine was handed: the workspace system,
    * the containers if a sandbox ever opened them, and the models. The models
    * go last and always: a provider may hold a child process.
    */
-  async dispose(): Promise<void> {
+  dispose(): Promise<void> {
+    this.#disposing ??= this.#dispose();
+    return this.#disposing;
+  }
+
+  async #dispose(): Promise<void> {
     try {
+      await this.#starting?.catch(() => undefined);
+      await this.stop({ cancel: true });
+      for (const scope of this.#scopes) {
+        await this.#scopes.settle(scope.id);
+      }
       await this.interactions.close();
       await this.workspaces.close();
       await this.sandboxes.close().catch(() => undefined);

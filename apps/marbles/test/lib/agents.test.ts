@@ -1,4 +1,5 @@
 import { createInMemoryAgentAuthorizer } from "@foundry/agents/authorization";
+import type { SessionEvent } from "@foundry/agents/session";
 import { InMemorySessionStore } from "@foundry/agents/session";
 import { describe, expect, it } from "vitest";
 import type { ManagerArgs } from "~/lib/bindings";
@@ -93,6 +94,7 @@ describe("agents.session", () => {
         },
       },
     ]) {
+      // @ts-expect-error Exercise invalid JavaScript callers at the boundary.
       await expect(agents.session(reviewer, options)).rejects.toThrow(
         "require a sandbox session"
       );
@@ -229,6 +231,52 @@ describe("agents.session", () => {
     expect(a.written.join("")).toContain("[steer] stop and summarise");
     // Nothing in flight afterwards, so a second steer has nothing to catch.
     expect(() => a.scope.steer(a.frame.key, "again")).toThrow(NO_TURN_PATTERN);
+  });
+
+  it("steers streaming replies and exposes only the final turn through every final promise", async () => {
+    const a = args();
+    const seen: string[] = [];
+    const models = mockModels(
+      [CLAUDE_CODE],
+      ({ prompt }) => {
+        const text = prompt.split("\n").at(-1) ?? "";
+        seen.push(text);
+        return `reply to ${text}`;
+      },
+      { hold: ({ prompt }) => prompt.endsWith("count slowly") }
+    );
+    const manager = new AgentsManager({ ...deps(), models });
+    const session = await manager.scoped(a).session(reviewer);
+    try {
+      const stream = session.stream("count slowly");
+      const events = (async () => {
+        const values: SessionEvent[] = [];
+        for await (const event of stream) {
+          values.push(event);
+        }
+        return values;
+      })();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      a.scope.steer(a.frame.key, "stop and summarise");
+      expect(await stream.text).toBe("reply to stop and summarise");
+      expect((await stream.message).parts).toContainEqual({
+        text: "reply to stop and summarise",
+        type: "text",
+      });
+      expect(await stream.outcome).toBe("complete");
+      expect(await stream.usage).toBeDefined();
+      expect(
+        (await events).filter((event) => event.type === "finish")
+      ).toHaveLength(1);
+      expect(seen).toEqual(["count slowly", "stop and summarise"]);
+      expect(a.frame.sessions[0]?.steer).toBeUndefined();
+      expect(() => a.scope.steer(a.frame.key, "again")).toThrow(
+        NO_TURN_PATTERN
+      );
+    } finally {
+      await a.scope.settle();
+      await manager.close();
+    }
   });
 
   it("a resume prompt rides on the first turn of the session that was parked", async () => {
