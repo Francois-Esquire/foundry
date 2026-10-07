@@ -8,8 +8,11 @@
  * revision-before-idempotence order of a revoke all live here once. Adapters
  * own only where entries are kept and how they are found.
  *
- * Pure and renderer-safe; kept off the barrel because it is adapter plumbing,
- * not host vocabulary.
+ * Pure and renderer-safe. Kept off the barrel because it is adapter plumbing,
+ * not host vocabulary. The package's `./config/*` export still reaches it as
+ * `@foundry/lib/config/authorization/grant-state`: that path is public for
+ * writing another GrantRepository adapter, but less stable than the barrel.
+ * It follows the adapters' needs, and hosts should not build on it.
  */
 
 import type { AuthorizationSubject } from "./address";

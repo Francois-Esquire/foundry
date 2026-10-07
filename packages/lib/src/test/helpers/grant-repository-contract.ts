@@ -249,6 +249,29 @@ export function grantRepositoryContract(
           grants.claimOnce(grant.id, "invocation-1")
         ).rejects.toBeInstanceOf(GrantClaimError);
       });
+
+      it("still replays a spent claim after the grant expires or is revoked", async () => {
+        const grant = await grants.issue({
+          address: ADDRESS,
+          capability: fsRead("/p"),
+          expiresAt: 1500,
+          lifetime: { kind: "once" },
+          provenance: "human",
+        });
+        const claim = await grants.claimOnce(grant.id, "invocation-1");
+
+        clock.advance(1000);
+        await expect(
+          grants.claimOnce(grant.id, "invocation-1")
+        ).resolves.toEqual(claim);
+        await grants.revoke(grant.id, claim.revision);
+        await expect(
+          grants.claimOnce(grant.id, "invocation-1")
+        ).resolves.toEqual(claim);
+        await expect(
+          grants.claimOnce(grant.id, "invocation-2")
+        ).rejects.toBeInstanceOf(GrantClaimError);
+      });
     });
 
     describe("the issued record", () => {

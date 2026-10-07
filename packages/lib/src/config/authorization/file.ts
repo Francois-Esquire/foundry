@@ -19,11 +19,14 @@
  * `@foundry/lib/config/authorization/file`.
  */
 
-import { mkdir, open, rm } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { z } from "zod";
 
-import { hasErrorCode, readJsonFile, writeFileAtomic } from "../../atomic-file";
+import { readJsonFile, writeFileAtomic } from "../../atomic-file";
+import type { Exactly } from "../../exactly";
+import { acquireFileLock, FileLockTimeoutError } from "../../file-lock";
+import { KeyedQueue } from "../../keyed-queue";
 import type {
   AuthorizationAddress,
   AuthorizationAddressing,
@@ -34,7 +37,14 @@ import {
   AUTHORIZATION_ADDRESS_VERSION,
   encodeAddress,
 } from "./address";
-import type { Grant, GrantClaim, GrantInput, GrantRepository } from "./grant";
+import type {
+  Grant,
+  GrantClaim,
+  GrantInput,
+  GrantLifetime,
+  GrantProvenance,
+  GrantRepository,
+} from "./grant";
 import type { GrantEntry } from "./grant-state";
 import {
   claimGrant,
@@ -45,7 +55,6 @@ import {
 } from "./grant-state";
 
 const DEFAULT_LOCK_WAIT_MS = 5000;
-const LOCK_RETRY_MS = 10;
 const PRIVATE_FILE = 0o600;
 const PRIVATE_DIRECTORY = 0o700;
 
@@ -76,7 +85,21 @@ interface SavedGrants<S extends AuthorizationSubject, C> {
 }
 
 /** Transactions queued per resolved path, across every repository instance in this process. */
-const transactions = new Map<string, Promise<void>>();
+const transactions = new KeyedQueue();
+
+const lifetimes = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("once") }),
+  z.strictObject({ kind: z.literal("session"), scopeId: z.string() }),
+  z.strictObject({ kind: z.literal("persistent") }),
+]);
+const lifetimeSchema: z.ZodType<
+  Exactly<z.infer<typeof lifetimes>, GrantLifetime>
+> = lifetimes;
+
+const provenances = z.enum(["human", "profile", "certificate", "system"]);
+const provenanceSchema: z.ZodType<
+  Exactly<z.infer<typeof provenances>, GrantProvenance>
+> = provenances;
 
 function refused(): Error {
   return new Error("Saved grants are invalid; refusing authorization.");
@@ -103,12 +126,8 @@ function savedGrantsSchema<S extends AuthorizationSubject, C>(
     expiresAt: z.number().optional(),
     id: z.string(),
     issuedAt: z.number(),
-    lifetime: z.discriminatedUnion("kind", [
-      z.strictObject({ kind: z.literal("once") }),
-      z.strictObject({ kind: z.literal("session"), scopeId: z.string() }),
-      z.strictObject({ kind: z.literal("persistent") }),
-    ]),
-    provenance: z.enum(["human", "profile", "certificate", "system"]),
+    lifetime: lifetimeSchema,
+    provenance: provenanceSchema,
     revision,
   });
   return z.strictObject({
@@ -162,32 +181,26 @@ function isReachable<S extends AuthorizationSubject, C>(
   });
 }
 
+/**
+ * The writer lock. A lock left by a crashed writer is never broken: the
+ * writer may have died mid-transaction, so a person decides.
+ */
 async function acquireLock(
   path: string,
   waitMs: number
 ): Promise<() => Promise<void>> {
   const lock = `${path}.lock`;
-  const deadline = performance.now() + waitMs;
-  let lastError: unknown;
-  while (performance.now() < deadline) {
-    try {
-      const file = await open(lock, "wx", PRIVATE_FILE);
-      return async () => {
-        await file.close();
-        await rm(lock);
-      };
-    } catch (error) {
-      if (!hasErrorCode(error, "EEXIST")) {
-        throw error;
-      }
-      lastError = error;
-      await new Promise<void>((done) => setTimeout(done, LOCK_RETRY_MS));
+  try {
+    return await acquireFileLock(lock, { mode: PRIVATE_FILE, waitMs });
+  } catch (error) {
+    if (!(error instanceof FileLockTimeoutError)) {
+      throw error;
     }
+    throw new Error(
+      `Grants are locked at ${lock}; refusing authorization. If no process is using this store, remove the abandoned lock and retry.`,
+      { cause: error }
+    );
   }
-  throw new Error(
-    `Grants are locked at ${lock}; refusing authorization. If no process is using this store, remove the abandoned lock and retry.`,
-    { cause: lastError }
-  );
 }
 
 /** One file of Grants. See the module comment for its guarantees. */
@@ -276,12 +289,7 @@ export class FileGrantRepository<S extends AuthorizationSubject, C>
     }
   ): Promise<T> {
     const path = this.#path;
-    const previous = transactions.get(path) ?? Promise.resolve();
-    const { promise: pending, resolve: release } =
-      Promise.withResolvers<void>();
-    transactions.set(path, pending);
-    try {
-      await previous;
+    return await transactions.run(path, async () => {
       await mkdir(dirname(path), {
         mode: PRIVATE_DIRECTORY,
         recursive: true,
@@ -297,12 +305,7 @@ export class FileGrantRepository<S extends AuthorizationSubject, C>
       } finally {
         await unlock();
       }
-    } finally {
-      release();
-      if (transactions.get(path) === pending) {
-        transactions.delete(path);
-      }
-    }
+    });
   }
 
   async #read(): Promise<SavedGrants<S, C>> {

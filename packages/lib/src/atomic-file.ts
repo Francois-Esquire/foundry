@@ -19,7 +19,11 @@ export interface AtomicWriteOptions {
   readonly createDirectory?: boolean;
   /** Mode for parent directories this call creates; existing ones keep theirs. */
   readonly directoryMode?: number;
-  /** Flush the bytes to disk before the rename, so a crash cannot leave an empty file in place. */
+  /**
+   * Flush the bytes to disk before the rename, so a crash cannot leave an
+   * empty file in place, and flush the directory after it, so the rename
+   * itself survives one.
+   */
   readonly fsync?: boolean;
   /** Mode of the new file. Defaults to 0o666 less the umask, like `writeFile`. */
   readonly mode?: number;
@@ -66,6 +70,27 @@ export async function writeFileAtomic(
     await rename(temporary, path);
   } finally {
     await rm(temporary, { force: true });
+  }
+  if (fsync) {
+    await syncDirectory(dirname(path));
+  }
+}
+
+/** Platforms that cannot open or flush a directory (Windows, some filesystems) say so with these. */
+const UNSYNCABLE_DIRECTORY = ["EINVAL", "EISDIR", "ENOTSUP", "EPERM"];
+
+async function syncDirectory(path: string): Promise<void> {
+  try {
+    const directory = await open(path, "r");
+    try {
+      await directory.sync();
+    } finally {
+      await directory.close();
+    }
+  } catch (error) {
+    if (!UNSYNCABLE_DIRECTORY.some((code) => hasErrorCode(error, code))) {
+      throw error;
+    }
   }
 }
 
