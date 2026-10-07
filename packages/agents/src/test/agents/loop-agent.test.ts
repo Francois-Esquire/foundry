@@ -4,7 +4,7 @@ import type {
 } from "@ai-sdk/provider";
 
 import { MockLanguageModelV4 } from "ai/test";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { ObserveTurn } from "../../agents/model";
 import { AgentHarness } from "../../harness/agent-harness";
@@ -136,6 +136,31 @@ describe("LoopAgent — observation", () => {
     }
 
     expect(opened[0]?.settled).toEqual([{ afterEnd: false, error: undefined }]);
+  });
+
+  it("settles a turn whose UI message stream is cancelled, as by a client disconnecting", async () => {
+    const { observe, opened } = recordingObserver();
+    const harness = new AgentHarness({
+      instructions: "x",
+      model: createScriptedMockModel({ stream: [unfinishedStreamResult()] }),
+      observe,
+    });
+
+    const result = await harness.agent.stream({ prompt: "go" });
+    const reader = result.toUIMessageStream().getReader();
+    let chunk = await reader.read();
+    while (!chunk.done && chunk.value.type !== "text-delta") {
+      chunk = await reader.read();
+    }
+    await reader.cancel();
+
+    // The cancel reaches the turn's stream through the SDK's pipes, a few
+    // ticks after `cancel` resolves.
+    await vi.waitFor(() =>
+      expect(opened[0]?.settled).toEqual([
+        { afterEnd: false, error: undefined },
+      ])
+    );
   });
 
   it("settles a session turn whose stream handler throws", async () => {

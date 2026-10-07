@@ -59,7 +59,7 @@ function errorOf(event: unknown): unknown {
  * telemetry is where the event's tool executions and duration are folded in,
  * and it fires however the caller consumes the result to its end (`stream`,
  * `toUIMessageStream`, the result promises, or `generate`). A caller that
- * abandons `stream` partway is settled by {@link settleOnCancel}. The hook goes
+ * cancels a stream partway is settled by {@link settleOnCancel}. The hook goes
  * last: the SDK runs integration hooks in order, and the host's own
  * (evlog's) hooks are synchronous, so the event is complete by the time it
  * settles.
@@ -92,8 +92,10 @@ function observedCall(
  * Settle `observation` when a consumer abandons `result.stream`. Stopping a
  * `for await` early (a `break`, or a throw in its body) cancels the stream,
  * and the SDK fires no telemetry hook for a cancelled stream: `onAbort` is
- * only notified while the stream is still being read. Each read of `stream`
- * still tees a fresh branch, through the SDK's own getter.
+ * only notified while the stream is still being read. The SDK builds
+ * `textStream` and `toUIMessageStream()` from `this.stream`, so cancelling
+ * those (a client disconnecting from a UI response) settles through here too.
+ * Each read of `stream` still tees a fresh branch, through the SDK's own getter.
  */
 function settleOnCancel(
   result: StreamTextResult<ToolSet, Record<string, unknown>, never>,
