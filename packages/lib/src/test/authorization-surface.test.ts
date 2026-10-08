@@ -22,9 +22,9 @@ const SUSPEND_CALL_PATTERN = /\bsuspend\s*[(:]/;
  * 2. **It is generic.** It imports no host vocabulary — not agents, not
  *    modules, not workflows, not persistence. That independence is what lets
  *    one mechanism serve all of them.
- * 3. **It does not depend on the module it replaces.** `config/policy` is a
- *    compatibility namespace scheduled for deletion; an import from here would
- *    make deleting it a change to authorization.
+ * 3. **It does not depend on the legacy `config/policy` module.** Keeping that
+ *    import out preserves the authorization package's independence from its
+ *    predecessor.
  * 4. **It is renderer-importable.** A host's approval UI reaches this
  *    vocabulary through `@foundry/agents/authorization`, and a bundler serving
  *    unbundled ESM evaluates every re-export on the way — so one `node:*`
