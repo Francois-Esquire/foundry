@@ -23,6 +23,11 @@
       ],
       "entry": ["examples/**/*.ts", "templates/**/*.ts"]
     },
+    "apps/works": {
+      "entry": ["electron-builder.config.mjs", "test/electron/*.smoke.ts"],
+      "ignore": ["src/app/**/*.css"],
+      "ignoreDependencies": ["tailwindcss", "tw-animate-css"]
+    },
     "docs": {
       "entry": ["blume.config.ts", "**/meta.ts"]
     },

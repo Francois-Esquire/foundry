@@ -1,0 +1,73 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "./styles/type.css";
+@import "./styles/theme.css";
+
+@custom-variant dark (&:where(.dark, .dark *));
+@custom-variant light (&:where(.light, .light *));
+@custom-variant auto (&:where(.auto, .auto *));
+
+@utility container {
+  padding-inline: 2rem;
+  margin-inline: auto;
+  @media (width >= --theme(--breakpoint-sm)) {
+    max-width: none;
+  }
+  @media (width >= 1400px) {
+    max-width: 1400px;
+  }
+}
+
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+    padding: 0;
+    margin: 0;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    line-height: 1.5;
+    letter-spacing: var(--tracking-normal);
+  }
+
+  html {
+    font-family: var(--font-ui);
+
+    /* Fluid UI scale. The root font-size is the single lever for the whole app:
+       every rem-derived size rides this one curve. Flat at the 16px base up to
+       a 1100px-wide window, a linear ramp to 20px by 1728px, capped there. */
+    font-size: clamp(16px, calc(16px + 4 * (100vw - 1100px) / 628), 20px);
+    color-scheme: light;
+  }
+}
+
+@layer base {
+  html.dark {
+    color-scheme: dark;
+  }
+
+  ::selection {
+    color: var(--primary-foreground);
+    background: var(--primary);
+  }
+
+  input,
+  textarea {
+    caret-color: var(--foreground);
+  }
+
+  * {
+    scrollbar-color: var(--muted-foreground) var(--background);
+    scrollbar-width: thin;
+  }
+
+  a {
+    text-underline-offset: 0.2em;
+  }
+}

@@ -1,0 +1,303 @@
+/* Self-hosted UI fonts under the SIL Open Font License.
+   See ../fonts/public-sans/README.md and ../fonts/ibm-plex/README.md. */
+@font-face {
+  font-family: "Public Sans";
+  src: url("../fonts/public-sans/public-sans-regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Public Sans";
+  src: url("../fonts/public-sans/public-sans-medium.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Public Sans";
+  src: url("../fonts/public-sans/public-sans-semibold.woff2") format("woff2");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "IBM Plex Mono";
+  src: url("../fonts/ibm-plex/ibm-plex-mono-regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ---------------------------------------------------------------------------
+   Raw typography tokens
+   Default values target MD–XXL viewports.
+   Responsive overrides for XS–SM are applied via media query below.
+   --------------------------------------------------------------------------- */
+:root {
+  /* Headings */
+  --typography-h1-size: 1.875rem; /* 30px */
+  --typography-h1-line-height: 2.25rem; /* 36px */
+
+  --typography-h2-size: 1.5625rem; /* 25px */
+  --typography-h2-line-height: 2rem; /* 32px */
+
+  --typography-h3-size: 1.3125rem; /* 21px */
+  --typography-h3-line-height: 1.5rem; /* 24px */
+
+  --typography-h4-size: 1.125rem; /* 18px */
+  --typography-h4-line-height: 1.375rem; /* 22px */
+
+  --typography-h5-size: 1rem; /* 16px */
+  --typography-h5-line-height: 1.25rem; /* 20px */
+
+  --typography-h6-size: 1rem; /* 16px */
+  --typography-h6-line-height: 1.25rem; /* 20px */
+
+  /* Body & inline */
+  --typography-body-size: 1.125rem; /* 18px */
+  --typography-body-line-height: 1.5rem; /* 24px */
+
+  --typography-label-size: 1.125rem; /* 18px */
+  --typography-label-line-height: 1.25rem; /* 20px */
+
+  --typography-caption-size: 1rem; /* 16px */
+  --typography-caption-line-height: 1.25rem; /* 20px */
+
+  --typography-aside-size: 1rem; /* 16px */
+  --typography-aside-line-height: 1.25rem; /* 20px */
+
+  --typography-link-size: 1.125rem; /* 18px */
+  --typography-link-line-height: 1.5rem; /* 24px */
+
+  /* Exceptions */
+  --typography-alert-size: 1.125rem; /* 18px */
+  --typography-alert-line-height: 1.5rem; /* 24px */
+
+  --typography-btn-size: 1.125rem; /* 18px */
+  --typography-btn-line-height: 1.125rem; /* 18px — reduced for fixed-height buttons */
+
+  /* Card headers — same scale as headings but weight 500 (Medium) */
+  --typography-card-h1-size: 1.875rem; /* 30px */
+  --typography-card-h1-line-height: 2.25rem; /* 36px */
+
+  --typography-card-h2-size: 1.5625rem; /* 25px */
+  --typography-card-h2-line-height: 2rem; /* 32px */
+
+  --typography-card-h3-size: 1.3125rem; /* 21px */
+  --typography-card-h3-line-height: 1.5rem; /* 24px */
+
+  --typography-card-h4-size: 1rem; /* 16px */
+  --typography-card-h4-line-height: 1.25rem; /* 20px */
+
+  --typography-card-h5-size: 1.125rem; /* 18px */
+  --typography-card-h5-line-height: 1.375rem; /* 22px */
+}
+
+/* Compact-window heading scale (below 768px). */
+@media (width < 48rem) {
+  :root {
+    /* Headings ↓ changed */
+    --typography-h1-size: 1.375rem; /* 22px   ← was 30px */
+    --typography-h1-line-height: 1.65rem; /* 26.4px ← was 36px */
+
+    --typography-h2-size: 1.25rem; /* 20px   ← was 25px */
+    --typography-h2-line-height: 1.6rem; /* 25.6px ← was 32px */
+
+    --typography-h3-size: 1.1875rem; /* 19px   ← was 21px */
+    --typography-h3-line-height: 1.356rem; /* 21.7px ← was 24px */
+
+    /* Headings ↓ same */
+    --typography-h4-size: 1.125rem; /* 18px */
+    --typography-h4-line-height: 1.375rem; /* 22px */
+
+    --typography-h5-size: 1rem; /* 16px */
+    --typography-h5-line-height: 1.25rem; /* 20px */
+
+    --typography-h6-size: 1rem; /* 16px */
+    --typography-h6-line-height: 1.25rem; /* 20px */
+
+    /* Body & inline ↓ same */
+    --typography-aside-size: 1rem; /* 16px */
+    --typography-aside-line-height: 1.25rem; /* 20px */
+
+    --typography-label-size: 1.125rem; /* 18px */
+    --typography-label-line-height: 1.25rem; /* 20px */
+
+    --typography-body-size: 1.125rem; /* 18px */
+    --typography-body-line-height: 1.5rem; /* 24px */
+
+    --typography-caption-size: 1rem; /* 16px */
+    --typography-caption-line-height: 1.25rem; /* 20px */
+
+    --typography-link-size: 1.125rem; /* 18px */
+    --typography-link-line-height: 1.5rem; /* 24px */
+
+    /* Card headers mirror the heading scale ↓ changed */
+    --typography-card-h1-size: 1.375rem; /* 22px   ← was 30px */
+    --typography-card-h1-line-height: 1.65rem; /* 26.4px ← was 36px */
+
+    --typography-card-h2-size: 1.25rem; /* 20px   ← was 25px */
+    --typography-card-h2-line-height: 1.6rem; /* 25.6px ← was 32px */
+
+    --typography-card-h3-size: 1.1875rem; /* 19px   ← was 21px */
+    --typography-card-h3-line-height: 1.356rem; /* 21.7px ← was 24px */
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Tailwind v4 theme tokens
+   Exposes --text-{name} utilities that carry both font-size and line-height.
+   --------------------------------------------------------------------------- */
+@theme inline {
+  /* Font family */
+  --font-ui: "Public Sans", "Segoe UI", Arial, sans-serif;
+  --font-code: "IBM Plex Mono", ui-monospace, monospace;
+
+  /* Heading sizes */
+  --text-h1: var(--typography-h1-size);
+  --text-h1--line-height: var(--typography-h1-line-height);
+
+  --text-h2: var(--typography-h2-size);
+  --text-h2--line-height: var(--typography-h2-line-height);
+
+  --text-h3: var(--typography-h3-size);
+  --text-h3--line-height: var(--typography-h3-line-height);
+
+  --text-h4: var(--typography-h4-size);
+  --text-h4--line-height: var(--typography-h4-line-height);
+
+  --text-h5: var(--typography-h5-size);
+  --text-h5--line-height: var(--typography-h5-line-height);
+
+  --text-h6: var(--typography-h6-size);
+  --text-h6--line-height: var(--typography-h6-line-height);
+
+  /* Body & inline sizes */
+  --text-body: var(--typography-body-size);
+  --text-body--line-height: var(--typography-body-line-height);
+
+  --text-label: var(--typography-label-size);
+  --text-label--line-height: var(--typography-label-line-height);
+
+  --text-caption: var(--typography-caption-size);
+  --text-caption--line-height: var(--typography-caption-line-height);
+
+  --text-aside: var(--typography-aside-size);
+  --text-aside--line-height: var(--typography-aside-line-height);
+
+  --text-link: var(--typography-link-size);
+  --text-link--line-height: var(--typography-link-line-height);
+
+  /* Exception sizes */
+  --text-alert: var(--typography-alert-size);
+  --text-alert--line-height: var(--typography-alert-line-height);
+
+  --text-btn: var(--typography-btn-size);
+  --text-btn--line-height: var(--typography-btn-line-height);
+
+  /* Card header sizes */
+  --text-card-h1: var(--typography-card-h1-size);
+  --text-card-h1--line-height: var(--typography-card-h1-line-height);
+
+  --text-card-h2: var(--typography-card-h2-size);
+  --text-card-h2--line-height: var(--typography-card-h2-line-height);
+
+  --text-card-h3: var(--typography-card-h3-size);
+  --text-card-h3--line-height: var(--typography-card-h3-line-height);
+
+  --text-card-h4: var(--typography-card-h4-size);
+  --text-card-h4--line-height: var(--typography-card-h4-line-height);
+
+  --text-card-h5: var(--typography-card-h5-size);
+  --text-card-h5--line-height: var(--typography-card-h5-line-height);
+}
+
+/* ---------------------------------------------------------------------------
+   Base layer — semantic HTML elements
+   Applies the UI font + the correct scale to bare HTML elements.
+   --------------------------------------------------------------------------- */
+@layer base {
+  h1 {
+    font-family: var(--font-ui);
+    font-size: var(--typography-h1-size);
+    font-weight: 600;
+    line-height: var(--typography-h1-line-height);
+    color: var(--foreground);
+  }
+
+  h2 {
+    font-family: var(--font-ui);
+    font-size: var(--typography-h2-size);
+    font-weight: 600;
+    line-height: var(--typography-h2-line-height);
+    color: var(--foreground);
+  }
+
+  h3 {
+    font-family: var(--font-ui);
+    font-size: var(--typography-h3-size);
+    font-weight: 600;
+    line-height: var(--typography-h3-line-height);
+    color: var(--foreground);
+  }
+
+  h4 {
+    font-family: var(--font-ui);
+    font-size: var(--typography-h4-size);
+    font-weight: 600;
+    line-height: var(--typography-h4-line-height);
+    color: var(--foreground);
+  }
+
+  h5 {
+    font-family: var(--font-ui);
+    font-size: var(--typography-h5-size);
+    font-weight: 600;
+    line-height: var(--typography-h5-line-height);
+    color: var(--foreground);
+  }
+
+  h6 {
+    font-family: var(--font-ui);
+    font-size: var(--typography-h6-size);
+    font-weight: 400;
+    line-height: var(--typography-h6-line-height);
+    color: var(--muted-foreground);
+  }
+
+  p {
+    font-family: var(--font-ui);
+    font-size: var(--typography-body-size);
+    font-weight: 400;
+    line-height: var(--typography-body-line-height);
+    color: var(--foreground);
+  }
+
+  /* Links are shell chrome here (nav items, buttons, back links) and read
+     as their container. A page that wants an inline link styles it. */
+  a {
+    color: inherit;
+    text-decoration: inherit;
+  }
+
+  caption,
+  figcaption {
+    font-family: var(--font-ui);
+    font-size: var(--typography-caption-size);
+    font-weight: 400;
+    line-height: var(--typography-caption-line-height);
+    color: var(--muted-foreground);
+  }
+
+  label {
+    font-family: var(--font-ui);
+    font-size: var(--typography-label-size);
+    font-weight: 500;
+    line-height: var(--typography-label-line-height);
+    color: var(--foreground);
+  }
+}

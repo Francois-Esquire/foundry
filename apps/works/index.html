@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <title>Foundry Works</title>
+    <meta
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss:;"
+      http-equiv="Content-Security-Policy"
+    >
+    <link href="./src/app/globals.css" rel="stylesheet">
+    <!--
+      The background the document has before any stylesheet or React has
+      loaded. It matches the BrowserWindow's own colour, so the first raster is
+      the right colour rather than a white flash.
+    -->
+    <style>
+    html,
+    body {
+      margin: 0;
+      background: #ffffff;
+    }
+    @media (prefers-color-scheme: dark) {
+      html,
+      body {
+        background: #0a0a0a;
+      }
+    }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script src="./src/app/index.tsx" type="module"></script>
+  </body>
+</html>

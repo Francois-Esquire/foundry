@@ -1,0 +1,101 @@
+/* PageVignette: cathedral-lighting overlay, scoped to a positioned container.
+ *
+ * --page-vignette-spread   : where the transparent center ends (default 30%)
+ * --page-vignette-rx       : ellipse x-radius  (default 82%)
+ * --page-vignette-ry       : ellipse y-radius  (default 78%)
+ * --page-vignette-focal-y  : focal-point Y     (default 38%)
+ */
+
+.page-vignette {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  pointer-events: none;
+
+  background: radial-gradient(
+    ellipse var(--page-vignette-rx, 82%) var(--page-vignette-ry, 78%) at 50%
+      var(--page-vignette-focal-y, 38%),
+    oklch(from var(--background) l c h / 0) var(--page-vignette-spread, 30%),
+    color-mix(
+        in oklch,
+        var(--background) var(--page-vignette-edge-strength, 100%),
+        transparent
+      )
+      100%
+  );
+}
+
+/* Layered so a consumer's height utility wins: unlayered author CSS outranks
+   every Tailwind layer, which silently discarded any `h-*` passed in. */
+@layer components {
+  .vignette-shell {
+    position: relative;
+    height: 100%;
+    overflow: hidden;
+  }
+}
+
+.vignette-scroll-frame {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.vignette-scroll-viewport {
+  height: 100%;
+  min-height: 0;
+  overflow-x: clip;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+}
+
+.vignette-scroll-fade {
+  position: absolute;
+  inset-inline: 0;
+  z-index: 60;
+  height: var(--vignette-scroll-fade-size, 32px);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.vignette-scroll-fade[data-visible="true"] {
+  opacity: 1;
+}
+
+.vignette-scroll-fade--top {
+  top: 0;
+  background: linear-gradient(
+    to bottom,
+    var(--vignette-scroll-surface, var(--background)) 0%,
+    color-mix(
+        in oklch,
+        var(--vignette-scroll-surface, var(--background)) 72%,
+        transparent
+      )
+      44%,
+    transparent 100%
+  );
+}
+
+.vignette-scroll-fade--bottom {
+  bottom: 0;
+  background: linear-gradient(
+    to top,
+    var(--vignette-scroll-surface, var(--background)) 0%,
+    color-mix(
+        in oklch,
+        var(--vignette-scroll-surface, var(--background)) 72%,
+        transparent
+      )
+      44%,
+    transparent 100%
+  );
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vignette-scroll-fade {
+    transition: none;
+  }
+}

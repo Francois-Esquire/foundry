@@ -1,0 +1,13 @@
+{
+  "extends": "@foundry/tsconfig/base.json",
+  "compilerOptions": {
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "types": ["node", "vite/client", "electron-vite/node"],
+    "jsx": "react-jsx",
+    "paths": {
+      "~/*": ["./src/*"]
+    }
+  },
+  "include": ["src", "test", "electron.vite.config.ts", "vitest.config.ts"],
+  "exclude": ["node_modules", "dist"]
+}
