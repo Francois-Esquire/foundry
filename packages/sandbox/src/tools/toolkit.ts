@@ -313,7 +313,7 @@ export function createSandboxToolkit(
         if (onTimeout?.signal.aborted) {
           return `Command timed out after ${timeout}ms (the process may still be running in the sandbox).`;
         }
-        throw error; // external cancellation or a real failure propagates
+        throw error;
       } finally {
         if (timer) {
           clearTimeout(timer);

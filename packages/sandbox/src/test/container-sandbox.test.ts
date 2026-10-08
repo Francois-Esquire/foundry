@@ -81,7 +81,6 @@ describe("container sandbox", () => {
 
     const spec = runtime.instances[0]?.spec;
     expect(await box.hostPort(3000)).toBe(spec?.ports[0]?.hostPort);
-    // A port that was never published has no mapping.
     expect(await box.hostPort(9999)).toBeUndefined();
   });
 
