@@ -124,11 +124,6 @@ export const LOCAL_DEFAULT_MODELS: LocalModelDefinition[] = [
   },
 ];
 
-/**
- * Temporarily pointed at Qwen3 0.6B (`text-alt`) while diagnosing markdown
- * `<think>`-eating and missing tool-call behavior on the 0.8B `text` row.
- * Flip back to `"text"` once fixed.
- */
 export const LOCAL_DEFAULTS: Partial<Record<ModelKind, string>> = {
   embedding: "embed",
   text: "text-alt",

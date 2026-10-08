@@ -53,7 +53,7 @@ beforeEach(() => {
 const FAKE_MODEL = { modelId: "fake-embed", provider: "fake" };
 const fakeSource = { embedding: () => FAKE_MODEL } as never;
 
-// ── corpus assembly (real models/src, as the old pipeline integration did) ───
+// ── corpus assembly ─────────────────────────────────────────────────────────
 
 const SRC_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -93,17 +93,14 @@ describe("embedChunks integration — recursive over the real corpus", () => {
     );
 
     expect(out.length).toBeGreaterThan(100);
-    // Sequential indices.
     expect(out.map((c) => c.index)).toEqual(
       Array.from({ length: out.length }, (_, i) => i)
     );
-    // Every chunk: bounded, embedded, offset-accurate.
     for (const c of out) {
       expect(c.tokenCount).toBeLessThanOrEqual(SIZE);
       expect(c.vector).toHaveLength(c.dimensions);
       expect(corpus.slice(c.startIndex, c.endIndex)).toBe(c.text);
     }
-    // Chunk texts reconstruct the corpus (recursive @512 preserves coverage).
     expect(out.map((c) => c.text).join("")).toBe(corpus);
 
     const summary = {

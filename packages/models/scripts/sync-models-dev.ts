@@ -23,7 +23,6 @@ const SOURCE = "https://models.dev/catalog.json";
 const OUT = new URL("../src/catalog/data/models-dev.json", import.meta.url)
   .pathname;
 
-/** Upstream had ~293 models / ~180 providers when this was written. */
 const MIN_MODELS = 200;
 const MIN_PROVIDERS = 50;
 /** A schema change that reintroduces bulk (benchmarks under a new key) aborts. */
@@ -172,10 +171,6 @@ if (serialized.length > MAX_BYTES) {
     )}KB ceiling — did the prune list go stale?`
   );
 }
-
-// ---------------------------------------------------------------------------
-// Diff against what is committed, so a reviewer sees what moved
-// ---------------------------------------------------------------------------
 
 const previousText = await readFile(OUT, "utf8").catch(() => null);
 const previous = previousText
