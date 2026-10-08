@@ -8,6 +8,7 @@ import { router } from "./root";
 export interface RpcPortEvent {
   ports: MessagePortMain[];
   sender: Electron.WebContents;
+  senderFrame: Electron.WebFrameMain | null;
 }
 
 export type UpgradePort = (port: MessagePortMain) => void;
@@ -25,7 +26,10 @@ export function acceptRpcPort(
   if (port === undefined || event.ports.length !== 1) {
     return false;
   }
-  if (!isOwnWindow(event.sender)) {
+  if (
+    !isOwnWindow(event.sender) ||
+    event.senderFrame !== event.sender.mainFrame
+  ) {
     port.close();
     return false;
   }

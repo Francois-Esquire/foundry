@@ -21,8 +21,9 @@ layout, theme, and routes.
 Routes are hash-based because the packaged renderer is a `file://` document.
 `/` lists modules and supports creation and package import. `/settings` holds
 provider and integration credentials. `/modules/:moduleId` opens a named Module
-workspace with its authored files and a read-only source overview. Building,
-editing, installation, and runtime previews are later milestones.
+workspace with its authored files, a read-only source overview, and released
+Module views. Source editing, building, and durable installations remain later
+milestones.
 
 ## RPC
 
@@ -64,13 +65,33 @@ their caches only after persistence succeeds.
 The library reuses `createModuleProjects` and `importModulePackage` from
 `@foundry/modules`. Module identity, retained manifests, authored Content, and
 blobs share the existing Artifact transaction, persisted by `JsonArtifactStore`
-in `modules/artifacts.json` under user data. The current adapter supports the
-library operations; it does not implement an installation or runtime engine.
+in `modules/artifacts.json` under user data. The library adapter supports
+library operations; preview composition separately reuses the shared Module
+system, supervisor, immutable checkouts, installation files, and container runtime.
 
 New modules start with a manifest and README. Imported output-only releases
 remain visible with an explicit empty-source state. The library refuses corrupt
 storage and invalid or duplicate module registrations. Sidebar navigation
 reflects the saved library.
+
+A built release with declared views can be previewed from its workspace. The
+preview creates a temporary Installation and starts its Bun program inside
+Microsandbox. No host capability providers or grants are supplied. Required
+capabilities therefore fail through the shared Gateway. Preview files are
+removed after stop; preview Installations are not restored on restart. Verified
+program checkouts remain cached under `modules/preview/checkouts`.
+
+`modules.preview` is a lifetime stream: Start subscribes, and Stop, changing
+release, navigation, reload, port closure, or app quit cancels and releases the
+runtime. Views use a random `module-preview:` origin with a sandboxed iframe,
+without the preload bridge. The protocol proxies only declared view routes,
+assets, and the Module GraphQL endpoint to a validated loopback program. It
+blocks private Gateway routes and redirects, does not forward browser cookies,
+and applies its own CSP. Relative assets resolve through the same origin.
+
+Microsandbox must already be installed; Works does not install it during app
+startup or preview. A missing runtime or failed start is shown in Preview.
+Newly created source-only Modules have no built release yet.
 
 ## Scripts
 
@@ -81,7 +102,8 @@ bun run --cwd=apps/works dev        # electron-vite dev server with the app open
 bun run --cwd=apps/works build      # main, preload, and renderer into dist/
 bun run --cwd=apps/works package    # electron-builder unpacked app into dist/release
 bun run --cwd=apps/works test
-bun run --cwd=apps/works test:electron  # opt-in native transport and restart tests
+bun run --cwd=apps/works test:electron  # opt-in native transport, restart, and preview tests
+bun run --cwd=apps/works test:module-runtime # also starts a real Microsandbox Module
 bun run --cwd=apps/works typecheck
 ./node_modules/.bin/biome check apps/works
 ```
@@ -94,7 +116,12 @@ against the main-process router with a temporary user-data directory. It checks
 status pushed from main, shared subscriptions, navigation, reload, and window
 close cleanup. A second test creates a module through the renderer, quits the
 process, launches another process with the same isolated profile, and opens the
-persisted module and source. It needs a desktop session and remains separate
+persisted module and source. A third test renders a local HTTP fixture through
+the real protocol and iframe, checks relative assets and scripts, verifies the
+preload bridge is absent, and checks Stop and navigation cleanup.
+`test:module-runtime` repeats rendering with a real Bun Module in Microsandbox
+and requires the installed runtime and its Bun image (which may be pulled).
+These tests need a desktop session and remain separate
 from `test`. The runner removes inherited Electron Node-mode and dev-server
 flags. Its CommonJS launchers point `import.meta.dirname` at the built main
 directory so the window loads the built renderer and preload.

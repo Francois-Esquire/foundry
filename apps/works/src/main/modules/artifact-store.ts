@@ -8,6 +8,7 @@ import {
 } from "@foundry/artifacts";
 import { MODULE_MIME } from "@foundry/modules/constants";
 import { type Module, moduleIdSchema } from "@foundry/modules/domain";
+import { parseModuleManifest } from "@foundry/modules/manifest";
 import {
   type ModuleStore,
   ModuleStoreConflictError,
@@ -64,9 +65,28 @@ export function createModulePersistence(store: ArtifactStore) {
   }
   const modules: Pick<
     ModuleStore,
-    "loadModule" | "registerModule" | "retainManifest" | "transaction"
+    | "loadModule"
+    | "loadRetainedManifest"
+    | "registerModule"
+    | "retainManifest"
+    | "transaction"
   > = {
     loadModule,
+    async loadRetainedManifest(contentId) {
+      for (const artifact of await registered()) {
+        const manifests = artifact.metadata.retainedManifests;
+        if (typeof manifests === "object" && manifests !== null) {
+          const value: unknown = Object.getOwnPropertyDescriptor(
+            manifests,
+            contentId
+          )?.value;
+          if (value !== undefined) {
+            return parseModuleManifest(value);
+          }
+        }
+      }
+      return null;
+    },
     async registerModule({ module }) {
       const existing = await loadModule(module.id);
       const artifact = await artifacts.current.get(module.artifactId);

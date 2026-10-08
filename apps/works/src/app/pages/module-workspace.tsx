@@ -6,6 +6,7 @@ import { worksApi } from "~/app/api/client";
 import { Button } from "~/app/components/button";
 import { SubNav } from "~/app/layout/context";
 import { SidePanel, SidePanelHeader } from "~/app/layout/side-panel";
+import { ModulePreviewPanel } from "./module-preview";
 
 export function ModuleWorkspacePage() {
   const { moduleId = "" } = useParams<{ moduleId: string }>();
@@ -92,15 +93,11 @@ export function ModuleWorkspacePage() {
             {path ? source[path] : "No file selected"}
           </pre>
         </section>
-        <section
-          aria-label="Preview"
-          className="flex min-w-0 flex-1 flex-col rounded-xl border border-border/40"
-        >
-          <h2 className="px-4 py-3 font-medium text-xs">Preview</h2>
-          <div className="flex flex-1 items-center justify-center p-6 text-muted-foreground text-sm">
-            Build and runtime support are coming next.
-          </div>
-        </section>
+        <ModulePreviewPanel
+          id={moduleId}
+          key={moduleId}
+          releases={details.data?.releases ?? []}
+        />
       </div>
     </div>
   );

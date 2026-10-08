@@ -11,7 +11,7 @@ function fakePort(): MessagePortMain {
   return { close: vi.fn(), start: vi.fn() } as unknown as MessagePortMain;
 }
 
-const sender = {} as WebContents;
+const sender = { mainFrame: {} } as WebContents;
 
 describe("acceptRpcPort", () => {
   it("upgrades a single port from an own window", () => {
@@ -19,7 +19,7 @@ describe("acceptRpcPort", () => {
     const upgrade = vi.fn();
 
     const accepted = acceptRpcPort(
-      { ports: [port], sender },
+      { ports: [port], sender, senderFrame: sender.mainFrame },
       () => true,
       upgrade
     );
@@ -33,7 +33,7 @@ describe("acceptRpcPort", () => {
     const upgrade = vi.fn();
 
     const accepted = acceptRpcPort(
-      { ports: [port], sender },
+      { ports: [port], sender, senderFrame: sender.mainFrame },
       () => false,
       upgrade
     );
@@ -46,16 +46,38 @@ describe("acceptRpcPort", () => {
   it("ignores events without exactly one port", () => {
     const upgrade = vi.fn();
 
-    expect(acceptRpcPort({ ports: [], sender }, () => true, upgrade)).toBe(
-      false
-    );
     expect(
       acceptRpcPort(
-        { ports: [fakePort(), fakePort()], sender },
+        { ports: [], sender, senderFrame: sender.mainFrame },
+        () => true,
+        upgrade
+      )
+    ).toBe(false);
+    expect(
+      acceptRpcPort(
+        {
+          ports: [fakePort(), fakePort()],
+          sender,
+          senderFrame: sender.mainFrame,
+        },
         () => true,
         upgrade
       )
     ).toBe(false);
     expect(upgrade).not.toHaveBeenCalled();
   });
+});
+
+it("rejects a subframe even when it belongs to an own window", () => {
+  const port = fakePort();
+  const upgrade = vi.fn();
+  expect(
+    acceptRpcPort(
+      { ports: [port], sender, senderFrame: null },
+      () => true,
+      upgrade
+    )
+  ).toBe(false);
+  expect(port.close).toHaveBeenCalledOnce();
+  expect(upgrade).not.toHaveBeenCalled();
 });

@@ -1,6 +1,7 @@
 import { ModulePackageError } from "@foundry/modules/package";
-import { ORPCError } from "@orpc/server";
+import { AsyncIteratorClass, ORPCError } from "@orpc/server";
 import { z } from "zod";
+import { ModulePreviewError } from "~/main/modules/preview/controller";
 import { base } from "./context";
 
 export const modulesRouter = {
@@ -39,4 +40,32 @@ export const modulesRouter = {
       }
     }),
   list: base.handler(({ context }) => context.modules.list()),
+  preview: base
+    .input(z.object({ contentId: z.string().min(1), id: z.string().min(1) }))
+    .handler(({ context, input, signal }) => {
+      if (!context.previews) {
+        throw new ORPCError("SERVICE_UNAVAILABLE", {
+          message: "Module previews are unavailable",
+        });
+      }
+      const watch = context.previews.watch(input.id, input.contentId, signal);
+      return new AsyncIteratorClass(
+        async () => {
+          try {
+            return await watch.next();
+          } catch (error) {
+            throw new ORPCError("PRECONDITION_FAILED", {
+              cause: error,
+              message:
+                error instanceof ModulePreviewError
+                  ? error.message
+                  : "Module preview could not start. Check the runtime and released package.",
+            });
+          }
+        },
+        async () => {
+          await watch.return();
+        }
+      );
+    }),
 };

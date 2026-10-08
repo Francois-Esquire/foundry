@@ -15,7 +15,11 @@ const env = {
   ELECTRON_RUN_AS_NODE: undefined,
 };
 
-async function run(entry: string, args: string[] = []): Promise<void> {
+async function run(
+  entry: string,
+  args: string[] = [],
+  deadline = 60_000
+): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     const child = spawn(
       executable,
@@ -28,7 +32,7 @@ async function run(entry: string, args: string[] = []): Promise<void> {
     const timeout = setTimeout(() => {
       child.kill();
       reject(new Error(`${entry} exceeded the smoke-test deadline`));
-    }, 60_000);
+    }, deadline);
     child.on("error", (error) => {
       clearTimeout(timeout);
       reject(error);
@@ -50,6 +54,16 @@ try {
   await run("vault-stream.smoke.cjs", [streamProfile]);
   await run("module-library.smoke.cjs", ["create", userData]);
   await run("module-library.smoke.cjs", ["reopen", userData]);
+  await run("module-preview.smoke.cjs", [
+    path.join(userData, "preview-profile"),
+  ]);
+  if (process.argv.includes("--runtime")) {
+    await run(
+      "module-preview.smoke.cjs",
+      [path.join(userData, "runtime-profile"), "runtime"],
+      240_000
+    );
+  }
 } finally {
   await rm(userData, {
     force: true,

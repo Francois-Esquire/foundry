@@ -11,7 +11,7 @@ export default defineConfig({
       externalizeDeps: false,
       outDir: "dist/main",
       rollupOptions: {
-        external: electron,
+        external: [...electron, "microsandbox"],
         input: { index: path.join(src, "main/index.ts") },
         output: {
           chunkFileNames: "chunks/[name]-[hash].js",

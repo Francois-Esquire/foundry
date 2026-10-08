@@ -1,9 +1,10 @@
 import { join } from "node:path";
-import type { ArtifactStore } from "@foundry/artifacts";
+import { type ArtifactStore, contentIdSchema } from "@foundry/artifacts";
 import { JsonArtifactStore } from "@foundry/artifacts/node";
-import { moduleIdSchema } from "@foundry/modules/domain";
+import { type ModuleVersion, moduleIdSchema } from "@foundry/modules/domain";
 import { importModulePackage } from "@foundry/modules/package";
 import { createModuleProjects } from "@foundry/modules/projects";
+import { createModuleVersions } from "@foundry/modules/version";
 import type { ModuleDetails, ModuleSummary } from "~/shared/modules";
 import { createModulePersistence } from "./artifact-store";
 export interface ModuleLibrary {
@@ -11,6 +12,7 @@ export interface ModuleLibrary {
   details(id: string): Promise<ModuleDetails | null>;
   importPackage(encoded: string): Promise<ModuleSummary>;
   list(): Promise<ModuleSummary[]>;
+  release(id: string, contentId: string): Promise<ModuleVersion | null>;
 }
 
 export function openModuleLibrary(userData: string): ModuleLibrary {
@@ -22,6 +24,7 @@ export function openModuleLibrary(userData: string): ModuleLibrary {
 export function createModuleLibrary(store: ArtifactStore): ModuleLibrary {
   const { artifacts, modules, registered } = createModulePersistence(store);
   const projects = createModuleProjects({ artifacts, store: modules });
+  const versions = createModuleVersions({ artifacts, store: modules });
   function summary(
     artifact: Awaited<ReturnType<typeof registered>>[number]
   ): ModuleSummary {
@@ -40,6 +43,18 @@ export function createModuleLibrary(store: ArtifactStore): ModuleLibrary {
       throw new Error("Module registration was not saved");
     }
     return summary(found);
+  }
+  async function releases(id: string) {
+    return (
+      await versions.list({ moduleId: moduleIdSchema.parse(id) })
+    ).items.map((version) => ({
+      contentId: version.contentId,
+      tag: version.tag,
+      views: Object.entries(version.manifest.views).map(([viewId, view]) => ({
+        id: viewId,
+        ...view,
+      })),
+    }));
   }
   return {
     async create(name) {
@@ -76,10 +91,14 @@ export function createModuleLibrary(store: ArtifactStore): ModuleLibrary {
           ? artifact.content.tree
           : {};
       if (!Object.keys(tree).some((path) => path.startsWith("source/"))) {
-        return { ...record, source: {} };
+        return { ...record, releases: await releases(id), source: {} };
       }
       const workspace = await projects.workspaceSource({ moduleId: module.id });
-      return { ...record, source: { ...workspace.source } };
+      return {
+        ...record,
+        releases: await releases(id),
+        source: { ...workspace.source },
+      };
     },
     async importPackage(encoded) {
       const version = await importModulePackage({
@@ -91,6 +110,12 @@ export function createModuleLibrary(store: ArtifactStore): ModuleLibrary {
     },
     async list() {
       return (await registered()).map(summary);
+    },
+    release(id, contentId) {
+      return versions.load({
+        contentId: contentIdSchema.parse(contentId),
+        moduleId: moduleIdSchema.parse(id),
+      });
     },
   };
 }
