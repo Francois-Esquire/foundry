@@ -1,5 +1,5 @@
 /**
- * Step 02 Task 4 — the results-persistence gate at the one encoder seam.
+ * Results-persistence gate at the encoder seam.
  * Kept apart from `metadata-codec.test.ts` so the retained (default, two-arg)
  * expectations there stay byte-identical and untouched; this file exercises
  * only the new `transient` policy. Every assertion doubles as a mutation

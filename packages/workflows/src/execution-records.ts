@@ -178,8 +178,8 @@ export interface RunTimestamps {
 }
 
 /**
- * Persisted Run shape. `definition` and `links` remain optional until the
- * orchestrator starts authoring them in Task 03.
+ * Persisted Run shape. `definition` and `links` are optional for compatibility
+ * with records written before those fields were introduced.
  */
 export interface RunRecord {
   definition?: DefinitionReference;

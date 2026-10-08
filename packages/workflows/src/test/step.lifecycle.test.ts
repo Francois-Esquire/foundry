@@ -1,5 +1,5 @@
 /**
- * Step pause / resume / skip — Stage 2 (P1-3 + P1-4).
+ * Step pause, resume, and skip lifecycle behavior.
  *
  * Five describe blocks:
  *   1. step.pause() — guards, idempotency, status flip

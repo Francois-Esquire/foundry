@@ -1,7 +1,7 @@
 /**
  * Snapshot — projected state machine.
  *
- * Live test home for the snapshot.ts contract. Replaces the all-todo
+ * Tests for the snapshot.ts contract. Replaces the former placeholder
  * version that referenced helpers (`getStepRecord/setStepRecord/
  * mergeStepRecord`) which no longer exist on this file.
  *

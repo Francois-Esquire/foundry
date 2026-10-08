@@ -1,5 +1,5 @@
 /**
- * Channels payload — Stage 5 / P2-8: chunk envelope + projection at the
+ * Channel chunk envelope and projection at the
  * Channels layer (no Step involvement).
  *
  * Three describe blocks:

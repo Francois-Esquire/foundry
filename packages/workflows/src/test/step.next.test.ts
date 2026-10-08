@@ -1,7 +1,7 @@
 /**
  * Step — `ctx.next()` (Koa-style middleware seam).
  *
- * Pass-2 surface. A body may opt into propagating-cascade by `await`ing
+ * A body may opt into propagating-cascade by `await`ing
  * `ctx.next()`: every currently-pending child of this step is run
  * sequentially, in append order, and the first failure (throw, bail,
  * suspend) reaches the body as a Promise rejection.

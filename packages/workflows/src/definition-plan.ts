@@ -16,7 +16,7 @@ import type { Step } from "./step";
 import type { StepContext } from "./step-types";
 import type { Bail } from "./types";
 
-/** Private executable source for the Task 01 leaf-definition compiler. */
+/** Private executable source for the leaf-definition compiler. */
 export interface LeafDefinitionPlan<I, O, X extends BaseContext = BaseContext> {
   readonly definitionKey: string;
   readonly description?: string;

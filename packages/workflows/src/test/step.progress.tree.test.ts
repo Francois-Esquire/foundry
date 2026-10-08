@@ -1,8 +1,7 @@
 /**
- * Step progress — Stage 7 / P2-9: per-path independence in a tree.
+ * Per-path progress independence in a tree.
  *
- * The whole point of P2-9's "no auto-aggregation" decision lives here:
- * each step's progress is keyed by `path.join(".")` and never rolled up.
+ * Each step's progress is keyed by `path.join(".")` and never rolled up.
  *
  * Three describe blocks:
  *   A. Sibling children — two children under one parent, independent values

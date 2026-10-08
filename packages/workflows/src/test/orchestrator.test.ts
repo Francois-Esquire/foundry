@@ -1,5 +1,5 @@
 /**
- * Orchestrator — Stage 4 / P0-1 + P0-2: Registry + name-based dispatch +
+ * Orchestrator registry and name-based dispatch:
  * lifecycle passthrough + cold-start recover wiring.
  *
  * Four describe blocks:

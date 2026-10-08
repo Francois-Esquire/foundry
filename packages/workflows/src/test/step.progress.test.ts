@@ -1,5 +1,5 @@
 /**
- * Step progress — Stage 7 / P2-9: per-step progress tracking.
+ * Per-step progress tracking.
  *
  * Six describe blocks, all on a single in-isolation Step (no orchestrator,
  * queue, or db). Per-path independence and tree behavior live in

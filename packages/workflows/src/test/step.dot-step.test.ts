@@ -1,7 +1,9 @@
 /**
- * Step — pass-4 ergonomic affordances: `Step.create` + `.step()`.
+ * `Step.create` and `.step()` authoring behavior.
  *
- * Pass-4 adds two surfaces on top of the pass-3 lazy-init machinery:
+ * `Step.create` provides a synchronous factory, while `.step()` appends a
+ * child and returns it with its output type. The child can be attached before
+ * or after the parent binds.
  *
  *   - `Step.create(spec)` — synchronous static factory. Returns
  *     `Step<I, O, X>` directly (no Promise wrapper). `Step.make` stays
@@ -15,7 +17,7 @@
  *       3. Post-bind — routes through `fork(spec)` for specs, or
  *          binds the instance via `child.#initialize(this)` and appends.
  *
- * Invariants pinned here mirror the pass-3 test patterns:
+ * Invariants covered here:
  *
  *   1. Pre-bind spec-form: child returned is unbound + claimed; parent's
  *      pending-children length grows; parent.run() materializes both.

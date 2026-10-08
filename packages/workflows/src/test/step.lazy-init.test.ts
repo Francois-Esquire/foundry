@@ -1,8 +1,8 @@
 /**
- * Step — pass-3 lazy substrate initialization.
+ * Lazy substrate initialization.
  *
- * Pass-3 makes Step's substrate (snapshot/channels/executable/composer/
- * scope/status/output) lazy. A Step constructed via `Step.make` is
+ * Step's substrate (snapshot/channels/executable/composer/scope/status/output)
+ * is lazy. A Step constructed via `Step.make` is
  * **unbound** until either:
  *
  *   - Attached to a parent's `spec.children` — the parent's
@@ -13,15 +13,14 @@
  * Three states matter:
  *
  *   - **Unclaimed-unbound** — fresh `Step.make`, never claimed by a
- *     parent. Substrate access auto-binds as a root (matches pass-2
- *     ergonomics for stand-alone Steps).
+ *     parent. Substrate access auto-binds as a root for stand-alone Steps.
  *   - **Claimed-unbound** — passed into a parent's `spec.children`,
  *     parent hasn't initialized yet. Substrate access THROWS — the
  *     parent owns the binding moment, and a self-bind here would
  *     produce a root substrate that conflicts with the parent's fork.
  *   - **Bound** — substrate allocated; works.
  *
- * This file pins the four pass-3 invariants:
+ * This file pins the lazy-binding invariants:
  *   1. Claimed-unbound substrate access throws "not bound".
  *   2. Standalone `step.run()` auto-binds and runs.
  *   3. Pre-built Step instances passed via `spec.children` get bound
@@ -32,7 +31,7 @@
  *      a second parent.
  *   6. `dispose()` on unbound Step is a no-op.
  *   7. `dispose()` on bound Step closes substrate scope.
- *   8. Step-instance child + `ctx.next()` integrates with pass-2.
+ *   8. Step-instance child + `ctx.next()` integrates with the cascade.
  */
 
 import { describe, expect, it } from "vitest";
@@ -117,8 +116,8 @@ describe("Step.make — pre-built Step in spec.children shares parent substrate"
     await parent.run();
 
     // After parent.run() the child is bound. Snapshot is shared by
-    // reference — pass-2's Snapshot.fork() returns `this`, so the
-    // pass-3 substrate-sharing path produces the same identity.
+    // Snapshot.fork() returns `this`, so the substrate-sharing path
+    // preserves identity.
     expect(child.snapshot).toBe(parent.snapshot);
     expect(child.channels).toBe(parent.channels);
     // The child's path is nested under the parent's name.

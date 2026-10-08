@@ -1,8 +1,8 @@
 /**
  * Cascade-via-invoke — regression lock for the engine-unification fix.
  *
- * Before Phase 1, `Executable.drive` (the engine behind `ctx.invoke` /
- * `ctx.parallel` / `ctx.race`) lacked the post-body child cascade that
+ * Before cascade unification, `Executable.drive` (used by `ctx.invoke`,
+ * `ctx.parallel`, and `ctx.race`) lacked the post-body child cascade that
  * `Step.#run` had. A step with declared children, when driven through a
  * composition primitive, never drained those children — the same step
  * via `.run()` did. Once the cascade moved into the single engine,

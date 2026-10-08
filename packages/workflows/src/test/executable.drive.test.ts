@@ -28,9 +28,8 @@ import { bail } from "../types";
 const UNPARSEABLE_DURATION_PATTERN = /Unparseable duration/;
 const TIMED_OUT_PATTERN = /timed out/;
 
-// Build a minimal harness — Snapshot + Channels + a root Executable —
-// and a typed event collector. Helpers stay file-local (Phase 2 will
-// extract a shared streams helper across tests/).
+// Build a minimal harness from a Snapshot, Channels, a root Executable,
+// and a typed event collector.
 
 interface Harness {
   readonly channels: Channels;

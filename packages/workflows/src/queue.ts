@@ -975,9 +975,6 @@ export class Queue {
     const retrySchedule = Schedule.exponential("100 millis").pipe(
       Schedule.compose(Schedule.recurs(5))
     );
-    // The loop's E channel is `never` (no typed failures), so reify
-    // as `unknown` for a sound runtime check. The block is dead today
-    // but kept so future typed failures wire through without re-plumbing.
     return self.#driverLoop().pipe(
       Effect.tapError((error) =>
         Effect.sync(() => {
@@ -1481,8 +1478,7 @@ export class Queue {
    *   - custom (step.emit) — domain events with no volume bound.
    *
    * Lifecycle events (started/complete/failed/etc.) are bounded by step count
-   * (tens to low hundreds) and are kept. If bloat occurs, the future fix is a
-   * separate events table.
+   * and are kept in the run metadata.
    */
   #eventLogLoop(
     run: DispatchedWorkflow,

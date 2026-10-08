@@ -242,9 +242,8 @@ export abstract class Step<
         childOrSpec.#claimedByParent = true;
       }
     }
-    // ID derives from the spec name in pass-3 (no executable yet at
-    // construction time). The behavior is equivalent — pre-pass-3
-    // `args.executable.name` was always seeded from `spec.name`.
+    // Definition Steps have no executable yet, so the runtime ID starts from
+    // the spec name, matching the name previously seeded into the executable.
     this.name = spec.name;
   }
 

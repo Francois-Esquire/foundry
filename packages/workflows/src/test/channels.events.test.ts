@@ -1,5 +1,5 @@
 /**
- * Channel-event vocabulary — Stage 1 / P1-7 additions.
+ * Channel-event vocabulary.
  *
  * Five new variants extend ChannelEventSchema:
  *   step.paused, step.resumed, step.skipped, step.aborted, step.resolved

@@ -1,6 +1,6 @@
 /**
- * Step 02 Tasks 1-3 & 5 — the Invocation, its evidence, absent Results, lazy
- * rehydration, interruption, and recovery. Materialized plans run through the
+ * Invocation, evidence, absent Results, lazy rehydration, interruption, and
+ * recovery. Materialized plans run through the
  * real Orchestrator over the in-package execution persistence; evidence is read
  * back from the RunJournal (never a stub map). Each acceptance row is a test,
  * and the guarded rules carry mutation anchors named in the Step record.
@@ -220,7 +220,7 @@ function readMetadata(metadata: unknown): unknown {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// Group A — the Invocation (Task 2)
+// Group A — invocation
 // ═════════════════════════════════════════════════════════════════════════════
 
 const threePlan: LinearPlan = {
@@ -548,7 +548,7 @@ describe("Group A — Invocation and evidence", () => {
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
-// Group B — absent Results and lazy rehydration in-process (Task 3)
+// Group B — absent Results and lazy rehydration in-process
 // ═════════════════════════════════════════════════════════════════════════════
 
 /** A producer whose Result is `null` (account-only) so consumers hit the
@@ -760,7 +760,7 @@ describe("Group B — absent Results and rehydration (in-process)", () => {
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
-// Group C — recovery over the in-package persistence (Task 5)
+// Group C — recovery over the in-package persistence
 // ═════════════════════════════════════════════════════════════════════════════
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -905,7 +905,7 @@ const blockingConsumer = makeStep("c", {
   invoke: async (_inputs, ctx) => blockUntilAborted(ctx.signal),
 });
 
-describe("Group C — recovery (Task 5)", () => {
+describe("Group C — recovery", () => {
   test("adoption with the producer's Result absent, no rehydrate: consumer fails at connection with from; producer not re-invoked", async () => {
     let producerCalls = 0;
     const resolve2 = (key: string): TrustedStep =>
@@ -1131,7 +1131,7 @@ describe("Group C — recovery (Task 5)", () => {
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
-// Group D — the run-`output` strip is a real, non-null-bearing seam (Task 4)
+// Group D — run `output` stripping
 // ═════════════════════════════════════════════════════════════════════════════
 
 /** A one-leaf Workflow whose run-level output is a non-null value, so the

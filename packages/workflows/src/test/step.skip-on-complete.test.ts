@@ -1,5 +1,5 @@
 /**
- * Step skip-on-complete — Stage 4 / P0-2 isolated path.
+ * Step skip-on-complete behavior.
  *
  * step.run() consults the persisted snapshot before firing started/complete.
  * If the seeded record at this step's path has status="complete", the body

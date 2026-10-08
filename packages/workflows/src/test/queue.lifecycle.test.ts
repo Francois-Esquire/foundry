@@ -251,8 +251,7 @@ describe("Queue — cancel", () => {
 describe("Queue — suspension lifecycle", () => {
   test("a step calling suspend() releases the run's semaphore permit", async () => {
     // With concurrency=1, a suspended run must release its permit so a
-    // second dispatch can start. Asserts only the permit-release; does not
-    // round-trip through resume (see resume reactor lifetime finding).
+    // second dispatch can start.
     const queue = new Queue({ concurrency: 1, store });
     const startedSecond: string[] = [];
 
@@ -288,10 +287,6 @@ describe("Queue — suspension lifecycle", () => {
   test("dispatched.resume(name, value) re-queues the run for replay", {
     timeout: 1500,
   }, async () => {
-    // Surfaces the resume-reactor lifetime bug: the reactor is forked
-    // inside #runOne which exits after emitting 'suspended' — so the
-    // forked watcher is interrupted before resume() ever fires. The
-    // test times out at result() awaiting the re-run that never happens.
     const queue = new Queue({ concurrency: 1, store });
     let executions = 0;
 
@@ -323,7 +318,6 @@ describe("Queue — suspension lifecycle", () => {
   test("on replay, execute is re-invoked after resume()", {
     timeout: 1500,
   }, async () => {
-    // Same root cause as above — surfaces the resume reactor lifetime bug.
     const queue = new Queue({ concurrency: 1, store });
     const observedOnReplay: string[] = [];
 
@@ -676,9 +670,9 @@ describe("Queue — events firehose (queue.on)", () => {
 
   test("queue.on('restarted') / on('queue_failed') / on('persist_failed') return working unsubscribes (smoke)", () => {
     // Wiring smoke test: the listener machinery exists for these events
-    // and returns an unsubscribe. Reliably triggering an actual driver-loop
-    // failure or DAO write rejection is brittle without a fault-injection
-    // seam, so the deeper integration tests are deferred.
+    // and returns an unsubscribe. Driver-loop failures and DAO write
+    // rejections are not exercised here because the harness lacks a
+    // fault-injection seam.
     const queue = new Queue({ concurrency: 1, store });
     const unsubR = queue.on("restarted", () => undefined);
     const unsubF = queue.on("queue_failed", () => undefined);
