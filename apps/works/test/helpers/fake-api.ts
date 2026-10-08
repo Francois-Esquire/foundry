@@ -6,6 +6,7 @@ import {
   createModuleLibrary,
   type ModuleLibrary,
 } from "~/main/modules/library";
+import type { RouterContext } from "~/main/router/context";
 import { router } from "~/main/router/root";
 import { MemoryStore } from "~/main/vault/store";
 import { Vault, type VaultOptions } from "~/main/vault/vault";
@@ -26,11 +27,18 @@ export async function openFakeVault(
 
 export function fakeClient(
   vault: Vault,
-  modules: ModuleLibrary = createModuleLibrary(new InMemoryArtifactStore())
+  modules: ModuleLibrary = createModuleLibrary(new InMemoryArtifactStore()),
+  services: Pick<RouterContext, "builds" | "sessions"> = {}
 ): WorksClient {
-  return createRouterClient(router, { context: { modules, vault } });
+  return createRouterClient(router, {
+    context: { ...services, modules, vault },
+  });
 }
 
-export function fakeApi(vault: Vault, modules?: ModuleLibrary): WorksApi {
-  return createTanstackQueryUtils(fakeClient(vault, modules));
+export function fakeApi(
+  vault: Vault,
+  modules?: ModuleLibrary,
+  services?: Pick<RouterContext, "builds" | "sessions">
+): WorksApi {
+  return createTanstackQueryUtils(fakeClient(vault, modules, services));
 }

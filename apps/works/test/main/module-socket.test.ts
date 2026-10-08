@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { connectModuleSocket } from "~/main/modules/preview/websocket";
+import { connectModuleSocket } from "~/main/modules/runtime/websocket";
 
 class Socket extends EventTarget {
   static readonly OPEN = 1;

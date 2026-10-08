@@ -10,7 +10,7 @@ layout, theme, and routes.
 | Path               | Role                                                                  |
 | ------------------ | --------------------------------------------------------------------- |
 | `src/main/`        | Electron app lifecycle, window controls, router transport, vault, and module library |
-| `src/main/router/` | `root.ts` composes the typed router; domain procedures live in `vault.ts` and `modules.ts` |
+| `src/main/router/` | `root.ts` composes the typed router; procedures live in `vault.ts`, `modules.ts`, and `runtime.ts` |
 | `src/main/modules/` | Artifact-backed module persistence and library operations |
 | `src/preload.ts`   | Exposes `window.worksWindow` through `contextBridge` and forwards the RPC port to main |
 | `src/shared/`      | Types, channel names, and the vault registry both processes use       |
@@ -19,11 +19,15 @@ layout, theme, and routes.
 | `test/`            | Vitest suites: `main/` and `shared/` run in Node, `app/` in happy-dom |
 
 Routes are hash-based because the packaged renderer is a `file://` document.
-`/` lists modules and supports creation and package import. `/settings` holds
-provider and integration credentials. `/modules/:moduleId` opens a named Module
-workspace with its authored files, a read-only source overview, and released
-Module views. Source editing, building, and durable installations remain later
-milestones.
+`/` opens apps, `/modules` manages the library, and `/modules/:moduleId` manages
+one module through Source, Changes, and Releases. `/m/:moduleId` runs the
+micro-app with minimal shell chrome. Sidebar module entries open app routes.
+`/settings` holds provider and integration credentials.
+
+Source uses `@pierre/trees` for folder navigation and `@pierre/diffs` for code
+editing and reviewing the draft against saved source. Drafts survive navigation
+in local storage. Saving source does not replace a built release. Releases owns
+versioned sandbox builds, progress, logs, and release previews.
 
 ## RPC
 
@@ -63,35 +67,41 @@ their caches only after persistence succeeds.
 ## Modules
 
 The library reuses `createModuleProjects` and `importModulePackage` from
-`@foundry/modules`. Module identity, retained manifests, authored Content, and
-blobs share the existing Artifact transaction, persisted by `JsonArtifactStore`
-in `modules/artifacts.json` under user data. The library adapter supports
-library operations; preview composition separately reuses the shared Module
-system, supervisor, immutable checkouts, installation files, and container runtime.
+`@foundry/modules`. Editable workspaces live at `~/.foundry/modules/<moduleId>`.
+Immutable Artifact source and releases live in `.library/artifacts.json` under
+that root. Workspace metadata and staging stay in `.library`; persistent app
+data stays in `.data/<moduleId>`. Disposable executable checkouts stay in
+`.runtime` and are removed after runtime shutdown.
 
-New modules start with a manifest and README. Imported output-only releases
-remain visible with an explicit empty-source state. The library refuses corrupt
-storage and invalid or duplicate module registrations. Sidebar navigation
-reflects the saved library.
+On first startup using this location, Works copies an existing user-data Module
+Artifact store if the new store is absent, preserving the old store. Reading or
+building a module captures external workspace edits. Stale saves/builds fail
+rather than overwriting newer source. Ignored local files are retained and are
+excluded from sandbox build input.
 
-A built release with declared views can be previewed from its workspace. The
-preview creates a temporary Installation and starts its Bun program inside
-Microsandbox. No host capability providers or grants are supplied. Required
-capabilities therefore fail through the shared Gateway. Preview files are
-removed after stop; preview Installations are not restored on restart. Verified
-program checkouts remain cached under `modules/preview/checkouts`.
+New modules contain a runnable starter. Builds consume a source snapshot in a
+disposable Microsandbox VM with no host mounts or credentials. They install,
+generate, typecheck, and build before publishing an immutable release. Opening
+an app starts the latest release; if none exists, Works builds the first one.
+Imported output-only releases remain runnable with an empty-source state.
 
-`modules.preview` is a lifetime stream: Start subscribes, and Stop, changing
-release, navigation, reload, port closure, or app quit cancels and releases the
-runtime. Views use a random `module-preview:` origin with a sandboxed iframe,
-without the preload bridge. The protocol proxies only declared view routes,
-assets, and the Module GraphQL endpoint to a validated loopback program. It
-blocks private Gateway routes and redirects, does not forward browser cookies,
-and applies its own CSP. Relative assets resolve through the same origin.
+`src/main/modules/runtime/` composes the shared Module system, supervisor,
+checkouts, installation files, transport, and container runtime. App launches
+and management previews use the same session implementation and persistent
+module data. No host capability providers or grants are supplied. Required
+capabilities fail through the shared Gateway. Temporary Installation records
+and runtime checkouts are released after confirmed VM shutdown.
 
-Microsandbox must already be installed; Works does not install it during app
-startup or preview. A missing runtime or failed start is shown in Preview.
-Newly created source-only Modules have no built release yet.
+Views use a random `module-app:` origin with a sandboxed iframe and no preload
+bridge. The protocol proxies declared views, assets, and the Module GraphQL
+endpoint to a validated loopback program. It blocks private Gateway routes and
+redirects, does not forward browser cookies, and applies its own CSP. Relative
+assets resolve through the same origin. Stop, navigation, window closure, and
+app quit cancel and release the runtime.
+
+Microsandbox must already be installed. A missing runtime or failed start is
+shown in the app or preview. Credentials remain in the Electron vault, outside
+Module workspaces.
 
 ## Scripts
 
@@ -104,6 +114,7 @@ bun run --cwd=apps/works package    # electron-builder unpacked app into dist/re
 bun run --cwd=apps/works test
 bun run --cwd=apps/works test:electron  # opt-in native transport, restart, and preview tests
 bun run --cwd=apps/works test:module-runtime # also starts a real Microsandbox Module
+bun run --cwd=apps/works test:module-build # real creation, Pierre edits, builds, and persisted app data
 bun run --cwd=apps/works typecheck
 ./node_modules/.bin/biome check apps/works
 ```

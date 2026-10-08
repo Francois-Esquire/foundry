@@ -1,7 +1,9 @@
+import "../helpers/mock-module-source";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { worksApi } from "~/app/api/client";
 import { Shell } from "~/app/layout/shell";
 import { WorksRoutes } from "~/app/routes";
 import { ThemeProvider } from "~/app/theme/theme";
@@ -30,12 +32,12 @@ function renderApp(path: string) {
   );
 }
 
-describe("Shell", () => {
-  afterEach(() => {
-    cleanup();
-    vi.unstubAllGlobals();
-  });
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
+describe("Shell", () => {
   it("marks the current route in the sidebar", () => {
     renderApp("/settings");
 
@@ -50,12 +52,18 @@ describe("Shell", () => {
     ).toBeDefined();
   });
 
-  it("renders the module workspace with its files panel", () => {
-    renderApp("/modules/demo");
+  it("renders the module workspace with its files panel", async () => {
+    const module = await worksApi().modules.create.call({ name: "demo" });
+    renderApp(`/modules/${module.id}`);
+    await screen.findByRole("region", { name: "Editor" });
 
     expect(screen.getByRole("heading", { name: "demo" })).toBeDefined();
     expect(screen.getByText("Files")).toBeDefined();
     expect(screen.getByRole("region", { name: "Editor" })).toBeDefined();
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Releases" }), {
+      button: 0,
+      ctrlKey: false,
+    });
     expect(screen.getByRole("region", { name: "Preview" })).toBeDefined();
   });
 
@@ -88,4 +96,35 @@ describe("Shell", () => {
       "page"
     );
   });
+});
+
+it("keeps sidebar app links separate from module management", async () => {
+  const module = await worksApi().modules.create.call({
+    name: "Route separation",
+  });
+  renderApp(`/modules/${module.id}`);
+  await screen.findByRole("region", { name: "Editor" });
+  expect(screen.getByLabelText(module.name).getAttribute("href")).toBe(
+    `/m/${module.id}`
+  );
+  expect(
+    screen.getByRole("link", { name: "Open app" }).getAttribute("href")
+  ).toBe(`/m/${module.id}`);
+  expect(screen.queryByTitle(module.name)).toBeNull();
+  expect(screen.queryByRole("button", { name: "Build & preview" })).toBeNull();
+});
+
+it("opens an app route with management access and no source editor", async () => {
+  const module = await worksApi().modules.create.call({ name: "Micro app" });
+  renderApp(`/m/${module.id}`);
+  expect(
+    (await screen.findByRole("link", { name: "Manage module" })).getAttribute(
+      "href"
+    )
+  ).toBe(`/modules/${module.id}`);
+  expect(screen.queryByRole("region", { name: "Editor" })).toBeNull();
+  expect(
+    screen.queryByRole("tablist", { name: "Module management" })
+  ).toBeNull();
+  await screen.findByText("Module runtime is unavailable");
 });

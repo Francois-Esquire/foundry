@@ -1,3 +1,4 @@
+import "../helpers/mock-module-source";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
@@ -22,7 +23,7 @@ it("creates a module from Home and opens persisted source through the real route
   render(
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
-        <MemoryRouter>
+        <MemoryRouter initialEntries={["/modules"]}>
           <Shell>
             <WorksRoutes />
           </Shell>
@@ -40,5 +41,7 @@ it("creates a module from Home and opens persisted source through the real route
   fireEvent.click(
     await screen.findByRole("button", { name: "foundry.module.json" })
   );
-  expect(await screen.findByText(manifestPattern)).toBeDefined();
+  expect(
+    (screen.getByLabelText("Source code") as HTMLTextAreaElement).value
+  ).toMatch(manifestPattern);
 });

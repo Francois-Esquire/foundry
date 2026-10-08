@@ -1,16 +1,16 @@
-import type { ModulePreviews } from "./controller";
+import type { ModuleSessions } from "./controller";
 
 const CSP =
   "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; object-src 'none'; form-action 'none'; frame-src 'none'";
 
-export function createPreviewProxy(
-  previews: Pick<ModulePreviews, "endpoint">,
+export function createModuleProxy(
+  sessions: Pick<ModuleSessions, "endpoint">,
   fetchImplementation: typeof fetch = fetch
 ) {
   return async (request: Request): Promise<Response> => {
     const address = new URL(request.url);
-    const endpoint = previews.endpoint(address.hostname);
-    const path = previewPath(address);
+    const endpoint = sessions.endpoint(address.hostname);
+    const path = modulePath(address);
     if (!endpoint || path === null) {
       return new Response(null, { status: 404 });
     }
@@ -43,7 +43,7 @@ export function createPreviewProxy(
       if (!allowedResponse(response)) {
         return new Response(null, { status: 502 });
       }
-      if (previews.endpoint(address.hostname) !== endpoint) {
+      if (sessions.endpoint(address.hostname) !== endpoint) {
         return new Response(null, { status: 409 });
       }
       const headers = new Headers();
@@ -61,11 +61,11 @@ export function createPreviewProxy(
   };
 }
 
-function previewPath(address: URL): string | null {
+function modulePath(address: URL): string | null {
   try {
     const path = decodeURIComponent(address.pathname);
     if (
-      address.protocol !== "module-preview:" ||
+      address.protocol !== "module-app:" ||
       path.includes("\\") ||
       path.includes("\0") ||
       path.split("/").includes("..") ||

@@ -57,6 +57,13 @@ try {
   await run("module-preview.smoke.cjs", [
     path.join(userData, "preview-profile"),
   ]);
+  if (process.argv.includes("--build")) {
+    await run(
+      "module-build.smoke.cjs",
+      [path.join(userData, "build-profile")],
+      720_000
+    );
+  }
   if (process.argv.includes("--runtime")) {
     await run(
       "module-preview.smoke.cjs",

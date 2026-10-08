@@ -5,9 +5,10 @@ import type { BrowserWindow } from "electron";
 
 export async function waitFor(
   predicate: () => boolean | Promise<boolean>,
-  message: string
+  message: string,
+  timeoutMs = 10_000
 ): Promise<void> {
-  const deadline = Date.now() + 10_000;
+  const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (await predicate()) {
       return;
@@ -26,19 +27,37 @@ export async function captureThemes(
     "../../.cache/electron/screenshots"
   );
   await mkdir(directory, { recursive: true });
-  for (const theme of ["light", "dark"]) {
-    await window.webContents.executeJavaScript(`
-      document.documentElement.classList.remove('light', 'dark', 'auto');
-      document.documentElement.classList.add('${theme}');
-      document.fonts.ready.then(() => new Promise(resolve =>
-        requestAnimationFrame(() => requestAnimationFrame(resolve))))
-        .then(() => Promise.all(document.getAnimations().map(animation =>
-          animation.finished.catch(() => undefined))));
-    `);
-    const screenshot = await window.webContents.capturePage();
-    await writeFile(
-      path.join(directory, `${name}-${theme}.png`),
-      screenshot.toPNG()
-    );
+  window.webContents.debugger.attach("1.3");
+  try {
+    for (const theme of ["light", "dark"]) {
+      await window.webContents.debugger.sendCommand(
+        "Emulation.setEmulatedMedia",
+        {
+          features: [{ name: "prefers-color-scheme", value: theme }],
+        }
+      );
+      await window.webContents.executeJavaScript(`
+        document.fonts.ready.then(() => new Promise(resolve =>
+          requestAnimationFrame(() => requestAnimationFrame(resolve))))
+          .then(() => Promise.all(document.getAnimations().map(animation =>
+            animation.finished.catch(() => undefined))));
+      `);
+      await waitFor(
+        () =>
+          window.webContents.executeJavaScript(
+            `document.documentElement.classList.contains('${theme}')`
+          ),
+        "Theme did not update"
+      );
+      // Guest views render in another process; let its compositor finish the theme frame.
+      await delay(100);
+      const screenshot = await window.webContents.capturePage();
+      await writeFile(
+        path.join(directory, `${name}-${theme}.png`),
+        screenshot.toPNG()
+      );
+    }
+  } finally {
+    window.webContents.debugger.detach();
   }
 }

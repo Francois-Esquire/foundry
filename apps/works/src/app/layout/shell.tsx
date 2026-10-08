@@ -1,4 +1,8 @@
-import { LayoutDashboardIcon, SettingsIcon } from "lucide-react";
+import {
+  LayoutDashboardIcon,
+  PanelsTopLeftIcon,
+  SettingsIcon,
+} from "lucide-react";
 import type { ReactNode } from "react";
 import { Emblem } from "~/app/components/emblem";
 import { MainLayout } from "~/app/layout/main-layout";
@@ -7,6 +11,7 @@ import { NavItem, type NavItemConfig } from "~/app/layout/nav-item";
 
 const topNavItems: NavItemConfig[] = [
   { end: true, icon: LayoutDashboardIcon, label: "Home", to: "/" },
+  { icon: PanelsTopLeftIcon, label: "Manage modules", to: "/modules" },
 ];
 
 const bottomNavItems: NavItemConfig[] = [

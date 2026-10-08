@@ -5,14 +5,14 @@ import { JsonArtifactStore } from "@foundry/artifacts/node";
 import { app, BrowserWindow, type WebFrameMain } from "electron";
 import { createModuleLibrary } from "~/main/modules/library";
 import {
-  ModulePreviews,
-  type PreviewRuntime,
-} from "~/main/modules/preview/controller";
+  type ModuleRuntime,
+  ModuleSessions,
+} from "~/main/modules/runtime/controller";
 import {
-  registerPreviewProtocol,
-  registerPreviewScheme,
-} from "~/main/modules/preview/protocol";
-import { createPreviewRuntime } from "~/main/modules/preview/runtime";
+  registerModuleProtocol,
+  registerModuleScheme,
+} from "~/main/modules/runtime/protocol";
+import { createModuleRuntime } from "~/main/modules/runtime/runtime";
 import { registerRpcTransport } from "~/main/router/transport";
 import { openAppVault } from "~/main/vault/safe-storage";
 import { createMainWindow } from "~/main/window";
@@ -23,13 +23,14 @@ import {
   PREVIEW_HTML,
   PREVIEW_SCRIPT,
 } from "../helpers/module-release";
+import { openLibrary, selectManagementView } from "../helpers/module-source";
 
 const [, , profilePath, mode] = process.argv;
 assert.ok(profilePath);
 const userData: string = profilePath;
 app.setPath("userData", userData);
 app.on("window-all-closed", () => undefined);
-registerPreviewScheme();
+registerModuleScheme();
 
 async function smoke() {
   const store = new JsonArtifactStore({
@@ -51,8 +52,8 @@ async function smoke() {
   let starts = 0;
   let closes = 0;
   const real = mode === "runtime";
-  const backing: PreviewRuntime = real
-    ? await createPreviewRuntime(userData, store)
+  const backing: ModuleRuntime = real
+    ? await createModuleRuntime(userData, store)
     : {
         shutdown: async () => undefined,
         async start() {
@@ -62,7 +63,7 @@ async function smoke() {
           };
         },
       };
-  const runtime: PreviewRuntime = {
+  const runtime: ModuleRuntime = {
     shutdown: () => backing.shutdown(),
     async start(release, signal) {
       const handle = await backing.start(release, signal);
@@ -76,11 +77,11 @@ async function smoke() {
       };
     },
   };
-  const previews = new ModulePreviews(library, runtime);
-  registerPreviewProtocol(previews);
+  const sessions = new ModuleSessions(library, runtime);
+  registerModuleProtocol(sessions);
   registerRpcTransport({
     modules: library,
-    previews,
+    sessions,
     vault: await openAppVault(userData),
   });
   registerWindowIpc();
@@ -90,6 +91,7 @@ async function smoke() {
   );
   const evaluate = (code: string) => window.webContents.executeJavaScript(code);
   try {
+    await openLibrary(window);
     await waitFor(
       () =>
         evaluate(
@@ -100,6 +102,11 @@ async function smoke() {
     await evaluate(
       `document.querySelector('a[href="#/modules/${version.moduleId}"]').click()`
     );
+    await waitFor(
+      () => evaluate("!!document.querySelector('[role=tab]')"),
+      "Management did not load"
+    );
+    await selectManagementView(window, "Releases");
     await waitFor(
       () =>
         evaluate(
@@ -119,7 +126,7 @@ async function smoke() {
       );
       assert.equal(error, undefined, `Preview failed: ${error}`);
       frame = window.webContents.mainFrame.frames.find((candidate) =>
-        candidate.url.startsWith("module-preview:")
+        candidate.url.startsWith("module-app:")
       );
       if (
         frame &&
@@ -149,7 +156,7 @@ async function smoke() {
       ),
       "Count: 1"
     );
-    await captureThemes(window, real ? "module-runtime" : "module-preview");
+    await captureThemes(window, real ? "module-runtime" : "module-app");
     await evaluate(
       'Array.from(document.querySelectorAll("button")).find(button => button.textContent === "Stop preview").click()'
     );
@@ -167,7 +174,7 @@ async function smoke() {
     if (!window.isDestroyed()) {
       window.destroy();
     }
-    await previews.shutdown();
+    await sessions.shutdown();
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 }

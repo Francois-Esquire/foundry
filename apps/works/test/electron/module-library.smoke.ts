@@ -10,6 +10,8 @@ import { createMainWindow } from "~/main/window";
 import { registerWindowIpc } from "~/main/window-ipc";
 import { captureThemes, waitFor } from "../helpers/electron";
 
+import { openLibrary, sourceText } from "../helpers/module-source";
+
 const MODULE_NAME = "Restart smoke module";
 app.on("window-all-closed", () => undefined);
 
@@ -28,6 +30,7 @@ async function smoke(): Promise<void> {
     await once(window.webContents, "did-finish-load", {
       signal: AbortSignal.timeout(10_000),
     });
+    await openLibrary(window);
     await waitFor(
       async () =>
         (await window.webContents.executeJavaScript(
@@ -78,7 +81,7 @@ async function smoke(): Promise<void> {
       async () =>
         (await window.webContents.executeJavaScript(
           `document.querySelector('h1')?.textContent === ${JSON.stringify(MODULE_NAME)}
-            && document.querySelector('pre')?.textContent.includes(${JSON.stringify(`# ${MODULE_NAME}`)})`
+            && (${sourceText}).includes(${JSON.stringify(MODULE_NAME)})`
         )) === true,
       "Named module workspace did not show persisted authored source"
     );

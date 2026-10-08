@@ -13,7 +13,7 @@ function ModulePreviewSession({
 }) {
   const [viewId, setViewId] = useState<string>();
   const preview = useQuery(
-    worksApi().modules.preview.experimental_liveOptions({
+    worksApi().runtime.start.experimental_liveOptions({
       gcTime: 0,
       input: { contentId, id },
       retry: false,
@@ -73,12 +73,16 @@ function ModulePreviewSession({
 export function ModulePreviewPanel({
   id,
   releases,
+  initialContentId,
 }: {
   id: string;
   releases: ModuleRelease[];
+  initialContentId?: string;
 }) {
-  const [selection, setSelection] = useState<string>();
-  const [started, setStarted] = useState(false);
+  const [selection, setSelection] = useState<string | undefined>(
+    initialContentId
+  );
+  const [started, setStarted] = useState(!!initialContentId);
   const contentId = selection ?? releases[0]?.contentId ?? "";
   const release = releases.find(
     (candidate) => candidate.contentId === contentId
@@ -91,10 +95,10 @@ export function ModulePreviewPanel({
   let notice = "This release has no views.";
   if (releases.length === 0) {
     notice =
-      "This module has no built releases. Import a released package to preview its views.";
+      "Build a release to preview this module’s views. You can also import a released package.";
   } else if (release?.views.length) {
     notice =
-      "Start a preview to open this release’s views. Preview data is temporary.";
+      "Start a preview to open this release’s views. App data stays on this device.";
   }
   return (
     <section

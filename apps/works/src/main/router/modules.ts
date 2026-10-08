@@ -1,10 +1,57 @@
 import { ModulePackageError } from "@foundry/modules/package";
-import { AsyncIteratorClass, ORPCError } from "@orpc/server";
+import { ModuleStoreConflictError } from "@foundry/modules/store/contract";
+import { ORPCError } from "@orpc/server";
 import { z } from "zod";
-import { ModulePreviewError } from "~/main/modules/preview/controller";
 import { base } from "./context";
 
+const revision = z.object({
+  artifactId: z.string().min(1),
+  contentId: z.string().min(1),
+  updatedAt: z.iso.datetime(),
+});
+const source = z
+  .record(z.string().min(1).max(512), z.string().max(4 * 1024 * 1024))
+  .refine(
+    (files) =>
+      Object.keys(files).length <= 2048 &&
+      Object.values(files).reduce(
+        (total, file) => total + new TextEncoder().encode(file).byteLength,
+        0
+      ) <=
+        16 * 1024 * 1024,
+    "Source exceeds the workspace limit"
+  );
+
 export const modulesRouter = {
+  build: base
+    .input(
+      z.object({
+        expected: revision,
+        id: z.string().min(1),
+        tag: z.string().min(1).max(120),
+      })
+    )
+    .handler(({ context, input, signal }) => {
+      if (!context.builds) {
+        throw new ORPCError("SERVICE_UNAVAILABLE", {
+          message: "Module builds are unavailable",
+        });
+      }
+      try {
+        return context.builds.watch(
+          input.id,
+          input.tag,
+          input.expected,
+          signal
+        );
+      } catch (error) {
+        throw new ORPCError("PRECONDITION_FAILED", {
+          cause: error,
+          message:
+            error instanceof Error ? error.message : "Build could not start",
+        });
+      }
+    }),
   create: base
     .input(z.object({ name: z.string().trim().min(1).max(120) }))
     .handler(({ context, input }) => context.modules.create(input.name)),
@@ -40,32 +87,28 @@ export const modulesRouter = {
       }
     }),
   list: base.handler(({ context }) => context.modules.list()),
-  preview: base
-    .input(z.object({ contentId: z.string().min(1), id: z.string().min(1) }))
-    .handler(({ context, input, signal }) => {
-      if (!context.previews) {
-        throw new ORPCError("SERVICE_UNAVAILABLE", {
-          message: "Module previews are unavailable",
-        });
-      }
-      const watch = context.previews.watch(input.id, input.contentId, signal);
-      return new AsyncIteratorClass(
-        async () => {
-          try {
-            return await watch.next();
-          } catch (error) {
-            throw new ORPCError("PRECONDITION_FAILED", {
-              cause: error,
-              message:
-                error instanceof ModulePreviewError
-                  ? error.message
-                  : "Module preview could not start. Check the runtime and released package.",
-            });
+  saveSource: base
+    .input(z.object({ expected: revision, id: z.string().min(1), source }))
+    .handler(async ({ context, input }) => {
+      try {
+        return await context.modules.saveSource(
+          input.id,
+          input.source,
+          input.expected
+        );
+      } catch (error) {
+        throw new ORPCError(
+          error instanceof ModuleStoreConflictError
+            ? "CONFLICT"
+            : "BAD_REQUEST",
+          {
+            cause: error,
+            message:
+              error instanceof Error
+                ? error.message
+                : "Source could not be saved",
           }
-        },
-        async () => {
-          await watch.return();
-        }
-      );
+        );
+      }
     }),
 };

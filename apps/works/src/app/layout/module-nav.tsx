@@ -11,7 +11,7 @@ export function ModuleNav() {
         icon={BoxIcon}
         key={module.id}
         label={module.name}
-        to={`/modules/${encodeURIComponent(module.id)}`}
+        to={`/m/${encodeURIComponent(module.id)}`}
       />
     )) ?? null
   );

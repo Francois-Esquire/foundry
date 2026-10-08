@@ -3,10 +3,10 @@ import { createRouterClient } from "@orpc/server";
 import { describe, expect, it, vi } from "vitest";
 import { createModuleLibrary } from "~/main/modules/library";
 import {
-  ModulePreviewError,
-  ModulePreviews,
-} from "~/main/modules/preview/controller";
-import { createPreviewProxy } from "~/main/modules/preview/proxy";
+  ModuleRuntimeError,
+  ModuleSessions,
+} from "~/main/modules/runtime/controller";
+import { createModuleProxy } from "~/main/modules/runtime/proxy";
 import { router } from "~/main/router/root";
 import { openFakeVault } from "../helpers/fake-api";
 import { moduleReleasePackage } from "../helpers/module-release";
@@ -25,16 +25,16 @@ async function fixture() {
   }
   const close = vi.fn(async () => undefined);
   const start = vi.fn(async () => ({ close, origin: "http://127.0.0.1:3000" }));
-  const previews = new ModulePreviews(library, {
+  const sessions = new ModuleSessions(library, {
     shutdown: vi.fn(async () => undefined),
     start,
   });
-  return { close, library, previews, start, version };
+  return { close, library, sessions, start, version };
 }
 
-describe("Module previews", () => {
+describe("Module sessions", () => {
   it("lists retained output-only releases and closes the runtime when the iterator returns", async () => {
-    const { library, version, previews, close } = await fixture();
+    const { library, version, sessions, close } = await fixture();
     expect((await library.details(version.moduleId))?.releases).toEqual([
       {
         contentId: version.contentId,
@@ -42,23 +42,23 @@ describe("Module previews", () => {
         views: [{ id: "main", path: "/", title: "Fixture" }],
       },
     ]);
-    const watch = previews.watch(version.moduleId, version.contentId);
+    const watch = sessions.watch(version.moduleId, version.contentId);
     const { value } = await watch.next();
-    expect(value?.origin.startsWith("module-preview://")).toBe(true);
+    expect(value?.origin.startsWith("module-app://")).toBe(true);
     const token = new URL(value?.origin ?? "").hostname;
-    expect(previews.endpoint(token)).toBeDefined();
+    expect(sessions.endpoint(token)).toBeDefined();
     const pending = watch.next();
     await watch.return();
     await pending;
     expect(close).toHaveBeenCalledTimes(1);
-    expect(previews.endpoint(token)).toBeUndefined();
+    expect(sessions.endpoint(token)).toBeUndefined();
   });
 
   it("closes a runtime that finishes startup after cancellation", async () => {
     const { library, version } = await fixture();
     let finish: (() => void) | undefined;
     const close = vi.fn(async () => undefined);
-    const previews = new ModulePreviews(library, {
+    const sessions = new ModuleSessions(library, {
       shutdown: async () => undefined,
       start: async () => {
         await new Promise<void>((resolve) => {
@@ -68,7 +68,7 @@ describe("Module previews", () => {
       },
     });
     const abort = new AbortController();
-    const watch = previews.watch(
+    const watch = sessions.watch(
       version.moduleId,
       version.contentId,
       abort.signal
@@ -83,16 +83,16 @@ describe("Module previews", () => {
   });
 
   it("does not start a missing release", async () => {
-    const { version, previews, start } = await fixture();
+    const { version, sessions, start } = await fixture();
     await expect(
-      previews.watch("absent", version.contentId).next()
+      sessions.watch("absent", version.contentId).next()
     ).rejects.toThrow("not found");
     expect(start).not.toHaveBeenCalled();
   });
 
   it("proxies views and assets with isolation, without forwarding cookies", async () => {
-    const { version, previews } = await fixture();
-    const stream = previews.watch(version.moduleId, version.contentId);
+    const { version, sessions } = await fixture();
+    const stream = sessions.watch(version.moduleId, version.contentId);
     const { value } = await stream.next();
     const fetcher = vi.fn<typeof fetch>(
       async () =>
@@ -103,7 +103,7 @@ describe("Module previews", () => {
           },
         })
     );
-    const proxy = createPreviewProxy(previews, fetcher);
+    const proxy = createModuleProxy(sessions, fetcher);
     const response = await proxy(
       new Request(`${value?.origin}/?query=1`, {
         headers: { cookie: "host=secret" },
@@ -152,14 +152,14 @@ describe("Module previews", () => {
     const fetcher = vi.fn<typeof fetch>(async () =>
       Response.redirect("https://example.com", 302)
     );
-    const proxy = createPreviewProxy({ endpoint: () => endpoint }, fetcher);
-    const request = new Request("module-preview://token/");
+    const proxy = createModuleProxy({ endpoint: () => endpoint }, fetcher);
+    const request = new Request("module-app://token/");
     expect((await proxy(request)).status).toBe(502);
     expect(fetcher).not.toHaveBeenCalled();
     endpoint.origin = "http://127.0.0.1:3000";
     expect((await proxy(request)).status).toBe(502);
     let active: typeof endpoint | undefined = endpoint;
-    const stale = createPreviewProxy({ endpoint: () => active }, async () => {
+    const stale = createModuleProxy({ endpoint: () => active }, async () => {
       active = undefined;
       return new Response("stale");
     });
@@ -168,28 +168,28 @@ describe("Module previews", () => {
 });
 
 it("shutdown cancels active watches and waits for runtime cleanup", async () => {
-  const { previews, version, close } = await fixture();
-  const watch = previews.watch(version.moduleId, version.contentId);
+  const { sessions, version, close } = await fixture();
+  const watch = sessions.watch(version.moduleId, version.contentId);
   await watch.next();
   const pending = watch.next();
-  await previews.shutdown();
+  await sessions.shutdown();
   await pending;
   expect(close).toHaveBeenCalledTimes(1);
 });
 
 it("returns a useful startup error over the real router", async () => {
   const { library, version } = await fixture();
-  const previews = new ModulePreviews(library, {
+  const sessions = new ModuleSessions(library, {
     shutdown: async () => undefined,
     start: () =>
       Promise.reject(
-        new ModulePreviewError("Install the runtime before previewing")
+        new ModuleRuntimeError("Install the runtime before previewing")
       ),
   });
   const client = createRouterClient(router, {
-    context: { modules: library, previews, vault: await openFakeVault() },
+    context: { modules: library, sessions, vault: await openFakeVault() },
   });
-  const stream = await client.modules.preview({
+  const stream = await client.runtime.start({
     contentId: version.contentId,
     id: version.moduleId,
   });

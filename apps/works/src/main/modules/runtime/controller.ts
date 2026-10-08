@@ -1,14 +1,14 @@
 import { randomUUID } from "node:crypto";
 import type { ModuleVersion } from "@foundry/modules/domain";
 import { AsyncIteratorClass } from "@orpc/server";
-import type { ModulePreview } from "~/shared/modules";
+import type { ModuleSession } from "~/shared/modules";
 import type { ModuleLibrary } from "../library";
 
-export class ModulePreviewError extends Error {
-  override readonly name = "ModulePreviewError";
+export class ModuleRuntimeError extends Error {
+  override readonly name = "ModuleRuntimeError";
 }
 
-export interface PreviewRuntime {
+export interface ModuleRuntime {
   shutdown(): Promise<void>;
   start(
     version: ModuleVersion,
@@ -19,18 +19,18 @@ export interface PreviewRuntime {
   }>;
 }
 
-export class ModulePreviews {
+export class ModuleSessions {
   readonly #active = new Map<
     string,
-    { origin: string; views: ModulePreview["views"] }
+    { origin: string; views: ModuleSession["views"] }
   >();
 
   readonly #shutdown = new AbortController();
-  readonly #watches = new Set<AsyncIteratorClass<ModulePreview, void>>();
+  readonly #watches = new Set<AsyncIteratorClass<ModuleSession, void>>();
   readonly #library: ModuleLibrary;
-  readonly #runtime: PreviewRuntime;
+  readonly #runtime: ModuleRuntime;
 
-  constructor(library: ModuleLibrary, runtime: PreviewRuntime) {
+  constructor(library: ModuleLibrary, runtime: ModuleRuntime) {
     this.#library = library;
     this.#runtime = runtime;
   }
@@ -39,9 +39,9 @@ export class ModulePreviews {
     id: string,
     contentId: string,
     signal?: AbortSignal
-  ): AsyncIteratorClass<ModulePreview, void> {
+  ): AsyncIteratorClass<ModuleSession, void> {
     if (this.#shutdown.signal.aborted) {
-      throw new ModulePreviewError("Module previews are shutting down");
+      throw new ModuleRuntimeError("Module runtime is shutting down");
     }
     const controller = new AbortController();
     const abort = () => controller.abort();
@@ -50,7 +50,7 @@ export class ModulePreviews {
       abort();
     }
     const iterator = this.#watch(id, contentId, controller.signal);
-    const watch = new AsyncIteratorClass<ModulePreview, void>(
+    const watch = new AsyncIteratorClass<ModuleSession, void>(
       () => iterator.next(),
       async () => {
         abort();
@@ -67,16 +67,16 @@ export class ModulePreviews {
     id: string,
     contentId: string,
     signal: AbortSignal
-  ): AsyncGenerator<ModulePreview, void> {
+  ): AsyncGenerator<ModuleSession, void> {
     const version = await this.#library.release(id, contentId);
     if (!version) {
-      throw new ModulePreviewError("Module release not found");
+      throw new ModuleRuntimeError("Module release not found");
     }
     const views = Object.entries(version.manifest.views).map(
       ([viewId, view]) => ({ id: viewId, ...view })
     );
     if (views.length === 0) {
-      throw new ModulePreviewError("This release has no views");
+      throw new ModuleRuntimeError("This release has no views");
     }
     signal.throwIfAborted();
     const handle = await this.#runtime.start(version, signal);
@@ -84,7 +84,7 @@ export class ModulePreviews {
     try {
       signal.throwIfAborted();
       this.#active.set(token, { origin: handle.origin, views });
-      yield { origin: `module-preview://${token}`, views };
+      yield { origin: `module-app://${token}`, views };
       await new Promise<void>((resolve) => {
         if (signal.aborted) {
           resolve();
@@ -113,7 +113,7 @@ export class ModulePreviews {
       .filter((result) => result.status === "rejected")
       .map((result) => result.reason);
     if (failures.length) {
-      throw new AggregateError(failures, "Module preview cleanup failed");
+      throw new AggregateError(failures, "Module runtime cleanup failed");
     }
   }
 }

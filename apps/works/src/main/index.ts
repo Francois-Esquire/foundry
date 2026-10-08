@@ -1,34 +1,41 @@
+import { homedir } from "node:os";
 import path from "node:path";
-import { JsonArtifactStore } from "@foundry/artifacts/node";
 import { app, BrowserWindow } from "electron";
-import { createModuleLibrary } from "./modules/library";
-import { ModulePreviews } from "./modules/preview/controller";
+import { ModuleBuilds } from "./modules/builds/controller";
+import { createBuildRuntime } from "./modules/builds/runtime";
+import { openLocalModuleLibrary } from "./modules/local-library";
+import { ModuleSessions } from "./modules/runtime/controller";
 import {
-  registerPreviewProtocol,
-  registerPreviewScheme,
-} from "./modules/preview/protocol";
-import { createPreviewRuntime } from "./modules/preview/runtime";
+  registerModuleProtocol,
+  registerModuleScheme,
+} from "./modules/runtime/protocol";
+import { createModuleRuntime } from "./modules/runtime/runtime";
 import { registerRpcTransport } from "./router/transport";
 import { openAppVault } from "./vault/safe-storage";
 import { createMainWindow } from "./window";
 import { registerWindowIpc } from "./window-ipc";
 
-registerPreviewScheme();
+registerModuleScheme();
 
 app
   .whenReady()
   .then(async () => {
     const vault = await openAppVault(app.getPath("userData"));
     const userData = app.getPath("userData");
-    const store = new JsonArtifactStore({
-      path: path.join(userData, "modules", "artifacts.json"),
-    });
-    const modules = createModuleLibrary(store);
-    const previews = new ModulePreviews(
-      modules,
-      await createPreviewRuntime(userData, store)
+    const moduleRoot = path.join(homedir(), ".foundry", "modules");
+    const { library: modules, store } = await openLocalModuleLibrary(
+      moduleRoot,
+      userData
     );
-    registerPreviewProtocol(previews);
+    const builds = new ModuleBuilds(
+      modules,
+      await createBuildRuntime(moduleRoot)
+    );
+    const sessions = new ModuleSessions(
+      modules,
+      await createModuleRuntime(moduleRoot, store)
+    );
+    registerModuleProtocol(sessions);
     let quitting = false;
     app.on("before-quit", async (event) => {
       if (quitting) {
@@ -37,19 +44,20 @@ app
       event.preventDefault();
       async function finishQuit() {
         try {
-          await previews.shutdown();
+          await builds.shutdown();
+          await sessions.shutdown();
           quitting = true;
           app.quit();
         } catch (error) {
           process.stderr.write(
-            `Module preview cleanup failed: ${String(error)}\n`
+            `Module runtime cleanup failed: ${String(error)}\n`
           );
         }
       }
       await finishQuit();
     });
     await modules.list();
-    registerRpcTransport({ modules, previews, vault });
+    registerRpcTransport({ builds, modules, sessions, vault });
     registerWindowIpc();
     createMainWindow();
 
