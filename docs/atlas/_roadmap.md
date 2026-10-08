@@ -22,7 +22,7 @@ scan and a viewer. The next layers, in the maintainer's words:
    exists in the library, `internalize-export`, which previews by default
    and writes only when asked, restoring files if verification fails. The
    CLI does not expose it, and nothing should until rules say when it may
-   run.
+   run. Research and an opinion on tooling: [`_codemods.md`](./_codemods.md).
 
 ## Before the first publish
 
