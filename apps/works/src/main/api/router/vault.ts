@@ -1,7 +1,7 @@
 import { ORPCError } from "@orpc/server";
 import { z } from "zod";
 import { findVaultField, VAULT_OWNER_IDS } from "~/shared/vault";
-import { base } from "./context";
+import { base } from "../context";
 import { watchVault } from "./watch-vault";
 
 const FieldRef = z.object({

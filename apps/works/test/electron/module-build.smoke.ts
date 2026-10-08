@@ -3,6 +3,7 @@ import { once } from "node:events";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { app, type BrowserWindow } from "electron";
+import { registerRpcTransport } from "~/main/api/transport";
 import { ModuleBuilds } from "~/main/modules/builds/controller";
 import { createBuildRuntime } from "~/main/modules/builds/runtime";
 import {
@@ -15,7 +16,6 @@ import {
   registerModuleScheme,
 } from "~/main/modules/runtime/protocol";
 import { createModuleRuntime } from "~/main/modules/runtime/runtime";
-import { registerRpcTransport } from "~/main/router/transport";
 import { openAppVault } from "~/main/vault/safe-storage";
 import { createMainWindow } from "~/main/window";
 import { registerWindowIpc } from "~/main/window-ipc";

@@ -4,7 +4,7 @@ import type { RouterClient } from "@orpc/server";
 import { createTanstackQueryUtils } from "@orpc/tanstack-query";
 // Type only: the router's runtime lives in the main process and never ships
 // in the renderer bundle.
-import type { AppRouter } from "~/main/router/root";
+import type { AppRouter } from "~/main/api";
 import { RPC_CHANNELS } from "~/shared/rpc";
 
 export type WorksClient = RouterClient<AppRouter>;

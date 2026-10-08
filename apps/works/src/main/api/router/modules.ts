@@ -2,7 +2,7 @@ import { ModulePackageError } from "@foundry/modules/package";
 import { ModuleStoreConflictError } from "@foundry/modules/store/contract";
 import { ORPCError } from "@orpc/server";
 import { z } from "zod";
-import { base } from "./context";
+import { base } from "../context";
 
 const revision = z.object({
   artifactId: z.string().min(1),

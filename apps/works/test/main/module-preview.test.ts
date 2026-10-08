@@ -1,13 +1,13 @@
 import { InMemoryArtifactStore } from "@foundry/artifacts";
 import { createRouterClient } from "@orpc/server";
 import { describe, expect, it, vi } from "vitest";
+import { router } from "~/main/api";
 import { createModuleLibrary } from "~/main/modules/library";
 import {
   ModuleRuntimeError,
   ModuleSessions,
 } from "~/main/modules/runtime/controller";
 import { createModuleProxy } from "~/main/modules/runtime/proxy";
-import { router } from "~/main/router/root";
 import { openFakeVault } from "../helpers/fake-api";
 import { moduleReleasePackage } from "../helpers/module-release";
 

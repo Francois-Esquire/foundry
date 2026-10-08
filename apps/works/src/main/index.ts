@@ -1,6 +1,7 @@
 import { homedir } from "node:os";
 import path from "node:path";
 import { app, BrowserWindow } from "electron";
+import { registerRpcTransport } from "./api/transport";
 import { ModuleBuilds } from "./modules/builds/controller";
 import { createBuildRuntime } from "./modules/builds/runtime";
 import { openLocalModuleLibrary } from "./modules/local-library";
@@ -10,7 +11,6 @@ import {
   registerModuleScheme,
 } from "./modules/runtime/protocol";
 import { createModuleRuntime } from "./modules/runtime/runtime";
-import { registerRpcTransport } from "./router/transport";
 import { openAppVault } from "./vault/safe-storage";
 import { createMainWindow } from "./window";
 import { registerWindowIpc } from "./window-ipc";

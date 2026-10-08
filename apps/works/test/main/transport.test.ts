@@ -1,6 +1,6 @@
 import type { MessagePortMain, WebContents } from "electron";
 import { describe, expect, it, vi } from "vitest";
-import { acceptRpcPort } from "~/main/router/transport";
+import { acceptRpcPort } from "~/main/api/transport";
 
 vi.mock("electron", () => ({
   BrowserWindow: { fromWebContents: vi.fn() },

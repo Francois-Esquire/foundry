@@ -3,7 +3,7 @@ import { RPCHandler } from "@orpc/server/message-port";
 import { BrowserWindow, ipcMain, type MessagePortMain } from "electron";
 import { RPC_CHANNELS } from "~/shared/rpc";
 import type { RouterContext } from "./context";
-import { router } from "./root";
+import { router } from "./router";
 
 export interface RpcPortEvent {
   ports: MessagePortMain[];

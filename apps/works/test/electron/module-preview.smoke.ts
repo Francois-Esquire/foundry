@@ -3,6 +3,7 @@ import { createServer } from "node:http";
 import path from "node:path";
 import { JsonArtifactStore } from "@foundry/artifacts/node";
 import { app, BrowserWindow, type WebFrameMain } from "electron";
+import { registerRpcTransport } from "~/main/api/transport";
 import { createModuleLibrary } from "~/main/modules/library";
 import {
   type ModuleRuntime,
@@ -13,7 +14,6 @@ import {
   registerModuleScheme,
 } from "~/main/modules/runtime/protocol";
 import { createModuleRuntime } from "~/main/modules/runtime/runtime";
-import { registerRpcTransport } from "~/main/router/transport";
 import { openAppVault } from "~/main/vault/safe-storage";
 import { createMainWindow } from "~/main/window";
 import { registerWindowIpc } from "~/main/window-ipc";

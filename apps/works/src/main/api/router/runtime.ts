@@ -2,7 +2,7 @@ import { AsyncIteratorClass, ORPCError } from "@orpc/server";
 import { z } from "zod";
 import { openModuleApp } from "~/main/modules/open-app";
 import { ModuleRuntimeError } from "~/main/modules/runtime/controller";
-import { base } from "./context";
+import { base } from "../context";
 
 export const runtimeRouter = {
   open: base

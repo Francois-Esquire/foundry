@@ -10,7 +10,7 @@ layout, theme, and routes.
 | Path               | Role                                                                  |
 | ------------------ | --------------------------------------------------------------------- |
 | `src/main/`        | Electron app lifecycle, window controls, router transport, vault, and module library |
-| `src/main/router/` | `root.ts` composes the typed router; procedures live in `vault.ts`, `modules.ts`, and `runtime.ts` |
+| `src/main/api/` | `index.ts` exposes the API; context and transport stay here, and `router/index.ts` composes the routes |
 | `src/main/modules/` | Artifact-backed module persistence and library operations |
 | `src/preload.ts`   | Exposes `window.worksWindow` through `contextBridge` and forwards the RPC port to main |
 | `src/shared/`      | Types, channel names, and the vault registry both processes use       |
@@ -35,8 +35,8 @@ The renderer calls the main process through [oRPC](https://orpc.dev) over a
 `MessagePort`. The renderer creates a `MessageChannel`, posts one end to its
 own window, the preload forwards that port to main with
 `ipcRenderer.postMessage`, and main upgrades it with the message-port
-`RPCHandler`. Router composition lives in `src/main/router/root.ts`; the renderer imports
-only the router's type. Components use the TanStack Query utilities from
+`RPCHandler`. Router composition lives in `src/main/api/router/index.ts`; the renderer imports
+only `AppRouter` from `~/main/api`. Components use the TanStack Query utilities from
 `worksApi()` in `src/app/api/client.ts`. Tests call the same router in-process
 with `createRouterClient` over an in-memory vault (`test/helpers/fake-api.ts`).
 Streaming tests also use real MessageChannels between independent clients.

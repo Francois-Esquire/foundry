@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import { app } from "electron";
+import { registerRpcTransport } from "~/main/api/transport";
 import { openModuleLibrary } from "~/main/modules/library";
-import { registerRpcTransport } from "~/main/router/transport";
 import { openAppVault } from "~/main/vault/safe-storage";
 import { createMainWindow } from "~/main/window";
 import { registerWindowIpc } from "~/main/window-ipc";
