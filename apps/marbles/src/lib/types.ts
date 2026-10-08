@@ -21,8 +21,6 @@ import type { Log } from "~/lib/log";
  * Definitions are presets; the context is what a body destructures.
  */
 
-// ── Definitions ────────────────────────────────────────────────────────────
-
 export interface SkillOp {
   readonly glob?: string;
   readonly kind: "load" | "add" | "pick";
@@ -95,8 +93,6 @@ export interface ArtifactDefinition {
   readonly name: string;
   readonly type: string;
 }
-
-// ── Context ────────────────────────────────────────────────────────────────
 
 export interface SessionRef {
   readonly id: string;

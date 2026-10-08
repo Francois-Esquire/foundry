@@ -718,7 +718,6 @@ const COMMANDS: readonly Command[] = [
     when: onDashboard,
   },
 
-  // The bottom line.
   {
     help: "Show this help",
     key: "?",

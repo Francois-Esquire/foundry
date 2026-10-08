@@ -186,7 +186,7 @@ export function createEngine(options: CreateEngineOptions): Engine {
     askable: options.askable,
     containers: containersFor(options, worktrees),
     dry,
-    // The engine's workspace system and its root workspace both run git so.
+    // Dry runs echo git for both the engine and its root workspace.
     git: dry ? { run: echoGit(print) } : {},
     home,
     models: modelsFor(options),

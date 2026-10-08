@@ -796,7 +796,7 @@ export class Engine {
       await this.interactions.close();
       // With a state dir a parked run is written and adopted by the next
       // process that can answer, so a quit keeps it and its open question.
-      // Without one, nothing can resume it, so its entry says so.
+      // Without one, cancel open questions because no later process can resume the run.
       const parkedSurvive = this.state !== undefined;
       if (!parkedSurvive) {
         await router.cancelOpen();
