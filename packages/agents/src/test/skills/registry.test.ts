@@ -93,7 +93,6 @@ describe("createSkillRegistry", () => {
     expect(text).toContain("# File: refs/guide.md");
     expect(text).toContain("the full guide body");
 
-    // Uint8Array content is decoded to UTF-8 text.
     const bytes: unknown = await registry.tools.load_skill?.execute?.(
       { file: "logo.png", name: "audit" },
       opts
@@ -171,7 +170,6 @@ describe("createSkillRegistry", () => {
     registry.add(skill("b", { description: "e" }));
     expect(registry.instructions).not.toBe(instructions);
     expect(registry.instructions).toContain("- b: e");
-    // The tool surface is fixed; only its backing skill set changed.
     expect(registry.tools).toBe(tools);
   });
 });

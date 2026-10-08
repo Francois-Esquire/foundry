@@ -8,7 +8,6 @@ export type McpListener<T> = (payload: T) => void;
 export class McpEmitter<Events> {
   readonly #listeners = new Map<keyof Events, Set<McpListener<never>>>();
 
-  /** Subscribe; returns the unsubscribe. */
   on<K extends keyof Events>(
     event: K,
     listener: McpListener<Events[K]>

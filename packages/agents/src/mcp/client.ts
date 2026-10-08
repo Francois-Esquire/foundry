@@ -283,12 +283,10 @@ export class McpClient extends McpEmitter<McpClientEvents> {
     });
   }
 
-  /** Mark enabled and connect. */
   enable(): Promise<void> {
     return this.update({ ...this.#definition, enabled: true });
   }
 
-  /** Mark disabled and close. */
   disable(): Promise<void> {
     return this.update({ ...this.#definition, enabled: false });
   }

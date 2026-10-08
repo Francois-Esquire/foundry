@@ -45,15 +45,10 @@ function registrationFor(
 }
 
 /**
- * Part B of task-08: `invocationId` must be a stable identity for one
- * logical tool call, not a fresh id minted on every `execute()` — an
- * externally visible tool keys idempotency on it (design: "Effect boundary";
- * gap-register G1), and a fresh id on replay could double-commit remotely.
- * Task 06's durable Step already works around the previous instability by
- * keying on `toolCallId` instead; this proves the compiler's own identity is
- * now trustworthy directly.
+ * Invocation IDs must stay stable for one logical call because external
+ * effects use them for idempotency. A fresh ID on replay could double-commit.
  */
-describe("tool-compiler — invocationId stability (task-08 Part B)", () => {
+describe("tool compiler invocation ID stability", () => {
   it("derives the same invocationId for a replayed continuation with the same toolCallId", async () => {
     const registration = registrationFor(({ x }) => x * 2);
     const { port, calls } = fakeEffectPort();

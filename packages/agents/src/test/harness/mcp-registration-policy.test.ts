@@ -37,8 +37,7 @@ async function drain(
 
 /**
  * Connect one fake MCP server exposing one `dangerous(target)` tool and
- * return its client-produced registration — the real `McpClient` output
- * (task-08), not a hand-authored stand-in.
+ * return its client-produced registration, not a hand-authored stand-in.
  */
 async function dangerousMcpRegistration(
   execute: (input: { target: string }) => unknown
@@ -66,14 +65,11 @@ async function dangerousMcpRegistration(
 }
 
 /**
- * Proves task-08's core migration end to end: `McpManager` registrations
- * reach the real `AgentHarness` compiler (via `SessionHarness`'s
- * `registrations` setting — the seam that lets producers migrate onto the
- * compiler without touching harness assembly) and are gated by the
- * harness's own `AgentAuthorizer`, not by the manager's own (now removed)
- * approval wrapping.
+ * Exercises the real `McpManager` → `SessionHarness` → `AgentHarness` path:
+ * manager registrations reach the compiler and are gated by the harness's
+ * `AgentAuthorizer`.
  */
-describe("MCP registrations through the harness policy (task-08)", () => {
+describe("MCP registrations through the harness policy", () => {
   it("allow: the mcp.tool capability is exact, and the effect runs exactly once through the compiled tool", async () => {
     const execute = vi.fn(({ target }: { target: string }) => `did ${target}`);
     const registration = await dangerousMcpRegistration(execute);
@@ -185,11 +181,8 @@ describe("MCP registrations through the harness policy (task-08)", () => {
   });
 
   it("a resolved approval runs the manager-produced mcp registration's effect exactly once", async () => {
-    // Mirrors the proven approval-resume recipe (task-06/task-02): the tool
-    // itself declares `needsApproval`, the checkpoint is seeded directly in
-    // the session store, and resolving it resumes the real tool loop. What
-    // task-08 adds is that the tool and its capability are the manager's own
-    // tagged tool output, not a hand-tagged stand-in.
+    // The manager's tagged tool output must keep its approval behavior through
+    // persistence and replay.
     const execute = vi.fn(({ target }: { target: string }) =>
       Promise.resolve(`did ${target}`)
     );

@@ -10,8 +10,8 @@ import {
 } from "../helpers/mock-language-model";
 
 /**
- * Installed-SDK integration test — the task's blocking gate (task-02). It
- * imports the real `ai` package (no hand-rolled approval stub) and pins what
+ * Installed-SDK integration test. It imports the real `ai` package (no
+ * hand-rolled approval stub) and pins what
  * the SDK does with a persisted approval that our own converter reconstructs
  * into AI SDK messages, the path every resumed Session takes:
  *
@@ -52,7 +52,7 @@ function msg(
   };
 }
 
-describe("installed AI SDK approval replay (task-02 blocking gate)", () => {
+describe("installed AI SDK approval replay", () => {
   it("accepts a replayed 'always' approval even after the live grant store already allows the tool", async () => {
     let alwaysGranted = false;
     const execute = vi.fn(async ({ target }: { target: string }) =>

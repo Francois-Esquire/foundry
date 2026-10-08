@@ -1,5 +1,5 @@
 /**
- * The pre-turn token estimator (context.md §2). Cheap, deterministic, no
+ * The pre-turn token estimator. Cheap, deterministic, no
  * network — used only to decide "send as-is vs summarize" before a turn runs.
  * Actual reported usage is the real source of truth and corrects this over time.
  *

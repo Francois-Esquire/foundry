@@ -40,7 +40,7 @@ export class SessionWindow implements SessionStore {
   readonly #counter: TokenCounter;
   readonly #options: SessionWindowOptions;
   readonly #highWaterRatio: number;
-  /** Ephemeral per-session bookkeeping (context.md §2). Not persisted yet. */
+  /** Recent token estimates and provider usage, kept per session in memory. */
   readonly #state = new Map<string, WindowState>();
 
   constructor(store: SessionStore, options: SessionWindowOptions = {}) {
@@ -82,9 +82,8 @@ export class SessionWindow implements SessionStore {
   }
 
   /**
-   * The managed view for a turn: full history sized against the model's budget.
-   * Phase 1 returns the history unchanged (behavior-preserving) and reports the
-   * budget/plan; the fit grows behind this signature.
+   * Return the history and its current fit estimate for a turn. The fit
+   * currently keeps the full history unchanged.
    */
   async windowFor(
     sessionId: string,
@@ -103,9 +102,8 @@ export class SessionWindow implements SessionStore {
   }
 
   /**
-   * Feed back the provider's reported usage after a turn (context.md §2): the
-   * actuals are the source of truth, and the turn-to-turn diff is the growth
-   * `velocity` stat we keep for later.
+   * Store provider-reported usage as the calibration reference for later
+   * estimates.
    */
   recordUsage(sessionId: string, usage: SessionUsage): void {
     const prev = this.#state.get(sessionId);
@@ -120,7 +118,6 @@ export class SessionWindow implements SessionStore {
     });
   }
 
-  /** Current ephemeral bookkeeping for a session, if any. */
   stateFor(sessionId: string): WindowState | undefined {
     return this.#state.get(sessionId);
   }

@@ -72,10 +72,8 @@ describe("toModelMessages", () => {
     ]);
 
     expect(out.map((m) => m.role)).toEqual(["user", "assistant", "tool"]);
-    // assistant carries the tool-call and trailing text together
     expect(partsOf(out[1]).some((p) => p.type === "tool-call")).toBe(true);
     expect(partsOf(out[1]).some((p) => p.type === "text")).toBe(true);
-    // tool message carries the matching result
     expect(partsOf(out[2])[0]).toMatchObject({
       toolCallId: "c1",
       toolName: "search",

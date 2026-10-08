@@ -531,7 +531,6 @@ describe("createAgentPreset", () => {
       [...baseToolNames, "list_agents", "message_agent"].sort()
     );
 
-    // Session-only additions: store + mesh join.
     expect(session.store).toBe(store);
     expect(mesh.has("researcher")).toBe(true);
 

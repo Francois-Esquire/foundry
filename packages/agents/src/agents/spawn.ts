@@ -9,7 +9,7 @@ import { collapseFinalText } from "./last-text";
 import type { AgentCompatibilityProjection, AgentEntry } from "./registry";
 import { resolveAgentEntry } from "./registry";
 
-/** The run seam — the resolved child agent's `.stream(...)` (Backbone `runAgent`, M1). */
+/** Runs a resolved child agent against its session. */
 type AgentRun = Awaited<ReturnType<ToolLoopAgent["stream"]>>;
 export type RunAgent = (
   agent: AgentEntry,
@@ -17,36 +17,35 @@ export type RunAgent = (
 ) => Promise<AgentRun>;
 
 /**
- * The modeled outcomes of a spawn.
- * (The "at-max-depth" outcome is NOT a result — it is the tool's absence: `createSpawnTool`
- * returns `undefined`, so the model never sees a spawn tool to call. Ruling 0006.)
+ * Spawn failures returned to the model. Reaching the depth limit omits the tool
+ * instead of returning a failure.
  */
 export type SpawnResult =
   | { ok: true; mode: "foreground"; artifact: string }
   | { ok: false; reason: "unknown-kind" };
 
 export interface SpawnDeps {
-  /** Max recursion depth (G-A9-DEPTH-VALUE — injected at composition; tests pass a small value). */
+  /** Maximum allowed depth of a spawned agent. */
   depthLimit: number;
-  /** Optional tool copy. */
   description?: string;
-  /** The invoking parent message id (Invariant 4). Harness-supplied per turn; optional. */
+  /** Parent message that invoked this child, when supplied by the harness. */
   parentMessageId?: string;
   /** The parent session — supplies `recursionDepth` for the depth gate and `id` for linkage. */
   parentSession: SessionRecord;
   promptDescription?: string;
-  /** Resolution surface (S5). `resolveAgentEntry(kind, registry)` throws on unknown → caught here. */
+  /** Resolves the model-supplied agent kind; unknown kinds become a modeled miss. */
   registry: AgentCompatibilityProjection;
-  /** Runs the resolved child agent bound to the CHILD session. */
+  /** Runs the resolved child agent in the supplied child session. */
   runAgent: RunAgent;
-  /** Mints the child session + writes linkage + freezes depth (task 04 contract). */
+  /** Creates child sessions with parent linkage and a fixed recursion depth. */
   store: SessionStore;
 }
 
 export function createSpawnTool(deps: SpawnDeps) {
   const parentDepth = deps.parentSession.recursionDepth ?? 0;
   if (parentDepth + 1 > deps.depthLimit) {
-    return; // withhold at max (ruling 0006)
+    // Omit the tool when another child would exceed the depth limit.
+    return;
   }
 
   return tool({
@@ -57,7 +56,7 @@ export function createSpawnTool(deps: SpawnDeps) {
       { agentKind, prompt },
       { abortSignal }
     ): Promise<SpawnResult> => {
-      // (1) resolve — untrusted model input (S5). A throw becomes a modeled miss; nothing escapes.
+      // The requested kind comes from model input; unknown kinds become a modeled miss.
       let agent: AgentEntry;
       try {
         agent = resolveAgentEntry(agentKind, deps.registry);
@@ -65,22 +64,21 @@ export function createSpawnTool(deps: SpawnDeps) {
         return { ok: false, reason: "unknown-kind" };
       }
 
-      // (2) mint the child + write linkage + freeze depth, in one createSession call (§0, ruling 0007).
+      // Create the child session with its parent linkage and fixed recursion depth.
       const childSession = await deps.store.createSession({
         parentMessageId: deps.parentMessageId,
         parentSessionId: deps.parentSession.id,
         recursionDepth: parentDepth + 1,
       });
 
-      // (3) run bound to the CHILD session (never the parent's). The delegation prompt
-      //     is the ONLY parent→child channel (Invariant 6).
+      // Keep the child isolated in its own session; the prompt is its only parent input.
       const run = await deps.runAgent(agent, {
         abortSignal,
         prompt,
         session: childSession,
       });
 
-      // (4) foreground: collapse ONLY the final result (ruling 0008 R2).
+      // Return the final reply, not the intermediate stream events.
       const artifact = await collapseFinalText(
         run.toUIMessageStream(),
         "Task completed."

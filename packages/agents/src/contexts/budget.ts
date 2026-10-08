@@ -1,28 +1,24 @@
 /**
- * Budget resolution (context.md §1) — turns a {@link WindowModel} into the
- * {@link ContextBudget} the fit sizes against.
+ * Resolves a model's input limits into the {@link ContextBudget} used to size a
+ * turn.
  *
- * Self-contained: window sizes come from a local table here, not
- * `@foundry/models`, because catalog baselines often omit limits. The table is
- * the consolidation target for the scattered window numbers noted in §5.
+ * Uses a local table rather than `@foundry/models`, whose catalog baselines may
+ * omit limits.
  */
 import type { ContextBudget, SessionWindowOptions, WindowModel } from "./types";
 
 /**
- * Local context-window table, keyed by model id. Seed/extend as we consolidate
- * the app-level tables and display meters (context.md §5). Conservative by
- * design — overshooting the real window is the failure we're preventing.
+ * Overrides for models whose catalog metadata does not provide a context
+ * window.
  */
 const CONTEXT_WINDOWS: Record<string, number> = {};
 
 /**
- * Fallback when a model has no table entry and carries no `contextWindow`
- * (context.md §5 open item — deliberately conservative). Tune once the catalog
- * consolidation lands.
+ * Used when neither the model nor {@link CONTEXT_WINDOWS} provides a window.
+ * The conservative default reduces the chance of exceeding the real limit.
  */
 const FALLBACK_WINDOW = 128_000;
 
-/** Default reply reservation when a turn doesn't override it. */
 const DEFAULT_RESERVED_OUTPUT = 8192;
 
 const DEFAULT_SAFETY_MARGIN_RATIO = 0.08;
@@ -34,7 +30,7 @@ function resolveWindow(model: WindowModel): number {
 
 /**
  * Build the {@link ContextBudget} for a model. `reservedOutput` defaults to a
- * flat hold-back (per-call override is a later refinement, context.md §1).
+ * flat hold-back unless the model or caller supplies a value.
  */
 export function resolveBudget(
   model: WindowModel,
@@ -57,8 +53,8 @@ export function resolveBudget(
 }
 
 /**
- * The effective token ceiling for a budget: the high-water mark over headroom,
- * lowered to the hard cap when one is set (context.md §4 — two triggers).
+ * The effective token ceiling: the high-water mark over headroom, lowered to
+ * the hard cap when one is set.
  */
 export function effectiveLimit(
   budget: ContextBudget,

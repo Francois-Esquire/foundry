@@ -91,7 +91,6 @@ describe("projectToUIMessageChunks", () => {
       "finish-step",
       "finish",
     ]);
-    // Both deltas share one text id.
     const start = chunks.find((c) => c.type === "text-start");
     const deltas = chunks.filter((c) => c.type === "text-delta");
     const id = start && "id" in start ? start.id : undefined;

@@ -184,9 +184,8 @@ export type SessionStatus = (typeof SESSION_STATUSES)[number];
 export interface SessionRecord {
   createdAt: number;
   id: string;
-  /** The invoking message id in the parent that spawned this session. */
   parentMessageId?: string | null;
-  /** Parent session id — non-null marks this session as a spawned sub-agent (ruling 0007). Root = null/absent. */
+  /** Parent session id; absent for a root session. */
   parentSessionId?: string | null;
   /** Depth in the spawn chain, frozen at spawn (parent depth + 1). Root = 0 (absent). Never re-derived. */
   recursionDepth?: number;

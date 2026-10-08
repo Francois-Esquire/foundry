@@ -8,11 +8,9 @@ export interface Summary {
   subjectSessionId: string;
 }
 
-/** Process-lifetime, session-keyed, rolling store. Persistence deferred (matches the scheduler's
- *  in-memory design, ruling 0008 R3). Holds NO embedding (ruling 0005). */
+/** In-memory, session-keyed rolling store. Summaries are digests, not embeddings. */
 export interface SummaryStore {
   get(subjectSessionId: string): Summary | undefined;
-  /** Rolling: overwrites the subject session's prior digest in place. */
   upsert(summary: Summary): void;
 }
 

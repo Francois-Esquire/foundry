@@ -235,11 +235,9 @@ async function resolveOriginalNeedsApproval(
 }
 
 /**
- * Sticky-replay recipe proven by the installed-SDK test (task-02's
- * `approval-sdk-replay.test.ts`): once a `tool-approval-request` has been
- * issued for a `toolCallId`, `needsApproval` must keep reporting true for
- * that call no matter what the *live* policy now says. The AI SDK's own
- * `validateApprovedToolApprovals` re-resolves `needsApproval` before
+ * For a `toolCallId` with an issued `tool-approval-request`, `needsApproval`
+ * must keep returning true no matter what the *live* policy now says. The
+ * AI SDK's `validateApprovedToolApprovals` re-resolves `needsApproval` before
  * honoring a replayed approval, and drops a real approval as fabricated the
  * moment `needsApproval` stops agreeing — checking history first is what
  * keeps a later `"always"` grant from breaking a request already in flight.

@@ -1,12 +1,7 @@
 /**
- * The fit — pure over (history, budget, counter), no store, no I/O — so it's
- * testable in isolation (advisor's "keep the fit pure").
- *
- * **Phase 1 is behavior-preserving:** it keeps the *full* history unchanged and
- * only reports whether it would act, so dropping a {@link SessionWindow} in
- * anywhere is a guaranteed no-op until the real fit lands (context.md §3, §7).
- * Trimming / summarization replace this body in Phase 2 without touching the
- * signature.
+ * Purely estimates the full history and reports whether it exceeds the limit.
+ * It currently returns the history unchanged; no trimming or summarization is
+ * performed.
  */
 import type {
   ContextBudget,
@@ -28,10 +23,7 @@ export interface PrepareOutput {
   plan: WindowPlan;
 }
 
-/**
- * Size a turn. Phase 1: estimate the full history, flag whether it crosses the
- * limit, and return it untouched.
- */
+/** Estimate a turn's history and report whether it exceeds the limit. */
 export function prepareContext(input: PrepareInput): PrepareOutput {
   const { history, counter, limit } = input;
 
@@ -48,6 +40,5 @@ export function prepareContext(input: PrepareInput): PrepareOutput {
     summarized: false,
   };
 
-  // Phase 1 stub: keep everything. Phase 2 trims/summarizes `kept` here.
   return { messages: history, plan };
 }

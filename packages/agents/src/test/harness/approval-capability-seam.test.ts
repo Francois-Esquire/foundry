@@ -22,14 +22,11 @@ async function drain(
 }
 
 /**
- * Proves the forward seam task-02 left open: `stream-transform.ts` reads
- * `capability` generically off a `tool-approval-request` event, but nothing
- * populated it until this task's compiler. This exercises the real
- * `AgentHarness` -> `SessionHarness` -> `transformStream` path end to end
- * (not just the compiler in isolation) and checks the *live* `SessionEvent*
- * carries the registration-derived capability.
+ * Exercises the full `AgentHarness` → `SessionHarness` → `transformStream`
+ * path, verifying the compiler's registration-derived capability reaches both
+ * the live approval event and the persisted session message.
  */
-describe("stream-transform capability seam (task-03)", () => {
+describe("stream-transform capability propagation", () => {
   it("attaches the registration-derived capability to the live tool-approval-request event", async () => {
     const dangerous = tool({
       description: "does something dangerous",
@@ -81,8 +78,6 @@ describe("stream-transform capability seam (task-03)", () => {
       tool: "dangerous",
     });
 
-    // The persisted Session part carries the same capability, since
-    // `transformStream` (task-02) writes whatever it reads off the event.
     const messages = await harness.store.listMessages("s1");
     const persistedRequest = messages
       .flatMap((m) => m.parts)

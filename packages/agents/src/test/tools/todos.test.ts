@@ -15,7 +15,6 @@ describe("TodoStore", () => {
     store.add("second");
 
     expect(seen).toHaveLength(3);
-    // Last snapshot reflects both items, first completed.
     expect(seen.at(-1)).toEqual([
       { description: "first", id: a.id, state: "completed" },
       expect.objectContaining({ description: "second", state: "pending" }),
@@ -52,7 +51,6 @@ describe("TodoStore", () => {
     ]);
     expect(onChanged).toHaveBeenCalledTimes(1);
 
-    // Same state → no event; unknown id → no event.
     store.setState("x", "completed");
     store.setState("missing", "pending");
     expect(onChanged).toHaveBeenCalledTimes(1);
@@ -66,7 +64,6 @@ describe("TodoStore", () => {
     });
     store.add("first");
     store.add("second");
-    // The first snapshot must not have grown when the second item was added.
     expect(captured).toHaveLength(2);
     const firstSnapshot = captured;
     store.complete(store.items[0]?.id ?? "");

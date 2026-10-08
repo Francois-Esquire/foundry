@@ -93,7 +93,6 @@ describe("agentCapabilityAddress", () => {
 });
 
 describe("agentAddressing", () => {
-  /** The under-namespacing this whole mechanic exists to fix. */
   it("keeps two presets exposing the same tool name apart", () => {
     expect(key(CHAT, TOOL)).not.toBe(key(CANVAS, TOOL));
   });

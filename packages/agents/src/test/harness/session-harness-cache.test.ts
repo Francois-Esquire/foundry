@@ -74,7 +74,6 @@ describe("SessionHarness — provider caching", () => {
     expect(captured.providerOptions).toMatchObject({
       openai: { promptCacheKey: "sess-1" },
     });
-    // No per-message breakpoint for OpenAI.
     expect(
       lastMessage(captured.prompt)?.providerOptions?.anthropic
     ).toBeUndefined();

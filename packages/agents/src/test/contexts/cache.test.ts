@@ -14,7 +14,6 @@ describe("resolveCacheProvider", () => {
   });
 
   it("falls back to the model-id prefix under gateway routing", () => {
-    // provider is the gateway, not a real family — parse the model id.
     expect(
       resolveCacheProvider({
         modelId: "google/gemini-3.5-flash",

@@ -32,7 +32,6 @@ describe("SessionWindow", () => {
       role: "user",
       sessionId: session.id,
     });
-    // Written through to the wrapped store, not a private copy.
     expect(await inner.listMessages(session.id)).toEqual([msg]);
 
     await window.updateMessage(msg.id, { status: "error" });
@@ -54,7 +53,7 @@ describe("SessionWindow", () => {
     );
   });
 
-  it("windowFor returns the full history unchanged (Phase 1 no-op)", async () => {
+  it("windowFor returns the full history unchanged", async () => {
     const inner = new InMemorySessionStore();
     const window = new SessionWindow(inner);
     const session = await window.createSession();
