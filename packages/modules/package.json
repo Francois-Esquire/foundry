@@ -1,0 +1,45 @@
+{
+  "name": "@foundry/modules",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Artifact-backed Module domain, package, Gateway, Store, and workspace composition contracts",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    "./*": {
+      "types": "./dist/*.d.ts",
+      "import": "./src/*.ts",
+      "default": "./src/*.ts"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "./dist/**/*",
+    "./src/**/*",
+    "!**/*.test.*"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist .cache .turbo coverage",
+    "emit-sdk": "bun src/sdk/emit.ts && biome format --write src/sdk/emitted.ts src/sdk/generator-source.ts",
+    "test": "vitest run --project unit",
+    "test:coverage": "vitest run --project unit --coverage",
+    "test:integration": "vitest run --project integration",
+    "test:watch": "vitest --project unit",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@foundry/artifacts": "workspace:*",
+    "@foundry/core": "workspace:*",
+    "@foundry/lib": "workspace:*",
+    "@foundry/sandbox": "workspace:*",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@foundry/tsconfig": "workspace:*",
+    "@types/node": "^26.4.1",
+    "@vitest/coverage-v8": "^4.1.9",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
+  }
+}

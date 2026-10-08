@@ -227,6 +227,24 @@
         "vitest": "^4.1.9",
       },
     },
+    "packages/modules": {
+      "name": "@foundry/modules",
+      "version": "0.1.0",
+      "dependencies": {
+        "@foundry/artifacts": "workspace:*",
+        "@foundry/core": "workspace:*",
+        "@foundry/lib": "workspace:*",
+        "@foundry/sandbox": "workspace:*",
+        "zod": "^4.4.3",
+      },
+      "devDependencies": {
+        "@foundry/tsconfig": "workspace:*",
+        "@types/node": "^26.4.1",
+        "@vitest/coverage-v8": "^4.1.9",
+        "typescript": "^6.0.3",
+        "vitest": "^4.1.9",
+      },
+    },
     "packages/sandbox": {
       "name": "@foundry/sandbox",
       "version": "0.1.0",
@@ -603,6 +621,8 @@
     "@foundry/marbles": ["@foundry/marbles@workspace:apps/marbles"],
 
     "@foundry/models": ["@foundry/models@workspace:packages/models"],
+
+    "@foundry/modules": ["@foundry/modules@workspace:packages/modules"],
 
     "@foundry/release": ["@foundry/release@workspace:tooling/release"],
 

@@ -1,0 +1,10 @@
+{
+  "extends": ["//"],
+  "tasks": {
+    "test:integration": {
+      "dependsOn": ["build"],
+      "env": ["FOUNDRY_RUN_GENERATED_MODULE_WORKSPACE"],
+      "cache": false
+    }
+  }
+}
