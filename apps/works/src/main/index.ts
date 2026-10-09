@@ -36,25 +36,34 @@ app
       await createModuleRuntime(moduleRoot, store)
     );
     registerModuleProtocol(sessions);
-    let quitting = false;
+    // Cleanup starts once and the app always quits after it settles, even
+    // when a shutdown fails. Repeat quit requests wait for the same cleanup.
+    let quitState: "running" | "cleaning" | "ready" = "running";
     app.on("before-quit", async (event) => {
-      if (quitting) {
+      if (quitState === "ready") {
         return;
       }
       event.preventDefault();
-      async function finishQuit() {
-        try {
-          await builds.shutdown();
-          await sessions.shutdown();
-          quitting = true;
-          app.quit();
-        } catch (error) {
-          process.stderr.write(
-            `Module runtime cleanup failed: ${String(error)}\n`
-          );
-        }
+      if (quitState === "cleaning") {
+        return;
       }
-      await finishQuit();
+      quitState = "cleaning";
+      try {
+        const results = await Promise.allSettled([
+          builds.shutdown(),
+          sessions.shutdown(),
+        ]);
+        for (const result of results) {
+          if (result.status === "rejected") {
+            process.stderr.write(
+              `Module runtime cleanup failed: ${String(result.reason)}\n`
+            );
+          }
+        }
+      } finally {
+        quitState = "ready";
+        app.quit();
+      }
     });
     await modules.list();
     registerRpcTransport({ builds, modules, sessions, vault });
