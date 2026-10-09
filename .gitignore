@@ -62,3 +62,9 @@ temp
 
 # Blume generated runtime
 .blume/
+
+# Design-skill scratch (impeccable)
+.impeccable/
+
+# Claude Code write-tracking markers
+.cc-writes/

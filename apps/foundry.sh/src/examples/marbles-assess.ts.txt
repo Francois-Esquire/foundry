@@ -1,0 +1,41 @@
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import { agent, artifact, monitor, step } from "@foundry/marbles";
+import { z } from "zod";
+
+// Another workflow collects reports and appends them to incidents.md.
+// This one watches that file and decides what happens next.
+
+const triage = agent({
+  provider: "codex",
+  prompt: `Is the last entry in this file an incident?
+    Reply with JSON only: {"isIncident": boolean, "reason": string}`,
+});
+
+const verdict = z.object({ isIncident: z.boolean(), reason: z.string() });
+const brief = artifact({ name: "investigation-brief", type: "text/markdown" });
+
+const assess = step("assess")
+  .input(z.object({ entry: z.string() }))
+  .do(async ({ input: { entry }, agents, report, log }) => {
+    const session = await agents.session(triage);
+    const reply = await session.generate(entry);
+    const { isIncident, reason } = verdict.parse(JSON.parse(reply.text));
+
+    if (!isIncident) {
+      log(`Not an incident: ${reason}`);
+      return { isIncident };
+    }
+
+    const draft = await session.generate("Write an investigation brief.");
+    await report.artifact(brief, { "brief.md": draft.text });
+    return { isIncident };
+  });
+
+monitor("incidents.md")
+  .every("1m")
+  .do(async ({ files, workspaces }) => {
+    if (!files?.modified.length) return;
+    const path = resolve(workspaces.current.root, "incidents.md");
+    return assess({}, { entry: await readFile(path, "utf8") });
+  });

@@ -1,34 +1,33 @@
 ---
-name: Foundry workshop
-description: A warm, tactile visual system for tools that people can make their own.
+name: Foundry
+description: A monochrome visual system with expressive headings and plain, readable tool descriptions.
 colors:
-  workbench: "#eadb9b"
-  paper: "#f6f3eb"
-  ink: "#342d27"
-  muted: "#665a46"
-  line: "#c8bd9c"
-  clay: "#ddbaaa"
-  sage: "#d5dbc6"
-  accent: "#65462f"
-  control-hover: "#d9c985"
+  workbench: "#fafafa"
+  paper: "#ffffff"
+  ink: "#202020"
+  muted: "#626262"
+  line: "#dedede"
+  clay: "#eeeeee"
+  sage: "#e5e5e5"
+  accent: "#404040"
 typography:
   display:
     fontFamily: '"Bricolage Grotesque Variable", sans-serif'
-    fontSize: "clamp(4.5rem, 7.4vw, 6rem)"
+    fontSize: "clamp(2.5rem, 5.1vw, 4.25rem)"
     fontWeight: 600
-    lineHeight: 0.98
-    letterSpacing: "-0.04em"
+    lineHeight: 1.08
+    letterSpacing: "-0.035em"
   headline:
     fontFamily: '"Bricolage Grotesque Variable", sans-serif'
-    fontSize: "clamp(2.7rem, 4vw, 3.7rem)"
+    fontSize: "clamp(2rem, 3.4vw, 3rem)"
     fontWeight: 600
-    lineHeight: 1.06
-    letterSpacing: "-0.035em"
+    lineHeight: 1.12
+    letterSpacing: "-0.025em"
   title:
     fontFamily: '"Bricolage Grotesque Variable", sans-serif'
-    fontSize: "36px"
+    fontSize: "22px"
     fontWeight: 600
-    letterSpacing: "-0.025em"
+    letterSpacing: "-0.02em"
   body:
     fontFamily: "Inter, sans-serif"
     fontSize: "15px"
@@ -38,16 +37,19 @@ typography:
     fontFamily: "Inter, sans-serif"
     fontSize: "14px"
     fontWeight: 600
-  control:
+  product-name:
     fontFamily: "Inter, sans-serif"
-    fontSize: "12px"
-    fontWeight: 400
+    fontSize: "15px"
+    fontWeight: 600
+  wordmark:
+    fontFamily: '"Bricolage Grotesque Variable", sans-serif'
+    fontSize: "24px"
+    fontWeight: 700
+    letterSpacing: "-0.04em"
 rounded:
-  control: "3px"
+  illustration: "3px"
   button: "5px"
 spacing:
-  shape-gap: "4px"
-  control-gap: "10px"
   text-link-gap: "22px"
   action-gap: "30px"
   navigation-gap: "32px"
@@ -70,100 +72,94 @@ components:
     padding: "14px 23px"
   button-inverse-hover:
     backgroundColor: "{colors.paper}"
-  shape-control:
-    backgroundColor: "transparent"
-    textColor: "{colors.ink}"
-    typography: "{typography.control}"
-    rounded: "{rounded.control}"
-    padding: "8px 15px"
-  shape-control-selected:
-    backgroundColor: "{colors.ink}"
-    textColor: "{colors.paper}"
-  shape-control-hover:
-    backgroundColor: "{colors.control-hover}"
-  motion-control:
-    backgroundColor: "transparent"
-    textColor: "{colors.ink}"
-    typography: "{typography.control}"
-    rounded: "{rounded.control}"
-    padding: "8px 15px"
   text-link:
     textColor: "{colors.ink}"
     typography: "{typography.label}"
   tool-art-clay:
     backgroundColor: "{colors.clay}"
-    rounded: "{rounded.control}"
+    rounded: "{rounded.illustration}"
   tool-art-sage:
     backgroundColor: "{colors.sage}"
-    rounded: "{rounded.control}"
+    rounded: "{rounded.illustration}"
 ---
 
-# Design System: Foundry workshop
+
+# Design System: Foundry
 
 ## Overview
 
-**Creative North Star: "The warm, tactile workshop"**
+Foundry currently uses a monochrome palette, Bricolage Grotesque headings, Inter body text, and a compact text wordmark. Plain space and flat surfaces keep the tools and their descriptions easy to scan. Color direction remains open; the neutral palette is the current implementation, not a new permanent brand identity.
 
-Foundry is a warm, tactile workshop: sun-warmed yellow, brown-black ink, paper shelves, and small objects that invite handling. Expressive display lettering gives the work personality; plain body text makes the tools easy to understand.
+A monospaced code block (the Marbles authoring example) and the existing Atlas vector illustration appear below the first fold in neutral tones. The homepage surface contract owns the approved composition and copy. Sculpture source and styles remain in the repository for reference, but no sculpture or sculpture controls are mounted on the homepage.
 
-Depth comes from material contrast and character-based forms. Controls feel practical and flat, with a quiet, deliberate motion vocabulary. The website is code-led: live ASCII geometry, authored character art, and inline vector drawings supply its imagery; no raster assets or approved image comp define this system.
+**Key characteristics:**
 
-**Key Characteristics:**
-
-- Warm material colors with dark, readable text.
-- Bricolage Grotesque headings paired with Inter prose.
-- Open shelves, thin rules, compact corners, and hands-on ASCII forms.
+- Expressive display lettering paired with restrained body text.
+- Near-white surfaces, dark text, and subtle gray rules.
+- Flat tool shelves, linked library rows, and small corner radii.
 
 ## Colors
 
-The palette feels like a sunlit workbench, paper stock, clay, and muted plant fibers. Frontmatter values are normative; the sidecar's generated tonal ramps are previews, not additional implementation tokens.
+The palette is entirely neutral. Existing CSS token names are retained to match the implementation; names such as workbench, clay, and sage no longer imply colored materials.
 
-- **Primary:** Workbench supplies the warm page field. Brown accent emphasizes the final headline word, link hover, sculpture details, and focus.
-- **Secondary:** Clay and sage distinguish the two tool specimens without changing the page's quiet material character.
-- **Neutral:** Ink anchors text, selected controls, and the closing section. Paper supplies the tool shelf and inverse text. Muted carries supporting copy; line separates the workbench controls and caption. Control-hover provides the warm hover fill.
+### Primary
+
+- **Ink:** Primary text, filled actions, and the dark closing field.
+- **Accent:** Hover text, focus outlines, and illustration details.
+
+### Neutral
+
+- **Workbench:** Near-white page background and inverse action fill.
+- **Paper:** White tool-section background and text on dark actions.
+- **Muted:** Secondary prose, small labels, and captions.
+- **Line:** Light gray separators between linked library entries.
+- **Clay / Sage:** Two gray illustration fields that distinguish the existing tool specimens.
 
 ## Typography
 
-Bricolage Grotesque Variable gives headings an irregular, crafted character. Inter supplies regular and semibold body text and controls. Both are served locally with sans-serif fallbacks; font synthesis is disabled. Monospace is reserved for character specimens and diagram labels.
+**Display font:** Bricolage Grotesque Variable, with sans-serif fallback.
+**Body font:** Inter, with sans-serif fallback, locally served at regular and semibold weights.
+**Illustration annotations:** Monospace for filenames, structured data, conditions, and existing map labels.
 
-The frontmatter records desktop roles. Hero supporting copy is larger (18px, line height 1.65); ordinary tool and vision prose uses the body role. Tool descriptions cap their measure at 52ch. Headings use balanced wrapping. Small captions and navigation use 11–13px text.
+The frontmatter owns the default display, headline, title, body, label, and wordmark values. Only the hero headline uses the display scale. Product headlines, the closing heading, and the About heading use the headline scale (the About heading slightly smaller, `clamp(1.75rem, 2.6vw, 2.25rem)`). Product names and section headings ("Tools", "About Foundry") are Inter labels, not display type, so that one expressive level carries the page. Headings use balanced wrapping, except the primary headline, which uses pretty wrapping. The wordmark suffix is smaller (0.67em) and medium weight (500).
 
-At the tablet breakpoint, display type becomes `clamp(3.8rem, 8vw, 5.5rem)`. On mobile it becomes `clamp(4.5rem, 14vw, 6rem)`; on the smallest breakpoint it becomes 3.8rem. Mobile headlines use `clamp(2.5rem, 8vw, 3.5rem)` and tool titles use 33px.
+The hero description uses a larger body size (18px), relaxed line height (1.65), and muted text. At the mobile breakpoint it becomes 16px. Library titles are 19px, or 18px on mobile. The desktop wordmark is compact; mobile and footer wordmarks use 25px. The missing-page heading has its own larger scale (`clamp(3rem, 7vw, 6rem)`).
 
 ## Layout
 
-The centered container caps at 1280px, with 56px desktop gutters. At 1000px and below gutters become 32px; at 700px and below they become 20px. The hero pairs copy and specimen in `0.95fr 1.05fr` columns. Tool shelves and the vision use two columns; library links use three, reducing to two on tablet.
+The shared content container is capped at 1280px, with 56px side gutters. Gutters reduce to 32px at 1000px and 20px at 700px. The header is 88px tall. The current text-only hero has 88px top and 96px bottom padding, a headline measure of 920px, and a description measure of 620px. At 1600px and above, hero top padding becomes 65px; at 700px and below, padding becomes 52px above and 64px below.
 
-At 700px, the hero, tool shelf, vision, and closing content stack. Main navigation remains visible, while its extra GitHub link hides; GitHub remains in the footer. At 360px, library links become one column and the header's geometric mark hides. At 1600px and above, the hero gains extra top space. These are content-driven breakpoints, not a generic application grid.
+Products occupy separate full-width sections with an 80px gap and thin dividing rules. Within each section, copy and an example form two columns separated by 64px; Marbles splits 5/7 so the code block gets the wider column. Below 700px the content stacks with a 32px gap; product separation becomes 52px. The Marbles example is a code block on a workbench-gray field with a file-path caption, muted comments, and no syntax coloring while the palette stays monochrome; long lines scroll horizontally. Works pairs its description with the word-processor joke and a module/artifact example. Illustration fields are 305px tall, 270px at the middle breakpoint, and 280px on mobile. The tool section uses 98px vertical padding and a 40px top margin; these become 60px and 20px on mobile.
 
-Section spacing is generous but varied: the tool shelf uses 98px block padding and the vision 110px; mobile uses 60px and 64px respectively. Specimen stages reserve their height before rendering, and controls wrap without squeezing labels.
+Library links use three columns, two at 1000px, and one at 360px. The About area uses two columns (label and heading on the left, prose and link on the right) and 110px vertical padding, becoming one column with 64px padding on mobile. The closing area changes from a horizontal arrangement to stacked content on mobile.
 
 ## Elevation & Depth
 
-There are no box shadows. Paper, workbench, clay, sage, and the dark closing field establish depth through contrast. Thin rules divide related content. ASCII shading and overlapping vector circles provide dimensional imagery while the surrounding interface stays flat.
+The current system has no box shadows. Depth comes from neutral surface contrast, dark text, thin rules, and the existing character and vector illustrations. Actions use a brief background and text-color transition (160ms ease-out). Reduced-motion preferences disable transitions and smooth scrolling.
 
 ## Shapes
 
-Action links use the button radius; sculpture controls and tool artwork use the smaller control radius. Tool articles remain open on the paper shelf, without enclosing card borders. Thin straight dividers balance organic forms. The maker stamp is an outlined ellipse rotated slightly counterclockwise; it is decorative, not a control.
+Action links have small rounded corners. Tool illustration fields and workflow annotations use the smaller illustration radius. Library entries use thin top rules rather than enclosing cards. There is no general card, form, or modal system to infer from these elements.
 
 ## Components
 
-- **Action links:** Dark ink primary and warm inverse variants, with inline arrows, 54px minimum height, and a 160ms ease-out background/color transition. Hover changes the fill without moving the link. The inverse variant belongs on the dark closing field.
-- **Text links and navigation:** Underlined text links and plain navigation each provide 44px minimum height. Hover uses accent ink. There is no separate active-route treatment on this single-page navigation.
-- **Keyboard focus:** Links, buttons, and the range use a 2px accent outline with 5px offset. Closing links use a workbench outline. The skip link appears on focus and targets the main content.
-- **Tool shelves and library rows:** Semantic tool articles pair code-drawn specimens with plain descriptions and specific destination links. Library rows are linked text separated by thin top borders. Workflow diagram labels are annotations, not interactive chips.
-- **Shape and motion controls:** Weave, Stack, and Loop are named buttons in a labeled fieldset. The selected shape uses `aria-pressed`, ink fill, and paper text. Unselected shapes and the Pause/Play button use the warm hover fill. Controls have a 40px minimum height. Pause/Play includes an explicit accessible action name.
-- **Turn range:** A labeled native range spans 0–360 degrees. A thin track and small circular accent thumb keep it subordinate to the specimen. Changing the range pauses automatic rotation; native keyboard adjustment remains available.
-- **ASCII specimen:** Geometry becomes an ASCII rendering in a lazy-loaded React island. Controls appear only when rendering is ready. Reduced motion starts still and disables smooth scrolling and CSS transitions; visitors may explicitly play the form. Offscreen or hidden-document rendering stops continuous frames. Loading, unavailable GPU, rendering failure, and absent JavaScript retain authored static ASCII and ordinary page navigation. The fallback does not simulate the three selectable forms.
+- **Primary action link:** Dark fill and light text, a thin matching border, semibold label, and inline arrow. It has a 54px minimum height and the padding defined in frontmatter. Hover changes the fill to accent.
+- **Inverse action link:** The same geometry on the closing field, with workbench fill and ink text; hover changes the fill to paper. Its focus outline uses workbench for contrast.
+- **Text destination link:** Underlined semibold text, a 44px minimum height, a 22px gap before the arrow, and accent text on hover.
+- **Wordmark:** A compact Bricolage text link with a smaller `.sh` suffix. No adjacent logo mark is mounted.
+- **Navigation:** Inline Marbles, Atlas, Docs, and GitHub links, with 44px minimum link height. Labels are 13px on desktop and 12px on mobile; gaps follow the navigation spacing token and reduce to 17px on mobile. The header GitHub link is hidden below 700px; footer destinations remain available. At 360px, link size becomes 11px and the gap 12px. There is no selected-route state on this page.
+- **Keyboard focus:** Links use an accent outline (2px) offset by 5px. The closing area uses a contrasting workbench outline. The skip link appears on focus and targets the main content.
+- **Tool shelves and library rows:** Semantic articles pair a small product-name label with a headline, description, example, and destination link. Works has a Coming soon label beside its name and no launch action. Library entries are flat linked text with separators.
 
-The sidecar contains style previews of real controls and destinations, not a second interactive sculpture implementation. No error, disabled, or text-input component system is established here.
+The sidecar previews current link and navigation treatments. There are no live sculpture controls, ranges, or text-input patterns to document in this homepage system.
 
 ## Do's and Don'ts
 
-- Do use the shared material colors and preserve the contrast of ink on workbench or paper.
-- Do retain visible keyboard focus, named controls, and the still ASCII fallback.
-- Do keep motion optional and pause it when the sculpture is offscreen or the document is hidden.
-- Do make tool destinations clear with ordinary links and specific labels.
-- Don't add ambient shadows or turn the flat tool shelves into floating cards.
-- Don't make GPU rendering or animation necessary to read the page or follow a link.
+- Do preserve the existing Bricolage and Inter pairing and compact wordmark.
+- Do use the current neutral tokens consistently, including illustration details.
+- Do retain visible keyboard focus and ordinary, clearly labeled destination links.
+- Do keep the homepage composition and approved wording governed by its surface contract.
+- Don't introduce a new color identity while that direction remains undecided.
+- Don't add ambient shadows or turn flat tool shelves into floating cards.
+- Don't treat inactive sculpture source as evidence of mounted homepage UI.
 - Don't infer application forms, disabled states, or validation patterns from this website.
