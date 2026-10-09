@@ -1,11 +1,11 @@
 export const site = {
   description:
-    "Foundry is building tools for the work of creation. Explore our direction, the developer tools available today, and what comes next for product and creative work.",
+    "Open-source local tools for shaping how you work. Explore workflows, codebase maps, and libraries you can run on your machine and make your own.",
   docs: "https://francois-esquire.github.io/foundry/",
   repository: "https://github.com/Francois-Esquire/foundry",
 };
 
 export const navigation = [
-  { href: "/#vision", label: "Vision" },
-  { href: "/#technology", label: "Technology" },
+  { href: "/#tools", label: "The tools" },
+  { href: "/#vision", label: "The idea" },
 ];

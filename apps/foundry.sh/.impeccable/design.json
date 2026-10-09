@@ -1,45 +1,192 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-09-30T04:38:53Z",
-  "title": "Design System: Foundry website foundation",
+  "generatedAt": "2026-10-09T09:21:17.373760+00:00",
+  "title": "Design System: Foundry workshop",
   "extensions": {
     "colorMeta": {
-      "paper": { "role": "neutral", "displayName": "Page paper" },
-      "ink": { "role": "neutral", "displayName": "Dark ink" },
-      "muted": { "role": "neutral", "displayName": "Muted text" },
-      "accent": { "role": "primary", "displayName": "Blue accent" },
-      "line": { "role": "neutral", "displayName": "Divider" },
-      "wash": { "role": "neutral", "displayName": "Section wash" }
+      "workbench": {
+        "role": "primary",
+        "displayName": "Sun-warmed workbench",
+        "tonalRamp": [
+          "oklch(15% 0.0836 96.53)",
+          "oklch(26% 0.0836 96.53)",
+          "oklch(38% 0.0836 96.53)",
+          "oklch(49% 0.0836 96.53)",
+          "oklch(61% 0.0836 96.53)",
+          "oklch(72% 0.0836 96.53)",
+          "oklch(84% 0.0836 96.53)",
+          "oklch(95% 0.0836 96.53)"
+        ]
+      },
+      "paper": {
+        "role": "neutral",
+        "displayName": "Warm paper",
+        "tonalRamp": [
+          "oklch(15% 0.0111 89.72)",
+          "oklch(26% 0.0111 89.72)",
+          "oklch(38% 0.0111 89.72)",
+          "oklch(49% 0.0111 89.72)",
+          "oklch(61% 0.0111 89.72)",
+          "oklch(72% 0.0111 89.72)",
+          "oklch(84% 0.0111 89.72)",
+          "oklch(95% 0.0111 89.72)"
+        ]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Brown-black ink",
+        "tonalRamp": [
+          "oklch(15% 0.0147 62.84)",
+          "oklch(26% 0.0147 62.84)",
+          "oklch(38% 0.0147 62.84)",
+          "oklch(49% 0.0147 62.84)",
+          "oklch(61% 0.0147 62.84)",
+          "oklch(72% 0.0147 62.84)",
+          "oklch(84% 0.0147 62.84)",
+          "oklch(95% 0.0147 62.84)"
+        ]
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "Muted brown",
+        "tonalRamp": [
+          "oklch(15% 0.0343 80.36)",
+          "oklch(26% 0.0343 80.36)",
+          "oklch(38% 0.0343 80.36)",
+          "oklch(49% 0.0343 80.36)",
+          "oklch(61% 0.0343 80.36)",
+          "oklch(72% 0.0343 80.36)",
+          "oklch(84% 0.0343 80.36)",
+          "oklch(95% 0.0343 80.36)"
+        ]
+      },
+      "line": {
+        "role": "neutral",
+        "displayName": "Workbench rule",
+        "tonalRamp": [
+          "oklch(15% 0.0464 91.78)",
+          "oklch(26% 0.0464 91.78)",
+          "oklch(38% 0.0464 91.78)",
+          "oklch(49% 0.0464 91.78)",
+          "oklch(61% 0.0464 91.78)",
+          "oklch(72% 0.0464 91.78)",
+          "oklch(84% 0.0464 91.78)",
+          "oklch(95% 0.0464 91.78)"
+        ]
+      },
+      "clay": {
+        "role": "secondary",
+        "displayName": "Soft clay",
+        "tonalRamp": [
+          "oklch(15% 0.0461 45.98)",
+          "oklch(26% 0.0461 45.98)",
+          "oklch(38% 0.0461 45.98)",
+          "oklch(49% 0.0461 45.98)",
+          "oklch(61% 0.0461 45.98)",
+          "oklch(72% 0.0461 45.98)",
+          "oklch(84% 0.0461 45.98)",
+          "oklch(95% 0.0461 45.98)"
+        ]
+      },
+      "sage": {
+        "role": "secondary",
+        "displayName": "Pale sage",
+        "tonalRamp": [
+          "oklch(15% 0.0290 119.97)",
+          "oklch(26% 0.0290 119.97)",
+          "oklch(38% 0.0290 119.97)",
+          "oklch(49% 0.0290 119.97)",
+          "oklch(61% 0.0290 119.97)",
+          "oklch(72% 0.0290 119.97)",
+          "oklch(84% 0.0290 119.97)",
+          "oklch(95% 0.0290 119.97)"
+        ]
+      },
+      "accent": {
+        "role": "primary",
+        "displayName": "Deep warm brown",
+        "tonalRamp": [
+          "oklch(15% 0.0554 57.15)",
+          "oklch(26% 0.0554 57.15)",
+          "oklch(38% 0.0554 57.15)",
+          "oklch(49% 0.0554 57.15)",
+          "oklch(61% 0.0554 57.15)",
+          "oklch(72% 0.0554 57.15)",
+          "oklch(84% 0.0554 57.15)",
+          "oklch(95% 0.0554 57.15)"
+        ]
+      },
+      "control-hover": {
+        "role": "primary",
+        "displayName": "Handled workbench",
+        "tonalRamp": [
+          "oklch(15% 0.0891 96.52)",
+          "oklch(26% 0.0891 96.52)",
+          "oklch(38% 0.0891 96.52)",
+          "oklch(49% 0.0891 96.52)",
+          "oklch(61% 0.0891 96.52)",
+          "oklch(72% 0.0891 96.52)",
+          "oklch(84% 0.0891 96.52)",
+          "oklch(95% 0.0891 96.52)"
+        ]
+      }
     },
     "typographyMeta": {
       "display": {
-        "displayName": "Display",
-        "purpose": "Page headline; mobile size is recorded in DESIGN.md."
+        "displayName": "Crafted display",
+        "purpose": "Hero statement; responsive sizes documented in DESIGN.md."
       },
-      "headline": { "displayName": "Headline", "purpose": "Section headings." },
-      "title": { "displayName": "Title", "purpose": "Tool names." },
+      "headline": {
+        "displayName": "Section headline",
+        "purpose": "Section introductions and closing statement."
+      },
+      "title": {
+        "displayName": "Tool title",
+        "purpose": "Names of featured tools."
+      },
       "body": {
-        "displayName": "Body",
-        "purpose": "Vision prose; other copy sizes are recorded in DESIGN.md."
+        "displayName": "Plain body",
+        "purpose": "Tool descriptions and vision prose."
       },
-      "label": { "displayName": "Label", "purpose": "Action and text links." }
+      "label": {
+        "displayName": "Action label",
+        "purpose": "Primary actions and underlined destination links."
+      },
+      "control": {
+        "displayName": "Specimen control",
+        "purpose": "Shape choices and motion toggle."
+      }
     },
     "shadows": [],
     "motion": [
       {
-        "name": "button-background",
-        "value": "background 160ms ease-out",
-        "purpose": "Action link hover; disabled for reduced motion."
+        "name": "control-transition",
+        "value": "160ms ease-out",
+        "purpose": "Background and action text-color changes; disabled for reduced motion."
       },
       {
-        "name": "creation-reveal",
-        "value": "900ms cubic-bezier(0.16, 1, 0.3, 1)",
-        "purpose": "One-time clip-path reveal from inset(0 100% 0 0) to inset(0); disabled for reduced motion."
+        "name": "sculpture-rotation",
+        "value": "0.16rad/s",
+        "purpose": "While playing and visible; frame delta capped at 0.05s. Reduced motion starts still."
       }
     ],
     "breakpoints": [
-      { "name": "tablet-max", "value": "900px" },
-      { "name": "mobile-max", "value": "600px" }
+      {
+        "name": "tablet-max",
+        "value": "1000px"
+      },
+      {
+        "name": "mobile-max",
+        "value": "700px"
+      },
+      {
+        "name": "small-mobile-max",
+        "value": "360px"
+      },
+      {
+        "name": "wide-min",
+        "value": "1600px"
+      }
     ]
   },
   "components": [
@@ -47,59 +194,83 @@
       "name": "Primary action link",
       "kind": "button",
       "refersTo": "button-primary",
-      "description": "Blue action link used in the hero and missing-page fallback.",
-      "html": "<a class=\"ds-primary\" href=\"#vision\">Explore the vision <svg aria-hidden=\"true\" width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\"><path d=\"M5 12h14m-6-6 6 6-6 6\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg></a>",
-      "css": ".ds-primary { display:inline-flex; gap:28px; align-items:center; justify-content:center; min-height:52px; padding:15px 22px; font:600 14px Inter,sans-serif; color:white; text-decoration:none; background:var(--accent,#254cdc); border-radius:4px; transition:background 160ms ease-out; } .ds-primary:hover { color:white; background:#1939b0; } .ds-primary:focus-visible { outline:2px solid var(--accent,#254cdc); outline-offset:6px; } .ds-primary svg { flex-shrink:0; } @media(prefers-reduced-motion:reduce) { .ds-primary { transition:none; } }"
+      "description": "The hero\u2019s invitation to explore the tools.",
+      "html": "<a class=\"ds-button\" href=\"/#tools\">Explore the tools <svg aria-hidden=\"true\" width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\"><path d=\"M5 12h14m-6-6 6 6-6 6\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /></svg></a>",
+      "css": ".ds-button{display:inline-flex;gap:30px;align-items:center;justify-content:space-between;min-height:54px;box-sizing:border-box;padding:14px 23px;font:600 14px Inter,sans-serif;color:var(--paper, #f6f3eb);text-decoration:none;background:var(--ink, #342d27);border:1px solid var(--ink, #342d27);border-radius:5px;transition:background 160ms ease-out,color 160ms ease-out;}.ds-button:hover{color:var(--paper, #f6f3eb);background:var(--accent, #65462f);}.ds-button:focus-visible{outline:2px solid var(--accent, #65462f);outline-offset:5px;}@media(prefers-reduced-motion:reduce){.ds-button{transition:none;}}"
     },
     {
       "name": "Inverse action link",
       "kind": "button",
       "refersTo": "button-inverse",
-      "description": "Documentation action on the dark closing background.",
-      "html": "<div class=\"ds-closing\"><a class=\"ds-inverse\" href=\"https://francois-esquire.github.io/foundry/\">Read the documentation <svg aria-hidden=\"true\" width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\"><path d=\"M5 12h14m-6-6 6 6-6 6\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg></a></div>",
-      "css": ".ds-closing { padding:28px; background:var(--ink,#151b2b); } .ds-inverse { display:inline-flex; gap:28px; align-items:center; justify-content:center; min-height:52px; padding:15px 22px; font:600 14px Inter,sans-serif; color:var(--ink,#151b2b); text-decoration:none; background:var(--paper,#f8f9fc); border-radius:4px; transition:background 160ms ease-out; } .ds-inverse:hover { background:#dfe5ff; } .ds-inverse:focus-visible { outline:2px solid #b7c5ff; outline-offset:6px; } .ds-inverse svg { flex-shrink:0; } @media(prefers-reduced-motion:reduce) { .ds-inverse { transition:none; } }"
+      "description": "The documentation destination on the dark closing field.",
+      "html": "<div class=\"ds-closing\"><a class=\"ds-button\" href=\"https://francois-esquire.github.io/foundry/\">Find your starting point <svg aria-hidden=\"true\" width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\"><path d=\"M5 12h14m-6-6 6 6-6 6\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /></svg></a></div>",
+      "css": ".ds-button{display:inline-flex;gap:30px;align-items:center;justify-content:space-between;min-height:54px;box-sizing:border-box;padding:14px 23px;font:600 14px Inter,sans-serif;color:var(--paper, #f6f3eb);text-decoration:none;background:var(--ink, #342d27);border:1px solid var(--ink, #342d27);border-radius:5px;transition:background 160ms ease-out,color 160ms ease-out;}.ds-button:hover{color:var(--paper, #f6f3eb);background:var(--accent, #65462f);}.ds-button:focus-visible{outline:2px solid var(--accent, #65462f);outline-offset:5px;}@media(prefers-reduced-motion:reduce){.ds-button{transition:none;}}.ds-closing{padding:20px;background:var(--ink, #342d27);}.ds-closing .ds-button{background:var(--workbench, #eadb9b);color:var(--ink, #342d27);border-color:var(--workbench, #eadb9b);}.ds-closing .ds-button:hover{background:var(--paper, #f6f3eb);}.ds-closing .ds-button:focus-visible{outline-color:var(--workbench, #eadb9b);}"
     },
     {
-      "name": "Text link",
+      "name": "Tool destination link",
       "kind": "custom",
       "refersTo": "text-link",
-      "description": "Underlined supporting navigation with an inline arrow.",
-      "html": "<a class=\"ds-text-link\" href=\"#technology\">See what we're building <svg aria-hidden=\"true\" width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\"><path d=\"M5 12h14m-6-6 6 6-6 6\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg></a>",
-      "css": ".ds-text-link { display:inline-flex; gap:12px; align-items:center; min-height:44px; font:600 14px Inter,sans-serif; color:var(--ink,#151b2b); text-decoration:underline; text-decoration-thickness:1px; text-underline-offset:.25em; } .ds-text-link:hover { color:var(--accent,#254cdc); } .ds-text-link:focus-visible { outline:2px solid var(--accent,#254cdc); outline-offset:6px; } .ds-text-link svg { flex-shrink:0; }"
+      "description": "An underlined, specific next step beneath tool descriptions.",
+      "html": "<a class=\"ds-link\" href=\"https://francois-esquire.github.io/foundry/marbles/\">Make a workflow <svg aria-hidden=\"true\" width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\"><path d=\"M5 12h14m-6-6 6 6-6 6\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /></svg></a>",
+      "css": ".ds-link{display:inline-flex;gap:22px;align-items:center;min-height:44px;font:600 14px Inter,sans-serif;color:var(--ink, #342d27);text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:.3em;}.ds-link:hover{color:var(--accent, #65462f);}.ds-link:focus-visible{outline:2px solid var(--accent, #65462f);outline-offset:5px;}"
     },
     {
-      "name": "Navigation",
+      "name": "Main navigation",
       "kind": "nav",
-      "refersTo": "navigation",
-      "description": "Visible horizontal links that reduce spacing and type size on mobile.",
-      "html": "<nav class=\"ds-nav\" aria-label=\"Preview navigation\"><a href=\"#vision\">Vision</a><a href=\"#technology\">Technology</a></nav>",
-      "css": ".ds-nav { display:flex; gap:32px; align-items:center; font-family:Inter,sans-serif; color:var(--ink,#151b2b); } .ds-nav a { display:inline-flex; gap:10px; align-items:center; min-height:44px; font-size:14px; color:inherit; text-decoration:none; } .ds-nav a:hover { color:var(--accent,#254cdc); } .ds-nav a:focus-visible { outline:2px solid var(--accent,#254cdc); outline-offset:6px; } @media(max-width:600px) { .ds-nav { gap:17px; } .ds-nav a { gap:5px; font-size:12px; } }"
+      "description": "Inline section links and the repository destination.",
+      "html": "<nav class=\"ds-nav\" aria-label=\"Main navigation\"><a href=\"/#tools\">The tools</a><a href=\"/#vision\">The idea</a><a class=\"ds-repository\" href=\"https://github.com/Francois-Esquire/foundry\">GitHub <svg aria-hidden=\"true\" width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\"><path d=\"M5 12h14m-6-6 6 6-6 6\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /></svg></a></nav>",
+      "css": ".ds-nav{display:flex;gap:32px;align-items:center;}.ds-nav a{display:inline-flex;gap:10px;align-items:center;min-height:44px;font:400 13px Inter,sans-serif;color:var(--ink, #342d27);text-decoration:none;}.ds-nav a:hover{color:var(--accent, #65462f);}.ds-nav a:focus-visible{outline:2px solid var(--accent, #65462f);outline-offset:5px;}.ds-repository{margin-left:20px;}.ds-repository svg{width:16px;}@media(max-width:700px){.ds-nav{gap:17px;}.ds-nav a{font-size:12px;}.ds-nav .ds-repository{display:none;}}@media(max-width:360px){.ds-nav{gap:12px;}.ds-nav a{font-size:11px;}}"
     },
     {
-      "name": "Tool listing",
+      "name": "Sculpture shape selector",
+      "kind": "button",
+      "refersTo": "shape-control",
+      "description": "Selected and unselected styles of the real shape buttons; this preview does not change geometry.",
+      "html": "<fieldset class=\"ds-shapes\" aria-label=\"Sculpture form\"><button class=\"ds-control\" type=\"button\" aria-pressed=\"true\">Weave</button><button class=\"ds-control\" type=\"button\" aria-pressed=\"false\">Stack</button><button class=\"ds-control\" type=\"button\" aria-pressed=\"false\">Loop</button></fieldset>",
+      "css": ".ds-control{min-height:40px;padding:8px 15px;font:400 12px Inter,sans-serif;color:var(--ink, #342d27);background:transparent;border:1px solid transparent;border-radius:3px;cursor:pointer;transition:background 160ms ease-out;}.ds-control:hover{background:#d9c985;}.ds-control:focus-visible{outline:2px solid var(--accent, #65462f);outline-offset:5px;}@media(prefers-reduced-motion:reduce){.ds-control{transition:none;}}.ds-shapes{display:flex;gap:4px;padding:12px;margin:0;border:0;background:var(--workbench, #eadb9b);}.ds-control[aria-pressed=\"true\"]{color:var(--paper, #f6f3eb);background:var(--ink, #342d27);}"
+    },
+    {
+      "name": "Sculpture motion button",
+      "kind": "button",
+      "refersTo": "motion-control",
+      "description": "Pause state of the sculpture motion control; the live page toggles Pause and Play.",
+      "html": "<button class=\"ds-control ds-motion\" type=\"button\" aria-label=\"Pause sculpture motion\">Pause<svg aria-hidden=\"true\" fill=\"currentColor\" width=\"14\" height=\"14\" viewBox=\"0 0 16 16\"><path d=\"M4 3h3v10H4zm5 0h3v10H9z\" /></svg></button>",
+      "css": ".ds-control{min-height:40px;padding:8px 15px;font:400 12px Inter,sans-serif;color:var(--ink, #342d27);background:transparent;border:1px solid transparent;border-radius:3px;cursor:pointer;transition:background 160ms ease-out;}.ds-control:hover{background:#d9c985;}.ds-control:focus-visible{outline:2px solid var(--accent, #65462f);outline-offset:5px;}@media(prefers-reduced-motion:reduce){.ds-control{transition:none;}}.ds-motion{display:flex;gap:10px;align-items:center;}"
+    },
+    {
+      "name": "Turn range",
+      "kind": "input",
+      "description": "The implemented native rotation range, with keyboard support.",
+      "html": "<label class=\"ds-turn\">Turn the form<input aria-label=\"Turn the form\" type=\"range\" min=\"0\" max=\"360\" value=\"0\" /></label>",
+      "css": ".ds-turn{display:flex;gap:20px;align-items:center;padding:3px 12px;font:400 11px Inter,sans-serif;white-space:nowrap;color:var(--muted, #665a46);}.ds-turn input{width:100%;min-width:0;height:28px;margin:0;appearance:none;cursor:ew-resize;background:transparent;}.ds-turn input:focus-visible{outline:2px solid var(--accent, #65462f);outline-offset:5px;}.ds-turn input::-webkit-slider-runnable-track{height:2px;background:var(--line,#c8bd9c);}.ds-turn input::-moz-range-track{height:2px;background:var(--line,#c8bd9c);}.ds-turn input::-webkit-slider-thumb{width:13px;height:13px;margin-top:-5.5px;appearance:none;background:var(--accent, #65462f);border:0;border-radius:50%;}.ds-turn input::-moz-range-thumb{width:13px;height:13px;background:var(--accent, #65462f);border:0;border-radius:50%;}"
+    },
+    {
+      "name": "Library row",
       "kind": "custom",
-      "refersTo": "tool-row",
-      "description": "Ruled article with responsive columns; supporting link is documented separately.",
-      "html": "<article class=\"ds-tool\"><div><h3>Atlas</h3><span>A map of your codebase</span></div><p>See how a TypeScript workspace fits together. Atlas turns packages, files, and dependencies into a map you can explore in your browser.</p><p class=\"ds-detail\">Explore the parts.<br>Understand the whole.</p></article>",
-      "css": ".ds-tool { display:grid; grid-template-columns:1fr 1.4fr .7fr; gap:60px; padding-block:44px; border-top:1px solid var(--line,#d5dae5); font-family:Inter,sans-serif; color:var(--ink,#151b2b); } .ds-tool h3 { margin:0 0 10px; font-size:32px; font-weight:600; letter-spacing:-.03em; } .ds-tool span { font-size:14px; color:var(--muted,#535d72); } .ds-tool p { margin:0; font-size:16px; line-height:1.7; color:var(--muted,#535d72); } .ds-tool .ds-detail { padding-top:7px; font-size:14px; color:var(--accent,#254cdc); } @media(max-width:900px) { .ds-tool { grid-template-columns:1fr 1.5fr; gap:40px; } .ds-tool .ds-detail { display:none; } } @media(max-width:600px) { .ds-tool { grid-template-columns:1fr; gap:22px; padding-block:30px; } .ds-tool h3 { font-size:29px; } }"
+      "description": "A flat linked library entry with a thin rule, not an enclosing card.",
+      "html": "<a class=\"ds-library\" href=\"https://github.com/Francois-Esquire/foundry/tree/main/packages/agents\"><div><h4>Agents</h4><p>Bring AI into the work.</p></div><svg aria-hidden=\"true\" width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\"><path d=\"M5 12h14m-6-6 6 6-6 6\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /></svg></a>",
+      "css": ".ds-library{display:flex;gap:16px;align-items:center;justify-content:space-between;min-height:112px;padding:20px 0;color:var(--ink, #342d27);text-decoration:none;border-top:1px solid #d7d0be;}.ds-library h4{margin:0 0 5px;font:600 22px var(--display,\"Bricolage Grotesque Variable\",sans-serif);}.ds-library p{margin:0;font:400 12px/1.7 Inter,sans-serif;color:var(--muted, #665a46);}.ds-library svg{width:17px;flex-shrink:0;}.ds-library:hover{color:var(--accent, #65462f);}.ds-library:focus-visible{outline:2px solid var(--accent, #65462f);outline-offset:5px;}"
     }
   ],
   "narrative": {
-    "northStar": "Deferred; no creative metaphor or permanent identity is approved.",
-    "overview": "This records the current static Astro foundation. Its colors and type are provisional implementation choices informed by the live foundry.sh reference. Brand direction and the manifesto remain deferred; no creative metaphor or permanent identity is approved here.\n\nThe implemented page uses large headings, open spacing, ruled tool listings, and a single blue accent. It introduces creation tooling broadly before presenting today's developer tools as evidence. Product scope and open decisions belong in PRODUCT.md.",
+    "northStar": "The warm, tactile workshop",
+    "overview": "Foundry is a warm, tactile workshop: sun-warmed yellow, brown-black ink, paper shelves, and small objects that invite handling. Expressive display lettering gives the work personality; plain body text makes the tools easy to understand.\n\nDepth comes from material contrast and character-based forms. Controls feel practical and flat, with a quiet, deliberate motion vocabulary. The website is code-led: live ASCII geometry, authored character art, and inline vector drawings supply its imagery; no raster assets or approved image comp define this system.",
     "keyCharacteristics": [
-      "Light backgrounds with dark text and blue emphasis.",
-      "Flat sections, thin dividers, and text-led tool listings.",
-      "Self-hosted Inter with regular and semibold weights."
+      "Warm material colors with dark, readable text.",
+      "Bricolage Grotesque headings paired with Inter prose.",
+      "Open shelves, thin rules, compact corners, and hands-on ASCII forms."
     ],
     "rules": [],
     "dos": [
-      "Do preserve visible keyboard focus and reduced-motion support.",
-      "Do use the extracted tokens for consistency while this foundation is in place."
+      "Do use the shared material colors and preserve the contrast of ink on workbench or paper.",
+      "Do retain visible keyboard focus, named controls, and the still ASCII fallback.",
+      "Do keep motion optional and pause it when the sculpture is offscreen or the document is hidden.",
+      "Do make tool destinations clear with ordinary links and specific labels."
     ],
     "donts": [
-      "Don't treat these provisional colors, typography, or illustration as approved permanent branding.",
-      "Don't infer form, card, or application interaction patterns from this static website."
+      "Don't add ambient shadows or turn the flat tool shelves into floating cards.",
+      "Don't make GPU rendering or animation necessary to read the page or follow a link.",
+      "Don't infer application forms, disabled states, or validation patterns from this website."
     ]
   }
 }

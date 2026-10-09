@@ -1,128 +1,169 @@
 ---
-name: Foundry website foundation
-description: Provisional visual reference extracted from the static Astro implementation.
+name: Foundry workshop
+description: A warm, tactile visual system for tools that people can make their own.
 colors:
-  paper: "#f8f9fc"
-  ink: "#151b2b"
-  muted: "#535d72"
-  accent: "#254cdc"
-  line: "#d5dae5"
-  wash: "#edf0f8"
-  inverse: "white"
-  accent-hover: "#1939b0"
-  closing-muted: "#c4ccdf"
-  inverse-hover: "#dfe5ff"
-  inverse-focus: "#b7c5ff"
+  workbench: "#eadb9b"
+  paper: "#f6f3eb"
+  ink: "#342d27"
+  muted: "#665a46"
+  line: "#c8bd9c"
+  clay: "#ddbaaa"
+  sage: "#d5dbc6"
+  accent: "#65462f"
+  control-hover: "#d9c985"
 typography:
   display:
-    fontFamily: "Inter, sans-serif"
-    fontSize: "clamp(3.2rem, 7.2vw, 6rem)"
+    fontFamily: '"Bricolage Grotesque Variable", sans-serif'
+    fontSize: "clamp(4.5rem, 7.4vw, 6rem)"
     fontWeight: 600
-    lineHeight: 1.08
+    lineHeight: 0.98
     letterSpacing: "-0.04em"
   headline:
-    fontFamily: "Inter, sans-serif"
-    fontSize: "clamp(2rem, 3.3vw, 2.8rem)"
+    fontFamily: '"Bricolage Grotesque Variable", sans-serif'
+    fontSize: "clamp(2.7rem, 4vw, 3.7rem)"
     fontWeight: 600
-    lineHeight: 1.18
+    lineHeight: 1.06
     letterSpacing: "-0.035em"
   title:
-    fontFamily: "Inter, sans-serif"
-    fontSize: "32px"
+    fontFamily: '"Bricolage Grotesque Variable", sans-serif'
+    fontSize: "36px"
     fontWeight: 600
-    letterSpacing: "-0.03em"
+    letterSpacing: "-0.025em"
   body:
     fontFamily: "Inter, sans-serif"
-    fontSize: "17px"
+    fontSize: "15px"
     fontWeight: 400
     lineHeight: 1.7
   label:
     fontFamily: "Inter, sans-serif"
     fontSize: "14px"
     fontWeight: 600
+  control:
+    fontFamily: "Inter, sans-serif"
+    fontSize: "12px"
+    fontWeight: 400
 rounded:
-  button: "4px"
+  control: "3px"
+  button: "5px"
 spacing:
-  link-gap: "12px"
-  content-gap: "40px"
-  section-gap: "70px"
-  section-block: "100px"
-  section-block-mobile: "60px"
+  shape-gap: "4px"
+  control-gap: "10px"
+  text-link-gap: "22px"
+  action-gap: "30px"
+  navigation-gap: "32px"
+  shelf-gap: "42px"
 components:
   button-primary:
-    backgroundColor: "{colors.accent}"
-    textColor: "{colors.inverse}"
+    backgroundColor: "{colors.ink}"
+    textColor: "{colors.paper}"
     typography: "{typography.label}"
     rounded: "{rounded.button}"
-    padding: "15px 22px"
+    padding: "14px 23px"
   button-primary-hover:
-    backgroundColor: "{colors.accent-hover}"
-    textColor: "{colors.inverse}"
+    backgroundColor: "{colors.accent}"
+    textColor: "{colors.paper}"
   button-inverse:
-    backgroundColor: "{colors.paper}"
+    backgroundColor: "{colors.workbench}"
     textColor: "{colors.ink}"
     typography: "{typography.label}"
     rounded: "{rounded.button}"
-    padding: "15px 22px"
+    padding: "14px 23px"
   button-inverse-hover:
-    backgroundColor: "{colors.inverse-hover}"
-  text-link:
-    typography: "{typography.label}"
-  navigation:
+    backgroundColor: "{colors.paper}"
+  shape-control:
+    backgroundColor: "transparent"
     textColor: "{colors.ink}"
-  tool-row:
-    padding: "44px 0"
+    typography: "{typography.control}"
+    rounded: "{rounded.control}"
+    padding: "8px 15px"
+  shape-control-selected:
+    backgroundColor: "{colors.ink}"
+    textColor: "{colors.paper}"
+  shape-control-hover:
+    backgroundColor: "{colors.control-hover}"
+  motion-control:
+    backgroundColor: "transparent"
+    textColor: "{colors.ink}"
+    typography: "{typography.control}"
+    rounded: "{rounded.control}"
+    padding: "8px 15px"
+  text-link:
+    textColor: "{colors.ink}"
+    typography: "{typography.label}"
+  tool-art-clay:
+    backgroundColor: "{colors.clay}"
+    rounded: "{rounded.control}"
+  tool-art-sage:
+    backgroundColor: "{colors.sage}"
+    rounded: "{rounded.control}"
 ---
 
-# Design System: Foundry website foundation
+# Design System: Foundry workshop
 
 ## Overview
 
-This records the current static Astro foundation. Its colors and type are provisional implementation choices informed by the live foundry.sh reference. Brand direction and the manifesto remain deferred; no creative metaphor or permanent identity is approved here.
+**Creative North Star: "The warm, tactile workshop"**
 
-The implemented page uses large headings, open spacing, ruled tool listings, and a single blue accent. It introduces creation tooling broadly before presenting today's developer tools as evidence. Product scope and open decisions belong in PRODUCT.md.
+Foundry is a warm, tactile workshop: sun-warmed yellow, brown-black ink, paper shelves, and small objects that invite handling. Expressive display lettering gives the work personality; plain body text makes the tools easy to understand.
+
+Depth comes from material contrast and character-based forms. Controls feel practical and flat, with a quiet, deliberate motion vocabulary. The website is code-led: live ASCII geometry, authored character art, and inline vector drawings supply its imagery; no raster assets or approved image comp define this system.
 
 **Key Characteristics:**
 
-- Light backgrounds with dark text and blue emphasis.
-- Flat sections, thin dividers, and text-led tool listings.
-- Self-hosted Inter with regular and semibold weights.
+- Warm material colors with dark, readable text.
+- Bricolage Grotesque headings paired with Inter prose.
+- Open shelves, thin rules, compact corners, and hands-on ASCII forms.
 
 ## Colors
 
-The accent marks selected headline words, the wordmark suffix, primary links, and the geometric illustration. Paper is the page background; wash separates the vision section. Ink supplies headings and the dark closing section. Muted supports body copy, and line defines dividers. The closing section uses its own lighter text, hover, and focus treatments.
+The palette feels like a sunlit workbench, paper stock, clay, and muted plant fibers. Frontmatter values are normative; the sidecar's generated tonal ramps are previews, not additional implementation tokens.
+
+- **Primary:** Workbench supplies the warm page field. Brown accent emphasizes the final headline word, link hover, sculpture details, and focus.
+- **Secondary:** Clay and sage distinguish the two tool specimens without changing the page's quiet material character.
+- **Neutral:** Ink anchors text, selected controls, and the closing section. Paper supplies the tool shelf and inverse text. Muted carries supporting copy; line separates the workbench controls and caption. Control-hover provides the warm hover fill.
 
 ## Typography
 
-Inter is self-hosted in weights 400 and 600 with a sans-serif fallback and font synthesis disabled. Display, headline, title, body, and label values above describe the desktop implementation. Headings use balanced wrapping.
+Bricolage Grotesque Variable gives headings an irregular, crafted character. Inter supplies regular and semibold body text and controls. Both are served locally with sans-serif fallbacks; font synthesis is disabled. Monospace is reserved for character specimens and diagram labels.
 
-At 600px and below, display type changes to `clamp(2.7rem, 9.3vw, 3.5rem)`, tool titles to 29px, and prose to 16px. Hero copy is 21px with 1.65 line height, falling to 18px on mobile. Lead prose is 25px with 1.5 line height, falling to 22px. Prose is capped at 65ch.
+The frontmatter records desktop roles. Hero supporting copy is larger (18px, line height 1.65); ordinary tool and vision prose uses the body role. Tool descriptions cap their measure at 52ch. Headings use balanced wrapping. Small captions and navigation use 11–13px text.
+
+At the tablet breakpoint, display type becomes `clamp(3.8rem, 8vw, 5.5rem)`. On mobile it becomes `clamp(4.5rem, 14vw, 6rem)`; on the smallest breakpoint it becomes 3.8rem. Mobile headlines use `clamp(2.5rem, 8vw, 3.5rem)` and tool titles use 33px.
 
 ## Layout
 
-The shared container is at most 1200px wide with 48px side gutters. Gutters become 32px at 900px and 20px at 600px. Main sections use the section spacing tokens; closing and footer sections are shorter.
+The centered container caps at 1280px, with 56px desktop gutters. At 1000px and below gutters become 32px; at 700px and below they become 20px. The hero pairs copy and specimen in `0.95fr 1.05fr` columns. Tool shelves and the vision use two columns; library links use three, reducing to two on tablet.
 
-The vision uses two equal columns. Tool rows use `1fr 1.4fr 0.7fr`, reduce to two columns at 900px, and stack at 600px. The supplementary tool detail disappears at 900px. Hero actions and closing content stack at 900px; the header wraps and the footer stacks at 600px. Navigation remains visible without a menu control.
+At 700px, the hero, tool shelf, vision, and closing content stack. Main navigation remains visible, while its extra GitHub link hides; GitHub remains in the footer. At 360px, library links become one column and the header's geometric mark hides. At 1600px and above, the hero gains extra top space. These are content-driven breakpoints, not a generic application grid.
+
+Section spacing is generous but varied: the tool shelf uses 98px block padding and the vision 110px; mobile uses 60px and 64px respectively. Specimen stages reserve their height before rendering, and controls wrap without squeezing labels.
 
 ## Elevation & Depth
 
-There are no shadows. Background changes and thin borders separate sections. The dark closing section provides the strongest tonal change.
+There are no box shadows. Paper, workbench, clay, sage, and the dark closing field establish depth through contrast. Thin rules divide related content. ASCII shading and overlapping vector circles provide dimensional imagery while the surrounding interface stays flat.
 
 ## Shapes
 
-Buttons have the small corner radius recorded above. Sections and tool rows have straight edges. A decorative outline square, circle, and triangle overlap in the creation strip; this is an implementation illustration, not an approved identity asset.
+Action links use the button radius; sculpture controls and tool artwork use the smaller control radius. Tool articles remain open on the paper shelf, without enclosing card borders. Thin straight dividers balance organic forms. The maker stamp is an outlined ellipse rotated slightly counterclockwise; it is decorative, not a control.
 
 ## Components
 
-- Primary and inverse action links use inline arrows, a 52px minimum height, and a 160ms background transition. The inverse variant appears in the dark closing section.
-- Text links remain underlined and have a 44px minimum height. Navigation links use the same minimum height without underlines.
-- All links have visible keyboard focus, with a 2px outline offset by 6px. Closing links use the lighter focus color.
-- Tool listings are semantic articles separated by top borders. They have no card background or shadow.
-- The skip link becomes visible on focus. The decorative mark reveals over 900ms; reduced-motion preferences disable that animation, button transitions, and smooth scrolling.
+- **Action links:** Dark ink primary and warm inverse variants, with inline arrows, 54px minimum height, and a 160ms ease-out background/color transition. Hover changes the fill without moving the link. The inverse variant belongs on the dark closing field.
+- **Text links and navigation:** Underlined text links and plain navigation each provide 44px minimum height. Hover uses accent ink. There is no separate active-route treatment on this single-page navigation.
+- **Keyboard focus:** Links, buttons, and the range use a 2px accent outline with 5px offset. Closing links use a workbench outline. The skip link appears on focus and targets the main content.
+- **Tool shelves and library rows:** Semantic tool articles pair code-drawn specimens with plain descriptions and specific destination links. Library rows are linked text separated by thin top borders. Workflow diagram labels are annotations, not interactive chips.
+- **Shape and motion controls:** Weave, Stack, and Loop are named buttons in a labeled fieldset. The selected shape uses `aria-pressed`, ink fill, and paper text. Unselected shapes and the Pause/Play button use the warm hover fill. Controls have a 40px minimum height. Pause/Play includes an explicit accessible action name.
+- **Turn range:** A labeled native range spans 0–360 degrees. A thin track and small circular accent thumb keep it subordinate to the specimen. Changing the range pauses automatic rotation; native keyboard adjustment remains available.
+- **ASCII specimen:** Geometry becomes an ASCII rendering in a lazy-loaded React island. Controls appear only when rendering is ready. Reduced motion starts still and disables smooth scrolling and CSS transitions; visitors may explicitly play the form. Offscreen or hidden-document rendering stops continuous frames. Loading, unavailable GPU, rendering failure, and absent JavaScript retain authored static ASCII and ordinary page navigation. The fallback does not simulate the three selectable forms.
+
+The sidecar contains style previews of real controls and destinations, not a second interactive sculpture implementation. No error, disabled, or text-input component system is established here.
 
 ## Do's and Don'ts
 
-- Do preserve visible keyboard focus and reduced-motion support.
-- Do use the extracted tokens for consistency while this foundation is in place.
-- Don't treat these provisional colors, typography, or illustration as approved permanent branding.
-- Don't infer form, card, or application interaction patterns from this static website.
+- Do use the shared material colors and preserve the contrast of ink on workbench or paper.
+- Do retain visible keyboard focus, named controls, and the still ASCII fallback.
+- Do keep motion optional and pause it when the sculpture is offscreen or the document is hidden.
+- Do make tool destinations clear with ordinary links and specific labels.
+- Don't add ambient shadows or turn the flat tool shelves into floating cards.
+- Don't make GPU rendering or animation necessary to read the page or follow a link.
+- Don't infer application forms, disabled states, or validation patterns from this website.
