@@ -173,6 +173,11 @@ type Dispatched<O> = Awaited<
   ReturnType<typeof Orchestrator.prototype.run<unknown, O>>
 >;
 
+/** A run that ended without completing; the message says how and why. */
+export class RunEndedError extends Error {
+  override readonly name = "RunEndedError";
+}
+
 export class Engine {
   /** What agents inside sandboxes are doing, for a host that shows it. */
   readonly activities: HarnessActivities;
@@ -602,12 +607,12 @@ export class Engine {
         await routed.settled();
         const settled = await dispatched.workflow.result();
         if (settled.status !== "complete") {
-          await router.close(dispatched.id);
-          throw new Error(
+          const message =
             settled.status === "failed"
               ? `run "${name}" failed: ${settled.error.message}`
-              : `run "${name}" was cancelled: ${settled.reason ?? "no reason"}`
-          );
+              : `run "${name}" was cancelled: ${settled.reason ?? router.cancelReason(dispatched.id) ?? "no reason"}`;
+          await router.close(dispatched.id);
+          throw new RunEndedError(message);
         }
         if (execution.status === "rejected") {
           throw execution.reason;

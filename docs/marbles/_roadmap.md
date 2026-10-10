@@ -37,9 +37,9 @@ in order. Items 1 to 3 have landed; 4 stays open alongside 5; 6 comes last.
    2. **Two bugs from the audit.** Landed 2026-10-10: worktree defaults on
       every worktree call (7.3), and a scoped artifact `create` counted for
       replay (7.4).
-   3. **Quick fixes.** `hasBranch` with a clear worktree error (finding 4)
-      landed 2026-10-10. Next: a one-line usage error for invalid input
-      (finding 3).
+   3. **Quick fixes.** Landed 2026-10-10: `hasBranch` with a clear worktree
+      error (finding 4), and one-line errors for invalid input and a `roll`
+      that reaches an ask (finding 3).
    4. **Monitors and launchd.** Request options for HTTP monitors (finding
       1) and the environment for launchd ticks (finding 2), which Design
       Sync needs to become a monitor.

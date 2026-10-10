@@ -538,8 +538,11 @@ in the echo line so the dry run shows what was asked for.
 
 ## Part C. Fixes
 
-Independent of everything else. Each is small. **C.1, C.2, and C.4 landed
-2026-10-10.** C.4's `hasBranch` reads `branchLocal()`; the package's
+Independent of everything else. Each is small. **All four landed
+2026-10-10.** C.3: rather than threading a reason through the package's
+`cancelRun`, the feed router remembers why it cancelled a run at an ask
+(`cancelReason`) and the engine throws a `RunEndedError` the CLI prints as
+one line, like a `UsageError`. C.4's `hasBranch` reads `branchLocal()`; the package's
 injected-runner test now uses a real repository, since `worktree()` reads
 the branch list first.
 

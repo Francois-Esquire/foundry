@@ -105,23 +105,6 @@ plist. It writes the secret in plain text under `~/Library/LaunchAgents`.
 schema export) so `list` can show it, or whether the workspace schema is
 enough.
 
-## 3. Invalid input prints a stack trace
-
-**Found by** the Design Sync recipe, 2026-10-09.
-
-**Today.** `marbles roll design-sync` without `--input` throws a
-`SchemaError` inside an Effect `FiberFailure`, and the CLI prints the whole
-stack.
-
-**The page does instead.** Nothing; the page rolls the schedule key, which
-carries the input.
-
-**Proposal.** The CLI maps known failures to one line and a usage exit
-code: `design-sync needs input: file (string). Pass --input '{"file":"…"}', or
-roll a schedule key that carries it: design-sync-b60490e1.` The same fix
-covers the `roll` cancelled-at-an-ask trace recorded in
-[`_rebuild-gaps.md`](./_rebuild-gaps.md).
-
 ## 5. Memory an automation keeps between runs
 
 **Found by** the Persistent Reviewer and Design Sync recipes.
