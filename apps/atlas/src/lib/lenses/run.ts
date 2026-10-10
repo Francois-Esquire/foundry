@@ -6,6 +6,7 @@ import type { DatasetManifest } from "../semantics-types";
 import { fileRolesLens } from "./file-roles";
 import { frequentChangeLens } from "./frequent-change";
 import type { Lens, LensId, LensReader, LensSettings } from "./lens-types";
+import { nestingLens } from "./nesting";
 import { packageSizesLens } from "./package-sizes";
 import { placementLens } from "./placement";
 import { responsibilityGroupsLens } from "./responsibility-groups";
@@ -21,6 +22,7 @@ export type AnyLens = Lens<LensId, unknown, keyof LensSettings>;
 export const LENSES: readonly AnyLens[] = [
   fileRolesLens,
   frequentChangeLens,
+  nestingLens,
   packageSizesLens,
   placementLens,
   responsibilityGroupsLens,
@@ -124,6 +126,7 @@ function lensReader(dir: string, draft: DatasetManifest): LensReader {
   const packages = draft.packages.map((pkg) => ({
     id: pkg.id,
     internals: pkg.internals !== undefined,
+    path: pkg.path,
     status: pkg.status,
   }));
   return { ...reader, packageReport, packages: () => packages };

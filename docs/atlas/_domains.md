@@ -185,7 +185,8 @@ Everything it reads is already in the dataset:
   consumer module's package and leaves out tests.
 - `internals/<name>.json`: the topology's consumed surface, each symbol's
   consumers inside its package, and its directories, for placement at home;
-  scopes with parent chains, for nesting.
+  its path regions and seams, which the `nesting` lens copies beside the
+  folder tree it builds from the module index.
 - `workspace.json`: package paths and anchors.
 
 The motivating case is measured today and not reported: per-symbol

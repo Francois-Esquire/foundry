@@ -228,6 +228,18 @@ inside the place's package, or references it from another package. A file
 that only forwards a symbol is not one.
 _Avoid_: consumer alone (that is a package in the package report), importer
 
+**Path region**:
+A part of one package by path, as its internals name it: the top-level
+folder below the package root after a technical root such as `src`, or `.`
+for files directly in the root. It holds every folder its internals
+list.
+_Avoid_: region alone (responsibilities are regions too), area, module group
+
+**Seam**:
+The primary edges, imports between two source files, from one path region
+into another of the same package.
+_Avoid_: boundary (that is between packages), interface
+
 ### Where a scan is kept
 
 **State root**:

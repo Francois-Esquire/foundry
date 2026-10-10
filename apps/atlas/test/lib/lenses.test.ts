@@ -639,6 +639,7 @@ describe("the registry", () => {
         file: "lenses/frequent-change.json",
         schemaVersion: 1,
       },
+      nesting: { file: "lenses/nesting.json", schemaVersion: 1 },
       "package-sizes": { file: "lenses/package-sizes.json", schemaVersion: 1 },
       placement: { file: "lenses/placement.json", schemaVersion: 1 },
       "responsibility-groups": {
@@ -682,11 +683,16 @@ describe("writeLenses", () => {
     rewiring: { composition: [] },
     topology: {
       consumedSurface: [],
-      directories: [{ id: "." }, { id: "src" }],
+      directories: [
+        { id: ".", region: "." },
+        { id: "src", region: "." },
+      ],
       modules: [{ fanIn: 0, fileKind: "source", id: "src/a.ts" }],
       package: { id: "@s/a", root: "packages/a" },
       policy: { technicalRoots: ["src"] },
+      regions: [{ id: ".", modules: 1, primaryModules: 1 }],
       roles: [],
+      seams: [],
       summary: { highFanCutoff: { fanIn: 0 } },
     },
   };
@@ -860,6 +866,46 @@ describe("writeLenses", () => {
         },
       ],
       [
+        "lenses/nesting.json",
+        {
+          folders: [
+            {
+              fileCounts: { descendant: 1, direct: 0 },
+              id: "packages",
+              packageRoot: false,
+            },
+            {
+              fileCounts: { descendant: 1, direct: 0 },
+              id: "packages/a",
+              package: "@s/a",
+              packageRoot: true,
+              parent: "packages",
+              pathRegion: ".",
+            },
+            {
+              fileCounts: { descendant: 1, direct: 1 },
+              id: "packages/a/src",
+              package: "@s/a",
+              packageRoot: false,
+              parent: "packages/a",
+              pathRegion: ".",
+            },
+            {
+              fileCounts: { descendant: 0, direct: 0 },
+              id: "packages/c",
+              package: "@s/c",
+              packageRoot: true,
+              parent: "packages",
+            },
+          ],
+          missing: ["@s/c"],
+          pathRegions: [
+            { files: 1, id: ".", package: "@s/a", primaryFiles: 1 },
+          ],
+          seams: [],
+        },
+      ],
+      [
         "lenses/package-sizes.json",
         {
           packages: [
@@ -910,9 +956,9 @@ describe("writeLenses", () => {
   it("lists the draft's packages by their deterministic fields", async () => {
     const written = await run([probe(async (reader) => reader.packages())]);
     expect(written[0]?.[1]).toEqual([
-      { id: "@s/a", internals: true, status: "complete" },
-      { id: "@s/b", internals: false, status: "failed" },
-      { id: "@s/c", internals: false, status: "complete" },
+      { id: "@s/a", internals: true, path: "packages/a", status: "complete" },
+      { id: "@s/b", internals: false, path: "packages/b", status: "failed" },
+      { id: "@s/c", internals: false, path: "packages/c", status: "complete" },
     ]);
   });
 

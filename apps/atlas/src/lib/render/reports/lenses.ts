@@ -3,6 +3,7 @@ import type { RenderDensity } from "../context";
 import type { ReportView } from "../views";
 import { buildFileRolesView } from "./file-roles";
 import { buildFrequentChangeView } from "./frequent-change";
+import { buildNestingView } from "./nesting";
 import { buildPackageSizesView } from "./package-sizes";
 import { buildPlacementView } from "./placement";
 import { buildResponsibilityGroupsView } from "./responsibility-groups";
@@ -13,6 +14,7 @@ export const LENS_VIEWS: {
 } = {
   "file-roles": buildFileRolesView,
   "frequent-change": buildFrequentChangeView,
+  nesting: buildNestingView,
   "package-sizes": buildPackageSizesView,
   placement: buildPlacementView,
   "responsibility-groups": buildResponsibilityGroupsView,

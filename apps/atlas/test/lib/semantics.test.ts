@@ -420,6 +420,7 @@ describe("generation", () => {
         file: "lenses/frequent-change.json",
         schemaVersion: 1,
       },
+      nesting: { file: "lenses/nesting.json", schemaVersion: 1 },
       "package-sizes": {
         file: "lenses/package-sizes.json",
         schemaVersion: 1,
@@ -446,6 +447,59 @@ describe("generation", () => {
         packages: [],
       });
     }
+    // The tree comes from the module index, so it holds every package;
+    // path regions and seams need internals.
+    const folder = (
+      id: string,
+      descendant: number,
+      direct: number,
+      owner?: { package: string; packageRoot: boolean; parent: string }
+    ) => ({
+      fileCounts: { descendant, direct },
+      id,
+      packageRoot: false,
+      ...owner,
+    });
+    expect(readJson(dataset, "lenses/nesting.json")).toEqual({
+      folders: [
+        folder("apps", 2, 0),
+        folder("apps/a", 2, 0, {
+          package: "@s/a",
+          packageRoot: true,
+          parent: "apps",
+        }),
+        folder("apps/a/src", 2, 2, {
+          package: "@s/a",
+          packageRoot: false,
+          parent: "apps/a",
+        }),
+        folder("packages", 2, 0),
+        folder("packages/b", 2, 0, {
+          package: "@s/b",
+          packageRoot: true,
+          parent: "packages",
+        }),
+        folder("packages/b/src", 2, 2, {
+          package: "@s/b",
+          packageRoot: false,
+          parent: "packages/b",
+        }),
+        folder("tooling", 3, 0),
+        folder("tooling/c", 3, 0, {
+          package: "@s/c",
+          packageRoot: true,
+          parent: "tooling",
+        }),
+        folder("tooling/c/src", 3, 3, {
+          package: "@s/c",
+          packageRoot: false,
+          parent: "tooling/c",
+        }),
+      ],
+      missing: ["@s/a", "@s/b", "@s/c"],
+      pathRegions: [],
+      seams: [],
+    });
     // Without internals the home use is unknown, so no place is labelled.
     expect(readJson(dataset, "lenses/placement.json")).toEqual({
       missing: ["@s/a", "@s/b", "@s/c"],

@@ -77,6 +77,7 @@ export const SEMANTIC_STAGE_VERSIONS: Record<
   "lens:frequent-change": {
     schemaVersion: LENS_SCHEMA_VERSIONS["frequent-change"],
   },
+  "lens:nesting": { schemaVersion: LENS_SCHEMA_VERSIONS.nesting },
   "lens:package-sizes": {
     schemaVersion: LENS_SCHEMA_VERSIONS["package-sizes"],
   },
@@ -136,6 +137,7 @@ const SEMANTIC_STAGE_DEPENDENCIES: Record<
   /** A lens reads the dataset, and the lenses it consumes. */
   "lens:file-roles": ["materialization"],
   "lens:frequent-change": ["materialization"],
+  "lens:nesting": ["materialization"],
   "lens:package-sizes": ["materialization"],
   "lens:placement": ["materialization"],
   "lens:responsibility-groups": ["materialization"],

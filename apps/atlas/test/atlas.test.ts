@@ -19,7 +19,10 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawn } from "bun";
+import type { PackageInternals } from "../src/lib/internal-analysis-types";
 import type { FileRoles } from "../src/lib/lenses/file-roles-types";
+import type { Nesting } from "../src/lib/lenses/nesting-types";
+import { rootRelativeFolder } from "../src/lib/lenses/package-internals";
 import type { Placements } from "../src/lib/lenses/placement-types";
 import type { ResponsibilityGroups } from "../src/lib/lenses/responsibility-groups-types";
 import { scan } from "../src/lib/scan";
@@ -400,6 +403,52 @@ test("built CLI scans an external workspace and the web loaders read its saved d
       symbol: { ...none, fits: 3, unconsumed: 1 },
     },
   });
+  const nesting = JSON.parse(
+    await readFile(join(workspace.output, "lenses/nesting.json"), "utf8")
+  ) as Nesting;
+  // Each package of the fixture is one path region, `.`, with `src` a
+  // technical root; no region imports another, so there are no seams.
+  expect(nesting.missing).toEqual([]);
+  expect(nesting.seams).toEqual([]);
+  expect(nesting.pathRegions).toEqual([
+    { files: 2, id: ".", package: "@s/a", primaryFiles: 1 },
+    { files: 2, id: ".", package: "@s/b", primaryFiles: 2 },
+    { files: 3, id: ".", package: "@s/c", primaryFiles: 3 },
+  ]);
+  // Nesting's tree comes from the module index, placement's folders from
+  // each topology's directories: every directory is a folder of the tree
+  // under the same id, in the same path region. The index may hold more,
+  // such as a folder of JSON files only, which then has no path region.
+  for (const saved of second.packages) {
+    const { topology } = JSON.parse(
+      await readFile(join(workspace.output, saved.internals ?? ""), "utf8")
+    ) as PackageInternals;
+    const folders = new Map(
+      nesting.folders
+        .filter((folder) => folder.package === saved.id)
+        .map((folder) => [folder.id, folder.pathRegion])
+    );
+    for (const topologyDirectory of topology.directories) {
+      const id = rootRelativeFolder(
+        topology.package.root,
+        topologyDirectory.id
+      );
+      expect([id, folders.get(id)]).toEqual([id, topologyDirectory.region]);
+    }
+    // The fixture holds TypeScript files only, so here the two agree exactly.
+    expect(folders.size).toBe(topology.directories.length);
+  }
+  expect(nesting.folders.map((folder) => folder.id)).toEqual([
+    "apps",
+    "apps/a",
+    "apps/a/src",
+    "packages",
+    "packages/b",
+    "packages/b/src",
+    "tooling",
+    "tooling/c",
+    "tooling/c/src",
+  ]);
   const { dependencies } = JSON.parse(
     await readFile(join(workspace.root, pkg.path, "package.json"), "utf8")
   ) as { dependencies?: Record<string, string> };

@@ -31,13 +31,14 @@ interface LensSettings {
  * lens that ran earlier in the phase.
  */
 type LensReader = Omit<DatasetReader, "history" | "manifest"> & {
-  packages(): readonly { id: string; internals: boolean; status: "complete" | "failed" }[];
+  packages(): readonly { id: string; internals: boolean; path: string; status: "complete" | "failed" }[];
 };
 
 /** Every lens's output by id; a lens's id is a key of this map. */
 interface LensOutputs {
   "file-roles": FileRoles;
   "frequent-change": FrequentChange;
+  nesting: Nesting;
   "package-sizes": PackageSizes;
   placement: Placements;
   "responsibility-groups": ResponsibilityGroups;

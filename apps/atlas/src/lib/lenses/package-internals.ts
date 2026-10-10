@@ -13,6 +13,18 @@ export function rootRelative(root: string, module: string): string {
   return root === "" || root === "." ? module : `${root}/${module}`;
 }
 
+/**
+ * A directory's root-relative id: the package root for the topology's `.`,
+ * else `rootRelative`. A package at the workspace root has `.` as its root
+ * folder.
+ */
+export function rootRelativeFolder(root: string, directory: string): string {
+  if (directory === ".") {
+    return root === "" ? "." : root;
+  }
+  return rootRelative(root, directory);
+}
+
 /** One package's internals as a lens reads them. */
 export interface LensPackageInternals {
   id: string;

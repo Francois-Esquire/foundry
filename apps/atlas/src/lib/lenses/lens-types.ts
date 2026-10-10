@@ -6,6 +6,8 @@ import type { FileRoles } from "./file-roles-types";
 import { FILE_ROLES_SCHEMA_VERSION } from "./file-roles-types";
 import type { FrequentChange } from "./frequent-change-types";
 import { FREQUENT_CHANGE_SCHEMA_VERSION } from "./frequent-change-types";
+import type { Nesting } from "./nesting-types";
+import { NESTING_SCHEMA_VERSION } from "./nesting-types";
 import type { PackageSizes } from "./package-sizes-types";
 import { PACKAGE_SIZES_SCHEMA_VERSION } from "./package-sizes-types";
 import type { Placements } from "./placement-types";
@@ -20,6 +22,7 @@ import { RESPONSIBILITY_GROUPS_SCHEMA_VERSION } from "./responsibility-groups-ty
 export interface LensOutputs {
   "file-roles": FileRoles;
   "frequent-change": FrequentChange;
+  nesting: Nesting;
   "package-sizes": PackageSizes;
   placement: Placements;
   "responsibility-groups": ResponsibilityGroups;
@@ -32,6 +35,7 @@ export type LensId = keyof LensOutputs;
 export const LENS_SCHEMA_VERSIONS: Record<LensId, number> = {
   "file-roles": FILE_ROLES_SCHEMA_VERSION,
   "frequent-change": FREQUENT_CHANGE_SCHEMA_VERSION,
+  nesting: NESTING_SCHEMA_VERSION,
   "package-sizes": PACKAGE_SIZES_SCHEMA_VERSION,
   placement: PLACEMENT_SCHEMA_VERSION,
   "responsibility-groups": RESPONSIBILITY_GROUPS_SCHEMA_VERSION,
@@ -47,6 +51,8 @@ interface LensPackage {
   id: string;
   /** Whether the dataset holds the package's internals; a lens that needs them reports the package missing otherwise. */
   internals: boolean;
+  /** Workspace-relative path of the package root, as the manifest records it; `""` or `"."` for a package at the workspace root. */
+  path: string;
   status: DatasetManifest["packages"][number]["status"];
 }
 

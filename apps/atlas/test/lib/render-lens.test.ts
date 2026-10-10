@@ -322,4 +322,90 @@ describe("renderLens", () => {
       ].join("\n")
     );
   });
+  it("prints the nesting lens: the tree's size, folders with the most files, then seams", () => {
+    const text = renderLens(
+      "nesting",
+      {
+        folders: [
+          {
+            fileCounts: { descendant: 4, direct: 0 },
+            id: "packages",
+            packageRoot: false,
+          },
+          {
+            fileCounts: { descendant: 3, direct: 0 },
+            id: "packages/a",
+            package: "@w/a",
+            packageRoot: true,
+            parent: "packages",
+            pathRegion: ".",
+          },
+          {
+            fileCounts: { descendant: 3, direct: 2 },
+            id: "packages/a/src",
+            package: "@w/a",
+            packageRoot: false,
+            parent: "packages/a",
+            pathRegion: ".",
+          },
+          {
+            fileCounts: { descendant: 1, direct: 1 },
+            id: "packages/a/src/util",
+            package: "@w/a",
+            packageRoot: false,
+            parent: "packages/a/src",
+            pathRegion: "util",
+          },
+          {
+            fileCounts: { descendant: 1, direct: 1 },
+            id: "packages/b",
+            package: "@w/b",
+            packageRoot: true,
+            parent: "packages",
+          },
+        ],
+        missing: ["@w/b"],
+        pathRegions: [
+          { files: 2, id: ".", package: "@w/a", primaryFiles: 1 },
+          { files: 1, id: "util", package: "@w/a", primaryFiles: 1 },
+        ],
+        seams: [
+          {
+            from: "util",
+            importSites: 3,
+            moduleEdges: 2,
+            package: "@w/a",
+            symbolFlow: 1,
+            to: ".",
+          },
+        ],
+      },
+      { format: "text" }
+    );
+    expect(text).toBe(
+      [
+        "Nesting",
+        "═══════",
+        "Folders       5 (2 package roots, 1 above every package)",
+        "Deepest       3 below the top",
+        "Path regions  2",
+        "Seams         1",
+        "",
+        "Folders by files",
+        "  packages/a/src       2",
+        "    @w/a · 3 files below",
+        "  packages/a/src/util  1",
+        "    @w/a · 1 file below",
+        "  packages/b           1",
+        "    @w/b · 1 file below",
+        "",
+        "Seams by module edges",
+        "  @w/a: util → .  2",
+        "    3 import sites · 1 symbol",
+        "",
+        "Saved without internals",
+        "  @w/b",
+      ].join("\n")
+    );
+  });
 });

@@ -1247,12 +1247,92 @@ projection carries each pair's count.
   - `test/lib/lenses.test.ts`: the registry and the phase.
   - `test/lib/render-lens.test.ts`: the view.
 
-**2.4 Nesting.** The directory tree, path regions, seams, and scopes from
-`internals/`, joined to root-relative ids.
-- Deferred from 2.3: a test that folder ids are equal across lenses. It
-  compares placement's folders, taken from each package's
-  `topology.directories`, with nesting's tree built from the module index,
-  so that a folder in one lens is the same folder in the other.
+**2.4 Nesting.** Done 2026-10-10. How the workspace is nested, as one
+tree across packages.
+- `lib/lenses/nesting.ts` builds the tree from the module index, so every
+  analyzed package is in it, a package saved without internals too. It
+  holds every folder with a file of the index directly or below, and every
+  folder above a package root up to the top of the workspace.
+  - Each folder carries its `fileCounts` (`direct`, `descendant`, every
+    kind), its `parent`, its owning `package` (the nearest package root at
+    or above it; absent for a folder above every package), and
+    `packageRoot`.
+  - What it derives: the folders above the packages (on Foundry, `apps`,
+    `packages`, and `tooling`), the one tree that joins the packages, and a
+    nested package's root under the folder of the package around it.
+  - The topology's `.` is the package root. A package at the workspace
+    root (path `""` or `.`) has `.` as its folder and owns every folder no
+    other package root holds. Discovery never produces one, since 1.7
+    ignores a pattern that resolves to the root, so it is tested on literal
+    values only.
+- Internals are used only for what needs them: each folder's `pathRegion`
+  (from `topology.directories`), the `pathRegions` (files and primary
+  files), and the `seams` (module edges, import sites, and symbol flow),
+  copied.
+  - A folder takes its region only from the internals of the package that
+    owns it, so an outer package's topology that also lists a nested
+    package's folders never decides theirs, whatever the order.
+  - A region that holds no files has no `pathRegions` entry, although a
+    folder can still name it. The topology leaves out the root region `.`
+    when no file sits directly in it, yet puts the root folder there. On
+    Foundry this applies to `apps/atlas`, `apps/atlas/src`, `docs`,
+    `packages/agents`, and `packages/agents/src`. A complete package without internals is in `missing` and keeps
+  its folders. A failed package has no files in the index and is in
+  nothing. `locality.scopes` is not copied: it is the same tree restricted
+  to primary modules.
+- Loader change: `LensReader.packages()` gains `path`, the manifest's
+  package root, since a package without internals has no topology root.
+  `lib/lenses/package-internals.ts`, the 2.2a helper, gains
+  `rootRelativeFolder(root, directory)`, which maps `.` to the package
+  root and otherwise calls `rootRelative`.
+- What it retires: nothing in the viewer. The root-relative join in
+  `web/internals.ts` `bindInternals` maps the topology's module ids to the
+  module index's files. The lens carries folders, not modules, so it cannot
+  replace that join without copying the module index. The join already
+  goes through the 2.2a helper `rootRelative`, which the lens uses too, so
+  a module and a folder are named one way across the lens and the map. The
+  viewer does not draw directories yet (4.3), so no viewer code changed.
+- Folder ids agree with placement's, which come from each package's
+  `topology.directories`. Every topology directory is a nesting folder
+  under the same id and in the same path region. The module index can hold
+  more: on Foundry, `packages/models/src/catalog/data` holds only a JSON
+  file (kind `other`), which the topology does not list, so it is a folder
+  with no path region. The comparison over Foundry found no other
+  difference, and all 27 of placement's folder and package places are
+  nesting folders.
+- Foundry at this commit: 318 folders (15 package roots, 3 above every
+  package), 314 with a path region, 84 path regions, 105 seams,
+  `nesting.json` 77 KB, nothing missing.
+- Cost, measured on Foundry with a fresh `--state` under `/tmp`:
+  - Lens phase, over the saved dataset, two runs each: 348–354 ms with
+    nesting and 353–354 ms without, peaking at 681–817 MB and 690–708 MB.
+    Within noise, since the internals it reads are already parsed for the
+    phase. Nesting alone takes 56–58 ms and peaks at 254 MB.
+  - Scans: a cold scan takes 39 s, with a maximum RSS of 8.7 GB (the
+    derivation worker) and a 1.84 GB footprint. Warm scans peak at
+    2.11–2.25 GB footprint and 2.57–2.69 GB RSS with nesting, against
+    2.15–2.20 GB and 2.59–2.75 GB for the same build without it. No
+    measurable change.
+- Tests:
+  - `test/lib/nesting-lens.test.ts`:
+    - the tree, path regions, seams, and a missing package on literal
+      values;
+    - a package at the workspace root, both spellings;
+    - a nested package and a package root with no file;
+    - a nested folder's region from its own package only, in either
+      order, and none when that package has no internals;
+    - the cross-lens folder ids, a data-only folder included, from one
+      literal topology through both lenses;
+    - the same output for inputs in any order;
+    - `read` keeps only the fields it needs, and a failed package is
+      neither a package nor missing.
+  - `test/atlas.test.ts`: the real fixture scan with internals; every
+    topology directory is a folder with the same id and region.
+  - `test/lib/semantics.test.ts`: without internals, the tree is complete
+    and every package is missing.
+  - `test/lib/lenses.test.ts`: the registry, the phase, and `packages()`
+    with `path`.
+  - `test/lib/render-lens.test.ts`: the view.
 
 **2.5 Proximity.** What sits close without being related, and what is
 related without sitting close: `pathAgreesWithRegion`, change coupling,
