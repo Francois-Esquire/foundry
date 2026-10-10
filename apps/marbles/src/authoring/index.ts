@@ -1,6 +1,7 @@
 // biome-ignore lint/performance/noBarrelFile: This is the public package entry point for authoring imports.
+export { bail } from "@foundry/workflows/types";
 export { Output } from "ai";
-export type { LockedNode } from "~/lib/definition";
+export type { LockedNode, StepConfig } from "~/lib/definition";
 export type { Log, LogLevel } from "~/lib/log";
 export type {
   Change,

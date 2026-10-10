@@ -43,6 +43,12 @@ export interface Frame {
   readonly counters: Map<string, number>;
   /** Children still running after this frame parked; awaited on re-entry. */
   detached: readonly Promise<unknown>[];
+  /**
+   * Set when an attempt failed: a retry enters next, and it must run fresh,
+   * so what the failed attempt recorded is dropped. A pause leaves it unset,
+   * so a resumed body replays.
+   */
+  failed?: boolean;
   readonly key: string;
   readonly opened: Set<Closable>;
   readonly path: readonly string[];
@@ -215,6 +221,10 @@ export class RunScope {
    */
   async enter(frame: Frame): Promise<void> {
     frame.counters.clear();
+    if (frame.failed) {
+      frame.failed = false;
+      this.ledger.forget(frame.path);
+    }
     frame.paused = undefined;
     if (frame.signal.aborted && !this.controller.signal.aborted) {
       frame.controller = this.#stepController();

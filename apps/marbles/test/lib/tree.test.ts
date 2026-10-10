@@ -6,6 +6,7 @@
  */
 
 import type { ChannelMessage } from "@foundry/workflows/channels";
+import { bail as bailWith } from "@foundry/workflows/types";
 import { Workflow } from "@foundry/workflows/workflow";
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -22,6 +23,8 @@ import { unbound } from "../helpers/unbound";
 const TYPED_INPUT = /"typed" input: n/;
 const TYPED_OUTPUT = /"typed" output/;
 const NESTED_WORKFLOW = /"inner": a workflow can only be the root of a run/;
+const TIMED_OUT = /"slow" timed out after 30/;
+const UNREADABLE_TIMEOUT = /cannot read timeout "soon"/;
 
 const lines: string[] = [];
 
@@ -410,5 +413,75 @@ describe("trees", () => {
       n: 2,
       type: "number",
     });
+  });
+});
+
+describe("step config", () => {
+  it("aborts the body's signal when a timeout passes, and fails the attempt", async () => {
+    let seen: unknown;
+    const slow = step("slow")
+      .config({ timeout: 30 })
+      .do(
+        ({ signal }) =>
+          new Promise((resolve) => {
+            signal.addEventListener("abort", () => {
+              seen = signal.reason;
+              resolve("too late");
+            });
+          })
+      );
+    const { wf } = await launch(slow);
+    await expect(wf.run()).rejects.toThrow(TIMED_OUT);
+    expect(String(seen)).toMatch(TIMED_OUT);
+  });
+
+  it("retries an attempt fresh, without replaying what it recorded or re-running children", async () => {
+    let inner = 0;
+    let child = 0;
+    let attempts = 0;
+    const count = step().do(() => {
+      inner += 1;
+      return inner;
+    });
+    const prepare = step().do(() => {
+      child += 1;
+      return "ready";
+    });
+    const flaky = step("flaky")
+      .config({ retry: { maxAttempts: 2 } })
+      .do(async () => {
+        attempts += 1;
+        const seenInner = await count.run();
+        if (attempts === 1) {
+          throw new Error("first attempt fails");
+        }
+        return seenInner;
+      });
+    const { wf } = await launch(
+      workflow("retrying", flaky({ ready: prepare({}) }))
+    );
+    await expect(wf.run()).resolves.toBe(2);
+    expect(attempts).toBe(2);
+    expect(inner).toBe(2);
+    expect(child).toBe(1);
+  });
+
+  it("passes a bail through an output schema", async () => {
+    const refuses = step("refuses")
+      .output(z.string())
+      .do(() => bailWith("not today"));
+    const { wf } = await launch(refuses);
+    const outcome = await wf.run().then(
+      (value) => ({ value }),
+      (error: unknown) => ({ error: String(error) })
+    );
+    expect(JSON.stringify(outcome)).not.toContain("output");
+    expect(JSON.stringify(outcome)).toContain("not today");
+  });
+
+  it("refuses a timeout it cannot read", () => {
+    expect(() => step().config({ timeout: "soon" })).toThrow(
+      UNREADABLE_TIMEOUT
+    );
   });
 });

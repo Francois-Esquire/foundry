@@ -408,6 +408,7 @@ step(name?)          // a builder
   .describe(text)    // optional: shown in the catalog and launch form
   .input(schema)     // optional
   .output(schema)    // optional
+  .config({ retry?, timeout? }) // optional: the package's retry policy, a per-attempt timeout
   .do(fn)            // returns the definition
 ```
 
@@ -423,6 +424,11 @@ step(name?)          // a builder
   lock time each child's output is checked against the parent's input key.
 - **One argument.** `do` receives a single object to destructure. The input is
   one of its keys: `({ input, agents, log, … })`.
+- **`.config` is how the step runs.** `retry` passes to the package; a
+  retried attempt starts fresh, with nothing it recorded replayed.
+  `timeout` is Marbles': it aborts the body's signal, which the package's
+  own timeout does not. `bail(error)` is exported and is never validated
+  against the output schema.
 - **`do`, not `run` or `then`.** `run` and `execute` read as "execute now".
   `then` makes the builder a thenable, so `await` or an `async` return would
   call it.
@@ -817,6 +823,5 @@ Pending decisions from the first library, still open against this API.
   runs, and how milestone, result, and artifact entries render.
 - **Prebuilt sessions, possibly.** The context may also carry sessions that
   are already set up, ready to use without calling `agents.session(…)`.
-- **Package features not yet exposed.** `bail(error)` versus throw, `RetryPolicy`,
-  pause and skip, step hooks. The package has no default retry: until a
-  policy is exposed, a throw fails the step.
+- **Package features not yet exposed.** Pause and skip, step hooks, and
+  structured log fields (`_next-api.md`, E.4).

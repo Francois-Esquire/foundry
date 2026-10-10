@@ -1,8 +1,16 @@
+import type { Bail } from "@foundry/workflows/types";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { catalog } from "~/authoring/catalog";
-import type { LockedNode, SetupFn, Shared, StepFn } from "~/lib/definition";
+import type {
+  LockedNode,
+  SetupFn,
+  Shared,
+  StepConfig,
+  StepFn,
+} from "~/lib/definition";
 import { isLockedNode } from "~/lib/definition";
 import type { Input, Output } from "~/lib/schema";
+import { timeoutMs } from "~/lib/tree";
 import type { CallSite } from "./identity";
 import { bindingAt, callSite, canInfer, originOf } from "./identity";
 import type { StepDefinition, WorkflowDefinition } from "./lock";
@@ -63,73 +71,75 @@ function identify(
  * what the body must return (the output schema's input). `O`: what the node
  * produces for its parent (the output schema's output).
  */
-export class StepBuilder<I = Empty, R = Empty, Ret = unknown, O = unknown> {
-  readonly #name: string | undefined;
-  readonly #site: CallSite | undefined;
-  readonly #description: string | undefined;
-  readonly #input: StandardSchemaV1 | undefined;
-  readonly #output: StandardSchemaV1 | undefined;
+/** What a step builder has gathered before `do`. */
+interface StepFields {
+  readonly config?: StepConfig;
+  readonly description?: string;
+  readonly input?: StandardSchemaV1;
+  readonly name?: string;
+  readonly output?: StandardSchemaV1;
+  readonly site?: CallSite;
+}
 
-  constructor(
-    name?: string,
-    site?: CallSite,
-    description?: string,
-    input?: StandardSchemaV1,
-    output?: StandardSchemaV1
-  ) {
-    this.#name = name;
-    this.#site = site;
-    this.#description = description;
-    this.#input = input;
-    this.#output = output;
+export class StepBuilder<I = Empty, R = Empty, Ret = unknown, O = unknown> {
+  readonly #fields: StepFields;
+
+  constructor(fields: StepFields = {}) {
+    this.#fields = fields;
   }
 
   /** Shown in the catalog and the launch form. */
   describe(text: string): StepBuilder<I, R, Ret, O> {
-    return new StepBuilder(
-      this.#name,
-      this.#site,
-      text,
-      this.#input,
-      this.#output
-    );
+    return new StepBuilder({ ...this.#fields, description: text });
+  }
+
+  /**
+   * How the step runs: `retry` (the workflows package's policy, e.g.
+   * `{ maxAttempts: 3, backoff: { kind: "exponential", initial: "1s" } }`)
+   * and `timeout` per attempt (`"30s"`, `"10m"`, or milliseconds).
+   */
+  config(config: StepConfig): StepBuilder<I, R, Ret, O> {
+    if (config.timeout !== undefined) {
+      try {
+        timeoutMs(config.timeout);
+      } catch (error) {
+        throw new Error(
+          `step().config(): cannot read timeout ${JSON.stringify(config.timeout)} (want e.g. 30s, 10m, or milliseconds)`,
+          { cause: error }
+        );
+      }
+    }
+    return new StepBuilder({ ...this.#fields, config });
   }
 
   input<S extends StandardSchemaV1>(
     schema: S
   ): StepBuilder<Output<S>, Input<S>, Ret, O> {
-    return new StepBuilder(
-      this.#name,
-      this.#site,
-      this.#description,
-      schema,
-      this.#output
-    );
+    return new StepBuilder({ ...this.#fields, input: schema });
   }
 
   output<S extends StandardSchemaV1>(
     schema: S
   ): StepBuilder<I, R, Input<S>, Output<S>> {
-    return new StepBuilder(
-      this.#name,
-      this.#site,
-      this.#description,
-      this.#input,
-      schema
-    );
+    return new StepBuilder({ ...this.#fields, output: schema });
   }
 
-  do<X extends Ret>(fn: StepFn<I, X>): StepDefinition<I, Produces<O, X>, R> {
-    const identity = identify("step", this.#name, this.#site);
-    const definition = lockable<StepDefinition<I, Produces<O, X>, R>>({
-      ...(this.#description === undefined
-        ? {}
-        : { description: this.#description }),
+  /** The body; it may return `bail(error)` for a failure the run should not retry. */
+  do<X extends Ret | Bail<unknown>>(
+    fn: StepFn<I, X>
+  ): StepDefinition<I, Produces<O, Exclude<X, Bail<unknown>>>, R> {
+    const { config, description, input, name, output, site } = this.#fields;
+    const identity = identify("step", name, site);
+    const definition = lockable<
+      StepDefinition<I, Produces<O, Exclude<X, Bail<unknown>>>, R>
+    >({
+      ...(config === undefined ? {} : { config }),
+      ...(description === undefined ? {} : { description }),
       fn,
       ...identity.fields,
-      ...(this.#input === undefined ? {} : { input: this.#input }),
+      ...(input === undefined ? {} : { input }),
       kind: "step",
-      ...(this.#output === undefined ? {} : { output: this.#output }),
+      ...(output === undefined ? {} : { output }),
     });
     catalog.define(definition, identity.inferred);
     return definition;
@@ -137,7 +147,10 @@ export class StepBuilder<I = Empty, R = Empty, Ret = unknown, O = unknown> {
 }
 
 export function step(name?: string): StepBuilder {
-  return new StepBuilder(name, callSite());
+  return new StepBuilder({
+    ...(name === undefined ? {} : { name }),
+    site: callSite(),
+  });
 }
 
 export class WorkflowBuilder<I = Empty, R = Empty> {

@@ -21,7 +21,7 @@ import {
 | `sandbox` | definition | `sandbox({ image, mount?, resources? })` or `sandbox({ files, image?, resources? })` | An isolated place to run commands. |
 | `artifact` | definition | `artifact({ name, type })` | A versioned output; each run adds a version. |
 | `skills` | definition | `skills.load().add(glob).pick(...names)` | A skill set an agent takes. |
-| `step` | work | `step(name?).describe(text).input(s).output(s).do(fn)` | One unit of work. |
+| `step` | work | `step(name?).describe(text).input(s).output(s).config(c).do(fn)` | One unit of work. |
 | `workflow` | work | `workflow(name?, tree)`, `workflow(name?, () => tree)`, `workflow(name?).input(s).do(fn)` | A named tree of steps. |
 | `schedule` | trigger | `schedule(target).at(slot)` or `.every(interval)` | Runs a step or workflow on a clock. |
 | `monitor` | trigger | `monitor(source).request?(init).every?(interval).do(fn)` | Runs when files or an HTTP response change. |
@@ -126,6 +126,7 @@ step(name?)          // a builder
   .describe(text)    // optional: shown in the catalog and the launch form
   .input(schema)     // optional: any Standard Schema library (zod, valibot, arktype)
   .output(schema)    // optional
+  .config({ retry?, timeout? }) // optional: how the step runs
   .do(fn)            // returns the definition
 ```
 
@@ -142,6 +143,18 @@ step(name?)          // a builder
   input. Each child's output is checked against the parent's key at lock.
 - `do` receives one object; destructure it. It may return a value or a
   promise. Results must be JSON-serializable.
+- **`.config({ retry, timeout })`.** `timeout` bounds each attempt of the
+  body (`"30s"`, `"10m"`, or milliseconds): when it passes the body's
+  `signal` aborts, with everything Marbles opened for it, and the attempt
+  fails. `retry` is the workflows package's policy, `{ maxAttempts,
+  backoff?, maxElapsed?, shouldRetry? }`, with `backoff` one of `fixed`,
+  `exponential`, `linear`, or `jittered`. A retried attempt runs the body
+  again from the top, fresh: agent turns, sandboxes, artifact writes, and
+  `run` calls it made are not replayed. Children that finished are not run
+  again. Without `retry`, a throw fails the step.
+- **`bail(error)`**, exported from `@foundry/marbles`, is a failure as a
+  value: return it from `do` to fail the step without a retry. It is not
+  checked against the output schema.
 
 `workflow` uses the same builder plus two short forms:
 
@@ -411,5 +424,4 @@ Do not write modules that depend on these.
 - Recovery of a step that was mid-body when the process stopped. A step
   parked on an `ask` or a pause does survive a quit, a crash, or a kill.
 - Scheduling a tree with children without wrapping it in `workflow`.
-- Retry policies. A throw fails the step.
 - `@foundry/marbles` on npm.

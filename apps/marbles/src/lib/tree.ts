@@ -2,6 +2,7 @@ import { isSuspendSignal } from "@foundry/workflows/executable";
 import type { RunExecutionContext } from "@foundry/workflows/orchestrator";
 import type { StepContext } from "@foundry/workflows/step";
 import { Step } from "@foundry/workflows/step";
+import { isBail } from "@foundry/workflows/types";
 
 import type { Bindings } from "./bindings";
 import { buildContext } from "./context";
@@ -14,6 +15,7 @@ import type {
 import { isLockedNode, rootLock } from "./definition";
 import type { Frame, RunScope, RunScopes } from "./run-scope";
 import { current, PAUSE_KIND, raceAbort } from "./run-scope";
+import { parseEvery } from "./schedule";
 import { validate } from "./schema";
 
 /**
@@ -148,6 +150,7 @@ async function runBody(
   };
   let output: unknown;
   let attempt: Promise<unknown> | undefined;
+  const timer = startTimeout(definition, where, frame);
   try {
     attempt = current.run(store, () =>
       Promise.resolve(
@@ -164,6 +167,11 @@ async function runBody(
     await attempt?.catch(() => undefined);
     const { paused } = frame;
     if (!paused) {
+      // A failure, not a suspension that resumes into a replay: a retry
+      // enters next, if the step has one, and must not replay this attempt.
+      if (!isSuspendSignal(error)) {
+        frame.failed = true;
+      }
       throw error;
     }
     // A host parked this step: what it opened is aborted, and the step
@@ -177,10 +185,45 @@ async function runBody(
       reason: paused.reason,
       request: {},
     });
+  } finally {
+    clearTimeout(timer);
   }
-  return definition.output
+  // A bail is a value the package handles; it never matches an output schema.
+  return definition.output && !isBail(output)
     ? await validate(definition.output, output, `${where} output`)
     : output;
+}
+
+/** A step's timeout as milliseconds. */
+export function timeoutMs(timeout: number | string): number {
+  if (typeof timeout === "number") {
+    if (!(Number.isSafeInteger(timeout) && timeout > 0)) {
+      throw new Error(
+        `a timeout must be a positive number of milliseconds, not ${timeout}`
+      );
+    }
+    return timeout;
+  }
+  return parseEvery(timeout);
+}
+
+/**
+ * Abort the attempt's signal when the step's timeout passes, so the body
+ * and everything it opened stop, and the attempt fails with the timeout.
+ */
+function startTimeout(
+  definition: StepRecord,
+  where: string,
+  frame: Frame
+): ReturnType<typeof setTimeout> | undefined {
+  const timeout = definition.config?.timeout;
+  if (timeout === undefined) {
+    return;
+  }
+  const { controller } = frame;
+  return setTimeout(() => {
+    controller.abort(new Error(`${where} timed out after ${String(timeout)}`));
+  }, timeoutMs(timeout));
 }
 
 /**
@@ -203,8 +246,11 @@ function materialize(
   const children = node.children.map(([childKey, child]) =>
     materialize(child, childKey, scope, bindings, path)
   );
+  const retry = node.definition.config?.retry;
   return Step.create<unknown, unknown>({
     children,
+    // Retry only: the timeout is Marbles', since it must abort the body.
+    ...(retry === undefined ? {} : { config: { retry } }),
     execute: (_input, ctx) =>
       runBody(node, key, ctx as StepContext, scope, bindings),
     // Explicit: an undefined input inherits the launcher's.

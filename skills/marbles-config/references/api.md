@@ -31,7 +31,7 @@ import {
 | `sandbox` | definition | `sandbox({ image, mount?, resources? })` or `sandbox({ files, image? })` | An isolated place to run commands. |
 | `artifact` | definition | `artifact({ name, type })` | A versioned output; each run adds a version. |
 | `skills` | definition | `skills.load().add(glob).pick(...names)` | A skill set an agent takes. |
-| `step` | work | `step(name?).describe(text).input(s).output(s).do(fn)` | One unit of work. |
+| `step` | work | `step(name?).describe(text).input(s).output(s).config({ retry?, timeout? }).do(fn)` | One unit of work. A retried attempt starts fresh; `timeout` aborts the body's signal; return `bail(error)` to fail without retry. |
 | `workflow` | work | `workflow(name?, tree)`, `workflow(name?, () => tree)`, `workflow(name?).input(s).do(fn)` | A named tree of steps. |
 | `schedule` | trigger | `schedule(target).at(slot)` or `.every(interval)` | Runs a step or workflow on a clock. |
 | `monitor` | trigger | `monitor(source).request?(init).every?(interval).do(fn)` | Runs when files or an HTTP response change. |
@@ -308,5 +308,4 @@ Do not write configs that depend on these.
 - Recovery of a step that was mid-body when the process stopped. A step
   parked on an `ask` or a pause does survive a quit, a crash, or a kill.
 - Scheduling a tree with children without wrapping it in `workflow`.
-- Retry policies. A throw fails the step.
 - `@foundry/marbles` on npm.

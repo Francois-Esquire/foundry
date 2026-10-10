@@ -789,6 +789,14 @@ and replay applied.
 
 ### E.4 Steps and workflows (7.5)
 
+**Landed 2026-10-10**, except log fields. `log(...values)` is variadic, so
+reading a trailing object as fields would swallow `log("found", result)`;
+it needs an explicit form of its own. Retry flags the frame on a failed
+attempt (never on a suspension) and drops that frame's own ledger entries
+on the next entry; `Ledger.forget` matches the exact path, so children's
+entries stay. `.do` accepts `X extends Ret | Bail<unknown>` and excludes
+`Bail` from the node's output type.
+
 - **`.config({ retry, timeout })`.** A builder call before `.do`, threaded
   through `StepBuilder` (`marbles/authoring/builder.ts:66-137`) into
   `StepRecord` (`marbles/lib/definition.ts:55-61`) and passed as `config`

@@ -185,25 +185,10 @@ default.
 
 ### 7.5 Steps and workflows
 
-`@foundry/workflows` has per-step configuration, `bail`, hooks, pause and
-skip, and a context with `race`, `branch`, `emit`, and structured log
-fields. Marbles reaches none of it.
-
-- `Step.create` is called without `config`
-  (`apps/marbles/src/lib/tree.ts:201-208`), so `retry`, `timeout`,
-  `maxAttempts`, and `blocking` are unreachable, and the builder has no slot
-  for them (`apps/marbles/src/authoring/builder.ts`).
-- `bail` is not exported, and a returned bail fails any step with an output
-  schema, because the output is validated before the package checks for a
-  bail (`tree.ts:176-178`).
-- Hooks, `skip`, and an author-side `waitIfPaused` are unwired.
-- `log` drops structured `fields` and flattens to a string
-  (`apps/marbles/src/lib/context.ts:224`).
-
-**Proposal.** A `.config({ retry, timeout, maxAttempts })` builder call that
-passes to `Step.create`; export `bail` and check for it before output
-validation; pass log fields through. Race and branch stay with the
-combinators in `_api-alt.md`.
+`.config({ retry, timeout })` and `bail` landed 2026-10-10
+([`_next-api.md`](./_next-api.md), E.4). Still open: hooks, `skip`, an
+author-side `waitIfPaused`, and structured log fields, which need a form
+that does not overload `log(...values)`.
 
 ### 7.6 Skills
 
@@ -218,3 +203,24 @@ combinators in `_api-alt.md`.
 
 **Proposal.** Read bundle files as bytes, accept `Skill` objects in a set,
 and give sandbox sessions the same registry tools local sessions get.
+
+## 9. A roll cancelled at an ask is not saved
+
+**Found by** use, 2026-10-10, while landing `_next-api.md` C.3. Not yet
+investigated; it may predate C.3.
+
+**Reproduction.** A workspace with `step("asks").do(({ ask }) =>
+ask.question({ title: "Name?" }))` and a state dir. `marbles roll asks
+--state <dir>` prints, before its one-line cancellation:
+
+```text
+[state] run rn-… not saved: InconsistentStoreSnapshotError: Run rn-… status suspended conflicts with terminal frame cancelled
+```
+
+twice. The run is cancelled at the ask as intended, but its record is not
+written, so `status` and the dashboard may not show it.
+
+**Proposal.** Find where the engine saves a run cancelled while suspended
+(the run row says `suspended`, its frame says `cancelled`), and settle the
+run's status before the save.
+
