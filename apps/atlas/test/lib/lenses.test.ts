@@ -575,7 +575,7 @@ describe("the frequent-change lens", () => {
         { id: "z", internals: false, status: "failed" },
       ],
     } as unknown as LensReader;
-    const source = await frequentChangeLens.read(reader);
+    const source = await frequentChangeLens.read(reader, {});
     expect(mostAtOnce).toBe(1);
     expect(source).toEqual({
       gate: {
@@ -634,6 +634,7 @@ describe("the registry", () => {
 
   it("names each lens's file and schema version for the manifest", () => {
     expect(lensEntries()).toEqual({
+      domains: { file: "lenses/domains.json", schemaVersion: 1 },
       "file-roles": { file: "lenses/file-roles.json", schemaVersion: 1 },
       "frequent-change": {
         file: "lenses/frequent-change.json",
@@ -752,6 +753,7 @@ describe("writeLenses", () => {
       },
       "packages/@s__c.json": {
         churn: { available: false, reason: "not-git-repository" },
+        symbols: [],
       },
       "projections/dependency-graph.json": {
         edges: [],
@@ -819,7 +821,7 @@ describe("writeLenses", () => {
 
   /** A lens over `read`, under the registered id, as a test needs one. */
   function probe<Source>(
-    read: (reader: LensReader) => Promise<Source>,
+    read: (reader: LensReader, settings: unknown) => Promise<Source>,
     { derive = (source) => source, ...rest }: Probe<Source> = {}
   ): AnyLens {
     // A probe writes whatever the test reads, which no lens output type names.
@@ -977,6 +979,8 @@ describe("writeLenses", () => {
           packages: [{ groups: [], id: "@s/a", independent: ["only"] }],
         },
       ],
+      // Last, after the placement lens it reads; no domain is declared.
+      ["lenses/domains.json", { domains: [], placements: [] }],
     ]);
   });
 
@@ -1042,17 +1046,21 @@ describe("writeLenses", () => {
     );
   });
 
-  it("hands a lens only the settings it names", async () => {
+  it("hands a lens only the settings it names, the same to read and derive", async () => {
     const domains = [{ facets: ["packages/a"], name: "core" }];
-    const named = probe(async () => null, {
-      derive: (_source, settings) => settings,
+    const read = async (_reader: LensReader, settings: unknown) => settings;
+    const named = probe(read, {
+      derive: (source, settings) => ({ read: source, settings }),
       settings: ["domains"],
     });
-    const unnamed = probe(async () => null, {
-      derive: (_source, settings) => settings,
+    const unnamed = probe(read, {
+      derive: (source, settings) => ({ read: source, settings }),
     });
     const written = await run([named, unnamed], { domains });
-    expect(written.map(([, value]) => value)).toEqual([{ domains }, {}]);
+    expect(written.map(([, value]) => value)).toEqual([
+      { read: { domains }, settings: { domains } },
+      { read: {}, settings: {} },
+    ]);
   });
 
   it("fails when a lens throws", async () => {

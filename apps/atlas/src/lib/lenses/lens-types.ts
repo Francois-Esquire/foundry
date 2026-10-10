@@ -2,6 +2,8 @@ import type { DatasetReader } from "../dataset";
 import { lensFile } from "../dataset-layout";
 import type { DomainDeclaration } from "../domain-declaration";
 import type { DatasetManifest } from "../semantics-types";
+import type { Domains } from "./domains-types";
+import { DOMAINS_SCHEMA_VERSION } from "./domains-types";
 import type { FileRoles } from "./file-roles-types";
 import { FILE_ROLES_SCHEMA_VERSION } from "./file-roles-types";
 import type { FrequentChange } from "./frequent-change-types";
@@ -22,6 +24,7 @@ import { RESPONSIBILITY_GROUPS_SCHEMA_VERSION } from "./responsibility-groups-ty
 
 /** Every lens's saved output, by the lens's id. */
 export interface LensOutputs {
+  domains: Domains;
   "file-roles": FileRoles;
   "frequent-change": FrequentChange;
   nesting: Nesting;
@@ -36,6 +39,7 @@ export type LensId = keyof LensOutputs;
 
 /** Each lens's schema version, which the reader checks against the manifest's. */
 export const LENS_SCHEMA_VERSIONS: Record<LensId, number> = {
+  domains: DOMAINS_SCHEMA_VERSION,
   "file-roles": FILE_ROLES_SCHEMA_VERSION,
   "frequent-change": FREQUENT_CHANGE_SCHEMA_VERSION,
   nesting: NESTING_SCHEMA_VERSION,
@@ -84,8 +88,12 @@ export interface Lens<
   /** Pure: the same source and settings give the same output. */
   derive(source: Source, settings: Pick<LensSettings, K>): LensOutputs[I];
   id: I;
-  /** Picks every dataset field the lens reads, as the codex's `readCodexSource` does. */
-  read(reader: LensReader): Promise<Source>;
+  /**
+   * Picks every dataset field the lens reads, as the codex's
+   * `readCodexSource` does, given the same settings `derive` gets, so that
+   * a lens can leave unread what its settings do not need.
+   */
+  read(reader: LensReader, settings: Pick<LensSettings, K>): Promise<Source>;
   /** Bumped when Output's shape or meaning changes; the lens stage's schema version. */
   schemaVersion: number;
   /** The settings the lens reads; a lens that names none sees none. */

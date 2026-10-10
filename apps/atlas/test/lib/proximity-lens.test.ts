@@ -452,7 +452,7 @@ describe("the proximity lens", () => {
           },
         }),
     } as unknown as LensReader;
-    expect(await proximityLens.read(reader)).toEqual({
+    expect(await proximityLens.read(reader, {})).toEqual({
       coChanges: [coChange("packages/a/src/a.ts", "packages/b/src/b.ts")],
       missing: ["@s/b"],
       packages: [

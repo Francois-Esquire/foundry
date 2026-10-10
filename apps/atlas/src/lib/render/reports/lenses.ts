@@ -1,6 +1,7 @@
 import type { LensId, LensOutputs } from "../../lenses/lens-types";
 import type { RenderDensity } from "../context";
 import type { ReportView } from "../views";
+import { buildDomainsView } from "./domains";
 import { buildFileRolesView } from "./file-roles";
 import { buildFrequentChangeView } from "./frequent-change";
 import { buildNestingView } from "./nesting";
@@ -13,6 +14,7 @@ import { buildResponsibilityGroupsView } from "./responsibility-groups";
 export const LENS_VIEWS: {
   [I in LensId]: (output: LensOutputs[I], density: RenderDensity) => ReportView;
 } = {
+  domains: buildDomainsView,
   "file-roles": buildFileRolesView,
   "frequent-change": buildFrequentChangeView,
   nesting: buildNestingView,

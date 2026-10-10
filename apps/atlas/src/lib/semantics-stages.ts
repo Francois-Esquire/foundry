@@ -73,6 +73,7 @@ export const SEMANTIC_STAGE_VERSIONS: Record<
   },
   /** V13.4: pure derivation from the five package-intelligence reports above. */
   internalRewiring: { schemaVersion: INTERNAL_REWIRING_SCHEMA_VERSION },
+  "lens:domains": { schemaVersion: LENS_SCHEMA_VERSIONS.domains },
   "lens:file-roles": { schemaVersion: LENS_SCHEMA_VERSIONS["file-roles"] },
   "lens:frequent-change": {
     schemaVersion: LENS_SCHEMA_VERSIONS["frequent-change"],
@@ -136,6 +137,7 @@ const SEMANTIC_STAGE_DEPENDENCIES: Record<
     "primitiveConventions",
   ],
   /** A lens reads the dataset, and the lenses it consumes. */
+  "lens:domains": ["materialization", "lens:placement"],
   "lens:file-roles": ["materialization"],
   "lens:frequent-change": ["materialization"],
   "lens:nesting": ["materialization"],

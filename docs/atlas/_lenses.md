@@ -36,6 +36,7 @@ type LensReader = Omit<DatasetReader, "history" | "manifest"> & {
 
 /** Every lens's output by id; a lens's id is a key of this map. */
 interface LensOutputs {
+  domains: Domains;
   "file-roles": FileRoles;
   "frequent-change": FrequentChange;
   nesting: Nesting;
@@ -54,8 +55,12 @@ interface Lens<I extends LensId, Source, K extends keyof LensSettings = never> {
   schemaVersion: number;
   /** The settings the lens reads; a lens that names none sees none. */
   settings: readonly K[];
-  /** Picks every dataset field the lens reads, as the codex's readCodexSource does. */
-  read(reader: LensReader): Promise<Source>;
+  /**
+   * Picks every dataset field the lens reads, as the codex's readCodexSource
+   * does, given the same settings as derive, so that it leaves unread what
+   * its settings do not need.
+   */
+  read(reader: LensReader, settings: Pick<LensSettings, K>): Promise<Source>;
   /** Pure: the same source and settings give the same output. */
   derive(source: Source, settings: Pick<LensSettings, K>): LensOutputs[I];
 }
@@ -71,7 +76,11 @@ every lens once, in `consumes` order.
 `read` and `derive` are the codex's split (`web/codex/source.ts`,
 `web/codex/resolve.ts`): `Source` lists every field the lens reads, so
 `derive` can be tested on plain values, and a change to the dataset shows
-which lenses it reaches.
+which lenses it reaches. The phase picks a lens's settings once and hands
+the same value to both, so `read` can leave unread what the settings do
+not need: the domain lens reads nothing when no domain is declared, and
+only the package reports its symbol facets name otherwise. A lens whose
+`read` needs no settings takes the reader alone.
 
 ## Rules
 
@@ -95,7 +104,9 @@ which lenses it reaches.
   packages, such as their dependency graph, may use the manifest id
   instead, and says which. Labels are literal unions, such as
   `placement`'s `"fits" | "spread" | "departs"`, which the domain lens
-  extends with `"shares-domain"`. Measures are numbers, with the
+  extends with `"shares-domain"`; where two lenses use one word, the output
+  keeps them apart by name, as the domain lens's `placementLabel` and
+  `domainLabel` do. Measures are numbers, with the
   counts they come from. Output is sorted, so the same input gives the same
   bytes.
 - **Inference is allowed.** Unlike a projection, which copies and never
@@ -107,8 +118,7 @@ which lenses it reaches.
 - **Versioning.** One `SemanticStage` per lens, `` `lens:${LensId}` `` in
   `SEMANTIC_STAGE_VERSIONS`, with the lens's `schemaVersion`. Its stage
   fingerprint covers the code. Outputs are recomputed on every scan, with
-  no computation skipped, until a per-setting digest exists (2.6 at the
-  earliest); an output whose bytes are unchanged keeps its file, as every
+  no computation skipped, until a per-setting digest exists; an output whose bytes are unchanged keeps its file, as every
   dataset file does. The reader checks each lens's schema version on its
   own, so a lens bump needs no dataset schema bump.
 - **Internals.** A lens that needs a package's internals reads them
@@ -143,4 +153,11 @@ to them alone reuses every package's results, and every lens output is
 recomputed on every scan. Each lens's output is a file the manifest
 names, with the entry `{ file, schemaVersion }`. A digest per setting, so that a reader can tell
 which settings an output was derived under, comes only when something
-consumes it: 2.6 at the earliest.
+consumes it. The domain lens (2.6) found no consumer: `atlas report` and
+the viewer read the saved dataset and never load the configuration, so
+nothing compares an output's settings with the current ones, and the lens
+is cheap on Foundry, under 1 ms with no domains declared and a few
+milliseconds for each package report its symbol facets name, so reusing
+it would save little. The
+earliest consumer is a rule written in terms of domains (3.1), or a
+command that warns when the declared domains changed after the scan.

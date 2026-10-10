@@ -135,10 +135,10 @@ uses package-relative ids; the lens joins them as
 `${package.root}/${module.id}`, as `web/internals.ts` already does. No
 analysis changes. The dataset's package id, though, is the `package.json`
 name, while facets address packages by path; the lens maps one to the
-other through the workspace report,
-`workspaceReport().packages.packages[].path`. That `path` is optional: a
-package known only as an edge or concept endpoint has none, and no facet
-can name it.
+other through the manifest's package paths, which the lens reader's
+`packages()` carries. A package known only as an edge or concept endpoint
+is not in the manifest, and a package at the workspace root has the path
+`""` or `.`, which no facet can be; no facet can name either.
 
 One known gap: the id drops the declaration kind, so an interface and a
 const of one name share an id. A facet without a kind matches every symbol
@@ -147,33 +147,72 @@ with that id. See [`_phases.md`](./_phases.md#changes-to-existing-code).
 ## Built as a lens
 
 Domains are read by a lens, not by the analyses; the contract every lens
-follows is in [`_lenses.md`](./_lenses.md). The domain lens takes the
-dataset and the declared domains as a setting, and for each place compares
-where it lives with where it is used:
-
-| Label | Meaning |
-| --- | --- |
-| Fits | Used where it lives. |
-| Spread | Used from more than one package, possibly its own, none of which holds the dominant share. |
-| Shares a domain | Used from another package, by places in a domain it belongs to. |
-| Departs | Used away from where it lives, by places that share none of its domains. |
+follows is in [`_lenses.md`](./_lenses.md). The `domains` lens
+(`lib/lenses/domains.ts`, built in 2.6) takes the dataset and the declared
+domains as a setting, and for each place compares where it lives with
+where it is used.
 
 Fits, Spread, and Departs come first, from the `placement` lens (2.3),
 before any domain exists: it labels every exported symbol, file, folder,
-and package from its consumer modules, with `dominantShare` 0.6. The two
-departs are different labels: placement's says one other package holds
-the dominant share of a place's consumer modules, the domain lens's that
-its consumers share none of its domains. The domain lens keeps them apart
-by name, in its output and in prose, for example as a placement departure
-against a domain departure, so neither reads as the other. The domain lens
-consumes it and relabels a spread or departing place whose consumers share
-one of its domains. Placement stays compact, listing only the places a
-consumer in another package uses, each with those consumer modules by
-package, so the domain lens reads what else it needs itself to report the
-facets that match no place: the module index for files and folders, and
-each package report's symbol ids for symbols. A facet naming a symbol its
-module does not export still matches a place; placement only leaves it
-unlabelled.
+and package from its consumer modules, with `dominantShare` 0.6. Placement
+stays compact, listing only the places a consumer in another package uses,
+each with those consumer modules by package. The domain lens consumes it
+and gives each listed place inside a domain a domain label:
+
+| Domain label | When |
+| --- | --- |
+| `fits` | Placement says fits. A fit stays a fit, whatever its consumers share. |
+| `shares-domain` | Placement says spread or departs, and every consumer module in another package lies in a place that shares one of its domains. |
+| `departs` | Placement says departs, and at least one consumer module in another package lies in no place that shares one of its domains: a domain departure as well as a placement departure. |
+| `spread` | Placement says spread, and at least one such consumer module shares none of its domains. |
+
+The two departs are different labels: placement's says one other package
+holds the dominant share of a place's consumer modules, the domain lens's
+that some of those consumers share none of its domains. The output keeps
+them apart by name, `placementLabel` beside `domainLabel`, and so does
+prose: a placement departure against a domain departure. A place is
+relabelled only when its domains explain all of its use away, so a
+departure stays the strongest signal; `away: { shared, total }` shows how
+much they explain either way. A consumer outside the module index (a file
+of a package that failed, or a script at the workspace root), which
+placement counts in `unindexed`, has domains nobody can tell, so any of
+them withholds `shares-domain`; the count is copied as `away.unindexed`.
+The placement label is always kept.
+
+How the lens matches, in `derive`:
+
+- **What a facet names.** A `path#name` facet names a symbol when a
+  complete package's report holds that id, exported or not (placement
+  leaves a symbol its module does not export unlabelled, but it is still a
+  place). A path facet names a package when it is a complete package's
+  root, else a file of the module index, else a folder: any directory above
+  a file of the index. Anything else is unmatched and reported, per domain;
+  a facet inside a package that failed is unmatched, since the dataset
+  holds none of that package's files.
+- **What a facet covers.** A path facet covers every place at or below its
+  path, a symbol facet only its symbol. Coverage runs downward only: a
+  package is not in a domain because one of its symbols is. A consumer
+  module is a file, so only path facets cover it.
+- **Membership rolls up.** A place is in every domain whose own facets
+  cover it, and in all of their parents. Two places in billing and payments
+  therefore share finances: a broad top-level domain explains everything
+  inside it, as the workspace wrote it.
+- **Overlap** lists every domain. `domains` names them all,
+  `sharedDomains` the ones some away consumer module shares; combining them into one label is
+  still deferred.
+- **Weight and reason** are copied from the declaration, never combined.
+
+The lens reads only what its settings need. With no domains declared it
+reads nothing. Otherwise it reads the `placement` lens, the module index
+for files and folders, `packages()` for package roots, and, one at a time
+and for its symbol ids only, the report of each complete package whose root
+holds a symbol facet's file (the deepest root, when packages nest); a path
+facet needs no report. It reads no
+internals and does not consume `nesting`, whose folders come from the same
+module index. Its output is `domains`, every declared domain flattened with
+its `parents`, matched `places` by kind, and `unmatched` facets, sorted by
+name; and `placements`, every placed place inside a domain, sorted by
+place, level, and package. With no domains declared it is empty.
 
 Everything it reads is already in the dataset:
 

@@ -20,6 +20,7 @@ import {
   DEFAULT_CONFIGURATION,
   loadConfiguration,
 } from "../../src/lib/atlas-config";
+import type { Domains } from "../../src/lib/lenses/domains-types";
 import { analyzePackageLocal } from "../../src/lib/package-local";
 import type {
   SemanticsDeriver,
@@ -520,16 +521,24 @@ describe("source changes", () => {
   }, 60_000);
 
   it.each([
-    ["the fixture's package patterns", copyFixture],
-    ["a * package pattern, which cruises .foundry", starFixture],
+    // The fixture's @s/b lives at packages/b; packages/b/src/index.ts only
+    // re-exports, so it declares no symbol `b`.
+    ["the fixture's package patterns", copyFixture, "packages/b"],
+    // Here @s/b lives at b, so packages/b names no place.
+    ["a * package pattern, which cruises .foundry", starFixture, "b"],
   ])(
     "reuses every package report and derives nothing when only the domains change, under %s",
-    async (_patterns, makeRoot) => {
+    async (_patterns, makeRoot, packageRoot) => {
       const root = makeRoot();
       const { output } = await full(root);
-      // A lens that reads no settings keeps its file, inode and all.
+      // A lens that reads no settings keeps its file, inode and all; the
+      // domains lens reads them, so its file follows each edit.
       const lens = join(output, "lenses", "package-sizes.json");
       const lensInode = statSync(lens).ino;
+      const domains = () =>
+        JSON.parse(
+          readFileSync(join(output, "lenses", "domains.json"), "utf8")
+        ) as Domains;
       const declare = async (
         facet: string
       ): Promise<SemanticsGenerationResult> => {
@@ -544,16 +553,48 @@ describe("source changes", () => {
         ]);
         return incremental(root, { config });
       };
-      for (const result of [
-        await declare("packages/b"),
-        await declare("packages/b/src/index.ts#b"),
-      ]) {
+      const core = (match: Partial<Domains["domains"][number]>) => [
+        {
+          name: "core",
+          parents: [],
+          places: [],
+          unmatched: [],
+          weight: 0.5,
+          ...match,
+        },
+      ];
+      // Each edit is checked before the next, since the file follows it.
+      for (const [facet, expected] of [
+        [
+          "packages/b",
+          core(
+            packageRoot === "packages/b"
+              ? { places: [{ kind: "package", place: "packages/b" }] }
+              : { unmatched: ["packages/b"] }
+          ),
+        ],
+        [
+          "packages/b/src/index.ts#b",
+          core({ unmatched: ["packages/b/src/index.ts#b"] }),
+        ],
+        // From unmatched to matched: a symbol shape.ts declares.
+        [
+          `${packageRoot}/src/shape.ts#area`,
+          core({
+            places: [
+              { kind: "symbol", place: `${packageRoot}/src/shape.ts#area` },
+            ],
+          }),
+        ],
+      ] as const) {
+        const result = await declare(facet);
         expect(result.packages).toMatchObject({ analyzed: 0, reused: 3 });
         expect(result.reports).toEqual({ derived: 0, reused: 3, unchanged: 0 });
         expect(Object.values(reportCauses(result))).not.toContain(
           "recompute:config-changed"
         );
         expect(statSync(lens).ino).toBe(lensInode);
+        expect(domains().domains).toEqual(expected);
       }
     },
     60_000

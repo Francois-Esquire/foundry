@@ -42,7 +42,7 @@ export default {
 
 | Setting | Type | Default | Effect |
 | --- | --- | --- | --- |
-| `domains` | list of domains | `[]` | The workspace's own model, for the domain lens of a later release. Validated and kept; nothing reads it yet. See [Domains](#domains). |
+| `domains` | list of domains | `[]` | The workspace's own model, which the `domains` lens reads at every scan; no analysis reads it. See [Domains](#domains). |
 | `exclude` | `string[]` | `[]` | Workspace-relative unit directories to skip, matched exactly, such as `packages/fixtures`. A leading `./` and a trailing slash are dropped; an absolute path, `.`, or a path with a `..` segment is an error. The manifest lists each excluded unit with the reason `excluded`, and an exclusion that matched no unit under `discovery.excludeUnmatched`. Excluding a unit that would otherwise be analyzed leaves the workspace's coverage `partial`. |
 | `history.checkpoints` | whole number, at least 1 | `12` | Upper bound on checkpoints per `--history` scan. `HEAD` always counts. |
 | `history.every` | whole number, at least 1 | `100` | Commit stride for the `every-n-commits` strategy. |
@@ -58,9 +58,11 @@ configuration either; they are built in.
 
 A domain is a named part of the workspace's own model: the places it names
 as its own, its facets, which may span packages, and the domains nested
-inside it. Atlas will use domains to tell an intended placement from an
-accidental one; until then it checks and keeps them, and reads them for
-nothing.
+inside it. Atlas uses domains to tell an intended placement from an
+accidental one, without hiding either: the `domains` lens saves, in
+`lenses/domains.json`, the places each domain's facets name, the facets
+that name none, and a domain label for every place the `placement` lens
+lists inside a domain. See [the dataset](/atlas/reference/output).
 
 ```ts
 // .foundry/atlas/domains.ts
@@ -98,7 +100,8 @@ A domain needs at least one facet or one nested domain. A facet:
 - may name one top-level symbol after `#`, by the name its file declares
   it with: `packages/core/src/ids.ts#InvoiceId`;
 - may not use `*`, `?`, or a leading `!`, which are kept for patterns;
-- need not exist yet. A facet that matches nothing is kept.
+- need not exist yet. A facet that matches nothing is kept, and the
+  `domains` lens lists it as unmatched.
 
 The same facet may appear in several domains; listed twice in one domain,
 it is an error. Domains nest at most 64 deep, and a domain may not contain
@@ -106,8 +109,12 @@ itself. `domains` is declared in one configuration file, like every
 key; that file may import `_`-prefixed helpers. `foundry.config.json` does
 not accept domains.
 
+A place is in a domain when one of the domain's facets covers it: a path
+facet covers everything at or below its path, a symbol facet only its
+symbol. A place in a nested domain is in its parents too.
+
 Domains are not an analysis input: a scan with new domains reuses every
-package's results.
+package's results, and only the lens outputs are written again.
 
 ## Errors
 

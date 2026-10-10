@@ -1,4 +1,8 @@
 import { describe, expect, it } from "vitest";
+import type {
+  DomainPlacement,
+  Domains,
+} from "../../src/lib/lenses/domains-types";
 import type { PackageSize } from "../../src/lib/lenses/package-sizes-types";
 import { renderLens } from "../../src/lib/render";
 
@@ -499,5 +503,92 @@ describe("renderLens", () => {
         "  @w/c",
       ].join("\n")
     );
+  });
+
+  it("prints the domains lens: counts, the declared domains, places by domain label, then unmatched facets", () => {
+    const placed: Pick<
+      DomainPlacement,
+      "domains" | "level" | "package" | "placementLabel"
+    > = {
+      domains: ["billing", "finances"],
+      level: "symbol",
+      package: "@s/core",
+      placementLabel: "departs",
+    };
+    const domains: Domains = {
+      domains: [
+        {
+          name: "billing",
+          parents: ["finances"],
+          places: [{ kind: "package", place: "packages/billing" }],
+          unmatched: ["packages/billing/src/legacy"],
+          weight: 0.8,
+        },
+        {
+          name: "finances",
+          parents: [],
+          places: [],
+          reason: "Money moves through one model.",
+          unmatched: [],
+        },
+      ],
+      placements: [
+        {
+          ...placed,
+          away: { shared: 1, total: 1, unindexed: 0 },
+          domainLabel: "shares-domain",
+          place: "packages/core/src/ids.ts#Id",
+          sharedDomains: ["billing", "finances"],
+        },
+        {
+          ...placed,
+          away: { shared: 0, total: 2, unindexed: 0 },
+          domainLabel: "departs",
+          place: "packages/core/src/ids.ts#Key",
+          sharedDomains: [],
+        },
+        {
+          ...placed,
+          away: { shared: 1, total: 1, unindexed: 0 },
+          domainLabel: "fits",
+          level: "package",
+          place: "packages/billing",
+          placementLabel: "fits",
+          sharedDomains: ["finances"],
+        },
+      ],
+    };
+    expect(renderLens("domains", domains, { format: "text" })).toBe(
+      [
+        "Domains",
+        "═══════",
+        "Domains             2",
+        "Facets              1 matched, 1 unmatched",
+        "Places in a domain  1 share a domain, 1 depart, 0 spread, 1 fit",
+        "",
+        "Declared domains",
+        "  billing   1",
+        "    in finances · weight 0.8 · 1 unmatched",
+        "  finances  0",
+        "    Money moves through one model.",
+        "",
+        "Shares a domain",
+        "  packages/core/src/ids.ts#Id  1",
+        "    symbol · @s/core · placement departs · 1 of 1 away share billing, finances",
+        "",
+        "Domain departures",
+        "  packages/core/src/ids.ts#Key  2",
+        "    symbol · @s/core · placement departs · none of 2 away shares its domains",
+        "",
+        "Unmatched facets",
+        "  billing: packages/billing/src/legacy",
+      ].join("\n")
+    );
+  });
+
+  it("says so when no domain is declared", () => {
+    expect(
+      renderLens("domains", { domains: [], placements: [] }, { format: "text" })
+    ).toBe(["Domains", "═══════", "No domains declared."].join("\n"));
   });
 });

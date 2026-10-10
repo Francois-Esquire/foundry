@@ -20,6 +20,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawn } from "bun";
 import type { PackageInternals } from "../src/lib/internal-analysis-types";
+import type { Domains } from "../src/lib/lenses/domains-types";
 import type { FileRoles } from "../src/lib/lenses/file-roles-types";
 import type { Nesting } from "../src/lib/lenses/nesting-types";
 import { rootRelativeFolder } from "../src/lib/lenses/package-internals";
@@ -206,6 +207,12 @@ test("built CLI scans an external workspace and the web loaders read its saved d
     workspace.root,
     { recursive: true }
   );
+  // A domain across two packages; the analyses never read it.
+  await mkdir(join(workspace.root, ".foundry/atlas"), { recursive: true });
+  await writeFile(
+    join(workspace.root, ".foundry/atlas/domains.ts"),
+    'export default { domains: [{ facets: ["apps/a", "packages/b", "apps/a/src/old.ts"], name: "shapes" }] };\n'
+  );
   const runScan = async () => {
     const child = spawnCli(
       ["scan", "--state", join(directory, "state")],
@@ -376,6 +383,57 @@ test("built CLI scans an external workspace and the web loaders read its saved d
       label: "departs",
       toward: "@s/c",
     }),
+  ]);
+  // apps/a shares the shapes domain with packages/b and tooling/c does not:
+  // area, used only from apps/a, shares a domain; perimeter, used only from
+  // tooling/c, is a domain departure; a place used from both stays spread.
+  const domains = JSON.parse(
+    await readFile(join(workspace.output, "lenses/domains.json"), "utf8")
+  ) as Domains;
+  expect(domains.domains).toEqual([
+    {
+      name: "shapes",
+      parents: [],
+      places: [
+        { kind: "package", place: "apps/a" },
+        { kind: "package", place: "packages/b" },
+      ],
+      unmatched: ["apps/a/src/old.ts"],
+    },
+  ]);
+  expect(
+    domains.placements.map((placement) => [
+      placement.place,
+      placement.placementLabel,
+      placement.domainLabel,
+      placement.away,
+    ])
+  ).toEqual([
+    ["packages/b", "spread", "spread", { shared: 1, total: 2, unindexed: 0 }],
+    [
+      "packages/b/src/shape.ts",
+      "spread",
+      "spread",
+      { shared: 1, total: 2, unindexed: 0 },
+    ],
+    [
+      "packages/b/src/shape.ts#Shape",
+      "spread",
+      "spread",
+      { shared: 1, total: 2, unindexed: 0 },
+    ],
+    [
+      "packages/b/src/shape.ts#area",
+      "departs",
+      "shares-domain",
+      { shared: 1, total: 1, unindexed: 0 },
+    ],
+    [
+      "packages/b/src/shape.ts#perimeter",
+      "departs",
+      "departs",
+      { shared: 0, total: 1, unindexed: 0 },
+    ],
   ]);
   const none = { departs: 0, fits: 0, spread: 0, unconsumed: 0 };
   expect(

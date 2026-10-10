@@ -3,6 +3,7 @@ import { datasetReader } from "../dataset";
 import { fileTransport } from "../dataset-files";
 import { DATASET_FILES, lensFile } from "../dataset-layout";
 import type { DatasetManifest } from "../semantics-types";
+import { domainsLens } from "./domains";
 import { fileRolesLens } from "./file-roles";
 import { frequentChangeLens } from "./frequent-change";
 import type { Lens, LensId, LensReader, LensSettings } from "./lens-types";
@@ -28,6 +29,7 @@ export const LENSES: readonly AnyLens[] = [
   placementLens,
   proximityLens,
   responsibilityGroupsLens,
+  domainsLens,
 ];
 
 export interface WriteLensesOptions {
@@ -52,9 +54,10 @@ export async function writeLenses(options: WriteLensesOptions): Promise<void> {
   const written = new Set<LensId>();
   const { lenses = LENSES } = options;
   for (const lens of lenses) {
+    const settings = pickSettings(options.settings, lens.settings);
     const output = lens.derive(
-      await lens.read(scopedTo(lens, reader, written)),
-      pickSettings(options.settings, lens.settings)
+      await lens.read(scopedTo(lens, reader, written), settings),
+      settings
     );
     options.write(lensFile(lens.id), output);
     written.add(lens.id);

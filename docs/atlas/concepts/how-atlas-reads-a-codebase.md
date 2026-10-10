@@ -69,7 +69,9 @@ The viewer lays islands out from `dependency-graph.json`.
 Last, before the manifest, the scan runs its lenses over the dataset it has
 just written. A lens derives a view, such as each package's dependency layer and
 file count by kind (`lenses/package-sizes.json`), and never analyzes the
-code again.
+code again. One lens reads the configuration: `domains` compares where each
+place is used with the domains the workspace declares, and keeps the
+observation beside its own label.
 
 ## Inside a package
 

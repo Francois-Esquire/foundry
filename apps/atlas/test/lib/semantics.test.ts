@@ -415,6 +415,7 @@ describe("generation", () => {
 
   it("publishes each lens's output, named in the manifest with its schema version", () => {
     expect(manifest.lenses).toEqual({
+      domains: { file: "lenses/domains.json", schemaVersion: 1 },
       "file-roles": { file: "lenses/file-roles.json", schemaVersion: 1 },
       "frequent-change": {
         file: "lenses/frequent-change.json",
@@ -431,6 +432,11 @@ describe("generation", () => {
         file: "lenses/responsibility-groups.json",
         schemaVersion: 1,
       },
+    });
+    // The fixture declares no domains.
+    expect(readJson(dataset, "lenses/domains.json")).toEqual({
+      domains: [],
+      placements: [],
     });
     // This scan saves no internals, so every complete package is missing.
     // The fixture is not a Git repository, so no package has churn.

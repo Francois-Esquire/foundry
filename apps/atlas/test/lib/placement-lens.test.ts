@@ -607,7 +607,7 @@ describe("the placement lens", () => {
         { id: "@s/f", internals: false, status: "failed" },
       ],
     } as unknown as LensReader;
-    const source = await placementLens.read(reader);
+    const source = await placementLens.read(reader, {});
     expect(mostAtOnce).toBe(1);
     expect(reports).toEqual(["@s/c", "@s/d"]);
     expect(source.missing).toEqual(["@s/e"]);

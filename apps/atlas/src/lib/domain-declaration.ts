@@ -3,8 +3,8 @@ import { z } from "zod";
 // The domain declaration: how a workspace tells Atlas its own mental model.
 // A configuration file declares it under `domains`. It is kept as written,
 // read by no analysis, and left out of the configuration fingerprint, so a
-// scan with new domains reuses every package's results. The domain lens of
-// phase 2 reads it; see docs/atlas/_domains.md.
+// scan with new domains reuses every package's results. The domains lens
+// (lib/lenses/domains.ts) reads it; see docs/atlas/_domains.md.
 
 /** One domain, as a configuration file declares it under `domains`. */
 export interface DomainDeclaration {

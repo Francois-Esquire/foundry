@@ -636,7 +636,8 @@ recomputes, in keeping with the dataset as the product. The settings
 lenses read (`LensSettings`, such as domains) never enter
 `configFingerprint`, so an edit to them alone reuses every package's
 results; every lens output is recomputed on every scan
-until a per-setting digest has a consumer, 2.6 at the earliest. See
+until a per-setting digest has a consumer. 2.6 found none; the earliest is
+a rule written in terms of domains (3.1). See
 [`_lenses.md`](./_lenses.md#in-the-dataset).
 
 **2.1 The lens layer.** Done 2026-10-10. The contract of
@@ -1429,9 +1430,119 @@ related, and what is related without sitting close.
   - `test/lib/lenses.test.ts`: the registry and the phase.
   - `test/lib/render-lens.test.ts`: the view.
 
-**2.6 Domains.** The domain lens over 2.3: declared domains joined to
-symbol ids, module paths, and consumers, adding the Shares a domain label.
-Waits for 1.9.
+**2.6 Domains.** Done 2026-10-10. The `domains` lens over 2.3: the
+declared domains joined to the dataset's places, and a domain label for
+every placed place inside a domain. The rules are in
+[`_domains.md`](./_domains.md#built-as-a-lens).
+- `lib/lenses/domains.ts` names the setting `domains` and consumes
+  `placement`. Its stage, `lens:domains`, depends on `materialization` and
+  `lens:placement`, and it runs last.
+- Output (`lib/lenses/domains-types.ts`, schema 1):
+  - `domains`: every declared domain flattened, with `parents`, its own
+    facets that name a place by `kind` (`package`, `folder`, `file`,
+    `symbol`), the ones that name none as `unmatched`, and `reason` and
+    `weight` copied when declared. Sorted by name.
+  - `placements`: every row of `placement` whose place is in a domain,
+    with all of its `domains`, `placementLabel`, `domainLabel`, the
+    `sharedDomains` it shares with its away consumer modules, and
+    `away: { shared, total, unindexed }`, the module counts. Sorted by place, level, and package, as
+    placement sorts, since a place can be both a folder of one package and
+    the root of another.
+- The label rule: `shares-domain` only when every away consumer module
+  lies in a place that shares one of the place's domains and placement
+  counts no unindexed consumer, whose domains cannot be told, so a
+  departure stays the strongest signal; otherwise the placement label stands, and a
+  `departs` there is a domain departure. A fit stays a fit. The two
+  departs are kept apart by name: `placementLabel` and `domainLabel` in
+  the output, "placement departure" and "domain departure" in prose and in
+  the view ("Domain departures"), and the glossary's Domain label.
+- Matching:
+  - A facet names a package (a complete package's manifest path), a file
+    (the module index), a folder (a directory above an index file), or a
+    symbol (an id in a complete package's report, exported or not, since
+    placement leaves an unexported one unlabelled but it is still a place).
+  - Coverage runs downward only; consumer modules are covered by path
+    facets alone.
+  - Membership rolls up through parents, so billing and payments share
+    finances.
+  - A facet inside a failed package is unmatched.
+  - Nothing reads `nesting`: folders come from the module index, which is
+    where nesting builds its tree too.
+- The lens contract changes: `read(reader, settings)` gets the lens's
+  settings, the same `pickSettings` value `derive` gets, so a lens can
+  leave unread what its settings do not need. The other lenses' `read`
+  take the reader alone, as before. With no domains, the domains lens's
+  `read` returns at once and reads nothing, and `derive` returns
+  `{ domains: [], placements: [] }`. Otherwise it reads, one at a time and
+  keeping only the symbol ids, the report of each complete package whose
+  root (the deepest, when packages nest) holds a symbol facet's file;
+  path facets need only the module index and the package roots. It
+  flattens placement's away modules and copies `unindexed`.
+- No per-setting digest: nothing loads the configuration to compare with
+  (`atlas report` and the viewer read the saved dataset), and the lens is
+  cheap to recompute.
+- `lib/render/reports/domains.ts` is the view: counts, the declared
+  domains, places that share a domain, domain departures, spread places
+  (the rankings through `rankedSection`), then unmatched facets, and
+  "No domains declared." for an empty output.
+- Foundry at this commit, with no domains: `domains.json` is
+  `{ domains: [], placements: [] }`. With a temporary declaration in a
+  copy of the workspace (four domains: `modules` over `packages/modules`
+  and the Works folders that use it; `persistence`, holding `atlas-state`
+  and `sessions`, over `packages/lib` storage helpers and their users):
+  - 10 facets matched and 2 unmatched.
+  - Of 62 placed places in a domain, 30 share a domain (17 placement
+    departures and 13 spread places), 4 are domain departures, 2 stay
+    spread, and 26 fit.
+  - `packages/modules`, which departs toward `@foundry/works`, shares
+    `modules` with all 10 of its away consumer modules.
+    `packages/lib/src/file-lock.ts` is a domain departure: 2 of its 6
+    away consumer modules share `persistence`.
+  - `domains.json` is 15 KB.
+- Cost, on Foundry with a fresh `--state` under `/tmp`:
+  - Lens phase over the saved dataset, three runs each: with no domains
+    declared, 391–423 ms with the domains lens against 385–417 ms without
+    it, the lens itself under 1 ms, since it reads nothing. With the
+    temporary declaration, whose four symbol facets all lie in
+    `packages/lib`, 400–427 ms, the lens 6 ms, reading one report. Peaks
+    ranged 643–863 MB in every configuration, which is GC timing, not the
+    lens. Before `read` took settings, the lens read all 75 MB of package
+    reports on every scan: 561–574 ms for the phase and a peak of up to
+    931 MB.
+  - Scans: a cold scan of the copy took 44 s, its lenses phase 0.60 s. A
+    warm CLI scan took 4.1 s, with a 2.62 GB maximum RSS and a 2.16 GB
+    footprint, against 2.58–2.64 GB and 2.10–2.13 GB measured for 2.5.
+- Tests:
+  - `test/lib/domains-lens.test.ts`:
+    - facets matched by kind, unmatched ones (a path and a symbol);
+    - the label rule: a fit kept, a shared departure, a domain departure,
+      a half-shared spread place kept spread, a place in no domain left
+      out, and a package holding a facet left out;
+    - an unindexed consumer withholding `shares-domain`;
+    - two sibling domains sharing a domain through their parent;
+    - a facet on an unexported symbol matched, with no row;
+    - empty settings;
+    - a package path before a folder, and one place at two levels;
+    - the same output for inputs in any order;
+    - `read`: nothing at all with no domains; with domains, only the
+      report of the deepest complete package holding a symbol facet's
+      file, one at a time, none for path facets or a failed package, an
+      unexported symbol kept, and a root package's path left out; one
+      symbol facet, one report.
+  - `test/atlas.test.ts`: the real fixture scan with a `shapes` domain
+    over `apps/a` and `packages/b`: `area` shares a domain, `perimeter`
+    is a domain departure, the spread places stay spread, and a missing
+    file is unmatched.
+  - `test/lib/semantics-incremental.test.ts`: a domains-only edit still
+    reuses every package and keeps `package-sizes.json`'s inode, while
+    `domains.json` follows each edit: under the fixture's patterns the
+    package facet matches, and under `*` it is unmatched; a symbol facet
+    that `shape.ts` declares then goes from unmatched to matched under
+    both.
+  - `test/lib/semantics.test.ts`, `test/lib/lenses.test.ts`: the manifest
+    entry, the registry, and the phase, which hands `read` and `derive`
+    the same settings.
+  - `test/lib/render-lens.test.ts`: the view and its empty state.
 
 **2.7 In the terminal.** `atlas report` gains the lens sections through
 `views.ts`, with `--json`.

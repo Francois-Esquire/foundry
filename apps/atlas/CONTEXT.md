@@ -146,15 +146,18 @@ workspace-relative path or `path#name`.
 
 **Domain**:
 A named part of the workspace's own mental model: a set of facets, and of
-domains nested inside it, that may span packages. A place in a nested
-domain is in its parent too. Its name is its id, unique across the
-workspace. A domain labels observations and never hides one.
+domains nested inside it, that may span packages. A place is in a domain
+when one of its facets covers the place, and a place in a nested domain is
+in its parent too. Its name is its id, unique across the workspace. A
+domain labels observations and never hides one.
 _Avoid_: concept (the scan's observation), anchor (AnalysisConfig's built-in
 pin), domain behavior, bounded context, area
 
 **Facet**:
-A reference by which a domain claims places, a path or `path#name`; it may
-match none.
+A reference by which a domain claims places, a path or `path#name`. A path
+facet covers its place and every place below it, a symbol facet only its
+symbol. A facet that names no place in the dataset is unmatched, and the
+`domains` lens reports it.
 _Avoid_: member, path, scope, region, anchor (AnalysisConfig's built-in pin)
 
 ### What a scan saves
@@ -221,6 +224,14 @@ nothing outside its module can use one that is not. A label adds to the
 observation and never calls a place misplaced.
 _Avoid_: declaration placement (symbol locality's field inside one
 package), misplacement, belonging
+
+**Domain label**:
+What the `domains` lens says of a place the `placement` lens lists inside
+a domain: it shares a domain when every consumer module in another package
+lies in a place sharing one of its domains, and none lies outside the
+module index; otherwise it keeps its placement label. A domain departure is a placement departure with some
+consumer outside its domains; the placement label is kept beside it.
+_Avoid_: departs alone when both labels are in view, belonging
 
 **Consumer module**:
 A source file outside a place that uses it: it imports the symbol from

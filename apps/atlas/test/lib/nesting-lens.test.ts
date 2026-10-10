@@ -418,7 +418,7 @@ describe("the nesting lens", () => {
         { id: "@s/c", internals: false, path: "packages/c", status: "failed" },
       ],
     } as unknown as LensReader;
-    expect(await nestingLens.read(reader)).toEqual({
+    expect(await nestingLens.read(reader, {})).toEqual({
       internals: [
         {
           id: "@s/a",
