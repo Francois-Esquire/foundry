@@ -200,14 +200,18 @@ decides whether it differs, and `propose` acts only on a different palette.
   link to the frame that holds the tokens. Keep
   `check` as the deterministic gate, so the agent runs only when the file
   was saved.
+- **A monitor as the gate.** `monitor(url).request(() => ({ headers:
+  { "X-Figma-Token": process.env.FIGMA_TOKEN ?? "" } }))` polls `/meta`
+  without a step, and its handler can return `designSync({}, { file })`.
+  The monitor fires on any change to the response, so keep `check`'s
+  version comparison: a field that changes on every request, such as a
+  signed thumbnail URL, would otherwise start the workflow every hour.
 - **More than color.** `style_type` is also `TEXT`, `EFFECT`, or `GRID`.
   A text style's node carries its font in `style`.
 
 ## Limits
 
-HTTP monitors fetch without request headers, and Figma requires
-`X-Figma-Token`, so a scheduled step makes the request itself. Figma
-rate-limits requests by endpoint and plan and answers `429` with
+Figma rate-limits requests by endpoint and plan and answers `429` with
 `Retry-After`; an hourly check stays well inside it, and a failed tick is
 tried again on the next one. A [launchd](/marbles/reference/launchd) tick
 receives only `PATH`, so `FIGMA_TOKEN` does not reach it; run the schedule

@@ -69,6 +69,22 @@ A body that carries noise such as a timestamp changes every poll; read
 [release watcher](/marbles/recipes/release-watcher) compares one field this
 way.
 
+A source that needs a token, a method, or a body takes `.request`. Give it
+a function to read the token at each poll rather than when the module
+loads:
+
+```ts
+monitor("https://api.github.com/repos/acme/app/releases/latest")
+  .request(() => ({ headers: { Authorization: `Bearer ${process.env.GITHUB_TOKEN}` } }))
+  .every("1h")
+  .do(async ({ response }) => …);
+```
+
+What `.request` sends is never part of the monitor's key, its stored state,
+`list`, or the feed. A move to an error status such as `404` or `500` is a
+change like any other, with `change.status` set; a `401` or `403` fails the
+poll and logs the status and the URL.
+
 ## A monitor that starts a workflow
 
 A handler that returns a locked node starts it, attributed to the monitor.

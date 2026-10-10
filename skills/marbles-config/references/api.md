@@ -34,7 +34,7 @@ import {
 | `step` | work | `step(name?).describe(text).input(s).output(s).do(fn)` | One unit of work. |
 | `workflow` | work | `workflow(name?, tree)`, `workflow(name?, () => tree)`, `workflow(name?).input(s).do(fn)` | A named tree of steps. |
 | `schedule` | trigger | `schedule(target).at(slot)` or `.every(interval)` | Runs a step or workflow on a clock. |
-| `monitor` | trigger | `monitor(source).every?(interval).do(fn)` | Runs when files or an HTTP body change. |
+| `monitor` | trigger | `monitor(source).request?(init).every?(interval).do(fn)` | Runs when files or an HTTP response change. |
 
 Calling a word registers it. Nothing is exported. Singular words are imports;
 plural keys (`agents`, `workspaces`, `sandboxes`, `artifacts`) are the context.
@@ -230,8 +230,11 @@ monitor("https://tracker.example.com/latest").every("10m")
   lock carries its input. `.at(slot)` or `.every(interval)` is the terminal
   call. `weekday` is `"sun"…"sat"` or an array; omit it for every day.
 - `monitor(source)`: one string. `http://` or `https://` polls and fires when
-  the body changes (hashed). Anything else is a glob over the config's
-  directory, polled; `.every` defaults to one minute. `.do(fn)` is terminal.
+  the response changes (body hashed, with a non-2xx status). Anything else
+  is a glob over the config's directory, polled; `.every` defaults to one
+  minute. `.do(fn)` is terminal. `.request(init | () => init)` sends headers
+  or a body to an HTTP source, read at every poll (put tokens there, not in
+  the URL); a `401`/`403` fails the poll.
 - A handler that returns a locked node (`ship({}, { task })`, `nightly({})`)
   starts it, attributed to the monitor. One node per tick: several new files
   in one poll either batch into one input or wait for the author to pick.

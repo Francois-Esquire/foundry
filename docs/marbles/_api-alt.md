@@ -165,7 +165,7 @@ inline stays internal.
 | `step` | work | `step(name?).input(s).output(s).do(fn)` | One unit of work. |
 | `workflow` | work | `workflow(name?, tree)` or `workflow(name?).input(s).do(fn)` | Setup plus a tree of steps. |
 | `schedule` | trigger | `schedule(definition).at(slot)` or `.every(interval)` | Runs a step or workflow on a clock. |
-| `monitor` | trigger | `monitor(source).every?(interval).do(fn)` | Runs when files or an HTTP response change. |
+| `monitor` | trigger | `monitor(source).request?(init).every?(interval).do(fn)` | Runs when files or an HTTP response change. |
 
 A definition is an instance. Calling a word still builds and registers the
 definition under the same id rules, but what it returns is a usable
@@ -552,10 +552,15 @@ monitor("https://status.example.com/api").every("5m").do(({ response }) => …);
 - `.do(fn)` is the terminal call. `fn` gets the [context](#context), plus
   `files` for a glob or `response` (a standard `Response`) for HTTP. There is
   no `select` and no custom change type.
-- **HTTP fires when the body changes.** Each poll hashes the body (SHA-256 of
-  its stable JSON, or of the text when it is not JSON) and compares it with
-  the hash stored from the last poll. If the body carries noise like a
-  timestamp, the handler reads `response` and returns early.
+- **HTTP fires when the response changes.** Each poll hashes the body
+  (SHA-256 of its stable JSON, of the text for other textual types, or of
+  the bytes), with the status when it is not 2xx, and compares it with the
+  hash stored from the last poll. If the body carries noise like a
+  timestamp, the handler reads `response` and returns early. A `401` or
+  `403` fails the poll; any other status is a reading.
+- **`.request(init)`** sends headers, a method, or a body: a `RequestInit`
+  without `signal`, or a function returning one, called at every poll. HTTP
+  only. It never enters the key, the state, `list`, the feed, or a plist.
 - **Files fire when a matching file changes.** `files` has `added`,
   `modified`, and `removed`. Globs are polled; `.every` is optional and keeps
   today's default interval.

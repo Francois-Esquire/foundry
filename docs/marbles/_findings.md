@@ -17,62 +17,6 @@ instead**, **Proposal**, and **Open**. A finding that came from use rather
 than a page says what changed or what the rule is in place of **The page
 does instead**.
 
-## 1. Request options for HTTP monitors
-
-**Found by** the Design Sync recipe, 2026-10-09.
-
-**Today.** `monitor(source)` takes one string, and each poll calls
-`fetch(spec.url, { signal })` (`apps/marbles/src/lib/monitor.ts:308`). No
-header can be set, so no source that needs a token can be a monitor: Figma
-(`X-Figma-Token`), GitHub (`Authorization: Bearer`), Linear, most internal
-APIs. GraphQL sources also need `POST` and a body.
-
-**The page does instead.** A scheduled step makes the request itself and
-compares Figma's `version` with a snapshot committed to the repository. The
-shape the recipe wanted is a monitor that gates and a handler that starts
-the workflow:
-
-```ts
-monitor(`https://api.figma.com/v1/files/${file}/meta`)
-  .request(() => ({ headers: { "X-Figma-Token": process.env.FIGMA_TOKEN ?? "" } }))
-  .every("1h")
-  .do(() => designSync({}, { file }));
-```
-
-**Proposal.** A builder method, `.request(init)`, before `.do`, for HTTP
-sources only. `init` is a `RequestInit` without `signal`, or a function that
-returns one (sync or async), called at every poll. A function lets a token be
-read when it is used rather than at module load, which matters for
-rotation, Keychain reads, and launchd ticks (finding 2).
-
-- The key stays derived from the URL alone. Request options never enter the
-  key, the observation state, logs, `list`, the feed, or a launchd plist.
-- A `401` or `403` fails the tick with the status and the URL, never the
-  header values.
-- `--dry-run` still sends the request, as HTTP monitors do today.
-- A glob source given `.request` is an error when the module loads.
-
-Rejected: a second argument, `monitor(url, { headers })`. It breaks "takes
-one string" and invites values evaluated once at load. A `.headers()`-only
-method covers Figma but not GraphQL.
-
-Also found by the pass-through audit (finding 7): a non-2xx response throws
-and is swallowed as a failed poll, so a change to `404` or `500` is never
-seen and `change.status` is always 2xx (`monitor.ts:309-311`, `229-231`);
-the body is read with `.text()`, which mangles binary; and the rebuilt
-`Response` loses `statusText`, `url`, and `redirected` (`monitor.ts:332-335`).
-`.request` should land with those fixed.
-
-**Open.**
-
-- What the monitor hashes. Today it hashes the whole body. An authenticated
-  API often returns fields that change on every request (signed asset URLs,
-  timestamps); verify whether Figma's `/meta` `thumbnail_url` is one. If
-  recipes keep returning early on noise, reconsider a way to choose what is
-  hashed, which `_api-alt.md` currently rules out ("no `select`").
-- Whether `change.previous` and `change.current` keep the full body, which
-  can be large, or only the hash.
-
 ## 2. Environment for launchd ticks
 
 **Found by** the Design Sync recipe, 2026-10-09.

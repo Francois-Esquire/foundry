@@ -24,7 +24,7 @@ import {
 | `step` | work | `step(name?).describe(text).input(s).output(s).do(fn)` | One unit of work. |
 | `workflow` | work | `workflow(name?, tree)`, `workflow(name?, () => tree)`, `workflow(name?).input(s).do(fn)` | A named tree of steps. |
 | `schedule` | trigger | `schedule(target).at(slot)` or `.every(interval)` | Runs a step or workflow on a clock. |
-| `monitor` | trigger | `monitor(source).every?(interval).do(fn)` | Runs when files or an HTTP body change. |
+| `monitor` | trigger | `monitor(source).request?(init).every?(interval).do(fn)` | Runs when files or an HTTP response change. |
 
 Calling a word registers it. Nothing is exported. Singular words are
 imports; the plural keys `agents`, `workspaces`, `sandboxes`, and `artifacts`
@@ -287,8 +287,10 @@ A monitor's handler gets the same object with `files` or `response` in place
 of `input`, plus `change`. `files` is `{ added, modified, removed }`, each a
 `{ path, checksum }[]` with `path` relative to the workspace root; read
 one with `node:fs` from `resolve(workspaces.current.root, path)`. `response`
-is a standard `Response` over the polled body. `change` carries the diff:
-the file lists, or `{ status, previous, current }` for HTTP.
+is a standard `Response` over the polled body, with the original's
+`status`, `statusText`, `url`, and `redirected`. `change` carries the diff:
+the file lists, or `{ status, previous, current }` for HTTP, where a body
+that is not text is `{ bytes, contentType }`.
 
 ## Triggers
 
@@ -313,13 +315,21 @@ monitor("https://tracker.example.com/latest").every("10m")
   it for every day. `minute` defaults to zero. An interval is a positive
   integer with `s`, `m`, `h`, or `d`; `"0s"` is refused.
 - **`monitor(source)`** takes one string. `http://` or `https://` is polled
-  and fires when the body changes: each poll hashes the body, as stable JSON
-  when it parses, as text otherwise, and compares it with the last hash. A
-  body that carries noise such as a timestamp fires every poll; read
-  `response` and return early when nothing of interest changed. Anything
-  else is a glob over the workspace root, polled; `files` lists what was
-  added, modified, or removed since the last poll. `.every` defaults to one
-  minute. `.do(fn)` is terminal.
+  and fires when the response changes: each poll hashes the body, as stable
+  JSON when it parses, as text for another textual type, as bytes
+  otherwise, together with the status when it is not 2xx, and compares it
+  with the last hash. A body that carries noise such as a timestamp fires
+  every poll; read `response` and return early when nothing of interest
+  changed. Anything else is a glob over the workspace root, polled; `files`
+  lists what was added, modified, or removed since the last poll. `.every`
+  defaults to one minute. `.do(fn)` is terminal.
+- **`.request(init)`** is for an HTTP source only (a glob throws at load):
+  a `RequestInit` without `signal`, or a function returning one, sync or
+  async, called at every poll. It is never part of the key, the stored
+  state, `list`, the feed, or a launchd plist. A `401` or `403` fails the
+  poll and logs the status and the URL, never what was sent; any other
+  status is a reading, so a move to `404` or `500` is a change. A network
+  error fails the poll and keeps the last state.
 - **A handler that returns a locked node starts it**, attributed to the
   monitor: `ship({}, { task })` or `nightly({})`. The same rule applies as
   for schedules: a named definition or a childless lock of one. A bare

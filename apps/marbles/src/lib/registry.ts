@@ -1,6 +1,10 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { InputField } from "~/lib/inputs";
-import type { MonitorHandler, MonitorSpec } from "~/lib/monitor";
+import type {
+  MonitorHandler,
+  MonitorRequest,
+  MonitorSpec,
+} from "~/lib/monitor";
 import { detector, handlerResponse } from "~/lib/monitor";
 import type { AnyDefinition, NamedDefinition } from "./definition";
 import { isNamed, quoteOrigin } from "./definition";
@@ -24,6 +28,11 @@ export interface MonitorRecord {
   readonly key: string;
   /** Shown beside the trigger; the key when omitted. */
   readonly label?: string;
+  /**
+   * What an HTTP poll sends. Kept here, never on the spec: the spec is
+   * shown, listed, and persisted, and this may carry a credential.
+   */
+  readonly request?: MonitorRequest;
   readonly source: MonitorSpec;
   /** How often the source is polled. */
   readonly trigger: Trigger;
@@ -91,12 +100,14 @@ export class Registry {
    * the record a host lists.
    */
   monitor(record: MonitorRecord): void {
-    const { handler, key, source, trigger } = record;
+    const { handler, key, request, source, trigger } = record;
     if (this.#schedules.has(key)) {
       throw new Error(`schedule "${key}" already registered`);
     }
     this.define({
-      fn: detector(key, source, handlerResponse(key, handler)),
+      fn: detector(key, source, handlerResponse(key, handler), {
+        ...(request === undefined ? {} : { request }),
+      }),
       kind: "step",
       name: key,
     });

@@ -623,6 +623,13 @@ Then Design Sync drops its `execFile` and uses
 
 ### D.1 Request options for HTTP monitors (finding 1)
 
+**Landed 2026-10-10.** A JSON or text body still hashes as canonical JSON,
+so existing monitors do not all fire once after the upgrade; bytes are
+hashed only for a non-textual `content-type`, and a non-2xx status is
+mixed into the hash. A binary body's `change.current` is
+`{ bytes, contentType }`. The open hash questions below stay open; Design
+Sync shows the monitor as a variation and keeps its version gate.
+
 ```ts
 monitor(`https://api.figma.com/v1/files/${file}/meta`)
   .request(() => ({ headers: { "X-Figma-Token": process.env.FIGMA_TOKEN ?? "" } }))
