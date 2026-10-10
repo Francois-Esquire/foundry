@@ -26,8 +26,6 @@ interface CodexPackage {
 }
 
 interface CodexModule {
-  /** Concepts the module takes part in, in any role. */
-  concepts: string[];
   /** Import edges starting here, within and across packages. */
   dependencies: number;
   /** Import edges ending here, within and across packages. */

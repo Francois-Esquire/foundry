@@ -29,15 +29,6 @@ const territory: Territory = {
   hills: [],
   id: "island",
   label: "Island",
-  neighborhoods: [
-    {
-      id: "district",
-      imports: 1,
-      label: "District",
-      members: ["one", "two"],
-      sharedConcepts: 1,
-    },
-  ],
   radius: 80,
   responsibilityGroups: undefined,
   shallows: [],
@@ -57,7 +48,6 @@ const data: AtlasData = {
       files: [],
       id: "other",
       label: "Other",
-      neighborhoods: [],
       x: 200,
     },
   ],
@@ -135,7 +125,6 @@ describe("map detail drawing", () => {
       null,
       "ink",
       { height: 500, pixelsPerUnit: 2, width: 500, x: 0, y: 0 },
-      undefined,
       [],
       null,
       false,
@@ -175,7 +164,6 @@ describe("map detail drawing", () => {
       "one",
       "ink",
       { height: 500, pixelsPerUnit: 8, width: 500, x: 0, y: 0 },
-      undefined,
       [],
       {
         composition: {
@@ -226,7 +214,6 @@ describe("map detail drawing", () => {
       null,
       "ink",
       { height: 500, pixelsPerUnit: 2, width: 500, x: 0, y: 0 },
-      undefined,
       [],
       null,
       false,
@@ -234,7 +221,6 @@ describe("map detail drawing", () => {
     );
     expect(ctx.clip).toHaveBeenCalledWith("evenodd");
     expect(labels.some((label) => label.regionId === region.id)).toBe(true);
-    expect(labels.some((label) => label.neighborhoodId)).toBe(false);
     expect(
       ctx.strokeRect.mock.calls.filter((args) => args[2] === 3.5 / 2)
     ).toHaveLength(1);
@@ -245,7 +231,6 @@ describe("map detail drawing", () => {
       null,
       "ink",
       { height: 500, pixelsPerUnit: 5, width: 500, x: 0, y: 0 },
-      undefined,
       [],
       null,
       false,
@@ -256,17 +241,40 @@ describe("map detail drawing", () => {
   it("retires district and neighboring file labels as composition becomes dominant", () => {
     const { canvas } = canvasFixture();
     const view = { height: 500, pixelsPerUnit: 2, width: 500, x: 0, y: 0 };
-    const districts = paintMap(canvas, data, "island", null, "ink", view);
-    expect(districts.some((label) => label.neighborhoodId === "district")).toBe(
-      true
+    // A selected island shows no grouping until its responsibilities load.
+    const unentered = paintMap(canvas, data, "island", null, "ink", view);
+    expect(
+      unentered
+        .filter((label) => label.territory.id === "island")
+        .map((label) => label.text)
+    ).toEqual(["Island"]);
+    const district = {
+      color: "#678",
+      id: "district",
+      label: "District",
+      members: territory.files,
+      polygons: memberContours(territory.files),
+      uncertain: false,
+    };
+    const districts = paintMap(
+      canvas,
+      data,
+      "island",
+      null,
+      "ink",
+      view,
+      [],
+      null,
+      false,
+      { regions: [district], territory }
     );
+    expect(districts.some((label) => label.regionId === "district")).toBe(true);
     expect(districts.some((label) => label.file)).toBe(false);
     const files = paintMap(canvas, data, "island", null, "ink", {
       ...view,
       pixelsPerUnit: 5,
     });
     expect(files.filter((label) => label.file)).toHaveLength(2);
-    expect(files.some((label) => label.neighborhoodId)).toBe(false);
     const focused = paintMap(canvas, data, "island", "one", "ink", {
       ...view,
       pixelsPerUnit: 5,
@@ -296,14 +304,12 @@ describe("map detail drawing", () => {
       "one",
       "ink",
       { ...view, pixelsPerUnit: 8 },
-      undefined,
       [],
       overlay
     );
     expect(
       composition.filter((label) => label.file).map((label) => label.file?.id)
     ).toEqual(["one"]);
-    expect(composition.some((label) => label.neighborhoodId)).toBe(false);
     expect(composition.find((label) => label.file?.id === "one")?.y).toBe(
       -21 / 8
     );
@@ -314,7 +320,6 @@ describe("map detail drawing", () => {
       "one",
       "ink",
       { ...view, pixelsPerUnit: 8, width: 40, x: 30 },
-      undefined,
       [],
       overlay
     );
@@ -357,7 +362,6 @@ describe("map detail drawing", () => {
       null,
       "ink",
       view,
-      undefined,
       [],
       {
         links: [],

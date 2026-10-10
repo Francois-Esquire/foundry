@@ -30,7 +30,7 @@ What the scan already measures for each:
 | Question | Data that exists | Drawn today |
 | --- | --- | --- |
 | Shape | Package graph, dependency layers, gravity, file counts | Island size and north–south position |
-| Proximity | Responsibility regions; change coupling; boundary interactions; `pathAgreesWithRegion` | Distance from a directory hash plus imports; two competing clusterings (the viewer's own neighborhoods and `lib`'s regions); path agreement only inside a responsibility overlay |
+| Proximity | Responsibility regions; change coupling; boundary interactions; `pathAgreesWithRegion` | Distance from a directory hash plus imports; one grouping, `lib`'s responsibilities, once an island is entered (the viewer's own neighborhoods retired in 2.2d); path agreement only inside a responsibility overlay |
 | Nesting | The directory tree, path regions, and seams in `internals/`; scopes with parent chains | Islands and districts; directories only seed a random angle |
 | Lives vs used | Per-symbol consumer packages; symbol locality `commonScope` and `dominant*`; concept miscentering; `fold-package` | Package trade, selection ink, import traces; none of the `lib` placement data is read |
 
@@ -40,12 +40,15 @@ matters most and is drawn least, although `lib` computes it. The rejected
 engraved survey below asked a close cousin ("what belongs together, and
 what role does each file play?").
 
-The code review found that the viewer also recomputes parts of the analysis
+The code review found that the viewer also recomputed parts of the analysis
 on its own, with different thresholds and units: landmarks against
 `highFan`, change craters against hotspots, neighborhoods against
 responsibility regions, plus composite districts and file roles that `lib`
-does not have. Those move into shared lenses in phase 2, so the map and the
-terminal agree. Details, the settings split, and what is reusable are in
+did not have. Phase 2 moved them into shared lenses, so the map and the
+terminal agree: file roles and landmarks into `file-roles` (2.2a), districts
+into `responsibility-groups` (2.2b), and craters into `frequent-change`
+(2.2e); 2.2d retired the neighborhoods for responsibilities. What remains is
+the package-pair traffic the viewer re-aggregates, for 2.2f. Details, the settings split, and what is reusable are in
 [`_review.md`](./_review.md#the-viewer).
 
 ## What the viewer is today
@@ -96,9 +99,11 @@ conclusions.
   and a stage inspector are tools for building the renderer, not for reading
   a codebase. They sit beside the layers that carry evidence, with equal
   weight.
-- **Two groupings inside an island.** Import and concept neighborhoods shape
-  file placement; responsibility districts set the pigment. When they
-  disagree, the reader cannot tell which one the map means.
+- **Two groupings inside an island.** Resolved in 2.2d: the viewer's import
+  and concept neighborhoods are gone, and responsibilities, grouped into
+  districts, are the only grouping. Neighborhoods never placed files (the
+  directory and the imports do); they labelled and selected groups on a
+  selected island before it was entered.
 - **Decoration outweighs evidence on screen.** Relief, sea layers, and coast
   ink are the strongest marks at most zoom levels; file marks are among the
   faintest. This and the previous point come from the diagnosis under

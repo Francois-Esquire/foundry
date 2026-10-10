@@ -122,9 +122,9 @@ exist; an unloaded family must not silently substitute the map typography.
 The scene waits for their font loads before painting labels.
 
 Abril Fatface sets the page title, section headings and territory names.
-Inter sets navigation, paths, counts and inspection text. Georgia marks
-computed neighborhoods; italic Georgia sets the sea caption. Map typography is painted onto
-a transparent ink texture on a parallel plane 0.02 map units above the raised
+Inter sets navigation, paths, counts and inspection text. Georgia sets
+responsibility and district names; italic Georgia sets the sea caption. Map
+typography is painted onto a transparent ink texture on a parallel plane 0.02 map units above the raised
 paper. Labels and routes remain continuous across relief and share the map's
 tilt. Visible ink repaints at viewport resolution during pan, zoom and camera
 travel, with device pixel ratio capped at two and texture dimensions limited by
@@ -220,7 +220,7 @@ ink uses linear sampling without rebuilding mipmaps on each upload.
 
 Source settlements retain brown ink. Tests use blue walled proving grounds;
 stories use rose semicircular theaters; configuration uses ochre buildings.
-Unknown kinds stay neutral. These marks preserve mixed neighborhoods rather
+Unknown kinds stay neutral. These marks preserve mixed areas of an island rather
 than splitting islands by classification. Finer source
 roles remain unclassified. File specks are round dots, one per file, that grow
 gently with zoom (radius 1.45 / √pixels map units) and are filled once per kind.
@@ -314,9 +314,11 @@ ties; other groups must retain the selected clearance. With no safe candidate,
 the singleton keeps its initial exterior position. Original coastlines and local
 file geometry remain unchanged.
 
-Computed neighborhoods remain available for inspection and labels but do not
-control file placement. Local file spacing retains the original behavior,
-without the later file-clearance guarantee. Coordinates and contours
+Responsibilities are the only grouping inside an island. In the default
+drawing they do not control file placement, which follows directories and
+imports; when files are grouped by responsibility, `fitDistricts` places them
+by district. Local file spacing retains the original behavior, without the
+later file-clearance guarantee. Coordinates and contours
 remain disposable presentation data; temporal stability is not guaranteed.
 
 ## Components
@@ -553,7 +555,7 @@ remain disposable presentation data; temporal stability is not guaranteed.
   wind strokes. The gesture lasts 2.4 seconds, with a 12-second cooldown from its
   start. Placement checks coasts, shallows, labels, dependency routes, compass,
   sea caption and viewport edges; file detail suppresses wind. Camera movement
-  cancels it. Neighborhood bustle remains a candidate.
+  cancels it. Island bustle remains a candidate.
 - The sea current blends directed cross-package file imports into a prevailing
   vector and smooth local influences. Logarithmic edge counts weight influence;
   an obstacle-aware pressure solve redirects it around the actual coast masks.
@@ -566,8 +568,9 @@ remain disposable presentation data; temporal stability is not guaranteed.
   never agent activity or survey changes.
 - Territory names lead the overview. Zooming near an island loads its Belonging
   regions without selecting it. Island clicks frame the region scale; further
-  zoom reveals files. Belonging suppresses computed neighborhood
-  labels on the selected island. District and responsibility names have a stable
+  zoom reveals files. An island shows no grouping until its Belonging
+  regions load; there are none for a package saved without internals.
+  District and responsibility names have a stable
   screen-area budget of two to six, with parent priority, collision and viewport
   checks. Hover preserves that label set. Collections have no map labels; child
   names retire as composition reaches half opacity while parent names remain.
@@ -653,8 +656,8 @@ The [internal architecture foundation](../../../../docs/designs/codebase-atlas-i
 serves v13/v13.1/v13.2 evidence separately from the map. Architectural inspection
 adds member rings, unresolved-ownership diamonds, path-disagreement notches, and
 selected import links. Evidence and its limitations remain in the margin;
-structural disagreement is not a quality score. It does not change current
-neighborhoods or geometry. Later placement must consume geography without feeding
+structural disagreement is not a quality score. It does not change
+responsibilities or geometry. Later placement must consume geography without feeding
 settlement coordinates back into coastline generation.
 
 The [V13 work log](../../../../docs/designs/codebase-atlas-v13.md) tracks composition

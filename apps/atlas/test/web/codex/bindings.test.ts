@@ -7,7 +7,6 @@ import {
   landmarkRadius,
   laneWidth,
   latitude,
-  neighborhoodAffinity,
   roadWidth,
   settlementTier,
   summitHeight,
@@ -55,12 +54,6 @@ describe("module bindings", () => {
   it("ranks labels by imports in both directions", () => {
     expect(labelPriority(0, 0)).toBe(0);
     expect(labelPriority(3, 4)).toBe(7);
-  });
-
-  it("adds at most half an import for shared concepts", () => {
-    expect(neighborhoodAffinity(2, 0)).toBe(2);
-    expect(neighborhoodAffinity(2, 0.4)).toBeCloseTo(2.2);
-    expect(neighborhoodAffinity(2, 5)).toBe(2.5);
   });
 });
 

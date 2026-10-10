@@ -3,12 +3,6 @@ import type { CodexSource } from "./source";
 import type { Codex, CodexRetiredPackage } from "./vocabulary";
 
 export function resolveCodex(source: CodexSource): Codex {
-  const concepts = new Map(
-    source.participation.map((m) => [
-      m.id,
-      [...new Set(Object.values(m.concepts).flat())],
-    ])
-  );
   const dependents = new Map<string, number>();
   const dependencies = new Map<string, number>();
   for (const edge of source.imports) {
@@ -43,7 +37,6 @@ export function resolveCodex(source: CodexSource): Codex {
       target: edge.target,
     })),
     modules: source.modules.map((m) => ({
-      concepts: concepts.get(m.id) ?? [],
       dependencies: dependencies.get(m.id) ?? 0,
       dependents: dependents.get(m.id) ?? 0,
       directory: m.path.slice(0, m.path.lastIndexOf("/")),

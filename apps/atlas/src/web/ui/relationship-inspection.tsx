@@ -138,7 +138,7 @@ export function RelationshipInspection({
       {selected && (
         <>
           {routes && routes.proposed.length > 0 && (
-            <label className="atlas-neighborhood-filter">
+            <label className="atlas-select-filter">
               <span>
                 Trace proposed connections · {Math.round(progress * 100)}%
               </span>

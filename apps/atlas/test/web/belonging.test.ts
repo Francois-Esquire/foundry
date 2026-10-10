@@ -173,7 +173,6 @@ const territory: Territory = {
   hills: [],
   id: "island",
   label: "Island",
-  neighborhoods: [],
   radius: 50,
   responsibilityGroups: undefined,
   shallows: [],

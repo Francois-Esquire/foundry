@@ -11,7 +11,6 @@ import type {
   SemanticsDeclaredDependencies,
   SemanticsModuleEdge,
   SemanticsModuleIndexEntry,
-  SemanticsModuleRecord,
 } from "../../lib/semantics-types";
 import type { WorkspaceDependencyEdgeProjection } from "../../lib/workspace-projection-types";
 
@@ -47,7 +46,6 @@ export interface CodexSource {
   packages: (Pick<PackageSize, "id" | "analyzed" | "layer"> & {
     modules: Pick<PackageSize["modules"], "total">;
   })[];
-  participation: Pick<SemanticsModuleRecord, "id" | "concepts">[];
   /** The `responsibility-groups` lens, drawn as districts on entering an island. */
   responsibilityGroups: ResponsibilityGroupsPackage[];
 }
@@ -56,27 +54,17 @@ export interface CodexSource {
 export async function readCodexSource(
   reader: DatasetReader
 ): Promise<CodexSource> {
-  const [
-    manifest,
-    index,
-    graph,
-    sizes,
-    roles,
-    groups,
-    edgeShards,
-    moduleShards,
-    history,
-  ] = await Promise.all([
-    reader.manifest(),
-    reader.moduleIndex(),
-    reader.dependencyGraph(),
-    reader.lens("package-sizes"),
-    reader.lens("file-roles"),
-    reader.lens("responsibility-groups"),
-    reader.moduleEdgeShards(),
-    reader.moduleShards(),
-    reader.history(),
-  ]);
+  const [manifest, index, graph, sizes, roles, groups, edgeShards, history] =
+    await Promise.all([
+      reader.manifest(),
+      reader.moduleIndex(),
+      reader.dependencyGraph(),
+      reader.lens("package-sizes"),
+      reader.lens("file-roles"),
+      reader.lens("responsibility-groups"),
+      reader.moduleEdgeShards(),
+      reader.history(),
+    ]);
   return {
     dataset: manifest,
     declaredDependencies: manifest.packages.map((p) => ({
@@ -94,7 +82,6 @@ export async function readCodexSource(
     imports: edgeShards.flatMap((s) => s.edges),
     modules: index.modules,
     packages: sizes.packages,
-    participation: moduleShards.flatMap((s) => s.modules),
     responsibilityGroups: groups.packages,
   };
 }

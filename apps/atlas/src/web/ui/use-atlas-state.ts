@@ -35,21 +35,6 @@ function canonicalSelection(data: AtlasData, value: AtlasSelection | null) {
   };
 }
 
-function selectionGroup(
-  value: AtlasSelection | null,
-  layout: Territory | null
-) {
-  const territory =
-    layout?.id === value?.territory.id ? layout : value?.territory;
-  return (
-    value?.neighborhoodId ??
-    territory?.neighborhoods.find((group) =>
-      group.members.includes(value?.file?.id ?? "")
-    )?.id ??
-    ""
-  );
-}
-
 export function useAtlasState(initial: AtlasState) {
   const sourceData = initial.data;
   const [layoutSettings, setLayoutSettings] = useState(initial.layoutSettings);
@@ -82,7 +67,6 @@ export function useAtlasState(initial: AtlasState) {
     initial.territoryLayout
   );
   const [viewTerritory, setViewTerritory] = useState<Territory | null>(null);
-  const territoryLayoutRef = useRef<Territory | null>(null);
   const [atmosphereEnabled, setAtmosphereEnabled] = useState(
     initial.atmosphereEnabled
   );
@@ -137,9 +121,8 @@ export function useAtlasState(initial: AtlasState) {
       if (value?.regionId || value?.compositeId) {
         scene.current?.pinRegion();
       }
-      const group = selectionGroup(value, territoryLayoutRef.current);
       if (!value?.symbol && value?.file) {
-        scene.current?.focus(value.territory, value.file, group);
+        scene.current?.focus(value.territory, value.file);
       } else if (
         !(
           value?.feature ||
@@ -148,7 +131,7 @@ export function useAtlasState(initial: AtlasState) {
           value?.compositeId
         )
       ) {
-        scene.current?.focus(value?.territory ?? null, value?.file, group);
+        scene.current?.focus(value?.territory ?? null, value?.file);
       }
     },
     [
@@ -160,7 +143,6 @@ export function useAtlasState(initial: AtlasState) {
       setSelectedWreck,
       setSelection,
       territory,
-      territoryLayoutRef,
     ]
   );
   const selectRef = useRef(select);
@@ -180,7 +162,6 @@ export function useAtlasState(initial: AtlasState) {
       setSelection(null);
       setHover(null);
       setTerritoryLayout(null);
-      territoryLayoutRef.current = null;
       setResponsibilityOverlay(null);
       setTracedSelection(null);
       setLayoutSettings({ coastalBuffer, islandClearance });
@@ -225,13 +206,10 @@ export function useAtlasState(initial: AtlasState) {
       territoryLayout,
     ]
   );
-  useEffect(() => {
-    territoryLayoutRef.current = territoryLayout;
-  }, [territoryLayout]);
   const frameSelection = useCallback(
     (ids: string[]) => {
       if (territory) {
-        scene.current?.focus(territory, undefined, undefined, ids);
+        scene.current?.focus(territory, undefined, ids);
       }
     },
     [scene, territory]
@@ -274,7 +252,7 @@ export function useAtlasState(initial: AtlasState) {
         select({ regionId: districtId, territory });
       }
       setHover(null);
-      scene.current?.focus(territory, undefined, undefined, ids);
+      scene.current?.focus(territory, undefined, ids);
     },
     [scene, select, setHover, territory]
   );
@@ -422,7 +400,6 @@ function resolveValue(
     compositeId: string | undefined;
     regionId: string | undefined;
     file?: AtlasFile;
-    neighborhoodId?: string;
     symbol?: { id: string; name: string };
     territory: Territory;
     unmappedModule?: string;
@@ -527,7 +504,6 @@ function resolveCurrentEscape(
     compositeId: string | undefined;
     regionId: string | undefined;
     file?: AtlasFile;
-    neighborhoodId?: string;
     symbol?: { id: string; name: string };
     territory: Territory;
     unmappedModule?: string;
@@ -593,7 +569,6 @@ function selectionAncestry(
     compositeId: string | undefined;
     regionId: string | undefined;
     file?: AtlasFile;
-    neighborhoodId?: string;
     symbol?: { id: string; name: string };
     territory: Territory;
     unmappedModule?: string;

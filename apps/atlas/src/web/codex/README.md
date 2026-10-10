@@ -40,7 +40,6 @@ imports from the renderer, so the folder moves as a unit. Tests are in
 | Module `internalFanIn`, `highFanIn`        | `file-roles` lens `fanIn`, `highFanIn`, by module id; 0 and false for a package without internals |
 | Package `responsibilityGroups`             | `responsibility-groups` lens `groups` and `independent`; `undefined` for a package without internals |
 | Package `highFanInCutoff`, `fileRoles`     | `file-roles` lens `highFanInCutoff` and `modules`; 0 and `undefined` for a package without internals |
-| Module `concepts`                          | module shard `concepts`, every role, deduplicated                         |
 | Import                                     | edge shards                                                               |
 | Dependency `strength`, `sharedConcepts`    | graph dependency edge `dependency.moduleEdges`, `concepts.total`          |
 | Declared dependency                        | manifest `packages[].declaredDependencies`, current packages only         |
@@ -80,7 +79,6 @@ the lens, says so; missing history never becomes a zero count.
 | `settlementTier`       | Package size                                  | village, town, city   | `continent.ts`                  |
 | `territoryLabelSize`   | Package footprint                             | territory label size  | `scene/paint-map.ts`                  |
 | `labelPriority`        | Module dependents, dependencies               | file label order      | `scene/paint-map.ts`                  |
-| `neighborhoodAffinity` | imports, shared concept participation         | neighborhood grouping | `relationships.ts`              |
 | `laneWidth`            | Dependency strength                           | sea lane width        | `scene/trade-layer.ts`                |
 | `dependencyPen` | Module imports between two packages | Selected package's dependency line width, 0.9–1.8 screen pixels | `scene/selection-ink.ts` |
 | `roadWidth`            | Dependency strength, merged per road          | road width            | `scene/road-layer.ts`                 |
@@ -107,7 +105,6 @@ change swaps an inline read or transform for a codex export; nothing else moved.
 | `continent.ts`            | `settlementKind`                                                     | removed; `settlementTier`                                                             |
 | `continent.test.ts`       | imported `settlementKind`                                            | imports `settlementTier`                                                              |
 | `scene/paint-map.ts`      | `clamp(0.15r, 13, 22)`; `incoming + outgoing`                        | `territoryLabelSize`; `labelPriority`                                                 |
-| `relationships.ts`        | `imports + 0.5 · min(1, shared)`                                     | `neighborhoodAffinity`                                                                |
 | `scene/trade-layer.ts`    | inline lane width                                                    | `laneWidth`                                                                           |
 | `scene/road-layer.ts`     | inline road width                                                    | `roadWidth`                                                                           |
 | `current-field.ts`        | `log1p(count)`                                                       | `currentStrength`                                                                     |
@@ -138,16 +135,17 @@ Against the design doc's open decisions:
 4. Identity: the codex publishes ids; hash seeds stay in layout.
 5. Placement: this folder, inside the renderer.
 6. Per-island resolution: deferred, as above.
-7. Derived groupings: neighborhoods and landmasses stay in layout; their
-   weights are bindings. Districts were here too, until 2.2b moved their
-   grouping into the `responsibility-groups` lens.
+7. Derived groupings: landmasses stay in layout; their weights are bindings.
+   Districts and neighborhoods were here too, until 2.2b moved the district
+   grouping into the `responsibility-groups` lens and 2.2d retired
+   neighborhoods for responsibilities.
 
 ## Analysis library
 
 The codex reads dataset schema 4 through the library's reader, which checks the
 schema version.
 `CodexSource` picks its fields from the library's own types (the manifest,
-module index and shards, edge shards, graph projection, history entities, and
+module index, edge shards, graph projection, lenses, history entities, and
 `SemanticsDeclaredDependencies`, with `SemanticsDeclaredDependencyKind` for the
 declared dependency kinds), so a renamed or removed field, or a new file kind,
 stops the codex compiling instead of reaching the map.

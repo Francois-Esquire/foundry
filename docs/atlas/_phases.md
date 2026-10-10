@@ -751,7 +751,7 @@ this order, which is deliberate (2.2e comes before 2.2d):
   [`_lenses.md`](./_lenses.md#rules). Done; below.
 - **2.2d Retire neighborhoods**: responsibility regions are the grouping;
   the viewer's neighborhoods (`web/neighborhoods.ts`, `relationships.ts`)
-  go. They do not place files, so no layout helper stays.
+  go. They do not place files, so no layout helper stays. Done; below.
 - **2.2f Pair traffic**: no lens. The dependency graph projection carries
   each pair's count, so the viewer's re-aggregations go; the endpoint files
   are one join in the codex.
@@ -1020,6 +1020,62 @@ this order, which is deliberate (2.2e comes before 2.2d):
   only with Recorded change and never the package report; `no-history`;
   `not-saved`).
 
+**2.2d Retire neighborhoods.** Done 2026-10-10. No lens: responsibilities
+are the grouping, and the viewer's own neighborhoods are gone.
+- Deleted: `web/neighborhoods.ts`, `web/relationships.ts`, and their test;
+  `neighborhoodAffinity` with its test and codex README rows;
+  `Territory.neighborhoods`; `AtlasSelection.neighborhoodId` and
+  `MapLabel.neighborhoodId`; `paintLabelsPN`, the Georgia labels a
+  selected island showed before it was entered; the scene's
+  `selectedNeighborhood`, which dimmed the other files, filtered file
+  labels, and framed the camera on a neighborhood (`scene.ts` `focus` and
+  `focusEntries`, `paint-map.ts` `paintMapP`, `paintMapPF`, and
+  `paintLabelsPF`); `selectionGroup` in `use-atlas-state.ts`, and with it
+  `territoryLayoutRef`, which only `selectionGroup` read; the
+  `neighborhoodId` fallback in `atlas-place.tsx`; and `districtLayout`'s
+  override that copied responsibilities into `Territory.neighborhoods`. The
+  panels' select filters' CSS class `atlas-neighborhood-filter`, which
+  styled no neighborhood, is `atlas-select-filter`. `paintMap` loses its
+  seventh positional parameter, and `focus` its third: it is now
+  `focus(territory, file, fileIds)`.
+- Selection by group is selection by responsibility: `regionId` and
+  `compositeId`, which belonging already carried, and framing by a
+  responsibility's files through `frameDistrict` and `frameSelection`. A
+  selection made before an island is entered has no group: selecting a file
+  there frames the file alone, without dimming or filtering by any group,
+  until the island's responsibilities load. An island saved without
+  internals has no grouping inside at all.
+- The codex reads no module shard: `CodexSource.participation`, the codex's
+  only read of the module shards, and `CodexModule.concepts`, its only use,
+  are deleted, with `readCodexSource`'s `moduleShards()` call. That lands
+  4.4's module-shard item here. A load test pins the files read at load:
+  the manifest, the module index, the edge shards, the graph projection, the
+  three lenses the codex reads, and history's manifest; no module shard.
+- Visible change: a selected island shows no group labels until it is
+  entered and its responsibilities load, and then only responsibility and
+  district names; a file selected before then is framed alone; framing by
+  group is framing by responsibility. In the Files map layer, which draws
+  no Belonging regions, a selected island now shows no grouping at any
+  zoom. With "Group files by responsibility" on, selecting a file no longer
+  dims the files outside its responsibility or limits file labels to it;
+  the Belonging layer's exact-member squares and its pinned-region label
+  filter cover part of that, and nothing dims. This is documented, not
+  ported: porting it would bring back the coupling between file selection
+  and a grouping that this effort removed. Copy that described
+  neighborhoods is rewritten (DESIGN.md, the chart settings' layer note,
+  which also described the retired relief rule).
+- Load, Foundry at this commit: the codex read 35 files and 4.16 MB at load
+  and now reads 20 files and 1.65 MB; the 15 module shards were 2.50 MB.
+  The edge shards (1.15 MB), the module index, the graph, and the lenses
+  remain.
+- Tests: `test/web/neighborhoods.test.ts` deleted; `paint-map.test.ts`
+  (an unentered island shows only its own name; responsibility labels with
+  a belonging layer); `codex/source.test.ts` (no module shard at load);
+  `codex/resolve.test.ts`, `codex/bindings.test.ts`, and
+  `internals.test.ts` lose the neighborhood cases; about 20 fixtures lose
+  `neighborhoods: []`. `atlas-state.test.ts` had no neighborhood-selection
+  case to move.
+
 **2.3 Placement: where it lives against where it is used.** The motivating
 case. Per symbol from `consumerPackages` and its neighbors; per file and
 per folder as sums over cross-package module edges. Labels Fits and
@@ -1100,11 +1156,16 @@ none of the 4.0 answers and can be done at any time.
 
 **4.2 The four questions by default,** from the phase 2 lenses, with
 departures as the strongest signal.
+- **4.2a** First, `paintMap`'s positional parameters (sixteen, after 2.2d
+  removed one) become one options object, before any drawing changes: 2.2d
+  had to drop an argument at every call site by position, and a shifted
+  argument still type-checks wherever two neighbors share a type.
 
 **4.3 Directories drawn,** and a domain drawn across islands.
 
-**4.4 Loading.** Covered by the lazy reader in 1.5; what remains is the
-viewer reading only what the current zoom needs.
+**4.4 Loading.** Covered by the lazy reader in 1.5; the module shards stopped
+being read at load in 2.2d. What remains is the viewer reading only what the
+current zoom needs.
 
 ## Phase 5: many workspaces
 

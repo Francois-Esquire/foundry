@@ -75,7 +75,6 @@ export interface AtlasSelection {
   compositeId?: string;
   feature?: NaturalFeature;
   file?: AtlasFile;
-  neighborhoodId?: string;
   regionId?: string;
   symbol?: { id: string; name: string };
   territory: Territory;
@@ -171,7 +170,6 @@ export async function createAtlasScene(
     null,
     "sea",
     undefined,
-    undefined,
     [],
     null,
     false,
@@ -193,7 +191,6 @@ export async function createAtlasScene(
     null,
     null,
     "coast",
-    undefined,
     undefined,
     [],
     null,
@@ -297,7 +294,6 @@ export async function createAtlasScene(
   scene.add(tradeLayer.group);
   onTrades?.(trades);
   let selectedFile: string | null = null;
-  let selectedNeighborhood: string | undefined;
   let responsibility: ResponsibilityOverlay | null = null;
   let belonging: BelongingLayer | null = null;
   let visibility = { composition: false, files: false };
@@ -424,7 +420,6 @@ export async function createAtlasScene(
       ecosystem.update(
         view.pixelsPerUnit,
         Boolean(selectedFile) ||
-          Boolean(selectedNeighborhood) ||
           Boolean(belonging?.parents?.length) ||
           Boolean(responsibility)
       )
@@ -433,7 +428,6 @@ export async function createAtlasScene(
     }
     const tradeVisible = !(
       selectedFile ||
-      selectedNeighborhood ||
       belonging?.parents?.length ||
       responsibility
     );
@@ -457,7 +451,6 @@ export async function createAtlasScene(
       selectedFile,
       "ink",
       view,
-      selectedNeighborhood,
       settings.contours ? topography : [],
       responsibility && {
         ...responsibility,
@@ -706,7 +699,6 @@ export async function createAtlasScene(
   const focus = (
     initialTerritory: Territory | null,
     initialFile?: AtlasFile,
-    neighborhoodId?: string,
     fileIds?: string[]
   ) => {
     let file = initialFile;
@@ -728,19 +720,12 @@ export async function createAtlasScene(
     focusedTerritory = territory;
     atmosphere.highlight(territory);
     selectedFile = file?.id ?? null;
-    selectedNeighborhood =
-      territory?.neighborhoods.find((group) => group.id === neighborhoodId)
-        ?.id ??
-      territory?.neighborhoods.find(
-        (group) => file && group.members.includes(file.id)
-      )?.id;
     paintMap(
       paperCanvas,
       data,
       selected,
       file?.id ?? null,
       "coast",
-      undefined,
       undefined,
       [],
       null,
@@ -750,13 +735,9 @@ export async function createAtlasScene(
       continents
     );
     paperTexture.needsUpdate = true;
-    const members =
-      fileIds ??
-      territory?.neighborhoods.find((n) => n.id === selectedNeighborhood)
-        ?.members;
     const bounds = territory
       ? frameFiles(
-          territory.files.filter((f) => !members || members.includes(f.id))
+          territory.files.filter((f) => !fileIds || fileIds.includes(f.id))
         )
       : null;
     const target = new Vector3(
@@ -774,7 +755,6 @@ export async function createAtlasScene(
       host,
       territory,
       fileIds,
-      neighborhoodId,
       bounds,
       tilt,
       overviewZoom
@@ -896,7 +876,6 @@ export async function createAtlasScene(
     },
     pinRegion: () => {
       selectedFile = null;
-      selectedNeighborhood = undefined;
       render();
     },
     play: (value: boolean) => {
@@ -933,7 +912,6 @@ export async function createAtlasScene(
     setBelonging: (value: BelongingLayer | null) => {
       if (value?.featureFocus) {
         selectedFile = null;
-        selectedNeighborhood = undefined;
       }
       selectedFeature = value?.featureFocus;
       clearTimeout(previewTimer);
@@ -986,8 +964,7 @@ export async function createAtlasScene(
         data.territories.find((item) => item.id === selected) ?? null;
       focus(
         current,
-        current?.files.find((item) => item.id === selectedFile),
-        selectedNeighborhood
+        current?.files.find((item) => item.id === selectedFile)
       );
     },
     setTrackPlaying: (id: TrackId, value: boolean) => {
@@ -1081,7 +1058,6 @@ function focusEntries(
   host: HTMLElement,
   territory: Territory | null,
   fileIds: string[] | undefined,
-  neighborhoodId: string | undefined,
   bounds: { height: number; width: number; x: number; y: number } | null,
   tilt: number,
   overviewZoom: number
@@ -1089,7 +1065,7 @@ function focusEntries(
   let zoom: number;
   if (file) {
     zoom = zoomForPixels(camera, host.clientWidth, 10);
-  } else if (territory && !fileIds && !neighborhoodId) {
+  } else if (territory && !fileIds) {
     zoom = zoomForPixels(camera, host.clientWidth, 2.2);
   } else if (bounds) {
     zoom = Math.min(
@@ -1150,7 +1126,6 @@ function resolveHit(
     return {
       compositeId: label.compositeId,
       file: label.file,
-      neighborhoodId: label.neighborhoodId,
       regionId: label.regionId,
       territory: label.territory,
     };

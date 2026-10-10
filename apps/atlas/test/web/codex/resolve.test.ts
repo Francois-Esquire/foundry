@@ -2,15 +2,6 @@ import { describe, expect, it } from "vitest";
 import { resolveCodex } from "../../../src/web/codex/resolve";
 import type { CodexSource } from "../../../src/web/codex/source";
 
-const noConcepts = {
-  behavior: [],
-  conversion: [],
-  declared: [],
-  implementation: [],
-  representation: [],
-  usage: [],
-};
-
 const coreRoles = [
   {
     fanIn: 4,
@@ -108,16 +99,6 @@ const source: CodexSource = {
       modules: { total: 1 },
     },
   ],
-  participation: [
-    {
-      concepts: {
-        ...noConcepts,
-        declared: ["a#Thing"],
-        usage: ["a#Thing", "c#Other"],
-      },
-      id: "packages/core/src/a.ts",
-    },
-  ],
   responsibilityGroups: [
     {
       groups: [coreGroup],
@@ -179,14 +160,12 @@ describe("resolveCodex", () => {
     expect(index).toMatchObject({ highFanIn: false, internalFanIn: 0 });
   });
 
-  it("names module directory, kind and the concepts it takes part in", () => {
+  it("names module directory and kind", () => {
     expect(codex.modules[0]).toMatchObject({
-      concepts: ["a#Thing", "c#Other"],
       directory: "packages/core/src",
       fileKind: "source",
     });
     expect(codex.modules[2]).toMatchObject({
-      concepts: [],
       directory: "packages/ui",
       fileKind: "unknown",
     });

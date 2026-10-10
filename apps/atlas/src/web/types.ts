@@ -3,7 +3,6 @@ import type {
   FileRolesPackage,
 } from "../lib/lenses/file-roles-types";
 import type { PackageResponsibilityGroups } from "../lib/lenses/responsibility-groups-types";
-import type { Neighborhood } from "./neighborhoods";
 
 export interface AtlasSymbol {
   id: string;
@@ -42,7 +41,6 @@ export interface Territory {
   hills: Polygon[];
   id: string;
   label: string;
-  neighborhoods: Neighborhood[];
   radius: number;
   /** The `responsibility-groups` lens's groups, drawn as districts on entering the island; `undefined` without internals. */
   responsibilityGroups: PackageResponsibilityGroups | undefined;

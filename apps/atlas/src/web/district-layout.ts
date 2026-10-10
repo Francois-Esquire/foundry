@@ -131,13 +131,6 @@ export function districtLayout(data: AtlasInternals, territory: Territory) {
     territory: {
       ...territory,
       files: classified,
-      neighborhoods: data.responsibilities.regions.map((region) => ({
-        id: region.id,
-        imports: region.topology.internalEdges,
-        label: region.label,
-        members: region.modules.flatMap((module) => data.fileIds[module] ?? []),
-        sharedConcepts: region.concepts.declared.length,
-      })),
     },
     unplaced: fitted.unplaced,
   };

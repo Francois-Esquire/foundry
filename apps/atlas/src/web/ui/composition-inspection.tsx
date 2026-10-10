@@ -334,7 +334,7 @@ export function CompositionInspection({
       </p>
       <details>
         <summary>Drawing details</summary>
-        <label className="atlas-neighborhood-filter">
+        <label className="atlas-select-filter">
           <span>Composition arrangement</span>
           <select onChange={handleArrangement} value={arrangement}>
             <option value="rows">Rows</option>
@@ -466,7 +466,7 @@ export function CompositionInspection({
           <>
             {proposedMarks.length > 0 ||
             (routePreview?.proposed.length ?? 0) > 0 ? (
-              <label className="atlas-neighborhood-filter">
+              <label className="atlas-select-filter">
                 <span>Tracing paper · {Math.round(trace * 100)}%</span>
                 <input
                   max="1"

@@ -27,10 +27,6 @@ export function labelPriority(dependents: number, dependencies: number) {
   return dependents + dependencies;
 }
 
-export function neighborhoodAffinity(imports: number, conceptAffinity: number) {
-  return imports + 0.5 * Math.min(1, conceptAffinity);
-}
-
 export function laneWidth(strength: number, strongest: number) {
   return 0.35 + (0.25 * Math.log1p(strength)) / Math.log1p(strongest);
 }

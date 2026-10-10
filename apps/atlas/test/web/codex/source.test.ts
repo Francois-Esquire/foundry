@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { datasetReader } from "../../../src/lib/dataset";
 import { readCodexSource } from "../../../src/web/codex/source";
-import { memoryTransport } from "../../helpers/dataset-transport";
+import { memoryTransport, recordReads } from "../../helpers/dataset-transport";
 
 const entry = {
   fileKind: "source",
@@ -98,6 +98,22 @@ function read(files: Record<string, unknown>) {
 }
 
 describe("readCodexSource", () => {
+  it("reads no module shard at load, only the index, the edge shards, the graph, and the lenses", async () => {
+    const { read: transport, reads } = recordReads(memoryTransport(scanned()));
+    await readCodexSource(datasetReader(transport));
+    expect(reads).not.toContain("modules/core.json");
+    expect([...new Set(reads)].sort()).toEqual([
+      "history/manifest.json",
+      "lenses/file-roles.json",
+      "lenses/package-sizes.json",
+      "lenses/responsibility-groups.json",
+      "manifest.json",
+      "modules/core-edges.json",
+      "modules/index.json",
+      "projections/graph.json",
+    ]);
+  });
+
   it("picks the dataset's time, packages, modules, imports, and declared dependencies", async () => {
     const source = await read(scanned());
     expect(source.dataset).toMatchObject({
@@ -108,7 +124,6 @@ describe("readCodexSource", () => {
     expect(source.fileRoles).toEqual([roles]);
     expect(source.responsibilityGroups).toEqual([groups]);
     expect(source.modules).toEqual([entry]);
-    expect(source.participation.map((m) => m.id)).toEqual([entry.id]);
     expect(source.imports).toEqual([{ source: entry.id, target: entry.id }]);
     expect(source.dependencies).toEqual([
       expect.objectContaining({ kind: "dependency" }),

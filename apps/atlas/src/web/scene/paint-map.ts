@@ -55,7 +55,6 @@ export function paintMap(
   fileId: string | null,
   layer: "sea" | "coast" | "ink" = "sea",
   view?: InkView,
-  initialNeighborhoodId?: string,
   topography: ContourLine[] = [],
   initialResponsibility: ResponsibilityOverlay | null = null,
   showConnections = false,
@@ -72,7 +71,6 @@ export function paintMap(
 ): MapLabel[] {
   let belonging = initialBelonging;
   let responsibility = initialResponsibility;
-  let neighborhoodId = initialNeighborhoodId;
   const ctx = canvas.getContext("2d");
   collectScale(ctx, canvas, view, data);
   if (layer === "sea") {
@@ -106,11 +104,7 @@ export function paintMap(
   const pixels = view?.pixelsPerUnit ?? 1;
   const focusedFileVisible =
     !(fileId && view) || fileInView(regions.get(selected ?? ""), fileId, view);
-  ({ neighborhoodId, belonging } = paintMapEntries4(
-    focusedFileVisible,
-    neighborhoodId,
-    belonging
-  ));
+  belonging = paintMapEntries4(focusedFileVisible, belonging);
   responsibility = paintMapEntries7(view, responsibility, regions);
   const detail = detailLevel(
     pixels,
@@ -151,17 +145,7 @@ export function paintMap(
   );
   ctx.setLineDash([]);
   paintMapEntries2(showConnections, fileId, responsibility, data, ctx, pixels);
-  paintMapP(
-    data,
-    ctx,
-    neighborhoodId,
-    detail,
-    selected,
-    evidenceFiles,
-    pixels,
-    belonging,
-    activeRegion
-  );
+  paintMapP(data, ctx, detail, evidenceFiles, pixels, belonging, activeRegion);
   const responsibilityTerritory =
     responsibility && regions.get(responsibility.territoryId);
   paintMapEntries8(
@@ -185,7 +169,6 @@ export function paintMap(
       x: 0,
       y: 0,
     },
-    neighborhoodId,
     detail,
     evidenceFiles ??
       (activeRegion
@@ -343,20 +326,14 @@ function resolvePaintMapEntries5(
   return [];
 }
 
+/** A pinned group stops leading once its focused file leaves the view. */
 function paintMapEntries4(
   focusedFileVisible: boolean,
-  initialNeighborhoodId: string | undefined,
-  initialBelonging: BelongingLayer | null
-): { neighborhoodId: string | undefined; belonging: BelongingLayer | null } {
-  let belonging = initialBelonging;
-  let neighborhoodId = initialNeighborhoodId;
-  if (!focusedFileVisible) {
-    neighborhoodId = undefined;
-    if (belonging) {
-      belonging = { ...belonging, pinned: undefined };
-    }
-  }
-  return { belonging, neighborhoodId };
+  belonging: BelongingLayer | null
+): BelongingLayer | null {
+  return !focusedFileVisible && belonging
+    ? { ...belonging, pinned: undefined }
+    : belonging;
 }
 
 function paintPaper(
@@ -413,14 +390,12 @@ function paintMapEntries2(
 function paintMapP(
   data: AtlasData,
   ctx: CanvasRenderingContext2D,
-  neighborhoodId: string | undefined,
   detail: {
     composition: number;
     districts: number;
     files: number;
     specks: number;
   },
-  selected: string | null,
   evidenceFiles: Set<string> | undefined,
   pixels: number,
   belonging: BelongingLayer | null,
@@ -429,10 +404,7 @@ function paintMapP(
   for (const p of data.territories) {
     ctx.save();
     ctx.translate(p.x, p.y);
-    const members = p.neighborhoods.find(
-      (n) => n.id === neighborhoodId
-    )?.members;
-    paintMapPF(p, detail, ctx, selected, members, evidenceFiles, pixels);
+    paintMapPF(p, detail, ctx, evidenceFiles, pixels);
     paintExactMembers(ctx, p, belonging, activeRegion, detail, pixels);
     ctx.restore();
   }
@@ -479,8 +451,6 @@ function paintMapPF(
     specks: number;
   },
   ctx: CanvasRenderingContext2D,
-  selected: string | null,
-  members: string[] | undefined,
   evidenceFiles: Set<string> | undefined,
   pixels: number
 ) {
@@ -493,10 +463,7 @@ function paintMapPF(
     }
     ctx.globalAlpha =
       detail.files *
-      ((p.id === selected && members && !members.includes(f.id)) ||
-      (evidenceFiles?.size && !evidenceFiles.has(f.id))
-        ? 0.15
-        : 1);
+      (evidenceFiles?.size && !evidenceFiles.has(f.id) ? 0.15 : 1);
     ctx.fillStyle = settlementColor(f.kind);
     ctx.strokeStyle = ctx.fillStyle;
     const size = filePen(pixels);
@@ -869,7 +836,6 @@ function paintLabels(
   selected: string | null,
   fileId: string | null,
   view: InkView,
-  neighborhoodId?: string | undefined,
   detail: {
     composition: number;
     districts: number;
@@ -932,7 +898,6 @@ function paintLabels(
     add,
     selected,
     belonging,
-    neighborhoodId,
     detail,
     fileId,
     view,
@@ -1018,7 +983,6 @@ function paintLabelsP(
   ) => void,
   selected: string | null,
   belonging: BelongingLayer | null | undefined,
-  neighborhoodId: string | undefined,
   detail: {
     composition: number;
     districts: number;
@@ -1043,7 +1007,6 @@ function paintLabelsP(
     if (p.id !== selected && p.id !== belonging?.territory.id) {
       continue;
     }
-    paintLabelsPN(p, neighborhoodId, belonging, detail, add, pixels);
     if (
       pixels < 5 ||
       detail.files < 0.5 ||
@@ -1051,67 +1014,7 @@ function paintLabelsP(
     ) {
       continue;
     }
-    paintLabelsPF(
-      p,
-      fileId,
-      belonging,
-      evidenceFiles,
-      neighborhoodId,
-      add,
-      pixels,
-      detail
-    );
-  }
-}
-
-function paintLabelsPN(
-  p: Territory,
-  neighborhoodId: string | undefined,
-  belonging: BelongingLayer | null | undefined,
-  detail: {
-    composition: number;
-    districts: number;
-    files: number;
-    specks: number;
-  },
-  add: (
-    territory: Territory,
-    text: string,
-    x: number,
-    y: number,
-    size: number,
-    face: string,
-    extra?: Partial<MapLabel>
-  ) => void,
-  pixels: number
-) {
-  for (const n of [...p.neighborhoods].sort(
-    (a, b) =>
-      Number(b.id === neighborhoodId) - Number(a.id === neighborhoodId) ||
-      b.members.length - a.members.length
-  )) {
-    if (belonging?.territory.id === p.id) {
-      break;
-    }
-    if (detail.districts < 0.1) {
-      break;
-    }
-    if (neighborhoodId && n.id !== neighborhoodId) {
-      continue;
-    }
-    const files = p.files.filter((f) => n.members.includes(f.id));
-    if (!files.length) {
-      continue;
-    }
-    add(
-      p,
-      n.label,
-      p.x + files.reduce((sum, f) => sum + f.x, 0) / files.length,
-      p.y + Math.min(...files.map((f) => f.y)) - 10 / pixels,
-      14 / pixels,
-      "Georgia",
-      { neighborhoodId: n.id, opacity: detail.districts }
-    );
+    paintLabelsPF(p, fileId, belonging, evidenceFiles, add, pixels, detail);
   }
 }
 
@@ -1120,7 +1023,6 @@ function paintLabelsPF(
   fileId: string | null,
   belonging: BelongingLayer | null | undefined,
   evidenceFiles: Set<string> | undefined,
-  neighborhoodId: string | undefined,
   add: (
     territory: Territory,
     text: string,
@@ -1155,14 +1057,6 @@ function paintLabelsPF(
       continue;
     }
     if (evidenceFiles?.size && !evidenceFiles.has(f.id)) {
-      continue;
-    }
-    if (
-      neighborhoodId &&
-      !p.neighborhoods
-        .find((n) => n.id === neighborhoodId)
-        ?.members.includes(f.id)
-    ) {
       continue;
     }
     add(

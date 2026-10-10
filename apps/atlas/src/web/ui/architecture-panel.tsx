@@ -185,7 +185,7 @@ export function ArchitecturePanel({
           </p>
         )}
       </details>
-      <label className="atlas-neighborhood-filter">
+      <label className="atlas-select-filter">
         <span>District</span>
         <select
           aria-label="District"
@@ -200,7 +200,7 @@ export function ArchitecturePanel({
           ))}
         </select>
       </label>
-      <label className="atlas-neighborhood-filter">
+      <label className="atlas-select-filter">
         <span>Inspect a settlement</span>
         <select
           aria-label="Inspect a settlement"
@@ -228,7 +228,7 @@ export function ArchitecturePanel({
       )}
       <details>
         <summary>Trace a district relationship</summary>
-        <label className="atlas-neighborhood-filter">
+        <label className="atlas-select-filter">
           <span>Relationship</span>
           <select
             aria-label="Relationship"

@@ -5,8 +5,6 @@ import { viewerDataset } from "./dataset";
 import { formerPackages } from "./former-packages";
 import { landContours, settleFiles, settlePackages, unit } from "./geography";
 import { settleLandmasses } from "./landmasses";
-import { findNeighborhoods } from "./neighborhoods";
-import { fileRelationships } from "./relationships";
 import type { AtlasData, Territory } from "./types";
 
 const pigments = [
@@ -22,7 +20,6 @@ const pigments = [
 export async function loadAtlas(signal?: AbortSignal): Promise<AtlasData> {
   const codex = resolveCodex(await readCodexSource(viewerDataset({ signal })));
   const edges = codex.imports;
-  const participation = new Map(codex.modules.map((m) => [m.id, m.concepts]));
   const territories: Territory[] = codex.packages.map((p) => {
     const files = codex.modules
       .filter((m) => m.package === p.id)
@@ -40,12 +37,6 @@ export async function loadAtlas(signal?: AbortSignal): Promise<AtlasData> {
         y: 0,
       }));
     const radius = footprint(p.size);
-    const relationships = fileRelationships(
-      files.map((f) => f.id),
-      edges,
-      participation
-    );
-    const neighborhoods = findNeighborhoods(files, relationships);
     settleFiles(files, radius, edges);
     const [shallows = [], coast = [], hills = []] = landContours(files, radius);
     return {
@@ -60,7 +51,6 @@ export async function loadAtlas(signal?: AbortSignal): Promise<AtlasData> {
       hills,
       id: p.id,
       label: p.label,
-      neighborhoods,
       radius,
       responsibilityGroups: p.responsibilityGroups,
       shallows,

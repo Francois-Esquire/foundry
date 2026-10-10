@@ -195,7 +195,7 @@ export function AtlasPlace({
           id="atlas-evidence"
         >
           <ArchitecturePanel
-            districtId={selection.regionId ?? selection.neighborhoodId}
+            districtId={selection.regionId}
             file={selection.file}
             key={territory.id}
             onDistrict={evidence.district}

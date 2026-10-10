@@ -149,7 +149,6 @@ describe("atlas package internals", () => {
       hills: [],
       id: pkg.id,
       label: "Test",
-      neighborhoods: [],
       radius: 50,
       responsibilityGroups: undefined,
       shallows: [],
@@ -178,9 +177,6 @@ describe("atlas package internals", () => {
     const drawing = districtLayout(data, territory);
     expect(drawing.territory.coast).toBe(territory.coast);
     expect(drawing.territory.files).toHaveLength(files.length);
-    expect(
-      drawing.territory.neighborhoods.flatMap((group) => group.members)
-    ).not.toContain("file:src/editor/view/view.test.ts");
     expect({ data, territory }).toEqual(before);
   });
   it("keeps route baselines factual and scope-only targets distinct from files", () => {

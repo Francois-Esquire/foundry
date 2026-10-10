@@ -156,7 +156,6 @@ export interface MapLabel {
   file?: AtlasFile;
   font: string;
   height: number;
-  neighborhoodId?: string;
   opacity?: number;
   regionId?: string;
   territory: Territory;
