@@ -122,27 +122,6 @@ roll a schedule key that carries it: design-sync-b60490e1.` The same fix
 covers the `roll` cancelled-at-an-ask trace recorded in
 [`_rebuild-gaps.md`](./_rebuild-gaps.md).
 
-## 4. Git queries on the workspace handle
-
-**Found by** the Design Sync recipe, 2026-10-09.
-
-**Today.** `workspaces.current.git` has `status`, `worktrees`, `worktree`,
-and `withWorktree`. `withWorktree({ branch })` runs `git worktree add -b`,
-which fails with Git's own error when the branch exists.
-
-**The page does instead.** It shells out to `git rev-parse --verify` through
-`node:child_process` to skip a palette whose branch already exists, which
-bypasses the handle's dry-run echo and cwd plumbing. Committing, pushing,
-and opening the pull request are left to the agent.
-
-**Proposal.** Add read-only queries to the handle, starting with
-`hasBranch(name)`. Give `withWorktree` a clear error when the branch exists.
-Keep writes (commit, push, pull requests) with the agent until a page needs
-them deterministic.
-
-**Open.** Whether `withWorktree` should take an existing branch instead of
-always creating one.
-
 ## 5. Memory an automation keeps between runs
 
 **Found by** the Persistent Reviewer and Design Sync recipes.
@@ -281,13 +260,9 @@ narrowing.
   `id`, and `source` are hidden (`workspaces.ts:90-112`), and the workspace
   system's `on("change")`, `list`, `open`, and `close` are unreachable from a
   step (`workspaces.ts:163-165`).
-- **Bug.** Only `withWorktree` gets the worktree home and the cwd narrowing
-  (`workspaces.ts:64-82`). `git.worktree()` falls back to the system
-  temporary directory, which a sandbox may not mount, and worktrees returned
-  by `worktree()` or `worktrees()` lose both defaults.
+- The worktree-defaults bug landed 2026-10-10 (`_next-api.md`, C.1).
 
-**Proposal.** Return the package's `Workspace` with `git` decorated, and
-apply the worktree defaults to every path that creates one.
+**Proposal.** Return the package's `Workspace` with `git` decorated.
 
 ### 7.4 Artifacts
 
@@ -306,8 +281,8 @@ as `Pick<ArtifactOperations, "create" | "get" | "revise">`
   `tag`, `freeze`, `fork`, `archive`, and transactions are unreachable.
 - **No provenance.** Content metadata has `runId` and `sessionId`; neither
   is set, though the run id is at hand.
-- **Bug.** The scoped `create` is not counted for replay (`artifacts.ts:122`)
-  while `write` is, so a replayed body creates a second artifact.
+- The replay bug in the scoped `create` landed 2026-10-10
+  (`_next-api.md`, C.2).
 
 **Proposal.** Pass the manager's operations through with the workspace
 identity and replay applied, and record run and session provenance by

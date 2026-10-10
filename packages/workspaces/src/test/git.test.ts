@@ -1,5 +1,12 @@
 import { execFile as execFileCallback } from "node:child_process";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  realpath,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -556,8 +563,9 @@ describe("Git worktrees", () => {
   });
 
   it("routes every mutation through the injected runner", async () => {
+    const repository = await makeRepository({ "README.md": "hello" });
     const calls: string[] = [];
-    const repo = Git.at("/repo", {
+    const repo = Git.at(repository, {
       run: (cwd, args) => {
         calls.push(`${cwd}: git ${args.join(" ")}`);
         return Promise.resolve("");
@@ -568,8 +576,28 @@ describe("Git worktrees", () => {
     roots.push(worktree.root);
     await worktree.remove();
     expect(calls).toEqual([
-      `/repo: git worktree add -b b ${worktree.root} main`,
-      `/repo: git worktree remove --force ${worktree.root}`,
+      `${repository}: git worktree add -b b ${worktree.root} main`,
+      `${repository}: git worktree remove --force ${worktree.root}`,
     ]);
+  });
+
+  it("answers hasBranch from Git itself, not the injected runner", async () => {
+    const repository = await makeRepository({ "README.md": "hello" });
+    await git(repository, "branch", "design/palette");
+    const repo = Git.at(repository, {
+      run: () => Promise.reject(new Error("a read must not run here")),
+    });
+    expect(await repo.hasBranch("design/palette")).toBe(true);
+    expect(await repo.hasBranch("design/other")).toBe(false);
+  });
+
+  it("refuses a branch that exists before cutting a directory", async () => {
+    const repository = await makeRepository({ "README.md": "hello" });
+    await git(repository, "branch", "taken");
+    const home = await makeDirectory();
+    await expect(
+      Git.at(repository).worktree({ base: "main", branch: "taken", home })
+    ).rejects.toThrow('branch "taken" already exists');
+    expect(await readdir(home)).toEqual([]);
   });
 });

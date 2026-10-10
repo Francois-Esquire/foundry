@@ -34,11 +34,12 @@ in order. Items 1 to 3 have landed; 4 stays open alongside 5; 6 comes last.
       surface, so they are designed together. Both landed 2026-10-10:
       structured output and agent settings, and an instance for every
       definition (`artifact.latest()` waits for finding 5).
-   2. **Two bugs from the audit.** Worktree defaults apply only inside
-      `withWorktree` (7.3), and a scoped artifact `create` is not counted for
+   2. **Two bugs from the audit.** Landed 2026-10-10: worktree defaults on
+      every worktree call (7.3), and a scoped artifact `create` counted for
       replay (7.4).
-   3. **Quick fixes.** A one-line usage error for invalid input (finding 3),
-      and `hasBranch` with a clear `withWorktree` error (finding 4).
+   3. **Quick fixes.** `hasBranch` with a clear worktree error (finding 4)
+      landed 2026-10-10. Next: a one-line usage error for invalid input
+      (finding 3).
    4. **Monitors and launchd.** Request options for HTTP monitors (finding
       1) and the environment for launchd ticks (finding 2), which Design
       Sync needs to become a monitor.

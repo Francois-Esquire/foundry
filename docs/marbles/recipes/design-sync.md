@@ -21,11 +21,9 @@ Three requests to the Figma REST API do the reading:
 | `extract` | `GET /v1/files/:key/nodes?ids=…` | Each style node's `fills`. A `SOLID` paint has `color: { r, g, b, a }`, channels from 0 to 1. |
 
 ```ts
-import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { promisify } from "node:util";
 import { agent, schedule, step, workflow } from "@foundry/marbles";
 import { z } from "zod";
 
@@ -115,8 +113,6 @@ const designer = agent({
     "Do not rename tokens the palette does not mention.",
 });
 
-const git = promisify(execFile);
-
 // Propose a changed palette as a pull request, once per palette.
 const propose = step("propose")
   .input(z.object({ palette: extracted }))
@@ -125,13 +121,11 @@ const propose = step("propose")
     if (!palette.changed) return "unchanged";
 
     const branch = `design/palette-${palette.digest}`;
-    const root = workspaces.current.root;
-    const exists = await git("git", ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`], { cwd: root })
-      .then(() => true, () => false);
-    if (exists) return `already proposed on ${branch}`;
+    const { git } = workspaces.current;
+    if (await git.hasBranch(branch)) return `already proposed on ${branch}`;
 
     const { file, version, colors } = palette;
-    const reply = await workspaces.current.git.withWorktree({ base: "main", branch }, async (worktree) => {
+    const reply = await git.withWorktree({ base: "main", branch }, async (worktree) => {
       const path = join(worktree.root, SNAPSHOT);
       await mkdir(dirname(path), { recursive: true });
       await writeFile(path, `${JSON.stringify({ file, version, colors }, null, 2)}\n`);

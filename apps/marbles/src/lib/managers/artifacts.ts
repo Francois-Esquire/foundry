@@ -30,6 +30,7 @@ export interface ArtifactsDeps {
 }
 
 const KIND = "artifacts.write";
+const CREATE_KIND = "artifacts.create";
 const ID_LENGTH = 24;
 
 /** Provisional identity: the workspace and the declared name. */
@@ -116,20 +117,25 @@ export class ArtifactsManager implements Artifacts {
     return versionOf(id, revised.id);
   }
 
-  /** What a step body sees: writes counted against its frame, so a replay returns the same version. */
+  /** What a step body sees: writes and creates counted against its frame, so a replay returns the same version. */
   scoped({ frame, scope }: ManagerArgs): Artifacts {
+    const once = async (
+      kind: string,
+      make: () => Promise<ArtifactVersion>
+    ): Promise<ArtifactVersion> => {
+      const { key } = scope.claim(frame, kind);
+      const recorded = scope.ledger.get<ArtifactVersion>(key);
+      if (recorded) {
+        return recorded;
+      }
+      const version = await make();
+      scope.ledger.set(key, version);
+      return version;
+    };
     return {
-      create: (input) => this.create(input),
-      write: async (definition, files) => {
-        const { key } = scope.claim(frame, KIND);
-        const recorded = scope.ledger.get<ArtifactVersion>(key);
-        if (recorded) {
-          return recorded;
-        }
-        const version = await this.write(definition, files);
-        scope.ledger.set(key, version);
-        return version;
-      },
+      create: (input) => once(CREATE_KIND, () => this.create(input)),
+      write: (definition, files) =>
+        once(KIND, () => this.write(definition, files)),
     };
   }
 }

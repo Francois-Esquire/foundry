@@ -538,7 +538,10 @@ in the echo line so the dry run shows what was asked for.
 
 ## Part C. Fixes
 
-Independent of everything else. Each is small.
+Independent of everything else. Each is small. **C.1, C.2, and C.4 landed
+2026-10-10.** C.4's `hasBranch` reads `branchLocal()`; the package's
+injected-runner test now uses a real repository, since `worktree()` reads
+the branch list first.
 
 ### C.1 Worktree defaults apply only in withWorktree (7.3)
 

@@ -260,6 +260,10 @@ await fetch(url, { signal });
   repository. `withWorktree({ base, branch?, home? }, body)` cuts a checkout
   under the workspace's state, runs `body` with the working directory
   narrowed to it, and removes it on return; a `branch` outlives the worktree.
+  `worktree(options)` cuts one you remove yourself, under the same home.
+  Naming a `branch` that exists fails before anything is cut; check first
+  with `hasBranch(name)`, which reads the repository even under
+  `--dry-run`.
 - **Ask.** `approval` is a hard block: the run shows as blocked until someone
   decides. `question` is input: the step waits, siblings keep going. Both
   need a process that can show them; the dashboard parks the run, while

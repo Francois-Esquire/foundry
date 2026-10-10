@@ -158,6 +158,15 @@ export class Git {
     }
   }
 
+  /**
+   * Whether a local branch named `name` exists. A read, so it goes to Git
+   * directly and never through the injected runner, which a host may echo.
+   */
+  async hasBranch(name: string): Promise<boolean> {
+    const branches = await simpleGit(this.root).branchLocal();
+    return branches.all.includes(name);
+  }
+
   /** The linked worktrees of this repository, as `client worktree list` reports them. */
   async worktrees(): Promise<readonly Worktree[]> {
     const listing = await this.run(this.root, [
@@ -175,8 +184,17 @@ export class Git {
       );
   }
 
-  /** Check `base` out into a fresh directory. */
+  /** Check `base` out into a fresh directory, on a new `branch` when one is named. */
   async worktree(options: WorktreeOptions): Promise<Worktree> {
+    // Checked first, so an existing branch leaves no directory behind.
+    if (
+      options.branch !== undefined &&
+      (await this.hasBranch(options.branch))
+    ) {
+      throw new Error(
+        `branch "${options.branch}" already exists; pass a new branch, or check it out with worktree({ base: "${options.branch}" })`
+      );
+    }
     // Resolved so the root matches what `worktrees()` reads back from git,
     // which reports real paths; on macOS every `$TMPDIR` path is a symlink.
     const root = await realpath(

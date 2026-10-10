@@ -57,29 +57,43 @@ export function repositoryRoot(start: string): string | undefined {
   }
 }
 
-/** Forward everything; run a worktree callback under its own working directory. */
-function wrapGit(target: Git, worktreeHome: string | undefined): Git {
+type WorktreeOptions = Parameters<Git["worktree"]>[0];
+
+/**
+ * Forward everything, with Marbles' defaults on every worktree call: a
+ * worktree is cut under `worktreeHome` unless the call names a `home`, and
+ * each worktree handed back gets the same defaults for its own calls. A
+ * worktree callback also runs under the worktree as its working directory.
+ */
+function wrapGit<G extends Git>(
+  target: G,
+  worktreeHome: string | undefined
+): G {
+  const withHome = (options: WorktreeOptions): WorktreeOptions => {
+    const home = options.home ?? worktreeHome;
+    if (home === undefined) {
+      return options;
+    }
+    mkdirSync(home, { recursive: true });
+    return { ...options, home };
+  };
+  const wrap = <W extends Git>(worktree: W) => wrapGit(worktree, worktreeHome);
+  const overrides: Partial<Git> = {
+    withWorktree: (options, body) =>
+      target.withWorktree(withHome(options), (worktree) => {
+        const wrapped = wrap(worktree);
+        const store = current.getStore();
+        return store
+          ? current.run({ ...store, cwd: worktree.root }, () => body(wrapped))
+          : body(wrapped);
+      }),
+    worktree: async (options) => wrap(await target.worktree(withHome(options))),
+    worktrees: async () => (await target.worktrees()).map(wrap),
+  };
   return new Proxy(target, {
     get(object, property) {
-      if (property === "withWorktree") {
-        const withWorktree: Git["withWorktree"] = (options, body) => {
-          const home = options.home ?? worktreeHome;
-          if (home !== undefined) {
-            mkdirSync(home, { recursive: true });
-          }
-          return object.withWorktree(
-            home === undefined ? options : { ...options, home },
-            (worktree) => {
-              const store = current.getStore();
-              return store
-                ? current.run({ ...store, cwd: worktree.root }, () =>
-                    body(worktree)
-                  )
-                : body(worktree);
-            }
-          );
-        };
-        return withWorktree;
+      if (Object.hasOwn(overrides, property)) {
+        return Reflect.get(overrides, property);
       }
       const value = Reflect.get(object, property, object);
       return typeof value === "function" ? value.bind(object) : value;
