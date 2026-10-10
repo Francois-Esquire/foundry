@@ -1,6 +1,7 @@
 import { footprint, latitude } from "./codex/bindings";
 import { resolveCodex } from "./codex/resolve";
 import { readCodexSource } from "./codex/source";
+import { viewerDataset } from "./dataset";
 import { formerPackages } from "./former-packages";
 import { landContours, settleFiles, settlePackages, unit } from "./geography";
 import { settleLandmasses } from "./landmasses";
@@ -19,7 +20,7 @@ const pigments = [
 ];
 
 export async function loadAtlas(signal?: AbortSignal): Promise<AtlasData> {
-  const codex = resolveCodex(await readCodexSource(signal));
+  const codex = resolveCodex(await readCodexSource(viewerDataset({ signal })));
   const edges = codex.imports;
   const participation = new Map(codex.modules.map((m) => [m.id, m.concepts]));
   const territories: Territory[] = codex.packages.map((p) => {

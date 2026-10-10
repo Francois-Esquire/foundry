@@ -1,5 +1,7 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
+import { datasetReader } from "../../../src/lib/dataset";
 import { readCodexSource } from "../../../src/web/codex/source";
+import { memoryTransport } from "../../helpers/dataset-transport";
 
 const entry = {
   fileKind: "source",
@@ -9,9 +11,9 @@ const entry = {
   shard: "modules/core.json",
 };
 
-function survey(schemaVersion = 4): Record<string, unknown> {
+function scanned(): Record<string, unknown> {
   return {
-    "/data/manifest.json": {
+    "manifest.json": {
       coverage: "complete",
       files: {
         moduleIndex: "modules/index.json",
@@ -25,24 +27,24 @@ function survey(schemaVersion = 4): Record<string, unknown> {
           path: "packages/core",
         },
       ],
-      schemaVersion,
+      schemaVersion: 4,
     },
-    "/data/modules/core-edges.json": {
+    "modules/core-edges.json": {
       edges: [{ source: entry.id, target: entry.id }],
       package: "@foundry/core",
     },
-    "/data/modules/core.json": {
+    "modules/core.json": {
       modules: [{ ...entry, concepts: { declared: ["a#Thing"] } }],
       package: "@foundry/core",
     },
-    "/data/modules/index.json": {
+    "modules/index.json": {
       edgeShards: [
         { file: "modules/core-edges.json", package: "@foundry/core" },
       ],
       modules: [entry],
       shards: [{ file: "modules/core.json", package: "@foundry/core" }],
     },
-    "/data/projections/graph.json": {
+    "projections/graph.json": {
       edges: [
         {
           concepts: { total: 0 },
@@ -58,39 +60,14 @@ function survey(schemaVersion = 4): Record<string, unknown> {
   };
 }
 
-function serve(
-  files: Record<string, unknown>,
-  status = 404,
-  base = "http://localhost:4173/"
-) {
-  const urls = new Map(
-    Object.entries(files).map(([path, value]) => [
-      new URL(`.${path}`, base).href,
-      value,
-    ])
-  );
-  vi.stubGlobal("fetch", (path: string) => {
-    const url = new URL(path, base).href;
-    return Promise.resolve(
-      urls.has(url)
-        ? Response.json(urls.get(url))
-        : new Response(null, { status })
-    );
-  });
+function read(files: Record<string, unknown>) {
+  return readCodexSource(datasetReader(memoryTransport(files)));
 }
 
-afterEach(() => {
-  vi.unstubAllGlobals();
-});
-
 describe("readCodexSource", () => {
-  it.each([
-    "http://localhost:4173/",
-    "http://localhost:4173/foundry/atlas/examples/foundry/",
-  ])("reads the survey and declared dependencies beneath %s", async (base) => {
-    serve(survey(), 404, base);
-    const source = await readCodexSource();
-    expect(source.survey).toMatchObject({
+  it("picks the dataset's time, packages, modules, imports, and declared dependencies", async () => {
+    const source = await read(scanned());
+    expect(source.dataset).toMatchObject({
       coverage: "complete",
       generatedAt: "2026-09-23T00:00:00.000Z",
     });
@@ -110,43 +87,26 @@ describe("readCodexSource", () => {
     expect(source.history).toBeUndefined();
   });
 
-  it("reads package history when it was recorded", async () => {
-    serve({
-      ...survey(),
-      "/data/history/entities.json": {
+  it("picks package history when it was recorded", async () => {
+    const source = await read({
+      ...scanned(),
+      "history/entities.json": {
         modules: [],
         packages: [{ checkpoints: ["c1"], id: "@foundry/old" }],
       },
-      "/data/history/manifest.json": {
+      "history/manifest.json": {
+        files: { entities: "entities.json" },
+        schemaVersion: 1,
         snapshots: [
           { commit: "c1", status: "complete", timestamp: "2026-01-01" },
         ],
       },
     });
-    expect((await readCodexSource()).history).toEqual({
+    expect(source.history).toEqual({
       packages: [{ checkpoints: ["c1"], id: "@foundry/old" }],
       snapshots: [
         { commit: "c1", status: "complete", timestamp: "2026-01-01" },
       ],
     });
-  });
-
-  it("fails when history exists but cannot be read", async () => {
-    serve(survey(), 500);
-    await expect(readCodexSource()).rejects.toThrow(
-      "Could not load history (500)."
-    );
-  });
-
-  it("asks for a scan when the survey is missing", async () => {
-    serve({});
-    await expect(readCodexSource()).rejects.toThrow("Run atlas scan");
-  });
-
-  it("rejects other dataset versions", async () => {
-    serve(survey(2));
-    await expect(readCodexSource()).rejects.toThrow(
-      "Unsupported semantics dataset version 2."
-    );
   });
 });

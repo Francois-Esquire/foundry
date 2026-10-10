@@ -1,13 +1,6 @@
-import type { SemanticsDeclaredDependencyKind } from "../../lib/semantics-types";
+import { SEMANTICS_DECLARED_DEPENDENCY_KINDS } from "../../lib/semantics-types";
 import type { CodexSource } from "./source";
 import type { Codex, CodexRetiredPackage } from "./vocabulary";
-
-const declaredKinds: SemanticsDeclaredDependencyKind[] = [
-  "dependencies",
-  "devDependencies",
-  "peerDependencies",
-  "optionalDependencies",
-];
 
 export function resolveCodex(source: CodexSource): Codex {
   const concepts = new Map(
@@ -30,7 +23,7 @@ export function resolveCodex(source: CodexSource): Codex {
   return {
     declaredDependencies: source.declaredDependencies.flatMap(
       ({ package: from, declared }) =>
-        declaredKinds.flatMap((kind) =>
+        SEMANTICS_DECLARED_DEPENDENCY_KINDS.flatMap((kind) =>
           Object.keys(declared[kind] ?? {})
             .filter((to) => current.has(to) && to !== from)
             .map((to) => ({ from, kind, to }))
@@ -67,8 +60,8 @@ export function resolveCodex(source: CodexSource): Codex {
       })),
     retiredPackages: source.history && retiredPackages(source.history, current),
     workspace: {
-      coverage: source.survey.coverage,
-      surveyedAt: source.survey.generatedAt,
+      coverage: source.dataset.coverage,
+      surveyedAt: source.dataset.generatedAt,
     },
   };
 }

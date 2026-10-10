@@ -1,24 +1,35 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import {
+  DATASET_FILES,
+  HISTORY_DIRECTORY,
+  HISTORY_FILES,
+} from "./dataset-layout";
 
 // V12.5 canonical equivalence. Two datasets are equivalent when every
 // artifact matches after the documented volatile fields are removed. Nothing
 // architectural is dropped: the list below is timing and provenance only.
+
+/** Wall clock, timings, and cache provenance of the temporal dataset. */
+const HISTORY_MANIFEST_VOLATILE_FIELDS = [
+  "generatedAt",
+  "generation",
+  "snapshots.*.durationMs",
+  "snapshots.*.cached",
+] as const;
 
 /**
  * Volatile fields per artifact, as JSON-pointer-like paths from the artifact
  * root. `*` matches any key or index. Anything not listed here is canonical.
  */
 const SEMANTICS_VOLATILE_FIELDS: Record<string, readonly string[]> = {
-  /** Wall clock, timings, and cache provenance of the temporal dataset. */
-  "history-manifest.json": [
-    "generatedAt",
-    "generation",
-    "snapshots.*.durationMs",
-    "snapshots.*.cached",
-  ],
+  /** A history manifest compared on its own, under the `kind` override. */
+  "history-manifest.json": HISTORY_MANIFEST_VOLATILE_FIELDS,
+  /** A history manifest inside a dataset. */
+  [`${HISTORY_DIRECTORY}/${HISTORY_FILES.manifest}`]:
+    HISTORY_MANIFEST_VOLATILE_FIELDS,
   /** Wall clock and per-run timings of the current dataset. */
-  "manifest.json": ["generatedAt", "generation"],
+  [DATASET_FILES.manifest]: ["generatedAt", "generation"],
   /** The V8 simulation clock inside every package report. */
   "packages/*.json": [
     "recenteringCandidates.impacts.summary.runtimeMs",

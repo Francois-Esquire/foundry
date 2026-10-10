@@ -40,7 +40,7 @@ Where new work attaches. All exist today.
 | `generateSemanticsHistory` | History checkpoints | Library `scan` with history |
 | `runInternalAnalysis`, `packageInternals` (`lib/internal-analysis.ts`) | One package's internal structure, through a chosen stage, from the package or from its local report | The materializer, `scan.package`, nesting and locality lenses |
 | `output/`, the dataset | Every analysis's result, versioned | The reader, lenses, the viewer, `report`, `check` |
-| `web/codex/source.ts` | The one typed read of the dataset, in the browser | Becomes the library reader, shared with the viewer |
+| `lib/dataset.ts` `datasetReader` | The one typed read of a dataset, through a `fetch` or file-system transport | `scan`'s results, the viewer, `report`, lenses |
 | `lib/render` `renderSurface` | Terminal, text, Markdown; three densities | `atlas report` |
 | `lib/render/views.ts` | The renderer-neutral view model | Terminal output of lenses |
 | `lib/semantics-stages.ts` | Stage versions, dependencies, fingerprints | Versioning lenses |
@@ -219,34 +219,86 @@ Paths are under `apps/atlas` unless they say otherwise.
   and the renamed caution; `packages/`, `workspace.json`, `projections/`,
   and the module and edge shards show no differences.
 
-**1.5 One reader, internal.** Split `web/codex/source.ts` into its two
-layers. Not exported; `scan` returns its results through it.
-- The reader moves to `lib`: it knows the dataset's paths, checks the
-  schema version against the constant, and reads through an injected
-  transport (`fetch` in the browser, the file system in Node).
-- It reads lazily: one package's results read the manifest and one report,
-  not every shard. Today the viewer loads every edge shard and module shard
-  at once.
-- The codex keeps its own part, the `CodexSource` picks, and builds it on
-  the reader. `web/load-internals.ts` uses the same reader and reads the
-  manifest once, not twice.
-- The target result shape: `WorkspaceScan` gains read-back accessors,
-  `Scan` gains `internals(name)` returning `PackageInternals`, and the
-  manifest is read with the schema-version check instead of the cast in
-  `lib/scan.ts`.
-- The reader owns the read-side complete-internals check, and the copy in
-  `web/load-internals.ts` goes. It needs its own validator for the saved
-  `PackageInternals` shape: `packageInternals` runs the analysis and cannot
-  validate a file.
-- The web shares the dependency-kind list and the schema constant with
-  `lib`: `web/codex/resolve.ts` `declaredKinds` duplicates
-  `DECLARED_DEPENDENCY_KINDS` in `semantics-discover.ts`, and
-  `web/codex/source.ts` checks a literal `4`.
-- `FILES`, `encodePackageFile`, and the per-package path helpers move out
-  of `lib/semantics.ts` into a leaf layout module that the reader, the
-  materializer, and the worker share.
-- Done when the viewer and a Node test read the fixture through one reader,
-  and no file outside it names a dataset path. Waits for 1.4.
+**1.5 One reader, internal.** Done 2026-10-10. Not exported; `scan`
+returns its results through it.
+- `lib/dataset.ts` `datasetReader(transport, { pin? })` is the one read of
+  a dataset. The transport is a function from a dataset-relative path to
+  its JSON, or `undefined` when the dataset has no such file:
+  `lib/dataset-files.ts` `fileTransport(output)` in Node, and a private
+  `fetch` transport in `web/dataset.ts`, the one place that names the
+  viewer's data root `./data/`, behind `viewerDataset({ signal, pin })`.
+  Both transports name the file they could not parse.
+- The reader checks the manifest against `SEMANTICS_DATASET_SCHEMA_VERSION`
+  and history's against `SEMANTICS_HISTORY_SCHEMA_VERSION`. History's
+  manifest is found by its fixed path, after the dataset's manifest is
+  checked, so the pin applies to it too; every other file through what the
+  manifest records. A reader holds its manifest, module index, and history
+  (the promises, so concurrent reads share one request): one reader is one
+  read. A package that `failed` has neither report nor internals. `packageReport(name)` and `internals(name)` read the manifest plus
+  one file, never a shard. Typed errors: `DatasetNotFoundError` (no
+  manifest, for 1.6's `serve` to map) and `DatasetReplacedError` (a
+  manifest other than the `pin`, the `generatedAt` the caller holds).
+- `lib/dataset-layout.ts`, a leaf with no imports, holds `DATASET_FILES`,
+  `HISTORY_DIRECTORY`, `HISTORY_FILES`, `encodePackageFile`, and the
+  per-package and history path helpers, for the writers
+  (`semantics.ts`, `semantics-history.ts`), the cache, the worker, and
+  `scan.ts`. `decodePackageFile`, used only by a test, is gone.
+- `lib/internal-analysis-types.ts` holds `PackageInternals`, spelled out
+  from the stage report types, and the read-side `verifyInternals(value,
+  name)`, which replaces the viewer's check. `packageInternals` returns the
+  type and does not call it: it cannot be incomplete. Logged below.
+- `WorkspaceScan` gains the accessors `workspaceReport()` and
+  `packageReport(name)` (`PackageReport`, an alias of `SurfaceReport`
+  beside the reader in `lib/dataset.ts`, re-exported from `scan.ts`), and
+  `Scan` gains `internals(name)`. They are own function properties; each
+  reads through a fresh reader pinned to the saved manifest and then reads
+  the manifest again, as the viewer does, so a later scan of the workspace
+  makes them fail with `DatasetReplacedError`; `JSON.stringify` leaves them
+  out.
+  `scan.ts` reads the manifest back through the reader instead of a cast.
+- The codex keeps its picks: `readCodexSource(dataset)` takes a reader,
+  and `CodexSource.survey` is `dataset`. `web/codex/resolve.ts` and
+  discovery share `SEMANTICS_DECLARED_DEPENDENCY_KINDS` from
+  `semantics-types.ts`.
+- `web/load-internals.ts` reads through one pinned reader, then makes a
+  second one-shot pinned read of the manifest once the files are in. The
+  plan said the manifest would be read once, not twice; that changed in
+  review. The second read is the old closing check: if the manifest before
+  and after is the same publish, every file read between came from it, so
+  a scan that replaces the dataset mid-read cannot mix two datasets. One
+  fewer request did not justify losing that. It reports "A later scan replaced the dataset.
+  Reload Atlas to see it." Each drill-down reads the manifest twice, the
+  internals, the module index, and the package report only for recorded
+  change.
+- Browser safety, three ways: value imports of `internal-analysis` and the
+  other analysis modules stay out of the reader; a Biome override sets
+  `noNodejsModules` on the reader, the layout, every `lib/*-types.ts`, and
+  `web/**`; and `vite.config.ts` fails the build when the viewer's graph
+  imports a `node:` specifier, or a bare built-in name that resolves to
+  nothing or to Vite's `__vite-browser-external` stub (a bare name with a
+  browser package, such as `buffer`, passes). Vite 8 inlines the stub as an
+  empty object with no name in `dist/web`, so the build is where it is
+  caught. One-off controls with `events`, `node:path`, and `buffer`
+  confirmed each case and were reverted.
+- Tests: `test/lib/dataset.test.ts` over an in-memory transport
+  (`test/helpers/dataset-transport.ts`, which also counts reads);
+  `test/lib/scan.test.ts` reads back the fixture through the accessors,
+  counts one package's reads over the file system, and reads the codex
+  source through `fetch` and the file system and compares;
+  `test/web/dataset.test.ts` covers the `fetch` transport; and
+  `test/atlas.test.ts` drives `loadAtlas` and `loadInternals` over the real
+  server and a real scan.
+- No file outside the reader and the layout names a dataset path. What a
+  search still finds is a different thing: `/data/` in `server/server.ts`
+  and `./data/` in `web/dataset.ts` (the data root), the cache's and the
+  worker's own files, the workspace record's `workspace.json`,
+  `semantics-equivalence.ts`'s glob keys, and `semantics-serve.ts` until
+  1.6 retires it. On the server side, which 1.6 and 1.8 own, the
+  `scripts/dev.ts` `"/data"` proxy and `docs/scripts/build-example.ts`'s
+  `"data"` copy name the data root too.
+- `semantics-equivalence.ts` keys `history/manifest.json` as well, so
+  `compareSemanticsDatasets` ignores history's timings inside a dataset;
+  before, only the `kind` override did.
 
 **1.6 `serve`.**
 - `startServer` plus the web root resolution from `cli/index.ts` become the
@@ -255,6 +307,11 @@ layers. Not exported; `scan` returns its results through it.
 - Done when the CLI's default command and `serve` call it.
 - The CLI drops its own `workspaceState` call once `serve(root)` resolves
   the state itself.
+- The server side of the data root is this effort's: `/data/` in
+  `server/server.ts`, the `scripts/dev.ts` proxy, and
+  `docs/scripts/build-example.ts`. A missing dataset can be told apart by
+  `DatasetNotFoundError`. `lib/semantics-serve.ts` names
+  `/semantics/manifest.json` until it is retired here.
 
 **1.7 Configuration.**
 - Resolve `.foundry/atlas/` as Marbles resolves `.foundry/marbles/`
@@ -448,7 +505,8 @@ from declared dependencies.
 which serves each dataset under its own prefix.
 
 **5.4 The viewer's data root per workspace,** which 1.5 reduces to one
-place in the reader.
+place, `DATA_ROOT` in `web/dataset.ts`; the server's `/data/` mount and the
+`scripts/dev.ts` proxy move with it.
 
 ## Changes to existing code
 
@@ -460,4 +518,5 @@ Every change to analysis code, with its reason, before it is made.
 | Anchors matched by name only in concept recentering | `concept-recentering.ts:1383`; an anchor declared by path is invisible there. | Only if domains feed anchors (phase 3). |
 | The worker passes no `AnalysisConfig`, and the fingerprint does not cover it | `semantics-worker.ts:39`; per-workspace anchors would be ignored, and a changed config would leave stale caches. | Only if domains feed anchors (phase 3). |
 | `analyzeInternals` and `packageInternals` extracted from `runInternalAnalysis` | The materializer derives each package's internals from the local report it already holds, instead of analyzing the package again; `runInternalAnalysis` is unchanged in signature and output. | Done in 1.4. |
+| `PackageInternals` moves to `lib/internal-analysis-types.ts`, spelled out from the stage report types | The reader validates saved internals in the browser, which cannot import the analysis code that `packageInternals`' return type came from. No behavior change; `packageInternals` returns the same shape. | Done in 1.5. |
 | The `@foundry/workspaces` anchor is built in | `lib/config.ts:816-819`; it blocks `fold-package` for any package of that name in any scanned repository. | Remove in 1.7. A Foundry scan loses its one anchor until workspaces can declare their own (3.7). |

@@ -1,4 +1,5 @@
 import { reviewPackageArchitecture } from "./architecture-review";
+import type { PackageInternals } from "./internal-analysis-types";
 import { analyzeInternalResponsibilities } from "./internal-responsibility";
 import { analyzeInternalRewiring } from "./internal-rewiring";
 import { analyzeInternalPackageTopology } from "./internal-topology";
@@ -15,9 +16,6 @@ export type InternalAnalysisStage =
   | "primitives"
   | "rewiring"
   | "review";
-
-/** One package's internal structure, every stage through the review. */
-export type PackageInternals = ReturnType<typeof packageInternals>;
 
 /** Before one package's internals are derived, before the dataset is published. */
 export interface InternalsProgressEvent {
@@ -108,7 +106,7 @@ function analyzeInternals(
 }
 
 /** Every internal stage of one package, through the review, without timings. */
-export function packageInternals(local: PackageLocalReport) {
+export function packageInternals(local: PackageLocalReport): PackageInternals {
   const topology = analyzeInternalPackageTopology(local);
   const locality = analyzeSymbolLocality(local, topology);
   const responsibilities = analyzeInternalResponsibilities(

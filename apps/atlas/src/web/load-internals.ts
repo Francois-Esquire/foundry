@@ -1,75 +1,62 @@
-import type { PackageInternals } from "../lib/internal-analysis";
-import type {
-  SemanticsManifest,
-  SemanticsModuleIndex,
-} from "../lib/semantics-types";
-import type { SurfaceReport } from "../lib/types";
+import { DatasetReplacedError } from "../lib/dataset";
+import { viewerDataset } from "./dataset";
 import { bindInternals } from "./internals";
 
+/**
+ * One package's internals, from the dataset whose manifest was saved at
+ * `pin`: the map's own dataset. The manifest is read again once the files
+ * are in, so a scan that replaces the dataset mid-read cannot mix two
+ * datasets.
+ */
 export async function loadInternals(
   packageId: string,
-  survey: string,
+  pin: string,
   signal: AbortSignal,
   recordedChange = false
 ) {
-  const read = async <T>(path: string): Promise<T> => {
-    const response = await fetch(`./data/${path}`, {
-      cache: "no-store",
-      signal,
-    });
-    if (!response.ok) {
-      throw new Error(`Could not load ${path} (${response.status}).`);
-    }
-    return (await response.json()) as T;
-  };
-  const manifest = await read<SemanticsManifest>("manifest.json");
-  if (manifest.generatedAt !== survey) {
-    throw new Error("The survey changed. Reload Atlas to align its evidence.");
-  }
-  const entry = manifest.packages.find((pkg) => pkg.id === packageId);
-  if (entry === undefined) {
-    throw new Error(`The dataset has no package named ${packageId}.`);
-  }
-  if (entry.status === "failed") {
-    throw new Error(
-      "Atlas could not analyze this package, so it has no internals."
-    );
-  }
-  if (entry.internals === undefined) {
-    throw new Error(
-      "This dataset was saved without internals. Run atlas scan to include them."
-    );
-  }
-  const reportPath = entry.report;
-  const [report, index, history] = await Promise.all([
-    read<PackageInternals>(entry.internals),
-    read<SemanticsModuleIndex>(manifest.files.moduleIndex),
-    recordedChange && reportPath
-      ? read<Pick<SurfaceReport, "churn">>(reportPath).catch(() => undefined)
-      : undefined,
-  ]);
+  const { internals, index, report } = await readEvidence(
+    packageId,
+    pin,
+    signal,
+    recordedChange
+  );
   const { topology, locality, responsibilities, primitives, rewiring, review } =
-    report;
-  if (
-    topology.package.id !== packageId ||
-    !locality ||
-    !responsibilities ||
-    !primitives ||
-    !rewiring ||
-    !review
-  ) {
-    throw new Error("Incomplete internal evidence. Run atlas scan again.");
-  }
-  if ((await read<SemanticsManifest>("manifest.json")).generatedAt !== survey) {
-    throw new Error("The survey changed. Reload Atlas to align its evidence.");
-  }
-  const internals = bindInternals(
+    internals;
+  const bound = bindInternals(
     topology,
     locality,
     index.modules.filter((file) => file.package === packageId),
     responsibilities
   );
-  internals.churn = history?.churn;
-  internals.architecture = { primitives, review, rewiring };
-  return internals;
+  bound.churn = report?.churn;
+  bound.architecture = { primitives, review, rewiring };
+  return bound;
+}
+
+async function readEvidence(
+  packageId: string,
+  pin: string,
+  signal: AbortSignal,
+  recordedChange: boolean
+) {
+  try {
+    const reader = viewerDataset({ pin, signal });
+    const [internals, index, report] = await Promise.all([
+      reader.internals(packageId),
+      reader.moduleIndex(),
+      recordedChange
+        ? reader.packageReport(packageId).catch(() => undefined)
+        : undefined,
+    ]);
+    await viewerDataset({ pin, signal }).manifest();
+    return { index, internals, report };
+  } catch (error) {
+    if (error instanceof DatasetReplacedError) {
+      throw new Error(
+        "A later scan replaced the dataset. Reload Atlas to see it.",
+        { cause: error }
+      );
+    }
+    throw error;
+  }
 }

@@ -12,6 +12,7 @@ const noConcepts = {
 };
 
 const source: CodexSource = {
+  dataset: { coverage: "partial", generatedAt: "2026-09-23T00:00:00.000Z" },
   declaredDependencies: [
     {
       declared: {
@@ -81,7 +82,6 @@ const source: CodexSource = {
       id: "packages/core/src/a.ts",
     },
   ],
-  survey: { coverage: "partial", generatedAt: "2026-09-23T00:00:00.000Z" },
 };
 
 describe("resolveCodex", () => {

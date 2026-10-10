@@ -18,8 +18,8 @@ analyzed.
 _Avoid_: target, candidate
 
 **Package**:
-A unit that Atlas analyzes. Its id in the dataset is its `package.json`
-name.
+A unit that Atlas analyzed or tried to; the manifest lists each with its
+status. Its id in the dataset is its `package.json` name.
 _Avoid_: territory, island (viewer words), module
 
 **Declared dependencies**:
@@ -57,9 +57,9 @@ workspace scan ends in a saved dataset.
 _Avoid_: survey, refresh, build
 
 **Dataset**:
-The files a scan saves: the manifest, the workspace report, package
-reports, and projections, plus internals and history when the scan includes
-them. The dataset is the product.
+The files a scan saves: among them the manifest, the workspace report,
+package reports, and projections, plus internals and history when the scan
+includes them. The dataset is the product.
 _Avoid_: output (that is its directory), semantics, survey (the viewer's
 word)
 
@@ -77,6 +77,17 @@ package's `package.json`.
 **Workspace report**:
 The dataset's workspace-level analysis, `output/workspace.json`.
 _Avoid_: workspace record
+
+**Package report**:
+The dataset's analysis of one package, `output/packages/<name>.json`, where
+`<name>` is the package name with `/` encoded (`@s/a` is `@s__a`).
+_Avoid_: surface report
+
+**Projection**:
+A shape of the reports that no renderer owns: the workspace's in
+`output/projections/`, each package's in
+`output/packages/<name>.projection.json`, with `<name>` encoded as for a
+package report.
 
 ### Where a scan is kept
 

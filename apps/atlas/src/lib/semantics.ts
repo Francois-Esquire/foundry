@@ -20,6 +20,15 @@ import {
   ANALYSIS_POLICY_VERSION,
   WORKSPACE_INTELLIGENCE_POLICY_VERSION,
 } from "./config";
+import {
+  DATASET_FILES,
+  encodePackageFile,
+  internalsFile,
+  moduleEdgeShardFile,
+  moduleShardFile,
+  packageProjectionFile,
+  packageReportFile,
+} from "./dataset-layout";
 import type { InternalsProgressEvent } from "./internal-analysis";
 import { writeInternals } from "./internal-analysis";
 import type { PackageLocalReport } from "./package-local-types";
@@ -97,9 +106,6 @@ import {
 } from "./workspace-projection-views";
 import type { WorkspaceReport } from "./workspace-types";
 import { WORKSPACE_SCHEMA_VERSION } from "./workspace-types";
-
-const decodePackageFilePattern = /__/g;
-const encodePackageFilePattern = /\//g;
 
 // V12.0 materializer. Orchestrates the canonical analyzers — package
 // analysis (in a worker process per unit), V9 ingestion and intelligence,
@@ -271,53 +277,6 @@ export const spawnDeriver: SemanticsDeriver = async (
     rmSync(dir, { force: true, recursive: true });
   }
 };
-
-/** `@foundry/db` → `@foundry__db`; reversible because npm names never contain `__`. */
-export function encodePackageFile(id: string): string {
-  return id.replace(encodePackageFilePattern, "__");
-}
-
-export function decodePackageFile(file: string): string {
-  return file.replace(decodePackageFilePattern, "/");
-}
-
-const FILES = {
-  conceptIndex: "concepts/index.json",
-  manifest: "manifest.json",
-  moduleIndex: "modules/index.json",
-  projections: {
-    behaviorFlow: "projections/behavior-flow.json",
-    boundaries: "projections/boundaries.json",
-    dependencyGraph: "projections/dependency-graph.json",
-    directions: "projections/directions.json",
-    implementationFlow: "projections/implementation-flow.json",
-    manifest: "projections/manifest.json",
-    overview: "projections/overview.json",
-    packageRoles: "projections/package-roles.json",
-    patterns: "projections/patterns.json",
-  },
-  workspace: "workspace.json",
-} as const;
-
-function reportFile(id: string): string {
-  return `packages/${encodePackageFile(id)}.json`;
-}
-
-function projectionFile(id: string): string {
-  return `packages/${encodePackageFile(id)}.projection.json`;
-}
-
-function shardFile(id: string): string {
-  return `modules/${encodePackageFile(id)}.json`;
-}
-
-function edgeShardFile(id: string): string {
-  return `modules/edges/${encodePackageFile(id)}.json`;
-}
-
-function internalsFile(id: string): string {
-  return `internals/${encodePackageFile(id)}.json`;
-}
 
 /**
  * Writes the new tree. An artifact whose bytes equal the previous dataset's
@@ -1028,7 +987,7 @@ export async function generateSemantics(
         files: 0,
         invalidations,
         largest: [],
-        manifest: join(output, FILES.manifest),
+        manifest: join(output, DATASET_FILES.manifest),
         missingPackages: [],
         mode,
         modules: 0,
@@ -1187,7 +1146,7 @@ export async function generateSemantics(
             }
             outcome.report = report;
             outcome.reportSource = "reused";
-            writer.write(reportFile(outcome.unit.id), report);
+            writer.write(packageReportFile(outcome.unit.id), report);
           }
           return;
         }
@@ -1220,8 +1179,8 @@ export async function generateSemantics(
           if (
             cachedReport !== undefined &&
             plan.report.cached !== undefined &&
-            canonicalSemanticsText(reportFile(unit.id), cachedReport) ===
-              canonicalSemanticsText(reportFile(unit.id), fresh)
+            canonicalSemanticsText(packageReportFile(unit.id), cachedReport) ===
+              canonicalSemanticsText(packageReportFile(unit.id), fresh)
           ) {
             report = cachedReport;
             reportSource = "unchanged";
@@ -1242,7 +1201,7 @@ export async function generateSemantics(
           }
           outcome.report = report;
           outcome.reportSource = reportSource;
-          writer.write(reportFile(unit.id), report);
+          writer.write(packageReportFile(unit.id), report);
         });
       }
     );
@@ -1280,45 +1239,48 @@ export async function generateSemantics(
 
     await timed("project", undefined, () => {
       writer.write(
-        FILES.projections.manifest,
+        DATASET_FILES.projections.manifest,
         workspaceProjectionManifest(context)
       );
       writer.write(
-        FILES.projections.overview,
+        DATASET_FILES.projections.overview,
         projectWorkspaceOverview(context)
       );
       writer.write(
-        FILES.projections.packageRoles,
+        DATASET_FILES.projections.packageRoles,
         projectWorkspaceMatrix(context, { kind: "package-concept-roles" })
       );
       writer.write(
-        FILES.projections.directions,
+        DATASET_FILES.projections.directions,
         listConceptDirections(context)
       );
       writer.write(
-        FILES.projections.boundaries,
+        DATASET_FILES.projections.boundaries,
         projectWorkspaceMatrix(context, {
           kind: "boundary-concept-load",
           metric: "concepts",
         })
       );
       writer.write(
-        FILES.projections.dependencyGraph,
+        DATASET_FILES.projections.dependencyGraph,
         projectWorkspaceGraph(context, "dependency-topology")
       );
       writer.write(
-        FILES.projections.implementationFlow,
+        DATASET_FILES.projections.implementationFlow,
         projectWorkspaceGraph(context, "implementation-flow")
       );
       writer.write(
-        FILES.projections.behaviorFlow,
+        DATASET_FILES.projections.behaviorFlow,
         projectWorkspaceGraph(context, "behavior-flow")
       );
-      writer.write(FILES.projections.patterns, listWorkspacePatterns(context));
+      writer.write(
+        DATASET_FILES.projections.patterns,
+        listWorkspacePatterns(context)
+      );
       for (const { unit } of outcomes) {
         const projection = projectWorkspacePackage(context, unit.id);
         if (projection !== undefined) {
-          writer.write(projectionFile(unit.id), projection);
+          writer.write(packageProjectionFile(unit.id), projection);
         }
       }
     });
@@ -1332,10 +1294,10 @@ export async function generateSemantics(
     const shardPackages = [...byPackage.keys()].sort();
 
     await timed("write", undefined, () => {
-      writer.write(FILES.workspace, workspace);
-      writer.write(FILES.conceptIndex, concepts);
+      writer.write(DATASET_FILES.workspace, workspace);
+      writer.write(DATASET_FILES.conceptIndex, concepts);
       for (const shard of edgeShards) {
-        writer.write(edgeShardFile(shard.package), shard);
+        writer.write(moduleEdgeShardFile(shard.package), shard);
       }
       const entries: SemanticsModuleIndexEntry[] = [];
       for (const id of shardPackages) {
@@ -1343,13 +1305,13 @@ export async function generateSemantics(
           modules: byPackage.get(id) ?? [],
           package: id,
         };
-        writer.write(shardFile(id), shard);
+        writer.write(moduleShardFile(id), shard);
         for (const module of shard.modules) {
           entries.push({
             id: module.id,
             package: id,
             path: module.path,
-            shard: shardFile(id),
+            shard: moduleShardFile(id),
             ...(module.role !== undefined && { role: module.role }),
             ...(module.fileKind !== undefined && { fileKind: module.fileKind }),
           });
@@ -1363,7 +1325,7 @@ export async function generateSemantics(
         edgeShards: edgeShards.map((shard) => ({
           crossPackage: shard.edges.filter((e) => e.scope === "cross-package")
             .length,
-          file: edgeShardFile(shard.package),
+          file: moduleEdgeShardFile(shard.package),
           intraPackage: shard.edges.filter((e) => e.scope === "intra-package")
             .length,
           package: shard.package,
@@ -1372,11 +1334,11 @@ export async function generateSemantics(
         schemaVersion: SEMANTICS_DATASET_SCHEMA_VERSION,
         shards: shardPackages.map((id) => ({
           count: byPackage.get(id)?.length ?? 0,
-          file: shardFile(id),
+          file: moduleShardFile(id),
           package: id,
         })),
       };
-      writer.write(FILES.moduleIndex, moduleIndex);
+      writer.write(DATASET_FILES.moduleIndex, moduleIndex);
       if (options.internals === true) {
         writeInternals(outcomes, progress, (id, internals) =>
           writer.write(internalsFile(id), internals)
@@ -1401,13 +1363,15 @@ export async function generateSemantics(
           path: unit.path,
           root: unit.root,
           status: outcome.report === undefined ? "failed" : "complete",
-          ...(outcome.report !== undefined && { report: reportFile(unit.id) }),
+          ...(outcome.report !== undefined && {
+            report: packageReportFile(unit.id),
+          }),
           ...(workspacePackages.has(unit.id) && {
-            projection: projectionFile(unit.id),
+            projection: packageProjectionFile(unit.id),
           }),
           modules: {
             count,
-            ...(count > 0 && { shard: shardFile(unit.id) }),
+            ...(count > 0 && { shard: moduleShardFile(unit.id) }),
           },
           ...(outcome.error !== undefined && { error: outcome.error }),
         };
@@ -1462,7 +1426,7 @@ export async function generateSemantics(
       workspaceName,
       root
     );
-    writer.write(FILES.manifest, manifest);
+    writer.write(DATASET_FILES.manifest, manifest);
 
     const written = new Set(writer.files.map((f) => f.file));
     const removed =
@@ -1493,7 +1457,7 @@ export async function generateSemantics(
       largest: [...writer.files]
         .sort((a, b) => b.bytes - a.bytes || a.file.localeCompare(b.file))
         .slice(0, 5),
-      manifest: join(output, FILES.manifest),
+      manifest: join(output, DATASET_FILES.manifest),
       missingPackages: workspace.ingestion.coverage.missingPackages,
       mode,
       modules: modules.length,
@@ -1584,7 +1548,7 @@ function generateSemanticsEntries(
       unitsDiscovered: discovery.units.length,
       unitsSkipped: discovery.skipped,
     },
-    files: FILES,
+    files: DATASET_FILES,
     generatedAt: finishedAt.toISOString(),
     generation: {
       artifactsGenerated: writer.files.length - artifactsReused,

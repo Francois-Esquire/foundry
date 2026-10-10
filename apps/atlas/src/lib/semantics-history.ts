@@ -16,6 +16,11 @@ import {
   ANALYSIS_POLICY_VERSION,
   WORKSPACE_INTELLIGENCE_POLICY_VERSION,
 } from "./config";
+import {
+  HISTORY_FILES,
+  historyDeltaFile,
+  historySnapshotFile,
+} from "./dataset-layout";
 import type { PackageLocalReport } from "./package-local-types";
 import { PACKAGE_LOCAL_REPORT_SCHEMA_VERSION } from "./package-local-types";
 import type { SemanticsDeriver, SemanticsLocalAnalyzer } from "./semantics";
@@ -91,20 +96,6 @@ const execFileAsync = promisify(execFile);
 
 const DEFAULT_HISTORY_OUTPUT = ".foundry/semantics-history";
 const DEFAULT_HISTORY_CACHE = ".foundry/cache/semantics-history";
-
-const FILES = {
-  entities: "entities.json",
-  manifest: "manifest.json",
-  timeline: "timeline.json",
-} as const;
-
-function snapshotFile(commit: string): string {
-  return `snapshots/${commit}.json`;
-}
-
-function deltaFile(from: string, to: string): string {
-  return `deltas/${from}__${to}.json`;
-}
 
 export type SemanticsHistoryProgressEvent =
   | { kind: "phase"; phase: SemanticsHistoryPhase; detail?: string }
@@ -1061,7 +1052,7 @@ export async function generateSemanticsHistory(
         if (snapshot === undefined) {
           continue;
         }
-        const file = snapshotFile(ref.commit);
+        const file = historySnapshotFile(ref.commit);
         ref.file = file;
         ref.bytes = writer.write(file, snapshot);
         ref.counts = {
@@ -1073,7 +1064,7 @@ export async function generateSemanticsHistory(
         };
       }
       for (const { from, to, delta } of deltas) {
-        const file = deltaFile(from, to);
+        const file = historyDeltaFile(from, to);
         deltaRefs.push({ bytes: writer.write(file, delta), file, from, to });
       }
       const packages = new Map<string, string[]>();
@@ -1094,12 +1085,12 @@ export async function generateSemanticsHistory(
           })),
         schemaVersion: SEMANTICS_HISTORY_SCHEMA_VERSION,
       };
-      writer.write(FILES.entities, entities);
+      writer.write(HISTORY_FILES.entities, entities);
       const timelineFile: SemanticsHistoryTimeline = {
         commits: timeline.commits,
         schemaVersion: SEMANTICS_HISTORY_SCHEMA_VERSION,
       };
-      writer.write(FILES.timeline, timelineFile);
+      writer.write(HISTORY_FILES.timeline, timelineFile);
     });
 
     const [oldest] = timeline.commits;
@@ -1107,7 +1098,7 @@ export async function generateSemanticsHistory(
     const finishedAt = new Date();
     const manifest: SemanticsHistoryManifest = {
       deltas: deltaRefs,
-      files: FILES,
+      files: HISTORY_FILES,
       fingerprint,
       generatedAt: finishedAt.toISOString(),
       generation: {
@@ -1154,7 +1145,7 @@ export async function generateSemanticsHistory(
         workspaceSchema: WORKSPACE_SCHEMA_VERSION,
       },
     };
-    writer.write(FILES.manifest, manifest);
+    writer.write(HISTORY_FILES.manifest, manifest);
     replaceDirectory(tmp, output);
     return {
       bytes: writer.files.reduce((sum, f) => sum + f.bytes, 0),

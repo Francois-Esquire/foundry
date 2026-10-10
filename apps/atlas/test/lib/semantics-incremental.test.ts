@@ -24,6 +24,7 @@ import type {
 import { generateSemantics } from "../../src/lib/semantics";
 import { SEMANTICS_CACHE_SCHEMA_VERSION } from "../../src/lib/semantics-cache";
 import {
+  canonicalizeSemanticsArtifact,
   compareSemanticsDatasets,
   listSemanticsFiles,
 } from "../../src/lib/semantics-equivalence";
@@ -832,5 +833,39 @@ describe("determinism", () => {
       await incremental(root);
       await expectEquivalentToFull(root);
     }
+  });
+});
+
+describe("canonical equivalence", () => {
+  it("ignores the timings of a dataset's history manifest", () => {
+    const manifest = (generatedAt: string, durationMs: number) => ({
+      generatedAt,
+      generation: { durationMs },
+      schemaVersion: 1,
+      snapshots: [{ cached: false, commit: "c1", durationMs }],
+    });
+    expect(
+      canonicalizeSemanticsArtifact(
+        "history/manifest.json",
+        manifest("2026-10-10T00:00:00.000Z", 5)
+      )
+    ).toEqual(
+      canonicalizeSemanticsArtifact(
+        "history/manifest.json",
+        manifest("2026-10-11T00:00:00.000Z", 9)
+      )
+    );
+    const later = {
+      ...manifest("2026-10-10T00:00:00.000Z", 5),
+      snapshots: [{ cached: false, commit: "c2", durationMs: 5 }],
+    };
+    expect(
+      canonicalizeSemanticsArtifact(
+        "history/manifest.json",
+        manifest("2026-10-10T00:00:00.000Z", 5)
+      )
+    ).not.toEqual(
+      canonicalizeSemanticsArtifact("history/manifest.json", later)
+    );
   });
 });

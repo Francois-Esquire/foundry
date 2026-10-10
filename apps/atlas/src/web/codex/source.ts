@@ -1,26 +1,23 @@
+import type { DatasetReader } from "../../lib/dataset";
 import type {
   SemanticsHistoryEntities,
-  SemanticsHistoryManifest,
   SemanticsHistorySnapshotRef,
 } from "../../lib/semantics-history-types";
 import type {
   SemanticsDeclaredDependencies,
   SemanticsManifest,
   SemanticsModuleEdge,
-  SemanticsModuleEdgeShard,
-  SemanticsModuleIndex,
   SemanticsModuleIndexEntry,
   SemanticsModuleRecord,
-  SemanticsModuleShard,
 } from "../../lib/semantics-types";
 import type {
   WorkspaceDependencyEdgeProjection,
-  WorkspaceGraphProjection,
   WorkspaceGraphProjectionNode,
 } from "../../lib/workspace-projection-types";
 
 /** Every source field the codex reads. Resolvers see nothing else. */
 export interface CodexSource {
+  dataset: Pick<SemanticsManifest, "generatedAt" | "coverage">;
   declaredDependencies: {
     declared: SemanticsDeclaredDependencies;
     package: string;
@@ -49,42 +46,23 @@ export interface CodexSource {
     "id" | "label" | "analyzed" | "layer"
   >[];
   participation: Pick<SemanticsModuleRecord, "id" | "concepts">[];
-  survey: Pick<SemanticsManifest, "generatedAt" | "coverage">;
 }
 
+/** The codex's fields, read through one dataset reader. */
 export async function readCodexSource(
-  signal?: AbortSignal
+  reader: DatasetReader
 ): Promise<CodexSource> {
-  const read = async <T>(file: string): Promise<T> => {
-    const response = await fetch(`./data/${file}`, {
-      cache: "no-store",
-      signal,
-    });
-    if (!response.ok) {
-      throw new Error(
-        `Could not load ${file} (${response.status}). Run atlas scan to generate the dataset.`
-      );
-    }
-    return (await response.json()) as T;
-  };
-  const manifest = await read<SemanticsManifest>("manifest.json");
-  if (manifest.schemaVersion !== 4) {
-    throw new Error(
-      `Unsupported semantics dataset version ${manifest.schemaVersion}.`
-    );
-  }
-  const [index, graph] = await Promise.all([
-    read<SemanticsModuleIndex>(manifest.files.moduleIndex),
-    read<WorkspaceGraphProjection>(manifest.files.projections.dependencyGraph),
-  ]);
-  const [edgeShards, moduleShards, history] = await Promise.all([
-    Promise.all(
-      index.edgeShards.map((s) => read<SemanticsModuleEdgeShard>(s.file))
-    ),
-    Promise.all(index.shards.map((s) => read<SemanticsModuleShard>(s.file))),
-    readHistory(read, signal),
-  ]);
+  const [manifest, index, graph, edgeShards, moduleShards, history] =
+    await Promise.all([
+      reader.manifest(),
+      reader.moduleIndex(),
+      reader.dependencyGraph(),
+      reader.moduleEdgeShards(),
+      reader.moduleShards(),
+      reader.history(),
+    ]);
   return {
+    dataset: manifest,
     declaredDependencies: manifest.packages.map((p) => ({
       declared: p.declaredDependencies,
       package: p.id,
@@ -92,34 +70,13 @@ export async function readCodexSource(
     dependencies: graph.edges.flatMap((e) =>
       e.kind === "dependency" ? [e] : []
     ),
-    history,
+    history: history && {
+      packages: history.entities.packages,
+      snapshots: history.manifest.snapshots,
+    },
     imports: edgeShards.flatMap((s) => s.edges),
     modules: index.modules,
     packages: graph.nodes,
     participation: moduleShards.flatMap((s) => s.modules),
-    survey: manifest,
-  };
-}
-
-async function readHistory(
-  read: <T>(file: string) => Promise<T>,
-  signal?: AbortSignal
-): Promise<CodexSource["history"]> {
-  const manifest = await fetch("./data/history/manifest.json", {
-    cache: "no-store",
-    signal,
-  });
-  if (!manifest.ok) {
-    if (manifest.status !== 404) {
-      throw new Error(`Could not load history (${manifest.status}).`);
-    }
-    return;
-  }
-  const entities = await read<SemanticsHistoryEntities>(
-    "history/entities.json"
-  );
-  return {
-    packages: entities.packages,
-    snapshots: ((await manifest.json()) as SemanticsHistoryManifest).snapshots,
   };
 }

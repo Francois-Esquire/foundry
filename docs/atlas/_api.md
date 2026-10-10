@@ -107,7 +107,11 @@ await server.stop();
 - **`scan` returns the results**, typed, read back from the dataset it just
   published, along with the path it was saved to. Scans reuse the cache,
   so scanning an unchanged workspace again is fast; there is no separate
-  function to read a saved scan.
+  function to read a saved scan. The plain fields (`manifest`, `output`,
+  `history`) are JSON; `workspaceReport()`, `packageReport(name)`, and, on
+  `Scan`, `internals(name)` read the saved dataset when called.
+- `scan.package(root, name)` analyzes fresh what `scan(root).internals(name)`
+  reads back.
 - **`onProgress`** passes through in the options, with its event type
   exported (today it is not). There is no `AbortSignal` in `lib`;
   cancellation waits until it is needed.

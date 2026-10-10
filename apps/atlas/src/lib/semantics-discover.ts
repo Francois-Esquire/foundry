@@ -11,6 +11,7 @@ import type {
   SemanticsSkippedDirectory,
   SemanticsWorkspaceUnit,
 } from "./semantics-types";
+import { SEMANTICS_DECLARED_DEPENDENCY_KINDS } from "./semantics-types";
 
 const hasTypeScriptSourcesPattern = /\.tsx?$/;
 
@@ -79,19 +80,12 @@ function packageName(manifest: PackageManifest): string | undefined {
     : undefined;
 }
 
-const DECLARED_DEPENDENCY_KINDS: readonly SemanticsDeclaredDependencyKind[] = [
-  "dependencies",
-  "devDependencies",
-  "peerDependencies",
-  "optionalDependencies",
-];
-
 /** The dependencies a `package.json` declares; a kind it lacks is omitted, and ranges stay as written. */
 function declaredDependencies(
   manifest: PackageManifest
 ): SemanticsDeclaredDependencies {
   const declared: SemanticsDeclaredDependencies = {};
-  for (const kind of DECLARED_DEPENDENCY_KINDS) {
+  for (const kind of SEMANTICS_DECLARED_DEPENDENCY_KINDS) {
     const ranges = manifest[kind];
     if (typeof ranges === "object" && ranges !== null) {
       declared[kind] = Object.fromEntries(

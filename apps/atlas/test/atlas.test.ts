@@ -148,7 +148,7 @@ test("server preserves generated file bytes and serves public assets without exp
   }
 });
 
-test("built CLI scans an external workspace and the web loaders consume its saved evidence", async () => {
+test("built CLI scans an external workspace and the web loaders read its saved dataset through the reader, over the real server", async () => {
   const { workspace, directory } = await fixture();
   const cli = resolve(import.meta.dirname, "../dist/cli/atlas.js");
   const help = spawn([process.execPath, cli, "--help"], {
@@ -213,7 +213,9 @@ test("built CLI scans an external workspace and the web loaders consume its save
   await expect(
     readFile(join(workspace.output, "manifests", filename))
   ).rejects.toThrow("ENOENT");
-  // Rendering uses the saved output even after the source workspace is removed.
+  // The viewer's loaders read through the same reader as the library, here
+  // over fetch from the real server. Rendering uses the saved output even
+  // after the source workspace is removed.
   await rm(workspace.root, { recursive: true });
   const server = startServer({ output: workspace.output, port: 0 });
   const nativeFetch = globalThis.fetch;
@@ -235,14 +237,20 @@ test("built CLI scans an external workspace and the web loaders consume its save
     const evidence = await loadInternals(pkg.id, second.generatedAt, signal);
     expect(evidence.architecture?.review).toBeDefined();
     await expect(
-      loadInternals(pkg.id, "outdated-survey", signal)
-    ).rejects.toThrow("survey changed");
+      loadInternals(pkg.id, "2000-01-01T00:00:00.000Z", signal)
+    ).rejects.toThrow(
+      "A later scan replaced the dataset. Reload Atlas to see it."
+    );
     await rm(join(workspace.output, "internals", filename));
     await expect(
       loadInternals(pkg.id, second.generatedAt, signal)
-    ).rejects.toThrow("404");
+    ).rejects.toThrow(
+      `The dataset is missing internals/${filename}. Run atlas scan again.`
+    );
     await rm(join(workspace.output, "manifest.json"));
-    await expect(loadAtlas()).rejects.toThrow("Run atlas scan");
+    await expect(loadAtlas()).rejects.toThrow(
+      "No dataset found. Run atlas scan to save one."
+    );
   } finally {
     globalThis.fetch = nativeFetch;
     server.stop(true);

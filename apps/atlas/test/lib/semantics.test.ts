@@ -14,14 +14,13 @@ import { basename, isAbsolute, join, sep } from "node:path";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { assembleSurfaceReport } from "../../src/lib/assemble";
+import { encodePackageFile } from "../../src/lib/dataset-layout";
 import { analyzePackageLocal } from "../../src/lib/package-local";
 import type {
   SemanticsDeriver,
   SemanticsLocalAnalyzer,
 } from "../../src/lib/semantics";
 import {
-  decodePackageFile,
-  encodePackageFile,
   generateSemantics,
   spawnDeriver,
   spawnLocalAnalyzer,
@@ -214,9 +213,8 @@ describe("discovery", () => {
     rmSync(dir, { force: true, recursive: true });
   });
 
-  it("encodes scoped package names reversibly", () => {
+  it("names a scoped package's files without a separator", () => {
     expect(encodePackageFile("@foundry/db")).toBe("@foundry__db");
-    expect(decodePackageFile("@foundry__db")).toBe("@foundry/db");
     expect(encodePackageFile("plain")).toBe("plain");
   });
 });

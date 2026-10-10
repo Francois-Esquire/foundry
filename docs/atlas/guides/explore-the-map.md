@@ -70,8 +70,9 @@ its districts and how they relate, any file's composition by declaration and
 who consumes each one, and, where the analysis found credible alternatives,
 the scenarios it compared, their measured effects, what each preserves, and
 the limits of the evidence. Nothing here is a recommendation; the panel
-shows what the survey measured. Evidence is loaded when you ask for it, and
-if the dataset changed since the map loaded, the panel asks you to reload.
+shows what the scan measured. Evidence is loaded when you ask for it, and
+if a scan has replaced the dataset since the map loaded, the panel asks you
+to reload Atlas.
 
 ## Chart settings
 

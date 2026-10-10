@@ -12,18 +12,48 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterAll, beforeAll, expect, it } from "vitest";
+import { afterAll, beforeAll, expect, it, vi } from "vitest";
+import { DatasetReplacedError, datasetReader } from "../../src/lib/dataset";
+import { fileTransport } from "../../src/lib/dataset-files";
+import { encodePackageFile } from "../../src/lib/dataset-layout";
 import type {
   PackageInternals,
+  PackageReport,
   Scan,
   ScanProgressEvent,
   WorkspaceScan,
 } from "../../src/lib/scan";
 import { scan } from "../../src/lib/scan";
-import { encodePackageFile } from "../../src/lib/semantics";
 import { workspaceState } from "../../src/lib/state";
+import { readCodexSource } from "../../src/web/codex/source";
+import { viewerDataset } from "../../src/web/dataset";
 import { commitFixture } from "../helpers/commit-fixture";
 import { listedFiles } from "../helpers/dataset-files";
+import { recordReads, stubFetch } from "../helpers/dataset-transport";
+
+/**
+ * Called after each file the scan's accessors read from disk, so a test can
+ * stand in for a scan that saves over the dataset mid-read. Unset, the file
+ * transport behaves as it does without the mock.
+ */
+const afterFileRead = vi.hoisted(() => ({
+  hook: undefined as ((output: string, path: string) => void) | undefined,
+}));
+
+vi.mock("../../src/lib/dataset-files", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../../src/lib/dataset-files")>();
+  return {
+    fileTransport: (output: string) => {
+      const read = actual.fileTransport(output);
+      return async (path: string) => {
+        const value = await read(path);
+        afterFileRead.hook?.(output, path);
+        return value;
+      };
+    },
+  };
+});
 
 const SCAN_TIMEOUT_MS = 120_000;
 const FIXTURE_PACKAGES = ["@s/a", "@s/b", "@s/c"];
@@ -261,6 +291,67 @@ it("scan saves every complete package's internals in the dataset it publishes, r
   expect(everything.history).toBeUndefined();
 });
 
+it("scan reads back each package's report and internals from the dataset it saved", async () => {
+  const report: PackageReport = await everything.packageReport("@s/b");
+  expect(report).toEqual(
+    readJson(datasetFile(everything.output, "packages", "@s/b"))
+  );
+  await expect(everything.internals("@s/b")).resolves.toEqual(
+    readJson(datasetFile(everything.output, "internals", "@s/b"))
+  );
+  await expect(everything.workspaceReport()).resolves.toEqual(
+    readJson(join(everything.output, "workspace.json"))
+  );
+});
+
+it("one package's results read the manifest and one file, not every shard", async () => {
+  const report = recordReads(fileTransport(everything.output));
+  await datasetReader(report.read).packageReport("@s/b");
+  expect(report.reads).toEqual(["manifest.json", "packages/@s__b.json"]);
+  const internals = recordReads(fileTransport(everything.output));
+  await datasetReader(internals.read).internals("@s/b");
+  expect(internals.reads).toEqual(["manifest.json", "internals/@s__b.json"]);
+});
+
+it("scan.workspace reads back its reports and has no internals to read", async () => {
+  await expect(workspace.workspaceReport()).resolves.toEqual(
+    readJson(join(workspace.output, "workspace.json"))
+  );
+  await expect(workspace.packageReport("@s/a")).resolves.toEqual(
+    readJson(datasetFile(workspace.output, "packages", "@s/a"))
+  );
+  expect("internals" in workspace).toBe(false);
+  await expect(
+    datasetReader(fileTransport(workspace.output)).internals("@s/a")
+  ).rejects.toThrow(
+    "The dataset was saved without internals for @s/a. Run atlas scan to include them."
+  );
+});
+
+it("a scan's result is JSON without its accessors", () => {
+  expect(JSON.parse(JSON.stringify(everything))).toEqual({
+    manifest: everything.manifest,
+    output: everything.output,
+  });
+});
+
+// A web import in a lib test, so this check reuses the scan above instead
+// of running another.
+it("the viewer and the library read the saved dataset through one reader", async () => {
+  stubFetch(fileTransport(everything.output));
+  try {
+    const served = await readCodexSource(viewerDataset());
+    expect(served).toEqual(
+      await readCodexSource(datasetReader(fileTransport(everything.output)))
+    );
+    expect(served.packages.map((pkg) => pkg.id).sort()).toEqual(
+      FIXTURE_PACKAGES
+    );
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
 it("scan.package returns one package's internals, as the dataset saves them", async () => {
   const internals: PackageInternals = await scan.package(root, "@s/b");
   expect(internals.topology.package.id).toBe("@s/b");
@@ -308,3 +399,60 @@ it(
   },
   SCAN_TIMEOUT_MS
 );
+
+it.each([
+  [
+    "packageReport",
+    "packages/@s__b.json",
+    () => everything.packageReport("@s/b"),
+  ],
+  ["internals", "internals/@s__b.json", () => everything.internals("@s/b")],
+  ["workspaceReport", "workspace.json", () => everything.workspaceReport()],
+] as const)(
+  "%s refuses a dataset that a scan replaced while it read",
+  async (_accessor, target, read) => {
+    const manifest = join(everything.output, "manifest.json");
+    const saved = readFileSync(manifest);
+    afterFileRead.hook = (output, path) => {
+      if (output === everything.output && path === target) {
+        writeFileSync(
+          manifest,
+          JSON.stringify({
+            ...everything.manifest,
+            generatedAt: "2099-01-01T00:00:00.000Z",
+          })
+        );
+      }
+    };
+    try {
+      await expect(read()).rejects.toBeInstanceOf(DatasetReplacedError);
+    } finally {
+      afterFileRead.hook = undefined;
+      writeFileSync(manifest, saved);
+    }
+  }
+);
+
+// Last, since it rewrites the workspace scan's saved manifest; it puts the
+// bytes back.
+it("a scan's accessors refuse a dataset that a later scan replaced", async () => {
+  const manifest = join(workspace.output, "manifest.json");
+  const saved = readFileSync(manifest);
+  writeFileSync(
+    manifest,
+    JSON.stringify({
+      ...workspace.manifest,
+      generatedAt: "2099-01-01T00:00:00.000Z",
+    })
+  );
+  try {
+    await expect(workspace.packageReport("@s/a")).rejects.toBeInstanceOf(
+      DatasetReplacedError
+    );
+    await expect(workspace.workspaceReport()).rejects.toThrow(
+      "A later scan replaced this dataset. Scan again to read the new one."
+    );
+  } finally {
+    writeFileSync(manifest, saved);
+  }
+});

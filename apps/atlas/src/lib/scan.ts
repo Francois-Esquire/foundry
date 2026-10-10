@@ -1,7 +1,10 @@
-import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { PackageInternals } from "./internal-analysis";
+import type { DatasetReader, PackageReport } from "./dataset";
+import { datasetReader } from "./dataset";
+import { fileTransport } from "./dataset-files";
+import { HISTORY_DIRECTORY } from "./dataset-layout";
 import { packageInternals } from "./internal-analysis";
+import type { PackageInternals } from "./internal-analysis-types";
 import { analyzePackageLocal } from "./package-local";
 import type { SemanticsProgressEvent } from "./semantics";
 import { generateSemantics } from "./semantics";
@@ -21,8 +24,10 @@ import {
   resolveRoot,
   workspaceState,
 } from "./state";
+import type { WorkspaceReport } from "./workspace-types";
 
-export type { PackageInternals } from "./internal-analysis";
+export type { PackageReport } from "./dataset";
+export type { PackageInternals } from "./internal-analysis-types";
 
 export type ScanProgressEvent =
   | SemanticsProgressEvent
@@ -37,16 +42,32 @@ export interface ScanOptions {
   state?: string;
 }
 
-/** What a workspace scan saved: the directory the dataset is in, and its manifest. */
+/**
+ * What a workspace scan saved: the directory the dataset is in, its manifest,
+ * and accessors for the rest. Each accessor reads the saved dataset when
+ * called (the manifest, one file, and the manifest again) and fails with
+ * `DatasetReplacedError` once another scan has saved over it. The plain
+ * fields are JSON; `JSON.stringify` leaves the accessors out.
+ */
 export interface WorkspaceScan {
   history?: { manifest: SemanticsHistoryManifest };
   manifest: SemanticsManifest;
   /** The directory the dataset is saved in. */
   output: string;
+  /** One package's report, as the dataset saved it. */
+  packageReport(name: string): Promise<PackageReport>;
+  /** The workspace report, as the dataset saved it. */
+  workspaceReport(): Promise<WorkspaceReport>;
 }
 
 /** What `scan` saved: a workspace scan whose dataset also holds every complete package's internals. */
-export interface Scan extends WorkspaceScan {}
+export interface Scan extends WorkspaceScan {
+  /** One package's internals, as the dataset saved them; `scan.package` analyzes them fresh instead. */
+  internals(name: string): Promise<PackageInternals>;
+}
+
+/** What a scan saved, before the accessors are attached. */
+type Saved = Pick<WorkspaceScan, "history" | "manifest" | "output">;
 
 interface ScanRun {
   config: SemanticsConfig;
@@ -60,7 +81,7 @@ const ignoreProgress = (): void => undefined;
 /** Scans the workspace and every complete package's internals, and saves the dataset. */
 export function scan(root: string, options: ScanOptions = {}): Promise<Scan> {
   return whileScanning(root, options, async (run) =>
-    withHistory(run, await publish(run, { internals: true }))
+    savedScan(await withHistory(run, await publish(run, { internals: true })))
   );
 }
 
@@ -70,7 +91,9 @@ function scanWorkspace(
   options: ScanOptions = {}
 ): Promise<WorkspaceScan> {
   return whileScanning(root, options, async (run) =>
-    withHistory(run, await publish(run, { internals: false }))
+    savedWorkspace(
+      await withHistory(run, await publish(run, { internals: false }))
+    )
   );
 }
 
@@ -146,9 +169,7 @@ async function publish(
     onProgress: progress,
     root: state.root,
   });
-  const manifest = JSON.parse(
-    await readFile(result.manifest, "utf8")
-  ) as SemanticsManifest;
+  const manifest = await datasetReader(fileTransport(result.output)).manifest();
   recordSavedDataset(state);
   return manifest;
 }
@@ -157,7 +178,7 @@ async function publish(
 async function withHistory(
   { config, history, progress, state }: ScanRun,
   manifest: SemanticsManifest
-): Promise<WorkspaceScan> {
+): Promise<Saved> {
   const saved = { manifest, output: state.output };
   if (!history) {
     return saved;
@@ -166,11 +187,49 @@ async function withHistory(
     cache: join(state.cache, "history"),
     config,
     onProgress: (event) => progress({ event, kind: "history" }),
-    output: join(state.output, "history"),
+    output: join(state.output, HISTORY_DIRECTORY),
     root: state.root,
   });
   if (historical.manifest.generation.failedSnapshots) {
     throw new Error("Some history checkpoints failed analysis.");
   }
   return { ...saved, history: { manifest: historical.manifest } };
+}
+
+/**
+ * Reads the saved dataset through a fresh reader pinned to the manifest this
+ * scan saved, then reads the manifest again, so a scan that replaces the
+ * dataset mid-read cannot mix two datasets.
+ */
+function pinned(saved: Saved) {
+  const reader = () =>
+    datasetReader(fileTransport(saved.output), {
+      pin: saved.manifest.generatedAt,
+    });
+  return async <T>(
+    read: (dataset: DatasetReader) => Promise<T>
+  ): Promise<T> => {
+    const value = await read(reader());
+    await reader().manifest();
+    return value;
+  };
+}
+
+/** The saved dataset with the workspace-level accessors attached. */
+function savedWorkspace(saved: Saved): WorkspaceScan {
+  const read = pinned(saved);
+  return {
+    ...saved,
+    packageReport: (name) => read((dataset) => dataset.packageReport(name)),
+    workspaceReport: () => read((dataset) => dataset.workspaceReport()),
+  };
+}
+
+/** A full scan's dataset also holds internals, so it gains their accessor. */
+function savedScan(saved: Saved): Scan {
+  const read = pinned(saved);
+  return {
+    ...savedWorkspace(saved),
+    internals: (name) => read((dataset) => dataset.internals(name)),
+  };
 }

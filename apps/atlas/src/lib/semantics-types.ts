@@ -57,12 +57,16 @@ export interface SemanticsDiscovery {
 
 type SemanticsPackageStatus = "complete" | "failed" | "skipped";
 
-/** The `package.json` fields that declare dependencies. */
+/** The `package.json` fields that declare dependencies, in the order the dataset's manifest lists them. */
+export const SEMANTICS_DECLARED_DEPENDENCY_KINDS = [
+  "dependencies",
+  "devDependencies",
+  "peerDependencies",
+  "optionalDependencies",
+] as const;
+
 export type SemanticsDeclaredDependencyKind =
-  | "dependencies"
-  | "devDependencies"
-  | "peerDependencies"
-  | "optionalDependencies";
+  (typeof SEMANTICS_DECLARED_DEPENDENCY_KINDS)[number];
 
 /** Each kind a package's `package.json` declares, every name with its range as written. */
 export type SemanticsDeclaredDependencies = Partial<

@@ -35,8 +35,8 @@ export function UnmappedModuleInspection({
       <h3>{module}</h3>
       <p>
         Analyzed, but absent from the map survey. Evidence is available here; no
-        settlement or tracing position is invented. Refresh the semantic survey
-        to include this file in the geography.
+        settlement or tracing position is invented. Run atlas scan again to
+        include this file in the geography.
       </p>
       {groups.map((group) => (
         <details key={group.id}>

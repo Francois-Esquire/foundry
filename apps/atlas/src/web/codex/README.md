@@ -10,15 +10,18 @@ produces byte-identical data with and without the codex.
 
 ## Files
 
-| File            | Role                                                                                                                          |
-| --------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `source.ts`     | Reads the survey from `/data`. The only file that knows dataset paths and source types; `CodexSource` lists every field read. |
-| `vocabulary.ts` | Codex entities and values, named by meaning.                                                                                  |
-| `resolve.ts`    | `resolveCodex(source)`: source fields to codex values. Pure.                                                                  |
-| `bindings.ts`   | Codex values to visual channels. Every constant that tunes how a value looks.                                                 |
+| File            | Role                                                                                                                             |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `source.ts`     | `readCodexSource(reader)`: picks the codex's fields through the library's dataset reader; `CodexSource` lists every field read.  |
+| `vocabulary.ts` | Codex entities and values, named by meaning.                                                                                     |
+| `resolve.ts`    | `resolveCodex(source)`: source fields to codex values. Pure.                                                                     |
+| `bindings.ts`   | Codex values to visual channels. Every constant that tunes how a value looks.                                                    |
 
-`vocabulary.ts` and `bindings.ts` import nothing. `resolve.ts` imports only codex
-files. `source.ts` imports types from `src/lib` and uses `fetch`. Nothing here
+`bindings.ts` imports nothing; `vocabulary.ts` imports one library type.
+`resolve.ts` imports codex files and the library's
+`SEMANTICS_DECLARED_DEPENDENCY_KINDS`. `source.ts` imports types from `src/lib`
+and reads through a `DatasetReader` (`src/lib/dataset.ts`), which alone knows
+dataset paths; `src/web/dataset.ts` gives it the viewer's `fetch`. Nothing here
 imports from the renderer, so the folder moves as a unit. Tests are in
 `test/web/codex/`.
 
@@ -84,20 +87,20 @@ Every existing file the codex touches, under `src/web/` and `test/web/`. Each
 change swaps an inline read or transform for a codex export; nothing else moved.
 `AtlasData`, `Territory` and every visual layer's inputs are unchanged.
 
-| File                      | Before                                                               | After                                                      |
-| ------------------------- | -------------------------------------------------------------------- | ---------------------------------------------------------- |
-| `load-atlas.ts`           | fetched the survey, manifests and history; counted sizes and imports | `readCodexSource`, `resolveCodex`; `footprint`, `latitude` |
-| `former-packages.ts`      | took raw history; found each package's last complete checkpoint      | takes `CodexRetiredPackage[]`; placement only              |
-| `former-packages.test.ts` | checkpoint selection and placement                                   | placement; selection moved to `codex/resolve.test.ts`      |
-| `geography.ts`            | `layer · −220`, `log2(2 + w)`                                        | `latitude`, `attraction`                                   |
-| `continent.ts`            | `settlementKind`                                                     | removed; `settlementTier`                                  |
-| `continent.test.ts`       | imported `settlementKind`                                            | imports `settlementTier`                                   |
-| `scene/paint-map.ts`            | `clamp(0.15r, 13, 22)`; `incoming + outgoing`                        | `territoryLabelSize`; `labelPriority`                      |
-| `relationships.ts`        | `imports + 0.5 · min(1, shared)`                                     | `neighborhoodAffinity`                                     |
-| `scene/trade-layer.ts`          | inline lane width                                                    | `laneWidth`                                                |
-| `scene/road-layer.ts`           | inline road width                                                    | `roadWidth`                                                |
-| `current-field.ts`        | `log1p(count)`                                                       | `currentStrength`                                          |
-| `hierarchy.ts`            | `log1p(moduleEdges) + log1p(symbolFlow)`                             | `districtAffinity`                                         |
+| File                      | Before                                                               | After                                                                                 |
+| ------------------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `load-atlas.ts`           | fetched the survey, manifests and history; counted sizes and imports | `readCodexSource(viewerDataset({ signal }))`, `resolveCodex`; `footprint`, `latitude` |
+| `former-packages.ts`      | took raw history; found each package's last complete checkpoint      | takes `CodexRetiredPackage[]`; placement only                                         |
+| `former-packages.test.ts` | checkpoint selection and placement                                   | placement; selection moved to `codex/resolve.test.ts`                                 |
+| `geography.ts`            | `layer · −220`, `log2(2 + w)`                                        | `latitude`, `attraction`                                                              |
+| `continent.ts`            | `settlementKind`                                                     | removed; `settlementTier`                                                             |
+| `continent.test.ts`       | imported `settlementKind`                                            | imports `settlementTier`                                                              |
+| `scene/paint-map.ts`      | `clamp(0.15r, 13, 22)`; `incoming + outgoing`                        | `territoryLabelSize`; `labelPriority`                                                 |
+| `relationships.ts`        | `imports + 0.5 · min(1, shared)`                                     | `neighborhoodAffinity`                                                                |
+| `scene/trade-layer.ts`    | inline lane width                                                    | `laneWidth`                                                                           |
+| `scene/road-layer.ts`     | inline road width                                                    | `roadWidth`                                                                           |
+| `current-field.ts`        | `log1p(count)`                                                       | `currentStrength`                                                                     |
+| `hierarchy.ts`            | `log1p(moduleEdges) + log1p(symbolFlow)`                             | `districtAffinity`                                                                    |
 
 ## Outside the codex, deliberately
 
@@ -108,9 +111,9 @@ change swaps an inline read or transform for a codex export; nothing else moved.
 - **Palettes and selection rules.** File-kind colors and shapes, buildings per
   tier, the six strongest trades and label budgets stay with the painters. The
   codex owns the categories, not how they look.
-- **Per-island evidence.** `load-internals.ts` still fetches the analyzer's
-  internal reports, and belonging, composition and the inspection panels use them
-  as-is. Only the district-grouping transform moved.
+- **Per-island evidence.** `load-internals.ts` reads the analyzer's internal
+  reports through the same dataset reader, and belonging, composition and the
+  inspection panels use them as-is. Only the district-grouping transform moved.
 
 ## Decisions taken for this version
 
@@ -127,7 +130,8 @@ Against the design doc's open decisions:
 
 ## Analysis library
 
-No changes needed in `src/lib`; the codex reads dataset schema 4 as it is.
+The codex reads dataset schema 4 through the library's reader, which checks the
+schema version.
 `CodexSource` picks its fields from the library's own types (the manifest,
 module index and shards, edge shards, graph projection, history entities, and
 `SemanticsDeclaredDependencies`, with `SemanticsDeclaredDependencyKind` for the
@@ -137,7 +141,8 @@ stops the codex compiling instead of reaching the map.
 ## Adding a value
 
 1. If the source field is not read yet, add it to `CodexSource` and read it in
-   `readCodexSource`.
+   `readCodexSource`, through the reader; a file the reader does not read yet
+   gets a method in `src/lib/dataset.ts`.
 2. Name it by meaning in `vocabulary.ts`.
 3. Resolve it in `resolve.ts` and cover it in `test/web/codex/resolve.test.ts`.
 4. When a visual uses it, add the transform to `bindings.ts` and a row above.

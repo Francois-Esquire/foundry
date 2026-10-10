@@ -24,7 +24,9 @@ directories and reading their records finds every workspace scanned under
 it.
 
 `output/` holds the dataset. The viewer reads it over `/data/…`, unchanged, and
-anything else can read it from disk. `cache/` holds per-package results and
+anything else can read it from disk. The viewer and the library read it
+through the same reader, which refuses a manifest whose `schemaVersion` is not
+the one this Atlas writes. `cache/` holds per-package results and
 the workspace fingerprint that make the next scan incremental; delete the
 whole state directory to force a full rebuild.
 

@@ -16,8 +16,8 @@ takes to draw several workspaces in one visualization. Draft for discussion.
   forks or checkouts of one repository will contain the same names on
   purpose.
 - **The server serves one dataset.** `/data/<path>` maps to one `output/`.
-- **The viewer loads one manifest.** `./data/` is hard-coded in
-  `codex/source.ts` and `load-internals.ts`; island layout, latitude, and
+- **The viewer loads one manifest.** `./data/` lives in one place,
+  `DATA_ROOT` in `web/dataset.ts`, since effort 1.5; island layout, latitude, and
   attraction come from one graph; positions and pigment hash the package id
   alone.
 - **State can be listed, but nothing lists it yet.** Since effort 1.3,

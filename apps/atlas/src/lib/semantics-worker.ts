@@ -1,9 +1,9 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { assembleSurfaceReport } from "./assemble";
+import { encodePackageFile } from "./dataset-layout";
 import { analyzePackageLocal } from "./package-local";
 import type { PackageLocalReport } from "./package-local-types";
-import { encodePackageFile } from "./semantics";
 import { deriveWorkspaceSurface } from "./workspace-derive";
 
 // One analysis stage in its own process, so the materializer can bound
