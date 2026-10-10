@@ -119,7 +119,7 @@ const FOUNDRY_DIRECTORY = ".foundry/";
 /** Every module dependency-cruiser reaches from the workspace, root-relative posix. */
 async function cruisedModules(
   root: string,
-  units: SemanticsWorkspaceUnit[]
+  units: readonly Pick<SemanticsWorkspaceUnit, "path">[]
 ): Promise<string[]> {
   const [first] = units;
   if (first === undefined) {
@@ -133,11 +133,13 @@ async function cruisedModules(
 }
 
 export interface CollectWorkspaceInputsOptions {
-  config: SemanticsConfig;
+  /** Only the exclusions are read, for the `config` component. */
+  config: Pick<SemanticsConfig, "exclude">;
   now: Date;
   profile?: AnalysisProfile;
   root: string;
-  units: SemanticsWorkspaceUnit[];
+  /** Only whether there is one, and the first one's path, are read: the cruise is workspace-wide. */
+  units: readonly Pick<SemanticsWorkspaceUnit, "path">[];
 }
 
 /**
@@ -188,6 +190,29 @@ export async function collectWorkspaceInputs(
     files,
     sources: hashPairs(files),
   };
+}
+
+/**
+ * One hash over every workspace input: what a dataset records, and what
+ * apply and plan compare to tell whether it is current. Any source edit, a
+ * commit, a tracked file added or removed, another UTC day, an edited
+ * exclusion or profile, or another analysis version moves it.
+ */
+export function workspaceInputsHash(
+  inputs: Pick<
+    WorkspaceInputs,
+    "analysis" | "clock" | "config" | "evolution" | "sources"
+  >
+): string {
+  return sha1(
+    JSON.stringify([
+      inputs.analysis,
+      inputs.clock,
+      inputs.config,
+      inputs.evolution,
+      inputs.sources,
+    ])
+  );
 }
 
 export function packageFingerprint(

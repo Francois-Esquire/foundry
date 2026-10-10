@@ -15,12 +15,17 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { analyzeSurface } from "../../src/lib/analyze";
 import { sha256 } from "../../src/lib/apply";
 import type { ApplyJournal } from "../../src/lib/apply-journal";
 import { deleteJournal, writeJournal } from "../../src/lib/apply-journal";
 import { check } from "../../src/lib/check";
 import { planRecordFile, planSite, resolveSite } from "../../src/lib/codemod";
 import { applyRecord } from "../../src/lib/codemod-apply";
+import type { PackageReport } from "../../src/lib/dataset";
+import { datasetReader } from "../../src/lib/dataset";
+import { STALE_DATASET } from "../../src/lib/dataset-current";
+import { fileTransport } from "../../src/lib/dataset-files";
 import type { ReadinessCommandRunner } from "../../src/lib/operator-readiness";
 import { spawnRunner } from "../../src/lib/operator-readiness";
 import type { ReadinessCommand } from "../../src/lib/operator-readiness-types";
@@ -77,6 +82,83 @@ describe("resolveSite", () => {
     }
   });
 });
+
+/** Every file of a saved dataset, by path, with its text: what a published dataset holds. */
+function outputFiles(output: string): Record<string, string> {
+  const files: Record<string, string> = {};
+  const walk = (directory: string, prefix: string) => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const path = `${prefix}${entry.name}`;
+      if (entry.isDirectory()) {
+        walk(join(directory, entry.name), `${path}/`);
+      } else {
+        files[path] = readFileSync(join(directory, entry.name), "utf8");
+      }
+    }
+  };
+  walk(output, "");
+  return files;
+}
+
+/** A wall-clock measurement, which every report names `…Ms` and no two runs share. */
+const TIMING = /Ms$/;
+
+/** A value without its wall-clock measurements, at any depth. */
+function withoutTimings(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(withoutTimings);
+  }
+  if (typeof value !== "object" || value === null) {
+    return value;
+  }
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([key]) => !TIMING.test(key))
+      .map(([key, field]) => [key, withoutTimings(field)])
+  );
+}
+
+/**
+ * A dataset file as two scans of the same sources agree on it: without
+ * wall-clock measurements anywhere, and the two manifests without what says
+ * when and how a scan ran (its times, phases, and what it reused, cached, or
+ * derived); everything else whole.
+ */
+function withoutVolatile(file: string, text: string | undefined): unknown {
+  // A manifest's shape as far as the test strips it; other files pass through.
+  const parsed = withoutTimings(JSON.parse(text ?? "null")) as Record<
+    string,
+    unknown
+  > & {
+    generation: Record<string, unknown>;
+    snapshots: Record<string, unknown>[];
+  };
+  if (file === "manifest.json") {
+    const {
+      artifactsGenerated: _generated,
+      artifactsReused: _reused,
+      derived: _derived,
+      finishedAt: _finished,
+      packagesAnalyzed: _analyzed,
+      packagesReused: _packagesReused,
+      phases: _phases,
+      startedAt: _started,
+      ...generation
+    } = parsed.generation;
+    return { ...parsed, generatedAt: undefined, generation };
+  }
+  if (file === "history/manifest.json") {
+    return {
+      ...parsed,
+      generatedAt: undefined,
+      generation: undefined,
+      snapshots: parsed.snapshots.map(
+        ({ cached: _cached, ...snapshot }) => snapshot
+      ),
+    };
+  }
+  return parsed;
+}
 
 /** A journal an apply left, for the refusals that read it. */
 function journalFor(
@@ -378,6 +460,17 @@ describe("applyRecord, previewing", () => {
       writeFileSync(path, original);
     }
   };
+  const rescan = () => scan.workspace(root, { state });
+  /** As `withFile`, with the dataset scanned after the edit and again after it is undone, so it stays current. */
+  const withScannedFile = (
+    file: string,
+    edit: (text: string) => string,
+    body: () => Promise<void>
+  ) =>
+    withFile(file, edit, async () => {
+      await rescan();
+      await body();
+    }).finally(rescan);
 
   beforeAll(async () => {
     ({ directory, root, state, workspace } = await scannedCopy("atlas-apply-"));
@@ -421,9 +514,27 @@ describe("applyRecord, previewing", () => {
     );
   });
 
-  it("names the source, and the file, when a planned file changed since the plan", async () => {
+  it("refuses a dataset that no longer describes the sources, and plan fails early on one", async () => {
     await plan(READY);
     await withFile(
+      INDEX,
+      (text) => `${text}// edited\n`,
+      async () => {
+        expect((await apply(READY, refuse)).refusal).toEqual({
+          kind: "stale-dataset",
+          reason: STALE_DATASET,
+        });
+        await expect(
+          planSite(root, resolveSite(READY), { runner: refuse, state })
+        ).rejects.toThrow(STALE_DATASET);
+      }
+    );
+    expect((await apply(READY)).status).toBe("preview");
+  });
+
+  it("names the source, and the file, when a planned file changed since the plan and was scanned again", async () => {
+    await plan(READY);
+    await withScannedFile(
       INDEX,
       (text) => `${text}// edited\n`,
       async () => {
@@ -506,7 +617,7 @@ describe("applyRecord, previewing", () => {
   });
 
   it("refuses a dirty file it writes, and not one it only reads or never touches", async () => {
-    await withFile(
+    await withScannedFile(
       INDEX,
       (text) => `${text}// local edit\n`,
       async () => {
@@ -517,11 +628,11 @@ describe("applyRecord, previewing", () => {
         });
       }
     );
-    await withFile(
+    await withScannedFile(
       "packages/plans/src/foo.ts",
       (text) => `${text}// local edit\n`,
       () =>
-        withFile(
+        withScannedFile(
           "packages/beta/src/index.ts",
           (text) => `${text}// local edit\n`,
           async () => {
@@ -666,6 +777,24 @@ describe("applyRecord, writing", () => {
       expect(after.generatedAt > before.generatedAt).toBe(true);
       expect(readFileSync(historyManifest, "utf8")).toBe(savedHistory);
       expect(existsSync(`${copy.workspace.output}.next`)).toBe(false);
+
+      // What apply published is what a later scan produces, from a cold
+      // cache in a fresh state directory, so nothing is reused from apply's.
+      const applied = outputFiles(copy.workspace.output);
+      const fresh = await scan(copy.root, {
+        history: true,
+        state: join(copy.directory, "fresh-state"),
+      });
+      expect(fresh.manifest.generation.packagesReused).toBe(0);
+      const rescanned = outputFiles(fresh.output);
+      expect(Object.keys(rescanned).sort()).toEqual(
+        Object.keys(applied).sort()
+      );
+      for (const [file, text] of Object.entries(applied)) {
+        expect(withoutVolatile(file, rescanned[file]), file).toEqual(
+          withoutVolatile(file, text)
+        );
+      }
       await expect(copy.write()).rejects.toThrow(
         `No authorized plan is saved for ${copy.site.opportunity}.`
       );
@@ -678,6 +807,7 @@ describe("applyRecord, writing", () => {
     async () => {
       const copy = await planned();
       const original = copy.read(INDEX);
+      const published = outputFiles(copy.workspace.output);
       const result = await copy.write({
         runner: afterTheWrite(() => ({
           exitCode: 1,
@@ -685,6 +815,9 @@ describe("applyRecord, writing", () => {
         })),
       });
       expect(result.status).toBe("rolled-back");
+      // The staged scan of the write is discarded, and the published dataset is as it was.
+      expect(outputFiles(copy.workspace.output)).toEqual(published);
+      expect(existsSync(`${copy.workspace.output}.next`)).toBe(false);
       expect(
         result.verification?.checks.filter((c) => c.status === "fail")
       ).toEqual([
@@ -974,4 +1107,59 @@ describe("applyRecord, writing", () => {
     },
     WRITE_TIMEOUT
   );
+});
+
+describe("the saved report as apply's before and after", () => {
+  let directory: string;
+  let root: string;
+  let workspace: WorkspaceState;
+
+  beforeAll(async () => {
+    ({ directory, root, workspace } = await scannedCopy("atlas-reports-"));
+  });
+
+  afterAll(() => {
+    rmSync(directory, { force: true, recursive: true });
+  });
+
+  /**
+   * Every field `validateReductionPlan`, `verifyInternalizeExport`, and the
+   * mutator read from a package report: the symbols' identity, exposure,
+   * and outside use; each internalize plan whole; the summary's counts.
+   */
+  function readFields(report: PackageReport) {
+    return {
+      plans: report.plans.filter(
+        (plan) => plan.operation === "internalize-symbol"
+      ),
+      summary: {
+        externallyUsedSymbols: report.summary.externallyUsedSymbols,
+        totalSymbols: report.summary.totalSymbols,
+      },
+      symbols: report.symbols.map((symbol) => ({
+        consumerPackages: symbol.consumerPackages,
+        declarationFile: symbol.declarationFile,
+        externalImportSites: symbol.externalImportSites,
+        externalReferences: symbol.externalReferences,
+        id: symbol.id,
+        packagePublic: symbol.packagePublic,
+      })),
+    };
+  }
+
+  it("agrees with a fresh analysis on every field validation and verification read", async () => {
+    const reader = datasetReader(fileTransport(workspace.output));
+    for (const name of [
+      "@deps/plans",
+      "@deps/plans-multi",
+      "@deps/plans-pub",
+    ]) {
+      const saved = await reader.packageReport(name);
+      const fresh = await analyzeSurface({
+        root,
+        target: saved.target.path,
+      });
+      expect(readFields(saved), name).toEqual(readFields(fresh));
+    }
+  });
 });

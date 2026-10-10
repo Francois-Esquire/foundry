@@ -2176,13 +2176,100 @@ Unit (b), done 2026-10-10.
   exits 0 with one line, the file changed, `generatedAt` advanced, and no
   journal; check then exits 0; apply again exits 1.
 
-**3.6 Refresh after every write.** From 3.5: "after" comes from the staged
-scan that `publishAfterWrite` already builds, compared before the swap, so
-that a failed scan rolls back instead of leaving a verified write; "before"
-from the saved report when proven current (A9). Internals are already reused per
-package since 1.4, derived from the cached local reports; what remains is
-passing the project `apply` builds through instead of building three. Sized
-by 3.0.
+**3.6 The scan after every write.** Done 2026-10-10. 3.0's item 4: both of
+`apply`'s analyses come from datasets instead of `analyzeSurface`.
+- "After" is the staged scan. `scan.ts` splits 3.5's `publishAfterWrite`
+  into `stageAfterWrite` (the dataset, internals included, generated into
+  `output.next` with the published one as `previous`, history hardlinked
+  in), `publishStaged` (swap, then `recordSavedDataset`), and
+  `discardStaged`. The mutator's `analyzeAfter` returns the staged package
+  report, so `verifyInternalizeExport` reads the dataset that will be
+  published, and the second `analyzeSurface` is gone. On a failed check, an
+  error, or a signal the files are restored and the staging discarded: the
+  published dataset is untouched (tested file by file). A scan that fails
+  leaves nothing to verify against, so the write rolls back ("The scan
+  after the write failed, so Atlas restores every file it wrote: …"); a
+  worker the signal stopped counts as the signal. Decision 9's "applied,
+  but the scan failed, files stay" now holds only for a failure in the
+  final swap or in recording it; cli.md's exit table says so. The staged
+  scan now runs before the scripts are run again, since the structural
+  checks precede them; the interrupt e2e waits for the script by a marker
+  file, and a new case interrupts the staged scan.
+- "Before" is the saved report, when the dataset is current (A9). The
+  manifest's `generation` gains an optional `inputs: { hash, config }`
+  (Changes row; output.md): `hash`, `workspaceInputsHash` over the five
+  components `collectWorkspaceInputs` already computes at the scan's
+  fingerprint phase (analysis version, the start-of-UTC-day clock, the
+  exclusions and profile, Git's commits and tracked files, every input
+  file's hash); `config`, the exclusions-and-profile component alone.
+  `lib/dataset-current.ts` `datasetCurrency` recomputes it with the same
+  units and clock. So a dataset is current exactly on the UTC day it was
+  scanned, with no commit (and no tracked file added or removed) and no
+  source edit since, under the same exclusions, profile, and analysis
+  version; `.foundry/` and the rules are not inputs. Apply loads the
+  configuration, recomputes every component, and refuses a dataset that is
+  not current (`stale-dataset`, "The saved dataset is stale: …. Run atlas
+  scan.") before any script runs; then the mutator validates against the
+  saved report (`before`), and the preview needs no analysis either.
+- Plan runs the same check and fails early (1), without loading the
+  configuration: the hash can be recomputed without it except for its
+  config component, so plan takes that component from the manifest. The
+  alternatives were reading the `exclude` setting, which means running the
+  configuration files and breaking the invariant, or skipping the check,
+  which lets plan run minutes of scripts against a stale dataset. The cost:
+  an exclusion edited since the scan is not caught by plan, only by apply,
+  which loads the configuration. Units come from the manifest's packages;
+  the cruise is workspace-wide, so only their presence matters.
+- The saved report agrees with a fresh analysis on every field validation,
+  verification, and the mutator read (the symbols' identity, exposure, and
+  outside use; each internalize plan whole; the summary's counts): a test
+  compares the deps fixture's saved reports with `analyzeSurface` for three
+  packages, and another that the dataset apply publishes equals, file for
+  file, what a later `atlas scan --history` saves, apart from the two
+  manifests' timings, with the same `inputs`.
+- Cache churn after a rollback: the staged scan caches the written
+  sources' local analysis and assembled reports, and records the written
+  inputs, so the next scan after a rollback analyzes the package again and
+  derives the workspace again (on the deps fixture 1 package analyzed, 20
+  reused, `derived: true`, 1.4 s, then 0.17 s); on Foundry that is a
+  one-file edit's scan, about 30 s by 3.0's table.
+- Not done: passing the project `apply` builds through (about 3 s by 3.0;
+  the planning context forbids AST changes), and splitting the derivation
+  key; both stay candidates. The mutator still builds one ts-morph project
+  for its edits and the TypeScript diff.
+- Measured on a fresh `git clone` of Foundry at c97bb1b under `/tmp`
+  (its own `bun install`, a committed `permit` on `packages/workspaces`;
+  never the user's checkout), one run each:
+
+  | Step | 3.0 | 3.5 | 3.6 |
+  | --- | --- | --- | --- |
+  | Cold scan | 40.4 s | 49.7 s | 44.7 s (8.6 GB) |
+  | Warm scan | 3.0 s | | 4.3 s |
+  | `plan` | | 6.2–7.7 s | 9.9–10.0 s (2.9 GB), its scripts 3.5–3.9 s |
+  | Preview | | 29.9 s | 12.9 s (4.4 GB) |
+  | `apply --write` with its scan | 32.9 + 35.7 s | 82.4 s | 53.1–55.2 s (8.2 GB): the staged scan 36.4–36.7 s, scripts 3.4–4.0 s before and 3.5 s after |
+  | Scan after that | | | 4.3–4.4 s (warm) |
+  | `plan` after a commit | | | 2.4 s, refused stale |
+  | Scan after a commit | 30.3 s | | 37.8 s |
+
+  Same day, the cycle plan, preview, write is about 76 s against 3.5's
+  119 s; the write itself takes about 28 s less than 3.5's. After a commit
+  the dataset is stale, plan refuses in 2.4 s, and a scan that re-derives
+  (37.8 s) comes first. The next-day case was not measured, since the clock
+  cannot be moved here: the UTC day is the hash's `clock` component, so it
+  refuses as a commit does, and 3.0 measured the day's first scan
+  re-deriving in full. On a committed copy of the deps fixture: cold scan
+  9.4 s, warm 0.82 s; plan 0.92 s; preview 1.08 s; write 2.91 s; the scan
+  after it 0.76 s; after a commit plan refuses in 0.57 s, the scan takes
+  1.76 s, then plan 0.85 s and write 2.83 s.
+- Tests: `test/lib/codemod.test.ts` (an edited file makes apply refuse
+  `stale-dataset` before any script, and plan fail early; the edit, the
+  dirty, and the moved-source tests now scan after editing; a failing
+  script leaves the published dataset file for file as it was and no
+  staging; the published dataset equals a later scan's; the field-level
+  agreement); `test/atlas.test.ts` on the built CLI (plan fails stale after
+  an edit, then succeeds after a scan; Ctrl-C during the staged scan exits
+  130 and restores).
 
 **3.7 Domains reaching the gates,** through anchors, if a codemod needs
 them. The analysis changes logged below come due here.
@@ -2254,3 +2341,5 @@ Every change to analysis code, with its reason, before it is made.
 | `DEFAULT_MUTATION_CAPABILITIES` drops `rewrite-import`, `update-test-import`, and `preserve-compatibility-export`; `MUTATION_CAPABILITY_VERSION` is 2. | The registry claimed kinds no mutator performs (decision 6, A12). Every earlier authorization's capability part moves; readiness judges an import-rewriting plan `unsupported` under the default, as the bridge already refused it. | Done in 3.5 (a). |
 | `operator-readiness.ts` exports `spawnRunner` and `commandResult` (one command run as readiness records it: its exit code and failures, normalized exactly as the baseline is, `exit <code>` when a failed run shows none), which `baselineStep` now calls instead of its inline extraction; a run (`ReadinessCommandRun`) carries the signal that killed it, if one did. | Apply runs the command steps again after its write and compares them with the baseline (decision 4, A6); one function makes both runs judge failures alike. `extractFailures` stays private behind `commandResult`. | Done in 3.5 (b). |
 | `apply.ts` gains `beforeWrite` (required to write), `expectedHashes` (checked before and after it), and `afterChecks` options and `RestoreError`; writes and restores are flushed; the restore guard compares the written bytes by SHA-256 and reports what it restored and skipped. | The journal must be flushed before the first write (A1), each file checked against the rollback's hash just before it (A2), and the scripts run again inside the restoring `try` (A6). | Done in 3.5 (b). |
+| `semantics-fingerprint.ts` gains `workspaceInputsHash`, one hash over the five workspace input components, and `collectWorkspaceInputs` takes only what it reads (`exclude`, and units by `path`); the manifest's `generation` gains an optional `inputs: { hash, config }` (`dataset-manifest.ts`, `semantics-types.ts`, written by `generateSemantics`). No fingerprint, cache key, or report changes. | Apply takes "before" from the saved report only when the dataset is proven current (A9), and plan checks the same without running the configuration, so it needs the config component apart. | Done in 3.6. |
+| `apply.ts` gains a `before` option, the target's report before the write; `atlas apply` passes the saved one, and its `analyzeAfter` passes the staged scan's, so the mutator runs no `analyzeSurface` on that path. Validation and verification are unchanged. | 3.0's largest saving (item 4); the saved and the staged reports agree with a fresh analysis on every field validation and verification read, which a test checks. | Done in 3.6. |

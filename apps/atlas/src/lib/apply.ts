@@ -44,11 +44,18 @@ export interface ApplyOptions {
    */
   afterChecks?: () => Promise<VerificationCheck[]>;
   /**
-   * Analyzes the target again once the files are written; `analyzeSurface`
-   * by default. A seam for verification: whatever it throws restores the
-   * files as a failed check does.
+   * The target's report once the files are written: `analyzeSurface` by
+   * default; `atlas apply` passes the staged scan's. Whatever it throws
+   * restores the files as a failed check does.
    */
   analyzeAfter?: (options: AnalyzeSurfaceOptions) => Promise<SurfaceReport>;
+  /**
+   * The target's report before the write, to validate the plan against and
+   * verify the write from: analyzed fresh by default; `atlas apply` passes
+   * the saved dataset's once it is proven current. It must agree with a
+   * fresh analysis on every field validation and verification read.
+   */
+  before?: SurfaceReport;
   /**
    * Called once every file's written bytes are known and checked, before
    * the first write, so a caller can journal what a restore needs; required
@@ -510,7 +517,7 @@ export async function applyReductionPlan(
     target: plan.target.path,
     ...(options.tsconfig !== undefined && { tsconfig: options.tsconfig }),
   };
-  const before = await analyzeSurface(analyzeOptions);
+  const before = options.before ?? (await analyzeSurface(analyzeOptions));
   const validation = validateReductionPlan(plan, before);
   if (validation.status !== "ready") {
     const status = validation.status === "stale" ? "stale" : validation.status;

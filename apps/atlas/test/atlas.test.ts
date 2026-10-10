@@ -1165,11 +1165,17 @@ describe("built CLI apply", () => {
   test("checks, plans, refuses what moved, previews, writes, verifies, and scans again", async () => {
     expect((await cli(["check"])).code).toBe(3);
 
-    // A dirty file it writes refuses the write, and nothing is written.
+    // A file edited since the scan makes the dataset stale: plan fails early.
+    // Scanned with the edit, a dirty file it writes refuses the write, and
+    // nothing is written.
     await withFile(
       FILE,
       (text) => `${text}// local edit\n`,
       async () => {
+        const stale = await cli(["plan", SITE]);
+        expect(stale.code).toBe(1);
+        expect(stale.stderr).toContain("The saved dataset is stale");
+        await scan(root, { state });
         expect((await cli(["plan", SITE])).code).toBe(0);
         const dirty = await cli(["apply", SITE, "--write", "--json"]);
         expect(dirty.code).toBe(1);
@@ -1184,6 +1190,7 @@ describe("built CLI apply", () => {
     );
 
     // Rules edited after the plan refuse it, naming the rule.
+    await scan(root, { state });
     expect((await cli(["plan", SITE])).code).toBe(0);
     await withFile(
       RULES,
@@ -1259,6 +1266,7 @@ describe("built CLI apply, interrupted", () => {
       join(root, "tooling/c/slow-test.sh"),
       [
         "grep -q 'export function fence' src/index.ts && exit 0",
+        'touch "$SLEEP_MARK"',
         'if [ -n "$TRAP_INT" ]; then',
         "  trap 'exit 0' INT",
         "  sleep 10 &",
@@ -1289,11 +1297,20 @@ describe("built CLI apply, interrupted", () => {
     await rm(directory, { force: true, recursive: true });
   });
 
-  /** Runs `apply --write` in its own process group, and sends that group `signal` once the file is written. */
+  /**
+   * Runs `apply --write` in its own process group, and sends that group
+   * `signal` once the file is written and, unless `during` is `scan`, once
+   * the script runs again, after the scan after the write.
+   */
   async function interrupted(
     env: Record<string, string>,
-    signal: NodeJS.Signals
+    signal: NodeJS.Signals,
+    during: "scan" | "script" = "script"
   ) {
+    const mark = join(
+      directory,
+      `sleeping-${signal}-${during}-${Object.keys(env).length}`
+    );
     expect(
       (await runCli(["plan", SITE, "--state", state, "--quiet"], root)).code
     ).toBe(0);
@@ -1301,7 +1318,7 @@ describe("built CLI apply, interrupted", () => {
     const child = spawnDetached(
       [CLI, "apply", SITE, "--write", "--state", state, "--quiet"],
       root,
-      { ...process.env, ...env }
+      { ...process.env, ...env, SLEEP_MARK: mark }
     );
     const stderr: Buffer[] = [];
     child.stderr?.on("data", (chunk: Buffer) => stderr.push(chunk));
@@ -1319,8 +1336,12 @@ describe("built CLI apply, interrupted", () => {
       }
       await new Promise((done) => setTimeout(done, 50));
     }
-    // Long enough for the script to be sleeping.
-    await new Promise((done) => setTimeout(done, 500));
+    while (during === "script" && !existsSync(mark)) {
+      if (Date.now() > deadline) {
+        throw new Error("the script never ran after the write");
+      }
+      await new Promise((done) => setTimeout(done, 50));
+    }
     process.kill(-(child.pid ?? 0), signal);
     const code = await exited;
     return {
@@ -1354,6 +1375,14 @@ describe("built CLI apply, interrupted", () => {
       );
     }, 90_000);
   }
+
+  test("restores byte for byte and exits 130 when Ctrl-C stops the scan after the write", async () => {
+    const run = await interrupted({}, "SIGINT", "scan");
+    expect(run.code, run.stderr).toBe(130);
+    expect(run.restored.equals(run.original)).toBe(true);
+    const workspace = await workspaceState(root, state);
+    expect(existsSync(`${workspace.output}.next`)).toBe(false);
+  }, 90_000);
 });
 
 test("built CLI includes Git history when requested", async () => {

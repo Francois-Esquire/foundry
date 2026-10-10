@@ -147,6 +147,9 @@ async function whileScanning<T>(
       finishing: verifiedJournal(prepared.state) !== undefined,
     };
     removeAbandonedStaging(run.state);
+    // No apply runs while this scan holds the lock, so a staged scan left
+    // beside the output is an interrupted apply's.
+    discardStaged(run.state);
     recordWorkspace(run.state);
     return await body(run);
   } finally {
@@ -256,20 +259,27 @@ function linkTree(from: string, to: string): void {
   }
 }
 
+/** Where the scan after a write is staged: beside the output. */
+function stagedOutput(state: WorkspaceState): string {
+  return `${state.output}.next`;
+}
+
 /**
- * The scan after an apply's write, under the lock the apply holds: the
- * dataset, internals included, is staged beside the output, the saved
- * history is carried into it, and only then is it swapped in and recorded.
- * History covers past commits only, and apply commits nothing, so it still
- * holds; a plain scan without `--history` drops it, as before. A failure
- * leaves the published dataset as it was and the staging removed.
+ * The scan after an apply's write, staged, under the lock the apply holds:
+ * the dataset, internals included, generated beside the output, reusing the
+ * published one's unchanged artifacts, with the saved history carried into
+ * it. History covers past commits only, and apply commits nothing, so it
+ * still holds; a plain scan without `--history` drops it, as before. The
+ * published dataset is untouched: apply verifies its write against the
+ * staged reports, then publishes them (`publishStaged`) or discards them
+ * (`discardStaged`). Returns the staged directory.
  */
-export async function publishAfterWrite(
+export async function stageAfterWrite(
   state: WorkspaceState,
   config: SemanticsConfig,
   onProgress: (event: ScanProgressEvent) => void = ignoreProgress
-): Promise<DatasetManifest> {
-  const staged = `${state.output}.next`;
+): Promise<string> {
+  const staged = stagedOutput(state);
   removeAbandonedStaging(state);
   rmSync(staged, { force: true, recursive: true });
   try {
@@ -281,12 +291,29 @@ export async function publishAfterWrite(
     if (existsSync(history)) {
       linkTree(history, join(staged, HISTORY_DIRECTORY));
     }
-    replaceDirectory(staged, state.output);
+  } catch (error) {
+    discardStaged(state);
+    throw error;
+  }
+  return staged;
+}
+
+/** Swaps the staged dataset in and records the save; on a failure the published dataset is as it was. */
+export async function publishStaged(
+  state: WorkspaceState
+): Promise<DatasetManifest> {
+  try {
+    replaceDirectory(stagedOutput(state), state.output);
   } finally {
-    rmSync(staged, { force: true, recursive: true });
+    discardStaged(state);
   }
   recordSavedDataset(state);
   return datasetReader(fileTransport(state.output)).manifest();
+}
+
+/** Removes a staged dataset that will not be published. */
+export function discardStaged(state: WorkspaceState): void {
+  rmSync(stagedOutput(state), { force: true, recursive: true });
 }
 
 /** The scan's result, after saving history into the dataset when the scan asks for it. */

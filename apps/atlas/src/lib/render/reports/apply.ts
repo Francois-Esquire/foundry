@@ -71,6 +71,8 @@ function refusalBlock(refusal: ApplyRefusal, planId: string): BlockView {
       );
     case "no-git":
       return signal("No Git", refusal.reason);
+    case "stale-dataset":
+      return signal("The dataset is stale", refusal.reason);
     default:
       return signal(
         `The saved plan is ${refusal.status}`,

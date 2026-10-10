@@ -217,10 +217,19 @@ refuse while one is pending; a scan refuses one still `writing`.
 _Avoid_: marker, lock (that is the state directory's), dirty (Git's word)
 
 **Scan after a write**:
-The scan `apply --write` runs once its checks pass: staged beside the
-dataset, history carried over, and swapped in only when complete. Until it
-publishes, the write is pending.
+The scan `apply --write` runs right after it writes: staged beside the
+dataset, internals included and history carried over. The write's
+structural checks read the staged package report; if they pass, the staged
+dataset is swapped in, and if anything fails, it is discarded with the
+write. Until it publishes, the write is pending.
 _Avoid_: refresh, rescan
+
+**Current**:
+Said of a saved dataset whose recorded inputs hash equals the workspace's
+now: no source edit, no commit, and no tracked file added or removed since
+the scan, on the same UTC day, under the same exclusions, profile, and
+analysis version. Plan and apply need a current dataset.
+_Avoid_: fresh, up to date
 
 **Violation**:
 A place where a `require` rule's outcome does not hold: for `internalize`, an

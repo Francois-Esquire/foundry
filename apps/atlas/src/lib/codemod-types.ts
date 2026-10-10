@@ -78,6 +78,8 @@ export type ApplyRefusal =
   | { kind: "readiness"; readiness: OperatorPlanReadiness }
   /** It authorizes, but not as the record says. */
   | { kind: "authorization-changed"; parts: MovedPart[] }
+  /** The saved dataset no longer describes the workspace, or cannot be shown to; "before" is its report, so apply needs a scan first. */
+  | { kind: "stale-dataset"; reason: string }
   /** The rollback cannot restore every file the mutator writes. */
   | { kind: "rollback"; reason: string }
   /** A file the mutator writes has uncommitted changes. */

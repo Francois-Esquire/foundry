@@ -117,7 +117,7 @@ With `--json`, stdout is one line: the [library](/atlas/reference/library)'s res
 | Code | When |
 | --- | --- |
 | `0` | The command finished, or `--help`; for `check`, no rule is broken, or none is declared; for `plan`, any verdict, refused and blocked included; for `apply`, a preview, or a write that verified and whose scan published |
-| `1` | The command ran and failed: a path that does not exist or is not a directory, a package that failed analysis, a workspace being scanned, exported, or applied, `--history` without Git, the viewer's files missing, a port in use, no saved dataset or one with another schema version, an unknown package, a dataset saved without the lens asked for or with another version of it, a directory export refuses, `check` could not check a `require` rule in a package that failed analysis, which outranks any violation, `plan` or `apply` was given an opportunity the dataset does not hold, or found an unfinished apply, `apply` found no record or refused, rolled back, or wrote a verified change whose scan then failed, or `check` found an unfinished apply |
+| `1` | The command ran and failed: a path that does not exist or is not a directory, a package that failed analysis, a workspace being scanned, exported, or applied, `--history` without Git, the viewer's files missing, a port in use, no saved dataset or one with another schema version, an unknown package, a dataset saved without the lens asked for or with another version of it, a directory export refuses, `check` could not check a `require` rule in a package that failed analysis, which outranks any violation, `plan` or `apply` was given an opportunity the dataset does not hold, found the dataset stale, or found an unfinished apply, `apply` found no record or refused, rolled back, or wrote a verified change whose final swap then failed, or `check` found an unfinished apply |
 | `2` | Bad arguments: an unknown flag, a flag the command does not take, a bad value, an unknown lens, a missing package, lens, opportunity, or directory, an opportunity of another shape, or a second path |
 | `130`, `143` | `apply --write` was stopped by Ctrl-C (`130`) or `SIGTERM` (`143`), and restored every file it wrote |
 | `3` | `check` only: a rule is broken |
@@ -229,8 +229,28 @@ is never a promise that the sources still match.
 beside another command's. It refuses while an apply's journal,
 `apply/journal.json` in the state directory, exists.
 
-The saved plan is the last scan's. `plan` does not yet check that the
-dataset is current, so scan after editing the sources.
+The saved plan is the last scan's, so `plan` first checks that the saved
+dataset is current, and fails at once when it is not; see
+[current](#a-current-dataset).
+
+## A current dataset
+
+A scan records one hash of everything its analyses read: every source
+file, Git's commits and tracked files, the UTC day it ran on, the
+configuration's exclusions and profile, and the analysis version. `plan`
+and `apply` recompute that hash, in about two seconds on a workspace of
+1,500 files, and go on only when it is the recorded one. So a dataset is
+current on the UTC day it was scanned, with no commit and no source edit
+since. Otherwise they fail with "The saved dataset is stale", and
+`atlas scan` makes it current again; after a commit or on a new UTC day
+that scan derives the workspace again, which is most of a cold scan's time. A dataset saved before Atlas recorded the hash cannot be shown current
+either.
+
+`plan` runs no configuration, so it takes the exclusions-and-profile part
+of the hash from the dataset rather than from the configuration: an edited
+exclusion is caught by `apply`, which loads the configuration, and not by
+`plan`. Rules are not part of the hash; `apply` compares them with the
+record.
 
 ## Apply
 
@@ -246,7 +266,9 @@ lock, in both modes, it:
 1. finishes an earlier apply that did not: one interrupted while it wrote
    is restored from its journal, which it reports and exits `1`; one that
    wrote and verified its change waits for `atlas scan`;
-2. loads the rules from the configuration as it is now;
+2. loads the configuration as it is now, and refuses a dataset that is not
+   [current](#a-current-dataset), before any script runs: the saved
+   package report is what the write is checked against;
 3. authorizes the plan again, which runs the workspace's test and
    typecheck scripts again, and refuses unless the result is the record's.
    A refusal names what moved, in this order: the sources, with the files,
@@ -259,7 +281,12 @@ lock, in both modes, it:
    dirty file, or one the plan only reads, does not stop it. `--write`
    needs Git: outside a repository, without Git, or with a repository Git
    cannot read, it refuses and says which;
-6. analyzes the package fresh and checks the saved plan against it.
+6. checks the saved plan against the saved package report, which a current
+   dataset holds as a fresh analysis would. "Before" is fixed there, when
+   currency is checked: a file edited elsewhere while the scripts run is
+   not caught by these checks, but by the verification after the write,
+   which reads the staged scan of the sources as they then are, and rolls
+   back.
 
 Then, with `--write`:
 
@@ -288,17 +315,25 @@ Then, with `--write`:
    original. Restore that file from Git (its `HEAD` content) and the next
    `atlas apply` finishes the restore; delete the journal to keep the files
    as they are;
-6. once every check passes, it scans again, internals included, staged
-   beside the dataset and swapped in only when complete, keeping the
-   dataset's history, since history covers past commits and apply commits
-   nothing. Then it deletes the record, if it is still the one it loaded,
-   and the journal.
+6. the structural checks read the scan after the write: it scans again,
+   internals included, staged beside the dataset, keeping the dataset's
+   history, since history covers past commits and apply commits nothing.
+   A scan that fails leaves nothing to check against, so it fails the
+   write, which is restored. On any failure the staged dataset is
+   discarded and the published one is untouched;
+7. once every check passes, the staged dataset is swapped in and recorded,
+   and the record, if it is still the one it loaded, and the journal are
+   deleted.
 
-If the scan after a verified write fails, the change stays written and
-verified, the journal stays, and `apply` exits `1`: run `atlas scan`, which
-publishes the dataset and then deletes the journal. Until then `plan`,
-`apply`, and `check` refuse, and a scan refuses while an apply's write was
-interrupted, until `atlas apply` restores it.
+If only that last swap, or recording it, fails, the change stays written
+and verified, the journal stays, and `apply` exits `1`: run `atlas scan`,
+which publishes the dataset and then deletes the journal. Until then
+`plan`, `apply`, and `check` refuse, and a scan refuses while an apply's
+write was interrupted, until `atlas apply` restores it.
+
+A write that rolls back leaves the scan cache holding the written sources'
+analysis, so the next scan analyzes the package again and derives the
+workspace again, as after any one-file edit.
 
 Each write and restore replaces the file by a rename, so it keeps the
 bytes and the mode, but not another user's ownership, extended attributes,
@@ -309,7 +344,7 @@ again after the write may write what they always write, such as coverage.
 | Exit | When |
 | --- | --- |
 | `0` | A preview printed, or a change written, verified, and scanned |
-| `1` | No record, a refusal, a rollback, an earlier interrupted write restored, or a verified write whose scan failed |
+| `1` | No record, a refusal (a stale dataset included), a rollback (a scan after the write that failed included), an earlier interrupted write restored, or a verified write whose final swap failed |
 | `2` | Bad arguments, such as `--write` on another command |
 | `130`, `143` | Ctrl-C (`130`) or `SIGTERM` (`143`) stopped the write, and every file it wrote is restored |
 
@@ -319,7 +354,8 @@ again did not authorize it), `authorization-changed` (with the `parts` that
 moved), `rollback` (the plan creates or deletes a file, or a file it writes
 cannot be restored), `dirty` (with the `files`), `no-git` (with the
 `reason`), or `revalidation` (the mutator's fresh analysis found the saved
-plan `stale`, `blocked`, or `unsupported`, with its `blockers`). `timings`
+plan `stale`, `blocked`, or `unsupported`, with its `blockers`). `stale-dataset` (the dataset is not [current](#a-current-dataset), with the
+`reason`) refuses before anything runs. `timings`
 is `{ baselineMs, afterMs }`: how long the workspace's scripts ran under the
 lock before the write, and again after it.
 

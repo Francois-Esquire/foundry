@@ -389,6 +389,8 @@ What this means for 3.6:
    when its fingerprint is current, and take "after" from the refresh scan,
    staged and published only once verification passes. About 28 s per
    `apply`; this conflicts with 3.5's "fresh analysis", so the maintainer
-   decides.
+   decides. Done in 3.6: "before" is the saved report when the dataset is
+   current, "after" the staged scan's, and a write fell from 82.4 s to
+   53–55 s on a Foundry clone.
 5. Run dependency-cruiser and `git log` once per scan (about 2 s, warm
    included).

@@ -59,6 +59,7 @@ import {
   packageFingerprint,
   packageLocalFingerprint,
   startOfUtcDay,
+  workspaceInputsHash,
 } from "./semantics-fingerprint";
 import type {
   DatasetManifest,
@@ -1405,6 +1406,7 @@ export async function generateSemantics(
         discovery,
         files: writer.files,
         finishedAt,
+        inputs: { config: inputs.config, hash: workspaceInputsHash(inputs) },
         mode,
         modules,
         packages,

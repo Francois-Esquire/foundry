@@ -1,6 +1,5 @@
 import { readFileSync, rmSync } from "node:fs";
 import { isMissingPath } from "@foundry/lib/atomic-file";
-import { analyzeSurface } from "./analyze";
 import type { RestorableFile } from "./apply";
 import {
   applyReductionPlan,
@@ -25,7 +24,14 @@ import type {
   MovedPart,
   Site,
 } from "./codemod-types";
-import { savedDataset } from "./dataset-files";
+import type { PackageReport } from "./dataset";
+import { datasetReader } from "./dataset";
+import {
+  datasetCurrency,
+  STALE_DATASET,
+  UNRECORDED_DATASET,
+} from "./dataset-current";
+import { fileTransport, savedDataset } from "./dataset-files";
 import type { ReadinessCommandRunner } from "./operator-readiness";
 import { commandResult, spawnRunner } from "./operator-readiness";
 import type {
@@ -34,12 +40,11 @@ import type {
 } from "./operator-readiness-types";
 import { AUTHORIZED_MUTATION_PLAN_SCHEMA_VERSION } from "./operator-readiness-types";
 import type { ScanProgressEvent } from "./scan";
-import { publishAfterWrite } from "./scan";
+import { discardStaged, publishStaged, stageAfterWrite } from "./scan";
 import type { SemanticsConfig } from "./semantics-types";
 import type { WorkspaceState } from "./state";
 import { lockState } from "./state";
 import type {
-  AnalyzeSurfaceOptions,
   InternalizeSymbolPlan,
   MutationResult,
   VerificationCheck,
@@ -458,12 +463,8 @@ function deleteLoadedRecord(file: string, loaded: LoadedRecord): void {
 export interface ApplyRecordOptions {
   /** Progress of the scan after a write. */
   onProgress?: (event: ScanProgressEvent) => void;
-  /** The scan after a verified write; `publishAfterWrite` by default. A seam for the tests. */
-  publish?: (
-    state: WorkspaceState,
-    config: SemanticsConfig,
-    onProgress?: (event: ScanProgressEvent) => void
-  ) => Promise<unknown>;
+  /** Swaps the verified write's staged scan in and records it; `publishStaged` by default. A seam for the tests. */
+  publish?: (state: WorkspaceState) => Promise<unknown>;
   /** Runs readiness's baseline commands, and runs them again after a write; by default they are spawned. */
   runner?: ReadinessCommandRunner;
   /** Where SIGINT and SIGTERM come from; the process by default. */
@@ -480,9 +481,16 @@ interface WriteContext {
   loaded: LoadedRecord;
   options: ApplyRecordOptions;
   readiness: OperatorPlanReadiness;
+  /** The package's report in the current saved dataset: "before". */
+  report: PackageReport;
   saved: InternalizeSymbolPlan;
   site: Site;
   workspace: WorkspaceState;
+}
+
+/** Wall time of the scan after the write: staging it, then publishing it. */
+interface ScanClock {
+  ms: number;
 }
 
 /**
@@ -492,9 +500,14 @@ interface WriteContext {
  * journal: the next `atlas scan` publishes and finishes it (decision 9).
  */
 async function writeVerified(context: WriteContext): Promise<ApplyResult> {
-  const { base, config, loaded, options, readiness, site, workspace } = context;
+  const { base, loaded, options, readiness, site, workspace } = context;
   const elapsed = { ms: 0 };
-  const { journaled, mutation } = await mutateJournaled(context, elapsed);
+  const scanClock: ScanClock = { ms: 0 };
+  const { journaled, mutation } = await mutateJournaled(
+    context,
+    elapsed,
+    scanClock
+  );
   const written = {
     ...base,
     changedFiles: mutation.changedFiles,
@@ -509,7 +522,9 @@ async function writeVerified(context: WriteContext): Promise<ApplyResult> {
   };
   if (mutation.status !== "applied") {
     // Rolled back, or a write that never began, such as a file that moved
-    // while the journal was flushed: nothing is left to restore.
+    // while the journal was flushed: nothing is left to restore, and the
+    // staged scan of the write is not published.
+    discardStaged(workspace);
     if (journaled) {
       deleteJournal(workspace);
     }
@@ -527,7 +542,7 @@ async function writeVerified(context: WriteContext): Promise<ApplyResult> {
   if (journal !== undefined) {
     await writeJournal(workspace, { ...journal, phase: "verified" });
   }
-  const scan = await scanAfterWrite(workspace, config, options);
+  const scan = await publishAfterWrite(workspace, options, scanClock);
   if (scan.status === "published") {
     deleteLoadedRecord(planRecordFile(workspace, site.planId), loaded);
     deleteJournal(workspace);
@@ -544,8 +559,9 @@ async function writeVerified(context: WriteContext): Promise<ApplyResult> {
  * keeps the journal.
  */
 async function mutateJournaled(
-  { options, readiness, saved, site, workspace }: WriteContext,
-  elapsed: { ms: number }
+  { config, options, readiness, report, saved, site, workspace }: WriteContext,
+  elapsed: { ms: number },
+  scanClock: ScanClock
 ): Promise<{ journaled: boolean; mutation: MutationResult }> {
   const runner = options.runner ?? spawnRunner;
   const interrupts = watchInterrupts(options.signals ?? process);
@@ -555,12 +571,28 @@ async function mutateJournaled(
     const mutation = await applyReductionPlan(saved, {
       afterChecks: () =>
         commandChecks(readiness, workspace.root, runner, interrupts, elapsed),
-      analyzeAfter: async (analyzeOptions: AnalyzeSurfaceOptions) => {
+      // "After" is the staged scan's report of the package, so the write is
+      // verified against the dataset that will be published.
+      analyzeAfter: async () => {
         await interrupts.check();
-        const after = await analyzeSurface(analyzeOptions);
+        let after: PackageReport;
+        try {
+          after = await stagedReport(
+            workspace,
+            config,
+            saved.target.package,
+            options.onProgress,
+            scanClock
+          );
+        } catch (error) {
+          // A worker the signal stopped fails the scan: that is the signal.
+          await interrupts.check();
+          throw error;
+        }
         await interrupts.check();
         return after;
       },
+      before: report,
       beforeWrite: async (files) => {
         // A signal during the analysis before the write writes nothing.
         await interrupts.check();
@@ -590,6 +622,7 @@ async function mutateJournaled(
     }
     return { journaled, mutation };
   } catch (error) {
+    discardStaged(workspace);
     throw undone(workspace, error, { applied, journaled });
   } finally {
     interrupts.stop();
@@ -617,23 +650,55 @@ function undone(
   return error;
 }
 
-/** The scan after the write, as apply reports it; a failure is reported, not thrown. */
-async function scanAfterWrite(
+/**
+ * The scan after the write, staged, and the package's report in it. A
+ * failed scan leaves no report to verify against, so it fails the write,
+ * which the mutator then restores.
+ */
+async function stagedReport(
   workspace: WorkspaceState,
   config: SemanticsConfig,
-  options: ApplyRecordOptions
-): Promise<ApplyScan> {
-  const publish = options.publish ?? publishAfterWrite;
+  name: string,
+  onProgress: ((event: ScanProgressEvent) => void) | undefined,
+  scanClock: ScanClock
+): Promise<PackageReport> {
   const started = performance.now();
-  const durationMs = () => Math.round(performance.now() - started);
   try {
-    await publish(workspace, config, options.onProgress);
+    const staged = await stageAfterWrite(workspace, config, onProgress);
+    return await datasetReader(fileTransport(staged)).packageReport(name);
+  } catch (error) {
+    throw new Error(
+      `The scan after the write failed, so Atlas restores every file it wrote: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error }
+    );
+  } finally {
+    scanClock.ms += performance.now() - started;
+  }
+}
+
+/**
+ * Publishes the verified write's staged scan: swaps it in and records it.
+ * A failure here, and only here, leaves the verified write in the sources
+ * (decision 9): the journal stays `verified`, and the next scan publishes.
+ */
+async function publishAfterWrite(
+  workspace: WorkspaceState,
+  options: ApplyRecordOptions,
+  scanClock: ScanClock
+): Promise<ApplyScan> {
+  const publish = options.publish ?? publishStaged;
+  const started = performance.now();
+  const durationMs = () =>
+    Math.round(scanClock.ms + performance.now() - started);
+  try {
+    await publish(workspace);
     return {
       durationMs: durationMs(),
       output: workspace.output,
       status: "published",
     };
   } catch (error) {
+    discardStaged(workspace);
     return {
       durationMs: durationMs(),
       error: error instanceof Error ? error.message : String(error),
@@ -683,7 +748,20 @@ export async function applyRecord(
     }
     const loaded = loadRecord(workspace, site);
     const config = await loadConfiguration(workspace.root);
-    const { saved, verdict } = await authorizeSite(
+    // "Before" is the saved report, so the dataset must be current; checked
+    // before any script runs.
+    const currency = await datasetCurrency(
+      workspace.root,
+      await reader.manifest(),
+      config
+    );
+    if (currency !== "current") {
+      return refused({
+        kind: "stale-dataset",
+        reason: currency === "stale" ? STALE_DATASET : UNRECORDED_DATASET,
+      });
+    }
+    const { report, saved, verdict } = await authorizeSite(
       reader,
       workspace,
       site,
@@ -725,12 +803,16 @@ export async function applyRecord(
         loaded,
         options,
         readiness: verdict.readiness,
+        report,
         saved,
         site,
         workspace,
       });
     }
-    const mutation = await applyReductionPlan(saved, { root: workspace.root });
+    const mutation = await applyReductionPlan(saved, {
+      before: report,
+      root: workspace.root,
+    });
     const refusal = mutatorRefusal(mutation);
     if (refusal !== undefined) {
       return stop(refusal);

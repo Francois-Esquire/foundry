@@ -33,6 +33,16 @@ the one this Atlas writes. `cache/` holds per-package results and
 the workspace fingerprint that make the next scan incremental; delete the
 whole state directory to force a full rebuild.
 
+The inputs hash covers what the incremental cache covers, and shares its
+blind spots: declaration files (`.d.ts`), installed packages, and the
+lockfile are not hashed, and the workspace's own `tsconfig.json` is not
+read, since the scan builds its own compiler options. A change to one of
+them leaves the dataset current; scan again after one. After an apply's
+write rolls back, the cache holds the written sources' analysis, so the
+next scan analyzes the package and derives the workspace again, about 30 s
+on a workspace of 1,500 files: slower, never wrong, and the saved dataset,
+which the rollback never touched, stays current.
+
 `plans/` holds one record per authorized plan, named by a digest of the
 saved plan's id: the mutator, the saved plan's id and fingerprint, the rules
 that permit it, and the fingerprints a later apply checks again. A plan
@@ -64,7 +74,7 @@ through `modules/index.json`, except those under `history/`, which
 
 | File | What it holds |
 | --- | --- |
-| `manifest.json` | Schema version, counts, coverage (`complete` or `partial`), discovery (the package patterns as the workspace declaration lists them, `declarationSource` for which file that is, `packagePatternsUnmatched` for patterns that matched no directory, `excludeUnmatched` for exclusions that matched no unit, `unitsDiscovered` for every directory a pattern matched, `packagesFound` for the units that are packages, `unitsAnalyzed`, and the units skipped and why), the paths of the workspace-level files, each lens's file and schema version (`lenses`), generation details (mode, phases, reuse, failures), and one entry per package: its status, its declared dependencies (`declaredDependencies`: each of `dependencies`, `devDependencies`, `peerDependencies`, and `optionalDependencies` its `package.json` has, every range as written), and the paths of its report, projection, module shard, and internals (`internals`, absent when the scan left internals out or the package failed) |
+| `manifest.json` | Schema version, counts, coverage (`complete` or `partial`), discovery (the package patterns as the workspace declaration lists them, `declarationSource` for which file that is, `packagePatternsUnmatched` for patterns that matched no directory, `excludeUnmatched` for exclusions that matched no unit, `unitsDiscovered` for every directory a pattern matched, `packagesFound` for the units that are packages, `unitsAnalyzed`, and the units skipped and why), the paths of the workspace-level files, each lens's file and schema version (`lenses`), generation details (mode, phases, reuse, failures, and `inputs`, `{ hash, config }`: one SHA-1 over every input the analyses read, the sources, Git's commits and tracked files, the UTC day, the exclusions and profile, and the analysis version, and the exclusions-and-profile part alone; absent in a dataset an earlier Atlas saved; `plan` and `apply` recompute `hash` to tell whether the dataset is current; see below), and one entry per package: its status, its declared dependencies (`declaredDependencies`: each of `dependencies`, `devDependencies`, `peerDependencies`, and `optionalDependencies` its `package.json` has, every range as written), and the paths of its report, projection, module shard, and internals (`internals`, absent when the scan left internals out or the package failed) |
 | `workspace.json` | The whole workspace report: architecture, boundaries, concepts, evolution (churn, hotspots, change coupling, and change radius from the Git log, when there is one), the graph, ingestion diagnostics, and the workspace intelligence |
 | `packages/<name>.json` | One package's full report |
 | `packages/<name>.projection.json` | That package's renderer-neutral projection |

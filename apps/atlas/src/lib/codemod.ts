@@ -5,6 +5,11 @@ import { refuseUnfinishedApply } from "./apply-journal";
 import { createOperatorContext } from "./architectural-operator";
 import type { PlanSiteResult, Site } from "./codemod-types";
 import type { DatasetReader, PackageReport } from "./dataset";
+import {
+  datasetCurrency,
+  STALE_DATASET,
+  UNRECORDED_DATASET,
+} from "./dataset-current";
 import { savedDataset } from "./dataset-files";
 import { executionPlanFor } from "./execution-plan";
 import { createOperatorPlanningContext } from "./operator-planning-context";
@@ -109,7 +114,7 @@ export interface PlanSiteOptions {
   state?: string | undefined;
 }
 
-/** The chain for one site, as plan and apply both run it: the saved plan, and `authorizeMutationPlan`'s answer under `rules`. */
+/** The chain for one site, as plan and apply both run it: the saved plan, its package's report, and `authorizeMutationPlan`'s answer under `rules`. */
 export async function authorizeSite(
   reader: DatasetReader,
   workspace: WorkspaceState,
@@ -117,6 +122,7 @@ export async function authorizeSite(
   rules: readonly Rule[],
   runner: ReadinessCommandRunner | undefined
 ): Promise<{
+  report: PackageReport;
   saved: InternalizeSymbolPlan;
   verdict: MutationAuthorizationResult;
 }> {
@@ -147,7 +153,7 @@ export async function authorizeSite(
     },
     rules
   );
-  return { saved, verdict };
+  return { report, saved, verdict };
 }
 
 /**
@@ -165,6 +171,15 @@ export async function planSite(
 ): Promise<PlanSiteResult> {
   const { reader, workspace } = await savedDataset(root, options.state);
   refuseUnfinishedApply(workspace);
+  // Fails early on a dataset that no longer describes the workspace; plan
+  // runs no configuration, so the manifest's own config part stands in.
+  const currency = await datasetCurrency(
+    workspace.root,
+    await reader.manifest()
+  );
+  if (currency !== "current") {
+    throw new Error(currency === "stale" ? STALE_DATASET : UNRECORDED_DATASET);
+  }
   const { rules } = await reader.lens("rules");
   const { saved, verdict } = await authorizeSite(
     reader,
