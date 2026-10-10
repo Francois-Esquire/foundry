@@ -2350,22 +2350,32 @@ current zoom needs.
 
 Detail in [`_workspaces.md`](./_workspaces.md#questions).
 
-**5.0 Decide the use case** and the first set of workspaces to build
-against. The shape, a collection dataset, is recommended already.
+**5.0 Decide the use case.** Done 2026-10-10; see
+[`_workspaces.md`](./_workspaces.md#decisions). A product split across
+repositories that depend on each other, built against two fixture
+workspaces (no local repository depends on a `@foundry/*` package across
+repositories; Foundry with the Agents checkout is the manual check of
+same-named packages). A package of the same name in two workspaces is two
+packages, qualified `<workspace id>:<package>`. Crossings are package level,
+from declared dependencies. No collection is persisted: the collection
+manifest is derived from the saved workspace manifests by `serve` and
+`export`. The viewer draws one archipelago per workspace, side by side.
 
-**5.1 A collection record,** listing the workspaces, built on the 1.3
-`workspace.json` records.
+**5.1 Resolve a collection:** the paths resolved, deduplicated, refused
+when they overlap, in a canonical order, each with its workspace state.
 
-**5.2 The collection dataset:** qualified ids and the cross-workspace edges
-from declared dependencies.
+**5.2 The collection manifest:** qualified ids and the crossings from
+declared dependencies, as a pure function of the workspace manifests.
 
 **5.3 Many paths for real** in the commands, the library, and `serve`,
 which serves each dataset under its own prefix. `AtlasServer.root` is
 singular until then.
 
-**5.4 The viewer's data root per workspace,** which 1.5 reduces to one
-place, `DATA_ROOT` in `web/dataset.ts`; the server's `/data/` mount and the
-`scripts/dev.ts` proxy move with it.
+**5.4 The viewer.** Waits for Phase 4. 5.4a, the data seam: the data root
+per workspace (1.5 reduced it to one place, `DATA_ROOT` in
+`web/dataset.ts`), the probe for a collection, and a dataset reference per
+island. 5.4b, the drawing: frames side by side, one rim per frame, and the
+crossings' ink.
 
 ## Changes to existing code
 
