@@ -1,5 +1,4 @@
 import { afterEach, expect, test } from "bun:test";
-import { execFileSync } from "node:child_process";
 import {
   cp,
   mkdir,
@@ -13,12 +12,13 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawn } from "bun";
 import { parseArguments } from "../src/cli/args";
-import { resolveWorkspace } from "../src/cli/workspace";
 import type { SemanticsHistoryManifest } from "../src/lib/semantics-history-types";
 import type { SemanticsManifest } from "../src/lib/semantics-types";
+import { workspaceState } from "../src/lib/state";
 import { startServer } from "../src/server/server";
 import { loadAtlas } from "../src/web/load-atlas";
 import { loadInternals } from "../src/web/load-internals";
+import { commitFixture } from "./helpers/commit-fixture";
 
 const directories: string[] = [];
 const SERVER_URL = /Atlas: (http:\/\/\S+)/;
@@ -34,7 +34,7 @@ async function fixture() {
   directories.push(directory);
   const root = join(directory, "workspace");
   await mkdir(root);
-  const workspace = await resolveWorkspace(root, join(directory, "state"));
+  const workspace = await workspaceState(root, join(directory, "state"));
   return { directory, workspace };
 }
 
@@ -62,13 +62,13 @@ test("workspace identity resolves symlinks and isolates separate checkouts", asy
   const { directory, workspace } = await fixture();
   const alias = join(directory, "alias");
   await symlink(workspace.root, alias);
-  expect(await resolveWorkspace(alias, join(directory, "state"))).toEqual(
+  expect(await workspaceState(alias, join(directory, "state"))).toEqual(
     workspace
   );
   const other = join(directory, "other");
   await mkdir(other);
   expect(
-    (await resolveWorkspace(other, join(directory, "state"))).output
+    (await workspaceState(other, join(directory, "state"))).output
   ).not.toBe(workspace.output);
 });
 
@@ -163,6 +163,15 @@ test("built CLI scans an external workspace and the web loaders consume its save
       new Response(child.stdout).text(),
     ]);
     expect(code, stderr).toBe(0);
+    // Progress is the CLI's formatting of the library's events.
+    const lines = stderr.trimEnd().split("\n");
+    expect(lines[0]).toBe("discover");
+    expect(lines.slice(lines.indexOf("write"))).toEqual([
+      "write",
+      "internals: @s/a",
+      "internals: @s/b",
+      "internals: @s/c",
+    ]);
     return JSON.parse(
       await readFile(join(workspace.output, "manifest.json"), "utf8")
     ) as SemanticsManifest;
@@ -231,21 +240,7 @@ test("built CLI includes Git history when requested", async () => {
     workspace.root,
     { recursive: true }
   );
-  const git = (args: string[]) =>
-    execFileSync("git", args, { cwd: workspace.root, stdio: "pipe" });
-  git(["init", "-q"]);
-  git(["add", "."]);
-  git([
-    "-c",
-    "user.name=Atlas fixture",
-    "-c",
-    "user.email=atlas@example.test",
-    "-c",
-    "commit.gpgsign=false",
-    "commit",
-    "-qm",
-    "Initial fixture",
-  ]);
+  commitFixture(workspace.root);
   const child = spawn(
     [
       process.execPath,

@@ -88,18 +88,25 @@ Paths are under `apps/atlas` unless they say otherwise.
   installed `dist`, scans with an empty PATH, and checks the
   missing-assets message.
 
-**1.2 `scan` into the library.** A move, not a rewrite.
-- `cli/scan.ts` becomes `lib/scan.ts`, taking a root and options instead
-  of the CLI's workspace object, and reporting through `onProgress` instead
-  of writing to stderr. The progress event type is exported.
-- The shape settled in [`_api.md`](./_api.md#library): `scan(root)` scans
-  the workspace and every package's internals, `scan.workspace(root)` the
-  workspace level only, and `scan.package(root, name)` one package in
-  depth. Each returns its results; how they are read back is 1.5.
-- `cli/workspace.ts` moves with it as the state resolver.
-- The CLI calls the moved function; `test/atlas.test.ts` follows.
-- Done when the CLI behaves as before and the fixture snapshots do not
-  change.
+**1.2 `scan` into the library.** Done 2026-10-10.
+- `cli/scan.ts` is now `lib/scan.ts`: `scan(root, options?)`,
+  `scan.workspace(root, options?)`, and `scan.package(root, name)`. The
+  first two return a `Scan` or `WorkspaceScan` (the output directory, the
+  manifest read back, and the history manifest when asked); `scan.package`
+  returns `PackageInternals`, every stage through the review, and saves
+  nothing.
+- One `ScanOptions` for both scans: `state`, `onProgress`, `history`. The
+  exported `ScanProgressEvent` is the dataset's events plus `internals`
+  (with a 1-based `index` of `total`) and history's events wrapped as
+  `history`.
+- `scan.workspace` writes `manifests/` too, so its dataset loads in the
+  viewer; `scan` adds `internals/`. Order: publish, internals, history.
+- `cli/workspace.ts` is now `lib/state.ts`: `workspaceState(root,
+  state?)` and `resolveRoot`. The id is unchanged.
+- The CLI formats the events to stderr as before; the fixture dataset
+  compares equivalent before and after (`compareSemanticsDatasets`, with
+  internals timing stripped), and `test/lib/scan.test.ts` covers the three
+  functions and history.
 
 **1.3 State and cache.** Loading code, which the ground rules allow to
 change.
@@ -111,13 +118,25 @@ change.
   version, last scan), as Marbles keeps, so the state root can be listed.
 - The state id is Marbles' 12-hex id, settled 2026-10-10. Existing state
   directories are orphaned, which costs one rescan before 0.1.
+- `docs/scripts/build-example.ts:13` recomputes the sha256 state id; it
+  follows the new id, or calls the library, until 1.8 replaces it.
 - Done when a test runs two scans of one workspace at once and one waits or
   fails cleanly. Waits for 1.1 and 1.2.
 
 **1.4 The dataset, complete.** Fixed in the moved `lib/scan.ts`.
 - `internals/` and `manifests/` are written before the atomic publish, are
   listed in `manifest.files`, and fall under a stage fingerprint. Today
-  `cli/scan.ts:39-57` writes them after the swap.
+  `lib/scan.ts` writes them after the swap (`publishWorkspace` and
+  `saveInternals`).
+- The manifest records per package whether internals exist. A dataset
+  saved by `scan.workspace` then loads, and the drill-down says internals
+  were not scanned (the viewer side is 1.5).
+- A package that fails in derivation still publishes a partial dataset,
+  and only then does the scan throw. Decide here whether that publish
+  should happen.
+- At the schema-4 bump, consider renaming `manifests/`, which stops being
+  `package.json` copies, and the duplicate `id` and `name` fields of
+  `SemanticsManifestPackage`.
 - `manifests/` keeps only the declared dependencies, which are all the
   viewer reads, instead of raw `package.json` copies.
 - A `--history` scan keeps the `history/couplings.json` that a plain scan
@@ -140,6 +159,13 @@ layers. Not exported; `scan` returns its results through it.
 - The codex keeps its own part, the `CodexSource` picks, and builds it on
   the reader. `web/load-internals.ts` uses the same reader and reads the
   manifest once, not twice.
+- The target result shape: `WorkspaceScan` gains read-back accessors,
+  `Scan` gains `internals(name)` returning `PackageInternals`, and the
+  manifest is read with the schema-version check instead of the cast in
+  `lib/scan.ts`.
+- The reader owns the complete-internals check that `lib/scan.ts`
+  `completeInternals` and `web/load-internals.ts` both make today; the
+  viewer's copy goes.
 - Done when the viewer and a Node test read the fixture through one reader,
   and no file outside it names a dataset path. Waits for 1.4.
 
@@ -148,6 +174,8 @@ layers. Not exported; `scan` returns its results through it.
   library `serve`.
 - Retire `lib/semantics-serve.ts` and its test.
 - Done when the CLI's default command and `serve` call it.
+- The CLI drops its own `workspaceState` call once `serve(root)` resolves
+  the state itself.
 
 **1.7 Configuration.**
 - Resolve `.foundry/atlas/` as Marbles resolves `.foundry/marbles/`
@@ -167,6 +195,9 @@ layers. Not exported; `scan` returns its results through it.
 
 **1.8 Commands.** The CLI as the library plus formatting.
 - A typed command table, as Marbles has, in `cli/args.ts`.
+- The CLI's `Output saved to <dir>` becomes `Dataset saved to <dir>`, with
+  `test/package.test.ts` and the docs that quote it (`reference/cli.md`,
+  `start-here.md`, `guides/scan-a-workspace.md`).
 - Paths are plural in the parser, `path...`, and a second path is refused
   with a message that names the collection work, until phase 5.
 - `--json` and `--quiet` on every command that prints a result; exit codes
@@ -194,6 +225,8 @@ layers. Not exported; `scan` returns its results through it.
 others.
 - The `exports` map: `.` only, with `scan`, `serve`, and the result types.
   The analysis worker ships beside it.
+- The exported dataset types carry a `Semantics*` prefix
+  (`SemanticsManifest`); alias them or document the prefix.
 - `test/package.test.ts` imports the library from the installed tarball and
   runs `scan`, `scan.workspace`, `scan.package`, and `serve` against the
   fixture.

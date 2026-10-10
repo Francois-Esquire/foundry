@@ -88,7 +88,7 @@ import { scan, serve } from "@foundry/atlas";
 
 const everything = await scan("./my-workspace"); // workspace and every package's internals
 const workspace = await scan.workspace("./my-workspace"); // workspace level only
-const db = await scan.package("./my-workspace", "@acme/db"); // one package, in depth
+const db = await scan.package("./my-workspace", "@acme/db"); // one package's internals
 const past = await scan("./my-workspace", { history: true });
 
 const server = await serve("./my-workspace", { port: 0 });
@@ -98,9 +98,9 @@ await server.stop();
 
 | Export | Does | Built from |
 | --- | --- | --- |
-| `scan(root, options?)` | Scans the workspace and every package's internals; returns the results and saves the dataset | `cli/scan.ts` over `generateSemantics`, `runInternalAnalysis`, `generateSemanticsHistory` |
-| `scan.workspace(root, options?)` | The workspace-level results only, without internals | `generateSemantics` |
-| `scan.package(root, name, options?)` | One package's internal structure | `runInternalAnalysis` |
+| `scan(root, options?)` | Scans the workspace and every package's internals; returns the results and saves the dataset | `lib/scan.ts` over `generateSemantics`, `runInternalAnalysis`, `generateSemanticsHistory` |
+| `scan.workspace(root, options?)` | The workspace-level results only, without internals; a dataset the viewer loads | `generateSemantics` plus `manifests/`, which the viewer reads for every package |
+| `scan.package(root, name)` | One package's internals, analyzed fresh; saves nothing | `runInternalAnalysis` |
 | `serve(root, options?)` | Serves the saved dataset and the viewer; returns the URL and `stop` | `startServer` plus the web root resolution in `cli/index.ts` |
 | Types | What `scan` returns, and the dataset schema version | `semantics-types.ts`, `semantics-history-types.ts`, `workspace-projection-types.ts`, `types.ts` |
 

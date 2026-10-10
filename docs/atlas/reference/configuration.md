@@ -35,8 +35,7 @@ the scan.
 | `history.range` | string | `"1y"` | How far back from `HEAD`: `<n>y`, `<n>m`, `<n>d`, or `all`. Anything else fails the history scan. |
 | `history.strategy` | string | `"monthly"` | `monthly`, `evenly-spaced`, or `every-n-commits`. |
 
-`semantics.output` exists for the library and is ignored by the CLI, which
-always writes under the state root.
+`semantics.output` is ignored; a scan always writes under the state root.
 
 ## What else Atlas reads
 

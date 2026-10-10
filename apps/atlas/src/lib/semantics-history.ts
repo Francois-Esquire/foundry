@@ -106,7 +106,7 @@ function deltaFile(from: string, to: string): string {
   return `deltas/${from}__${to}.json`;
 }
 
-type SemanticsHistoryProgressEvent =
+export type SemanticsHistoryProgressEvent =
   | { kind: "phase"; phase: SemanticsHistoryPhase; detail?: string }
   | {
       kind: "checkpoint";

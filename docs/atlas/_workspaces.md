@@ -6,7 +6,7 @@ takes to draw several workspaces in one visualization. Draft for discussion.
 ## What assumes one workspace today
 
 - **The CLI takes one path.** `parseArguments` rejects a second positional.
-- **State is per path.** `cli/workspace.ts` hashes the resolved root into
+- **State is per path.** `lib/state.ts` hashes the resolved root into
   `<state>/<sha256>/`, with its own `output/` and `cache/`. Two workspaces
   never share a dataset, which is right for scanning and is the thing a
   merged view has to work around.

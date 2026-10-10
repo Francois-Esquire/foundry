@@ -68,8 +68,8 @@ The viewer lays islands out from `dependency-graph.json`.
 
 ## Inside a package
 
-After the dataset is published, each complete package gets an internal
-survey in `internals/<name>.json`, computed fresh every scan:
+After the dataset is published, each complete package gets its internals
+in `internals/<name>.json`, computed fresh every scan:
 
 1. **Topology.** The import graph among the package's own source files.
 2. **Symbol locality.** For each symbol used inside the package, where it is

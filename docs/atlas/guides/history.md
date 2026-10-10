@@ -28,8 +28,7 @@ and index are not touched. Only committed state counts; uncommitted changes
 are not part of any checkpoint.
 
 Checkpoints are analyzed one after another, and a checkpoint analyzed
-before is reused from the cache. There is no progress output during this
-part of the scan.
+before is reused from the cache. The CLI prints no progress for this part.
 
 ## What it writes
 

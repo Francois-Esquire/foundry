@@ -132,7 +132,7 @@ export type SemanticsDeriver = (
   context: { root: string; now: Date; profile?: AnalysisProfile }
 ) => Promise<{ reports: SurfaceReport[]; timing?: WorkspaceDerivationTiming }>;
 
-type SemanticsProgressEvent =
+export type SemanticsProgressEvent =
   | { kind: "phase"; phase: SemanticsPhase; detail?: string }
   /** The invalidation plan, emitted once fingerprints are known and before any analysis. */
   | { kind: "plan"; invalidations: SemanticsInvalidation[] }

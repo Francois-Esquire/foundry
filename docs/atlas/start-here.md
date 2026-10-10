@@ -27,7 +27,7 @@ atlas serve /path/to/workspace
 
 `scan` analyzes the workspace, prints its progress on stderr, and ends with
 the line `Output saved to …`. `serve` starts a local server for that saved
-output and prints `Atlas: http://127.0.0.1:4173/`. Running
+dataset and prints `Atlas: http://127.0.0.1:4173/`. Running
 `atlas /path/to/workspace` with no subcommand scans, serves, and opens the
 browser. Paths default to the current directory.
 
@@ -39,13 +39,13 @@ file. Other layouts are configured in
 
 ## What you get
 
-Output lives under `~/.foundry/atlas/`, in a directory named by a hash of the
-workspace path, so two checkouts never share state. Nothing is written inside
-the workspace. A second scan is incremental: packages whose sources have not
-changed reuse their last analysis, and the whole dataset is replaced in one
-move when the scan finishes.
+The dataset is saved under `~/.foundry/atlas/`, in a directory named by a
+hash of the workspace path, so two checkouts never share state. Nothing is
+written inside the workspace. A second scan is incremental: packages whose
+sources have not changed reuse their last analysis, and the whole dataset is
+replaced in one move when the scan finishes.
 
-The viewer binds to `127.0.0.1` and serves the saved output as static files.
+The viewer binds to `127.0.0.1` and serves the saved dataset as static files.
 Open it, and the map shows one island per package. Continue with
 [explore the map](/atlas/guides/explore-the-map).
 
@@ -53,7 +53,7 @@ Open it, and the map shows one island per package. Continue with
 
 | Flag | Effect |
 | --- | --- |
-| `--state <path>` | Save output under this directory instead of `~/.foundry/atlas` |
+| `--state <path>` | Save the dataset under this directory instead of `~/.foundry/atlas` |
 | `--port <number>` | Serve on this port; the default is 4173 and `0` picks a free one |
 | `--no-open` | Do not open the browser |
 | `--history` | Include Git history in the scan; requires a Git repository |

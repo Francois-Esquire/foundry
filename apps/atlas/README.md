@@ -26,9 +26,9 @@ bun run atlas -- /path/to/workspace
 ## Commands
 
 ```text
-atlas [path]         Refresh a workspace, serve it, and open the browser
-atlas scan [path]    Generate output without starting the web viewer
-atlas serve [path]   Serve saved output without running analysis
+atlas [path]         Scan a workspace, serve it, and open the browser
+atlas scan [path]    Scan and save the dataset without starting the web viewer
+atlas serve [path]   Serve the saved dataset without running analysis
 
   --state <path>     State root (default: ~/.foundry/atlas)
   --port <number>    Local port (default: 4173; 0 chooses a free port)

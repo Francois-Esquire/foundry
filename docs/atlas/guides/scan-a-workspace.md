@@ -56,8 +56,8 @@ Git is read when it is there: churn, hotspots, and change coupling come from
 `git log`. A directory that is not a repository scans fine and those
 sections are empty.
 
-Workers are started as `bun` from your PATH. The scan ends with
-`Output saved to <directory>` on stdout.
+Workers run under the same Bun that runs Atlas, so none is needed on the
+PATH. The scan ends with `Output saved to <directory>` on stdout.
 
 ## Where it goes
 
@@ -78,7 +78,7 @@ Each package's local analysis is keyed by its own sources and manifest; a
 package that has not changed is not re-analyzed. The assembled reports are
 keyed by the whole workspace, including the Git state and the day, so a
 change anywhere re-derives every package from the cached local results, and
-the first scan of a new day does the same. Output files that come out
+the first scan of a new day does the same. Dataset files that come out
 identical are linked from the previous dataset rather than rewritten. The
 manifest records how many units were analyzed and how many were reused.
 

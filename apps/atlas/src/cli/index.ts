@@ -1,11 +1,23 @@
 #!/usr/bin/env bun
 import { resolve } from "node:path";
 import { file } from "bun";
+import type { ScanProgressEvent } from "../lib/scan";
+import { scan } from "../lib/scan";
+import { workspaceState } from "../lib/state";
 import { startServer } from "../server/server";
 import { HELP, parseArguments } from "./args";
 import { openBrowser } from "./browser";
-import { scan } from "./scan";
-import { resolveWorkspace } from "./workspace";
+
+/** Phases, then one line per package's internals; the rest is for programs. */
+function printProgress(event: ScanProgressEvent) {
+  if (event.kind === "phase") {
+    process.stderr.write(
+      `${event.phase}${event.detail ? `: ${event.detail}` : ""}\n`
+    );
+  } else if (event.kind === "internals") {
+    process.stderr.write(`internals: ${event.package}\n`);
+  }
+}
 
 async function main() {
   const args = parseArguments(process.argv.slice(2));
@@ -13,10 +25,14 @@ async function main() {
     process.stdout.write(HELP);
     return;
   }
-  const workspace = await resolveWorkspace(args.target, args.state);
+  const workspace = await workspaceState(args.target, args.state);
   if (args.command !== "serve") {
-    await scan(workspace, args.history);
-    process.stdout.write(`Output saved to ${workspace.output}\n`);
+    const result = await scan(workspace.root, {
+      history: args.history,
+      onProgress: printProgress,
+      state: args.state,
+    });
+    process.stdout.write(`Output saved to ${result.output}\n`);
   }
   if (args.command === "scan") {
     return;

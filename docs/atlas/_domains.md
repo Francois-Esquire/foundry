@@ -66,7 +66,9 @@ workspace root, so a symbol facet matches `SurfaceSymbol.id` directly, and
 dataset module ids are workspace-relative paths. Only the internals layer
 uses package-relative ids; the lens joins them as
 `${package.root}/${module.id}`, as `web/internals.ts` already does. No
-analysis changes.
+analysis changes. The dataset's package id, though, is the `package.json`
+name, while facets address packages by path; the lens maps one to the
+other through the manifest's `path`.
 
 One known gap: the id drops the declaration kind, so an interface and a
 const of one name share an id. A facet without a kind matches every symbol

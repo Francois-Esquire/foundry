@@ -2,9 +2,9 @@ import { parseArgs } from "node:util";
 
 export const HELP = `Atlas — workspace analysis and a local web viewer
 
-  atlas [path]         Refresh a workspace, serve it, and open the browser
-  atlas scan [path]    Generate output without starting the web viewer
-  atlas serve [path]   Serve saved output without running analysis
+  atlas [path]         Scan a workspace, serve it, and open the browser
+  atlas scan [path]    Scan and save the dataset without starting the web viewer
+  atlas serve [path]   Serve the saved dataset without running analysis
 
 Paths default to the current working directory.
 

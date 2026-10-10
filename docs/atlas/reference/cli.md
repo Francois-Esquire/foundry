@@ -4,9 +4,9 @@ description: Commands, flags, output, and exit codes of the atlas binary.
 ---
 
 ```text
-atlas [path]         Refresh a workspace, serve it, and open the browser
-atlas scan [path]    Generate output without starting the web viewer
-atlas serve [path]   Serve saved output without running analysis
+atlas [path]         Scan a workspace, serve it, and open the browser
+atlas scan [path]    Scan and save the dataset without starting the web viewer
+atlas serve [path]   Serve the saved dataset without running analysis
 ```
 
 The first argument is a command only when it is exactly `scan` or `serve`;

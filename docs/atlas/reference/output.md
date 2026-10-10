@@ -9,7 +9,7 @@ description: The dataset a scan writes, file by file.
   cache/
 ```
 
-`output/` is the dataset. The viewer reads it over `/data/…`, unchanged, and
+`output/` holds the dataset. The viewer reads it over `/data/…`, unchanged, and
 anything else can read it from disk. `cache/` holds per-package results and
 the workspace fingerprint that make the next scan incremental; delete the
 whole state directory to force a full rebuild.

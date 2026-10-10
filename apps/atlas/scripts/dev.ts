@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 import { createServer } from "vite";
 import { HELP, parseArguments } from "../src/cli/args";
-import { resolveWorkspace } from "../src/cli/workspace";
+import { workspaceState } from "../src/lib/state";
 import { startServer } from "../src/server/server";
 
 const args = parseArguments(process.argv.slice(2));
@@ -10,7 +10,7 @@ if (args.help) {
     `Atlas development viewer. Loads saved output without scanning.\n\n${HELP}`
   );
 } else {
-  const workspace = await resolveWorkspace(args.target, args.state);
+  const workspace = await workspaceState(args.target, args.state);
   const files = startServer({ output: workspace.output, port: 0 });
   try {
     const server = await createServer({
