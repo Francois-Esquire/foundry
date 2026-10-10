@@ -33,7 +33,7 @@ imports from the renderer, so the folder moves as a unit. Tests are in
 | Package `id`, `analyzed`                   | `package-sizes` lens, from the dependency graph                           |
 | Package `label`                            | the id without its scope                                                  |
 | Package `size`                             | `package-sizes` lens `modules.total`                                      |
-| Package `layer`                            | `package-sizes` lens `layer`; `null` becomes 0                            |
+| Package `layer`                            | `package-sizes` lens `layer`; `null` stays `null` (unplaced)              |
 | Module `id`, `package`, `path`, `fileKind` | module index; a missing kind becomes `unknown`                            |
 | Module `directory`                         | path up to its last `/`                                                   |
 | Module `dependents`, `dependencies`        | edge shards, within and across packages; equal to the module record's `gravity.fanIn`, `fanOut` (pinned by `test/lib/semantics.test.ts`) |
@@ -75,7 +75,7 @@ the lens, says so; missing history never becomes a zero count.
 | `shoreRamp` | Clearance from the unchanged coast | Summits fade over ten units toward the shoreline | `scene/terrain-field.ts` |
 | `chartGrid` | View pixels per map unit | Fixed 90-unit majors and 18-unit minor lines; minor opacity fades in at 30–60 screen pixels of spacing | `scene/paint-paper.ts` |
 | `footprint`            | Package size                                  | island radius         | `load-atlas.ts`                 |
-| `latitude`             | Package layer                                 | north/south position  | `load-atlas.ts`, `geography.ts` |
+| `latitude`             | Package layer; an unplaced package takes 0    | north/south position, the foundation south; the latitude scale | `load-atlas.ts`, `geography.ts`, `scene/ink/latitude-scale.ts` |
 | `attraction`           | Dependency strength                           | pull between islands  | `geography.ts`                  |
 | `territoryLabelSize`   | Package footprint                             | territory label size  | `scene/ink/labels.ts`                 |
 | `labelPriority`        | Module dependents, dependencies               | file label order      | `scene/ink/labels.ts`                 |

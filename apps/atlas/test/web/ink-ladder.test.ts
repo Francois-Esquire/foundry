@@ -131,6 +131,37 @@ describe("the ink table", () => {
     expect(departure.drawn).toBe(false);
   });
 
+  it("shares an ink across kinds only where the table means it to", () => {
+    // A line and a fill, or a line and a text, in one ink read as one thing;
+    // each pair here is that one thing on purpose.
+    const intended: Record<string, string[]> = {
+      "district pigment": [
+        "district",
+        "entered-outline",
+        "responsibility-outline",
+        "unresolved-outline",
+      ],
+      [inks.grid]: ["grid", "grid-reference"],
+      [inks.paper]: ["member-halo", "paper"],
+      [inks.scale]: ["latitude-label", "latitude-scale"],
+      [inks.selection]: [
+        "exact-member",
+        "selected-label",
+        "selection",
+        "selection-importers",
+        "selection-imports",
+      ],
+    };
+    const shared: Record<string, string[]> = {};
+    for (const ink of new Set(inkTable.map((row) => row.hue))) {
+      const rows = inkTable.filter((row) => row.hue === ink);
+      if (new Set(rows.map((row) => row.kind)).size > 1) {
+        shared[ink] = rows.map((row) => row.id).sort();
+      }
+    }
+    expect(shared).toEqual(intended);
+  });
+
   it("names every row a painter asks for", () => {
     expect(() => inkStyle("no such row")).toThrow(
       'The ink table has no row "no such row".'
@@ -157,7 +188,98 @@ function hue(hex: string): number {
   return (raw * 60 + 360) % 360;
 }
 
+/** Linear-light RGB of an sRGB colour, 0 to 1. */
+function linearRgb(hex: string): [number, number, number] {
+  const [r = 0, g = 0, b = 0] = [1, 3, 5].map((start) => {
+    const c = Number.parseInt(hex.slice(start, start + 2), 16) / 255;
+    return c <= 0.040_45 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  });
+  return [r, g, b];
+}
+
+/**
+ * Machado, Oliveira, and Fernandes (2009) at full severity, applied in linear
+ * RGB: how each colour-vision deficiency sees a colour.
+ */
+const deficiencies = {
+  deutan: [
+    [0.367_322, 0.860_646, -0.227_968],
+    [0.280_085, 0.672_501, 0.047_413],
+    [-0.011_82, 0.042_94, 0.968_881],
+  ],
+  protan: [
+    [0.152_286, 1.052_583, -0.204_868],
+    [0.114_503, 0.786_281, 0.099_216],
+    [-0.003_882, -0.048_116, 1.051_998],
+  ],
+  tritan: [
+    [1.255_528, -0.076_749, -0.178_779],
+    [-0.078_411, 0.930_809, 0.147_602],
+    [0.004_733, 0.691_367, 0.3039],
+  ],
+} as const;
+type Deficiency = keyof typeof deficiencies;
+
+/** CIE L*a*b* of an sRGB colour, D65, as seen with a deficiency or without. */
+function lab(hex: string, deficiency?: Deficiency): [number, number, number] {
+  let [r, g, b] = linearRgb(hex);
+  if (deficiency) {
+    const [m0 = [], m1 = [], m2 = []] = deficiencies[deficiency];
+    const row = (m: readonly number[]) =>
+      Math.min(
+        1,
+        Math.max(0, (m[0] ?? 0) * r + (m[1] ?? 0) * g + (m[2] ?? 0) * b)
+      );
+    [r, g, b] = [row(m0), row(m1), row(m2)];
+  }
+  const f = (t: number) =>
+    t > 216 / 24_389 ? Math.cbrt(t) : ((24_389 / 27) * t + 16) / 116;
+  const x = f((0.4124 * r + 0.3576 * g + 0.1805 * b) / 0.950_47);
+  const y = f(0.2126 * r + 0.7152 * g + 0.0722 * b);
+  const z = f((0.0193 * r + 0.1192 * g + 0.9505 * b) / 1.088_83);
+  return [116 * y - 16, 500 * (x - y), 200 * (y - z)];
+}
+
+/** ΔE76: the distance between two colours in L*a*b*; about 2.3 is a just-noticeable step. */
+function deltaE(a: string, b: string, deficiency?: Deficiency): number {
+  const [l1, a1, b1] = lab(a, deficiency);
+  const [l2, a2, b2] = lab(b, deficiency);
+  return Math.hypot(l1 - l2, a1 - a2, b1 - b2);
+}
+
 describe("file inks", () => {
+  it("keeps every two file kinds at least 12 ΔE76 apart", () => {
+    const files = Object.entries(inks.files);
+    for (const [kind, ink] of files) {
+      for (const [other, otherInk] of files) {
+        if (kind < other) {
+          expect(
+            deltaE(ink, otherInk),
+            `${kind} and ${other}`
+          ).toBeGreaterThanOrEqual(12);
+        }
+      }
+    }
+  });
+
+  it("keeps every two file inks 10 ΔE76 apart under deutan, protan, and tritan vision", () => {
+    // At overview every file is the same dot, so every pair shares a shape
+    // and the ink alone has to tell the kinds apart.
+    const files = Object.entries(inks.files);
+    for (const deficiency of Object.keys(deficiencies) as Deficiency[]) {
+      for (const [kind, ink] of files) {
+        for (const [other, otherInk] of files) {
+          if (kind < other) {
+            expect(
+              deltaE(ink, otherInk, deficiency),
+              `${kind} and ${other} under ${deficiency}`
+            ).toBeGreaterThanOrEqual(10);
+          }
+        }
+      }
+    }
+  });
+
   it("leaves magenta to departures", () => {
     for (const ink of Object.values(inks.files)) {
       const apart = Math.abs(hue(ink) - hue(inks.departure));

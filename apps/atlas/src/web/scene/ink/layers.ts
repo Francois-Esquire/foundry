@@ -11,6 +11,7 @@ import { paintConnections } from "./connections";
 import { paintFocusedFile } from "./file-focus";
 import { paintFiles } from "./files";
 import { paintMapLabels } from "./labels";
+import { paintLatitudeScale } from "./latitude-scale";
 import { paintResponsibilityOverlay } from "./responsibility";
 import { paintSeaCaption } from "./sea-caption";
 import type { InkState } from "./state";
@@ -66,6 +67,7 @@ export const inkLayers = [
     paint: ({ data, labelContext, labels, view }) =>
       view && paintGridReferences(labelContext, view, data, labels),
   },
+  { id: "latitude-scale", paint: paintLatitudeScale },
   { id: "compass", paint: paintChartCompass },
   { id: "sea-caption", paint: paintSeaCaption },
   {

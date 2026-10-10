@@ -38,6 +38,7 @@ const data: AtlasData = {
   fileEdges: [],
   generatedAt: "test",
   height: 400,
+  packageLayers: {},
   routes: [
     {
       consumerFiles: [],

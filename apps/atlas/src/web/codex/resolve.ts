@@ -105,7 +105,7 @@ export function resolveCodex(source: CodexSource): Codex {
         highFanInCutoff: saved?.highFanInCutoff ?? 0,
         id: p.id,
         label: shortName(p.id),
-        layer: p.layer ?? 0,
+        layer: p.layer,
         responsibilityGroups: grouped && {
           groups: grouped.groups,
           independent: grouped.independent,

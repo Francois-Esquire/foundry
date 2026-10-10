@@ -32,6 +32,7 @@ function applyState(
   current.setBelonging(next.belongingLayer);
   current.setTerritoryLayout(next.territoryLayout);
   current.setConnections(next.showConnections);
+  current.setLegendHeight(next.legendHeight);
   current.setResponsibility(next.responsibility);
   if (view) {
     current.restoreView(view);
@@ -149,8 +150,9 @@ export function AtlasMap(props: AtlasMapProps) {
   }, [state.territoryLayout]);
   useEffect(() => {
     scene.current?.setConnections(state.showConnections);
+    scene.current?.setLegendHeight(state.legendHeight);
     scene.current?.setResponsibility(state.responsibility);
-  }, [state.showConnections, state.responsibility]);
+  }, [state.showConnections, state.responsibility, state.legendHeight]);
 
   return (
     <section aria-label="Interactive atlas" className="atlas-map-view">

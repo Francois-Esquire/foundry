@@ -169,6 +169,7 @@ export function AtlasShell({
     hoveredWreck ?? selectedWreck,
     inspected,
     inspectedRegion,
+    state.data.packageLayers,
     belonging.features
   );
   const tabs: PanelTab[] = [
@@ -265,10 +266,7 @@ export function AtlasShell({
       />
       <div className={open ? "atlas-world atlas-panel-open" : "atlas-world"}>
         {children}
-        <MapKey
-          streams={chartSettings.streams}
-          volcanic={chartSettings.volcanic}
-        />
+        <MapKey onHeight={actions.legendHeight} settings={chartSettings} />
         <AtlasPanel
           focusToken={focusToken}
           onClose={closePanel}

@@ -19,6 +19,8 @@ export interface AtlasState {
   hover: AtlasSelection | null;
   hoveredWreck: FormerPackage | null;
   layoutSettings: LandmassSettings;
+  /** The legend's height in CSS pixels, which the latitude scale stops short of. */
+  legendHeight: number;
   mapLayer: MapLayer;
   responsibility: ResponsibilityOverlay | null;
   selectedWreck: FormerPackage | null;
@@ -45,6 +47,7 @@ export function createAtlasState(
     hover: null,
     hoveredWreck: null,
     layoutSettings: { ...defaultLandmassSettings },
+    legendHeight: 0,
     mapLayer: "belonging",
     responsibility: null,
     selectedWreck: null,

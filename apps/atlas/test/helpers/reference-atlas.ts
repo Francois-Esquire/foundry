@@ -3,8 +3,8 @@ import { resolve } from "node:path";
 import { pairEndpoints } from "../../src/web/codex/resolve";
 import type { AtlasData, AtlasRoute } from "../../src/web/types";
 
-/** The capture, saved before routes carried their endpoint files. */
-type CapturedAtlas = Omit<AtlasData, "routes"> & {
+/** The capture, saved before routes carried their endpoint files and before the layer scale. */
+type CapturedAtlas = Omit<AtlasData, "packageLayers" | "routes"> & {
   routes: Omit<AtlasRoute, "consumerFiles" | "supplierFiles">[];
 };
 
@@ -25,6 +25,8 @@ export async function loadAtlas(): Promise<AtlasData> {
   );
   return {
     ...captured,
+    // The capture has no layers; its scale is empty, so none is drawn.
+    packageLayers: {},
     routes: captured.routes.map((route) => ({
       ...route,
       ...endpoints(route.from, route.to),

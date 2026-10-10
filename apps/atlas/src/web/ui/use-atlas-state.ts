@@ -61,6 +61,7 @@ export function useAtlasState(initial: AtlasState) {
     initial.hoveredWreck
   );
   const [mapLayer, setMapLayer] = useState<MapLayer>(initial.mapLayer);
+  const [legendHeight, setLegendHeight] = useState(initial.legendHeight);
   const [tracedSelection, setTracedSelection] = useState<AtlasSelection | null>(
     null
   );
@@ -331,6 +332,7 @@ export function useAtlasState(initial: AtlasState) {
     hover,
     hoveredWreck,
     layoutSettings,
+    legendHeight,
     mapLayer,
     responsibility:
       !showConnections && responsibilityOverlay?.territoryId === territory?.id
@@ -352,6 +354,7 @@ export function useAtlasState(initial: AtlasState) {
     frameDistrict,
     hover: setHover,
     layout: setTerritoryLayout,
+    legendHeight: setLegendHeight,
     mapLayer: changeMapLayer,
     overlay: setResponsibilityOverlay,
     reset: resetSettings,

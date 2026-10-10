@@ -17,8 +17,8 @@ interface CodexPackage {
   highFanInCutoff: number;
   id: string;
   label: string;
-  /** Dependency layer; 0 is the foundation. */
-  layer: number;
+  /** Dependency layer; 0 is the foundation, `null` where the graph could not place the package. */
+  layer: number | null;
   /** The `responsibility-groups` lens's groups, drawn on entering the island; `undefined` without internals. */
   responsibilityGroups: PackageResponsibilityGroups | undefined;
   /** Modules the package holds. */

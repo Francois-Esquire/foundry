@@ -5,6 +5,7 @@ import type { AtlasInternals } from "./internals";
 import type { NaturalFeature } from "./natural-feature-inspection";
 import type { NaturalFeatures } from "./natural-features";
 import type { ResponsibilityOverlay } from "./responsibility-focus";
+import { districtPigments } from "./scene/ink-ladder";
 import type { AtlasFile, Polygon, Territory } from "./types";
 
 export interface BelongingRegion {
@@ -72,23 +73,15 @@ export function belongingAncestry(
   };
 }
 
-const pigments = [
-  "#688c77",
-  "#b77864",
-  "#798cac",
-  "#a48a54",
-  "#9e7992",
-  "#609b9b",
-];
-
 function pigment(id: string) {
   let hash = 0;
   for (const character of id) {
     // biome-ignore lint/suspicious/noBitwiseOperators: Preserve the deterministic 32-bit hash used for map placement and colors.
     hash = (hash * 31 + character.charCodeAt(0)) | 0;
   }
+  const { palette } = districtPigments;
   // biome-ignore lint/suspicious/noBitwiseOperators: Preserve the deterministic 32-bit hash used for map placement and colors.
-  return pigments[(hash >>> 0) % pigments.length] ?? "#688c77";
+  return palette[(hash >>> 0) % palette.length] ?? palette[0];
 }
 
 export function memberContours(members: AtlasFile[]): Polygon[] {
@@ -157,7 +150,7 @@ export function belongingRegions(
       .flatMap((fileId2) => files.get(fileId2 ?? "") ?? [])
       .sort((a, b) => a.id.localeCompare(b.id));
     return {
-      color: uncertain ? "#956f47" : pigment(id),
+      color: uncertain ? districtPigments.unresolved : pigment(id),
       id,
       label,
       members,
@@ -245,7 +238,7 @@ export function compositeRegions(
     return {
       children,
       collection,
-      color: collection ? "#956f47" : pigment(id),
+      color: collection ? districtPigments.unresolved : pigment(id),
       id,
       label,
       members,
@@ -369,7 +362,7 @@ export function matchedRegion(
     return undefined;
   }
   return {
-    color: "#a47b42",
+    color: districtPigments.matched,
     id: "evidence:matches",
     label: "",
     members,

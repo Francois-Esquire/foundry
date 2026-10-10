@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { inkStyle } from "../../src/web/scene/ink-ladder";
 import { createAtlasScene } from "../../src/web/scene/scene";
+import { inspectionText } from "../../src/web/ui/atlas-place";
 import Atlas from "../../src/web/ui/atlas-view";
 import { loadAtlas } from "../helpers/reference-atlas";
 
@@ -33,6 +35,7 @@ vi.mock("../../src/web/scene/scene", () => ({
       restoreView: vi.fn(),
       setBelonging: vi.fn(),
       setConnections: vi.fn(),
+      setLegendHeight: vi.fn(),
       setResponsibility: vi.fn(),
       setTerritoryLayout: vi.fn(),
       zoom: vi.fn(),
@@ -317,4 +320,47 @@ it("resets a reader's settings without building a new scene", async () => {
   const calls = vi.mocked(createAtlasScene).mock.calls.length;
   await act(async () => button("Reset visualization").click());
   expect(vi.mocked(createAtlasScene).mock.calls.length).toBe(calls);
+});
+
+it("keeps a two-row legend open, with a map key drawn from the ink table", async () => {
+  const data = await loadAtlas();
+  await act(async () => {
+    root.render(createElement(Atlas, { data }));
+  });
+  const legend = container.querySelector('[aria-label="Legend"]');
+  assert(legend);
+  const rows = legend.querySelectorAll(".atlas-legend-row");
+  expect(rows).toHaveLength(2);
+  expect(rows[0]?.textContent).toContain(
+    "Packages built on others north, the foundation south"
+  );
+  // File kinds in the map's shapes: a half-disc for story, a box for test.
+  expect(rows[0]?.querySelectorAll("path")).toHaveLength(1);
+  // Swatches are drawn 1:1: their viewBox is their size in pixels.
+  for (const svg of legend.querySelectorAll("svg")) {
+    expect(svg.getAttribute("viewBox")).toBe(
+      `0 0 ${svg.getAttribute("width")} ${svg.getAttribute("height")}`
+    );
+  }
+  expect(rows[1]?.textContent).toContain("Imports from");
+  // The legend's rows are open without a click; the key below is collapsed.
+  expect(legend.querySelector("details")?.open).toBe(false);
+  const key = [...legend.querySelectorAll("dt")].map((row) => row.textContent);
+  expect(key).toContain(`${inkStyle("trade").meaning} · off`);
+  expect(key).toContain(inkStyle("marsh-drain").meaning);
+  const [, imports] = rows[1]?.querySelectorAll("path") ?? [];
+  expect(imports?.getAttribute("stroke-dasharray")).toBe(
+    inkStyle("selection-imports").dash.join(" ")
+  );
+});
+
+it("tells a screen reader an island's dependency layer, or that it has none", async () => {
+  const data = await loadAtlas();
+  const [territory] = data.territories;
+  assert(territory);
+  const read = (layers: Record<string, number | null>) =>
+    inspectionText(null, { territory }, undefined, layers)?.detail ?? "";
+  expect(read({ [territory.id]: 2 })).toContain("Layer 2");
+  expect(read({ [territory.id]: null })).toContain("No layer");
+  expect(read({})).toContain("No layer");
 });

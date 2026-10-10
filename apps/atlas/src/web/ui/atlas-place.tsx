@@ -80,7 +80,13 @@ export function AtlasPlace({
       onFrame(place.members.map((file) => file.id));
     }
   }, [onFrame, place]);
-  const pointer = describePointer(hoveredWreck, hover, hoveredRegion, features);
+  const pointer = describePointer(
+    hoveredWreck,
+    hover,
+    hoveredRegion,
+    data.packageLayers,
+    features
+  );
   if (!(territory && selection)) {
     return (
       <div className="atlas-place">
@@ -107,7 +113,14 @@ export function AtlasPlace({
         </button>
       </div>
       <p>
-        {describeSelection(selection, place, region, territory, composites)}
+        {describeSelection(
+          selection,
+          place,
+          region,
+          territory,
+          composites,
+          data.packageLayers
+        )}
       </p>
       {pointer}
       {loading && <p role="status">Reading belonging…</p>}
@@ -288,12 +301,22 @@ function fileDetail(file: AtlasFile, territory: Territory): string {
   return `${file.kind} · ${importCounts(file, territory.highFanInCutoff)} It imports ${file.outgoing} ${file.outgoing === 1 ? "module" : "modules"}.`;
 }
 
+/** An island's dependency layer as a reader hears it: "Layer 2", or "No layer" where the graph could not place it. */
+function layerName(
+  layers: AtlasData["packageLayers"],
+  territory: Territory
+): string {
+  const layer = layers[territory.id];
+  return layer === null || layer === undefined ? "No layer" : `Layer ${layer}`;
+}
+
 function describeSelection(
   selection: AtlasSelection,
   place: BelongingRegion | undefined,
   region: BelongingRegion | undefined,
   territory: Territory,
-  composites: BelongingRegion[]
+  composites: BelongingRegion[],
+  layers: AtlasData["packageLayers"]
 ): string {
   if (selection.file) {
     return fileDetail(selection.file, territory);
@@ -301,7 +324,7 @@ function describeSelection(
   if (place) {
     return `${place.members.length} files · ${describePlaceKind(region, place)}`;
   }
-  return `${territory.files.length} files · ${composites.filter((item) => !item.collection).length} districts`;
+  return `${territory.files.length} files · ${layerName(layers, territory)} · ${composites.filter((item) => !item.collection).length} districts`;
 }
 
 function describePlaceKind(
@@ -319,9 +342,10 @@ function describePointer(
   wreck: FormerPackage | null,
   hover: AtlasSelection | null,
   region: BelongingRegion | undefined,
+  layers: AtlasData["packageLayers"],
   features?: NaturalFeatures
 ) {
-  const text = inspectionText(wreck, hover, region, features);
+  const text = inspectionText(wreck, hover, region, layers, features);
   if (!text) {
     return null;
   }
@@ -337,6 +361,7 @@ export function inspectionText(
   wreck: FormerPackage | null,
   inspected: AtlasSelection | null,
   region: BelongingRegion | undefined,
+  layers: AtlasData["packageLayers"],
   features?: NaturalFeatures
 ): { title: string; detail: string } | null {
   if (wreck) {
@@ -358,7 +383,7 @@ export function inspectionText(
     return featureText(inspected.feature);
   }
   return {
-    detail: inspectionDetail(inspected, region),
+    detail: inspectionDetail(inspected, region, layers),
     title: inspected.symbol
       ? `${inspected.symbol.name} · ${inspected.file?.path ?? inspected.territory.id}`
       : (inspected.file?.path ?? region?.label ?? inspected.territory.label),
@@ -367,7 +392,8 @@ export function inspectionText(
 
 function inspectionDetail(
   inspected: AtlasSelection,
-  region: BelongingRegion | undefined
+  region: BelongingRegion | undefined,
+  layers: AtlasData["packageLayers"]
 ): string {
   if (inspected.file) {
     return fileDetail(inspected.file, inspected.territory);
@@ -375,5 +401,5 @@ function inspectionDetail(
   if (region) {
     return `${region.members.length} files · ${region.children ? "Enter district" : "Enter responsibility"}`;
   }
-  return `${inspected.territory.files.length} files · ${inspected.territory.analyzed ? "Select to explore" : "Not analyzed"}`;
+  return `${inspected.territory.files.length} files · ${layerName(layers, inspected.territory)} · ${inspected.territory.analyzed ? "Select to explore" : "Not analyzed"}`;
 }

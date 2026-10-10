@@ -69,6 +69,7 @@ const qualityOrder: readonly RenderQuality[] = ["off", "low", "medium", "high"];
  * Balanced. The dive's perspective camera runs screen-space occlusion at every
  * enabled tier, and below Balanced it does so at half resolution without
  * denoising, which shows as noise; the chart's Light default is the chart's.
+ * Off is raised to Balanced too, so the dive always draws through its pipeline.
  */
 export function diveRenderSettings(settings: RenderSettings): RenderSettings {
   return qualityOrder.indexOf(settings.quality) < qualityOrder.indexOf("medium")

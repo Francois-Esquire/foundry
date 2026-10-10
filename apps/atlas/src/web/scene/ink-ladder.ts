@@ -66,6 +66,20 @@ export const rungFloor: Record<Rung, number> = {
   selection: 10,
 };
 
+/**
+ * District pigments, picked by a responsibility's id: pigment means
+ * responsibility, never package. Unresolved belonging and collections take
+ * `unresolved`; the regions an overlay matches take `matched`.
+ */
+export const districtPigments = {
+  matched: "#a47b42",
+  palette: ["#688c77", "#b77864", "#798cac", "#a48a54", "#9e7992", "#609b9b"],
+  unresolved: "#956f47",
+} as const;
+
+/** The table's hue for rows drawn in a district's own pigment. */
+const districtPigment = "district pigment";
+
 /** Every ink a painter takes from the ladder. */
 export const inks = {
   /** Packages: a coast, its gilt rule and the rule's frame. */
@@ -83,13 +97,17 @@ export const inks = {
   enteredRing: "#4f4634",
   /** Evidence in focus in the architecture overlays, and their proposals. */
   evidence: "#875222",
-  /** File marks by kind; `unknown` takes `other`. None is magenta, which departures own. */
+  /**
+   * File marks by kind; `unknown` takes `other`. None is magenta, which
+   * departures own, and every two stay apart under deutan, protan, and tritan
+   * vision, since at overview every file is the same dot.
+   */
   files: {
-    config: "#5c4414",
-    other: "#4f4634",
-    source: "#54432f",
-    story: "#3f5a3a",
-    test: "#34505c",
+    config: "#894215",
+    other: "#575447",
+    source: "#624427",
+    story: "#4c4485",
+    test: "#2f5e75",
   },
   /** The paper cut around the selected file's ring. */
   focusHalo: "#faf4e4",
@@ -114,6 +132,8 @@ export const inks = {
   paper: "#f1ead9",
   /** Barely-there gilt water lines near each coast. */
   ripple: "#a8873c",
+  /** The latitude scale in the right margin: dependency layers, foundation to the south. */
+  scale: "#57523f",
   /** The sea's name and the chart's caveat. */
   seaCaption: "#64786b",
   seaContour: "#487f78",
@@ -522,7 +542,12 @@ export const inkTable: readonly InkStyle[] = [
     "The hairline framing the coast rule"
   ),
   flat("label", "text", inks.label, "A place's name"),
-  flat("label-caption", "text", inks.labelCaption, "An island's file count"),
+  flat(
+    "label-caption",
+    "text",
+    inks.labelCaption,
+    'An island\'s file count, and "no layer" where the graph could not place it'
+  ),
   line("label-halo", inks.labelHalo, 3, "The paper a name is cut from"),
   flat("selected-label", "text", inks.selection, "The selected file's name"),
   line(
@@ -545,20 +570,20 @@ export const inkTable: readonly InkStyle[] = [
   ),
   line(
     "responsibility-outline",
-    "district pigment",
+    districtPigment,
     0.7,
     "A responsibility's or district's footprint"
   ),
   line(
     "unresolved-outline",
-    "district pigment",
+    districtPigment,
     0.7,
     "A responsibility with unresolved belonging",
     [3, 3]
   ),
   line(
     "entered-outline",
-    "district pigment",
+    districtPigment,
     1,
     "The entered responsibility, around its files",
     [6, 3]
@@ -566,7 +591,7 @@ export const inkTable: readonly InkStyle[] = [
   flat(
     "district",
     "fill",
-    "district pigment",
+    districtPigment,
     "A district or responsibility, as a wash"
   ),
   line(
@@ -586,6 +611,18 @@ export const inkTable: readonly InkStyle[] = [
     "The halo behind a grid reference"
   ),
   line("compass", inks.compass, 0.65, "The compass; it opens chart settings"),
+  line(
+    "latitude-scale",
+    inks.scale,
+    0.7,
+    "The latitude scale: one tick per dependency layer"
+  ),
+  flat(
+    "latitude-label",
+    "text",
+    inks.scale,
+    "A dependency layer's number; the foundation is south"
+  ),
   flat(
     "sea-caption",
     "text",
@@ -679,6 +716,13 @@ export function inkStyle(id: string): InkStyle {
     throw new Error(`The ink table has no row "${id}".`);
   }
   return style;
+}
+
+/** The ink a key swatch draws a row in: its hue, or a sample pigment for a district's rows. */
+export function swatchInk(style: InkStyle): string {
+  return style.hue === districtPigment
+    ? districtPigments.palette[0]
+    : style.hue;
 }
 
 /** A row's dash scaled to map units at a zoom, as `setLineDash` takes it. */

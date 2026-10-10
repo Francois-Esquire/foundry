@@ -24,6 +24,8 @@ export interface InkOptions {
    * since a label is hit before the land beneath it.
    */
   hovered?: (labels: readonly MapLabel[]) => Territory | null;
+  /** CSS pixels at the foot of the view the legend covers, which margin notes stop short of. */
+  legendHeight?: number;
   /** The lettering overlay; without it, labels are painted on the ink canvas. */
   lettering?: {
     canvas: HTMLCanvasElement;
@@ -61,6 +63,7 @@ export interface InkState {
   labelContext: CanvasRenderingContext2D;
   /** Placed by the labels layer, then read by the layers that clear them. */
   labels: MapLabel[];
+  legendHeight: number;
   matches: BelongingRegion | undefined;
   pixels: number;
   project: (label: MapLabel) => MapLabel;
@@ -201,6 +204,7 @@ export function inkState(
     hovered: options.hovered,
     labelContext,
     labels: [],
+    legendHeight: options.legendHeight ?? 0,
     matches,
     pixels,
     project: options.lettering?.project ?? ((label) => label),

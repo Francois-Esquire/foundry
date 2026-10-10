@@ -67,7 +67,7 @@ What the map encodes, from the codex bindings and the design record:
 | Element | Carries | On by default |
 | --- | --- | --- |
 | Island | A package. Size from file count. | yes |
-| North–south position | Dependency layer: foundations north, leaves south. | yes |
+| North–south position | Dependency layer: the foundation (layer 0) south, each layer above it further north; numbered on the latitude scale since 4.2a(iii). | yes |
 | Distance between islands | Dependency strength and shared concepts. | yes |
 | File mark | A file. Placed by imports and shared concepts. | yes |
 | District | A responsibility group: responsibilities the `responsibility-groups` lens joins (since 2.2b). | at island zoom |
@@ -102,7 +102,10 @@ conclusions.
 - **Most of the meaning is hidden or implicit.** By default, the only
   relationships on screen are positions. Imports between packages, imports
   between districts, and change history are all behind toggles. A first-time
-  reader sees islands and has to know that north means foundation.
+  reader sees islands and has to know what north means. Resolved in
+  4.2a(iii) by the latitude scale and the legend, which also showed that
+  this note, the guide, and the overview page had it backwards: the
+  foundation is south.
 - **The settings panel is a renderer's debug panel.** Resolved in 4.1: tone
   mapping, bloom, and the stage inspector are a developer session's, and a
   reader's Chart section holds only the layers that carry evidence.

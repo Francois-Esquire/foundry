@@ -2208,8 +2208,10 @@ DESIGN.md's "ports" and "settlements" are 4.2a(iii).
   marks over it (the 1.26 of the steepest slope is reached only on summit
   flanks, under marks); coast ink, the pen over the frame, 3.36 and 3.55;
   a test file mark 7.01; and the entered ring 2.80 to 2.95 (one pixel, so
-  antialiasing halves it). The ladder's numbers are each ink's own; the
-  probe shows thin lines rendering lighter, never darker.
+  antialiasing halves it). The ladder's numbers are each ink's own: a
+  single thin line renders lighter than its ink, and stacked inks render
+  darker (the coast pen over its frame, 3.36 and 3.55 against the pen's
+  own 2.90).
 - The selection is one deep amber-brown, `#3b1e06`: the island's ring at
   overview and its dependency lines (dashed to what it imports, dotted from
   what imports it, both opaque), the file's ring and name, and a focused
@@ -2283,7 +2285,83 @@ DESIGN.md's "ports" and "settlements" are 4.2a(iii).
   `pipeline.test.ts`; `terrain.test.ts` loses the settlement colours, now
   the ladder's; about fifteen fixtures lose `color`.
 
+**4.2a(iii) The latitude scale and the legend.** Done 2026-10-10.
+- The latitude scale (`scene/ink/latitude-scale.ts`, the
+  `latitude-scale` layer of `inkLayers`, after the grid references) runs
+  down the right margin: a rule, a tick for each dependency layer at the
+  mean latitude of its islands as they settled (dependencies pull islands
+  off their layer's nominal latitude, so the scale marks where a layer's
+  islands are), and its number, "FOUNDATION · 0" at the south. It is a
+  margin note on the lettering canvas, takes no part in label collision,
+  and stops short of the legend. `AtlasData.packageLayers` maps each
+  package to its layer: the codex now keeps an unplaced package's layer as
+  `null` instead of 0, `loadAtlas` still seats it at the foundation, and it
+  stays off the scale while its caption adds "NO LAYER". The reference
+  capture has no layers, so its scale is empty and none is drawn.
+- Drawing the scale showed that the record had north backwards:
+  `_viewer.md`, the explore-the-map guide, and the overview page all said
+  the foundations sit north. Layer 0, the packages that depend on no
+  other, is at latitude 0, and each layer above it is 220 units further
+  north; the foundation is south. All three are corrected.
+- The legend (`ui/map-key.tsx`) is always open at the lower right (moved
+  from the lower left, where at overview it covered an island; it moves
+  aside for the open panel on wide screens), in two rows: where north points and the five file kinds in their inks; then
+  the selection, its imports, its importers, and a package coast, each
+  drawn from its `inkTable` row. Beneath it the collapsed Map key lists
+  each optional layer by its table row and meaning, marked off when its
+  setting is off, and says that relief is a cap most slopes stay well
+  under: readers rarely see the relief rung at its floor, which only the
+  steepest summit flanks reach.
+- The ladder gains the scale's ink, `#57523f`, with a line row and a text
+  row, and the district pigments, which were in `web/belonging.ts`; the
+  key draws a district's rows in a sample pigment. The source and other
+  file inks were 4.4 ΔE76 apart; a test keeps every two file inks at least
+  12 ΔE76 apart (see colour vision below). A second test lists every
+  ink shared across kinds (a line and a fill, or a line and a text) and
+  holds the list to the five that are meant: the selection's rows, paper,
+  district pigment, the grid and its references, and the scale.
+- Left from 4.2a(ii): the overlays' hint arcs and their related and member
+  rings were drawn at the 1.2-pixel width the links set before them and
+  are now the table's 1 pixel; `diveRenderSettings` says that Off is
+  raised to Balanced too.
+- After review: the legend's first row reads "Packages built on others
+  north, the foundation south"; its swatches are drawn 1:1 (each SVG's
+  viewBox is its size in pixels, so weight and dash are the map's), and
+  the file kinds in the shapes the map uses close in (a block, an open box
+  with a foot for test, a half-disc for story), in the map's own
+  `fileInk`. The scale stops above the legend's measured height (a
+  `ResizeObserver` on the legend, through the map state to the scene)
+  rather than a fixed 150 pixels. Place and the hover readout, and with it
+  the polite live region, say "Layer n" or "No layer" for an island.
+- Colour vision: at overview every file is the same dot, so the inks alone
+  tell the kinds apart. The first ladder's file inks fell to 5.3 ΔE76
+  (source and story, deutan) and 3.5 (config and source, tritan) under
+  Machado's matrices at full severity. The file inks are now source
+  `#624427` (7.37:1), test `#2f5e75` (5.88), story `#4c4485` (7.08),
+  config `#894215` (6.14), and other `#575447` (6.33), found by a search
+  over inks in the file rung, away from magenta; the closest pairs are
+  18.4 ΔE76 in normal vision, 15.6 deutan, 14.4 protan, and 14.6 tritan,
+  and a test holds every pair to at least 10 under all three.
+- DESIGN.md: ports are harbors, where a lane meets a coast, and files are
+  marks, not settlements; the legend and the scale are described, and the
+  relief paragraph says the cap is rarely reached.
+- Screenshots for review, a reader's session at default quality, from the
+  build at `fb95563` and from this one:
+  `/tmp/review-shots/{before,after}-{overview,island,close}.png`.
+- Tests: `paint-map.test.ts` (the scale numbers the placed layers, marks
+  an unplaced island's caption, and draws nothing without layers);
+  `atlas-shell.test.ts` (the two-row legend open, the key collapsed, its
+  rows and dashes from the table, an off layer marked); `ink-ladder.test.ts`
+  (file inks 12 ΔE76 apart; inks shared across kinds only as intended);
+  `codex/resolve.test.ts` (an unplaced layer stays `null`).
+
 **4.3 Directories drawn,** and a domain drawn across islands.
+- **4.3a** (recorded at 4.2a(iii)): each island's y is fixed to its
+  layer's latitude, `latitude(layer)`, with x free and overlaps resolved
+  along x, or at the least the route term leaves y, so that dependency
+  pulls no island off its layer's row. The latitude scale then switches to
+  nominal ticks at `latitude(layer)` instead of the mean of each layer's
+  settled islands.
 
 **4.4 Loading.** Covered by the lazy reader in 1.5; the module shards stopped
 being read at load in 2.2d. What remains is the viewer reading only what the

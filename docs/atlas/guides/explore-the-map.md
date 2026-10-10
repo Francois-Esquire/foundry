@@ -13,12 +13,21 @@ physical scale.
 ## What you are looking at
 
 - **Islands are packages.** Islands sit in rows by dependency layer: the
-  packages nothing depends on are furthest south, the foundations furthest
-  north, and packages that depend on each other are drawn towards one
-  another. An island's size grows with its file count.
-- **Settlements are files.** Files are placed within their island by what
-  they import and the concepts they share, so files that work together sit
-  together. Marks differ for source, test, and story files.
+  foundation, the packages that depend on no other, furthest south, and each
+  layer that builds on the ones below it further north. The latitude scale
+  in the right margin numbers the layers; a package the graph could not
+  place sits with the foundation, and its caption says "no layer". Packages
+  that depend on each other are drawn towards one another. An island's size
+  grows with its file count.
+- **Marks are files.** Files are placed within their island by what they
+  import and the concepts they share, so files that work together sit
+  together. Each kind of file has its own ink: source, test, story,
+  config, and other. At overview every file is a dot; closer in, test files
+  are open boxes and stories half-discs, and the other kinds are small
+  blocks.
+- **The legend** at the lower right is always open: where north points, the
+  file kinds, and the lines for a selection and a coast. Its **Map key**
+  explains each optional layer, drawn as the map draws it.
 - **Dependency is placement.** By default no lines are drawn between
   islands; the rows and the distances carry the relationship. Sea trade
   routes are an optional layer in the chart settings: switched on, they

@@ -119,7 +119,7 @@ describe("resolveCodex", () => {
     });
   });
 
-  it("sizes packages from the package-sizes lens, names them without their scope, seats unknown layers at the foundation, and keeps their lens entries", () => {
+  it("sizes packages from the package-sizes lens, names them without their scope, keeps an unplaced layer unplaced, and keeps their lens entries", () => {
     expect(codex.packages).toEqual([
       {
         analyzed: false,
@@ -127,7 +127,7 @@ describe("resolveCodex", () => {
         highFanInCutoff: 3,
         id: "@foundry/core",
         label: "core",
-        layer: 0,
+        layer: null,
         responsibilityGroups: {
           groups: [coreGroup],
           independent: ["responsibility:b"],

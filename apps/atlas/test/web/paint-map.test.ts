@@ -42,6 +42,7 @@ const data: AtlasData = {
   fileEdges: [],
   generatedAt: "test",
   height: 500,
+  packageLayers: {},
   routes: [
     {
       consumerFiles: [],
@@ -556,4 +557,40 @@ it("draws with the ladder's inks: selection, file marks, labels, and coast", () 
   // The gilt and amber the ladder replaced are gone from these layers.
   expect(used).not.toContain("#b38a32");
   expect(used).not.toContain("#875222");
+});
+
+it("numbers the dependency layers on the latitude scale and marks an unplaced island", () => {
+  const { canvas, ctx } = canvasFixture();
+  const labels = paintInk(canvas, {
+    data: {
+      ...data,
+      packageLayers: { island: 0, "one-up": 1, other: null, "two-up": 2 },
+      territories: [
+        ...data.territories,
+        { ...territory, id: "one-up", label: "One up", x: -300, y: -220 },
+        { ...territory, id: "two-up", label: "Two up", x: 300, y: -440 },
+      ],
+    },
+    view: { height: 1200, pixelsPerUnit: 1, width: 900, x: 0, y: -220 },
+  });
+  const printed = ctx.fillText.mock.calls.map(([text]) => text);
+  expect(printed).toContain("FOUNDATION · 0");
+  expect(printed).toContain("LAYER 1");
+  expect(printed).toContain("LAYER 2");
+  expect(
+    labels.find((label) => label.territory.id === "other")?.caption
+  ).toContain("NO LAYER");
+  expect(
+    labels.find((label) => label.territory.id === "island")?.caption
+  ).not.toContain("NO LAYER");
+});
+
+it("draws no latitude scale without placed layers", () => {
+  const { canvas, ctx } = canvasFixture();
+  paintInk(canvas, {
+    data: { ...data, packageLayers: {} },
+    view: { height: 1200, pixelsPerUnit: 1, width: 900, x: 0, y: -220 },
+  });
+  const printed = ctx.fillText.mock.calls.map(([text]) => String(text));
+  expect(printed.some((text) => text.startsWith("LAYER"))).toBe(false);
 });

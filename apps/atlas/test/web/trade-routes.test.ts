@@ -49,6 +49,7 @@ const fixture = (): AtlasData => ({
   fileEdges: [{ source: "consumer", target: "supplier" }],
   generatedAt: "test",
   height: 300,
+  packageLayers: {},
   routes: [
     {
       consumerFiles: ["consumer"],

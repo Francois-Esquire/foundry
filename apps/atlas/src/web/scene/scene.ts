@@ -260,6 +260,7 @@ export async function createAtlasScene(
   let visibility = { composition: false, files: false };
   let matches: BelongingRegion | undefined;
   let showConnections = false;
+  let legendHeight = 0;
   let labels: MapLabel[] = [];
   let frame = 0;
   /** The resting pointer; each repaint inks the island under it (`paintHoverInk`). */
@@ -356,6 +357,7 @@ export async function createAtlasScene(
           );
           return hoveredIsland(hoveredId, drawingData.territories, selected);
         },
+        legendHeight,
         lettering: { canvas: lettering.canvas, project: projectLabel },
         matches,
         responsibility: responsibility && {
@@ -777,6 +779,10 @@ export async function createAtlasScene(
     },
     setConnections: (visible: boolean) => {
       showConnections = visible;
+      render();
+    },
+    setLegendHeight: (height: number) => {
+      legendHeight = height;
       render();
     },
     setResponsibility: (value: ResponsibilityOverlay | null) => {

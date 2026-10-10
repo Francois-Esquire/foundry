@@ -83,6 +83,12 @@ export interface AtlasData {
   formerPackages?: FormerPackage[];
   generatedAt: string;
   height: number;
+  /**
+   * Each package's dependency layer, for the latitude scale; `null` for a
+   * package the graph could not place, which sits at the foundation but
+   * stays off the scale. A package missing here is off the scale too.
+   */
+  packageLayers: Record<string, number | null>;
   routes: AtlasRoute[];
   territories: Territory[];
   width: number;

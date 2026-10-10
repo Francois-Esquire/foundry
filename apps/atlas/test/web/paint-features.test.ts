@@ -190,6 +190,7 @@ describe("natural feature drawing", () => {
       fileEdges: [],
       generatedAt: "test",
       height: 500,
+      packageLayers: {},
       routes: [],
       territories: [territory],
       width: 500,

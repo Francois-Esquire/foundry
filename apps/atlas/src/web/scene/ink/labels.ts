@@ -109,7 +109,12 @@ function paintLabels(
     detail,
     fileId,
     view,
-    evidenceFiles
+    evidenceFiles,
+    new Set(
+      Object.entries(data.packageLayers).flatMap(([id, layer]) =>
+        layer === null ? [id] : []
+      )
+    )
   );
   const fileLabelBudget = Math.max(
     3,
@@ -199,7 +204,8 @@ function addTerritoryLabels(
   },
   fileId: string | null,
   view: InkView,
-  evidenceFiles: Set<string> | undefined
+  evidenceFiles: Set<string> | undefined,
+  unplaced: ReadonlySet<string>
 ) {
   for (const p of territories) {
     const size = Math.min(
@@ -209,7 +215,9 @@ function addTerritoryLabels(
     if (size * pixels >= 9) {
       const count = p.files.length;
       add(p, p.label, p.x, p.y + territoryLabelY(p), size, "AtlasDisplay", {
-        caption: `${count.toLocaleString("en")} ${count === 1 ? "FILE" : "FILES"}`,
+        // A package the graph could not place sits at the foundation, off the
+        // latitude scale; its caption says so.
+        caption: `${count.toLocaleString("en")} ${count === 1 ? "FILE" : "FILES"}${unplaced.has(p.id) ? " · NO LAYER" : ""}`,
       });
     }
     if (p.id !== selected && p.id !== belonging?.territory.id) {

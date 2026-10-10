@@ -29,6 +29,7 @@ vi.mock("../../src/web/scene/scene", () => ({
       restoreView: vi.fn(),
       setBelonging: vi.fn(),
       setConnections: vi.fn(),
+      setLegendHeight: vi.fn(),
       setResponsibility: vi.fn(),
       setTerritoryLayout: vi.fn(),
     };

@@ -93,7 +93,7 @@ coast's seeded pen pressure and broken where the pen lifts. At 16%, 11% and 7%
 opacity they surface only as the camera comes in and are absent at overview.
 
 A convex hull spans the outermost coast points of all packages with 110-unit
-padding, rebuilt after package settlement. The rim is smoothed in polar form
+padding, rebuilt once packages have settled. The rim is smoothed in polar form
 about the hull's centre over 180 angles: a moving maximum of the radius across
 ±18° only moves it outward, then a triangular moving average across the same
 window bends long straight sides into broad arcs. Every averaged radius covers
@@ -228,10 +228,12 @@ There are no browser workers or alternate terrain variants. Camera and
 detail-reveal changes share one map repaint per display frame. Viewport-resolution
 ink uses linear sampling without rebuilding mipmaps on each upload.
 
-Source settlements retain brown ink. Tests use blue walled proving grounds;
-stories use rose semicircular theaters; configuration uses ochre buildings.
-Unknown kinds stay neutral. These marks preserve mixed areas of an island rather
-than splitting islands by classification. Finer source
+File marks take their kind's ink from the ladder: source a warm brown, test a
+steel-blue open box, story an indigo half-disc, config a rust, other and unknown
+an olive grey. At overview every file is a dot, so the inks alone tell the kinds
+apart, and every two stay at least 10 ΔE76 apart under simulated deutan, protan
+and tritan vision. These marks preserve mixed areas of an island rather than
+splitting islands by classification. Finer source
 roles remain unclassified. File specks are round dots, one per file, that grow
 gently with zoom (radius 1.45 / √pixels map units) and are filled once per kind.
 They stay at full strength across every island, regions or not, then give way
@@ -268,7 +270,8 @@ The island paper is unlit: its colour is its own, and relief is one term in it.
 Slopes turned from a north-west light, and each vertex's concavity, multiply
 the paper's linear colour by 1 minus at most 0.22, the ladder's relief cap, so
 the steepest shade just clears the relief rung and is never darker than a file
-mark. There are no hachures. The sea and the coast walls still take the
+mark. The cap is a ceiling, not a typical value: only the steepest summit
+flanks reach it, and readers rarely see relief at the rung's floor. There are no hachures. The sea and the coast walls still take the
 scene's ambient fill (1.23) and warm directional light (3.16), balanced so
 level ground renders at its own colour. Nothing on the chart casts a shadow, so
 the scene keeps no shadow map. The sea is the painted sea sheet under the shared paper surface,
@@ -284,8 +287,7 @@ shadow resources, controls and renderer.
 ## Shapes
 
 The sheet and controls use square edges; search swatches are small circles.
-Files appear as tiny rectangular settlements, with a ring around the selected
-file. Density contours form irregular coastlines, shallows and hills, including
+Files appear as small marks, with a ring around the selected file. Density contours form irregular coastlines, shallows and hills, including
 holes and disconnected islands.
 
 Package radius follows file population's square root. Dependency layers guide
@@ -303,7 +305,7 @@ plus 90 units. Separating-axis resolution moves those groups toward the selected
 island clearance, default 45 units, without pushing the main group. Symmetric map
 bounds preserve its center.
 Relative positions within each group, coastline shapes and local file geometry
-stay fixed. Trade routes and ports use the settled world positions.
+stay fixed. Trade routes and their harbors use the settled world positions.
 
 Singletons then try exterior-accessible pockets inside the main convex hull and
 outside its concave footprint. A 4-unit grid combines original package coastlines
@@ -347,12 +349,12 @@ remain disposable presentation data; temporal stability is not guaranteed.
   with module-edge counts. Dashes measure arc distance from the nearer endpoint
   so both harbor approaches start with ink. Direction is stated in Trading
   partners, not animated.
-- Ports follow the participating consumer and resource file endpoints. Missing
+- Harbors follow the participating consumer and resource file endpoints. Missing
   endpoints fall back to package geography, disclosed in Trading partners.
   Routing retains the original package-coast masks. Exterior-water flood fill
   excludes those islands and enclosed water. Coast-distance
   regions share a cell-edge vertex graph, with the bounded map edge supplying
-  an outside region. Ports join their nearest visible vertices in a common
+  an outside region. Harbors join their nearest visible vertices in a common
   component. A lane is one continuous curve: across open water it is a
   single gentle arc between the two harbors, tried at increasing bulges until
   every sample keeps its clearance. Where land blocks every arc the route
@@ -364,7 +366,7 @@ remain disposable presentation data; temporal stability is not guaranteed.
   with consumer/resource endpoint counts; it does not label roads as sea routes.
   A harbor is where a lane meets the coast; nothing is built there.
 - When enabled, continental roads retain every routable measured package relationship, independent
-  of the six-partner inspector limit. Stable anchors lie inside settlements.
+  of the six-partner inspector limit. Stable anchors lie inside each island's files.
   Dijkstra routing uses a 12-unit grid over the 4-unit land mask, with 10-unit
   shore clearance checked every 2 units. Distance and slope determine cost;
   shared edges cost 0.55 times their distance to encourage common roads.
@@ -372,12 +374,12 @@ remain disposable presentation data; temporal stability is not guaranteed.
   use 64 constrained midpoint-relaxation passes within 36 units of the original
   corridor, rejecting local height-variation increases above 0.12. Three corner-cutting
   subdivisions follow; every accepted segment retains land clearance. Junctions
-  and settlement terminals stay fixed, including degree-two terminals. No random
+  and island terminals stay fixed, including degree-two terminals. No random
   displacement is added; straight stretches and angular junctions can remain.
   Ochre roads follow terrain height. Opacity decreases with zoom.
   Declared-only dependencies add no roads or weights; file roads and terrain
   grading remain unimplemented.
-- Internal exploration hides roads, ports and sea traces. Routes do not animate.
+- Internal exploration hides roads, harbors and sea traces. Routes do not animate.
 - Trading partners starts collapsed in the selected-island inspector, scrolls
   within 26vh, and uses native disclosures and buttons. Imports from and Supplies
   state direction; partner visits and exact consumer/resource file paths provide
@@ -448,7 +450,19 @@ remain disposable presentation data; temporal stability is not guaranteed.
   responsibility still does not draw its file graph, and nothing animates.
   A small open spring sign marks a recorded supplier endpoint unless a structural file mark
   already marks it. Muted banks replace the bright casing around each line.
-- A collapsed Map key sits on the paper at the lower left. It explains district streams, unresolved marsh, and structural relief without implying quality.
+- A legend sits on the paper at the lower right and is always open, in two rows:
+  where north points (deeper dependency layers north, the foundation south) and
+  the five file kinds in their inks; then the lines a reader reads by, drawn from
+  the ink table: the selection, its imports, its importers, and a package coast.
+  Beneath it a collapsed Map key lists each optional layer by its table row and
+  its meaning, marked off when its setting is off, and says that relief is a cap
+  most slopes stay well under, never a quality score.
+- A latitude scale runs down the right margin, above the legend: a rule, a tick
+  at the mean latitude of each dependency layer's islands as they settled, and
+  its number, "FOUNDATION · 0" at the south. It is a margin
+  note, like the grid references, and takes no part in label collision. A package
+  the graph could not place sits at the foundation, stays off the scale, and its
+  caption adds "NO LAYER".
   Feature hover and selection report in Place and the polite live region.
   File inspection lists its structural role and measured consuming responsibilities. River
   inspection states import direction, module edges, contributing relationships
@@ -516,7 +530,7 @@ remain disposable presentation data; temporal stability is not guaranteed.
   related and unresolved files, and file endpoints in relationship previews.
   Exact evidence identities determine these marks. Composition progressively
   replaces the footprint at close zoom; proposed tracing retains its baseline.
-- Selecting a file frames its settlement and reports incoming and outgoing import
+- Selecting a file frames its mark and reports incoming and outgoing import
   counts. Trace imports explicitly reveals recorded connections; changing selection
   clears that trace. Belonging loading, retry, and survey-mismatch messages appear
   in the inspector; composition has its own retry in the evidence drawer.
@@ -553,7 +567,7 @@ remain disposable presentation data; temporal stability is not guaranteed.
   These separate thresholds prevent detail flicker. Ordinary file labels require 5;
   only the selected file's name remains while that file is in view. Its 20px
   name takes placement priority, and its selection-ink ring has a paper knockout drawn
-  above composition, so detail cannot erase the selected settlement. Selecting a
+  above composition, so detail cannot erase the selected file. Selecting a
   group limits file labels to its members. Labels outside the view or
   colliding with earlier labels are omitted; crowded file names may stay hidden.
   Visible labels are selectable. Search retains omitted files and regions,
@@ -618,7 +632,7 @@ adds member rings, unresolved-ownership diamonds, path-disagreement notches, and
 selected import links. Evidence and its limitations remain in the margin;
 structural disagreement is not a quality score. It does not change
 responsibilities or geometry. Later placement must consume geography without feeding
-settlement coordinates back into coastline generation.
+file coordinates back into coastline generation.
 
 The [V13 work log](../../../../docs/designs/codebase-atlas-v13.md) tracks composition
 and alternative studies. Its optional district arrangement changes drawing positions

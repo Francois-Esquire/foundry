@@ -46,7 +46,8 @@ export async function loadAtlas(signal?: AbortSignal): Promise<AtlasData> {
       responsibilityGroups: p.responsibilityGroups,
       shallows,
       x: (unit(p.id) - 0.5) * 1400,
-      y: latitude(p.layer),
+      // An unplaced package sits at the foundation, off the latitude scale.
+      y: latitude(p.layer ?? 0),
     };
   });
   const routes = codex.dependencies.map((d) => ({
@@ -60,7 +61,7 @@ export async function loadAtlas(signal?: AbortSignal): Promise<AtlasData> {
   const { declaredDependencies } = codex;
   settlePackages(
     territories,
-    new Map(codex.packages.map((p) => [p.id, p.layer])),
+    new Map(codex.packages.map((p) => [p.id, p.layer ?? 0])),
     routes
   );
   settleLandmasses(territories, routes, declaredDependencies);
@@ -76,6 +77,9 @@ export async function loadAtlas(signal?: AbortSignal): Promise<AtlasData> {
     fileEdges: edges.map(({ source, target }) => ({ source, target })),
     generatedAt: codex.workspace.surveyedAt,
     height,
+    packageLayers: Object.fromEntries(
+      codex.packages.map((p) => [p.id, p.layer])
+    ),
     routes,
     territories,
     width,
