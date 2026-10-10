@@ -44,21 +44,27 @@ never modified. The viewer binds to `127.0.0.1` only.
 
 ## What a workspace is
 
-Atlas reads the root `package.json` for its `workspaces` patterns, then
-treats every immediate child of `apps`, `packages`, `plugins`, and `tooling`
-that has a `package.json` with a name and at least one `.ts` or `.tsx` file as
-a unit. A `foundry.config.json` at the root can change the roots and exclude
-units:
+Atlas reads the workspace declaration, `pnpm-workspace.yaml#packages` or
+else the root `package.json#workspaces`, and treats every directory those
+patterns match that has a `package.json` with a name and at least one `.ts`
+or `.tsx` file as a package. A workspace that declares no packages is not
+scanned.
 
-```json
-{
-  "semantics": {
-    "roots": ["apps", "packages"],
-    "exclude": ["packages/fixtures"],
-    "history": { "checkpoints": 12, "range": "1y", "strategy": "monthly" }
-  }
-}
+The configuration directory, `.foundry/atlas/` at the root, configures the
+scan. Each configuration file in it default-exports part of the
+configuration, and a key is declared in one file only:
+
+```ts
+// .foundry/atlas/index.ts
+export default {
+  exclude: ["packages/fixtures"],
+  history: { checkpoints: 12, range: "1y", strategy: "monthly" },
+};
 ```
+
+Scanning a workspace runs these files with your privileges. See
+[Configuration](https://github.com/Francois-Esquire/foundry/blob/main/docs/atlas/reference/configuration.md)
+for every setting.
 
 ## Where output goes
 

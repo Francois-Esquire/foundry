@@ -9,14 +9,12 @@ import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 
 import { afterAll, describe, expect, it } from "vitest";
+import { DEFAULT_CONFIGURATION } from "../../src/lib/atlas-config";
 import { resolveBoundary, toPosix } from "../../src/lib/boundary";
 import { collectCrossBoundaryEdges } from "../../src/lib/dependencies";
 import { createIgnorer } from "../../src/lib/ignore";
 import { createProject } from "../../src/lib/project";
-import {
-  DEFAULT_SEMANTICS_CONFIG,
-  discoverSemanticsUnits,
-} from "../../src/lib/semantics-discover";
+import { discoverSemanticsUnits } from "../../src/lib/semantics-discover";
 
 const tempRoots: string[] = [];
 
@@ -113,10 +111,7 @@ describe("gitignored files stay out of the analysis", () => {
   });
 
   it("skips gitignored workspace units at discovery", () => {
-    const discovery = discoverSemanticsUnits(root, {
-      ...DEFAULT_SEMANTICS_CONFIG,
-      roots: ["packages"],
-    });
+    const discovery = discoverSemanticsUnits(root, DEFAULT_CONFIGURATION);
     expect(discovery.units.map((unit) => unit.id)).toEqual([
       "@ig/app",
       "@ig/lib",

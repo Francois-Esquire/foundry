@@ -58,18 +58,11 @@ release tooling item.
 - The release tooling publishes every non-private workspace under one
   shared version from one `v*` tag. Atlas and Marbles release together until
   the tooling learns per-package tags.
-- Foundry-specific strings in the code: the `@foundry/workspaces` anchor in
-  the analysis policy, which blocks `fold-package` for any package of that
-  name in any scanned repository, and the idle caption "The Foundry
+- A Foundry-specific string in the code: the idle caption "The Foundry
   archipelago".
-- `semantics.output` is read from the config file and ignored by the CLI.
-- `history.strategy` is not validated; an unrecognized value behaves as
-  `every-n-commits`.
 - The viewer's `atlas-world` class loses its space when settings are open
   (`atlas-worldatlas-settings-open`), so the wide-layout shift stops
   applying.
-- Discovery reads `package.json#workspaces` only; `pnpm-workspace.yaml` is
-  not read, and the default roots are Foundry's.
 
 ## Documentation
 

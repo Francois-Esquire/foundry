@@ -1,3 +1,4 @@
+import type { SemanticsDeclarationSource } from "./semantics-types";
 import type { FileKind, ModuleRole } from "./types";
 
 /**
@@ -10,7 +11,14 @@ import type { FileKind, ModuleRole } from "./types";
  */
 export const SEMANTICS_HISTORY_SCHEMA_VERSION = 1;
 
-type CheckpointStrategy = "monthly" | "evenly-spaced" | "every-n-commits";
+/** How `scan --history` picks its checkpoints. */
+export const SEMANTICS_HISTORY_STRATEGIES = [
+  "monthly",
+  "evenly-spaced",
+  "every-n-commits",
+] as const;
+
+type CheckpointStrategy = (typeof SEMANTICS_HISTORY_STRATEGIES)[number];
 
 export interface SemanticsHistoryConfig {
   /** Upper bound on selected checkpoints; HEAD always counts as one. */
@@ -91,7 +99,6 @@ export interface TemporalPackageState {
   layer?: number;
   moduleCount: number;
   path: string;
-  root: string;
 }
 
 export type TemporalConceptRole =
@@ -149,10 +156,15 @@ interface TemporalBoundaryState {
 }
 
 interface TemporalCoverage {
+  /** Absent when the checkpoint tree declared no package patterns (it declared no packages yet); it then has no packages. */
+  declarationSource?: SemanticsDeclarationSource;
   failed: { id: string; error: string }[];
-  rootsMissing: string[];
-  rootsScanned: string[];
+  /** The checkpoint tree's own package patterns, as declared; empty when it declared none. */
+  packagePatterns: string[];
+  packagePatternsUnmatched: string[];
+  packagesFound: number;
   unitsAnalyzed: number;
+  /** Every directory a package pattern matched. */
   unitsDiscovered: number;
 }
 
@@ -306,7 +318,6 @@ export interface SemanticsHistoryManifest {
     every: number;
     renameDetection: string;
     profile: "temporal";
-    roots: string[];
     exclude: string[];
   };
   range: {

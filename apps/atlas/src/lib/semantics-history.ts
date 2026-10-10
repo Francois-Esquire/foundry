@@ -12,6 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
+import { DEFAULT_CONFIGURATION } from "./atlas-config";
 import {
   ANALYSIS_POLICY_VERSION,
   WORKSPACE_INTELLIGENCE_POLICY_VERSION,
@@ -36,11 +37,11 @@ import {
   SEMANTICS_CACHE_SCHEMA_VERSION,
   writeJsonAtomic,
 } from "./semantics-cache";
+import { discoverSemanticsUnits } from "./semantics-discover";
 import {
-  discoverSemanticsUnits,
-  loadSemanticsConfig,
-} from "./semantics-discover";
-import { packageLocalFingerprint } from "./semantics-fingerprint";
+  configFingerprint,
+  packageLocalFingerprint,
+} from "./semantics-fingerprint";
 import {
   buildLineage,
   collectTimeline,
@@ -119,17 +120,18 @@ export type SemanticsHistoryProgressEvent =
 
 export interface SemanticsHistoryGenerateOptions {
   analyzeLocal?: SemanticsLocalAnalyzer;
-  /** Repository-relative checkpoint cache directory. */
+  /** Workspace-relative or absolute checkpoint cache directory. */
   cache?: string;
   command?: string;
   /** Package-local analyses in flight within one checkpoint. */
   concurrency?: number;
+  /** The resolved configuration, which `scan` loads from the working tree and applies to every checkpoint; never loaded here. Default: the plain defaults. */
   config?: SemanticsConfig;
   derive?: SemanticsDeriver;
   /** Overrides for `config.history`, typically from CLI flags. */
   history?: Partial<SemanticsHistoryConfig>;
   onProgress?: (event: SemanticsHistoryProgressEvent) => void;
-  /** Repository-relative output directory. */
+  /** Workspace-relative or absolute output directory. */
   output?: string;
   root: string;
 }
@@ -233,7 +235,6 @@ function projectSnapshot(
       id,
       moduleCount: moduleCounts.get(id) ?? 0,
       path: unit?.path ?? "",
-      root: unit?.root ?? "",
       ...(facts !== undefined && {
         fanIn: facts.direct.fanIn,
         fanOut: facts.direct.fanOut,
@@ -278,10 +279,14 @@ function projectSnapshot(
       failed: outcomes
         .filter((o) => o.error !== undefined)
         .map((o) => ({ error: o.error ?? "", id: o.unit.id })),
-      rootsMissing: discovery.rootsMissing,
-      rootsScanned: discovery.rootsScanned,
+      packagePatterns: discovery.packagePatterns,
+      ...(discovery.declarationSource !== undefined && {
+        declarationSource: discovery.declarationSource,
+      }),
+      packagePatternsUnmatched: discovery.packagePatternsUnmatched,
+      packagesFound: discovery.units.length,
       unitsAnalyzed: analyzed.size,
-      unitsDiscovered: discovery.units.length,
+      unitsDiscovered: discovery.unitsDiscovered,
     },
     dependencies,
     modules,
@@ -731,7 +736,8 @@ async function analyzeCheckpoint(
       o.local === undefined ? [] : [o.local]
     );
     // A tree with units but no analyzable one carries no semantic state;
-    // a tree with no units at all (roots absent yet) is a valid empty checkpoint.
+    // a tree with no units at all (the tree declared no packages yet) is a
+    // valid empty checkpoint.
     if (localOutcomes.length > 0 && locals.length === 0) {
       const first = localOutcomes.find((o) => o.error !== undefined);
       throw new Error(
@@ -808,14 +814,12 @@ class Writer {
 /**
  * Identity of a cached checkpoint snapshot: the `historySnapshot` stage
  * closure (package analysis, workspace ingestion and intelligence, snapshot
- * schema) plus the discovery inputs. Projection and dataset schemas are not
+ * schema) plus the configuration's (`configFingerprint`). Projection and dataset schemas are not
  * in the closure, so their changes leave every snapshot reusable.
  */
 export function historyFingerprint(config: SemanticsConfig): string {
   const material = JSON.stringify({
-    exclude: [...config.exclude].sort(),
-    profile: "temporal",
-    roots: [...config.roots].sort(),
+    config: configFingerprint({ exclude: config.exclude, profile: "temporal" }),
     stages: stageFingerprint("historySnapshot"),
   });
   return createHash("sha1").update(material).digest("hex").slice(0, 16);
@@ -854,7 +858,7 @@ export async function generateSemanticsHistory(
   options: SemanticsHistoryGenerateOptions
 ): Promise<SemanticsHistoryGenerationResult> {
   const root = realpathSync(resolve(options.root));
-  const config = options.config ?? loadSemanticsConfig(root);
+  const config = options.config ?? DEFAULT_CONFIGURATION;
   const policy: SemanticsHistoryConfig = {
     ...config.history,
     ...options.history,
@@ -1122,7 +1126,6 @@ export async function generateSemanticsHistory(
         historyMode: "first-parent",
         profile: "temporal",
         renameDetection: RENAME_DETECTION,
-        roots: config.roots,
       },
       range: {
         from: oldest?.hash ?? timeline.head,

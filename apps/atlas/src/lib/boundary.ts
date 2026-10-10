@@ -6,6 +6,8 @@ import {
   statSync,
 } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { parse as parseYaml } from "yaml";
+import type { SemanticsDeclarationSource } from "./semantics-types";
 
 const isTsSourcePattern = /\.tsx?$/;
 
@@ -62,24 +64,131 @@ function readPackageJson(dir: string): PackageJson | undefined {
   return JSON.parse(readFileSync(file, "utf8")) as PackageJson;
 }
 
-export function workspacePatterns(root: string): string[] {
-  const pkg = readPackageJson(root);
-  const workspaces = pkg?.workspaces;
-  if (Array.isArray(workspaces)) {
-    return workspaces;
-  }
-  if (workspaces?.packages) {
-    return workspaces.packages;
-  }
-  return [];
+/** The package patterns a workspace's package manager reads, and where they came from. */
+export interface WorkspaceDeclaration {
+  /** The patterns as the file lists them. */
+  readonly declared: readonly string[];
+  /**
+   * The patterns the analyses expand, each through `normalizeWorkspacePath`:
+   * negations dropped, and patterns that resolve to the workspace root or
+   * escape it ignored.
+   */
+  readonly patterns: readonly string[];
+  readonly source: SemanticsDeclarationSource;
 }
 
-/** Walk up from `start` looking for a package.json with a workspaces field. */
+const PNPM_WORKSPACE_FILE = "pnpm-workspace.yaml";
+const TRAILING_SLASHES = /\/+$/;
+const LEADING_DOT_SLASHES = /^(?:\.\/)+/;
+
+/**
+ * A workspace-relative POSIX path in its one spelling: a leading `./` and
+ * trailing slashes removed. Undefined for a path that is empty, the root
+ * itself (`.`), absolute, or not plain, with a backslash or an empty, `.`,
+ * or `..` segment, which would resolve to the root or escape it.
+ */
+export function normalizeWorkspacePath(path: string): string | undefined {
+  const normalized = path
+    .replace(LEADING_DOT_SLASHES, "")
+    .replace(TRAILING_SLASHES, "");
+  const plain =
+    normalized !== "" &&
+    !normalized.startsWith("/") &&
+    !normalized.includes("\\") &&
+    normalized
+      .split("/")
+      .every(
+        (segment) => segment !== "" && segment !== "." && segment !== ".."
+      );
+  return plain ? normalized : undefined;
+}
+
+function readOptional(file: string): string | undefined {
+  return existsSync(file) ? readFileSync(file, "utf8") : undefined;
+}
+
+/**
+ * The workspace declaration: `pnpm-workspace.yaml#packages` when that file
+ * lists packages, else `package.json#workspaces`, as an array or as
+ * `{ "packages": [] }`. Undefined when neither declares a list. Read afresh
+ * on every call. `**` is not expanded (see `expandPattern`).
+ */
+export function workspaceDeclaration(
+  root: string
+): WorkspaceDeclaration | undefined {
+  const pnpm = readOptional(join(root, PNPM_WORKSPACE_FILE));
+  const fromPnpm = pnpm === undefined ? undefined : pnpmPackages(pnpm);
+  if (fromPnpm !== undefined) {
+    return declarationOf(fromPnpm, "pnpm-workspace.yaml");
+  }
+  const workspaces = readPackageJson(root)?.workspaces;
+  const list = Array.isArray(workspaces) ? workspaces : workspaces?.packages;
+  return Array.isArray(list)
+    ? declarationOf(
+        list.filter((pattern) => typeof pattern === "string"),
+        "package.json#workspaces"
+      )
+    : undefined;
+}
+
+function pnpmPackages(text: string): string[] | undefined {
+  let parsed: unknown;
+  try {
+    parsed = parseYaml(text);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `${PNPM_WORKSPACE_FILE}: the file is not valid YAML: ${reason.split("\n")[0]}`,
+      { cause: error }
+    );
+  }
+  if (
+    typeof parsed !== "object" ||
+    parsed === null ||
+    !("packages" in parsed)
+  ) {
+    return undefined;
+  }
+  const { packages } = parsed;
+  if (
+    !(
+      Array.isArray(packages) &&
+      packages.every((pattern) => typeof pattern === "string")
+    )
+  ) {
+    throw new Error(
+      `${PNPM_WORKSPACE_FILE}: packages must be a list of strings.`
+    );
+  }
+  return packages;
+}
+
+function declarationOf(
+  list: string[],
+  source: SemanticsDeclarationSource
+): WorkspaceDeclaration {
+  return {
+    declared: list,
+    patterns: list.flatMap((pattern) => {
+      const normalized = pattern.startsWith("!")
+        ? undefined
+        : normalizeWorkspacePath(pattern);
+      return normalized === undefined ? [] : [normalized];
+    }),
+    source,
+  };
+}
+
+/** The declaration's patterns, ready to expand; empty when the workspace declares none. */
+export function workspacePatterns(root: string): readonly string[] {
+  return workspaceDeclaration(root)?.patterns ?? [];
+}
+
+/** Walk up from `start` to the nearest directory with a workspace declaration. */
 export function findRepoRoot(start: string): string {
   let dir = resolve(start);
   for (;;) {
-    const pkg = readPackageJson(dir);
-    if (pkg?.workspaces) {
+    if (workspaceDeclaration(dir) !== undefined) {
       return dir;
     }
     const parent = dirname(dir);

@@ -803,7 +803,7 @@ const HIGH_CONCENTRATION_SHARE = 0.8;
 const BRANCH_HEAVY_CONTROL_FLOW_DECISIONS = 6;
 
 /** Bump when tuning changes, so reports from different policies can be told apart. */
-export const ANALYSIS_POLICY_VERSION = 24;
+export const ANALYSIS_POLICY_VERSION = 25;
 
 /**
  * Policy of the derived workspace layers (`workspaceGraph`,
@@ -813,12 +813,7 @@ export const ANALYSIS_POLICY_VERSION = 24;
 export const WORKSPACE_INTELLIGENCE_POLICY_VERSION = 2;
 
 export const ANALYSIS_CONFIG: AnalysisConfig = {
-  anchors: [
-    {
-      reason: "Intentional workspace subsystem boundary",
-      target: "@foundry/workspaces",
-    },
-  ],
+  anchors: [],
   architecturalProfiles: {
     broadlyConsumed: {
       maxPrimaryConsumerShare: HIGH_CONCENTRATION_SHARE,

@@ -12,9 +12,21 @@ CLI expose.
 A directory of packages that Atlas scans as one, named by its root path.
 _Avoid_: repository, project, monorepo
 
+**Workspace declaration**:
+The package patterns the workspace's package manager reads, from
+`pnpm-workspace.yaml`, or else `package.json#workspaces`. Discovery and
+import analysis both follow it.
+_Avoid_: workspaces, roots
+
+**Package pattern**:
+A glob in the workspace declaration that matches directories that may be
+packages, such as `apps/*` or `docs`.
+_Avoid_: root, pattern alone
+
 **Unit**:
-A directory found by discovery as a candidate package, before it is
-analyzed.
+A directory a package pattern matches: a candidate package. Discovery skips
+a unit with a reason the manifest records; every other unit is analyzed as a
+package.
 _Avoid_: target, candidate
 
 **Package**:
@@ -48,6 +60,27 @@ A past commit of the workspace that history analyzes.
 
 **Snapshot**:
 One checkpoint's saved analysis.
+
+**Configuration**:
+What a workspace declares to Atlas in its configuration directory,
+`.foundry/atlas/`: exclusions and history settings. Analysis thresholds are
+not configuration; they are built in.
+_Avoid_: config, semantics config, analysis config
+
+**Configuration directory**:
+`.foundry/atlas/` at the workspace root; each configuration file in it
+declares part of the configuration, and a key is declared in one file only.
+_Avoid_: source, authoring folder, state directory
+
+**Configuration file**:
+A file in the configuration directory that default-exports part of the
+configuration; `_`-prefixed helpers are not configuration files.
+_Avoid_: module, source
+
+**Setting**:
+One entry of the configuration, such as `history.range`; a top-level
+setting is a key.
+_Avoid_: option (that is the command line)
 
 ### What a scan saves
 

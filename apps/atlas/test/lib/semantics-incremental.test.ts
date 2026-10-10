@@ -16,6 +16,7 @@ import { dirname, join } from "node:path";
 
 import { afterAll, describe, expect, it } from "vitest";
 import { assembleSurfaceReport } from "../../src/lib/assemble";
+import { loadConfiguration } from "../../src/lib/atlas-config";
 import { analyzePackageLocal } from "../../src/lib/package-local";
 import type {
   SemanticsDeriver,
@@ -457,17 +458,42 @@ describe("source changes", () => {
     expect(result.reports.derived).toBe(3);
   });
 
-  it("re-derives without any local analysis when the semantics config changes", async () => {
+  it("re-derives without any local analysis when the configuration changes, and reuses everything when it changes only in form", async () => {
     const root = copyFixture();
     await full(root);
     write(
       root,
-      "foundry.config.json",
-      JSON.stringify({ semantics: { exclude: ["packages/docs-only"] } })
+      ".foundry/atlas/index.ts",
+      'export default { exclude: ["packages/docs-only"] };\n'
+    );
+    const changed = await incremental(root, {
+      config: await loadConfiguration(root),
+    });
+    expect(localCauses(changed)["@s/c"]).toBe("reuse:fingerprint-unchanged");
+    expect(reportCauses(changed)["@s/c"]).toBe("recompute:config-changed");
+    write(
+      root,
+      ".foundry/atlas/index.ts",
+      '// Fixtures are not packages.\nexport default { exclude: ["packages/docs-only"] };\n'
+    );
+    const restated = await incremental(root, {
+      config: await loadConfiguration(root),
+    });
+    expect(restated.packages).toMatchObject({ analyzed: 0, reused: 3 });
+    expect(restated.reports).toMatchObject({ derived: 0, reused: 3 });
+  }, 60_000);
+
+  it("reads pnpm-workspace.yaml as a workspace input", async () => {
+    const root = copyFixture();
+    await full(root);
+    write(
+      root,
+      "pnpm-workspace.yaml",
+      "packages:\n  - apps/*\n  - packages/*\n  - tooling/*\n"
     );
     const result = await incremental(root);
-    expect(localCauses(result)["@s/c"]).toBe("reuse:fingerprint-unchanged");
-    expect(reportCauses(result)["@s/c"]).toBe("recompute:config-changed");
+    expect(localCauses(result)["@s/a"]).toBe("reuse:fingerprint-unchanged");
+    expect(reportCauses(result)["@s/a"]).toBe("recompute:sources-changed");
   });
 });
 

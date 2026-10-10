@@ -34,7 +34,6 @@ const pkg: SemanticsManifestPackage = {
   id: "@test/p",
   modules: { count: 5 },
   path: "packages/p",
-  root: "packages",
   status: "complete",
 };
 const source = {

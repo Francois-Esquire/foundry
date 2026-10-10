@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { loadConfiguration } from "./atlas-config";
 import type { DatasetReader, PackageReport } from "./dataset";
 import { datasetReader } from "./dataset";
 import { fileTransport } from "./dataset-files";
@@ -8,10 +9,7 @@ import type { PackageInternals } from "./internal-analysis-types";
 import { analyzePackageLocal } from "./package-local";
 import type { SemanticsProgressEvent } from "./semantics";
 import { generateSemantics } from "./semantics";
-import {
-  discoverSemanticsUnits,
-  loadSemanticsConfig,
-} from "./semantics-discover";
+import { discoverSemanticsUnits, requireDeclared } from "./semantics-discover";
 import type { SemanticsHistoryProgressEvent } from "./semantics-history";
 import { generateSemanticsHistory } from "./semantics-history";
 import type { SemanticsHistoryManifest } from "./semantics-history-types";
@@ -103,14 +101,13 @@ async function scanPackage(
   name: string
 ): Promise<PackageInternals> {
   const resolved = await resolveRoot(root);
-  const found = discoverSemanticsUnits(
+  const discovery = requireDeclared(
     resolved,
-    loadSemanticsConfig(resolved)
-  ).units.find((unit) => unit.id === name);
+    discoverSemanticsUnits(resolved, await loadConfiguration(resolved))
+  );
+  const found = discovery.units.find((unit) => unit.id === name);
   if (found === undefined) {
-    throw new Error(
-      `Workspace ${resolved} has no package named ${name} under its roots.`
-    );
+    throw new Error(`Workspace ${resolved} has no package named ${name}.`);
   }
   return packageInternals(
     analyzePackageLocal({ root: resolved, target: found.path })
@@ -140,10 +137,16 @@ async function whileScanning<T>(
   }
 }
 
+/**
+ * Loads the workspace's configuration, which runs its configuration files:
+ * once per call, from the working tree. The scan entry points (`prepare`,
+ * `scanPackage`) are the only load sites; history applies the configuration
+ * to every checkpoint, and nothing else loads it.
+ */
 async function prepare(root: string, options: ScanOptions): Promise<ScanRun> {
   const state = await workspaceState(root, options.state);
   return {
-    config: { ...loadSemanticsConfig(state.root), output: state.output },
+    config: await loadConfiguration(state.root),
     history: options.history === true,
     progress: options.onProgress ?? ignoreProgress,
     state,
@@ -167,6 +170,7 @@ async function publish(
     internals,
     mode: "incremental",
     onProgress: progress,
+    output: state.output,
     root: state.root,
   });
   const manifest = await datasetReader(fileTransport(result.output)).manifest();

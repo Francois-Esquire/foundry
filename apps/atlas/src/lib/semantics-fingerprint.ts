@@ -37,7 +37,7 @@ export interface WorkspaceInputs {
   analysis: string;
   /** Analysis clock every package is measured under, ISO-8601. */
   clock: string;
-  /** Discovery roots, exclusions, and profile. */
+  /** `configFingerprint`: the exclusions and the profile. */
   config: string;
   /** Root-relative posix path → content sha1 of every workspace input file, sorted. */
   files: Map<string, string>;
@@ -72,9 +72,31 @@ function hashPairs(pairs: Iterable<[string, string]>): string {
   return sha1(JSON.stringify([...pairs]));
 }
 
-/** Manifests of every workspace package plus the root's: names, entries, exports, owners. */
+/**
+ * The configuration and profile inputs a scan's results depend on, by
+ * allow-list: the exclusions and the analysis profile. The workspace
+ * declaration is not here; its files are hashed with the sources
+ * (`workspaceManifests`). The history policy chooses checkpoints and changes
+ * no analysis; domains and other settings only a lens reads never enter here.
+ */
+export function configFingerprint(inputs: {
+  exclude: readonly string[];
+  profile: AnalysisProfile;
+}): string {
+  return sha1(
+    JSON.stringify({
+      exclude: [...inputs.exclude].sort(),
+      profile: inputs.profile,
+    })
+  );
+}
+
+/** Manifests of every workspace package plus the root's and the pnpm declaration: names, entries, exports, owners. */
 function workspaceManifests(root: string): string[] {
-  const manifests = [join(root, "package.json")];
+  const manifests = [
+    join(root, "package.json"),
+    join(root, "pnpm-workspace.yaml"),
+  ];
   for (const pattern of workspacePatterns(root)) {
     for (const dir of expandPattern(root, pattern)) {
       const manifest = join(dir, "package.json");
@@ -150,13 +172,7 @@ export async function collectWorkspaceInputs(
   return {
     analysis: stageFingerprint("packageAnalysis"),
     clock: now.toISOString(),
-    config: sha1(
-      JSON.stringify({
-        exclude: [...config.exclude].sort(),
-        profile,
-        roots: [...config.roots].sort(),
-      })
-    ),
+    config: configFingerprint({ exclude: config.exclude, profile }),
     files,
     history: historyInputs,
     sources: hashPairs(files),

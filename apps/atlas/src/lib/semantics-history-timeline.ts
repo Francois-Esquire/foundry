@@ -35,14 +35,15 @@ function isModulePath(file: string): boolean {
   return isModulePathPattern.test(file) && !file.endsWith(".d.ts");
 }
 
-const RANGE = /^(\d+)([ymd])$/;
+/** A history range other than `all`: years, months, or days back from `HEAD`. */
+export const HISTORY_RANGE = /^(\d+)([ymd])$/;
 
 /** `1y` → the instant one year before `to`; `all` → undefined. */
 export function rangeStart(range: string, to: Date): Date | undefined {
   if (range === "all") {
     return undefined;
   }
-  const match = RANGE.exec(range);
+  const match = HISTORY_RANGE.exec(range);
   if (match === null) {
     throw new Error(
       `Unsupported history range "${range}"; use <n>y, <n>m, <n>d, or all`

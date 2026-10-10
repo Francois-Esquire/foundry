@@ -8,33 +8,51 @@ atlas scan /path/to/workspace
 ```
 
 A scan turns a directory of packages into a dataset the viewer can read. It
-never writes inside the workspace.
+never writes inside the workspace. When the workspace has a configuration
+directory, `.foundry/atlas/`, the scan runs its files first; see
+[Configuration](/atlas/reference/configuration).
 
 ## What counts as a workspace
 
-Atlas reads the root `package.json`. Its `workspaces` patterns, as an array
-or as `{ "packages": [...] }`, define the TypeScript program and the entry
-points for import analysis; without them the whole root is one program. Its
+Atlas reads the workspace declaration: the `packages` list in
+`pnpm-workspace.yaml` when that file has one, or else the `workspaces`
+patterns in the root `package.json`, as an array or as
+`{ "packages": [...] }`. The same package patterns decide which directories
+are units and define the TypeScript program and the entry points for import
+analysis. A workspace that declares no packages is not scanned: the scan
+fails with `Workspace <root> declares no packages. Atlas reads them from
+pnpm-workspace.yaml or package.json#workspaces.` The root `package.json`'s
 `name` becomes the workspace name.
 
-Units are found under the roots `apps`, `packages`, `plugins`, and
-`tooling`. Every immediate child directory with a `package.json` that has a
-name and at least one `.ts` or `.tsx` file that is not a declaration file is
-a unit. A root that does not exist is recorded, not an error. Everything
-else is skipped with a reason that lands in the manifest:
+A package pattern without `*` (`docs`) matches that directory. A pattern
+with `*` is expanded at its first `*`, one level: `apps/*` matches every
+child directory of `apps`, and so do `apps/**` and `apps/*/lib`. A leading
+`./` and a trailing slash are dropped. Atlas ignores `!` negations, in
+discovery and in analysis alike, so put negated directories under `exclude`
+instead; it also ignores a pattern that resolves to the workspace root or
+escapes it. A pattern that matches no directory is recorded in the manifest
+as `packagePatternsUnmatched`, not as an error, and a directory that two
+patterns match is a unit once. The manifest counts every matched directory
+as `unitsDiscovered`, and the units that are packages as `packagesFound`.
+
+Every directory a pattern matches is a unit. A unit with a `package.json`
+that has a name and at least one `.ts` or `.tsx` file that is not a
+declaration file is analyzed as a package. Everything else is skipped with a
+reason that lands in the manifest:
 
 | Reason | Meaning |
 | --- | --- |
 | `generated output` | A build directory such as `dist`, `build`, `out`, or `coverage` |
 | `gitignored` | Matched by a `.gitignore` between the root and the directory |
-| `excluded` | Listed under `semantics.exclude` in `foundry.config.json` |
+| `excluded` | Listed under `exclude` in the workspace's [configuration](/atlas/reference/configuration) |
 | `no package manifest` | No `package.json` |
 | `analysis unsupported` | No TypeScript source |
 
 Dot-directories, `node_modules`, and `.foundry` are never entered. Within a
 unit, files under `test/fixtures/` and build configuration files such as
-`*.config.ts` are left out of analysis. Change the roots or exclude units in
-[`foundry.config.json`](/atlas/reference/configuration).
+`*.config.ts` are left out of analysis. To leave a unit out, list it under
+`exclude` in the workspace's [configuration](/atlas/reference/configuration);
+an exclusion that matches no unit is recorded as `excludeUnmatched`.
 
 ## What a scan does
 

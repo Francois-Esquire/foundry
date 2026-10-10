@@ -88,3 +88,9 @@ describe("config injection", () => {
     expect(rendered).toContain("… 2 more symbols");
   });
 });
+
+describe("built-in policy", () => {
+  it("names no Foundry package", () => {
+    expect(JSON.stringify(ANALYSIS_CONFIG)).not.toContain("@foundry/");
+  });
+});

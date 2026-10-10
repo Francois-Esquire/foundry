@@ -14,6 +14,7 @@ import { basename, isAbsolute, join, sep } from "node:path";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { assembleSurfaceReport } from "../../src/lib/assemble";
+import { DEFAULT_CONFIGURATION } from "../../src/lib/atlas-config";
 import { encodePackageFile } from "../../src/lib/dataset-layout";
 import { analyzePackageLocal } from "../../src/lib/package-local";
 import type {
@@ -25,11 +26,8 @@ import {
   spawnDeriver,
   spawnLocalAnalyzer,
 } from "../../src/lib/semantics";
-import {
-  DEFAULT_SEMANTICS_CONFIG,
-  discoverSemanticsUnits,
-  loadSemanticsConfig,
-} from "../../src/lib/semantics-discover";
+import { discoverSemanticsUnits } from "../../src/lib/semantics-discover";
+import { compareSemanticsDatasets } from "../../src/lib/semantics-equivalence";
 import type {
   SemanticsConceptIndex,
   SemanticsManifest,
@@ -166,18 +164,24 @@ function stableDataset(dir: string): Map<string, string> {
 }
 
 describe("discovery", () => {
-  it("finds one unit per configured root and records every skip", () => {
-    const discovery = discoverSemanticsUnits(fixture, DEFAULT_SEMANTICS_CONFIG);
-    expect(discovery.units.map((u) => [u.id, u.root, u.path])).toEqual([
-      ["@s/a", "apps", "apps/a"],
-      ["@s/b", "packages", "packages/b"],
-      ["@s/c", "tooling", "tooling/c"],
+  it("finds one unit per directory a package pattern matches and records every skip", () => {
+    const discovery = discoverSemanticsUnits(fixture, DEFAULT_CONFIGURATION);
+    expect(discovery.units.map((u) => [u.id, u.path])).toEqual([
+      ["@s/a", "apps/a"],
+      ["@s/b", "packages/b"],
+      ["@s/c", "tooling/c"],
     ]);
     expect(discovery.units.every((u) => u.analyzable)).toBe(true);
     expect(discovery.units[0]?.manifestPath).toBe("apps/a/package.json");
-    expect(discovery.rootsScanned).toEqual(["apps", "packages", "tooling"]);
-    expect(discovery.rootsMissing).toEqual(["plugins"]);
-    expect(discovery.directoriesInspected).toBe(6);
+    expect(discovery.packagePatterns).toEqual([
+      "apps/*",
+      "packages/*",
+      "tooling/*",
+    ]);
+    expect(discovery.declarationSource).toBe("package.json#workspaces");
+    expect(discovery.packagePatternsUnmatched).toEqual([]);
+    expect(discovery.excludeUnmatched).toEqual([]);
+    expect(discovery.unitsDiscovered).toBe(6);
     expect(discovery.skipped).toEqual([
       { path: "packages/dist", reason: "generated output" },
       { path: "packages/docs-only", reason: "analysis unsupported" },
@@ -185,31 +189,111 @@ describe("discovery", () => {
     ]);
   });
 
-  it("respects custom roots, exclusions, and missing roots", () => {
+  it("skips excluded units and reports exclusions that matched none", () => {
     const discovery = discoverSemanticsUnits(fixture, {
-      ...DEFAULT_SEMANTICS_CONFIG,
-      exclude: ["libraries/lib"],
-      roots: ["services", "libraries", "vendor"],
+      ...DEFAULT_CONFIGURATION,
+      exclude: ["tooling/c", "tooling/typo"],
     });
-    expect(discovery.units.map((u) => u.id)).toEqual(["@s/svc"]);
-    expect(discovery.rootsScanned).toEqual(["libraries", "services"]);
-    expect(discovery.rootsMissing).toEqual(["vendor"]);
-    expect(discovery.skipped).toEqual([
-      { path: "libraries/lib", reason: "excluded" },
-    ]);
+    expect(discovery.units.map((u) => u.id)).toEqual(["@s/a", "@s/b"]);
+    expect(discovery.skipped).toContainEqual({
+      path: "tooling/c",
+      reason: "excluded",
+    });
+    expect(discovery.excludeUnmatched).toEqual(["tooling/typo"]);
   });
 
-  it("reads foundry.config.json#semantics and defaults without it", () => {
-    expect(loadSemanticsConfig(fixture)).toEqual(DEFAULT_SEMANTICS_CONFIG);
+  it("follows pnpm-workspace.yaml first, trims trailing slashes, and drops negations", () => {
     const dir = copyFixture();
     writeFileSync(
-      join(dir, "foundry.config.json"),
-      JSON.stringify({ semantics: { roots: ["services"] } })
+      join(dir, "pnpm-workspace.yaml"),
+      "packages:\n  - services/*\n  - libraries/lib/\n  - '!services/svc'\n  - vendor/*\n"
     );
-    expect(loadSemanticsConfig(dir)).toEqual({
-      ...DEFAULT_SEMANTICS_CONFIG,
-      roots: ["services"],
-    });
+    const discovery = discoverSemanticsUnits(dir, DEFAULT_CONFIGURATION);
+    expect(discovery.units.map((u) => [u.id, u.path])).toEqual([
+      ["@s/lib", "libraries/lib"],
+      ["@s/svc", "services/svc"],
+    ]);
+    expect(discovery.declarationSource).toBe("pnpm-workspace.yaml");
+    expect(discovery.packagePatterns).toEqual([
+      "services/*",
+      "libraries/lib/",
+      "!services/svc",
+      "vendor/*",
+    ]);
+    expect(discovery.packagePatternsUnmatched).toEqual(["vendor/*"]);
+    rmSync(dir, { force: true, recursive: true });
+  });
+
+  it("ignores package patterns that resolve to the root or escape it, without calling them unmatched", () => {
+    const dir = copyFixture();
+    writeFileSync(
+      join(dir, "package.json"),
+      JSON.stringify({ workspaces: [".", "../*", "packages/b"] })
+    );
+    const discovery = discoverSemanticsUnits(dir, DEFAULT_CONFIGURATION);
+    expect(discovery.units.map((u) => u.path)).toEqual(["packages/b"]);
+    expect(discovery.packagePatterns).toEqual([".", "../*", "packages/b"]);
+    expect(discovery.packagePatternsUnmatched).toEqual([]);
+    expect(discovery.unitsDiscovered).toBe(1);
+    rmSync(dir, { force: true, recursive: true });
+  });
+
+  it("records a directory two patterns match once", () => {
+    const dir = copyFixture();
+    writeFileSync(
+      join(dir, "package.json"),
+      JSON.stringify({ workspaces: ["packages/b", "packages/*"] })
+    );
+    const discovery = discoverSemanticsUnits(dir, DEFAULT_CONFIGURATION);
+    expect(discovery.units.map((u) => u.id)).toEqual(["@s/b"]);
+    expect(discovery.unitsDiscovered).toBe(4);
+    rmSync(dir, { force: true, recursive: true });
+  });
+
+  it("analyzes a pnpm workspace as its package.json twin", async () => {
+    const declared = copyFixture();
+    const pnpm = copyFixture();
+    writeFileSync(
+      join(pnpm, "package.json"),
+      JSON.stringify({ name: "semantics-root", private: true })
+    );
+    writeFileSync(
+      join(pnpm, "pnpm-workspace.yaml"),
+      "packages:\n  - apps/*\n  - packages/*\n  - tooling/*\n"
+    );
+    const [left, right] = await Promise.all(
+      [declared, pnpm].map((root) =>
+        generateSemantics({ command: "test", now, root, ...inProcess })
+      )
+    );
+    const differences = compareSemanticsDatasets(
+      left?.output ?? "",
+      right?.output ?? ""
+    ).differences.filter((difference) => difference.file !== "manifest.json");
+    expect(differences).toEqual([]);
+    expect(readManifest(right?.output ?? "").discovery.declarationSource).toBe(
+      "pnpm-workspace.yaml"
+    );
+    expect(
+      readManifest(right?.output ?? "").packages.map((pkg) => pkg.id)
+    ).toEqual(["@s/a", "@s/b", "@s/c"]);
+    for (const root of [declared, pnpm]) {
+      rmSync(root, { force: true, recursive: true });
+    }
+  }, 60_000);
+
+  it("refuses to scan a workspace that declares no packages", async () => {
+    const dir = copyFixture();
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "solo" }));
+    expect(
+      discoverSemanticsUnits(dir, DEFAULT_CONFIGURATION).declarationSource
+    ).toBeUndefined();
+    await expect(
+      generateSemantics({ root: dir, ...inProcess })
+    ).rejects.toThrow(
+      `Workspace ${dir} declares no packages. Atlas reads them from pnpm-workspace.yaml or package.json#workspaces.`
+    );
+    expect(existsSync(join(dir, ".foundry", "semantics"))).toBe(false);
     rmSync(dir, { force: true, recursive: true });
   });
 
@@ -261,7 +345,12 @@ describe("generation", () => {
       name: "semantics-root",
       root: basename(root),
     });
-    expect(manifest.roots).toEqual(["apps", "packages", "plugins", "tooling"]);
+    expect(manifest.discovery).toMatchObject({
+      declarationSource: "package.json#workspaces",
+      excludeUnmatched: [],
+      packagePatterns: ["apps/*", "packages/*", "tooling/*"],
+      packagePatternsUnmatched: [],
+    });
     expect(manifest.versions.workspaceSchema).toBe(WORKSPACE_SCHEMA_VERSION);
     expect(manifest.versions.packageSchema).toBe(35);
     expect(manifest.counts.packages).toBe(3);
@@ -286,7 +375,8 @@ describe("generation", () => {
       expect(pkg).not.toHaveProperty("name");
       expect(pkg.internals).toBeUndefined();
     }
-    expect(manifest.discovery.unitsDiscovered).toBe(3);
+    expect(manifest.discovery.unitsDiscovered).toBe(6);
+    expect(manifest.discovery.packagesFound).toBe(3);
     expect(manifest.discovery.unitsAnalyzed).toBe(3);
     expect(manifest.discovery.unitsSkipped).toHaveLength(3);
     expect(manifest.generation.phases.map((p) => p.name)).toEqual([
@@ -758,7 +848,6 @@ describe("worker", () => {
       id: "@s/b",
       manifestPath: "packages/b/package.json",
       path: "packages/b",
-      root: "packages",
     };
     const spawnedLocal = await spawnLocalAnalyzer(unit, { root });
     const directLocal = analyzePackageLocal({ root, target: "packages/b" });

@@ -351,21 +351,75 @@ returns its results through it.
   through the installed `serve` and the default command, which fails
   without scanning.
 
-**1.7 Configuration.**
-- Resolve `.foundry/atlas/` as Marbles resolves `.foundry/marbles/`
-  (`apps/marbles/src/source.ts`), copied rather than imported.
-- Read `foundry.config.json#semantics` as a fallback during 0.x, now
-  validated rather than cast. `history.strategy` rejects unknown values.
-  `semantics.output` is removed, since the state directory decides where
-  output goes.
-- Discovery reads `pnpm-workspace.yaml` as well as
-  `package.json#workspaces`. The default roots stop being Foundry's
-  (`semantics-discover.ts:26`); a workspace's own declaration wins.
-- The configuration's contents feed the scan fingerprint, so a changed
-  configuration invalidates the cache.
-- `AnalysisConfig` stays built in. The `@foundry/workspaces` anchor in it
-  (`lib/config.ts:816-819`) is analysis configuration, so removing it is
-  logged under [Changes to existing code](#changes-to-existing-code) first.
+**1.7 Configuration.** Done 2026-10-10.
+- The configuration directory is `.foundry/atlas/`, walked as Marbles walks
+  `.foundry/marbles/` (copied into `lib/atlas-config.ts`
+  `configFiles`; a directory reached through a symbolic link is refused).
+  Each configuration file default-exports a plain object, and each key is
+  declared in one file only, a rule 1.9 keeps for `domains`. `AtlasConfig` is `{ exclude?, history? }`; there is no
+  `defineConfig` or `domain()` helper, and 1.10 exports the type only.
+- The files run in `lib/config-worker.ts`, a Bun worker of its own started
+  like the analysis workers (`lib/worker-runtime.ts`), with the workspace as
+  its working directory and a 30-second timeout after which it is killed
+  with `SIGKILL`. It names each file before importing it, so a file that
+  ends the process is named, and returns the validated default exports as
+  JSON, which the loader validates again; each load imports them fresh. The
+  build bundles it as `dist/cli/config-worker.js`.
+- Validation is zod, strict, with one-line messages that put the subject
+  first: `Configuration <file>: <setting> <issue>; got <value>.`, string
+  values quoted. `exclude` entries and package patterns share one spelling,
+  `boundary.ts` `normalizeWorkspacePath`.
+  `history.strategy` and `history.range` are checked at load time.
+- `foundry.config.json#semantics` is the fallback when there is no
+  configuration directory, validated the same way. `semantics.output` and
+  `semantics.roots` are rejected with a message naming the replacement, and
+  a `semantics` key beside `.foundry/atlas/` is an error (a file there that
+  does not parse is ignored).
+- Execution invariants: the scan entry points in `scan.ts` (`prepare` and
+  `scanPackage`) are the only load sites, through `loadConfiguration`.
+  `generateSemantics` and `generateSemanticsHistory` take the resolved
+  configuration and never load it, defaulting to `DEFAULT_CONFIGURATION`; history applies the working tree's
+  configuration to every checkpoint. `serve` and the reader never run it.
+  `generateSemantics` gains `output`, which `scan` sets to the state
+  directory's.
+- Discovery follows the workspace declaration only:
+  `pnpm-workspace.yaml#packages` when it lists packages, else
+  `package.json#workspaces`, through `boundary.ts` `workspaceDeclaration`,
+  which the analyses read too (logged below). Every directory a package
+  pattern matches is a unit; a directory two patterns match is recorded
+  once. A workspace that declares no packages fails the scan with
+  `Workspace <root> declares no packages. …`, checked once where the
+  discovery is made (`requireDeclared`, in `generateSemantics` and
+  `scanPackage`, which narrows it to `DeclaredDiscovery`); a history checkpoint from
+  before the declaration existed is an empty snapshot. There is no
+  configured override of the patterns, because the analyses build their
+  program and ownership from the same patterns.
+- Dataset schema 4, unpublished, keeps its number. The manifest's `roots`,
+  `discovery.rootsScanned`, `discovery.rootsMissing`, and each package's
+  `root` are gone; `discovery` gains `packagePatterns` (as declared),
+  `declarationSource`, `packagePatternsUnmatched`, and `excludeUnmatched`.
+  `unitsDiscovered` now counts every directory a package pattern matched
+  (the former `directoriesInspected`, which is gone), and `packagesFound`
+  the units that are packages. History's snapshot coverage changes the same
+  way, and its policy drops `roots`.
+- `configFingerprint({ exclude, profile })` is the one allow-list of
+  configuration inputs, called the same way by the package-report
+  fingerprint and by `historyFingerprint`. The declaration is covered by its
+  files, which are hashed workspace inputs (`workspaceManifests`, which now
+  includes `pnpm-workspace.yaml`).
+- The `@foundry/workspaces` anchor is removed and `ANALYSIS_POLICY_VERSION`
+  is 25 (logged below). A Foundry scan now finds `@foundry/docs` (`docs/` in
+  its declaration), 15 packages in all, and no longer looks for `plugins/`.
+- Tests: `test/lib/atlas-config.test.ts` (the loader),
+  `test/lib/boundary.test.ts` (`workspacePatterns`, `normalizeWorkspacePath`,
+  `findRepoRoot`), discovery and a pnpm
+  twin of the fixture in `test/lib/semantics.test.ts`, the fingerprint in
+  `test/lib/semantics-incremental.test.ts`, an empty checkpoint in
+  `test/lib/semantics-history.test.ts`, a configured scan in
+  `test/lib/scan.test.ts` (and `scan.package` on an undeclared workspace),
+  a policy guard in `test/lib/config.test.ts`, and
+  `test/package.test.ts` loads a fixture's configuration through the
+  installed bin with an empty PATH.
 
 **1.8 Commands.** The CLI as the library plus formatting.
 - A typed command table, as Marbles has, in `cli/args.ts`.
@@ -565,4 +619,5 @@ Every change to analysis code, with its reason, before it is made.
 | The worker passes no `AnalysisConfig`, and the fingerprint does not cover it | `semantics-worker.ts:39`; per-workspace anchors would be ignored, and a changed config would leave stale caches. | Only if domains feed anchors (phase 3). |
 | `analyzeInternals` and `packageInternals` extracted from `runInternalAnalysis` | The materializer derives each package's internals from the local report it already holds, instead of analyzing the package again; `runInternalAnalysis` is unchanged in signature and output. | Done in 1.4. |
 | `PackageInternals` moves to `lib/internal-analysis-types.ts`, spelled out from the stage report types | The reader validates saved internals in the browser, which cannot import the analysis code that `packageInternals`' return type came from. No behavior change; `packageInternals` returns the same shape. | Done in 1.5. |
-| The `@foundry/workspaces` anchor is built in | `lib/config.ts:816-819`; it blocks `fold-package` for any package of that name in any scanned repository. | Remove in 1.7. A Foundry scan loses its one anchor until workspaces can declare their own (3.7). |
+| The `@foundry/workspaces` anchor is built in | `lib/config.ts:816-819`; it blocks `fold-package` for any package of that name in any scanned repository. | Done in 1.7: `anchors` is empty and `ANALYSIS_POLICY_VERSION` is 25, so cached reports made under the anchor are not reused. A Foundry scan loses its one anchor until workspaces can declare their own (3.7). |
+| `workspacePatterns` (`lib/boundary.ts`) reads `pnpm-workspace.yaml#packages`, drops `!` negations, normalizes a leading `./` and trailing slashes, and ignores patterns that resolve to the workspace root (`.`) or escape it (`../*`); `findRepoRoot` finds a workspace by the same declaration | Discovery follows the workspace declaration from 1.7, and the analyses build their program, ownership, and module graph from the same patterns, so both must read the same list. A root pattern would make the whole workspace one package, and an escaping one reaches outside it, so neither names a package. `findRepoRoot` checked `package.json#workspaces` only, so its four callers without an explicit root (`apply.ts`, `package-local.ts`, `workspace-surface.ts`, and `workspace-derive.ts`) resolved a pnpm-only workspace to the current directory. A workspace without `pnpm-workspace.yaml` is unaffected, apart from `docs/` now matching `docs`, which also makes `fold-plan.ts`'s `workspace-entry` impact fire for Foundry's `docs`; that impact's `file: "package.json"` is not pnpm-aware and is left as is, being analysis code. `**` stays unsupported in both. | Done in 1.7. |

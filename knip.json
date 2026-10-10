@@ -2,7 +2,11 @@
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "workspaces": {
     "apps/atlas": {
-      "entry": ["scripts/*.ts", "src/lib/semantics-worker.ts"],
+      "entry": [
+        "scripts/*.ts",
+        "src/lib/semantics-worker.ts",
+        "src/lib/config-worker.ts"
+      ],
       "ignore": ["test/lib/fixtures/**"]
     },
     "apps/marbles": {

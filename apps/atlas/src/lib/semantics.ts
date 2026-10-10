@@ -16,6 +16,7 @@ import {
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
+import { DEFAULT_CONFIGURATION } from "./atlas-config";
 import {
   ANALYSIS_POLICY_VERSION,
   WORKSPACE_INTELLIGENCE_POLICY_VERSION,
@@ -45,10 +46,7 @@ import {
   storePackage,
   storeWorkspaceInputsMeta,
 } from "./semantics-cache";
-import {
-  discoverSemanticsUnits,
-  loadSemanticsConfig,
-} from "./semantics-discover";
+import { discoverSemanticsUnits, requireDeclared } from "./semantics-discover";
 import {
   canonicalSemanticsText,
   listSemanticsFiles,
@@ -65,9 +63,9 @@ import {
   startOfUtcDay,
 } from "./semantics-fingerprint";
 import type {
+  DeclaredDiscovery,
   SemanticsConceptIndex,
   SemanticsConfig,
-  SemanticsDiscovery,
   SemanticsGenerationError,
   SemanticsGenerationMode,
   SemanticsGenerationResult,
@@ -87,6 +85,7 @@ import type {
 } from "./semantics-types";
 import { SEMANTICS_DATASET_SCHEMA_VERSION } from "./semantics-types";
 import type { AnalysisProfile, SurfaceReport } from "./types";
+import { WORKER_RUNTIME, workerEntry } from "./worker-runtime";
 import type { WorkspaceDerivationTiming } from "./workspace-derive-types";
 import { ingestWorkspaceReports } from "./workspace-ingest";
 import { analyzeWorkspace } from "./workspace-intelligence";
@@ -155,10 +154,11 @@ export type SemanticsProgressEvent =
 
 export interface SemanticsGenerateOptions {
   analyzeLocal?: SemanticsLocalAnalyzer;
-  /** Repository-relative cache directory; written in both modes. */
+  /** Workspace-relative or absolute cache directory; written in both modes. */
   cache?: string;
   command?: string;
   concurrency?: number;
+  /** The resolved configuration, which `scan` loads; never loaded here. Default: the plain defaults. */
   config?: SemanticsConfig;
   derive?: SemanticsDeriver;
   /** Fingerprint and look up the cache, then stop: no analysis, no output. */
@@ -180,22 +180,15 @@ export interface SemanticsGenerateOptions {
    */
   now?: Date;
   onProgress?: (event: SemanticsProgressEvent) => void;
+  /** Workspace-relative or absolute dataset directory. Default `.foundry/semantics`; `scan` passes the state directory's. */
+  output?: string;
   root: string;
 }
 
+const DEFAULT_OUTPUT = ".foundry/semantics";
+
 const execFileAsync = promisify(execFile);
-const WORKER = join(
-  import.meta.dirname,
-  import.meta.filename.endsWith(".ts")
-    ? "semantics-worker.ts"
-    : "semantics-worker.js"
-);
-/**
- * The running Bun starts the worker, so none is needed on the PATH. When this
- * module runs outside Bun (Vitest's Node host, or any Node importer),
- * `execPath` is not a Bun, so it falls back to `bun` from the PATH.
- */
-const WORKER_RUNTIME = process.versions.bun ? process.execPath : "bun";
+const WORKER = workerEntry("semantics-worker");
 
 /** Default local analyzer: one Bun worker per unit, report written and read back as JSON. */
 export const spawnLocalAnalyzer: SemanticsLocalAnalyzer = async (
@@ -849,7 +842,7 @@ export async function generateSemantics(
     concurrency,
     analyzeLocal,
     derive,
-  } = collectConfig(options, root);
+  } = collectConfig(options);
   const startedAt = new Date();
   const started = performance.now();
   const phases: SemanticsPhaseTiming[] = [];
@@ -872,7 +865,7 @@ export async function generateSemantics(
     }
   };
 
-  const output = resolve(root, config.output);
+  const output = resolve(root, options.output ?? DEFAULT_OUTPUT);
   const cacheDir = resolve(root, options.cache ?? DEFAULT_SEMANTICS_CACHE);
   const tmp = `${output}.tmp-${process.pid}`;
   const previous = existsSync(output) ? output : undefined;
@@ -883,10 +876,11 @@ export async function generateSemantics(
   const writer = new Writer(tmp, previous);
 
   try {
-    const discovery: SemanticsDiscovery = await timed(
-      "discover",
-      undefined,
-      () => discoverSemanticsUnits(root, config)
+    const discovery = requireDeclared(
+      root,
+      await timed("discover", undefined, () =>
+        discoverSemanticsUnits(root, config)
+      )
     );
 
     const previousInputs = readWorkspaceInputsMeta(cacheDir)?.files;
@@ -1361,7 +1355,6 @@ export async function generateSemantics(
               internals: internalsFile(unit.id),
             }),
           path: unit.path,
-          root: unit.root,
           status: outcome.report === undefined ? "failed" : "complete",
           ...(outcome.report !== undefined && {
             report: packageReportFile(unit.id),
@@ -1421,7 +1414,6 @@ export async function generateSemantics(
       phases,
       startedAt,
       started,
-      config,
       reports,
       workspaceName,
       root
@@ -1484,8 +1476,8 @@ export async function generateSemantics(
   }
 }
 
-function collectConfig(options: SemanticsGenerateOptions, root: string) {
-  const config = options.config ?? loadSemanticsConfig(root);
+function collectConfig(options: SemanticsGenerateOptions) {
+  const config = options.config ?? DEFAULT_CONFIGURATION;
   const now = options.now ?? startOfUtcDay(new Date());
   const mode = options.mode ?? "full";
   const dryRun = options.dryRun === true;
@@ -1511,7 +1503,7 @@ function generateSemanticsEntries(
   modules: SemanticsModuleRecord[],
   context: WorkspaceProjectionContext,
   partial: boolean,
-  discovery: SemanticsDiscovery,
+  discovery: DeclaredDiscovery,
   packages: SemanticsManifestPackage[],
   failures: number,
   finishedAt: Date,
@@ -1526,7 +1518,6 @@ function generateSemanticsEntries(
   phases: SemanticsPhaseTiming[],
   startedAt: Date,
   started: number,
-  config: SemanticsConfig,
   reports: SurfaceReport[],
   workspaceName: string | undefined,
   root: string
@@ -1541,11 +1532,13 @@ function generateSemanticsEntries(
     },
     coverage: partial ? "partial" : "complete",
     discovery: {
-      directoriesInspected: discovery.directoriesInspected,
-      rootsMissing: discovery.rootsMissing,
-      rootsScanned: discovery.rootsScanned,
+      declarationSource: discovery.declarationSource,
+      excludeUnmatched: discovery.excludeUnmatched,
+      packagePatterns: discovery.packagePatterns,
+      packagePatternsUnmatched: discovery.packagePatternsUnmatched,
+      packagesFound: discovery.units.length,
       unitsAnalyzed: packages.length - failures,
-      unitsDiscovered: discovery.units.length,
+      unitsDiscovered: discovery.unitsDiscovered,
       unitsSkipped: discovery.skipped,
     },
     files: DATASET_FILES,
@@ -1567,7 +1560,6 @@ function generateSemanticsEntries(
       totalDurationMs: Math.round(performance.now() - started),
     },
     packages,
-    roots: config.roots,
     schemaVersion: SEMANTICS_DATASET_SCHEMA_VERSION,
     versions: {
       packagePolicy: ANALYSIS_POLICY_VERSION,

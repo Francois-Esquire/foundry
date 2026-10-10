@@ -27,6 +27,12 @@ package-local analysis as the main scan, and removed. Your checkout, branch,
 and index are not touched. Only committed state counts; uncommitted changes
 are not part of any checkpoint.
 
+Each checkpoint finds its packages from its own workspace declaration, as
+the tree had it at that commit. A checkpoint from before the workspace
+declared any packages is recorded as a snapshot with no packages, not as a
+failure. The configuration is read once, from your working tree, and applies
+to every checkpoint; a checkpoint's own `.foundry/atlas/` is never run.
+
 Checkpoints are analyzed one after another, and a checkpoint analyzed
 before is reused from the cache. The CLI prints no progress for this part.
 
@@ -43,9 +49,9 @@ history/
   deltas/<from>__<to>.json   between consecutive successful checkpoints
 ```
 
-Range, count, and strategy come from `semantics.history` in
-[`foundry.config.json`](/atlas/reference/configuration). The CLI has no
-flags for them.
+Range, count, and strategy come from `history` in the workspace's
+[configuration](/atlas/reference/configuration). The CLI has no flags for
+them.
 
 ## In the viewer
 

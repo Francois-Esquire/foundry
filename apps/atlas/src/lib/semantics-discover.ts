@@ -1,9 +1,14 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
-import { EXCLUDED_DIRS } from "./boundary";
+import { basename, join, relative } from "node:path";
+import {
+  EXCLUDED_DIRS,
+  expandPattern,
+  toPosix,
+  workspaceDeclaration,
+} from "./boundary";
 import { createIgnorer, type Ignorer } from "./ignore";
-import type { SemanticsHistoryConfig } from "./semantics-history-types";
 import type {
+  DeclaredDiscovery,
   SemanticsConfig,
   SemanticsDeclaredDependencies,
   SemanticsDeclaredDependencyKind,
@@ -14,40 +19,6 @@ import type {
 import { SEMANTICS_DECLARED_DEPENDENCY_KINDS } from "./semantics-types";
 
 const hasTypeScriptSourcesPattern = /\.tsx?$/;
-
-const DEFAULT_HISTORY_CONFIG: SemanticsHistoryConfig = {
-  checkpoints: 12,
-  every: 100,
-  range: "1y",
-  strategy: "monthly",
-};
-
-export const DEFAULT_SEMANTICS_CONFIG: SemanticsConfig = {
-  exclude: [],
-  history: DEFAULT_HISTORY_CONFIG,
-  output: ".foundry/semantics",
-  roots: ["apps", "packages", "plugins", "tooling"],
-};
-
-const SEMANTICS_CONFIG_FILE = "foundry.config.json";
-
-/** Reads `foundry.config.json#semantics` at the root when present; defaults otherwise. */
-export function loadSemanticsConfig(root: string): SemanticsConfig {
-  const file = join(root, SEMANTICS_CONFIG_FILE);
-  if (!existsSync(file)) {
-    return DEFAULT_SEMANTICS_CONFIG;
-  }
-  const parsed = JSON.parse(readFileSync(file, "utf8")) as {
-    semantics?: Partial<Omit<SemanticsConfig, "history">> & {
-      history?: Partial<SemanticsHistoryConfig>;
-    };
-  };
-  return {
-    ...DEFAULT_SEMANTICS_CONFIG,
-    ...parsed.semantics,
-    history: { ...DEFAULT_HISTORY_CONFIG, ...parsed.semantics?.history },
-  };
-}
 
 const GENERATED_DIRS = new Set([...EXCLUDED_DIRS, ".foundry"]);
 
@@ -98,103 +69,136 @@ function declaredDependencies(
   return declared;
 }
 
-/** One level below each configured root; a unit is a named package manifest with TypeScript sources. */
+/**
+ * The discovery, narrowed to a workspace that declares package patterns; a
+ * scan requires one and fails here otherwise. History does not: a
+ * checkpoint from before the declaration existed is recorded with no
+ * packages.
+ */
+export function requireDeclared(
+  root: string,
+  discovery: SemanticsDiscovery
+): DeclaredDiscovery {
+  const { declarationSource } = discovery;
+  if (declarationSource === undefined) {
+    throw new Error(
+      `Workspace ${root} declares no packages. Atlas reads them from pnpm-workspace.yaml or package.json#workspaces.`
+    );
+  }
+  return { ...discovery, declarationSource };
+}
+
+/**
+ * Every directory the workspace declaration's package patterns match is a
+ * unit; it becomes an analyzable package when it has a named manifest and
+ * TypeScript sources. A directory two patterns match is inspected once, for
+ * the first.
+ */
 export function discoverSemanticsUnits(
   root: string,
   config: SemanticsConfig
 ): SemanticsDiscovery {
-  const excluded = new Set(config.exclude);
-  const ignorer = createIgnorer(root);
-  const units: SemanticsWorkspaceUnit[] = [];
-  const skipped: SemanticsSkippedDirectory[] = [];
-  const rootsScanned: string[] = [];
-  const rootsMissing: string[] = [];
-  let directoriesInspected = 0;
-  for (const configured of [...config.roots].sort()) {
-    const dir = join(root, configured);
-    if (!(existsSync(dir) && statSync(dir).isDirectory())) {
-      rootsMissing.push(configured);
-      continue;
+  const declaration = workspaceDeclaration(root);
+  const patterns = declaration?.patterns ?? [];
+  const inspection: Inspection = {
+    excluded: new Set(config.exclude),
+    excludedSeen: new Set(),
+    ignorer: createIgnorer(root),
+    root,
+    skipped: [],
+    units: [],
+  };
+  const seen = new Set<string>();
+  const packagePatternsUnmatched: string[] = [];
+  for (const pattern of patterns) {
+    const matched = matchedDirectories(root, pattern);
+    if (matched.length === 0) {
+      packagePatternsUnmatched.push(pattern);
     }
-    rootsScanned.push(configured);
-    const entries = readdirSync(dir, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => entry.name)
-      .sort();
-    directoriesInspected = discoverSemanticsUnitsName(
-      entries,
-      directoriesInspected,
-      configured,
-      skipped,
-      ignorer,
-      excluded,
-      root,
-      units
-    );
+    for (const rel of matched.filter((path) => !seen.has(path))) {
+      seen.add(rel);
+      inspect(inspection, rel);
+    }
   }
-  units.sort(
+  inspection.units.sort(
     (a, b) => a.id.localeCompare(b.id) || a.path.localeCompare(b.path)
   );
   return {
-    directoriesInspected,
-    rootsMissing,
-    rootsScanned,
-    skipped,
-    units,
+    ...(declaration !== undefined &&
+      patterns.length > 0 && { declarationSource: declaration.source }),
+    excludeUnmatched: config.exclude.filter(
+      (path) => !inspection.excludedSeen.has(path)
+    ),
+    packagePatterns: [...(declaration?.declared ?? [])],
+    packagePatternsUnmatched,
+    skipped: inspection.skipped.sort((a, b) => a.path.localeCompare(b.path)),
+    units: inspection.units,
+    unitsDiscovered: seen.size,
   };
 }
 
-function discoverSemanticsUnitsName(
-  entries: string[],
-  initialDirectoriesInspected: number,
-  configured: string,
-  skipped: SemanticsSkippedDirectory[],
-  ignorer: Ignorer,
-  excluded: Set<string>,
-  root: string,
-  units: SemanticsWorkspaceUnit[]
-) {
-  let directoriesInspected = initialDirectoriesInspected;
-  for (const name of entries) {
-    directoriesInspected += 1;
-    const rel = `${configured}/${name}`;
-    const skip = (reason: SemanticsSkippedDirectory["reason"]): void => {
-      skipped.push({ path: rel, reason });
-    };
-    if (GENERATED_DIRS.has(name) || name.startsWith(".")) {
-      skip("generated output");
-      continue;
-    }
-    if (ignorer.ignores(`${rel}/`)) {
-      skip("gitignored");
-      continue;
-    }
-    if (excluded.has(rel)) {
-      skip("excluded");
-      continue;
-    }
-    const manifestPath = `${rel}/package.json`;
-    const manifest = join(root, manifestPath);
-    const parsed = existsSync(manifest)
-      ? (JSON.parse(readFileSync(manifest, "utf8")) as PackageManifest)
-      : undefined;
-    const id = parsed === undefined ? undefined : packageName(parsed);
-    if (parsed === undefined || id === undefined) {
-      skip("no package manifest");
-      continue;
-    }
-    if (!hasTypeScriptSources(join(root, rel))) {
-      skip("analysis unsupported");
-      continue;
-    }
-    units.push({
-      analyzable: true,
-      declaredDependencies: declaredDependencies(parsed),
-      id,
-      manifestPath,
-      path: rel,
-      root: configured,
-    });
+/**
+ * The workspace-relative directories one pattern matches, sorted. Patterns
+ * that resolve to the root or escape it never get here: the declaration
+ * ignores them.
+ */
+function matchedDirectories(root: string, pattern: string): string[] {
+  return expandPattern(root, pattern)
+    .filter((dir) => existsSync(dir) && statSync(dir).isDirectory())
+    .map((dir) => toPosix(relative(root, dir)))
+    .sort();
+}
+
+interface Inspection {
+  excluded: Set<string>;
+  /** Exclusions some pattern matched, whether or not the unit was reached. */
+  excludedSeen: Set<string>;
+  ignorer: Ignorer;
+  root: string;
+  skipped: SemanticsSkippedDirectory[];
+  units: SemanticsWorkspaceUnit[];
+}
+
+function inspect(inspection: Inspection, rel: string): void {
+  const { excluded, ignorer, root, skipped, units } = inspection;
+  const skip = (reason: SemanticsSkippedDirectory["reason"]): void => {
+    skipped.push({ path: rel, reason });
+  };
+  if (excluded.has(rel)) {
+    inspection.excludedSeen.add(rel);
   }
-  return directoriesInspected;
+  const name = basename(rel);
+  if (GENERATED_DIRS.has(name) || name.startsWith(".")) {
+    skip("generated output");
+    return;
+  }
+  if (ignorer.ignores(`${rel}/`)) {
+    skip("gitignored");
+    return;
+  }
+  if (excluded.has(rel)) {
+    skip("excluded");
+    return;
+  }
+  const manifestPath = `${rel}/package.json`;
+  const manifest = join(root, manifestPath);
+  const parsed = existsSync(manifest)
+    ? (JSON.parse(readFileSync(manifest, "utf8")) as PackageManifest)
+    : undefined;
+  const id = parsed === undefined ? undefined : packageName(parsed);
+  if (parsed === undefined || id === undefined) {
+    skip("no package manifest");
+    return;
+  }
+  if (!hasTypeScriptSources(join(root, rel))) {
+    skip("analysis unsupported");
+    return;
+  }
+  units.push({
+    analyzable: true,
+    declaredDependencies: declaredDependencies(parsed),
+    id,
+    manifestPath,
+    path: rel,
+  });
 }

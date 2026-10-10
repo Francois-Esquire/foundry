@@ -225,8 +225,8 @@ binary.
   `paths` aliases as unverified until `move-module` is executable.
 - **Expose it in the CLI last.** `atlas apply <plan>` previews by default
   and writes with `--write`, mirroring the library. It ships only once a
-  rule can be declared in `foundry.config.json` and the readiness gate
-  reads it.
+  rule can be declared in the configuration directory, `.foundry/atlas/`,
+  and the readiness gate reads it.
 
 ## Open questions
 
@@ -235,10 +235,10 @@ binary.
   boundary), and whether it permits or requires. Whether a rule may also
   name forbidden edits (a `preserve-*` operator in rule form) decides
   whether preservation stays plan-local or becomes workspace policy.
-- **Where rules live.** `foundry.config.json` already carries
-  `semantics`; a `rules` key beside it is the obvious home. Package-level
-  rules, which the roadmap names, need a precedence story against
-  workspace-level ones.
+- **Where rules live.** In the configuration directory, `.foundry/atlas/`,
+  as a `rules` key beside `exclude` and `history` (settled in 1.7; each key
+  is declared in one file). Package-level rules, which the roadmap names,
+  need a precedence story against workspace-level ones.
 - **Verification per kind.** `verifyInternalizeExport` is bespoke. Each
   new executable kind needs its own structural checks, or a general
   "predicted delta equals observed delta" check must be proven sufficient.

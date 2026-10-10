@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import {
   cpSync,
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
@@ -187,6 +188,9 @@ test(
       expect(existsSync(join(installed, "dist/cli/semantics-worker.js"))).toBe(
         true
       );
+      expect(existsSync(join(installed, "dist/cli/config-worker.js"))).toBe(
+        true
+      );
       expect(existsSync(join(installed, "dist/web/index.html"))).toBe(true);
       expectSelfContained(installed, manifest);
 
@@ -196,6 +200,12 @@ test(
       // The fixture is copied so the scan never touches the repository copy.
       const workspace = join(consumer, "workspace");
       cpSync(FIXTURE, workspace, { recursive: true });
+      // Its configuration directory is loaded by the installed config worker.
+      mkdirSync(join(workspace, ".foundry/atlas"), { recursive: true });
+      writeFileSync(
+        join(workspace, ".foundry/atlas/index.ts"),
+        'import type { AtlasConfig } from "@foundry/atlas";\n\nexport default { exclude: ["packages/docs-only"] } satisfies AtlasConfig;\n'
+      );
       const state = join(consumer, "state");
       // Started by an absolute path with no PATH: the workers must not need
       // a `bun` there. The fixture is not a Git repository, so the scan
@@ -214,10 +224,14 @@ test(
       expect(dataset.schemaVersion).toBe(4);
       expect(dataset.coverage).toBe("complete");
       expect(
-        dataset.packages.filter(
-          (entry: { status: string }) => entry.status === "complete"
-        )
-      ).toHaveLength(3);
+        dataset.packages
+          .filter((entry: { status: string }) => entry.status === "complete")
+          .map((entry: { id: string }) => entry.id)
+      ).toEqual(["@s/a", "@s/b", "@s/c"]);
+      expect(dataset.discovery.unitsSkipped).toContainEqual({
+        path: "packages/docs-only",
+        reason: "excluded",
+      });
       expect(existsSync(join(output, "internals"))).toBe(true);
       expect(existsSync(join(output, "manifests"))).toBe(false);
 

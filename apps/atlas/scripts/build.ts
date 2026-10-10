@@ -34,4 +34,5 @@ async function bundle(entrypoint: string, naming?: string) {
 rmSync(outdir, { force: true, recursive: true });
 await bundle("src/cli/index.ts", "atlas.js");
 await bundle("src/lib/semantics-worker.ts");
+await bundle("src/lib/config-worker.ts");
 await build({ configFile: resolve(root, "vite.config.ts") });

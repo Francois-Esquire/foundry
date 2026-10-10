@@ -12,16 +12,22 @@ import type { WorkspaceConceptCoverage } from "./workspace-concepts-types";
  */
 export const SEMANTICS_DATASET_SCHEMA_VERSION = 4;
 
+/**
+ * The resolved configuration a scan runs under: what the workspace's
+ * configuration files declare, over the defaults. Which directories are
+ * packages is not configuration; the workspace declaration decides it.
+ */
 export interface SemanticsConfig {
-  /** Repository-relative unit directories to skip (`packages/foo`). */
+  /** Workspace-relative unit directories to skip (`packages/foo`), matched exactly. */
   exclude: string[];
-  /** V12.3 temporal dataset policy; `semantics history` reads it. */
+  /** The checkpoint policy of `scan --history`. */
   history: SemanticsHistoryConfig;
-  /** Repository-relative dataset directory. */
-  output: string;
-  /** Repository-relative directories whose children are workspace units. */
-  roots: string[];
 }
+
+/** Where the workspace declaration came from. */
+export type SemanticsDeclarationSource =
+  | "pnpm-workspace.yaml"
+  | "package.json#workspaces";
 
 export interface SemanticsWorkspaceUnit {
   analyzable: boolean;
@@ -29,9 +35,8 @@ export interface SemanticsWorkspaceUnit {
   /** Package name from the manifest. */
   id: string;
   manifestPath: string;
-  /** Repository-relative directory, posix. */
+  /** Workspace-relative directory, posix. */
   path: string;
-  root: string;
 }
 
 type SemanticsSkipReason =
@@ -47,13 +52,25 @@ export interface SemanticsSkippedDirectory {
 }
 
 export interface SemanticsDiscovery {
-  directoriesInspected: number;
-  /** Configured roots that do not exist. */
-  rootsMissing: string[];
-  rootsScanned: string[];
+  /** Absent when the workspace declares no package patterns. */
+  declarationSource?: SemanticsDeclarationSource;
+  /** Excluded directories that no package pattern matched, so a typo shows. */
+  excludeUnmatched: string[];
+  /** The package patterns, as the workspace declaration lists them. */
+  packagePatterns: string[];
+  /** Package patterns, normalized and without negations, that matched no directory. */
+  packagePatternsUnmatched: string[];
   skipped: SemanticsSkippedDirectory[];
+  /** The units that are packages: a named manifest and TypeScript sources. */
   units: SemanticsWorkspaceUnit[];
+  /** Every directory a package pattern matched, once each. */
+  unitsDiscovered: number;
 }
+
+/** A discovery whose workspace declares package patterns, as a scan requires. */
+export type DeclaredDiscovery = SemanticsDiscovery & {
+  declarationSource: SemanticsDeclarationSource;
+};
 
 type SemanticsPackageStatus = "complete" | "failed" | "skipped";
 
@@ -85,7 +102,6 @@ export interface SemanticsManifestPackage {
   projection?: string;
   /** Full `SurfaceReport`; absent when the analysis failed. */
   report?: string;
-  root: string;
   status: SemanticsPackageStatus;
 }
 
@@ -192,18 +208,21 @@ export interface SemanticsManifest {
   /** `partial` when a unit failed or the workspace's own coverage is incomplete. */
   coverage: "complete" | "partial";
   discovery: {
-    rootsScanned: string[];
-    rootsMissing: string[];
-    directoriesInspected: number;
-    unitsDiscovered: number;
+    declarationSource: SemanticsDeclarationSource;
+    excludeUnmatched: string[];
+    packagePatterns: string[];
+    packagePatternsUnmatched: string[];
+    /** Units that are packages: a named manifest and TypeScript sources. */
+    packagesFound: number;
     unitsAnalyzed: number;
+    /** Every directory a package pattern matched. */
+    unitsDiscovered: number;
     unitsSkipped: SemanticsSkippedDirectory[];
   };
   files: SemanticsManifestFiles;
   generatedAt: string;
   generation: SemanticsGenerationMetadata;
   packages: SemanticsManifestPackage[];
-  roots: string[];
   schemaVersion: number;
   versions: {
     packageSchema: number;

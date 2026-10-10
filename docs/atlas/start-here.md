@@ -31,11 +31,12 @@ dataset and prints `Atlas: http://127.0.0.1:4173/`. Running
 `atlas /path/to/workspace` with no subcommand scans, serves, and opens the
 browser. Paths default to the current directory.
 
-A workspace is a directory whose `package.json` lists `workspaces`, with
-packages under `apps`, `packages`, `plugins`, or `tooling`. A package counts
-when it has a `package.json` with a name and at least one `.ts` or `.tsx`
-file. Other layouts are configured in
-[`foundry.config.json`](/atlas/reference/configuration).
+A workspace is a directory whose workspace declaration lists package
+patterns, in `pnpm-workspace.yaml` or `package.json#workspaces`. Atlas looks
+in every directory they match. A package counts when it has a
+`package.json` with a name and at least one `.ts` or `.tsx` file. Exclusions
+and history settings go in the workspace's
+[configuration](/atlas/reference/configuration), `.foundry/atlas/`.
 
 ## What you get
 

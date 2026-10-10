@@ -366,10 +366,53 @@ it("scan.package returns one package's internals, as the dataset saves them", as
   expect(existsSync(join(state.directory, "workspace.json"))).toBe(false);
 });
 
-it("scan.package rejects a name with no package under the workspace's roots", async () => {
-  // `libraries/` is not one of the default roots.
-  await expect(scan.package(root, "@s/lib")).rejects.toThrow("@s/lib");
+it("scan.package rejects a name with no package the workspace declares", async () => {
+  // No package pattern matches `libraries/`.
+  await expect(scan.package(root, "@s/lib")).rejects.toThrow(
+    `Workspace ${root} has no package named @s/lib.`
+  );
 });
+
+it("scan.package refuses a workspace that declares no packages", async () => {
+  const undeclared = join(directory, "undeclared");
+  cpSync(root, undeclared, { recursive: true });
+  writeFileSync(
+    join(undeclared, "package.json"),
+    JSON.stringify({ name: "solo" })
+  );
+  await expect(scan.package(undeclared, "@s/b")).rejects.toThrow(
+    `Workspace ${undeclared} declares no packages. Atlas reads them from pnpm-workspace.yaml or package.json#workspaces.`
+  );
+});
+
+it(
+  "a scan follows the workspace's configuration directory",
+  async () => {
+    const configured = join(directory, "configured");
+    cpSync(root, configured, { recursive: true });
+    mkdirSync(join(configured, ".foundry", "atlas"), { recursive: true });
+    writeFileSync(
+      join(configured, ".foundry", "atlas", "index.ts"),
+      'export default { exclude: ["tooling/c", "tooling/gone"] };\n'
+    );
+    const saved = await scan.workspace(configured, {
+      state: join(directory, "configured-state"),
+    });
+    expect(saved.manifest.packages.map((pkg) => pkg.id)).toEqual([
+      "@s/a",
+      "@s/b",
+    ]);
+    expect(saved.manifest.discovery.unitsSkipped).toContainEqual({
+      path: "tooling/c",
+      reason: "excluded",
+    });
+    expect(saved.manifest.discovery.excludeUnmatched).toEqual(["tooling/gone"]);
+    await expect(scan.package(configured, "@s/c")).rejects.toThrow(
+      "no package named @s/c"
+    );
+  },
+  SCAN_TIMEOUT_MS
+);
 
 it(
   "scan with history saves the checkpoints into the dataset",

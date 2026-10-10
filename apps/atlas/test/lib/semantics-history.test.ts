@@ -15,6 +15,7 @@ import { dirname, join } from "node:path";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { assembleSurfaceReport } from "../../src/lib/assemble";
+import { DEFAULT_CONFIGURATION } from "../../src/lib/atlas-config";
 import { analyzePackageLocal } from "../../src/lib/package-local";
 import type {
   SemanticsDeriver,
@@ -22,7 +23,6 @@ import type {
 } from "../../src/lib/semantics";
 import { generateSemantics } from "../../src/lib/semantics";
 import { SEMANTICS_CACHE_SCHEMA_VERSION } from "../../src/lib/semantics-cache";
-import { DEFAULT_SEMANTICS_CONFIG } from "../../src/lib/semantics-discover";
 import { compareSemanticsDatasets } from "../../src/lib/semantics-equivalence";
 import {
   generateSemanticsHistory,
@@ -485,10 +485,7 @@ describe("history generation", () => {
     repo = buildRepository();
     before = repoState(repo.dir);
     const result = await generateSemanticsHistory({
-      config: {
-        ...DEFAULT_SEMANTICS_CONFIG,
-        roots: ["apps", "packages", "tooling"],
-      },
+      config: DEFAULT_CONFIGURATION,
       history: { checkpoints: 12, range: "all", strategy: "monthly" },
       root: repo.dir,
       ...inProcess,
@@ -544,10 +541,12 @@ describe("history generation", () => {
     expect(first?.packages.map((p) => p.id)).toEqual(["@s/a", "@s/b", "@s/c"]);
     expect(last?.packages.map((p) => p.id)).toEqual(["@s/a", "@s/b", "@s/d"]);
     expect(first?.coverage).toMatchObject({
+      declarationSource: "package.json#workspaces",
       failed: [],
-      rootsScanned: ["apps", "packages", "tooling"],
+      packagePatterns: ["apps/*", "packages/*", "tooling/*"],
+      packagesFound: 3,
       unitsAnalyzed: 3,
-      unitsDiscovered: 3,
+      unitsDiscovered: 5,
     });
     expect(first?.profile).toBe("temporal");
   });
@@ -723,10 +722,7 @@ describe("history generation", () => {
     };
     const first = hashTree(output);
     const cached = await generateSemanticsHistory({
-      config: {
-        ...DEFAULT_SEMANTICS_CONFIG,
-        roots: ["apps", "packages", "tooling"],
-      },
+      config: DEFAULT_CONFIGURATION,
       history: { checkpoints: 12, range: "all", strategy: "monthly" },
       root: repo.dir,
       ...counting,
@@ -748,9 +744,8 @@ describe("history generation", () => {
     // checkpoint re-derives without analyzing a single package again.
     const invalidated = await generateSemanticsHistory({
       config: {
-        ...DEFAULT_SEMANTICS_CONFIG,
+        ...DEFAULT_CONFIGURATION,
         exclude: ["packages/d"],
-        roots: ["apps", "packages", "tooling"],
       },
       history: { checkpoints: 12, range: "all", strategy: "monthly" },
       root: repo.dir,
@@ -783,10 +778,7 @@ describe("history generation", () => {
     const result = await generateSemanticsHistory({
       analyzeLocal: inProcessLocal,
       cache: ".foundry/cache/failing",
-      config: {
-        ...DEFAULT_SEMANTICS_CONFIG,
-        roots: ["apps", "packages", "tooling"],
-      },
+      config: DEFAULT_CONFIGURATION,
       derive: failing,
       history: { checkpoints: 12, range: "all", strategy: "monthly" },
       output: ".foundry/history-failing",
@@ -816,10 +808,7 @@ describe("history generation", () => {
       analyzeLocal: () =>
         Promise.reject(new Error("historical source unsupported")),
       cache: ".foundry/cache/all-failing",
-      config: {
-        ...DEFAULT_SEMANTICS_CONFIG,
-        roots: ["apps", "packages", "tooling"],
-      },
+      config: DEFAULT_CONFIGURATION,
       derive: inProcessDerive,
       history: { checkpoints: 12, range: "all", strategy: "monthly" },
       output: ".foundry/history-all-failing",
@@ -836,10 +825,7 @@ describe("history generation", () => {
     const previous = hashTree(output);
     await expect(
       generateSemanticsHistory({
-        config: {
-          ...DEFAULT_SEMANTICS_CONFIG,
-          roots: ["apps", "packages", "tooling"],
-        },
+        config: DEFAULT_CONFIGURATION,
         history: { range: "soon" },
         root: repo.dir,
         ...inProcess,
@@ -872,10 +858,7 @@ describe("history generation", () => {
       })
     );
     const result = await generateSemanticsHistory({
-      config: {
-        ...DEFAULT_SEMANTICS_CONFIG,
-        roots: ["apps", "packages", "tooling"],
-      },
+      config: DEFAULT_CONFIGURATION,
       history: { checkpoints: 12, range: "all", strategy: "monthly" },
       root: repo.dir,
       ...inProcess,
@@ -896,10 +879,7 @@ describe("history generation", () => {
     const head = commit(repo.dir, "2026-05-15T12:00:00Z");
     let analyzedCheckpoints = new Set<string>();
     const result = await generateSemanticsHistory({
-      config: {
-        ...DEFAULT_SEMANTICS_CONFIG,
-        roots: ["apps", "packages", "tooling"],
-      },
+      config: DEFAULT_CONFIGURATION,
       history: { checkpoints: 12, range: "all", strategy: "monthly" },
       root: repo.dir,
       ...inProcess,
@@ -931,23 +911,17 @@ describe("history generation", () => {
       "workspaceIntelligence",
     ]);
     expect(stageClosure("materialization")).toContain("workspaceProjection");
+    expect(historyFingerprint(DEFAULT_CONFIGURATION)).toBe(
+      manifest.fingerprint
+    );
     expect(
-      historyFingerprint({
-        ...DEFAULT_SEMANTICS_CONFIG,
-        roots: ["apps", "packages", "tooling"],
-      })
-    ).toBe(manifest.fingerprint);
-    expect(
-      historyFingerprint({ ...DEFAULT_SEMANTICS_CONFIG, roots: ["apps"] })
+      historyFingerprint({ ...DEFAULT_CONFIGURATION, exclude: ["apps/a"] })
     ).not.toBe(manifest.fingerprint);
   });
 
   it("produces an equivalent dataset with and without the cache", async () => {
     const cached = await generateSemanticsHistory({
-      config: {
-        ...DEFAULT_SEMANTICS_CONFIG,
-        roots: ["apps", "packages", "tooling"],
-      },
+      config: DEFAULT_CONFIGURATION,
       history: { checkpoints: 12, range: "all", strategy: "monthly" },
       root: repo.dir,
       ...inProcess,
@@ -955,10 +929,7 @@ describe("history generation", () => {
     expect(cached.manifest.generation.cachedSnapshots).toBe(4);
     const clean = await generateSemanticsHistory({
       cache: ".foundry/cache/history-clean",
-      config: {
-        ...DEFAULT_SEMANTICS_CONFIG,
-        roots: ["apps", "packages", "tooling"],
-      },
+      config: DEFAULT_CONFIGURATION,
       history: { checkpoints: 12, range: "all", strategy: "monthly" },
       output: ".foundry/history-clean",
       root: repo.dir,
@@ -975,10 +946,7 @@ describe("history generation", () => {
 
   it("re-derives every current report when a commit lands, without re-analyzing a package", async () => {
     const firstBuild = await generateSemantics({
-      config: {
-        ...DEFAULT_SEMANTICS_CONFIG,
-        roots: ["apps", "packages", "tooling"],
-      },
+      config: DEFAULT_CONFIGURATION,
       now: new Date("2026-06-01T00:00:00Z"),
       root: repo.dir,
       ...inProcess,
@@ -989,10 +957,7 @@ describe("history generation", () => {
     write(repo.dir, "packages/d/NOTES.md", "notes\n");
     commit(repo.dir, "2026-05-20T12:00:00Z");
     const second = await generateSemantics({
-      config: {
-        ...DEFAULT_SEMANTICS_CONFIG,
-        roots: ["apps", "packages", "tooling"],
-      },
+      config: DEFAULT_CONFIGURATION,
       now: new Date("2026-06-01T00:00:00Z"),
       root: repo.dir,
       ...inProcess,
@@ -1015,10 +980,7 @@ describe("history generation", () => {
     expect(second.packages).toMatchObject({ analyzed: 0, reused: 3 });
     expect(second.reports).toMatchObject({ derived: 3, reused: 0 });
     const third = await generateSemantics({
-      config: {
-        ...DEFAULT_SEMANTICS_CONFIG,
-        roots: ["apps", "packages", "tooling"],
-      },
+      config: DEFAULT_CONFIGURATION,
       now: new Date("2026-06-01T00:00:00Z"),
       root: repo.dir,
       ...inProcess,
@@ -1029,13 +991,18 @@ describe("history generation", () => {
     git(repo.dir, ["reset", "-q", "--hard", "HEAD~1"]);
   }, 240_000);
 
-  it("analyzes a tree with no configured roots as an empty checkpoint", async () => {
+  it("records a checkpoint from before the workspace declared packages as empty", async () => {
+    const undeclared = realpathSync(
+      mkdtempSync(join(tmpdir(), "semantics-history-undeclared-"))
+    );
+    cpSync(fixture, undeclared, { recursive: true });
+    write(undeclared, "package.json", '{ "name": "semantics-root" }\n');
+    write(undeclared, ".gitignore", ".foundry/\n");
+    git(undeclared, ["init", "-q", "-b", "main"]);
+    commit(undeclared, "2026-01-15T12:00:00Z");
     const result = await generateSemanticsHistory({
-      cache: ".foundry/cache/empty",
-      config: { ...DEFAULT_SEMANTICS_CONFIG, roots: ["vendor"] },
       history: { checkpoints: 1, range: "all", strategy: "evenly-spaced" },
-      output: ".foundry/history-empty",
-      root: repo.dir,
+      root: undeclared,
       ...inProcess,
     });
     expect(result.manifest.generation.successfulSnapshots).toBe(1);
@@ -1046,6 +1013,13 @@ describe("history generation", () => {
     ) as TemporalWorkspaceSnapshot;
     expect(snapshot.packages).toEqual([]);
     expect(snapshot.modules).toEqual([]);
-    expect(snapshot.coverage.rootsMissing).toEqual(["vendor"]);
+    expect(snapshot.coverage).toMatchObject({
+      packagePatterns: [],
+      packagePatternsUnmatched: [],
+      packagesFound: 0,
+      unitsDiscovered: 0,
+    });
+    expect(snapshot.coverage).not.toHaveProperty("declarationSource");
+    rmSync(undeclared, { force: true, recursive: true });
   }, 120_000);
 });
