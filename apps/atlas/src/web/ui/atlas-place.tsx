@@ -1,5 +1,7 @@
 import { useCallback, useMemo } from "react";
 import { type BelongingRegion, fileDistricts } from "../belonging";
+import { placementKey } from "../codex/resolve";
+import type { CodexPlacement } from "../codex/vocabulary";
 import { folderWithin } from "../folder-sectors";
 import { featureText, importCounts } from "../natural-feature-inspection";
 import type { NaturalFeatures } from "../natural-features";
@@ -85,13 +87,10 @@ export function AtlasPlace({
       onFrame(place.members.map((file) => file.id));
     }
   }, [onFrame, place]);
-  const pointer = describePointer(
-    hoveredWreck,
-    hover,
-    hoveredRegion,
-    data.packageLayers,
-    { districts, features }
-  );
+  const pointer = describePointer(hoveredWreck, hover, hoveredRegion, data, {
+    districts,
+    features,
+  });
   if (!(territory && selection)) {
     return (
       <div className="atlas-place">
@@ -124,7 +123,7 @@ export function AtlasPlace({
           region,
           territory,
           composites,
-          data.packageLayers,
+          data,
           districts
         )}
       </p>
@@ -302,6 +301,12 @@ function browseLabel(
   return "Browse districts";
 }
 
+/** What Place reads of the atlas beyond the selection: layers, and where each place is used. */
+type AtlasFacts = Pick<
+  AtlasData,
+  "packageLayers" | "placement" | "territories"
+>;
+
 /** What the two groupings say of a file, as Place reads them, and the shared shape of its readout. */
 interface FileContext {
   /** Each file's district, by file id, once the island's belonging is read. */
@@ -310,21 +315,75 @@ interface FileContext {
 }
 
 /**
+ * Where a place is used against where it lives, from the `placement` lens:
+ * "placement: departs toward marbles · 7 of 9 consumer modules", "…: fits
+ * · 4 of 5 consumer modules at home", "…: spread over 3 packages", or "…:
+ * used by no other package"; nothing for a package whose use is unknown,
+ * having no internals. Its own name leaves room for a domain's reading
+ * beside it (4.2d).
+ */
+function placementText(
+  atlas: AtlasFacts,
+  place: Pick<CodexPlacement, "level" | "place">,
+  packageId: string
+): string | undefined {
+  const reading = placementReading(atlas, place, packageId);
+  return reading && `placement: ${reading}`;
+}
+
+function placementReading(
+  atlas: AtlasFacts,
+  place: Pick<CodexPlacement, "level" | "place">,
+  packageId: string
+): string | undefined {
+  const placed = atlas.placement.places[placementKey(place)];
+  if (!placed) {
+    return atlas.placement.labelled.includes(packageId)
+      ? "used by no other package"
+      : undefined;
+  }
+  const consumers = placed.away.reduce(
+    (sum, entry) => sum + entry.modules,
+    placed.home
+  );
+  if (placed.label === "fits") {
+    return `fits · ${placed.home} of ${consumers} consumer modules at home`;
+  }
+  const toward = placed.away.find((entry) => entry.package === placed.toward);
+  if (placed.label === "departs" && toward) {
+    const name =
+      atlas.territories.find((item) => item.id === toward.package)?.label ??
+      toward.package;
+    return `departs toward ${name} · ${toward.modules} of ${consumers} consumer modules`;
+  }
+  const packages = placed.away.length + (placed.home ? 1 : 0);
+  return `spread over ${packages} packages`;
+}
+
+/**
  * A file's kind; where it sits, its folder, and what it serves, its
- * district, once the island's belonging is read; then its import counts. A
- * summit file's counts lead with its internal fan-in and its package's
- * cutoff.
+ * district, once the island's belonging is read; where it is used, or its
+ * symbol's when one is chosen; then its import counts. A summit file's
+ * counts lead with its internal fan-in and its package's cutoff.
  */
 function fileDetail(
-  file: AtlasFile,
-  territory: Territory,
+  selection: Pick<AtlasSelection, "symbol" | "territory"> & {
+    file: AtlasFile;
+  },
+  atlas: AtlasFacts,
   districts?: ReadonlyMap<string, BelongingRegion>
 ): string {
+  const { file, symbol, territory } = selection;
   const folder = folderWithin(file.directory, territory.folder);
   const where = `in ${folder || "the package folder"}`;
   const district = districts?.get(file.id);
   const serves = district ? ` · district ${district.label}` : "";
-  return `${file.kind} · ${where}${serves} · ${importCounts(file, territory.highFanInCutoff)} It imports ${file.outgoing} ${file.outgoing === 1 ? "module" : "modules"}.`;
+  const place = symbol
+    ? { level: "symbol" as const, place: `${file.path}#${symbol.name}` }
+    : { level: "file" as const, place: file.path };
+  const use = placementText(atlas, place, territory.id);
+  const used = use ? ` · ${use}` : "";
+  return `${file.kind} · ${where}${serves}${used} · ${importCounts(file, territory.highFanInCutoff)} It imports ${file.outgoing} ${file.outgoing === 1 ? "module" : "modules"}.`;
 }
 
 /** An island's dependency layer as a reader hears it: "Layer 2", or "No layer" where the graph could not place it. */
@@ -338,14 +397,18 @@ function layerName(
 
 /**
  * What places an island, as a reader hears it: its folder, which orders its
- * row, and its layer, which is the row: "apps/atlas · Layer 2".
+ * row, and its layer, which is the row; then where the package is used:
+ * "apps/atlas · Layer 2 · used by no other package".
  */
-function islandPlacement(
-  layers: AtlasData["packageLayers"],
-  territory: Territory
-): string {
-  const layer = layerName(layers, territory);
-  return territory.folder ? `${territory.folder} · ${layer}` : layer;
+function islandPlacement(atlas: AtlasFacts, territory: Territory): string {
+  const layer = layerName(atlas.packageLayers, territory);
+  const placed = territory.folder ? `${territory.folder} · ${layer}` : layer;
+  const use = placementText(
+    atlas,
+    { level: "package", place: territory.folder },
+    territory.id
+  );
+  return use ? `${placed} · ${use}` : placed;
 }
 
 function describeSelection(
@@ -354,16 +417,17 @@ function describeSelection(
   region: BelongingRegion | undefined,
   territory: Territory,
   composites: BelongingRegion[],
-  layers: AtlasData["packageLayers"],
+  atlas: AtlasFacts,
   districts: ReadonlyMap<string, BelongingRegion>
 ): string {
-  if (selection.file) {
-    return fileDetail(selection.file, territory, districts);
+  const { file } = selection;
+  if (file) {
+    return fileDetail({ ...selection, file }, atlas, districts);
   }
   if (place) {
     return `${place.members.length} files · ${describePlaceKind(region, place)}`;
   }
-  return `${territory.files.length} files · ${islandPlacement(layers, territory)} · ${composites.filter((item) => !item.collection).length} districts`;
+  return `${territory.files.length} files · ${islandPlacement(atlas, territory)} · ${composites.filter((item) => !item.collection).length} districts`;
 }
 
 function describePlaceKind(
@@ -381,10 +445,10 @@ function describePointer(
   wreck: FormerPackage | null,
   hover: AtlasSelection | null,
   region: BelongingRegion | undefined,
-  layers: AtlasData["packageLayers"],
+  atlas: AtlasFacts,
   context: FileContext
 ) {
-  const text = inspectionText(wreck, hover, region, layers, context);
+  const text = inspectionText(wreck, hover, region, atlas, context);
   if (!text) {
     return null;
   }
@@ -400,7 +464,7 @@ export function inspectionText(
   wreck: FormerPackage | null,
   inspected: AtlasSelection | null,
   region: BelongingRegion | undefined,
-  layers: AtlasData["packageLayers"],
+  atlas: AtlasFacts,
   { districts, features }: FileContext = {}
 ): { title: string; detail: string } | null {
   if (wreck) {
@@ -422,7 +486,7 @@ export function inspectionText(
     return featureText(inspected.feature);
   }
   return {
-    detail: inspectionDetail(inspected, region, layers, districts),
+    detail: inspectionDetail(inspected, region, atlas, districts),
     title: inspected.symbol
       ? `${inspected.symbol.name} · ${inspected.file?.path ?? inspected.territory.id}`
       : (inspected.file?.path ?? region?.label ?? inspected.territory.label),
@@ -432,14 +496,15 @@ export function inspectionText(
 function inspectionDetail(
   inspected: AtlasSelection,
   region: BelongingRegion | undefined,
-  layers: AtlasData["packageLayers"],
+  atlas: AtlasFacts,
   districts?: ReadonlyMap<string, BelongingRegion>
 ): string {
-  if (inspected.file) {
-    return fileDetail(inspected.file, inspected.territory, districts);
+  const { file } = inspected;
+  if (file) {
+    return fileDetail({ ...inspected, file }, atlas, districts);
   }
   if (region) {
     return `${region.members.length} files · ${region.children ? "Enter district" : "Enter responsibility"}`;
   }
-  return `${inspected.territory.files.length} files · ${islandPlacement(layers, inspected.territory)} · ${inspected.territory.analyzed ? "Select to explore" : "Not analyzed"}`;
+  return `${inspected.territory.files.length} files · ${islandPlacement(atlas, inspected.territory)} · ${inspected.territory.analyzed ? "Select to explore" : "Not analyzed"}`;
 }

@@ -51,6 +51,7 @@ const fixture = (): AtlasData => ({
   generatedAt: "test",
   height: 300,
   packageLayers: {},
+  placement: { labelled: [], places: {} },
   routes: [
     {
       consumerFiles: ["consumer"],

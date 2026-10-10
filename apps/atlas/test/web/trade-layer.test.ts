@@ -40,6 +40,7 @@ describe("3D coastal trade", () => {
       generatedAt: "test",
       height: 300,
       packageLayers: {},
+      placement: { labelled: [], places: {} },
       routes: [
         {
           consumerFiles: [],

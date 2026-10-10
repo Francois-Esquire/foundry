@@ -3,6 +3,7 @@ import type {
   FileRolesPackage,
 } from "../lib/lenses/file-roles-types";
 import type { PackageResponsibilityGroups } from "../lib/lenses/responsibility-groups-types";
+import type { CodexPlacement } from "./codex/vocabulary";
 
 export interface AtlasSymbol {
   id: string;
@@ -91,6 +92,16 @@ export interface AtlasData {
    * stays off the scale. A package missing here is off the scale too.
    */
   packageLayers: Record<string, number | null>;
+  /**
+   * The `placement` lens: every place a module of another package uses, by
+   * `placementKey` (`level:place`), and the packages it labelled. A place of a labelled package that
+   * is absent is used by no other package; a package not labelled has no
+   * internals, and its use is unknown.
+   */
+  placement: {
+    labelled: readonly string[];
+    places: Record<string, CodexPlacement>;
+  };
   routes: AtlasRoute[];
   territories: Territory[];
   width: number;

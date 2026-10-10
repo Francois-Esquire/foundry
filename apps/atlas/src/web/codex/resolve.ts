@@ -1,6 +1,6 @@
 import { SEMANTICS_DECLARED_DEPENDENCY_KINDS } from "../../lib/semantics-types";
 import type { CodexSource } from "./source";
-import type { Codex, CodexRetiredPackage } from "./vocabulary";
+import type { Codex, CodexPlacement, CodexRetiredPackage } from "./vocabulary";
 
 /** The files at each end of a package pair's imports. */
 export interface PairEndpoints {
@@ -115,11 +115,53 @@ export function resolveCodex(source: CodexSource): Codex {
         size: p.modules.total,
       };
     }),
+    placement: {
+      labelled: source.placement.packages.map((p) => p.id),
+      places: source.placement.places.map(resolvePlacement),
+    },
     retiredPackages: source.history && retiredPackages(source.history, current),
     workspace: {
       coverage: source.dataset.coverage,
       surveyedAt: source.dataset.generatedAt,
     },
+  };
+}
+
+/**
+ * A placement's key, `level:place`: a package's root and a folder share a
+ * path form, so the level keeps every key unique.
+ */
+export function placementKey(
+  placement: Pick<CodexPlacement, "level" | "place">
+): string {
+  return `${placement.level}:${placement.place}`;
+}
+
+/** A place's use as counts, with its dominance share. */
+function resolvePlacement(
+  placement: CodexSource["placement"]["places"][number]
+): CodexPlacement {
+  const away = placement.away.map((entry) => ({
+    modules: entry.modules.length,
+    package: entry.package,
+  }));
+  const home = placement.home.modules.length;
+  const consumers = away.reduce((sum, entry) => sum + entry.modules, home);
+  const toward = placement.label === "departs" ? placement.toward : undefined;
+  const held =
+    toward === undefined
+      ? Math.max(home, ...away.map((entry) => entry.modules))
+      : (away.find((entry) => entry.package === toward)?.modules ?? 0);
+  return {
+    away,
+    home,
+    label: placement.label,
+    level: placement.level,
+    package: placement.package,
+    place: placement.place,
+    share: consumers ? held / consumers : 0,
+    ...(toward === undefined ? {} : { toward }),
+    unindexed: placement.unindexed,
   };
 }
 

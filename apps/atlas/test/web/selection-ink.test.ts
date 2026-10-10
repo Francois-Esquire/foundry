@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { insidePolygons } from "../../src/web/polygons";
 import {
   dependencyLinks,
+  nearestCoast,
+  seaCurve,
   selectionOffset,
   selectionRing,
 } from "../../src/web/scene/selection-ink";
@@ -40,6 +42,7 @@ const data: AtlasData = {
   generatedAt: "test",
   height: 400,
   packageLayers: {},
+  placement: { labelled: [], places: {} },
   routes: [
     {
       consumerFiles: [],
@@ -111,5 +114,19 @@ describe("selection ink", () => {
     expect(links[0]?.start[0]).toBeLessThan(links[0]?.end[0] ?? 0);
     expect(links[1]?.start[0]).toBeGreaterThan(links[1]?.end[0] ?? 0);
     expect(dependencyLinks(data, "a")).toBe(links);
+  });
+
+  it("finds the coast point nearest a point, for a line that leaves from land", () => {
+    const [, b] = data.territories;
+    expect(b && nearestCoast([0, 0], b)).toEqual([130, -20]);
+  });
+
+  it("bows a sea curve sideways and holds each end back by its own clearance", () => {
+    const curve = seaCurve([0, 0], [100, 0], { end: 7, start: 0 });
+    expect(curve.start).toEqual([0, 0]);
+    expect(curve.end).toEqual([93, 0]);
+    // The middle bows by 0.12 of the length between the held-back ends.
+    expect(curve.control[0]).toBeCloseTo(46.5);
+    expect(curve.control[1]).toBeCloseTo(0.12 * 93);
   });
 });

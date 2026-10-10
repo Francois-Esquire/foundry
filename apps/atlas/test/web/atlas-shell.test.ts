@@ -361,8 +361,9 @@ it("tells a screen reader what places an island: its folder and its dependency l
   const data = await loadAtlas();
   const [territory] = data.territories;
   assert(territory);
-  const read = (layers: Record<string, number | null>) =>
-    inspectionText(null, { territory }, undefined, layers)?.detail ?? "";
+  const read = (packageLayers: Record<string, number | null>) =>
+    inspectionText(null, { territory }, undefined, { ...data, packageLayers })
+      ?.detail ?? "";
   expect(read({ [territory.id]: 2 })).toContain("Layer 2");
   // The folder orders the island's row; the layer is the row.
   expect(read({ [territory.id]: 2 })).toMatch(islandPlacement);
@@ -386,7 +387,7 @@ it("tells a screen reader what places a file: its folder, and once read, its dis
     uncertain: false,
   };
   const read = (districts?: ReadonlyMap<string, typeof district>) =>
-    inspectionText(null, { file, territory }, undefined, {}, { districts })
+    inspectionText(null, { file, territory }, undefined, data, { districts })
       ?.detail ?? "";
   // Position means folder; until the island's belonging is read, no district.
   expect(read()).toContain(` · in ${folder} · `);
@@ -394,4 +395,55 @@ it("tells a screen reader what places a file: its folder, and once read, its dis
   expect(read(new Map([[file.id, district]]))).toContain(
     ` · in ${folder} · district Sessions · `
   );
+});
+
+it("tells where a place is used: a file departing, its symbol fitting, a package used by none", async () => {
+  const data = await loadAtlas();
+  const [territory, other] = data.territories;
+  assert(territory && other);
+  const file = territory.files.find((f) => f.directory.includes("/src/"));
+  assert(file);
+  const placed = (
+    place: string,
+    label: "departs" | "fits",
+    home: number,
+    away: number
+  ) => ({
+    away: [{ modules: away, package: other.id }],
+    home,
+    label,
+    level: "file" as const,
+    package: territory.id,
+    place,
+    share: label === "departs" ? away / (home + away) : home / (home + away),
+    ...(label === "departs" ? { toward: other.id } : {}),
+    unindexed: 0,
+  });
+  const atlas = {
+    ...data,
+    placement: {
+      labelled: [territory.id],
+      places: {
+        [`file:${file.path}`]: placed(file.path, "departs", 1, 3),
+        [`symbol:${file.path}#run`]: {
+          ...placed(`${file.path}#run`, "fits", 4, 1),
+          level: "symbol" as const,
+        },
+      },
+    },
+  };
+  const read = (selection: Parameters<typeof inspectionText>[1]) =>
+    inspectionText(null, selection, undefined, atlas)?.detail ?? "";
+  expect(read({ file, territory })).toContain(
+    ` · placement: departs toward ${other.label} · 3 of 4 consumer modules · `
+  );
+  expect(
+    read({ file, symbol: { id: `${file.path}#run`, name: "run" }, territory })
+  ).toContain(" · placement: fits · 4 of 5 consumer modules at home · ");
+  // A labelled package absent from the lens is used by no other package.
+  expect(read({ territory })).toContain(
+    " · placement: used by no other package · "
+  );
+  // A package the lens could not label says nothing of its use.
+  expect(read({ territory: other })).not.toContain("placement");
 });

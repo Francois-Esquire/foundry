@@ -17,7 +17,7 @@ produces byte-identical data with and without the codex.
 | `resolve.ts`    | `resolveCodex(source)`: source fields to codex values. Pure.                                                                     |
 | `bindings.ts`   | Codex values to visual channels: the size, position, width, and spacing a value maps to. Inks are not here; see below.           |
 
-`bindings.ts` imports nothing; `vocabulary.ts` imports one library type.
+`bindings.ts` imports nothing; `vocabulary.ts` imports library types only.
 `resolve.ts` imports codex files and the library's
 `SEMANTICS_DECLARED_DEPENDENCY_KINDS`. `source.ts` imports types from `src/lib`
 and reads through a `DatasetReader` (`src/lib/dataset.ts`), which alone knows
@@ -35,6 +35,7 @@ imports from the renderer, so the folder moves as a unit. Tests are in
 | Package `size`                             | `package-sizes` lens `modules.total`                                      |
 | Package `layer`                            | `package-sizes` lens `layer`; `null` stays `null` (unplaced)              |
 | Package `path`                             | manifest `packages[].path`, the package's folder; empty if the manifest omits the package |
+| Placement `label`, `toward`, `home`, `away`, `share` | `placement` lens `places`: the label and target as saved; consumer modules counted at home and per other package; `share`, the most any one package holds (its own package counted as one of the packages) over all of them, unindexed consumers left out; `labelled`, the lens's `packages` |
 | Module `id`, `package`, `path`, `fileKind` | module index; a missing kind becomes `unknown`                            |
 | Module `directory`                         | path up to its last `/`                                                   |
 | Module `dependents`, `dependencies`        | edge shards, within and across packages; equal to the module record's `gravity.fanIn`, `fanOut` (pinned by `test/lib/semantics.test.ts`) |

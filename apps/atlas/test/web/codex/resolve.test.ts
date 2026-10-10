@@ -103,6 +103,35 @@ const source: CodexSource = {
       modules: { total: 1 },
     },
   ],
+  placement: {
+    packages: [{ id: "@foundry/core" }],
+    places: [
+      {
+        away: [
+          {
+            modules: ["packages/ui/a.ts", "packages/ui/b.ts"],
+            package: "@foundry/ui",
+          },
+        ],
+        home: { modules: ["packages/core/src/b.ts"] },
+        label: "departs",
+        level: "file",
+        package: "@foundry/core",
+        place: "packages/core/src/a.ts",
+        toward: "@foundry/ui",
+        unindexed: 1,
+      },
+      {
+        away: [{ modules: ["packages/ui/a.ts"], package: "@foundry/ui" }],
+        home: { modules: ["packages/core/src/a.ts", "packages/core/src/c.ts"] },
+        label: "fits",
+        level: "symbol",
+        package: "@foundry/core",
+        place: "packages/core/src/b.ts#b",
+        unindexed: 0,
+      },
+    ],
+  },
   responsibilityGroups: [
     {
       groups: [coreGroup],
@@ -150,6 +179,35 @@ describe("resolveCodex", () => {
         size: 1,
       },
     ]);
+  });
+
+  it("counts each place's consumer modules and gives its dominance share, leaving unindexed consumers out", () => {
+    expect(codex.placement).toEqual({
+      labelled: ["@foundry/core"],
+      places: [
+        {
+          away: [{ modules: 2, package: "@foundry/ui" }],
+          home: 1,
+          label: "departs",
+          level: "file",
+          package: "@foundry/core",
+          place: "packages/core/src/a.ts",
+          share: 2 / 3,
+          toward: "@foundry/ui",
+          unindexed: 1,
+        },
+        {
+          away: [{ modules: 1, package: "@foundry/ui" }],
+          home: 2,
+          label: "fits",
+          level: "symbol",
+          package: "@foundry/core",
+          place: "packages/core/src/b.ts#b",
+          share: 2 / 3,
+          unindexed: 0,
+        },
+      ],
+    });
   });
 
   it("counts module dependents and dependencies across package lines", () => {

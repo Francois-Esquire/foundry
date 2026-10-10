@@ -45,6 +45,7 @@ const data: AtlasData = {
   generatedAt: "test",
   height: 500,
   packageLayers: {},
+  placement: { labelled: [], places: {} },
   routes: [
     {
       consumerFiles: [],

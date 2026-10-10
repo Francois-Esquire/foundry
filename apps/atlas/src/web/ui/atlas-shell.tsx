@@ -175,7 +175,7 @@ export function AtlasShell({
     hoveredWreck ?? selectedWreck,
     inspected,
     inspectedRegion,
-    state.data.packageLayers,
+    state.data,
     { districts, features: belonging.features }
   );
   const tabs: PanelTab[] = [

@@ -30,10 +30,27 @@ const groups = {
   independent: ["responsibility:a"],
 };
 
+const placed = {
+  away: [{ modules: ["packages/ui/a.ts"], package: "@foundry/ui" }],
+  home: { modules: [] },
+  label: "departs",
+  level: "file",
+  package: "@foundry/core",
+  place: entry.id,
+  toward: "@foundry/ui",
+  unindexed: 0,
+};
+
 function scanned(): Record<string, unknown> {
   return {
     "lenses/file-roles.json": { missing: [], packages: [roles] },
     "lenses/package-sizes.json": { packages: [sized] },
+    "lenses/placement.json": {
+      missing: [],
+      packages: [{ id: "@foundry/core", path: "packages/core" }],
+      places: [placed],
+      policy: { dominantShare: 0.6 },
+    },
     "lenses/responsibility-groups.json": { missing: [], packages: [groups] },
     "manifest.json": {
       coverage: "complete",
@@ -48,6 +65,7 @@ function scanned(): Record<string, unknown> {
           file: "lenses/package-sizes.json",
           schemaVersion: 1,
         },
+        placement: { file: "lenses/placement.json", schemaVersion: 1 },
         "responsibility-groups": {
           file: "lenses/responsibility-groups.json",
           schemaVersion: 2,
@@ -106,6 +124,7 @@ describe("readCodexSource", () => {
       "history/manifest.json",
       "lenses/file-roles.json",
       "lenses/package-sizes.json",
+      "lenses/placement.json",
       "lenses/responsibility-groups.json",
       "manifest.json",
       "modules/core-edges.json",
@@ -114,13 +133,17 @@ describe("readCodexSource", () => {
     ]);
   });
 
-  it("picks the dataset's time, packages and their folders, modules, imports, and declared dependencies", async () => {
+  it("picks the dataset's time, packages and their folders, modules, imports, placements, and declared dependencies", async () => {
     const source = await read(scanned());
     expect(source.dataset).toMatchObject({
       coverage: "complete",
       generatedAt: "2026-09-23T00:00:00.000Z",
     });
     expect(source.packages).toEqual([sized]);
+    expect(source.placement).toEqual({
+      packages: [{ id: "@foundry/core" }],
+      places: [placed],
+    });
     expect(source.packagePaths).toEqual([
       { id: "@foundry/core", path: "packages/core" },
     ]);
@@ -148,6 +171,19 @@ describe("readCodexSource", () => {
     >;
     await expect(read({ ...files, "manifest.json": manifest })).rejects.toThrow(
       "The dataset has no package-sizes lens. Run atlas scan again."
+    );
+  });
+
+  it("asks for a new scan when the dataset was saved before the placement lens", async () => {
+    const files = scanned();
+    const manifest = files["manifest.json"] as {
+      lenses: Record<string, unknown>;
+    };
+    const { placement: _placement, ...lenses } = manifest.lenses;
+    await expect(
+      read({ ...files, "manifest.json": { ...manifest, lenses } })
+    ).rejects.toThrow(
+      "The dataset has no placement lens. Run atlas scan again."
     );
   });
 

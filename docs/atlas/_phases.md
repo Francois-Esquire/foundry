@@ -2358,6 +2358,103 @@ DESIGN.md's "ports" and "settlements" are 4.2a(iii).
   (file inks 12 ΔE76 apart; inks shared across kinds only as intended);
   `codex/resolve.test.ts` (an unplaced layer stays `null`).
 
+**4.2b Departures, the strongest signal,** from the `placement` lens
+(schema 1). Planned 2026-10-10 against the lens as saved on this
+worktree's scan: 377 places, of which 30 files, 6 folders, 4 packages and
+101 symbols depart; `away` lists consumer modules by package, `home` those
+in the place's own package, and a departing place names `toward`. Two
+units: the data seam, then the drawing.
+- **Data seam.** The codex reads the lens (a dataset without it is refused
+  by the reader, as for any lens) and resolves each place to its label,
+  `toward`, consumer counts at home and in each other package, and its
+  dominance share: the `toward` package's consumer modules over all of
+  them, unindexed ones left out as the lens leaves them out of the label.
+  `AtlasData.placement` keys them by `level:place`.
+  - `departures.ts` derives what is drawn, deterministically. Marks: every
+    departing file at its position and every departing folder at its
+    files' centroid, except that a package whose only consumer is one other
+    package (fold-package territory) gets one package-level mark and no
+    file or folder marks. Lines: departing files and folders grouped by
+    (folder → consumer package), a single-consumer package as one group,
+    ranked by the strongest member's dominance share, then the group's
+    departing places, then folder and target by code unit; at most 3 lines
+    per target package. Totals, marks and lines drawn against all, are
+    returned for disclosure. (Ranking revised at review; see the ruling
+    below.)
+  - Place gives a place's placement label and, when it departs, where to
+    and with what share ("placement: departs toward marbles · 7 of 7
+    consumer modules"),
+    for a selected file, its symbol, and its package; a place no other
+    package uses says so. Symbol departures are told in Place only.
+- **Drawing.** In the ladder's departure rung (magenta `#681049`, rung
+  floor 8), defined in 4.2a(ii) and drawn from here: a notched ring on
+  each mark, and a dash-dot line (8, 3, 1, 3) routed as selection lines
+  are, a bowed curve from the group to the target's nearest coast, sea ink
+  only, cut around names. Default on, with no toggle. While anything is
+  selected, selection wins: departure lines are not drawn, so the gilt
+  imports and importers never meet them; marks stay, being on land. The
+  legend gains a departure row with the totals, the line threshold, and
+  that unindexed consumers are left out. The ink is checked against
+  every file ink, story's included, under the colour-vision matrices, and
+  its contrast probed on screen.
+
+**4.2b, the data seam.** Done 2026-10-10; nothing is drawn yet, and
+only Place's text and the bytes read at load change.
+- The codex reads the `placement` lens (`CodexSource.placement`: its
+  places as saved and the ids of the packages it labelled) and resolves
+  each place to counts: consumer modules at home and per other package,
+  never the module lists, and `share`, the most any one package holds
+  (its own package counted as one of the packages) over all of them,
+  unindexed consumers left out.
+  On this worktree's scan every departing place's share is at least the
+  lens's 0.6, so the share agrees with the label. `AtlasData.placement`
+  keys the places by `placementKey`, `level:place`, so that no two places
+  can share a key. A dataset without the lens is refused with
+  "The dataset has no placement lens. Run atlas scan again.", tested.
+- `departures.ts` gives what the drawing will draw, once per atlas:
+  - Marks on every departing file, at its position, and folder, at its
+    files' centroid. A package whose only consumer is one other package
+    (`away` of one package at package level) is folded: one mark for the
+    package and none for its files or folders. No file of the three folded
+    packages here departs elsewhere, so nothing is lost by the fold. A
+    departing package with several consumers keeps a package mark and its
+    places' marks too.
+  - Lines by (folder → consumer package): a file's directory, a folder's
+    own path, a folded package's root. Ruling at review, evidence before
+    breadth: ranked by the strongest member's dominance share; on a tie by
+    the evidence, the line's consumer modules in the target (its members'
+    most, a floor on the distinct ones, since two places can share a
+    consumer); then the broadest place (package, folder, file); then the
+    most departing places; then folder and target by code unit. A line is
+    drawn only when it rests on at least 2 consumer modules; a thinner one
+    still counts in the totals and its places still read in Place. At most
+    three lines into one package.
+  - Totals for the legend: departing files, folders and packages, folded
+    packages, lines before the threshold and the cap, lines left thin, and
+    departing symbols, which Place tells and the map does not draw. The
+    legend says the threshold, and that unindexed consumers are left out.
+  - On this scan: 40 departing places (30 files, 6 folders, 4 packages)
+    and 101 symbols; 3 packages folded (models and workflows toward
+    marbles, modules toward works); 30 marks; 19 candidate lines, 6 of them
+    thin, 9 drawn after the cap.
+- Place gives a place's use after its folder and district, named so that
+  4.2d can set a domain's reading beside it: "placement: departs toward
+  marbles · 7 of 7 consumer modules", "placement: fits · 4 of 5 consumer
+  modules at home", "placement: spread over 7 packages", or "placement:
+  used by no other package" for a
+  labelled package's place the lens does not list; nothing where the
+  package has no internals. A file reads its own place, or its symbol's
+  when one is chosen; an island reads its package's.
+- `selection-ink.ts` gives the drawing its routing without a copy:
+  `seaCurve` (the bowed curve, each end held back by its own clearance),
+  `nearestCoast`, and the sea clip cut around names, which
+  `paintSelectionInk` now calls. Selection lines are unchanged.
+- Load: the lens adds one request and 181,378 bytes, from 1,757,262 to
+  1,938,640 read at load in Chrome; `atlas:data-requested` to
+  `atlas:data-loaded` stays within its run-to-run spread (6–14 ms against
+  7–23 ms before). Under the 4.4 gate's 500 KB for one lens; the module
+  lists are most of it, and the viewer keeps only counts.
+
 **4.3 Directories drawn,** and a domain drawn across islands.
 - **4.3a** (recorded at 4.2a(iii)): each island's y is fixed to its
   layer's latitude, `latitude(layer)`, with x free and overlaps resolved
@@ -2518,6 +2615,10 @@ DESIGN.md's "ports" and "settlements" are 4.2a(iii).
 **4.4 Loading.** Covered by the lazy reader in 1.5; the module shards stopped
 being read at load in 2.2d. What remains is the viewer reading only what the
 current zoom needs.
+- Recorded at 4.2b: the viewer downloads the `placement` lens's consumer
+  module lists, most of its 181 KB, only to count them. Either a
+  count-only projection of the lens, or a lazy read of the lists for the
+  place in Place, would leave the counts at load.
 
 ## Phase 5: many workspaces
 

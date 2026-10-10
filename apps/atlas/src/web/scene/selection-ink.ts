@@ -108,22 +108,95 @@ export function selectionRing(territory: Territory): Point[][] {
   return result;
 }
 
-export interface DependencyLink {
+/** A gentle curve over the sea, in world units: a quadratic from `start` through `control` to `end`. */
+export interface SeaCurve {
   control: Point;
   end: Point;
-  /** True when the selected package imports from the other; false for a dependent. */
-  outgoing: boolean;
-  route: AtlasRoute;
   start: Point;
 }
 
-function nearestCoasts(a: Territory, b: Territory): [Point, Point] {
-  const outline = (territory: Territory) =>
-    territory.coast.flatMap((polygon) =>
-      (polygon[0] ?? []).map(
-        ([x, y]): Point => [territory.x + x, territory.y + y]
-      )
+export interface DependencyLink extends SeaCurve {
+  /** True when the selected package imports from the other; false for a dependent. */
+  outgoing: boolean;
+  route: AtlasRoute;
+}
+
+/** An island's outer coast points, in world units. */
+function outline(territory: Territory): Point[] {
+  return territory.coast.flatMap((polygon) =>
+    (polygon[0] ?? []).map(
+      ([x, y]): Point => [territory.x + x, territory.y + y]
+    )
+  );
+}
+
+/** The point of `territory`'s coast nearest `point`; its centre when it has no coast. */
+export function nearestCoast(point: Point, territory: Territory): Point {
+  let best: Point = [territory.x, territory.y];
+  let distance = Number.POSITIVE_INFINITY;
+  for (const q of outline(territory)) {
+    const d = (point[0] - q[0]) ** 2 + (point[1] - q[1]) ** 2;
+    if (d < distance) {
+      distance = d;
+      best = q;
+    }
+  }
+  return best;
+}
+
+/**
+ * The curve from `a` to `b`, each end held back by its clearance and the
+ * middle bowed sideways by a share of its length, as selection lines bow.
+ */
+export function seaCurve(
+  a: Point,
+  b: Point,
+  clearance: { end: number; start: number }
+): SeaCurve {
+  const length = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+  const ux = (b[0] - a[0]) / length;
+  const uy = (b[1] - a[1]) / length;
+  const start: Point = [
+    a[0] + ux * clearance.start,
+    a[1] + uy * clearance.start,
+  ];
+  const end: Point = [b[0] - ux * clearance.end, b[1] - uy * clearance.end];
+  const bow = linkBow * Math.max(0, length - clearance.start - clearance.end);
+  return {
+    control: [
+      (start[0] + end[0]) / 2 - uy * bow,
+      (start[1] + end[1]) / 2 + ux * bow,
+    ],
+    end,
+    start,
+  };
+}
+
+/**
+ * Clips `ctx` to the sea, cut around every name, so that lines drawn after
+ * pass beneath islands and leave names clear. The caller restores.
+ */
+function clipToSea(
+  ctx: CanvasRenderingContext2D,
+  data: AtlasData,
+  labels: readonly MapLabel[],
+  pixels: number
+) {
+  ctx.beginPath();
+  ctx.rect(-data.width, -data.height, data.width * 2, data.height * 2);
+  traceLand(ctx, data);
+  for (const label of labels) {
+    ctx.rect(
+      label.x - label.width / 2 - 4 / pixels,
+      label.y - label.height - 4 / pixels,
+      label.width + 8 / pixels,
+      label.height + (label.caption ? 18 : 8) / pixels
     );
+  }
+  ctx.clip("evenodd");
+}
+
+function nearestCoasts(a: Territory, b: Territory): [Point, Point] {
   const from = outline(a);
   const to = outline(b);
   let best: [Point, Point] = [
@@ -166,21 +239,10 @@ export function dependencyLinks(
       continue;
     }
     const [a, b] = nearestCoasts(origin, other);
-    const length = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
-    const ux = (b[0] - a[0]) / length;
-    const uy = (b[1] - a[1]) / length;
-    const start: Point = [a[0] + ux * linkClearance, a[1] + uy * linkClearance];
-    const end: Point = [b[0] - ux * linkClearance, b[1] - uy * linkClearance];
-    const bow = linkBow * Math.max(0, length - 2 * linkClearance);
     result.push({
-      control: [
-        (start[0] + end[0]) / 2 - uy * bow,
-        (start[1] + end[1]) / 2 + ux * bow,
-      ],
-      end,
+      ...seaCurve(a, b, { end: linkClearance, start: linkClearance }),
       outgoing,
       route,
-      start,
     });
   }
   cache.set(selected, result);
@@ -207,19 +269,7 @@ export function paintSelectionInk(
   const routes = dependencyLinks(data, selected);
   const strongest = Math.max(1, ...routes.map((link) => link.route.weight));
   ctx.save();
-  ctx.beginPath();
-  ctx.rect(-data.width, -data.height, data.width * 2, data.height * 2);
-  traceLand(ctx, data);
-  // Names stay clear: each label box is cut from the sea ink.
-  for (const label of labels) {
-    ctx.rect(
-      label.x - label.width / 2 - 4 / pixels,
-      label.y - label.height - 4 / pixels,
-      label.width + 8 / pixels,
-      label.height + (label.caption ? 18 : 8) / pixels
-    );
-  }
-  ctx.clip("evenodd");
+  clipToSea(ctx, data, labels, pixels);
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
   ctx.strokeStyle = inks.selection;

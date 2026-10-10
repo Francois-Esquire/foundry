@@ -1,5 +1,5 @@
 import { footprint } from "./codex/bindings";
-import { resolveCodex } from "./codex/resolve";
+import { placementKey, resolveCodex } from "./codex/resolve";
 import { readCodexSource } from "./codex/source";
 import { viewerDataset } from "./dataset";
 import { districtsOfGroups, settleFiles } from "./folder-sectors";
@@ -79,6 +79,12 @@ export async function loadAtlas(signal?: AbortSignal): Promise<AtlasData> {
     fileEdges: codex.imports.map(({ source, target }) => ({ source, target })),
     generatedAt: codex.workspace.surveyedAt,
     packageLayers,
+    placement: {
+      labelled: codex.placement.labelled,
+      places: Object.fromEntries(
+        codex.placement.places.map((place) => [placementKey(place), place])
+      ),
+    },
     routes,
     territories,
     ...chartSize(territories),

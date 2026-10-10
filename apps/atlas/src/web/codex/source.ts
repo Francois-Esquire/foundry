@@ -1,6 +1,10 @@
 import type { DatasetReader } from "../../lib/dataset";
 import type { FileRolesPackage } from "../../lib/lenses/file-roles-types";
 import type { PackageSize } from "../../lib/lenses/package-sizes-types";
+import type {
+  PlacementPackage,
+  Placements,
+} from "../../lib/lenses/placement-types";
 import type { ResponsibilityGroupsPackage } from "../../lib/lenses/responsibility-groups-types";
 import type {
   SemanticsHistoryEntities,
@@ -49,6 +53,11 @@ export interface CodexSource {
   packages: (Pick<PackageSize, "id" | "analyzed" | "layer"> & {
     modules: Pick<PackageSize["modules"], "total">;
   })[];
+  /** The `placement` lens: where each place is used against where it lives, and the packages it labelled. */
+  placement: {
+    packages: Pick<PlacementPackage, "id">[];
+    places: Placements["places"];
+  };
   /** The `responsibility-groups` lens, drawn as districts on entering an island. */
   responsibilityGroups: ResponsibilityGroupsPackage[];
 }
@@ -57,17 +66,27 @@ export interface CodexSource {
 export async function readCodexSource(
   reader: DatasetReader
 ): Promise<CodexSource> {
-  const [manifest, index, graph, sizes, roles, groups, edgeShards, history] =
-    await Promise.all([
-      reader.manifest(),
-      reader.moduleIndex(),
-      reader.dependencyGraph(),
-      reader.lens("package-sizes"),
-      reader.lens("file-roles"),
-      reader.lens("responsibility-groups"),
-      reader.moduleEdgeShards(),
-      reader.history(),
-    ]);
+  const [
+    manifest,
+    index,
+    graph,
+    sizes,
+    roles,
+    groups,
+    placement,
+    edgeShards,
+    history,
+  ] = await Promise.all([
+    reader.manifest(),
+    reader.moduleIndex(),
+    reader.dependencyGraph(),
+    reader.lens("package-sizes"),
+    reader.lens("file-roles"),
+    reader.lens("responsibility-groups"),
+    reader.lens("placement"),
+    reader.moduleEdgeShards(),
+    reader.history(),
+  ]);
   return {
     dataset: manifest,
     declaredDependencies: manifest.packages.map((p) => ({
@@ -86,6 +105,10 @@ export async function readCodexSource(
     modules: index.modules,
     packagePaths: manifest.packages.map(({ id, path }) => ({ id, path })),
     packages: sizes.packages,
+    placement: {
+      packages: placement.packages.map(({ id }) => ({ id })),
+      places: placement.places,
+    },
     responsibilityGroups: groups.packages,
   };
 }
