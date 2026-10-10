@@ -58,13 +58,6 @@ release tooling item.
 - The release tooling publishes every non-private workspace under one
   shared version from one `v*` tag. Atlas and Marbles release together until
   the tooling learns per-package tags.
-- `dist/cli/atlas.js.map` ships in the tarball; `files` could exclude it.
-- Analysis workers are spawned as `bun` from the PATH rather than the
-  running executable, so a Bun on the PATH is required even when the CLI
-  was started by an absolute path.
-- The missing-assets error tells the user to run
-  `bun run --filter @foundry/atlas build`, which means nothing to an npm
-  install.
 - Foundry-specific strings in the code: the `@foundry/workspaces` anchor in
   the analysis policy, which blocks `fold-package` for any package of that
   name in any scanned repository, and the idle caption "The Foundry

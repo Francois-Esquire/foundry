@@ -6,12 +6,26 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { spawn } from "bun";
+import { spawn, spawnSync } from "bun";
+import {
+  createSourceFile,
+  forEachChild,
+  isCallExpression,
+  isExportDeclaration,
+  isImportDeclaration,
+  isImportTypeNode,
+  isLiteralTypeNode,
+  isStringLiteral,
+  type Node,
+  ScriptTarget,
+  SyntaxKind,
+} from "typescript";
 
 const PACKAGE_ROOT = resolve(import.meta.dirname, "..");
 const FIXTURE = join(PACKAGE_ROOT, "test/lib/fixtures/semantics");
@@ -19,13 +33,61 @@ const SERVER_URL = /Atlas: (http:\/\/\S+)/;
 const SERVER_TIMEOUT_MS = 20_000;
 // Packing, installing, and a fixture scan take well over Bun's 5s default.
 const TEST_TIMEOUT_MS = 300_000;
+const COMMAND_TIMEOUT_MS = 300_000;
 
-function run(command: string, args: string[], cwd: string): string {
+// Mirrors Marbles' check. A syntax walk rather than a text search, because
+// the bundle carries `@foundry/` in string literals that are not imports.
+function privateImports(source: string): string[] {
+  const imports: string[] = [];
+  function inspect(node: Node) {
+    let specifier: Node | undefined;
+    if (isImportDeclaration(node) || isExportDeclaration(node)) {
+      specifier = node.moduleSpecifier;
+    } else if (isImportTypeNode(node) && isLiteralTypeNode(node.argument)) {
+      specifier = node.argument.literal;
+    } else if (
+      isCallExpression(node) &&
+      node.expression.kind === SyntaxKind.ImportKeyword
+    ) {
+      [specifier] = node.arguments;
+    }
+    if (
+      specifier &&
+      isStringLiteral(specifier) &&
+      (specifier.text.startsWith("@foundry/") ||
+        specifier.text.startsWith("~/"))
+    ) {
+      imports.push(specifier.text);
+    }
+    forEachChild(node, inspect);
+  }
+  inspect(createSourceFile("package.ts", source, ScriptTarget.Latest, true));
+  return imports;
+}
+
+test("package import inspection checks declarations and dynamic imports, not config source strings", () => {
+  expect(
+    privateImports(
+      'import type { T } from "@foundry/private"; type X = import("@foundry/query").X; import("~/dynamic");'
+    )
+  ).toEqual(["@foundry/private", "@foundry/query", "~/dynamic"]);
+  expect(
+    privateImports('const config = `import { step } from "@foundry/marbles";`;')
+  ).toEqual([]);
+});
+
+function run(
+  command: string,
+  args: string[],
+  cwd: string,
+  env: NodeJS.ProcessEnv = process.env
+): string {
   try {
     return execFileSync(command, args, {
       cwd,
       encoding: "utf8",
-      timeout: 300_000,
+      env,
+      timeout: COMMAND_TIMEOUT_MS,
     });
   } catch (error) {
     if (error && typeof error === "object" && "stdout" in error) {
@@ -35,6 +97,30 @@ function run(command: string, args: string[], cwd: string): string {
       process.stderr.write(String(error.stderr));
     }
     throw error;
+  }
+}
+
+/** The installed package names no private package and ships no sourcemap. */
+function expectSelfContained(
+  installed: string,
+  manifest: { dependencies: Record<string, string> }
+) {
+  expect(
+    Object.keys(manifest.dependencies).filter((name) =>
+      name.startsWith("@foundry/")
+    )
+  ).toEqual([]);
+  const built = readdirSync(join(installed, "dist"), {
+    encoding: "utf8",
+    recursive: true,
+  });
+  expect(built.filter((file) => file.endsWith(".map"))).toEqual([]);
+  for (const file of built) {
+    if (file.endsWith(".js") || file.endsWith(".d.ts")) {
+      expect(
+        privateImports(readFileSync(join(installed, "dist", file), "utf8"))
+      ).toEqual([]);
+    }
   }
 }
 
@@ -102,6 +188,7 @@ test(
         true
       );
       expect(existsSync(join(installed, "dist/web/index.html"))).toBe(true);
+      expectSelfContained(installed, manifest);
 
       const cli = join(consumer, "node_modules/.bin/atlas");
       expect(run(cli, ["--help"], consumer)).toContain("atlas scan [path]");
@@ -110,10 +197,14 @@ test(
       const workspace = join(consumer, "workspace");
       cpSync(FIXTURE, workspace, { recursive: true });
       const state = join(consumer, "state");
+      // Started by an absolute path with no PATH: the workers must not need
+      // a `bun` there. The fixture is not a Git repository, so the scan
+      // never looks for git.
       const scanned = run(
-        cli,
-        ["scan", workspace, "--state", state, "--no-open"],
-        consumer
+        process.execPath,
+        [cli, "scan", workspace, "--state", state, "--no-open"],
+        consumer,
+        { ...process.env, PATH: "" }
       );
       expect(scanned).toContain("Output saved to ");
       const output = scanned.split("Output saved to ")[1]?.trim() ?? "";
@@ -130,10 +221,21 @@ test(
       expect(existsSync(join(output, "internals"))).toBe(true);
       expect(existsSync(join(output, "manifests"))).toBe(true);
 
-      const server = spawn(
-        [cli, "serve", workspace, "--state", state, "--port", "0", "--no-open"],
-        { cwd: consumer, stderr: "pipe", stdout: "pipe" }
-      );
+      const serve = [
+        cli,
+        "serve",
+        workspace,
+        "--state",
+        state,
+        "--port",
+        "0",
+        "--no-open",
+      ];
+      const server = spawn(serve, {
+        cwd: consumer,
+        stderr: "pipe",
+        stdout: "pipe",
+      });
       try {
         const url = await readServerUrl(server.stdout);
         const index = await fetch(url);
@@ -148,6 +250,21 @@ test(
         server.kill();
         await server.exited;
       }
+
+      // The CLI reports the resolved path; macOS temporary directories are
+      // reached through a symlink.
+      const webRoot = join(realpathSync(installed), "dist/web");
+      rmSync(webRoot, { force: true, recursive: true });
+      const unserved = spawnSync(serve, {
+        cwd: consumer,
+        stderr: "pipe",
+        stdout: "pipe",
+        timeout: SERVER_TIMEOUT_MS,
+      });
+      expect(unserved.exitCode).toBe(1);
+      expect(unserved.stderr.toString()).toBe(
+        `Atlas: Web assets are missing from ${webRoot}. Reinstall the package, or build it first when running from source.\n`
+      );
     } finally {
       rmSync(consumer, { force: true, recursive: true });
     }

@@ -30,7 +30,7 @@ async function main() {
   );
   if (!(await file(resolve(webRoot, "index.html")).exists())) {
     throw new Error(
-      "Atlas web assets are missing. Run bun run --filter @foundry/atlas build first."
+      `Web assets are missing from ${webRoot}. Reinstall the package, or build it first when running from source.`
     );
   }
   const server = startServer({

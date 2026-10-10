@@ -36,7 +36,7 @@ Where new work attaches. All exist today.
 
 | Point | What it hands off | Used by |
 | --- | --- | --- |
-| `generateSemantics` (`lib/semantics.ts:879`) | The dataset; `onProgress` with phase, plan, and unit events; `dryRun` | Library `scan`, the refresh after a codemod |
+| `generateSemantics` (`lib/semantics.ts`) | The dataset; `onProgress` with phase, plan, and unit events; `dryRun` | Library `scan`, the refresh after a codemod |
 | `generateSemanticsHistory` | History checkpoints | Library `scan` with history |
 | `runInternalAnalysis` | One package's internal structure, through a chosen stage | Library `scan`, nesting and locality lenses |
 | `output/`, the dataset | Every analysis's result, versioned | The reader, lenses, the viewer, `report`, `check` |
@@ -76,21 +76,17 @@ Paths are under `apps/atlas` unless they say otherwise.
 **1.0 Settle the forks.** Done 2026-10-10; see
 [`_api.md`](./_api.md#forks).
 
-**1.1 Build and install.** The groundwork every later effort ships through.
-- Bundle `@foundry/*` into `dist`. `@foundry/lib` is private, and a public
-  package may not depend on a private one, so this comes before anything
-  imports it. `scripts/build.ts` uses `Bun.build` with
-  `packages: "external"`; set `external` to the names in
-  `package.json#dependencies` instead, which bundles workspace packages
-  without adding tsup. Marbles reaches the same result with tsup's
-  `noExternal`.
-- Spawn the analysis workers with `process.execPath`, not `bun` from the
-  PATH (`lib/semantics.ts:190,229`).
-- The missing-assets message stops naming a repository build command.
-- Leave `dist/cli/atlas.js.map` out of the tarball.
-- Copy Marbles' `privateImports` check into `test/package.test.ts`.
-- Done when the packed tarball installs, scans, and serves the fixture, as
-  today, and the private-import check passes.
+**1.1 Build and install.** Done 2026-10-10.
+- `scripts/build.ts` keeps only `package.json#dependencies` external, so
+  `@foundry/*` workspace packages are inlined without adding tsup.
+- The analysis workers run under `process.execPath`; only a host outside
+  Bun, such as Vitest's Node host, falls back to `bun` from the PATH.
+- The missing-assets message names the path it looked in and no
+  repository command.
+- The CLI build emits no sourcemap and clears `dist/cli` first.
+- `test/package.test.ts` carries Marbles' `privateImports` check over the
+  installed `dist`, scans with an empty PATH, and checks the
+  missing-assets message.
 
 **1.2 `scan` into the library.** A move, not a rewrite.
 - `cli/scan.ts` becomes `lib/scan.ts`, taking a root and options instead

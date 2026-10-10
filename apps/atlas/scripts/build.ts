@@ -1,26 +1,32 @@
+import { rmSync } from "node:fs";
 import { resolve } from "node:path";
-import { build as buildCli } from "bun";
+import { build as bunBuild } from "bun";
 import { build } from "vite";
+import { dependencies } from "../package.json" with { type: "json" };
 
 const root = resolve(import.meta.dirname, "..");
-const result = await buildCli({
-  entrypoints: [resolve(root, "src/cli/index.ts")],
-  naming: "atlas.js",
-  outdir: resolve(root, "dist/cli"),
-  packages: "external",
-  sourcemap: "external",
-  target: "bun",
-});
-if (!result.success) {
-  throw new AggregateError(result.logs, "Atlas CLI build failed");
+const outdir = resolve(root, "dist/cli");
+/**
+ * Only declared dependencies stay imports. Workspace `@foundry/*` packages
+ * are declared in devDependencies, so they are inlined and the published
+ * package never names a private one.
+ */
+const external = Object.keys(dependencies);
+
+async function bundle(entrypoint: string, naming?: string) {
+  const result = await bunBuild({
+    entrypoints: [resolve(root, entrypoint)],
+    external,
+    naming,
+    outdir,
+    target: "bun",
+  });
+  if (!result.success) {
+    throw new AggregateError(result.logs, `Atlas build failed: ${entrypoint}`);
+  }
 }
-const worker = await buildCli({
-  entrypoints: [resolve(root, "src/lib/semantics-worker.ts")],
-  outdir: resolve(root, "dist/cli"),
-  packages: "external",
-  target: "bun",
-});
-if (!worker.success) {
-  throw new AggregateError(worker.logs, "Atlas worker build failed");
-}
+
+rmSync(outdir, { force: true, recursive: true });
+await bundle("src/cli/index.ts", "atlas.js");
+await bundle("src/lib/semantics-worker.ts");
 await build({ configFile: resolve(root, "vite.config.ts") });

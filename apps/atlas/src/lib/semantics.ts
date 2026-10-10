@@ -177,8 +177,14 @@ const WORKER = join(
     ? "semantics-worker.ts"
     : "semantics-worker.js"
 );
+/**
+ * The running Bun starts the worker, so none is needed on the PATH. When this
+ * module runs outside Bun (Vitest's Node host, or any Node importer),
+ * `execPath` is not a Bun, so it falls back to `bun` from the PATH.
+ */
+const WORKER_RUNTIME = process.versions.bun ? process.execPath : "bun";
 
-/** Default local analyzer: one `bun` worker per unit, report written and read back as JSON. */
+/** Default local analyzer: one Bun worker per unit, report written and read back as JSON. */
 export const spawnLocalAnalyzer: SemanticsLocalAnalyzer = async (
   unit,
   { root }
@@ -187,7 +193,7 @@ export const spawnLocalAnalyzer: SemanticsLocalAnalyzer = async (
   const out = join(dir, "local.json");
   try {
     await execFileAsync(
-      "bun",
+      WORKER_RUNTIME,
       [
         WORKER,
         "--stage",
@@ -208,7 +214,7 @@ export const spawnLocalAnalyzer: SemanticsLocalAnalyzer = async (
 };
 
 /**
- * Default deriver: one `bun` worker holding the shared workspace program
+ * Default deriver: one Bun worker holding the shared workspace program
  * for every unit at once, released by exit. Local reports travel by file.
  */
 export const spawnDeriver: SemanticsDeriver = async (
@@ -226,7 +232,7 @@ export const spawnDeriver: SemanticsDeriver = async (
     const list = join(dir, "locals.json");
     writeFileSync(list, JSON.stringify(files));
     await execFileAsync(
-      "bun",
+      WORKER_RUNTIME,
       [
         WORKER,
         "--stage",

@@ -148,7 +148,8 @@ From the release tooling and Marbles, not a fork:
 
 - An `exports` map with one entry, `.`.
 - `@foundry/*` bundled into `dist`, as Marbles does with tsup's
-  `noExternal`; Atlas's build marks every package external today.
+  `noExternal`; Atlas's build keeps only `package.json#dependencies`
+  external, so workspace packages are inlined.
 - The analysis worker is found beside the entry file, so it ships beside
   the library entry as well as the CLI.
 - The package test checks the built output for private imports, as

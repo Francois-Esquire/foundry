@@ -95,7 +95,8 @@ messages you are most likely to meet:
   manifest names the package and the error.
 - `semantics cache … is locked by process …`: another scan of the same
   workspace is running. A lock left by a dead process is taken over.
-- `Atlas web assets are missing`: the default command scans, then finds no
-  built viewer. Build the package, or use `scan` alone.
+- `Web assets are missing from <path>`: the default command scans, then
+  finds no built viewer. Reinstall the package or, from source, build it;
+  or use `scan` alone.
 - `Command failed: git rev-parse HEAD`: `--history` on a directory that is
   not a Git repository. The dataset without history was already saved.

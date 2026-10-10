@@ -55,4 +55,4 @@ no API and no directory listing.
 
 The default command scans first and only then checks for the viewer's
 assets, so a checkout without a build pays for the scan before it reports
-`Atlas web assets are missing`.
+`Web assets are missing`.
