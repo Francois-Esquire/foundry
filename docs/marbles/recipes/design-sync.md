@@ -214,5 +214,6 @@ decides whether it differs, and `propose` acts only on a different palette.
 Figma rate-limits requests by endpoint and plan and answers `429` with
 `Retry-After`; an hourly check stays well inside it, and a failed tick is
 tried again on the next one. A [launchd](/marbles/reference/launchd) tick
-receives only `PATH`, so `FIGMA_TOKEN` does not reach it; run the schedule
-from the dashboard, or read the token from the Keychain inside `figma()`.
+receives only `PATH`; declare `FIGMA_TOKEN` in the workspace's
+`.env.schema` (it can read the token from the Keychain) and every tick
+resolves it.

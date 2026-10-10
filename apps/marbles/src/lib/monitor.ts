@@ -106,7 +106,7 @@ export interface MonitorHost extends HostBindings {
 }
 
 /** Request options for an HTTP poll; the monitor supplies its own signal. */
-export type MonitorRequestInit = Omit<RequestInit, "signal">;
+type MonitorRequestInit = Omit<RequestInit, "signal">;
 
 /**
  * What an HTTP monitor sends: options, or a function called at every poll,

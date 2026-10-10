@@ -69,9 +69,11 @@ bun run env:check
 bun run env:run bun run marbles list
 ```
 
-The `env:run` command accepts any command after its name. Marbles inherits the
-environment of the process that starts it; the published package does not
-require Varlock. Declare task-specific environment inputs in Turbo when a
+The `env:run` command accepts any command after its name. Marbles loads a
+workspace's `.env.schema` through Varlock when there is one, with the
+workspace's own `varlock` or one on `PATH`; the published package does not
+depend on Varlock, and without a schema it inherits the environment of the
+process that starts it. Declare task-specific environment inputs in Turbo when a
 task begins using a secret.
 
 ## Continuous integration

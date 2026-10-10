@@ -1,9 +1,11 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -257,5 +259,60 @@ schedule(step("ping").do(() => 1)).every("1h");`
     expect(existsSync(join(home, "Library/LaunchAgents"))).toBe(false);
     expect(existsSync(join(home, "Library/Logs"))).toBe(false);
     expect(existsSync(join(root, "state"))).toBe(false);
+  });
+
+  it("runs ticks in the workspace root and refuses to install without its environment", () => {
+    const root = fakeHome();
+    const source = join(root, ".foundry", "marbles");
+    mkdirSync(source, { recursive: true });
+    writeFileSync(
+      join(source, "ping.ts"),
+      `import { schedule, step } from "@foundry/marbles";
+schedule(step("ping").do(() => 1)).every("1h");`
+    );
+    writeFileSync(join(root, ".env.schema"), "MARBLES_TEST_TOKEN=\n");
+    const bin = join(root, "node_modules", ".bin");
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(
+      join(bin, "varlock"),
+      `#!/bin/sh
+if [ -n "$MARBLES_TEST_TOKEN" ]; then printf '{}'; else echo "MARBLES_TEST_TOKEN is required"; exit 1; fi
+`
+    );
+    chmodSync(join(bin, "varlock"), 0o755);
+    const home = join(root, "home");
+    mkdirSync(home, { recursive: true });
+    const argv = [
+      resolve("src/cli.ts"),
+      "launchd",
+      "install",
+      "ping",
+      "--dry-run",
+      "--config",
+      source,
+      "--state",
+      join(root, "state"),
+    ];
+    const run = (env: Record<string, string>) =>
+      spawnSync("bun", argv, {
+        // Installed from somewhere else: the tick still runs in the root.
+        cwd: home,
+        encoding: "utf8",
+        env: { ...process.env, HOME: home, ...env },
+        timeout: 15_000,
+      });
+    if (process.platform !== "darwin") {
+      return;
+    }
+    const refused = run({ MARBLES_TEST_TOKEN: "" });
+    expect(refused.status).toBe(1);
+    expect(refused.stderr).toContain("MARBLES_TEST_TOKEN is required");
+    expect(refused.stdout).not.toContain("would write");
+
+    const installed = run({ MARBLES_TEST_TOKEN: "secret-value" });
+    expect(installed.status).toBe(0);
+    expect(installed.stdout).toContain(`<key>WorkingDirectory</key>
+  <string>${realpathSync(root)}</string>`);
+    expect(installed.stdout).not.toContain("secret-value");
   });
 });

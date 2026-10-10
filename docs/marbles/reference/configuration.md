@@ -72,6 +72,11 @@ an existing `./marbles.config.ts` still loads for compatibility. The folder
 takes precedence when both exist. With no source, the working directory is
 the workspace. `help` and `init` do not import authoring modules.
 
+A `.env.schema` at the workspace root is loaded through Varlock before any
+module is imported; see [launchd](/marbles/reference/launchd#environment).
+`roll` and `launchd install` stop when a required value does not resolve;
+the dashboard and `list` print what is missing and go on.
+
 ## Names and the catalog
 
 A named step or workflow is a marble, and together they are the catalog:

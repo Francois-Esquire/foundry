@@ -686,6 +686,15 @@ Open, carried from finding 1:
 
 ### D.2 Environment for launchd ticks (finding 2)
 
+**Landed 2026-10-10** in `apps/marbles/src/env.ts`, called at the top of
+`openWorkspace`. A schema that does not resolve fails `roll` and `launchd
+install` (`require`) and only warns for the dashboard and listings
+(`warn`), so a missing token cannot keep the dashboard or `launchd
+uninstall` from starting. Not done: `status` naming a tick that failed on a
+missing value. The tick fails before it records anything, so the message
+is only in the tick's log; record it if that proves too quiet. The open
+question below stays open.
+
 Today the plist's `EnvironmentVariables` holds only `PATH`
 (`marbles/launchd.ts:102-106`), and `WorkingDirectory` is the cwd at
 install (`cli.ts:168`), not the workspace root. Modules load in exactly one

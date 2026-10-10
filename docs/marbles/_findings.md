@@ -17,38 +17,6 @@ instead**, **Proposal**, and **Open**. A finding that came from use rather
 than a page says what changed or what the rule is in place of **The page
 does instead**.
 
-## 2. Environment for launchd ticks
-
-**Found by** the Design Sync recipe, 2026-10-09.
-
-**Today.** The plist's `EnvironmentVariables` holds only `PATH`
-(`apps/marbles/src/launchd.ts:102`), and Marbles loads no environment files.
-`roll` and the dashboard inherit the shell's environment, so the same module
-sees `FIGMA_TOKEN` in a terminal and not under launchd. The difference is
-silent until the tick fails.
-
-**The page does instead.** It tells the reader to run the schedule from the
-dashboard, or to read the token from the Keychain inside its fetch helper.
-
-**Proposal.** Marbles loads the workspace's environment itself when a
-process starts, in every mode, before it imports modules. Use Varlock, which
-this repository already standardizes on: a `.env.schema` at the workspace
-root declares what the automations need and where each value resolves from.
-`roll`, the dashboard, and a launchd tick then see the same environment, and
-a secret is resolved at tick time instead of being stored anywhere.
-
-- `launchd install` validates that the schema resolves and refuses to
-  install when a required value is missing, naming it.
-- `status` reports a schedule whose last tick failed on a missing value.
-- Without a schema, behaviour is unchanged.
-
-Rejected: `launchd install <key> --env NAME` copying the value into the
-plist. It writes the secret in plain text under `~/Library/LaunchAgents`.
-
-**Open.** Whether a module can declare what it needs (an `env` word, or a
-schema export) so `list` can show it, or whether the workspace schema is
-enough.
-
 ## 5. Memory an automation keeps between runs
 
 **Found by** the Persistent Reviewer and Design Sync recipes.

@@ -40,9 +40,10 @@ in order. Items 1 to 3 have landed; 4 stays open alongside 5; 6 comes last.
    3. **Quick fixes.** Landed 2026-10-10: `hasBranch` with a clear worktree
       error (finding 4), and one-line errors for invalid input and a `roll`
       that reaches an ask (finding 3).
-   4. **Monitors and launchd.** Request options for HTTP monitors (finding
-      1) and the environment for launchd ticks (finding 2), which Design
-      Sync needs to become a monitor.
+   4. **Monitors and launchd.** Landed 2026-10-10: request options for HTTP
+      monitors (finding 1) and the environment for launchd ticks (finding
+      2). Design Sync shows the monitor as a variation until the hash
+      question in `_next-api.md` D.1 is settled.
    5. **Pass-through for the other keys.** Sandboxes, workspaces,
       artifacts, steps, and skills (7.2 to 7.6), with finding 8's handles
       for `workspace`, `sandbox`, and `artifact`.

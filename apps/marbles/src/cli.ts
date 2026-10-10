@@ -153,7 +153,7 @@ function listTriggers(
 
 function manageLaunchd(
   args: ArgsOf<"launchd">,
-  { configPath }: OpenedWorkspace,
+  opened: OpenedWorkspace,
   { automations }: Triggers
 ): void {
   const { action, schedule: key } = args;
@@ -166,8 +166,9 @@ function manageLaunchd(
   }
   const plan = launchdPlan(schedule, {
     artifacts: resolve(args.artifacts),
-    config: configPath,
-    cwd: process.cwd(),
+    config: opened.configPath,
+    // A tick runs where the workspace is, whatever directory installed it.
+    cwd: opened.workspace.root,
     home: homedir(),
     only: args.only,
     path: process.env.PATH ?? "",
@@ -285,11 +286,18 @@ function printErrors(automations: Triggers["automations"]): void {
   }
 }
 
+/** Work about to run needs its environment; listing and the dashboard only warn. */
+function envMode(args: { readonly command: Command }): "require" | "warn" {
+  const installs =
+    args.command === "launchd" && "action" in args && args.action === "install";
+  return args.command === "roll" || installs ? "require" : "warn";
+}
+
 async function withEngine(
-  args: Flags,
+  args: Flags & { readonly command: Command },
   run: (engine: Engine, opened: OpenedWorkspace) => Promise<void>
 ): Promise<void> {
-  const opened = await openWorkspace(args, { print });
+  const opened = await openWorkspace(args, { env: envMode(args), print });
   const engine = hostEngine(args, opened, { print });
   touchWorkspace(engine, opened);
   printErrors(engine.automations);
@@ -318,7 +326,7 @@ async function dispatch<C extends Command>(
       await handler.run(args, findWorkspace(args));
       return;
     case "triggers": {
-      const opened = await openWorkspace(args, { print });
+      const opened = await openWorkspace(args, { env: envMode(args), print });
       const triggers = hostTriggers(args, opened);
       printErrors(triggers.automations);
       handler.run(args, opened, triggers);
