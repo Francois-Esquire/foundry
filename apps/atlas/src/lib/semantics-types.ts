@@ -1,3 +1,4 @@
+import type { DomainDeclaration } from "./domain-declaration";
 import type { SemanticsHistoryConfig } from "./semantics-history-types";
 import type { FileKind, ModuleRole } from "./types";
 import type { WorkspaceConceptCoverage } from "./workspace-concepts-types";
@@ -18,6 +19,8 @@ export const SEMANTICS_DATASET_SCHEMA_VERSION = 4;
  * packages is not configuration; the workspace declaration decides it.
  */
 export interface SemanticsConfig {
+  /** The workspace's domains, as declared. No analysis reads them, and the configuration fingerprint leaves them out. */
+  domains: readonly DomainDeclaration[];
   /** Workspace-relative unit directories to skip (`packages/foo`), matched exactly. */
   exclude: string[];
   /** The checkpoint policy of `scan --history`. */

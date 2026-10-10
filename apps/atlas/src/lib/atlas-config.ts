@@ -13,6 +13,8 @@ import { extname, join } from "node:path";
 import { promisify } from "node:util";
 import { z } from "zod";
 import { normalizeWorkspacePath } from "./boundary";
+import type { DomainDeclaration } from "./domain-declaration";
+import { domainsSchema } from "./domain-declaration";
 import { HISTORY_RANGE } from "./semantics-history-timeline";
 import { SEMANTICS_HISTORY_STRATEGIES } from "./semantics-history-types";
 import type { SemanticsConfig } from "./semantics-types";
@@ -36,6 +38,8 @@ import { WORKER_RUNTIME, workerEntry } from "./worker-runtime";
 
 /** What one configuration file default-exports. Each key may be declared in one file only. */
 export interface AtlasConfig {
+  /** The workspace's domains: what a lens reads, never an analysis. */
+  domains?: DomainDeclaration[];
   /** Workspace-relative unit directories to skip (`packages/fixtures`), matched exactly. */
   exclude?: string[];
   /** The checkpoint policy of `scan --history`; unset fields keep their defaults. */
@@ -59,6 +63,7 @@ const CONFIG_WORKER = workerEntry("config-worker");
 
 /** The resolved configuration of a workspace that declares nothing. */
 export const DEFAULT_CONFIGURATION: SemanticsConfig = {
+  domains: [],
   exclude: [],
   history: {
     checkpoints: 12,
@@ -89,6 +94,7 @@ const wholeNumber = z
   .min(1, { error: WHOLE });
 
 const configSchema = z.strictObject({
+  domains: domainsSchema.optional(),
   exclude: z
     .array(workspaceDirectory, {
       error: "must be a list of workspace-relative directories",
@@ -115,6 +121,9 @@ const configSchema = z.strictObject({
     )
     .optional(),
 }) satisfies z.ZodType<AtlasConfig, unknown>;
+
+/** `foundry.config.json#semantics` declares no domains; they live in `.foundry/atlas/` only. */
+const legacySchema = configSchema.omit({ domains: true });
 
 /** A value as an error message shows it after "got". */
 function shown(value: unknown): string {
@@ -147,6 +156,20 @@ function settingPath(path: readonly PropertyKey[]): string {
     .join("");
 }
 
+/**
+ * "; got <value>" for an issue, except one marked `wholeObject`: an issue
+ * about a whole object, such as a domain, which its message names.
+ */
+function shownInput(issue: z.core.$ZodIssue): string {
+  if (!("input" in issue)) {
+    return "";
+  }
+  if (issue.code === "custom" && issue.params?.wholeObject === true) {
+    return "";
+  }
+  return `; got ${shown(issue.input)}`;
+}
+
 /** One clause per setting: the first issue at each path, with the value it got. */
 function issueClauses(
   issues: readonly z.core.$ZodIssue[],
@@ -162,7 +185,7 @@ function issueClauses(
       const keys = `unknown key${issue.keys.length > 1 ? "s" : ""} ${issue.keys.join(", ")}`;
       clauses.set(path, path === "" ? keys : `${path} has ${keys}`);
     } else {
-      const got = "input" in issue ? `; got ${shown(issue.input)}` : "";
+      const got = shownInput(issue);
       clauses.set(path, `${path} ${issue.message}${got}`);
     }
   }
@@ -180,9 +203,10 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 function parsed(
   value: unknown,
   subject: string,
-  prefix: readonly string[]
+  prefix: readonly string[],
+  schema: z.ZodType<AtlasConfig, unknown>
 ): AtlasConfig {
-  const result = configSchema.safeParse(value, { reportInput: true });
+  const result = schema.safeParse(value, { reportInput: true });
   if (!result.success) {
     throw new Error(
       `${subject}: ${issueClauses(result.error.issues, prefix).join("; ")}.`
@@ -198,7 +222,7 @@ export function parseConfigFile(value: unknown, file: string): AtlasConfig {
       `Configuration ${file}: the default export must be an object.`
     );
   }
-  return parsed(value, `Configuration ${file}`, []);
+  return parsed(value, `Configuration ${file}`, [], configSchema);
 }
 
 const CONFIG_FILE_EXTENSIONS = new Set([
@@ -387,6 +411,7 @@ function combined(files: readonly ConfigFile[]): AtlasConfig {
 
 function withDefaults(config: AtlasConfig): SemanticsConfig {
   return {
+    domains: config.domains ?? DEFAULT_CONFIGURATION.domains,
     exclude: config.exclude ?? DEFAULT_CONFIGURATION.exclude,
     history: { ...DEFAULT_CONFIGURATION.history, ...config.history },
   };
@@ -443,7 +468,7 @@ function legacyConfig(semantics: unknown): AtlasConfig {
   if (removed.length > 0) {
     throw new Error(`${LEGACY_FILE}: ${removed.join(" ")}`);
   }
-  return parsed(semantics, LEGACY_FILE, ["semantics"]);
+  return parsed(semantics, LEGACY_FILE, ["semantics"], legacySchema);
 }
 
 /**

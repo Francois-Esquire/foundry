@@ -51,6 +51,7 @@ it(
       ".foundry/atlas/index.ts": `import type { Unused } from "@foundry/atlas";\nconst exclude: string[] = ["./packages/fixtures/"];\nexport default { exclude, history: { range: "6m" } } satisfies Partial<Unused>;\n`,
     });
     expect(await loadConfiguration(root)).toEqual({
+      domains: [],
       exclude: ["packages/fixtures"],
       history: { ...DEFAULT_CONFIGURATION.history, range: "6m" },
     });
@@ -72,6 +73,7 @@ it(
       ".foundry/atlas/types.d.ts": "export type Nothing = never;\n",
     });
     expect(await loadConfiguration(root)).toEqual({
+      domains: [],
       exclude: ["packages/legacy"],
       history: {
         ...DEFAULT_CONFIGURATION.history,
@@ -97,6 +99,60 @@ it(
 );
 
 it(
+  "reads the domains a configuration file declares, as written",
+  async () => {
+    const domains = [
+      {
+        domains: [
+          {
+            facets: ["packages/billing", "packages/core/src/ids.ts#InvoiceId"],
+            name: "billing",
+          },
+        ],
+        name: "finances",
+        reason: "Money moves through one model.",
+        weight: 0.8,
+      },
+    ];
+    const root = workspace({
+      ".foundry/atlas/_finances.ts": `export const finances = ${JSON.stringify(domains[0])};\n`,
+      ".foundry/atlas/domains.ts": `import { finances } from "./_finances";\nexport default { domains: [finances] };\n`,
+      ".foundry/atlas/index.ts":
+        'export default { exclude: ["packages/x"] };\n',
+    });
+    expect(await loadConfiguration(root)).toEqual({
+      ...DEFAULT_CONFIGURATION,
+      domains,
+      exclude: ["packages/x"],
+    });
+  },
+  LOAD_TIMEOUT_MS
+);
+
+it(
+  "rejects domains declared in two files, and an invalid domain by its file and setting",
+  async () => {
+    const twice = workspace({
+      ".foundry/atlas/billing.ts":
+        'export default { domains: [{ facets: ["packages/billing"], name: "billing" }] };\n',
+      ".foundry/atlas/payments.ts":
+        'export default { domains: [{ facets: ["packages/payments"], name: "payments" }] };\n',
+    });
+    await expect(loadConfiguration(twice)).rejects.toThrow(
+      "Configuration: domains is declared in .foundry/atlas/billing.ts and .foundry/atlas/payments.ts. Declare it in one."
+    );
+    const invalid = workspace({
+      ".foundry/atlas/domains.ts":
+        'export default { domains: [{ facets: ["packages/billing/"], name: "billing" }] };\n',
+    });
+    await expect(loadConfiguration(invalid)).rejects.toThrow(
+      'Configuration .foundry/atlas/domains.ts: domains[0].facets[0] must have no empty, ".", or ".." segments, and no trailing "/"; got "packages/billing/".'
+    );
+  },
+  LOAD_TIMEOUT_MS
+);
+
+it(
   "names the file and the setting for every invalid value",
   async () => {
     const cases: [string, string][] = [
@@ -113,8 +169,8 @@ it(
         "Configuration .foundry/atlas/index.ts: history.checkpoints must be a whole number of at least 1; got 0; history.every must be a whole number of at least 1; got 2.5.",
       ],
       [
-        "export default { domains: [] };",
-        "Configuration .foundry/atlas/index.ts: unknown key domains.",
+        "export default { rules: [] };",
+        "Configuration .foundry/atlas/index.ts: unknown key rules.",
       ],
       [
         "export default { exclude: () => [] };",
@@ -131,6 +187,10 @@ it(
       [
         "export const exclude = [];",
         "Configuration .foundry/atlas/index.ts: the file has no default export. Export the configuration as the default, or start a helper file's name with _.",
+      ],
+      [
+        'export default { get exclude() { throw new Error("not now"); } };',
+        "Configuration .foundry/atlas/index.ts: checking the default export threw: not now",
       ],
       [
         'throw new Error("no network here");',
@@ -177,6 +237,7 @@ it("reads foundry.config.json#semantics when there is no configuration directory
     }),
   });
   expect(await loadConfiguration(root)).toEqual({
+    domains: [],
     exclude: ["packages/x"],
     history: { ...DEFAULT_CONFIGURATION.history, every: 10 },
   });
@@ -204,6 +265,14 @@ it("rejects removed and invalid settings in foundry.config.json", async () => {
     [
       { semantics: ["apps"] },
       "foundry.config.json: semantics must be an object.",
+    ],
+    [
+      {
+        semantics: {
+          domains: [{ facets: ["packages/billing"], name: "billing" }],
+        },
+      },
+      "foundry.config.json: semantics has unknown key domains.",
     ],
   ];
   for (const [content, message] of cases) {

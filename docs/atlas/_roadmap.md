@@ -30,7 +30,8 @@ Started 2026-10-09 on the `feat/atlas` branch. What all of it serves: show
 the shape of the code, what sits next to what, how it nests, and where
 things live against where they are used, so that a misplaced part is
 visible, and an intended one is labeled rather than hidden. Domains are
-the workspace's side of that: [`_domains.md`](./_domains.md).
+the workspace's side of that: [`_domains.md`](./_domains.md). The views
+that show it are lenses: [`_lenses.md`](./_lenses.md).
 
 The sequence and the ground rules, chief among them that the existing
 analyses are built on rather than changed, are in

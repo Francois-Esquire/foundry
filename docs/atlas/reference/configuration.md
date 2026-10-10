@@ -1,6 +1,6 @@
 ---
 title: Configuration
-description: The configuration directory, .foundry/atlas/, its settings, and what else Atlas reads from a workspace.
+description: The configuration directory, .foundry/atlas/, its settings and domains, and what else Atlas reads from a workspace.
 ---
 
 Atlas takes its runtime options from the command line. What a workspace
@@ -40,6 +40,7 @@ export default {
 
 | Setting | Type | Default | Effect |
 | --- | --- | --- | --- |
+| `domains` | list of domains | `[]` | The workspace's own model, for the domain lens of a later release. Validated and kept; nothing reads it yet. See [Domains](#domains). |
 | `exclude` | `string[]` | `[]` | Workspace-relative unit directories to skip, matched exactly, such as `packages/fixtures`. A leading `./` and a trailing slash are dropped; an absolute path, `.`, or a path with a `..` segment is an error. The manifest lists each excluded unit with the reason `excluded`, and an exclusion that matched no unit under `discovery.excludeUnmatched`. Excluding a unit that would otherwise be analyzed leaves the workspace's coverage `partial`. |
 | `history.checkpoints` | whole number, at least 1 | `12` | Upper bound on checkpoints per `--history` scan. `HEAD` always counts. |
 | `history.every` | whole number, at least 1 | `100` | Commit stride for the `every-n-commits` strategy. |
@@ -51,6 +52,61 @@ the workspace declaration decides it (see
 [What else Atlas reads](#what-else-atlas-reads)). Analysis thresholds are not
 configuration either; they are built in.
 
+## Domains
+
+A domain is a named part of the workspace's own model: the places it names
+as its own, its facets, which may span packages, and the domains nested
+inside it. Atlas will use domains to tell an intended placement from an
+accidental one; until then it checks and keeps them, and reads them for
+nothing.
+
+```ts
+// .foundry/atlas/domains.ts
+export default {
+  domains: [
+    {
+      name: "finances",
+      reason: "Money moves through one model.",
+      domains: [
+        {
+          name: "billing",
+          facets: ["packages/billing", "packages/core/src/ids.ts#InvoiceId"],
+          weight: 0.8,
+        },
+        { name: "payments", facets: ["apps/checkout/src/payments"] },
+      ],
+    },
+  ],
+};
+```
+
+| Field | Type | Effect |
+| --- | --- | --- |
+| `name` | string | The domain's id: lowercase letters, digits, and hyphens, starting with a letter. Unique across every domain, nested ones included. |
+| `facets` | `string[]` | The places the domain names: a package, folder, or file by its workspace-relative path, or a symbol as `path#name`. |
+| `domains` | list of domains | Domains nested inside this one. A place in a nested domain is in its parent too. |
+| `reason` | string | Why the domain exists, as written. Non-empty, with no leading or trailing whitespace. |
+| `weight` | number from 0 to 1 | The workspace's own emphasis, reported as written. |
+
+A domain needs at least one facet or one nested domain. A facet:
+
+- is relative to the workspace root and uses `/`, with no empty, `.`, or
+  `..` segment, no trailing `/`, and no leading or trailing whitespace. It
+  is matched exactly as written, case included;
+- may name one top-level symbol after `#`, by the name its file declares
+  it with: `packages/core/src/ids.ts#InvoiceId`;
+- may not use `*`, `?`, or a leading `!`, which are kept for patterns;
+- need not exist yet. A facet that matches nothing is kept.
+
+The same facet may appear in several domains; listed twice in one domain,
+it is an error. Domains nest at most 64 deep, and a domain may not contain
+itself. `domains` is declared in one configuration file, like every
+key; that file may import `_`-prefixed helpers. `foundry.config.json` does
+not accept domains.
+
+Domains are not an analysis input: a scan with new domains reuses every
+package's results.
+
 ## Errors
 
 The configuration is checked before anything is analyzed. Each message
@@ -58,7 +114,8 @@ names the file and the setting, and lists every problem in that file:
 
 ```text
 Configuration .foundry/atlas/index.ts: history.strategy must be monthly, evenly-spaced, or every-n-commits; got "weekly".
-Configuration .foundry/atlas/index.ts: unknown key domains.
+Configuration .foundry/atlas/index.ts: unknown key rules.
+Configuration .foundry/atlas/domains.ts: domains[0].facets[1] must be relative to the workspace root; got "/packages/billing".
 Configuration .foundry/atlas/index.ts: the default export must be an object.
 Configuration .foundry/atlas/index.ts: the file has no default export. Export the configuration as the default, or start a helper file's name with _.
 Configuration .foundry/atlas/index.ts: loading the file threw: <the error>
@@ -117,9 +174,10 @@ When the configuration runs:
   or an edited helper it imports, is seen by the next scan in the same
   process.
 
-A changed configuration invalidates the cached package reports on the next
-scan; the package-local analyses are reused. An edit that changes no
-setting, such as a comment, invalidates nothing.
+A changed `exclude` invalidates the cached package reports on the next
+scan; the package-local analyses are reused. Domains and history settings
+invalidate none. An edit that changes no setting, such as a comment,
+invalidates nothing.
 
 ## What else Atlas reads
 

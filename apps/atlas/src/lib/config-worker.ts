@@ -43,7 +43,23 @@ async function loadFile(workspace: string, path: string): Promise<ConfigFile> {
       `Configuration ${file}: the file has no default export. Export the configuration as the default, or start a helper file's name with _.`
     );
   }
-  return { config: parseConfigFile(loaded.default, file), file };
+  return { config: checkedExport(loaded.default, file), file };
+}
+
+/** The file's default export, validated; anything that goes wrong is named by the file. */
+function checkedExport(value: unknown, file: string): ConfigFile["config"] {
+  try {
+    return parseConfigFile(value, file);
+  } catch (error) {
+    const message = messageOf(error);
+    if (message.startsWith(`Configuration ${file}:`)) {
+      throw error;
+    }
+    throw new Error(
+      `Configuration ${file}: checking the default export threw: ${message}`,
+      { cause: error }
+    );
+  }
 }
 
 async function load(workspace: string): Promise<ConfigWorkerReport> {

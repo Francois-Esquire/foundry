@@ -16,7 +16,10 @@ import { dirname, join } from "node:path";
 
 import { afterAll, describe, expect, it } from "vitest";
 import { assembleSurfaceReport } from "../../src/lib/assemble";
-import { loadConfiguration } from "../../src/lib/atlas-config";
+import {
+  DEFAULT_CONFIGURATION,
+  loadConfiguration,
+} from "../../src/lib/atlas-config";
 import { analyzePackageLocal } from "../../src/lib/package-local";
 import type {
   SemanticsDeriver,
@@ -24,11 +27,13 @@ import type {
 } from "../../src/lib/semantics";
 import { generateSemantics } from "../../src/lib/semantics";
 import { SEMANTICS_CACHE_SCHEMA_VERSION } from "../../src/lib/semantics-cache";
+import { discoverSemanticsUnits } from "../../src/lib/semantics-discover";
 import {
   canonicalizeSemanticsArtifact,
   compareSemanticsDatasets,
   listSemanticsFiles,
 } from "../../src/lib/semantics-equivalence";
+import { collectWorkspaceInputs } from "../../src/lib/semantics-fingerprint";
 import type {
   SemanticsGenerationResult,
   SemanticsInvalidation,
@@ -87,6 +92,36 @@ function copyFixture(): string {
   cpSync(fixture, dir, { recursive: true });
   const root = realpathSync(dir);
   tempRoots.push(root);
+  return root;
+}
+
+/**
+ * The fixture's three packages at the root, declared by one `*` pattern, so
+ * that the cruise starts from every root directory, `.foundry` included.
+ */
+function starFixture(): string {
+  const root = realpathSync(
+    mkdtempSync(join(tmpdir(), "semantics-incremental-star-"))
+  );
+  tempRoots.push(root);
+  const moved = { a: "apps/a", b: "packages/b", c: "tooling/c" };
+  for (const [to, from] of Object.entries(moved)) {
+    cpSync(join(fixture, from), join(root, to), { recursive: true });
+  }
+  write(
+    root,
+    "package.json",
+    JSON.stringify({ name: "semantics-star", private: true, workspaces: ["*"] })
+  );
+  const tsconfig = JSON.parse(
+    readFileSync(join(fixture, "tsconfig.json"), "utf8")
+  );
+  tsconfig.compilerOptions.paths = {
+    "@s/a": ["a/src/index.ts"],
+    "@s/b": ["b/src/index.ts"],
+    "@s/c": ["c/src/index.ts"],
+  };
+  write(root, "tsconfig.json", JSON.stringify(tsconfig));
   return root;
 }
 
@@ -482,6 +517,62 @@ describe("source changes", () => {
     expect(restated.packages).toMatchObject({ analyzed: 0, reused: 3 });
     expect(restated.reports).toMatchObject({ derived: 0, reused: 3 });
   }, 60_000);
+
+  it.each([
+    ["the fixture's package patterns", copyFixture],
+    ["a * package pattern, which cruises .foundry", starFixture],
+  ])(
+    "reuses every package report and derives nothing when only the domains change, under %s",
+    async (_patterns, makeRoot) => {
+      const root = makeRoot();
+      await full(root);
+      const declare = async (
+        facet: string
+      ): Promise<SemanticsGenerationResult> => {
+        write(
+          root,
+          ".foundry/atlas/domains.ts",
+          `export default { domains: [{ facets: ["${facet}"], name: "core", weight: 0.5 }] };\n`
+        );
+        const config = await loadConfiguration(root);
+        expect(config.domains).toEqual([
+          { facets: [facet], name: "core", weight: 0.5 },
+        ]);
+        return incremental(root, { config });
+      };
+      for (const result of [
+        await declare("packages/b"),
+        await declare("packages/b/src/index.ts#b"),
+      ]) {
+        expect(result.packages).toMatchObject({ analyzed: 0, reused: 3 });
+        expect(result.reports).toEqual({ derived: 0, reused: 3, unchanged: 0 });
+        expect(Object.values(reportCauses(result))).not.toContain(
+          "recompute:config-changed"
+        );
+      }
+    },
+    60_000
+  );
+
+  it("never takes .foundry/ as a workspace input, even when the cruise reaches it", async () => {
+    const root = starFixture();
+    write(
+      root,
+      ".foundry/atlas/domains.ts",
+      'export default { domains: [{ facets: ["b"], name: "core" }] };\n'
+    );
+    const { units } = discoverSemanticsUnits(root, DEFAULT_CONFIGURATION);
+    const inputs = await collectWorkspaceInputs({
+      config: DEFAULT_CONFIGURATION,
+      now,
+      root,
+      units,
+    });
+    expect([...inputs.files.keys()]).toContain("b/src/index.ts");
+    expect(
+      [...inputs.files.keys()].filter((file) => file.startsWith(".foundry/"))
+    ).toEqual([]);
+  });
 
   it("reads pnpm-workspace.yaml as a workspace input", async () => {
     const root = copyFixture();

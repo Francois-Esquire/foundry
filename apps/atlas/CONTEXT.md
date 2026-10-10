@@ -63,7 +63,7 @@ One checkpoint's saved analysis.
 
 **Configuration**:
 What a workspace declares to Atlas in its configuration directory,
-`.foundry/atlas/`: exclusions and history settings. Analysis thresholds are
+`.foundry/atlas/`: exclusions, history settings, and domains. Analysis thresholds are
 not configuration; they are built in.
 _Avoid_: config, semantics config, analysis config
 
@@ -81,6 +81,25 @@ _Avoid_: module, source
 One entry of the configuration, such as `history.range`; a top-level
 setting is a key.
 _Avoid_: option (that is the command line)
+
+### The workspace's own model
+
+**Place**:
+A package, folder, file, or top-level symbol, addressed by
+workspace-relative path or `path#name`.
+
+**Domain**:
+A named part of the workspace's own mental model: a set of facets, and of
+domains nested inside it, that may span packages. A place in a nested
+domain is in its parent too. Its name is its id, unique across the
+workspace. A domain labels observations and never hides one.
+_Avoid_: concept (the scan's observation), anchor (AnalysisConfig's built-in
+pin), domain behavior, bounded context, area
+
+**Facet**:
+A reference by which a domain claims places, a path or `path#name`; it may
+match none.
+_Avoid_: member, path, scope, region, anchor (AnalysisConfig's built-in pin)
 
 ### What a scan saves
 

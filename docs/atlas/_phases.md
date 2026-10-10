@@ -17,7 +17,7 @@ is in [`_review.md`](./_review.md).
    then to write. Before adding anything, check [`_review.md`](./_review.md)
    and the connection points below.
 3. **New views are lenses.** A lens is a read-only function over the
-   dataset, plus the workspace's own declarations where it needs them, that
+   dataset, plus the workspace's own settings where it needs them, that
    produces a view: labels, groupings, measures. It lives beside the
    analyses, never inside one.
 4. **A change to existing analysis code needs a named reason,** recorded
@@ -489,12 +489,67 @@ returns its results through it.
   names Foundry (principle 5).
 - `scripts/dev.ts` reads its command line as `atlas serve`.
 
-**1.9 Foundations for phase 2.** Shapes only; nothing is built on them yet.
-- The domain declaration type and its validation, read by the 1.7
-  loader. The sketch is in
-  [`_domains.md`](./_domains.md#what-a-domain-is).
-- The lens contract as a type: inputs, output, version. Written down in
-  `_domains.md` or a lens note, with no implementation.
+**1.9 Foundations for phase 2.** Done 2026-10-10. Shapes only; nothing is
+built on them yet.
+- `lib/domain-declaration.ts` holds `DomainDeclaration`
+  (`{ name, facets?, domains?, reason?, weight? }`, written out, not
+  inferred) and `domainsSchema`, a strict zod schema with a recursive
+  getter. It is not a `*-types` file, since it holds zod code, so the
+  browser override does not cover it. `AtlasConfig` gains `domains?`; the
+  resolved `SemanticsConfig` carries `domains`, `[]` by default, and
+  `configFingerprint` leaves it out. Nothing reads it yet.
+- The rules, in [`_domains.md`](./_domains.md#how-a-workspace-declares-them):
+  a name is the domain's id, `^[a-z][a-z0-9-]*$`, unique across the whole
+  tree; a facet is a relative POSIX path, without surrounding whitespace,
+  with an optional `#name` after a file, an identifier; `*`, `?`, and a
+  leading `!` are reserved; a facet's path need not exist; a domain names at least one facet or nested domain; a facet is
+  listed once per domain, and overlap across domains is allowed; nesting is
+  membership; weight is 0 to 1, reported as written. `domains` follows
+  1.7's one-file rule; splitting it across files can come later without
+  breaking a configuration. `foundry.config.json#semantics` rejects it as
+  an unknown key (`legacySchema`, the schema without `domains`).
+- Before the schema walks the tree, a guard on the raw value refuses, by
+  path, a domain that contains itself, one object listed twice, and nesting
+  deeper than 64, since a configuration file is code and either would
+  otherwise exhaust the stack. The worker wraps `parseConfigFile`, so any
+  unexpected error while checking an export (a throwing getter) is still
+  named `Configuration <file>: checking the default export threw: …`.
+- Errors go through 1.7's formatter, `Configuration <file>:
+  domains[0].facets[2] <issue>; got <value>`, and no message body holds
+  the formatter's `; ` or a `. ` of its own. An issue marked
+  `params: { wholeObject: true }` shows no `got`, so the empty-domain error
+  reads `domains[0] declares no facets and no domains, so add a facet,
+  whose path need not exist yet.`
+- The lens contract is written down in [`_lenses.md`](./_lenses.md), with
+  no code: 2.1 ships the type with its first lens. A lens reads a
+  `LensReader` (the dataset reader without `history()` and `manifest()`)
+  and the `LensSettings` it names.
+- Tests: `test/lib/domain-declaration.test.ts` through `parseConfigFile`
+  (every facet rule with its message and path, names, empty domains,
+  duplicates, weights, reasons, unknown keys);
+  `test/lib/atlas-config.test.ts` (domains read through the loader and a
+  `_` helper, declared in two files, an invalid facet, the fallback
+  rejecting them); `test/lib/semantics-incremental.test.ts` (changing only
+  the domains reuses every package and derives nothing); and
+  `test/lib/scan.test.ts` (an invalid domain fails a scan with a warm cache
+  and leaves the saved dataset). The domains-only reuse test runs under the
+  fixture's patterns and under a `*` pattern, beside a `collectWorkspaceInputs`
+  test that `.foundry/` is never an input; both `*` tests fail without the
+  filter. The domain tests cover a domain that contains itself, a shared
+  object, 64 levels accepted and the 65th refused, and the worker's
+  wrapper.
+- `.foundry/` is never a workspace input. A `*` package pattern makes
+  `cruiseWorkspace` start from every root directory, since `expandPattern`
+  does not skip dot-directories, so `.foundry/atlas/*.ts` reached the
+  sources fingerprint and a domains-only edit re-derived every package.
+  `collectWorkspaceInputs` now leaves out every candidate under `.foundry/`
+  (caching code; no analysis change). Only `.foundry/` is left out: a
+  package may import from another dot-directory, such as `.storybook/`, and
+  that file must keep invalidating. A workspace with no package patterns,
+  the other case that globs the root, is refused by 1.7. Known analysis
+  quirk, unchanged: under `*` the cruise still reads `.foundry/` modules,
+  though they belong to no package and appear nowhere in the dataset
+  (checked on a scanned `*` workspace).
 
 **1.10 Exports and the installed package.** Last, because it publishes the
 others.
@@ -526,14 +581,16 @@ scripts, not to Atlas.
 
 ## Phase 2: lenses and domains
 
-Detail in [`_domains.md`](./_domains.md) and [`_viewer.md`](./_viewer.md).
+Detail in [`_lenses.md`](./_lenses.md), [`_domains.md`](./_domains.md),
+and [`_viewer.md`](./_viewer.md).
 
-**2.0 Decide when lenses run.** At scan time, written into the dataset, so
-that the viewer and third parties read them and nobody recomputes; or at
-read time, from the reader. The domain lens reads declarations that change
-without a rescan, so at scan time the fingerprint must cover them.
-Recommendation: scan time, with the declarations in the fingerprint, in
-keeping with the dataset as the product.
+**2.0 Decide when lenses run.** Decided 2026-10-10: at scan time, written
+into the dataset, so that the viewer and third parties read them and nobody
+recomputes, in keeping with the dataset as the product. Settings, such as
+domains, never enter `configFingerprint`, so a settings-only edit reuses
+every package's results; every lens output is recomputed on every scan
+until a per-setting digest has a consumer, 2.6 at the earliest. See
+[`_lenses.md`](./_lenses.md#in-the-dataset).
 
 **2.1 The lens layer.** A sibling of the analyses in `lib`: the projection
 mechanics (a context built once, pure functions), the codex's

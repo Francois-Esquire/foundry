@@ -108,6 +108,14 @@ function workspaceManifests(root: string): string[] {
   return manifests;
 }
 
+/**
+ * The Foundry tools' own directory: Atlas's configuration (`.foundry/atlas/`)
+ * and other tools' state. Never a workspace input, though a `*` package
+ * pattern makes the cruise reach its modules; otherwise a domains-only edit
+ * would invalidate every package.
+ */
+const FOUNDRY_DIRECTORY = ".foundry/";
+
 /** Every module dependency-cruiser reaches from the workspace, root-relative posix. */
 async function cruisedModules(
   root: string,
@@ -153,6 +161,9 @@ export async function collectWorkspaceInputs(
   }
   const files = new Map<string, string>();
   for (const rel of [...candidates].sort()) {
+    if (rel.startsWith(FOUNDRY_DIRECTORY)) {
+      continue;
+    }
     const absolute = join(root, rel);
     if (existsSync(absolute) && statSync(absolute).isFile()) {
       files.set(rel, hashFile(absolute));

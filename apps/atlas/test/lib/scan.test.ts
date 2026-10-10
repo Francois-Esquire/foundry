@@ -415,6 +415,33 @@ it(
 );
 
 it(
+  "an invalid domain fails the scan even when the cache is warm, and keeps the saved dataset",
+  async () => {
+    const declared = join(directory, "declared");
+    cpSync(root, declared, { recursive: true });
+    const domains = join(declared, ".foundry", "atlas", "domains.ts");
+    mkdirSync(join(declared, ".foundry", "atlas"), { recursive: true });
+    writeFileSync(
+      domains,
+      'export default { domains: [{ facets: ["packages/b"], name: "core" }] };\n'
+    );
+    const options = { state: join(directory, "declared-state") };
+    const saved = await scan.workspace(declared, options);
+    writeFileSync(
+      domains,
+      'export default { domains: [{ facets: ["packages/b"], name: "Core" }] };\n'
+    );
+    await expect(scan.workspace(declared, options)).rejects.toThrow(
+      'Configuration .foundry/atlas/domains.ts: domains[0].name must be lowercase letters, digits, and hyphens, starting with a letter; got "Core".'
+    );
+    expect(readJson(join(saved.output, "manifest.json"))).toEqual(
+      saved.manifest
+    );
+  },
+  SCAN_TIMEOUT_MS
+);
+
+it(
   "scan with history saves the checkpoints into the dataset",
   async () => {
     const historyRoot = copyFixture(
