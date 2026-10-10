@@ -212,6 +212,22 @@ lens may derive, rank, and label.
 _Avoid_: projection (that copies and never infers), map layer (the viewer's
 Belonging / Files control)
 
+**Placement**:
+Where a place is used against where it lives, as the `placement` lens
+labels it from its consumer modules: it fits when its own package holds the
+dominant share of them, departs toward the one other package that does, and
+is spread when no package does. Only exported symbols are placed, since
+nothing outside its module can use one that is not. A label adds to the
+observation and never calls a place misplaced.
+_Avoid_: declaration placement (symbol locality's field inside one
+package), misplacement, belonging
+
+**Consumer module**:
+A source file outside a place that uses it: it imports the symbol from
+inside the place's package, or references it from another package. A file
+that only forwards a symbol is not one.
+_Avoid_: consumer alone (that is a package in the package report), importer
+
 ### Where a scan is kept
 
 **State root**:

@@ -33,6 +33,7 @@ import {
 import type { DatasetManifest } from "../../src/lib/semantics-types";
 
 const NO_FILES = { config: 0, other: 0, source: 0, story: 0, test: 0 };
+const NO_PLACEMENT = { departs: 0, fits: 0, spread: 0, unconsumed: 0 };
 
 describe("the package-sizes lens", () => {
   it("joins each graph node to its file count by kind, sorted by id", () => {
@@ -639,6 +640,7 @@ describe("the registry", () => {
         schemaVersion: 1,
       },
       "package-sizes": { file: "lenses/package-sizes.json", schemaVersion: 1 },
+      placement: { file: "lenses/placement.json", schemaVersion: 1 },
       "responsibility-groups": {
         file: "lenses/responsibility-groups.json",
         schemaVersion: 1,
@@ -679,8 +681,11 @@ describe("writeLenses", () => {
     review: {},
     rewiring: { composition: [] },
     topology: {
-      modules: [{ fanIn: 0, id: "src/a.ts" }],
+      consumedSurface: [],
+      directories: [{ id: "." }, { id: "src" }],
+      modules: [{ fanIn: 0, fileKind: "source", id: "src/a.ts" }],
       package: { id: "@s/a", root: "packages/a" },
+      policy: { technicalRoots: ["src"] },
       roles: [],
       summary: { highFanCutoff: { fanIn: 0 } },
     },
@@ -692,7 +697,9 @@ describe("writeLenses", () => {
     const files: Record<string, unknown> = {
       "internals/@s__a.json": internals,
       "modules/index.json": {
-        modules: [{ fileKind: "source", package: "@s/a" }],
+        modules: [
+          { fileKind: "source", id: "packages/a/src/a.ts", package: "@s/a" },
+        ],
       },
       "packages/@s__a.json": {
         churn: {
@@ -711,6 +718,15 @@ describe("writeLenses", () => {
             historyComplete: false,
           },
         },
+        dependencies: { shapeSignals: [] },
+        symbols: [
+          {
+            consumerModuleUsage: [],
+            declarationFile: "packages/a/src/a.ts",
+            exported: true,
+            id: "packages/a/src/a.ts#a",
+          },
+        ],
       },
       "packages/@s__c.json": {
         churn: { available: false, reason: "not-git-repository" },
@@ -857,6 +873,28 @@ describe("writeLenses", () => {
               },
             },
           ],
+        },
+      ],
+      [
+        "lenses/placement.json",
+        {
+          missing: ["@s/c"],
+          packages: [
+            {
+              counts: {
+                file: { ...NO_PLACEMENT, unconsumed: 1 },
+                folder: NO_PLACEMENT,
+                package: { ...NO_PLACEMENT, unconsumed: 1 },
+                symbol: { ...NO_PLACEMENT, unconsumed: 1 },
+              },
+              id: "@s/a",
+              path: "packages/a",
+              shapeSignals: [],
+              unindexed: 0,
+            },
+          ],
+          places: [],
+          policy: { dominantShare: 0.6 },
         },
       ],
       [

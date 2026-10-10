@@ -80,6 +80,7 @@ export const SEMANTIC_STAGE_VERSIONS: Record<
   "lens:package-sizes": {
     schemaVersion: LENS_SCHEMA_VERSIONS["package-sizes"],
   },
+  "lens:placement": { schemaVersion: LENS_SCHEMA_VERSIONS.placement },
   "lens:responsibility-groups": {
     schemaVersion: LENS_SCHEMA_VERSIONS["responsibility-groups"],
   },
@@ -136,6 +137,7 @@ const SEMANTIC_STAGE_DEPENDENCIES: Record<
   "lens:file-roles": ["materialization"],
   "lens:frequent-change": ["materialization"],
   "lens:package-sizes": ["materialization"],
+  "lens:placement": ["materialization"],
   "lens:responsibility-groups": ["materialization"],
   /** The dataset before its lenses: the workspace, its projections, and each package's internals. */
   materialization: [

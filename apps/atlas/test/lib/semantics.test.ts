@@ -424,6 +424,7 @@ describe("generation", () => {
         file: "lenses/package-sizes.json",
         schemaVersion: 1,
       },
+      placement: { file: "lenses/placement.json", schemaVersion: 1 },
       "responsibility-groups": {
         file: "lenses/responsibility-groups.json",
         schemaVersion: 1,
@@ -445,6 +446,13 @@ describe("generation", () => {
         packages: [],
       });
     }
+    // Without internals the home use is unknown, so no place is labelled.
+    expect(readJson(dataset, "lenses/placement.json")).toEqual({
+      missing: ["@s/a", "@s/b", "@s/c"],
+      packages: [],
+      places: [],
+      policy: { dominantShare: 0.6 },
+    });
     const kinds = { config: 0, other: 0, source: 0, story: 0, test: 0 };
     expect(readJson(dataset, "lenses/package-sizes.json")).toEqual({
       packages: [

@@ -20,6 +20,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawn } from "bun";
 import type { FileRoles } from "../src/lib/lenses/file-roles-types";
+import type { Placements } from "../src/lib/lenses/placement-types";
 import type { ResponsibilityGroups } from "../src/lib/lenses/responsibility-groups-types";
 import { scan } from "../src/lib/scan";
 import type { HistoryManifest } from "../src/lib/semantics-history-types";
@@ -321,6 +322,83 @@ test("built CLI scans an external workspace and the web loaders read its saved d
         independent: [],
       },
     ],
+  });
+  const placements = JSON.parse(
+    await readFile(join(workspace.output, "lenses/placement.json"), "utf8")
+  ) as Placements;
+  // @s/b's symbols are used only in other packages: each departs toward its
+  // one consuming source file, or is spread over two. @s/a's test file is
+  // no consumer, so perimeter departs toward @s/c alone.
+  const away = (pkgId: string, modules: string[]) => ({
+    modules,
+    package: pkgId,
+  });
+  const twoWays = [
+    away("@s/a", ["apps/a/src/index.ts"]),
+    away("@s/c", ["tooling/c/src/index.ts"]),
+  ];
+  type Row = Placements["places"][number];
+  const fromB = (
+    level: Row["level"],
+    place: string,
+    rest: Pick<Row, "away"> &
+      ({ label: "spread" } | { label: "departs"; toward: string })
+  ): Row => ({
+    home: { modules: [] },
+    level,
+    package: "@s/b",
+    place,
+    unindexed: 0,
+    ...rest,
+  });
+  expect(placements.missing).toEqual([]);
+  expect(placements.places).toEqual([
+    fromB("package", "packages/b", { away: twoWays, label: "spread" }),
+    fromB("file", "packages/b/src/shape.ts", {
+      away: twoWays,
+      label: "spread",
+    }),
+    fromB("symbol", "packages/b/src/shape.ts#Shape", {
+      away: twoWays,
+      label: "spread",
+    }),
+    fromB("symbol", "packages/b/src/shape.ts#area", {
+      away: [away("@s/a", ["apps/a/src/index.ts"])],
+      label: "departs",
+      toward: "@s/a",
+    }),
+    fromB("symbol", "packages/b/src/shape.ts#perimeter", {
+      away: [away("@s/c", ["tooling/c/src/index.ts"])],
+      label: "departs",
+      toward: "@s/c",
+    }),
+  ]);
+  const none = { departs: 0, fits: 0, spread: 0, unconsumed: 0 };
+  expect(
+    Object.fromEntries(
+      placements.packages.map((saved) => [saved.id, saved.counts])
+    )
+  ).toEqual({
+    // `src` is each package's technical root, so none has a folder place.
+    "@s/a": {
+      file: { ...none, unconsumed: 1 },
+      folder: none,
+      package: { ...none, unconsumed: 1 },
+      symbol: { ...none, unconsumed: 2 },
+    },
+    "@s/b": {
+      file: { ...none, spread: 1, unconsumed: 1 },
+      folder: none,
+      package: { ...none, spread: 1 },
+      symbol: { ...none, departs: 2, spread: 1 },
+    },
+    // Used only at home: pad.ts, unit.ts, and their symbols fit.
+    "@s/c": {
+      file: { ...none, fits: 2, unconsumed: 1 },
+      folder: none,
+      package: { ...none, unconsumed: 1 },
+      symbol: { ...none, fits: 3, unconsumed: 1 },
+    },
   });
   const { dependencies } = JSON.parse(
     await readFile(join(workspace.root, pkg.path, "package.json"), "utf8")

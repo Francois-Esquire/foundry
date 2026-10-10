@@ -7,6 +7,7 @@ import { fileRolesLens } from "./file-roles";
 import { frequentChangeLens } from "./frequent-change";
 import type { Lens, LensId, LensReader, LensSettings } from "./lens-types";
 import { packageSizesLens } from "./package-sizes";
+import { placementLens } from "./placement";
 import { responsibilityGroupsLens } from "./responsibility-groups";
 
 // The lens phase of a scan. Every lens runs on every scan, after the
@@ -21,6 +22,7 @@ export const LENSES: readonly AnyLens[] = [
   fileRolesLens,
   frequentChangeLens,
   packageSizesLens,
+  placementLens,
   responsibilityGroupsLens,
 ];
 

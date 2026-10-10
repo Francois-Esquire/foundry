@@ -234,4 +234,92 @@ describe("renderLens", () => {
       ].join("\n")
     );
   });
+  it("prints the placement lens: counts by level, then departures and spread places, the most used away first", () => {
+    const none = { departs: 0, fits: 0, spread: 0, unconsumed: 0 };
+    const text = renderLens(
+      "placement",
+      {
+        missing: ["@s/d"],
+        packages: [
+          {
+            counts: {
+              file: { ...none, spread: 1, unconsumed: 1 },
+              folder: none,
+              package: { ...none, spread: 1 },
+              symbol: { ...none, departs: 2, spread: 1 },
+            },
+            id: "@s/b",
+            path: "packages/b",
+            shapeSignals: [],
+            unindexed: 0,
+          },
+        ],
+        places: [
+          {
+            away: [
+              { modules: ["apps/a/src/index.ts"], package: "@s/a" },
+              { modules: ["tooling/c/src/index.ts"], package: "@s/c" },
+            ],
+            home: { modules: [] },
+            label: "spread",
+            level: "package",
+            package: "@s/b",
+            place: "packages/b",
+            unindexed: 0,
+          },
+          {
+            away: [{ modules: ["apps/a/src/index.ts"], package: "@s/a" }],
+            home: { modules: [] },
+            label: "departs",
+            level: "symbol",
+            package: "@s/b",
+            place: "packages/b/src/shape.ts#area",
+            toward: "@s/a",
+            unindexed: 0,
+          },
+          {
+            away: [
+              {
+                modules: ["tooling/c/src/a.ts", "tooling/c/src/b.ts"],
+                package: "@s/c",
+              },
+            ],
+            home: { modules: ["packages/b/src/x.ts"] },
+            label: "departs",
+            level: "file",
+            package: "@s/b",
+            place: "packages/b/src/shape.ts",
+            toward: "@s/c",
+            unindexed: 0,
+          },
+        ],
+        policy: { dominantShare: 0.6 },
+      },
+      { format: "text" }
+    );
+    expect(text).toBe(
+      [
+        "Placement",
+        "═════════",
+        "Dominant share  60.0%",
+        "Symbols         2 depart, 1 spread, 0 fit, 0 unconsumed",
+        "Files           0 depart, 1 spread, 0 fit, 1 unconsumed",
+        "Folders         0 depart, 0 spread, 0 fit, 0 unconsumed",
+        "Packages        0 depart, 1 spread, 0 fit, 0 unconsumed",
+        "",
+        "Departures",
+        "  packages/b/src/shape.ts       2",
+        "    file · @s/b → @s/c · 1 at home",
+        "  packages/b/src/shape.ts#area  1",
+        "    symbol · @s/b → @s/a · 0 at home",
+        "",
+        "Spread",
+        "  packages/b  2",
+        "    package · @s/b · 2 packages away · 0 at home",
+        "",
+        "Saved without internals",
+        "  @s/d",
+      ].join("\n")
+    );
+  });
 });

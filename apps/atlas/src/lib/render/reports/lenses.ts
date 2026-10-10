@@ -4,6 +4,7 @@ import type { ReportView } from "../views";
 import { buildFileRolesView } from "./file-roles";
 import { buildFrequentChangeView } from "./frequent-change";
 import { buildPackageSizesView } from "./package-sizes";
+import { buildPlacementView } from "./placement";
 import { buildResponsibilityGroupsView } from "./responsibility-groups";
 
 /** Each lens's report view; the lens itself returns no display strings. */
@@ -13,5 +14,6 @@ export const LENS_VIEWS: {
   "file-roles": buildFileRolesView,
   "frequent-change": buildFrequentChangeView,
   "package-sizes": buildPackageSizesView,
+  placement: buildPlacementView,
   "responsibility-groups": buildResponsibilityGroupsView,
 };

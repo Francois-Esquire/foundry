@@ -39,6 +39,7 @@ interface LensOutputs {
   "file-roles": FileRoles;
   "frequent-change": FrequentChange;
   "package-sizes": PackageSizes;
+  placement: Placements;
   "responsibility-groups": ResponsibilityGroups;
 }
 type LensId = keyof LensOutputs;
@@ -80,14 +81,19 @@ which lenses it reaches.
   that reproduces a `lib` definition reads `lib`'s policy for it, so that
   the two cannot drift: `frequent-change`, the first, applies
   `ANALYSIS_CONFIG.hotspots`' commit gate and saves the gate in its
-  output, so that no reader keeps a copy.
+  output, so that no reader keeps a copy. A lens that defines a measure of
+  its own owns its threshold and saves it in its output instead:
+  `placement`'s dominant share, `PLACEMENT_POLICY` in
+  `lib/lenses/placement-types.ts`, has the value of symbol locality's but
+  is not read from it.
 - **Output.** JSON data. Names and ids are data, never prose. A place is
   addressed in facet syntax, a workspace-relative path or `path#name`, and
   a package is a place too, so a lens that labels places addresses a
   package by its path; the domain lens does. A lens about packages as
   packages, such as their dependency graph, may use the manifest id
   instead, and says which. Labels are literal unions, such as
-  `"fits" | "shares-domain" | "departs"`. Measures are numbers, with the
+  `placement`'s `"fits" | "spread" | "departs"`, which the domain lens
+  extends with `"shares-domain"`. Measures are numbers, with the
   counts they come from. Output is sorted, so the same input gives the same
   bytes.
 - **Inference is allowed.** Unlike a projection, which copies and never

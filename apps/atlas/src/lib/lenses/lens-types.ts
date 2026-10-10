@@ -8,6 +8,8 @@ import type { FrequentChange } from "./frequent-change-types";
 import { FREQUENT_CHANGE_SCHEMA_VERSION } from "./frequent-change-types";
 import type { PackageSizes } from "./package-sizes-types";
 import { PACKAGE_SIZES_SCHEMA_VERSION } from "./package-sizes-types";
+import type { Placements } from "./placement-types";
+import { PLACEMENT_SCHEMA_VERSION } from "./placement-types";
 import type { ResponsibilityGroups } from "./responsibility-groups-types";
 import { RESPONSIBILITY_GROUPS_SCHEMA_VERSION } from "./responsibility-groups-types";
 
@@ -19,6 +21,7 @@ export interface LensOutputs {
   "file-roles": FileRoles;
   "frequent-change": FrequentChange;
   "package-sizes": PackageSizes;
+  placement: Placements;
   "responsibility-groups": ResponsibilityGroups;
 }
 
@@ -30,6 +33,7 @@ export const LENS_SCHEMA_VERSIONS: Record<LensId, number> = {
   "file-roles": FILE_ROLES_SCHEMA_VERSION,
   "frequent-change": FREQUENT_CHANGE_SCHEMA_VERSION,
   "package-sizes": PACKAGE_SIZES_SCHEMA_VERSION,
+  placement: PLACEMENT_SCHEMA_VERSION,
   "responsibility-groups": RESPONSIBILITY_GROUPS_SCHEMA_VERSION,
 };
 

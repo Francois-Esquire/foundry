@@ -154,8 +154,26 @@ where it lives with where it is used:
 | Label | Meaning |
 | --- | --- |
 | Fits | Used where it lives. |
+| Spread | Used from more than one package, possibly its own, none of which holds the dominant share. |
 | Shares a domain | Used from another package, by places in a domain it belongs to. |
 | Departs | Used away from where it lives, by places that share none of its domains. |
+
+Fits, Spread, and Departs come first, from the `placement` lens (2.3),
+before any domain exists: it labels every exported symbol, file, folder,
+and package from its consumer modules, with `dominantShare` 0.6. The two
+departs are different labels: placement's says one other package holds
+the dominant share of a place's consumer modules, the domain lens's that
+its consumers share none of its domains. The domain lens keeps them apart
+by name, in its output and in prose, for example as a placement departure
+against a domain departure, so neither reads as the other. The domain lens
+consumes it and relabels a spread or departing place whose consumers share
+one of its domains. Placement stays compact, listing only the places a
+consumer in another package uses, each with those consumer modules by
+package, so the domain lens reads what else it needs itself to report the
+facets that match no place: the module index for files and folders, and
+each package report's symbol ids for symbols. A facet naming a symbol its
+module does not export still matches a place; placement only leaves it
+unlabelled.
 
 Everything it reads is already in the dataset:
 
@@ -163,16 +181,21 @@ Everything it reads is already in the dataset:
   `primaryConsumerShare`, and `consumerModuleUsage`; the package's
   `primaryConsumer` and `single-consumer` signal; opportunities such as
   `fold-package`, which already gates on exactly one consumer package.
-- `modules/` edge shards: cross-package module edges, for files and
-  folders.
-- `internals/<name>.json`: scopes with parent chains and symbol locality,
-  for nesting and placement inside a package.
+- `modules/index.json`: each file's package and kind, which tells a
+  consumer module's package and leaves out tests.
+- `internals/<name>.json`: the topology's consumed surface, each symbol's
+  consumers inside its package, and its directories, for placement at home;
+  scopes with parent chains, for nesting.
 - `workspace.json`: package paths and anchors.
 
 The motivating case is measured today and not reported: per-symbol
 consumer packages are computed for every package, and the only reader is a
 top-five list in the old text report. At package level, `fold-package`
-covers it. At file and folder level it is a sum over module edges.
+covers it. At file and folder level it is the union of the consumer modules
+of the symbols declared there, not a sum over module edges: a module edge
+points at the module imported, often a barrel (on Foundry,
+`packages/artifacts/src/index.ts` receives 40 cross-package edges), while a
+symbol's consumer modules are attributed to the file that declares it.
 
 The existing analyses decline to call something misplaced on usage alone,
 on purpose (concept miscentering's `usage-only` outcome). The domain lens

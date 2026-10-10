@@ -1137,13 +1137,122 @@ projection carries each pair's count.
   selection-ink, atmosphere, paint-map, and trade-layer tests gain empty
   endpoint lists.
 
-**2.3 Placement: where it lives against where it is used.** The motivating
-case. Per symbol from `consumerPackages` and its neighbors; per file and
-per folder as sums over cross-package module edges. Labels Fits and
-Departs, before any domain exists.
+**2.3 Placement: where it lives against where it is used.** Done
+2026-10-10. The motivating case, labelled before any domain exists.
+- `lib/lenses/placement.ts` labels every exported symbol declared in a
+  source file, every source file, folder, and package of each package with
+  internals, from its consumer modules. A symbol its module does not export
+  is neither a row nor a count, since nothing outside its module can use
+  it. A consumer module is a source file (by the module index's kind)
+  outside the place that uses it. At home it is a consumer in the topology's
+  `consumedSurface`, so it imports the symbol on a primary edge, type-only
+  imports included. Away it is a `consumerModuleUsage` entry with
+  `references > 0`. On Foundry, every entry with no reference is a barrel
+  that only re-exports, which matches the topology's rule that forwarding
+  is not consuming (`internal-topology.ts:544`). A file's or folder's
+  consumers are the union over the symbols declared in it, less the
+  modules inside it. A package has no home, since its own modules are
+  inside it, so a package is labelled from its away consumers alone and
+  never fits. Two declarations sharing an id are one place.
+- Labels, with `PLACEMENT_POLICY.dominantShare` 0.6, which the lens owns
+  and saves in `policy`. The value is symbol locality's, also over
+  consumer modules, but it is not read from `ANALYSIS_CONFIG`; `lib`'s
+  concentrated consumption (0.8, over references and surface) stands
+  beside it. A place departs when one other package holds at least 0.6
+  (named in `toward`), fits when its own package does, and is spread when
+  no package does; a place with no consumer is counted `unconsumed`. A
+  third label, spread, is there because with two labels every
+  shared-library symbol used by several packages would depart, and
+  departures could not be the strongest signal 4.2 calls for.
+- The plan's "sums over cross-package module edges" was not used: a module
+  edge points at the module imported, often a barrel
+  (`packages/artifacts/src/index.ts` receives 40 cross-package edges on
+  Foundry), while a symbol's consumer modules are attributed to the file
+  that declares it. `_domains.md` is corrected.
+- Output (`Placements`):
+  - `places`: every place a consumer module in another package uses,
+    sorted by place, then level, then package. A folder and a nested
+    package's root can be one place at two levels. Each is a `Placement`, a
+    union discriminated on `label`, so `toward` is present exactly on a
+    departure. It carries `place` in facet syntax, `level`, `package`,
+    `home.modules`, `away` by package with module ids, and `unindexed`,
+    consumers in no indexed package, which are never part of a label.
+  - `packages`: each with its `counts` by level and label; its own
+    `unindexed`, the distinct unindexed files that consume any of its
+    places; and its report's `shapeSignals` and `primaryConsumer`, copied
+    for cross-checking. Unindexed files are mostly a failed package's,
+    since the module index holds only packages that produced a report, and
+    scripts at the workspace root. They have no kind, so they cannot be
+    told from tests, and are counted as possible consumers with no path
+    heuristics.
+  - `missing`. Folders are
+  the topology's directories, apart from the root and a technical root such
+  as `src`, which only restate the package. 2.6 consumes the lens and reads
+  the module index and the reports' symbol ids itself to report facets
+  that match no place, so placement keeps only the places used away.
+- Reads: the module index, every package's internals through
+  `readPackageInternals`, and each report of a package with internals, one
+  at a time, projected to `symbols[].{id, declarationFile, exported,
+  consumerModuleUsage[].{module, references}}` and
+  `dependencies.{primaryConsumer, shapeSignals}`. The loader needed no
+  change: since 2.2e it serves package reports uncached. A package without
+  internals goes in `missing` and its report is not read; a failed package
+  is in neither.
+- Foundry at this commit: 377 places (symbols 101 depart, 81 spread, 62
+  fit; files 30, 33, 43; folders 6, 7, 5; packages 4 depart, 5 spread), no
+  unindexed consumers, `placement.json` 181 KB. Counted over every place:
+  symbols 101 depart, 81 spread, 2,846 fit, and 965 unconsumed (5,006
+  before non-exported symbols were left out; 4,041 of those were not
+  exported); files 30, 33, 662, 114; folders 6, 7, 56, 216; packages 4
+  depart, 5 spread, 6 unconsumed. The packages that depart
+  are models, modules, and workflows, the three that `lib` signals
+  `single-consumer`, and workspaces (toward marbles); the motivating case
+  shows as `packages/artifacts/src/node` departing toward `@foundry/works`.
+- Cost, measured on Foundry: over the saved dataset, two runs each, the
+  lens phase takes 375–383 ms and peaks at 784–795 MB RSS, against
+  197–199 ms and 527–540 MB with placement left out of `LENSES`; the lens
+  alone takes 242–245 ms and peaks at 720–731 MB, since it holds every
+  package's internals (35 MB of JSON) while it parses the reports (79 MB).
+  Full scans with a fresh `--state` under `/tmp`: a cold scan takes 39 s
+  and has a maximum RSS of 8.2 GB (the derivation worker), with a
+  1.95 GB peak memory footprint. Two warm scans peak at 2.07–2.11 GB
+  footprint and 2.62–2.63 GB RSS, against 2.10 GB and 2.52–2.54 GB for the
+  same build without placement, so the scan's footprint does not move and
+  its RSS rises by about 0.1 GB.
+- Tests: `test/lib/placement-lens.test.ts`:
+  - the fixture's shapes on literal values (a test consumer and a
+    forwarding barrel earn no use; the technical root has no folder
+    place);
+  - exactly 3 of 5 departs, home 3 of 5 fits, and a 1:1 split is spread;
+  - a single-consumer package departs toward its consumer, with its
+    signals carried;
+  - unindexed consumers are counted on the place and, distinct, on the
+    package, and a place used only by them has no row;
+  - a symbol its module does not export is neither a row nor a count;
+  - a folder's home leaves out its own modules;
+  - one place per shared id;
+  - the same output for inputs in any order (symbols, the consumed
+    surface and its consumers, directories, modules, the module index, and
+    packages, shuffled), with a folder and a nested package's root ordered
+    by level; without the level tiebreak the test fails;
+  - `read` reads reports one at a time, only for packages with internals,
+    keeping only the projected fields, with a type-only home import kept
+    and failed and missing packages told apart.
+
+  The other test files:
+  - `test/atlas.test.ts`: the real fixture scan with internals, every row
+    and count.
+  - `test/lib/semantics.test.ts`: a scan without internals lists all three
+    packages missing, and the manifest entry.
+  - `test/lib/lenses.test.ts`: the registry and the phase.
+  - `test/lib/render-lens.test.ts`: the view.
 
 **2.4 Nesting.** The directory tree, path regions, seams, and scopes from
 `internals/`, joined to root-relative ids.
+- Deferred from 2.3: a test that folder ids are equal across lenses. It
+  compares placement's folders, taken from each package's
+  `topology.directories`, with nesting's tree built from the module index,
+  so that a folder in one lens is the same folder in the other.
 
 **2.5 Proximity.** What sits close without being related, and what is
 related without sitting close: `pathAgreesWithRegion`, change coupling,
