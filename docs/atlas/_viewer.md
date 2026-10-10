@@ -67,8 +67,8 @@ What the map encodes, from the codex bindings and the design record:
 | Element | Carries | On by default |
 | --- | --- | --- |
 | Island | A package. Size from file count. | yes |
-| North–south position | Dependency layer: the foundation (layer 0) south, each layer above it further north; numbered on the latitude scale since 4.2a(iii). | yes |
-| Distance between islands | Dependency strength and shared concepts. | yes |
+| North–south position | Dependency layer: the foundation (layer 0) south, each layer above it further north; numbered on the latitude scale since 4.2a(iii). Since 4.3a every island sits exactly on its layer's row. | yes |
+| East–west position | Since 4.3a, the package's folder: a row runs in folder order. Distance between islands carries nothing; dependency strength and shared concepts pulled islands together until then. | yes |
 | File mark | A file. Placed by imports and shared concepts. | yes |
 | District | A responsibility group: responsibilities the `responsibility-groups` lens joins (since 2.2b). | at island zoom |
 | Relief and summits | High fan-in files: imported by at least their package's cutoff of its own source files (`file-roles` lens, since 2.2a). One capped term in the paper since 4.2a, never darker than a file mark. | yes |
@@ -146,11 +146,13 @@ maintainer disagrees with; 4.0 proceeded without it (question 3).
 2. **Answered 2026-10-10 (4.0): legibility.** The chart stays; what
    changes is what is on by default and how strongly it is drawn.
    Decoration that carries no data is deleted rather than hidden, and
-   position means only the folder tree, with no import pull; relationships
-   are drawn as marks that say so (departures, ties), not left to distance.
-   Position and outline mean folder; pigment and labels mean
-   responsibility only, so islands carry no package hue and a package, being
-   a folder, is told apart by its coast and outline; Place says which.
+   position carries no import pull: north–south is the package's dependency
+   layer, west–east its folder's order, and inside an island the folder
+   tree. Relationships are drawn as marks that say so (departures, ties),
+   not left to distance. An outline is a folder: a package, being a folder,
+   is told apart by its coast and outline. Pigment and labels mean
+   responsibility only, so islands carry no package hue; Place says which
+   grouping it reports.
 3. **Answered 2026-10-10 (4.0): not recorded.** No reason survives, so the
    work proceeds without reversing the rejection and adopts, piecemeal, the
    observations that do not conflict with the chart: relief never darker

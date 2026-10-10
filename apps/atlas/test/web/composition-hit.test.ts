@@ -36,6 +36,7 @@ const territory: Territory = {
       y: 0,
     },
   ],
+  folder: "",
   highFanInCutoff: 0,
   hills: [],
   id: "package",

@@ -35,6 +35,8 @@ export interface Territory {
   /** The `file-roles` lens's modules, bound on entering the island; `undefined` without internals. */
   fileRoles: Pick<FileRolesPackage, "modules"> | undefined;
   files: AtlasFile[];
+  /** The package's folder, its workspace-relative path from the manifest; it orders the island's row. */
+  folder: string;
   /** The package's saved high fan-in cutoff; 0 when it has none, as without internals. */
   highFanInCutoff: number;
   hills: Polygon[];

@@ -310,6 +310,18 @@ function layerName(
   return layer === null || layer === undefined ? "No layer" : `Layer ${layer}`;
 }
 
+/**
+ * What places an island, as a reader hears it: its folder, which orders its
+ * row, and its layer, which is the row: "apps/atlas · Layer 2".
+ */
+function islandPlacement(
+  layers: AtlasData["packageLayers"],
+  territory: Territory
+): string {
+  const layer = layerName(layers, territory);
+  return territory.folder ? `${territory.folder} · ${layer}` : layer;
+}
+
 function describeSelection(
   selection: AtlasSelection,
   place: BelongingRegion | undefined,
@@ -324,7 +336,7 @@ function describeSelection(
   if (place) {
     return `${place.members.length} files · ${describePlaceKind(region, place)}`;
   }
-  return `${territory.files.length} files · ${layerName(layers, territory)} · ${composites.filter((item) => !item.collection).length} districts`;
+  return `${territory.files.length} files · ${islandPlacement(layers, territory)} · ${composites.filter((item) => !item.collection).length} districts`;
 }
 
 function describePlaceKind(
@@ -401,5 +413,5 @@ function inspectionDetail(
   if (region) {
     return `${region.members.length} files · ${region.children ? "Enter district" : "Enter responsibility"}`;
   }
-  return `${inspected.territory.files.length} files · ${layerName(layers, inspected.territory)} · ${inspected.territory.analyzed ? "Select to explore" : "Not analyzed"}`;
+  return `${inspected.territory.files.length} files · ${islandPlacement(layers, inspected.territory)} · ${inspected.territory.analyzed ? "Select to explore" : "Not analyzed"}`;
 }

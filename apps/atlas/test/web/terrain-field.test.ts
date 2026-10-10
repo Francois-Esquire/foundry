@@ -38,6 +38,7 @@ const territory: Territory = {
   ],
   fileRoles: undefined,
   files: [file],
+  folder: "",
   highFanInCutoff: 0,
   hills: [],
   id: "example",

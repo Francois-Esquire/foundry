@@ -86,6 +86,8 @@ const source: CodexSource = {
       path: "packages/ui/index.ts",
     },
   ],
+  // The manifest lists ui only, as no real one would: core's folder is empty.
+  packagePaths: [{ id: "@foundry/ui", path: "packages/ui" }],
   packages: [
     {
       analyzed: false,
@@ -119,7 +121,7 @@ describe("resolveCodex", () => {
     });
   });
 
-  it("sizes packages from the package-sizes lens, names them without their scope, keeps an unplaced layer unplaced, and keeps their lens entries", () => {
+  it("sizes packages from the package-sizes lens, names them without their scope, keeps an unplaced layer unplaced, takes their folders from the manifest, and keeps their lens entries", () => {
     expect(codex.packages).toEqual([
       {
         analyzed: false,
@@ -128,6 +130,7 @@ describe("resolveCodex", () => {
         id: "@foundry/core",
         label: "core",
         layer: null,
+        path: "",
         responsibilityGroups: {
           groups: [coreGroup],
           independent: ["responsibility:b"],
@@ -141,6 +144,7 @@ describe("resolveCodex", () => {
         id: "@foundry/ui",
         label: "ui",
         layer: 1,
+        path: "packages/ui",
         responsibilityGroups: undefined,
         size: 1,
       },

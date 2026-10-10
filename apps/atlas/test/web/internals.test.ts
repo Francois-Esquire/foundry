@@ -144,6 +144,7 @@ describe("atlas package internals", () => {
         kind: "source",
         outgoing: 0,
       })),
+      folder: "",
       highFanInCutoff: 0,
       hills: [],
       id: pkg.id,

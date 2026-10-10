@@ -7,8 +7,8 @@ description: What the map shows, how to move around it, and what selecting a pla
 atlas serve /path/to/workspace
 ```
 
-The viewer opens on the whole atlas. Distance expresses relationship, not
-physical scale.
+The viewer opens on the whole atlas. Position expresses dependency layer and
+folder, not physical scale; how far apart two islands sit means nothing.
 
 ## What you are looking at
 
@@ -16,9 +16,11 @@ physical scale.
   foundation, the packages that depend on no other, furthest south, and each
   layer that builds on the ones below it further north. The latitude scale
   in the right margin numbers the layers; a package the graph could not
-  place sits with the foundation, and its caption says "no layer". Packages
-  that depend on each other are drawn towards one another. An island's size
-  grows with its file count.
+  place sits with the foundation, and its caption says "no layer". Along a
+  row, islands run west to east in folder order, so packages in one folder,
+  such as `apps/` or `packages/`, sit side by side. Which packages depend on
+  each other is drawn by the lines a selection shows, not by distance. An
+  island's size grows with its file count.
 - **Marks are files.** Files are placed within their island by what they
   import and the concepts they share, so files that work together sit
   together. Each kind of file has its own ink: source, test, story,

@@ -52,6 +52,7 @@ const territory: Territory = {
   ],
   fileRoles: undefined,
   files: [],
+  folder: "",
   highFanInCutoff: 3,
   hills: [],
   id: "island",

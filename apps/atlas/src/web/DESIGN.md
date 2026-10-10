@@ -290,38 +290,45 @@ The sheet and controls use square edges; search swatches are small circles.
 Files appear as small marks, with a ring around the selected file. Density contours form irregular coastlines, shallows and hills, including
 holes and disconnected islands.
 
-Package radius follows file population's square root. Dependency layers guide
-north/south placement; module-import counts influence package attraction.
+Package radius follows file population's square root.
 Directory-derived anchors and actual imports arrange files, with the original
 collision pass and density
 thresholds of 0.18, 0.5 and 1.8. No coastline noise, connection-modulated threshold,
 landmark solver or final point packing remains.
 
-After the package force layout, padded group hulls and standalone islands act as
-collision bodies. The group with the largest sum of squared package radii keeps
-its hull's bounding-box center pinned at the origin. Other groups occupy evenly
-spaced angular slots with a stable identifier-based phase, at hull-support distance
-plus 90 units. Separating-axis resolution moves those groups toward the selected
-island clearance, default 45 units, without pushing the main group. Symmetric map
-bounds preserve its center.
-Relative positions within each group, coastline shapes and local file geometry
-stay fixed. Trade routes and their harbors use the settled world positions.
+Two groupings, one meaning each. Position and outline mean folder, and
+north–south also the dependency layer: an island's row is its package's
+layer, its place along the row its package folder's order, and its coast
+outlines that folder, since a package is a folder. Pigment and labels mean responsibility,
+and only responsibility: islands carry no package hue, and a district's
+pigment and name say which responsibility its files serve. Place says which
+grouping it reports: an island's folder and dependency layer, a district's
+responsibility. One arrangement departs from this, and only on request: the
+evidence panel's "Group files by responsibility" re-places an island's files
+by district (`fitDistricts`) and says it is presentation only.
 
-Singletons then try exterior-accessible pockets inside the main convex hull and
-outside its concave footprint. A 4-unit grid combines original package coastlines
-with shortest center-distance spanning-tree corridors of 12-unit half-width.
-These corridors construct geography, not dependency routes. Dilation by 120 units,
-erosion by 120 minus the coastal buffer and exterior flood fill close narrow gaps
-and enclosed holes. The default buffer is 32 units.
-Every multi-package group receives this concave outline.
+Each island sits exactly on its dependency layer's row, at `latitude(layer)`;
+a package the graph could not place sits on the foundation's row. A row runs
+west to east in the order of the packages' folders, the manifest's package
+paths compared by code unit, packed with the island clearance, default 45 units,
+between coasts padded by 32 units, and centred. Islands of neighbouring rows
+that would still overlap are moved apart along x only, so no island leaves
+its row. Nothing pulls islands together: dependency is drawn by selection
+ink, sea routes and, in a developer session, connecting land and roads, never
+by distance. The whole atlas then moves by one offset so that it is centred
+on the chart, with 160 units more sea below the foundation row, where the
+legend sits at overview. Coastline shapes and local file geometry stay
+fixed. Trade routes and their harbors use the placed positions.
 
-Pocket access must accommodate the singleton's padded-hull bounding circle,
-the selected island clearance and a two-cell sampling guard. Inside-pocket
-candidates come first, then accessible water nearest a pocket mouth within the
-padded island radius plus 120 units. Main-center distance and coordinates break
-ties; other groups must retain the selected clearance. With no safe candidate,
-the singleton keeps its initial exterior position. Original coastlines and local
-file geometry remain unchanged.
+Connecting land, drawn in a developer session, joins each group of packages
+that import from one another. A 4-unit grid combines original package
+coastlines with shortest center-distance spanning-tree corridors of 12-unit
+half-width. These corridors construct geography, not dependency routes.
+Dilation by 120 units, erosion by 120 minus the coastal buffer and exterior
+flood fill close narrow gaps and enclosed holes. The default buffer is 32
+units. Every multi-package group receives this concave outline. Islands no
+longer gather by group, so a group's land can run across rows and enclose a
+package of another group.
 
 Responsibilities are the only grouping inside an island. In the default
 drawing they do not control file placement, which follows directories and
@@ -458,9 +465,11 @@ remain disposable presentation data; temporal stability is not guaranteed.
   its meaning, marked off when its setting is off, and says that relief is a cap
   most slopes stay well under, never a quality score.
 - A latitude scale runs down the right margin, above the legend: a rule, a tick
-  at the mean latitude of each dependency layer's islands as they settled, and
+  on each dependency layer's row, where every island of the layer sits, and
   its number, "FOUNDATION · 0" at the south. It is a margin
-  note, like the grid references, and takes no part in label collision. A package
+  note, like the grid references, and takes no part in label collision; it
+  fades out as an island's districts come in, so it never prints over an
+  island seen close. A package
   the graph could not place sits at the foundation, stays off the scale, and its
   caption adds "NO LAYER".
   Feature hover and selection report in Place and the polite live region.
@@ -485,8 +494,9 @@ remain disposable presentation data; temporal stability is not guaranteed.
 - The collapsed Display boundaries section contains Coastal buffer, 0–64 in steps of
   4, default 32, and Island clearance, 8–80 in steps of 1, default 45. Changes wait
   300ms before rebuilding layout, boundaries, scene, water and routes from original
-  data. Package world positions and connecting ground change; original relief and
-  local file geometry stay fixed. Repeated edits do not accumulate drift.
+  data. Island clearance spaces each row from west to east; islands keep their
+  rows. Connecting ground changes; original relief and local file geometry stay
+  fixed. Repeated edits do not accumulate drift.
   Camera target and world scale, visual preferences and the open drawer survive. Selection and architectural
   inspection clear. Reset layout restores only these two controls; Reset visualization
   restores all chart settings.
@@ -496,7 +506,7 @@ remain disposable presentation data; temporal stability is not guaranteed.
   once per scene; toggles repaint viewport ink
   immediately without changing placement or the ocean pigment. Package clearance
   shows 32-unit padded hulls; Coastlines retains every original ring. Pocket rings
-  show potential space, not a guarantee that an island fits. Checkboxes and focus
+  show the water a group's footprint encloses. Checkboxes and focus
   use amber.
 
 - The header pairs an Atlas/island/district/responsibility/file breadcrumb with a Belonging/Files

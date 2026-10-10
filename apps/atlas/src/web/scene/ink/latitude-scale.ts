@@ -6,27 +6,23 @@ const legendGap = 30;
 const footMargin = 96;
 
 /**
- * Where each placed dependency layer sits on the map: the mean latitude of
- * its islands as they settled, foundation first. Islands drift from their
- * layer's nominal latitude as dependencies pull them together, so the scale
- * marks where a layer's islands are, not where they started.
+ * The placed dependency layers, foundation first, each at its row's
+ * latitude. Every island sits exactly on its layer's row, `latitude(layer)`
+ * moved by the one offset that centres the atlas, so a tick is nominal: any
+ * of the layer's islands gives it.
  */
-function layerLatitudes(
+function placedLayers(
   state: Pick<InkState, "data">
 ): { layer: number; y: number }[] {
-  const byLayer = new Map<number, number[]>();
+  const rows = new Map<number, number>();
   for (const territory of state.data.territories) {
     const layer = state.data.packageLayers[territory.id];
-    if (layer === null || layer === undefined) {
-      continue;
+    if (layer !== null && layer !== undefined && !rows.has(layer)) {
+      rows.set(layer, territory.y);
     }
-    byLayer.set(layer, [...(byLayer.get(layer) ?? []), territory.y]);
   }
-  return [...byLayer]
-    .map(([layer, ys]) => ({
-      layer,
-      y: ys.reduce((sum, y) => sum + y, 0) / ys.length,
-    }))
+  return [...rows]
+    .map(([layer, y]) => ({ layer, y }))
     .sort((a, b) => a.layer - b.layer);
 }
 
@@ -35,12 +31,13 @@ function layerLatitudes(
  * latitude and its number, the foundation (layer 0) to the south. Packages
  * the graph could not place are kept off the scale; their captions say so.
  * A margin note, like the grid references: it takes no part in label
- * collision.
+ * collision, and it fades out as an island's districts come in, so that it
+ * never prints over an island seen close.
  */
 export function paintLatitudeScale(state: InkState): void {
-  const { labelContext: ctx, legendHeight, view } = state;
-  const ticks = layerLatitudes(state);
-  if (!view || ticks.length === 0) {
+  const { detail, labelContext: ctx, legendHeight, view } = state;
+  const ticks = placedLayers(state);
+  if (!view || ticks.length === 0 || detail.scale === 0) {
     return;
   }
   const pixels = view.pixelsPerUnit;
@@ -56,6 +53,8 @@ export function paintLatitudeScale(state: InkState): void {
   const tick = 6 / pixels;
   const style = inkStyle("latitude-scale");
   const ys = visible.map(({ y }) => y);
+  ctx.save();
+  ctx.globalAlpha *= detail.scale;
   ctx.strokeStyle = style.hue;
   ctx.lineWidth = style.weight / pixels;
   ctx.beginPath();
@@ -80,4 +79,5 @@ export function paintLatitudeScale(state: InkState): void {
     ctx.fillStyle = inks.scale;
     ctx.fillText(text, x - tick * 1.6, y);
   }
+  ctx.restore();
 }

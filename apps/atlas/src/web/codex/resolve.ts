@@ -65,6 +65,7 @@ export function resolveCodex(source: CodexSource): Codex {
     new Map(source.modules.map((m) => [m.id, m.package]))
   );
   const current = new Set(source.packages.map((p) => p.id));
+  const paths = new Map(source.packagePaths.map((p) => [p.id, p.path]));
   return {
     declaredDependencies: source.declaredDependencies.flatMap(
       ({ package: from, declared }) =>
@@ -106,6 +107,7 @@ export function resolveCodex(source: CodexSource): Codex {
         id: p.id,
         label: shortName(p.id),
         layer: p.layer,
+        path: paths.get(p.id) ?? "",
         responsibilityGroups: grouped && {
           groups: grouped.groups,
           independent: grouped.independent,

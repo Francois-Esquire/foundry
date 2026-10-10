@@ -175,6 +175,7 @@ describe("natural feature drawing", () => {
       coast: [],
       fileRoles: undefined,
       files: [commons, junction, lost],
+      folder: "",
       highFanInCutoff: 0,
       hills: [],
       id: "island",

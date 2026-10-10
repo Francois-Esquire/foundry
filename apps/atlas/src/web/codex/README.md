@@ -34,6 +34,7 @@ imports from the renderer, so the folder moves as a unit. Tests are in
 | Package `label`                            | the id without its scope                                                  |
 | Package `size`                             | `package-sizes` lens `modules.total`                                      |
 | Package `layer`                            | `package-sizes` lens `layer`; `null` stays `null` (unplaced)              |
+| Package `path`                             | manifest `packages[].path`, the package's folder; empty if the manifest omits the package |
 | Module `id`, `package`, `path`, `fileKind` | module index; a missing kind becomes `unknown`                            |
 | Module `directory`                         | path up to its last `/`                                                   |
 | Module `dependents`, `dependencies`        | edge shards, within and across packages; equal to the module record's `gravity.fanIn`, `fanOut` (pinned by `test/lib/semantics.test.ts`) |
@@ -75,8 +76,7 @@ the lens, says so; missing history never becomes a zero count.
 | `shoreRamp` | Clearance from the unchanged coast | Summits fade over ten units toward the shoreline | `scene/terrain-field.ts` |
 | `chartGrid` | View pixels per map unit | Fixed 90-unit majors and 18-unit minor lines; minor opacity fades in at 30–60 screen pixels of spacing | `scene/paint-paper.ts` |
 | `footprint`            | Package size                                  | island radius         | `load-atlas.ts`                 |
-| `latitude`             | Package layer; an unplaced package takes 0    | north/south position, the foundation south; the latitude scale | `load-atlas.ts`, `geography.ts`, `scene/ink/latitude-scale.ts` |
-| `attraction`           | Dependency strength                           | pull between islands  | `geography.ts`                  |
+| `latitude`             | Package layer; an unplaced package takes 0    | each island's latitude, the foundation south; the latitude scale's ticks | `geography.ts`, `scene/ink/latitude-scale.ts` |
 | `territoryLabelSize`   | Package footprint                             | territory label size  | `scene/ink/labels.ts`                 |
 | `labelPriority`        | Module dependents, dependencies               | file label order      | `scene/ink/labels.ts`                 |
 | `laneWidth`            | Dependency strength                           | sea lane width        | `scene/trade-layer.ts`                |
@@ -96,18 +96,18 @@ change swaps an inline read or transform for a codex export; nothing else moved.
 
 | File                      | Before                                                               | After                                                                                 |
 | ------------------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| `load-atlas.ts`           | fetched the survey, manifests and history; counted sizes and imports | `readCodexSource(viewerDataset({ signal }))`, `resolveCodex`; `footprint`, `latitude` |
+| `load-atlas.ts`           | fetched the survey, manifests and history; counted sizes and imports | `readCodexSource(viewerDataset({ signal }))`, `resolveCodex`; `footprint` (`latitude` moved to `geography.ts` in 4.3a) |
 | `former-packages.ts`      | took raw history; found each package's last complete checkpoint      | takes `CodexRetiredPackage[]`; placement only                                         |
 | `former-packages.test.ts` | checkpoint selection and placement                                   | placement; selection moved to `codex/resolve.test.ts`                                 |
-| `geography.ts`            | `layer · −220`, `log2(2 + w)`                                        | `latitude`, `attraction`                                                              |
+| `geography.ts`            | `layer · −220`, `log2(2 + w)`                                        | `latitude`; `attraction` retired in 4.3a, when islands stopped pulling together       |
 | `scene/ink/labels.ts`     | `clamp(0.15r, 13, 22)`; `incoming + outgoing`                        | `territoryLabelSize`; `labelPriority`                                                 |
 | `scene/trade-layer.ts`    | inline lane width                                                    | `laneWidth`                                                                           |
 | `scene/road-layer.ts`     | inline road width                                                    | `roadWidth`                                                                           |
 
 ## Outside the codex, deliberately
 
-- **Identity seeds.** `unit(id)` hashes set east/west position, pigments, file
-  anchors and wreck sites. They carry no meaning, so layout keeps them.
+- **Identity seeds.** `unit(id)` hashes set pigments, file anchors and wreck
+  sites. They carry no meaning, so layout keeps them.
 - **Geometry.** Coasts, relief, ocean depth and every field derived from positions
   belong to layout.
 - **Inks.** Every hue, and how strongly each mark is drawn against the land

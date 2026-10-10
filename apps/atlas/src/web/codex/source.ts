@@ -9,6 +9,7 @@ import type {
 import type {
   DatasetManifest,
   SemanticsDeclaredDependencies,
+  SemanticsManifestPackage,
   SemanticsModuleEdge,
   SemanticsModuleIndexEntry,
 } from "../../lib/semantics-types";
@@ -42,6 +43,8 @@ export interface CodexSource {
     SemanticsModuleIndexEntry,
     "id" | "package" | "path" | "fileKind"
   >[];
+  /** Each package's workspace-relative folder, from the manifest. */
+  packagePaths: Pick<SemanticsManifestPackage, "id" | "path">[];
   /** The `package-sizes` lens, sorted by id. */
   packages: (Pick<PackageSize, "id" | "analyzed" | "layer"> & {
     modules: Pick<PackageSize["modules"], "total">;
@@ -81,6 +84,7 @@ export async function readCodexSource(
     },
     imports: edgeShards.flatMap((s) => s.edges),
     modules: index.modules,
+    packagePaths: manifest.packages.map(({ id, path }) => ({ id, path })),
     packages: sizes.packages,
     responsibilityGroups: groups.packages,
   };

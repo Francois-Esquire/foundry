@@ -140,8 +140,9 @@ export function DeveloperSettingsSection({
       <details>
         <summary>Dependency, drawn again</summary>
         <p>
-          Island positions already carry package dependency. Connecting land
-          joins related islands, and roads run over it; both rebuild the scene.
+          Island positions carry only the dependency layer and the folder tree.
+          Connecting land joins islands that import from one another, and roads
+          run over it; both rebuild the scene.
         </p>
         {dependencyLayers.map(([key, label]) => (
           <label
@@ -165,8 +166,9 @@ export function DeveloperSettingsSection({
           {range("Coastal buffer", "coastalBuffer", 0, 64, 4)}
           {range("Island clearance", "islandClearance", 8, 80, 1)}
           <p>
-            Lower values tighten the outline and let islands fit closer. Changes
-            settle after a brief pause; island shapes stay fixed.
+            Coastal buffer widens connecting land; island clearance spaces each
+            row from west to east. Changes settle after a brief pause; island
+            shapes and rows stay fixed.
           </p>
           <button onClick={resetLayout} type="button">
             Reset layout
@@ -174,7 +176,7 @@ export function DeveloperSettingsSection({
           <p role="status">
             {layoutPending
               ? "Updating layout…"
-              : "Islands that cannot fit stay near a pocket mouth when space allows."}
+              : "Islands move along their rows only."}
           </p>
         </fieldset>
         <fieldset aria-label="Boundary layers" disabled={disabled}>

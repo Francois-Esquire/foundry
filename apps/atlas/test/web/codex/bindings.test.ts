@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  attraction,
   footprint,
   labelPriority,
   landmarkRadius,
@@ -18,16 +17,10 @@ describe("package bindings", () => {
     expect(footprint(400)).toBeCloseTo(144);
   });
 
-  it("places deeper layers further south", () => {
+  it("places higher layers further north, the foundation at 0", () => {
     expect(latitude(0)).toBe(-0);
     expect(latitude(1)).toBe(-220);
     expect(latitude(7)).toBe(-1540);
-  });
-
-  it("strengthens attraction logarithmically", () => {
-    expect(attraction(0)).toBe(1);
-    expect(attraction(2)).toBe(2);
-    expect(attraction(6)).toBe(3);
   });
 
   it("bounds territory labels between 13 and 22", () => {

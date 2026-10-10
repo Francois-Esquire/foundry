@@ -20,6 +20,7 @@ const island = (id: string, x: number): Territory => ({
   ],
   fileRoles: undefined,
   files: [],
+  folder: "",
   highFanInCutoff: 0,
   hills: [],
   id,

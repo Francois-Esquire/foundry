@@ -1,10 +1,15 @@
-import { footprint, latitude } from "./codex/bindings";
+import { footprint } from "./codex/bindings";
 import { resolveCodex } from "./codex/resolve";
 import { readCodexSource } from "./codex/source";
 import { viewerDataset } from "./dataset";
 import { formerPackages } from "./former-packages";
-import { landContours, settleFiles, settlePackages, unit } from "./geography";
-import { settleLandmasses } from "./landmasses";
+import {
+  chartSize,
+  landContours,
+  settleFiles,
+  settlePackages,
+} from "./geography";
+import { defaultLandmassSettings } from "./landmasses";
 import { markLoad } from "./timings";
 import type { AtlasData, Territory } from "./types";
 
@@ -38,6 +43,7 @@ export async function loadAtlas(signal?: AbortSignal): Promise<AtlasData> {
       coast,
       fileRoles: p.fileRoles,
       files,
+      folder: p.path,
       highFanInCutoff: p.highFanInCutoff,
       hills,
       id: p.id,
@@ -45,9 +51,8 @@ export async function loadAtlas(signal?: AbortSignal): Promise<AtlasData> {
       radius,
       responsibilityGroups: p.responsibilityGroups,
       shallows,
-      x: (unit(p.id) - 0.5) * 1400,
-      // An unplaced package sits at the foundation, off the latitude scale.
-      y: latitude(p.layer ?? 0),
+      x: 0,
+      y: 0,
     };
   });
   const routes = codex.dependencies.map((d) => ({
@@ -59,30 +64,23 @@ export async function loadAtlas(signal?: AbortSignal): Promise<AtlasData> {
     weight: d.strength,
   }));
   const { declaredDependencies } = codex;
+  const packageLayers = Object.fromEntries(
+    codex.packages.map((p) => [p.id, p.layer])
+  );
   settlePackages(
     territories,
-    new Map(codex.packages.map((p) => [p.id, p.layer ?? 0])),
-    routes
+    packageLayers,
+    defaultLandmassSettings.islandClearance
   );
-  settleLandmasses(territories, routes, declaredDependencies);
-  const width =
-    2 *
-    (Math.max(0, ...territories.map((p) => Math.abs(p.x) + p.radius)) + 120);
-  const height =
-    2 *
-    (Math.max(0, ...territories.map((p) => Math.abs(p.y) + p.radius)) + 120);
   const data: AtlasData = {
     coverage: codex.workspace.coverage,
     declaredDependencies,
     fileEdges: edges.map(({ source, target }) => ({ source, target })),
     generatedAt: codex.workspace.surveyedAt,
-    height,
-    packageLayers: Object.fromEntries(
-      codex.packages.map((p) => [p.id, p.layer])
-    ),
+    packageLayers,
     routes,
     territories,
-    width,
+    ...chartSize(territories),
   };
   if (codex.retiredPackages) {
     data.formerPackages = formerPackages(data, codex.retiredPackages);

@@ -354,13 +354,18 @@ it("keeps a two-row legend open, with a map key drawn from the ink table", async
   );
 });
 
-it("tells a screen reader an island's dependency layer, or that it has none", async () => {
+/** An island's folder, then its layer, as Place reads them. */
+const islandPlacement = / · packages\/agents · Layer 2 · /;
+
+it("tells a screen reader what places an island: its folder and its dependency layer, or that it has none", async () => {
   const data = await loadAtlas();
   const [territory] = data.territories;
   assert(territory);
   const read = (layers: Record<string, number | null>) =>
     inspectionText(null, { territory }, undefined, layers)?.detail ?? "";
   expect(read({ [territory.id]: 2 })).toContain("Layer 2");
+  // The folder orders the island's row; the layer is the row.
+  expect(read({ [territory.id]: 2 })).toMatch(islandPlacement);
   expect(read({ [territory.id]: null })).toContain("No layer");
   expect(read({})).toContain("No layer");
 });

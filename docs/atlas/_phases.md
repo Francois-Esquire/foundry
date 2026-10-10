@@ -1859,11 +1859,13 @@ orchestrator because the maintainer could not be asked; the answers are in
   [question 1](./_viewer.md#what-the-map-answers), not from the survey.
 - The problem is legibility: the chart metaphor stays, and what changes is
   what is on by default and how strongly it is drawn. Decoration that
-  carries no data is deleted, not hidden (4.1), and position means one
-  thing: the folder tree, with no import pull (4.3a). Relationships are
+  carries no data is deleted, not hidden (4.1), and position carries no
+  import pull (4.3a): north–south is the dependency layer, west–east the
+  folder order, and inside an island the folder tree. Relationships are
   carried by marks that say so, departures and ties, not by distance.
-- Two groupings, one meaning each: position and outline mean folder;
-  pigment and labels mean responsibility, and only responsibility, so
+- Two groupings, one meaning each: position and outline mean folder (and,
+  north–south, layer); an outline is a folder, the package's own being its
+  coast; pigment and labels mean responsibility, and only responsibility, so
   islands carry no package hue and a package, which is a folder, is told
   apart by its coast and outline; Place says which.
 - The reader is someone exploring locally after `atlas scan`; a reader of a
@@ -1935,7 +1937,8 @@ that every later effort has a before.
 - Entering islands raises the data read to 36 files, 9.24 MB decoded, the
   difference being their internals. These numbers hold for this workspace
   and this machine only; nothing here validates a budget for a larger
-  workspace.
+  workspace. Nor is the layout validated beyond it: a flat workspace with
+  many layer-0 packages gives one wide row (4.3a).
 
 **4.1 Reader settings and renderer settings.** Reader settings are only
 layers that carry data; the rest is a developer session's or is deleted.
@@ -2362,6 +2365,70 @@ DESIGN.md's "ports" and "settlements" are 4.2a(iii).
   pulls no island off its layer's row. The latitude scale then switches to
   nominal ticks at `latitude(layer)` instead of the mean of each layer's
   settled islands.
+- **4.3a, package placement.** Done 2026-10-10. North–south is the
+  dependency layer, west–east the folder order, and the outline the
+  package's folder, with no import pull.
+  - `settlePackages` puts every island exactly on its layer's row,
+    `latitude(layer)`; an unplaced package sits on the foundation's. A row
+    runs west to east in the order of the packages' folders, the manifest's
+    `path` threaded through the codex as `Territory.folder` and compared by
+    code unit, and is packed with the island clearance (default 45) between
+    coasts padded by 32 units, then centred. Islands of neighbouring rows
+    that still overlap are moved apart along x only. Folder order is this
+    effort's reading of "the folder tree" at package level; nothing else
+    orders a row.
+  - The atlas then moves by one offset, centred on the chart with 160 units
+    more sea below the foundation row (`footSea`), so that at overview the
+    foundation row and its tick sit above the legend rather than under it.
+    The cleaner fix is to frame the overview above the legend, padding by
+    its pixel height; it is not small, because the camera is clamped to the
+    chart's bounds, so the chart needs room below the foundation anyway,
+    and resize, the overview focus, and `constrainCamera` would all change.
+  - Rows keep `latitude`'s spacing. The scale reads each tick from its
+    row, the y every island of the layer shares, so ticks are nominal and
+    no offset is stored. The scale fades out as an island's districts come
+    in (`detailLevel().scale`), so it never prints over an island at island
+    zoom.
+  - Retired: the route term and `attraction` (with its test and codex
+    rows); `settleLandmasses`, its separating-axis pass, the pocket
+    placement for singletons, and `hullSeparation`, with their four tests
+    in `landmasses.test.ts`; the east-west hash. `relayoutAtlas` moves to
+    `geography.ts` and reruns the new placement, so Island clearance and
+    Reset layout still work. `packageGroups` and the connecting-land
+    footprint stay: groups no longer gather, so in a developer session a
+    group's land runs across rows (`/tmp/review-shots/4.3a/a-land.png`).
+  - The rule for the two groupings is recorded in DESIGN.md "Shapes":
+    position and outline mean folder (and, north–south, layer); pigment and
+    labels mean responsibility; Place says which. Place and the hover
+    readout give an island's folder before its layer ("packages/core ·
+    Layer 0"). The evidence panel's "Group files by responsibility" is the
+    one arrangement by responsibility, on request.
+  - Tests: an island on its row and a row in code-unit folder order; two
+    rows parted along x only; a relayout moving x only; and, on the
+    reference atlas given four rows and an unplaced package, at clearances
+    8, 45 and 80, every pair of padded coasts at least the clearance apart
+    (less 0.01) and every island on its row.
+  - `scripts/measure-layout.ts` measures the acceptance numbers over a
+    saved dataset, run through `loadAtlas` and each island's internals, or
+    over the test fixture, against a shuffle: of each island's file
+    positions, and of each row's order. Folder share counts only a file's
+    exact directory. Row neighbours are the share of side-by-side islands
+    in a row whose package folders have one parent (`apps/atlas`,
+    `apps/marbles`).
+  - Measured on the scan of the viewer worktree (15 packages, 1,552
+    files), in `/tmp/review-shots/4.3a/`: row neighbours 0.444 before and
+    after (0.39–0.40 shuffled), since Foundry's rows are short and the drift
+    happened to give the same count; satellites per package 1.20 before and
+    after (18 in all), and the fixture's 0.32 (9), since coasts are
+    unchanged. The 3-NN shares and patches move only with the in-island
+    layout, the next unit.
+  - Layout time, from `atlas:data-loaded` to `atlas:layout-settled`, in
+    Bun: 528–560 ms at `cd018ef` in the first runs (`before-measure.txt`);
+    run back to back, 318–333 ms at `cd018ef` (`before-measure-paired.txt`)
+    against 139–140 ms with this unit (`a-measure.txt`). In Chrome at
+    overview: 600–610 ms before and 139–141 ms after, but the runs before
+    were under heavier machine load (first frame 5.4 s against 3.1 s), so
+    that difference overstates the gain.
 
 **4.4 Loading.** Covered by the lazy reader in 1.5; the module shards stopped
 being read at load in 2.2d. What remains is the viewer reading only what the

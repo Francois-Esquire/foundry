@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { BelongingLayer } from "../belonging";
 import { type BelongingRegion, belongingAncestry } from "../belonging";
 import type { ChartSettings } from "../chart-settings";
+import { relayoutAtlas } from "../geography";
 import type { AtlasInternals } from "../internals";
-import { relayoutAtlas } from "../landmasses";
 import type { NaturalFeatures } from "../natural-features";
 import type { ResponsibilityOverlay } from "../responsibility-focus";
 import type { AtlasSelection } from "../scene/scene";
@@ -45,7 +45,7 @@ export function useAtlasState(initial: AtlasState) {
     () =>
       layoutSettings === initial.layoutSettings
         ? sourceData
-        : relayoutAtlas(sourceData, layoutSettings),
+        : relayoutAtlas(sourceData, layoutSettings.islandClearance),
     [sourceData, layoutSettings, initial.layoutSettings]
   );
   const scene = useRef<AtlasMapHandle | null>(null);

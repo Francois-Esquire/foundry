@@ -114,13 +114,16 @@ describe("readCodexSource", () => {
     ]);
   });
 
-  it("picks the dataset's time, packages, modules, imports, and declared dependencies", async () => {
+  it("picks the dataset's time, packages and their folders, modules, imports, and declared dependencies", async () => {
     const source = await read(scanned());
     expect(source.dataset).toMatchObject({
       coverage: "complete",
       generatedAt: "2026-09-23T00:00:00.000Z",
     });
     expect(source.packages).toEqual([sized]);
+    expect(source.packagePaths).toEqual([
+      { id: "@foundry/core", path: "packages/core" },
+    ]);
     expect(source.fileRoles).toEqual([roles]);
     expect(source.responsibilityGroups).toEqual([groups]);
     expect(source.modules).toEqual([entry]);

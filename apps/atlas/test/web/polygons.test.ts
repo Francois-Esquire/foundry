@@ -16,6 +16,7 @@ const territory: Territory = {
   coast: [square],
   fileRoles: undefined,
   files: [],
+  folder: "",
   highFanInCutoff: 0,
   hills: [],
   id: "island",

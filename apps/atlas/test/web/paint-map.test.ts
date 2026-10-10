@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { memberContours } from "../../src/web/belonging";
+import { latitude } from "../../src/web/codex/bindings";
 import type { ResponsibilityOverlay } from "../../src/web/responsibility-focus";
 import { inkLayers } from "../../src/web/scene/ink/layers";
 import { inkState } from "../../src/web/scene/ink/state";
@@ -27,6 +28,7 @@ const territory: Territory = {
     x: index * 60 - 30,
     y: 0,
   })),
+  folder: "",
   highFanInCutoff: 0,
   hills: [],
   id: "island",
@@ -559,7 +561,7 @@ it("draws with the ladder's inks: selection, file marks, labels, and coast", () 
   expect(used).not.toContain("#875222");
 });
 
-it("numbers the dependency layers on the latitude scale and marks an unplaced island", () => {
+it("numbers the dependency layers on their rows and marks an unplaced island", () => {
   const { canvas, ctx } = canvasFixture();
   const labels = paintInk(canvas, {
     data: {
@@ -577,12 +579,29 @@ it("numbers the dependency layers on the latitude scale and marks an unplaced is
   expect(printed).toContain("FOUNDATION · 0");
   expect(printed).toContain("LAYER 1");
   expect(printed).toContain("LAYER 2");
+  const tickAt = (text: string) =>
+    ctx.fillText.mock.calls.find(([printedText]) => printedText === text)?.[2];
+  expect(tickAt("LAYER 1")).toBe(latitude(1));
+  expect(tickAt("LAYER 2")).toBe(latitude(2));
   expect(
     labels.find((label) => label.territory.id === "other")?.caption
   ).toContain("NO LAYER");
   expect(
     labels.find((label) => label.territory.id === "island")?.caption
   ).not.toContain("NO LAYER");
+});
+
+it("lets the latitude scale give way at island zoom, so it never prints over an island", () => {
+  const printedAt = (pixelsPerUnit: number) => {
+    const { canvas, ctx } = canvasFixture();
+    paintInk(canvas, {
+      data: { ...data, packageLayers: { island: 0 } },
+      view: { height: 800, pixelsPerUnit, width: 600, x: 0, y: 0 },
+    });
+    return ctx.fillText.mock.calls.map(([text]) => String(text));
+  };
+  expect(printedAt(1)).toContain("FOUNDATION · 0");
+  expect(printedAt(2.2)).not.toContain("FOUNDATION · 0");
 });
 
 it("draws no latitude scale without placed layers", () => {

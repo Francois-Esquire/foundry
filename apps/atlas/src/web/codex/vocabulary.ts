@@ -19,6 +19,8 @@ interface CodexPackage {
   label: string;
   /** Dependency layer; 0 is the foundation, `null` where the graph could not place the package. */
   layer: number | null;
+  /** Its workspace-relative folder, from the manifest; empty if the manifest does not list it. */
+  path: string;
   /** The `responsibility-groups` lens's groups, drawn on entering the island; `undefined` without internals. */
   responsibilityGroups: PackageResponsibilityGroups | undefined;
   /** Modules the package holds. */

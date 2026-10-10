@@ -6,10 +6,6 @@ export function latitude(layer: number) {
   return -220 * layer;
 }
 
-export function attraction(strength: number) {
-  return Math.log2(2 + strength);
-}
-
 export function territoryLabelSize(radius: number) {
   return Math.max(13, Math.min(22, radius * 0.15));
 }

@@ -1,12 +1,21 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pairEndpoints } from "../../src/web/codex/resolve";
-import type { AtlasData, AtlasRoute } from "../../src/web/types";
+import type { AtlasData, AtlasRoute, Territory } from "../../src/web/types";
 
-/** The capture, saved before routes carried their endpoint files and before the layer scale. */
-type CapturedAtlas = Omit<AtlasData, "packageLayers" | "routes"> & {
+/** The capture, saved before routes carried their endpoint files, before the layer scale, and before islands knew their folders. */
+type CapturedAtlas = Omit<
+  AtlasData,
+  "packageLayers" | "routes" | "territories"
+> & {
   routes: Omit<AtlasRoute, "consumerFiles" | "supplierFiles">[];
+  territories: Omit<Territory, "folder">[];
 };
+
+/** The capture's packages all sit two folders deep, as `packages/agents`: the folder its manifest would give. */
+function capturedFolder(territory: Omit<Territory, "folder">): string {
+  return territory.files[0]?.directory.split("/").slice(0, 2).join("/") ?? "";
+}
 
 /**
  * Original renderer input, captured before migration. Each test gets its own
@@ -30,6 +39,10 @@ export async function loadAtlas(): Promise<AtlasData> {
     routes: captured.routes.map((route) => ({
       ...route,
       ...endpoints(route.from, route.to),
+    })),
+    territories: captured.territories.map((territory) => ({
+      ...territory,
+      folder: capturedFolder(territory),
     })),
   };
 }

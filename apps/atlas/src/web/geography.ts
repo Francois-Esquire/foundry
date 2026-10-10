@@ -1,7 +1,8 @@
+import { byCodeUnit } from "@foundry/lib/ordering";
 import { contours } from "d3-contour";
 
-import { attraction, latitude } from "./codex/bindings";
-import type { AtlasFile, Polygon, Territory } from "./types";
+import { latitude } from "./codex/bindings";
+import type { AtlasData, AtlasFile, Polygon, Territory } from "./types";
 
 export function unit(id: string): number {
   let h = 2_166_136_261;
@@ -13,54 +14,144 @@ export function unit(id: string): number {
   return (h >>> 0) / 4_294_967_296;
 }
 
+/** The padding an island keeps around its coast when islands are spaced, as `landmassHull` pads it. */
+const shorePadding = 32;
+/** Open sea kept beyond the outermost islands when the chart's extent is measured. */
+const chartMargin = 120;
+/**
+ * Further sea below the southernmost row, so that at overview the foundation
+ * row and its tick on the latitude scale sit above the legend in the lower
+ * right rather than under it.
+ */
+const footSea = 160;
+
+/** How far an island's padded coast reaches from its centre; its footprint radius before it has a coast. */
+function reach(territory: Territory): number {
+  const points = territory.coast.flatMap((polygon) => polygon[0] ?? []);
+  const farthest = points.length
+    ? Math.max(...points.map(([x = 0, y = 0]) => Math.hypot(x, y)))
+    : territory.radius;
+  return farthest + shorePadding;
+}
+
+const folderOrder = byCodeUnit((p: Territory) => p.folder);
+const idOrder = byCodeUnit((p: Territory) => p.id);
+/** A row's west-to-east order: by package folder, compared by code unit, then by id. */
+const byFolder = (a: Territory, b: Territory) =>
+  folderOrder(a, b) || idOrder(a, b);
+
+/**
+ * Places each island on its dependency layer's row, with nothing pulling
+ * islands together: position means the folder tree, and relationships are
+ * drawn as marks. Rows sit at `latitude(layer)`, all moved by one offset so
+ * the atlas is centred on the chart. A row runs west to east in package
+ * folder order, so packages in one folder sit side by side, packed with
+ * `clearance` between padded coasts and centred. Islands of different rows
+ * that would still overlap are moved apart along x only, so no island leaves
+ * its row. An unplaced package sits on the foundation's.
+ */
 export function settlePackages(
-  regions: Territory[],
-  layers: Map<string, number>,
-  routes: { from: string; to: string; weight: number }[]
+  territories: Territory[],
+  layers: Readonly<Record<string, number | null>>,
+  clearance: number
 ): void {
-  const byId = new Map(regions.map((p) => [p.id, p]));
-  for (let step = 0; step < 450; step += 1) {
-    for (const a of regions) {
-      a.y += (latitude(layers.get(a.id) ?? 0) - a.y) * 0.018;
-      a.x *= 0.999;
+  // Measured once: the passes below read each for every pair.
+  const reaches = new Map(territories.map((p) => [p, reach(p)]));
+  const reachOf = (p: Territory) => reaches.get(p) ?? p.radius;
+  const rows = new Map<number, Territory[]>();
+  for (const territory of territories) {
+    const layer = layers[territory.id] ?? 0;
+    territory.y = latitude(layer);
+    rows.set(layer, [...(rows.get(layer) ?? []), territory]);
+  }
+  const order: Territory[] = [];
+  for (const [, row] of [...rows].sort(([a], [b]) => a - b)) {
+    row.sort(byFolder);
+    let east = 0;
+    for (const territory of row) {
+      territory.x = east + reachOf(territory);
+      east = territory.x + reachOf(territory) + clearance;
     }
-    for (const edge of routes) {
-      const a = byId.get(edge.from);
-      const b = byId.get(edge.to);
-      if (!(a && b)) {
-        continue;
-      }
-      const dx = b.x - a.x;
-      const dy = b.y - a.y;
-      const d = Math.hypot(dx, dy) || 1;
-      const pull =
-        ((d - a.radius - b.radius - 75) / d) * 0.003 * attraction(edge.weight);
-      a.x += dx * pull;
-      a.y += dy * pull;
-      b.x -= dx * pull;
-      b.y -= dy * pull;
+    const width = east - clearance;
+    for (const territory of row) {
+      territory.x -= width / 2;
     }
-    settlePackagesEntries(regions);
+    order.push(...row);
+  }
+  separateAlongX(order, reachOf, clearance);
+  centre(order, reachOf);
+}
+
+/**
+ * Moves every island by one offset, so the islands' padded extent, with
+ * `footSea` below it, is centred on the origin, as the chart is.
+ */
+function centre(
+  territories: Territory[],
+  reachOf: (territory: Territory) => number
+) {
+  const west = Math.min(...territories.map((p) => p.x - reachOf(p)));
+  const east = Math.max(...territories.map((p) => p.x + reachOf(p)));
+  const north = Math.min(...territories.map((p) => p.y - reachOf(p)));
+  const south = Math.max(...territories.map((p) => p.y + reachOf(p))) + footSea;
+  for (const territory of territories) {
+    territory.x -= (west + east) / 2;
+    territory.y -= (north + south) / 2;
   }
 }
 
-function settlePackagesEntries(regions: Territory[]) {
-  for (const [i, a] of regions.entries()) {
-    for (const b of regions.slice(i + 1)) {
-      const dx = b.x - a.x || 0.01;
-      const dy = b.y - a.y || 0.01;
-      const d = Math.hypot(dx, dy);
-      const overlap = a.radius + b.radius + 55 - d;
-      if (overlap <= 0) {
-        continue;
+/** Overlapping islands, first in `order` to the west on a tie, are pushed apart along x until none overlap. */
+function separateAlongX(
+  order: Territory[],
+  reachOf: (territory: Territory) => number,
+  clearance: number
+) {
+  for (let pass = 0; pass < 400; pass += 1) {
+    let largest = 0;
+    for (const [i, a] of order.entries()) {
+      for (const b of order.slice(i + 1)) {
+        const span = reachOf(a) + reachOf(b) + clearance;
+        const dy = b.y - a.y;
+        if (Math.abs(dy) >= span) {
+          continue;
+        }
+        const needed = Math.sqrt(span ** 2 - dy ** 2);
+        const dx = b.x - a.x;
+        const overlap = needed - Math.abs(dx);
+        if (overlap <= 0) {
+          continue;
+        }
+        largest = Math.max(largest, overlap);
+        const east = dx === 0 ? 1 : Math.sign(dx);
+        a.x -= (east * overlap) / 2;
+        b.x += (east * overlap) / 2;
       }
-      const push = (overlap / d) * 0.48;
-      a.x -= dx * push;
-      a.y -= dy * push;
-      b.x += dx * push;
-      b.y += dy * push;
+    }
+    if (largest < 0.01) {
+      return;
     }
   }
+}
+
+/** The chart's extent: symmetric about the origin, with open sea beyond the outermost islands. */
+export function chartSize(territories: readonly Territory[]) {
+  return {
+    height:
+      2 *
+      (Math.max(0, ...territories.map((p) => Math.abs(p.y) + p.radius)) +
+        chartMargin),
+    width:
+      2 *
+      (Math.max(0, ...territories.map((p) => Math.abs(p.x) + p.radius)) +
+        chartMargin),
+  };
+}
+
+/** The atlas with its islands placed again at another clearance; coasts and file positions are unchanged. */
+export function relayoutAtlas(data: AtlasData, clearance: number): AtlasData {
+  const territories = data.territories.map((p) => ({ ...p }));
+  settlePackages(territories, data.packageLayers, clearance);
+  return { ...data, ...chartSize(territories), territories };
 }
 
 export function settleFiles(
@@ -157,15 +248,15 @@ export function landContours(files: AtlasFile[], radius: number): Polygon[][] {
   for (const f of files) {
     const cx = (f.x + span / 2) / cell;
     const cy = (f.y + span / 2) / cell;
-    const reach = Math.ceil((sigma * 3) / cell);
+    const extent = Math.ceil((sigma * 3) / cell);
     for (
-      let y = Math.max(0, Math.floor(cy - reach));
-      y < Math.min(size, cy + reach);
+      let y = Math.max(0, Math.floor(cy - extent));
+      y < Math.min(size, cy + extent);
       y += 1
     ) {
       for (
-        let x = Math.max(0, Math.floor(cx - reach));
-        x < Math.min(size, cx + reach);
+        let x = Math.max(0, Math.floor(cx - extent));
+        x < Math.min(size, cx + extent);
         x += 1
       ) {
         const d2 = ((x - cx) ** 2 + (y - cy) ** 2) * cell ** 2;

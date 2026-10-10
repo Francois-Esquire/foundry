@@ -34,6 +34,7 @@ const island = (id: string, x: number, radius = 20): Territory => ({
       y: 0,
     },
   ],
+  folder: "",
   highFanInCutoff: 0,
   hills: [],
   id,

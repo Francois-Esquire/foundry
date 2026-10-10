@@ -48,6 +48,7 @@ const territory: Territory = {
     x: i === 59 ? 60 : -10 + (i % 10),
     y: -10 + Math.floor(i / 10),
   })),
+  folder: "",
   highFanInCutoff: 0,
   hills: [],
   id: "test",
