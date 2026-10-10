@@ -87,6 +87,14 @@ and 6. Where the code differs from the sections below:
   session and id; a replay reads that message back from the session store.
 - `step.run` records `{ output }`, so an `undefined` output replays too.
 
+**A.5 to A.7 landed 2026-10-10** over today's handles. A workspace's `git`
+is a proxy that loads the handle per call; a sandbox caches its started
+handle per step attempt (keyed by the frame's signal) or per runtime, and
+keeps its starter under a symbol so `agents.session(def, { sandbox })`
+can start it. No sandbox field collides with the spec yet; take the
+`specOf` step when E.1 adds a `files` facet. `artifact.latest()` comes
+with F.2.
+
 ### Today
 
 - `agent({ … })` returns `AgentDefinition`, a plain record

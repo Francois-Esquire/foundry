@@ -31,10 +31,9 @@ in order. Items 1 to 3 have landed; 4 stays open alongside 5; 6 comes last.
    1. **The agent surface.** Pass-through for agent turns, starting with
       structured output (finding 7.1), and definitions you can use, starting
       with `agent()` returning an agent (finding 8). Both reshape the same
-      surface, so they are designed together. Structured output, agent
-      settings, and the `agent`, `step`, and `workflow` instances landed
-      2026-10-10; the `workspace`, `sandbox`, and `artifact` instances
-      (A.5 to A.7) are next.
+      surface, so they are designed together. Both landed 2026-10-10:
+      structured output and agent settings, and an instance for every
+      definition (`artifact.latest()` waits for finding 5).
    2. **Two bugs from the audit.** Worktree defaults apply only inside
       `withWorktree` (7.3), and a scoped artifact `create` is not counted for
       replay (7.4).

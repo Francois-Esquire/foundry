@@ -2,16 +2,21 @@ import { createHash } from "node:crypto";
 import { canonicalizeJson } from "@foundry/lib/json";
 import type { Output } from "ai";
 import { catalog } from "~/authoring/catalog";
-import { agentInstance } from "~/lib/instances";
+import {
+  agentInstance,
+  artifactInstance,
+  sandboxInstance,
+  workspaceInstance,
+} from "~/lib/instances";
 import type {
   Agent,
   AgentSettings,
-  ArtifactDefinition,
-  SandboxDefinition,
+  ArtifactInstance,
+  SandboxInstance,
   SandboxSpec,
   SkillOp,
   SkillSet,
-  WorkspaceDefinition,
+  WorkspaceInstance,
 } from "~/lib/types";
 
 import { bindingAt, callSite, originOf } from "./identity";
@@ -59,35 +64,41 @@ export function agent<OUTPUT extends Output.Output = never>(spec: {
   return agentInstance<OUTPUT>({ id, kind: "agent", ...rest });
 }
 
-export function workspace(spec: {
-  readonly path: string;
-}): WorkspaceDefinition {
+export function workspace(spec: { readonly path: string }): WorkspaceInstance {
   if (!spec.path.trim()) {
     throw new Error("workspace(): a path is required");
   }
   catalog.workspaces.add(spec.path);
-  return {
+  return workspaceInstance({
     id: catalog.claimId("workspace"),
     kind: "workspace",
     path: spec.path,
-  };
+  });
 }
 
-export function sandbox(spec: SandboxSpec): SandboxDefinition {
+export function sandbox(spec: SandboxSpec): SandboxInstance {
   if ("files" in spec && Object.keys(spec.files).length === 0) {
     throw new Error("sandbox({ files }): give it at least one file");
   }
-  return { id: catalog.claimId("sandbox"), kind: "sandbox", ...spec };
+  return sandboxInstance({
+    id: catalog.claimId("sandbox"),
+    kind: "sandbox",
+    ...spec,
+  });
 }
 
 export function artifact(spec: {
   readonly name: string;
   readonly type: string;
-}): ArtifactDefinition {
+}): ArtifactInstance {
   if (!(spec.name.trim() && spec.type.trim())) {
     throw new Error("artifact(): a name and a type are required");
   }
-  return { id: catalog.claimId("artifact"), kind: "artifact", ...spec };
+  return artifactInstance({
+    id: catalog.claimId("artifact"),
+    kind: "artifact",
+    ...spec,
+  });
 }
 
 function skillSet(ops: readonly SkillOp[]): SkillSet {

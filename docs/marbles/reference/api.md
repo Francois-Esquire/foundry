@@ -91,6 +91,9 @@ const lines = await count.run({ path: "README.md" });                  // run it
 | --- | --- | --- |
 | `agent` | `generate(input, turn?)`, `stream(input, turn?)` | `agents.session(def)`, one turn |
 | `step`, `workflow` | `run(input?)` | Locking it as a child, run on its own |
+| `workspace` | `root`, `files()`, `git` | `workspaces.load(def)` |
+| `sandbox` | `exec(argv)`, `close()`; started by the first `exec` | `sandboxes.start(def)` |
+| `artifact` | `write(files)` | `artifacts.write(def, files)` |
 
 - **Inside a step body** a call joins the step's run: it stops with the
   step, writes to its stream, and a replay after a question or a pause
@@ -106,6 +109,10 @@ const lines = await count.run({ path: "README.md" });                  // run it
   open a session with `agents.session(designer)`. The data fields are plain
   properties and the methods are not, so `{ ...designer }` is a plain
   definition that `agents.session` takes.
+- **A sandbox starts at its first `exec`.** In a step it is that step's
+  sandbox, closed with the run and reopened on replay; elsewhere it runs
+  until `close()` or `dispose()`. `agents.session(def, { sandbox: box })`
+  takes the declared sandbox and starts it the same way.
 - **`run` runs in this process**, not through the engine's queue, so a body
   can await it; a nameless definition runs too. The nested run is not shown
   on the dashboard and cannot be paused on its own. A step that asks a
@@ -366,7 +373,8 @@ override outer ones.
 ## Exports
 
 The package exports the nine words, the AI SDK's `Output`, `dispose`, and
-the types behind them: `Agent`, `Runnable`, `Context`,
+the types behind them: `Agent`, `Runnable`, `WorkspaceInstance`,
+`SandboxInstance`, `ArtifactInstance`, `Context`,
 `StepDefinition`, `WorkflowDefinition`, `LockedNode`, the definition types
 (`AgentDefinition`, `AgentSettings`, `WorkspaceDefinition`, `SandboxDefinition`,
 `SandboxSpec`, `ArtifactDefinition`, `SkillSet`), the context types

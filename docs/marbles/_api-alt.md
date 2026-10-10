@@ -181,7 +181,7 @@ on the spot (see [Context](#context)).
 | `workflow` | `run(input)`. Calling it still locks a node. | A launch or a trigger |
 | `workspace` | The workspace handle: `root`, `files()`, `git`. | `workspaces.load(def)` |
 | `sandbox` | The sandbox handle: `exec`, `close`; started on first use. | `sandboxes.start(def)` |
-| `artifact` | `write(files)` and `latest()`. | `artifacts.write(def, files)` |
+| `artifact` | `write(files)`; `latest()` with finding 5. | `artifacts.write(def, files)` |
 | `skills` | Unchanged: a set is already a value. | An agent's `skills` |
 
 `schedule` and `monitor` are triggers, not definitions; they return nothing
@@ -744,10 +744,6 @@ const drafter = agent({ prompt: "Draft the page.", model: "anthropic/claude-sonn
   report or ask, which would repeat on every setup.
 - **Sandbox API.** The `@foundry/sandbox` surface is due to change. The
   `sandboxes` key follows it.
-- **Shortcuts.** One-call helpers on top of the context: loading a workspace,
-  or a sandbox handler that returns a sandbox already started, mounted, and
-  scoped to the run. A definition's own instance covers these once its
-  handle lands (`_next-api.md`, A.5 and A.6).
 - **Agents inside a sandbox (phase 2).** Today an agent wraps a sandbox; no
   architecture invokes an agent in one. Phase 2 installs the image, the CLIs,
   and Foundry's own library into the sandbox and drives the providers from

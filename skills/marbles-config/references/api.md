@@ -163,6 +163,8 @@ reply.text;
 // A definition is usable on its own: one turn on a fresh session, or a run.
 const once = await reviewer.generate("Review the change.");  // same as a one-turn agents.session
 const total = await count.run({ path: "README.md" });         // a step or workflow, run now
+await box.exec(["bun", "test"]);                              // a declared sandbox starts at its first exec
+await site.files(); await weeklyReport.write({ "report.md": markdown }); // workspace handle, artifact version
 
 // Structured output: `Output` is re-exported from the AI SDK. A reply that
 // does not match the schema rejects with NoObjectGeneratedError.

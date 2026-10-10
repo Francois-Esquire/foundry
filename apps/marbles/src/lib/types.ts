@@ -210,6 +210,22 @@ export interface Agent<DEFAULT extends Output.Output = never>
   ): SessionStream<OUTPUT>;
 }
 
+/** A declared workspace you can use: its handle, loaded on first use. */
+export type WorkspaceInstance = WorkspaceDefinition & WorkspaceHandle;
+
+/**
+ * A declared sandbox you can use: started by the first `exec`, in the
+ * calling step when there is one (and closed with it), else kept until
+ * `close` or the runtime's `dispose`.
+ */
+export type SandboxInstance = SandboxDefinition &
+  Pick<Sandbox, "close" | "exec">;
+
+/** A declared artifact you can use: each `write` adds a version. */
+export interface ArtifactInstance extends ArtifactDefinition {
+  write(files: ArtifactFiles): Promise<ArtifactVersion>;
+}
+
 export interface Agents {
   session<OUTPUT extends Output.Output = never>(
     agent: AgentDefinition<OUTPUT>,

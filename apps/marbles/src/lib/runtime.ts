@@ -9,7 +9,10 @@ import type { Engine } from "./engine";
  * Both the CLI and an authoring module import this module, so the slot is
  * one instance per process, like the catalog.
  */
-export type InstanceRuntime = Pick<Engine, "agents" | "bindings" | "dispose">;
+export type InstanceRuntime = Pick<
+  Engine,
+  "agents" | "artifacts" | "bindings" | "dispose" | "sandboxes" | "workspaces"
+>;
 
 let host: InstanceRuntime | undefined;
 let fallback: Promise<InstanceRuntime> | undefined;
@@ -35,6 +38,14 @@ export function setDefaultRuntime(
   create: () => Promise<InstanceRuntime>
 ): void {
   createFallback = create;
+}
+
+/**
+ * The root a definition outside a run resolves paths against: the host's
+ * workspace root, else the directory the default runtime would use.
+ */
+export function instanceRoot(): string {
+  return host?.bindings.root ?? process.cwd();
 }
 
 /** The host's engine, else the default runtime, built once. */

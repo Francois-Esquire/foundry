@@ -25,6 +25,7 @@ import type { HarnessInteractions } from "~/lib/sandbox/interactions";
 import type { SandboxSessionOptions } from "~/lib/sandbox/session";
 import { createSandboxSession } from "~/lib/sandbox/session";
 import type { ManagerArgs } from "../bindings";
+import { SANDBOX_HANDLE } from "../handles";
 import type { LiveSession } from "../run-scope";
 import { workingDirectory } from "../run-scope";
 import type {
@@ -220,6 +221,13 @@ async function fileSession(
   }
 }
 
+/** A declared sandbox passed as is starts itself, in the step when there is one. */
+function startedSandbox(sandbox: Sandbox): Promise<Sandbox> | Sandbox {
+  return SANDBOX_HANDLE in sandbox
+    ? (sandbox[SANDBOX_HANDLE] as () => Promise<Sandbox>)()
+    : sandbox;
+}
+
 /** A CLI harness runs its own CLI in the guest; any other harness needs the network model. */
 function sandboxModel(models: ModelManager, executor: TurnExecutorRef) {
   if (isCliHarness(executor.harness)) {
@@ -337,7 +345,11 @@ async function openSession<OUTPUT extends Output.Output>(
   };
   const harness =
     options.sandbox && !deps.dry
-      ? await openSandboxSession(deps, { ...opening, options }, options.sandbox)
+      ? await openSandboxSession(
+          deps,
+          { ...opening, options },
+          await startedSandbox(options.sandbox)
+        )
       : await openLocalSession(deps, opening);
   return retainSession(harness, id, site, definition.settings);
 }

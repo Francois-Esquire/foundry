@@ -4,19 +4,23 @@
  * body's run; outside one it uses the host's engine, else a default.
  */
 
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createContainers } from "@foundry/sandbox/container/containers";
+import { createMemoryContainerStore } from "@foundry/sandbox/container/store";
+import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { step, workflow } from "~/authoring/builder";
 import { catalog } from "~/authoring/catalog";
-import { agent } from "~/authoring/resources";
+import { agent, artifact, sandbox, workspace } from "~/authoring/resources";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
 import type { Reply } from "~/lib/models/echo";
 import { dispose, setDefaultRuntime, setHost } from "~/lib/runtime";
 import { startEngine, testEngine } from "../helpers/engine";
 import { openFeed } from "../helpers/feed";
+import { seedRepository } from "../helpers/repository";
 
 const ASKED_PATTERN = /asked a person/;
 
@@ -200,5 +204,82 @@ describe("a step or workflow", () => {
     host();
     const asks = step().do(({ ask }) => ask.question({ title: "Name?" }));
     await expect(asks.run()).rejects.toThrow(ASKED_PATTERN);
+  });
+});
+
+describe("a workspace, a sandbox, or an artifact", () => {
+  it("a workspace is its handle, loaded on first use", async () => {
+    const repo = await seedRepository();
+    try {
+      const engine = testEngine({ live: true, print: () => undefined, root });
+      engines.push(engine);
+      setHost(engine);
+      const site = workspace({ path: repo });
+      expect(site.root).toBe(repo);
+      expect(site.git.root).toBe(repo);
+      await expect(site.files()).resolves.toContain("README.md");
+      expect(await site.git.status()).toMatchObject({ branch: "main" });
+      expect(Object.keys({ ...site })).toEqual(["id", "kind", "path"]);
+    } finally {
+      await rm(repo, { force: true, recursive: true });
+    }
+  });
+
+  it("a sandbox starts at its first exec and keeps one container until closed", async () => {
+    const commands: string[][] = [];
+    const containers = createContainers({
+      allowedMountRoots: [await realpath(root)],
+      instanceLabel: "test",
+      runtime: createFakeContainerRuntime({
+        exec: (command) => {
+          commands.push([...command]);
+          return { exitCode: 0, stderr: "", stdout: "ok" };
+        },
+      }) as never,
+      store: createMemoryContainerStore(),
+    });
+    const engine = testEngine({
+      containers: () => Promise.resolve(containers),
+      print: () => undefined,
+      root: await realpath(root),
+    });
+    engines.push(engine);
+    setHost(engine);
+    const box = sandbox({ image: "docker.io/oven/bun:1-slim" });
+    expect("files" in box).toBe(false);
+    expect(Object.keys({ ...box })).not.toContain("exec");
+    await expect(box.exec(["bun", "test"])).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "ok",
+    });
+    await box.exec(["bun", "run", "build"]);
+    expect(commands).toEqual([
+      ["bun", "test"],
+      ["bun", "run", "build"],
+    ]);
+    expect(await containers.list()).toHaveLength(1);
+    await box.close();
+    await box.exec(["true"]);
+    expect(await containers.list()).toHaveLength(2);
+    await containers.shutdown();
+  });
+
+  it("an artifact adds a version per write, in a body or outside one", async () => {
+    const report = artifact({ name: "Weekly", type: "text/markdown" });
+    step("weekly").do(() => report.write({ "report.md": "# Two" }));
+    const store = openFeed(undefined, { id: "ws", root });
+    const engine = await startEngine({
+      artifacts: store.artifacts,
+      print: () => undefined,
+      root,
+    });
+    engines.push(engine);
+    setHost(engine);
+    const first = await report.write({ "report.md": "# One" });
+    const launched = await engine.launch<{ artifactId: string }>("weekly", {});
+    const second = await launched.result;
+    expect(second.artifactId).toBe(first.artifactId);
+    expect(second).not.toEqual(first);
+    await engine.stop();
   });
 });

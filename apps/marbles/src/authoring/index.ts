@@ -23,6 +23,7 @@ export type {
   Agents,
   Approval,
   ArtifactDefinition,
+  ArtifactInstance,
   Artifacts,
   ArtifactVersion,
   Ask,
@@ -34,6 +35,7 @@ export type {
   Sandbox,
   SandboxDefinition,
   Sandboxes,
+  SandboxInstance,
   SandboxResources,
   SandboxSpec,
   Session,
@@ -45,6 +47,7 @@ export type {
   TurnOptions,
   WorkspaceDefinition,
   WorkspaceHandle,
+  WorkspaceInstance,
   Workspaces,
 } from "~/lib/types";
 export { step, workflow } from "./builder";

@@ -348,13 +348,3 @@ combinators in `_api-alt.md`.
 
 **Proposal.** Read bundle files as bytes, accept `Skill` objects in a set,
 and give sandbox sessions the same registry tools local sessions get.
-
-## 8. Definitions you can use
-
-**Found by** using Marbles for real, 2026-10-10: an agent declared at the top
-of a module could not be used as an agent.
-
-Landed for `agent`, `step`, and `workflow` on 2026-10-10
-([`_next-api.md`](./_next-api.md), Part A; `_api-alt.md`, Top-level words).
-Still open: the `workspace`, `sandbox`, and `artifact` instances (A.5 to
-A.7), which wrap today's handles and widen with section 7.
