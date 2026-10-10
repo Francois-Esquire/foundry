@@ -1,4 +1,10 @@
-import type { ToolSet } from "ai";
+import type {
+  InferGenerateOutput,
+  InferStreamOutput,
+  Output,
+  StreamTextResult,
+  ToolSet,
+} from "ai";
 
 import type { Capability } from "../authorization/capability";
 import type {
@@ -113,36 +119,36 @@ export interface StreamHandlers {
   }) => void;
 }
 
-/**
- * The universal generation config — defaults set at construction, any field
- * overridable per call. Backend-specific options (Claude permission modes,
- * provider-native settings) are intentionally absent until the Claude backend
- * lands, at which point this widens.
- */
-export interface GenerationConfig {
-  maxOutputTokens?: number;
-  model?: string;
-  system?: string;
-  temperature?: number;
-  tools?: ToolSet;
-}
-
 /** What a generation is given: a string for convenience, or explicit parts. */
 export type SessionInput = string | { parts: SessionPart[] };
-
-/** Per-call surface: config overrides + an abort signal + lifecycle handlers. */
-export type StreamOptions = GenerationConfig & {
-  signal?: AbortSignal;
-} & StreamHandlers;
 
 /**
  * The handle returned by `stream()`. Async-iterable over {@link SessionEvent}s,
  * with the finals exposed directly so a caller can iterate, tap handlers, or
  * just await the result — any combination.
  */
-export interface SessionStream extends AsyncIterable<SessionEvent> {
+export interface SessionStream<OUTPUT extends Output.Output = never>
+  extends AsyncIterable<SessionEvent> {
   readonly message: Promise<SessionMessage>;
   readonly outcome: Promise<SessionTurnOutcome>;
+  /**
+   * The turn's structured value, parsed from its final text by the turn's
+   * `output`. Rejects when the turn had an `output` and produced no valid
+   * value, after the message is committed; resolves `undefined` without one.
+   */
+  readonly output: Promise<InferGenerateOutput<OUTPUT>>;
+  /**
+   * The structured value as it streams, one partial per change. Empty
+   * without an `output`. One consumer.
+   */
+  readonly partialOutputStream: AsyncIterable<InferStreamOutput<OUTPUT>>;
+  /**
+   * The AI SDK result of the turn's model call, for what the session does
+   * not carry. `undefined` for a CLI harness, which runs its own loop.
+   */
+  readonly result: Promise<
+    StreamTextResult<ToolSet, Record<string, unknown>, OUTPUT> | undefined
+  >;
   readonly text: Promise<string>;
   readonly usage: Promise<SessionUsage>;
 }

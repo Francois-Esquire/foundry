@@ -1,11 +1,11 @@
 ---
-title: Scheduling with launchd
+title: launchd
 description: Let macOS start a fresh Marbles process for each scheduled tick.
 ---
 
 On macOS, launchd owns the clock and Marbles exits after each tick.
 
-From the directory containing the [Start Here workspace](/marbles/start-here),
+From the directory containing the [Start Here](/marbles/start-here) module,
 whose schedule `list` prints with the key `inspect`:
 
 ```sh
@@ -23,7 +23,8 @@ writes:
 
 The plist records the Bun and CLI paths in use at installation, the absolute
 authoring path, the state root, the artifact store, any `--harness`
-selection, the working directory, and an explicit `PATH`. Each tick runs
+selection, the workspace root as the working directory, and an explicit
+`PATH`. No other environment is written to it. Each tick runs
 `marbles roll <key> --config … --state … --artifacts …`, with one
 `--harness <id>` per harness given at installation. Output goes to:
 
@@ -37,7 +38,29 @@ Marbles prints the error and the corresponding manual command.
 
 Each tick imports the modules again, so changes to automation code take
 effect on the next invocation. Reinstall when changing the cadence or the
-captured paths and environment.
+captured paths.
+
+## Environment
+
+A tick receives only `PATH`. To give it tokens and settings, declare them
+in a [Varlock](https://varlock.dev) `.env.schema` at the workspace root:
+
+```sh
+# .env.schema
+# @defaultRequired=true
+# ---
+# @sensitive
+FIGMA_TOKEN=exec(`security find-generic-password -s figma -w`)
+```
+
+Every Marbles process (a tick, `roll`, and the dashboard) loads the schema
+before it imports modules, with the workspace's own `varlock` or one on
+`PATH`, and adds what it resolves to the environment without replacing
+values already set. A secret is resolved each time a process starts and
+never stored by Marbles. `launchd install` refuses to install while a
+required value does not resolve, and names it; a tick that cannot resolve
+one fails with the same message in its log. Without a schema nothing is
+loaded.
 
 Intervals use launchd's `StartInterval`; calendar schedules use
 `StartCalendarInterval`. Foreground completion-relative timing does not apply

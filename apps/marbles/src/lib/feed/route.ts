@@ -29,6 +29,8 @@ export interface FeedRouter {
   answer(entryId: string, answer: FeedAnswer): Promise<void>;
   /** Mark every open question cancelled: nothing in this process can answer it now. */
   cancelOpen(): Promise<void>;
+  /** Why this router cancelled a run, when it did; forgotten when the run closes. */
+  cancelReason(runId: string): string | undefined;
   /** A run ended without answering these: its open questions are marked cancelled. */
   close(runId: string): Promise<void>;
   /** Handle one run's channel events; `settled` awaits the writes they caused. */
@@ -55,6 +57,7 @@ export function feedRouter(options: {
 }): FeedRouter {
   const { askable, feed, orchestrator, print } = options;
   const open = new Map<string, OpenQuestion>();
+  const cancelled = new Map<string, string>();
 
   function warn(title: string) {
     return (error: unknown) =>
@@ -78,6 +81,10 @@ export function feedRouter(options: {
     if (!askable) {
       print(
         `[feed] "${title}" needs an answer; run \`marbles\` to answer questions from the dashboard`
+      );
+      cancelled.set(
+        question.source.runId,
+        `"${title}" is waiting for an answer; open the dashboard with \`marbles\``
       );
       return Promise.all([
         feed
@@ -167,7 +174,10 @@ export function feedRouter(options: {
       await cancel(questions);
     },
 
+    cancelReason: (runId) => cancelled.get(runId),
+
     async close(runId) {
+      cancelled.delete(runId);
       const questions = [...open].filter(
         ([, question]) => question.source.runId === runId
       );

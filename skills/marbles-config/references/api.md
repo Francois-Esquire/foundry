@@ -26,23 +26,26 @@ import {
 
 | Word | Kind | Shape | Purpose |
 | --- | --- | --- | --- |
-| `agent` | definition | `agent({ name?, prompt, model?, provider?, skills? })` | Who does model work, with defaults. |
+| `agent` | definition | `agent({ name?, prompt, model?, provider?, settings?, skills? })` | Who does model work, with defaults. `settings`: AI SDK model settings and `output` every turn starts from. |
 | `workspace` | definition | `workspace({ path })` | Another directory to work on. The config's own is implicit. |
 | `sandbox` | definition | `sandbox({ image, mount?, resources? })` or `sandbox({ files, image? })` | An isolated place to run commands. |
 | `artifact` | definition | `artifact({ name, type })` | A versioned output; each run adds a version. |
-| `skills` | definition | `skills.load().add(glob).pick(...names)` | A skill set an agent takes. |
-| `step` | work | `step(name?).describe(text).input(s).output(s).do(fn)` | One unit of work. |
+| `skills` | definition | `skills.load()` or `skills.none()`, then `.add(glob \| defineSkill(…)).pick(...names)` | A skill set an agent takes. |
+| `step` | work | `step(name?).describe(text).input(s).output(s).config({ retry?, timeout? }).do(fn)`, or `.exec("cmd $key", { check?, sandbox? })` for a step that is one command | One unit of work. `.exec` splits the template at load (no shell; `$key` fills one argument from input, arrays one per element) and returns `{ exitCode, stdout, stderr }`. A retried attempt starts fresh; `timeout` aborts the body's signal; return `bail(error)` to fail without retry. |
 | `workflow` | work | `workflow(name?, tree)`, `workflow(name?, () => tree)`, `workflow(name?).input(s).do(fn)` | A named tree of steps. |
 | `schedule` | trigger | `schedule(target).at(slot)` or `.every(interval)` | Runs a step or workflow on a clock. |
-| `monitor` | trigger | `monitor(source).every?(interval).do(fn)` | Runs when files or an HTTP body change. |
+| `monitor` | trigger | `monitor(source).request?(init).every?(interval).do(fn)` | Runs when files or an HTTP response change. |
 
 Calling a word registers it. Nothing is exported. Singular words are imports;
 plural keys (`agents`, `workspaces`, `sandboxes`, `artifacts`) are the context.
 
 ## Definitions
 
-Definitions are optional presets. The context can create the same things on
-the spot.
+Definitions are optional; the context can create the same things on the
+spot. An `agent` also has `generate` and `stream` (one turn on a fresh
+session), and a `step` or `workflow` has `run(input)`; inside a body these
+join the step's run and replay, elsewhere they use the host's engine or a
+default runtime (`dispose()` closes it).
 
 ```ts
 const reviewer = agent({ prompt: "Review without editing.", provider: "codex" });
@@ -69,8 +72,10 @@ const reviewing = skills.load().add("./skills/review/*").pick("caveman");
   time with `escapes the trusted host roots`. `~/.foundry`, `~/.claude`,
   `~/.codex` mount read-only when they exist. The `files` form mounts nothing
   and copies the files under `/workspace` after boot.
-- `skills.load()` is the global and workspace skills; `.add(glob)` appends a
-  folder; `.pick(...names)` narrows. Each call returns a new set.
+- `skills.load()` is the global and workspace skills; `skills.none()` is
+  empty. `.add(glob)` appends a folder, `.add(defineSkill({ manifest }))` a
+  skill defined in code; `.pick(...names)` narrows. Each call returns a new
+  set.
 
 ## The builder
 
@@ -139,10 +144,11 @@ step().do(async ({ input, agents, workspaces, sandboxes, artifacts, ask, report,
 | Key | What it is |
 | --- | --- |
 | `input` | Typed input, validated against `.input(schema)`. |
-| `agents` | `session(def, { cwd?, session?, compaction? })` → `{ generate(prompt) → { text }, stream(prompt), ref, harness }`. |
-| `workspaces` | `current` (the config's directory) and `load(def | { path })` → `{ root, files(), git }`. |
-| `sandboxes` | `start(def | spec)` → `{ exec(argv) → { exitCode, stdout, stderr }, close(), id }`; `open(id)`. |
-| `artifacts` | `write(def, files)` adds a version; `create({ name, type, entries })` makes one on the spot. |
+| `agents` | `session(def, { cwd?, session?, compaction? })` → `{ generate(prompt, turn?) → { text, output, usage, result? }, stream(prompt, turn?), ref, harness }`. `turn`: `{ output?, temperature?, maxOutputTokens?, stopWhen?, providerOptions?, …, signal?, onText? }`. |
+| `workspaces` | `current` (the config's directory) and `load(def | { path })` → the `@foundry/workspaces` workspace: `root`, `files()` (entries: `id`, `path`, `extension`, `kind`), `entries()`, `read(id)`, `save`, `createFile`, `refresh()`, `summary()`, `git`. |
+| `exec` | `exec(argv, { check?, cwd?, environment?, sandbox? })` → `{ exitCode, stdout, stderr }`: a command as argv in the step's directory, on its stream, echoed under `--dry-run`; non-zero throws unless `check: false`. |
+| `sandboxes` | `start(def | spec)` → the `@foundry/sandbox` container: `exec(argv | "shell string", { cwd?, environment?, user? })` → `{ exitCode, stdout, stderr }` (written to the step stream), `files`, `processes`, `shell`, `ports`, `services`, `volumes`, `close()`, `id`; `open(id)`. A declared sandbox's own filesystem is `box.filesystem`. |
+| `artifacts` | `write(def, files, { replace?, metadata? })` adds a version; `create({ name, type, entries, metadata?, freeze? })` makes one on the spot; `latest(def)` → `{ version, text(path), bytes(path) }` or undefined (memory between runs; dry runs read real versions), `get(def \| id)`, `listContents(def \| id)`, `getContent(versionId)`, `readFile(versionId, path)`, `readRoot(versionId)` read them back. |
 | `ask` | `approval({ title, body? })` → `{ approved, note? }`; `question({ title, body?, choices? })` → `string`. |
 | `report` | `milestone({ title, body? })`, `result({ title, body, media? })`, `artifact(def, files, entry?)` → version. |
 | `log` | `log(...values)`, `log.warn(...)`, `.info`, `.debug`, `.error`. |
@@ -156,6 +162,18 @@ const scoped = await agents.session(reviewer, { cwd: worktree.root });  // overr
 const again = await agents.session(reviewer, { session });              // continue one
 const reply = await session.generate("Review the change.");
 reply.text;
+
+// A definition is usable on its own: one turn on a fresh session, or a run.
+const once = await reviewer.generate("Review the change.");  // same as a one-turn agents.session
+const total = await count.run({ path: "README.md" });         // a step or workflow, run now
+await box.exec(["bun", "test"]);                              // a declared sandbox starts at its first exec
+(await site.files()).map((file) => file.path); await weeklyReport.write({ "report.md": markdown }); // file entries, artifact version
+
+// Structured output: `Output` is re-exported from the AI SDK. A reply that
+// does not match the schema rejects with NoObjectGeneratedError.
+const verdict = Output.object({ schema: z.object({ approve: z.boolean(), reasons: z.array(z.string()) }) });
+const { output } = await session.generate("Should this merge?", { output: verdict });
+output.approve;
 
 const here = workspaces.current;
 await here.git.withWorktree({ base: "main", branch: "task/x" }, async (worktree) => {
@@ -215,8 +233,11 @@ monitor("https://tracker.example.com/latest").every("10m")
   lock carries its input. `.at(slot)` or `.every(interval)` is the terminal
   call. `weekday` is `"sun"…"sat"` or an array; omit it for every day.
 - `monitor(source)`: one string. `http://` or `https://` polls and fires when
-  the body changes (hashed). Anything else is a glob over the config's
-  directory, polled; `.every` defaults to one minute. `.do(fn)` is terminal.
+  the response changes (body hashed, with a non-2xx status). Anything else
+  is a glob over the config's directory, polled; `.every` defaults to one
+  minute. `.do(fn)` is terminal. `.request(init | () => init)` sends headers
+  or a body to an HTTP source, read at every poll (put tokens there, not in
+  the URL); a `401`/`403` fails the poll.
 - A handler that returns a locked node (`ship({}, { task })`, `nightly({})`)
   starts it, attributed to the monitor. One node per tick: several new files
   in one poll either batch into one input or wait for the author to pick.
@@ -290,5 +311,4 @@ Do not write configs that depend on these.
 - Recovery of a step that was mid-body when the process stopped. A step
   parked on an `ask` or a pause does survive a quit, a crash, or a kill.
 - Scheduling a tree with children without wrapping it in `workflow`.
-- Retry policies. A throw fails the step.
 - `@foundry/marbles` on npm.

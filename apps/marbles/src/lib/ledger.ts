@@ -41,6 +41,16 @@ export class Ledger {
     return this.#entries.size;
   }
 
+  /** Drop what one step recorded, not its children's. */
+  forget(path: readonly string[]): void {
+    const prefix = `marbles:${path.join(".")}|`;
+    for (const key of [...this.#entries.keys()]) {
+      if (key.startsWith(prefix)) {
+        this.#entries.delete(key);
+      }
+    }
+  }
+
   /** For the run file. */
   toJSON(): Record<string, unknown> {
     return Object.fromEntries(this.#entries);

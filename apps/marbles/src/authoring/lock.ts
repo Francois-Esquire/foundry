@@ -6,6 +6,7 @@ import type {
   WorkflowRecord,
 } from "~/lib/definition";
 import { isLockedNode } from "~/lib/definition";
+import { runDefinition } from "~/lib/instances";
 import { inputKeysOf } from "~/lib/schema";
 
 /**
@@ -64,19 +65,32 @@ export interface Lockable<R, O> {
 }
 
 /**
+ * Run the definition now, in this process, and get its output. Inside a
+ * step body it joins that step's run; anywhere else it runs on the host's
+ * engine, or a default one in a plain script.
+ */
+export interface Runnable<R, O> {
+  run(
+    ...input: Record<string, never> extends R ? [input?: R] : [input: R]
+  ): Promise<O>;
+}
+
+/**
  * `I` is the parsed input the body sees, `O` what the node produces for a
  * parent, `R` the raw input a lock's literal takes (the schema's input type).
  */
 export interface StepDefinition<I = Record<string, never>, O = unknown, R = I>
   extends StepRecord<I, O>,
-    Lockable<R, O> {}
+    Lockable<R, O>,
+    Runnable<R, O> {}
 
 export interface WorkflowDefinition<
   I = Record<string, never>,
   O = unknown,
   R = I,
 > extends WorkflowRecord<I>,
-    Lockable<R, O> {}
+    Lockable<R, O>,
+    Runnable<R, O> {}
 
 function describe(definition: Shared): string {
   return definition.name ? `"${definition.name}"` : "an anonymous definition";
@@ -130,7 +144,10 @@ function lock(
 
 /** Attach the lock forms to a record, making it callable. */
 export function lockable<D extends AnyDefinition>(
-  fields: Omit<D, keyof Lockable<never, unknown>>
+  fields: Omit<
+    D,
+    keyof Lockable<never, unknown> | keyof Runnable<never, unknown>
+  >
 ): D {
   const call = (children: Children, literal?: Record<string, unknown>) =>
     lock(definition, "series", children, literal);
@@ -156,5 +173,10 @@ export function lockable<D extends AnyDefinition>(
       writable: false,
     });
   }
+  // Not a record field: nothing that reads the definition's data sees it.
+  Object.defineProperty(call, "run", {
+    configurable: true,
+    value: (input?: unknown) => runDefinition(definition, input ?? {}),
+  });
   return definition;
 }

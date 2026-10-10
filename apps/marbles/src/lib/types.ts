@@ -5,15 +5,41 @@ import type {
   HarnessQuestionCallback,
   HarnessSession,
   SessionHarness,
-  SessionStreamOptions,
+  TurnCallSettings,
+  TurnOptions,
 } from "@foundry/agents/harness";
 import type {
   SessionInput,
   SessionMessage,
   SessionStream,
+  SessionUsage,
 } from "@foundry/agents/session";
+import type { Skill } from "@foundry/agents/skills";
+import type {
+  ArtifactResolved,
+  Content,
+  ContentResolved,
+  ContentSummary,
+  CreateArtifactInput,
+  FileInput,
+  FileResolved,
+} from "@foundry/artifacts";
 import type { ContainerSandboxConstraints } from "@foundry/sandbox/container/constraints";
+import type { Container } from "@foundry/sandbox/container/containers";
+import type {
+  SandboxCommand,
+  SandboxExecOptions,
+  SandboxExecResult,
+} from "@foundry/sandbox/types";
+import type { Workspace as PackageWorkspace } from "@foundry/workspaces";
 import type { Git } from "@foundry/workspaces/git";
+import type {
+  InferGenerateOutput,
+  Output,
+  StreamTextResult,
+  ToolSet,
+} from "ai";
+import type { Exec } from "~/lib/command";
 import type { Log } from "~/lib/log";
 
 /**
@@ -23,19 +49,32 @@ import type { Log } from "~/lib/log";
 
 export interface SkillOp {
   readonly glob?: string;
-  readonly kind: "load" | "add" | "pick";
+  readonly kind: "load" | "add" | "pick" | "skill";
   readonly names?: readonly string[];
+  /** A skill defined in code, for `kind: "skill"`. */
+  readonly skill?: Skill;
 }
 
 /** An immutable recipe for a set of skills, resolved when a session opens. */
 export interface SkillSet {
-  add(glob: string): SkillSet;
+  /** A folder of skills by glob, or a skill defined in code (`defineSkill`). */
+  add(source: string | Skill): SkillSet;
   readonly kind: "skills";
   readonly ops: readonly SkillOp[];
   pick(...names: readonly string[]): SkillSet;
 }
 
-export interface AgentDefinition {
+export type { TurnOptions } from "@foundry/agents/harness";
+
+/**
+ * Model settings and structured output every turn starts from; a turn's own
+ * options override them. A CLI harness honours `output` and ignores the
+ * model settings, which its own loop owns.
+ */
+export type AgentSettings<OUTPUT extends Output.Output = never> =
+  TurnCallSettings<OUTPUT>;
+
+export interface AgentDefinition<OUTPUT extends Output.Output = never> {
   readonly id: string;
   readonly kind: "agent";
   /** A catalog model id, e.g. `anthropic/claude-sonnet-4.6`. */
@@ -43,6 +82,7 @@ export interface AgentDefinition {
   readonly prompt: string;
   /** A models provider id: `codex`, `claude-code`. Omit for the default. */
   readonly provider?: string;
+  readonly settings?: AgentSettings<OUTPUT>;
   readonly skills?: SkillSet;
 }
 
@@ -53,31 +93,45 @@ export interface WorkspaceDefinition {
   readonly path: string;
 }
 
-export interface SandboxResources {
-  readonly cpus?: number;
-  readonly memoryBytes?: number;
+export type SandboxResources = NonNullable<
+  ContainerSandboxConstraints["resources"]
+>;
+
+/**
+ * What both kinds of sandbox take from the container's own constraints.
+ * `workdir` defaults to where the workspace is (`/workspace`).
+ */
+interface SandboxOptions
+  extends Pick<
+    ContainerSandboxConstraints,
+    | "detached"
+    | "labels"
+    | "network"
+    | "ports"
+    | "publicEnvironment"
+    | "workdir"
+  > {
+  readonly resources?: SandboxResources;
 }
 
-/** An image with a workspace mounted read/write at `/workspace`. */
-export interface ImageSandbox {
+/** An image with a workspace mounted read/write, at `/workspace` unless `target` says. */
+export interface ImageSandbox extends SandboxOptions {
   /** Permit workspace binaries while retaining nosuid and nodev. */
   readonly executable?: boolean;
   readonly image: string;
   /** `"."` (the config's directory) or a declared workspace. */
   readonly mount?: "." | WorkspaceDefinition;
-  readonly network?: ContainerSandboxConstraints["network"];
-  readonly resources?: SandboxResources;
+  /** Where the mount lands in the guest; `/workspace` when omitted. */
+  readonly target?: string;
 }
 
 /**
  * A scratch sandbox seeded with files under `/workspace` instead of a
  * mount; the image defaults to the runtime's.
  */
-export interface FilesSandbox {
+export interface FilesSandbox extends SandboxOptions {
   readonly files: Readonly<Record<string, string>>;
   readonly image?: string;
-  readonly network?: ContainerSandboxConstraints["network"];
-  readonly resources?: SandboxResources;
 }
 
 export type SandboxSpec = ImageSandbox | FilesSandbox;
@@ -104,7 +158,7 @@ interface SharedSessionOptions {
   /** Enable automatic compaction or supply its settings; false disables it. */
   readonly compaction?: boolean | Partial<CompactionSettings>;
   /** Continue this session instead of starting a new one. */
-  readonly session?: SessionRef | Session;
+  readonly session?: SessionRef | Session<Output.Output>;
 }
 
 interface HostSessionOptions extends SharedSessionOptions {
@@ -131,83 +185,235 @@ export interface SandboxAgentOptions extends SharedSessionOptions {
   readonly profile?: HarnessPermissionProfile;
   /** Host handler for model questions; the dashboard supplies one by default. */
   readonly question?: HarnessQuestionCallback;
-  /** Run the harness inside an already started MicroSandbox. */
-  readonly sandbox: Sandbox;
+  /** Run the harness inside a started sandbox, or a declared one, which starts. */
+  readonly sandbox: SandboxHandle | SandboxInstance;
 }
 
 export type SessionOptions = HostSessionOptions | SandboxAgentOptions;
 
-export type SessionReply = SessionMessage & { readonly text: string };
+export type SessionReply<OUTPUT extends Output.Output = never> =
+  SessionMessage & {
+    /** Every text part of the final turn, joined with newlines. */
+    readonly text: string;
+    /** The parsed structured value; present when the turn had an `output`. */
+    readonly output: InferGenerateOutput<OUTPUT>;
+    readonly usage: SessionUsage;
+    /**
+     * The AI SDK result of the final turn, settled. Absent for a CLI
+     * harness, which runs its own loop.
+     */
+    readonly result?: StreamTextResult<
+      ToolSet,
+      Record<string, unknown>,
+      OUTPUT
+    >;
+  };
 
 /**
  * A session, pre-wired: every turn is aborted with the step and its text
  * lands on the step's stream. `harness` is the package object underneath.
+ * A turn with an `output` that produces no valid value rejects, after its
+ * message is committed; `DEFAULT` is the agent's own `output`.
  */
-export interface Session {
-  generate(
+export interface Session<DEFAULT extends Output.Output = never> {
+  generate<OUTPUT extends Output.Output = DEFAULT>(
     input: SessionInput,
-    options?: SessionStreamOptions
-  ): Promise<SessionReply>;
+    options?: TurnOptions<OUTPUT>
+  ): Promise<SessionReply<OUTPUT>>;
   readonly harness: SessionHarness | HarnessSession;
   readonly ref: SessionRef;
-  stream(input: SessionInput, options?: SessionStreamOptions): SessionStream;
+  stream<OUTPUT extends Output.Output = DEFAULT>(
+    input: SessionInput,
+    options?: TurnOptions<OUTPUT>
+  ): SessionStream<OUTPUT>;
+}
+
+/**
+ * An agent definition you can use directly: each call is one turn on a
+ * fresh session, in the calling step when there is one. For a
+ * conversation, open a session with `agents.session(agent)`.
+ */
+export interface Agent<DEFAULT extends Output.Output = never>
+  extends AgentDefinition<DEFAULT> {
+  generate<OUTPUT extends Output.Output = DEFAULT>(
+    input: SessionInput,
+    options?: TurnOptions<OUTPUT>
+  ): Promise<SessionReply<OUTPUT>>;
+  stream<OUTPUT extends Output.Output = DEFAULT>(
+    input: SessionInput,
+    options?: TurnOptions<OUTPUT>
+  ): SessionStream<OUTPUT>;
+}
+
+/** A declared workspace you can use: its handle, loaded on first use. */
+export type WorkspaceInstance = WorkspaceDefinition & WorkspaceHandle;
+
+/**
+ * A declared sandbox you can use: its handle's `exec`, `close`, and
+ * facets, started by the first call that needs the container, in the
+ * calling step when there is one (and closed with it), else kept until
+ * `close` or the runtime's `dispose`. Its `id` stays the definition's.
+ */
+export type SandboxInstance = SandboxDefinition &
+  Pick<
+    SandboxHandle,
+    | "close"
+    | "commands"
+    | "exec"
+    | "ports"
+    | "processes"
+    | "services"
+    | "shell"
+    | "volumes"
+  > & {
+    /** The container's filesystem; a files sandbox's seed map stays on its spec. */
+    readonly filesystem: SandboxHandle["files"];
+  };
+
+/** A declared artifact you can use: each `write` adds a version. */
+export interface ArtifactInstance extends ArtifactDefinition {
+  /** The current version, or undefined before the first write. */
+  latest(): Promise<LatestArtifact | undefined>;
+  write(
+    files: ArtifactFiles,
+    options?: ArtifactWriteOptions
+  ): Promise<ArtifactVersion>;
 }
 
 export interface Agents {
-  session(agent: AgentDefinition, options?: SessionOptions): Promise<Session>;
+  session<OUTPUT extends Output.Output = never>(
+    agent: AgentDefinition<OUTPUT>,
+    options?: SessionOptions
+  ): Promise<Session<OUTPUT>>;
 }
 
-export interface WorkspaceHandle {
-  files(): Promise<readonly string[]>;
+/**
+ * A directory, as `@foundry/workspaces` has it: `files()` and `entries()`
+ * with kind and metadata, `read`, `save`, `createFile`, `refresh`,
+ * `summary`, and `scan`, loaded at the first call. `git` carries Marbles'
+ * worktree defaults. Registry operations (`rename`, `remove`) are the host's.
+ */
+export type WorkspaceHandle = Pick<
+  PackageWorkspace,
+  | "createFile"
+  | "entries"
+  | "files"
+  | "read"
+  | "refresh"
+  | "registration"
+  | "save"
+  | "scan"
+  | "summary"
+> & {
   /** Throws when the directory is not a git repository. */
   readonly git: Git;
   readonly root: string;
-}
+};
+
+/** A workspace already loaded, so its registry identity is known. */
+export type LoadedWorkspace = WorkspaceHandle &
+  Pick<PackageWorkspace, "id" | "source">;
 
 export interface Workspaces {
   /** The config's own directory. */
   readonly current: WorkspaceHandle;
   load(
     ref: WorkspaceDefinition | { readonly path: string }
-  ): Promise<WorkspaceHandle>;
+  ): Promise<LoadedWorkspace>;
 }
 
-interface ExecResult {
-  readonly exitCode: number;
-  readonly stderr: string;
-  readonly stdout: string;
-}
-
-export interface Sandbox {
-  close(): Promise<void>;
-  exec(argv: readonly string[]): Promise<ExecResult>;
-  readonly id: string;
-}
+/**
+ * A running sandbox: the `@foundry/sandbox` container (`commands`,
+ * `files`, `processes`, `shell`, `ports`, `services`, `volumes`), with
+ * Marbles' defaults. In a step every call carries the step's signal and
+ * `exec` output lands on its stream. `exec` is `commands.exec`.
+ */
+export type SandboxHandle = Omit<Container, "row"> & {
+  exec(
+    command: SandboxCommand,
+    options?: SandboxExecOptions
+  ): Promise<SandboxExecResult>;
+};
 
 export interface Sandboxes {
-  open(id: string): Promise<Sandbox>;
-  start(sandbox: SandboxDefinition | SandboxSpec): Promise<Sandbox>;
+  open(id: string): Promise<SandboxHandle>;
+  start(sandbox: SandboxDefinition | SandboxSpec): Promise<SandboxHandle>;
 }
 
-export type ArtifactFiles = Readonly<Record<string, string | Uint8Array>>;
+/**
+ * Files by path: text, bytes, or any of the package's file inputs (a blob
+ * already stored, an explicit `mime`).
+ */
+export type ArtifactFiles = Readonly<
+  Record<string, string | Uint8Array | FileInput>
+>;
 
-export interface ArtifactVersion {
-  readonly artifactId: string;
-  readonly contentId: string;
-  /** `artifactId:contentId`. */
-  readonly id: string;
+/** A value as JSON carries it: dates become ISO strings. */
+type AsJson<T> = T extends string | number | boolean | null | undefined
+  ? T
+  : T extends Date
+    ? string
+    : T extends readonly (infer U)[]
+      ? readonly AsJson<U>[]
+      : T extends object
+        ? { readonly [K in keyof T]: AsJson<T[K]> }
+        : T;
+
+/**
+ * One version of an artifact: the `@foundry/artifacts` Content, as JSON,
+ * since a step returns it and a run records it. `id` is the version's own
+ * id; `digest`, `state`, `tag`, `metadata` (with the run and session that
+ * wrote it), `tree`, and the timestamps (ISO strings) come with it.
+ */
+export type ArtifactVersion = AsJson<Content>;
+
+/** An artifact by its declaration, or by the id the package gave it. */
+export type ArtifactRef = ArtifactDefinition | string;
+
+export interface ArtifactWriteOptions {
+  /** Merged into the new version's metadata. */
+  readonly metadata?: Readonly<Record<string, unknown>>;
+  /** `false` changes only the files given and keeps the rest; replaces by default. */
+  readonly replace?: boolean;
+}
+
+/** An artifact's current version, with its files to read. */
+export interface LatestArtifact {
+  /** A file's bytes; undefined when the version has no such file. */
+  bytes(path: string): Promise<Uint8Array | undefined>;
+  /** A file as UTF-8 text; undefined when the version has no such file. */
+  text(path: string): Promise<string | undefined>;
+  readonly version: ArtifactVersion;
 }
 
 export interface Artifacts {
-  create(input: {
-    readonly name: string;
-    readonly type: string;
-    readonly entries?: ArtifactFiles;
-  }): Promise<ArtifactVersion>;
+  create(
+    input: Pick<
+      CreateArtifactInput,
+      "freeze" | "metadata" | "name" | "type"
+    > & {
+      readonly entries?: ArtifactFiles;
+    }
+  ): Promise<ArtifactVersion>;
+  /** The artifact and its current version, or null when it has none yet. */
+  get(artifact: ArtifactRef): Promise<ArtifactResolved | null>;
+  getContent(versionId: string): Promise<ContentResolved | null>;
+  /**
+   * The artifact's current version, or undefined before its first. A
+   * declared artifact is per workspace, so this is what an earlier run in
+   * this workspace left. Under `--dry-run` it reads the real store.
+   */
+  latest(artifact: ArtifactRef): Promise<LatestArtifact | undefined>;
+  /** Every version, oldest first. */
+  listContents(artifact: ArtifactRef): Promise<readonly ContentSummary[]>;
+  readFile(versionId: string, path: string): Promise<FileResolved | null>;
+  /** The version's entry file: `metadata.entry`, the only file, or `index.html`. */
+  readRoot(versionId: string): Promise<FileResolved | null>;
   /** Adds a version to the declared artifact. */
   write(
     artifact: ArtifactDefinition,
-    files: ArtifactFiles
+    files: ArtifactFiles,
+    options?: ArtifactWriteOptions
   ): Promise<ArtifactVersion>;
 }
 
@@ -281,6 +487,13 @@ export interface Context<I = Record<string, never>> {
   readonly agents: Agents;
   readonly artifacts: Artifacts;
   readonly ask: Ask;
+  /**
+   * Run a command as an argument list, never shell text: in the step's
+   * working directory, stopped with it, its output on the step's stream,
+   * printed instead under `--dry-run`. A non-zero exit throws unless
+   * `{ check: false }`; `{ sandbox }` runs it there.
+   */
+  readonly exec: Exec;
   readonly input: I;
   readonly log: Log;
   readonly report: Report;

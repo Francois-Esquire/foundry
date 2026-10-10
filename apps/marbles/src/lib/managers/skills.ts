@@ -1,10 +1,11 @@
+import { createHash } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import { basename, join, relative, resolve, sep } from "node:path";
 import type { Skill, SkillFile } from "@foundry/agents/skills";
 import { defineSkill } from "@foundry/agents/skills";
 import { globToRegExp } from "@foundry/lib/glob";
 
-import type { SkillSet } from "../types";
+import type { SkillOp, SkillSet } from "../types";
 
 /**
  * Resolves a skill set recipe against the filesystem. `load` reads the
@@ -27,6 +28,17 @@ const SKIPPED = new Set(["node_modules", ".git"]);
 const DOT_SLASH = /^\.\//;
 const GLOB_SEGMENT = /[*?{[]/;
 
+const STRICT_UTF8 = new TextDecoder("utf-8", { fatal: true });
+
+/** Text stays text; anything that is not UTF-8 stays bytes, unmangled. */
+function asSkillFile(bytes: Uint8Array): SkillFile {
+  try {
+    return STRICT_UTF8.decode(bytes);
+  } catch {
+    return bytes;
+  }
+}
+
 async function collectFiles(root: string): Promise<Record<string, SkillFile>> {
   const files: Record<string, SkillFile> = {};
   async function walk(dir: string, prefix: string): Promise<void> {
@@ -40,11 +52,9 @@ async function collectFiles(root: string): Promise<Record<string, SkillFile>> {
         await walk(join(dir, entry.name), rel);
         continue;
       }
-      const content = await readFile(join(dir, entry.name), "utf8").catch(
-        () => null
-      );
-      if (content !== null) {
-        files[rel] = content;
+      const bytes = await readFile(join(dir, entry.name)).catch(() => null);
+      if (bytes !== null) {
+        files[rel] = asSkillFile(new Uint8Array(bytes));
       }
     }
   }
@@ -154,6 +164,12 @@ async function applyOp(
     applyPick(skills, op.names ?? []);
     return;
   }
+  if (op.kind === "skill") {
+    if (op.skill) {
+      skills.set(op.skill.name, op.skill);
+    }
+    return;
+  }
   const found =
     op.kind === "load"
       ? await loadRoots(roots)
@@ -161,6 +177,22 @@ async function applyOp(
   for (const entry of found) {
     skills.set(entry.name, entry);
   }
+}
+
+/** A recipe step as a cache key; a defined skill by its name and a digest of what it is. */
+function opKey(op: SkillOp): unknown {
+  if (op.kind !== "skill" || !op.skill) {
+    return op;
+  }
+  const { files = {}, ...rest } = op.skill;
+  const digest = createHash("sha256");
+  digest.update(JSON.stringify(rest));
+  for (const [path, content] of Object.entries(files).sort(([a], [b]) =>
+    a.localeCompare(b)
+  )) {
+    digest.update(`\0${path}\0`).update(content);
+  }
+  return { kind: "skill", name: op.skill.name, sha256: digest.digest("hex") };
 }
 
 export function skillResolver(roots: SkillRoots): SkillResolver {
@@ -176,7 +208,7 @@ export function skillResolver(roots: SkillRoots): SkillResolver {
     if (!set) {
       return Promise.resolve([]);
     }
-    const key = JSON.stringify(set.ops);
+    const key = JSON.stringify(set.ops.map(opKey));
     let pending = cache.get(key);
     if (!pending) {
       pending = resolveSet(set);

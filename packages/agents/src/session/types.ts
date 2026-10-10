@@ -149,6 +149,11 @@ export interface MessageMetadata {
    */
   notification?: { taskId: string; kind: "status" | "completion" };
   /**
+   * The structured value a turn with an `output` parsed from its final text,
+   * kept so a reloaded or replayed message returns it without parsing again.
+   */
+  output?: unknown;
+  /**
    * Caching provider options applied to this message — e.g. the Anthropic
    * `cacheControl` breakpoint set on the anchor, or the OpenAI `promptCacheKey`
    * used for the turn. Same structural shape as the AI SDK `providerOptions`

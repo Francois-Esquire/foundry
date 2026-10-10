@@ -12,9 +12,9 @@ import type { ManagerArgs } from "../bindings";
 import { workingDirectory } from "../run-scope";
 import type {
   ImageSandbox,
-  Sandbox,
   SandboxDefinition,
   Sandboxes,
+  SandboxHandle,
   SandboxSpec,
 } from "../types";
 
@@ -73,18 +73,16 @@ export function constraintsFor(
   spec: SandboxSpec,
   dirs: MountDirs
 ): ContainerSandboxConstraints {
-  const resources = {
-    ...(spec.resources?.cpus === undefined
-      ? {}
-      : { cpus: spec.resources.cpus }),
-    ...(spec.resources?.memoryBytes === undefined
-      ? {}
-      : { memoryBytes: spec.resources.memoryBytes }),
-  };
+  const target =
+    ("target" in spec ? spec.target : undefined) ?? WORKSPACE_TARGET;
+  const passed = Object.fromEntries(
+    PASSED_THROUGH.flatMap((key) =>
+      spec[key] === undefined ? [] : [[key, spec[key]]]
+    )
+  );
   return {
     format: CONTAINER_SANDBOX_CONSTRAINTS_FORMAT,
-    ...(spec.image === undefined ? {} : { image: spec.image }),
-    ...(spec.network === undefined ? {} : { network: spec.network }),
+    ...passed,
     mounts: [
       ...("files" in spec
         ? []
@@ -94,40 +92,97 @@ export function constraintsFor(
               executable: spec.executable ?? false,
               id: "workspace",
               source: mountSource(spec, dirs),
-              target: WORKSPACE_TARGET,
+              target,
             },
           ]),
     ],
-    ...(Object.keys(resources).length === 0 ? {} : { resources }),
-    workdir: WORKSPACE_TARGET,
+    workdir: spec.workdir ?? target,
   };
 }
 
-/** A handle over a container; `signal` is read at each exec, since a frame reissues its own. */
-function wrap(
-  container: Container,
-  signal: () => AbortSignal | undefined
-): Sandbox {
-  return {
-    close: () => container.close(),
-    async exec(argv) {
-      const result = await container.commands.exec([...argv], {
-        signal: signal(),
-      });
-      return {
-        exitCode: result.exitCode,
-        stderr: result.stderr,
-        stdout: result.stdout,
-      };
-    },
-    id: container.id,
+/** Spec fields that are the container's constraints as they are. */
+const PASSED_THROUGH = [
+  "detached",
+  "image",
+  "labels",
+  "network",
+  "ports",
+  "publicEnvironment",
+  "resources",
+] as const satisfies readonly (keyof SandboxSpec)[];
+
+/** Where a handle's calls report: the step's signal and stream, read per call. */
+interface HandleSite {
+  readonly signal: () => AbortSignal | undefined;
+  readonly write?: (value: unknown) => void;
+}
+
+/** The step's signal joined with one the caller gave. */
+function withSignal<O extends { readonly signal?: AbortSignal }>(
+  options: O | undefined,
+  site: HandleSite
+): O & { signal?: AbortSignal } {
+  const owned = site.signal();
+  const given = options?.signal;
+  const signal =
+    owned && given ? AbortSignal.any([owned, given]) : (owned ?? given);
+  return { ...(options as O), ...(signal ? { signal } : {}) };
+}
+
+/**
+ * The container, with Marbles' defaults on the calls that run work: each
+ * carries the step's signal, and `exec` writes the command and its output
+ * to the step's stream. Everything else is the container's own.
+ */
+function wrap(container: Container, site: HandleSite): SandboxHandle {
+  const exec: SandboxHandle["exec"] = async (command, options) => {
+    const result = await container.commands.exec(
+      command,
+      withSignal(options, site)
+    );
+    if (site.write) {
+      const shown = typeof command === "string" ? command : command.join(" ");
+      site.write(`$ ${shown}\n${result.stdout}${result.stderr}`);
+    }
+    return result;
   };
+  const processes: SandboxHandle["processes"] = {
+    spawn: (command, options) =>
+      container.processes.spawn(command, withSignal(options, site)),
+    start: (command, options) =>
+      container.processes.start(command, withSignal(options, site)),
+  };
+  const overrides: Record<PropertyKey, unknown> = {
+    commands: { exec },
+    exec,
+    processes,
+  };
+  // Over an empty target: the container is frozen, and a proxy may not
+  // hand out anything but a frozen property's own value.
+  return new Proxy(
+    {},
+    {
+      get(_target, property) {
+        if (property === "row") {
+          return;
+        }
+        if (Object.hasOwn(overrides, property)) {
+          return overrides[property];
+        }
+        const value = Reflect.get(container, property, container);
+        return typeof value === "function" ? value.bind(container) : value;
+      },
+      has: (_target, property) =>
+        property !== "row" &&
+        (Object.hasOwn(overrides, property) || property in container),
+    }
+  ) as SandboxHandle;
 }
 
 export class SandboxesManager implements Sandboxes {
   readonly #deps: SandboxesDeps;
   /** The container behind each handle this manager gave out. */
-  readonly #handles = new WeakMap<Sandbox, Container>();
+  readonly #handles = new WeakMap<SandboxHandle, Container>();
   #opened: Promise<Containers> | undefined;
 
   constructor(deps: SandboxesDeps) {
@@ -138,7 +193,7 @@ export class SandboxesManager implements Sandboxes {
    * The container behind a handle this manager gave out, for what runs a
    * harness inside it. A handle from anywhere else has no container here.
    */
-  containerOf(sandbox: Sandbox): Container {
+  containerOf(sandbox: SandboxHandle): Container {
     const container = this.#handles.get(sandbox);
     if (!container) {
       throw new Error("The sandbox must be opened by this engine.");
@@ -146,8 +201,8 @@ export class SandboxesManager implements Sandboxes {
     return container;
   }
 
-  #handle(container: Container, signal: () => AbortSignal | undefined) {
-    const handle = wrap(container, signal);
+  #handle(container: Container, site: HandleSite) {
+    const handle = wrap(container, site);
     this.#handles.set(handle, container);
     return handle;
   }
@@ -185,19 +240,26 @@ export class SandboxesManager implements Sandboxes {
   }
 
   /** A sandbox that is already running; the caller closes the handle. */
-  async open(id: string): Promise<Sandbox> {
-    return this.#handle(await this.#open(id), () => undefined);
+  async open(id: string): Promise<SandboxHandle> {
+    return this.#handle(await this.#open(id), { signal: () => undefined });
   }
 
   /** Start a sandbox; it runs until the caller closes it or the engine is disposed. */
-  async start(sandbox: SandboxDefinition | SandboxSpec): Promise<Sandbox> {
-    return this.#handle(await this.#start(sandbox), () => undefined);
+  async start(
+    sandbox: SandboxDefinition | SandboxSpec
+  ): Promise<SandboxHandle> {
+    return this.#handle(await this.#start(sandbox), {
+      signal: () => undefined,
+    });
   }
 
   /** What a step body sees: sandboxes that stop with its frame, and the same one again on replay. */
-  scoped({ frame, scope }: ManagerArgs): Sandboxes {
-    const attach = (container: Container): Sandbox => {
-      const handle = this.#handle(container, () => frame.signal);
+  scoped({ frame, scope, write }: ManagerArgs): Sandboxes {
+    const attach = (container: Container): SandboxHandle => {
+      const handle = this.#handle(container, {
+        signal: () => frame.signal,
+        write,
+      });
       frame.opened.add(handle);
       return handle;
     };

@@ -174,9 +174,20 @@ function renderSkill(skill: Skill): string {
   return parts.join("\n\n");
 }
 
-/** What `load_skill({ name, file })` returns: that file's contents (bytes decoded as UTF-8). */
+const STRICT_UTF8 = new TextDecoder("utf-8", { fatal: true });
+
+/**
+ * What `load_skill({ name, file })` returns: that file's contents. Bytes
+ * that are UTF-8 read as text; anything else is described, not decoded,
+ * since a model cannot use mangled bytes.
+ */
 function renderFile(name: string, content: SkillFile): string {
-  const text =
-    typeof content === "string" ? content : new TextDecoder().decode(content);
-  return `# File: ${name}\n\n${text}`;
+  if (typeof content === "string") {
+    return `# File: ${name}\n\n${content}`;
+  }
+  try {
+    return `# File: ${name}\n\n${STRICT_UTF8.decode(content)}`;
+  } catch {
+    return `# File: ${name}\n\n(binary, ${String(content.byteLength)} bytes; not shown)`;
+  }
 }

@@ -4,30 +4,18 @@ description: Compare new revisions with earlier findings in one retained convers
 ---
 
 A reviewer becomes more useful when it can revisit unresolved findings. The
-[agents and sessions guide](/marbles/guides/agents-and-sessions) continues a
+[agents and sessions](/marbles/concepts/agents-and-sessions) page continues a
 conversation by passing the session reference from one `roll` to the next by
 hand. A scheduled run has nobody to pass it, so the step keeps the reference
-itself, in a small file in the workspace:
+itself, in an artifact each run reads back with `latest()`:
 
 ```ts
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import { agent, schedule, step, type SessionRef } from "@foundry/marbles";
+import { agent, artifact, schedule, step, type SessionRef } from "@foundry/marbles";
 import { z } from "zod";
 
-// A session reference kept in the workspace, so the next run can continue
-// the conversation the previous run left.
-function memory(root: string, name: string) {
-  const file = join(root, ".marbles", `${name}.json`);
-  return {
-    load: (): Promise<SessionRef | undefined> =>
-      readFile(file, "utf8").then((text) => JSON.parse(text) as SessionRef).catch(() => undefined),
-    async save(ref: SessionRef) {
-      await mkdir(dirname(file), { recursive: true });
-      await writeFile(file, JSON.stringify(ref));
-    },
-  };
-}
+// The session reference each run leaves for the next. A declared artifact
+// belongs to this workspace, so `latest()` is what the last run here wrote.
+const memory = artifact({ name: "project-review session", type: "application/json" });
 
 const reviewer = agent({
   prompt: "Review this repository without editing. Compare with earlier findings.",
@@ -35,11 +23,11 @@ const reviewer = agent({
 
 const reviewProject = step("review-project")
   .input(z.object({ request: z.string() }))
-  .do(async ({ input: { request }, agents, workspaces }) => {
-    const kept = memory(workspaces.current.root, "project-review");
-    const session = await agents.session(reviewer, { session: await kept.load() });
+  .do(async ({ input: { request }, agents }) => {
+    const kept = await (await memory.latest())?.text("session.json");
+    const session = await agents.session(reviewer, kept ? { session: JSON.parse(kept) as SessionRef } : {});
     const reply = await session.generate(request);
-    await kept.save(session.ref);
+    await memory.write({ "session.json": JSON.stringify(session.ref) });
     return reply.text;
   });
 
@@ -56,13 +44,15 @@ marbles sessions
 
 The schedule determines when to return; its key is `review-project` plus a
 short hash of the request. The kept reference determines which conversation
-to continue; the first run starts one and saves it. The workspace determines
-where that conversation lives on disk. The file write is the body's own work,
-so it happens under `--dry-run` too.
+to continue; the first run finds no version, starts one, and writes it. The
+workspace determines where that conversation lives on disk. Under
+`--dry-run`, `latest()` reads what real runs kept and the write stays in
+memory, so a dry run never moves the reference.
 
-Reading the file before `agents.session` keeps the body replay-safe: a
-replay reads the same reference and the session call returns the same
-session. Compaction, if enabled on the session, may replace older exchanges
+Reading the reference before `agents.session` keeps the body replay-safe:
+a replay reads a reference to the same session, and the session call
+returns it. The write is recorded, so a replay does not add a second
+version. Compaction, if enabled on the session, may replace older exchanges
 with summaries.
 
 For a prebuilt reviewer that keeps one conversation under a name of your

@@ -93,7 +93,7 @@ export function describeMonitor(spec: MonitorSpec): string {
   return spec.kind === "files" ? `files ${spec.glob}` : `http ${spec.url}`;
 }
 
-function sha256(text: string): string {
+function sha256(text: string | Uint8Array): string {
   return createHash("sha256").update(text).digest("hex");
 }
 
@@ -105,11 +105,24 @@ export interface MonitorHost extends HostBindings {
   readonly root: string;
 }
 
+/** Request options for an HTTP poll; the monitor supplies its own signal. */
+type MonitorRequestInit = Omit<RequestInit, "signal">;
+
+/**
+ * What an HTTP monitor sends: options, or a function called at every poll,
+ * so a token is read when it is used rather than when the module loads.
+ */
+export type MonitorRequest =
+  | MonitorRequestInit
+  | (() => MonitorRequestInit | Promise<MonitorRequestInit>);
+
 export interface DetectorOptions {
   /** Stub for tests; `globalThis.fetch` otherwise. */
   readonly fetch?: Fetch;
   /** For a detector called outside a run; inside one, the run scope's host is used. */
   readonly host?: () => MonitorHost;
+  /** For an HTTP source: headers, method, body. Never stored or shown. */
+  readonly request?: MonitorRequest;
 }
 
 /** One tick's reading: the change to hand on (none when nothing moved) and the state to keep. */
@@ -178,7 +191,7 @@ function observer(
   key: string,
   spec: MonitorSpec,
   host: MonitorHost,
-  fetchImpl: Fetch
+  options: DetectorOptions
 ): (previous: unknown, signal: AbortSignal) => Promise<Observation> {
   switch (spec.kind) {
     case "files": {
@@ -191,8 +204,7 @@ function observer(
       return (previous) => observeFiles(catalogue, host.root, spec, previous);
     }
     case "http":
-      return (previous, signal) =>
-        observeHttp(spec, previous, fetchImpl, signal);
+      return (previous, signal) => observeHttp(spec, previous, options, signal);
     default:
       throw new Error(`unknown monitor ${String(spec satisfies never)}`);
   }
@@ -222,7 +234,7 @@ export function detector(
     if (pending) {
       return { changed: true, launch: pending };
     }
-    const observe = observer(key, spec, host, options.fetch ?? fetch);
+    const observe = observer(key, spec, host, options);
     let observed: Observation;
     try {
       observed = await observe(previous, signal);
@@ -299,25 +311,66 @@ async function observeFiles(
   };
 }
 
+/** Statuses whose response has no body; `new Response` refuses one. */
+const NULL_BODY_STATUSES = new Set([101, 204, 205, 304]);
+const TEXTUAL =
+  /^(text\/|application\/(json|xml|javascript)|[^;]*\+(json|xml))/i;
+
+/** A content type a person reads; without one the body is treated as text. */
+function isTextual(contentType: string | null): boolean {
+  return contentType === null || TEXTUAL.test(contentType);
+}
+
+/**
+ * The body as the handler and the diff see it: JSON parsed, other text as
+ * text, anything else described by its size, since its bytes are hashed.
+ */
+function bodyOf(bytes: Uint8Array, contentType: string | null): unknown {
+  if (!isTextual(contentType)) {
+    return { bytes: bytes.byteLength, contentType };
+  }
+  const text = new TextDecoder().decode(bytes);
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
+}
+
+/**
+ * Poll once. Any status is a reading: a move to a 404 or a 500 is a change
+ * like any other. A 401 or 403 fails the poll instead, naming the status
+ * and the URL, never what was sent. A network error fails it too.
+ */
 async function observeHttp(
   spec: { readonly url: string },
   previous: unknown,
-  fetchImpl: Fetch,
+  options: DetectorOptions,
   signal?: AbortSignal
 ): Promise<Observation> {
-  const response = await fetchImpl(spec.url, { signal });
-  if (!response.ok) {
-    throw new Error(`HTTP ${String(response.status)}`);
+  const { request } = options;
+  const init = typeof request === "function" ? await request() : request;
+  const response = await (options.fetch ?? fetch)(spec.url, {
+    ...init,
+    signal,
+  });
+  if (response.status === 401 || response.status === 403) {
+    throw new Error(
+      `HTTP ${String(response.status)} from ${spec.url}; check the credentials its request sends`
+    );
   }
-  const text = await response.text();
-  let body: unknown = text;
-  try {
-    body = JSON.parse(text);
-  } catch {
-    // Not JSON; the text is the body.
-  }
-  // `jsonData`: JSON text can hold a number too large to be finite.
-  const hash = sha256(canonicalizeJson(jsonData(body)));
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  const contentType = response.headers.get("content-type");
+  const body = bodyOf(bytes, contentType);
+  // A JSON or text body hashes as it always has, so a key order change is
+  // no change; other bytes hash as bytes. `jsonData`: JSON text can hold a
+  // number too large to be finite. A non-2xx status is part of the reading.
+  const digest = isTextual(contentType)
+    ? sha256(canonicalizeJson(jsonData(body)))
+    : sha256(bytes);
+  const hash = response.ok
+    ? digest
+    : sha256(`${String(response.status)}\0${digest}`);
   const last = isRecord(previous) ? previous : undefined;
   return {
     change:
@@ -329,10 +382,25 @@ async function observeHttp(
             previous: last?.current,
             status: response.status,
           },
-    response: new Response(text, {
-      headers: response.headers,
-      status: response.status,
-    }),
+    response: replay(response, bytes),
     state: { current: body, hash },
   };
+}
+
+/** A fresh `Response` over the bytes already read, as the original reported itself. */
+function replay(response: Response, bytes: Uint8Array): Response {
+  const copy = new Response(
+    NULL_BODY_STATUSES.has(response.status) ? null : bytes,
+    {
+      headers: response.headers,
+      status: response.status,
+      statusText: response.statusText,
+    }
+  );
+  // Read-only on a constructed Response; own properties shadow the getters.
+  Object.defineProperties(copy, {
+    redirected: { value: response.redirected },
+    url: { value: response.url },
+  });
+  return copy;
 }

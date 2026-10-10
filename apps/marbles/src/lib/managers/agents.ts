@@ -1,12 +1,22 @@
 import type { AgentSpec } from "@foundry/agents/agents/index";
 import { createAgentPreset } from "@foundry/agents/agents/index";
-import type { HarnessSession, SessionHarness } from "@foundry/agents/harness";
-import type { SessionStore } from "@foundry/agents/session";
+import type {
+  HarnessSession,
+  SessionHarness,
+  TurnOptions,
+} from "@foundry/agents/harness";
+import type {
+  SessionInput,
+  SessionMessage,
+  SessionStore,
+  SessionStream,
+} from "@foundry/agents/session";
 import type { Skill } from "@foundry/agents/skills";
 import type { ModelManager, TurnExecutorRef } from "@foundry/models";
 import { observeAgentTurn } from "@foundry/models";
 import { DEFAULT_SANDBOX_WORKING_DIRECTORY } from "@foundry/sandbox/constants";
 import type { Container } from "@foundry/sandbox/container/containers";
+import type { Output } from "ai";
 
 import type { AutomationService } from "~/lib/automation/service";
 import { isCliHarness } from "~/lib/cli-harnesses";
@@ -15,19 +25,28 @@ import type { HarnessInteractions } from "~/lib/sandbox/interactions";
 import type { SandboxSessionOptions } from "~/lib/sandbox/session";
 import { createSandboxSession } from "~/lib/sandbox/session";
 import type { ManagerArgs } from "../bindings";
+import { SANDBOX_HANDLE } from "../handles";
 import type { LiveSession } from "../run-scope";
 import { workingDirectory } from "../run-scope";
 import type {
   AgentDefinition,
   Agents,
-  Sandbox,
   SandboxAgentOptions,
+  SandboxHandle,
+  SandboxInstance,
   Session,
   SessionOptions,
   SessionRef,
+  SessionReply,
   SkillSet,
 } from "../types";
-import { type SessionTurnSite, wrapAgentSession } from "./agent-turns";
+import {
+  deferredStream,
+  replayedStream,
+  replyOf,
+  type SessionTurnSite,
+  wrapAgentSession,
+} from "./agent-turns";
 import { resolveCompaction } from "./session-options";
 
 /**
@@ -52,7 +71,7 @@ export interface AgentsDeps {
   /** The triggers a sandboxed agent may create, offered to it as tools. */
   readonly automations: AutomationService;
   /** The container behind a sandbox handle; a sandbox session's harness runs in it. */
-  readonly containerOf: (sandbox: Sandbox) => Container;
+  readonly containerOf: (sandbox: SandboxHandle) => Container;
   /** The route when an agent names neither model nor provider. */
   readonly defaultExecutor: () => TurnExecutorRef;
   /** Simulation uses echo models and never prepares a guest or reads credentials. */
@@ -68,6 +87,31 @@ export interface AgentsDeps {
 }
 
 const KIND = "agents.session";
+/** A definition's own `generate` or `stream`: one turn on a fresh session. */
+const TURN_KIND = "agent.turn";
+
+/** Where a one-turn call's reply is, for replay. */
+interface RecordedTurn {
+  readonly message: string;
+  readonly session: string;
+}
+
+/**
+ * One turn on a fresh session, as an agent definition's `generate` and
+ * `stream` run it. Continuity across turns stays with `agents.session`.
+ */
+export interface AgentTurns {
+  generate<OUTPUT extends Output.Output>(
+    definition: AgentDefinition<Output.Output>,
+    input: SessionInput,
+    options?: TurnOptions<OUTPUT>
+  ): Promise<SessionReply<OUTPUT>>;
+  stream<OUTPUT extends Output.Output>(
+    definition: AgentDefinition<Output.Output>,
+    input: SessionInput,
+    options?: TurnOptions<OUTPUT>
+  ): SessionStream<OUTPUT>;
+}
 /** The run id of a session opened on the manager, outside any run. */
 const DIRECT = "direct";
 
@@ -178,6 +222,17 @@ async function fileSession(
   }
 }
 
+/** A declared sandbox passed as is starts itself, in the step when there is one. */
+function startedSandbox(
+  sandbox: SandboxHandle | SandboxInstance
+): Promise<SandboxHandle> | SandboxHandle {
+  // Read, not `in`: an instance is a proxy whose record has no such key.
+  const start = Reflect.get(sandbox, SANDBOX_HANDLE) as
+    | (() => Promise<SandboxHandle>)
+    | undefined;
+  return start ? start() : (sandbox as SandboxHandle);
+}
+
 /** A CLI harness runs its own CLI in the guest; any other harness needs the network model. */
 function sandboxModel(models: ModelManager, executor: TurnExecutorRef) {
   if (isCliHarness(executor.harness)) {
@@ -252,7 +307,7 @@ interface Route {
 
 /** What both kinds of session are opened with, once the route and id are settled. */
 interface Opening {
-  readonly definition: AgentDefinition;
+  readonly definition: AgentDefinition<Output.Output>;
   readonly id: string;
   readonly options: SessionOptions;
   readonly route: Route;
@@ -266,12 +321,12 @@ interface Opening {
  * created in the store the first time the run needs it, so a host can read
  * every agent the run opened through `run.session`.
  */
-async function openSession(
+async function openSession<OUTPUT extends Output.Output>(
   deps: AgentsDeps,
   site: SessionSite,
-  definition: AgentDefinition,
+  definition: AgentDefinition<OUTPUT>,
   options: SessionOptions
-): Promise<Session> {
+): Promise<Session<OUTPUT>> {
   const wanted = options.session ? refOf(options.session) : undefined;
   const fallback =
     definition.provider === undefined && definition.model === undefined
@@ -295,9 +350,13 @@ async function openSession(
   };
   const harness =
     options.sandbox && !deps.dry
-      ? await openSandboxSession(deps, { ...opening, options }, options.sandbox)
+      ? await openSandboxSession(
+          deps,
+          { ...opening, options },
+          await startedSandbox(options.sandbox)
+        )
       : await openLocalSession(deps, opening);
-  return retainSession(harness, id, site);
+  return retainSession(harness, id, site, definition.settings);
 }
 
 /** A harness inside the sandbox's container, with approvals, questions, and activity routed to the host. */
@@ -311,7 +370,7 @@ async function openSandboxSession(
     site,
     skills,
   }: Omit<Opening, "options"> & { readonly options: SandboxAgentOptions },
-  sandbox: Sandbox
+  sandbox: SandboxHandle
 ): Promise<HarnessSession> {
   const { source } = site;
   const executor = sandboxExecutor(deps.models, route.modelId, route.provider);
@@ -386,11 +445,12 @@ async function openLocalSession(
   });
 }
 
-function retainSession(
+function retainSession<OUTPUT extends Output.Output>(
   harness: SessionHarness | HarnessSession,
   id: string,
-  site: SessionSite
-): Session {
+  site: SessionSite,
+  settings: AgentDefinition<OUTPUT>["settings"]
+): Session<OUTPUT> {
   if ("close" in harness && harness.close) {
     const { close } = harness;
     site.retain({ close: () => close.call(harness) });
@@ -401,7 +461,7 @@ function retainSession(
     provider: harness.route.provider,
   };
   site.record(ref);
-  return wrapAgentSession(harness, ref, site);
+  return wrapAgentSession(harness, ref, site, settings);
 }
 
 export class AgentsManager implements Agents {
@@ -428,26 +488,131 @@ export class AgentsManager implements Agents {
    * the call names a directory, each call is a new session, and it stays
    * open until the engine is disposed. Pass `onText` to a turn to stream it.
    */
-  async session(
-    definition: AgentDefinition,
+  async session<OUTPUT extends Output.Output = never>(
+    definition: AgentDefinition<OUTPUT>,
     options: SessionOptions = {}
-  ): Promise<Session> {
+  ): Promise<Session<OUTPUT>> {
     validateSessionOptions(options);
     return await openSession(
       this.#deps,
-      {
-        cwd: this.#deps.root,
-        record: () => undefined,
-        retain: (closable) => this.#held.add(closable),
-        signal: () => this.#closing.signal,
-        source: { definition: definition.id, path: [], runId: DIRECT },
-        takeResume: () => undefined,
-        track: () => undefined,
-        write: () => undefined,
-      },
+      this.#directSite(definition, (closable) => this.#held.add(closable)),
       definition,
       options
     );
+  }
+
+  /**
+   * One-turn calls, inside a step when `args` is given, else outside any.
+   * In a step each call claims its own place in the ledger, never an
+   * `agents.session` one, and a replay returns the reply it recorded
+   * without running the turn again.
+   */
+  turns(args?: ManagerArgs): AgentTurns {
+    const open = (definition: AgentDefinition<Output.Output>) =>
+      this.#turn(definition, args);
+    return {
+      generate: async (definition, input, options) => {
+        const turn = open(definition);
+        const replayed = await turn.replayed();
+        if (replayed) {
+          return replyOf(replayed);
+        }
+        try {
+          const session = await turn.session();
+          const reply = await session.generate(input, options);
+          turn.record(reply);
+          return reply;
+        } finally {
+          await turn.close();
+        }
+      },
+      stream: (definition, input, options) => {
+        const turn = open(definition);
+        const opening = (async () => {
+          const replayed = await turn.replayed();
+          if (replayed) {
+            return replayedStream(replyOf(replayed));
+          }
+          try {
+            const stream = (await turn.session()).stream(input, options);
+            Promise.all([stream.message, stream.output])
+              .then(([message]) => turn.record(message))
+              .catch(() => undefined)
+              .finally(() => turn.close());
+            return stream;
+          } catch (error) {
+            await turn.close();
+            throw error;
+          }
+        })();
+        return deferredStream(opening);
+      },
+    };
+  }
+
+  /** A one-turn call's place: claimed at once, so call order decides it. */
+  #turn(definition: AgentDefinition<Output.Output>, args?: ManagerArgs) {
+    const held = new Set<Closable>();
+    const claim = args?.scope.claim(args.frame, TURN_KIND);
+    const recorded = claim && args?.scope.ledger.get<RecordedTurn>(claim.key);
+    const site: SessionSite = args
+      ? {
+          cwd: args.scope.cwd,
+          parent: args.scope.session.id,
+          record: () => undefined,
+          retain: (closable) => held.add(closable),
+          signal: () => args.frame.signal,
+          source: {
+            definition: args.frame.path[0] ?? definition.id,
+            path: [...args.frame.path],
+            runId: args.scope.id,
+          },
+          takeResume: () => undefined,
+          track: (live) => args.frame.sessions.push(live),
+          write: args.write,
+        }
+      : this.#directSite(definition, (closable) => held.add(closable));
+    return {
+      close: async () => {
+        await Promise.allSettled([...held].map((closable) => closable.close()));
+      },
+      /** Only a complete reply is kept; anything else runs again on replay. */
+      record: (message: SessionMessage) => {
+        if (claim && message.status === "complete") {
+          args?.scope.ledger.set(claim.key, {
+            message: message.id,
+            session: message.sessionId,
+          } satisfies RecordedTurn);
+        }
+      },
+      replayed: async (): Promise<SessionMessage | undefined> => {
+        if (!recorded) {
+          return;
+        }
+        const messages = await this.#deps.sessions.listMessages(
+          recorded.session
+        );
+        return messages.find((message) => message.id === recorded.message);
+      },
+      session: () => openSession(this.#deps, site, definition, {}),
+    };
+  }
+
+  /** Outside any step: the workspace root, stopped only by the manager's close. */
+  #directSite(
+    definition: AgentDefinition<Output.Output>,
+    retain: (closable: Closable) => void
+  ): SessionSite {
+    return {
+      cwd: this.#deps.root,
+      record: () => undefined,
+      retain,
+      signal: () => this.#closing.signal,
+      source: { definition: definition.id, path: [], runId: DIRECT },
+      takeResume: () => undefined,
+      track: () => undefined,
+      write: () => undefined,
+    };
   }
 
   /** What a step body sees: sessions bound to its frame's signal, stream, and working directory. */

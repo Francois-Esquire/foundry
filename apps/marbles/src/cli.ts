@@ -16,9 +16,11 @@ import {
 import { install, launchdPlan, preview, uninstall } from "~/launchd";
 import { CLI_HARNESS_IDS } from "~/lib/cli-harnesses";
 import type { Engine } from "~/lib/engine";
+import { RunEndedError } from "~/lib/engine";
 import type { MonitorSpec } from "~/lib/monitor";
 import { describeMonitor } from "~/lib/monitor";
 import { describeTrigger, tick } from "~/lib/schedule";
+import { SchemaError } from "~/lib/schema";
 import { JsonSessionStore } from "~/lib/sessions/json-store";
 import { createStarter } from "~/onboarding/create";
 import { DEFAULT_HARNESS, STARTERS } from "~/onboarding/templates";
@@ -151,7 +153,7 @@ function listTriggers(
 
 function manageLaunchd(
   args: ArgsOf<"launchd">,
-  { configPath }: OpenedWorkspace,
+  opened: OpenedWorkspace,
   { automations }: Triggers
 ): void {
   const { action, schedule: key } = args;
@@ -164,8 +166,9 @@ function manageLaunchd(
   }
   const plan = launchdPlan(schedule, {
     artifacts: resolve(args.artifacts),
-    config: configPath,
-    cwd: process.cwd(),
+    config: opened.configPath,
+    // A tick runs where the workspace is, whatever directory installed it.
+    cwd: opened.workspace.root,
     home: homedir(),
     only: args.only,
     path: process.env.PATH ?? "",
@@ -180,11 +183,56 @@ function manageLaunchd(
   }
 }
 
+/** `--input` as JSON; anything else is a usage error that names the flag. */
+function inputFrom(json: string): unknown {
+  try {
+    return JSON.parse(json);
+  } catch (error) {
+    throw new UsageError(
+      `--input is not JSON: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error }
+    );
+  }
+}
+
+/** A rejected launch input in one line: what the definition takes, and where to get it. */
+function inputHint(engine: Engine, name: string, error: SchemaError): string {
+  const fields =
+    engine.definitions().find((entry) => entry.name === name)?.input.fields ??
+    [];
+  const takes = fields
+    .map(
+      (field) =>
+        `${field.name} (${field.type}${field.required ? "" : ", optional"})`
+    )
+    .join(", ");
+  const sample = JSON.stringify(
+    Object.fromEntries(
+      fields.filter((field) => field.required).map((field) => [field.name, "…"])
+    )
+  );
+  const keys = engine
+    .schedules()
+    .filter((record) => record.workflow === name && record.input !== undefined)
+    .map((record) => record.key);
+  const carried =
+    keys.length > 0
+      ? `, or roll a schedule key that carries it: ${keys.join(", ")}`
+      : "";
+  return [
+    `${error.message}.`,
+    takes === "" ? "" : `${name} takes ${takes}.`,
+    `Pass --input '${sample}'${carried}.`,
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
 async function roll(args: ArgsOf<"roll">, engine: Engine): Promise<void> {
   const { name } = args;
   const schedule = engine.schedules().find((record) => record.key === name);
   const input: unknown =
-    args.inputJson === undefined ? schedule?.input : JSON.parse(args.inputJson);
+    args.inputJson === undefined ? schedule?.input : inputFrom(args.inputJson);
   if (schedule) {
     const result = await tick(engine, { ...schedule, input }, { print });
     if (result) {
@@ -193,7 +241,12 @@ async function roll(args: ArgsOf<"roll">, engine: Engine): Promise<void> {
     return;
   }
   if (engine.definitions().some((entry) => entry.name === name)) {
-    print(JSON.stringify(await engine.run<unknown>(name, input), null, 2));
+    const output = await engine.run<unknown>(name, input).catch((error) => {
+      throw error instanceof SchemaError
+        ? new UsageError(inputHint(engine, name, error))
+        : error;
+    });
+    print(JSON.stringify(output, null, 2));
     return;
   }
   throw new Error(`no workflow or schedule named "${name}"`);
@@ -233,11 +286,18 @@ function printErrors(automations: Triggers["automations"]): void {
   }
 }
 
+/** Work about to run needs its environment; listing and the dashboard only warn. */
+function envMode(args: { readonly command: Command }): "require" | "warn" {
+  const installs =
+    args.command === "launchd" && "action" in args && args.action === "install";
+  return args.command === "roll" || installs ? "require" : "warn";
+}
+
 async function withEngine(
-  args: Flags,
+  args: Flags & { readonly command: Command },
   run: (engine: Engine, opened: OpenedWorkspace) => Promise<void>
 ): Promise<void> {
-  const opened = await openWorkspace(args, { print });
+  const opened = await openWorkspace(args, { env: envMode(args), print });
   const engine = hostEngine(args, opened, { print });
   touchWorkspace(engine, opened);
   printErrors(engine.automations);
@@ -266,7 +326,7 @@ async function dispatch<C extends Command>(
       await handler.run(args, findWorkspace(args));
       return;
     case "triggers": {
-      const opened = await openWorkspace(args, { print });
+      const opened = await openWorkspace(args, { env: envMode(args), print });
       const triggers = hostTriggers(args, opened);
       printErrors(triggers.automations);
       handler.run(args, opened, triggers);
@@ -299,7 +359,16 @@ async function main(): Promise<void> {
     await runInteractive(args);
     return;
   }
-  await dispatch(args.command, args);
+  try {
+    await dispatch(args.command, args);
+  } catch (error) {
+    // What the person running the command can act on reads as one line.
+    if (!(error instanceof UsageError || error instanceof RunEndedError)) {
+      throw error;
+    }
+    process.stderr.write(`marbles: ${error.message}\n`);
+    process.exitCode = 1;
+  }
 }
 
 await main();

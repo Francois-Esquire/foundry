@@ -44,6 +44,7 @@ const SOURCE_PATTERN = /source is required/;
 const CADENCE_PATTERN = /cadence/;
 const KEY_PATTERN = /^[a-z0-9-]+-[0-9a-f]{6}$/;
 const WRAP_PATTERN = /wrap it in a named workflow/;
+const REQUEST_PATTERN = /only an http or https source sends a request/;
 
 const catalogues: Catalogue[] = [];
 
@@ -484,7 +485,7 @@ describe("http detector", () => {
   it("logs a failed poll and keeps the last state", async () => {
     const { fetch } = stub([
       json("a"),
-      json("boom", 500),
+      json("denied", 401),
       () => {
         throw new Error("offline");
       },
@@ -499,11 +500,95 @@ describe("http detector", () => {
     await expect(detect(context)).resolves.toEqual({ changed: false });
     await expect(detect(context)).resolves.toEqual({ changed: false });
     expect(lines).toEqual([
-      "[monitor] r poll failed: Error: HTTP 500",
+      "[monitor] r poll failed: Error: HTTP 401 from https://example.test; check the credentials its request sends",
       "[monitor] r poll failed: Error: offline",
     ]);
     await expect(detect(context)).resolves.toEqual({ changed: false });
     expect(changes).toHaveLength(1);
+  });
+
+  it("sees a move to an error status as a change, with its real status", async () => {
+    const { fetch } = stub([
+      json("a"),
+      json("a", 500),
+      json("a", 500),
+      json("a"),
+    ]);
+    const spec: MonitorSpec = { kind: "http", url: "https://example.test" };
+    const { context } = hostIn("/nowhere");
+    const { changes, contexts, handler } = recorder();
+    const detect = detectorIn("r", spec, handler, { fetch });
+
+    await detect(context);
+    await expect(detect(context)).resolves.toEqual({ changed: true });
+    expect(changes[1]).toMatchObject({ current: "a", status: 500 });
+    expect(contexts[1]?.response?.status).toBe(500);
+    await expect(detect(context)).resolves.toEqual({ changed: false });
+    await expect(detect(context)).resolves.toEqual({ changed: true });
+    expect(changes[2]).toMatchObject({ status: 200 });
+  });
+
+  it("sends the monitor's request, calling a function at every poll", async () => {
+    const { fetch, calls } = stub([json("a"), json("a")]);
+    const spec: MonitorSpec = { kind: "http", url: "https://example.test" };
+    const { context } = hostIn("/nowhere");
+    const { handler } = recorder();
+    let polls = 0;
+    const detect = detectorIn("r", spec, handler, {
+      fetch,
+      request: () => {
+        polls += 1;
+        return { headers: { "X-Token": `t${String(polls)}` }, method: "POST" };
+      },
+    });
+
+    await detect(context);
+    await detect(context);
+    expect(polls).toBe(2);
+    expect(
+      calls.map((call) => new Headers(call.headers).get("X-Token"))
+    ).toEqual(["t1", "t2"]);
+    expect(calls[0]?.method).toBe("POST");
+    expect(calls[0]?.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("hashes a binary body as bytes and keeps how the response described itself", async () => {
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0xff, 0x00]);
+    const { fetch } = stub([
+      () => {
+        const reply = new Response(png, {
+          headers: { "content-type": "image/png" },
+          status: 200,
+          statusText: "Fine",
+        });
+        Object.defineProperties(reply, {
+          redirected: { value: true },
+          url: { value: "https://cdn.example.test/logo.png" },
+        });
+        return reply;
+      },
+    ]);
+    const spec: MonitorSpec = {
+      kind: "http",
+      url: "https://example.test/logo",
+    };
+    const { context } = hostIn("/nowhere");
+    const { changes, contexts, handler } = recorder();
+    await detectorIn("r", spec, handler, { fetch })(context);
+
+    expect(changes[0]?.kind === "http" && changes[0].current).toEqual({
+      bytes: 6,
+      contentType: "image/png",
+    });
+    const response = contexts[0]?.response;
+    expect(new Uint8Array(await (response as Response).arrayBuffer())).toEqual(
+      png
+    );
+    expect(response).toMatchObject({
+      redirected: true,
+      statusText: "Fine",
+      url: "https://cdn.example.test/logo.png",
+    });
   });
 });
 
@@ -553,5 +638,31 @@ describe("monitor factory", () => {
   it("rejects an empty source and a bad cadence at registration", () => {
     expect(() => monitor(" ")).toThrow(SOURCE_PATTERN);
     expect(() => monitor("*.md").every("soon")).toThrow(CADENCE_PATTERN);
+  });
+
+  it("takes request options only for an http source, outside the key and spec", () => {
+    expect(() => monitor("*.md").request({ method: "POST" })).toThrow(
+      REQUEST_PATTERN
+    );
+    monitor("https://example.test/b")
+      .request({ headers: { Authorization: "Bearer secret" } })
+      .every("5m")
+      .do(handler);
+    const [sent] = [...catalog.monitors.values()];
+    expect(sent?.source).toEqual({
+      kind: "http",
+      url: "https://example.test/b",
+    });
+    expect(sent?.request).toEqual({
+      headers: { Authorization: "Bearer secret" },
+    });
+    expect(sent?.trigger).toEqual({ kind: "interval", ms: 300_000 });
+    expect(
+      JSON.stringify(declared().schedules.get(sent?.key ?? ""))
+    ).not.toContain("secret");
+    // The key comes from the source alone.
+    catalog.reset();
+    monitor("https://example.test/b").do(handler);
+    expect([...catalog.monitors.keys()]).toEqual([sent?.key]);
   });
 });

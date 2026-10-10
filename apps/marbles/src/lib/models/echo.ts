@@ -1,3 +1,4 @@
+import type { JSONSchema7, JSONSchema7Definition } from "@ai-sdk/provider";
 import type {
   LanguageModelV4,
   Provider,
@@ -14,7 +15,8 @@ import { MockLanguageModelV4 } from "ai/test";
 
 export type Print = (line: string) => void;
 
-type Prompt = Parameters<LanguageModelV4["doGenerate"]>[0]["prompt"];
+type CallOptions = Parameters<LanguageModelV4["doGenerate"]>[0];
+type Prompt = CallOptions["prompt"];
 type Generated = Awaited<ReturnType<LanguageModelV4["doGenerate"]>>;
 
 const STOP: Generated["finishReason"] = { raw: undefined, unified: "stop" };
@@ -37,6 +39,8 @@ interface MockCall {
   readonly cwd: string | undefined;
   readonly executor: TurnExecutorRef;
   readonly prompt: string;
+  /** The JSON schema the turn's structured output must match, if any. */
+  readonly schema?: JSONSchema7;
 }
 
 /** Decides the text a mock model answers with. */
@@ -106,19 +110,22 @@ function mockProvider(
     harness: executor.harness,
     id: executor.provider,
     languageModel: (_modelId, options) => {
-      const answer = (prompt: Prompt) => {
+      const answer = ({ prompt, responseFormat }: CallOptions) => {
         const input = promptText(prompt);
         const call: MockCall = {
           cwd: options?.workingDirectory,
           executor,
           prompt: input,
+          ...(responseFormat?.type === "json" && responseFormat.schema
+            ? { schema: responseFormat.schema }
+            : {}),
         };
         const output = reply(call);
         return { call, output, usage: usage(input, output) };
       };
       return new MockLanguageModelV4({
-        doGenerate: ({ prompt }) => {
-          const { output, usage: responseUsage } = answer(prompt);
+        doGenerate: (call) => {
+          const { output, usage: responseUsage } = answer(call);
           return Promise.resolve({
             content: [{ text: output, type: "text" }],
             finishReason: STOP,
@@ -126,8 +133,9 @@ function mockProvider(
             warnings: [],
           });
         },
-        doStream: ({ abortSignal, prompt }) => {
-          const { call, output, usage: responseUsage } = answer(prompt);
+        doStream: (streamCall) => {
+          const { abortSignal } = streamCall;
+          const { call, output, usage: responseUsage } = answer(streamCall);
           if (mockOptions.hold?.(call)) {
             return Promise.resolve({
               stream: heldStream(output, responseUsage, abortSignal) as never,
@@ -163,15 +171,81 @@ export function mockModels(
   });
 }
 
-/** Prints the turn it would take and answers with that same line. */
+/**
+ * Prints the turn it would take and answers with that same line. A turn
+ * with structured output is answered with the smallest value its schema
+ * accepts, and the line names the keys it asked for.
+ */
 export function echoModels(
   executors: readonly TurnExecutorRef[],
   print: Print
 ): ModelManager {
-  return mockModels(executors, ({ executor, prompt, cwd }) => {
+  return mockModels(executors, ({ executor, prompt, cwd, schema }) => {
     const where = cwd ? ` in ${cwd}` : "";
     const text = `[${executor.provider}/${executor.model}]${where} ${prompt}`;
-    print(text);
-    return text;
+    if (!schema) {
+      print(text);
+      return text;
+    }
+    const keys = Object.keys(schema.properties ?? {});
+    print(`${text} → ${keys.length > 0 ? `{ ${keys.join(", ")} }` : "json"}`);
+    return JSON.stringify(sampleOf(schema));
   });
+}
+
+/**
+ * The smallest value a schema accepts: required keys only, empty arrays
+ * (or the fewest items allowed), the first enum member, the lowest number.
+ */
+function sampleOf(definition: JSONSchema7Definition): unknown {
+  if (typeof definition === "boolean") {
+    return definition ? {} : null;
+  }
+  if (definition.const !== undefined) {
+    return definition.const;
+  }
+  if (definition.enum?.length) {
+    return definition.enum[0];
+  }
+  const alternative = definition.anyOf?.[0] ?? definition.oneOf?.[0];
+  if (alternative !== undefined) {
+    return sampleOf(alternative);
+  }
+  const types = [definition.type ?? []].flat();
+  const type = types.find((name) => name !== "null") ?? types[0];
+  switch (type) {
+    case "object": {
+      const required = new Set(definition.required);
+      return Object.fromEntries(
+        Object.entries(definition.properties ?? {})
+          .filter(([name]) => required.has(name))
+          .map(([name, property]) => [name, sampleOf(property)])
+      );
+    }
+    case "array": {
+      const { items = {}, minItems = 0 } = definition;
+      const tuple = Array.isArray(items)
+        ? items
+        : Array.from({ length: minItems }, () => items);
+      return tuple.map((item) => sampleOf(item));
+    }
+    case "string":
+      return "x".repeat(definition.minLength ?? 0);
+    case "number":
+    case "integer":
+      if (definition.minimum !== undefined) {
+        return definition.minimum;
+      }
+      return definition.exclusiveMinimum === undefined
+        ? 0
+        : definition.exclusiveMinimum + 1;
+    case "boolean":
+      return false;
+    case "null":
+      return null;
+    default:
+      return definition.allOf?.[0] === undefined
+        ? {}
+        : sampleOf(definition.allOf[0]);
+  }
 }

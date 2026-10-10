@@ -15,13 +15,11 @@ export { toModelMessages } from "./converter";
 export type {
   AgentApprovalRequest,
   AgentApprovalResponse,
-  GenerationConfig,
   SessionEvent,
   SessionInput,
   SessionStream,
   SessionTurnOutcome,
   StreamHandlers,
-  StreamOptions,
 } from "./events";
 export type { RawMessageMetadata, RawUsage } from "./metadata";
 export { normalizeMessageMetadata } from "./metadata";

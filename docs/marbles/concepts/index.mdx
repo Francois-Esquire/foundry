@@ -3,7 +3,7 @@ title: Concepts
 description: The vocabulary of a local automation.
 ---
 
-A automation connects work, observation, timing, and continuity. Nine words
+An automation connects work, observation, timing, and continuity. Nine words
 declare those parts in modules under `.foundry/marbles/`. Calling the authoring
 words registers definitions and triggers; exports are optional.
 
@@ -19,8 +19,9 @@ words registers definitions and triggers; exports are optional.
 | `schedule` | trigger | A cadence bound to a step or workflow, bare or locked with input. |
 | `monitor` | trigger | A file glob or an HTTP source, polled, with a handler for changes. |
 
-Definitions are presets. A step body can create the same things on the spot
-through its context.
+Definitions carry defaults, and you can use them directly: an agent
+generates, a step or workflow runs. A step body can create the same things
+on the spot through its context.
 
 ```mermaid
 flowchart TD
@@ -46,4 +47,18 @@ workflow.
 | Provider | An installed coding-agent CLI that runs model turns. Claude Code and Codex are supported today. |
 | Key | What names a schedule or monitor: derived from its target and input, or its source. |
 
-Continue with [automations as code](/marbles/concepts/automation-as-code).
+## Read in order
+
+1. [Automation as code](/marbles/concepts/automation-as-code): why work gets an
+   explicit shape, and when a single step is enough.
+2. [Composition](/marbles/concepts/composition): steps, locks, trees, and
+   workflows.
+3. [Agents and sessions](/marbles/concepts/agents-and-sessions): model work and
+   conversations that continue across runs.
+4. [Schedules and monitors](/marbles/concepts/schedules-and-monitors): what
+   brings work back.
+5. [Execution and state](/marbles/concepts/execution-and-state): what a
+   process does, and what survives it.
+
+The [Software Factory](/marbles/guides/software-factory) brings these together
+in a single module.

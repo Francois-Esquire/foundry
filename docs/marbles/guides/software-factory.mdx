@@ -6,7 +6,7 @@ description: The software lifecycle as inputs, marbles, and outputs, in one modu
 A factory takes materials in, works them at stations, and sends products out.
 Software has the same shape. A task comes in; someone implements it, someone
 tests it, someone reviews it, someone decides; a branch, a verdict, and a
-report come out. This walkthrough builds that line as one `.foundry/marbles/software-factory.ts`,
+report come out. This guide builds that line as one `.foundry/marbles/software-factory.ts`,
 one station at a time, and then wires it to a clock and a feed.
 
 Every excerpt below is cut from the complete file at the end. Save that file
@@ -41,8 +41,7 @@ flowchart LR
 
 ## Who works here
 
-Definitions are presets. Two agents, a sandbox, and an artifact are enough
-for this line.
+Two agents, a sandbox, and an artifact are enough for this line.
 
 ```ts
 const implementer = agent({ prompt: "Implement the task. Keep changes small. Commit when done." });
@@ -91,16 +90,18 @@ The working tree arrives; an exit code leaves. Nothing here needs a model.
 ```ts
 const test = step()
   .output(z.number())
-  .do(async ({ sandboxes, stream }) => {
+  .do(async ({ sandboxes }) => {
     const env = await sandboxes.start(box);
-    const result = await env.exec(["bun", "test"]);
-    stream.write(result.stdout);
-    return result.exitCode;
+    return (await env.exec(["bun", "test"])).exitCode;
   });
 ```
 
-The sandbox's output is written to the step's stream, which the dashboard
-shows live. Under `--dry-run` the command is echoed and the exit code is zero.
+`exec` writes the command and its output to the step's stream, which the
+dashboard shows live. Under `--dry-run` the command is echoed and the exit
+code is zero. A step that is only a command can say so:
+`step().exec("bun test", { sandbox: box, check: false })` returns
+`{ exitCode, stdout, stderr }`; this one returns the bare exit code because
+`publish` takes a number.
 
 ## Review
 
@@ -234,7 +235,7 @@ start the triggers, and launch `ship` from the catalog. The run parks at
 "Merge it?"; answer it from the feed, with a note if you like, and `approve`
 returns the decision. Quit while it is parked and the next dashboard adopts
 it. For the Friday schedule without a terminal, see
-[launchd](/marbles/guides/launchd).
+[launchd](/marbles/reference/launchd).
 
 ## What this line does not do
 
@@ -242,8 +243,8 @@ Loops and retries are not available. A rejected `approve` ends the run;
 launch `ship` again with the findings appended to the task. `test` verifies
 the workspace root, not `implement`'s branch; to test the branch, give
 `test` a `branch` input and run it inside a worktree callback the way
-`implement` does. The [implement-review pattern](/marbles/use-cases/implement-review)
-goes further into that handoff.
+`implement` does. [Composition](/marbles/concepts/composition#hand-a-result-to-the-next-step)
+shows a review that checks out the branch it was handed.
 
 ## The complete file
 
@@ -277,11 +278,9 @@ const implement = step()
 // Verify: the working tree becomes an exit code
 const test = step()
   .output(z.number())
-  .do(async ({ sandboxes, stream }) => {
+  .do(async ({ sandboxes }) => {
     const env = await sandboxes.start(box);
-    const result = await env.exec(["bun", "test"]);
-    stream.write(result.stdout);
-    return result.exitCode;
+    return (await env.exec(["bun", "test"])).exitCode;
   });
 
 // Review: a branch or a directory becomes findings
@@ -340,5 +339,5 @@ monitor("https://tracker.example.com/issues/latest")
   .do(async ({ response }) => ship({}, { task: (await response.json()).title }));
 ```
 
-Continue with the [use cases](/marbles/use-cases) for automations that watch a
-repository, remember earlier findings, or keep a correspondence.
+Continue with the [recipes](/marbles/recipes) for smaller automations that
+watch a repository, remember earlier findings, or assess a release.

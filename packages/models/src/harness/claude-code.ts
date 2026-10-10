@@ -129,6 +129,8 @@ export function createClaudeCodeDriver(
         const model = modelFactory(options.modelId, settings);
         const result = await model.doStream({
           abortSignal: abort.signal,
+          // The provider turns this into Claude Code's own `outputFormat`.
+          ...(run.responseFormat ? { responseFormat: run.responseFormat } : {}),
           prompt: [
             {
               content: [{ text: inputText(run.input), type: "text" }],

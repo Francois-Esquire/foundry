@@ -5,7 +5,9 @@ import type { Flags } from "~/args";
 import { catalog } from "~/authoring/catalog";
 import type { Triggers } from "~/create";
 import { createEngine, readTriggers } from "~/create";
+import { loadEnvironment } from "~/env";
 import type { Engine } from "~/lib/engine";
+import { setHost } from "~/lib/runtime";
 import type { Workspace } from "~/lib/state/workspace";
 import { workspaceState } from "~/lib/state/workspace";
 import { resolveSource, sourceFiles, sourceRoot } from "~/source";
@@ -105,6 +107,11 @@ export function findWorkspace(args: Flags): OpenedWorkspace {
 
 export interface OpenWorkspaceOptions {
   /**
+   * What a workspace `.env.schema` that does not resolve does: fail, for
+   * work about to run, or print and go on. `warn` when omitted.
+   */
+  readonly env?: "require" | "warn";
+  /**
    * Nothing is at the source: offer to create it. Resolves true once
    * something was created and loaded there.
    */
@@ -112,12 +119,23 @@ export interface OpenWorkspaceOptions {
   readonly print: (line: string) => void;
 }
 
-/** Load the source into the catalog and place the workspace it defines. */
+/**
+ * Load the workspace's environment, then the source into the catalog, and
+ * place the workspace it defines. The environment comes first so a module
+ * reading `process.env` at load sees it.
+ */
 export async function openWorkspace(
   args: Flags,
-  { onMissing, print }: OpenWorkspaceOptions
+  { env = "warn", onMissing, print }: OpenWorkspaceOptions
 ): Promise<OpenedWorkspace> {
   const configPath = resolveSource(args.config);
+  loadEnvironment(
+    sourceFiles(configPath) === undefined
+      ? process.cwd()
+      : sourceRoot(configPath),
+    env,
+    print
+  );
   const found =
     (await loadSource(configPath, print)) ||
     (onMissing !== undefined && (await onMissing(configPath)));
@@ -133,7 +151,7 @@ export function hostEngine(
     readonly print: (line: string) => void;
   }
 ): Engine {
-  return createEngine({
+  const engine = createEngine({
     artifacts: resolve(args.artifacts),
     askable: options.askable,
     catalog,
@@ -144,6 +162,10 @@ export function hostEngine(
     stateDir: workspace.dir,
     workspaceId: workspace.id,
   });
+  // Definitions called outside a run use the host's models, stores, and
+  // dry-run echo; disposing the engine clears it.
+  setHost(engine);
+  return engine;
 }
 
 /** What an engine over this workspace would trigger, read without building one. */

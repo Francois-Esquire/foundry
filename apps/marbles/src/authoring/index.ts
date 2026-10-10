@@ -1,4 +1,10 @@
-export type { LockedNode } from "~/lib/definition";
+// biome-ignore lint/performance/noBarrelFile: This is the public package entry point for authoring imports.
+export { defineSkill } from "@foundry/agents/skills";
+export { bail } from "@foundry/workflows/types";
+export { Output } from "ai";
+export type { CommandResult, Exec, ExecOptions } from "~/lib/command";
+export { CommandError } from "~/lib/command";
+export type { LockedNode, StepConfig } from "~/lib/definition";
 export type { Log, LogLevel } from "~/lib/log";
 export type {
   Change,
@@ -7,6 +13,7 @@ export type {
   MonitorContext,
   MonitorHandler,
 } from "~/lib/monitor";
+export { dispose } from "~/lib/runtime";
 export type {
   CalendarSlot,
   Schedule,
@@ -14,21 +21,29 @@ export type {
   Weekday,
 } from "~/lib/triggers";
 export type {
+  Agent,
   AgentDefinition,
+  AgentSettings,
   Agents,
   Approval,
   ArtifactDefinition,
+  ArtifactInstance,
+  ArtifactRef,
   Artifacts,
   ArtifactVersion,
+  ArtifactWriteOptions,
   Ask,
   Context,
   FilesSandbox,
   ImageSandbox,
+  LatestArtifact,
+  LoadedWorkspace,
   Report,
   Run,
-  Sandbox,
   SandboxDefinition,
   Sandboxes,
+  SandboxHandle,
+  SandboxInstance,
   SandboxResources,
   SandboxSpec,
   Session,
@@ -37,13 +52,14 @@ export type {
   SessionReply,
   SkillSet,
   Stream,
+  TurnOptions,
   WorkspaceDefinition,
   WorkspaceHandle,
+  WorkspaceInstance,
   Workspaces,
 } from "~/lib/types";
-// biome-ignore lint/performance/noBarrelFile: This is the public package entry point for authoring imports.
 export { step, workflow } from "./builder";
-export type { StepDefinition, WorkflowDefinition } from "./lock";
+export type { Runnable, StepDefinition, WorkflowDefinition } from "./lock";
 export { agent, artifact, sandbox, skills, workspace } from "./resources";
 export type { MonitorBuilder, ScheduleBuilder } from "./triggers";
 export { monitor, schedule } from "./triggers";

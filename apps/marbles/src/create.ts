@@ -1,4 +1,4 @@
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import type { SessionStore } from "@foundry/agents/session";
@@ -6,13 +6,14 @@ import { InMemorySessionStore } from "@foundry/agents/session";
 import type { Artifacts } from "@foundry/artifacts";
 import { ArtifactManager, InMemoryArtifactStore } from "@foundry/artifacts";
 import { blobFiles, JsonArtifactStore } from "@foundry/artifacts/node";
+import { showArgv } from "@foundry/lib/argv";
 import type { ModelManager, Provider } from "@foundry/models";
 import type { Containers } from "@foundry/sandbox/container/containers";
 import { createContainers } from "@foundry/sandbox/container/containers";
 import { createMemoryContainerStore } from "@foundry/sandbox/container/store";
 import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
 import type { GitRun } from "@foundry/workspaces/git";
-import type { Catalog } from "~/authoring/catalog";
+import { Catalog } from "~/authoring/catalog";
 import { configuredMonitorUrl } from "~/lib/automation/configured";
 import { AutomationService } from "~/lib/automation/service";
 import { Engine } from "~/lib/engine";
@@ -27,6 +28,7 @@ import { echoModels } from "~/lib/models/echo";
 import { Registry } from "~/lib/registry";
 import { JsonSessionStore } from "~/lib/sessions/json-store";
 import { InMemoryStateStore, JsonStateStore } from "~/lib/state/store";
+import { workspaceState } from "~/lib/state/workspace";
 
 /**
  * The engine as Marbles runs it. The machine is inspected and the flags are
@@ -183,6 +185,10 @@ export function createEngine(options: CreateEngineOptions): Engine {
   const worktrees = Engine.worktreesFor(state);
   const engine = new Engine({
     artifacts: artifactsAt(dry ? undefined : options.artifacts),
+    // A dry run writes to memory but reads what real runs left, if any.
+    ...(dry && options.artifacts && existsSync(options.artifacts)
+      ? { artifactReads: artifactsAt(options.artifacts) }
+      : {}),
     askable: options.askable,
     containers: containersFor(options, worktrees),
     dry,
@@ -201,6 +207,30 @@ export function createEngine(options: CreateEngineOptions): Engine {
   return engine;
 }
 
+/**
+ * The runtime a definition's instance uses in a script no host loaded: the
+ * detected CLI harnesses, the current directory as the workspace, the
+ * shared artifact store, and nothing else persisted. Not started; no run is
+ * launched through it.
+ */
+export function createDefaultEngine(): Engine {
+  const { id, root } = workspaceState(STATE_DIR, process.cwd());
+  return createEngine({
+    artifacts: join(homedir(), ".foundry", "artifacts"),
+    catalog: new Catalog(),
+    dry: false,
+    only: [],
+    print: (line) => {
+      process.stderr.write(`${line}\n`);
+    },
+    root,
+    workspaceId: id,
+  });
+}
+
+/** Where `marbles` keeps workspace state by default; only the id is read here. */
+const STATE_DIR = join(homedir(), ".foundry", "marbles");
+
 /** Prints the command a sandbox would run and returns a clean exit. */
 function echoExec(print: (line: string) => void): (
   command: readonly string[]
@@ -210,7 +240,7 @@ function echoExec(print: (line: string) => void): (
   stdout: string;
 } {
   return (command) => {
-    print(`[sandbox] ${command.join(" ")}`);
+    print(`[sandbox] ${showArgv(command)}`);
     return { exitCode: 0, stderr: "", stdout: "" };
   };
 }

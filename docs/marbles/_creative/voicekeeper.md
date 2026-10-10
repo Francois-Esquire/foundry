@@ -35,5 +35,5 @@ proposals accumulate where they can be compared. Choose which proposals
 become approved guidance before other agents use them. Your approved files
 remain the source of truth; to give the editor memory of its earlier
 proposals, keep its session reference the way the
-[persistent reviewer](/marbles/use-cases/persistent-reviewer) does. Prompt
+[persistent reviewer](/marbles/recipes/persistent-reviewer) does. Prompt
 instructions do not enforce filesystem permissions.

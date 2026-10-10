@@ -351,3 +351,53 @@ writeFileSync(${JSON.stringify(imported)}, "imported");`
     rmSync(dir, { force: true, recursive: true });
   }
 }, 15_000);
+
+test("roll explains bad input and an unanswerable ask in one line", () => {
+  const dir = mkdtempSync(join(tmpdir(), "marbles-roll-errors-"));
+  const config = join(dir, "marbles.config.ts");
+  writeFileSync(
+    config,
+    `import { schedule, step } from "@foundry/marbles";
+import { z } from ${JSON.stringify(ZOD)};
+const greet = step("greet").input(z.object({ name: z.string() })).do(({ input }) => input.name);
+step("asks").do(({ ask }) => ask.question({ title: "Name?" }));
+schedule(greet({}, { name: "Ada" })).every("1h");`
+  );
+  const roll = (...args: string[]) =>
+    spawnSync(
+      [
+        process.execPath,
+        resolve("src/cli.ts"),
+        "roll",
+        ...args,
+        "--dry-run",
+        "--config",
+        config,
+      ],
+      { stderr: "pipe", stdout: "pipe" }
+    );
+  try {
+    const missing = roll("greet");
+    expect(missing.exitCode).toBe(1);
+    const said = missing.stderr.toString();
+    expect(said).toContain(`marbles: "greet" input: name:`);
+    expect(said).toContain(`Pass --input '{"name":"…"}'`);
+    expect(said).toContain("roll a schedule key that carries it: greet-");
+    expect(said).not.toContain("    at ");
+
+    const malformed = roll("greet", "--input", "{bad");
+    expect(malformed.exitCode).toBe(1);
+    expect(malformed.stderr.toString()).toContain(
+      "marbles: --input is not JSON"
+    );
+
+    const asks = roll("asks");
+    expect(asks.exitCode).toBe(1);
+    expect(asks.stderr.toString()).toContain(
+      `marbles: run "asks" was cancelled: "Name?" is waiting for an answer`
+    );
+    expect(asks.stderr.toString()).not.toContain("    at ");
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
+}, 15_000);

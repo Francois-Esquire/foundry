@@ -11,7 +11,7 @@ import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, it, vi } from "vitest";
 import type { SandboxSessionOptions } from "../../src/lib/sandbox/session";
 import { createSandboxSession } from "../../src/lib/sandbox/session";
-import type { Sandbox } from "../../src/lib/types";
+import type { SandboxHandle } from "../../src/lib/types";
 
 /** The container the last `guest()` built; a session opens over it. */
 const binding: { container: Container | undefined } = { container: undefined };
@@ -114,7 +114,7 @@ function guest() {
   return { exec, files, writeFile };
 }
 
-const sandbox = {} as Sandbox;
+const sandbox = {} as SandboxHandle;
 const { signal } = new AbortController();
 
 async function session(
