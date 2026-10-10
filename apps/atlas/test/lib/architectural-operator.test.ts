@@ -23,6 +23,7 @@ import {
   renderOperator,
   renderOperatorDefinitions,
 } from "../../src/lib/report-operator";
+import { ruleCanName } from "../../src/lib/rule-declaration";
 import { analyzeWorkspace } from "../../src/lib/workspace-intelligence";
 import { createWorkspaceProjectionContext } from "../../src/lib/workspace-projection";
 import type { Spec } from "./helpers/workspace-builder";
@@ -451,6 +452,16 @@ describe("catalog and scenarios", () => {
       }
     }
     expect(renderOperatorDefinitions(definitions)).toContain("rehome-behavior");
+  });
+
+  it("lets a rule name every kind a mutator executes, so none reaches a write unpermitted", () => {
+    const executable = listOperatorDefinitions().filter(
+      (d) => d.legacyOperatorId !== undefined
+    );
+    expect(executable.length).toBeGreaterThan(0);
+    for (const definition of executable) {
+      expect(ruleCanName(definition.kind)).toBe(true);
+    }
   });
 
   it("maps scenario kinds and names the gaps", () => {

@@ -1,6 +1,14 @@
+import {
+  cpSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { analyzeSurface } from "../../src/lib/analyze";
 import {
   createInternalizeOperator,
@@ -12,6 +20,7 @@ import {
   ANALYSIS_POLICY_VERSION,
   WORKSPACE_INTELLIGENCE_POLICY_VERSION,
 } from "../../src/lib/config";
+import { executionPlanFor } from "../../src/lib/execution-plan";
 import { DEFAULT_MUTATION_CAPABILITIES } from "../../src/lib/mutation-capabilities";
 import {
   composeArchitecturalOperators,
@@ -28,8 +37,13 @@ import {
 } from "../../src/lib/operator-plan";
 import type { OperatorPlanningContext } from "../../src/lib/operator-planning-context";
 import { createOperatorPlanningContext } from "../../src/lib/operator-planning-context";
-import { assessOperatorPlanReadiness } from "../../src/lib/operator-readiness";
+import type { ReadinessCommandRunner } from "../../src/lib/operator-readiness";
+import {
+  assessOperatorPlanReadiness,
+  authorizeMutationPlan,
+} from "../../src/lib/operator-readiness";
 import type { OperatorContext } from "../../src/lib/operator-types";
+import { getOperator } from "../../src/lib/operators";
 import { renderOperatorComposition } from "../../src/lib/report-composition";
 import { renderOperatorDecomposition } from "../../src/lib/report-decomposition";
 import { renderOperator } from "../../src/lib/report-operator";
@@ -40,6 +54,8 @@ import {
   renderWorkspacePackageGraph,
   renderWorkspaceReport,
 } from "../../src/lib/report-workspace";
+import type { Rule } from "../../src/lib/rule-declaration";
+import { ruleFingerprint } from "../../src/lib/rules";
 import type { InternalizeSymbolPlan, SurfaceReport } from "../../src/lib/types";
 import { validateReductionPlan } from "../../src/lib/validate";
 import { analyzeWorkspaceGraph } from "../../src/lib/workspace-graph";
@@ -57,6 +73,7 @@ import {
 } from "../../src/lib/workspace-projection-views";
 import type { WorkspaceReport } from "../../src/lib/workspace-types";
 
+const AUTH_HASH = /^auth:[0-9a-f]{16}$/;
 const expectedTextPattern = /"(x|y|color|width|height|font)":/;
 const expectedTextPattern2 = /should |recommend/;
 const expectedTextPattern3 = /Score"|score"|health|shouldMove|recommend/i;
@@ -982,5 +999,246 @@ describe("operator planning against the fixture sources", () => {
         planning,
       }).authorization
     ).toBe("unsupported");
+  });
+});
+
+describe("authorizing a saved plan for its mutator", () => {
+  const pass: ReadinessCommandRunner = () => ({ exitCode: 0, output: "" });
+  const refuse: ReadinessCommandRunner = () => {
+    throw new Error("a baseline command ran");
+  };
+  let copy: string;
+  let planning: OperatorPlanningContext;
+  let facts: OperatorContext;
+  let saved: InternalizeSymbolPlan;
+
+  // The fixture's packages have no test script, which internalize's
+  // verification needs, so a copy gains one for the saved plan's package.
+  beforeAll(() => {
+    facts = createOperatorContext(
+      createWorkspaceProjectionContext(analyzeWorkspace(workspace)),
+      reports
+    );
+    const ready = [...facts.legacyPlansById.values()].find(
+      (entry) => entry.plan.status === "ready"
+    )?.plan;
+    if (ready === undefined) {
+      throw new Error("fixture");
+    }
+    saved = ready;
+    copy = mkdtempSync(join(tmpdir(), "atlas-authorize-"));
+    cpSync(root, copy, { recursive: true });
+    const manifest = join(copy, saved.target.path, "package.json");
+    const parsed = JSON.parse(readFileSync(manifest, "utf8"));
+    writeFileSync(
+      manifest,
+      JSON.stringify({ ...parsed, scripts: { test: "true" } })
+    );
+    planning = createOperatorPlanningContext({
+      root: copy,
+      tsconfig: "tsconfig.json",
+    });
+  });
+
+  afterAll(() => {
+    rmSync(copy, { force: true, recursive: true });
+  });
+
+  function authorize(rules: readonly Rule[], runner = pass) {
+    const { composition, operators, plan } = executionPlanFor(
+      facts,
+      planning,
+      saved.id
+    );
+    return {
+      plan,
+      result: authorizeMutationPlan(
+        plan,
+        { composition, facts, git: false, operators, planning, runner },
+        rules
+      ),
+    };
+  }
+
+  it("records the mutator and saved plan by id under a permitting rule, and the mutator previews exactly the planned files", async () => {
+    const rules: Rule[] = [
+      { effect: "permit", operator: "internalize", subject: saved.target.path },
+    ];
+    const { plan, result } = authorize(rules);
+    if (result.kind !== "authorized") {
+      throw new Error(`not authorized: ${JSON.stringify(result)}`);
+    }
+    const { readiness, record } = result;
+    const { hash: readinessHash, ...parts } = readiness.fingerprint;
+    expect(record).toEqual({
+      authorization: "authorized",
+      authorizationFingerprint: {
+        ...parts,
+        hash: expect.stringMatching(AUTH_HASH),
+        ruleFingerprint: ruleFingerprint(rules),
+      },
+      execution: {
+        mutator: "internalize-export",
+        planFingerprint: saved.fingerprint,
+        planId: saved.id,
+      },
+      executionPlanId: plan.id,
+      permittedBy: [0],
+      readinessFingerprint: readinessHash,
+      schemaVersion: 2,
+      sourceFiles: [
+        ...readiness.sourceState.expectedFiles,
+        ...readiness.sourceState.expectedManifests,
+      ]
+        .map((f) => ({ file: f.file, hash: f.actual }))
+        .sort((a, b) => (a.file < b.file ? -1 : 1)),
+    });
+    expect(record.authorizationFingerprint.hash).not.toBe(readinessHash);
+    expect(JSON.stringify(record)).not.toContain("transformations");
+
+    // Moving the rule renames it, so the rule part, and only it, moves.
+    const moved = authorize([
+      { effect: "require", operator: "internalize", subject: "packages/none" },
+      ...rules,
+    ]).result;
+    if (moved.kind !== "authorized") {
+      throw new Error("not authorized");
+    }
+    const {
+      hash,
+      ruleFingerprint: rule,
+      ...rest
+    } = moved.record.authorizationFingerprint;
+    expect(rule).not.toBe(record.authorizationFingerprint.ruleFingerprint);
+    expect(hash).not.toBe(record.authorizationFingerprint.hash);
+    expect(rest).toEqual(parts);
+    expect(moved.record.permittedBy).toEqual([1]);
+
+    const mutation = await getOperator(record.execution.mutator).apply?.(
+      saved,
+      { root: copy, tsconfig: "tsconfig.json" }
+    );
+    expect(mutation?.status).toBe("preview");
+    expect(mutation?.changedFiles).toEqual(
+      [
+        ...new Set(
+          plan.transformations
+            .filter((t) => t.kind !== "verify-only")
+            .map((t) => t.file)
+        ),
+      ].sort()
+    );
+  }, 60_000);
+
+  it("judges a plan with an edit its mutator does not perform not executable, even on a route file", () => {
+    const { composition, operators, plan } = executionPlanFor(
+      facts,
+      planning,
+      saved.id
+    );
+    const [edit] = plan.transformations.filter((t) => t.kind !== "verify-only");
+    if (edit === undefined) {
+      throw new Error("fixture");
+    }
+    const rewritten = {
+      ...plan,
+      transformations: plan.transformations.map((t) =>
+        t === edit ? { ...t, kind: "rewrite-import" as const } : t
+      ),
+    };
+    expect(
+      authorizeMutationPlan(
+        rewritten,
+        { composition, facts, git: false, operators, planning, runner: refuse },
+        [{ effect: "permit", operator: "internalize", subject: "packages" }]
+      )
+    ).toEqual({
+      kind: "not-executable",
+      reason: "internalize-export does not perform rewrite-import",
+    });
+  });
+
+  it("answers with readiness's verdict, not a record, when a baseline fails now", () => {
+    const failing: ReadinessCommandRunner = () => ({
+      exitCode: 1,
+      output: "1 test failed",
+    });
+    const { result } = authorize(
+      [{ effect: "require", operator: "internalize", subject: "packages" }],
+      failing
+    );
+    expect(result.kind).toBe("readiness");
+    expect(result.kind === "readiness" && result.readiness.authorization).toBe(
+      "blocked"
+    );
+  });
+
+  it("makes no record, and runs no baseline, without a permitting rule", () => {
+    const refused = {
+      kind: "refused-by-rule",
+      refused: [
+        {
+          operator: "internalize",
+          operatorId: createInternalizeOperator(facts, saved.id).id,
+          place: saved.subject.id,
+        },
+      ],
+    };
+    expect(authorize([], refuse).result).toEqual(refused);
+    expect(
+      authorize(
+        [
+          {
+            effect: "permit",
+            operator: "internalize",
+            subject: "packages/none",
+          },
+        ],
+        refuse
+      ).result
+    ).toEqual(refused);
+  });
+
+  it("judges an operator no mutator executes not executable, before any baseline", () => {
+    const ctx = createOperatorContext(
+      createWorkspaceProjectionContext(analyzeWorkspace(workspace)),
+      reports
+    );
+    const id = [...ctx.scenarios.keys()].find((s) =>
+      s.startsWith("packages/core/src/shifted.ts#Shifted::rehome-behavior::")
+    );
+    const created = createOperatorFromScenario(ctx, id ?? "");
+    if (created.status !== "created") {
+      throw new Error(created.reason);
+    }
+    const { operator } = created;
+    const composition = composeArchitecturalOperators(
+      [operator],
+      [decomposeArchitecturalOperator(operator, ctx)],
+      ctx
+    );
+    const plan = planOperatorComposition(
+      composition,
+      [operator],
+      planning,
+      ctx
+    );
+    expect(
+      authorizeMutationPlan(
+        plan,
+        {
+          composition,
+          facts: ctx,
+          git: false,
+          operators: [operator],
+          planning,
+          runner: refuse,
+        },
+        []
+      )
+    ).toEqual({
+      kind: "not-executable",
+      reason: "no mutator executes rehome-behavior yet",
+    });
   });
 });

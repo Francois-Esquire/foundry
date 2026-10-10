@@ -393,11 +393,59 @@ export interface OperatorPlanReadiness {
   verification: ReadinessVerificationStatus;
 }
 
-/** Plan and readiness by id; the records themselves persist separately. */
-export interface AuthorizedMutationPlan {
-  authorization: MutationAuthorization;
-  authorizationFingerprint: MutationAuthorizationFingerprint;
+/** The authorization record's own shape version; until 3.2 it shared readiness's 1. */
+export const AUTHORIZED_MUTATION_PLAN_SCHEMA_VERSION = 2;
+
+/**
+ * The record's fingerprint: readiness's five parts, every rule, and the hash
+ * over all six, so a later re-authorization can name the part that moved.
+ * `planFingerprint` is the execution plan's, as readiness has it; the saved
+ * plan's is `execution.planFingerprint`.
+ */
+export interface AuthorizedMutationFingerprint
+  extends Omit<MutationAuthorizationFingerprint, "hash"> {
+  /** `auth:<hash>` over the six parts. */
+  hash: string;
+  /** Every rule in canonical form, by index (`rules.ts` `ruleFingerprint`). */
+  ruleFingerprint: string;
+}
+
+/** One file the plan was judged against, with its bytes' hash when authorized. */
+interface AuthorizedSourceFile {
+  file: string;
+  /** SHA-256 of its bytes; `"missing"` for a file the plan would create. */
+  hash: string;
+}
+
+/**
+ * What executes an authorized plan: a mutator and the saved plan it runs, by
+ * id and fingerprint, never a copy. Both belong to the saved plan (the
+ * package report's), not to the execution plan readiness judged.
+ */
+export interface MutationExecution {
+  mutator: "internalize-export";
+  /** That plan's fingerprint, which the mutator's own validation checks again. */
+  planFingerprint: string;
+  /** The saved (legacy) plan's id: `plan:internalize-symbol:<path#name>`. */
   planId: string;
+}
+
+/** The handoff to a mutator: ids and fingerprints only, never a plan copy. */
+export interface AuthorizedMutationPlan {
+  authorization: "authorized";
+  authorizationFingerprint: AuthorizedMutationFingerprint;
+  execution: MutationExecution;
+  /** The execution plan's id, which readiness judged; the saved plan's is `execution.planId`. */
+  executionPlanId: string;
+  /** Indexes of the rules that permit the plan, in order. */
+  permittedBy: number[];
+  /** The readiness assessment's own `fingerprint.hash`. */
   readinessFingerprint: string;
-  schemaVersion: typeof OPERATOR_READINESS_SCHEMA_VERSION;
+  schemaVersion: typeof AUTHORIZED_MUTATION_PLAN_SCHEMA_VERSION;
+  /**
+   * Every source file and manifest the plan was judged against, by path,
+   * with the hash `sourceFingerprint` covers, so a re-authorization can name
+   * the file that moved.
+   */
+  sourceFiles: AuthorizedSourceFile[];
 }

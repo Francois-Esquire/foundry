@@ -261,6 +261,13 @@ change, what it predicts, and its status, `ready`, `blocked`, or
 applies it.
 _Avoid_: patch, fix, codemod
 
+**Execution plan**:
+The exact source transformations that would realize one or more
+architectural operators, planned against the working tree and judged by
+readiness; an operator built from a saved plan gets one. Its id and
+fingerprint are not the saved plan's: an authorization record names both.
+_Avoid_: plan alone (that is the package report's saved plan), patch, diff
+
 **Projection**:
 A shape of the reports that no renderer owns; it copies and never infers.
 The workspace's are in `output/projections/`, each package's in

@@ -1701,12 +1701,73 @@ reads the rules yet.
   (a rules-only edit reuses every package and derives nothing); and the
   installed package's configuration and TypeScript consumer declare a rule.
 
-**3.2 Wire the two stacks** at `authorizeMutationPlan`. No third.
+**3.2 Wire the two stacks** at `authorizeMutationPlan`. Done 2026-10-10.
+No third stack: the rules gate and the bridge to the mutator live in the
+handoff, and `OperatorReadinessContext` and the assessment are unchanged.
+- `authorizeMutationPlan(plan, context, rules)` checks cheapest first and
+  answers with one of four kinds. `refused-by-rule` comes from
+  `lib/rules.ts` `permits`: an operator whose kind a rule can name, and
+  whose place no rule of that kind covers (a `require` permits too).
+  `not-executable` comes from the bridge: exactly one operator; the
+  catalog's `legacyOperatorId`; a kind a rule can name (`ruleCanName`, so a
+  kind added to the catalog later cannot reach a write unpermitted; a
+  catalog test ties the two lists); built from a saved plan
+  (`intent.planId`); that plan `ready`; every edit one the mutator performs
+  (`remove-export` or `rewrite-reexport` for `internalize-export`); and the
+  saved plan's route files equal to the files the plan transforms,
+  ignoring `verify-only`. Neither of these runs a baseline command.
+  `readiness` is the assessment's verdict when it does not authorize, such
+  as a baseline that fails now, which is `blocked` and never a hash
+  mismatch. `authorized` carries the readiness and the record.
+- An operator of a kind no rule can name yet is left to the bridge, which
+  says that no mutator executes it: a rule cannot be written for it, so
+  "refused by rule" would name the wrong fix.
+- The record (`AuthorizedMutationPlan`, schema 2, its own
+  `AUTHORIZED_MUTATION_PLAN_SCHEMA_VERSION`; readiness keeps 1) holds
+  `execution: { mutator: "internalize-export", planId, planFingerprint }`,
+  the saved plan's id and fingerprint (no plan copy); `executionPlanId`,
+  the execution plan's; `permittedBy`, the indexes of the permitting rules;
+  `authorizationFingerprint` with readiness's five parts (its
+  `planFingerprint` is the execution plan's) plus `ruleFingerprint`, and an
+  `auth:` hash over all six, so 3.5 can name the part that moved;
+  `sourceFiles`, every file and manifest with the hash `sourceFingerprint`
+  covers (`"missing"` for a file the plan would create), so it can name the
+  file; and `readinessFingerprint`, the assessment's own hash.
+- `ruleFingerprint` is over every rule in one canonical form,
+  `canonicalRules` (`{ effect, operator, subject }` by index, fixed key
+  order), so rules from the configuration and rules read back from the
+  rules lens hash alike; a rule edited, added, removed, or moved
+  invalidates the record.
+- One short-hash helper, `lib/short-hash.ts` `hash16`, moved out of
+  `operator-readiness.ts` unchanged, serves readiness and the rules.
+- `lib/execution-plan.ts` `executionPlanFor(facts, planning, planId)`,
+  returning a `PlannedExecution`, is
+  the chain 3.4's `atlas plan` calls: the saved plan as an operator
+  (`createInternalizeOperator`), decomposed, composed, and planned, in the
+  shape of `planned()` in `test/lib/operator-readiness.test.ts`.
+- `DEFAULT_MUTATION_CAPABILITIES` still claims kinds `apply.ts` never
+  performs; the bridge's file check keeps them from reaching a write, and
+  3.5 narrows the registry.
+- Tests: `test/lib/rules.test.ts` (permits by whole segments, require
+  permits, kinds no rule names left out, one canonical form, a moved rule
+  moves the fingerprint); `test/lib/operator-readiness.test.ts` (a manual
+  operator: refused with no rule, not executable with one, and no
+  baseline runs; a composed plan of two operators is not executable); and
+  `test/lib/workspace-e2e.test.ts` over real reports, on a copy of the
+  locality fixture whose subject package gains a test script: a ready
+  saved plan is authorized under a permit, the record is ids and
+  fingerprints only, a moved rule changes only `ruleFingerprint` and the
+  hash, and `internalize-export` previews exactly the planned files; no
+  permitting rule makes no record; a failing baseline answers `readiness`
+  with `blocked`; a rehome operator is not executable.
 
 **3.3 `atlas check`.** Rules against the dataset; exit 3 on a violation,
 as 1.8 reserved, so it differs from a failed run (1) and bad arguments (2).
 The rules lens (`settings: ["rules"]`) computes the violations at scan
-time; `check` reads it from the saved dataset.
+time; `check` reads it from the saved dataset. The lens saves the rules in
+declaration order, neither sorted nor de-duplicated, so that
+`canonicalRules` over the lens's rules and over the configuration's hash
+alike (3.4 reads the one, 3.5 the other).
 
 **3.4 `atlas plan`.** One plan for one site, read-only.
 
@@ -1782,4 +1843,5 @@ Every change to analysis code, with its reason, before it is made.
 | `analyzeInternals` and `packageInternals` extracted from `runInternalAnalysis` | The materializer derives each package's internals from the local report it already holds, instead of analyzing the package again; `runInternalAnalysis` is unchanged in signature and output. | Done in 1.4. |
 | `PackageInternals` moves to `lib/internal-analysis-types.ts`, spelled out from the stage report types | The reader validates saved internals in the browser, which cannot import the analysis code that `packageInternals`' return type came from. No behavior change; `packageInternals` returns the same shape. | Done in 1.5. |
 | The `@foundry/workspaces` anchor is built in | `lib/config.ts:816-819`; it blocks `fold-package` for any package of that name in any scanned repository. | Done in 1.7: `anchors` is empty and `ANALYSIS_POLICY_VERSION` is 25, so cached reports made under the anchor are not reused. A Foundry scan loses its one anchor until workspaces can declare their own (3.7). |
+| `authorizeMutationPlan` takes the workspace's rules and returns one of `refused-by-rule`, `not-executable`, `readiness`, or `authorized`; the record (`AuthorizedMutationPlan`, schema 2) gains `execution`, `permittedBy`, `sourceFiles`, and `authorizationFingerprint.ruleFingerprint`, renames `planId` to `executionPlanId`, and its `auth:` hash covers the rules. `hash16` moves, unchanged, to `lib/short-hash.ts`. `OperatorReadinessContext` and `assessOperatorPlanReadiness` are unchanged. | The record had no consumer and named no mutator, and `apply.ts` runs saved plans only; nothing may write without a rule that permits it (`_codemods.md`, decision 1); and 3.5 must name the part, and the file, that moved since the plan was authorized. | Done in 3.2. |
 | `workspacePatterns` (`lib/boundary.ts`) reads `pnpm-workspace.yaml#packages`, drops `!` negations, normalizes a leading `./` and trailing slashes, and ignores patterns that resolve to the workspace root (`.`) or escape it (`../*`); `findRepoRoot` finds a workspace by the same declaration | Discovery follows the workspace declaration from 1.7, and the analyses build their program, ownership, and module graph from the same patterns, so both must read the same list. A root pattern would make the whole workspace one package, and an escaping one reaches outside it, so neither names a package. `findRepoRoot` checked `package.json#workspaces` only, so its four callers without an explicit root (`apply.ts`, `package-local.ts`, `workspace-surface.ts`, and `workspace-derive.ts`) resolved a pnpm-only workspace to the current directory. A workspace without `pnpm-workspace.yaml` is unaffected, apart from `docs/` now matching `docs`, which also makes `fold-plan.ts`'s `workspace-entry` impact fire for Foundry's `docs`; that impact's `file: "package.json"` is not pnpm-aware and is left as is, being analysis code. `**` stays unsupported in both. | Done in 1.7. |

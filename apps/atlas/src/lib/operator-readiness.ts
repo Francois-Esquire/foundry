@@ -1,5 +1,4 @@
 import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import {
   accessSync,
   constants,
@@ -18,6 +17,7 @@ import {
   DEFAULT_MUTATION_CAPABILITIES,
   lookupCapability,
 } from "./mutation-capabilities";
+import { getOperatorDefinition } from "./operator-catalog";
 import type {
   CompositionPreservation,
   OperatorComposition,
@@ -48,11 +48,13 @@ import {
   sourceFileOf,
 } from "./operator-planning-context";
 import type {
+  AuthorizedMutationFingerprint,
   AuthorizedMutationPlan,
   MutationAuthorization,
   MutationAuthorizationFingerprint,
   MutationCoverageRequirement,
   MutationCoverageScope,
+  MutationExecution,
   OperatorPlanReadiness,
   ReadinessArchitecturalAssertion,
   ReadinessBaselineCheck,
@@ -86,6 +88,7 @@ import type {
   VerificationBaselineAllowance,
 } from "./operator-readiness-types";
 import {
+  AUTHORIZED_MUTATION_PLAN_SCHEMA_VERSION,
   OPERATOR_READINESS_POLICY_VERSION,
   OPERATOR_READINESS_SCHEMA_VERSION,
 } from "./operator-readiness-types";
@@ -96,6 +99,11 @@ import type {
   OperatorFact,
   OperatorVerificationKind,
 } from "./operator-types";
+import type { Rule } from "./rule-declaration";
+import { ruleCanName } from "./rule-declaration";
+import type { RuleRefusal } from "./rules";
+import { permits, ruleFingerprint } from "./rules";
+import { hash16 } from "./short-hash";
 import type { WorkspaceCoverage } from "./workspace-types";
 
 const extractFailuresPattern = /\s+/g;
@@ -171,13 +179,6 @@ const REQUIREMENT_STEPS: Record<
   tests: ["tests"],
   typecheck: ["typecheck"],
 };
-
-function hash16(parts: unknown[]): string {
-  return createHash("sha256")
-    .update(JSON.stringify(parts))
-    .digest("hex")
-    .slice(0, 16);
-}
 
 function byId(a: string, b: string): number {
   if (a < b) {
@@ -2614,23 +2615,174 @@ export function assessOperatorPlanReadiness(
   };
 }
 
-/** The V12 handoff record: ids and fingerprints only, never a plan copy. */
-export function authorizeMutationPlan(
+/** What `authorizeMutationPlan` answers, in the order it checks. */
+export type MutationAuthorizationResult =
+  /** An operator a rule can name, which no rule permits; nothing was assessed. */
+  | { kind: "refused-by-rule"; refused: RuleRefusal[] }
+  /** No mutator executes exactly this plan; nothing was assessed. */
+  | { kind: "not-executable"; reason: string }
+  /** Readiness judged the plan and did not authorize it: stale, unsupported, blocked (a baseline that fails now), or not authorized. */
+  | { kind: "readiness"; readiness: OperatorPlanReadiness }
+  | {
+      kind: "authorized";
+      readiness: OperatorPlanReadiness;
+      record: AuthorizedMutationPlan;
+    };
+
+/** The set of a list, for comparing two lists of files. */
+function sameFiles(a: readonly string[], b: readonly string[]): boolean {
+  const left = uniq([...a]);
+  const right = uniq([...b]);
+  return (
+    left.length === right.length && left.every((file, i) => file === right[i])
+  );
+}
+
+/** The transformation kinds each mutator performs: `apply.ts` `editRoute` removes an export or a re-export specifier, and nothing else. */
+const MUTATOR_TRANSFORMATIONS: Record<
+  MutationExecution["mutator"],
+  ReadonlySet<PlannedTransformation["kind"]>
+> = {
+  "internalize-export": new Set(["remove-export", "rewrite-reexport"]),
+};
+
+/**
+ * The mutator that executes exactly this plan, or why none does: one
+ * executable operator a rule can name, built from a saved plan that is
+ * ready, whose every edit is one the mutator performs, on exactly the
+ * saved plan's route files. `apply.ts` runs saved plans only, so
+ * this is the one bridge from an execution plan to a write.
+ */
+function executionOf(
   plan: OperatorExecutionPlan,
   context: OperatorReadinessContext
-): { readiness: OperatorPlanReadiness; authorized?: AuthorizedMutationPlan } {
-  const readiness = assessOperatorPlanReadiness(plan, context);
-  if (readiness.authorization !== "authorized") {
-    return { readiness };
+): MutationExecution | { reason: string } {
+  const [operator, ...others] = context.operators;
+  if (operator === undefined) {
+    return { reason: "the plan has no operator" };
+  }
+  if (others.length > 0) {
+    return {
+      reason: `a mutator executes one operator at a time, and the plan has ${context.operators.length}`,
+    };
+  }
+  const { legacyOperatorId } = getOperatorDefinition(operator.kind);
+  if (legacyOperatorId === undefined) {
+    return { reason: `no mutator executes ${operator.kind} yet` };
+  }
+  // A kind no rule can name was never checked against the rules, so it must
+  // not reach a mutator, whatever the catalog says.
+  if (!ruleCanName(operator.kind)) {
+    return { reason: `no rule can permit ${operator.kind} yet` };
+  }
+  const { planId } = operator.intent;
+  if (operator.intent.source !== "existing-plan" || planId === undefined) {
+    return {
+      reason: `${operator.id} was built from no saved plan, and ${legacyOperatorId} runs saved plans only`,
+    };
+  }
+  const saved = context.facts.legacyPlansById.get(planId)?.plan;
+  if (saved === undefined) {
+    return { reason: `the saved plan ${planId} is not in the package reports` };
+  }
+  if (saved.status !== "ready") {
+    const reasons = uniq(saved.blockers.map((b) => b.reason));
+    return {
+      reason: `the saved plan ${planId} is ${saved.status}${reasons.length > 0 ? `: ${reasons.join(", ")}` : ""}`,
+    };
+  }
+  const edits = plan.transformations.filter((t) => t.kind !== "verify-only");
+  const performed = MUTATOR_TRANSFORMATIONS[legacyOperatorId];
+  const unperformed = uniq(
+    edits.filter((t) => !performed.has(t.kind)).map((t) => t.kind)
+  );
+  if (unperformed.length > 0) {
+    return {
+      reason: `${legacyOperatorId} does not perform ${unperformed.join(", ")}`,
+    };
+  }
+  const routes = saved.publicRoutes.map((route) => route.file);
+  const transformed = edits.map((t) => t.file);
+  if (!sameFiles(routes, transformed)) {
+    return {
+      reason: `${legacyOperatorId} would edit ${uniq(routes).join(", ")}, and the plan transforms ${uniq(transformed).join(", ")}`,
+    };
   }
   return {
-    authorized: {
-      authorization: "authorized",
-      authorizationFingerprint: readiness.fingerprint,
-      planId: plan.id,
-      readinessFingerprint: readiness.fingerprint.hash,
-      schemaVersion: OPERATOR_READINESS_SCHEMA_VERSION,
-    },
+    mutator: legacyOperatorId,
+    planFingerprint: saved.fingerprint,
+    planId,
+  };
+}
+
+/** Readiness's five parts and the rules, under one `auth:` hash. */
+function recordFingerprint(
+  readiness: MutationAuthorizationFingerprint,
+  rules: string
+): AuthorizedMutationFingerprint {
+  const { hash: _readinessHash, ...parts } = readiness;
+  return {
+    ...parts,
+    hash: `auth:${hash16([
+      parts.planFingerprint,
+      parts.sourceFingerprint,
+      parts.capabilityFingerprint,
+      parts.verificationFingerprint,
+      parts.rollbackFingerprint,
+      rules,
+      AUTHORIZED_MUTATION_PLAN_SCHEMA_VERSION,
+      OPERATOR_READINESS_POLICY_VERSION,
+    ])}`,
+    ruleFingerprint: rules,
+  };
+}
+
+/**
+ * The handoff to a mutator, checked cheapest first: the rules (an operator
+ * no rule permits is refused), then the bridge to a mutator, and only then
+ * readiness, which runs the baseline commands. The record holds ids and
+ * fingerprints, never a plan copy, and its hash covers every rule, so an
+ * edited or reordered rule invalidates it.
+ */
+export function authorizeMutationPlan(
+  plan: OperatorExecutionPlan,
+  context: OperatorReadinessContext,
+  rules: readonly Rule[]
+): MutationAuthorizationResult {
+  const permitted = permits(rules, context.operators);
+  if (permitted.refused.length > 0) {
+    return { kind: "refused-by-rule", refused: permitted.refused };
+  }
+  const execution = executionOf(plan, context);
+  if ("reason" in execution) {
+    return { kind: "not-executable", reason: execution.reason };
+  }
+  const readiness = assessOperatorPlanReadiness(plan, context);
+  if (readiness.authorization !== "authorized") {
+    return { kind: "readiness", readiness };
+  }
+  return {
+    kind: "authorized",
     readiness,
+    record: {
+      authorization: "authorized",
+      authorizationFingerprint: recordFingerprint(
+        readiness.fingerprint,
+        ruleFingerprint(rules)
+      ),
+      execution,
+      executionPlanId: plan.id,
+      permittedBy: [
+        ...new Set(permitted.permitted.flatMap((p) => p.rules)),
+      ].sort((a, b) => a - b),
+      readinessFingerprint: readiness.fingerprint.hash,
+      schemaVersion: AUTHORIZED_MUTATION_PLAN_SCHEMA_VERSION,
+      sourceFiles: [
+        ...readiness.sourceState.expectedFiles,
+        ...readiness.sourceState.expectedManifests,
+      ]
+        .map((f) => ({ file: f.file, hash: f.actual }))
+        .sort((x, y) => byId(x.file, y.file)),
+    },
   };
 }

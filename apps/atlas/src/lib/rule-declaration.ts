@@ -32,6 +32,13 @@ export interface Rule {
   subject: string;
 }
 
+/** Whether a rule can name this operator kind yet. */
+export function ruleCanName(
+  kind: ArchitecturalOperatorKind
+): kind is Rule["operator"] {
+  return RULE_OPERATORS.some((operator) => operator === kind);
+}
+
 /** Quoted choices as a message lists them: `"a"`, `"a" or "b"`, `"a", "b", or "c"`. */
 function choices(values: readonly string[]): string {
   const quoted = values.map((value) => `"${value}"`);

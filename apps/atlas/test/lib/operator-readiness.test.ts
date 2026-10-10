@@ -43,6 +43,7 @@ import type {
   OperatorContext,
 } from "../../src/lib/operator-types";
 import { renderOperatorPlanReadiness } from "../../src/lib/report-readiness";
+import type { Rule } from "../../src/lib/rule-declaration";
 import { analyzeWorkspace } from "../../src/lib/workspace-intelligence";
 import { createWorkspaceProjectionContext } from "../../src/lib/workspace-projection";
 import {
@@ -98,6 +99,10 @@ const permissive: MutationCapabilityRegistry = {
 };
 
 const pass: ReadinessCommandRunner = () => ({ exitCode: 0, output: "" });
+/** For checks that must refuse before any baseline command runs. */
+const refuse: ReadinessCommandRunner = () => {
+  throw new Error("a baseline command ran");
+};
 
 interface Planned {
   composition: OperatorComposition;
@@ -269,25 +274,49 @@ describe("an authorized internalize (§95, §4, §41–43, §47)", () => {
     ).toBeGreaterThan(0);
   });
 
-  it("hands V12 an authorization record of ids and fingerprints, never a plan copy", () => {
+  it("makes no record for an operator built from no saved plan, before any baseline runs", () => {
+    // The record itself is asserted over real package reports, in
+    // workspace-e2e.test.ts: a manual operator has no saved plan to execute.
     const p = planned([internalize(HELPER, "@p/core")]);
-    const { readiness, authorized } = authorizeMutationPlan(p.plan, {
-      composition: p.composition,
-      facts,
-      git: false,
-      operators: p.operators,
-      planning: context,
-      runner: pass,
+    const authorizing = (rules: readonly Rule[]) =>
+      authorizeMutationPlan(
+        p.plan,
+        {
+          composition: p.composition,
+          facts,
+          git: false,
+          operators: p.operators,
+          planning: context,
+          runner: refuse,
+        },
+        rules
+      );
+    expect(authorizing([])).toEqual({
+      kind: "refused-by-rule",
+      refused: [
+        {
+          operator: "internalize",
+          operatorId: `operator:internalize:${HELPER}`,
+          place: HELPER,
+        },
+      ],
     });
-    expect(authorized).toEqual({
-      authorization: "authorized",
-      authorizationFingerprint: readiness.fingerprint,
-      planId: p.plan.id,
-      readinessFingerprint: readiness.fingerprint.hash,
-      schemaVersion: OPERATOR_READINESS_SCHEMA_VERSION,
+    expect(
+      authorizing([
+        { effect: "permit", operator: "internalize", subject: "packages/co" },
+      ]).kind
+    ).toBe("refused-by-rule");
+    expect(
+      authorizing([
+        { effect: "permit", operator: "internalize", subject: "packages/core" },
+      ])
+    ).toEqual({
+      kind: "not-executable",
+      reason: `operator:internalize:${HELPER} was built from no saved plan, and internalize-export runs saved plans only`,
     });
-    expect(readiness.contract.join(" ")).toContain("revalidates");
-    expect(readiness.contract.join(" ")).toContain("adds none");
+    const r = assess(p);
+    expect(r.contract.join(" ")).toContain("revalidates");
+    expect(r.contract.join(" ")).toContain("adds none");
   });
 });
 
@@ -814,15 +843,22 @@ describe("graphs and composition (§15–16, §72–73, §119–121)", () => {
     expect(r.realizability.supportedTransformations).toBeGreaterThan(0);
     expect(r.realizability.unsupportedTransformations).toBeGreaterThan(0);
     expect(
-      authorizeMutationPlan(p.plan, {
-        composition: p.composition,
-        facts,
-        git: false,
-        operators: p.operators,
-        planning: context,
-        runner: pass,
-      }).authorized
-    ).toBeUndefined();
+      authorizeMutationPlan(
+        p.plan,
+        {
+          composition: p.composition,
+          facts,
+          git: false,
+          operators: p.operators,
+          planning: context,
+          runner: refuse,
+        },
+        [{ effect: "require", operator: "internalize", subject: "packages" }]
+      )
+    ).toEqual({
+      kind: "not-executable",
+      reason: "a mutator executes one operator at a time, and the plan has 2",
+    });
   });
 
   it("blocks a transformation graph with a dangling dependency (§120)", () => {
