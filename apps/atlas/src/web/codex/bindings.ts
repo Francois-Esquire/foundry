@@ -118,11 +118,6 @@ export function chartGrid(pixels: number) {
   };
 }
 
-/** Recorded commits, ranked against repository files of the same kind/window. */
-export function changeCrater(commits: number, percentile: number) {
-  return commits >= 3 && percentile >= 0.8;
-}
-
 /** Summit height of a high fan-in module, from its internal fan-in against its package's cutoff; never quality or churn. */
 export function summitHeight(internalFanIn: number, cutoff: number) {
   return Math.max(0, 1.8 * Math.log2(perCutoff(1 + internalFanIn, cutoff)));

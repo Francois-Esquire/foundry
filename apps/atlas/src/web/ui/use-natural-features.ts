@@ -20,10 +20,9 @@ export function useNaturalFeatures(
       territory,
       regions,
       {
-        churn: volcanic ? data.churn : undefined,
         fileIds: data.fileIds,
         fileRoles: data.fileRoles,
-        recordedChange: volcanic,
+        frequentChange: volcanic ? data.frequentChange : undefined,
         relationships: data.responsibilities.relationships,
         unresolved: data.responsibilities.unresolved,
       },

@@ -15,6 +15,7 @@ import { basename, isAbsolute, join, sep } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { assembleSurfaceReport } from "../../src/lib/assemble";
 import { DEFAULT_CONFIGURATION } from "../../src/lib/atlas-config";
+import { ANALYSIS_CONFIG } from "../../src/lib/config";
 import { datasetReader } from "../../src/lib/dataset";
 import { fileTransport } from "../../src/lib/dataset-files";
 import { encodePackageFile } from "../../src/lib/dataset-layout";
@@ -415,6 +416,10 @@ describe("generation", () => {
   it("publishes each lens's output, named in the manifest with its schema version", () => {
     expect(manifest.lenses).toEqual({
       "file-roles": { file: "lenses/file-roles.json", schemaVersion: 1 },
+      "frequent-change": {
+        file: "lenses/frequent-change.json",
+        schemaVersion: 1,
+      },
       "package-sizes": {
         file: "lenses/package-sizes.json",
         schemaVersion: 1,
@@ -425,6 +430,15 @@ describe("generation", () => {
       },
     });
     // This scan saves no internals, so every complete package is missing.
+    // The fixture is not a Git repository, so no package has churn.
+    expect(readJson(dataset, "lenses/frequent-change.json")).toEqual({
+      gate: {
+        eligibleKinds: ANALYSIS_CONFIG.hotspots.eligibleKinds,
+        minCommitPercentile: ANALYSIS_CONFIG.hotspots.gates.minCommitPercentile,
+      },
+      missing: ["@s/a", "@s/b", "@s/c"],
+      packages: [],
+    });
     for (const lens of ["file-roles", "responsibility-groups"]) {
       expect(readJson(dataset, `lenses/${lens}.json`)).toEqual({
         missing: ["@s/a", "@s/b", "@s/c"],

@@ -63,6 +63,15 @@ member most connected to the others. The `responsibility-groups` lens saves
 them; the viewer draws one as a district.
 _Avoid_: composite, cluster, district (the viewer's word for drawing one)
 
+**Frequent change**:
+A file of a kind `lib`'s hotspots consider, at or above the hotspot commit
+gate: its commits rank at or above a percentile among the workspace's files
+of its kind in the churn window. Every hotspot changes frequently; not every
+frequently changed file is a hotspot. The `frequent-change` lens saves them,
+and the viewer draws them as craters and volcanoes.
+_Avoid_: hotspot (that also needs complexity), recorded change (the viewer's
+layer that shows it)
+
 **Fan-in**:
 How many modules import a module, which takes a qualifier, since three
 counts go by the name. *Internal fan-in* is the topology's: the distinct

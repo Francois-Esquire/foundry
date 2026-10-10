@@ -182,4 +182,56 @@ describe("renderLens", () => {
       ].join("\n")
     );
   });
+
+  it("prints the frequent-change lens: the gate, then the files with the most commits", () => {
+    const text = renderLens(
+      "frequent-change",
+      {
+        gate: { eligibleKinds: ["source"], minCommitPercentile: 0.9 },
+        missing: ["@s/c"],
+        packages: [
+          {
+            files: [
+              {
+                commitPercentile: 0.9,
+                commits: 9,
+                file: "a/x.ts",
+                linesChanged: 90,
+              },
+              {
+                commitPercentile: 0.97,
+                commits: 14,
+                file: "a/y.ts",
+                linesChanged: 140,
+              },
+            ],
+            history: {
+              analyzedAt: "2026-10-01T00:00:00.000Z",
+              historyComplete: true,
+            },
+            id: "@s/a",
+          },
+        ],
+      },
+      { format: "text" }
+    );
+    expect(text).toBe(
+      [
+        "Frequent change",
+        "═══════════════",
+        "Gate      source files at or above the 90.0% commit percentile",
+        "Packages  1",
+        "Files     2",
+        "",
+        "Frequently changed files",
+        "  a/y.ts  14",
+        "    @s/a · 97.0% commit percentile",
+        "  a/x.ts   9",
+        "    @s/a · 90.0% commit percentile",
+        "",
+        "Saved without churn",
+        "  @s/c",
+      ].join("\n")
+    );
+  });
 });

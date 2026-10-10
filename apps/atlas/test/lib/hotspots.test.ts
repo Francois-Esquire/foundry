@@ -4,6 +4,7 @@ import type { AnalysisConfig } from "../../src/lib/config";
 import { ANALYSIS_CONFIG } from "../../src/lib/config";
 import type { HotspotSource } from "../../src/lib/hotspots";
 import { analyzeHotspots } from "../../src/lib/hotspots";
+import { frequentChangeLens } from "../../src/lib/lenses/frequent-change";
 import { renderHotspots } from "../../src/lib/report";
 import type {
   ChurnFileKind,
@@ -499,5 +500,49 @@ describe("hotspot eligibility", () => {
       "    Signals\n      frequent-change\n      branch-heavy\n      deep-control-flow\n      architecturally-central"
     );
     expect(text).not.toMatch(expectedTextPattern);
+  });
+});
+
+describe("the frequent-change lens against the hotspots", () => {
+  // Hotspots attach their "frequent-change" signal only to files that also
+  // pass the complexity gate, so the signal names a subset of the lens's
+  // files; the lens is pinned to the commit gate itself.
+  it("names every hotspot, each carrying the frequent-change signal, and the gate's files that are not complex", () => {
+    const { eligibleKinds, gates } = ANALYSIS_CONFIG.hotspots;
+    const source = sourceOf(
+      [
+        churnFile("src/complex.ts", { commitPercentile: 0.95, commits: 9 }),
+        churnFile("src/simple.ts", { commitPercentile: 0.92, commits: 8 }),
+        churnFile("src/cold.ts", { commitPercentile: 0.85, commits: 6 }),
+        churnFile("src/busy.test.ts", {
+          commitPercentile: 0.99,
+          commits: 20,
+          kind: "test",
+        }),
+      ],
+      [fn("src/complex.ts", 1, { controlFlow: 40, nesting: 6 })]
+    );
+    const report = analyzeHotspots(source);
+    if (!report.available) {
+      throw new Error("The fixture has churn.");
+    }
+    const hotspots = report.files.map((file) => file.file);
+    expect(hotspots).toEqual(["src/complex.ts"]);
+    expect(
+      report.files.every((file) => file.signals.includes("frequent-change"))
+    ).toBe(true);
+    const lens = frequentChangeLens.derive(
+      {
+        gate: {
+          eligibleKinds: [...eligibleKinds],
+          minCommitPercentile: gates.minCommitPercentile,
+        },
+        packages: [{ churn: source.churn, id: "@fixture/pkg" }],
+      },
+      {}
+    );
+    const frequent = lens.packages[0]?.files.map((file) => file.file) ?? [];
+    expect(frequent).toEqual(["src/complex.ts", "src/simple.ts"]);
+    expect(hotspots.every((file) => frequent.includes(file))).toBe(true);
   });
 });

@@ -53,14 +53,18 @@ The map keeps each package's `file-roles` lens entry from load
 entering the island, without reading the lens again; landmarks and drainage
 read them from `NaturalEvidence.fileRoles`, and only the district arrangement
 attaches them to files (`AtlasFile.fileRole`) for role marks. The overview
-reads only internal fan-in, so it draws no role marks. Landmarks also consume `SurfaceReport.churn`: exact workspace-relative file
-paths, commit and line-change counts, same-kind repository percentiles, and
-`history` window/completeness. This is loaded with the island's internal evidence only when Recorded change is enabled;
-missing history never becomes a zero count.
+reads only internal fan-in, so it draws no role marks.
+
+Craters and volcanoes mark the files the `frequent-change` lens names, read
+with the island's internals only when Recorded change is enabled. The lens
+gives each file's exact workspace-relative path, commit and line-change
+counts, and same-kind workspace percentile, the package's history window and
+completeness, and the gate it applied, which the change copy states; no
+package report is read. A package without history, or a dataset saved before
+the lens, says so; missing history never becomes a zero count.
 
 | Binding                | Codex input                                   | Channel               | Used in                         |
 | ---------------------- | --------------------------------------------- | --------------------- | ------------------------------- |
-| `changeCrater` | Commits and repository same-kind commit percentile in the recorded window | Recorded-change index at >=3 commits and >=80th percentile | `landmarks.ts` |
 | `summitHeight` | Internal fan-in of a high fan-in module and its package's saved cutoff | Summit `1.8 × log₂((1 + internalFanIn) / cutoff)` above lowland; other files, and a package without a cutoff, raise nothing | `scene/terrain-field.ts` |
 | `summitReach` / `summitProfile` | Summit height | Rounded foot reaching `10 + 4 × height` units, zero slope at crown and foot | `scene/terrain-field.ts` |
 | `rangeBlend` | Overlapping summit profiles | Soft maximum (power 8): clustered summits join into one range | `scene/terrain-field.ts` |

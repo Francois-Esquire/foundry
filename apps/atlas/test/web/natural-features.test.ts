@@ -7,7 +7,10 @@ import {
   featureText,
   hitNaturalFeature,
 } from "../../src/web/natural-feature-inspection";
-import { naturalFeatures } from "../../src/web/natural-features";
+import {
+  naturalFeatures,
+  percentileOrdinal,
+} from "../../src/web/natural-features";
 import type { AtlasFile, Territory } from "../../src/web/types";
 
 const file = (
@@ -362,4 +365,54 @@ it("never jumps a sub-grid water gap or routes off-land endpoints", () => {
   expect(router({ x: -5, y: 0 }, { x: 5, y: 0 })).toBeUndefined();
   expect(router({ x: 50, y: 0 }, { x: 5, y: 0 })).toBeUndefined();
   expect(createLandRouter([])({ x: 0, y: 0 }, { x: 1, y: 1 })).toBeUndefined();
+});
+
+describe("recorded change note", () => {
+  const history = { analyzedAt: "2026-09-30T00:00:00Z", historyComplete: true };
+  const gate = { eligibleKinds: ["source" as const], minCommitPercentile: 0.9 };
+
+  it("is absent while recorded change is off", () => {
+    expect(naturalFeatures(territory, regions, evidence).changeNote).toBe(
+      undefined
+    );
+  });
+
+  it("states the window and the frequent-change gate the lens applied", () => {
+    const { changeNote } = naturalFeatures(territory, regions, {
+      ...evidence,
+      frequentChange: { available: true, files: [], gate, history },
+    });
+    expect(changeNote).toBe(
+      "Full recorded history through 2026-09-30. Complete Git history. Frequent change marks source files at or above the 90th commit percentile among workspace files of the same kind, the hotspot commit gate. Counts describe recorded change, not defects or live activity."
+    );
+  });
+
+  it("says why there is no recorded change: no history, or a dataset saved before the lens", () => {
+    const note = (reason: "no-history" | "not-saved") =>
+      naturalFeatures(territory, regions, {
+        ...evidence,
+        frequentChange: { available: false, reason },
+      }).changeNote;
+    expect(note("no-history")).toBe(
+      "Recorded change unavailable for this survey."
+    );
+    expect(note("not-saved")).toBe(
+      "Run atlas scan again to include recorded change."
+    );
+  });
+
+  it("writes percentiles as English ordinals", () => {
+    expect(
+      [0.9, 0.91, 0.92, 0.93, 0.11, 0.12, 0.13, 1].map(percentileOrdinal)
+    ).toEqual([
+      "90th",
+      "91st",
+      "92nd",
+      "93rd",
+      "11th",
+      "12th",
+      "13th",
+      "100th",
+    ]);
+  });
 });

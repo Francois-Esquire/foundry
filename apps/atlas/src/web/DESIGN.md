@@ -625,9 +625,12 @@ never distort geometry, and never encode activity. Post-processing grades the
 finished drawing; material texture also works in direct draw.
 
 Recorded change evidence is optional, off initially. It reads the same survey's
-package churn report only when enabled, matched by exact workspace-relative file
-path. The index includes files with at least 3 commits and a commit percentile
->= 0.8 among repository files of the same kind in the same history window.
+`frequent-change` lens only when enabled, matched by exact workspace-relative
+file path. Craters and volcanoes mark frequent change: files of the kinds
+`lib`'s hotspots consider at or above the hotspot commit gate, among workspace
+files of the same kind in the same history window. The lens carries the gate it
+applied, each file's counts, and each package's history window, and Place
+states them from there; no package report is read.
 Recorded change is inspection evidence in Place and does not alter terrain.
 The zoom-dependent crater cuts and role-based elevation boosts have been removed.
 Counts, line additions/deletions, dates, percentile population, and complete or

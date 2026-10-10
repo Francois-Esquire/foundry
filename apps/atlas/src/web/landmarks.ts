@@ -1,7 +1,11 @@
 import type { FileRole } from "../lib/lenses/file-roles-types";
-import type { ChurnHistoryInfo, FileChurn } from "../lib/types";
+import type {
+  FrequentChangeFile,
+  FrequentChangeGate,
+  FrequentChangeHistory,
+} from "../lib/lenses/frequent-change-types";
 import type { BelongingRegion } from "./belonging";
-import { changeCrater, landmarkRadius } from "./codex/bindings";
+import { landmarkRadius } from "./codex/bindings";
 import { clearOfCoast } from "./composition-placement";
 import { landmarkFootprint } from "./landmark-footprint";
 import type { FeaturePoint, NaturalEvidence } from "./natural-features";
@@ -10,9 +14,11 @@ import type { AtlasFile, Territory } from "./types";
 export interface Landmark {
   /** What makes the file a landmark: its file role, its high fan-in, or else its recorded change. */
   basis: "commons" | "junction" | "high-fan-in" | "change";
+  /** Recorded change, for a file the `frequent-change` lens names: its entry, the gate that named it, and the package's history. */
   change?: {
-    file: FileChurn;
-    history: ChurnHistoryInfo;
+    file: FrequentChangeFile;
+    gate: FrequentChangeGate;
+    history: FrequentChangeHistory;
   };
   consumers: { id: string; label: string }[];
   /** The package's saved high fan-in cutoff the file's internal fan-in is read against. */
@@ -48,16 +54,16 @@ export function buildLandmarks(
     ? territory.files
     : [...members.values()];
   const cutoff = territory.highFanInCutoff;
-  const churn = evidence.churn?.available ? evidence.churn : undefined;
-  const changes = new Map(churn?.files.map((file) => [file.file, file]));
+  const recorded = evidence.frequentChange?.available
+    ? evidence.frequentChange
+    : undefined;
+  const frequent = new Map(recorded?.files.map((file) => [file.file, file]));
   const result: Landmark[] = [];
   for (const file of files) {
-    const recorded = changes.get(file.path);
+    const changed = frequent.get(file.path);
     const change =
-      recorded &&
-      churn &&
-      changeCrater(recorded.commits, recorded.rank.commitPercentile)
-        ? { file: recorded, history: churn.history }
+      recorded && changed
+        ? { file: changed, gate: recorded.gate, history: recorded.history }
         : undefined;
     const basis = structuralBasis(file, evidence.fileRoles[file.id]);
     if (basis === "change" && !change) {

@@ -4,6 +4,8 @@ import type { DomainDeclaration } from "../domain-declaration";
 import type { DatasetManifest } from "../semantics-types";
 import type { FileRoles } from "./file-roles-types";
 import { FILE_ROLES_SCHEMA_VERSION } from "./file-roles-types";
+import type { FrequentChange } from "./frequent-change-types";
+import { FREQUENT_CHANGE_SCHEMA_VERSION } from "./frequent-change-types";
 import type { PackageSizes } from "./package-sizes-types";
 import { PACKAGE_SIZES_SCHEMA_VERSION } from "./package-sizes-types";
 import type { ResponsibilityGroups } from "./responsibility-groups-types";
@@ -15,6 +17,7 @@ import { RESPONSIBILITY_GROUPS_SCHEMA_VERSION } from "./responsibility-groups-ty
 /** Every lens's saved output, by the lens's id. */
 export interface LensOutputs {
   "file-roles": FileRoles;
+  "frequent-change": FrequentChange;
   "package-sizes": PackageSizes;
   "responsibility-groups": ResponsibilityGroups;
 }
@@ -25,6 +28,7 @@ export type LensId = keyof LensOutputs;
 /** Each lens's schema version, which the reader checks against the manifest's. */
 export const LENS_SCHEMA_VERSIONS: Record<LensId, number> = {
   "file-roles": FILE_ROLES_SCHEMA_VERSION,
+  "frequent-change": FREQUENT_CHANGE_SCHEMA_VERSION,
   "package-sizes": PACKAGE_SIZES_SCHEMA_VERSION,
   "responsibility-groups": RESPONSIBILITY_GROUPS_SCHEMA_VERSION,
 };
@@ -48,7 +52,9 @@ interface LensPackage {
  * generation fields differ between the draft a lens runs against and the
  * manifest finally published. `packages()` stands in for the manifest's
  * package list. Within one scan, every file is parsed once and shared by
- * every lens, so a lens never changes what it reads.
+ * every lens, so a lens never changes what it reads; package reports are
+ * the exception, read afresh for each request, so a lens that reads them
+ * reads them one at a time and keeps only the fields it needs.
  */
 export type LensReader = Omit<DatasetReader, "history" | "manifest"> & {
   packages(): readonly LensPackage[];

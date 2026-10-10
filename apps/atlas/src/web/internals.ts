@@ -4,21 +4,42 @@ import type {
   FileRole,
   FileRolesPackage,
 } from "../lib/lenses/file-roles-types";
+import type {
+  FrequentChangeFile,
+  FrequentChangeGate,
+  FrequentChangeHistory,
+} from "../lib/lenses/frequent-change-types";
 import { rootRelative } from "../lib/lenses/package-internals";
 import type {
   ArchitecturalScopeRef,
   SymbolLocalityReport,
 } from "../lib/symbol-locality-types";
-import type { ChurnReport } from "../lib/types";
 import type { AtlasArchitecture } from "./architecture";
 import type { AtlasFile } from "./types";
 
+/** One island's frequently changed files, from the `frequent-change` lens, with the gate that chose them and the history they were read from. */
+interface PackageFrequentChange {
+  available: true;
+  files: readonly FrequentChangeFile[];
+  gate: FrequentChangeGate;
+  history: FrequentChangeHistory;
+}
+
+/** Why an island shows no recorded change: its package has no Git history in this survey, or the dataset was saved before the lens. */
+interface NoFrequentChange {
+  available: false;
+  reason: "no-history" | "not-saved";
+}
+
+export type FrequentChangeEvidence = PackageFrequentChange | NoFrequentChange;
+
 export interface AtlasInternals {
   architecture?: AtlasArchitecture;
-  churn?: ChurnReport;
   fileIds: Record<string, string>;
   /** Each file's role from the `file-roles` lens, by file id; a file without one is absent. */
   fileRoles: Record<string, FileRole>;
+  /** Recorded change, read only when the layer is on. */
+  frequentChange?: FrequentChangeEvidence;
   locality: SymbolLocalityReport;
   responsibilities: InternalResponsibilityReport;
   topology: InternalPackageTopology;

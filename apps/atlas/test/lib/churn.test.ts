@@ -192,6 +192,21 @@ describe("git history collector", () => {
 });
 
 describe("churn analysis", () => {
+  it("names files relative to a workspace nested inside a larger repository", async () => {
+    const repo = initRepo();
+    commit(repo, {
+      date: "2026-05-01T00:00:00Z",
+      files: {
+        "README.md": "outside the workspace\n",
+        "ws/pkg/src/a.ts": "export const a = 1;\n",
+      },
+    });
+    const workspace = join(repo, "ws");
+    const report = await churnOf(workspace);
+    expect(report.files.map((file) => file.file)).toEqual(["pkg/src/a.ts"]);
+    expect(report.repository.filesAnalyzed).toBe(1);
+  });
+
   it("counts commits, additions, and deletions per file exactly", async () => {
     const dir = initRepo();
     commit(dir, {

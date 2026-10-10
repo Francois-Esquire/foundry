@@ -37,6 +37,7 @@ type LensReader = Omit<DatasetReader, "history" | "manifest"> & {
 /** Every lens's output by id; a lens's id is a key of this map. */
 interface LensOutputs {
   "file-roles": FileRoles;
+  "frequent-change": FrequentChange;
   "package-sizes": PackageSizes;
   "responsibility-groups": ResponsibilityGroups;
 }
@@ -75,7 +76,11 @@ which lenses it reaches.
   else: no file system, no Git, no TypeScript program, no configuration
   beyond its settings. A lens never analyzes again. A lens that imports
   `ANALYSIS_CONFIG` reads the built-in analysis policy, not the workspace's
-  Configuration, which reaches a lens only through its settings.
+  Configuration, which reaches a lens only through its settings. A lens
+  that reproduces a `lib` definition reads `lib`'s policy for it, so that
+  the two cannot drift: `frequent-change`, the first, applies
+  `ANALYSIS_CONFIG.hotspots`' commit gate and saves the gate in its
+  output, so that no reader keeps a copy.
 - **Output.** JSON data. Names and ids are data, never prose. A place is
   addressed in facet syntax, a workspace-relative path or `path#name`, and
   a package is a place too, so a lens that labels places addresses a
@@ -109,7 +114,9 @@ which lenses it reaches.
   module one way.
 - **Shared reads.** Within one scan, the lens phase parses each dataset file
   once and hands the same value to every lens that reads it, so a lens
-  never changes what it reads.
+  never changes what it reads. Package reports are the exception: a lens
+  that reads package reports reads them one at a time and keeps only the
+  fields it needs; the reader does not keep them.
 - **Failure.** A lens that throws fails the scan, as an analysis does.
 - **Where they run.** Dry runs and history snapshots run no lenses.
 - **Terminal output** renders a lens's output through a report view

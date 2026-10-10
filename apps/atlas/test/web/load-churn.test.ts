@@ -10,16 +10,50 @@ const scanned = {
   status: "complete",
 };
 
-/** Serves one package's dataset; each manifest read takes the next save time, the last one repeating. */
-function surveyFetch(entry: object = scanned, savedAt = ["survey"]) {
+const changedFiles = [
+  {
+    commitPercentile: 0.95,
+    commits: 12,
+    file: "packages/example/src/a.ts",
+    linesChanged: 80,
+  },
+];
+const history = {
+  analyzedAt: "2026-10-01T00:00:00.000Z",
+  historyComplete: true,
+};
+const frequentChange = {
+  gate: { eligibleKinds: ["source"], minCommitPercentile: 0.9 },
+  missing: ["other"],
+  packages: [{ files: changedFiles, history, id: "example" }],
+};
+
+/**
+ * Serves one package's dataset; each manifest read takes the next save time,
+ * the last one repeating. `lens` is the frequent-change lens, or `null` for
+ * a dataset saved before it.
+ */
+function surveyFetch(
+  entry: object = scanned,
+  savedAt = ["survey"],
+  lens: object | null = frequentChange
+) {
   const pkg = { id: "example", root: "packages/example" };
   let manifestReads = 0;
   return vi.fn((url: string) => {
-    let body: object = { churn: { available: false, reason: "not-collected" } };
+    let body: object | undefined;
     if (url.endsWith("manifest.json")) {
       body = {
         files: { moduleIndex: "index.json" },
         generatedAt: savedAt[Math.min(manifestReads, savedAt.length - 1)],
+        lenses: lens
+          ? {
+              "frequent-change": {
+                file: "lenses/frequent-change.json",
+                schemaVersion: 1,
+              },
+            }
+          : {},
         packages: [entry],
         schemaVersion: 4,
       };
@@ -33,42 +67,67 @@ function surveyFetch(entry: object = scanned, savedAt = ["survey"]) {
         rewiring: {},
         topology: { modules: [], package: pkg },
       };
+    } else if (url.endsWith("lenses/frequent-change.json")) {
+      body = lens ?? undefined;
     } else if (url.endsWith("index.json")) {
       body = { modules: [] };
     }
-    return Promise.resolve(Response.json(body));
+    return Promise.resolve(
+      body ? Response.json(body) : new Response(null, { status: 404 })
+    );
   });
 }
 
-it("does not fetch the full package report for ordinary belonging exploration", async () => {
-  const fetch = surveyFetch();
+const read = (
+  fetch: ReturnType<typeof surveyFetch>,
+  recordedChange = false
+) => {
   vi.stubGlobal("fetch", fetch);
-  const result = await loadInternals(
+  return loadInternals(
     "example",
     undefined,
     "survey",
-    new AbortController().signal
+    new AbortController().signal,
+    recordedChange
   );
-  expect(result.churn).toBeUndefined();
+};
+
+it("reads no recorded change for ordinary belonging exploration", async () => {
+  const fetch = surveyFetch();
+  const result = await read(fetch);
+  expect(result.frequentChange).toBeUndefined();
+  expect(fetch.mock.calls.some(([url]) => url.includes("lenses/"))).toBe(false);
+});
+
+it("reads recorded change from the frequent-change lens on request, never the package report", async () => {
+  const fetch = surveyFetch();
+  const result = await read(fetch, true);
+  expect(result.frequentChange).toEqual({
+    available: true,
+    files: changedFiles,
+    gate: frequentChange.gate,
+    history,
+  });
   expect(fetch.mock.calls.some(([url]) => url.includes("packages/"))).toBe(
     false
   );
 });
 
-it("loads recorded change only on request and preserves unavailable history", async () => {
-  const fetch = surveyFetch();
-  vi.stubGlobal("fetch", fetch);
-  const result = await loadInternals(
-    "example",
-    undefined,
-    "survey",
-    new AbortController().signal,
-    true
-  );
-  expect(result.churn).toEqual({ available: false, reason: "not-collected" });
-  expect(fetch.mock.calls.some(([url]) => url.includes("packages/"))).toBe(
-    true
-  );
+it("says a package the lens lists without history has no recorded change", async () => {
+  const lens = { ...frequentChange, missing: ["example"], packages: [] };
+  const result = await read(surveyFetch(scanned, ["survey"], lens), true);
+  expect(result.frequentChange).toEqual({
+    available: false,
+    reason: "no-history",
+  });
+});
+
+it("says a dataset saved before the lens has no recorded change to show", async () => {
+  const result = await read(surveyFetch(scanned, ["survey"], null), true);
+  expect(result.frequentChange).toEqual({
+    available: false,
+    reason: "not-saved",
+  });
 });
 
 it("says when the dataset was saved without internals", async () => {

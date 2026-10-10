@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { FileChurn } from "../../src/lib/types";
 import { defaultChartSettings } from "../../src/web/chart-settings";
-import { changeCrater, landmarkRadius } from "../../src/web/codex/bindings";
+import { landmarkRadius } from "../../src/web/codex/bindings";
 import { buildLandmarks } from "../../src/web/landmarks";
 import { featureText } from "../../src/web/natural-feature-inspection";
 import type { NaturalEvidence } from "../../src/web/natural-features";
@@ -48,40 +47,50 @@ const territory: Territory = {
   x: 0,
   y: 0,
 };
-const change = (module: AtlasFile, commits = 5): FileChurn => ({
-  additions: 70,
-  authors: 1,
+const gate = { eligibleKinds: ["source" as const], minCommitPercentile: 0.9 };
+const history = {
+  analyzedAt: "2026-09-30T00:00:00Z",
+  historyComplete: false,
+  since: "2025-09-30T00:00:00Z",
+};
+const frequent = (module: AtlasFile, commits = 5) => ({
+  commitPercentile: 0.92,
   commits,
-  deletions: 30,
   file: module.path,
-  kind: "source",
   linesChanged: 100,
-  rank: { commitPercentile: 0.85, lineChurnPercentile: 0.4 },
+});
+/** The island's recorded change: the `frequent-change` lens's entry, as the loader binds it. */
+const recorded = (files: ReturnType<typeof frequent>[]) => ({
+  available: true as const,
+  files,
+  gate,
+  history,
 });
 const evidence: NaturalEvidence = {
-  churn: {
-    available: true,
-    files: [change(shared), change(ordinary)],
-    history: {
-      analyzedAt: "2026-09-30T00:00:00Z",
-      commitsAnalyzed: 20,
-      historyComplete: false,
-      since: "2025-09-30T00:00:00Z",
-      windowDays: 365,
-    },
-  },
   fileIds: {},
   fileRoles: { [shared.id]: "commons" },
+  frequentChange: recorded([frequent(shared), frequent(ordinary)]),
   relationships: [],
   unresolved: [],
 };
 
 describe("structural summits and recorded change", () => {
-  it("keeps the change gate apart from structure, with the change layer off initially", () => {
+  it("marks change only where the frequent-change lens names the file, with the change layer off initially", () => {
     expect(defaultChartSettings.volcanic).toBe(false);
-    expect(changeCrater(2, 1)).toBe(false);
-    expect(changeCrater(3, 0.79)).toBe(false);
-    expect(changeCrater(3, 0.8)).toBe(true);
+    const named = buildLandmarks(territory, [], {
+      ...evidence,
+      frequentChange: recorded([frequent(shared)]),
+    });
+    expect(named.map((mark) => [mark.file.id, mark.kind])).toEqual([
+      ["shared", "volcano"],
+    ]);
+    const unread = buildLandmarks(territory, [], {
+      ...evidence,
+      frequentChange: undefined,
+    });
+    expect(unread.map((mark) => [mark.file.id, mark.kind])).toEqual([
+      ["shared", "summit"],
+    ]);
   });
 
   it("draws one volcano for a shared changed file and a low crater for an ordinary changed file", () => {
@@ -103,28 +112,24 @@ describe("structural summits and recorded change", () => {
     expect(text).toContain("100 lines added/deleted");
     expect(text).toContain("2025-09-30");
     expect(text).toContain("partial Git history");
+    expect(text).toContain(
+      "92nd commit percentile among workspace files of the same kind, at or above the 90th that frequent change requires"
+    );
   });
 
   it("does not substitute missing history or basename matches for measured change", () => {
-    const missing = buildLandmarks(territory, [], {
-      ...evidence,
-      churn: undefined,
-    });
-    expect(missing.map((mark) => mark.kind)).toEqual(["summit"]);
-    const unavailable = buildLandmarks(territory, [], {
-      ...evidence,
-      churn: { available: false, reason: "not-collected" },
-    });
-    expect(unavailable.map((mark) => mark.kind)).toEqual(["summit"]);
-    if (!evidence.churn?.available) {
-      throw new Error("Missing fixture history");
+    for (const reason of ["no-history", "not-saved"] as const) {
+      const unavailable = buildLandmarks(territory, [], {
+        ...evidence,
+        frequentChange: { available: false, reason },
+      });
+      expect(unavailable.map((mark) => mark.kind)).toEqual(["summit"]);
     }
     const wrongPath = buildLandmarks(territory, [], {
       ...evidence,
-      churn: {
-        ...evidence.churn,
-        files: [{ ...change(ordinary), file: "elsewhere/ordinary.ts" }],
-      },
+      frequentChange: recorded([
+        { ...frequent(ordinary), file: "elsewhere/ordinary.ts" },
+      ]),
     });
     expect(wrongPath.map((mark) => mark.kind)).toEqual(["summit"]);
   });
@@ -139,8 +144,8 @@ describe("structural summits and recorded change", () => {
     const island = { ...territory, files: [busy, summit], highFanInCutoff: 3 };
     const landmarks = buildLandmarks(island, [], {
       ...evidence,
-      churn: undefined,
       fileRoles: {},
+      frequentChange: undefined,
     });
     expect(landmarks.map((item) => [item.file.id, item.basis])).toEqual([
       ["summit", "high-fan-in"],
@@ -164,8 +169,8 @@ describe("structural summits and recorded change", () => {
     const island = { ...territory, files: [commons], highFanInCutoff: 5 };
     const [mark] = buildLandmarks(island, [], {
       ...evidence,
-      churn: undefined,
       fileRoles: { commons: "commons" },
+      frequentChange: undefined,
     });
     expect(mark?.basis).toBe("commons");
     if (!mark) {

@@ -1,5 +1,7 @@
 import { DatasetReplacedError } from "../lib/dataset";
+import type { FrequentChange } from "../lib/lenses/frequent-change-types";
 import { viewerDataset } from "./dataset";
+import type { FrequentChangeEvidence } from "./internals";
 import { bindInternals } from "./internals";
 import type { Territory } from "./types";
 
@@ -17,7 +19,7 @@ export async function loadInternals(
   signal: AbortSignal,
   recordedChange = false
 ) {
-  const { internals, index, report } = await readEvidence(
+  const { internals, index, frequentChange } = await readEvidence(
     packageId,
     pin,
     signal,
@@ -32,7 +34,9 @@ export async function loadInternals(
     responsibilities,
     roles
   );
-  bound.churn = report?.churn;
+  if (recordedChange) {
+    bound.frequentChange = islandChange(frequentChange, packageId);
+  }
   bound.architecture = { primitives, review, rewiring };
   return bound;
 }
@@ -45,15 +49,16 @@ async function readEvidence(
 ) {
   try {
     const reader = viewerDataset({ pin, signal });
-    const [internals, index, report] = await Promise.all([
+    const [internals, index, frequentChange] = await Promise.all([
       reader.internals(packageId),
       reader.moduleIndex(),
+      // A dataset saved before the lens has none; the island says so.
       recordedChange
-        ? reader.packageReport(packageId).catch(() => undefined)
+        ? reader.lens("frequent-change").catch(() => undefined)
         : undefined,
     ]);
     await viewerDataset({ pin, signal }).manifest();
-    return { index, internals, report };
+    return { frequentChange, index, internals };
   } catch (error) {
     if (error instanceof DatasetReplacedError) {
       throw new Error(
@@ -63,4 +68,23 @@ async function readEvidence(
     }
     throw error;
   }
+}
+
+/** The island's entry in the `frequent-change` lens, or why it has none. */
+function islandChange(
+  lens: FrequentChange | undefined,
+  packageId: string
+): FrequentChangeEvidence {
+  if (lens === undefined) {
+    return { available: false, reason: "not-saved" };
+  }
+  const entry = lens.packages.find((pkg) => pkg.id === packageId);
+  return entry
+    ? {
+        available: true,
+        files: entry.files,
+        gate: lens.gate,
+        history: entry.history,
+      }
+    : { available: false, reason: "no-history" };
 }

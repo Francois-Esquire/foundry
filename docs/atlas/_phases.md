@@ -745,10 +745,10 @@ this order, which is deliberate (2.2e comes before 2.2d):
   folded into 2.2a, so there is no 2.2c. Done; below.
 - **2.2b `responsibility-groups`**: composite districts (`web/hierarchy.ts`)
   as a lens.
-- **2.2e `frequent-change`**: change craters against hotspots. It will read
+- **2.2e `frequent-change`**: change craters against hotspots. It reads
   the hotspot commit gate from `ANALYSIS_CONFIG`, which is the built-in
   analysis policy, not the workspace's Configuration; the rule is in
-  [`_lenses.md`](./_lenses.md#rules).
+  [`_lenses.md`](./_lenses.md#rules). Done; below.
 - **2.2d Retire neighborhoods**: responsibility regions are the grouping;
   the viewer's neighborhoods (`web/neighborhoods.ts`, `relationships.ts`)
   go. They do not place files, so no layout helper stays.
@@ -926,6 +926,99 @@ this order, which is deliberate (2.2e comes before 2.2d):
   keeps from load); `test/web/belonging.test.ts` (lens groups; the anchor
   at `anchorModule`, the anchor responsibility's second file by id, and
   none without one); the codex tests.
+
+**2.2e `frequent-change`.** Done 2026-10-10.
+- Craters keep their meaning, "changes often", under `lib`'s definition of
+  it. Hotspots also require complexity, a different concept; the term
+  frequent change is already `lib`'s, the `frequent-change` signal that
+  `hotspots.ts` gives every hotspot.
+- `lib/lenses/frequent-change.ts` applies exactly the hotspots' commit gate
+  from `ANALYSIS_CONFIG.hotspots`: a file of an `eligibleKinds` kind
+  (`source`) with `rank.commitPercentile` at or above
+  `gates.minCommitPercentile` (0.9), with no commit floor, over each
+  complete package's report churn. Nothing is extracted from `hotspots.ts`,
+  which stays as it is. Output: the `gate` it applied, so the viewer's copy
+  reads it rather than keeping a copy; per package by manifest id, its
+  `history` (`analyzedAt`, `historyComplete`, `since`), each package's own
+  since a reused report can be older, and its files (workspace-relative
+  path, commits, lines changed, commit percentile), sorted; and `missing`,
+  the complete packages whose churn is unavailable (no Git, or not
+  collected), so that no history never reads as no frequent change.
+- Hotspots attach the `frequent-change` signal only to files that also pass
+  the complexity gate (`signalsOf` runs for qualifying files only), so the
+  signal names a subset of the lens's files. The lens is pinned to the gate
+  itself (0.9 in, 0.897 out, other kinds out, no floor), and a hotspots
+  test pins the subset: every hotspot carries the signal and is in the
+  lens, and a frequently changed simple file is in the lens but is no
+  hotspot. On Foundry all 31 hotspots are in the lens's 79 files.
+- Churn paths are workspace-relative when the workspace sits inside a
+  larger repository: `git log --relative` and `git ls-files` run in the
+  workspace root (`lib/git-history.ts`), pinned in `test/lib/churn.test.ts`.
+  The same test shows that the percentile's population is then the
+  workspace's own tracked files, not the whole repository's, so the lens's
+  docs and the viewer's copy say "workspace files of the same kind". The
+  analysis types (`lib/types.ts` `FileChurn.rank`) still say "repository
+  file", left as they are: analysis code.
+- The viewer: craters and volcanoes mark the files the lens names, and the
+  lens carries everything Place shows, so the viewer reads no package
+  report: `load-internals.ts`'s report read, `AtlasInternals.churn`, and
+  `NaturalEvidence.churn` are gone, and `NaturalEvidence.recordedChange`
+  with them. Craters were only ever drawn on entering an island with
+  Recorded change on, so the lens is read on that toggle path; it is not
+  kept from load. The island binds one field, `frequentChange`: the
+  package's files, gate, and history (`PackageFrequentChange`, in
+  `web/internals.ts`, since only the viewer assembles it), or why there are
+  none, `no-history` or `not-saved`. `Landmark.change` is the lens's file
+  with the package's history and the gate. `changeCrater` and its codex
+  README row are deleted. The change note (`natural-features.ts`) and the
+  landmark text (`natural-feature-inspection.ts`) state the gate from the
+  lens (`frequentChangeRule`, `percentileOrdinal`, which also fixes the
+  former "92th"); the map key states no numbers and is unchanged; DESIGN.md
+  describes the gate without its values. A package without history says
+  recorded change is unavailable; a dataset saved before the lens says to
+  run atlas scan again to include it.
+- Visible change, Foundry at this commit: change-marked files on the map go
+  from 289 to 79. The former rule (at least 3 commits, the 80th percentile,
+  every kind) marked 129 test files, 2 config files, and 79 source files
+  below the 90th percentile that no longer show. By package: marbles 114 to
+  43, atlas 68 to 16, workflows 37 to 6, agents 25 to 4, models 19 to 4,
+  workspaces 18 to 6, lib 4 to 0, docs 2 to 0, release and works 1 to 0.
+- Cost: `lenses/frequent-change.json` is 12 KB. The lens reads every
+  complete package's report, 79 MB of JSON on Foundry (`@foundry/atlas`'s
+  alone is 38 MB). It reads them one at a time and keeps only the churn
+  fields, and the lens reader serves package reports uncached (a second
+  `datasetReader` over the uncached transport, for `packageReport` only),
+  while every other file stays parsed once for the phase. Measured over the
+  saved dataset, two or three runs each: the phase takes 191–212 ms (59 ms before
+  the lens) and peaks at 470–530 MB RSS, against about 615 MB with the
+  reports cached; the lens alone peaks at about 320 MB, set by parsing the
+  atlas report. The heap still held after the phase, after a forced
+  collection, is 18–165 MB, too noisy to compare. In full Foundry scans the
+  phase takes 212–236 ms. The scan's peak memory footprint is where the
+  lens costs most: warm scans peak at 2.10–2.28 GB with it and 1.48 GB
+  without it (the same build with the lens left out of `LENSES`; 1.31 GB
+  cold), so parsing the reports inside a scan that already holds the
+  analysis adds about 0.6–0.8 GB. The earlier figure of 1.47 GB was a
+  single cold scan and did not show it. A churn file of its own in the
+  dataset, which the lens would read instead of the reports, would remove
+  most of it; that is a dataset change, and 2.3, which also reads package
+  reports, follows the same one-at-a-time rule meanwhile. Decided
+  (orchestrator): accepted for 0.1, since the scan's overall high point is
+  the derivation worker's (about 10 GB in 3.0's measurement), not this
+  process's; the churn file waits until a measurement shows a need.
+- Tests: `test/lib/lenses.test.ts` (the gate, no floor, kinds, `missing`,
+  history and lines changed carried; reports read one at a time with only
+  the churn fields kept and the gate read from `ANALYSIS_CONFIG`; a package
+  report read afresh each time while other files stay shared; the phase
+  with a package report each way; the registry);
+  `test/lib/hotspots.test.ts` (the subset); `test/lib/churn.test.ts` (the
+  nested repository); `test/lib/render-lens.test.ts`;
+  `test/lib/semantics.test.ts` (a scan outside Git lists every package
+  missing); `test/web/landmarks.test.ts` (change from the lens entry
+  alone, both unavailable reasons), `natural-features.test.ts` (the note
+  for each case, the ordinals), and `load-churn.test.ts` (the lens read
+  only with Recorded change and never the package report; `no-history`;
+  `not-saved`).
 
 **2.3 Placement: where it lives against where it is used.** The motivating
 case. Per symbol from `consumerPackages` and its neighbors; per file and

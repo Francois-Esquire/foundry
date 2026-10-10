@@ -1,5 +1,6 @@
 import type { Landmark } from "./landmarks";
 import type { FeaturePoint, Marsh, NaturalFeatures } from "./natural-features";
+import { percentileOrdinal } from "./natural-features";
 import type { RiverRun } from "./river-network";
 import type { AtlasFile } from "./types";
 
@@ -115,11 +116,11 @@ function landmarkText(landmark: Landmark) {
     : "";
   let detail = `${labels[basis]} · ${importCounts(file, cutoff)}${served}`;
   if (change) {
-    const { history, file: changed } = change;
+    const { file: changed, gate, history } = change;
     const window = history.since
       ? `${history.since.slice(0, 10)}–${history.analyzedAt.slice(0, 10)}`
       : `full history through ${history.analyzedAt.slice(0, 10)}`;
-    detail += ` ${changed.commits} commits · ${changed.linesChanged} lines added/deleted · ${Math.round(changed.rank.commitPercentile * 100)}th commit percentile among repository files of the same kind · ${window} · ${history.historyComplete ? "complete" : "partial"} Git history. Recorded change, never live activity or a quality verdict.`;
+    detail += ` ${changed.commits} commits · ${changed.linesChanged} lines added/deleted · ${percentileOrdinal(changed.commitPercentile)} commit percentile among workspace files of the same kind, at or above the ${percentileOrdinal(gate.minCommitPercentile)} that frequent change requires · ${window} · ${history.historyComplete ? "complete" : "partial"} Git history. Recorded change, never live activity or a quality verdict.`;
   }
   return { detail, title: file.path };
 }

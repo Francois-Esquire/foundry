@@ -1,10 +1,11 @@
 import type { FileRole } from "../lib/lenses/file-roles-types";
-import type { ChurnReport } from "../lib/types";
+import type { FrequentChangeGate } from "../lib/lenses/frequent-change-types";
 import type { BelongingRegion } from "./belonging";
 import { streamWidth } from "./codex/bindings";
 import { compositionInsideLand } from "./composition-placement";
 import { unit } from "./geography";
 import { createLandRouter } from "./inland-routing";
+import type { FrequentChangeEvidence } from "./internals";
 import { buildLandmarks, type Landmark } from "./landmarks";
 import {
   joinRiver,
@@ -67,16 +68,11 @@ export interface NaturalFeatures {
 }
 
 export interface NaturalEvidence {
-  churn?:
-    | Pick<
-        Extract<ChurnReport, { available: true }>,
-        "available" | "files" | "history"
-      >
-    | Extract<ChurnReport, { available: false }>;
   fileIds: Record<string, string>;
   /** The `file-roles` lens's roles bound to the island, by file id. */
   fileRoles: Readonly<Record<string, FileRole>>;
-  recordedChange?: boolean;
+  /** Recorded change for the island; absent while the layer is off. */
+  frequentChange?: FrequentChangeEvidence;
   relationships: readonly {
     dominantSymbols?: readonly {
       name: string;
@@ -376,16 +372,32 @@ export function naturalFeatures(
   };
 }
 
+/** A 0–1 share as an English ordinal percentile: 0.92 is "92nd". */
+export function percentileOrdinal(share: number): string {
+  const n = Math.round(share * 100);
+  const teen = n % 100 >= 11 && n % 100 <= 13;
+  const suffix = teen ? "th" : (["th", "st", "nd", "rd"][n % 10] ?? "th");
+  return `${n}${suffix}`;
+}
+
+/** The frequent-change gate in words, from the values the lens applied. */
+function frequentChangeRule(gate: FrequentChangeGate): string {
+  return `${gate.eligibleKinds.join(", ")} files at or above the ${percentileOrdinal(gate.minCommitPercentile)} commit percentile among workspace files of the same kind`;
+}
+
 function changeNote(evidence: NaturalEvidence): string | undefined {
-  if (!evidence.recordedChange) {
+  const change = evidence.frequentChange;
+  if (!change) {
     return;
   }
-  if (!evidence.churn?.available) {
-    return "Recorded change unavailable for this survey.";
+  if (!change.available) {
+    return change.reason === "not-saved"
+      ? "Run atlas scan again to include recorded change."
+      : "Recorded change unavailable for this survey.";
   }
-  const { history } = evidence.churn;
+  const { history } = change;
   const window = history.since
     ? `${history.since.slice(0, 10)} to ${history.analyzedAt.slice(0, 10)}`
     : `Full recorded history through ${history.analyzedAt.slice(0, 10)}`;
-  return `${window}. ${history.historyComplete ? "Complete Git history" : "Partial Git history"}. The change index includes files with at least 3 commits and a commit percentile of 80% or higher among repository files of the same kind. Counts describe recorded change, not defects or live activity.`;
+  return `${window}. ${history.historyComplete ? "Complete Git history" : "Partial Git history"}. Frequent change marks ${frequentChangeRule(change.gate)}, the hotspot commit gate. Counts describe recorded change, not defects or live activity.`;
 }

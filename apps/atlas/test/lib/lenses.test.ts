@@ -2,9 +2,11 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { ANALYSIS_CONFIG } from "../../src/lib/config";
 import type { PackageInternals } from "../../src/lib/internal-analysis-types";
 import type { FileRolesSource } from "../../src/lib/lenses/file-roles";
 import { fileRolesLens } from "../../src/lib/lenses/file-roles";
+import { frequentChangeLens } from "../../src/lib/lenses/frequent-change";
 import type {
   LensId,
   LensReader,
@@ -431,6 +433,178 @@ describe("the responsibility-groups lens", () => {
   });
 });
 
+describe("the frequent-change lens", () => {
+  const gate = { eligibleKinds: ["source" as const], minCommitPercentile: 0.9 };
+  const history = {
+    analyzedAt: "2026-10-01T00:00:00.000Z",
+    historyComplete: true,
+    since: "2025-10-01T00:00:00.000Z",
+  };
+  const churned = (
+    file: string,
+    commits: number,
+    commitPercentile: number,
+    kind: "source" | "test" | "config" = "source"
+  ) => ({
+    commits,
+    file,
+    kind,
+    linesChanged: commits * 10,
+    rank: { commitPercentile },
+  });
+  const available = (files: ReturnType<typeof churned>[]) => ({
+    available: true as const,
+    files,
+    history,
+  });
+
+  it("keeps an eligible file exactly at the commit gate and drops one just under it, with no commit floor", () => {
+    const lens = frequentChangeLens.derive(
+      {
+        gate,
+        packages: [
+          {
+            churn: available([
+              churned("packages/a/src/under.ts", 8, 0.897),
+              churned("packages/a/src/at.ts", 9, 0.9),
+              churned("packages/a/src/once.ts", 1, 0.95),
+            ]),
+            id: "@s/a",
+          },
+        ],
+      },
+      {}
+    );
+    expect(lens).toEqual({
+      gate,
+      missing: [],
+      packages: [
+        {
+          files: [
+            {
+              commitPercentile: 0.9,
+              commits: 9,
+              file: "packages/a/src/at.ts",
+              linesChanged: 90,
+            },
+            {
+              commitPercentile: 0.95,
+              commits: 1,
+              file: "packages/a/src/once.ts",
+              linesChanged: 10,
+            },
+          ],
+          history,
+          id: "@s/a",
+        },
+      ],
+    });
+  });
+
+  it("leaves out files of a kind the gate does not consider", () => {
+    const lens = frequentChangeLens.derive(
+      {
+        gate,
+        packages: [
+          {
+            churn: available([
+              churned("a.test.ts", 30, 0.99, "test"),
+              churned("tsconfig.json", 30, 0.99, "config"),
+            ]),
+            id: "@s/a",
+          },
+        ],
+      },
+      {}
+    );
+    expect(lens.packages).toEqual([{ files: [], history, id: "@s/a" }]);
+  });
+
+  it("lists a package without recorded churn as missing, never as one with no frequent change", () => {
+    const lens = frequentChangeLens.derive(
+      {
+        gate,
+        packages: [
+          { churn: { available: false }, id: "@s/c" },
+          { churn: { available: false }, id: "@s/b" },
+          { churn: available([]), id: "@s/a" },
+        ],
+      },
+      {}
+    );
+    expect(lens.missing).toEqual(["@s/b", "@s/c"]);
+    expect(lens.packages).toEqual([{ files: [], history, id: "@s/a" }]);
+  });
+
+  it("reads package reports one at a time and keeps only the churn fields it needs, with the gate from lib's built-in policy", async () => {
+    let reading = 0;
+    let mostAtOnce = 0;
+    const report = (id: string) => ({
+      churn: {
+        available: true,
+        distributions: { large: "ignored" },
+        files: [
+          {
+            ...churned(`${id}/a.ts`, 9, 0.95),
+            additions: 50,
+            authors: 2,
+            rank: { commitPercentile: 0.95, lineChurnPercentile: 0.5 },
+          },
+        ],
+        history: {
+          ...history,
+          commitsAnalyzed: 40,
+          since: undefined,
+          windowDays: null,
+        },
+      },
+      symbols: ["a large field the lens never reads"],
+    });
+    const reader = {
+      packageReport: async (id: string) => {
+        reading += 1;
+        mostAtOnce = Math.max(mostAtOnce, reading);
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        reading -= 1;
+        return report(id);
+      },
+      packages: () => [
+        { id: "a", internals: false, status: "complete" },
+        { id: "b", internals: false, status: "complete" },
+        { id: "z", internals: false, status: "failed" },
+      ],
+    } as unknown as LensReader;
+    const source = await frequentChangeLens.read(reader);
+    expect(mostAtOnce).toBe(1);
+    expect(source).toEqual({
+      gate: {
+        eligibleKinds: ANALYSIS_CONFIG.hotspots.eligibleKinds,
+        minCommitPercentile: ANALYSIS_CONFIG.hotspots.gates.minCommitPercentile,
+      },
+      packages: ["a", "b"].map((id) => ({
+        churn: {
+          available: true,
+          files: [
+            {
+              commits: 9,
+              file: `${id}/a.ts`,
+              kind: "source",
+              linesChanged: 90,
+              rank: { commitPercentile: 0.95 },
+            },
+          ],
+          // A full-history window has no start.
+          history: {
+            analyzedAt: history.analyzedAt,
+            historyComplete: true,
+          },
+        },
+        id,
+      })),
+    });
+  });
+});
+
 describe("the registry", () => {
   it("registers every lens once, at the schema version the reader and its stage hold", () => {
     const ids = LENSES.map((lens) => lens.id);
@@ -460,6 +634,10 @@ describe("the registry", () => {
   it("names each lens's file and schema version for the manifest", () => {
     expect(lensEntries()).toEqual({
       "file-roles": { file: "lenses/file-roles.json", schemaVersion: 1 },
+      "frequent-change": {
+        file: "lenses/frequent-change.json",
+        schemaVersion: 1,
+      },
       "package-sizes": { file: "lenses/package-sizes.json", schemaVersion: 1 },
       "responsibility-groups": {
         file: "lenses/responsibility-groups.json",
@@ -516,6 +694,27 @@ describe("writeLenses", () => {
       "modules/index.json": {
         modules: [{ fileKind: "source", package: "@s/a" }],
       },
+      "packages/@s__a.json": {
+        churn: {
+          available: true,
+          files: [
+            {
+              commits: 9,
+              file: "packages/a/src/a.ts",
+              kind: "source",
+              linesChanged: 40,
+              rank: { commitPercentile: 0.9 },
+            },
+          ],
+          history: {
+            analyzedAt: "2026-10-01T00:00:00.000Z",
+            historyComplete: false,
+          },
+        },
+      },
+      "packages/@s__c.json": {
+        churn: { available: false, reason: "not-git-repository" },
+      },
       "projections/dependency-graph.json": {
         edges: [],
         nodes: [{ analyzed: true, id: "@s/a", label: "a", layer: 0 }],
@@ -536,10 +735,16 @@ describe("writeLenses", () => {
           id: "@s/a",
           internals: "internals/@s__a.json",
           path: "packages/a",
+          report: "packages/@s__a.json",
           status: "complete",
         },
         { id: "@s/b", path: "packages/b", status: "failed" },
-        { id: "@s/c", path: "packages/c", status: "complete" },
+        {
+          id: "@s/c",
+          path: "packages/c",
+          report: "packages/@s__c.json",
+          status: "complete",
+        },
       ],
       schemaVersion: 4,
     } as unknown as DatasetManifest;
@@ -611,6 +816,34 @@ describe("writeLenses", () => {
         },
       ],
       [
+        "lenses/frequent-change.json",
+        {
+          gate: {
+            eligibleKinds: ANALYSIS_CONFIG.hotspots.eligibleKinds,
+            minCommitPercentile:
+              ANALYSIS_CONFIG.hotspots.gates.minCommitPercentile,
+          },
+          missing: ["@s/c"],
+          packages: [
+            {
+              files: [
+                {
+                  commitPercentile: 0.9,
+                  commits: 9,
+                  file: "packages/a/src/a.ts",
+                  linesChanged: 40,
+                },
+              ],
+              history: {
+                analyzedAt: "2026-10-01T00:00:00.000Z",
+                historyComplete: false,
+              },
+              id: "@s/a",
+            },
+          ],
+        },
+      ],
+      [
         "lenses/package-sizes.json",
         {
           packages: [
@@ -655,6 +888,18 @@ describe("writeLenses", () => {
     expect(read).toHaveLength(2);
     expect(read[0]).toEqual(internals);
     expect(read[1]?.topology).toBe(read[0]?.topology);
+  });
+
+  it("reads a package report afresh each time, while every other file is shared", async () => {
+    const reports: unknown[] = [];
+    const twice = probe(async (reader) => {
+      reports.push(await reader.packageReport("@s/a"));
+      return null;
+    });
+    await run([twice, twice]);
+    expect(reports).toHaveLength(2);
+    expect(reports[1]).toEqual(reports[0]);
+    expect(reports[1]).not.toBe(reports[0]);
   });
 
   it("lets a lens read the output of a lens it consumes, once that lens has run", async () => {
