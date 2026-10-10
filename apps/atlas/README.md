@@ -27,20 +27,36 @@ bun run atlas -- /path/to/workspace
 ## Commands
 
 ```text
-atlas [path]         Scan a workspace, serve it, and open the browser
-atlas scan [path]    Scan and save the dataset without starting the web viewer
-atlas serve [path]   Serve the saved dataset without running analysis
+Atlas — workspace analysis and a local viewer
 
-  --state <path>     State root (default: ~/.foundry/atlas)
-  --port <number>    Local port (default: 4173; 0 chooses a free port)
-  --no-open          Do not open the browser
-  --history          Analyze Git checkpoints as well when scanning
-  --help, -h         Show this help
+  atlas [path...]                   Scan a workspace, serve its dataset, and open the browser
+  atlas scan [path...]              Scan and save the dataset
+  atlas serve [path...]             Serve the saved dataset without scanning
+  atlas report <package> [path...]  Print a package report from the saved dataset
+  atlas export <dir> [path...]      Write a static viewer of the saved dataset to <dir>
+
+The path defaults to the current directory; one workspace at a time.
+A directory named like a command is written as a path: ./scan, ./serve, ./report, ./export.
+
+  --state <path>        State root (default: ~/.foundry/atlas)
+  --history             atlas, scan: analyze Git checkpoints as well
+  --port <number>       atlas, serve: local port (default: 4173; 0 chooses a free port)
+  --no-open             atlas, serve: do not open the browser
+  --format <format>     report: terminal, text, markdown (default: terminal; text when piped)
+  --density <density>   report: compact, normal, expanded (default: normal)
+  --json                Print the result as one line of JSON
+  --quiet               Print no progress
+  --help, -h            Show this help
+
+Exit codes: 0 done, 1 failed, 2 bad arguments.
 ```
 
-Paths default to the current directory. A scan is incremental: packages
-whose sources have not changed reuse their last analysis. The workspace is
-never modified. The viewer binds to `127.0.0.1` only.
+A scan is incremental: packages whose sources have not changed reuse their
+last analysis. The workspace is never modified, except where you point
+`atlas export`. The server binds to `127.0.0.1` only. `report` and `export` read the saved dataset and scan
+nothing; `export` writes a static viewer, the viewer and a copy of the
+dataset, for any static host. See the [CLI reference](https://github.com/Francois-Esquire/foundry/blob/main/docs/atlas/reference/cli.md) for output,
+`--json`, and exit codes.
 
 ## What a workspace is
 

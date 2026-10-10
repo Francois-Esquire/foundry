@@ -58,11 +58,6 @@ release tooling item.
 - The release tooling publishes every non-private workspace under one
   shared version from one `v*` tag. Atlas and Marbles release together until
   the tooling learns per-package tags.
-- A Foundry-specific string in the code: the idle caption "The Foundry
-  archipelago".
-- The viewer's `atlas-world` class loses its space when settings are open
-  (`atlas-worldatlas-settings-open`), so the wide-layout shift stops
-  applying.
 
 ## Documentation
 

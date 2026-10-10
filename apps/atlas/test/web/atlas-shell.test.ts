@@ -142,6 +142,10 @@ it("opens sections from the header, closes on Escape and returns focus", async (
   ).toBe("Chart");
   expect(container.querySelector(".atlas-chart-settings")).not.toBeNull();
   expect(chart.getAttribute("aria-expanded")).toBe("true");
+  // Two class tokens, so the wide layout's shift still applies to the world.
+  expect(
+    [...(container.querySelector(".atlas-world")?.classList ?? [])].sort()
+  ).toEqual(["atlas-panel-open", "atlas-world"]);
 
   await act(async () => button("Find a place").click());
   expect(

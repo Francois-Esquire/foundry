@@ -421,26 +421,73 @@ returns its results through it.
   `test/package.test.ts` loads a fixture's configuration through the
   installed bin with an empty PATH.
 
-**1.8 Commands.** The CLI as the library plus formatting.
-- A typed command table, as Marbles has, in `cli/args.ts`.
-- The CLI's `Output saved to <dir>` becomes `Dataset saved to <dir>`, with
-  `test/package.test.ts` and the docs that quote it (`reference/cli.md`,
-  `start-here.md`, `guides/scan-a-workspace.md`).
-- Paths are plural in the parser, `path...`, and a second path is refused
-  with a message that names the collection work, until phase 5.
-- `--json` and `--quiet` on every command that prints a result; exit codes
-  documented.
-- `atlas report <package>`: reads `packages/<name>.json` through the reader
-  and calls `renderSurface` with `--format` and `--density`. Package
-  reports only, because `renderSurface` takes a `SurfaceReport`, which is a
-  package; there are no file reports yet.
-- `atlas export <dir> [path]`: `docs/scripts/build-example.ts` moved into
-  the library and the CLI. The docs script calls it and stops recomputing
-  the state layout.
-- Viewer fixes from the publish list: the idle caption "The Foundry
-  archipelago" goes, and the `atlas-world` class keeps its space when
-  settings are open.
-- `reference/cli.md` follows.
+**1.8 Commands.** Done 2026-10-10. The CLI as the library plus formatting.
+- `cli/args.ts` holds the command table, shaped as Marbles' is: each
+  command's usage, summary, the flags it takes (`flags: [...] as const`),
+  and how it reads its positionals. `ArgsOf<C>` is the shared flags plus
+  `Pick` of the command's own and its positionals; the parser and the help
+  are generated from the table, and `reference/cli.md` and the README carry
+  the help verbatim (`test/cli/args.test.ts` compares them). One strict
+  `parseArgs` reads every option: an unknown flag is refused first, then
+  `--help` wins, then a flag the command does not take is refused
+  (`atlas serve does not take --history.`). **Behavior change:** flags no
+  longer apply to every command, so `scan --no-open`, which the package
+  test used to pass, is now a usage error.
+- `cli/index.ts` holds the `RUN` table, one library call plus formatting
+  per command, the output rules, the exit codes, and the signals. The
+  default command is `open` inside the table and is not addressable as
+  `atlas open`; a directory named like a command is written `./report`.
+- Paths are `path...` in the parser, typed `readonly [string]`; a second
+  path is refused until collections (phase 5): `atlas scan takes one
+  workspace path. Reading several workspaces at once is not supported
+  yet.`
+- Output: stdout carries only results. `--json` prints `JSON.stringify` of
+  the library's result on one line: `scan`'s `{ manifest, output,
+  history? }`, the package report as saved, the export's `{ directory,
+  manifest }`, the server's `{ root, url }`, and for the default command one
+  line `{ ...scan, ...server }` once the server listens. `--quiet` silences
+  progress only; the browser warning stays on stderr. `Output saved to` is
+  `Dataset saved to`, after the glossary's dataset and output.
+- Exit codes `0`, `1` (ran and failed), `2` (usage, with `Run atlas --help
+  for usage.`). `check` (3.3) will exit `3` on a violation; this differs
+  from Marbles, whose usage errors exit `1`, and from ESLint.
+- `atlas report <package> [path...]` reads the saved dataset only, through
+  `lib/dataset-files.ts` `savedDataset(root, state?)`, which `serve` now
+  uses too (one check, its message unchanged: `No dataset found for <root>
+  in <output>.`; `DatasetNotFoundError` takes an optional message, so the
+  viewer's stays as it was). An unknown package's message lists the
+  dataset's packages, in the reader. The render context is resolved in the
+  CLI: `terminal` on a TTY else `text`, the terminal's width else 80,
+  colour unless `NO_COLOR`, Unicode always. `RenderFormat` and the lists of
+  formats and densities are exported from `render/context.ts`.
+- `atlas export <dir> [path...]` writes a static viewer through
+  `lib/export.ts` `exportViewer(root, directory, { state? })`, internal:
+  the viewer (`viewerRoot`), then the saved dataset, then the guards, then
+  the state lock for the copy, so no scan, history included, writes
+  mid-copy. A never-scanned workspace fails before any lock or state
+  directory exists. Every static viewer carries `.atlas-static-viewer.json`,
+  listing the top-level entries Atlas wrote. The target must be absent,
+  empty (ignoring `.DS_Store`), or a previous static viewer holding nothing
+  outside its marker's list, so a `.git`, a `CNAME`, or any file of the
+  user's is never deleted; a symbolic link or a file is refused, and so is
+  a target that holds the workspace or overlaps the state directory or the
+  viewer. The static viewer is staged in a sibling, `<dir>.export-<uuid>`
+  (which also keeps `cp` from copying into its own source), the previous
+  one moved aside and the new one swapped in, then the old one removed; a
+  failure puts the previous static viewer back and reports the first error,
+  and a crash can leave a sibling (`docs/public/.gitignore` covers the
+  docs example's). The returned manifest is read from the copy. There is no
+  `--force`. The lock's messages say "scanned or exported". `resolveRoot`
+  now says `Workspace path does not exist: <path>`.
+- `docs/scripts/build-example.ts` runs `atlas scan <root> --quiet`, then
+  `atlas export <example> <root>`; reruns replace the example, and it no
+  longer derives the state layout.
+- The viewer fixes had landed in c205640: the caption is "The archipelago"
+  and the world's class is `atlas-world atlas-panel-open`.
+  `test/web/atlas-shell.test.ts` checks the two class tokens and
+  `test/web/no-foundry.test.ts` that nothing under `src/web` but its notes
+  names Foundry (principle 5).
+- `scripts/dev.ts` reads its command line as `atlas serve`.
 
 **1.9 Foundations for phase 2.** Shapes only; nothing is built on them yet.
 - The domain declaration type and its validation, read by the 1.7
@@ -549,7 +596,8 @@ configuration from 1.7, with subjects addressed by path and `path#symbol`.
 
 **3.2 Wire the two stacks** at `authorizeMutationPlan`. No third.
 
-**3.3 `atlas check`.** Rules against the dataset; exit 1 on a violation.
+**3.3 `atlas check`.** Rules against the dataset; exit 3 on a violation,
+as 1.8 reserved, so it differs from a failed run (1) and bad arguments (2).
 
 **3.4 `atlas plan`.** One plan for one site, read-only.
 

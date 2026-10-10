@@ -24,7 +24,8 @@ atlas ./my-workspace
 
 `scan` analyzes and saves. `serve` shows the last saved result. With no
 subcommand, Atlas does both and opens the browser. The workspace itself is
-never modified, and nothing leaves your machine.
+never modified, except where you point `atlas export`, and nothing leaves
+your machine.
 
 Atlas is a package, `@foundry/atlas`, with one binary. It runs on Bun and
 needs Git only when you ask for history.

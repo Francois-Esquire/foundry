@@ -199,7 +199,7 @@ it(
     const refused = await second;
     expect(refused).toBeInstanceOf(Error);
     expect((refused as Error).message).toBe(
-      `Workspace ${root} is being scanned by this process.`
+      `Workspace ${root} is being scanned or exported by this process.`
     );
     // Written as soon as the lock is held, before the dataset is saved.
     expect(recordWhileScanning).toEqual({
@@ -225,7 +225,7 @@ it("a scan refuses a lock held by another live process and writes no record", as
   mkdirSync(state.directory, { recursive: true });
   writeFileSync(join(state.directory, "lock"), String(process.ppid));
   await expect(scan.workspace(root, options)).rejects.toThrow(
-    `Workspace ${root} is being scanned by process ${process.ppid}.`
+    `Workspace ${root} is being scanned or exported by process ${process.ppid}.`
   );
   expect(existsSync(join(state.directory, "workspace.json"))).toBe(false);
 });

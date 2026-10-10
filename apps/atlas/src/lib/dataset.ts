@@ -70,8 +70,12 @@ export interface DatasetReader {
 
 /** There is no manifest where the dataset should be. */
 export class DatasetNotFoundError extends Error {
-  constructor() {
-    super("No dataset found. Run atlas scan to save one.");
+  /** `message` names where the dataset was looked for, when the caller knows. */
+  constructor(
+    message = "No dataset found. Run atlas scan to save one.",
+    options?: ErrorOptions
+  ) {
+    super(message, options);
     this.name = "DatasetNotFoundError";
   }
 }
@@ -195,7 +199,14 @@ function packageEntry(
 ): SemanticsManifestPackage {
   const found = manifest.packages.find((pkg) => pkg.id === name);
   if (found === undefined) {
-    throw new Error(`The dataset has no package named ${name}.`);
+    const names = manifest.packages.map((pkg) => pkg.id);
+    throw new Error(
+      `The dataset has no package named ${name}. ${
+        names.length === 0
+          ? "It has no packages."
+          : `Its packages: ${names.join(", ")}.`
+      }`
+    );
   }
   return found;
 }

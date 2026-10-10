@@ -43,6 +43,9 @@ bun install --frozen-lockfile
 bun run docs:build
 ```
 
-The build generates the example in `docs/public/atlas/examples/foundry/` and
-copies it into `docs/dist/atlas/examples/foundry/`. Generated files are ignored
+The build runs `atlas scan` on the checkout, then
+`atlas export docs/public/atlas/examples/foundry`, which writes the static
+viewer there, and the docs build copies it into
+`docs/dist/atlas/examples/foundry/`. Any workspace can be published the same
+way; see [export](/atlas/reference/cli#export). Generated files are ignored
 by Git. `bun run docs:dev` refreshes the example before starting the docs server.

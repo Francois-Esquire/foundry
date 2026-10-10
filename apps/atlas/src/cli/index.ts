@@ -1,13 +1,37 @@
 #!/usr/bin/env bun
-import type { ScanProgressEvent } from "../lib/scan";
+import { savedDataset } from "../lib/dataset-files";
+import { exportViewer } from "../lib/export";
+import { renderSurface } from "../lib/render";
+import type { RenderContext } from "../lib/render/context";
+import type { ScanProgressEvent, WorkspaceScan } from "../lib/scan";
 import { scan } from "../lib/scan";
+import type { AtlasServer } from "../lib/serve";
 import { serve, viewerRoot } from "../lib/serve";
-import type { Arguments } from "./args";
-import { HELP, parseArguments } from "./args";
+import type { ArgsOf, Command } from "./args";
+import { HELP, messageOf, parseArguments, UsageError } from "./args";
 import { openBrowser } from "./browser";
 
-/** Phases, then one line per package's internals; the rest is for programs. */
-function printProgress(event: ScanProgressEvent) {
+/** Exit codes; `check` will exit 3 on a violation. */
+const FAILED = 1;
+const BAD_ARGUMENTS = 2;
+/** The report's width when stdout is not a terminal. */
+const PIPED_WIDTH = 80;
+
+function print(text: string): void {
+  process.stdout.write(text.endsWith("\n") ? text : `${text}\n`);
+}
+
+/** A command's result on stdout: its library value as one line of JSON with `--json`, else the text for people. */
+function printResult(
+  { json }: { json: boolean },
+  value: unknown,
+  text: () => string
+): void {
+  print(json ? JSON.stringify(value) : text());
+}
+
+/** Phases, then one line per package's internals, on stderr; the rest is for programs. */
+function printProgress(event: ScanProgressEvent): void {
   if (event.kind === "phase") {
     process.stderr.write(
       `${event.phase}${event.detail ? `: ${event.detail}` : ""}\n`
@@ -17,55 +41,116 @@ function printProgress(event: ScanProgressEvent) {
   }
 }
 
-async function scanWorkspace(args: Arguments) {
-  const result = await scan(args.target, {
+const savedLine = (saved: WorkspaceScan) => `Dataset saved to ${saved.output}`;
+
+const serverLines = (server: AtlasServer) =>
+  `Atlas: ${server.url.href}\nWorkspace: ${server.root}`;
+
+function scanned(args: ArgsOf<"open"> | ArgsOf<"scan">) {
+  const [root] = args.paths;
+  return scan(root, {
     history: args.history,
-    onProgress: printProgress,
+    onProgress: args.quiet ? undefined : printProgress,
     state: args.state,
   });
-  process.stdout.write(`Output saved to ${result.output}\n`);
 }
 
-async function main() {
-  const args = parseArguments(process.argv.slice(2));
-  if (args.help) {
-    process.stdout.write(HELP);
-    return;
-  }
-  if (args.command === "scan") {
-    await scanWorkspace(args);
-    return;
-  }
-  if (args.command === "open") {
-    // Fail before the scan, not after it, when there is no viewer to open.
-    await viewerRoot();
-    await scanWorkspace(args);
-  }
-  const server = await serve(args.target, {
-    port: args.port,
-    state: args.state,
-  });
-  const url = server.url.href;
-  process.stdout.write(`Atlas: ${url}\nWorkspace: ${server.root}\n`);
+/** Runs until SIGINT or SIGTERM, which stop the server and exit 0. */
+async function whileServing(
+  server: AtlasServer,
+  { "no-open": noOpen }: { "no-open": boolean }
+): Promise<void> {
   const stop = () => server.stop();
   process.once("SIGINT", stop);
   process.once("SIGTERM", stop);
-  if (args.open) {
-    try {
-      await openBrowser(url);
-    } catch (error) {
-      process.stderr.write(
-        `${error instanceof Error ? error.message : String(error)} Open ${url}\n`
-      );
-    }
+  if (noOpen) {
+    return;
   }
+  try {
+    await openBrowser(server.url.href);
+  } catch (error) {
+    // Not a failure, and not progress: --quiet keeps it.
+    process.stderr.write(`${messageOf(error)} Open ${server.url.href}\n`);
+  }
+}
+
+function renderContext({
+  density,
+  format,
+}: ArgsOf<"report">): Partial<RenderContext> {
+  const terminal = process.stdout.isTTY === true;
+  const chosen = format ?? (terminal ? "terminal" : "text");
+  return {
+    color: chosen === "terminal" && !process.env.NO_COLOR,
+    density,
+    format: chosen,
+    unicode: true,
+    width: terminal ? (process.stdout.columns ?? PIPED_WIDTH) : PIPED_WIDTH,
+  };
+}
+
+const RUN: { readonly [C in Command]: (args: ArgsOf<C>) => Promise<void> } = {
+  async export(args) {
+    const [root] = args.paths;
+    const written = await exportViewer(root, args.directory, {
+      state: args.state,
+    });
+    printResult(
+      args,
+      written,
+      () => `Static viewer saved to ${written.directory}`
+    );
+  },
+  async open(args) {
+    const [root] = args.paths;
+    // Fail before the scan, not after it, when there is no viewer to open.
+    await viewerRoot();
+    const saved = await scanned(args);
+    if (!args.json) {
+      print(savedLine(saved));
+    }
+    const server = await serve(root, { port: args.port, state: args.state });
+    printResult(args, { ...saved, ...server }, () => serverLines(server));
+    await whileServing(server, args);
+  },
+  async report(args) {
+    const [root] = args.paths;
+    const { reader } = await savedDataset(root, args.state);
+    const report = await reader.packageReport(args.package);
+    printResult(args, report, () => renderSurface(report, renderContext(args)));
+  },
+  async scan(args) {
+    const saved = await scanned(args);
+    printResult(args, saved, () => savedLine(saved));
+  },
+  async serve(args) {
+    const [root] = args.paths;
+    const server = await serve(root, { port: args.port, state: args.state });
+    printResult(args, server, () => serverLines(server));
+    await whileServing(server, args);
+  },
+};
+
+function run<C extends Command>(command: C, args: ArgsOf<C>): Promise<void> {
+  const runner: (args: ArgsOf<C>) => Promise<void> = RUN[command];
+  return runner(args);
+}
+
+async function main(): Promise<void> {
+  const line = parseArguments(process.argv.slice(2));
+  if (line.command === "help") {
+    process.stdout.write(HELP);
+    return;
+  }
+  await run(line.command, line);
 }
 
 try {
   await main();
 } catch (error) {
+  const usage = error instanceof UsageError;
   process.stderr.write(
-    `Atlas: ${error instanceof Error ? error.message : String(error)}\n`
+    `Atlas: ${messageOf(error)}\n${usage ? "Run atlas --help for usage.\n" : ""}`
   );
-  process.exitCode = 1;
+  process.exitCode = usage ? BAD_ARGUMENTS : FAILED;
 }

@@ -14,11 +14,12 @@ How `src/lib` implements it is free to change.
   else. There is no `exports` map, so nothing under `src/lib` is importable
   by a consumer. Marbles, by comparison, exports `.`, `./lib`, and
   `./prebuilt`.
-- **Three commands.** `atlas [path]`, `atlas scan [path]`, and
-  `atlas serve [path]`, with `--state`, `--port`, `--no-open`, `--history`.
-  One path at most. See `reference/cli.md`.
+- **Five commands** since 1.8: `atlas [path...]`, `scan`, `serve`,
+  `report`, and `export`, from a typed command table; each takes only its
+  own flags, plus `--state`, `--json`, and `--quiet`. One path at most
+  until collections. See `reference/cli.md`.
 - **The dataset is already a contract.** `output/` is versioned
-  (`SEMANTICS_DATASET_SCHEMA_VERSION = 3` in the manifest), documented file
+  (`SEMANTICS_DATASET_SCHEMA_VERSION = 4` in the manifest), documented file
   by file in `reference/output.md`, published atomically, and read by the
   viewer unchanged. The docs site already builds a static viewer plus
   dataset from it (`docs/scripts/build-example.ts`).
@@ -48,7 +49,8 @@ Proposed. These decide the shape of everything below.
    call plus output. No behavior exists only in the CLI.
 3. **Read-only unless asked.** Nothing writes inside a workspace except
    `apply`, which previews by default and writes only with `--write` or
-   `write: true`. This is the existing `apply.ts` contract, made public.
+   `write: true`, and `atlas export`, which writes only where it is
+   pointed. This is the existing `apply.ts` contract, made public.
 4. **Machine-readable by default for programs, readable by default for
    people.** Every command that prints a result takes `--json`. Exit codes
    mean something a CI job can use.
@@ -62,12 +64,12 @@ Proposed. These decide the shape of everything below.
 
 | Command | Status | Does |
 | --- | --- | --- |
-| `atlas [path...]` | exists, one path | Scan, serve, open the browser. |
-| `atlas scan [path...]` | exists, one path | Scan and save the dataset. |
-| `atlas serve [path...]` | exists, one path | Serve the saved dataset. |
-| `atlas report <package>` | 0.1 | Print a package report in the terminal, through `lib/render`. `--format markdown` for docs and PRs. Package only: `renderSurface` takes a package's `SurfaceReport`, and no file report exists. |
-| `atlas export <dir> [path...]` | 0.1 | Write the viewer and the dataset as static files, for hosting or CI artifacts. What `build-example.ts` does today. |
-| `atlas check [path...]` | proposed, depends on rules | Evaluate the workspace's rules against the dataset. Exit 1 on a violation. |
+| `atlas [path...]` | 0.1, one path | Scan, serve, open the browser. |
+| `atlas scan [path...]` | 0.1, one path | Scan and save the dataset. |
+| `atlas serve [path...]` | 0.1, one path | Serve the saved dataset. |
+| `atlas report <package> [path...]` | 0.1, done in 1.8 | Print a package report in the terminal, through `lib/render`. `--format markdown` for docs and PRs. Package only: `renderSurface` takes a package's `SurfaceReport`, and no file report exists. |
+| `atlas export <dir> [path...]` | 0.1, done in 1.8 | Write a static viewer, the viewer and a copy of the saved dataset, for hosting or CI artifacts. `build-example.ts` now calls it. |
+| `atlas check [path...]` | proposed, depends on rules | Evaluate the workspace's rules against the dataset. Exit 3 on a violation. |
 | `atlas plan <rule-or-opportunity>` | proposed, depends on rules | Print the plan that would satisfy a rule at one site. Read-only. |
 | `atlas apply <plan> [--write]` | proposed, depends on rules | Preview a plan's edits; write and verify with `--write`. |
 
@@ -76,6 +78,12 @@ readiness gate reads them, as [`_codemods.md`](./_codemods.md) says.
 
 Flags shared by every command: `--state`, `--json`, `--quiet`, `--help`.
 `--history` belongs to `scan` and the default command, not to `serve`.
+
+Exit codes, settled in 1.8: `0` done, `1` the command ran and failed, `2`
+bad arguments, and codes above `2` for commands' own results, starting with
+`check`'s `3` for a violation, so a CI job can tell a broken rule from a
+failed run. Marbles exits `1` on a usage error; ESLint uses `1` for lint
+errors and `2` for a failed run.
 
 ## Library
 

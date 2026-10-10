@@ -137,7 +137,7 @@ describe("one package", () => {
   it("is refused when the dataset does not hold it", async () => {
     const { dataset: saved } = reader();
     await expect(saved.packageReport("@s/x")).rejects.toThrow(
-      "The dataset has no package named @s/x."
+      "The dataset has no package named @s/x. Its packages: @s/a, @s/b, @s/c."
     );
     await expect(saved.internals("@s/x")).rejects.toThrow(
       "The dataset has no package named @s/x."

@@ -148,5 +148,11 @@ _Avoid_: workspace report
 
 **Viewer**:
 What a browser loads to show a dataset; `serve` hosts it beside the
-dataset.
+dataset, and `atlas export` copies it into a static viewer.
 _Avoid_: web assets, web root, app, explorer, client
+
+**Static viewer**:
+The viewer and a copy of one dataset, written as static files by
+`atlas export`.
+_Avoid_: export (the command; also a symbol a module exposes), site,
+example

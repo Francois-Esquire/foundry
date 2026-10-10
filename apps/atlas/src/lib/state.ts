@@ -3,7 +3,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { writeFileAtomicSync } from "@foundry/lib/atomic-file";
+import { isMissingPath, writeFileAtomicSync } from "@foundry/lib/atomic-file";
 import type { FileLockHolder } from "@foundry/lib/file-lock";
 import { processAlive, tryFileLock } from "@foundry/lib/file-lock";
 import { version } from "../../package.json" with { type: "json" };
@@ -38,9 +38,20 @@ interface WorkspaceRecord {
 const DEFAULT_STATE_ROOT = join(homedir(), ".foundry", "atlas");
 const WORKSPACE_ID_LENGTH = 12;
 
-/** The workspace root resolved through symlinks; it must be a directory. */
+/** The workspace root resolved through symlinks; it must exist and be a directory. */
 export async function resolveRoot(target: string): Promise<string> {
-  const root = await realpath(resolve(target));
+  const path = resolve(target);
+  let root: string;
+  try {
+    root = await realpath(path);
+  } catch (error) {
+    if (isMissingPath(error)) {
+      throw new Error(`Workspace path does not exist: ${path}`, {
+        cause: error,
+      });
+    }
+    throw error;
+  }
   if (!(await stat(root)).isDirectory()) {
     throw new Error(`Workspace is not a directory: ${root}`);
   }
@@ -68,9 +79,10 @@ export async function workspaceState(
 }
 
 /**
- * Takes the state directory's lock, so one scan at a time writes it, across
- * processes and within one. Throws without waiting when it is held, since a
- * scan takes minutes. A lock left by a process that has exited is taken over.
+ * Takes the state directory's lock, so one scan at a time writes it, and no
+ * export copies the dataset while a scan writes it, across processes and
+ * within one. Throws without waiting when it is held, since a scan takes
+ * minutes. A lock left by a process that has exited is taken over.
  * Returns the release, which runs once.
  */
 export function lockState(state: WorkspaceState): () => void {
@@ -90,20 +102,20 @@ function heldMessage(
 ): string {
   const workspace = `Workspace ${root}`;
   if (empty) {
-    return `${workspace} is being scanned by a process that is starting. Retry.`;
+    return `${workspace} is being scanned or exported by a process that is starting. Retry.`;
   }
   if (holder === undefined) {
-    return `${workspace} is locked by an unknown process. If no scan is running, remove ${path}.`;
+    return `${workspace} is locked by an unknown process. If no scan or export is running, remove ${path}.`;
   }
   if (holder === process.pid) {
-    return `${workspace} is being scanned by this process.`;
+    return `${workspace} is being scanned or exported by this process.`;
   }
   if (processAlive(holder)) {
     // A pid can be reused by a process that is not a scan.
-    return `${workspace} is being scanned by process ${holder}. If no scan is running, remove ${path}.`;
+    return `${workspace} is being scanned or exported by process ${holder}. If no scan or export is running, remove ${path}.`;
   }
   // Only while another process has its turn to break the lock.
-  return `${workspace} is locked by process ${holder}, which has exited; another scan is taking the lock over. Retry.`;
+  return `${workspace} is locked by process ${holder}, which has exited; another scan or export is taking the lock over. Retry.`;
 }
 
 /** Records which workspace the state directory belongs to, unless a record is there already. */

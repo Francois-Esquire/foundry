@@ -14,7 +14,7 @@ import { join } from "node:path";
 import { processAlive } from "@foundry/lib/file-lock";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import type { WorkspaceState } from "../../src/lib/state";
-import { lockState, workspaceState } from "../../src/lib/state";
+import { lockState, resolveRoot, workspaceState } from "../../src/lib/state";
 
 let directory: string;
 let state: WorkspaceState;
@@ -45,21 +45,21 @@ function exitedProcess(): number {
 it("refuses a lock whose holder has not written itself in yet", () => {
   writeFileSync(lock, "");
   expect(() => lockState(state)).toThrow(
-    `Workspace ${state.root} is being scanned by a process that is starting. Retry.`
+    `Workspace ${state.root} is being scanned or exported by a process that is starting. Retry.`
   );
 });
 
 it("refuses a lock that names no process, and says which file to remove", () => {
   writeFileSync(lock, "garbage");
   expect(() => lockState(state)).toThrow(
-    `Workspace ${state.root} is locked by an unknown process. If no scan is running, remove ${lock}.`
+    `Workspace ${state.root} is locked by an unknown process. If no scan or export is running, remove ${lock}.`
   );
 });
 
 it("refuses a lock held by another live process, and says which file to remove", () => {
   writeFileSync(lock, String(process.ppid));
   expect(() => lockState(state)).toThrow(
-    `Workspace ${state.root} is being scanned by process ${process.ppid}. If no scan is running, remove ${lock}.`
+    `Workspace ${state.root} is being scanned or exported by process ${process.ppid}. If no scan or export is running, remove ${lock}.`
   );
 });
 
@@ -77,14 +77,14 @@ it("refuses a lock whose process has exited while another scan takes it over", (
   // The turn to break the lock, held by the scan taking it over.
   writeFileSync(`${lock}.break`, "");
   expect(() => lockState(state)).toThrow(
-    `Workspace ${state.root} is locked by process ${exited}, which has exited; another scan is taking the lock over. Retry.`
+    `Workspace ${state.root} is locked by process ${exited}, which has exited; another scan or export is taking the lock over. Retry.`
   );
 });
 
 it("is not taken twice in one process", () => {
   const release = lockState(state);
   expect(() => lockState(state)).toThrow(
-    `Workspace ${state.root} is being scanned by this process.`
+    `Workspace ${state.root} is being scanned or exported by this process.`
   );
   release();
 });
@@ -97,4 +97,11 @@ it("releases once, so a late second release leaves a newer lock alone", () => {
   expect(existsSync(lock)).toBe(true);
   second();
   expect(existsSync(lock)).toBe(false);
+});
+
+it("names a workspace path that does not exist", async () => {
+  const missing = join(directory, "missing");
+  await expect(resolveRoot(missing)).rejects.toThrow(
+    `Workspace path does not exist: ${missing}`
+  );
 });

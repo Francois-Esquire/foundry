@@ -3,10 +3,7 @@ import { join, resolve } from "node:path";
 import { isMissingPath } from "@foundry/lib/atomic-file";
 import { engines } from "../../package.json" with { type: "json" };
 import { startServer } from "../server/server";
-import { DatasetNotFoundError, datasetReader } from "./dataset";
-import { fileTransport } from "./dataset-files";
-import type { WorkspaceState } from "./state";
-import { workspaceState } from "./state";
+import { savedDataset } from "./dataset-files";
 
 /** The port `serve` and the CLI use when none is given. */
 export const DEFAULT_PORT = 4173;
@@ -56,16 +53,15 @@ export async function serve(
   }
   const port = options.port ?? DEFAULT_PORT;
   checkPort(port);
-  const state = await workspaceState(root, options.state);
   const viewer = await viewerRoot();
-  await checkDataset(state);
+  const { workspace } = await savedDataset(root, options.state);
   const server = startServer({
-    output: state.output,
+    output: workspace.output,
     port,
     viewer,
   });
   return {
-    root: state.root,
+    root: workspace.root,
     stop: () => server.stop(true),
     url: server.url,
   };
@@ -92,18 +88,4 @@ export async function viewerRoot(): Promise<string> {
   throw new Error(
     `The viewer's files are missing from ${VIEWER}. Reinstall the package, or build it first when running from source.`
   );
-}
-
-async function checkDataset(state: WorkspaceState): Promise<void> {
-  try {
-    await datasetReader(fileTransport(state.output)).manifest();
-  } catch (error) {
-    if (error instanceof DatasetNotFoundError) {
-      throw new Error(
-        `No dataset found for ${state.root} in ${state.output}. Run atlas scan to save one.`,
-        { cause: error }
-      );
-    }
-    throw error;
-  }
 }

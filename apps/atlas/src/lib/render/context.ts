@@ -1,5 +1,8 @@
-type RenderFormat = "terminal" | "text" | "markdown";
-export type RenderDensity = "compact" | "normal" | "expanded";
+export const RENDER_FORMATS = ["terminal", "text", "markdown"] as const;
+export type RenderFormat = (typeof RENDER_FORMATS)[number];
+
+export const RENDER_DENSITIES = ["compact", "normal", "expanded"] as const;
+export type RenderDensity = (typeof RENDER_DENSITIES)[number];
 
 /**
  * Resolved once at the CLI boundary and passed down; nothing under `render/`

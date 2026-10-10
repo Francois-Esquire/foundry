@@ -5,20 +5,22 @@ import { DEFAULT_PORT } from "../src/lib/serve";
 import { workspaceState } from "../src/lib/state";
 import { startServer } from "../src/server/server";
 
-const args = parseArguments(process.argv.slice(2));
-if (args.help) {
+// Read as `atlas serve`: a path, --state, --port, and --no-open.
+const args = parseArguments(["serve", ...process.argv.slice(2)]);
+if (args.command === "help") {
   process.stdout.write(
-    `Atlas development viewer. Loads saved output without scanning.\n\n${HELP}`
+    `Atlas development server, read as atlas serve: serves the saved dataset without scanning.\n\n${HELP}`
   );
-} else {
-  const workspace = await workspaceState(args.target, args.state);
+} else if (args.command === "serve") {
+  const [root] = args.paths;
+  const workspace = await workspaceState(root, args.state);
   const files = startServer({ output: workspace.output, port: 0 });
   try {
     const server = await createServer({
       configFile: resolve(import.meta.dirname, "../vite.config.ts"),
       server: {
         host: "127.0.0.1",
-        open: args.open,
+        open: !args["no-open"],
         port: args.port ?? DEFAULT_PORT,
         proxy: { "/data": files.url.href },
         strictPort: true,

@@ -195,7 +195,7 @@ test(
       expectSelfContained(installed, manifest);
 
       const cli = join(consumer, "node_modules/.bin/atlas");
-      expect(run(cli, ["--help"], consumer)).toContain("atlas scan [path]");
+      expect(run(cli, ["--help"], consumer)).toContain("atlas scan [path...]");
 
       // The fixture is copied so the scan never touches the repository copy.
       const workspace = join(consumer, "workspace");
@@ -212,12 +212,12 @@ test(
       // never looks for git.
       const scanned = run(
         process.execPath,
-        [cli, "scan", workspace, "--state", state, "--no-open"],
+        [cli, "scan", workspace, "--state", state],
         consumer,
         { ...process.env, PATH: "" }
       );
-      expect(scanned).toContain("Output saved to ");
-      const output = scanned.split("Output saved to ")[1]?.trim() ?? "";
+      expect(scanned).toContain("Dataset saved to ");
+      const output = scanned.split("Dataset saved to ")[1]?.trim() ?? "";
       const dataset = JSON.parse(
         readFileSync(join(output, "manifest.json"), "utf8")
       );
@@ -234,6 +234,19 @@ test(
       });
       expect(existsSync(join(output, "internals"))).toBe(true);
       expect(existsSync(join(output, "manifests"))).toBe(false);
+
+      // The installed bin reads the saved dataset and finds its own viewer.
+      expect(
+        run(cli, ["report", "@s/a", workspace, "--state", state], consumer)
+      ).toContain("Target  @s/a");
+      const site = join(consumer, "site");
+      expect(
+        run(cli, ["export", site, workspace, "--state", state], consumer)
+      ).toBe(`Static viewer saved to ${site}\n`);
+      expect(existsSync(join(site, "index.html"))).toBe(true);
+      expect(readFileSync(join(site, "data/manifest.json"), "utf8")).toBe(
+        readFileSync(join(output, "manifest.json"), "utf8")
+      );
 
       const serve = [
         cli,

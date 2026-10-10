@@ -1,4 +1,11 @@
-import { afterEach, expect, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  test,
+} from "bun:test";
 import {
   cp,
   mkdir,
@@ -12,14 +19,16 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawn } from "bun";
-import { parseArguments } from "../src/cli/args";
+import { scan } from "../src/lib/scan";
 import type { SemanticsHistoryManifest } from "../src/lib/semantics-history-types";
 import type { SemanticsManifest } from "../src/lib/semantics-types";
 import { serve } from "../src/lib/serve";
+import type { WorkspaceState } from "../src/lib/state";
 import { workspaceState } from "../src/lib/state";
 import { startServer } from "../src/server/server";
 import { loadAtlas } from "../src/web/load-atlas";
 import { loadInternals } from "../src/web/load-internals";
+import { CLI, spawnCli } from "./helpers/cli";
 import { commitFixture } from "./helpers/commit-fixture";
 
 const directories: string[] = [];
@@ -39,26 +48,6 @@ async function fixture() {
   const workspace = await workspaceState(root, join(directory, "state"));
   return { directory, workspace };
 }
-
-test("commands select current or explicit workspaces and reject invalid flags", () => {
-  expect(parseArguments([], "/workspace")).toMatchObject({
-    command: "open",
-    open: true,
-    target: "/workspace",
-  });
-  expect(parseArguments(["scan", "/another"])).toMatchObject({
-    command: "scan",
-    target: "/another",
-  });
-  expect(parseArguments(["serve", "--no-open", "--port", "0"])).toMatchObject({
-    command: "serve",
-    open: false,
-    port: 0,
-  });
-  expect(() => parseArguments(["--port", "65536"])).toThrow("Port");
-  expect(() => parseArguments(["--unknown"])).toThrow();
-  expect(() => parseArguments(["scan", "one", "two"])).toThrow("one workspace");
-});
 
 test("workspace identity resolves symlinks and isolates separate checkouts", async () => {
   const { directory, workspace } = await fixture();
@@ -202,12 +191,7 @@ test("serve(root) refuses an invalid port, and a workspace with no saved dataset
 
 test("built CLI scans an external workspace and the web loaders read its saved dataset through the reader, over the real server", async () => {
   const { workspace, directory } = await fixture();
-  const cli = resolve(import.meta.dirname, "../dist/cli/atlas.js");
-  const help = spawn([process.execPath, cli, "--help"], {
-    cwd: workspace.root,
-    stderr: "pipe",
-    stdout: "pipe",
-  });
+  const help = spawnCli(["--help"], workspace.root);
   expect(await help.exited).toBe(0);
   expect(await new Response(help.stdout).text()).toContain("atlas scan");
   await cp(
@@ -216,16 +200,17 @@ test("built CLI scans an external workspace and the web loaders read its saved d
     { recursive: true }
   );
   const runScan = async () => {
-    const child = spawn(
-      [process.execPath, cli, "scan", "--state", join(directory, "state")],
-      { cwd: workspace.root, stderr: "pipe", stdout: "pipe" }
+    const child = spawnCli(
+      ["scan", "--state", join(directory, "state")],
+      workspace.root
     );
-    const [code, stderr] = await Promise.all([
+    const [code, stderr, stdout] = await Promise.all([
       child.exited,
       new Response(child.stderr).text(),
       new Response(child.stdout).text(),
     ]);
     expect(code, stderr).toBe(0);
+    expect(stdout).toBe(`Dataset saved to ${workspace.output}\n`);
     // Progress is the CLI's formatting of the library's events.
     const lines = stderr.trimEnd().split("\n");
     expect(lines[0]).toBe("discover");
@@ -309,6 +294,211 @@ test("built CLI scans an external workspace and the web loaders read its saved d
   }
 }, 60_000);
 
+/** Runs the built CLI to completion. */
+async function runCli(
+  args: string[],
+  cwd: string,
+  env: Record<string, string | undefined> = process.env
+) {
+  const child = spawnCli(args, cwd, env);
+  const [code, stdout, stderr] = await Promise.all([
+    child.exited,
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+  ]);
+  return { code, stderr, stdout };
+}
+
+/** Starts the built CLI, hands its first line of stdout to `use`, then stops it. */
+async function withFirstLine(
+  args: string[],
+  cwd: string,
+  use: (line: string) => Promise<void>
+): Promise<void> {
+  const child = spawnCli(args, cwd);
+  try {
+    const reader = child.stdout.getReader();
+    const decoder = new TextDecoder();
+    let text = "";
+    while (!text.includes("\n")) {
+      const { done, value } = await reader.read();
+      if (done) {
+        throw new Error(await new Response(child.stderr).text());
+      }
+      text += decoder.decode(value, { stream: true });
+    }
+    reader.releaseLock();
+    await use(text.slice(0, text.indexOf("\n")));
+  } finally {
+    child.kill("SIGTERM");
+    await child.exited;
+  }
+}
+
+describe("built CLI commands", () => {
+  let directory: string;
+  let workspace: WorkspaceState;
+  let state: string;
+  let root: string;
+  const readJson = async (file: string) =>
+    JSON.parse(await readFile(file, "utf8")) as unknown;
+  const savedManifest = () => readJson(join(workspace.output, "manifest.json"));
+
+  beforeAll(async () => {
+    directory = await realpath(await mkdtemp(join(tmpdir(), "atlas-cli-")));
+    root = join(directory, "workspace");
+    await cp(resolve(import.meta.dirname, "lib/fixtures/semantics"), root, {
+      recursive: true,
+    });
+    state = join(directory, "state");
+    workspace = await workspaceState(root, state);
+    await scan(root, { state });
+  }, 60_000);
+
+  afterAll(async () => {
+    await rm(directory, { force: true, recursive: true });
+  });
+
+  test("report and export fail on a workspace never scanned", async () => {
+    const other = join(directory, "never-scanned");
+    await mkdir(other);
+    const fresh = await workspaceState(other, state);
+    const missing = `Atlas: No dataset found for ${fresh.root} in ${fresh.output}. Run atlas scan to save one.\n`;
+    for (const args of [
+      ["report", "@s/a"],
+      ["export", join(directory, "never-site")],
+    ]) {
+      expect(await runCli([...args, "--state", state], other)).toEqual({
+        code: 1,
+        stderr: missing,
+        stdout: "",
+      });
+    }
+  });
+
+  test("scan --json prints the library's result on one line, and --quiet silences only progress", async () => {
+    const quiet = await runCli(
+      ["scan", "--state", state, "--json", "--quiet"],
+      root
+    );
+    expect(quiet.code, quiet.stderr).toBe(0);
+    expect(quiet.stderr).toBe("");
+    expect(quiet.stdout.endsWith("\n")).toBe(true);
+    expect(quiet.stdout.trimEnd().split("\n")).toHaveLength(1);
+    const result = JSON.parse(quiet.stdout) as Record<string, unknown>;
+    expect(Object.keys(result).sort()).toEqual(["manifest", "output"]);
+    expect(result.output).toBe(workspace.output);
+    expect(result.manifest).toEqual(await savedManifest());
+    const progress = await runCli(["scan", "--state", state, "--json"], root);
+    expect(progress.stderr.split("\n")[0]).toBe("discover");
+  }, 60_000);
+
+  test("report renders each format, colours only for the terminal, and prints the saved report with --json", async () => {
+    const report = (flags: string[], env: Record<string, string> = {}) =>
+      runCli(["report", "@s/a", "--state", state, ...flags], root, {
+        ...process.env,
+        NO_COLOR: undefined,
+        ...env,
+      });
+    const markdown = await report(["--format", "markdown"]);
+    expect(markdown.code, markdown.stderr).toBe(0);
+    expect(markdown.stdout.split("\n")[0]).toBe("# SEMANTIC SURFACE");
+    expect(markdown.stdout).toContain("| Target | @s/a |");
+    // Piped, the default is text, without colour.
+    const text = await report([]);
+    expect(text.stdout).toContain("Target  @s/a");
+    expect(text.stdout).not.toContain("\u001b[");
+    expect((await report(["--format", "terminal"])).stdout).toContain(
+      "\u001b["
+    );
+    const uncoloured = await report(["--format", "terminal"], {
+      NO_COLOR: "1",
+    });
+    expect(uncoloured.stdout).toContain("Target  @s/a");
+    expect(uncoloured.stdout).not.toContain("\u001b[");
+    expect(JSON.parse((await report(["--json"])).stdout)).toEqual(
+      await readJson(join(workspace.output, "packages/@s__a.json"))
+    );
+    expect(await runCli(["report", "@s/x", "--state", state], root)).toEqual({
+      code: 1,
+      stderr:
+        "Atlas: The dataset has no package named @s/x. Its packages: @s/a, @s/b, @s/c.\n",
+      stdout: "",
+    });
+  });
+
+  test("export writes a static viewer, prints the library's result with --json, and refuses the workspace", async () => {
+    const site = join(directory, "site");
+    expect(await runCli(["export", site, "--state", state], root)).toEqual({
+      code: 0,
+      stderr: "",
+      stdout: `Static viewer saved to ${site}\n`,
+    });
+    expect(await readFile(join(site, "data/manifest.json"), "utf8")).toBe(
+      await readFile(join(workspace.output, "manifest.json"), "utf8")
+    );
+    const exported = await runCli(
+      ["export", site, "--state", state, "--json"],
+      root
+    );
+    expect(JSON.parse(exported.stdout)).toEqual({
+      directory: site,
+      manifest: await savedManifest(),
+    });
+    expect(await runCli(["export", root, "--state", state], root)).toEqual({
+      code: 1,
+      stderr: `Atlas: ${root} holds the workspace ${root}. Choose another directory.\n`,
+      stdout: "",
+    });
+  });
+
+  test("a usage error exits 2 with a pointer to the help", async () => {
+    expect(await runCli(["scan", "one", "two"], root)).toEqual({
+      code: 2,
+      stderr:
+        "Atlas: atlas scan takes one workspace path. Reading several workspaces at once is not supported yet.\nRun atlas --help for usage.\n",
+      stdout: "",
+    });
+    expect(await runCli(["serve", "--history"], root)).toEqual({
+      code: 2,
+      stderr:
+        "Atlas: atlas serve does not take --history.\nRun atlas --help for usage.\n",
+      stdout: "",
+    });
+  });
+
+  test("serve --json prints the server's root and url once it listens", async () => {
+    await withFirstLine(
+      ["serve", "--state", state, "--port", "0", "--no-open", "--json"],
+      root,
+      async (line) => {
+        const served = JSON.parse(line) as Record<string, unknown>;
+        expect(Object.keys(served).sort()).toEqual(["root", "url"]);
+        expect(served.root).toBe(root);
+        expect((await fetch(String(served.url))).status).toBe(200);
+      }
+    );
+  });
+
+  test("the default command prints one line with --json: the scan's result and the server's", async () => {
+    await withFirstLine(
+      ["--state", state, "--port", "0", "--no-open", "--json", "--quiet"],
+      root,
+      async (line) => {
+        const opened = JSON.parse(line) as Record<string, unknown>;
+        expect(Object.keys(opened).sort()).toEqual([
+          "manifest",
+          "output",
+          "root",
+          "url",
+        ]);
+        expect(opened.output).toBe(workspace.output);
+        expect((await fetch(String(opened.url))).status).toBe(200);
+      }
+    );
+  }, 60_000);
+});
+
 test("built CLI includes Git history when requested", async () => {
   const { workspace, directory } = await fixture();
   await cp(
@@ -317,16 +507,9 @@ test("built CLI includes Git history when requested", async () => {
     { recursive: true }
   );
   commitFixture(workspace.root);
-  const child = spawn(
-    [
-      process.execPath,
-      resolve(import.meta.dirname, "../dist/cli/atlas.js"),
-      "scan",
-      "--history",
-      "--state",
-      join(directory, "state"),
-    ],
-    { cwd: workspace.root, stderr: "pipe", stdout: "pipe" }
+  const child = spawnCli(
+    ["scan", "--history", "--state", join(directory, "state")],
+    workspace.root
   );
   const [code, stderr] = await Promise.all([
     child.exited,
@@ -349,11 +532,14 @@ test("source and built CLI serve generated files from an external workspace", as
   await mkdir(workspace.output, { recursive: true });
   const manifest = '{ "schemaVersion": 4, "unchanged": true }\n';
   await writeFile(join(workspace.output, "manifest.json"), manifest);
-  for (const entry of ["../src/cli/index.ts", "../dist/cli/atlas.js"]) {
+  for (const entry of [
+    resolve(import.meta.dirname, "../src/cli/index.ts"),
+    CLI,
+  ]) {
     const child = spawn(
       [
         process.execPath,
-        resolve(import.meta.dirname, entry),
+        entry,
         "serve",
         "--state",
         join(directory, "state"),

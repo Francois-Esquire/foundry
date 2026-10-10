@@ -76,7 +76,9 @@ Git is read when it is there: churn, hotspots, and change coupling come from
 sections are empty.
 
 Workers run under the same Bun that runs Atlas, so none is needed on the
-PATH. The scan ends with `Output saved to <directory>` on stdout.
+PATH. The scan ends with `Dataset saved to <dir>` on stdout; with
+`--json`, its result is one line of JSON instead, and `--quiet` silences the
+progress.
 
 ## Where it goes
 
@@ -108,25 +110,29 @@ workspace.
 
 ## When a scan fails
 
-Atlas prints `Atlas: <message>` on stderr and exits with code 1. The
+Atlas prints `Atlas: <message>` on stderr and exits with code 1; bad
+arguments exit with code 2 and add `Run atlas --help for usage.` The
 messages you are most likely to meet:
 
-- `Workspace is not a directory`: the path does not exist.
+- `Workspace path does not exist`, or `Workspace is not a directory`: the
+  path names nothing, or a file.
 - `Packages failed analysis: <id> (<error>)`, or the failing package's own
   error: the first failure stops the scan, nothing is published, and the
   previous dataset stays.
-- `Workspace … is being scanned by process …`: another scan of the same
-  workspace is running; one scan at a time writes a state directory, and
-  the second fails instead of waiting. A lock left by a process that has
+- `Workspace … is being scanned or exported by process …`: another scan of
+  the same workspace is running, or an export is copying its dataset; one
+  at a time holds a state directory, and the second fails instead of
+  waiting. A lock left by a process that has
   exited is taken over.
 - `The viewer's files are missing from <path>`: the default command or
   `serve` finds no built viewer. The default command checks before it
   scans, so nothing is scanned. Reinstall the package or, from source,
   build it; or use `scan` alone.
-- `No dataset found for <root> in <output>`: `serve` on a workspace that
-  has never been scanned with this `--state`. Run `atlas scan` first.
+- `No dataset found for <root> in <output>`: `serve`, `report`, or
+  `export` on a workspace that has never been scanned with this `--state`. Run `atlas scan` first.
 - `Atlas reads dataset schema version 4; this dataset has version <n>`:
-  `serve` on a dataset saved by another Atlas version. Scan again.
+  `serve`, `report`, or `export` on a dataset saved by another Atlas
+  version. Scan again.
 - A port in use: found after the scan, which has already saved the
   dataset. Serve it on another port with `atlas serve --port <number>`.
 - `Command failed: git rev-parse HEAD`: `--history` on a directory that is

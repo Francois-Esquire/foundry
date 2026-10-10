@@ -26,10 +26,17 @@ atlas serve /path/to/workspace
 ```
 
 `scan` analyzes the workspace, prints its progress on stderr, and ends with
-the line `Output saved to …`. `serve` starts a local server for that saved
+the line `Dataset saved to …`. `serve` starts a local server for that saved
 dataset and prints `Atlas: http://127.0.0.1:4173/`. Running
 `atlas /path/to/workspace` with no subcommand scans, serves, and opens the
 browser. Paths default to the current directory.
+
+Two more commands read the saved dataset without scanning:
+
+```sh
+atlas report @acme/db /path/to/workspace        # one package's report in the terminal
+atlas export ./atlas-viewer /path/to/workspace  # a static viewer: the viewer and the dataset as static files
+```
 
 A workspace is a directory whose workspace declaration lists package
 patterns, in `pnpm-workspace.yaml` or `package.json#workspaces`. Atlas looks
@@ -52,11 +59,15 @@ Open it, and the map shows one island per package. Continue with
 
 ## Flags
 
+Each command takes only the flags that apply to it.
+
 | Flag | Effect |
 | --- | --- |
-| `--state <path>` | Save the dataset under this directory instead of `~/.foundry/atlas` |
+| `--state <path>` | Use this state root instead of `~/.foundry/atlas` |
 | `--port <number>` | Serve on this port; the default is 4173 and `0` picks a free one |
 | `--no-open` | Do not open the browser |
 | `--history` | Analyze Git checkpoints as well; requires a Git repository |
+| `--json` | Print the result as one line of JSON |
+| `--quiet` | Print no progress |
 
 Everything else is in the [CLI reference](/atlas/reference/cli).
