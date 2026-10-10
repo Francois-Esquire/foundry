@@ -1,4 +1,6 @@
 #!/usr/bin/env bun
+import type { CheckResult } from "../lib/check";
+import { check } from "../lib/check";
 import { savedDataset } from "../lib/dataset-files";
 import { exportViewer } from "../lib/export";
 import { renderLens, renderSurface } from "../lib/render";
@@ -11,9 +13,17 @@ import type { ArgsOf, Command } from "./args";
 import { HELP, messageOf, parseArguments, UsageError } from "./args";
 import { openBrowser } from "./browser";
 
-/** Exit codes; `check` will exit 3 on a violation. */
+/** Exit codes: `check` exits 3 on a violation, so that a broken rule is told from a failed run. */
 const FAILED = 1;
 const BAD_ARGUMENTS = 2;
+const VIOLATIONS = 3;
+
+/** `check`'s exit code: a rule it could not check outranks a broken one. */
+const CHECK_EXIT: Record<CheckResult["outcome"], number> = {
+  clean: 0,
+  incomplete: FAILED,
+  violations: VIOLATIONS,
+};
 /** The report's width when stdout is not a terminal. */
 const PIPED_WIDTH = 80;
 
@@ -90,6 +100,21 @@ function renderContext({
 }
 
 const RUN: { readonly [C in Command]: (args: ArgsOf<C>) => Promise<void> } = {
+  async check(args) {
+    const [root] = args.paths;
+    const result = await check(root, { state: args.state });
+    printResult(args, result, () =>
+      renderLens("rules", result.lens, renderContext(args))
+    );
+    const [first] = result.lens.missing;
+    if (first !== undefined) {
+      const more = result.lens.missing.length - 1;
+      process.stderr.write(
+        `Atlas: rules[${first.rule}] meets ${first.package}, which failed analysis, so it could not be checked there${more > 0 ? ` (and ${more} more)` : ""}. Fix the package or narrow the rule's subject, then scan again.\n`
+      );
+    }
+    process.exitCode = CHECK_EXIT[result.outcome];
+  },
   async export(args) {
     const [root] = args.paths;
     const written = await exportViewer(root, args.directory, {

@@ -12,6 +12,7 @@ import { packageSizesLens } from "./package-sizes";
 import { placementLens } from "./placement";
 import { proximityLens } from "./proximity";
 import { responsibilityGroupsLens } from "./responsibility-groups";
+import { rulesLens } from "./rules";
 
 // The lens phase of a scan. Every lens runs on every scan, after the
 // dataset's files are written to the unpublished tree and before the
@@ -30,6 +31,7 @@ export const LENSES: readonly AnyLens[] = [
   proximityLens,
   responsibilityGroupsLens,
   domainsLens,
+  rulesLens,
 ];
 
 export interface WriteLensesOptions {

@@ -432,11 +432,18 @@ describe("generation", () => {
         file: "lenses/responsibility-groups.json",
         schemaVersion: 1,
       },
+      rules: { file: "lenses/rules.json", schemaVersion: 1 },
     });
-    // The fixture declares no domains.
+    // The fixture declares no domains and no rules.
     expect(readJson(dataset, "lenses/domains.json")).toEqual({
       domains: [],
       placements: [],
+    });
+    expect(readJson(dataset, "lenses/rules.json")).toEqual({
+      missing: [],
+      rules: [],
+      unmatched: [],
+      violations: [],
     });
     // This scan saves no internals, so every complete package is missing.
     // The fixture is not a Git repository, so no package has churn.

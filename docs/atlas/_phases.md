@@ -1761,13 +1761,69 @@ handoff, and `OperatorReadinessContext` and the assessment are unchanged.
   permitting rule makes no record; a failing baseline answers `readiness`
   with `blocked`; a rehome operator is not executable.
 
-**3.3 `atlas check`.** Rules against the dataset; exit 3 on a violation,
-as 1.8 reserved, so it differs from a failed run (1) and bad arguments (2).
-The rules lens (`settings: ["rules"]`) computes the violations at scan
-time; `check` reads it from the saved dataset. The lens saves the rules in
-declaration order, neither sorted nor de-duplicated, so that
-`canonicalRules` over the lens's rules and over the configuration's hash
-alike (3.4 reads the one, 3.5 the other).
+**3.3 `atlas check`.** Done 2026-10-10. Rules against the dataset; exit
+3 on a violation, as 1.8 reserved, so it differs from a failed run (1) and
+bad arguments (2).
+- The `rules` lens (`lib/lenses/rules.ts`, `settings: ["rules"]`, schema 1)
+  runs at every scan, last; `LensSettings` gains `rules`, which
+  `generateSemantics` passes from the resolved configuration. Its output,
+  `lenses/rules.json`, is `{ rules, unmatched, violations, missing }`:
+  - `rules`: `canonicalRules` of the configuration's, in declaration
+    order, neither sorted nor de-duplicated, so that the lens's rules and
+    the configuration's hash alike (3.4 reads the one, 3.5 the other);
+  - `unmatched`: indexes of rules whose subject names no place, matched
+    by `lib/lenses/places.ts` (`placesOf`, `kindOf`, moved out of the
+    domains lens with `packageRoots`, `packagesNamedBySymbols`, and
+    `readSymbols`, which both lenses now use), so a misspelled path or
+    symbol is reported and a package at the workspace root names no place;
+    `meets` (a subject covers a package's root or lies inside it) only
+    chooses the reports to read and the failed packages for `missing`;
+  - `violations`: a `require` of `internalize` is a state, "under S no
+    package-public symbol is unused outside its package", so every
+    `internalize-symbol` opportunity under the subject is one, with its
+    saved plan's `id`, `status`, and sorted blocker reasons; sorted by
+    rule, place, package; a permit breaks nothing;
+  - `missing`: each `require` rule and failed package it meets, where it
+    could not be checked.
+- `read(reader, { rules })` reads nothing with no rules; otherwise the
+  module index, the reports of complete packages a `require` meets, and
+  the symbols of the packages a symbol subject names, one report at a
+  time, keeping only the fields it needs.
+- The view (`render/reports/rules.ts`) prints counts, one section per
+  broken rule, a note on what each blocker reason means, from the package
+  report's own `blockerDefinitions` (`publishable`: the package is marked
+  `"private": false`, so consumers outside this repository are invisible),
+  the unmatched rules, and what was not checked. `atlas lens rules`
+  prints it too.
+- `atlas check [path...]` (`lib/check.ts`, CLI only) reads the saved
+  manifest and the rules lens; no configuration runs, so the configuration
+  invariant holds, and a rules-only edit takes a warm scan (about 3 s on
+  Foundry) to show. Outcome `clean` (exit 0, also when no rule is
+  declared, with a note), `violations` (3), or `incomplete` (1, when
+  `missing` is not empty, which outranks violations, and one stderr line
+  names the rule and the failed package); a dataset saved
+  before the lens exists fails (1). `--format`, `--density`, and `--json`
+  (`{ generatedAt, outcome, lens }`) work as for `lens`. 3.5's apply
+  journal is read in `check` before the outcome (a comment marks the
+  place); nothing reads it yet.
+- Measured on Foundry (15 packages, read-only, fresh state under `/tmp`):
+  with no rules, the rules lens reads nothing and takes under 0.2 ms; the
+  whole lens phase took 412–425 ms over three scans (cold 412 ms; 422–478
+  ms in a first run before the review's changes), against 391–423 ms in
+  2.6 with one lens fewer. A `require` of `internalize` on
+  every top-level folder reads all 15 reports and takes 149–157 ms; Foundry
+  then has 3,957 violations.
+- Tests: `test/lib/rules-lens.test.ts` (derive: violations with plans,
+  narrowing by whole segments, a permit breaking nothing, declaration
+  order, unmatched, missing, a root package; read: nothing with no rules,
+  only the reports a require meets, one at a time); `test/lib/render-lens.test.ts`
+  (the view, exactly); `test/lib/lenses.test.ts` and `test/lib/semantics.test.ts`
+  (registry, manifest entry, output with no rules); `test/cli/args.test.ts`;
+  and `test/atlas.test.ts` on the built CLI over a temp copy of the
+  semantics fixture: no rules exits 0 with the note; a require exits 3,
+  with one JSON line equal to `atlas lens rules --json`; a permit, and the
+  export removed, exit 0; `missing` exits 1 over a violation; a dataset
+  without the lens exits 1; a never-scanned workspace exits 1.
 
 **3.4 `atlas plan`.** One plan for one site, read-only.
 

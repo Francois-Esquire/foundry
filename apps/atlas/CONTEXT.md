@@ -205,7 +205,9 @@ _Avoid_: operator, codemod, apply
 A place where a `require` rule's outcome does not hold: for `internalize`, an
 opportunity to internalize a symbol under the rule's subject. A violation
 carries the saved plan's status and blockers, so a symbol of a publishable
-package shows why it cannot simply be internalized.
+package shows why it cannot simply be internalized. The `rules` lens saves
+the violations at every scan, and `atlas check` prints them and exits `3`
+when there is one.
 _Avoid_: finding, error, failure
 
 ### What a scan saves

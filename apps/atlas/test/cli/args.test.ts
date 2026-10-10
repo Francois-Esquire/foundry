@@ -118,6 +118,18 @@ it("reads each command's positionals and flags", () => {
     lens: "placement",
     paths: ["/ws"],
   });
+  expect(parseArguments(["check"], "/here")).toEqual({
+    command: "check",
+    density: "normal",
+    format: undefined,
+    json: false,
+    paths: ["/here"],
+    quiet: false,
+    state: undefined,
+  });
+  expect(
+    parseArguments(["check", "/ws", "--format", "markdown"], "/here")
+  ).toMatchObject({ command: "check", format: "markdown", paths: ["/ws"] });
   expect(parseArguments(["export", "site", "/ws"], "/here")).toEqual({
     command: "export",
     directory: "site",
@@ -152,6 +164,9 @@ it("refuses a second path, naming the collection work", () => {
   expect(usageError(["lens", "domains", "one", "two"]).message).toContain(
     "atlas lens takes one workspace path."
   );
+  expect(usageError(["check", "one", "two"]).message).toContain(
+    "atlas check takes one workspace path."
+  );
 });
 
 it("refuses a flag the command does not take", () => {
@@ -173,6 +188,9 @@ it("refuses a flag the command does not take", () => {
   expect(usageError(["lens", "domains", "--history"]).message).toBe(
     "atlas lens does not take --history."
   );
+  expect(usageError(["check", "--port", "1"]).message).toBe(
+    "atlas check does not take --port."
+  );
 });
 
 it("refuses missing positionals and invalid values", () => {
@@ -187,7 +205,7 @@ it("refuses missing positionals and invalid values", () => {
     "atlas lens needs a lens: atlas lens <id> [path...]"
   );
   expect(usageError(["lens", "domain"]).message).toBe(
-    "atlas lens takes domains, file-roles, frequent-change, nesting, package-sizes, placement, proximity, or responsibility-groups."
+    "atlas lens takes domains, file-roles, frequent-change, nesting, package-sizes, placement, proximity, responsibility-groups, or rules."
   );
   for (const port of ["65536", "-1", "1.5", "", "x"]) {
     expect(usageError(["serve", `--port=${port}`]).message).toBe(
@@ -206,6 +224,9 @@ it("refuses missing positionals and invalid values", () => {
   expect(
     usageError(["lens", "domains", "--json", "--density", "compact"]).message
   ).toBe("--json prints the lens as saved; drop --format and --density.");
+  expect(usageError(["check", "--json", "--format", "text"]).message).toBe(
+    "--json prints the check's result; drop --format and --density."
+  );
 });
 
 it("checks for unknown flags first, then lets --help win over the rest", () => {
@@ -224,9 +245,12 @@ it("generates the help from the command table", () => {
   expect(HELP).toContain("  atlas report <package> [path...]");
   expect(HELP).toContain("  atlas lens <id> [path...]");
   expect(HELP).toContain("  atlas export <dir> [path...]");
-  expect(HELP).toContain("report, lens: ");
+  expect(HELP).toContain("  atlas check [path...]");
+  expect(HELP).toContain("report, lens, check: ");
   expect(HELP).toContain("atlas, serve: ");
-  expect(HELP).toContain("Exit codes: 0 done, 1 failed, 2 bad arguments.");
+  expect(HELP).toContain(
+    "Exit codes: 0 done, 1 failed, 2 bad arguments, 3 a rule broken (check)."
+  );
   expect(HELP.split("\n")[0]).toBe(
     "Atlas — workspace analysis and a local viewer"
   );

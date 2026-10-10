@@ -1413,7 +1413,7 @@ export async function generateSemantics(
       writeLenses({
         dir: tmp,
         draft: manifestAt(new Date()),
-        settings: { domains: config.domains },
+        settings: { domains: config.domains, rules: config.rules },
         write: (file, value) => writer.write(file, value),
       })
     );

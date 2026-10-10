@@ -157,7 +157,10 @@ configuration file, like every key. `foundry.config.json` does not accept
 rules.
 
 Rules are not an analysis input: a scan with new rules reuses every
-package's results.
+package's results, and writes the `rules` lens again. That lens,
+`lenses/rules.json`, holds the rules as declared and every place that
+breaks a `require`; [`atlas check`](/atlas/reference/cli#check) prints it
+and exits `3` when a rule is broken.
 
 ## Errors
 

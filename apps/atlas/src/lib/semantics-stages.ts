@@ -87,6 +87,7 @@ export const SEMANTIC_STAGE_VERSIONS: Record<
   "lens:responsibility-groups": {
     schemaVersion: LENS_SCHEMA_VERSIONS["responsibility-groups"],
   },
+  "lens:rules": { schemaVersion: LENS_SCHEMA_VERSIONS.rules },
   materialization: { schemaVersion: DATASET_SCHEMA_VERSION },
   /** The assembled `SurfaceReport`: local analysis joined with derivation. */
   packageAnalysis: {
@@ -145,6 +146,7 @@ const SEMANTIC_STAGE_DEPENDENCIES: Record<
   "lens:placement": ["materialization"],
   "lens:proximity": ["materialization"],
   "lens:responsibility-groups": ["materialization"],
+  "lens:rules": ["materialization"],
   /** The dataset before its lenses: the workspace, its projections, and each package's internals. */
   materialization: [
     "workspaceIntelligence",

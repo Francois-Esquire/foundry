@@ -34,22 +34,23 @@ Atlas — workspace analysis and a local viewer
   atlas serve [path...]             Serve the saved dataset without scanning
   atlas report <package> [path...]  Print a package report from the saved dataset
   atlas lens <id> [path...]         Print a lens from the saved dataset
+  atlas check [path...]             Check the workspace's rules against the saved dataset
   atlas export <dir> [path...]      Write a static viewer of the saved dataset to <dir>
 
 The path defaults to the current directory; one workspace at a time.
-A directory named like a command is written as a path: ./scan, ./serve, ./report, ./lens, ./export.
+A directory named like a command is written as a path: ./scan, ./serve, ./report, ./lens, ./check, ./export.
 
   --state <path>        State root (default: ~/.foundry/atlas)
   --history             atlas, scan: analyze Git checkpoints as well
   --port <number>       atlas, serve: local port (default: 4173; 0 chooses a free port)
   --no-open             atlas, serve: do not open the browser
-  --format <format>     report, lens: terminal, text, markdown (default: terminal; text when piped)
-  --density <density>   report, lens: compact, normal, expanded (default: normal)
+  --format <format>     report, lens, check: terminal, text, markdown (default: terminal; text when piped)
+  --density <density>   report, lens, check: compact, normal, expanded (default: normal)
   --json                Print the result as one line of JSON
   --quiet               Print no progress
   --help, -h            Show this help
 
-Exit codes: 0 done, 1 failed, 2 bad arguments.
+Exit codes: 0 done, 1 failed, 2 bad arguments, 3 a rule broken (check).
 ```
 
 A scan is incremental: packages whose sources have not changed reuse their

@@ -64,7 +64,14 @@ function usageErrorFrom(error: unknown): UsageError {
 }
 
 /** Every command; `open` is the default, which has no name of its own. */
-export type Command = "export" | "lens" | "open" | "report" | "scan" | "serve";
+export type Command =
+  | "check"
+  | "export"
+  | "lens"
+  | "open"
+  | "report"
+  | "scan"
+  | "serve";
 
 /** One workspace until collections read several; the parser reads `path...`. */
 interface Paths {
@@ -130,6 +137,13 @@ interface CommandSpec {
  * written from this table.
  */
 const COMMANDS = {
+  check: {
+    flags: ["format", "density"],
+    read: (words: readonly string[], cwd: string) =>
+      onePath("check", words, cwd),
+    summary: "Check the workspace's rules against the saved dataset",
+    usage: "atlas check [path...]",
+  },
   export: {
     flags: [],
     read: (words: readonly string[], cwd: string) => {
@@ -187,6 +201,7 @@ const COMMAND_ORDER = [
   "serve",
   "report",
   "lens",
+  "check",
   "export",
 ] as const satisfies readonly Command[];
 
@@ -273,7 +288,7 @@ function helpText(): string {
     "",
     ...flags,
     "",
-    "Exit codes: 0 done, 1 failed, 2 bad arguments.",
+    "Exit codes: 0 done, 1 failed, 2 bad arguments, 3 a rule broken (check).",
     "",
   ].join("\n");
 }
@@ -309,7 +324,7 @@ export function parseArguments(
   const flags = commandFlags(values);
   if (values.json && (values.format ?? values.density) !== undefined) {
     throw new UsageError(
-      `--json prints the ${command === "lens" ? "lens" : "report"} as saved; drop --format and --density.`
+      `--json prints ${JSON_PRINTS[command] ?? "the report as saved"}; drop --format and --density.`
     );
   }
   const own = Object.fromEntries(taken.map((flag) => [flag, flags[flag]]));
@@ -324,6 +339,12 @@ export function parseArguments(
     ...parsed,
   } as CommandLine;
 }
+
+/** What `--json` prints for a command that also renders, in its usage error. */
+const JSON_PRINTS: Partial<Record<Command, string>> = {
+  check: "the check's result",
+  lens: "the lens as saved",
+};
 
 type Values = ReturnType<typeof readOptions>["values"];
 

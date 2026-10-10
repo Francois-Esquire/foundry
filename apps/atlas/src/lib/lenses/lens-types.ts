@@ -1,6 +1,7 @@
 import type { DatasetReader } from "../dataset";
 import { lensFile } from "../dataset-layout";
 import type { DomainDeclaration } from "../domain-declaration";
+import type { Rule } from "../rule-declaration";
 import type { DatasetManifest } from "../semantics-types";
 import type { Domains } from "./domains-types";
 import { DOMAINS_SCHEMA_VERSION } from "./domains-types";
@@ -18,6 +19,8 @@ import type { Proximity } from "./proximity-types";
 import { PROXIMITY_SCHEMA_VERSION } from "./proximity-types";
 import type { ResponsibilityGroups } from "./responsibility-groups-types";
 import { RESPONSIBILITY_GROUPS_SCHEMA_VERSION } from "./responsibility-groups-types";
+import type { Rules } from "./rules-types";
+import { RULES_SCHEMA_VERSION } from "./rules-types";
 
 // The lens contract (docs/atlas/_lenses.md). A leaf the viewer bundles: the
 // dataset reader imports the schema versions from here.
@@ -32,6 +35,7 @@ export interface LensOutputs {
   placement: Placements;
   proximity: Proximity;
   "responsibility-groups": ResponsibilityGroups;
+  rules: Rules;
 }
 
 /** A lens's id: stable, it names the lens's stage and its file in the dataset. */
@@ -47,6 +51,7 @@ export const LENS_SCHEMA_VERSIONS: Record<LensId, number> = {
   placement: PLACEMENT_SCHEMA_VERSION,
   proximity: PROXIMITY_SCHEMA_VERSION,
   "responsibility-groups": RESPONSIBILITY_GROUPS_SCHEMA_VERSION,
+  rules: RULES_SCHEMA_VERSION,
 };
 
 /** Every lens id, by code unit, as the CLI lists them. */
@@ -62,6 +67,8 @@ export const LENS_IDS: readonly LensId[] = (
 /** What a lens may read beyond the dataset: the workspace's own settings. */
 export interface LensSettings {
   domains: readonly DomainDeclaration[];
+  /** In declaration order, as the configuration lists them. */
+  rules: readonly Rule[];
 }
 
 /** A package as the manifest lists it, by its deterministic fields only. */

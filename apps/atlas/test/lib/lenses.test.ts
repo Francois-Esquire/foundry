@@ -630,6 +630,7 @@ describe("the registry", () => {
       "placement",
       "proximity",
       "responsibility-groups",
+      "rules",
     ]);
     expect([...LENS_IDS].sort()).toEqual(
       Object.keys(LENS_SCHEMA_VERSIONS).sort()
@@ -665,6 +666,7 @@ describe("the registry", () => {
         file: "lenses/responsibility-groups.json",
         schemaVersion: 1,
       },
+      rules: { file: "lenses/rules.json", schemaVersion: 1 },
     });
   });
 });
@@ -812,7 +814,7 @@ describe("writeLenses", () => {
   /** Runs `lenses` over a fresh tree, writing into it, and returns what each wrote. */
   async function run(
     lenses: readonly AnyLens[] | undefined,
-    settings: LensSettings = { domains: [] }
+    settings: LensSettings = { domains: [], rules: [] }
   ): Promise<[string, unknown][]> {
     const draft = unpublished();
     const written: [string, unknown][] = [];
@@ -996,8 +998,13 @@ describe("writeLenses", () => {
           packages: [{ groups: [], id: "@s/a", independent: ["only"] }],
         },
       ],
-      // Last, after the placement lens it reads; no domain is declared.
+      // After the placement lens it reads; no domain is declared.
       ["lenses/domains.json", { domains: [], placements: [] }],
+      // No rule is declared, so the rules lens reads nothing.
+      [
+        "lenses/rules.json",
+        { missing: [], rules: [], unmatched: [], violations: [] },
+      ],
     ]);
   });
 
@@ -1073,7 +1080,7 @@ describe("writeLenses", () => {
     const unnamed = probe(read, {
       derive: (source, settings) => ({ read: source, settings }),
     });
-    const written = await run([named, unnamed], { domains });
+    const written = await run([named, unnamed], { domains, rules: [] });
     expect(written.map(([, value]) => value)).toEqual([
       { read: { domains }, settings: { domains } },
       { read: {}, settings: {} },

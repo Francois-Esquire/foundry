@@ -19,6 +19,8 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawn } from "bun";
+import { loadConfiguration } from "../src/lib/atlas-config";
+import type { CheckResult } from "../src/lib/check";
 import type { PackageInternals } from "../src/lib/internal-analysis-types";
 import type { Domains } from "../src/lib/lenses/domains-types";
 import type { FileRoles } from "../src/lib/lenses/file-roles-types";
@@ -27,6 +29,8 @@ import { rootRelativeFolder } from "../src/lib/lenses/package-internals";
 import type { Placements } from "../src/lib/lenses/placement-types";
 import type { Proximity } from "../src/lib/lenses/proximity-types";
 import type { ResponsibilityGroups } from "../src/lib/lenses/responsibility-groups-types";
+import type { Rule } from "../src/lib/rule-declaration";
+import { ruleFingerprint } from "../src/lib/rules";
 import { scan } from "../src/lib/scan";
 import type { HistoryManifest } from "../src/lib/semantics-history-types";
 import type { DatasetManifest } from "../src/lib/semantics-types";
@@ -668,7 +672,7 @@ describe("built CLI commands", () => {
     await rm(directory, { force: true, recursive: true });
   });
 
-  test("report, lens, and export fail on a workspace never scanned", async () => {
+  test("report, lens, check, and export fail on a workspace never scanned", async () => {
     const other = join(directory, "never-scanned");
     await mkdir(other);
     const fresh = await workspaceState(other, state);
@@ -676,6 +680,7 @@ describe("built CLI commands", () => {
     for (const args of [
       ["report", "@s/a"],
       ["lens", "package-sizes"],
+      ["check"],
       ["export", join(directory, "never-site")],
     ]) {
       expect(await runCli([...args, "--state", state], other)).toEqual({
@@ -762,7 +767,7 @@ describe("built CLI commands", () => {
     expect(await lens(["places"])).toEqual({
       code: 2,
       stderr:
-        "Atlas: atlas lens takes domains, file-roles, frequent-change, nesting, package-sizes, placement, proximity, or responsibility-groups.\nRun atlas --help for usage.\n",
+        "Atlas: atlas lens takes domains, file-roles, frequent-change, nesting, package-sizes, placement, proximity, responsibility-groups, or rules.\nRun atlas --help for usage.\n",
       stdout: "",
     });
   });
@@ -857,6 +862,154 @@ describe("built CLI commands", () => {
       }
     );
   }, 60_000);
+});
+
+describe("built CLI check", () => {
+  let directory: string;
+  let root: string;
+  let state: string;
+  const RULES = ".foundry/atlas/rules.ts";
+  const declare = async (rules: unknown[]) => {
+    await mkdir(join(root, ".foundry/atlas"), { recursive: true });
+    await writeFile(
+      join(root, RULES),
+      `export default { rules: ${JSON.stringify(rules)} };\n`
+    );
+    await scan(root, { state });
+  };
+  const check = (flags: string[] = []) =>
+    runCli(["check", "--state", state, ...flags], root);
+  const requiring = (subject: string): Rule => ({
+    effect: "require",
+    operator: "internalize",
+    subject,
+  });
+
+  beforeAll(async () => {
+    directory = await realpath(await mkdtemp(join(tmpdir(), "atlas-check-")));
+    root = join(directory, "workspace");
+    await cp(resolve(import.meta.dirname, "lib/fixtures/semantics"), root, {
+      recursive: true,
+    });
+    state = join(directory, "state");
+  });
+
+  afterAll(async () => {
+    await rm(directory, { force: true, recursive: true });
+  });
+
+  test("exits 0 with a note when no rule is declared", async () => {
+    await scan(root, { state });
+    expect(await check()).toEqual({
+      code: 0,
+      stderr: "",
+      stdout:
+        "Rules\n═════\nNo rules declared. Declare them under rules in .foundry/atlas/.\n",
+    });
+  }, 60_000);
+
+  test("exits 3 on a violation, with its plan, and prints the result on one line with --json", async () => {
+    await declare([requiring("tooling/c")]);
+    const text = await check();
+    expect(text.code, text.stderr).toBe(3);
+    expect(text.stdout).toContain(
+      "Breaks rules[0] require internalize tooling/c"
+    );
+    expect(text.stdout).toContain(
+      "tooling/c/src/index.ts#fence · @s/c · plan ready"
+    );
+    const json = await check(["--json"]);
+    expect(json.code).toBe(3);
+    expect(json.stdout.trimEnd().split("\n")).toHaveLength(1);
+    const result = JSON.parse(json.stdout) as CheckResult;
+    expect(result.outcome).toBe("violations");
+    expect(result.lens).toEqual({
+      missing: [],
+      rules: [requiring("tooling/c")],
+      unmatched: [],
+      violations: [
+        {
+          opportunity: "internalize-symbol:tooling/c/src/index.ts#fence",
+          package: "@s/c",
+          place: "tooling/c/src/index.ts#fence",
+          plan: {
+            blockers: [],
+            id: "plan:internalize-symbol:tooling/c/src/index.ts#fence",
+            status: "ready",
+          },
+          rule: 0,
+        },
+      ],
+    });
+    // Rules read back from the lens hash as the configuration's do, so an
+    // authorization made from either matches the other.
+    expect(ruleFingerprint(result.lens.rules)).toBe(
+      ruleFingerprint((await loadConfiguration(root)).rules)
+    );
+    // The same lens `atlas lens rules` prints.
+    const lens = await runCli(
+      ["lens", "rules", "--json", "--state", state],
+      root
+    );
+    expect(JSON.parse(lens.stdout)).toEqual(result.lens);
+  }, 60_000);
+
+  test("exits 1 when a require could not be checked, over any violation, and on a dataset saved before the lens", async () => {
+    await declare([requiring("tooling/c")]);
+    const workspace = await workspaceState(root, state);
+    const file = join(workspace.output, "lenses/rules.json");
+    const saved = await readFile(file, "utf8");
+    const manifestFile = join(workspace.output, "manifest.json");
+    const manifest = await readFile(manifestFile, "utf8");
+    try {
+      const lens = JSON.parse(saved) as Record<string, unknown>;
+      await writeFile(
+        file,
+        JSON.stringify({ ...lens, missing: [{ package: "@s/c", rule: 0 }] })
+      );
+      const incomplete = await check(["--json"]);
+      expect(incomplete.code).toBe(1);
+      expect(JSON.parse(incomplete.stdout).outcome).toBe("incomplete");
+      expect(incomplete.stderr).toBe(
+        "Atlas: rules[0] meets @s/c, which failed analysis, so it could not be checked there. Fix the package or narrow the rule's subject, then scan again.\n"
+      );
+      const { lenses, ...rest } = JSON.parse(manifest) as DatasetManifest;
+      const { rules: _rules, ...others } = lenses;
+      await writeFile(
+        manifestFile,
+        JSON.stringify({ ...rest, lenses: others })
+      );
+      expect(await check()).toEqual({
+        code: 1,
+        stderr: "Atlas: The dataset has no rules lens. Run atlas scan again.\n",
+        stdout: "",
+      });
+    } finally {
+      await writeFile(file, saved);
+      await writeFile(manifestFile, manifest);
+    }
+  }, 60_000);
+
+  test("exits 0 once the rule only permits, or the violation is gone", async () => {
+    await declare([{ ...requiring("tooling/c"), effect: "permit" }]);
+    expect((await check()).code).toBe(0);
+    await declare([requiring("tooling/c")]);
+    expect((await check()).code).toBe(3);
+    const source = join(root, "tooling/c/src/index.ts");
+    const written = await readFile(source, "utf8");
+    try {
+      await writeFile(
+        source,
+        written.replace("export function fence", "function fence")
+      );
+      await scan(root, { state });
+      const gone = await check();
+      expect(gone.code, gone.stdout).toBe(0);
+      expect(gone.stdout).toContain("Violations   0");
+    } finally {
+      await writeFile(source, written);
+    }
+  }, 120_000);
 });
 
 test("built CLI includes Git history when requested", async () => {

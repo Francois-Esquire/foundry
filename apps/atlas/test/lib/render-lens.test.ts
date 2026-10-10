@@ -591,4 +591,73 @@ describe("renderLens", () => {
       renderLens("domains", { domains: [], placements: [] }, { format: "text" })
     ).toBe(["Domains", "═══════", "No domains declared."].join("\n"));
   });
+
+  it("prints the rules lens: counts, each broken rule's places, why a plan is blocked, then what was not checked", () => {
+    const text = renderLens(
+      "rules",
+      {
+        missing: [{ package: "@s/checkout", rule: 1 }],
+        rules: [
+          {
+            effect: "require",
+            operator: "internalize",
+            subject: "packages/core",
+          },
+          { effect: "require", operator: "internalize", subject: "apps" },
+          {
+            effect: "permit",
+            operator: "internalize",
+            subject: "packages/next",
+          },
+        ],
+        unmatched: [2],
+        violations: [
+          {
+            opportunity: "internalize-symbol:packages/core/src/ids.ts#UserId",
+            package: "@s/core",
+            place: "packages/core/src/ids.ts#UserId",
+            plan: {
+              blockers: ["publishable"],
+              id: "plan:internalize-symbol:packages/core/src/ids.ts#UserId",
+              status: "blocked",
+            },
+            rule: 0,
+          },
+        ],
+      },
+      { format: "text" }
+    );
+    expect(text).toBe(
+      [
+        "Rules",
+        "═════",
+        "Rules        3 (2 require, 1 permit)",
+        "Violations   1",
+        "Unmatched    1",
+        "Not checked  1",
+        "",
+        "Breaks rules[0] require internalize packages/core",
+        "  packages/core/src/ids.ts#UserId · @s/core · plan blocked: publishable",
+        "┌─ Why a plan is blocked ───────────────────────────────────────────┐",
+        '│ publishable: the package is marked "private": false, so consumers │',
+        "│ outside this repository are invisible.                            │",
+        "└───────────────────────────────────────────────────────────────────┘",
+        "",
+        "Unmatched rules",
+        "  rules[2] permit internalize packages/next: names no place in the dataset",
+        "",
+        "Not checked",
+        "  rules[1] require internalize apps: @s/checkout failed analysis, so the rule was not checked there",
+      ].join("\n")
+    );
+    expect(
+      renderLens(
+        "rules",
+        { missing: [], rules: [], unmatched: [], violations: [] },
+        { format: "text" }
+      )
+    ).toBe(
+      "Rules\n═════\nNo rules declared. Declare them under rules in .foundry/atlas/."
+    );
+  });
 });
