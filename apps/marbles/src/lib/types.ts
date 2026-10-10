@@ -15,6 +15,12 @@ import type {
   SessionUsage,
 } from "@foundry/agents/session";
 import type { ContainerSandboxConstraints } from "@foundry/sandbox/container/constraints";
+import type { Container } from "@foundry/sandbox/container/containers";
+import type {
+  SandboxCommand,
+  SandboxExecOptions,
+  SandboxExecResult,
+} from "@foundry/sandbox/types";
 import type { Workspace as PackageWorkspace } from "@foundry/workspaces";
 import type { Git } from "@foundry/workspaces/git";
 import type {
@@ -73,31 +79,45 @@ export interface WorkspaceDefinition {
   readonly path: string;
 }
 
-export interface SandboxResources {
-  readonly cpus?: number;
-  readonly memoryBytes?: number;
+export type SandboxResources = NonNullable<
+  ContainerSandboxConstraints["resources"]
+>;
+
+/**
+ * What both kinds of sandbox take from the container's own constraints.
+ * `workdir` defaults to where the workspace is (`/workspace`).
+ */
+interface SandboxOptions
+  extends Pick<
+    ContainerSandboxConstraints,
+    | "detached"
+    | "labels"
+    | "network"
+    | "ports"
+    | "publicEnvironment"
+    | "workdir"
+  > {
+  readonly resources?: SandboxResources;
 }
 
-/** An image with a workspace mounted read/write at `/workspace`. */
-export interface ImageSandbox {
+/** An image with a workspace mounted read/write, at `/workspace` unless `target` says. */
+export interface ImageSandbox extends SandboxOptions {
   /** Permit workspace binaries while retaining nosuid and nodev. */
   readonly executable?: boolean;
   readonly image: string;
   /** `"."` (the config's directory) or a declared workspace. */
   readonly mount?: "." | WorkspaceDefinition;
-  readonly network?: ContainerSandboxConstraints["network"];
-  readonly resources?: SandboxResources;
+  /** Where the mount lands in the guest; `/workspace` when omitted. */
+  readonly target?: string;
 }
 
 /**
  * A scratch sandbox seeded with files under `/workspace` instead of a
  * mount; the image defaults to the runtime's.
  */
-export interface FilesSandbox {
+export interface FilesSandbox extends SandboxOptions {
   readonly files: Readonly<Record<string, string>>;
   readonly image?: string;
-  readonly network?: ContainerSandboxConstraints["network"];
-  readonly resources?: SandboxResources;
 }
 
 export type SandboxSpec = ImageSandbox | FilesSandbox;
@@ -151,8 +171,8 @@ export interface SandboxAgentOptions extends SharedSessionOptions {
   readonly profile?: HarnessPermissionProfile;
   /** Host handler for model questions; the dashboard supplies one by default. */
   readonly question?: HarnessQuestionCallback;
-  /** Run the harness inside an already started MicroSandbox. */
-  readonly sandbox: Sandbox;
+  /** Run the harness inside a started sandbox, or a declared one, which starts. */
+  readonly sandbox: SandboxHandle | SandboxInstance;
 }
 
 export type SessionOptions = HostSessionOptions | SandboxAgentOptions;
@@ -215,12 +235,26 @@ export interface Agent<DEFAULT extends Output.Output = never>
 export type WorkspaceInstance = WorkspaceDefinition & WorkspaceHandle;
 
 /**
- * A declared sandbox you can use: started by the first `exec`, in the
+ * A declared sandbox you can use: its handle's `exec`, `close`, and
+ * facets, started by the first call that needs the container, in the
  * calling step when there is one (and closed with it), else kept until
- * `close` or the runtime's `dispose`.
+ * `close` or the runtime's `dispose`. Its `id` stays the definition's.
  */
 export type SandboxInstance = SandboxDefinition &
-  Pick<Sandbox, "close" | "exec">;
+  Pick<
+    SandboxHandle,
+    | "close"
+    | "commands"
+    | "exec"
+    | "ports"
+    | "processes"
+    | "services"
+    | "shell"
+    | "volumes"
+  > & {
+    /** The container's filesystem; a files sandbox's seed map stays on its spec. */
+    readonly filesystem: SandboxHandle["files"];
+  };
 
 /** A declared artifact you can use: each `write` adds a version. */
 export interface ArtifactInstance extends ArtifactDefinition {
@@ -269,21 +303,22 @@ export interface Workspaces {
   ): Promise<LoadedWorkspace>;
 }
 
-interface ExecResult {
-  readonly exitCode: number;
-  readonly stderr: string;
-  readonly stdout: string;
-}
-
-export interface Sandbox {
-  close(): Promise<void>;
-  exec(argv: readonly string[]): Promise<ExecResult>;
-  readonly id: string;
-}
+/**
+ * A running sandbox: the `@foundry/sandbox` container (`commands`,
+ * `files`, `processes`, `shell`, `ports`, `services`, `volumes`), with
+ * Marbles' defaults. In a step every call carries the step's signal and
+ * `exec` output lands on its stream. `exec` is `commands.exec`.
+ */
+export type SandboxHandle = Omit<Container, "row"> & {
+  exec(
+    command: SandboxCommand,
+    options?: SandboxExecOptions
+  ): Promise<SandboxExecResult>;
+};
 
 export interface Sandboxes {
-  open(id: string): Promise<Sandbox>;
-  start(sandbox: SandboxDefinition | SandboxSpec): Promise<Sandbox>;
+  open(id: string): Promise<SandboxHandle>;
+  start(sandbox: SandboxDefinition | SandboxSpec): Promise<SandboxHandle>;
 }
 
 export type ArtifactFiles = Readonly<Record<string, string | Uint8Array>>;

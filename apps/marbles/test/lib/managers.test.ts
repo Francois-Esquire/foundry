@@ -338,13 +338,43 @@ describe("sandboxes", () => {
     ]);
   });
 
+  it("passes the container's own constraints through, with /workspace as a default", () => {
+    const dirs = { cwd: tmp, root: tmp };
+    expect(
+      constraintsFor(
+        {
+          image: "img:1",
+          labels: { team: "design" },
+          ports: [3000],
+          resources: { pids: 64 },
+          target: "/src",
+        },
+        dirs
+      )
+    ).toMatchObject({
+      labels: { team: "design" },
+      mounts: [{ source: tmp, target: "/src" }],
+      ports: [3000],
+      resources: { pids: 64 },
+      workdir: "/src",
+    });
+    expect(
+      constraintsFor({ image: "img:1", workdir: "/workspace/app" }, dirs)
+    ).toMatchObject({
+      mounts: [{ target: "/workspace" }],
+      workdir: "/workspace/app",
+    });
+  });
+
   it("starts containers, runs commands, closes with the run, and reopens on replay", async () => {
     const root = join(tmp, "project");
     await mkdir(root, { recursive: true });
     const commands: string[][] = [];
+    const seen: { cwd?: string; env?: unknown; signal?: unknown }[] = [];
     const runtime = createFakeContainerRuntime({
-      exec: (command) => {
+      exec: (command, options) => {
         commands.push([...command]);
+        seen.push(options as (typeof seen)[number]);
         return { exitCode: 0, stderr: "", stdout: `ran ${command.join(" ")}` };
       },
     });
@@ -365,6 +395,15 @@ describe("sandboxes", () => {
     const result = await env.exec(["bun", "test"]);
     expect(result).toEqual({ exitCode: 0, stderr: "", stdout: "ran bun test" });
     expect(commands).toEqual([["bun", "test"]]);
+    // The step's stream shows the command and its output.
+    expect(a.written).toContain("$ bun test\nran bun test");
+    // The container is all there, with the package's exec options.
+    await env.commands.exec(["ls"], { cwd: "/tmp", environment: { A: "1" } });
+    // The runtime gets them as the container passes them on.
+    expect(seen.at(-1)).toMatchObject({ cwd: "/tmp", env: { A: "1" } });
+    expect(seen.at(-1)?.signal).toBeInstanceOf(AbortSignal);
+    expect(typeof env.files.readFile).toBe("function");
+    expect("row" in env).toBe(false);
 
     await a.scope.enter(a.frame);
     const again = await sandboxes.start({ image: "docker.io/oven/bun:1-slim" });

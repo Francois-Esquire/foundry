@@ -31,8 +31,9 @@ import { workingDirectory } from "../run-scope";
 import type {
   AgentDefinition,
   Agents,
-  Sandbox,
   SandboxAgentOptions,
+  SandboxHandle,
+  SandboxInstance,
   Session,
   SessionOptions,
   SessionRef,
@@ -70,7 +71,7 @@ export interface AgentsDeps {
   /** The triggers a sandboxed agent may create, offered to it as tools. */
   readonly automations: AutomationService;
   /** The container behind a sandbox handle; a sandbox session's harness runs in it. */
-  readonly containerOf: (sandbox: Sandbox) => Container;
+  readonly containerOf: (sandbox: SandboxHandle) => Container;
   /** The route when an agent names neither model nor provider. */
   readonly defaultExecutor: () => TurnExecutorRef;
   /** Simulation uses echo models and never prepares a guest or reads credentials. */
@@ -222,10 +223,14 @@ async function fileSession(
 }
 
 /** A declared sandbox passed as is starts itself, in the step when there is one. */
-function startedSandbox(sandbox: Sandbox): Promise<Sandbox> | Sandbox {
-  return SANDBOX_HANDLE in sandbox
-    ? (sandbox[SANDBOX_HANDLE] as () => Promise<Sandbox>)()
-    : sandbox;
+function startedSandbox(
+  sandbox: SandboxHandle | SandboxInstance
+): Promise<SandboxHandle> | SandboxHandle {
+  // Read, not `in`: an instance is a proxy whose record has no such key.
+  const start = Reflect.get(sandbox, SANDBOX_HANDLE) as
+    | (() => Promise<SandboxHandle>)
+    | undefined;
+  return start ? start() : (sandbox as SandboxHandle);
 }
 
 /** A CLI harness runs its own CLI in the guest; any other harness needs the network model. */
@@ -365,7 +370,7 @@ async function openSandboxSession(
     site,
     skills,
   }: Omit<Opening, "options"> & { readonly options: SandboxAgentOptions },
-  sandbox: Sandbox
+  sandbox: SandboxHandle
 ): Promise<HarnessSession> {
   const { source } = site;
   const executor = sandboxExecutor(deps.models, route.modelId, route.provider);

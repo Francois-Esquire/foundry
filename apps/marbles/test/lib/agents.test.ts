@@ -10,7 +10,7 @@ import type { AgentsDeps } from "~/lib/managers/agents";
 import { AgentsManager } from "~/lib/managers/agents";
 import { echoModels, mockModels } from "~/lib/models/echo";
 import { RunScope } from "~/lib/run-scope";
-import type { AgentDefinition } from "~/lib/types";
+import type { AgentDefinition, SandboxHandle } from "~/lib/types";
 import { testEngine } from "../helpers/engine";
 
 const NO_TURN_PATTERN = /no agent turn is running/;
@@ -72,7 +72,7 @@ describe("agents.session", () => {
             throw new Error("Dry session must not execute guest commands");
           },
           id: "dry-sandbox",
-        },
+        } as unknown as SandboxHandle,
       });
     expect((await session.generate("Inspect the fixture")).text).toContain(
       "Inspect the fixture"

@@ -736,6 +736,18 @@ Each follows principle 1. The instance (Part A) follows the handle.
 
 ### E.1 Sandboxes (7.2)
 
+**Landed 2026-10-10.** The handle is a proxy over an empty target that
+forwards to the container (the container is frozen, so a proxy over it
+may not return bound methods); `row` is hidden. `exec` and `processes`
+carry the step's signal (joined with one the caller passes) and `exec`
+writes `$ <command>` and its output to the step's stream. Marbles'
+`Sandbox` type is now `SandboxHandle`. The spec takes `target`,
+`workdir`, and the container constraints `detached`, `labels`, `ports`,
+`publicEnvironment`, and `resources.pids`. The instance is a `get`-only
+proxy over the definition, with the filesystem facet as `filesystem`, so
+a files sandbox's seed `files` and `"files" in box` stay the record's and
+no `specOf` symbol is needed. Not done: files combined with a mount.
+
 `wrap` (`marbles/lib/managers/sandboxes.ts:107-125`) returns `{ close,
 exec(argv), id }` over a `Container` with `commands`, `files`, `processes`,
 `shell`, `ports`, `services`, and `volumes`

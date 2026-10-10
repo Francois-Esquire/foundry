@@ -251,8 +251,14 @@ describe("a workspace, a sandbox, or an artifact", () => {
     engines.push(engine);
     setHost(engine);
     const box = sandbox({ image: "docker.io/oven/bun:1-slim" });
+    // The record answers `in` and spreads; the container's facets do not leak in.
     expect("files" in box).toBe(false);
     expect(Object.keys({ ...box })).not.toContain("exec");
+    const seeded = sandbox({ files: { "main.py": "print(1)" } });
+    expect("files" in seeded && seeded.files).toEqual({
+      "main.py": "print(1)",
+    });
+    expect("filesystem" in seeded).toBe(false);
     await expect(box.exec(["bun", "test"])).resolves.toMatchObject({
       exitCode: 0,
       stdout: "ok",
@@ -262,6 +268,10 @@ describe("a workspace, a sandbox, or an artifact", () => {
       ["bun", "test"],
       ["bun", "run", "build"],
     ]);
+    expect(await containers.list()).toHaveLength(1);
+    await expect(box.filesystem.isDirectory("/workspace")).resolves.toBeTypeOf(
+      "boolean"
+    );
     expect(await containers.list()).toHaveLength(1);
     await box.close();
     await box.exec(["true"]);

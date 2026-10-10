@@ -180,7 +180,7 @@ on the spot (see [Context](#context)).
 | `step` | `run(input)`. Calling it still locks a node. | A lock in a tree |
 | `workflow` | `run(input)`. Calling it still locks a node. | A launch or a trigger |
 | `workspace` | The workspace handle: `root`, `files()`, `git`. | `workspaces.load(def)` |
-| `sandbox` | The sandbox handle: `exec`, `close`; started on first use. | `sandboxes.start(def)` |
+| `sandbox` | The sandbox handle: `exec`, `close`, and the container's facets (its filesystem as `filesystem`); started on first use. | `sandboxes.start(def)` |
 | `artifact` | `write(files)`; `latest()` with finding 5. | `artifacts.write(def, files)` |
 | `skills` | Unchanged: a set is already a value. | An agent's `skills` |
 
@@ -320,6 +320,8 @@ const docs = await workspaces.load({ path: "../docs-site" }); // on the spot
 ```ts
 const env = await sandboxes.start(box);                                      // a definition
 const scratch = await sandboxes.start({ image: "docker.io/oven/bun:1-slim" }); // on the spot
+await env.exec("bun test --bail", { cwd: "/workspace/app" });               // shell string, package options
+await env.files.readFile("/workspace/out.json");                              // the container's facets
 const result = await env.exec(["bun", "test"]);
 ```
 

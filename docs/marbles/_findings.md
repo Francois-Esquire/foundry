@@ -120,30 +120,8 @@ Landed 2026-10-10 ([`_next-api.md`](./_next-api.md), Part B). Still open:
 
 ### 7.2 Sandboxes
 
-`sandboxes.start` returns `{ exec(argv), close, id }`
-(`apps/marbles/src/lib/types.ts:181-185`) over a `Container` that has much
-more (`packages/sandbox/src/container/facets.ts:42-50`).
-
-- **Facets hidden.** `files`, `processes` (spawn with stdin and streams),
-  `shell`, `ports`, `services`, `volumes` are unreachable
-  (`apps/marbles/src/lib/managers/sandboxes.ts:107-125`).
-- **Exec options dropped.** No options argument: `cwd`, `environment`, and
-  `user` are lost, and the string (shell) command form is refused. Output is
-  not written to the step's stream either, which is a default Marbles owns
-  and does not fill.
-- **Spec narrowed.** `labels`, `ports`, `publicEnvironment`, `detached`, and
-  `resources.pids` are dropped (`sandboxes.ts:72-104`). One mount, always
-  read-write at `/workspace` with id `workspace`, and `workdir` fixed there
-  (`sandboxes.ts:88-102`). Files are strings only and cannot be combined with
-  a mount (`types.ts:62-83`).
-- **Registry missing.** `list`, `remove`, `restart`, `sweep`.
-- Marbles' `Sandbox` reuses the package's type name for a smaller shape.
-
-**Proposal.** Return the container with Marbles' defaults applied (signal,
-stream, dry-run echo), take the package's exec options, and take the
-package's spec with `/workspace` and the mount source as defaults rather
-than constants. The allowed mount roots stay: they are a boundary, not a
-narrowing.
+Landed 2026-10-10 ([`_next-api.md`](./_next-api.md), E.1). Still open: a
+files sandbox that also mounts a workspace.
 
 ### 7.3 Workspaces
 

@@ -18,7 +18,7 @@ import {
 | --- | --- | --- | --- |
 | `agent` | definition | `agent({ name?, prompt, model?, provider?, settings?, skills? })` | Who does model work, with defaults. |
 | `workspace` | definition | `workspace({ path })` | Another directory to work on. The current workspace is implicit. |
-| `sandbox` | definition | `sandbox({ image, mount?, resources? })` or `sandbox({ files, image?, resources? })` | An isolated place to run commands. |
+| `sandbox` | definition | `sandbox({ image, mount?, target?, … })` or `sandbox({ files, image?, … })` | An isolated place to run commands. |
 | `artifact` | definition | `artifact({ name, type })` | A versioned output; each run adds a version. |
 | `skills` | definition | `skills.load().add(glob).pick(...names)` | A skill set an agent takes. |
 | `step` | work | `step(name?).describe(text).input(s).output(s).config(c).do(fn)` | One unit of work. |
@@ -67,7 +67,10 @@ const reviewing = skills.load().add("./skills/review/*").pick("caveman");
   path fails at run time with `escapes the trusted host roots`. `~/.foundry`,
   `~/.claude`, and `~/.codex` mount read-only when they exist. The `files`
   form mounts nothing and copies its files under `/workspace` after boot.
-  `resources` takes `cpus` and `memoryBytes`. Running a sandbox needs the
+  `target` moves the mount from `/workspace`, and `workdir` the working
+  directory from the mount. The rest is the container's own constraints:
+  `network`, `ports`, `labels`, `publicEnvironment`, `detached`, and
+  `resources` (`cpus`, `memoryBytes`, `pids`). Running a sandbox needs the
   optional `microsandbox` peer; `--dry-run` echoes commands without it.
 - **`artifact`.** A declared artifact keeps its identity across runs; each
   `report.artifact` or `artifacts.write` adds a version to it.
@@ -92,7 +95,7 @@ const lines = await count.run({ path: "README.md" });                  // run it
 | `agent` | `generate(input, turn?)`, `stream(input, turn?)` | `agents.session(def)`, one turn |
 | `step`, `workflow` | `run(input?)` | Locking it as a child, run on its own |
 | `workspace` | `root`, `files()`, `git` | `workspaces.load(def)` |
-| `sandbox` | `exec(argv)`, `close()`; started by the first `exec` | `sandboxes.start(def)` |
+| `sandbox` | `exec`, `close`, and the container's `commands`, `filesystem`, `processes`, `shell`, `ports`, `services`, `volumes`; started by the first call | `sandboxes.start(def)` |
 | `artifact` | `write(files)` | `artifacts.write(def, files)` |
 
 - **Inside a step body** a call joins the step's run: it stops with the
@@ -109,9 +112,10 @@ const lines = await count.run({ path: "README.md" });                  // run it
   open a session with `agents.session(designer)`. The data fields are plain
   properties and the methods are not, so `{ ...designer }` is a plain
   definition that `agents.session` takes.
-- **A sandbox starts at its first `exec`.** In a step it is that step's
+- **A sandbox starts at its first call.** In a step it is that step's
   sandbox, closed with the run and reopened on replay; elsewhere it runs
-  until `close()` or `dispose()`. `agents.session(def, { sandbox: box })`
+  until `close()` or `dispose()`. Its filesystem is `box.filesystem`, since
+  a files sandbox's `files` is the seed it was declared with. `agents.session(def, { sandbox: box })`
   takes the declared sandbox and starts it the same way.
 - **`run` runs in this process**, not through the engine's queue, so a body
   can await it; a nameless definition runs too. The nested run is not shown
@@ -217,7 +221,7 @@ step().do(async ({ input, agents, workspaces, sandboxes, artifacts, ask, report,
 | `input` | Typed input, validated against `.input(schema)`. |
 | `agents` | `session(def, { cwd?, session?, compaction? })` → `{ generate(prompt, turn?) → { text, output, usage, … }, stream(prompt, turn?), ref, harness }`. |
 | `workspaces` | `current` (the workspace root) and `load(def \| { path })` → the `@foundry/workspaces` workspace: `root`, `files()`, `entries()`, `read(id)`, `save`, `createFile`, `refresh()`, `summary()`, `git`. |
-| `sandboxes` | `start(def \| spec)` → `{ exec(argv) → { exitCode, stdout, stderr }, close(), id }`; `open(id)`. |
+| `sandboxes` | `start(def \| spec)` → the `@foundry/sandbox` container: `exec(command, { cwd?, environment?, user? })` → `{ exitCode, stdout, stderr }`, `commands`, `files`, `processes`, `shell`, `ports`, `services`, `volumes`, `close()`, `id`; `open(id)`. |
 | `artifacts` | `write(def, files)` adds a version; `create({ name, type, entries })` makes one on the spot. |
 | `ask` | `approval({ title, body?, key? })` → `{ approved, note? }`; `question({ title, body?, choices?, key? })` → `string`. |
 | `report` | `milestone({ title, body?, media?, key? })`, `result(entry)`, `artifact(def, files, entry?)` → version. |
@@ -283,6 +287,12 @@ await fetch(url, { signal });
   Naming a `branch` that exists fails before anything is cut; check first
   with `hasBranch(name)`, which reads the repository even under
   `--dry-run`.
+- **Sandboxes.** A handle is the `@foundry/sandbox` container. In a step
+  every command and process carries the step's signal, and `exec` writes
+  `$ <command>` and its output to the step's stream. `exec` takes an argv
+  array, run directly, or a string, run by the guest's shell, and the
+  package's options (`cwd`, `environment`, `user`). Listing, removing, and
+  restarting containers are the host's.
 - **Ask.** `approval` is a hard block: the run shows as blocked until someone
   decides. `question` is input: the step waits, siblings keep going. Both
   need a process that can show them; the dashboard parks the run, while
@@ -412,7 +422,7 @@ the types behind them: `Agent`, `Runnable`, `WorkspaceInstance`,
 (`AgentDefinition`, `AgentSettings`, `WorkspaceDefinition`, `SandboxDefinition`,
 `SandboxSpec`, `ArtifactDefinition`, `SkillSet`), the context types
 (`Agents`, `Session`, `SessionRef`, `SessionReply`, `TurnOptions`, `Workspaces`,
-`WorkspaceHandle`, `Sandboxes`, `Sandbox`, `Artifacts`, `ArtifactVersion`,
+`WorkspaceHandle`, `LoadedWorkspace`, `Sandboxes`, `SandboxHandle`, `Artifacts`, `ArtifactVersion`,
 `Ask`, `Approval`, `Report`, `Stream`, `Run`, `Log`, `LogLevel`), and the
 trigger types (`Schedule`, `ScheduleBuilder`, `MonitorBuilder`,
 `CalendarSlot`, `Weekday`, `Trigger`, `MonitorContext`, `MonitorHandler`,

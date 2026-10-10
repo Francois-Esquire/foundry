@@ -23,8 +23,8 @@ import type {
   ArtifactFiles,
   ArtifactInstance,
   ArtifactVersion,
-  Sandbox,
   SandboxDefinition,
+  SandboxHandle,
   SandboxInstance,
   SessionReply,
   WorkspaceDefinition,
@@ -224,17 +224,52 @@ export function workspaceInstance(
   }) as WorkspaceInstance;
 }
 
+/** The container facets a declared sandbox reaches; each starts it first. */
+const SANDBOX_FACETS = {
+  commands: "commands",
+  filesystem: "files",
+  ports: "ports",
+  processes: "processes",
+  services: "services",
+  shell: "shell",
+  volumes: "volumes",
+} as const satisfies Record<string, keyof SandboxHandle>;
+
+/** A facet whose every method starts the sandbox, then calls the real one. */
+function lazyFacet(
+  started: () => Promise<SandboxHandle>,
+  facet: keyof SandboxHandle
+): object {
+  return new Proxy(
+    {},
+    {
+      get:
+        (_target, method) =>
+        async (...args: unknown[]) => {
+          const real = Reflect.get(await started(), facet) as object;
+          const call = Reflect.get(real, method) as (
+            ...values: unknown[]
+          ) => unknown;
+          return call.apply(real, args);
+        },
+    }
+  );
+}
+
 /**
- * Give a sandbox definition `exec` and `close`. In a step body the first
- * `exec` starts it through the step's sandboxes, once per attempt, so a
- * replay reopens the one it started; outside a run, once per runtime.
+ * A declared sandbox you can use: `exec`, `close`, and the container's
+ * facets, the first call starting it. In a step body it starts through the
+ * step's sandboxes, once per attempt, so a replay reopens the one it
+ * started; outside a run, once per runtime. A proxy with only a `get`
+ * trap: the record underneath answers `in`, keys, and spreads, so a spec's
+ * `files` is never confused with the container's filesystem.
  */
 export function sandboxInstance(
   definition: SandboxDefinition
 ): SandboxInstance {
-  const attempts = new WeakMap<AbortSignal, Promise<Sandbox>>();
-  const outside = new WeakMap<InstanceRuntime, Promise<Sandbox>>();
-  const started = (): Promise<Sandbox> => {
+  const attempts = new WeakMap<AbortSignal, Promise<SandboxHandle>>();
+  const outside = new WeakMap<InstanceRuntime, Promise<SandboxHandle>>();
+  const started = (): Promise<SandboxHandle> => {
     const run = inRun();
     if (run) {
       const { signal } = run.args.frame;
@@ -256,19 +291,33 @@ export function sandboxInstance(
   };
   const close = async (): Promise<void> => {
     const run = inRun();
-    const cache = run ? attempts : outside;
+    const cache = (run ? attempts : outside) as WeakMap<
+      object,
+      Promise<SandboxHandle>
+    >;
     const key = run ? run.args.frame.signal : await instanceRuntime();
-    const handle = (cache as WeakMap<object, Promise<Sandbox>>).get(key);
-    (cache as WeakMap<object, Promise<Sandbox>>).delete(key);
+    const handle = cache.get(key);
+    cache.delete(key);
     await (await handle)?.close();
   };
-  return Object.defineProperties(definition, {
-    close: { value: close },
-    [SANDBOX_HANDLE]: { value: started },
-    exec: {
-      value: (argv: readonly string[]) =>
-        started().then((handle) => handle.exec(argv)),
-    },
+  const facets = Object.fromEntries(
+    Object.entries(SANDBOX_FACETS).map(([name, facet]) => [
+      name,
+      lazyFacet(started, facet),
+    ])
+  );
+  const methods: Record<PropertyKey, unknown> = {
+    ...facets,
+    close,
+    exec: (...args: Parameters<SandboxHandle["exec"]>) =>
+      started().then((handle) => handle.exec(...args)),
+    [SANDBOX_HANDLE]: started,
+  };
+  return new Proxy(definition, {
+    get: (target, property) =>
+      Object.hasOwn(methods, property)
+        ? methods[property]
+        : Reflect.get(target, property, target),
   }) as SandboxInstance;
 }
 
