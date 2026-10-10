@@ -1,9 +1,10 @@
 #!/usr/bin/env bun
 import type { CheckResult } from "../lib/check";
 import { check } from "../lib/check";
+import { planSite } from "../lib/codemod";
 import { savedDataset } from "../lib/dataset-files";
 import { exportViewer } from "../lib/export";
-import { renderLens, renderSurface } from "../lib/render";
+import { renderLens, renderPlan, renderSurface } from "../lib/render";
 import type { RenderContext } from "../lib/render/context";
 import type { ScanProgressEvent, WorkspaceScan } from "../lib/scan";
 import { scan } from "../lib/scan";
@@ -145,6 +146,12 @@ const RUN: { readonly [C in Command]: (args: ArgsOf<C>) => Promise<void> } = {
     const server = await serve(root, { port: args.port, state: args.state });
     printResult(args, { ...saved, ...server }, () => serverLines(server));
     await whileServing(server, args);
+  },
+  // Every verdict is a result, refused and blocked included: exit 0.
+  async plan(args) {
+    const [root] = args.paths;
+    const result = await planSite(root, args.site, { state: args.state });
+    printResult(args, result, () => renderPlan(result, renderContext(args)));
   },
   async report(args) {
     const [root] = args.paths;

@@ -1825,7 +1825,107 @@ bad arguments (2).
   export removed, exit 0; `missing` exits 1 over a violation; a dataset
   without the lens exits 1; a never-scanned workspace exits 1.
 
-**3.4 `atlas plan`.** One plan for one site, read-only.
+**3.4 `atlas plan`.** Done 2026-10-10. One plan for one site; it writes
+nothing in the workspace.
+- `atlas plan <opportunity> [path...]` (`lib/codemod.ts` `planSite`, with
+  `lib/codemod-types.ts`; CLI only, not in the exports map). `resolveSite`
+  reads the opportunity id `internalize-symbol:<path#name>`, the saved
+  plan's id `plan:internalize-symbol:<path#name>`, or the bare `path#name`;
+  any other shape, another operation's id or a second `#` included, is a
+  usage error (2); `savedPlanOf` splits the place with the same helper.
+  The site's package comes from the module index; a file, opportunity, or
+  saved plan the dataset does not hold fails (1). `rule:<n>` is deferred
+  (decision 2).
+- The rules come from `reader.lens("rules").rules`, so no configuration
+  runs and the configuration invariant still holds; a dataset without the
+  lens fails (1). The chain is the decisions': the saved workspace report
+  and only the subject's package report into `createOperatorContext`, a
+  planning context over the subject package only, `executionPlanFor`, then
+  `authorizeMutationPlan`. The probe showed the saved `workspace.json`
+  carries the intelligence the projection needs, and that the narrowed
+  context still authorizes.
+- **Deviation from "read-only"** (decision 1 ruling): readiness runs the
+  baseline commands, the package's `test` script and its `typecheck`
+  script where it has one, with `CI=1`. Help, `cli.md`, `_api.md`, and the
+  README say "writes nothing in the workspace" and that the scripts run;
+  `_api.md`'s principle 3 notes it.
+- Only an authorized verdict writes: the record, as `authorizeMutationPlan`
+  returned it, to `<state directory>/plans/<hash16(plan id)>.json`, with
+  `writeFileAtomicSync` and without the state lock (A11). Any other verdict
+  deletes the site's earlier record, so a record exists only while the
+  last plan authorized it. **For 3.5:** apply never trusts a record without
+  authorizing again, fresh, and comparing the `auth:` hash. `cli.md` warns that plan's
+  scripts may run beside another command's. `output.md` lists `plans/`.
+- `plan` refuses (1) while `<state directory>/apply/journal.json` exists.
+  It reads only whether the file exists; `refuseUnfinishedApply` and the
+  path live in `codemod.ts`, where 3.5's `applyRecord` reuses them and
+  reads the phase (A1). `check` does not read the journal yet; its comment
+  still marks the place.
+- **A9 currentness: left to 3.6.** `collectWorkspaceInputs` takes the
+  resolved configuration, so `plan` cannot recompute the inputs fingerprint
+  without loading it, and the manifest records no fingerprint yet. 3.6 adds
+  the hash to `manifest.generation`; `plan` should compare against that
+  recorded hash, not recompute it, or solve the configuration input some
+  other way. Until then a stale dataset can yield a record, which apply's
+  fresh revalidation refuses; `cli.md` says to scan after an edit.
+- `--json` is `{ site, opportunity, plan, verdict, record? }`: `site` the
+  `path#name`, `plan` the saved plan as the package report holds it,
+  `verdict` the `MutationAuthorizationResult` unchanged, and `record` the
+  saved path. Exit 0 for every verdict; 1 for no dataset, an unknown site,
+  a journal, or no rules lens; 2 for bad arguments.
+- **Reading of the tests' "publishable is blocked":** the bridge answers
+  `not-executable` for any saved plan that is not `ready`, before
+  readiness, so a publishable plan's verdict is `not-executable` ("the
+  saved plan … is blocked: publishable"). The view and JSON show
+  `plan.status` `blocked`, its blockers, and `blockerDefinitions`' note on
+  `publishable`. No fifth verdict word was added. "Not ready, not
+  executable" is tested on an `unsupported` plan
+  (`internal-entrypoint-import`).
+- The view (`render/reports/codemod.ts`, `renderPlan`) is built on
+  `views.ts` primitives: the opportunity, package, and saved plan status;
+  the verdict as a signal, titled by the saved plan's status ("Blocked",
+  "Unsupported") when a plan that is not ready is why it is not
+  executable, and "Not executable" for the bridge's other reasons (a refusal gives the `permit` rule to declare,
+  an authorization the permitting rules by index and the record's path);
+  planned changes from the saved plan; the saved plan's blockers with
+  `blockerDefinitions`; readiness's blockers, cautions, and verification
+  steps with their commands; and, when authorized, "Run atlas apply <id>
+  to preview; add --write to write." That line, and the journal
+  refusal's "Run atlas apply to restore", name a command 3.5 adds; 3.5
+  revisits both strings.
+  `listSection` moved from `reports/rules.ts` to `reports/ranked-section.ts`,
+  beside `rankedSection`, and both views use it, instead of a second copy.
+  The help's command column is now the longest usage plus two.
+- No analysis code changed, so no Changes row: the existing files touched
+  are the CLI and the renderers (`reports/rules.ts`, `ranked-section.ts`,
+  `render/index.ts`).
+- Measured on Foundry (read-only, fresh state under `/tmp`, cold scan
+  43.9 s at 8.5 GB peak RSS). Foundry declares no rules, so `atlas plan`
+  there is refused before any baseline: 3.3–4.6 s wall, 2.6 GB peak, no
+  record. A probe driving the same chain with a permit on `packages` and a
+  stub runner, for `@foundry/workspaces` `AnyWorkspaceExtension`, three
+  runs: dataset read 44–53 ms, operator context 5–12 ms, planning context
+  0.71–0.76 s, execution plan 2.1–2.2 s, authorization 34–35 ms (readiness
+  `sourceMs` 28.5–29.1, `structuralMs` 3.8–4.2), 3.1–3.2 s wall, 2.4–2.5 GB
+  peak. The record is 1,489 bytes, with 5 source files. The planning
+  context and execution plan run for every verdict, refusals included; the
+  gate was not split to avoid that. `baselineMs` was **not** measured on
+  Foundry, since a real run would spawn `@foundry/workspaces`' test and
+  typecheck scripts. On the deps fixture (`test` is `true`), `baselineMs`
+  is 14.8–15.4 ms, plan takes 0.54–0.56 s wall at 0.37 GB, and the record
+  is 1,013 bytes.
+- Tests: `test/lib/codemod.test.ts` (`resolveSite`'s three spellings and
+  refused shapes; on a committed copy of the deps fixture, every package
+  private unless the fixture publishes it, each with a `test` script, an
+  injected runner: authorized writes the record and leaves `git status`
+  clean, the view exactly; no permitting rule refuses with no baseline and
+  no record; publishable shows why it is blocked; unsupported is not
+  executable; a failing baseline answers `readiness` `blocked` with no
+  record; a journal refuses; unknown sites fail); `test/cli/args.test.ts`
+  (the three spellings, missing and bad sites, `--write` refused, `--json`
+  with `--format`); and `test/atlas.test.ts` on the built CLI (authorized
+  exits 0 with one JSON line and the record on disk; the text view; a
+  clean tree; a refusal exits 0; an unknown site 1; a bad shape 2).
 
 **3.5 `atlas apply` for `internalize-export`.** Fresh analysis,
 revalidation, a dirty tree blocks, preview by default, write with

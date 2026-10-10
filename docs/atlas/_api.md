@@ -14,8 +14,9 @@ How `src/lib` implements it is free to change.
   and an `exports` map with one entry, `.`, which names `scan`, `serve`,
   and the types below; nothing else under `src/lib` is importable. Marbles,
   by comparison, exports `.`, `./lib`, and `./prebuilt`.
-- **Five commands** since 1.8: `atlas [path...]`, `scan`, `serve`,
-  `report`, and `export`, from a typed command table; each takes only its
+- **Eight commands**: `atlas [path...]`, `scan`, `serve`, `report`, and
+  `export` since 1.8, `lens` since 2.7, `check` since 3.3, and `plan` since
+  3.4, from a typed command table; each takes only its
   own flags, plus `--state`, `--json`, and `--quiet`. One path at most
   until collections. See `reference/cli.md`.
 - **The dataset is a contract.** `output/` is versioned
@@ -48,6 +49,8 @@ Proposed. These decide the shape of everything below.
    `apply`, which previews by default and writes only with `--write` or
    `write: true`, and `atlas export`, which writes only where it is
    pointed. This is the existing `apply.ts` contract, made public.
+   `atlas plan` runs the workspace's test and typecheck scripts, which write
+   what they always write; Atlas itself writes nothing there.
 4. **Machine-readable by default for programs, readable by default for
    people.** Every command that prints a result takes `--json`. Exit codes
    mean something a CI job can use.
@@ -68,11 +71,12 @@ Proposed. These decide the shape of everything below.
 | `atlas export <dir> [path...]` | 0.1, done in 1.8 | Write a static viewer, the viewer and a copy of the saved dataset, for hosting or CI artifacts. `build-example.ts` now calls it. |
 | `atlas lens <id> [path...]` | 0.1, done in 2.7 | Print one lens from the saved dataset, through `lib/render`, or as saved with `--json`. An unknown id exits `2`; a dataset without the lens exits `1`. |
 | `atlas check [path...]` | 0.1, done in 3.3 | Print the saved `rules` lens: the workspace's rules against the dataset. Exit 3 on a violation, 1 when a `require` could not be checked. CLI only, `lib/check.ts`. |
-| `atlas plan <rule-or-opportunity>` | proposed, depends on rules | Print the plan that would satisfy a rule at one site. Read-only. |
+| `atlas plan <opportunity> [path...]` | 0.1, done in 3.4 | Plan one internalize opportunity from the saved dataset, named by its id, its plan's id, or `path#name`, and authorize it under the saved `rules` lens's rules; save an authorized plan's record in the state directory. Runs the workspace's test and typecheck scripts as readiness's baseline, and writes nothing in the workspace. Exit 0 on any verdict. CLI only, `lib/codemod.ts`. A rule as the argument (`rule:<n>`) is deferred. |
 | `atlas apply <plan> [--write]` | proposed, depends on rules | Preview a plan's edits; write and verify with `--write`. |
 
 `check`, `plan`, and `apply` ship only once rules can be declared and the
-readiness gate reads them, as [`_codemods.md`](./_codemods.md) says.
+readiness gate reads them, as [`_codemods.md`](./_codemods.md) says; `check`
+and `plan` have, in 3.3 and 3.4.
 
 Flags shared by every command: `--state`, `--json`, `--quiet`, `--help`.
 `--history` belongs to `scan` and the default command, not to `serve`.

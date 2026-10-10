@@ -11,23 +11,24 @@ The same scans and server are available from code: see the
 ```text
 Atlas — workspace analysis and a local viewer
 
-  atlas [path...]                   Scan a workspace, serve its dataset, and open the browser
-  atlas scan [path...]              Scan and save the dataset
-  atlas serve [path...]             Serve the saved dataset without scanning
-  atlas report <package> [path...]  Print a package report from the saved dataset
-  atlas lens <id> [path...]         Print a lens from the saved dataset
-  atlas check [path...]             Check the workspace's rules against the saved dataset
-  atlas export <dir> [path...]      Write a static viewer of the saved dataset to <dir>
+  atlas [path...]                     Scan a workspace, serve its dataset, and open the browser
+  atlas scan [path...]                Scan and save the dataset
+  atlas serve [path...]               Serve the saved dataset without scanning
+  atlas report <package> [path...]    Print a package report from the saved dataset
+  atlas lens <id> [path...]           Print a lens from the saved dataset
+  atlas check [path...]               Check the workspace's rules against the saved dataset
+  atlas plan <opportunity> [path...]  Plan one opportunity and authorize it; writes nothing in the workspace
+  atlas export <dir> [path...]        Write a static viewer of the saved dataset to <dir>
 
 The path defaults to the current directory; one workspace at a time.
-A directory named like a command is written as a path: ./scan, ./serve, ./report, ./lens, ./check, ./export.
+A directory named like a command is written as a path: ./scan, ./serve, ./report, ./lens, ./check, ./plan, ./export.
 
   --state <path>        State root (default: ~/.foundry/atlas)
   --history             atlas, scan: analyze Git checkpoints as well
   --port <number>       atlas, serve: local port (default: 4173; 0 chooses a free port)
   --no-open             atlas, serve: do not open the browser
-  --format <format>     report, lens, check: terminal, text, markdown (default: terminal; text when piped)
-  --density <density>   report, lens, check: compact, normal, expanded (default: normal)
+  --format <format>     report, lens, check, plan: terminal, text, markdown (default: terminal; text when piped)
+  --density <density>   report, lens, check, plan: compact, normal, expanded (default: normal)
   --json                Print the result as one line of JSON
   --quiet               Print no progress
   --help, -h            Show this help
@@ -36,8 +37,8 @@ Exit codes: 0 done, 1 failed, 2 bad arguments, 3 a rule broken (check).
 ```
 
 The first argument is a command only when it is exactly `scan`, `serve`,
-`report`, `lens`, or `export`; anything else is the workspace path, for
-the default command. A directory with a command's name is written as a path,
+`report`, `lens`, `check`, `plan`, or `export`; anything else is the
+workspace path, for the default command. A directory with a command's name is written as a path,
 `atlas ./report`. The path defaults to the current directory and must be
 an existing directory. The parser reads `path...`, but one workspace at a
 time is supported for now: a second path is refused until several
@@ -51,8 +52,8 @@ workspaces can be read as one collection.
 | `--history` | `atlas`, `scan` | off | Analyze Git checkpoints as well; see [history](/atlas/guides/history). |
 | `--port <number>` | `atlas`, `serve` | `4173` | The port to serve on, `0` to `65535`. `0` picks a free port. |
 | `--no-open` | `atlas`, `serve` | open | Do not open the browser after serving. |
-| `--format <format>` | `report`, `lens`, `check` | `terminal` on a terminal, `text` when piped | `terminal`, `text`, or `markdown`. |
-| `--density <density>` | `report`, `lens`, `check` | `normal` | `compact`, `normal`, or `expanded`. |
+| `--format <format>` | `report`, `lens`, `check`, `plan` | `terminal` on a terminal, `text` when piped | `terminal`, `text`, or `markdown`. |
+| `--density <density>` | `report`, `lens`, `check`, `plan` | `normal` | `compact`, `normal`, or `expanded`. |
 | `--json` | all | off | Print the result as one line of JSON instead of text. |
 | `--quiet` | all | off | Print no progress. |
 | `--help`, `-h` | | | Print the help and exit. |
@@ -72,6 +73,9 @@ error too: `atlas serve does not take --history.`
 - `lens` prints the lens, rendered for the format.
 - `check` prints the `rules` lens, rendered for the format, and exits `3`
   when a rule is broken.
+- `plan` prints the verdict for one opportunity, its planned changes, what
+  stops it, and the verification an apply would run, rendered for the
+  format.
 - `export` prints `Static viewer saved to <dir>`.
 - A server prints `Atlas: <url>` and `Workspace: <root>` on stdout, then
   runs until `SIGINT` or `SIGTERM`, such as Ctrl-C, which stop it and exit
@@ -91,21 +95,23 @@ With `--json`, stdout is one line: the [library](/atlas/reference/library)'s res
 | `report` | The package report exactly as the dataset holds it, `output/packages/<name>.json` |
 | `lens` | The lens's output exactly as the dataset holds it, `output/lenses/<id>.json` |
 | `check` | `{ "generatedAt", "outcome", "lens" }`: the checked dataset's `generatedAt`, `clean`, `violations`, or `incomplete`, and the `rules` lens as saved |
+| `plan` | `{ "site", "opportunity", "plan", "verdict", "record"? }`: the symbol as `path#name`, the opportunity's id, the saved plan as its package report holds it, the verdict (its `kind`, with readiness's assessment once readiness judged the plan, and the record when authorized), and the path the record was saved to, only when authorized |
 | `export` | `{ "directory", "manifest" }`: where the static viewer is, and the manifest of the dataset it holds |
 | `serve` | `{ "root", "url" }`, printed once the server listens |
 | `atlas` | One line once the server listens: the scan's fields and the server's, `{ "manifest", "output", "history"?, "root", "url" }` |
 
 `--json` does not change stderr: progress still goes there unless
-`--quiet` is given. `report --json`, `lens --json`, and `check --json` take
-no `--format` or `--density`. `check --json` exits as `check` does.
+`--quiet` is given. `report --json`, `lens --json`, `check --json`, and
+`plan --json` take no `--format` or `--density`. `check --json` exits as
+`check` does.
 
 ## Exit codes
 
 | Code | When |
 | --- | --- |
-| `0` | The command finished, or `--help`; for `check`, no rule is broken, or none is declared |
-| `1` | The command ran and failed: a path that does not exist or is not a directory, a package that failed analysis, a workspace being scanned or exported, `--history` without Git, the viewer's files missing, a port in use, no saved dataset or one with another schema version, an unknown package, a dataset saved without the lens asked for or with another version of it, a directory export refuses, or `check` could not check a `require` rule in a package that failed analysis, which outranks any violation |
-| `2` | Bad arguments: an unknown flag, a flag the command does not take, a bad value, an unknown lens, a missing package, lens, or directory, or a second path |
+| `0` | The command finished, or `--help`; for `check`, no rule is broken, or none is declared; for `plan`, any verdict, refused and blocked included |
+| `1` | The command ran and failed: a path that does not exist or is not a directory, a package that failed analysis, a workspace being scanned or exported, `--history` without Git, the viewer's files missing, a port in use, no saved dataset or one with another schema version, an unknown package, a dataset saved without the lens asked for or with another version of it, a directory export refuses, `check` could not check a `require` rule in a package that failed analysis, which outranks any violation, or `plan` was given an opportunity the dataset does not hold, or found an unfinished apply |
+| `2` | Bad arguments: an unknown flag, a flag the command does not take, a bad value, an unknown lens, a missing package, lens, opportunity, or directory, an opportunity of another shape, or a second path |
 | `3` | `check` only: a rule is broken |
 
 Codes above `2` are for commands' own results: `atlas check` exits `3` on
@@ -176,6 +182,46 @@ When a `require` meets a package that failed analysis, `check` exits `1`
 and names the rule and the package on stderr. A package that keeps failing
 under a wide `require`, such as one on `packages`, makes every `check` exit
 `1`; narrowing the subject to the packages that analyze fixes it.
+
+## Plan
+
+`atlas plan <opportunity> [path...]` plans one internalize opportunity from
+the saved dataset and asks whether Atlas may apply it. The opportunity is
+written as `check` lists it, `internalize-symbol:<path#name>`, as its saved
+plan's id, `plan:internalize-symbol:<path#name>`, or as the bare
+`<path#name>`. Any other shape is a usage error; an opportunity the dataset
+does not hold fails.
+
+It takes the rules from the `rules` lens the last scan saved, as `check`
+does, so it runs no configuration, and a rule edited since then takes a
+scan to count. It answers with one verdict, checked cheapest first:
+
+| Verdict | When |
+| --- | --- |
+| `refused-by-rule` | No `permit` or `require` rule of `internalize` covers the symbol. The output names a rule that would. Nothing runs. |
+| `not-executable` | No mutator executes the plan: the saved plan is not `ready`, or it needs an edit `internalize-export` does not make. A `publishable` package's plan is `blocked`, and the output says why. Nothing runs. |
+| `readiness` | Readiness judged the plan and did not authorize it: `stale`, `unsupported`, `blocked`, such as a test that fails before any change, or `not-authorized`, such as a package with no `test` script. |
+| `authorized` | Every check passed. |
+
+Before it authorizes, readiness runs the baseline of each verification
+step: the package's `test` script, and its `typecheck` script where it has
+one; without one, Atlas checks the types itself. So `plan` runs the
+workspace's own scripts, with `CI=1`, which can take minutes. Atlas writes
+nothing in the workspace, though the scripts may write what they always
+write, such as coverage or build info.
+
+An authorized plan's record, ids and fingerprints only, is saved to
+`plans/<digest>.json` in the workspace's state directory; see
+[output](/atlas/reference/output). Any other verdict deletes the
+opportunity's earlier record, so a record exists only while the last plan
+authorized it. A later apply authorizes again before it writes, so a record
+is never a promise that the sources still match.
+`plan` takes no lock: it can run while a scan does, and its scripts can run
+beside another command's. It refuses while an apply's journal,
+`apply/journal.json` in the state directory, exists.
+
+The saved plan is the last scan's. `plan` does not yet check that the
+dataset is current, so scan after editing the sources.
 
 ## Export
 

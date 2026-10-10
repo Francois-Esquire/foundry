@@ -1,4 +1,6 @@
 import { parseArgs } from "node:util";
+import { resolveSite } from "../lib/codemod";
+import type { Site } from "../lib/codemod-types";
 import type { LensId } from "../lib/lenses/lens-types";
 import { LENS_IDS } from "../lib/lenses/lens-types";
 import type { RenderDensity, RenderFormat } from "../lib/render/context";
@@ -69,6 +71,7 @@ export type Command =
   | "export"
   | "lens"
   | "open"
+  | "plan"
   | "report"
   | "scan"
   | "serve";
@@ -109,7 +112,7 @@ function onePath(
 
 /** The word a command needs before its path, as `report <package>`. */
 function needed(
-  command: "export" | "lens" | "report",
+  command: "export" | "lens" | "plan" | "report",
   what: string,
   words: readonly string[]
 ): [string, readonly string[]] {
@@ -169,6 +172,16 @@ const COMMANDS = {
     summary: "Scan a workspace, serve its dataset, and open the browser",
     usage: "atlas [path...]",
   },
+  plan: {
+    flags: ["format", "density"],
+    read: (words: readonly string[], cwd: string) => {
+      const [word, rest] = needed("plan", "an opportunity", words);
+      return { site: siteOf(word), ...onePath("plan", rest, cwd) };
+    },
+    summary:
+      "Plan one opportunity and authorize it; writes nothing in the workspace",
+    usage: "atlas plan <opportunity> [path...]",
+  },
   report: {
     flags: ["format", "density"],
     read: (words: readonly string[], cwd: string) => {
@@ -202,6 +215,7 @@ const COMMAND_ORDER = [
   "report",
   "lens",
   "check",
+  "plan",
   "export",
 ] as const satisfies readonly Command[];
 
@@ -260,7 +274,10 @@ function takes(command: Command, option: string): boolean {
   return COMMANDS[command].flags.some((flag: string) => flag === option);
 }
 
-const COMMAND_COLUMN = 34;
+/** The longest usage and two spaces. */
+const COMMAND_COLUMN =
+  Math.max(...COMMAND_ORDER.map((command) => COMMANDS[command].usage.length)) +
+  2;
 const FLAG_COLUMN = 22;
 
 function helpText(): string {
@@ -344,6 +361,7 @@ export function parseArguments(
 const JSON_PRINTS: Partial<Record<Command, string>> = {
   check: "the check's result",
   lens: "the lens as saved",
+  plan: "the plan's result",
 };
 
 type Values = ReturnType<typeof readOptions>["values"];
@@ -394,6 +412,15 @@ function oneOf<T extends string>(
   value: string | undefined
 ): T | undefined {
   return value === undefined ? undefined : chosen(flag, allowed, value);
+}
+
+/** An opportunity, by any of the words `resolveSite` reads; another shape is a usage error. */
+function siteOf(word: string): Site {
+  try {
+    return resolveSite(word);
+  } catch (error) {
+    throw usageErrorFrom(error);
+  }
 }
 
 /** A lens the dataset saves, by id. */

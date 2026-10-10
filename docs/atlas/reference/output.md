@@ -9,6 +9,7 @@ description: The dataset a scan writes, file by file.
   lock             held while a scan runs
   output/          the dataset
   cache/           per-package results and the workspace fingerprint
+  plans/           authorization records that atlas plan saved
 ```
 
 `<id>` is the workspace id: the first 12 hex digits of the SHA-256 of the
@@ -29,6 +30,12 @@ through the same reader, which refuses a manifest whose `schemaVersion` is not
 the one this Atlas writes. `cache/` holds per-package results and
 the workspace fingerprint that make the next scan incremental; delete the
 whole state directory to force a full rebuild.
+
+`plans/` holds one record per authorized plan, named by a digest of the
+saved plan's id: the mutator, the saved plan's id and fingerprint, the rules
+that permit it, and the fingerprints a later apply checks again. A plan
+that is not authorized deletes its site's record. It is not
+part of the dataset, and a scan leaves it alone.
 
 Package names appear in file names with `/` replaced by `__`:
 `@acme/db` becomes `@acme__db.json`.

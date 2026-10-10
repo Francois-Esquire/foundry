@@ -21,6 +21,7 @@ import { join, resolve } from "node:path";
 import { spawn } from "bun";
 import { loadConfiguration } from "../src/lib/atlas-config";
 import type { CheckResult } from "../src/lib/check";
+import type { PlanSiteResult } from "../src/lib/codemod-types";
 import type { PackageInternals } from "../src/lib/internal-analysis-types";
 import type { Domains } from "../src/lib/lenses/domains-types";
 import type { FileRoles } from "../src/lib/lenses/file-roles-types";
@@ -1010,6 +1011,94 @@ describe("built CLI check", () => {
       await writeFile(source, written);
     }
   }, 120_000);
+});
+
+describe("built CLI plan", () => {
+  const SITE = "tooling/c/src/index.ts#fence";
+  let directory: string;
+  let root: string;
+  let state: string;
+  const plan = (words: string[]) =>
+    runCli(["plan", ...words, "--state", state], root);
+
+  // A committed copy of the semantics fixture whose @s/c has a test script,
+  // which readiness runs, and a rule permitting internalize there.
+  beforeAll(async () => {
+    directory = await realpath(await mkdtemp(join(tmpdir(), "atlas-plan-")));
+    root = join(directory, "workspace");
+    await cp(resolve(import.meta.dirname, "lib/fixtures/semantics"), root, {
+      recursive: true,
+    });
+    const manifest = join(root, "tooling/c/package.json");
+    const parsed = JSON.parse(await readFile(manifest, "utf8"));
+    await writeFile(
+      manifest,
+      JSON.stringify({ ...parsed, scripts: { test: "true" } })
+    );
+    await mkdir(join(root, ".foundry/atlas"), { recursive: true });
+    await writeFile(
+      join(root, ".foundry/atlas/rules.ts"),
+      'export default { rules: [{ effect: "permit", operator: "internalize", subject: "tooling/c" }] };\n'
+    );
+    commitFixture(root);
+    state = join(directory, "state");
+    await scan(root, { state });
+  }, 60_000);
+
+  afterAll(async () => {
+    await rm(directory, { force: true, recursive: true });
+  });
+
+  test("exits 0 with an authorized plan, saves its record in the state directory, and writes nothing in the workspace", async () => {
+    const json = await plan([SITE, "--json"]);
+    expect(json.code, json.stderr).toBe(0);
+    expect(json.stdout.trimEnd().split("\n")).toHaveLength(1);
+    const result = JSON.parse(json.stdout) as PlanSiteResult;
+    expect(result.site).toBe(SITE);
+    expect(result.opportunity).toBe(`internalize-symbol:${SITE}`);
+    expect(result.verdict.kind).toBe("authorized");
+    const workspace = await workspaceState(root, state);
+    expect(result.record?.startsWith(join(workspace.directory, "plans/"))).toBe(
+      true
+    );
+    const record = JSON.parse(await readFile(result.record ?? "", "utf8"));
+    expect(
+      result.verdict.kind === "authorized" && result.verdict.record
+    ).toEqual(record);
+    expect(record.execution).toEqual({
+      mutator: "internalize-export",
+      planFingerprint: result.plan.fingerprint,
+      planId: `plan:internalize-symbol:${SITE}`,
+    });
+    const text = await plan([`plan:internalize-symbol:${SITE}`]);
+    expect(text.code, text.stderr).toBe(0);
+    expect(text.stdout).toContain("◇ Authorized");
+    expect(text.stdout).toContain(
+      `Run atlas apply internalize-symbol:${SITE} to preview; add --write to write.`
+    );
+    const status = spawn(["git", "status", "--porcelain"], {
+      cwd: root,
+      stdout: "pipe",
+    });
+    expect(await new Response(status.stdout).text()).toBe("");
+  }, 60_000);
+
+  test("exits 0 on a refusal, 1 for an opportunity the dataset does not hold, and 2 for another shape", async () => {
+    const refused = await plan(["apps/a/src/index.ts#Tile", "--json"]);
+    expect(refused.code, refused.stderr).toBe(0);
+    expect((JSON.parse(refused.stdout) as PlanSiteResult).verdict.kind).toBe(
+      "refused-by-rule"
+    );
+    const unknown = await plan(["packages/b/src/index.ts#nothing"]);
+    expect(unknown.code).toBe(1);
+    expect(unknown.stderr).toContain("@s/b records no opportunity");
+    expect(await plan(["fold-package:@s/c"])).toEqual({
+      code: 2,
+      stderr:
+        "Atlas: fold-package:@s/c names no internalize opportunity. Write internalize-symbol:<path#name>, its plan id, or <path#name>.\nRun atlas --help for usage.\n",
+      stdout: "",
+    });
+  }, 60_000);
 });
 
 test("built CLI includes Git history when requested", async () => {

@@ -130,6 +130,26 @@ it("reads each command's positionals and flags", () => {
   expect(
     parseArguments(["check", "/ws", "--format", "markdown"], "/here")
   ).toMatchObject({ command: "check", format: "markdown", paths: ["/ws"] });
+  const site = {
+    opportunity: "internalize-symbol:packages/a/src/x.ts#X",
+    place: "packages/a/src/x.ts#X",
+    planId: "plan:internalize-symbol:packages/a/src/x.ts#X",
+  };
+  expect(parseArguments(["plan", "packages/a/src/x.ts#X"], "/here")).toEqual({
+    command: "plan",
+    density: "normal",
+    format: undefined,
+    json: false,
+    paths: ["/here"],
+    quiet: false,
+    site,
+    state: undefined,
+  });
+  for (const word of [site.opportunity, site.planId]) {
+    expect(
+      parseArguments(["plan", word, "/ws", "--json"], "/here")
+    ).toMatchObject({ json: true, paths: ["/ws"], site });
+  }
   expect(parseArguments(["export", "site", "/ws"], "/here")).toEqual({
     command: "export",
     directory: "site",
@@ -167,6 +187,9 @@ it("refuses a second path, naming the collection work", () => {
   expect(usageError(["check", "one", "two"]).message).toContain(
     "atlas check takes one workspace path."
   );
+  expect(usageError(["plan", "a.ts#A", "one", "two"]).message).toContain(
+    "atlas plan takes one workspace path."
+  );
 });
 
 it("refuses a flag the command does not take", () => {
@@ -190,6 +213,13 @@ it("refuses a flag the command does not take", () => {
   );
   expect(usageError(["check", "--port", "1"]).message).toBe(
     "atlas check does not take --port."
+  );
+  expect(usageError(["plan", "a.ts#A", "--history"]).message).toBe(
+    "atlas plan does not take --history."
+  );
+  // Writing is apply's, and only with --write.
+  expect(usageError(["plan", "a.ts#A", "--write"]).message).toContain(
+    "--write"
   );
 });
 
@@ -227,6 +257,15 @@ it("refuses missing positionals and invalid values", () => {
   expect(usageError(["check", "--json", "--format", "text"]).message).toBe(
     "--json prints the check's result; drop --format and --density."
   );
+  expect(usageError(["plan"]).message).toBe(
+    "atlas plan needs an opportunity: atlas plan <opportunity> [path...]"
+  );
+  expect(usageError(["plan", "fold-package:@s/a"]).message).toBe(
+    "fold-package:@s/a names no internalize opportunity. Write internalize-symbol:<path#name>, its plan id, or <path#name>."
+  );
+  expect(
+    usageError(["plan", "a.ts#A", "--json", "--format", "text"]).message
+  ).toBe("--json prints the plan's result; drop --format and --density.");
 });
 
 it("checks for unknown flags first, then lets --help win over the rest", () => {
@@ -246,7 +285,10 @@ it("generates the help from the command table", () => {
   expect(HELP).toContain("  atlas lens <id> [path...]");
   expect(HELP).toContain("  atlas export <dir> [path...]");
   expect(HELP).toContain("  atlas check [path...]");
-  expect(HELP).toContain("report, lens, check: ");
+  expect(HELP).toContain(
+    "  atlas plan <opportunity> [path...]  Plan one opportunity and authorize it; writes nothing in the workspace"
+  );
+  expect(HELP).toContain("report, lens, check, plan: ");
   expect(HELP).toContain("atlas, serve: ");
   expect(HELP).toContain(
     "Exit codes: 0 done, 1 failed, 2 bad arguments, 3 a rule broken (check)."

@@ -210,6 +210,17 @@ the violations at every scan, and `atlas check` prints them and exits `3`
 when there is one.
 _Avoid_: finding, error, failure
 
+**Authorization**:
+Whether a mutator may apply one plan, checked cheapest first: a rule must
+permit the operator at the plan's place, or the plan is refused by rule; a
+mutator must execute exactly that plan, or it is not executable; and
+readiness must authorize its execution plan, after running the baseline
+commands. Only an authorized plan gets an authorization record, ids and
+fingerprints only, which `atlas plan` saves in the state directory and
+apply checks again before it writes.
+_Avoid_: approval, permission (a rule's `permit`), readiness alone (the last
+of the three checks)
+
 ### What a scan saves
 
 **Scan**:
