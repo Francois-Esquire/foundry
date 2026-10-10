@@ -50,7 +50,16 @@ const fixture = (): AtlasData => ({
   fileEdges: [{ source: "consumer", target: "supplier" }],
   generatedAt: "test",
   height: 300,
-  routes: [{ from: "consumer", sharedConcepts: 0, to: "supplier", weight: 20 }],
+  routes: [
+    {
+      consumerFiles: ["consumer"],
+      from: "consumer",
+      sharedConcepts: 0,
+      supplierFiles: ["supplier"],
+      to: "supplier",
+      weight: 20,
+    },
+  ],
   territories: [
     island("consumer", -120),
     island("supplier", 120),
@@ -118,7 +127,11 @@ describe("coastal trade", () => {
 
   it("retains a package-level fallback when file endpoints are absent", () => {
     const data = fixture();
-    data.fileEdges = [];
+    data.routes = data.routes.map((route) => ({
+      ...route,
+      consumerFiles: [],
+      supplierFiles: [],
+    }));
     expect(createTradeNavigation(data)()[0]?.supplier.files).toEqual([]);
   });
 
@@ -164,9 +177,14 @@ describe("coastal trade", () => {
     data.territories = Array.from({ length: 9 }, (_, i) =>
       island(String(i), i * 20)
     );
-    data.routes = data.territories
-      .slice(1)
-      .map((p) => ({ from: p.id, sharedConcepts: 0, to: "0", weight: 10 }));
+    data.routes = data.territories.slice(1).map((p) => ({
+      consumerFiles: [],
+      from: p.id,
+      sharedConcepts: 0,
+      supplierFiles: [],
+      to: "0",
+      weight: 10,
+    }));
     expect(leadingTrades(data).map((r) => r.from)).toEqual([
       "1",
       "2",
@@ -183,7 +201,16 @@ describe("coastal trade", () => {
     expect(
       leadingTrades({
         ...data,
-        routes: [{ from: "0", sharedConcepts: 0, to: "0", weight: 5 }],
+        routes: [
+          {
+            consumerFiles: [],
+            from: "0",
+            sharedConcepts: 0,
+            supplierFiles: [],
+            to: "0",
+            weight: 5,
+          },
+        ],
       })
     ).toEqual([]);
   });

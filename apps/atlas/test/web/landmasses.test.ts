@@ -42,8 +42,22 @@ const island = (id: string, x: number, y: number): Territory => ({
   y,
 });
 const routes: AtlasRoute[] = [
-  { from: "a", sharedConcepts: 0, to: "b", weight: 1 },
-  { from: "c", sharedConcepts: 0, to: "d", weight: 2 },
+  {
+    consumerFiles: [],
+    from: "a",
+    sharedConcepts: 0,
+    supplierFiles: [],
+    to: "b",
+    weight: 1,
+  },
+  {
+    consumerFiles: [],
+    from: "c",
+    sharedConcepts: 0,
+    supplierFiles: [],
+    to: "d",
+    weight: 2,
+  },
 ];
 
 it("groups connected packages and retains singletons without inventing links", () => {
@@ -164,8 +178,10 @@ it("places a singleton in an open coastal bay without changing the mainland or i
     island("g", 300, -300),
   ];
   const links = mainland.slice(1).map((p, i) => ({
+    consumerFiles: [],
     from: mainland[i]?.id ?? "a",
     sharedConcepts: 0,
+    supplierFiles: [],
     to: p.id,
     weight: 1,
   }));
@@ -230,7 +246,16 @@ it("augments analyzed groups with declared dependencies without changing module 
     island("config", 0, 0),
     island("isolated", 0, 0),
   ];
-  const measured = [{ from: "a", sharedConcepts: 0, to: "b", weight: 3 }];
+  const measured = [
+    {
+      consumerFiles: [],
+      from: "a",
+      sharedConcepts: 0,
+      supplierFiles: [],
+      to: "b",
+      weight: 3,
+    },
+  ];
   const declared = [
     { from: "b", kind: "devDependencies" as const, to: "config" },
   ];
@@ -240,7 +265,14 @@ it("augments analyzed groups with declared dependencies without changing module 
     )
   ).toEqual([["a", "b", "config"], ["isolated"]]);
   expect(measured).toEqual([
-    { from: "a", sharedConcepts: 0, to: "b", weight: 3 },
+    {
+      consumerFiles: [],
+      from: "a",
+      sharedConcepts: 0,
+      supplierFiles: [],
+      to: "b",
+      weight: 3,
+    },
   ]);
 });
 
@@ -252,7 +284,16 @@ it("centers the main continent and distributes outlying groups around it instead
     island("two", 0, 400),
     island("three", 300, 400),
   ];
-  const links = [{ from: "a", sharedConcepts: 0, to: "b", weight: 2 }];
+  const links = [
+    {
+      consumerFiles: [],
+      from: "a",
+      sharedConcepts: 0,
+      supplierFiles: [],
+      to: "b",
+      weight: 2,
+    },
+  ];
   settleLandmasses(territories, links);
   const groups = packageGroups(territories, links);
   const main = groups.find((g) => g.length === 2) ?? [];

@@ -11,20 +11,13 @@ interface Connection {
   y: number;
 }
 
+/** The prevailing current, from each package pair's module import edges as the dependency graph counts them. */
 export function dependencyCurrent(data: AtlasData) {
-  const owners = new Map(
-    data.territories.flatMap((p) => p.files.map((f) => [f.id, p] as const))
-  );
   const counts = new Map<string, Map<string, number>>();
-  for (const edge of data.fileEdges) {
-    const a = owners.get(edge.source),
-      b = owners.get(edge.target);
-    if (!(a && b) || a.id === b.id) {
-      continue;
-    }
-    const targets = counts.get(a.id) ?? new Map<string, number>();
-    targets.set(b.id, (targets.get(b.id) ?? 0) + 1);
-    counts.set(a.id, targets);
+  for (const route of data.routes) {
+    const targets = counts.get(route.from) ?? new Map<string, number>();
+    targets.set(route.to, route.weight);
+    counts.set(route.from, targets);
   }
   const connections: Connection[] = [];
   const territories = [...data.territories].sort((a, b) =>

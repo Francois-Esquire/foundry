@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveCodex } from "../../../src/web/codex/resolve";
+import { pairEndpoints, resolveCodex } from "../../../src/web/codex/resolve";
 import type { CodexSource } from "../../../src/web/codex/source";
 
 const coreRoles = [
@@ -175,12 +175,45 @@ describe("resolveCodex", () => {
     expect(codex.imports).toEqual(source.imports);
     expect(codex.dependencies).toEqual([
       {
+        consumerFiles: ["packages/ui/index.ts"],
         from: "@foundry/ui",
         sharedConcepts: 2,
         strength: 1,
+        supplierFiles: ["packages/core/src/a.ts"],
         to: "@foundry/core",
       },
     ]);
+  });
+
+  it("joins each package pair to the files at both ends of its imports, once, sorted", () => {
+    const endpoints = pairEndpoints(
+      [
+        { source: "ui/b.ts", target: "core/x.ts" },
+        { source: "ui/a.ts", target: "core/y.ts" },
+        { source: "ui/a.ts", target: "core/x.ts" },
+        { source: "ui/a.ts", target: "ui/b.ts" },
+        { source: "ui/a.ts", target: "elsewhere.ts" },
+        { source: "core/x.ts", target: "ui/a.ts" },
+      ],
+      new Map([
+        ["ui/a.ts", "ui"],
+        ["ui/b.ts", "ui"],
+        ["core/x.ts", "core"],
+        ["core/y.ts", "core"],
+      ])
+    );
+    expect(endpoints("ui", "core")).toEqual({
+      consumerFiles: ["ui/a.ts", "ui/b.ts"],
+      supplierFiles: ["core/x.ts", "core/y.ts"],
+    });
+    expect(endpoints("core", "ui")).toEqual({
+      consumerFiles: ["core/x.ts"],
+      supplierFiles: ["ui/a.ts"],
+    });
+    expect(endpoints("ui", "ui")).toEqual({
+      consumerFiles: [],
+      supplierFiles: [],
+    });
   });
 
   it("keeps declared dependencies between current packages only", () => {

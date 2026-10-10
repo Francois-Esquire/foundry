@@ -46,7 +46,16 @@ describe("3D coastal trade", () => {
       fileEdges: [],
       generatedAt: "test",
       height: 300,
-      routes: [{ from: "a", sharedConcepts: 0, to: "b", weight: 20 }],
+      routes: [
+        {
+          consumerFiles: [],
+          from: "a",
+          sharedConcepts: 0,
+          supplierFiles: [],
+          to: "b",
+          weight: 20,
+        },
+      ],
       territories: [island("a", -120), island("b", 120)],
       width: 400,
     };

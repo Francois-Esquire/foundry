@@ -40,7 +40,16 @@ const data: AtlasData = {
   fileEdges: [],
   generatedAt: "test",
   height: 500,
-  routes: [{ from: "island", sharedConcepts: 0, to: "other", weight: 1 }],
+  routes: [
+    {
+      consumerFiles: [],
+      from: "island",
+      sharedConcepts: 0,
+      supplierFiles: [],
+      to: "other",
+      weight: 1,
+    },
+  ],
   territories: [
     territory,
     {

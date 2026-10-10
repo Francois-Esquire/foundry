@@ -50,9 +50,14 @@ export interface Territory {
 }
 
 export interface AtlasRoute {
+  /** Files of `from` that import a file of `to`, sorted. */
+  consumerFiles: readonly string[];
   from: string;
   sharedConcepts: number;
+  /** Files of `to` that a file of `from` imports, sorted. */
+  supplierFiles: readonly string[];
   to: string;
+  /** Module import edges from `from` to `to`, from the dependency graph. */
   weight: number;
 }
 

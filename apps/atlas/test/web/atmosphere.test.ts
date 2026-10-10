@@ -88,7 +88,16 @@ describe("atmosphere placement", () => {
     ).toBe(false);
     const linked = {
       ...data,
-      routes: [{ from: "a", sharedConcepts: 0, to: "b", weight: 1 }],
+      routes: [
+        {
+          consumerFiles: [],
+          from: "a",
+          sharedConcepts: 0,
+          supplierFiles: [],
+          to: "b",
+          weight: 1,
+        },
+      ],
       territories: [
         { ...territory, id: "a", x: -150, y: 0 },
         { ...territory, id: "b", x: 150, y: 0 },

@@ -754,7 +754,30 @@ this order, which is deliberate (2.2e comes before 2.2d):
   go. They do not place files, so no layout helper stays. Done; below.
 - **2.2f Pair traffic**: no lens. The dependency graph projection carries
   each pair's count, so the viewer's re-aggregations go; the endpoint files
-  are one join in the codex.
+  are one join in the codex. Done; below.
+
+**2.2 is done** (2026-10-10). The viewer computes nothing the analysis
+defines: every meaning it drew from its own counting is now `lib`'s, through
+a lens or the projection, except the per-module import counts, which equal
+`gravity.fanIn` and `fanOut` (pinned in `test/lib/semantics.test.ts`) and
+are kept so that the codex reads no module shard; and the `_review.md`
+finding that the viewer recomputes the analysis is resolved (the review
+itself is a dated snapshot, left as it was).
+- 2.2a `file-roles`: file roles unchanged (1,517 of 1,517 Foundry files
+  agree); summits and landmarks follow the topology's high fan-in, 62 to 78
+  on Foundry (38 kept, 24 gone, 40 new); relief needs the package's
+  internals.
+- 2.2b `responsibility-groups`: districts unchanged; 6 of 29 anchors move
+  to the anchor responsibility's file with the highest internal fan-in.
+- 2.2e `frequent-change`: craters follow the hotspot commit gate, 289 to 79
+  change-marked files on Foundry; the viewer reads no package report.
+- 2.2d: neighborhoods retired; responsibilities are the only grouping, shown
+  once an island is entered; the codex reads no module shard, 4.16 MB to
+  1.65 MB at load on Foundry.
+- 2.2f: no visible change; four re-aggregations of every file edge are gone.
+- Cost: four lenses at scan time, about 200 ms in the lens phase on
+  Foundry; reading package reports for `frequent-change` raises a scan's
+  peak memory by 0.6–0.8 GB, accepted for 0.1.
 
 **2.2a `file-roles`.** Done 2026-10-10.
 - `lib/lenses/file-roles.ts`: for every package whose internals the dataset
@@ -1075,6 +1098,44 @@ are the grouping, and the viewer's own neighborhoods are gone.
   `internals.test.ts` lose the neighborhood cases; about 20 fixtures lose
   `neighborhoods: []`. `atlas-state.test.ts` had no neighborhood-selection
   case to move.
+
+**2.2f Pair traffic.** Done 2026-10-10. No lens: the dependency graph
+projection carries each pair's count.
+- Characterized first, before any change: `scene/current-field.ts`
+  counted each ordered pair's cross-package file edges, and those counts
+  equal `routes[].weight`, the projection's `dependency.moduleEdges`, on
+  every pair of the captured `test/fixtures/atlas.json` (65 pairs), of a
+  Foundry scan at this commit (29 pairs), and of the scanned semantics
+  fixture (2 pairs, one of them carrying a test file's import). No
+  difference, so nothing is lost: type-only and test edges count the same
+  on both sides, and no route has weight 0. The fixture's equality is
+  pinned in `test/web/current-field.test.ts`.
+- `scene/current-field.ts` reads `data.routes`' weights instead of counting
+  `fileEdges`.
+- The codex joins each dependency to its endpoint files once:
+  `pairEndpoints(imports, packageOf)` in `codex/resolve.ts`, one pass over
+  the edges, gives each ordered pair its `consumerFiles` and
+  `supplierFiles`, sorted; `CodexDependency` and `AtlasRoute` carry them.
+  `trade-routes.ts`, `roads.ts`, and `ui/trade-partners.tsx` read them
+  instead of filtering every file edge per pair. No `scope` was needed: an
+  edge whose ends are in two packages is cross-package by definition.
+  `fileEdges` stays for `scene/exploration.ts` `fileConnections` and the
+  selection lines in `paint-map.ts`, which follow one file's imports.
+- The captured reference atlas predates the endpoint lists; its test helper
+  (`test/helpers/reference-atlas.ts`) attaches them through
+  `pairEndpoints`, the codex's own join, so the capture stays unmodified.
+- Visible change: none. The roads test pins that each road's endpoint
+  files are those the old per-pair filter found on the reference atlas.
+- Tests: `test/web/current-field.test.ts` (the characterization; the
+  current from route weights); `test/lib/semantics.test.ts` (on a live
+  scan, each pair's strength equals the import edges between its endpoint
+  files, and both lists are non-empty); `codex/resolve.test.ts` (the join: deduped,
+  sorted, both directions, intra-package and unknown files out; the
+  codex's dependencies carry it); `roads.test.ts` (endpoints as before);
+  `trade-routes.test.ts` (endpoints from the route, and the package-level
+  fallback when a route has none); route fixtures in the landmass,
+  selection-ink, atmosphere, paint-map, and trade-layer tests gain empty
+  endpoint lists.
 
 **2.3 Placement: where it lives against where it is used.** The motivating
 case. Per symbol from `consumerPackages` and its neighbors; per file and

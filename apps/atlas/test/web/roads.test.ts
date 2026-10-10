@@ -18,8 +18,23 @@ it("routes measured dependencies on land with shared corridors and stable eviden
   );
   expect(data).toEqual(before);
   let traversals = 0;
+  const filesOf = (id: string) =>
+    new Set(data.territories.find((p) => p.id === id)?.files.map((f) => f.id));
   for (const route of network.routes) {
     expect(data.routes).toContainEqual(route.dependency);
+    // The endpoints the codex joined once are the ones a filter over every
+    // file edge found before.
+    const from = filesOf(route.dependency.from);
+    const to = filesOf(route.dependency.to);
+    const edges = data.fileEdges.filter(
+      (e) => from.has(e.source) && to.has(e.target)
+    );
+    expect(route.consumer.files).toEqual(
+      [...new Set(edges.map((e) => e.source))].sort()
+    );
+    expect(route.supplier.files).toEqual(
+      [...new Set(edges.map((e) => e.target))].sort()
+    );
     const c = continents.find((continent) =>
       continent.members.some((p) => p.id === route.dependency.from)
     );

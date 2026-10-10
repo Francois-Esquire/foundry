@@ -10,7 +10,7 @@ export interface TradePoint {
 
 export interface TradePort {
   coast: TradePoint;
-  files: string[];
+  files: readonly string[];
   territory: string;
   water: TradePoint;
 }
@@ -138,7 +138,7 @@ export function createTradeNavigation(data: AtlasData) {
   const port = (
     p: Territory,
     other: Territory,
-    files: string[]
+    files: readonly string[]
   ): TradePort | undefined => {
     const members = p.files.filter((f) => files.includes(f.id));
     const anchor = {
@@ -186,21 +186,8 @@ export function createTradeNavigation(data: AtlasData) {
         if (!(a && b)) {
           return [];
         }
-        const sources = new Set(a.files.map((f) => f.id)),
-          targets = new Set(b.files.map((f) => f.id));
-        const edges = data.fileEdges.filter(
-          (e) => sources.has(e.source) && targets.has(e.target)
-        );
-        const consumer = port(
-          a,
-          b,
-          [...new Set(edges.map((e) => e.source))].sort()
-        );
-        const supplier = port(
-          b,
-          a,
-          [...new Set(edges.map((e) => e.target))].sort()
-        );
+        const consumer = port(a, b, dependency.consumerFiles);
+        const supplier = port(b, a, dependency.supplierFiles);
         const points =
           consumer && supplier ? sail(consumer.water, supplier.water) : [];
         cache.set(
@@ -305,7 +292,7 @@ function portPolygon(
   other: Territory,
   initialScore: number,
   initialBest: TradePort | undefined,
-  files: string[]
+  files: readonly string[]
 ) {
   let best = initialBest;
   let score = initialScore;
@@ -341,7 +328,7 @@ function portPolygonI(
   other: Territory,
   initialScore: number,
   initialBest: TradePort | undefined,
-  files: string[]
+  files: readonly string[]
 ) {
   let best = initialBest;
   let score = initialScore;
@@ -395,7 +382,7 @@ function portPolygonISide(
   other: Territory,
   initialScore: number,
   initialBest: TradePort | undefined,
-  files: string[],
+  files: readonly string[],
   p: Territory
 ) {
   let best = initialBest;

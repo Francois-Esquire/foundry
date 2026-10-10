@@ -59,8 +59,10 @@ export async function loadAtlas(signal?: AbortSignal): Promise<AtlasData> {
     };
   });
   const routes = codex.dependencies.map((d) => ({
+    consumerFiles: d.consumerFiles,
     from: d.from,
     sharedConcepts: d.sharedConcepts,
+    supplierFiles: d.supplierFiles,
     to: d.to,
     weight: d.strength,
   }));

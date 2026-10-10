@@ -585,6 +585,24 @@ describe("generation", () => {
     }
   });
 
+  it("gives each package pair as many module edges as import edges between its endpoint files", async () => {
+    const codex = resolveCodex(
+      await readCodexSource(datasetReader(fileTransport(dataset)))
+    );
+    expect(codex.dependencies.length).toBeGreaterThan(0);
+    for (const dependency of codex.dependencies) {
+      expect(dependency.consumerFiles.length).toBeGreaterThan(0);
+      expect(dependency.supplierFiles.length).toBeGreaterThan(0);
+      const consumers = new Set(dependency.consumerFiles);
+      const suppliers = new Set(dependency.supplierFiles);
+      expect(
+        codex.imports.filter(
+          (edge) => consumers.has(edge.source) && suppliers.has(edge.target)
+        )
+      ).toHaveLength(dependency.strength);
+    }
+  });
+
   it("shards every directed module edge by source package with scope and type metadata", () => {
     const index = readJson(
       dataset,

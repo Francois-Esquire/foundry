@@ -103,7 +103,6 @@ export function createRoadNetwork(data: AtlasData, continents: Continent[]) {
       heights,
       clear,
       point,
-      data,
       routes
     );
     for (const edge of used.values()) {
@@ -209,7 +208,6 @@ function createRoadNetworkDependency(
   heights: number[],
   clear: (a: TradePoint, b: TradePoint) => boolean,
   point: (i: number) => { x: number; y: number },
-  data: AtlasData,
   routes: TradeRoute[]
 ) {
   for (const dependency of dependencies) {
@@ -279,29 +277,20 @@ function createRoadNetworkDependency(
       edge.weight += dependency.weight;
       used.set(id, edge);
     }
-    const source = data.territories.find((p) => p.id === dependency.from);
-    const target = data.territories.find((p) => p.id === dependency.to);
-    if (!(source && target)) {
-      continue;
-    }
-    const sources = new Set(source.files.map((f) => f.id)),
-      targets = new Set(target.files.map((f) => f.id));
-    const evidence = data.fileEdges.filter(
-      (e) => sources.has(e.source) && targets.has(e.target)
-    );
+    // Both ends have anchors, so both are islands on the map.
     routes.push({
       consumer: {
         coast: point(start),
-        files: [...new Set(evidence.map((e) => e.source))].sort(),
-        territory: source.id,
+        files: dependency.consumerFiles,
+        territory: dependency.from,
         water: point(start),
       },
       dependency,
       points: cells.map(point),
       supplier: {
         coast: point(end),
-        files: [...new Set(evidence.map((e) => e.target))].sort(),
-        territory: target.id,
+        files: dependency.supplierFiles,
+        territory: dependency.to,
         water: point(end),
       },
     });

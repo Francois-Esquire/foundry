@@ -61,13 +61,8 @@ function Partner({
   const supplier = data.territories.find((p) => p.id === dependency.to);
   const importing = consumer?.id === territory.id;
   const partner = importing ? supplier : consumer;
-  const sources = new Set(consumer?.files.map((f) => f.id));
-  const targets = new Set(supplier?.files.map((f) => f.id));
-  const edges = data.fileEdges.filter(
-    (e) => sources.has(e.source) && targets.has(e.target)
-  );
-  const from = new Set(edges.map((e) => e.source)),
-    to = new Set(edges.map((e) => e.target));
+  const from = new Set(dependency.consumerFiles),
+    to = new Set(dependency.supplierFiles);
   const handleOpen = useCallback(
     (event: ToggleEvent<HTMLDetailsElement>) => {
       setOpen(event.currentTarget.open);
@@ -108,7 +103,7 @@ function Partner({
             {route
               ? "Mapped route available."
               : "Route unavailable: no safe mapped path."}{" "}
-            {edges.length
+            {from.size
               ? `${from.size} consumer files · ${to.size} resource files.`
               : "No matched file endpoints. Route uses package geography."}
           </p>

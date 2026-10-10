@@ -47,9 +47,12 @@ responsibility regions, plus composite districts and file roles that `lib`
 did not have. Phase 2 moved them into shared lenses, so the map and the
 terminal agree: file roles and landmarks into `file-roles` (2.2a), districts
 into `responsibility-groups` (2.2b), and craters into `frequent-change`
-(2.2e); 2.2d retired the neighborhoods for responsibilities. What remains is
-the package-pair traffic the viewer re-aggregates, for 2.2f. Details, the settings split, and what is reusable are in
-[`_review.md`](./_review.md#the-viewer).
+(2.2e); 2.2d retired the neighborhoods for responsibilities; and 2.2f made
+package-pair traffic read the dependency graph's counts, with each pair's
+endpoint files joined once in the codex. No viewer duplicate of `lib`
+remains, except the per-module import counts, which equal `gravity.fanIn`
+and `fanOut` (pinned; kept so the codex reads no module shard). Details, the settings split, and what is reusable are in
+[`_review.md`](./_review.md#the-viewer), a dated snapshot.
 
 ## What the viewer is today
 

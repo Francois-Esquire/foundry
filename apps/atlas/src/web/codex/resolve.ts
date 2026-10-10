@@ -2,6 +2,50 @@ import { SEMANTICS_DECLARED_DEPENDENCY_KINDS } from "../../lib/semantics-types";
 import type { CodexSource } from "./source";
 import type { Codex, CodexRetiredPackage } from "./vocabulary";
 
+/** The files at each end of a package pair's imports. */
+export interface PairEndpoints {
+  consumerFiles: readonly string[];
+  supplierFiles: readonly string[];
+}
+
+/**
+ * Each ordered package pair's endpoint files, from the import edges that
+ * cross from one package into another: one pass over the edges, keyed by
+ * `from` and `to`. The pair's count is the dependency graph's, not a
+ * recount.
+ */
+export function pairEndpoints(
+  imports: readonly { source: string; target: string }[],
+  packageOf: ReadonlyMap<string, string>
+): (from: string, to: string) => PairEndpoints {
+  const pairs = new Map<
+    string,
+    { sources: Set<string>; targets: Set<string> }
+  >();
+  for (const edge of imports) {
+    const from = packageOf.get(edge.source);
+    const to = packageOf.get(edge.target);
+    if (from === undefined || to === undefined || from === to) {
+      continue;
+    }
+    const key = JSON.stringify([from, to]);
+    let pair = pairs.get(key);
+    if (pair === undefined) {
+      pair = { sources: new Set(), targets: new Set() };
+      pairs.set(key, pair);
+    }
+    pair.sources.add(edge.source);
+    pair.targets.add(edge.target);
+  }
+  return (from, to) => {
+    const pair = pairs.get(JSON.stringify([from, to]));
+    return {
+      consumerFiles: [...(pair?.sources ?? [])].sort(),
+      supplierFiles: [...(pair?.targets ?? [])].sort(),
+    };
+  };
+}
+
 export function resolveCodex(source: CodexSource): Codex {
   const dependents = new Map<string, number>();
   const dependencies = new Map<string, number>();
@@ -16,6 +60,10 @@ export function resolveCodex(source: CodexSource): Codex {
   const groups = new Map(
     source.responsibilityGroups.map((pkg) => [pkg.id, pkg])
   );
+  const endpoints = pairEndpoints(
+    source.imports,
+    new Map(source.modules.map((m) => [m.id, m.package]))
+  );
   const current = new Set(source.packages.map((p) => p.id));
   return {
     declaredDependencies: source.declaredDependencies.flatMap(
@@ -27,6 +75,7 @@ export function resolveCodex(source: CodexSource): Codex {
         )
     ),
     dependencies: source.dependencies.map((d) => ({
+      ...endpoints(d.from, d.to),
       from: d.from,
       sharedConcepts: d.concepts.total,
       strength: d.dependency.moduleEdges,

@@ -47,10 +47,14 @@ interface CodexImport {
 }
 
 interface CodexDependency {
+  /** Files of `from` that import a file of `to`, sorted. */
+  consumerFiles: readonly string[];
   from: string;
   sharedConcepts: number;
   /** Module import edges from `from` to `to`. */
   strength: number;
+  /** Files of `to` that a file of `from` imports, sorted. */
+  supplierFiles: readonly string[];
   to: string;
 }
 
