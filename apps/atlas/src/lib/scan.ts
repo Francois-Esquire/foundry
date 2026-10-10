@@ -137,8 +137,10 @@ async function whileScanning<T>(
 /**
  * Loads the workspace's configuration, which runs its configuration files:
  * once per call, from the working tree. The scan entry points (`prepare`,
- * `scanPackage`) are the only load sites; history applies the configuration
- * to every checkpoint, and nothing else loads it.
+ * `scanPackage`) and `atlas apply` (`codemod.ts` `applyRecord`, for the
+ * rules it authorizes under) are the only load sites; history applies the
+ * configuration to every checkpoint, and nothing else loads it. `plan` and
+ * `check` read the rules the last scan saved instead.
  */
 async function prepare(root: string, options: ScanOptions): Promise<ScanRun> {
   const state = await workspaceState(root, options.state);

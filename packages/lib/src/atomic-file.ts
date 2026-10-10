@@ -6,7 +6,13 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { mkdir, open, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
@@ -90,13 +96,14 @@ export async function writeFileAtomic(
 export interface AtomicWriteSyncOptions {
   /** Create missing parent directories first. */
   readonly createDirectory?: boolean;
+  /** The file's mode, exactly: set on the temporary after it is written, so the umask cannot narrow it. */
+  readonly mode?: number;
 }
 
 /**
- * `writeFileAtomic` for synchronous callers. It supports only
- * `createDirectory`: no `fsync`, `mode`, or `directoryMode`. The temporary
- * is created exclusively beside `path`, renamed over it, and removed if any
- * step fails.
+ * `writeFileAtomic` for synchronous callers. It supports `createDirectory`
+ * and `mode`, but no `fsync` or `directoryMode`. The temporary is created
+ * exclusively beside `path`, renamed over it, and removed if any step fails.
  */
 export function writeFileAtomicSync(
   path: string,
@@ -109,6 +116,9 @@ export function writeFileAtomicSync(
   const temporary = temporaryBeside(path);
   try {
     writeFileSync(temporary, contents, { flag: "wx" });
+    if (options.mode !== undefined) {
+      chmodSync(temporary, options.mode);
+    }
     renameSync(temporary, path);
   } finally {
     rmSync(temporary, { force: true });

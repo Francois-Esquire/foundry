@@ -79,8 +79,8 @@ export async function workspaceState(
 }
 
 /**
- * Takes the state directory's lock, so one scan at a time writes it, and no
- * export copies the dataset while a scan writes it, across processes and
+ * Takes the state directory's lock, so one scan or apply at a time writes
+ * it, and no export copies the dataset while one does, across processes and
  * within one. Throws without waiting when it is held, since a scan takes
  * minutes. A lock left by a process that has exited is taken over.
  * Returns the release, which runs once.
@@ -102,20 +102,21 @@ function heldMessage(
 ): string {
   const workspace = `Workspace ${root}`;
   if (empty) {
-    return `${workspace} is being scanned or exported by a process that is starting. Retry.`;
+    return `${workspace} is being scanned, exported, or applied by a process that is starting. Retry.`;
   }
   if (holder === undefined) {
-    return `${workspace} is locked by an unknown process. If no scan or export is running, remove ${path}.`;
+    return `${workspace} is locked by an unknown process. If no scan, export, or apply is running, remove ${path}.`;
   }
   if (holder === process.pid) {
-    return `${workspace} is being scanned or exported by this process.`;
+    return `${workspace} is being scanned, exported, or applied by this process.`;
   }
   if (processAlive(holder)) {
-    // A pid can be reused by a process that is not a scan.
-    return `${workspace} is being scanned or exported by process ${holder}. If no scan or export is running, remove ${path}.`;
+    // The holder is alive, so its lock is not removed: an apply holds it
+    // while it writes and verifies sources.
+    return `${workspace} is being scanned, exported, or applied by process ${holder}. Wait for it to finish, then retry.`;
   }
   // Only while another process has its turn to break the lock.
-  return `${workspace} is locked by process ${holder}, which has exited; another scan or export is taking the lock over. Retry.`;
+  return `${workspace} is locked by process ${holder}, which has exited; another scan, export, or apply is taking the lock over. Retry.`;
 }
 
 /** Records which workspace the state directory belongs to, unless a record is there already. */

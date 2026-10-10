@@ -72,7 +72,7 @@ Proposed. These decide the shape of everything below.
 | `atlas lens <id> [path...]` | 0.1, done in 2.7 | Print one lens from the saved dataset, through `lib/render`, or as saved with `--json`. An unknown id exits `2`; a dataset without the lens exits `1`. |
 | `atlas check [path...]` | 0.1, done in 3.3 | Print the saved `rules` lens: the workspace's rules against the dataset. Exit 3 on a violation, 1 when a `require` could not be checked. CLI only, `lib/check.ts`. |
 | `atlas plan <opportunity> [path...]` | 0.1, done in 3.4 | Plan one internalize opportunity from the saved dataset, named by its id, its plan's id, or `path#name`, and authorize it under the saved `rules` lens's rules; save an authorized plan's record in the state directory. Runs the workspace's test and typecheck scripts as readiness's baseline, and writes nothing in the workspace. Exit 0 on any verdict. CLI only, `lib/codemod.ts`. A rule as the argument (`rule:<n>`) is deferred. |
-| `atlas apply <plan> [--write]` | proposed, depends on rules | Preview a plan's edits; write and verify with `--write`. |
+| `atlas apply <opportunity> [path...] [--write]` | 0.1, in 3.5 | Preview a plan's edits; write and verify with `--write`. Unit (a) built the library preview, `lib/codemod.ts` `applyRecord`, which authorizes again under the configuration's rules; the CLI and `--write` come with unit (b). |
 
 `check`, `plan`, and `apply` ship only once rules can be declared and the
 readiness gate reads them, as [`_codemods.md`](./_codemods.md) says; `check`

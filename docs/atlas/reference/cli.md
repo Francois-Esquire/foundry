@@ -110,7 +110,7 @@ With `--json`, stdout is one line: the [library](/atlas/reference/library)'s res
 | Code | When |
 | --- | --- |
 | `0` | The command finished, or `--help`; for `check`, no rule is broken, or none is declared; for `plan`, any verdict, refused and blocked included |
-| `1` | The command ran and failed: a path that does not exist or is not a directory, a package that failed analysis, a workspace being scanned or exported, `--history` without Git, the viewer's files missing, a port in use, no saved dataset or one with another schema version, an unknown package, a dataset saved without the lens asked for or with another version of it, a directory export refuses, `check` could not check a `require` rule in a package that failed analysis, which outranks any violation, or `plan` was given an opportunity the dataset does not hold, or found an unfinished apply |
+| `1` | The command ran and failed: a path that does not exist or is not a directory, a package that failed analysis, a workspace being scanned, exported, or applied, `--history` without Git, the viewer's files missing, a port in use, no saved dataset or one with another schema version, an unknown package, a dataset saved without the lens asked for or with another version of it, a directory export refuses, `check` could not check a `require` rule in a package that failed analysis, which outranks any violation, or `plan` was given an opportunity the dataset does not hold, or found an unfinished apply |
 | `2` | Bad arguments: an unknown flag, a flag the command does not take, a bad value, an unknown lens, a missing package, lens, opportunity, or directory, an opportunity of another shape, or a second path |
 | `3` | `check` only: a rule is broken |
 
@@ -255,7 +255,9 @@ if a package pattern of the workspace covers them.
 
 An export holds the state directory's lock while it copies, as a scan
 does, so it fails at once while a scan of the workspace runs, and a scan
-fails while it copies.
+fails while it copies. An apply holds the lock too, for as long as it
+authorizes the plan again, its test and typecheck scripts included, even
+for a preview: a scan or export started meanwhile fails at once.
 
 ## The server
 

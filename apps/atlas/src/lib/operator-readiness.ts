@@ -4,10 +4,9 @@ import {
   constants,
   existsSync,
   readFileSync,
-  realpathSync,
   statSync,
 } from "node:fs";
-import { dirname, join, posix, relative, resolve, sep } from "node:path";
+import { dirname, join, posix, resolve } from "node:path";
 
 import { ts } from "ts-morph";
 
@@ -104,10 +103,10 @@ import { ruleCanName } from "./rule-declaration";
 import type { RuleRefusal } from "./rules";
 import { permits, ruleFingerprint } from "./rules";
 import { hash16 } from "./short-hash";
+import { workingTree } from "./working-tree";
 import type { WorkspaceCoverage } from "./workspace-types";
 
 const extractFailuresPattern = /\s+/g;
-const gitDirtyPattern = /^.* -> /;
 
 // V11.4 readiness assessment. Reads the plan, the repository, and the
 // mutator's capability registry; runs read-only baseline checks; answers
@@ -294,29 +293,13 @@ function deletedFiles(plan: OperatorExecutionPlan): string[] {
 // ---------------------------------------------------------------------------
 // Source state
 
-/** Root-relative dirty files (porcelain paths are repository-relative, so they are re-based); undefined without git. */
+/** Root-relative dirty files; undefined without git, or outside a repository. */
 function gitDirty(root: string, enabled: boolean): string[] | undefined {
   if (!enabled) {
     return undefined;
   }
-  try {
-    const run = (args: string[]) =>
-      execFileSync("git", args, {
-        cwd: root,
-        stdio: ["ignore", "pipe", "ignore"],
-      })
-        .toString()
-        .trim();
-    const top = realpathSync(run(["rev-parse", "--show-toplevel"]));
-    return run(["status", "--porcelain", "--untracked-files=all"])
-      .split("\n")
-      .filter((line) => line.length > 3)
-      .map((line) => line.slice(3).trim().replace(gitDirtyPattern, ""))
-      .map((file) => relative(root, join(top, file)).split(sep).join("/"))
-      .filter((file) => !file.startsWith("../"));
-  } catch {
-    return undefined;
-  }
+  const tree = workingTree(root);
+  return tree.kind === "repository" ? tree.dirty : undefined;
 }
 
 function sourceState(a: Assessment): ReadinessSourceState {

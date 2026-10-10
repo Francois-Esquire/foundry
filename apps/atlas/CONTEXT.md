@@ -201,6 +201,12 @@ still calls it an operator (`StructuralOperator` and `OperatorId` in
 `legacyOperatorId`).
 _Avoid_: operator, codemod, apply
 
+**Preview**:
+What apply shows without `--write`: each statement the mutator would edit,
+before and after, and the files it would change, once the plan is
+authorized again. Nothing is written.
+_Avoid_: dry run, diff
+
 **Violation**:
 A place where a `require` rule's outcome does not hold: for `internalize`, an
 opportunity to internalize a symbol under the rule's subject. A violation

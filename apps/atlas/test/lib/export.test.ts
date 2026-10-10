@@ -262,7 +262,7 @@ it("holds the state directory's lock while it copies, so it fails while a scan h
   const site = target("locked");
   try {
     await expect(exportViewer(root, site, { state })).rejects.toThrow(
-      `Workspace ${workspace.root} is being scanned or exported by this process.`
+      `Workspace ${workspace.root} is being scanned, exported, or applied by this process.`
     );
   } finally {
     release();

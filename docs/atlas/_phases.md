@@ -1929,7 +1929,112 @@ nothing in the workspace.
 
 **3.5 `atlas apply` for `internalize-export`.** Fresh analysis,
 revalidation, a dirty tree blocks, preview by default, write with
-`--write`, verify, restore on failure.
+`--write`, verify, restore on failure. In two units: (a), the mutator's
+hardening and a library preview, is done; (b), the write with its journal,
+verification, the scan after it, and the CLI, follows.
+
+Unit (a), done 2026-10-10. Nothing is exposed in the CLI yet, and nothing
+writes through `applyRecord`.
+- `apply.ts` (Changes row): the snapshot is each planned file's raw bytes
+  and mode, not a UTF-8 read; a symbolic link is refused. Each edited file
+  is written with `writeFileAtomicSync` and its original mode (the sync
+  writer in `@foundry/lib` gains `mode`, set exactly whatever the umask),
+  instead of `saveSync`; ts-morph's `getFullText()` drops a byte order
+  mark, so the original's is put back. One `try` covers the first write
+  through the last check, so a throw anywhere in it restores as a failed
+  check does; the restore is atomic, with the mode, and guarded per file:
+  a file still holding its original bytes is left alone, one holding the
+  written bytes is restored, and one holding neither changed after the
+  write, is not overwritten, and is named in the error. The after-analysis
+  is a seam (`analyzeAfter`), which the tests throw through. Before, a
+  throw after `saveSync` left a half-applied tree, and the restore was a
+  plain `writeFileSync` of a lossy UTF-8 read.
+- Before any edit, each planned file's text as the project read it must
+  write back to its snapshot's bytes exactly; otherwise the plan is
+  refused (`apply-unsupported`). That refuses a file that is not UTF-8,
+  which the rewrite would re-encode, and a file that changed between the
+  snapshot and the project's read.
+- The restore tries every file, collects what it left untouched and what
+  failed, and throws once, naming them all, with the error that called for
+  it as the cause.
+- A write or restore is a rename over the file: it keeps the bytes and the
+  mode, but not another user's ownership, extended attributes, ACLs, or
+  other hard links to the file, which keep the old bytes. A crash can leave
+  a `<file>.<uuid>.tmp` beside a file; it is safe to delete.
+- `editRoute` says how each statement reads before and after
+  (`MutationResult.edits`, `{ file, before, after | null }`; a declaration
+  by its first line after any decorators), for the preview.
+- The working tree comes from one helper, `lib/working-tree.ts`
+  `workingTree`, which reads `git status --porcelain -z`, so a path with
+  spaces, quotes, or non-ASCII characters is matched as written (before, Git
+  quoted such a path and a dirty planned file slipped past both readers),
+  and tells Git missing, a workspace outside a repository, and a repository
+  Git cannot read (dubious ownership, a held `index.lock`, with Git's
+  message) apart; readiness's `gitDirty` and the mutator both use it, and
+  `dirtyPlannedFiles` is gone (A5). Only a dirty file the mutator writes
+  blocks. A write without Git, or outside a repository, is refused and
+  says which (decision 5); before, `dirtyPlannedFiles` returned `[]`
+  without Git, so a write had no dirty check. The shared helper also fixes
+  a bug both copies had: the porcelain output was trimmed whole, so the
+  first dirty file lost the first character of its path.
+- `DEFAULT_MUTATION_CAPABILITIES` holds what `editRoute` performs,
+  `remove-export`, `rewrite-reexport`, and `verify-only`, and
+  `MUTATION_CAPABILITY_VERSION` is 2 (decision 6, A12; Changes row). Every
+  record 3.4 saved now reports `capability` as moved, and a readiness
+  assessment of a plan that rewrites imports is `unsupported` under the
+  default; `test/lib/operator-readiness.test.ts`, which judges the gate,
+  runs those plans under a test-local copy of the old registry.
+- `codemod.ts` `applyRecord(root, site, { state, runner })`, preview only:
+  the state lock, taken before the saved dataset is read and held to the
+  end; an apply's journal
+  refused, as `plan` refuses it; the record `atlas plan` saved, read as
+  untrusted (missing: "run atlas plan"); the rules from
+  `loadConfiguration`, the second load site (decision 3; `scan.ts`
+  `prepare` says so); the chain authorized again, fresh, through the same
+  helper `planSite` now calls (`authorizeSite`), which runs the baseline
+  commands again (re-authorization is mandatory, so a preview runs the
+  workspace's scripts too); then the refusals, in order:
+  `refused-by-rule`, `not-executable`, or `readiness` from that answer;
+  `authorization-changed` with the parts that moved, in the order source
+  (naming the files from `sourceFiles`), rule, capability, verification,
+  plan (the saved plan's id and fingerprint count as the plan), rollback,
+  and `atlas-version` when every part is the record's but the hash or the
+  record's schema is not (A4); `rollback` when the plan creates or deletes
+  a file or a written file is not restorable (A2); `dirty` for a written
+  file readiness saw dirty (A5); and `revalidation` when the mutator's own
+  fresh analysis (`applyReductionPlan`, preview) disagrees. The result is
+  `{ site, planId, mode, status, refusal?, edits, changedFiles }`.
+- The mutator's own `dirty-working-tree` and `no-git` blockers map to the
+  `dirty` and `no-git` refusals, not `revalidation`. `no-git` is not reached
+  in (a): the mutator refuses only a write without Git, and a preview does
+  not write. The `git-missing` and `failed` branches of `workingTree` are
+  untested (they need Git off the `PATH`, or a repository Git refuses);
+  `not-a-repository` is tested.
+- A record of another schema version is read on its version alone and
+  reported as `atlas-version`. A missing dataset fails before the lock,
+  which creates the state directory; the reader is made again under it.
+- A10: the lock's messages name apply, and a live holder's no longer
+  suggests removing the lock.
+- Measured on a committed temp copy of the deps fixture (test scripts
+  `true`): `plan` 84–200 ms, an apply preview 366–434 ms, three runs each.
+  Nothing on Foundry, where a preview would run `@foundry/workspaces`'
+  scripts.
+- Tests: `test/lib/working-tree.test.ts` (a spaced, a quoted, and a
+  non-ASCII path, an untracked file, a rename, a workspace below the
+  repository's root, and no repository); `test/lib/operator.test.ts`
+  (preview edits for a shared re-export, a declaration, a removed
+  statement, and a decorated class; a file with a 0xE9 byte refused in both
+  modes; one restore failing while the others are restored; no Git previews but refuses a
+  write, saying why; the mode kept and an unrelated dirty file not
+  blocking; a byte order mark kept; a throw mid-verification restores
+  bytes and mode; the restore guard); `test/lib/codemod.test.ts` (a preview
+  re-runs the baseline and writes nothing; no record; a planned file
+  edited names `source` and the file; a rule moved names `rule`, and none
+  permitting refuses by rule; a tampered part and a tampered hash; a dirty
+  written file refuses, a dirty read-only or unrelated file does not; a
+  journal and a held lock refuse); `test/lib/operator-readiness.test.ts`
+  (the default registry judges an import rewrite unsupported);
+  `packages/lib` (`mode` set exactly under a narrow umask).
 
 **3.6 Refresh after every write.** Internals are already reused per
 package since 1.4, derived from the cached local reports; what remains is
@@ -2001,3 +2106,6 @@ Every change to analysis code, with its reason, before it is made.
 | The `@foundry/workspaces` anchor is built in | `lib/config.ts:816-819`; it blocks `fold-package` for any package of that name in any scanned repository. | Done in 1.7: `anchors` is empty and `ANALYSIS_POLICY_VERSION` is 25, so cached reports made under the anchor are not reused. A Foundry scan loses its one anchor until workspaces can declare their own (3.7). |
 | `authorizeMutationPlan` takes the workspace's rules and returns one of `refused-by-rule`, `not-executable`, `readiness`, or `authorized`; the record (`AuthorizedMutationPlan`, schema 2) gains `execution`, `permittedBy`, `sourceFiles`, and `authorizationFingerprint.ruleFingerprint`, renames `planId` to `executionPlanId`, and its `auth:` hash covers the rules. `hash16` moves, unchanged, to `lib/short-hash.ts`. `OperatorReadinessContext` and `assessOperatorPlanReadiness` are unchanged. | The record had no consumer and named no mutator, and `apply.ts` runs saved plans only; nothing may write without a rule that permits it (`_codemods.md`, decision 1); and 3.5 must name the part, and the file, that moved since the plan was authorized. | Done in 3.2. |
 | `workspacePatterns` (`lib/boundary.ts`) reads `pnpm-workspace.yaml#packages`, drops `!` negations, normalizes a leading `./` and trailing slashes, and ignores patterns that resolve to the workspace root (`.`) or escape it (`../*`); `findRepoRoot` finds a workspace by the same declaration | Discovery follows the workspace declaration from 1.7, and the analyses build their program, ownership, and module graph from the same patterns, so both must read the same list. A root pattern would make the whole workspace one package, and an escaping one reaches outside it, so neither names a package. `findRepoRoot` checked `package.json#workspaces` only, so its four callers without an explicit root (`apply.ts`, `package-local.ts`, `workspace-surface.ts`, and `workspace-derive.ts`) resolved a pnpm-only workspace to the current directory. A workspace without `pnpm-workspace.yaml` is unaffected, apart from `docs/` now matching `docs`, which also makes `fold-plan.ts`'s `workspace-entry` impact fire for Foundry's `docs`; that impact's `file: "package.json"` is not pnpm-aware and is left as is, being analysis code. `**` stays unsupported in both. | Done in 1.7. |
+| `apply.ts`, the `internalize-export` mutator, which holds `verifyInternalizeExport`: raw-byte and mode snapshots, symlinks refused, atomic writes and restores with the mode, a byte order mark kept, one `try` from the first write through the last check, a guarded restore, the `analyzeAfter` seam, `editRoute`'s before and after text (`MutationResult.edits` in `types.ts`), and the dirty check through `workingTree`, refusing a write without Git. Verification's checks are unchanged. | A throw after the write left a half-applied tree, the restore was lossy and not atomic, and a write without Git had no dirty check (decisions 5 and 8, A2, A5). | Done in 3.5 (a). |
+| `lib/working-tree.ts` `workingTree` holds readiness's `gitDirty` logic, moved, and tells Git missing from no repository; `gitDirty` delegates to it, and `apply.ts`'s `dirtyPlannedFiles` is gone. The porcelain output is read with `-z`, unquoted and untrimmed, and a repository Git cannot read is told from no repository. | Two copies of one job (ground rule 5); A5 needs the reason Git is unavailable; the trim cut the first character from the first dirty path, and Git quoted a path with spaces or non-ASCII characters, so readiness and the mutator missed such a dirty planned file. | Done in 3.5 (a). |
+| `DEFAULT_MUTATION_CAPABILITIES` drops `rewrite-import`, `update-test-import`, and `preserve-compatibility-export`; `MUTATION_CAPABILITY_VERSION` is 2. | The registry claimed kinds no mutator performs (decision 6, A12). Every earlier authorization's capability part moves; readiness judges an import-rewriting plan `unsupported` under the default, as the bridge already refused it. | Done in 3.5 (a). |

@@ -13,14 +13,19 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { planRecordFile, planSite, resolveSite } from "../../src/lib/codemod";
+import {
+  applyRecord,
+  planRecordFile,
+  planSite,
+  resolveSite,
+} from "../../src/lib/codemod";
 import type { ReadinessCommandRunner } from "../../src/lib/operator-readiness";
 import type { ReadinessCommand } from "../../src/lib/operator-readiness-types";
 import { renderPlan } from "../../src/lib/render";
 import type { Rule } from "../../src/lib/rule-declaration";
 import { scan } from "../../src/lib/scan";
 import type { WorkspaceState } from "../../src/lib/state";
-import { workspaceState } from "../../src/lib/state";
+import { lockState, workspaceState } from "../../src/lib/state";
 import { commitFixture } from "../helpers/commit-fixture";
 
 const FIXTURE = resolve(import.meta.dirname, "fixtures/deps");
@@ -70,6 +75,43 @@ describe("resolveSite", () => {
   });
 });
 
+/**
+ * A scanned copy of the deps fixture: every package private unless the
+ * fixture publishes it, each with a test script for readiness to run,
+ * committed, and a rule permitting internalize in two of its packages.
+ */
+async function scannedCopy(prefix: string) {
+  const directory = realpathSync(mkdtempSync(join(tmpdir(), prefix)));
+  const root = join(directory, "workspace");
+  cpSync(FIXTURE, root, { recursive: true });
+  for (const name of readdirSync(join(root, "packages"))) {
+    const file = join(root, "packages", name, "package.json");
+    const manifest = JSON.parse(readFileSync(file, "utf8"));
+    writeFileSync(
+      file,
+      JSON.stringify({
+        ...manifest,
+        private: manifest.private ?? true,
+        scripts: { test: "true" },
+      })
+    );
+  }
+  mkdirSync(join(root, ".foundry/atlas"), { recursive: true });
+  writeFileSync(
+    join(root, ".foundry/atlas/rules.ts"),
+    `export default { rules: ${JSON.stringify(RULES)} };\n`
+  );
+  commitFixture(root);
+  const state = join(directory, "state");
+  await scan.workspace(root, { state });
+  return {
+    directory,
+    root,
+    state,
+    workspace: await workspaceState(root, state),
+  };
+}
+
 describe("planSite", () => {
   let directory: string;
   let root: string;
@@ -83,34 +125,8 @@ describe("planSite", () => {
   const status = () =>
     execFileSync("git", ["status", "--porcelain"], { cwd: root }).toString();
 
-  // A copy of the deps fixture: every package private unless the fixture
-  // publishes it, each with a test script for readiness to run, committed,
-  // and a rule permitting internalize in two of its packages.
   beforeAll(async () => {
-    directory = realpathSync(mkdtempSync(join(tmpdir(), "atlas-plan-")));
-    root = join(directory, "workspace");
-    cpSync(FIXTURE, root, { recursive: true });
-    for (const name of readdirSync(join(root, "packages"))) {
-      const file = join(root, "packages", name, "package.json");
-      const manifest = JSON.parse(readFileSync(file, "utf8"));
-      writeFileSync(
-        file,
-        JSON.stringify({
-          ...manifest,
-          private: manifest.private ?? true,
-          scripts: { test: "true" },
-        })
-      );
-    }
-    mkdirSync(join(root, ".foundry/atlas"), { recursive: true });
-    writeFileSync(
-      join(root, ".foundry/atlas/rules.ts"),
-      `export default { rules: ${JSON.stringify(RULES)} };\n`
-    );
-    commitFixture(root);
-    state = join(directory, "state");
-    await scan.workspace(root, { state });
-    workspace = await workspaceState(root, state);
+    ({ directory, root, state, workspace } = await scannedCopy("atlas-plan-"));
   });
 
   afterAll(() => {
@@ -297,5 +313,217 @@ describe("planSite", () => {
     await expect(plan("packages/plans/src/foo.ts#Nothing")).rejects.toThrow(
       "@deps/plans records no opportunity internalize-symbol:packages/plans/src/foo.ts#Nothing."
     );
+  });
+});
+
+describe("applyRecord, previewing", () => {
+  const INDEX = "packages/plans/src/index.ts";
+  const RULES_FILE = ".foundry/atlas/rules.ts";
+  let directory: string;
+  let root: string;
+  let state: string;
+  let workspace: WorkspaceState;
+
+  const plan = async (site: string) => {
+    const planned = await planSite(root, resolveSite(site), {
+      runner: pass,
+      state,
+    });
+    expect(planned.verdict.kind).toBe("authorized");
+  };
+  const apply = (site: string, runner: ReadinessCommandRunner = pass) =>
+    applyRecord(root, resolveSite(site), { runner, state });
+  const status = () =>
+    execFileSync("git", ["status", "--porcelain"], { cwd: root }).toString();
+  /** Runs `body` with a workspace file rewritten, then puts it back. */
+  const withFile = async (
+    file: string,
+    edit: (text: string) => string,
+    body: () => Promise<void>
+  ) => {
+    const path = join(root, file);
+    const original = readFileSync(path, "utf8");
+    writeFileSync(path, edit(original));
+    try {
+      await body();
+    } finally {
+      writeFileSync(path, original);
+    }
+  };
+
+  beforeAll(async () => {
+    ({ directory, root, state, workspace } = await scannedCopy("atlas-apply-"));
+  });
+
+  afterAll(() => {
+    rmSync(directory, { force: true, recursive: true });
+  });
+
+  it("previews the authorized plan, authorizing it again with its baseline, and writes nothing", async () => {
+    await plan(READY);
+    let baselines = 0;
+    const result = await apply(READY, (command, at) => {
+      baselines += 1;
+      return pass(command, at);
+    });
+    expect(result).toEqual({
+      changedFiles: [INDEX],
+      edits: [
+        {
+          after: null,
+          before: 'export type { PlanAlpha } from "./foo";',
+          file: INDEX,
+        },
+      ],
+      mode: "preview",
+      planId: `plan:internalize-symbol:${READY}`,
+      site: READY,
+      status: "preview",
+    });
+    expect(baselines).toBe(1);
+    expect(status()).toBe("");
+    expect(
+      existsSync(planRecordFile(workspace, resolveSite(READY).planId))
+    ).toBe(true);
+  });
+
+  it("fails without a saved record, and asks for a plan", async () => {
+    await expect(apply(ALSO_READY)).rejects.toThrow(
+      `No authorized plan is saved for internalize-symbol:${ALSO_READY}. Run atlas plan internalize-symbol:${ALSO_READY} first.`
+    );
+  });
+
+  it("names the source, and the file, when a planned file changed since the plan", async () => {
+    await plan(READY);
+    await withFile(
+      INDEX,
+      (text) => `${text}// edited\n`,
+      async () => {
+        const result = await apply(READY);
+        expect(result.status).toBe("refused");
+        expect(result.refusal).toEqual({
+          kind: "authorization-changed",
+          parts: [
+            { files: [INDEX], part: "source" },
+            { part: "plan" },
+            { part: "rollback" },
+          ],
+        });
+        expect(result.edits).toEqual([]);
+      }
+    );
+  });
+
+  it("names the rule when the configuration's rules moved, and refuses by rule when none permits", async () => {
+    await plan(READY);
+    await withFile(
+      RULES_FILE,
+      () =>
+        `export default { rules: ${JSON.stringify([{ effect: "require", operator: "internalize", subject: "packages/none" }, ...RULES])} };\n`,
+      async () => {
+        expect((await apply(READY)).refusal).toEqual({
+          kind: "authorization-changed",
+          parts: [{ part: "rule" }],
+        });
+      }
+    );
+    await withFile(
+      RULES_FILE,
+      () => `export default { rules: ${JSON.stringify(RULES.slice(1))} };\n`,
+      async () => {
+        expect((await apply(READY, refuse)).refusal?.kind).toBe(
+          "refused-by-rule"
+        );
+      }
+    );
+  });
+
+  it("names a part tampered in the record, and the Atlas version when only the hash differs", async () => {
+    await plan(READY);
+    const file = planRecordFile(workspace, resolveSite(READY).planId);
+    const saved = readFileSync(file, "utf8");
+    const record = JSON.parse(saved);
+    try {
+      writeFileSync(
+        file,
+        JSON.stringify({
+          ...record,
+          authorizationFingerprint: {
+            ...record.authorizationFingerprint,
+            capabilityFingerprint: "0000000000000000",
+          },
+        })
+      );
+      expect((await apply(READY)).refusal).toEqual({
+        kind: "authorization-changed",
+        parts: [{ part: "capability" }],
+      });
+      writeFileSync(
+        file,
+        JSON.stringify({
+          ...record,
+          authorizationFingerprint: {
+            ...record.authorizationFingerprint,
+            hash: "auth:0000000000000000",
+          },
+        })
+      );
+      expect((await apply(READY)).refusal).toEqual({
+        kind: "authorization-changed",
+        parts: [{ part: "atlas-version" }],
+      });
+    } finally {
+      writeFileSync(file, saved);
+    }
+  });
+
+  it("refuses a dirty file it writes, and not one it only reads or never touches", async () => {
+    await withFile(
+      INDEX,
+      (text) => `${text}// local edit\n`,
+      async () => {
+        await plan(READY);
+        expect((await apply(READY)).refusal).toEqual({
+          files: [INDEX],
+          kind: "dirty",
+        });
+      }
+    );
+    await withFile(
+      "packages/plans/src/foo.ts",
+      (text) => `${text}// local edit\n`,
+      () =>
+        withFile(
+          "packages/beta/src/index.ts",
+          (text) => `${text}// local edit\n`,
+          async () => {
+            await plan(READY);
+            expect((await apply(READY)).status).toBe("preview");
+          }
+        )
+    );
+  });
+
+  it("refuses while an apply's journal exists, or another process holds the lock", async () => {
+    await plan(READY);
+    const journal = join(workspace.directory, "apply/journal.json");
+    mkdirSync(dirname(journal), { recursive: true });
+    writeFileSync(journal, "{}");
+    try {
+      await expect(apply(READY)).rejects.toThrow(
+        `An atlas apply did not finish (${journal} exists)`
+      );
+    } finally {
+      rmSync(dirname(journal), { force: true, recursive: true });
+    }
+    const release = lockState(workspace);
+    try {
+      await expect(apply(READY)).rejects.toThrow(
+        `Workspace ${root} is being scanned, exported, or applied by this process.`
+      );
+    } finally {
+      release();
+    }
+    expect((await apply(READY)).status).toBe("preview");
   });
 });

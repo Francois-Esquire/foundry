@@ -46,11 +46,12 @@ path.
 - **A capability registry.** `mutation-capabilities.ts` is data: which
   planned transformation kinds and syntax forms a mutator can execute
   today, atomically and reversibly. Of the thirteen
-  `PlannedTransformationKind`s in `operator-plan-types.ts`, six are
-  covered (`remove-export`, `rewrite-reexport`, `rewrite-import`,
-  `update-test-import`, `preserve-compatibility-export`, `verify-only`),
-  each for a short list of forms such as `named-import-relative`. The
-  comment says widening it is done by adding mutator support first.
+  `PlannedTransformationKind`s in `operator-plan-types.ts`, three are
+  covered (`remove-export`, `rewrite-reexport`, `verify-only`), each for a
+  short list of forms such as `named-reexport`: what `apply.ts` performs.
+  Until 3.5 it also claimed `rewrite-import`, `update-test-import`, and
+  `preserve-compatibility-export`, which no mutator performs. The comment
+  says widening it is done by adding mutator support first.
 - **An operator catalog.** `operator-catalog.ts` defines every
   architectural operator as data: subjects, required fields, verification
   kinds, and whether it decomposes into planned transformations. Only
@@ -302,6 +303,11 @@ words that depend on them, `check`, `plan`, and `apply`, are listed in
    cache internals per package by the same key, as
    `test/helpers/reference-internals.ts` already does, and pass the
    project `apply` built through to derivation, which already accepts one.
+
+Configuration load sites (3.5, decision 3): the scan entry points and
+`atlas apply`, which authorizes under the configuration's rules as they
+are now. `atlas plan` and `atlas check` read the rules the last scan saved
+in the `rules` lens, so they run no configuration.
 
 Two codemod stacks exist, both reachable only from tests: the reduction
 operators (`operators.ts`, `plan.ts`, `validate.ts`, `apply.ts`) that

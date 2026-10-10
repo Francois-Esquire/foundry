@@ -135,7 +135,7 @@ CLI prints the same message after `Atlas: `.
 | `packageReport` or `internals` names a package that failed analysis | `Atlas could not analyze <id>, so it has no package report.`, `… so it has no internals.` |
 | `internals` on a dataset saved without them, such as by `scan.workspace` | `The dataset was saved without internals for <id>. Run atlas scan to include them.` |
 | A file the manifest names is missing, or saved internals are incomplete | `The dataset is missing <path>. Run atlas scan again.`, `The dataset's internals for <name> are incomplete. Run atlas scan again.` |
-| Another scan or export of the workspace is running | `Workspace <root> is being scanned or exported by process <pid>. If no scan or export is running, remove <lock>.` |
+| Another scan, export, or apply of the workspace is running | `Workspace <root> is being scanned, exported, or applied by process <pid>. Wait for it to finish, then retry.` |
 | A package fails analysis; nothing is saved and the previous dataset stays | `Packages failed analysis: <id> (<error>)` |
 | A history checkpoint fails analysis; the dataset is saved, and the scan still rejects | `Some history checkpoints failed analysis.` |
 | `scan.package` names no package of the workspace | `Workspace <root> has no package named <name>.` |

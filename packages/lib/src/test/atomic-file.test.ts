@@ -62,6 +62,18 @@ describe("writeFileAtomic", () => {
 });
 
 describe("writeFileAtomicSync", () => {
+  it("sets the mode exactly, whatever the umask", async () => {
+    const path = join(directory, "script.sh");
+    const umask = process.umask(0o077);
+    try {
+      writeFileAtomicSync(path, "#!/bin/sh\n", { mode: 0o755 });
+    } finally {
+      process.umask(umask);
+    }
+    expect((await stat(path)).mode % 0o1_0000).toBe(0o755);
+    expect(await readdir(directory)).toEqual(["script.sh"]);
+  });
+
   it("replaces the file and leaves no temporary behind", async () => {
     const path = join(directory, "nested", "state.json");
     writeFileAtomicSync(path, "first", { createDirectory: true });
