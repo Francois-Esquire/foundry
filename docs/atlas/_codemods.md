@@ -332,8 +332,33 @@ through `operator-readiness.ts`) that plan and authorize. They meet at
 The order of work this implies: rule shape and loading, then the readiness
 gate reading rules, then `atlas check` (read-only, useful on its own in CI),
 then `plan`, then `apply` for `internalize-export` with the refresh, then a
-second executable kind. Which second kind matters most is a question for the maintainer:
-`rewrite-import` and `move-module` are the likely candidates.
+second executable kind. All but the last are done; the second kind is
+deferred beyond 0.1 (3.8).
+
+### A second kind, deferred
+
+No catalog kind but `internalize` is single-package and creates and
+deletes nothing, so none can be applied as safely as `internalize-export`
+today. The candidate is `rewrite-import` and `update-test-import` under
+`internalize`: repoint a package's own importers of an entrypoint at the
+declaration before the export is removed, which unblocks plans carrying
+the `internal-entrypoint-import` blocker. What it needs:
+
+- `plan.ts` marks those sites unsupported; they would become ready plans
+  with a `rewrite-import` planned change, which changes plan
+  fingerprints and bumps `ANALYSIS_POLICY_VERSION`.
+- The two stacks disagree on scope. `internalImporters` in
+  `operator-plan.ts` rewrites only sites that import through the
+  package's name; the legacy `internallyImportedNames` in `plan.ts`
+  covers any import that resolves to the entrypoint, relative ones
+  included. One must change before both can authorize the same edit.
+- A mutator in `apply.ts` that repoints each `ImportDeclaration` at the
+  declaration's module, splitting it when other names remain, ordered
+  before route removal; the capability registry and the bridge in
+  `authorizeMutationPlan` widened to match.
+
+Both analysis changes go in the table in [`_phases.md`](./_phases.md)
+before they are made.
 
 ### Refresh measured (2026-10-10)
 

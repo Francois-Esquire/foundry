@@ -2272,9 +2272,54 @@ Unit (b), done 2026-10-10.
   130 and restores).
 
 **3.7 Domains reaching the gates,** through anchors, if a codemod needs
-them. The analysis changes logged below come due here.
+them. Done 2026-10-10: not needed for 0.1, decided by the orchestrator.
+- The one executable codemod, `internalize-export`, only narrows a
+  symbol's exposure inside its package. It moves no facet, so every
+  `path#symbol` a domain declares stays valid after it.
+- Anchors gate `fold-package` only (`operator.test.ts`, "leaves
+  internalization plans unaffected"), and `createInternalizeOperator`
+  adds anchor preservation only for an anchored package; Foundry has
+  declared none since 1.7.
+- So the two "Only if domains feed anchors" rows below stay open, and
+  come due with the first codemod that moves, rehomes, or folds, which is
+  also when a Foundry scan gets an anchor back.
 
-**3.8 A second codemod kind,** chosen by the maintainer.
+**3.8 A second codemod kind,** chosen by the maintainer. Done 2026-10-10:
+deferred beyond 0.1, decided by the orchestrator acting for the
+maintainer.
+- A second kind must have a plan the dataset produces (so `check` and
+  `plan` have a source), a planner, and a mutator that stays inside one
+  package, creates and deletes nothing, and restores byte for byte. No
+  catalog kind but `internalize` meets that: `fold-package` moves and
+  deletes a package and edits manifests; `move`, `rehome-concept`, and
+  `rehome-behavior` plan edits no mutator performs; `redirect-dependency`
+  takes manual input only; the `preserve-*` kinds write nothing.
+- The candidate, `rewrite-import` and `update-test-import` under
+  `internalize`, would unblock plans that carry the
+  `internal-entrypoint-import` blocker. It needs analysis changes the
+  ground rules rule out for 0.1, written up in
+  [`_codemods.md`](./_codemods.md#a-second-kind-deferred).
+
+**Phase 3 is done** (2026-10-10). Rules are declared, checked, and gate
+the one codemod, which writes only under a rule that permits it.
+- 3.1: `{ operator, subject, effect }` in `.foundry/atlas/`, subjects
+  matched as domain facets are; not an analysis input.
+- 3.2: `authorizeMutationPlan` answers refused by rule, not executable,
+  the readiness verdict, or a record naming what it authorizes by id and
+  fingerprint part.
+- 3.3: the `rules` lens and `atlas check`, exit `3` on a broken rule.
+- 3.4–3.5: `atlas plan` saves an authorization; `atlas apply` previews
+  it and, with `--write`, journals, writes, verifies, restores on any
+  failure or signal, and scans again.
+- 3.6: the scan after a write is staged and read as "after"; "before"
+  comes from the saved report while the dataset is current. A write on
+  Foundry takes about 54 s, against 82 s in 3.5 and 69 s for 3.0's apply
+  plus refresh.
+- Left for later, by design: a second kind (3.8), domains at the gates
+  (3.7), splitting the derivation key and passing the apply project
+  through (3.6's candidates), `rule:<n>` as `plan`'s argument, and the
+  per-setting digest, which still has no consumer: rules name facets, not
+  domains.
 
 ## Phase 4: the viewer
 
@@ -2329,8 +2374,8 @@ Every change to analysis code, with its reason, before it is made.
 | Change | Reason | Status |
 | --- | --- | --- |
 | Symbol ids carry no kind | `symbols.ts:133` forms `path#name`; an interface and a const of one name share an id, and five lookup maps keep the last one. | Confirmed. No change for now: a facet without a kind matches every symbol of that id. Revisit only if a codemod needs to tell them apart. |
-| Anchors matched by name only in concept recentering | `concept-recentering.ts:1383`; an anchor declared by path is invisible there. | Only if domains feed anchors (phase 3). |
-| The worker passes no `AnalysisConfig`, and the fingerprint does not cover it | `semantics-worker.ts:39`; per-workspace anchors would be ignored, and a changed config would leave stale caches. | Only if domains feed anchors (phase 3). |
+| Anchors matched by name only in concept recentering | `concept-recentering.ts:1383`; an anchor declared by path is invisible there. | Only if domains feed anchors: not needed for 0.1 (3.7); due with the first codemod that moves, rehomes, or folds. |
+| The worker passes no `AnalysisConfig`, and the fingerprint does not cover it | `semantics-worker.ts:39`; per-workspace anchors would be ignored, and a changed config would leave stale caches. | Only if domains feed anchors: not needed for 0.1 (3.7); due with the first codemod that moves, rehomes, or folds. |
 | `analyzeInternals` and `packageInternals` extracted from `runInternalAnalysis` | The materializer derives each package's internals from the local report it already holds, instead of analyzing the package again; `runInternalAnalysis` is unchanged in signature and output. | Done in 1.4. |
 | `PackageInternals` moves to `lib/internal-analysis-types.ts`, spelled out from the stage report types | The reader validates saved internals in the browser, which cannot import the analysis code that `packageInternals`' return type came from. No behavior change; `packageInternals` returns the same shape. | Done in 1.5. |
 | The `@foundry/workspaces` anchor is built in | `lib/config.ts:816-819`; it blocks `fold-package` for any package of that name in any scanned repository. | Done in 1.7: `anchors` is empty and `ANALYSIS_POLICY_VERSION` is 25, so cached reports made under the anchor are not reused. A Foundry scan loses its one anchor until workspaces can declare their own (3.7). |
