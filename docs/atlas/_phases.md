@@ -2410,18 +2410,116 @@ its workspaces.
   every release tried when one throws, an `AggregateError` when several do,
   and the lock's error kept with a release's failure as its cause).
 
-**5.2 The collection manifest:** qualified ids and the crossings from
-declared dependencies, as a pure function of the workspace manifests.
+**5.2 The collection manifest.** Done 2026-10-10. Pure, and not yet read by
+anything but its tests: `serve` and `atlas export` derive it in 5.3.
+- `lib/collection-types.ts`, browser-safe under the `lib/*-types.ts`
+  override, holds `COLLECTION_SCHEMA_VERSION` (1, independent of the
+  dataset's), `QualifiedId` (`` `${string}:${string}` ``),
+  `CollectionWorkspace`, `Crossing`, `AmbiguousDependency`, and
+  `CollectionManifest` (`{ schemaVersion, workspaces, crossings,
+  ambiguous }`). It has no time and no collection id of its own, since it
+  is never saved (5.0, decision 5); each workspace's `generatedAt` is the
+  pin its frame reads with.
+- `lib/collection-manifest.ts` `collectionManifest(workspaces)` takes each
+  workspace's id, resolved root, and saved manifest (`generatedAt`,
+  `packages`, `workspace`, and `discovery.unitsSkipped`), orders them by
+  root itself (by code unit, as `resolveCollection` does), and returns the
+  same manifest for the same manifests in any order.
+  `qualifiedId(workspace, id)` is `<workspace id>:<package>`.
+- Each workspace lists its `dataset` (`<id>/`, relative to the collection
+  manifest), its `generatedAt`, its `label`, and every package its manifest
+  lists, failed ones included, qualified and sorted. The label is the
+  manifest's `workspace.name` (the root `package.json` name), else the
+  root's directory name; where two workspaces would share one, each is
+  `parent/name` from its root (decision 3), and where two share that too,
+  each adds its id's first six digits in parentheses. Two roots whose ids
+  also share six digits could still share a label; ids never repeat.
+- A declared dependency, of any of the four kinds, by the name it resolves
+  to: stays inside its workspace when its range starts `workspace:` or its
+  own workspace holds the name, analyzed or skipped; is a crossing when
+  exactly one other workspace holds the name, as an analyzed package; is
+  external when none does, or when the one other workspace holds it only as
+  a skipped unit, since a crossing ends at a listed package; and is
+  `ambiguous`, with no crossing, when two or more other workspaces hold it,
+  analyzed or skipped. An ambiguous entry's `candidates` are the analyzed
+  packages of that name, in the collection's order, and its optional
+  `skippedIn` the workspaces that hold it only as a skipped unit, so every
+  crossing's ends and every candidate are listed in some workspace's
+  `packages`, which a test checks (decision 4). An `npm:` alias resolves to the package
+  it names (`npm:@k/db@^1.0.0` and `npm:@k/db` are `@k/db`, `npm:lodash` is
+  `lodash`, and a bare `npm:` names none), and the key it is written under
+  is not read. The range is recorded as written and not checked against
+  the version found (decision 10); other protocols are matched by the name
+  they are written under (decision 4). Crossings are sorted by `from`,
+  `to`, `kind`, and `range`; ambiguous entries by `from`, `name`, `kind`,
+  and `range`; each field by code unit, through `@foundry/lib/ordering`
+  `byCodeUnit`, chained, which `lib/state.ts` now uses too. Follow-up, not
+  changed here: discovery itself sorts units and skipped entries with
+  `localeCompare` (`semantics-discover.ts`, where it builds the
+  discovery), and that order reaches the manifest, so it can differ by
+  locale.
+- A workspace holds the packages its scan skipped as well as those it
+  analyzed, so that a dependency on its own JavaScript-only `@x/cfg` does
+  not cross to another workspace's TypeScript `@x/cfg`. Discovery now
+  records the name each skipped unit's `package.json` gives, as the
+  manifest's optional `discovery.unitsSkipped[].name`: from the parsed
+  manifest for a unit skipped as `analysis unsupported`, and, for one
+  skipped as generated, gitignored, or excluded, read on purpose and
+  tolerantly, so a missing or unparsable `package.json` there gives no name
+  rather than failing discovery. Additive, so dataset
+  schema 4 keeps its number; it is discovery code, not analysis, and
+  nothing fingerprints the skipped list; logged below all the same, as
+  1.7 and 3.6 logged their additive manifest fields. Names are recorded
+  for all four reasons, since the path is recorded anyway;
+  `reference/output.md` documents the field. A dataset saved before this
+  change has no skipped names, so its workspace's skipped packages do not
+  keep a dependency inside it, and it can make a false crossing, until the
+  workspace is scanned again.
+- The fixtures `test/lib/fixtures/collection/platform` (`@k/db`, which
+  depends on `@k/shared` with `workspace:*`, and `@k/shared`) and
+  `product` (`@k/shared` of its own, `@p/app`, which declares `@k/db:
+  ^1.0.0`, `@k/shared: workspace:*`, and `left-pad`, and `@p/web`, which
+  declares `@k/db: workspace:*`, `@p/app: workspace:*`, and `database:
+  npm:@k/db@^1.0.0`). `@p/web`'s `@k/db: workspace:*` is deliberately
+  invalid, since product holds no `@k/db`: it is there to show that a
+  `workspace:` range never crosses. The two crossings are `@p/app` and
+  `@p/web` to platform's `@k/db`; `@k/shared` is two packages.
+- The glossary gains **Qualified id**, **Crossing**, **Ambiguous
+  dependency**, **Label**, and **Collection manifest**, which is not a
+  lens: a lens reads one dataset and is saved in it.
+- Tests: `test/lib/collection-manifest.test.ts`, over literal manifests (a
+  crossing per kind, a name the declaring workspace holds kept inside it,
+  a package naming itself, `workspace:` ranges and a `workspace:` alias
+  never crossing, `npm:` aliases scoped with and without a version,
+  unscoped, bare, and under a key that is itself a package name, the range
+  unchecked and last in the order, ambiguous across three workspaces with
+  an alias, a skipped package held by its workspace, never crossed to when
+  the one other workspace only skipped it, counted toward ambiguity but
+  named only in `skippedIn`, every crossing's ends and every candidate
+  listed (also over the fixtures), a failed package listed and crossed to, an
+  external name, the workspaces by root, shared labels by parent and by
+  id, and the same output with the workspaces, packages, and dependencies
+  in reverse) and over the two fixtures, scanned with `scan.workspace` into
+  a temporary state root; `test/lib/semantics.test.ts` (skipped units'
+  names, including a generated unit whose `package.json` does not parse),
+  and the skipped entries in `ignore.test.ts`, `scan.test.ts`, and
+  `package.test.ts` gain their names.
 
 **5.3 Many paths for real** in the commands, the library, and `serve`,
 which serves each dataset under its own prefix. `AtlasServer.root` is
-singular until then.
+singular until then. Deferred to it from 5.2, since nothing reaches the
+collection manifest before: the package exports (`COLLECTION_SCHEMA_VERSION`
+and the collection types), the exact values in `test/package.test.ts` and
+its TypeScript consumer, and `reference/output.md`, `reference/cli.md`,
+`reference/library.md`, and `_api.md`.
 
 **5.4 The viewer.** Waits for Phase 4. 5.4a, the data seam: the data root
 per workspace (1.5 reduced it to one place, `DATA_ROOT` in
 `web/dataset.ts`), the probe for a collection, and a dataset reference per
 island. 5.4b, the drawing: frames side by side, one rim per frame, and the
-crossings' ink.
+crossings' ink. The collection manifest keeps one crossing per kind and
+range, so the drawing merges crossings by `from` and `to`: one line per
+pair of packages.
 
 ## Changes to existing code
 
@@ -2444,3 +2542,4 @@ Every change to analysis code, with its reason, before it is made.
 | `apply.ts` gains `beforeWrite` (required to write), `expectedHashes` (checked before and after it), and `afterChecks` options and `RestoreError`; writes and restores are flushed; the restore guard compares the written bytes by SHA-256 and reports what it restored and skipped. | The journal must be flushed before the first write (A1), each file checked against the rollback's hash just before it (A2), and the scripts run again inside the restoring `try` (A6). | Done in 3.5 (b). |
 | `semantics-fingerprint.ts` gains `workspaceInputsHash`, one hash over the five workspace input components, and `collectWorkspaceInputs` takes only what it reads (`exclude`, and units by `path`); the manifest's `generation` gains an optional `inputs: { hash, config }` (`dataset-manifest.ts`, `semantics-types.ts`, written by `generateSemantics`). No fingerprint, cache key, or report changes. | Apply takes "before" from the saved report only when the dataset is proven current (A9), and plan checks the same without running the configuration, so it needs the config component apart. | Done in 3.6. |
 | `apply.ts` gains a `before` option, the target's report before the write; `atlas apply` passes the saved one, and its `analyzeAfter` passes the staged scan's, so the mutator runs no `analyzeSurface` on that path. Validation and verification are unchanged. | 3.0's largest saving (item 4); the saved and the staged reports agree with a fresh analysis on every field validation and verification read, which a test checks. | Done in 3.6. |
+| `semantics-discover.ts` records the name each skipped unit's `package.json` gives, read tolerantly, as the manifest's optional `discovery.unitsSkipped[].name` (`semantics-types.ts`). Discovery only: no fingerprint, cache key, or report changes, and dataset schema 4 keeps its number. | A collection counts a workspace's skipped packages as its own, so a dependency on one never crosses to another workspace's package of that name. | Done in 5.2. |

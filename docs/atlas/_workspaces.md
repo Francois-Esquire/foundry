@@ -124,13 +124,22 @@ who could not be asked.
    not in 0.1.
 4. **Edges between workspaces: package level only, from declared
    dependencies.** A dependency becomes a crossing when its name, after an
-   `npm:` alias is resolved, is no package of the declaring workspace, its
-   range does not use the `workspace:` protocol, and exactly one other
-   workspace of the collection has a package of that name. A name that two
-   or more other workspaces hold is recorded as ambiguous, with no edge. The
-   range is recorded as written and not checked against the version found.
-   No module-level edges: they would need the scan to record, per file,
-   which external specifiers it imports.
+   `npm:` alias is resolved, is no package of the declaring workspace (one
+   its scan analyzed, or skipped with a `package.json` name, such as a
+   JavaScript-only package), its range does not use the `workspace:`
+   protocol, and exactly one other workspace of the collection has a
+   package of that name, analyzed: a crossing ends at a package the
+   collection lists, so a name the one other workspace holds only as a
+   skipped unit is external. A name that two or more other workspaces hold,
+   analyzed or skipped, is recorded as ambiguous, with no edge; its
+   candidates are the analyzed packages of that name, and `skippedIn` names
+   the workspaces that hold it only as a skipped unit. The range is recorded as written and
+   not checked against the version found. No other protocol is read: a
+   `file:`, `link:`, `catalog:`, or `jsr:` range is matched by the name it
+   is written under, like a version range, and following a `file:` or
+   `link:` path into the workspace it points at is later work. No
+   module-level edges: they would need the scan to record, per file, which
+   external specifiers it imports.
 5. **Shape: separate scans, and a collection manifest derived from them.**
    Shape 3, without persisting the result. Each workspace keeps its own
    scan, state, cache, and lock, unchanged. The collection manifest is a

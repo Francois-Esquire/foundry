@@ -51,6 +51,24 @@ function packageName(manifest: PackageManifest): string | undefined {
     : undefined;
 }
 
+/**
+ * The name a skipped unit's `package.json` gives, so that a collection
+ * counts the package as its workspace's. A skipped unit's manifest may be
+ * anything, generated or ignored, so one that is missing or does not parse
+ * gives no name rather than failing discovery.
+ */
+function skippedName(root: string, rel: string): string | undefined {
+  const manifest = join(root, rel, "package.json");
+  if (!existsSync(manifest)) {
+    return;
+  }
+  try {
+    return packageName(JSON.parse(readFileSync(manifest, "utf8")));
+  } catch {
+    // A manifest that does not parse names no package.
+  }
+}
+
 /** The dependencies a `package.json` declares; a kind it lacks is omitted, and ranges stay as written. */
 function declaredDependencies(
   manifest: PackageManifest
@@ -161,23 +179,30 @@ interface Inspection {
 
 function inspect(inspection: Inspection, rel: string): void {
   const { excluded, ignorer, root, skipped, units } = inspection;
-  const skip = (reason: SemanticsSkippedDirectory["reason"]): void => {
-    skipped.push({ path: rel, reason });
+  const skip = (
+    reason: SemanticsSkippedDirectory["reason"],
+    packageId?: string
+  ): void => {
+    skipped.push({
+      ...(packageId !== undefined && { name: packageId }),
+      path: rel,
+      reason,
+    });
   };
   if (excluded.has(rel)) {
     inspection.excludedSeen.add(rel);
   }
   const name = basename(rel);
   if (GENERATED_DIRS.has(name) || name.startsWith(".")) {
-    skip("generated output");
+    skip("generated output", skippedName(root, rel));
     return;
   }
   if (ignorer.ignores(`${rel}/`)) {
-    skip("gitignored");
+    skip("gitignored", skippedName(root, rel));
     return;
   }
   if (excluded.has(rel)) {
-    skip("excluded");
+    skip("excluded", skippedName(root, rel));
     return;
   }
   const manifestPath = `${rel}/package.json`;
@@ -191,7 +216,7 @@ function inspect(inspection: Inspection, rel: string): void {
     return;
   }
   if (!hasTypeScriptSources(join(root, rel))) {
-    skip("analysis unsupported");
+    skip("analysis unsupported", id);
     return;
   }
   units.push({

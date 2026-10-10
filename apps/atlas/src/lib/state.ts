@@ -6,6 +6,7 @@ import { join, resolve, sep } from "node:path";
 import { isMissingPath, writeFileAtomicSync } from "@foundry/lib/atomic-file";
 import type { FileLockHolder } from "@foundry/lib/file-lock";
 import { processAlive, tryFileLock } from "@foundry/lib/file-lock";
+import { byCodeUnit } from "@foundry/lib/ordering";
 import { isFilesystemPathWithin } from "@foundry/lib/paths";
 import { version } from "../../package.json" with { type: "json" };
 
@@ -38,6 +39,9 @@ interface WorkspaceRecord {
 
 const DEFAULT_STATE_ROOT = join(homedir(), ".foundry", "atlas");
 const WORKSPACE_ID_LENGTH = 12;
+/** By code unit, so the order is the same in every locale. */
+const byResolvedRoot = byCodeUnit((state: WorkspaceState) => state.root);
+const byDirectory = byCodeUnit((state: WorkspaceState) => state.directory);
 
 /**
  * The workspace root resolved through symlinks; it must exist and be a
@@ -109,16 +113,9 @@ export async function resolveCollection(
     }
     byRoot.set(result.value.root, result.value);
   }
-  const workspaces = [...byRoot.values()].sort((a, b) =>
-    compareCodeUnits(a.root, b.root)
-  );
+  const workspaces = [...byRoot.values()].sort(byResolvedRoot);
   refuseOverlap(workspaces);
   return workspaces;
-}
-
-/** By code unit, so the order is the same in every locale. */
-function compareCodeUnits(a: string, b: string): number {
-  return Number(a > b) - Number(a < b);
 }
 
 /** Throws when one workspace holds another; `workspaces` is sorted by root. */
@@ -149,9 +146,7 @@ export function lockStates(
 ): () => void {
   const releases: (() => void)[] = [];
   const releaseAll = (): void => releaseEach(releases.splice(0).reverse());
-  const ordered = [...states].sort((a, b) =>
-    compareCodeUnits(a.directory, b.directory)
-  );
+  const ordered = [...states].sort(byDirectory);
   try {
     for (const state of ordered) {
       releases.push(lock(state));

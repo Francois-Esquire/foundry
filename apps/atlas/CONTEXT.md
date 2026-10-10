@@ -400,6 +400,41 @@ holds another. A collection keeps no state of its own: each workspace keeps
 its own.
 _Avoid_: project set, multi-workspace, merged atlas
 
+**Qualified id**:
+A package's id in a collection: its workspace's id, a colon, and its
+package name, `<workspace id>:<package>`. A package of one name in two
+workspaces is two packages with two qualified ids. Inside one workspace's
+dataset, ids stay bare.
+_Avoid_: global id, full name, scoped name (npm's scope is part of the
+package name)
+
+**Crossing**:
+A declared dependency of a package in one workspace of a collection on a
+package of another, matched by name. A name its own workspace holds, a
+`workspace:` range, or a name two or more other workspaces hold makes none.
+_Avoid_: cross edge, link, external dependency (a name no workspace of the
+collection holds)
+
+**Ambiguous dependency**:
+A declared dependency whose name two or more other workspaces of the
+collection hold; the collection manifest lists it with its candidates, the
+analyzed packages of that name, and makes no crossing of it.
+_Avoid_: conflict, duplicate
+
+**Label**:
+What people call a workspace in a collection: its `package.json` name, else
+its directory's name, told apart from an equal one by its parent directory,
+then by its id's first digits. Ids identify workspaces; labels only name
+them.
+_Avoid_: workspace name (that is the `package.json` name alone), title
+
+**Collection manifest**:
+The workspaces of a collection, where each one's dataset is, and the
+crossings between them, derived from their saved manifests, never kept as
+state; `atlas export` writes it beside the datasets it copies. It is not a
+lens: a lens reads one dataset and is saved in it.
+_Avoid_: collection dataset, manifest alone (that is a dataset's)
+
 ### What reads a dataset
 
 **Viewer**:

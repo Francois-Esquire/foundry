@@ -1,0 +1,9 @@
+{
+  "name": "@p/web",
+  "private": true,
+  "dependencies": {
+    "@k/db": "workspace:*",
+    "@p/app": "workspace:*",
+    "database": "npm:@k/db@^1.0.0"
+  }
+}

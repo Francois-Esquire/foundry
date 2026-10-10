@@ -53,6 +53,8 @@ type SemanticsSkipReason =
   | "gitignored";
 
 export interface SemanticsSkippedDirectory {
+  /** The name its `package.json` gives, when it has one that parses; absent otherwise. */
+  name?: string;
   path: string;
   reason: SemanticsSkipReason;
 }

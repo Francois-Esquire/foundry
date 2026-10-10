@@ -405,6 +405,7 @@ it(
       "@s/b",
     ]);
     expect(saved.manifest.discovery.unitsSkipped).toContainEqual({
+      name: "@s/c",
       path: "tooling/c",
       reason: "excluded",
     });

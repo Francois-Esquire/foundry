@@ -189,7 +189,11 @@ describe("discovery", () => {
     expect(discovery.unitsDiscovered).toBe(6);
     expect(discovery.skipped).toEqual([
       { path: "packages/dist", reason: "generated output" },
-      { path: "packages/docs-only", reason: "analysis unsupported" },
+      {
+        name: "@s/docs-only",
+        path: "packages/docs-only",
+        reason: "analysis unsupported",
+      },
       { path: "packages/loose", reason: "no package manifest" },
     ]);
   });
@@ -201,10 +205,35 @@ describe("discovery", () => {
     });
     expect(discovery.units.map((u) => u.id)).toEqual(["@s/a", "@s/b"]);
     expect(discovery.skipped).toContainEqual({
+      name: "@s/c",
       path: "tooling/c",
       reason: "excluded",
     });
     expect(discovery.excludeUnmatched).toEqual(["tooling/typo"]);
+  });
+
+  it("names a skipped unit by its package.json when that parses, and fails on none that does not", () => {
+    const dir = copyFixture();
+    writeFileSync(
+      join(dir, "packages", "dist", "package.json"),
+      JSON.stringify({ name: "@s/dist" })
+    );
+    mkdirSync(join(dir, "packages", ".cache"));
+    writeFileSync(
+      join(dir, "packages", ".cache", "package.json"),
+      "{ not json"
+    );
+    const discovery = discoverSemanticsUnits(dir, DEFAULT_CONFIGURATION);
+    expect(discovery.skipped).toEqual([
+      { path: "packages/.cache", reason: "generated output" },
+      { name: "@s/dist", path: "packages/dist", reason: "generated output" },
+      {
+        name: "@s/docs-only",
+        path: "packages/docs-only",
+        reason: "analysis unsupported",
+      },
+      { path: "packages/loose", reason: "no package manifest" },
+    ]);
   });
 
   it("follows pnpm-workspace.yaml first, trims trailing slashes, and drops negations", () => {

@@ -117,7 +117,7 @@ describe("gitignored files stay out of the analysis", () => {
       "@ig/lib",
     ]);
     expect(discovery.skipped).toEqual([
-      { path: "packages/vendored", reason: "gitignored" },
+      { name: "@ig/vendored", path: "packages/vendored", reason: "gitignored" },
     ]);
   });
 });

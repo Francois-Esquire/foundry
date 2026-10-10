@@ -273,6 +273,7 @@ test(
         .map((entry: { id: string }) => entry.id)
     ).toEqual(["@s/a", "@s/b", "@s/c"]);
     expect(dataset.discovery.unitsSkipped).toContainEqual({
+      name: "@s/docs-only",
       path: "packages/docs-only",
       reason: "excluded",
     });
