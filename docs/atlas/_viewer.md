@@ -1,6 +1,7 @@
 # Atlas viewer
 
-Maintainer note, excluded from the Blume site. Dated 2026-10-09. Where the
+Maintainer note, excluded from the Blume site. Dated 2026-10-09, questions
+2–5 answered 2026-10-10 (4.0). Where the
 viewer stands, and the questions to settle before reworking it. This is a
 diagnosis, not a redesign: the maintainer's view is that the viewer is not
 there yet, and the first job is to agree on what "there" means.
@@ -87,7 +88,9 @@ steps, gilded coast ripples, the archipelago rim, paper grain and grid,
 forests, wind, waves, currents, coastlight, the chart filters (faded,
 graphite, treasure, original), and the rendering controls: quality, five
 tone mappings, exposure, occlusion, global illumination, bloom, and a stage
-inspector. Pigment colors are seeded from package ids and carry no meaning.
+inspector. Pigment colors are seeded from package ids and carry no meaning;
+4.0 decided that pigment means responsibility only, so islands are to carry
+no package hue, and a package is told apart by its coast and outline.
 
 ## Observations
 
@@ -127,27 +130,36 @@ and what role does each file play?", and it proposed: responsibilities lead,
 neighborhoods move to inspection, no package pigment, a plan-view camera, and
 relief that may never be darker than a file mark. Only the directory name
 marks it rejected: the document still says "Status: proposal", and neither
-it nor `DESIGN.md` records a reason. That reason is the most useful input to this rework,
-because it says which of the above observations the maintainer disagrees
-with.
+it nor `DESIGN.md` records a reason. That reason would have said which of the above observations the
+maintainer disagrees with; 4.0 proceeded without it (question 3).
 
 ## Questions
 
 1. **Answered:** see [What the map answers](#what-the-map-answers). What
    follows from it: how a departure is drawn so it reads without a toggle,
    and how an intended placement differs from it.
-2. **Is the problem legibility, the metaphor, or polish?** Legibility means
-   keeping the chart and changing what is on by default and how strongly it
-   is drawn. The metaphor means questioning islands and terrain as the
-   frame. Polish means the frame and the defaults are right and the
-   execution is not.
-3. **Why was the engraved survey rejected?** See above.
-4. **Who is the reader?** Someone exploring locally after `atlas scan`, a
-   reader of a hosted static export, or a reviewer looking at a PR. Each
-   wants a different default zoom and a different amount of explanation.
-5. **What leaves the settings panel?** Recommendation: rendering controls
-   move behind a developer flag; reader-facing settings are only layers that
-   carry data.
+2. **Answered 2026-10-10 (4.0): legibility.** The chart stays; what
+   changes is what is on by default and how strongly it is drawn.
+   Decoration that carries no data is deleted rather than hidden, and
+   position means only the folder tree, with no import pull; relationships
+   are drawn as marks that say so (departures, ties), not left to distance.
+   Position and outline mean folder; pigment and labels mean
+   responsibility only, so islands carry no package hue and a package, being
+   a folder, is told apart by its coast and outline; Place says which.
+3. **Answered 2026-10-10 (4.0): not recorded.** No reason survives, so the
+   work proceeds without reversing the rejection and adopts, piecemeal, the
+   observations that do not conflict with the chart: relief never darker
+   than a file mark, responsibilities leading inside an island, and
+   unpigmented packages. That departures read without a toggle follows from
+   question 1, not from the survey.
+4. **Answered 2026-10-10 (4.0):** someone exploring locally after
+   `atlas scan` first, a reader of a static `atlas export` second. PR
+   review is out of scope for 0.1.
+5. **Answered 2026-10-10 (4.0, built in 4.1):** reader settings are only
+   layers that carry data. Renderer controls, and the layers that redraw
+   package dependency a third or fourth time (roads, connecting land), are
+   a developer session's: `import.meta.env.DEV || ?dev`. Decoration that
+   carries nothing is deleted.
 6. **What has to change for many workspaces?** One archipelago per
    workspace, or one archipelago for all of them. See
    [`_workspaces.md`](./_workspaces.md); the answer changes the layout

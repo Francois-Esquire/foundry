@@ -1845,9 +1845,35 @@ them. The analysis changes logged below come due here.
 
 Detail in [`_viewer.md`](./_viewer.md#questions).
 
-**4.0 Decide the viewer's direction.** Why the engraved survey was
-rejected; whether the problem is legibility, the metaphor, or polish; who
-the reader is. Everything below except 4.1 waits for these.
+**4.0 Decide the viewer's direction.** Done 2026-10-10, decided by the
+orchestrator because the maintainer could not be asked; the answers are in
+[`_viewer.md`](./_viewer.md#questions).
+- Why the engraved survey was rejected is recorded nowhere. The work
+  proceeds without reversing it, and takes three of its observations
+  piecemeal, since none conflicts with the chart: relief is never darker
+  than a file mark (4.2a), responsibilities lead inside an island, and
+  packages carry no pigment. Its plan-view camera and its single typeface
+  are not taken. That departures read without a toggle (4.2b) follows from
+  [question 1](./_viewer.md#what-the-map-answers), not from the survey.
+- The problem is legibility: the chart metaphor stays, and what changes is
+  what is on by default and how strongly it is drawn. Decoration that
+  carries no data is deleted, not hidden (4.1), and position means one
+  thing: the folder tree, with no import pull (4.3a). Relationships are
+  carried by marks that say so, departures and ties, not by distance.
+- Two groupings, one meaning each: position and outline mean folder;
+  pigment and labels mean responsibility, and only responsibility, so
+  islands carry no package hue and a package, which is a folder, is told
+  apart by its coast and outline; Place says which.
+- The reader is someone exploring locally after `atlas scan`; a reader of a
+  static `atlas export` comes second. Reviewing a PR is out of scope for
+  0.1.
+- The developer flag is `import.meta.env.DEV || ?dev`, read once in
+  `web/ui/app.tsx`: the dev server and any page opened with `?dev` are a
+  developer session. A URL parameter, unlike a build-time variable, reaches
+  a static export too.
+- Order: the measurement marks, 4.1, 4.2a, 4.3a, then 4.2b to 4.2d as their
+  lenses' fields are read, 4.3b, 4.3c, and 4.4. 4.2b to 4.3c are planned
+  against the real lens fields when they start.
 
 **4.1 Reader settings and renderer settings.** Renderer controls (tone
 mapping, bloom, the stage inspector) move behind a developer flag. Needs
