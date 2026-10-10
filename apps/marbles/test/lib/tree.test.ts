@@ -25,6 +25,8 @@ const TYPED_OUTPUT = /"typed" output/;
 const NESTED_WORKFLOW = /"inner": a workflow can only be the root of a run/;
 const TIMED_OUT = /"slow" timed out after 30/;
 const UNREADABLE_TIMEOUT = /cannot read timeout "soon"/;
+const NOT_JSON =
+  /"dated" returned a value that is not JSON: runs\[0\]\.at is a Date/;
 
 const lines: string[] = [];
 
@@ -483,5 +485,27 @@ describe("step config", () => {
     expect(() => step().config({ timeout: "soon" })).toThrow(
       UNREADABLE_TIMEOUT
     );
+  });
+});
+
+describe("results", () => {
+  it("fails a step whose result is not JSON, naming where", async () => {
+    const dated = step("dated").do(() => ({ runs: [{ at: new Date(0) }] }));
+    const { wf } = await launch(dated);
+    await expect(wf.run()).rejects.toThrow(NOT_JSON);
+  });
+
+  it("passes plain data, nulls, and nothing", async () => {
+    const plain = step("plain").do(() => ({
+      empty: null,
+      list: [1, "two", { three: true }],
+      skipped: undefined,
+    }));
+    const { wf } = await launch(plain);
+    await expect(wf.run()).resolves.toEqual({
+      empty: null,
+      list: [1, "two", { three: true }],
+      skipped: undefined,
+    });
   });
 });

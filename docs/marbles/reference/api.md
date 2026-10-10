@@ -152,7 +152,9 @@ step(name?)          // a builder
 - A parent declares its children's results in `.input()` like any other
   input. Each child's output is checked against the parent's key at lock.
 - `do` receives one object; destructure it. It may return a value or a
-  promise. Results must be JSON-serializable.
+  promise. Results must be plain JSON: a step whose result holds a `Date`,
+  a `Map`, or a class instance fails with where it stops being JSON
+  (`files[0].updatedAt is a Date`). Return an ISO string for a date.
 - **`.config({ retry, timeout })`.** `timeout` bounds each attempt of the
   body (`"30s"`, `"10m"`, or milliseconds): when it passes the body's
   `signal` aborts, with everything Marbles opened for it, and the attempt

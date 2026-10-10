@@ -16,7 +16,7 @@ import { isLockedNode, rootLock } from "./definition";
 import type { Frame, RunScope, RunScopes } from "./run-scope";
 import { current, PAUSE_KIND, raceAbort } from "./run-scope";
 import { parseEvery } from "./schedule";
-import { validate } from "./schema";
+import { notJson, validate } from "./schema";
 
 /**
  * A locked tree becomes package Steps. Each node is a Step whose children
@@ -189,9 +189,19 @@ async function runBody(
     clearTimeout(timer);
   }
   // A bail is a value the package handles; it never matches an output schema.
-  return definition.output && !isBail(output)
-    ? await validate(definition.output, output, `${where} output`)
-    : output;
+  const result =
+    definition.output && !isBail(output)
+      ? await validate(definition.output, output, `${where} output`)
+      : output;
+  const problem = notJson(result);
+  if (problem) {
+    // Recorded and handed to the parent as JSON: say so rather than let a
+    // Date or a class instance change on the way.
+    throw new Error(
+      `${where} returned a value that is not JSON: ${problem}; return plain data (an ISO string for a date)`
+    );
+  }
+  return result;
 }
 
 /** A step's timeout as milliseconds. */

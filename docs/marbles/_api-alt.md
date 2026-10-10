@@ -241,6 +241,7 @@ A monitor's `.do` gets the same object, with `files` or `response` in place of
 | `sandboxes` | Isolated places to run commands. |
 | `artifacts` | Versioned outputs. |
 | `ask` | Stop and ask a person: `ask.question(…)`, `ask.approval(…)`. |
+| `exec` | Run a command as an argument list: `exec(argv, { check?, cwd?, environment?, sandbox? })`. |
 | `report` | Tell people what happened: `report.milestone(…)`, `report.result(…)`, `report.artifact(…)`. |
 | `log` | Run logs. |
 | `stream` | The step's live output. |

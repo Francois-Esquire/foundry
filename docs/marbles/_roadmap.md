@@ -1,7 +1,7 @@
 # Marbles roadmap
 
 Maintainer note, excluded from the Blume site. The agreed pieces of work,
-in order. Items 1 to 3 have landed; 4 stays open alongside 5; 6 comes last.
+in order. Items 1 to 3 and 5 have landed; 4 stays open; 6 comes last.
 
 1. **Streaming runs and the agent work step.** Landed 2026-09-25 (`5e988a8`):
    a run stream in `@foundry/workflows` with replay and path-scoped chunks,
@@ -27,7 +27,8 @@ in order. Items 1 to 3 have landed; 4 stays open alongside 5; 6 comes last.
 5. **Use-case findings.** Guides, recipes, and real use find where the API
    runs out; [`_findings.md`](./_findings.md) records each with a proposal,
    and [`_next-api.md`](./_next-api.md) is the technical design for all of
-   them. Document each change on the public pages once it lands. In order:
+   them. All six parts below landed on 2026-10-10; what they left open is
+   under finding 7, and findings 9 and 10 came from that work. In order:
    1. **The agent surface.** Pass-through for agent turns, starting with
       structured output (finding 7.1), and definitions you can use, starting
       with `agent()` returning an agent (finding 8). Both reshape the same

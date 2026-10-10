@@ -73,8 +73,8 @@ system prompt and the skill's files and registry tools are dropped
 
 ## 9. A roll cancelled at an ask is not saved
 
-**Found by** use, 2026-10-10, while landing `_next-api.md` C.3. Not yet
-investigated; it may predate C.3.
+**Found by** use, 2026-10-10, while landing `_next-api.md` C.3. It
+predates C.3: the commit before it (`a70542c^`) prints the same lines.
 
 **Reproduction.** A workspace with `step("asks").do(({ ask }) =>
 ask.question({ title: "Name?" }))` and a state dir. `marbles roll asks
@@ -101,7 +101,14 @@ launched on a started engine: the run never settles, and the test times
 out. Step results are documented as JSON-serializable, but nothing says so
 when one is not.
 
-**Proposal.** Find where the result is checked or serialized (likely the
-workflows package's step snapshot schema), and fail the step with a clear
-message naming the step and the value's path, rather than hanging.
+**Since.** Marbles now fails such a step with where its result stops
+being JSON (`apps/marbles/src/lib/schema.ts`, `notJson`, checked in
+`runBody`), so a run no longer hangs on one; this mattered once
+`workspaces.*.files()` started returning entries with `Date` fields.
+
+**Still open.** Why the package hangs rather than fails. A bounded look
+ruled out `canonicalizeJson` and the step snapshot schema
+(`output: Schema.Unknown`); the save path in the engine and the run
+journal are next. Fix it in `packages/workflows` so other hosts get an
+error too.
 

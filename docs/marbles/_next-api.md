@@ -11,6 +11,11 @@ disagree. The edits it needs are listed in
 [Amendments to `_api-alt.md`](#amendments-to-_api-altmd); make them once the
 decisions below are agreed and before the code changes start.
 
+**Every part landed on 2026-10-10**, with the decisions as recommended and
+the amendments made. Each part opens with a "Landed" note saying where the
+code differs from its design; the Sequencing and Docs sections below are
+history. What each left open is in `_findings.md`.
+
 ## Contents
 
 - [Two principles](#two-principles)
