@@ -369,3 +369,29 @@ it("tells a screen reader what places an island: its folder and its dependency l
   expect(read({ [territory.id]: null })).toContain("No layer");
   expect(read({})).toContain("No layer");
 });
+
+it("tells a screen reader what places a file: its folder, and once read, its district", async () => {
+  const data = await loadAtlas();
+  const [territory] = data.territories;
+  assert(territory);
+  const file = territory.files.find((f) => f.directory.includes("/src/"));
+  assert(file);
+  const folder = file.directory.slice(territory.folder.length + 1);
+  const district = {
+    color: "#000",
+    id: "responsibility-group:0123456789ab",
+    label: "Sessions",
+    members: [file],
+    polygons: [],
+    uncertain: false,
+  };
+  const read = (districts?: ReadonlyMap<string, typeof district>) =>
+    inspectionText(null, { file, territory }, undefined, {}, { districts })
+      ?.detail ?? "";
+  // Position means folder; until the island's belonging is read, no district.
+  expect(read()).toContain(` · in ${folder} · `);
+  expect(read()).not.toContain("district");
+  expect(read(new Map([[file.id, district]]))).toContain(
+    ` · in ${folder} · district Sessions · `
+  );
+});

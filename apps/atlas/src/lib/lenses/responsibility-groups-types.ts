@@ -1,5 +1,5 @@
 /** Bumped when `ResponsibilityGroups` changes shape or meaning. */
-export const RESPONSIBILITY_GROUPS_SCHEMA_VERSION = 1;
+export const RESPONSIBILITY_GROUPS_SCHEMA_VERSION = 2;
 
 /**
  * Responsibilities joined by a greedy modularity merge over the import edges
@@ -20,6 +20,11 @@ export interface ResponsibilityGroup {
   id: string;
   /** The anchor's label. */
   label: string;
+  /**
+   * The root-relative modules of its member responsibilities, sorted, each
+   * once: the files the viewer draws as the group's district.
+   */
+  modules: string[];
   /** Member responsibility ids, sorted. */
   responsibilities: string[];
 }

@@ -1,0 +1,344 @@
+import { byCodeUnit } from "@foundry/lib/ordering";
+import type { ResponsibilityGroup } from "../lib/lenses/responsibility-groups-types";
+import { contourSigma } from "./geography";
+import type { AtlasFile } from "./types";
+
+/**
+ * Files inside an island, placed by the folder tree alone. Each file gets a
+ * site of a sunflower lattice filling a disc. The package's folder tree
+ * divides the sites: every folder takes a convex cell sized by its files,
+ * sibling folders side by side in name order, a folder's own files before
+ * its subfolders. A small gutter parts the cells at each split, widest at
+ * the first, so folders read in the specks. Within a folder, files take its
+ * sites by district, so each district is one patch per folder. Imports play
+ * no part.
+ */
+
+interface Site {
+  x: number;
+  y: number;
+}
+
+/**
+ * A cut between the two sides of a split: the line `axis` = `at`, from
+ * `from` to `to` along the other axis, over the sites it divided. It sits
+ * mid-gutter, and no site crosses it afterwards.
+ */
+interface CellSplit {
+  at: number;
+  axis: "x" | "y";
+  from: number;
+  to: number;
+}
+
+/**
+ * A folder's cell: its sites, those of its own files and of every folder
+ * below it; the cuts made between its own files and its subfolders, in the
+ * order made; and its subfolders' cells, by name. The package's folder is
+ * the root cell, `folder` "".
+ */
+export interface FolderCell {
+  folder: string;
+  folders: FolderCell[];
+  sites: readonly Readonly<Site>[];
+  splits: CellSplit[];
+}
+
+interface FolderNode {
+  /** Files directly in the folder. */
+  files: AtlasFile[];
+  folders: Map<string, FolderNode>;
+  /** Files in the folder and below it. */
+  size: number;
+}
+
+/** A folder's own files, as one block, or one of its subfolders. */
+type Block =
+  | { files: AtlasFile[] }
+  | { folder: string; parts: Block[]; size: number };
+
+/** Lattice spacing as a share of the contour spread: close enough that one folder's files make one piece of land. */
+const spacingPerSigma = 1.5;
+/**
+ * The widest spacing: a district's footprint (`memberContours`) reaches
+ * about 4.9 units round each file, so neighbours further apart than about
+ * 9.8 units would draw as separate patches of one district.
+ */
+const widestSpacing = 8;
+/** The gutter at the island's first split, in lattice spacings; it halves at each split below. */
+const topGutter = 1;
+/** Sunflower lattice: the golden angle, and the radius step giving neighbours one spacing apart. */
+const goldenAngle = Math.PI * (3 - Math.sqrt(5));
+const spacingPerRadiusStep = Math.sqrt((2 * Math.PI) / Math.sqrt(3));
+
+const byPath = byCodeUnit((file: AtlasFile) => file.path);
+const byName = byCodeUnit(([name]: [string, FolderNode]) => name);
+const byDistrictId = byCodeUnit(([district]: [string, number]) => district);
+const byGroupId = byCodeUnit(
+  (group: Pick<ResponsibilityGroup, "id">) => group.id
+);
+
+/** A file's folder below the package's: "" for a file at the package root. */
+export function folderWithin(directory: string, root: string): string {
+  if (directory === root) {
+    return "";
+  }
+  return root && directory.startsWith(`${root}/`)
+    ? directory.slice(root.length + 1)
+    : directory;
+}
+
+function folderTree(files: readonly AtlasFile[], root: string): FolderNode {
+  const tree: FolderNode = { files: [], folders: new Map(), size: 0 };
+  for (const file of files) {
+    let node = tree;
+    node.size += 1;
+    const within = folderWithin(file.directory, root);
+    for (const name of within ? within.split("/") : []) {
+      const next = node.folders.get(name) ?? {
+        files: [],
+        folders: new Map(),
+        size: 0,
+      };
+      node.folders.set(name, next);
+      node = next;
+      node.size += 1;
+    }
+    node.files.push(file);
+  }
+  return tree;
+}
+
+/** How a folder's own files take its sites: by district, then path, or by path alone. */
+type FileOrder = (a: AtlasFile, b: AtlasFile) => number;
+
+/** A folder's blocks, its own files in `order` first, then its subfolders by name, each as blocks in turn. */
+function blocks(node: FolderNode, order: FileOrder, path = ""): Block[] {
+  const own: Block[] = node.files.length
+    ? [{ files: [...node.files].sort(order) }]
+    : [];
+  return [
+    ...own,
+    ...[...node.folders].sort(byName).map(([name, folder]) => {
+      const below = path ? `${path}/${name}` : name;
+      return {
+        folder: below,
+        parts: blocks(folder, order, below),
+        size: folder.size,
+      };
+    }),
+  ];
+}
+
+function blockSize(block: Block) {
+  return "files" in block ? block.files.length : block.size;
+}
+
+/** `count` sites filling a disc, `spacing` apart. */
+function sunflower(count: number, spacing: number): Site[] {
+  const step = spacing / spacingPerRadiusStep;
+  return Array.from({ length: count }, (_, i) => {
+    const radius = step * Math.sqrt(i + 0.5);
+    const angle = i * goldenAngle;
+    return { x: radius * Math.cos(angle), y: radius * Math.sin(angle) };
+  });
+}
+
+/**
+ * Splits `sites` across their wider extent, the first `count` to the west
+ * (or north), and parts the two by `gutter`.
+ */
+function split(
+  sites: Site[],
+  count: number,
+  gutter: number
+): [Site[], Site[], CellSplit] {
+  const xs = sites.map((site) => site.x);
+  const ys = sites.map((site) => site.y);
+  const across =
+    Math.max(...xs) - Math.min(...xs) >= Math.max(...ys) - Math.min(...ys);
+  const along = (site: Site) => (across ? site.x : site.y);
+  const other = (site: Site) => (across ? site.y : site.x);
+  const sorted = [...sites].sort(
+    (a, b) => along(a) - along(b) || other(a) - other(b)
+  );
+  const first = sorted.slice(0, count);
+  const second = sorted.slice(count);
+  for (const site of first) {
+    if (across) {
+      site.x -= gutter / 2;
+    } else {
+      site.y -= gutter / 2;
+    }
+  }
+  for (const site of second) {
+    if (across) {
+      site.x += gutter / 2;
+    } else {
+      site.y += gutter / 2;
+    }
+  }
+  const extent = sites.map(other);
+  const cut: CellSplit = {
+    at: (Math.max(...first.map(along)) + Math.min(...second.map(along))) / 2,
+    axis: across ? "x" : "y",
+    from: Math.min(...extent),
+    to: Math.max(...extent),
+  };
+  return [first, second, cut];
+}
+
+/** The index splitting `sizes` into two runs closest to equal, never empty. */
+function balance(sizes: readonly number[]): number {
+  const total = sizes.reduce((sum, size) => sum + size, 0);
+  let best = 1;
+  let bestGap = Number.POSITIVE_INFINITY;
+  let before = 0;
+  for (let i = 1; i < sizes.length; i += 1) {
+    before += sizes[i - 1] ?? 0;
+    const gap = Math.abs(total - 2 * before);
+    if (gap < bestGap) {
+      best = i;
+      bestGap = gap;
+    }
+  }
+  return best;
+}
+
+/**
+ * Puts `files`, in order, on `sites` by halving both again and again, so
+ * that any run of consecutive files takes a compact patch of the sites.
+ */
+function packFiles(files: readonly AtlasFile[], sites: Site[]): void {
+  const [only] = files;
+  if (files.length === 1 && only) {
+    const [site] = sites;
+    only.x = site?.x ?? 0;
+    only.y = site?.y ?? 0;
+    return;
+  }
+  if (files.length === 0) {
+    return;
+  }
+  const half = Math.floor(files.length / 2);
+  const [first, second] = split(sites, half, 0);
+  packFiles(files.slice(0, half), first);
+  packFiles(files.slice(half), second);
+}
+
+/**
+ * Splits the sites between the blocks of `cell`'s folder, recording each cut
+ * in it and each subfolder's cell under it, and halving the gutter at every
+ * split below: whatever moves inside one side afterwards moves less than
+ * half the gutter in all, so no site crosses back over a cut.
+ */
+function divide(
+  parts: readonly Block[],
+  sites: Site[],
+  gutter: number,
+  cell: FolderCell
+): void {
+  const [only] = parts;
+  if (parts.length === 1 && only) {
+    if ("files" in only) {
+      packFiles(only.files, sites);
+      return;
+    }
+    const below: FolderCell = {
+      folder: only.folder,
+      folders: [],
+      sites,
+      splits: [],
+    };
+    cell.folders.push(below);
+    divide(only.parts, sites, gutter, below);
+    return;
+  }
+  const at = balance(parts.map(blockSize));
+  const count = parts
+    .slice(0, at)
+    .reduce((sum, block) => sum + blockSize(block), 0);
+  const [first, second, cut] = split(sites, count, gutter);
+  cell.splits.push(cut);
+  divide(parts.slice(0, at), first, gutter / 2, cell);
+  divide(parts.slice(at), second, gutter / 2, cell);
+}
+
+/**
+ * Files by district, one rank for the whole island: districts with more
+ * files first, then by id, files without one last, then by path. A
+ * district thus takes the same side of every folder it reaches, and one
+ * compact patch in each.
+ */
+function byDistrict(
+  files: readonly AtlasFile[],
+  districtOf: (file: AtlasFile) => string | undefined
+): FileOrder {
+  const sizes = new Map<string, number>();
+  for (const file of files) {
+    const district = districtOf(file);
+    if (district !== undefined) {
+      sizes.set(district, (sizes.get(district) ?? 0) + 1);
+    }
+  }
+  const rank = new Map(
+    [...sizes]
+      .sort((a, b) => b[1] - a[1] || byDistrictId(a, b))
+      .map(([district], i) => [district, i])
+  );
+  const rankOf = (file: AtlasFile) => {
+    const district = districtOf(file);
+    return district === undefined ? rank.size : (rank.get(district) ?? 0);
+  };
+  return (a, b) => rankOf(a) - rankOf(b) || byPath(a, b);
+}
+
+/**
+ * Each file's district from the `responsibility-groups` lens: the group
+ * whose member modules hold its path, the first by id where two do.
+ */
+export function districtsOfGroups(
+  groups: readonly Pick<ResponsibilityGroup, "id" | "modules">[]
+): (file: AtlasFile) => string | undefined {
+  const districts = new Map<string, string>();
+  for (const group of [...groups].sort(byGroupId)) {
+    for (const module of group.modules) {
+      if (!districts.has(module)) {
+        districts.set(module, group.id);
+      }
+    }
+  }
+  return (file) => districts.get(file.path);
+}
+
+/**
+ * Places an island's files by the folder tree below the package's folder,
+ * `root`: each folder a convex cell of a lattice sized to the island, its
+ * own files by district (`districtOf`) where the island's districts are
+ * known, else by path. Cells, and so the coast, do not depend on the
+ * districts. Deterministic: the same paths and districts give the same
+ * positions. Returns the cell tree, for drawing the folders.
+ */
+export function settleFiles(
+  files: AtlasFile[],
+  radius: number,
+  root: string,
+  districtOf?: (file: AtlasFile) => string | undefined
+): FolderCell {
+  const spacing = Math.min(
+    widestSpacing,
+    spacingPerSigma * contourSigma(radius, Math.max(1, files.length))
+  );
+  const sites = sunflower(files.length, spacing);
+  const tree: FolderCell = { folder: "", folders: [], sites, splits: [] };
+  if (files.length) {
+    const order = districtOf ? byDistrict(files, districtOf) : byPath;
+    divide(
+      blocks(folderTree(files, root), order),
+      sites,
+      topGutter * spacing,
+      tree
+    );
+  }
+  return tree;
+}

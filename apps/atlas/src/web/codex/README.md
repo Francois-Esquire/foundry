@@ -106,8 +106,7 @@ change swaps an inline read or transform for a codex export; nothing else moved.
 
 ## Outside the codex, deliberately
 
-- **Identity seeds.** `unit(id)` hashes set pigments, file anchors and wreck
-  sites. They carry no meaning, so layout keeps them.
+- **Identity seeds.** `unit(id)` hashes set pigments and wreck sites. They carry no meaning, so layout keeps them.
 - **Geometry.** Coasts, relief, ocean depth and every field derived from positions
   belong to layout.
 - **Inks.** Every hue, and how strongly each mark is drawn against the land

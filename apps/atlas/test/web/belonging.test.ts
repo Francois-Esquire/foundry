@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   belongingAncestry,
   compositeRegions,
+  fileDistricts,
   hitBelonging,
   memberContours,
 } from "../../src/web/belonging";
@@ -38,6 +39,7 @@ describe("composite map binding", () => {
         anchorWeight: 4,
         id: "west",
         label: "a",
+        modules: ["a", "a2", "b"],
         responsibilities: ["a", "b"],
       },
       {
@@ -45,6 +47,7 @@ describe("composite map binding", () => {
         anchorWeight: 4,
         id: "east",
         label: "c",
+        modules: ["c", "d"],
         responsibilities: ["c", "d"],
       },
     ],
@@ -236,4 +239,35 @@ describe("belonging footprints", () => {
     expect(JSON.stringify(territory.coast)).toBe(coast);
     expect(memberContours([])).toEqual([]);
   });
+});
+
+it("gives each file its district, its responsibility's group, and none for an independent responsibility or unresolved belonging", () => {
+  const a = file("a", 0);
+  const b = file("b", 0);
+  const c = file("c", 0);
+  const d = file("d", 0);
+  const region = (id: string, members: AtlasFile[], uncertain = false) => ({
+    color: "#000",
+    id,
+    label: id,
+    members,
+    polygons: [],
+    uncertain,
+  });
+  const grouped = region("responsibility:grouped", [a, b]);
+  const alone = region("responsibility:alone", [c, a]);
+  const unresolved = region("unresolved:d", [d], true);
+  const group = {
+    ...region("responsibility-group:g", [a, b]),
+    children: [grouped.id],
+  };
+  const districts = fileDistricts(
+    [alone, grouped, unresolved].sort((x, y) => x.id.localeCompare(y.id)),
+    [group]
+  );
+  // a is also in "alone", which joined no group: the group decides.
+  expect(districts.get("a")?.id).toBe(group.id);
+  expect(districts.get("b")?.id).toBe(group.id);
+  expect(districts.has("c")).toBe(false);
+  expect(districts.has("d")).toBe(false);
 });

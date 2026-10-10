@@ -31,7 +31,7 @@ What the scan already measures for each:
 | Question | Data that exists | Drawn today |
 | --- | --- | --- |
 | Shape | Package graph, dependency layers, gravity, file counts | Island size and north–south position |
-| Proximity | The `proximity` lens (2.5): folders whose files fall into unrelated groups of responsibilities, files apart from their responsibility's folder (`pathAgreesWithRegion`), and co-changing files in different folders; responsibility regions; change coupling; boundary interactions | Distance from a directory hash plus imports; one grouping, `lib`'s responsibilities, once an island is entered (the viewer's own neighborhoods retired in 2.2d); path agreement only inside a responsibility overlay |
+| Proximity | The `proximity` lens (2.5): folders whose files fall into unrelated groups of responsibilities, files apart from their responsibility's folder (`pathAgreesWithRegion`), and co-changing files in different folders; responsibility regions; change coupling; boundary interactions | Since 4.3a, position by folder cell inside an island, no import pull; one grouping, `lib`'s responsibilities, once an island is entered (the viewer's own neighborhoods retired in 2.2d); path agreement only inside a responsibility overlay |
 | Nesting | The `nesting` lens (2.4): one folder tree across every package, from the module index, with path regions and seams from `internals/`; scopes with parent chains | Islands and districts; directories only seed a random angle |
 | Lives vs used | The `placement` lens (2.3): every symbol, file, folder, and package labelled fits, spread, or departs from its consumer modules; per-symbol consumer packages; symbol locality `commonScope` and `dominant*`; concept miscentering; `fold-package` | Package trade, selection ink, import traces; none of the `lib` placement data is read |
 
@@ -69,7 +69,7 @@ What the map encodes, from the codex bindings and the design record:
 | Island | A package. Size from file count. | yes |
 | North–south position | Dependency layer: the foundation (layer 0) south, each layer above it further north; numbered on the latitude scale since 4.2a(iii). Since 4.3a every island sits exactly on its layer's row. | yes |
 | East–west position | Since 4.3a, the package's folder: a row runs in folder order. Distance between islands carries nothing; dependency strength and shared concepts pulled islands together until then. | yes |
-| File mark | A file. Placed by imports and shared concepts. | yes |
+| File mark | A file. Placed by its folder since 4.3a: each folder a cell of its island; imports and shared concepts placed it until then. | yes |
 | District | A responsibility group: responsibilities the `responsibility-groups` lens joins (since 2.2b). | at island zoom |
 | Relief and summits | High fan-in files: imported by at least their package's cutoff of its own source files (`file-roles` lens, since 2.2a). One capped term in the paper since 4.2a, never darker than a file mark. | yes |
 | Lake | A module many responsibilities draw on. | yes |

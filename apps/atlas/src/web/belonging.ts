@@ -280,6 +280,37 @@ export function compositeRegions(
   return composites.filter((region) => region.members.length);
 }
 
+/**
+ * Each file's district, by file id: the responsibility group holding its
+ * responsibility. A file of an independent responsibility, which the map
+ * draws among the independent ones, or of unresolved belonging has none.
+ */
+export function fileDistricts(
+  regions: readonly BelongingRegion[],
+  composites: readonly BelongingRegion[]
+): Map<string, BelongingRegion> {
+  const districts = new Map<string, BelongingRegion>();
+  for (const region of regions) {
+    if (region.uncertain) {
+      continue;
+    }
+    const group = composites.find(
+      (composite) =>
+        !composite.collection && composite.children?.includes(region.id)
+    );
+    if (!group) {
+      continue;
+    }
+    for (const file of region.members) {
+      // A file in two responsibilities takes the first's district, by id.
+      if (!districts.has(file.id)) {
+        districts.set(file.id, group);
+      }
+    }
+  }
+  return districts;
+}
+
 function districtContours(regions: BelongingRegion[]) {
   const members = regions.flatMap((region) => region.members);
   if (!members.length) {

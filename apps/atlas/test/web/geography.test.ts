@@ -3,7 +3,6 @@ import { latitude } from "../../src/web/codex/bindings";
 import {
   landContours,
   relayoutAtlas,
-  settleFiles,
   settlePackages,
 } from "../../src/web/geography";
 import type { AtlasFile, Territory } from "../../src/web/types";
@@ -39,18 +38,6 @@ const region = (id: string, x: number): Territory => ({
 });
 
 describe("atlas geography", () => {
-  it("reproduces file geometry for the same identifiers and imports", () => {
-    const a = [file("a"), file("b"), file("c")];
-    const b = structuredClone(a);
-    const links = [{ source: "a", target: "b" }];
-    settleFiles(a, 60, links);
-    settleFiles(b, 60, links);
-    expect(a).toEqual(b);
-    expect(new Set(a.map((f) => `${f.x},${f.y}`)).size).toBe(3);
-    expect(a.every((f) => Number.isFinite(f.x) && Number.isFinite(f.y))).toBe(
-      true
-    );
-  });
   it("leaves water between disconnected file clusters", () => {
     const many = Array.from({ length: 40 }, (_, i) => ({
       ...file(String(i)),

@@ -154,83 +154,12 @@ export function relayoutAtlas(data: AtlasData, clearance: number): AtlasData {
   return { ...data, ...chartSize(territories), territories };
 }
 
-export function settleFiles(
-  files: AtlasFile[],
-  radius: number,
-  edges: { source: string; target: string }[]
-): void {
-  const byId = new Map(files.map((f) => [f.id, f]));
-  const links = edges.flatMap((e) => {
-    const a = byId.get(e.source);
-    const b = byId.get(e.target);
-    return a && b ? [[a, b] as const] : [];
-  });
-  const anchors = files.map((f) => {
-    const angle = unit(f.directory) * Math.PI * 2;
-    const distance = Math.sqrt(unit(`${f.directory}:distance`)) * radius * 0.62;
-    return { x: Math.cos(angle) * distance, y: Math.sin(angle) * distance };
-  });
-  files.forEach((f, i) => {
-    const a = anchors[i];
-    if (!a) {
-      return;
-    }
-    const angle = unit(f.id) * Math.PI * 2;
-    const distance = Math.sqrt(unit(`${f.id}:distance`)) * radius * 0.24;
-    f.x = a.x + Math.cos(angle) * distance;
-    f.y = a.y + Math.sin(angle) * distance;
-  });
-  for (let step = 0; step < 100; step += 1) {
-    for (const [a, b] of links) {
-      const dx = (b.x - a.x) * 0.012;
-      const dy = (b.y - a.y) * 0.012;
-      a.x += dx;
-      a.y += dy;
-      b.x -= dx;
-      b.y -= dy;
-    }
-    const grid = new Map<string, AtlasFile[]>();
-    files.forEach((f, i) => {
-      const a = anchors[i];
-      if (!a) {
-        return;
-      }
-      f.x += (a.x - f.x) * 0.025;
-      f.y += (a.y - f.y) * 0.025;
-      const gx = Math.floor(f.x / 6);
-      const gy = Math.floor(f.y / 6);
-      settleFilesX(gx, gy, grid, f);
-      const key = `${gx},${gy}`;
-      const bucket = grid.get(key) ?? [];
-      bucket.push(f);
-      grid.set(key, bucket);
-    });
-  }
-}
-
-function settleFilesX(
-  gx: number,
-  gy: number,
-  grid: Map<string, AtlasFile[]>,
-  f: AtlasFile
-) {
-  for (let x = gx - 1; x <= gx + 1; x += 1) {
-    for (let y = gy - 1; y <= gy + 1; y += 1) {
-      for (const other of grid.get(`${x},${y}`) ?? []) {
-        const dx = f.x - other.x || 0.01;
-        const dy = f.y - other.y || 0.01;
-        const d = Math.hypot(dx, dy);
-        if (d >= 5) {
-          continue;
-        }
-        const push = ((5 - d) / d) * 0.5;
-        f.x += dx * push;
-        f.y += dy * push;
-        other.x -= dx * push;
-        other.y -= dy * push;
-      }
-    }
-  }
+/**
+ * The spread of each file's influence on its island's land: wider for a
+ * sparse island, between 4 and 10 units.
+ */
+export function contourSigma(radius: number, files: number) {
+  return Math.max(4, Math.min(10, (radius / Math.sqrt(files)) * 0.65));
 }
 
 export function landContours(files: AtlasFile[], radius: number): Polygon[][] {
@@ -240,10 +169,7 @@ export function landContours(files: AtlasFile[], radius: number): Polygon[][] {
   const size = 112;
   const span = radius * 2.5;
   const cell = span / size;
-  const sigma = Math.max(
-    4,
-    Math.min(10, (radius / Math.sqrt(files.length)) * 0.65)
-  );
+  const sigma = contourSigma(radius, files.length);
   const field = new Array<number>(size * size).fill(0);
   for (const f of files) {
     const cx = (f.x + span / 2) / cell;

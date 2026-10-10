@@ -50,7 +50,7 @@ function scanned(): Record<string, unknown> {
         },
         "responsibility-groups": {
           file: "lenses/responsibility-groups.json",
-          schemaVersion: 1,
+          schemaVersion: 2,
         },
       },
       packages: [

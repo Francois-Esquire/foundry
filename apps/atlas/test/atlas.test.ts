@@ -330,6 +330,12 @@ test("built CLI scans an external workspace and the web loaders read its saved d
             // SHA-256 of the two ids, one per line, first 12 hex digits.
             id: "responsibility-group:154ae5bf7ebf",
             label: "src/pad.ts",
+            // Both responsibilities' modules, each once, sorted.
+            modules: [
+              "tooling/c/src/index.ts",
+              "tooling/c/src/pad.ts",
+              "tooling/c/src/unit.ts",
+            ],
             responsibilities: [pad, unit],
           },
         ],

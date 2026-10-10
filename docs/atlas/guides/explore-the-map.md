@@ -21,9 +21,12 @@ folder, not physical scale; how far apart two islands sit means nothing.
   such as `apps/` or `packages/`, sit side by side. Which packages depend on
   each other is drawn by the lines a selection shows, not by distance. An
   island's size grows with its file count.
-- **Marks are files.** Files are placed within their island by what they
-  import and the concepts they share, so files that work together sit
-  together. Each kind of file has its own ink: source, test, story,
+- **Marks are files.** Files are placed within their island by folder:
+  each folder takes a patch of its own, beside its sibling folders, so a
+  package's `src` and `test` lie side by side. What files import does not
+  move them. The colours drawn over an island closer in are its districts,
+  the responsibilities its files serve; Place names a file's folder and,
+  once the island is read, its district. Each kind of file has its own ink: source, test, story,
   config, and other. At overview every file is a dot; closer in, test files
   are open boxes and stories half-discs, and the other kinds are small
   blocks.

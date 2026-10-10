@@ -6,30 +6,39 @@
  *   bun scripts/measure-layout.ts <dataset output directory>
  *   bun scripts/measure-layout.ts --fixture
  *
- * A dataset is laid out by `loadAtlas` itself, its reads served from disk,
- * and each island's districts come from its internals as the map binds them.
- * The fixture is the captured renderer input in test/fixtures: its files are
- * laid out again by today's code, and it has no internals, so it reports no
- * district numbers.
+ * A dataset is laid out by `loadAtlas` itself, its reads served from disk. A
+ * file's district is its responsibility group, from the
+ * `responsibility-groups` lens as the layout reads it; its responsibility
+ * comes from the island's internals as the map binds them. Each number is
+ * given as the map draws it ("drawn"), with every folder's files in path
+ * order instead ("path order"), and shuffled. The fixture is the captured
+ * renderer input in test/fixtures: its files are laid out again by today's
+ * code, and it has no internals or lens, so it reports no district
+ * numbers.
  *
  * - folder share: of each file's 3 nearest files on its island, the share in
  *   exactly its directory (a file in a subfolder of it does not count);
- * - district share: of each districted file's 3 nearest districted files,
- *   the share in its district (`unresolved:` regions are not districts);
+ * - district and responsibility shares: the same, over files that have one
+ *   (a file of an independent responsibility has no district);
  * - patches per district: the polygons `memberContours` draws for it;
+ * - folders per district: the directories each district's files sit in, a
+ *   reference for patches per district, which a layout by folder keeps at
+ *   or below it when a district is one patch in each folder, or fewer where
+ *   its patches in neighbouring cells join; no layout can change it;
  * - row neighbours: of each pair of islands side by side in a layer's row,
  *   the share whose package folders have one parent (`apps/atlas` and
  *   `apps/marbles`), against rows shuffled; read from the manifest, so the
  *   fixture has none;
- * - satellites per package: coast polygons beyond the first, which a
- *   shuffle cannot change, since it keeps the island's set of positions;
+ * - satellites per package: coast polygons beyond the first, which neither
+ *   a shuffle nor the order within folders can change, since both keep the
+ *   island's set of positions;
  * - layout: `atlas:data-loaded` to `atlas:layout-settled`, in this process.
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import type { BelongingRegion } from "../src/web/belonging";
 import { belongingRegions, memberContours } from "../src/web/belonging";
-import { landContours, settleFiles } from "../src/web/geography";
+import { districtsOfGroups, settleFiles } from "../src/web/folder-sectors";
+import { landContours } from "../src/web/geography";
 import { loadAtlas } from "../src/web/load-atlas";
 import { loadInternals } from "../src/web/load-internals";
 import type { AtlasData, AtlasFile, Territory } from "../src/web/types";
@@ -40,15 +49,20 @@ const dataMount = /^\.\/data\//;
 const SHUFFLES = 10;
 
 interface IslandMeasure {
-  districts: BelongingRegion[];
+  /** Each file's district, by file id. */
+  districts: ReadonlyMap<string, string>;
   files: AtlasFile[];
+  /** Each file's responsibility, by file id. */
+  responsibilities: ReadonlyMap<string, string>;
   territory: Territory;
 }
 
 interface Numbers {
   districtShare: number | undefined;
-  folderShare: number;
+  folderShare: number | undefined;
+  foldersPerDistrict: number | undefined;
   patchesPerDistrict: number | undefined;
+  responsibilityShare: number | undefined;
 }
 
 /** A seeded generator, so the control is the same on every run. */
@@ -162,40 +176,66 @@ function nearestShare(
   return { matched, total };
 }
 
-function measure(islands: IslandMeasure[]): Numbers {
-  let folders = { matched: 0, total: 0 };
-  let districts = { matched: 0, total: 0 };
-  let patches = 0;
-  let districtCount = 0;
-  for (const { districts: regions, files } of islands) {
-    const placed = new Map(files.map((file) => [file.id, file]));
-    const district = new Map<string, string>();
-    for (const region of regions) {
-      for (const member of region.members) {
-        district.set(member.id, region.id);
-      }
-      patches += memberContours(
-        region.members.flatMap((member) => placed.get(member.id) ?? [])
-      ).length;
-      districtCount += 1;
+function share({ matched, total }: { matched: number; total: number }) {
+  return total ? matched / total : undefined;
+}
+
+function tally(
+  islands: readonly IslandMeasure[],
+  count: (island: IslandMeasure) => { matched: number; total: number }
+) {
+  return islands
+    .map(count)
+    .reduce(
+      (a, b) => ({ matched: a.matched + b.matched, total: a.total + b.total }),
+      { matched: 0, total: 0 }
+    );
+}
+
+/** Each district's files, by district id. */
+function districtMembers(island: IslandMeasure) {
+  const members = new Map<string, AtlasFile[]>();
+  for (const file of island.files) {
+    const district = island.districts.get(file.id);
+    if (district !== undefined) {
+      members.set(district, [...(members.get(district) ?? []), file]);
     }
-    const folder = nearestShare(files, (file) => file.directory);
-    folders = {
-      matched: folders.matched + folder.matched,
-      total: folders.total + folder.total,
-    };
-    const near = nearestShare(files, (file) => district.get(file.id));
-    districts = {
-      matched: districts.matched + near.matched,
-      total: districts.total + near.total,
-    };
   }
+  return [...members.values()];
+}
+
+function measure(islands: IslandMeasure[]): Numbers {
+  const districts = islands.flatMap(districtMembers);
+  const mean = (values: number[]) =>
+    values.length
+      ? values.reduce((total, value) => total + value, 0) / values.length
+      : undefined;
   return {
-    districtShare: districts.total
-      ? districts.matched / districts.total
-      : undefined,
-    folderShare: folders.total ? folders.matched / folders.total : 0,
-    patchesPerDistrict: districtCount ? patches / districtCount : undefined,
+    districtShare: share(
+      tally(islands, (island) =>
+        nearestShare(island.files, (file) => island.districts.get(file.id))
+      )
+    ),
+    folderShare: share(
+      tally(islands, (island) =>
+        nearestShare(island.files, (file) => file.directory)
+      )
+    ),
+    foldersPerDistrict: mean(
+      districts.map(
+        (members) => new Set(members.map((file) => file.directory)).size
+      )
+    ),
+    patchesPerDistrict: mean(
+      districts.map((members) => memberContours(members).length)
+    ),
+    responsibilityShare: share(
+      tally(islands, (island) =>
+        nearestShare(island.files, (file) =>
+          island.responsibilities.get(file.id)
+        )
+      )
+    ),
   };
 }
 
@@ -212,26 +252,38 @@ function control(islands: IslandMeasure[]): Numbers {
   const mean = (pick: (numbers: Numbers) => number | undefined) => {
     const values = runs.flatMap((run) => pick(run) ?? []);
     return values.length
-      ? values.reduce((sum, value) => sum + value, 0) / values.length
+      ? values.reduce((total, value) => total + value, 0) / values.length
       : undefined;
   };
   return {
     districtShare: mean((run) => run.districtShare),
-    folderShare: mean((run) => run.folderShare) ?? 0,
+    folderShare: mean((run) => run.folderShare),
+    foldersPerDistrict: mean((run) => run.foldersPerDistrict),
     patchesPerDistrict: mean((run) => run.patchesPerDistrict),
+    responsibilityShare: mean((run) => run.responsibilityShare),
   };
+}
+
+/** The islands laid out again with every folder's files in path order, as without districts. */
+function pathOrder(islands: IslandMeasure[]): IslandMeasure[] {
+  return islands.map((island) => {
+    const files = island.files.map((file) => ({ ...file }));
+    settleFiles(files, island.territory.radius, island.territory.folder);
+    return { ...island, files };
+  });
 }
 
 function satellites(territories: Territory[]) {
   const counts = territories.map((p) => Math.max(0, p.coast.length - 1));
   return {
-    perPackage: counts.reduce((sum, count) => sum + count, 0) / counts.length,
-    total: counts.reduce((sum, count) => sum + count, 0),
+    perPackage:
+      counts.reduce((total, count) => total + count, 0) / counts.length,
+    total: counts.reduce((total, count) => total + count, 0),
   };
 }
 
 function format(value: number | undefined, digits = 3) {
-  return value === undefined ? "n/a" : value.toFixed(digits);
+  return (value === undefined ? "n/a" : value.toFixed(digits)).padStart(9);
 }
 
 function report(
@@ -240,31 +292,33 @@ function report(
   layoutMs: number | undefined,
   neighbors?: ReturnType<typeof rowNeighbors>
 ) {
-  const laid = measure(islands);
+  const drawn = measure(islands);
+  const byPath = measure(pathOrder(islands));
   const shuffled = control(islands);
   const moons = satellites(islands.map((island) => island.territory));
-  const rows = [
-    ["folder share (3-NN)", laid.folderShare, shuffled.folderShare],
-    ["district share (3-NN)", laid.districtShare, shuffled.districtShare],
-    [
-      "patches per district",
-      laid.patchesPerDistrict,
-      shuffled.patchesPerDistrict,
-    ],
-    ["row neighbours, parent", neighbors?.laid, neighbors?.shuffled],
-  ] as const;
+  const rows: [string, (numbers: Numbers) => number | undefined][] = [
+    ["folder share (3-NN)", (n) => n.folderShare],
+    ["district share (3-NN)", (n) => n.districtShare],
+    ["responsibility share", (n) => n.responsibilityShare],
+    ["patches per district", (n) => n.patchesPerDistrict],
+    ["folders per district", (n) => n.foldersPerDistrict],
+  ];
   console.info(`${name}: ${islands.length} islands`);
-  for (const [label, value, controlValue] of rows) {
+  console.info(`  ${"".padEnd(24)}     drawn path order shuffled`);
+  for (const [label, pick] of rows) {
     console.info(
-      `  ${label.padEnd(24)} ${format(value).padStart(7)}   shuffled ${format(controlValue).padStart(7)}`
+      `  ${label.padEnd(24)}${format(pick(drawn))}${format(pick(byPath))}${format(pick(shuffled))}`
     );
   }
   console.info(
-    `  ${"satellites per package".padEnd(24)} ${format(moons.perPackage, 2).padStart(7)}   (${moons.total} in all)`
+    `  ${"row neighbours, parent".padEnd(24)}${format(neighbors?.laid)}${format(neighbors?.laid)}${format(neighbors?.shuffled)}`
+  );
+  console.info(
+    `  ${"satellites per package".padEnd(24)}${format(moons.perPackage, 2)}   (${moons.total} in all)`
   );
   if (layoutMs !== undefined) {
     console.info(
-      `  ${"layout".padEnd(24)} ${layoutMs.toFixed(0).padStart(7)} ms`
+      `  ${"layout".padEnd(24)}${layoutMs.toFixed(0).padStart(9)} ms`
     );
   }
 }
@@ -294,20 +348,41 @@ async function measureDataset(root: string) {
   const data = await loadAtlas();
   const islands = await Promise.all(
     data.territories.map(async (territory): Promise<IslandMeasure> => {
-      const internals = territory.responsibilityGroups
-        ? await loadInternals(
-            territory.id,
-            territory.fileRoles,
-            data.generatedAt,
-            new AbortController().signal
-          )
-        : undefined;
-      const districts = internals
-        ? belongingRegions(internals, territory).filter(
-            (region) => !region.uncertain
-          )
-        : [];
-      return { districts, files: territory.files, territory };
+      const groups = territory.responsibilityGroups;
+      if (!groups) {
+        return {
+          districts: new Map(),
+          files: territory.files,
+          responsibilities: new Map(),
+          territory,
+        };
+      }
+      const districtOf = districtsOfGroups(groups.groups);
+      const internals = await loadInternals(
+        territory.id,
+        territory.fileRoles,
+        data.generatedAt,
+        new AbortController().signal
+      );
+      const responsibilities = new Map<string, string>();
+      for (const region of belongingRegions(internals, territory)) {
+        for (const file of region.uncertain ? [] : region.members) {
+          if (!responsibilities.has(file.id)) {
+            responsibilities.set(file.id, region.id);
+          }
+        }
+      }
+      return {
+        districts: new Map(
+          territory.files.flatMap((file) => {
+            const district = districtOf(file);
+            return district === undefined ? [] : [[file.id, district]];
+          })
+        ),
+        files: territory.files,
+        responsibilities,
+        territory,
+      };
     })
   );
   const manifest = JSON.parse(
@@ -315,6 +390,11 @@ async function measureDataset(root: string) {
   ) as { packages: { id: string; path: string }[] };
   const paths = new Map(manifest.packages.map((p) => [p.id, p.path]));
   report(root, islands, layoutTime(), rowNeighbors(islandRows(data, paths)));
+}
+
+/** The capture's packages all sit two folders deep, as `packages/agents`: the folder its manifest would give. */
+function capturedFolder(territory: Pick<Territory, "files">): string {
+  return territory.files[0]?.directory.split("/").slice(0, 2).join("/") ?? "";
 }
 
 function measureFixture() {
@@ -326,9 +406,14 @@ function measureFixture() {
   ) as AtlasData;
   const islands = data.territories.map((territory): IslandMeasure => {
     const files = territory.files.map((file) => ({ ...file, x: 0, y: 0 }));
-    settleFiles(files, territory.radius, data.fileEdges);
+    settleFiles(files, territory.radius, capturedFolder(territory));
     const [, coast = []] = landContours(files, territory.radius);
-    return { districts: [], files, territory: { ...territory, coast, files } };
+    return {
+      districts: new Map(),
+      files,
+      responsibilities: new Map(),
+      territory: { ...territory, coast, files },
+    };
   });
   report("fixture", islands, undefined);
 }

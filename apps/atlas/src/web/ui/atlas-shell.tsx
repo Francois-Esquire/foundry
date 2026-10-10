@@ -6,9 +6,11 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useMemo,
   useRef,
   useState,
 } from "react";
+import { fileDistricts } from "../belonging";
 import type { AtlasSelection } from "../scene/scene";
 import type { FormerPackage } from "../types";
 import { AtlasHeader } from "./atlas-header";
@@ -165,12 +167,16 @@ export function AtlasShell({
   const inspectedRegion =
     belonging.regions.find((region) => region.id === inspected?.regionId) ??
     belonging.composites.find((region) => region.id === inspected?.compositeId);
+  const districts = useMemo(
+    () => fileDistricts(belonging.regions, belonging.composites),
+    [belonging.regions, belonging.composites]
+  );
   const readout = inspectionText(
     hoveredWreck ?? selectedWreck,
     inspected,
     inspectedRegion,
     state.data.packageLayers,
-    belonging.features
+    { districts, features: belonging.features }
   );
   const tabs: PanelTab[] = [
     {

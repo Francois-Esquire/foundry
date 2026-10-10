@@ -2430,6 +2430,91 @@ DESIGN.md's "ports" and "settlements" are 4.2a(iii).
     were under heavier machine load (first frame 5.4 s against 3.1 s), so
     that difference overstates the gain.
 
+- **4.3a, files by folder.** Done 2026-10-10.
+  - `folder-sectors.ts` places an island's files by the folder tree below
+    `Territory.folder`, with no import pull: a sunflower lattice fills a
+    disc, spaced 1.5 contour spreads and at most 8 units, so one district's
+    neighbouring files join in its footprint; recursive halving across the
+    wider extent gives every folder a convex cell sized by its files,
+    siblings side by side in code-unit name order, a folder's own files
+    first. A gutter of one spacing parts the first split and halves at every
+    split below, so no site crosses a cut. This is recursive bisection
+    rather than the plan's angular sectors with distance by depth: it keeps
+    every cell convex and the density even.
+  - Within its cell, a folder's own files take their sites by district, one
+    rank for the island (more files first, then id; then path), so a
+    district is one compact patch per folder and takes the same side of
+    every folder it reaches. Cells, and so coasts and satellites, do not
+    depend on the districts. A district is a responsibility group; a file of
+    an independent responsibility or of unresolved belonging has none, as
+    the map draws them among its collections (`fileDistricts`).
+  - The districts come at load from the `responsibility-groups` lens,
+    which now records each group's member `modules`, workspace-relative,
+    sorted, each once (schema version 2); `districtsOfGroups` reads them.
+    That is a change to lens code, not analysis code, so it has no row under
+    "Changes to existing code". A package without internals has no groups,
+    and its files go in path order. A dataset saved before the change has
+    no members, but it never reaches the layout: the dataset reader refuses
+    a lens of another schema version and asks for a new scan, as for any
+    lens, so the path-order fallback covers only packages without
+    internals.
+  - The lens on this worktree's scan (15 packages, 1,566 files), read and
+    derived over the same dataset, alternating old and new: 12,164 bytes and
+    71–88 ms before, 40,365 bytes and 77–106 ms after. The time is the
+    internals' read; the members add 28 KB to the 1.71 MB the map reads at
+    load.
+  - Retired: `settleFiles`'s hashed directory anchors, its import pull and
+    its collision pass; `loadAtlas` keeps the import edges for trade routes,
+    roads and tracing only.
+  - Place and the hover readout give a file's folder below its package's
+    and, once the island's belonging is read, its district: "source · in
+    src/web/scene · district Lens · …".
+  - Acceptance changed, decided with the coordinator: patches per district
+    are measured against folders per district, the number of folders each
+    district's files sit in, a reference rather than a floor, and the bar is
+    "at or below folders per district", not "no worse than the import-pulled
+    layout". The original bar holds on Foundry too (2.414 patches against
+    2.621), but the new one is the principled one, and it still means
+    something where the original would not hold: under "position means
+    folder", a district split across folders is the honest signal, the one
+    the proximity lens reports, and the old layout joined such districts
+    only by pulling files out of their folders.
+  - Measured on a fresh scan of this worktree, against `3e93b64` on the
+    same dataset (its lens relabelled version 1 for the old reader, which
+    ignores `modules`), in `/tmp/review-shots/4.3a/before-3-measure.txt`
+    and `c-measure.txt`: folder share 0.570 before, 0.771 after (0.137
+    shuffled); district share 0.767 before, 0.860 after (0.53 shuffled; in
+    path order it would be 0.825); responsibility share 0.476, 0.529
+    (0.255); patches per district 2.621 before and 2.414 after, below the
+    3.414 folders per district, since districts join across neighbouring cells
+    (2.897 in path order); satellites 1.33 per package (20) before and none
+    after; on the fixture, folder share 0.569 to 0.734 and satellites 0.32
+    (9) to none. Layout in Bun 165–187 ms before and 31–42 ms after; in
+    Chrome, `atlas:data-loaded` to `atlas:layout-settled`, 21–22 ms after
+    (the old build cannot read the new lens, so it has no Chrome before on
+    this dataset; 139–141 ms on the earlier one). The
+    numbers on the earlier dataset, where a lone responsibility counted as a
+    district, are in `b-measure.txt` and `before-2-measure-paired.txt`.
+  - Coasts are round now: an island's outline no longer carries clusters;
+    the gutter between its first two cells shows in its specks.
+  - `settleFiles` returns the cell tree: each folder's cell with its sites,
+    the cuts made between its own files and its subfolders (an axis, the
+    line's coordinate mid-gutter, and its extent), and its subfolders'
+    cells. Nothing draws it yet; 4.3b will. Tests prove, on the reference
+    atlas, that within every cell the hulls of its own files and of each
+    subfolder are pairwise apart, and cover one file, one folder of many
+    files, deep nesting, and files outside the package's folder.
+  - The `responsibility-groups` lens's schema version 2 means every saved
+    dataset needs a new `atlas scan`: the reader refuses version 1 and says
+    so. The atlas CHANGELOG is generated from commits at release, so this
+    belongs in the commit message rather than an edited CHANGELOG.
+
+- **4.3b** (recorded at 4.3a): draw faint cell lines and top-level folder
+  names at island zoom, from `settleFiles`'s cell tree. Try a top gutter of
+  2–3 spacings as a cue in the coast, and measure satellites again if it is
+  tried. Check that district labels such as "lib" or "scripts" do not read
+  as folder names once folder names are drawn.
+
 **4.4 Loading.** Covered by the lazy reader in 1.5; the module shards stopped
 being read at load in 2.2d. What remains is the viewer reading only what the
 current zoom needs.

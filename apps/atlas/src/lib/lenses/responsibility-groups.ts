@@ -63,7 +63,7 @@ function groupId(responsibilities: readonly string[]): string {
  * the member with the most affinity to the others (ties by id).
  */
 export function groupResponsibilities(evidence: ResponsibilityEvidence): {
-  groups: Omit<ResponsibilityGroup, "anchorModule">[];
+  groups: Omit<ResponsibilityGroup, "anchorModule" | "modules">[];
   independent: string[];
 } {
   const regions = [...evidence.regions].sort((a, b) =>
@@ -100,7 +100,7 @@ export function groupResponsibilities(evidence: ResponsibilityEvidence): {
   }
   const originalWeights = weights.slice();
   mergeWhileGaining(total, merged, weights, count);
-  const groups: Omit<ResponsibilityGroup, "anchorModule">[] = [];
+  const groups: Omit<ResponsibilityGroup, "anchorModule" | "modules">[] = [];
   const independent: string[] = [];
   for (const group of merged.values()) {
     const members = group.members.flatMap((index) => regions[index] ?? []);
@@ -211,9 +211,22 @@ function derivePackage(
       const [anchorModule] = [...(modules.get(group.anchor) ?? [])].sort(
         (a, b) => (fanIn.get(b) ?? 0) - (fanIn.get(a) ?? 0) || byId(a, b)
       );
+      const members = [
+        ...new Set(
+          group.responsibilities.flatMap((id) =>
+            (modules.get(id) ?? []).map((module) =>
+              rootRelative(pkg.root, module)
+            )
+          )
+        ),
+      ].sort(byId);
       return anchorModule === undefined
-        ? group
-        : { ...group, anchorModule: rootRelative(pkg.root, anchorModule) };
+        ? { ...group, modules: members }
+        : {
+            ...group,
+            anchorModule: rootRelative(pkg.root, anchorModule),
+            modules: members,
+          };
     }),
     id: pkg.id,
     independent,

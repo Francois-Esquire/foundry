@@ -147,6 +147,7 @@ describe("renderLens", () => {
       anchorWeight: 1,
       id: `responsibility-group:${label}`,
       label,
+      modules: [],
       responsibilities,
     });
     const text = renderLens(

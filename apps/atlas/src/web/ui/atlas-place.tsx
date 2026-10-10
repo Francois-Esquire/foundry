@@ -1,5 +1,6 @@
-import { useCallback } from "react";
-import type { BelongingRegion } from "../belonging";
+import { useCallback, useMemo } from "react";
+import { type BelongingRegion, fileDistricts } from "../belonging";
+import { folderWithin } from "../folder-sectors";
 import { featureText, importCounts } from "../natural-feature-inspection";
 import type { NaturalFeatures } from "../natural-features";
 import type { ResponsibilityOverlay } from "../responsibility-focus";
@@ -74,6 +75,10 @@ export function AtlasPlace({
   );
   const place = region ?? composite;
   const hoveredRegion = findRegion(regions, composites, hover);
+  const districts = useMemo(
+    () => fileDistricts(regions, composites),
+    [regions, composites]
+  );
   const handleClear = useCallback(() => onSelect(null), [onSelect]);
   const handleFrame = useCallback(() => {
     if (place) {
@@ -85,7 +90,7 @@ export function AtlasPlace({
     hover,
     hoveredRegion,
     data.packageLayers,
-    features
+    { districts, features }
   );
   if (!(territory && selection)) {
     return (
@@ -119,7 +124,8 @@ export function AtlasPlace({
           region,
           territory,
           composites,
-          data.packageLayers
+          data.packageLayers,
+          districts
         )}
       </p>
       {pointer}
@@ -296,9 +302,29 @@ function browseLabel(
   return "Browse districts";
 }
 
-/** A file's kind and import counts; a summit file leads with its internal fan-in and its package's cutoff. */
-function fileDetail(file: AtlasFile, territory: Territory): string {
-  return `${file.kind} · ${importCounts(file, territory.highFanInCutoff)} It imports ${file.outgoing} ${file.outgoing === 1 ? "module" : "modules"}.`;
+/** What the two groupings say of a file, as Place reads them, and the shared shape of its readout. */
+interface FileContext {
+  /** Each file's district, by file id, once the island's belonging is read. */
+  districts?: ReadonlyMap<string, BelongingRegion>;
+  features?: NaturalFeatures;
+}
+
+/**
+ * A file's kind; where it sits, its folder, and what it serves, its
+ * district, once the island's belonging is read; then its import counts. A
+ * summit file's counts lead with its internal fan-in and its package's
+ * cutoff.
+ */
+function fileDetail(
+  file: AtlasFile,
+  territory: Territory,
+  districts?: ReadonlyMap<string, BelongingRegion>
+): string {
+  const folder = folderWithin(file.directory, territory.folder);
+  const where = `in ${folder || "the package folder"}`;
+  const district = districts?.get(file.id);
+  const serves = district ? ` · district ${district.label}` : "";
+  return `${file.kind} · ${where}${serves} · ${importCounts(file, territory.highFanInCutoff)} It imports ${file.outgoing} ${file.outgoing === 1 ? "module" : "modules"}.`;
 }
 
 /** An island's dependency layer as a reader hears it: "Layer 2", or "No layer" where the graph could not place it. */
@@ -328,10 +354,11 @@ function describeSelection(
   region: BelongingRegion | undefined,
   territory: Territory,
   composites: BelongingRegion[],
-  layers: AtlasData["packageLayers"]
+  layers: AtlasData["packageLayers"],
+  districts: ReadonlyMap<string, BelongingRegion>
 ): string {
   if (selection.file) {
-    return fileDetail(selection.file, territory);
+    return fileDetail(selection.file, territory, districts);
   }
   if (place) {
     return `${place.members.length} files · ${describePlaceKind(region, place)}`;
@@ -355,9 +382,9 @@ function describePointer(
   hover: AtlasSelection | null,
   region: BelongingRegion | undefined,
   layers: AtlasData["packageLayers"],
-  features?: NaturalFeatures
+  context: FileContext
 ) {
-  const text = inspectionText(wreck, hover, region, layers, features);
+  const text = inspectionText(wreck, hover, region, layers, context);
   if (!text) {
     return null;
   }
@@ -374,7 +401,7 @@ export function inspectionText(
   inspected: AtlasSelection | null,
   region: BelongingRegion | undefined,
   layers: AtlasData["packageLayers"],
-  features?: NaturalFeatures
+  { districts, features }: FileContext = {}
 ): { title: string; detail: string } | null {
   if (wreck) {
     return {
@@ -395,7 +422,7 @@ export function inspectionText(
     return featureText(inspected.feature);
   }
   return {
-    detail: inspectionDetail(inspected, region, layers),
+    detail: inspectionDetail(inspected, region, layers, districts),
     title: inspected.symbol
       ? `${inspected.symbol.name} · ${inspected.file?.path ?? inspected.territory.id}`
       : (inspected.file?.path ?? region?.label ?? inspected.territory.label),
@@ -405,10 +432,11 @@ export function inspectionText(
 function inspectionDetail(
   inspected: AtlasSelection,
   region: BelongingRegion | undefined,
-  layers: AtlasData["packageLayers"]
+  layers: AtlasData["packageLayers"],
+  districts?: ReadonlyMap<string, BelongingRegion>
 ): string {
   if (inspected.file) {
-    return fileDetail(inspected.file, inspected.territory);
+    return fileDetail(inspected.file, inspected.territory, districts);
   }
   if (region) {
     return `${region.members.length} files · ${region.children ? "Enter district" : "Enter responsibility"}`;

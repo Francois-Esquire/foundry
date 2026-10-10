@@ -287,14 +287,24 @@ shadow resources, controls and renderer.
 ## Shapes
 
 The sheet and controls use square edges; search swatches are small circles.
-Files appear as small marks, with a ring around the selected file. Density contours form irregular coastlines, shallows and hills, including
-holes and disconnected islands.
+Files appear as small marks, with a ring around the selected file. Density
+contours form coastlines, shallows and hills; since files fill their island
+evenly (4.3a), a coast is round, with no holes or satellites.
 
-Package radius follows file population's square root.
-Directory-derived anchors and actual imports arrange files, with the original
-collision pass and density
-thresholds of 0.18, 0.5 and 1.8. No coastline noise, connection-modulated threshold,
-landmark solver or final point packing remains.
+Package radius follows file population's square root. Files are placed by
+the folder tree below the package's folder alone (`folder-sectors.ts`):
+every file takes a site of a sunflower lattice filling a disc, spaced 1.5
+times the contour spread and at most 8 units, so that one district's
+neighbouring files join in its footprint. The folder tree divides the sites
+by halving them across their wider extent: each folder takes a convex cell
+sized by its files, sibling folders side by side in name order, a folder's
+own files before its subfolders. A gutter of one spacing
+parts the first split's two sides and halves at each split below, so no
+site crosses back over a cut; folders show in the specks, src and test
+apart. Imports play no part. `settleFiles` returns the cell tree, each
+folder with its sites and the cuts between its parts, for drawing folders. Density thresholds stay 0.18, 0.5 and 1.8; no
+coastline noise, connection-modulated threshold, landmark solver or
+collision pass remains.
 
 Two groupings, one meaning each. Position and outline mean folder, and
 north–south also the dependency layer: an island's row is its package's
@@ -330,12 +340,17 @@ units. Every multi-package group receives this concave outline. Islands no
 longer gather by group, so a group's land can run across rows and enclose a
 package of another group.
 
-Responsibilities are the only grouping inside an island. In the default
-drawing they do not control file placement, which follows directories and
-imports; when files are grouped by responsibility, `fitDistricts` places them
-by district. Local file spacing retains the original behavior, without the
-later file-clearance guarantee. Coordinates and contours
-remain disposable presentation data; temporal stability is not guaranteed.
+Responsibilities are the only grouping drawn inside an island, as pigment
+and labels; they do not move a file out of its folder's cell. Within its
+cell, a folder's own files take their sites by district, one rank for the
+island (more files first, then id; then path), so a district takes one
+compact patch per folder and the same side of each folder it reaches;
+cells, and so the coast, do not depend on it. A file's district is the
+responsibility group whose member modules, in the `responsibility-groups`
+lens, hold it; a package without internals has no districts, and its files
+go in path order. When files are grouped by responsibility on request,
+`fitDistricts` places them by district. Coordinates and contours remain
+disposable presentation data; temporal stability is not guaranteed.
 
 ## Components
 

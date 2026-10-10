@@ -392,6 +392,22 @@ describe("the responsibility-groups lens", () => {
     );
   });
 
+  it("records a group's member modules root-relative, sorted, each once", () => {
+    const shared = joined({ "src/w.ts": 0, "src/x.ts": 0, "src/y.ts": 0 });
+    const [b] = shared.responsibilities.regions.slice(1);
+    if (b) {
+      b.modules = ["src/x.ts", "src/a.ts"];
+    }
+    const [group] =
+      responsibilityGroupsLens.derive({ missing: [], packages: [shared] }, {})
+        .packages[0]?.groups ?? [];
+    expect(group?.modules).toEqual([
+      "packages/b/src/a.ts",
+      "packages/b/src/x.ts",
+      "packages/b/src/y.ts",
+    ]);
+  });
+
   it("keys and sorts packages by manifest id, and names a group by a hash of its members", () => {
     const groups = responsibilityGroupsLens.derive(
       {
@@ -424,6 +440,11 @@ describe("the responsibility-groups lens", () => {
               // SHA-256 of "a\nb", first 12 hex digits.
               id: "responsibility-group:7e18f737311b",
               label: "a",
+              modules: [
+                "packages/b/src/w.ts",
+                "packages/b/src/x.ts",
+                "packages/b/src/y.ts",
+              ],
               responsibilities: ["a", "b"],
             },
           ],
@@ -664,7 +685,7 @@ describe("the registry", () => {
       proximity: { file: "lenses/proximity.json", schemaVersion: 1 },
       "responsibility-groups": {
         file: "lenses/responsibility-groups.json",
-        schemaVersion: 1,
+        schemaVersion: 2,
       },
       rules: { file: "lenses/rules.json", schemaVersion: 1 },
     });

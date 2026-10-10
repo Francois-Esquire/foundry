@@ -430,7 +430,7 @@ describe("generation", () => {
       proximity: { file: "lenses/proximity.json", schemaVersion: 1 },
       "responsibility-groups": {
         file: "lenses/responsibility-groups.json",
-        schemaVersion: 1,
+        schemaVersion: 2,
       },
       rules: { file: "lenses/rules.json", schemaVersion: 1 },
     });

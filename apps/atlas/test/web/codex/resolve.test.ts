@@ -19,6 +19,7 @@ const coreGroup = {
   anchorWeight: 2,
   id: "responsibility-group:0123456789ab",
   label: "a",
+  modules: ["packages/core/src/a.ts"],
   responsibilities: ["responsibility:a", "responsibility:c"],
 };
 
