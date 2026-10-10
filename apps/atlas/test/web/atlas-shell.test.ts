@@ -129,6 +129,27 @@ it("keeps every control in the header and starts with the panel closed", async (
   expect(container.querySelector('[aria-live="polite"]')).not.toBeNull();
 });
 
+it("starts on the belonging map layer and switches to files", async () => {
+  const data = await loadAtlas();
+  await act(async () => {
+    root.render(createElement(Atlas, { data }));
+  });
+  const layer = container.querySelector<HTMLSelectElement>(
+    'header.atlas-header label.atlas-map-layer select[aria-label="Map layer"]'
+  );
+  assert(layer, "Missing the map layer control");
+  expect([...layer.options].map((option) => option.textContent)).toEqual([
+    "Belonging",
+    "Files",
+  ]);
+  expect(layer.value).toBe("belonging");
+  await act(async () => {
+    layer.value = "files";
+    layer.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  expect(layer.value).toBe("files");
+});
+
 it("opens sections from the header, closes on Escape and returns focus", async () => {
   const data = await loadAtlas();
   await act(async () => {

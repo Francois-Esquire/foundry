@@ -130,7 +130,9 @@ renderer-neutral view model.
 
 The web already uses the word: the Belonging / Files map-layer toggle is
 typed as a lens (`web/ui/atlas-state.ts:18`). One of the two needs another
-name.
+name. Resolved in 2.8: the toggle is the map layer, `mapLayer` of type
+`MapLayer`, as the glossary already called it, and "lens" means only the
+derivations in `lib/lenses`.
 
 ## Domains
 

@@ -3,21 +3,20 @@ import { useCallback, useState } from "react";
 import type { BelongingRegion } from "../belonging";
 import type { AtlasSelection } from "../scene/scene";
 import type { PanelSection } from "./atlas-panel";
-
-export type Lens = "belonging" | "files";
+import type { MapLayer } from "./atlas-state";
 
 /** Breadcrumb, map layer, and every control that used to sit in the footer. */
 export function AtlasHeader({
   selection,
   regions,
   composites,
-  lens,
+  mapLayer,
   atmosphere,
   panelOpen,
   section,
   panelToggleRef,
   menuToggleRef,
-  onLens,
+  onMapLayer,
   onSelect,
   onSection,
   onPanel,
@@ -29,13 +28,13 @@ export function AtlasHeader({
   selection: AtlasSelection | null;
   regions: BelongingRegion[];
   composites: BelongingRegion[];
-  lens: Lens;
+  mapLayer: MapLayer;
   atmosphere: boolean;
   panelOpen: boolean;
   section: PanelSection;
   panelToggleRef: Ref<HTMLButtonElement>;
   menuToggleRef: Ref<HTMLButtonElement>;
-  onLens: (lens: Lens) => void;
+  onMapLayer: (layer: MapLayer) => void;
   onSelect: (value: AtlasSelection | null) => void;
   onSection: (section: PanelSection, trigger: HTMLButtonElement) => void;
   onPanel: (trigger: HTMLButtonElement) => void;
@@ -54,11 +53,11 @@ export function AtlasHeader({
     region?.members.length === 1 &&
     region.members[0]?.id === selection?.file?.id &&
     region.label === selection?.file?.path.split("/").at(-1);
-  const handleLens = useCallback(
+  const handleMapLayer = useCallback(
     (event: ChangeEvent<HTMLSelectElement, HTMLSelectElement>) => {
-      onLens(event.target.value === "files" ? "files" : "belonging");
+      onMapLayer(event.target.value === "files" ? "files" : "belonging");
     },
-    [onLens]
+    [onMapLayer]
   );
   const toggleMenu = useCallback(() => setMenuOpen((open) => !open), []);
   const openSection = useCallback(
@@ -136,9 +135,13 @@ export function AtlasHeader({
         data-open={menuOpen}
         id="atlas-header-tools"
       >
-        <label className="atlas-lens">
+        <label className="atlas-map-layer">
           <span className="sr-only">Map layer</span>
-          <select aria-label="Map layer" onChange={handleLens} value={lens}>
+          <select
+            aria-label="Map layer"
+            onChange={handleMapLayer}
+            value={mapLayer}
+          >
             <option value="belonging">Belonging</option>
             <option value="files">Files</option>
           </select>

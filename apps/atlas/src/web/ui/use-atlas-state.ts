@@ -17,7 +17,11 @@ import type {
   Territory,
 } from "../types";
 import type { AtlasMapHandle } from "./atlas-map";
-import { type AtlasState, createAtlasState } from "./atlas-state";
+import {
+  type AtlasState,
+  createAtlasState,
+  type MapLayer,
+} from "./atlas-state";
 
 import { useBelonging } from "./use-belonging";
 
@@ -57,7 +61,7 @@ export function useAtlasState(initial: AtlasState) {
   const [hoveredWreck, setHoveredWreck] = useState<FormerPackage | null>(
     initial.hoveredWreck
   );
-  const [lens, setLens] = useState<"belonging" | "files">(initial.lens);
+  const [mapLayer, setMapLayer] = useState<MapLayer>(initial.mapLayer);
   const [tracedSelection, setTracedSelection] = useState<AtlasSelection | null>(
     null
   );
@@ -183,7 +187,7 @@ export function useAtlasState(initial: AtlasState) {
     () =>
       resolveValue(
         viewTerritory,
-        lens,
+        mapLayer,
         viewIsSelected,
         selectedRegion,
         selectedComposite,
@@ -194,7 +198,7 @@ export function useAtlasState(initial: AtlasState) {
       ),
     [
       viewTerritory,
-      lens,
+      mapLayer,
       viewIsSelected,
       selectedRegion,
       selectedComposite,
@@ -214,14 +218,14 @@ export function useAtlasState(initial: AtlasState) {
     },
     [scene, territory]
   );
-  const changeLens = useCallback(
-    (value: "belonging" | "files") => {
-      setLens(value);
+  const changeMapLayer = useCallback(
+    (value: MapLayer) => {
+      setMapLayer(value);
       if ((selection?.regionId || selection?.compositeId) && territory) {
         select({ territory });
       }
     },
-    [select, selection, setLens, territory]
+    [select, selection, setMapLayer, territory]
   );
   const toggleTrace = useCallback(() => {
     setTracedSelection(showConnections ? null : selection);
@@ -352,7 +356,7 @@ export function useAtlasState(initial: AtlasState) {
     hover,
     hoveredWreck,
     layoutSettings,
-    lens,
+    mapLayer,
     responsibility:
       !showConnections && responsibilityOverlay?.territoryId === territory?.id
         ? responsibilityOverlay
@@ -374,7 +378,7 @@ export function useAtlasState(initial: AtlasState) {
     frameDistrict,
     hover: setHover,
     layout: setTerritoryLayout,
-    lens: changeLens,
+    mapLayer: changeMapLayer,
     overlay: setResponsibilityOverlay,
     reset: resetSettings,
     scene,
@@ -391,7 +395,7 @@ export function useAtlasState(initial: AtlasState) {
 
 function resolveValue(
   viewTerritory: Territory | null,
-  lens: "belonging" | "files",
+  mapLayer: MapLayer,
   viewIsSelected: boolean,
   selectedRegion: BelongingRegion | undefined,
   selectedComposite: BelongingRegion | undefined,
@@ -423,7 +427,7 @@ function resolveValue(
   },
   territoryLayout: Territory | null
 ): BelongingLayer | null {
-  if (viewTerritory && lens === "belonging") {
+  if (viewTerritory && mapLayer === "belonging") {
     return {
       featureFocus: viewIsSelected ? selection?.feature : undefined,
       features:

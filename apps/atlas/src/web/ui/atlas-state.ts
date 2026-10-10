@@ -6,6 +6,9 @@ import type { AtlasSelection } from "../scene/scene";
 import type { TradeRoute } from "../trade-routes";
 import type { AtlasData, FormerPackage, Territory } from "../types";
 
+/** What the map draws over the islands: belonging regions, or files alone. */
+export type MapLayer = "belonging" | "files";
+
 /** Plain map data. React, the renderer, and shell UI have separate lifetimes. */
 export interface AtlasState {
   atmosphereEnabled: boolean;
@@ -15,7 +18,7 @@ export interface AtlasState {
   hover: AtlasSelection | null;
   hoveredWreck: FormerPackage | null;
   layoutSettings: LandmassSettings;
-  lens: "belonging" | "files";
+  mapLayer: MapLayer;
   responsibility: ResponsibilityOverlay | null;
   selectedWreck: FormerPackage | null;
   selection: AtlasSelection | null;
@@ -38,7 +41,7 @@ export function createAtlasState(data: AtlasData): AtlasState {
     hover: null,
     hoveredWreck: null,
     layoutSettings: { ...defaultLandmassSettings },
-    lens: "belonging",
+    mapLayer: "belonging",
     responsibility: null,
     selectedWreck: null,
     selection: null,

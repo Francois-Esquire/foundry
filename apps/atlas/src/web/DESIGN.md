@@ -501,7 +501,7 @@ remain disposable presentation data; temporal stability is not guaranteed.
   Contour changes repaint ink; other controls update shader uniforms.
 
 - The header pairs an Atlas/island/district/responsibility/file breadcrumb with a Belonging/Files
-  selector, Find a place, and the map controls. Belonging is the initial layer. Search lists
+  map layer selector (`mapLayer` in the map state), Find a place, and the map controls. Belonging is the initial layer. Search lists
   islands at overview, districts within an island, responsibilities within an
   entered district, and exact members of an entered responsibility. A typed query
   also finds files within the current island or district. Direct file selection

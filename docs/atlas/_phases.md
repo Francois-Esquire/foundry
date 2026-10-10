@@ -642,8 +642,7 @@ a rule written in terms of domains (3.1). See
 
 **2.1 The lens layer.** Done 2026-10-10. The contract of
 [`_lenses.md`](./_lenses.md), built, with one lens that is computed,
-versioned, published, and renderable (printed under test; `atlas report`
-sections in 2.7).
+versioned, published, and renderable (printed under test; `atlas lens` in 2.7).
 - `lib/lenses/lens-types.ts`, a browser-safe leaf, holds the contract
   (`Lens<I, Source, K>`, whose `id: I` ties `derive`'s result to
   `LensOutputs[I]`; `LensReader`; `LensSettings`), the `LensOutputs` map
@@ -1590,12 +1589,63 @@ prints one lens from the saved dataset through its report view, and with
     unknown id with exit 2, a dataset without the lens with exit 1, and a
     workspace never scanned with exit 1.
 
-**2.8 Naming.** The viewer's Belonging / Files toggle is typed as a lens
-(`web/ui/atlas-state.ts:18`); rename it.
+**2.8 Naming.** Done 2026-10-10. The viewer's Belonging / Files toggle was
+typed as a lens; it is the map layer, the name the glossary (Lens, _Avoid_)
+and the control's own label ("Map layer") already gave it, so "lens" now
+means only the derivations in `lib/lenses`.
+- `web/ui/atlas-state.ts` exports `MapLayer = "belonging" | "files"`, the
+  one spelling of the union, which three files had spelled on their own;
+  `AtlasState.mapLayer` starts on `"belonging"`.
+- `web/ui/use-atlas-state.ts`: `[mapLayer, setMapLayer]`,
+  `changeMapLayer`, the action `mapLayer`, and `resolveValue`'s
+  `mapLayer` parameter. `web/ui/atlas-header.tsx`: the `mapLayer` and
+  `onMapLayer` props, `handleMapLayer`, and the class `atlas-map-layer`
+  (`atlas.css`); its `Lens` type is gone. `web/ui/atlas-shell.tsx` passes
+  them on.
+- No visible change: the label, "Map layer", and the options, Belonging
+  and Files, are as they were.
+- `belongingLayer` and `chartSettings.layers` sit beside `mapLayer` in the
+  map state. That is right as it is: `belongingLayer` is what the belonging
+  map layer draws, and the chart layers are the chart's.
+- Docs: `web/DESIGN.md` names the selector the map layer selector;
+  `_review.md`'s finding is marked resolved; `CONTEXT.md` and the guide
+  already said "map layer".
+- Tests: `test/web/atlas-shell.test.ts` finds the control in the header by
+  its class and label, with its two options, starting on belonging, and
+  switches it to files.
 
 Shape has no effort of its own: the graph projection, layers, gravity, and
 file counts already answer it. The 2.1 `package-sizes` lens joins two of
 these for the codex and is not that effort.
+
+**Phase 2 is done** (2026-10-10). Eight lenses run at every scan and are
+saved in the dataset, each with its own schema version; the viewer reads
+four of them (`package-sizes`, `file-roles`, `responsibility-groups`, and
+`frequent-change`) and computes nothing the analysis defines (2.2) apart
+from the per-module import counts, which are pinned to gravity, and
+`atlas lens <id>` prints any of them (2.7).
+- 2.1: the lens layer, with `package-sizes`; 2.2: `file-roles`,
+  `responsibility-groups`, and `frequent-change`, with neighborhoods and
+  the pair re-aggregations retired.
+- 2.3–2.5: `placement` (fits, spread, departs, from consumer modules),
+  `nesting` (one folder tree, path regions, seams), and `proximity`
+  (close and unrelated, related and apart).
+- 2.6: `domains`, the first lens to read the configuration: what each
+  facet names, unmatched facets, and the domain label beside placement's.
+  `read` now gets the lens's settings, so a lens reads only what they need.
+- 2.8: "lens" means one thing; the viewer's toggle is the map layer.
+- Cost on Foundry: the lens phase takes 0.4–0.7 s of a 44 s cold scan;
+  with no domains declared, the domains lens costs under 1 ms. Peak
+  memory rises 0.6–0.8 GB from `frequent-change` reading package reports,
+  accepted in 2.2, and about 0.1 GB of RSS from `placement`.
+- Left for later phases, by design rather than open in this one:
+  - The viewer draws none of `placement`, `nesting`, `proximity`, or
+    `domains` yet: 4.2 (departures as the strongest signal) and 4.3
+    (directories and domains drawn).
+  - A per-setting digest waits for a consumer, a rule written in terms of
+    domains (3.1) at the earliest.
+  - How nested and overlapping domains combine into one label, and how
+    weights combine, stay in [`_domains.md`](./_domains.md#later-when-needed).
 
 ## Phase 3: rules and codemods
 
