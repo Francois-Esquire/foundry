@@ -63,7 +63,7 @@ What the map encodes, from the codex bindings and the design record:
 | North–south position | Dependency layer: foundations north, leaves south. | yes |
 | Distance between islands | Dependency strength and shared concepts. | yes |
 | File mark | A file. Placed by imports and shared concepts. | yes |
-| District | A responsibility region from the internal analysis. | at island zoom |
+| District | A responsibility group: responsibilities the `responsibility-groups` lens joins (since 2.2b). | at island zoom |
 | Relief and summits | High fan-in files: imported by at least their package's cutoff of its own source files (`file-roles` lens, since 2.2a). | yes |
 | Lake | A module many responsibilities draw on. | yes |
 | Marsh | A module the analysis could not place in one responsibility. | yes |

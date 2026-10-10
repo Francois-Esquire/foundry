@@ -419,12 +419,18 @@ describe("generation", () => {
         file: "lenses/package-sizes.json",
         schemaVersion: 1,
       },
+      "responsibility-groups": {
+        file: "lenses/responsibility-groups.json",
+        schemaVersion: 1,
+      },
     });
     // This scan saves no internals, so every complete package is missing.
-    expect(readJson(dataset, "lenses/file-roles.json")).toEqual({
-      missing: ["@s/a", "@s/b", "@s/c"],
-      packages: [],
-    });
+    for (const lens of ["file-roles", "responsibility-groups"]) {
+      expect(readJson(dataset, `lenses/${lens}.json`)).toEqual({
+        missing: ["@s/a", "@s/b", "@s/c"],
+        packages: [],
+      });
+    }
     const kinds = { config: 0, other: 0, source: 0, story: 0, test: 0 };
     expect(readJson(dataset, "lenses/package-sizes.json")).toEqual({
       packages: [

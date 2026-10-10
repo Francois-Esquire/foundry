@@ -20,6 +20,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawn } from "bun";
 import type { FileRoles } from "../src/lib/lenses/file-roles-types";
+import type { ResponsibilityGroups } from "../src/lib/lenses/responsibility-groups-types";
 import { scan } from "../src/lib/scan";
 import type { HistoryManifest } from "../src/lib/semantics-history-types";
 import type { DatasetManifest } from "../src/lib/semantics-types";
@@ -282,6 +283,45 @@ test("built CLI scans an external workspace and the web loaders read its saved d
       },
     ],
   });
+  const groups = JSON.parse(
+    await readFile(
+      join(workspace.output, "lenses/responsibility-groups.json"),
+      "utf8"
+    )
+  ) as ResponsibilityGroups;
+  // @s/c's two responsibilities join, anchored on pad.ts; one import edge
+  // and one symbol each way between them give 4 · log1p(1).
+  const pad = "responsibility:6912c01d6d10";
+  const unit = "responsibility:91296e76ff97";
+  const [weight] = groups.packages.flatMap((saved) =>
+    saved.groups.map((group) => group.anchorWeight)
+  );
+  if (weight === undefined) {
+    throw new Error("The fixture formed no responsibility group.");
+  }
+  expect(weight).toBeCloseTo(4 * Math.log1p(1));
+  expect(groups).toEqual({
+    missing: [],
+    packages: [
+      { groups: [], id: "@s/a", independent: ["responsibility:a2a171449d86"] },
+      { groups: [], id: "@s/b", independent: ["responsibility:8fdd26292eea"] },
+      {
+        groups: [
+          {
+            anchor: pad,
+            anchorModule: "tooling/c/src/pad.ts",
+            anchorWeight: weight,
+            // SHA-256 of the two ids, one per line, first 12 hex digits.
+            id: "responsibility-group:154ae5bf7ebf",
+            label: "src/pad.ts",
+            responsibilities: [pad, unit],
+          },
+        ],
+        id: "@s/c",
+        independent: [],
+      },
+    ],
+  });
   const { dependencies } = JSON.parse(
     await readFile(join(workspace.root, pkg.path, "package.json"), "utf8")
   ) as { dependencies?: Record<string, string> };
@@ -316,6 +356,10 @@ test("built CLI scans an external workspace and the web loaders read its saved d
     const { fileRoles } = territory;
     expect(fileRoles?.modules).toEqual(
       roles.packages.find((saved) => saved.id === pkg.id)?.modules
+    );
+    const grouped = groups.packages.find((entry) => entry.id === pkg.id);
+    expect(territory.responsibilityGroups).toEqual(
+      grouped && { groups: grouped.groups, independent: grouped.independent }
     );
     const { signal } = new AbortController();
     const evidence = await loadInternals(

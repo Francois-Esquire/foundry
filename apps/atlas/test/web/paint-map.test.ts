@@ -39,6 +39,7 @@ const territory: Territory = {
     },
   ],
   radius: 80,
+  responsibilityGroups: undefined,
   shallows: [],
   x: 0,
   y: 0,

@@ -38,6 +38,7 @@ imports from the renderer, so the folder moves as a unit. Tests are in
 | Module `directory`                         | path up to its last `/`                                                   |
 | Module `dependents`, `dependencies`        | edge shards, within and across packages; equal to the module record's `gravity.fanIn`, `fanOut` (pinned by `test/lib/semantics.test.ts`) |
 | Module `internalFanIn`, `highFanIn`        | `file-roles` lens `fanIn`, `highFanIn`, by module id; 0 and false for a package without internals |
+| Package `responsibilityGroups`             | `responsibility-groups` lens `groups` and `independent`; `undefined` for a package without internals |
 | Package `highFanInCutoff`, `fileRoles`     | `file-roles` lens `highFanInCutoff` and `modules`; 0 and `undefined` for a package without internals |
 | Module `concepts`                          | module shard `concepts`, every role, deduplicated                         |
 | Import                                     | edge shards                                                               |
@@ -80,7 +81,6 @@ missing history never becomes a zero count.
 | `dependencyPen` | Module imports between two packages | Selected package's dependency line width, 0.9–1.8 screen pixels | `scene/selection-ink.ts` |
 | `roadWidth`            | Dependency strength, merged per road          | road width            | `scene/road-layer.ts`                 |
 | `currentStrength`      | cross-package imports between two packages    | sea current           | `current-field.ts`              |
-| `districtAffinity`     | responsibility link module edges, symbol flow | district grouping     | `hierarchy.ts`                  |
 | `landmarkRadius`           | Module internal fan-in and its package's saved cutoff, for a structural landmark | bounded inspection footprint `min(6, 2 + 0.8 × √(5 × internalFanIn / cutoff))`: `2 + 0.8√5` at the cutoff, 2 without one | `landmarks.ts`           |
 | `streamWidth`          | responsibility link module edges, accumulated on shared runs | stream width | `natural-features.ts`, `river-network.ts`           |
 | `marshDetail` | Unresolved module count and zoom | reed opacity and screen spacing | `scene/paint-features.ts` |
@@ -107,7 +107,6 @@ change swaps an inline read or transform for a codex export; nothing else moved.
 | `scene/trade-layer.ts`    | inline lane width                                                    | `laneWidth`                                                                           |
 | `scene/road-layer.ts`     | inline road width                                                    | `roadWidth`                                                                           |
 | `current-field.ts`        | `log1p(count)`                                                       | `currentStrength`                                                                     |
-| `hierarchy.ts`            | `log1p(moduleEdges) + log1p(symbolFlow)`                             | `districtAffinity`                                                                    |
 
 ## Outside the codex, deliberately
 
@@ -120,7 +119,10 @@ change swaps an inline read or transform for a codex export; nothing else moved.
   codex owns the categories, not how they look.
 - **Per-island evidence.** `load-internals.ts` reads the analyzer's internal
   reports through the same dataset reader, and belonging, composition and the
-  inspection panels use them as-is. Only the district-grouping transform moved.
+  inspection panels use them as-is. The district grouping is no longer the
+  viewer's: districts are the `responsibility-groups` lens's groups, kept per
+  package from load (`Territory.responsibilityGroups`) and drawn on entering
+  the island.
 
 ## Decisions taken for this version
 
@@ -132,8 +134,9 @@ Against the design doc's open decisions:
 4. Identity: the codex publishes ids; hash seeds stay in layout.
 5. Placement: this folder, inside the renderer.
 6. Per-island resolution: deferred, as above.
-7. Derived groupings: neighborhoods, districts and landmasses stay in layout;
-   their weights are bindings.
+7. Derived groupings: neighborhoods and landmasses stay in layout; their
+   weights are bindings. Districts were here too, until 2.2b moved their
+   grouping into the `responsibility-groups` lens.
 
 ## Analysis library
 

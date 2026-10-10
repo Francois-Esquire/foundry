@@ -1,13 +1,8 @@
 import type { PackageSizes } from "../../lenses/package-sizes-types";
 import type { RenderDensity } from "../context";
+import { LISTED_AT_DENSITY } from "../context";
 import { count } from "../format";
 import type { BlockView, ReportView } from "../views";
-
-const LISTED: Record<RenderDensity, number> = {
-  compact: 5,
-  expanded: Number.POSITIVE_INFINITY,
-  normal: 10,
-};
 
 /** The `package-sizes` lens: totals, then packages by file count, largest first. */
 export function buildPackageSizesView(
@@ -22,7 +17,7 @@ export function buildPackageSizesView(
   const ranked = [...packages].sort(
     (a, b) => b.modules.total - a.modules.total || a.id.localeCompare(b.id)
   );
-  const shown = ranked.slice(0, LISTED[density]);
+  const shown = ranked.slice(0, LISTED_AT_DENSITY[density]);
   const list: BlockView = {
     items: shown.map((pkg) => ({
       detail: [pkg.layer === null ? "no layer" : `layer ${pkg.layer}`],

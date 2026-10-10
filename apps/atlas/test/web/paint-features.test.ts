@@ -182,6 +182,7 @@ describe("natural feature drawing", () => {
       label: "Island",
       neighborhoods: [],
       radius: 80,
+      responsibilityGroups: undefined,
       shallows: [],
       x: 0,
       y: 0,

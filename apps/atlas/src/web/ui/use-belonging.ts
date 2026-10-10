@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { belongingRegions, compositeRegions } from "../belonging";
-import { deriveHierarchy } from "../hierarchy";
 import type { AtlasInternals } from "../internals";
 import { loadInternals } from "../load-internals";
 import type { Territory } from "../types";
@@ -63,16 +62,10 @@ export function useBelonging(
         : [],
     [current, territory]
   );
-  const hierarchy = useMemo(
-    () =>
-      current?.data
-        ? deriveHierarchy(current.data.responsibilities)
-        : undefined,
-    [current]
-  );
+  const groups = territory?.responsibilityGroups;
   const composites = useMemo(
-    () => (hierarchy ? compositeRegions(hierarchy, regions) : []),
-    [hierarchy, regions]
+    () => (groups ? compositeRegions(groups, regions) : []),
+    [groups, regions]
   );
   const features = useNaturalFeatures(
     territory,

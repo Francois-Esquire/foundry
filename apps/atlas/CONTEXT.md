@@ -49,6 +49,20 @@ One package's internal structure: topology, symbol locality,
 responsibilities, primitive conventions, rewiring, and the review.
 _Avoid_: internal survey, in-depth analysis
 
+**Responsibility**:
+A group of source files inside one package that the package's internals
+infer belong together, from the imports, cycles, concepts, and symbols they
+share and the directories they sit in. Its id is `responsibility:` and a
+hash of its members.
+_Avoid_: responsibility region, region alone, neighborhood, district
+
+**Responsibility group**:
+Responsibilities of one package joined by a greedy modularity merge over the
+import edges and symbol flow between them, and named after its anchor, the
+member most connected to the others. The `responsibility-groups` lens saves
+them; the viewer draws one as a district.
+_Avoid_: composite, cluster, district (the viewer's word for drawing one)
+
 **Fan-in**:
 How many modules import a module, which takes a qualifier, since three
 counts go by the name. *Internal fan-in* is the topology's: the distinct

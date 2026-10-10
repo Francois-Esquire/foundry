@@ -16,6 +16,11 @@ import {
 } from "../../src/lib/lenses/lens-types";
 import { rootRelative } from "../../src/lib/lenses/package-internals";
 import { packageSizesLens } from "../../src/lib/lenses/package-sizes";
+import {
+  groupResponsibilities,
+  responsibilityAffinity,
+  responsibilityGroupsLens,
+} from "../../src/lib/lenses/responsibility-groups";
 import type { AnyLens } from "../../src/lib/lenses/run";
 import { LENSES, writeLenses } from "../../src/lib/lenses/run";
 import {
@@ -262,6 +267,170 @@ describe("the file-roles lens", () => {
   });
 });
 
+describe("the responsibility-groups lens", () => {
+  const region = (id: string) => ({ id, label: id });
+  const edge = (
+    from: string,
+    to: string,
+    moduleEdges = 20,
+    symbolFlow = 20
+  ) => ({ from, moduleEdges, symbolFlow, to });
+
+  it("dampens import edges and symbol flow into one affinity", () => {
+    expect(responsibilityAffinity(0, 0)).toBe(0);
+    expect(responsibilityAffinity(Math.E - 1, Math.E - 1)).toBeCloseTo(2);
+  });
+
+  it("separates strongly connected groups across a weak bridge", () => {
+    const result = groupResponsibilities({
+      regions: ["a", "b", "c", "d", "e", "f"].map(region),
+      relationships: [
+        edge("a", "b"),
+        edge("b", "c"),
+        edge("c", "a"),
+        edge("d", "e"),
+        edge("e", "f"),
+        edge("f", "d"),
+        edge("c", "d", 1, 0),
+      ],
+    });
+    expect(result.groups.map((group) => group.responsibilities)).toEqual([
+      ["a", "b", "c"],
+      ["d", "e", "f"],
+    ]);
+    expect(result.independent).toEqual([]);
+    expect(result.groups.map((group) => group.anchor)).toEqual(["a", "d"]);
+  });
+
+  it("retains independent evidence without manufacturing communities", () => {
+    expect(groupResponsibilities({ regions: [], relationships: [] })).toEqual({
+      groups: [],
+      independent: [],
+    });
+    const result = groupResponsibilities({
+      regions: ["z", "b", "a", "alone"].map(region),
+      relationships: [edge("a", "b"), edge("z", "z"), edge("a", "missing")],
+    });
+    expect(result.groups.map((group) => group.responsibilities)).toEqual([
+      ["a", "b"],
+    ]);
+    expect(result.independent).toEqual(["alone", "z"]);
+  });
+
+  it("uses connectivity within a group for its anchor", () => {
+    const result = groupResponsibilities({
+      regions: ["a", "b", "c"].map(region),
+      relationships: [edge("a", "b"), edge("b", "c")],
+    });
+    expect(result.groups[0]?.anchor).toBe("b");
+    expect(result.groups[0]?.label).toBe("b");
+    expect(result.groups[0]?.anchorWeight).toBeCloseTo(4 * Math.log1p(20));
+  });
+
+  it("is deterministic, preserves canonical coverage, and never mutates evidence", () => {
+    const input = {
+      regions: ["e", "c", "a", "d", "b", "alone"].map(region),
+      relationships: [edge("a", "b"), edge("b", "c"), edge("d", "e")],
+    };
+    const before = structuredClone(input);
+    const result = groupResponsibilities(input);
+    expect(
+      groupResponsibilities({
+        regions: [...input.regions].reverse(),
+        relationships: [...input.relationships].reverse(),
+      })
+    ).toEqual(result);
+    expect(input).toEqual(before);
+    const ids = [
+      ...result.groups.flatMap((group) => group.responsibilities),
+      ...result.independent,
+    ];
+    expect(ids.sort()).toEqual(["a", "alone", "b", "c", "d", "e"]);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(new Set(result.groups.map((group) => group.id)).size).toBe(
+      result.groups.length
+    );
+  });
+
+  /** One package whose responsibilities `a` and `b` join, anchored on `a`, whose modules have `fanIn`. */
+  const joined = (fanIn: Record<string, number>) => ({
+    id: "@s/b",
+    responsibilities: {
+      regions: [
+        { id: "a", label: "a", modules: ["src/x.ts", "src/y.ts"] },
+        { id: "b", label: "b", modules: ["src/w.ts"] },
+      ],
+      relationships: [edge("a", "b"), edge("b", "a", 1, 1)],
+    },
+    root: "packages/b",
+    topology: {
+      modules: Object.entries(fanIn).map(([id, value]) => ({
+        fanIn: value,
+        id,
+      })),
+    },
+  });
+  const anchorOf = (fanIn: Record<string, number>) =>
+    responsibilityGroupsLens.derive(
+      { missing: [], packages: [joined(fanIn)] },
+      {}
+    ).packages[0]?.groups[0]?.anchorModule;
+
+  it("anchors a group on its anchor's module with the highest internal fan-in, even one later by id", () => {
+    expect(anchorOf({ "src/w.ts": 9, "src/x.ts": 2, "src/y.ts": 4 })).toBe(
+      "packages/b/src/y.ts"
+    );
+  });
+
+  it("breaks a fan-in tie between the anchor's modules by id", () => {
+    expect(anchorOf({ "src/w.ts": 9, "src/x.ts": 2, "src/y.ts": 2 })).toBe(
+      "packages/b/src/x.ts"
+    );
+  });
+
+  it("keys and sorts packages by manifest id, and names a group by a hash of its members", () => {
+    const groups = responsibilityGroupsLens.derive(
+      {
+        missing: ["@s/z"],
+        packages: [
+          joined({ "src/w.ts": 0, "src/x.ts": 0, "src/y.ts": 0 }),
+          {
+            id: "@s/a",
+            responsibilities: {
+              regions: [{ id: "c", label: "c", modules: ["c.ts"] }],
+              relationships: [],
+            },
+            root: ".",
+            topology: { modules: [{ fanIn: 0, id: "c.ts" }] },
+          },
+        ],
+      },
+      {}
+    );
+    expect(groups).toEqual({
+      missing: ["@s/z"],
+      packages: [
+        { groups: [], id: "@s/a", independent: ["c"] },
+        {
+          groups: [
+            {
+              anchor: "a",
+              anchorModule: "packages/b/src/x.ts",
+              anchorWeight: 2 * Math.log1p(20) + 2 * Math.log1p(1),
+              // SHA-256 of "a\nb", first 12 hex digits.
+              id: "responsibility-group:7e18f737311b",
+              label: "a",
+              responsibilities: ["a", "b"],
+            },
+          ],
+          id: "@s/b",
+          independent: [],
+        },
+      ],
+    });
+  });
+});
+
 describe("the registry", () => {
   it("registers every lens once, at the schema version the reader and its stage hold", () => {
     const ids = LENSES.map((lens) => lens.id);
@@ -292,6 +461,10 @@ describe("the registry", () => {
     expect(lensEntries()).toEqual({
       "file-roles": { file: "lenses/file-roles.json", schemaVersion: 1 },
       "package-sizes": { file: "lenses/package-sizes.json", schemaVersion: 1 },
+      "responsibility-groups": {
+        file: "lenses/responsibility-groups.json",
+        schemaVersion: 1,
+      },
     });
   });
 });
@@ -320,7 +493,11 @@ describe("writeLenses", () => {
         },
       ],
     },
-    responsibilities: { package: { id: "@s/a" } },
+    responsibilities: {
+      package: { id: "@s/a" },
+      regions: [{ id: "only", label: "only", modules: ["src/a.ts"] }],
+      relationships: [],
+    },
     review: {},
     rewiring: { composition: [] },
     topology: {
@@ -447,6 +624,13 @@ describe("writeLenses", () => {
               },
             },
           ],
+        },
+      ],
+      [
+        "lenses/responsibility-groups.json",
+        {
+          missing: ["@s/c"],
+          packages: [{ groups: [], id: "@s/a", independent: ["only"] }],
         },
       ],
     ]);

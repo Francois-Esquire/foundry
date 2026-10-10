@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   attraction,
   currentStrength,
-  districtAffinity,
   footprint,
   labelPriority,
   landmarkRadius,
@@ -75,11 +74,9 @@ describe("relationship bindings", () => {
     expect(roadWidth(3, 10)).toBeGreaterThan(roadWidth(2, 10));
   });
 
-  it("dampens import counts for currents and districts", () => {
+  it("dampens import counts for currents", () => {
     expect(currentStrength(0)).toBe(0);
     expect(currentStrength(Math.E - 1)).toBeCloseTo(1);
-    expect(districtAffinity(0, 0)).toBe(0);
-    expect(districtAffinity(Math.E - 1, Math.E - 1)).toBeCloseTo(2);
   });
 });
 

@@ -24,10 +24,17 @@ const roles = {
   modules: [{ fanIn: 3, highFanIn: true, module: entry.id, role: "junction" }],
 };
 
+const groups = {
+  groups: [],
+  id: "@foundry/core",
+  independent: ["responsibility:a"],
+};
+
 function scanned(): Record<string, unknown> {
   return {
     "lenses/file-roles.json": { missing: [], packages: [roles] },
     "lenses/package-sizes.json": { packages: [sized] },
+    "lenses/responsibility-groups.json": { missing: [], packages: [groups] },
     "manifest.json": {
       coverage: "complete",
       files: {
@@ -39,6 +46,10 @@ function scanned(): Record<string, unknown> {
         "file-roles": { file: "lenses/file-roles.json", schemaVersion: 1 },
         "package-sizes": {
           file: "lenses/package-sizes.json",
+          schemaVersion: 1,
+        },
+        "responsibility-groups": {
+          file: "lenses/responsibility-groups.json",
           schemaVersion: 1,
         },
       },
@@ -95,6 +106,7 @@ describe("readCodexSource", () => {
     });
     expect(source.packages).toEqual([sized]);
     expect(source.fileRoles).toEqual([roles]);
+    expect(source.responsibilityGroups).toEqual([groups]);
     expect(source.modules).toEqual([entry]);
     expect(source.participation.map((m) => m.id)).toEqual([entry.id]);
     expect(source.imports).toEqual([{ source: entry.id, target: entry.id }]);

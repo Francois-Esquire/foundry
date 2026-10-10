@@ -1,4 +1,5 @@
 import type { FileRolesPackage } from "../../lib/lenses/file-roles-types";
+import type { PackageResponsibilityGroups } from "../../lib/lenses/responsibility-groups-types";
 import type { SemanticsDeclaredDependencyKind } from "../../lib/semantics-types";
 
 type FileKind = "source" | "test" | "story" | "config" | "other" | "unknown";
@@ -18,6 +19,8 @@ interface CodexPackage {
   label: string;
   /** Dependency layer; 0 is the foundation. */
   layer: number;
+  /** The `responsibility-groups` lens's groups, drawn on entering the island; `undefined` without internals. */
+  responsibilityGroups: PackageResponsibilityGroups | undefined;
   /** Modules the package holds. */
   size: number;
 }

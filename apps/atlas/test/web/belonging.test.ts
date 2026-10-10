@@ -30,27 +30,28 @@ describe("composite map binding", () => {
     polygons: memberContours(members),
     uncertain,
   });
-  const hierarchy = {
-    composites: [
+  const responsibilityGroups = {
+    groups: [
       {
         anchor: "a",
+        anchorModule: "a2",
         anchorWeight: 4,
         id: "west",
         label: "a",
-        regions: ["a", "b"],
+        responsibilities: ["a", "b"],
       },
       {
         anchor: "c",
         anchorWeight: 4,
         id: "east",
         label: "c",
-        regions: ["c", "d"],
+        responsibilities: ["c", "d"],
       },
     ],
     independent: ["alone"],
   };
   const regions = [
-    region("a", [file("a", -24)]),
+    region("a", [file("a", -24), file("a2", -22)]),
     region("b", [file("b", -20)]),
     region("c", [file("c", 20)]),
     region("d", [file("d", 24)]),
@@ -60,7 +61,7 @@ describe("composite map binding", () => {
 
   it("draws broader districts without claiming independent or unresolved evidence", () => {
     const before = structuredClone(regions);
-    const composites = compositeRegions(hierarchy, regions);
+    const composites = compositeRegions(responsibilityGroups, regions);
     expect(composites.map((group) => group.id)).toEqual([
       "west",
       "east",
@@ -69,9 +70,13 @@ describe("composite map binding", () => {
     ]);
     expect(composites[0]?.members.map((member) => member.id)).toEqual([
       "a",
+      "a2",
       "b",
     ]);
-    expect(composites[0]?.anchor?.id).toBe("a");
+    // The anchor is the file at the lens's anchor module, here the anchor
+    // responsibility's second file by id; a group without one has no mark.
+    expect(composites[0]?.anchor?.id).toBe("a2");
+    expect(composites[1]?.anchor).toBeUndefined();
     expect(hitBelonging({ regions: composites, territory }, -12, 0)?.id).toBe(
       "west"
     );
@@ -170,6 +175,7 @@ const territory: Territory = {
   label: "Island",
   neighborhoods: [],
   radius: 50,
+  responsibilityGroups: undefined,
   shallows: [],
   x: 0,
   y: 0,

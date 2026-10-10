@@ -38,6 +38,7 @@ type LensReader = Omit<DatasetReader, "history" | "manifest"> & {
 interface LensOutputs {
   "file-roles": FileRoles;
   "package-sizes": PackageSizes;
+  "responsibility-groups": ResponsibilityGroups;
 }
 type LensId = keyof LensOutputs;
 

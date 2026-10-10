@@ -1,6 +1,7 @@
 import type { DatasetReader } from "../../lib/dataset";
 import type { FileRolesPackage } from "../../lib/lenses/file-roles-types";
 import type { PackageSize } from "../../lib/lenses/package-sizes-types";
+import type { ResponsibilityGroupsPackage } from "../../lib/lenses/responsibility-groups-types";
 import type {
   SemanticsHistoryEntities,
   SemanticsHistorySnapshotRef,
@@ -47,6 +48,8 @@ export interface CodexSource {
     modules: Pick<PackageSize["modules"], "total">;
   })[];
   participation: Pick<SemanticsModuleRecord, "id" | "concepts">[];
+  /** The `responsibility-groups` lens, drawn as districts on entering an island. */
+  responsibilityGroups: ResponsibilityGroupsPackage[];
 }
 
 /** The codex's fields, read through one dataset reader. */
@@ -59,6 +62,7 @@ export async function readCodexSource(
     graph,
     sizes,
     roles,
+    groups,
     edgeShards,
     moduleShards,
     history,
@@ -68,6 +72,7 @@ export async function readCodexSource(
     reader.dependencyGraph(),
     reader.lens("package-sizes"),
     reader.lens("file-roles"),
+    reader.lens("responsibility-groups"),
     reader.moduleEdgeShards(),
     reader.moduleShards(),
     reader.history(),
@@ -90,5 +95,6 @@ export async function readCodexSource(
     modules: index.modules,
     packages: sizes.packages,
     participation: moduleShards.flatMap((s) => s.modules),
+    responsibilityGroups: groups.packages,
   };
 }

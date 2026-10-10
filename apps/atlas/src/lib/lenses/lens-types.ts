@@ -6,6 +6,8 @@ import type { FileRoles } from "./file-roles-types";
 import { FILE_ROLES_SCHEMA_VERSION } from "./file-roles-types";
 import type { PackageSizes } from "./package-sizes-types";
 import { PACKAGE_SIZES_SCHEMA_VERSION } from "./package-sizes-types";
+import type { ResponsibilityGroups } from "./responsibility-groups-types";
+import { RESPONSIBILITY_GROUPS_SCHEMA_VERSION } from "./responsibility-groups-types";
 
 // The lens contract (docs/atlas/_lenses.md). A leaf the viewer bundles: the
 // dataset reader imports the schema versions from here.
@@ -14,6 +16,7 @@ import { PACKAGE_SIZES_SCHEMA_VERSION } from "./package-sizes-types";
 export interface LensOutputs {
   "file-roles": FileRoles;
   "package-sizes": PackageSizes;
+  "responsibility-groups": ResponsibilityGroups;
 }
 
 /** A lens's id: stable, it names the lens's stage and its file in the dataset. */
@@ -23,6 +26,7 @@ export type LensId = keyof LensOutputs;
 export const LENS_SCHEMA_VERSIONS: Record<LensId, number> = {
   "file-roles": FILE_ROLES_SCHEMA_VERSION,
   "package-sizes": PACKAGE_SIZES_SCHEMA_VERSION,
+  "responsibility-groups": RESPONSIBILITY_GROUPS_SCHEMA_VERSION,
 };
 
 /** What a lens may read beyond the dataset: the workspace's own settings. */

@@ -1,14 +1,9 @@
 import type { FileRole, FileRoles } from "../../lenses/file-roles-types";
 import { byId } from "../../workspace-projection";
 import type { RenderDensity } from "../context";
+import { LISTED_AT_DENSITY } from "../context";
 import { count } from "../format";
 import type { BlockView, ReportView, SectionView } from "../views";
-
-const LISTED: Record<RenderDensity, number> = {
-  compact: 5,
-  expanded: Number.POSITIVE_INFINITY,
-  normal: 10,
-};
 
 /** Each file role's row label, in the order the roles are tried. */
 const ROLE_ROWS: readonly (readonly [FileRole, string])[] = [
@@ -33,7 +28,7 @@ export function buildFileRolesView(
   const ranked = modules
     .filter((module) => module.highFanIn)
     .sort((a, b) => b.fanIn - a.fanIn || byId(a.module, b.module));
-  const shown = ranked.slice(0, LISTED[density]);
+  const shown = ranked.slice(0, LISTED_AT_DENSITY[density]);
   const highFanIn: BlockView = {
     items: shown.map((module) => ({
       detail: [

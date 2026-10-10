@@ -28,6 +28,7 @@ function fixture(edges: { source: string; target: string }[]): AtlasData {
     label: id,
     neighborhoods: [],
     radius: 30,
+    responsibilityGroups: undefined,
     shallows: [],
     x,
     y,

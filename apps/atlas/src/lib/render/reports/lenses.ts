@@ -3,6 +3,7 @@ import type { RenderDensity } from "../context";
 import type { ReportView } from "../views";
 import { buildFileRolesView } from "./file-roles";
 import { buildPackageSizesView } from "./package-sizes";
+import { buildResponsibilityGroupsView } from "./responsibility-groups";
 
 /** Each lens's report view; the lens itself returns no display strings. */
 export const LENS_VIEWS: {
@@ -10,4 +11,5 @@ export const LENS_VIEWS: {
 } = {
   "file-roles": buildFileRolesView,
   "package-sizes": buildPackageSizesView,
+  "responsibility-groups": buildResponsibilityGroupsView,
 };

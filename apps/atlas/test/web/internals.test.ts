@@ -151,6 +151,7 @@ describe("atlas package internals", () => {
       label: "Test",
       neighborhoods: [],
       radius: 50,
+      responsibilityGroups: undefined,
       shallows: [],
       x: 0,
       y: 0,

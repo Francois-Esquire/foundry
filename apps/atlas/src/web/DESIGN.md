@@ -506,11 +506,13 @@ remain disposable presentation data; temporal stability is not guaranteed.
   recovers available ancestry; shared files retain the entered parent when valid.
   Choosing a result switches the panel to Place and focuses that tab.
   Escape closes search first; empty searches report no matches.
-- Selecting an island frames graph-derived composite districts. Recorded module
-  edges and symbol flow determine grouping; displayed coordinates do not. Each
-  district takes its name from its most connected responsibility and marks an
-  anchor with an inspectable connectivity reason. Independent responsibilities
-  and unresolved belonging remain searchable collections without district washes.
+- Selecting an island frames its districts: the `responsibility-groups` lens's
+  responsibility groups. Recorded module edges and symbol flow determine
+  grouping; displayed coordinates do not. Each district takes its name from its
+  most connected responsibility and marks an anchor, that responsibility's file
+  with the highest internal fan-in, with an inspectable connectivity reason.
+  Independent responsibilities and unresolved belonging remain searchable
+  collections without district washes.
 - Entering a district exposes only its responsibilities; entering a responsibility
   exposes its exact files. Parent outlines and anchors remain, with neighboring
   district contours as passive context. Hover previews the eligible child after

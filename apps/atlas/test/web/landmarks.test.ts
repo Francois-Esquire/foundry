@@ -43,6 +43,7 @@ const territory: Territory = {
   label: "Example",
   neighborhoods: [],
   radius: 50,
+  responsibilityGroups: undefined,
   shallows: [],
   x: 0,
   y: 0,

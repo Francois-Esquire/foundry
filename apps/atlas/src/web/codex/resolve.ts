@@ -19,6 +19,9 @@ export function resolveCodex(source: CodexSource): Codex {
     source.fileRoles.flatMap((pkg) => pkg.modules.map((m) => [m.module, m]))
   );
   const roles = new Map(source.fileRoles.map((pkg) => [pkg.id, pkg]));
+  const groups = new Map(
+    source.responsibilityGroups.map((pkg) => [pkg.id, pkg])
+  );
   const current = new Set(source.packages.map((p) => p.id));
   return {
     declaredDependencies: source.declaredDependencies.flatMap(
@@ -53,6 +56,7 @@ export function resolveCodex(source: CodexSource): Codex {
     })),
     packages: source.packages.map((p) => {
       const saved = roles.get(p.id);
+      const grouped = groups.get(p.id);
       return {
         analyzed: p.analyzed,
         fileRoles: saved && { modules: saved.modules },
@@ -60,6 +64,10 @@ export function resolveCodex(source: CodexSource): Codex {
         id: p.id,
         label: shortName(p.id),
         layer: p.layer ?? 0,
+        responsibilityGroups: grouped && {
+          groups: grouped.groups,
+          independent: grouped.independent,
+        },
         size: p.modules.total,
       };
     }),

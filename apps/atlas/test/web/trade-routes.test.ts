@@ -41,6 +41,7 @@ const island = (id: string, x: number, radius = 20): Territory => ({
   label: id,
   neighborhoods: [],
   radius,
+  responsibilityGroups: undefined,
   shallows: [],
   x,
   y: 0,

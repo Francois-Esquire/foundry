@@ -1,6 +1,6 @@
 import { contours } from "d3-contour";
+import type { PackageResponsibilityGroups } from "../lib/lenses/responsibility-groups-types";
 import { compositionInsideLand } from "./composition-placement";
-import type { deriveHierarchy } from "./hierarchy";
 import type { AtlasInternals } from "./internals";
 import type { NaturalFeature } from "./natural-feature-inspection";
 import type { NaturalFeatures } from "./natural-features";
@@ -219,8 +219,13 @@ export function hitBelonging(
     )[0]?.region;
 }
 
+/**
+ * The `responsibility-groups` lens's groups drawn as districts over the
+ * island's responsibilities: contours, pigment, each anchor's mark, and the
+ * collections of independent and unresolved responsibilities.
+ */
 export function compositeRegions(
-  hierarchy: ReturnType<typeof deriveHierarchy>,
+  responsibilityGroups: PackageResponsibilityGroups,
   regions: BelongingRegion[]
 ): BelongingRegion[] {
   const byId = new Map(regions.map((region) => [region.id, region]));
@@ -248,17 +253,19 @@ export function compositeRegions(
       uncertain: collection,
     };
   };
-  const composites = hierarchy.composites.map((group) => {
-    const region = combine(group.id, group.label, group.regions);
-    const anchors = byId.get(group.anchor)?.members ?? [];
-    region.anchor = [...anchors].sort(
-      (a, b) => b.incoming - a.incoming || a.id.localeCompare(b.id)
-    )[0];
-    region.anchorReason = "Most connected responsibility within this district";
+  const composites = responsibilityGroups.groups.map((group) => {
+    const region = combine(group.id, group.label, group.responsibilities);
+    region.anchor = byId
+      .get(group.anchor)
+      ?.members.find((file) => file.path === group.anchorModule);
+    region.anchorReason =
+      "Most connected responsibility within this district, at its file with the highest internal fan-in";
     return region;
   });
   districtContours(composites);
-  const independent = hierarchy.independent.filter((id) => byId.has(id));
+  const independent = responsibilityGroups.independent.filter((id) =>
+    byId.has(id)
+  );
   const unresolved = regions
     .filter((region) => region.uncertain)
     .map((region) => region.id);

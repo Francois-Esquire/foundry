@@ -131,4 +131,55 @@ describe("renderLens", () => {
     expect(text).not.toContain("High fan-in");
     expect(text).not.toContain("Saved without internals");
   });
+
+  it("prints the responsibility-groups lens, the largest group first", () => {
+    const group = (
+      label: string,
+      responsibilities: string[],
+      anchorModule?: string
+    ) => ({
+      anchor: responsibilities[0] ?? "",
+      ...(anchorModule !== undefined && { anchorModule }),
+      anchorWeight: 1,
+      id: `responsibility-group:${label}`,
+      label,
+      responsibilities,
+    });
+    const text = renderLens(
+      "responsibility-groups",
+      {
+        missing: ["@s/c"],
+        packages: [
+          {
+            groups: [
+              group("small", ["a", "b"], "a/small.ts"),
+              group("large", ["c", "d", "e"]),
+            ],
+            id: "@s/a",
+            independent: ["f"],
+          },
+        ],
+      },
+      { format: "text" }
+    );
+    expect(text).toBe(
+      [
+        "Responsibility groups",
+        "═════════════════════",
+        "Packages                      1",
+        "Groups                        2",
+        "Responsibilities in groups    5",
+        "Independent responsibilities  1",
+        "",
+        "Responsibility groups",
+        "  large  3",
+        "    @s/a",
+        "  small  2",
+        "    @s/a · anchored on a/small.ts",
+        "",
+        "Saved without internals",
+        "  @s/c",
+      ].join("\n")
+    );
+  });
 });

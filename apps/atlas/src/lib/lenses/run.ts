@@ -6,6 +6,7 @@ import type { DatasetManifest } from "../semantics-types";
 import { fileRolesLens } from "./file-roles";
 import type { Lens, LensId, LensReader, LensSettings } from "./lens-types";
 import { packageSizesLens } from "./package-sizes";
+import { responsibilityGroupsLens } from "./responsibility-groups";
 
 // The lens phase of a scan. Every lens runs on every scan, after the
 // dataset's files are written to the unpublished tree and before the
@@ -15,7 +16,11 @@ import { packageSizesLens } from "./package-sizes";
 export type AnyLens = Lens<LensId, unknown, keyof LensSettings>;
 
 /** Every lens, in dependency order: a lens comes after the lenses it consumes. */
-export const LENSES: readonly AnyLens[] = [fileRolesLens, packageSizesLens];
+export const LENSES: readonly AnyLens[] = [
+  fileRolesLens,
+  packageSizesLens,
+  responsibilityGroupsLens,
+];
 
 export interface WriteLensesOptions {
   /** The unpublished tree, holding every dataset file but the manifest. */

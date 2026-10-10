@@ -62,6 +62,7 @@ export async function loadAtlas(signal?: AbortSignal): Promise<AtlasData> {
       label: p.label,
       neighborhoods,
       radius,
+      responsibilityGroups: p.responsibilityGroups,
       shallows,
       x: (unit(p.id) - 0.5) * 1400,
       y: latitude(p.layer),

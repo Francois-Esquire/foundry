@@ -857,6 +857,76 @@ this order, which is deliberate (2.2e comes before 2.2d):
   bindings, natural-feature, topography, and load tests. The reference
   internals helper binds the roles the lens derives for its package.
 
+**2.2b `responsibility-groups`.** Done 2026-10-10.
+- `lib/lenses/responsibility-groups.ts`: for every package whose internals
+  the dataset holds, by manifest id, the viewer's greedy modularity merge
+  over `responsibilities.relationships`, moved unchanged from
+  `web/hierarchy.ts` `deriveHierarchy` as `groupResponsibilities`, with its
+  weight `districtAffinity`, now `responsibilityAffinity`
+  (`log1p(moduleEdges) + log1p(symbolFlow)`). Only names changed: the
+  generated helpers are `mergeWhileGaining` and `bestJoin`, and `bestJoin`
+  takes four parameters instead of six and returns only the pair, since
+  the initial best and the `1e-12` floor it was always called with are now
+  its own. Each group has
+  the viewer's `label`, `anchor`, and `anchorWeight`, its members as
+  `responsibilities`, and `anchorModule`: the anchor's module with the
+  highest internal fan-in from the topology, ties by id, root-relative
+  through the 2.2a helper. Its `id` is `responsibility-group:` and the first
+  12 hex digits of the SHA-256 of the sorted member ids, one per line, as a
+  responsibility's id is made. Both were renamed before the v1 schema was
+  relied on: the viewer's `composite:${JSON.stringify(ids)}` id and its
+  `regions` field. The viewer reads the new names; its selection state
+  keeps the name `compositeId`, the viewer's word for a drawn district,
+  and now holds a `responsibility-group:` id.
+  `independent` and `missing` as in 2.2a. A "responsibility group" is the
+  lens's word; "district" stays the viewer's word for drawing one.
+- Tests never anchor: a responsibility's modules are primary (source)
+  modules only, so a test file is never in one, and it was not under the
+  viewer's rule either.
+- The overview draws no districts, so the lens is read the way 2.2a reads
+  `file-roles`: the codex keeps each package's entry from load
+  (`Territory.responsibilityGroups`, `undefined` without internals), and
+  `use-belonging.ts` draws it on entering the island under the same pin.
+  `compositeRegions` keeps only presentation: contours, pigment, each
+  anchor's mark (the member file at `anchorModule`), and the collections,
+  of which "Unresolved belonging" stays the viewer's. `web/hierarchy.ts`,
+  its test, and `districtAffinity` with its codex README rows are deleted.
+- Equal to `deriveHierarchy`, checked before it was deleted, on every
+  package of a Foundry scan (15 packages, 29 groups, 124 responsibilities
+  in groups) and of the semantics fixture (3 packages, 1 group): 0
+  differences in groups, labels, anchors, weights, or `independent`.
+- Visible change: the groupings are identical. The anchor mark moves where
+  the anchor responsibility's file with the most incoming import edges is
+  not its file with the highest internal fan-in: 6 of Foundry's 29 groups.
+  - `@foundry/agents` SessionMessage: `session/store.ts` (31 incoming,
+    fan-in 10) to `session/types.ts` (24, 17).
+  - `@foundry/atlas` src/lib: `serve.ts` (8, 5) to `dataset-files.ts`
+    (7, 5), a fan-in tie broken by id.
+  - `@foundry/marbles` src/components/ui: `ui/log.tsx` (1, 1) to
+    `ui/panel.tsx` (0, 6).
+  - `@foundry/sandbox` SandboxExecResult: `container/store.ts` (25, 2) to
+    `types.ts` (18, 12).
+  - `@foundry/works` src/app/components/input.tsx:
+    `pages/settings/credential-field.tsx` (1, 1) to
+    `components/input.tsx` (0, 3).
+  - `@foundry/works` src/app/theme: `theme/theme-selector.tsx` (0, 1) to
+    `theme/theme.tsx` (0, 3).
+- Cost, on the 2.2a Foundry dataset: `lenses/responsibility-groups.json`
+  is 15 KB. The lens phase, now three lenses over internals parsed once,
+  takes 59 ms (57 ms before) and raises RSS by about 210 MB (200 MB before).
+- Tests: `test/lib/lenses.test.ts` (`hierarchy.test.ts`'s cases moved
+  unchanged: the weak bridge, empty input and independents, the anchor and
+  its weight `4 · log1p(20)`, determinism and coverage; the affinity;
+  `anchorModule` on the higher fan-in even when it sorts later by id, and
+  a fan-in tie broken by id; packages keyed and sorted by manifest id, and
+  the hashed group id; `missing` through the phase; the registry);
+  `test/lib/render-lens.test.ts`; `test/lib/semantics.test.ts` (both
+  internals lenses list every package missing in a scan without them);
+  `test/atlas.test.ts` (the fixture's groups by hand, and the entry the map
+  keeps from load); `test/web/belonging.test.ts` (lens groups; the anchor
+  at `anchorModule`, the anchor responsibility's second file by id, and
+  none without one); the codex tests.
+
 **2.3 Placement: where it lives against where it is used.** The motivating
 case. Per symbol from `consumerPackages` and its neighbors; per file and
 per folder as sums over cross-package module edges. Labels Fits and

@@ -21,6 +21,15 @@ const coreRoles = [
   { fanIn: 0, highFanIn: false, module: "packages/core/src/b.test.ts" },
 ];
 
+const coreGroup = {
+  anchor: "responsibility:a",
+  anchorModule: "packages/core/src/a.ts",
+  anchorWeight: 2,
+  id: "responsibility-group:0123456789ab",
+  label: "a",
+  responsibilities: ["responsibility:a", "responsibility:c"],
+};
+
 const source: CodexSource = {
   dataset: { coverage: "partial", generatedAt: "2026-09-23T00:00:00.000Z" },
   declaredDependencies: [
@@ -109,6 +118,13 @@ const source: CodexSource = {
       id: "packages/core/src/a.ts",
     },
   ],
+  responsibilityGroups: [
+    {
+      groups: [coreGroup],
+      id: "@foundry/core",
+      independent: ["responsibility:b"],
+    },
+  ],
 };
 
 describe("resolveCodex", () => {
@@ -121,7 +137,7 @@ describe("resolveCodex", () => {
     });
   });
 
-  it("sizes packages from the package-sizes lens, names them without their scope, and seats unknown layers at the foundation", () => {
+  it("sizes packages from the package-sizes lens, names them without their scope, seats unknown layers at the foundation, and keeps their lens entries", () => {
     expect(codex.packages).toEqual([
       {
         analyzed: false,
@@ -130,6 +146,10 @@ describe("resolveCodex", () => {
         id: "@foundry/core",
         label: "core",
         layer: 0,
+        responsibilityGroups: {
+          groups: [coreGroup],
+          independent: ["responsibility:b"],
+        },
         size: 2,
       },
       {
@@ -139,6 +159,7 @@ describe("resolveCodex", () => {
         id: "@foundry/ui",
         label: "ui",
         layer: 1,
+        responsibilityGroups: undefined,
         size: 1,
       },
     ]);
