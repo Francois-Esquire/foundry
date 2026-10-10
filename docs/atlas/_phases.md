@@ -688,10 +688,17 @@ file counts already answer it.
 
 Detail in [`_codemods.md`](./_codemods.md#decisions-needed).
 
-**3.0 Measure the refresh.** A cold scan, a warm scan, and a scan after a
-one-file edit, on a throwaway copy of the repository, which needs no
-permission to edit the checkout. Every refresh decision waits for the
-numbers.
+**3.0 Measure the refresh.** Done 2026-10-10; the numbers and what they
+mean for 3.6 are in [`_codemods.md`](./_codemods.md#refresh-measured-2026-10-10).
+- Derivation is about 90% of any refresh: 30–33 s on Foundry whatever the
+  edit, against 3 s warm. A commit that touches a file, and the first scan
+  of each UTC day, re-derive too.
+- `apply` spends 85% of its 33 s in its two analyses; the edit takes
+  milliseconds.
+- Internals are cheap (under 0.4 s) and already reused, so 3.6's internals
+  item is done. Passing the `apply` project through saves about 3 s; the
+  larger savings are splitting the derivation key and reusing the saved
+  report for `apply`'s before and after.
 
 **3.1 Rules.** The shape `{ operator, subject, effect }`, declared in the
 configuration from 1.7, with subjects addressed by path and `path#symbol`.

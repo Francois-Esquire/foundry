@@ -314,3 +314,61 @@ gate reading rules, then `atlas check` (read-only, useful on its own in CI),
 then `plan`, then `apply` for `internalize-export` with the refresh, then a
 second executable kind. Which second kind matters most is a question for the maintainer:
 `rewrite-import` and `move-module` are the likely candidates.
+
+### Refresh measured (2026-10-10)
+
+Measured for 3.0 on a throwaway worktree of bb48666 (15 packages, 1,493
+source files), CLI from that tree's build, medians of three runs. The
+machine was not idle; ranges are wide.
+
+| Scenario | Wall | Range | Derive | Analyze |
+|---|---|---|---|---|
+| Cold | 40.4 s | 36.9–49.7 | 28.9 s | 8.8 s |
+| Warm, no change | 3.0 s | 3.0–3.4 | reused | 0 |
+| One-file edit, leaf (`apps/works`) | 32.7 s | 31.3–35.3 | 28.8 s | 0.8 s |
+| One-file edit, `packages/lib` | 31.5 s | 31.5–34.6 | 28.2 s | 0.6 s |
+| One-file edit, `packages/core` | 31.1 s | 30.9–34.8 | 28.0 s | 0.5 s |
+| Empty commit | 3.0 s | 3.0–3.0 | reused | 0 |
+| Commit of already-scanned edits | 30.3 s | 29.7–30.9 | 27.1 s | 0 |
+| `apply` internalize-export, `@foundry/workspaces` | 32.9 s | 27.2–38.2 | – | – |
+| Refresh scan after that `apply` | 35.7 s | 34.9–37.2 | 31.0 s | 0.7–1.2 s |
+
+- Derivation is the refresh. Any scan that derives costs 30–33 s; where the
+  edit lands changes only the analyze phase.
+- A comment-only edit derives for 28 s and changes no artifact. Skipping
+  derivation when local reports are unchanged would not be sound, because
+  derivation reads bodies across the workspace.
+- The warm floor is the fingerprint's dependency-cruiser run (1.4–2.1 s).
+  Derivation then runs dependency-cruiser and `git log` a second time.
+- Internals take at most 0.33 s for all packages and read the cached local
+  reports.
+- An empty commit does not re-derive, because `git log -- .` drops it. Any
+  commit that touches a file does, a docs-only one included: 27–30 s with no
+  source change. So `apply`, its refresh, and the commit derive twice.
+- The day is in the derivation key; the first scan of each UTC day derives
+  everything.
+- `apply` spends 85% in its two `analyzeSurface` calls (15 s before, 13 s
+  after). A one-target analysis costs about 60% of a full derivation, since
+  concepts, references, and the cruise are workspace-wide. The edit takes
+  3 ms. Plan, apply, refresh, and the next scan after the commit come to
+  about two minutes.
+- Peak memory is 7.8 GB cold and about 10 GB per refresh, in the derive
+  worker, which releases it on exit.
+
+What this means for 3.6:
+
+1. Internals per package: done.
+2. Passing the project `apply` builds: worth about 3 s of 28. After a
+   one-file edit the type checker starts over, and an in-process derive on
+   the same project measured no faster. Low priority. A project passed in
+   must be built at the real path of the root.
+3. Derivation keyed on commits: split the key. Structural facts keyed on
+   sources, module set, config, and versions. The history tail (churn through
+   concept distribution) keyed on commits, tracked files, and the day.
+4. The larger saving: validate `apply`'s "before" against the saved report
+   when its fingerprint is current, and take "after" from the refresh scan,
+   staged and published only once verification passes. About 28 s per
+   `apply`; this conflicts with 3.5's "fresh analysis", so the maintainer
+   decides.
+5. Run dependency-cruiser and `git log` once per scan (about 2 s, warm
+   included).
