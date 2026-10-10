@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { lstatSync, readFileSync, realpathSync } from "node:fs";
 import { resolve, sep } from "node:path";
 import { isMissingPath, writeFileAtomicSync } from "@foundry/lib/atomic-file";
@@ -38,11 +39,28 @@ import { workingTree } from "./working-tree";
 
 export interface ApplyOptions {
   /**
+   * More checks once the files are written and the structural checks ran,
+   * such as the readiness commands run again; any that fails rolls back.
+   */
+  afterChecks?: () => Promise<VerificationCheck[]>;
+  /**
    * Analyzes the target again once the files are written; `analyzeSurface`
    * by default. A seam for verification: whatever it throws restores the
    * files as a failed check does.
    */
   analyzeAfter?: (options: AnalyzeSurfaceOptions) => Promise<SurfaceReport>;
+  /**
+   * Called once every file's written bytes are known and checked, before
+   * the first write, so a caller can journal what a restore needs; required
+   * to write. Whatever it throws stops the write; nothing has been written.
+   */
+  beforeWrite?: (files: readonly RestorableFile[]) => Promise<void>;
+  /**
+   * The SHA-256 each planned file must have just before the first write,
+   * as readiness's rollback recorded it; a file missing here, or with
+   * other bytes, stops the write as stale. Unchecked when absent.
+   */
+  expectedHashes?: ReadonlyMap<string, string>;
   /** Monorepo root. Defaults to the nearest ancestor of cwd with a workspaces field. */
   root?: string;
   tsconfig?: string;
@@ -56,11 +74,26 @@ interface Snapshot {
   mode: number;
 }
 
-/** A file the mutation writes: its snapshot, and the bytes written over it. */
-interface WrittenFile {
+/** A file the mutation writes: its snapshot, and the hash of the bytes written over it, which the restore guard compares. */
+export interface RestorableFile {
   file: string;
   original: Snapshot;
+  /** SHA-256 of the written bytes. */
+  writtenHash: string;
+}
+
+/** A file about to be written: what a restore needs, and the bytes. */
+interface PendingWrite extends RestorableFile {
   written: Buffer;
+}
+
+/** Some written file could not be restored; it is left as it is, and the error names it. */
+export class RestoreError extends Error {
+  override readonly name = "RestoreError";
+}
+
+export function sha256(bytes: Uint8Array): string {
+  return createHash("sha256").update(bytes).digest("hex");
 }
 
 const BOM = Buffer.from([0xef, 0xbb, 0xbf]);
@@ -153,27 +186,35 @@ function readIfPresent(path: string): Buffer | undefined {
  * Puts every written file back as it was, one at a time and atomically,
  * with its mode. A file that still holds its original bytes is left alone;
  * one that holds neither those nor the written bytes changed after the
- * write, so it is not overwritten. Every file is tried; when any is left
- * untouched or fails to restore, it throws once, naming them all, with
- * `cause` (the error that called for the restore) or else the first
- * failure as its cause.
+ * write, so it is not overwritten. Each restore is flushed to disk. Every
+ * file is tried; when any is left untouched or fails to restore, it throws
+ * once, naming them all, with `cause` (the error that called for the
+ * restore) or else the first failure as its cause. Otherwise it returns the
+ * files it restored and those it found already as they were.
  */
 export function restoreWritten(
   root: string,
-  written: readonly WrittenFile[],
+  written: readonly RestorableFile[],
   cause?: unknown
-): void {
+): { restored: string[]; skipped: string[] } {
+  const restored: string[] = [];
+  const skipped: string[] = [];
   const untouched: string[] = [];
   const failed: { error: unknown; file: string }[] = [];
-  for (const { file, original, written: bytes } of written) {
+  for (const { file, original, writtenHash } of written) {
     const path = resolve(root, file);
     try {
       const current = readIfPresent(path);
       if (current?.equals(original.bytes)) {
+        skipped.push(file);
         continue;
       }
-      if (current?.equals(bytes)) {
-        writeFileAtomicSync(path, original.bytes, { mode: original.mode });
+      if (current !== undefined && sha256(current) === writtenHash) {
+        writeFileAtomicSync(path, original.bytes, {
+          fsync: true,
+          mode: original.mode,
+        });
+        restored.push(file);
         continue;
       }
       untouched.push(file);
@@ -182,7 +223,7 @@ export function restoreWritten(
     }
   }
   if (untouched.length === 0 && failed.length === 0) {
-    return;
+    return { restored, skipped };
   }
   const reasons = [
     ...(untouched.length > 0
@@ -196,7 +237,7 @@ export function restoreWritten(
     ),
   ];
   const files = [...untouched, ...failed.map(({ file }) => file)];
-  throw new Error(
+  throw new RestoreError(
     `Atlas did not restore every file it wrote: ${reasons.join("; ")}. Restore ${files.join(", ")} from Git.`,
     { cause: cause ?? failed[0]?.error }
   );
@@ -525,19 +566,46 @@ export async function applyReductionPlan(
     });
   }
 
-  const written: WrittenFile[] = [];
+  const { beforeWrite } = options;
+  if (beforeWrite === undefined) {
+    throw new Error(
+      "applyReductionPlan writes only with a beforeWrite journal, so that a crash mid-write can be restored."
+    );
+  }
+  const pending = pendingWrites(files, originals);
+  const staleBefore = staleBeforeWrite(root, pending, options.expectedHashes);
+  if (staleBefore !== undefined) {
+    return result(plan, "stale", plan.predictedDelta, {
+      blockers: [staleBefore],
+    });
+  }
+  await beforeWrite(
+    pending.map(({ written: _bytes, ...restorable }) => restorable)
+  );
+  // Again once the journal is down: a file may have moved while it was
+  // flushed. The caller deletes the journal of a write that never began.
+  const staleAfter = staleBeforeWrite(root, pending, options.expectedHashes);
+  if (staleAfter !== undefined) {
+    return result(plan, "stale", plan.predictedDelta, {
+      blockers: [staleAfter],
+    });
+  }
+  const written: RestorableFile[] = [];
   let verification: VerificationResult;
   try {
-    writeEdited(root, files, originals, written);
-    verification = await verifyWritten({
-      analyze: options.analyzeAfter ?? analyzeSurface,
-      analyzeOptions,
-      baseline,
-      before,
-      boundaryDir,
-      plan,
-      project,
-    });
+    writeEdited(root, pending, written);
+    verification = withChecks(
+      await verifyWritten({
+        analyze: options.analyzeAfter ?? analyzeSurface,
+        analyzeOptions,
+        baseline,
+        before,
+        boundaryDir,
+        plan,
+        project,
+      }),
+      (await options.afterChecks?.()) ?? []
+    );
   } catch (error) {
     restoreWritten(root, written, error);
     throw error;
@@ -623,32 +691,77 @@ function editRoutes(
   return { edits, files };
 }
 
+/** Each edited file's snapshot and the bytes to write over it. */
+function pendingWrites(
+  files: ReadonlyMap<string, SourceFile>,
+  originals: ReadonlyMap<string, Snapshot>
+): PendingWrite[] {
+  return [...files].map(([relative, file]) => {
+    const original = originals.get(relative);
+    if (original === undefined) {
+      throw new Error(`No snapshot of ${relative}; nothing was written.`);
+    }
+    const written = writtenBytes(file.getFullText(), original);
+    return { file: relative, original, written, writtenHash: sha256(written) };
+  });
+}
+
 /**
- * Writes each edited file atomically, with its original mode. Each is
- * listed in `written` before its write, so a failure part-way restores it
- * too: the restore leaves a file that still holds its original bytes alone.
+ * Why the write cannot start: a planned file that no longer holds its
+ * snapshot's bytes, read again now, or whose hash is not the one the
+ * rollback recorded (A2). Nothing has been written yet.
+ */
+function staleBeforeWrite(
+  root: string,
+  pending: readonly PendingWrite[],
+  expected: ReadonlyMap<string, string> | undefined
+): PlanBlocker | undefined {
+  for (const { file, original } of pending) {
+    const current = readIfPresent(resolve(root, file));
+    const hash = sha256(original.bytes);
+    const moved =
+      current === undefined ||
+      !current.equals(original.bytes) ||
+      (expected !== undefined && expected.get(file) !== hash);
+    if (moved) {
+      return {
+        detail: `${file} is not the file readiness recorded for the rollback; it changed before the write. Nothing was written.`,
+        reason: "stale-plan",
+      };
+    }
+  }
+}
+
+/**
+ * Writes each file atomically, with its original mode. Each is listed in
+ * `written` before its write, so a failure part-way restores it too: the
+ * restore leaves a file that still holds its original bytes alone.
  */
 function writeEdited(
   root: string,
-  files: ReadonlyMap<string, SourceFile>,
-  originals: ReadonlyMap<string, Snapshot>,
-  written: WrittenFile[]
+  pending: readonly PendingWrite[],
+  written: RestorableFile[]
 ): void {
-  for (const [relative, file] of files) {
-    const original = originals.get(relative);
-    if (original === undefined) {
-      throw new Error(`No snapshot of ${relative}; it was not written.`);
-    }
-    const entry = {
-      file: relative,
-      original,
-      written: writtenBytes(file.getFullText(), original),
-    };
-    written.push(entry);
-    writeFileAtomicSync(resolve(root, relative), entry.written, {
-      mode: original.mode,
+  for (const { written: bytes, ...restorable } of pending) {
+    written.push(restorable);
+    writeFileAtomicSync(resolve(root, restorable.file), bytes, {
+      fsync: true,
+      mode: restorable.original.mode,
     });
   }
+}
+
+/** A verification with more checks after its own; any that fails fails it. */
+function withChecks(
+  verification: VerificationResult,
+  checks: readonly VerificationCheck[]
+): VerificationResult {
+  const all = [...verification.checks, ...checks];
+  return {
+    ...verification,
+    checks: all,
+    status: all.every((check) => check.status === "pass") ? "pass" : "fail",
+  };
 }
 
 /** The checks after the write: no new TypeScript error in the package, and the structural proof. */

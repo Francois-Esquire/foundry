@@ -14,6 +14,7 @@ import {
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { isMissingPath } from "@foundry/lib/atomic-file";
 import { isFilesystemPathWithin } from "@foundry/lib/paths";
+import { refuseUnfinishedApply } from "./apply-journal";
 import { datasetReader } from "./dataset";
 import { fileTransport, savedDataset } from "./dataset-files";
 import type { DatasetManifest } from "./semantics-types";
@@ -71,6 +72,8 @@ export async function exportViewer(
   await checkContents(target);
   const release = lockState(workspace);
   try {
+    // An unfinished apply means the dataset may not describe the sources.
+    refuseUnfinishedApply(workspace);
     const manifest = await replaceDirectory(target, async (stage) => {
       await cp(viewer, stage, { recursive: true });
       await cp(workspace.output, join(stage, DATA_DIRECTORY), {

@@ -247,6 +247,18 @@ binary.
   many places wants to apply many plans, which raises ordering, shared
   files, and one rollback across all of them.
 
+Where they stand after 3.5 (2026-10-10):
+
+- **Rule shape**: settled in 3.1 as `{ effect, operator, subject }`, with
+  `permit` and `require`; no `forbid`, so preservation stays plan-local.
+- **Where rules live**: `rules` in `.foundry/atlas/` (3.1). Package-level
+  rules are still open.
+- **Verification per kind**: `internalize-export` keeps its bespoke
+  structural checks and the TypeScript diff, and since 3.5 also runs the
+  readiness command steps again after the write, against the baseline taken
+  under the lock. The general delta check is still unproven.
+- **Batching**: one plan per apply in 0.1 (decision 4); unchanged.
+
 ## Decisions needed
 
 Added 2026-10-09, when the API work picked this up again. The open
@@ -276,7 +288,9 @@ words that depend on them, `check`, `plan`, and `apply`, are listed in
 4. **Batching.** Recommendation: one plan per `apply` in 0.1. `atlas check`
    lists every violation; applying them one at a time keeps rollback exact.
    Batching is its own design once two executable kinds exist.
-5. **Refresh the dataset after every write.** Decided by the maintainer.
+5. **Refresh the dataset after every write** (since 3.5, "the scan after a
+   write": `apply --write` stages a scan beside the dataset and swaps it in
+   once complete). Decided by the maintainer.
    A codemod changes the code, and the dataset describes the code, so a
    write is not finished until the dataset matches again. Recomputing it is
    expensive, so the refresh is an incremental scan through the existing

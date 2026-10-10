@@ -1,3 +1,4 @@
+import { refuseUnfinishedApply } from "./apply-journal";
 import { savedDataset } from "./dataset-files";
 import type { Rules } from "./lenses/rules-types";
 
@@ -32,13 +33,13 @@ export async function check(
   root: string,
   options: { state?: string | undefined } = {}
 ): Promise<CheckResult> {
-  const { reader } = await savedDataset(root, options.state);
+  const { reader, workspace } = await savedDataset(root, options.state);
+  // An unfinished apply means the dataset may not describe the sources,
+  // which outranks any violation: the check fails, saying what to run.
+  refuseUnfinishedApply(workspace);
   const [manifest, lens] = await Promise.all([
     reader.manifest(),
     reader.lens("rules"),
   ]);
-  // 3.5's apply journal (`apply/journal.json` in the workspace's state
-  // directory) will be read here: a journal means the dataset no longer
-  // describes the sources, and the check reports it before any violation.
   return { generatedAt: manifest.generatedAt, lens, outcome: outcomeOf(lens) };
 }

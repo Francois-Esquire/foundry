@@ -8,7 +8,10 @@
 import { randomUUID } from "node:crypto";
 import {
   chmodSync,
+  closeSync,
+  fsyncSync,
   mkdirSync,
+  openSync,
   renameSync,
   rmSync,
   writeFileSync,
@@ -96,13 +99,15 @@ export async function writeFileAtomic(
 export interface AtomicWriteSyncOptions {
   /** Create missing parent directories first. */
   readonly createDirectory?: boolean;
+  /** Flush the bytes before the rename and the directory after it, as `writeFileAtomic` does. */
+  readonly fsync?: boolean;
   /** The file's mode, exactly: set on the temporary after it is written, so the umask cannot narrow it. */
   readonly mode?: number;
 }
 
 /**
- * `writeFileAtomic` for synchronous callers. It supports `createDirectory`
- * and `mode`, but no `fsync` or `directoryMode`. The temporary is created
+ * `writeFileAtomic` for synchronous callers. It supports `createDirectory`,
+ * `fsync`, and `mode`, but no `directoryMode`. The temporary is created
  * exclusively beside `path`, renamed over it, and removed if any step fails.
  */
 export function writeFileAtomicSync(
@@ -119,9 +124,24 @@ export function writeFileAtomicSync(
     if (options.mode !== undefined) {
       chmodSync(temporary, options.mode);
     }
+    if (options.fsync) {
+      syncFileSync(temporary);
+    }
     renameSync(temporary, path);
   } finally {
     rmSync(temporary, { force: true });
+  }
+  if (options.fsync) {
+    syncDirectorySync(dirname(path));
+  }
+}
+
+function syncFileSync(path: string): void {
+  const descriptor = openSync(path, "r");
+  try {
+    fsyncSync(descriptor);
+  } finally {
+    closeSync(descriptor);
   }
 }
 
@@ -133,6 +153,17 @@ export function writeFileAtomicSync(
  * error is reported, though the file has by then been replaced.
  */
 const UNSYNCABLE_DIRECTORY = ["EACCES", "EINVAL", "EISDIR", "ENOTSUP", "EPERM"];
+
+/** Flushes a directory's entries to disk, so a rename or a new entry in it survives a crash; see `UNSYNCABLE_DIRECTORY`. */
+export function syncDirectorySync(path: string): void {
+  try {
+    syncFileSync(path);
+  } catch (error) {
+    if (!UNSYNCABLE_DIRECTORY.some((code) => hasErrorCode(error, code))) {
+      throw error;
+    }
+  }
+}
 
 async function syncDirectory(path: string): Promise<void> {
   try {

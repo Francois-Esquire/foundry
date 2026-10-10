@@ -1929,9 +1929,9 @@ nothing in the workspace.
 
 **3.5 `atlas apply` for `internalize-export`.** Fresh analysis,
 revalidation, a dirty tree blocks, preview by default, write with
-`--write`, verify, restore on failure. In two units: (a), the mutator's
-hardening and a library preview, is done; (b), the write with its journal,
-verification, the scan after it, and the CLI, follows.
+`--write`, verify, restore on failure. Done 2026-10-10 in two units: (a),
+the mutator's hardening and a library preview; (b), the write with its
+journal, verification, the scan after it, and the CLI.
 
 Unit (a), done 2026-10-10. Nothing is exposed in the CLI yet, and nothing
 writes through `applyRecord`.
@@ -2036,7 +2036,150 @@ writes through `applyRecord`.
   (the default registry judges an import rewrite unsupported);
   `packages/lib` (`mode` set exactly under a narrow umask).
 
-**3.6 Refresh after every write.** Internals are already reused per
+Unit (b), done 2026-10-10.
+- `atlas apply <opportunity> [path...] [--write]` (`lib/codemod-apply.ts`
+  `applyRecord`, CLI only; `codemod.ts` keeps the site, `plan`, and the
+  chain both share, `authorizeSite`). `--write` is apply's only; the help
+  says "Preview a planned change; write and verify it with --write". Exit
+  0 for a preview, or a write verified and published; 1 for no record, a
+  refusal, a rollback, an interrupted write restored, or a verified write
+  whose scan failed (decision 9); 2 for bad arguments. `--json` is
+  `{ site, planId, mode, status, refusal?, edits, changedFiles,
+  verification?, scan?, timings? }`, `status` one of `preview`, `refused`,
+  `applied`, `rolled-back`.
+- The journal is the one record of an unfinished apply (A1;
+  `lib/apply-journal.ts`): `{ schemaVersion, site, planId, phase,
+  startedAt, files }`, each file with its original bytes (base64), mode,
+  and the SHA-256 of the original and of the written bytes; written with
+  `writeFileAtomic({ fsync: true })` before the first source write, through
+  the mutator's new `beforeWrite` hook, and rewritten `verified` once every
+  check passed. No `WorkspaceRecord` marker; `recordSavedDataset` is
+  unchanged. `writing`: the next apply, any site or mode, restores under
+  the lock with the same guard (`restoreWritten`, now comparing the written
+  hash), deletes the journal, says what it restored, and exits 1; `plan`,
+  `check`, and `scan` refuse. `verified`: `scan` publishes, then deletes it;
+  `plan`, `apply`, and `check` refuse. A restore that refuses a file keeps
+  the journal. The 3.4 strings are revisited: the refusals now say which
+  phase and what to run, and plan's "Run atlas apply … to preview; add
+  --write to write." names a command that exists.
+- Just before the first write the mutator reads each file again and checks
+  it against its snapshot and the hash readiness's rollback recorded, passed
+  in as `expectedHashes`, and again once the journal is flushed; a mismatch
+  is `stale`, writes nothing, and the journal of the write that never began
+  is deleted (A2). The mutator writes only with a `beforeWrite` journal.
+- Durability: each source write and each restore is flushed, file and
+  directory (`writeFileAtomicSync` gains `fsync`, and `@foundry/lib`
+  exports `syncDirectorySync`), so the written files are on disk before the
+  journal flips to `verified` or is deleted; the state directory is flushed
+  when `apply/` is new. On macOS, Bun's `fsync` is a plain `fsync(2)`, not
+  `F_FULLFSYNC`: 200 one-byte `fsyncSync` calls took 0.025 ms each under
+  Bun 1.3.14, the same as `fsync(2)` from C (0.026 ms), against 4.1 ms
+  under Node 26, which issues `F_FULLFSYNC` through libuv, as C's
+  `fcntl(F_FULLFSYNC)` does (4.05 ms). So a power loss on macOS can still
+  lose a flushed write; nothing is built around it.
+- A restore refused for a changed file names the journal, and says that
+  restoring the file from Git (its `HEAD` content) lets the next apply
+  finish, and that deleting the journal keeps the files as they are. The
+  journal's copy of each original is checked against its recorded hash
+  before any restore. An earlier interrupted write reports the files it
+  restored and, apart, those already as they were.
+- Under the lock, a scan and the scan after a write remove the
+  `output.tmp-<pid>`, `output.old-<pid>`, and `output.next.*-<pid>`
+  directories of a pid that no longer runs (`processAlive`, the lock's own
+  check). `atlas export` refuses while an apply is unfinished, in either
+  phase, since the dataset may not describe the sources.
+- SIGINT and SIGTERM are caught across the write and its checks (A3).
+  Under Bun 1.3.14 a signal's listener runs only at the next macrotask,
+  never when a blocking `execFileSync` returns, so every check first yields
+  (`setImmediate`) and then throws `InterruptedError` for a caught signal,
+  inside the mutator's `try`, which restores. The checks: before the
+  journal is written (a signal during the analysis before the write writes
+  nothing), around the after-analysis, after each script, and once more
+  after the mutator returns `applied`, before the `verified` flip, so a
+  signal dispatched late, as when a script traps SIGINT and exits 0, still
+  undoes the write, from the journal. A child killed on its own, by its
+  timeout (`ETIMEDOUT`) or a full buffer (`ENOBUFS`), is a failed step,
+  which rolls back and exits 1; it is an interrupt only when Atlas caught a
+  signal too. There is also a check right after the journal is written.
+  The listener stays installed through the restore, so a second signal
+  does not stop it. An interrupted write exits 130 for SIGINT and 143 for
+  SIGTERM. The scan after the write is outside the window: by then the
+  write is verified and journaled so. The window that remains, a few
+  synchronous statements between the last check and `stop()`, is accepted:
+  a signal there takes Bun's default action, ending the process with the
+  journal still `writing`, and the next apply restores. History's own
+  staging, `output/history.tmp-<pid>` and `.old-<pid>`, is swept with the
+  rest. A first version checked synchronously and
+  missed every signal during a script; the review reproduced it, and the
+  e2e now sends SIGINT to the CLI's process group during a sleeping script,
+  and one that traps it.
+- After the write, each readiness command step runs again (A6, decision 4;
+  Changes row): it must exit 0 or show only failures its baseline, run
+  under the lock in this apply's re-authorization, showed. The TypeScript
+  diff and `verifyInternalizeExport` run first. The checks are the mutator's
+  new `afterChecks` hook. Since a failing baseline blocks readiness and
+  apply passes no allowances, the subset rule bites only once allowances
+  exist; today any failure after a passing baseline rolls back.
+- The scan after the write (A7, A8): `scan.ts` `publishAfterWrite` stages
+  the dataset, internals included, in `output.next` with
+  `generateSemantics`' new `previous` option (the published dataset, for
+  hardlink reuse), hardlinks `output/history` into it, swaps it in with
+  `replaceDirectory`, and records the save; apply calls it under the lock
+  it already holds. History is carried over because it covers past
+  commits, HEAD included, and apply commits nothing; a plain scan without
+  `--history` drops it, as before. Once 3.6 takes "after" from the staged
+  scan, a failed scan means no after-report, so it rolls back; decision
+  9's "applied, but the scan failed, files stay" then survives only for a
+  failure in the swap or in recording the save. The staged scan is not
+  yet compared with anything: "after" is still `analyzeSurface`'s.
+- On a published scan apply deletes the record, only if its text is still
+  the one it loaded (A11), and then the journal. A refusal or rollback
+  keeps the record; a later apply re-authorizes anyway.
+- The text view (`render/reports/apply.ts`, `renderApply`): the outcome,
+  the refusal with what to run next, each edit as `before → after`, and the
+  checks after a write.
+- Measured on a fresh `git clone` of Foundry under `/tmp` (c97bb1b, its
+  own `bun install`, a committed `permit` on `packages/workspaces`, never
+  the user's checkout), one run each after a cold scan (49.7 s, 6.9 GB):
+  `plan` 6.2–7.7 s at 2.5 GB, its baseline (`@foundry/workspaces`' test
+  and typecheck scripts) 2.9–3.8 s; an apply preview 29.9 s at 5.9 GB
+  (re-authorization with the scripts, then the mutator's fresh
+  `analyzeSurface`); `apply --write` 82.4 s at 8.7 GB, of which the
+  baseline under the lock took 3.1 s, the scripts after the write 4.0 s,
+  and the scan after the write 34.4 s; the rest is the two analyses and
+  the re-authorization. 3.0 measured `apply` (32.9 s) and the refresh
+  (35.7 s) apart, 68.6 s together; the write now adds the re-authorization
+  and both script runs, about 14 s. Only `packages/workspaces/src/index.ts`
+  changed. On a committed copy of the deps fixture (test scripts `true`):
+  `apply --write` 2.45–2.50 s at 0.62 GB, the scan after it 1.28–1.33 s,
+  three sites. A preview of a multi-line export statement prints it whole;
+  a shorter form is a candidate.
+- Tests: `test/lib/codemod.test.ts` on committed copies of the deps
+  fixture with injected runners (a write journals before it writes,
+  verifies, re-runs the script once, scans, keeps history byte for byte,
+  advances `generatedAt`, leaves only the planned file changed, and deletes
+  the record and the journal, and a second apply has no record; a script
+  failing after the write rolls back byte for byte and keeps the record; a
+  baseline failing under the lock refuses; a throw and a SIGINT restore,
+  and the listeners go; an interrupted journal is refused by plan, check,
+  and scan, and restored by the next apply of another site; a file changed
+  since the interrupted write is not overwritten and the journal stays; a
+  failed scan keeps the verified write and the journal, apply then
+  refuses, and a scan finishes it; no Git previews but refuses the write);
+  `test/lib/operator.test.ts` (the pre-write hash check, absent and
+  wrong, and a failing `beforeWrite` write nothing);
+  `test/cli/args.test.ts` (apply's words and `--write`, refused elsewhere);
+  and `test/atlas.test.ts` on the built CLI over a committed copy of the
+  semantics fixture with a `require`: check exits 3; a dirty written file
+  refuses (1) and writes nothing; rules edited after the plan refuse (1),
+  naming the rule; a preview exits 0 with a clean tree; `--write --json`
+  exits 0 with one line, the file changed, `generatedAt` advanced, and no
+  journal; check then exits 0; apply again exits 1.
+
+**3.6 Refresh after every write.** From 3.5: "after" comes from the staged
+scan that `publishAfterWrite` already builds, compared before the swap, so
+that a failed scan rolls back instead of leaving a verified write; "before"
+from the saved report when proven current (A9). Internals are already reused per
 package since 1.4, derived from the cached local reports; what remains is
 passing the project `apply` builds through instead of building three. Sized
 by 3.0.
@@ -2109,3 +2252,5 @@ Every change to analysis code, with its reason, before it is made.
 | `apply.ts`, the `internalize-export` mutator, which holds `verifyInternalizeExport`: raw-byte and mode snapshots, symlinks refused, atomic writes and restores with the mode, a byte order mark kept, one `try` from the first write through the last check, a guarded restore, the `analyzeAfter` seam, `editRoute`'s before and after text (`MutationResult.edits` in `types.ts`), and the dirty check through `workingTree`, refusing a write without Git. Verification's checks are unchanged. | A throw after the write left a half-applied tree, the restore was lossy and not atomic, and a write without Git had no dirty check (decisions 5 and 8, A2, A5). | Done in 3.5 (a). |
 | `lib/working-tree.ts` `workingTree` holds readiness's `gitDirty` logic, moved, and tells Git missing from no repository; `gitDirty` delegates to it, and `apply.ts`'s `dirtyPlannedFiles` is gone. The porcelain output is read with `-z`, unquoted and untrimmed, and a repository Git cannot read is told from no repository. | Two copies of one job (ground rule 5); A5 needs the reason Git is unavailable; the trim cut the first character from the first dirty path, and Git quoted a path with spaces or non-ASCII characters, so readiness and the mutator missed such a dirty planned file. | Done in 3.5 (a). |
 | `DEFAULT_MUTATION_CAPABILITIES` drops `rewrite-import`, `update-test-import`, and `preserve-compatibility-export`; `MUTATION_CAPABILITY_VERSION` is 2. | The registry claimed kinds no mutator performs (decision 6, A12). Every earlier authorization's capability part moves; readiness judges an import-rewriting plan `unsupported` under the default, as the bridge already refused it. | Done in 3.5 (a). |
+| `operator-readiness.ts` exports `spawnRunner` and `commandResult` (one command run as readiness records it: its exit code and failures, normalized exactly as the baseline is, `exit <code>` when a failed run shows none), which `baselineStep` now calls instead of its inline extraction; a run (`ReadinessCommandRun`) carries the signal that killed it, if one did. | Apply runs the command steps again after its write and compares them with the baseline (decision 4, A6); one function makes both runs judge failures alike. `extractFailures` stays private behind `commandResult`. | Done in 3.5 (b). |
+| `apply.ts` gains `beforeWrite` (required to write), `expectedHashes` (checked before and after it), and `afterChecks` options and `RestoreError`; writes and restores are flushed; the restore guard compares the written bytes by SHA-256 and reports what it restored and skipped. | The journal must be flushed before the first write (A1), each file checked against the rollback's hash just before it (A2), and the scripts run again inside the restoring `try` (A6). | Done in 3.5 (b). |

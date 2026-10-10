@@ -6,6 +6,7 @@ import {
   expect,
   test,
 } from "bun:test";
+import { existsSync } from "node:fs";
 import {
   cp,
   mkdir,
@@ -21,7 +22,7 @@ import { join, resolve } from "node:path";
 import { spawn } from "bun";
 import { loadConfiguration } from "../src/lib/atlas-config";
 import type { CheckResult } from "../src/lib/check";
-import type { PlanSiteResult } from "../src/lib/codemod-types";
+import type { ApplyResult, PlanSiteResult } from "../src/lib/codemod-types";
 import type { PackageInternals } from "../src/lib/internal-analysis-types";
 import type { Domains } from "../src/lib/lenses/domains-types";
 import type { FileRoles } from "../src/lib/lenses/file-roles-types";
@@ -41,7 +42,7 @@ import { workspaceState } from "../src/lib/state";
 import { startServer } from "../src/server/server";
 import { loadAtlas } from "../src/web/load-atlas";
 import { loadInternals } from "../src/web/load-internals";
-import { CLI, spawnCli } from "./helpers/cli";
+import { CLI, spawnCli, spawnDetached } from "./helpers/cli";
 import { commitFixture } from "./helpers/commit-fixture";
 
 const directories: string[] = [];
@@ -1099,6 +1100,260 @@ describe("built CLI plan", () => {
       stdout: "",
     });
   }, 60_000);
+});
+
+describe("built CLI apply", () => {
+  const SITE = "tooling/c/src/index.ts#fence";
+  const FILE = "tooling/c/src/index.ts";
+  const RULES = ".foundry/atlas/rules.ts";
+  let directory: string;
+  let root: string;
+  let state: string;
+  const cli = (words: string[]) =>
+    runCli([...words, "--state", state, "--quiet"], root);
+  const status = async () => {
+    const child = spawn(["git", "status", "--porcelain"], {
+      cwd: root,
+      stdout: "pipe",
+    });
+    return (await new Response(child.stdout).text()).trim();
+  };
+  /** Runs `body` with a workspace file rewritten, then puts it back. */
+  const withFile = async (
+    file: string,
+    edit: (text: string) => string,
+    body: () => Promise<void>
+  ) => {
+    const path = join(root, file);
+    const original = await readFile(path, "utf8");
+    await writeFile(path, edit(original));
+    try {
+      await body();
+    } finally {
+      await writeFile(path, original);
+    }
+  };
+
+  // A committed copy of the semantics fixture whose @s/c has a test script
+  // and a rule requiring internalize there, which also permits it.
+  beforeAll(async () => {
+    directory = await realpath(await mkdtemp(join(tmpdir(), "atlas-apply-")));
+    root = join(directory, "workspace");
+    await cp(resolve(import.meta.dirname, "lib/fixtures/semantics"), root, {
+      recursive: true,
+    });
+    const manifest = join(root, "tooling/c/package.json");
+    const parsed = JSON.parse(await readFile(manifest, "utf8"));
+    await writeFile(
+      manifest,
+      JSON.stringify({ ...parsed, scripts: { test: "true" } })
+    );
+    await mkdir(join(root, ".foundry/atlas"), { recursive: true });
+    await writeFile(
+      join(root, RULES),
+      'export default { rules: [{ effect: "require", operator: "internalize", subject: "tooling/c" }] };\n'
+    );
+    commitFixture(root);
+    state = join(directory, "state");
+    await scan(root, { state });
+  }, 60_000);
+
+  afterAll(async () => {
+    await rm(directory, { force: true, recursive: true });
+  });
+
+  test("checks, plans, refuses what moved, previews, writes, verifies, and scans again", async () => {
+    expect((await cli(["check"])).code).toBe(3);
+
+    // A dirty file it writes refuses the write, and nothing is written.
+    await withFile(
+      FILE,
+      (text) => `${text}// local edit\n`,
+      async () => {
+        expect((await cli(["plan", SITE])).code).toBe(0);
+        const dirty = await cli(["apply", SITE, "--write", "--json"]);
+        expect(dirty.code).toBe(1);
+        expect((JSON.parse(dirty.stdout) as ApplyResult).refusal).toEqual({
+          files: [FILE],
+          kind: "dirty",
+        });
+        expect(await readFile(join(root, FILE), "utf8")).toContain(
+          "export function fence"
+        );
+      }
+    );
+
+    // Rules edited after the plan refuse it, naming the rule.
+    expect((await cli(["plan", SITE])).code).toBe(0);
+    await withFile(
+      RULES,
+      () =>
+        'export default { rules: [{ effect: "permit", operator: "internalize", subject: "packages" }, { effect: "require", operator: "internalize", subject: "tooling/c" }] };\n',
+      async () => {
+        const moved = await cli(["apply", SITE, "--write"]);
+        expect(moved.code).toBe(1);
+        expect(moved.stdout).toContain(
+          "What atlas plan authorized has moved: rule."
+        );
+      }
+    );
+
+    const workspace = await workspaceState(root, state);
+    const before = JSON.parse(
+      await readFile(join(workspace.output, "manifest.json"), "utf8")
+    ) as DatasetManifest;
+    const preview = await cli(["apply", `internalize-symbol:${SITE}`]);
+    expect(preview.code, preview.stderr).toBe(0);
+    expect(preview.stdout).toContain("Preview");
+    expect(preview.stdout).toContain(
+      "tooling/c/src/index.ts: export function fence(shape: Shape): number { → function fence(shape: Shape): number {"
+    );
+    expect(await status()).toBe("");
+
+    const written = await cli(["apply", SITE, "--write", "--json"]);
+    expect(written.code, written.stderr).toBe(0);
+    expect(written.stdout.trimEnd().split("\n")).toHaveLength(1);
+    const result = JSON.parse(written.stdout) as ApplyResult;
+    expect(result).toMatchObject({
+      mode: "write",
+      scan: { status: "published" },
+      site: SITE,
+      status: "applied",
+    });
+    expect(await readFile(join(root, FILE), "utf8")).not.toContain(
+      "export function fence"
+    );
+    expect(await status()).toBe(`M ${FILE}`);
+    const after = JSON.parse(
+      await readFile(join(workspace.output, "manifest.json"), "utf8")
+    ) as DatasetManifest;
+    expect(after.generatedAt > before.generatedAt).toBe(true);
+    expect(existsSync(join(workspace.directory, "apply/journal.json"))).toBe(
+      false
+    );
+
+    expect((await cli(["check"])).code).toBe(0);
+    const again = await cli(["apply", SITE]);
+    expect(again.code).toBe(1);
+    expect(again.stderr).toContain("No authorized plan is saved");
+  }, 180_000);
+});
+
+describe("built CLI apply, interrupted", () => {
+  const SITE = "tooling/c/src/index.ts#fence";
+  const FILE = "tooling/c/src/index.ts";
+  let directory: string;
+  let root: string;
+  let state: string;
+
+  // The test script passes at once before the write, and sleeps after it,
+  // so the interrupt lands while apply runs it again; with TRAP_INT set it
+  // traps SIGINT and exits 0, as a test runner that cleans up might.
+  beforeAll(async () => {
+    directory = await realpath(await mkdtemp(join(tmpdir(), "atlas-int-")));
+    root = join(directory, "workspace");
+    await cp(resolve(import.meta.dirname, "lib/fixtures/semantics"), root, {
+      recursive: true,
+    });
+    await writeFile(
+      join(root, "tooling/c/slow-test.sh"),
+      [
+        "grep -q 'export function fence' src/index.ts && exit 0",
+        'if [ -n "$TRAP_INT" ]; then',
+        "  trap 'exit 0' INT",
+        "  sleep 10 &",
+        "  wait",
+        "  exit 0",
+        "fi",
+        "sleep 10",
+        "",
+      ].join("\n")
+    );
+    const manifest = join(root, "tooling/c/package.json");
+    const parsed = JSON.parse(await readFile(manifest, "utf8"));
+    await writeFile(
+      manifest,
+      JSON.stringify({ ...parsed, scripts: { test: "sh ./slow-test.sh" } })
+    );
+    await mkdir(join(root, ".foundry/atlas"), { recursive: true });
+    await writeFile(
+      join(root, ".foundry/atlas/rules.ts"),
+      'export default { rules: [{ effect: "permit", operator: "internalize", subject: "tooling/c" }] };\n'
+    );
+    commitFixture(root);
+    state = join(directory, "state");
+    await scan(root, { state });
+  }, 60_000);
+
+  afterAll(async () => {
+    await rm(directory, { force: true, recursive: true });
+  });
+
+  /** Runs `apply --write` in its own process group, and sends that group `signal` once the file is written. */
+  async function interrupted(
+    env: Record<string, string>,
+    signal: NodeJS.Signals
+  ) {
+    expect(
+      (await runCli(["plan", SITE, "--state", state, "--quiet"], root)).code
+    ).toBe(0);
+    const original = await readFile(join(root, FILE));
+    const child = spawnDetached(
+      [CLI, "apply", SITE, "--write", "--state", state, "--quiet"],
+      root,
+      { ...process.env, ...env }
+    );
+    const stderr: Buffer[] = [];
+    child.stderr?.on("data", (chunk: Buffer) => stderr.push(chunk));
+    const exited = new Promise<number | null>((done) =>
+      child.on("exit", (status) => done(status))
+    );
+    const deadline = Date.now() + 30_000;
+    while (
+      (await readFile(join(root, FILE), "utf8")).includes(
+        "export function fence"
+      )
+    ) {
+      if (Date.now() > deadline) {
+        throw new Error("apply never wrote the file");
+      }
+      await new Promise((done) => setTimeout(done, 50));
+    }
+    // Long enough for the script to be sleeping.
+    await new Promise((done) => setTimeout(done, 500));
+    process.kill(-(child.pid ?? 0), signal);
+    const code = await exited;
+    return {
+      code,
+      original,
+      restored: await readFile(join(root, FILE)),
+      stderr: Buffer.concat(stderr).toString("utf8"),
+    };
+  }
+
+  for (const [name, env, signal, exit] of [
+    ["Ctrl-C stops a script that dies", {}, "SIGINT", 130],
+    [
+      "Ctrl-C stops a script that traps SIGINT and exits 0",
+      { TRAP_INT: "1" },
+      "SIGINT",
+      130,
+    ],
+    ["SIGTERM stops a script", {}, "SIGTERM", 143],
+  ] as const) {
+    test(`restores byte for byte and exits ${exit} when ${name}`, async () => {
+      const run = await interrupted(env, signal);
+      expect(run.code, run.stderr).toBe(exit);
+      expect(run.stderr).toContain(
+        `Atlas: Interrupted by ${signal}; every file Atlas wrote is restored.`
+      );
+      expect(run.restored.equals(run.original)).toBe(true);
+      const workspace = await workspaceState(root, state);
+      expect(existsSync(join(workspace.directory, "apply/journal.json"))).toBe(
+        false
+      );
+    }, 90_000);
+  }
 });
 
 test("built CLI includes Git history when requested", async () => {

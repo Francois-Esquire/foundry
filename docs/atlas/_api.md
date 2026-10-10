@@ -14,9 +14,9 @@ How `src/lib` implements it is free to change.
   and an `exports` map with one entry, `.`, which names `scan`, `serve`,
   and the types below; nothing else under `src/lib` is importable. Marbles,
   by comparison, exports `.`, `./lib`, and `./prebuilt`.
-- **Eight commands**: `atlas [path...]`, `scan`, `serve`, `report`, and
-  `export` since 1.8, `lens` since 2.7, `check` since 3.3, and `plan` since
-  3.4, from a typed command table; each takes only its
+- **Nine commands**: `atlas [path...]`, `scan`, `serve`, `report`, and
+  `export` since 1.8, `lens` since 2.7, `check` since 3.3, `plan` since
+  3.4, and `apply` since 3.5, from a typed command table; each takes only its
   own flags, plus `--state`, `--json`, and `--quiet`. One path at most
   until collections. See `reference/cli.md`.
 - **The dataset is a contract.** `output/` is versioned
@@ -46,11 +46,12 @@ Proposed. These decide the shape of everything below.
 2. **The CLI is the library with formatting.** Every command is one library
    call plus output. No behavior exists only in the CLI.
 3. **Read-only unless asked.** Nothing writes inside a workspace except
-   `apply`, which previews by default and writes only with `--write` or
-   `write: true`, and `atlas export`, which writes only where it is
-   pointed. This is the existing `apply.ts` contract, made public.
-   `atlas plan` runs the workspace's test and typecheck scripts, which write
-   what they always write; Atlas itself writes nothing there.
+   `atlas apply --write`, which writes one authorized change to source
+   files, verifies it, and restores them on any failure, and `atlas
+   export`, which writes only where it is pointed. A preview writes no
+   source file. `atlas plan` and `atlas apply` run the workspace's test and
+   typecheck scripts, which write what they always write; Atlas itself
+   writes nothing else there.
 4. **Machine-readable by default for programs, readable by default for
    people.** Every command that prints a result takes `--json`. Exit codes
    mean something a CI job can use.
@@ -72,11 +73,11 @@ Proposed. These decide the shape of everything below.
 | `atlas lens <id> [path...]` | 0.1, done in 2.7 | Print one lens from the saved dataset, through `lib/render`, or as saved with `--json`. An unknown id exits `2`; a dataset without the lens exits `1`. |
 | `atlas check [path...]` | 0.1, done in 3.3 | Print the saved `rules` lens: the workspace's rules against the dataset. Exit 3 on a violation, 1 when a `require` could not be checked. CLI only, `lib/check.ts`. |
 | `atlas plan <opportunity> [path...]` | 0.1, done in 3.4 | Plan one internalize opportunity from the saved dataset, named by its id, its plan's id, or `path#name`, and authorize it under the saved `rules` lens's rules; save an authorized plan's record in the state directory. Runs the workspace's test and typecheck scripts as readiness's baseline, and writes nothing in the workspace. Exit 0 on any verdict. CLI only, `lib/codemod.ts`. A rule as the argument (`rule:<n>`) is deferred. |
-| `atlas apply <opportunity> [path...] [--write]` | 0.1, in 3.5 | Preview a plan's edits; write and verify with `--write`. Unit (a) built the library preview, `lib/codemod.ts` `applyRecord`, which authorizes again under the configuration's rules; the CLI and `--write` come with unit (b). |
+| `atlas apply <opportunity> [path...] [--write]` | 0.1, done in 3.5 | Preview a plan's edits; with `--write`, journal, write, verify (TypeScript, the structural proof, the workspace's scripts again), restore on any failure, and scan again. Authorizes again under the configuration's rules first, and refuses what moved. Exit 0 for a preview or a published write, 1 otherwise. CLI only, `lib/codemod-apply.ts`. |
 
 `check`, `plan`, and `apply` ship only once rules can be declared and the
-readiness gate reads them, as [`_codemods.md`](./_codemods.md) says; `check`
-and `plan` have, in 3.3 and 3.4.
+readiness gate reads them, as [`_codemods.md`](./_codemods.md) says; they
+did, in 3.3, 3.4, and 3.5.
 
 Flags shared by every command: `--state`, `--json`, `--quiet`, `--help`.
 `--history` belongs to `scan` and the default command, not to `serve`.

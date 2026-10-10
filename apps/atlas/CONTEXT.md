@@ -195,7 +195,8 @@ operation), `internalize-export` (its mutator)
 
 **Mutator**:
 The code that edits the workspace to apply a plan: `internalize-export`, for
-`internalize`. Nothing else in Atlas edits a workspace's sources. The code
+`internalize`, which `atlas apply --write` runs, journaled, verified, and
+restored on any failure. Nothing else in Atlas edits a workspace's sources. The code
 still calls it an operator (`StructuralOperator` and `OperatorId` in
 `operators.ts`, `MutationResult.operator`, and the catalog's
 `legacyOperatorId`).
@@ -204,8 +205,22 @@ _Avoid_: operator, codemod, apply
 **Preview**:
 What apply shows without `--write`: each statement the mutator would edit,
 before and after, and the files it would change, once the plan is
-authorized again. Nothing is written.
+authorized again. Atlas writes no source file.
 _Avoid_: dry run, diff
+
+**Pending write**:
+An apply's write the saved dataset does not describe yet, as the apply
+journal, `apply/journal.json` in the state directory, records it: `writing`
+until every check after the write passed, which the next apply restores;
+`verified` until the scan after the write publishes. Plan, apply, and check
+refuse while one is pending; a scan refuses one still `writing`.
+_Avoid_: marker, lock (that is the state directory's), dirty (Git's word)
+
+**Scan after a write**:
+The scan `apply --write` runs once its checks pass: staged beside the
+dataset, history carried over, and swapped in only when complete. Until it
+publishes, the write is pending.
+_Avoid_: refresh, rescan
 
 **Violation**:
 A place where a `require` rule's outcome does not hold: for `internalize`, an

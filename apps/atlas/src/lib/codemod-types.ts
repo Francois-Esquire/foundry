@@ -1,5 +1,12 @@
 import type { MutationAuthorizationResult } from "./operator-readiness";
-import type { InternalizeSymbolPlan, MutationEdit, PlanBlocker } from "./types";
+import type { OperatorPlanReadiness } from "./operator-readiness-types";
+import type { RuleRefusal } from "./rules";
+import type {
+  InternalizeSymbolPlan,
+  MutationEdit,
+  PlanBlocker,
+  VerificationResult,
+} from "./types";
 
 /**
  * One internalize opportunity, as `atlas plan` names it: by its opportunity
@@ -48,10 +55,27 @@ export interface MovedPart {
     | "atlas-version";
 }
 
-/** Why apply would not, or did not, write; nothing was written. */
+/** Why apply would not write; nothing was written by this run, except a restore. */
 export type ApplyRefusal =
-  /** Authorizing again now, under the configuration's rules, did not authorize the plan. */
-  | Exclude<MutationAuthorizationResult, { kind: "authorized" }>
+  /**
+   * An earlier apply did not finish. `writing`: it was interrupted while it
+   * wrote, and this run restored `restored` from its journal; `skipped` were
+   * already as they were. `verified`:
+   * the write passed its checks, but the scan after it did not publish.
+   */
+  | {
+      kind: "pending-write";
+      phase: "writing" | "verified";
+      /** The files put back from the journal. */
+      restored?: string[];
+      site: string;
+      /** Files the journal names that already held their original bytes. */
+      skipped?: string[];
+    }
+  /** Authorizing again now, under the configuration's rules, did not authorize the plan: `authorizeMutationPlan`'s answer. */
+  | { kind: "refused-by-rule"; refused: RuleRefusal[] }
+  | { kind: "not-executable"; reason: string }
+  | { kind: "readiness"; readiness: OperatorPlanReadiness }
   /** It authorizes, but not as the record says. */
   | { kind: "authorization-changed"; parts: MovedPart[] }
   /** The rollback cannot restore every file the mutator writes. */
@@ -67,6 +91,14 @@ export type ApplyRefusal =
       blockers: PlanBlocker[];
     };
 
+/** The scan after a write. `failed`: the sources hold the verified write, and the published dataset is the one from before it. */
+export interface ApplyScan {
+  durationMs: number;
+  error?: string;
+  output: string;
+  status: "published" | "failed";
+}
+
 /** What `atlas apply` answers for one site; `--json` prints it as is. */
 export interface ApplyResult {
   /** What the write would change, file by file; the same in both modes. */
@@ -78,7 +110,18 @@ export interface ApplyResult {
   planId: string;
   /** Why it stopped; only when `status` is `refused`. */
   refusal?: ApplyRefusal;
+  /** The scan after the write; only when `status` is `applied`. */
+  scan?: ApplyScan;
   /** The symbol, as a facet: `path#name`. */
   site: string;
-  status: "preview" | "refused";
+  /**
+   * `preview`: nothing written. `refused`: nothing written. `applied`: the
+   * write passed every check. `rolled-back`: a check failed after the write,
+   * and every written file was restored.
+   */
+  status: "preview" | "refused" | "applied" | "rolled-back";
+  /** How long the workspace's own scripts ran: once under the lock before the write, and once after it. */
+  timings?: { afterMs: number; baselineMs: number };
+  /** Every check after the write: TypeScript, the structural proof, and the scripts run again. */
+  verification?: VerificationResult;
 }

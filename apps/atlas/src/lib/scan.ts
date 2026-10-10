@@ -1,4 +1,14 @@
-import { join } from "node:path";
+import {
+  copyFileSync,
+  existsSync,
+  linkSync,
+  mkdirSync,
+  readdirSync,
+  rmSync,
+} from "node:fs";
+import { basename, dirname, join } from "node:path";
+import { processAlive } from "@foundry/lib/file-lock";
+import { deleteJournal, verifiedJournal } from "./apply-journal";
 import { loadConfiguration } from "./atlas-config";
 import type { DatasetReader, PackageReport } from "./dataset";
 import { datasetReader } from "./dataset";
@@ -8,7 +18,7 @@ import { packageInternals } from "./internal-analysis";
 import type { PackageInternals } from "./internal-analysis-types";
 import { analyzePackageLocal } from "./package-local";
 import type { SemanticsProgressEvent } from "./semantics";
-import { generateSemantics } from "./semantics";
+import { generateSemantics, replaceDirectory } from "./semantics";
 import { discoverSemanticsUnits, requireDeclared } from "./semantics-discover";
 import type { SemanticsHistoryProgressEvent } from "./semantics-history";
 import { generateSemanticsHistory } from "./semantics-history";
@@ -66,6 +76,8 @@ type Saved = Pick<WorkspaceScan, "history" | "manifest" | "output">;
 
 interface ScanRun {
   config: SemanticsConfig;
+  /** A verified apply's journal is waiting for this scan: once the dataset publishes, it goes. */
+  finishing?: boolean;
   history: boolean;
   progress: (event: ScanProgressEvent) => void;
   state: WorkspaceState;
@@ -117,16 +129,24 @@ scan.package = scanPackage;
 /**
  * Runs one scan holding the state directory's lock, which a second scan of
  * the workspace fails to take. Once the lock is held, the state directory
- * gets a workspace record if it has none.
+ * gets a workspace record if it has none. An apply interrupted while it
+ * wrote is refused, since its sources must be restored first; one that
+ * verified its write is finished: once this scan's dataset publishes, its
+ * journal goes.
  */
 async function whileScanning<T>(
   root: string,
   options: ScanOptions,
   body: (run: ScanRun) => Promise<T>
 ): Promise<T> {
-  const run = await prepare(root, options);
-  const release = lockState(run.state);
+  const prepared = await prepare(root, options);
+  const release = lockState(prepared.state);
   try {
+    const run = {
+      ...prepared,
+      finishing: verifiedJournal(prepared.state) !== undefined,
+    };
+    removeAbandonedStaging(run.state);
     recordWorkspace(run.state);
     return await body(run);
   } finally {
@@ -159,9 +179,25 @@ async function prepare(root: string, options: ScanOptions): Promise<ScanRun> {
  * the saved dataset.
  */
 async function publish(
-  { config, progress, state }: ScanRun,
+  run: ScanRun,
   { internals }: { internals: boolean }
 ): Promise<DatasetManifest> {
+  const output = await generate(run, { internals, output: run.state.output });
+  const manifest = await datasetReader(fileTransport(output)).manifest();
+  recordSavedDataset(run.state);
+  // Published, so the verified write it waited for is finished, even if
+  // history fails after this.
+  if (run.finishing === true) {
+    deleteJournal(run.state);
+  }
+  return manifest;
+}
+
+/** Generates the dataset into `output`, reusing the published one's unchanged artifacts. */
+async function generate(
+  { config, progress, state }: Pick<ScanRun, "config" | "progress" | "state">,
+  { internals, output }: { internals: boolean; output: string }
+): Promise<string> {
   const result = await generateSemantics({
     cache: state.cache,
     config,
@@ -169,12 +205,88 @@ async function publish(
     internals,
     mode: "incremental",
     onProgress: progress,
-    output: state.output,
+    output,
+    previous: state.output,
     root: state.root,
   });
-  const manifest = await datasetReader(fileTransport(result.output)).manifest();
+  return result.output;
+}
+
+/** A staging or swap directory, by the process that made it: `output.tmp-<pid>`, `output.next.old-<pid>`, `history.tmp-<pid>`. */
+const STAGING = /^(.+?)(\.next)?\.(tmp|old)-(\d+)$/;
+
+/**
+ * Removes what a scan or apply that died left beside the output, and
+ * history's inside it: staging and swap directories named by a pid that no
+ * longer runs. Called
+ * under the lock, so no live scan of this workspace owns one.
+ */
+function removeAbandonedStaging(state: WorkspaceState): void {
+  const sweep = (parent: string, name: string) => {
+    if (!existsSync(parent)) {
+      return;
+    }
+    for (const entry of readdirSync(parent)) {
+      const match = STAGING.exec(entry);
+      if (match?.[1] === name && !processAlive(Number(match[4]))) {
+        rmSync(join(parent, entry), { force: true, recursive: true });
+      }
+    }
+  };
+  sweep(dirname(state.output), basename(state.output));
+  // History stages its own directory inside the output: `history.tmp-<pid>`.
+  sweep(state.output, HISTORY_DIRECTORY);
+}
+
+/** Hardlinks every file under `from` into `to`, copying where the filesystem refuses a link. */
+function linkTree(from: string, to: string): void {
+  mkdirSync(to, { recursive: true });
+  for (const entry of readdirSync(from, { withFileTypes: true })) {
+    const source = join(from, entry.name);
+    const target = join(to, entry.name);
+    if (entry.isDirectory()) {
+      linkTree(source, target);
+    } else {
+      try {
+        linkSync(source, target);
+      } catch {
+        copyFileSync(source, target);
+      }
+    }
+  }
+}
+
+/**
+ * The scan after an apply's write, under the lock the apply holds: the
+ * dataset, internals included, is staged beside the output, the saved
+ * history is carried into it, and only then is it swapped in and recorded.
+ * History covers past commits only, and apply commits nothing, so it still
+ * holds; a plain scan without `--history` drops it, as before. A failure
+ * leaves the published dataset as it was and the staging removed.
+ */
+export async function publishAfterWrite(
+  state: WorkspaceState,
+  config: SemanticsConfig,
+  onProgress: (event: ScanProgressEvent) => void = ignoreProgress
+): Promise<DatasetManifest> {
+  const staged = `${state.output}.next`;
+  removeAbandonedStaging(state);
+  rmSync(staged, { force: true, recursive: true });
+  try {
+    await generate(
+      { config, progress: onProgress, state },
+      { internals: true, output: staged }
+    );
+    const history = join(state.output, HISTORY_DIRECTORY);
+    if (existsSync(history)) {
+      linkTree(history, join(staged, HISTORY_DIRECTORY));
+    }
+    replaceDirectory(staged, state.output);
+  } finally {
+    rmSync(staged, { force: true, recursive: true });
+  }
   recordSavedDataset(state);
-  return manifest;
+  return datasetReader(fileTransport(state.output)).manifest();
 }
 
 /** The scan's result, after saving history into the dataset when the scan asks for it. */

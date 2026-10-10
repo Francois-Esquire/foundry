@@ -2,9 +2,16 @@
 import type { CheckResult } from "../lib/check";
 import { check } from "../lib/check";
 import { planSite } from "../lib/codemod";
+import { applyRecord, InterruptedError } from "../lib/codemod-apply";
+import type { ApplyResult } from "../lib/codemod-types";
 import { savedDataset } from "../lib/dataset-files";
 import { exportViewer } from "../lib/export";
-import { renderLens, renderPlan, renderSurface } from "../lib/render";
+import {
+  renderApply,
+  renderLens,
+  renderPlan,
+  renderSurface,
+} from "../lib/render";
 import type { RenderContext } from "../lib/render/context";
 import type { ScanProgressEvent, WorkspaceScan } from "../lib/scan";
 import { scan } from "../lib/scan";
@@ -18,6 +25,8 @@ import { openBrowser } from "./browser";
 const FAILED = 1;
 const BAD_ARGUMENTS = 2;
 const VIOLATIONS = 3;
+/** 128 + the signal's number, as a shell reports a command a signal stopped; apply exits so once it restored its write. */
+const INTERRUPTED: Record<string, number> = { SIGINT: 130, SIGTERM: 143 };
 
 /** `check`'s exit code: a rule it could not check outranks a broken one. */
 const CHECK_EXIT: Record<CheckResult["outcome"], number> = {
@@ -25,6 +34,14 @@ const CHECK_EXIT: Record<CheckResult["outcome"], number> = {
   incomplete: FAILED,
   violations: VIOLATIONS,
 };
+/** `apply`'s exit code: 0 only for a preview, or a write that verified and whose scan published. */
+function applyExit(result: ApplyResult): number {
+  const done =
+    result.status === "preview" ||
+    (result.status === "applied" && result.scan?.status === "published");
+  return done ? 0 : FAILED;
+}
+
 /** The report's width when stdout is not a terminal. */
 const PIPED_WIDTH = 80;
 
@@ -101,6 +118,16 @@ function renderContext({
 }
 
 const RUN: { readonly [C in Command]: (args: ArgsOf<C>) => Promise<void> } = {
+  async apply(args) {
+    const [root] = args.paths;
+    const result = await applyRecord(root, args.site, {
+      onProgress: args.quiet ? undefined : printProgress,
+      state: args.state,
+      write: args.write,
+    });
+    printResult(args, result, () => renderApply(result, renderContext(args)));
+    process.exitCode = applyExit(result);
+  },
   async check(args) {
     const [root] = args.paths;
     const result = await check(root, { state: args.state });
@@ -192,5 +219,12 @@ try {
   process.stderr.write(
     `Atlas: ${messageOf(error)}\n${usage ? "Run atlas --help for usage.\n" : ""}`
   );
-  process.exitCode = usage ? BAD_ARGUMENTS : FAILED;
+  if (usage) {
+    process.exitCode = BAD_ARGUMENTS;
+  } else {
+    process.exitCode =
+      error instanceof InterruptedError
+        ? (INTERRUPTED[error.signal] ?? FAILED)
+        : FAILED;
+  }
 }

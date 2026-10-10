@@ -10,7 +10,7 @@ import { blockerDefinitions } from "./explanations";
 import { listSection } from "./ranked-section";
 
 /** How readiness's verdict reads as the plan's title line. */
-const AUTHORIZATION_WORDS: Record<MutationAuthorization, string> = {
+export const AUTHORIZATION_WORDS: Record<MutationAuthorization, string> = {
   authorized: "Authorized",
   blocked: "Blocked",
   "not-authorized": "Not authorized",

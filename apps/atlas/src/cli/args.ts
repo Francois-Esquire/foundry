@@ -23,6 +23,7 @@ const OPTIONS = {
   port: { type: "string" },
   quiet: { type: "boolean" },
   state: { type: "string" },
+  write: { type: "boolean" },
 } as const;
 
 /** The flags every command takes. */
@@ -41,6 +42,7 @@ interface CommandFlags {
   readonly "no-open": boolean;
   /** `undefined`: `serve`'s default port. */
   readonly port: number | undefined;
+  readonly write: boolean;
 }
 type CommandFlag = keyof CommandFlags;
 
@@ -67,6 +69,7 @@ function usageErrorFrom(error: unknown): UsageError {
 
 /** Every command; `open` is the default, which has no name of its own. */
 export type Command =
+  | "apply"
   | "check"
   | "export"
   | "lens"
@@ -112,7 +115,7 @@ function onePath(
 
 /** The word a command needs before its path, as `report <package>`. */
 function needed(
-  command: "export" | "lens" | "plan" | "report",
+  command: "apply" | "export" | "lens" | "plan" | "report",
   what: string,
   words: readonly string[]
 ): [string, readonly string[]] {
@@ -140,6 +143,15 @@ interface CommandSpec {
  * written from this table.
  */
 const COMMANDS = {
+  apply: {
+    flags: ["write", "format", "density"],
+    read: (words: readonly string[], cwd: string) => {
+      const [word, rest] = needed("apply", "an opportunity", words);
+      return { site: siteOf(word), ...onePath("apply", rest, cwd) };
+    },
+    summary: "Preview a planned change; write and verify it with --write",
+    usage: "atlas apply <opportunity> [path...]",
+  },
   check: {
     flags: ["format", "density"],
     read: (words: readonly string[], cwd: string) =>
@@ -216,6 +228,7 @@ const COMMAND_ORDER = [
   "lens",
   "check",
   "plan",
+  "apply",
   "export",
 ] as const satisfies readonly Command[];
 
@@ -254,6 +267,7 @@ const FLAG_HELP: Readonly<Record<OptionName, [string, string]>> = {
   ],
   quiet: ["--quiet", "Print no progress"],
   state: ["--state <path>", "State root (default: ~/.foundry/atlas)"],
+  write: ["--write", "write the change, verify it, then scan again"],
 };
 
 const FLAG_ORDER = [
@@ -261,6 +275,7 @@ const FLAG_ORDER = [
   "history",
   "port",
   "no-open",
+  "write",
   "format",
   "density",
   "json",
@@ -359,6 +374,7 @@ export function parseArguments(
 
 /** What `--json` prints for a command that also renders, in its usage error. */
 const JSON_PRINTS: Partial<Record<Command, string>> = {
+  apply: "the apply's result",
   check: "the check's result",
   lens: "the lens as saved",
   plan: "the plan's result",
@@ -387,6 +403,7 @@ function commandFlags(values: Values): CommandFlags {
     history: values.history ?? false,
     "no-open": values["no-open"] ?? false,
     port: values.port === undefined ? undefined : parsePort(values.port),
+    write: values.write ?? false,
   };
 }
 

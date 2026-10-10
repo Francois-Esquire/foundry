@@ -177,6 +177,12 @@ export interface SemanticsGenerateOptions {
   onProgress?: (event: SemanticsProgressEvent) => void;
   /** Workspace-relative or absolute dataset directory. Default `.foundry/semantics`; `scan` passes the state directory's. */
   output?: string;
+  /**
+   * The dataset whose byte-identical artifacts are hardlinked into the new
+   * one: by default the output itself. A scan staged beside the output, as
+   * apply's is, names the published one.
+   */
+  previous?: string;
   root: string;
 }
 
@@ -863,7 +869,8 @@ export async function generateSemantics(
   const output = resolve(root, options.output ?? DEFAULT_OUTPUT);
   const cacheDir = resolve(root, options.cache ?? DEFAULT_SEMANTICS_CACHE);
   const tmp = `${output}.tmp-${process.pid}`;
-  const previous = existsSync(output) ? output : undefined;
+  const reuseFrom = resolve(root, options.previous ?? output);
+  const previous = existsSync(reuseFrom) ? reuseFrom : undefined;
   if (!dryRun) {
     rmSync(tmp, { force: true, recursive: true });
     mkdirSync(tmp, { recursive: true });

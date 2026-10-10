@@ -1,4 +1,4 @@
-import type { PlanSiteResult } from "../codemod-types";
+import type { ApplyResult, PlanSiteResult } from "../codemod-types";
 import type { AnalysisConfig } from "../config";
 import { ANALYSIS_CONFIG } from "../config";
 import type { LensId, LensOutputs } from "../lenses/lens-types";
@@ -6,6 +6,7 @@ import type { SurfaceReport } from "../types";
 import type { RenderContext } from "./context";
 import { createMarkdownRenderer } from "./markdown";
 import type { Renderer } from "./renderer";
+import { buildApplyView } from "./reports/apply";
 import { buildPlanView } from "./reports/codemod";
 import { LENS_VIEWS } from "./reports/lenses";
 import { buildSurfaceView } from "./reports/surface";
@@ -72,4 +73,12 @@ export function renderPlan(
   options: Partial<RenderContext> = {}
 ): string {
   return renderView((density) => buildPlanView(result, density), options);
+}
+
+/** `atlas apply`'s result, through the apply's report view. */
+export function renderApply(
+  result: ApplyResult,
+  options: Partial<RenderContext> = {}
+): string {
+  return renderView((density) => buildApplyView(result, density), options);
 }

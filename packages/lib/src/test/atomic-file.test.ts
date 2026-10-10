@@ -15,6 +15,7 @@ import {
   hasErrorCode,
   isMissingPath,
   readJsonFile,
+  syncDirectorySync,
   writeFileAtomic,
   writeFileAtomicSync,
 } from "../atomic-file";
@@ -62,6 +63,14 @@ describe("writeFileAtomic", () => {
 });
 
 describe("writeFileAtomicSync", () => {
+  it("flushes when asked, and still leaves no temporary behind", async () => {
+    const path = join(directory, "flushed", "journal.json");
+    writeFileAtomicSync(path, "{}", { createDirectory: true, fsync: true });
+    expect(await readFile(path, "utf8")).toBe("{}");
+    expect(await readdir(join(directory, "flushed"))).toEqual(["journal.json"]);
+    expect(() => syncDirectorySync(join(directory, "flushed"))).not.toThrow();
+  });
+
   it("sets the mode exactly, whatever the umask", async () => {
     const path = join(directory, "script.sh");
     const umask = process.umask(0o077);

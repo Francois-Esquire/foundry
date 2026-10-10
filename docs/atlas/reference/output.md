@@ -10,6 +10,8 @@ description: The dataset a scan writes, file by file.
   output/          the dataset
   cache/           per-package results and the workspace fingerprint
   plans/           authorization records that atlas plan saved
+  apply/journal.json  while an atlas apply is unfinished
+  output.next/     while an apply's scan is staged, briefly
 ```
 
 `<id>` is the workspace id: the first 12 hex digits of the SHA-256 of the
@@ -34,7 +36,20 @@ whole state directory to force a full rebuild.
 `plans/` holds one record per authorized plan, named by a digest of the
 saved plan's id: the mutator, the saved plan's id and fingerprint, the rules
 that permit it, and the fingerprints a later apply checks again. A plan
-that is not authorized deletes its site's record. It is not
+that is not authorized deletes its site's record, and an apply whose scan
+published deletes the record it applied.
+
+`apply/journal.json` exists only while an `atlas apply --write` is
+unfinished. It is flushed to disk before the first source write and holds
+`{ schemaVersion, site, planId, phase, startedAt, files }`, each file as
+`{ file, mode, original, originalHash, writtenHash }`, `original` being the
+file's bytes in base64 and the hashes SHA-256. `phase` is `writing` until
+every check after the write passed, then `verified`. While it is `writing`,
+the next `atlas apply` restores the files and deletes it, and `scan`,
+`plan`, and `check` refuse; once `verified`, `plan`, `apply`, and `check`
+refuse until a scan publishes, which then deletes it. `output.next/` is the
+scan after a write, staged and then swapped in; only an interrupted apply
+leaves it behind, and the next apply removes it. It is not
 part of the dataset, and a scan leaves it alone.
 
 Package names appear in file names with `/` replaced by `__`:

@@ -150,6 +150,20 @@ it("reads each command's positionals and flags", () => {
       parseArguments(["plan", word, "/ws", "--json"], "/here")
     ).toMatchObject({ json: true, paths: ["/ws"], site });
   }
+  expect(parseArguments(["apply", site.opportunity], "/here")).toEqual({
+    command: "apply",
+    density: "normal",
+    format: undefined,
+    json: false,
+    paths: ["/here"],
+    quiet: false,
+    site,
+    state: undefined,
+    write: false,
+  });
+  expect(
+    parseArguments(["apply", site.place, "/ws", "--write", "--json"], "/here")
+  ).toMatchObject({ json: true, paths: ["/ws"], site, write: true });
   expect(parseArguments(["export", "site", "/ws"], "/here")).toEqual({
     command: "export",
     directory: "site",
@@ -218,8 +232,11 @@ it("refuses a flag the command does not take", () => {
     "atlas plan does not take --history."
   );
   // Writing is apply's, and only with --write.
-  expect(usageError(["plan", "a.ts#A", "--write"]).message).toContain(
-    "--write"
+  expect(usageError(["plan", "a.ts#A", "--write"]).message).toBe(
+    "atlas plan does not take --write."
+  );
+  expect(usageError(["scan", "--write"]).message).toBe(
+    "atlas scan does not take --write."
   );
 });
 
@@ -260,6 +277,12 @@ it("refuses missing positionals and invalid values", () => {
   expect(usageError(["plan"]).message).toBe(
     "atlas plan needs an opportunity: atlas plan <opportunity> [path...]"
   );
+  expect(usageError(["apply", "--write"]).message).toBe(
+    "atlas apply needs an opportunity: atlas apply <opportunity> [path...]"
+  );
+  expect(usageError(["apply", "fold-package:@s/a"]).message).toContain(
+    "names no internalize opportunity"
+  );
   expect(usageError(["plan", "fold-package:@s/a"]).message).toBe(
     "fold-package:@s/a names no internalize opportunity. Write internalize-symbol:<path#name>, its plan id, or <path#name>."
   );
@@ -286,9 +309,15 @@ it("generates the help from the command table", () => {
   expect(HELP).toContain("  atlas export <dir> [path...]");
   expect(HELP).toContain("  atlas check [path...]");
   expect(HELP).toContain(
-    "  atlas plan <opportunity> [path...]  Plan one opportunity and authorize it; writes nothing in the workspace"
+    "  atlas plan <opportunity> [path...]   Plan one opportunity and authorize it; writes nothing in the workspace"
   );
-  expect(HELP).toContain("report, lens, check, plan: ");
+  expect(HELP).toContain("report, lens, check, plan, apply: ");
+  expect(HELP).toContain(
+    "  atlas apply <opportunity> [path...]  Preview a planned change; write and verify it with --write"
+  );
+  expect(HELP).toContain(
+    "  --write               apply: write the change, verify it, then scan again"
+  );
   expect(HELP).toContain("atlas, serve: ");
   expect(HELP).toContain(
     "Exit codes: 0 done, 1 failed, 2 bad arguments, 3 a rule broken (check)."
