@@ -29,17 +29,18 @@ bun run atlas -- /path/to/workspace
 ```text
 Atlas — workspace analysis and a local viewer
 
-  atlas [path...]                      Scan a workspace, serve its dataset, and open the browser
-  atlas scan [path...]                 Scan and save the dataset
-  atlas serve [path...]                Serve the saved dataset without scanning
+  atlas [path...]                      Scan, serve, and open the browser
+  atlas scan [path...]                 Scan and save each workspace's dataset
+  atlas serve [path...]                Serve the saved datasets without scanning
   atlas report <package> [path...]     Print a package report from the saved dataset
   atlas lens <id> [path...]            Print a lens from the saved dataset
   atlas check [path...]                Check the workspace's rules against the saved dataset
   atlas plan <opportunity> [path...]   Plan one opportunity and authorize it; writes nothing in the workspace
   atlas apply <opportunity> [path...]  Preview a planned change; write and verify it with --write
-  atlas export <dir> [path...]         Write a static viewer of the saved dataset to <dir>
+  atlas export <dir> [path...]         Write a static viewer of the saved datasets to <dir>
 
-The path defaults to the current directory; one workspace at a time.
+The path defaults to the current directory. atlas, scan, serve, and export read
+several paths as one collection; the other commands read one workspace.
 A directory named like a command is written as a path: ./scan, ./serve, ./report, ./lens, ./check, ./plan, ./apply, ./export.
 
   --state <path>        State root (default: ~/.foundry/atlas)

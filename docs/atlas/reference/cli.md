@@ -11,17 +11,18 @@ The same scans and server are available from code: see the
 ```text
 Atlas — workspace analysis and a local viewer
 
-  atlas [path...]                      Scan a workspace, serve its dataset, and open the browser
-  atlas scan [path...]                 Scan and save the dataset
-  atlas serve [path...]                Serve the saved dataset without scanning
+  atlas [path...]                      Scan, serve, and open the browser
+  atlas scan [path...]                 Scan and save each workspace's dataset
+  atlas serve [path...]                Serve the saved datasets without scanning
   atlas report <package> [path...]     Print a package report from the saved dataset
   atlas lens <id> [path...]            Print a lens from the saved dataset
   atlas check [path...]                Check the workspace's rules against the saved dataset
   atlas plan <opportunity> [path...]   Plan one opportunity and authorize it; writes nothing in the workspace
   atlas apply <opportunity> [path...]  Preview a planned change; write and verify it with --write
-  atlas export <dir> [path...]         Write a static viewer of the saved dataset to <dir>
+  atlas export <dir> [path...]         Write a static viewer of the saved datasets to <dir>
 
-The path defaults to the current directory; one workspace at a time.
+The path defaults to the current directory. atlas, scan, serve, and export read
+several paths as one collection; the other commands read one workspace.
 A directory named like a command is written as a path: ./scan, ./serve, ./report, ./lens, ./check, ./plan, ./apply, ./export.
 
   --state <path>        State root (default: ~/.foundry/atlas)
@@ -42,9 +43,33 @@ The first argument is a command only when it is exactly `scan`, `serve`,
 `report`, `lens`, `check`, `plan`, `apply`, or `export`; anything else is
 the workspace path, for the default command. A directory with a command's name is written as a path,
 `atlas ./report`. The path defaults to the current directory and must be
-an existing directory. The parser reads `path...`, but one workspace at a
-time is supported for now: a second path is refused until several
-workspaces can be read as one collection.
+an existing directory.
+
+## Several workspaces
+
+`atlas`, `scan`, `serve`, and `export` read two or more paths as one
+collection: workspaces read together, such as a product split across
+repositories that depend on each other. One path runs exactly as it always
+has.
+
+- Each workspace is scanned on its own, one after the other, with its own
+  state, dataset, cache, and lock; nothing is saved for the collection.
+  What ties them is the collection manifest, derived from the saved
+  datasets: each workspace, its packages qualified by its workspace id, and
+  the crossings, a package's declared dependency on a package of another
+  workspace. See [output](/atlas/reference/output#a-collection).
+- The workspaces are ordered by resolved root, whatever the order given. A
+  workspace inside another exits `2`: `Workspace <outer> holds workspace
+  <inner>; the workspaces of a collection cannot overlap.`
+- Two paths that name one workspace, the same path twice or a path and a
+  link to it, exit `2`, naming the path given twice: `<path> names the same
+  workspace as <earlier path>, <root>; give each workspace once.`
+- `report`, `lens`, `check`, `plan`, and `apply` read one workspace's
+  dataset and refuse a second path with exit `2`: `atlas report reads one
+  workspace's dataset; give one path.`
+- When a workspace's scan fails, the workspaces scanned before it keep
+  their saved datasets, and the command fails with `Atlas could not scan
+  <root>: <message>`.
 
 ## Flags
 
@@ -70,8 +95,11 @@ error too: `atlas serve does not take --history.`
 - stdout carries the command's result and nothing else. stderr carries
   progress, warnings, and errors.
 - Progress goes to stderr, one line per phase, then `internals: <package>`
-  per package. `--quiet` silences it, and nothing else.
-- `scan` ends with `Dataset saved to <dir>` on stdout.
+  per package; for a collection, `workspace: <root>` before each
+  workspace's lines. `--quiet` silences it, and nothing else.
+- `scan` ends with `Dataset saved to <dir>` on stdout; for a collection,
+  one such line per workspace, then `Collection: <n> workspaces, <n>
+  crossings`.
 - `report` prints the package report, rendered for the format.
 - `lens` prints the lens, rendered for the format.
 - `check` prints the `rules` lens, rendered for the format, and exits `3`
@@ -83,7 +111,8 @@ error too: `atlas serve does not take --history.`
   stops it, and the verification an apply would run, rendered for the
   format.
 - `export` prints `Static viewer saved to <dir>`.
-- A server prints `Atlas: <url>` and `Workspace: <root>` on stdout, then
+- A server prints `Atlas: <url>` and `Workspace: <root>` on stdout, one
+  `Workspace:` line per workspace of a collection, then
   runs until `SIGINT` or `SIGTERM`, such as Ctrl-C, which stop it and exit
   `0`. The default command prints the scan's line, then the server's.
 - A failure prints `Atlas: <message>` on stderr and nothing more on
@@ -106,6 +135,10 @@ With `--json`, stdout is one line: the [library](/atlas/reference/library)'s res
 | `export` | `{ "directory", "manifest" }`: where the static viewer is, and the manifest of the dataset it holds |
 | `serve` | `{ "root", "url" }`, printed once the server listens |
 | `atlas` | One line once the server listens: the scan's fields and the server's, `{ "manifest", "output", "history"?, "root", "url" }` |
+| `scan` of a collection | `{ "manifest", "workspaces" }`: the collection manifest, and each workspace's `{ "manifest", "output", "history"? }` in the collection's order |
+| `export` of a collection | `{ "directory", "manifest", "workspaces" }`: where the static viewer is, the collection manifest it holds, and each workspace's `{ "id", "root", "dataset" }`, `dataset` being the directory its dataset was copied to |
+| `serve` of a collection | `{ "roots", "url" }`: each workspace root in the collection's order |
+| `atlas` of a collection | `{ "manifest", "workspaces", "roots", "url" }`: the collection scan's fields and the server's |
 
 `--json` does not change stderr: progress still goes there unless
 `--quiet` is given. `report --json`, `lens --json`, `check --json`, and
@@ -118,7 +151,7 @@ With `--json`, stdout is one line: the [library](/atlas/reference/library)'s res
 | --- | --- |
 | `0` | The command finished, or `--help`; for `check`, no rule is broken, or none is declared; for `plan`, any verdict, refused and blocked included; for `apply`, a preview, or a write that verified and whose scan published |
 | `1` | The command ran and failed: a path that does not exist or is not a directory, a package that failed analysis, a workspace being scanned, exported, or applied, `--history` without Git, the viewer's files missing, a port in use, no saved dataset or one with another schema version, an unknown package, a dataset saved without the lens asked for or with another version of it, a directory export refuses, `check` could not check a `require` rule in a package that failed analysis, which outranks any violation, `plan` or `apply` was given an opportunity the dataset does not hold, found the dataset stale, or found an unfinished apply, `apply` found no record or refused, rolled back, or wrote a verified change whose final swap then failed, or `check` found an unfinished apply |
-| `2` | Bad arguments: an unknown flag, a flag the command does not take, a bad value, an unknown lens, a missing package, lens, opportunity, or directory, an opportunity of another shape, or a second path |
+| `2` | Bad arguments: an unknown flag, a flag the command does not take, a bad value, an unknown lens, a missing package, lens, opportunity, or directory, an opportunity of another shape, two paths that name one workspace, two paths of which one holds the other, or a second path for `report`, `lens`, `check`, `plan`, or `apply` |
 | `130`, `143` | `apply --write` was stopped by Ctrl-C (`130`) or `SIGTERM` (`143`), and restored every file it wrote |
 | `3` | `check` only: a rule is broken |
 
@@ -384,6 +417,15 @@ add inside one of Atlas's own entries, such as `data/`, is replaced with it. The
 - `<dir>` must not hold the workspace, and must not overlap the state
   directory or the viewer's files.
 
+With several paths, `atlas export <dir> <path> <path>...` writes the
+collection as the server serves it: each workspace's saved dataset, whole,
+under `<dir>/data/<workspace id>/`, and `<dir>/data/collection-manifest.json`,
+derived from the copied datasets; there is no `<dir>/data/manifest.json`.
+`<dir>` must not hold any of the workspaces or overlap any of their state
+directories. It holds every workspace's lock while it copies, and refuses
+while any of them has an unfinished apply. The viewer cannot show a
+collection yet.
+
 To publish from a Git checkout, such as a `gh-pages` branch, export into a
 subdirectory of it, or export elsewhere and copy the files in. A static
 viewer inside the workspace is allowed; a later scan analyzes its files only
@@ -404,6 +446,15 @@ for a preview: a scan or export started meanwhile fails at once.
 `/` as `index.html`. A path that resolves outside those two directories,
 including through a symlink, is `404`. The cache is never served. There is
 no API and no directory listing.
+
+For a collection, `/data/collection-manifest.json` is the collection
+manifest, derived from the saved datasets at each request, and
+`/data/<workspace id>/<path>` serves that workspace's `output/<path>`. Any
+other path under `/data/`, an unknown workspace id included, is `404`.
+While a workspace's dataset cannot be read, such as while a scan swaps it,
+the collection manifest is `503` with `Retry-After: 1` and a message
+naming the workspace. The viewer does not read a collection yet: it shows
+that no dataset was found.
 
 The default command checks for the viewer's files before it scans, so a
 checkout without a build reports `The viewer's files are missing` at once.

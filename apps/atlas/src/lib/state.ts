@@ -41,6 +41,7 @@ const DEFAULT_STATE_ROOT = join(homedir(), ".foundry", "atlas");
 const WORKSPACE_ID_LENGTH = 12;
 /** By code unit, so the order is the same in every locale. */
 const byResolvedRoot = byCodeUnit((state: WorkspaceState) => state.root);
+const byString = byCodeUnit((value: string) => value);
 const byDirectory = byCodeUnit((state: WorkspaceState) => state.directory);
 
 /**
@@ -114,21 +115,27 @@ export async function resolveCollection(
     byRoot.set(result.value.root, result.value);
   }
   const workspaces = [...byRoot.values()].sort(byResolvedRoot);
-  refuseOverlap(workspaces);
+  const overlap = overlapRefusal(workspaces.map((workspace) => workspace.root));
+  if (overlap !== undefined) {
+    throw new Error(overlap);
+  }
   return workspaces;
 }
 
-/** Throws when one workspace holds another; `workspaces` is sorted by root. */
-function refuseOverlap(workspaces: readonly WorkspaceState[]): void {
+/**
+ * Why `roots`, resolved, cannot be one collection: the message naming the
+ * first that holds another, or `undefined` when none does. Pure, so the CLI
+ * refuses overlapping paths as a usage error with the library's words.
+ */
+export function overlapRefusal(roots: readonly string[]): string | undefined {
+  const sorted = [...roots].sort(byString);
   // A root sorts before every root inside it, so only later ones can be inside.
-  for (const [index, outer] of workspaces.entries()) {
-    const inner = workspaces
+  for (const [index, outer] of sorted.entries()) {
+    const inner = sorted
       .slice(index + 1)
-      .find((other) => isFilesystemPathWithin(outer.root, other.root, sep));
+      .find((other) => isFilesystemPathWithin(outer, other, sep));
     if (inner !== undefined) {
-      throw new Error(
-        `Workspace ${outer.root} holds workspace ${inner.root}; the workspaces of a collection cannot overlap.`
-      );
+      return `Workspace ${outer} holds workspace ${inner}; the workspaces of a collection cannot overlap.`;
     }
   }
 }

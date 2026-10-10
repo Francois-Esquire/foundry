@@ -17,8 +17,9 @@ How `src/lib` implements it is free to change.
 - **Nine commands**: `atlas [path...]`, `scan`, `serve`, `report`, and
   `export` since 1.8, `lens` since 2.7, `check` since 3.3, `plan` since
   3.4, and `apply` since 3.5, from a typed command table; each takes only its
-  own flags, plus `--state`, `--json`, and `--quiet`. One path at most
-  until collections. See `reference/cli.md`.
+  own flags, plus `--state`, `--json`, and `--quiet`. `atlas`, `scan`,
+  `serve`, and `export` read two or more paths as a collection since 5.3;
+  the others read one workspace. See `reference/cli.md`.
 - **The dataset is a contract.** `output/` is versioned
   (`DATASET_SCHEMA_VERSION = 4` in the manifest, exported), documented file
   by file in `reference/output.md`, published atomically, and read by the
@@ -65,11 +66,11 @@ Proposed. These decide the shape of everything below.
 
 | Command | Status | Does |
 | --- | --- | --- |
-| `atlas [path...]` | 0.1, one path | Scan, serve, open the browser. |
-| `atlas scan [path...]` | 0.1, one path | Scan and save the dataset. |
-| `atlas serve [path...]` | 0.1, one path | Serve the saved dataset. |
+| `atlas [path...]` | 0.1; several paths a collection (5.3) | Scan, serve, open the browser. |
+| `atlas scan [path...]` | 0.1; several paths a collection (5.3) | Scan and save the dataset. |
+| `atlas serve [path...]` | 0.1; several paths a collection (5.3) | Serve the saved dataset. |
 | `atlas report <package> [path...]` | 0.1, done in 1.8 | Print a package report in the terminal, through `lib/render`. `--format markdown` for docs and PRs. Package only: `renderSurface` takes a package's `SurfaceReport`, and no file report exists. |
-| `atlas export <dir> [path...]` | 0.1, done in 1.8 | Write a static viewer, the viewer and a copy of the saved dataset, for hosting or CI artifacts. `build-example.ts` now calls it. |
+| `atlas export <dir> [path...]` | 0.1, done in 1.8; several paths a collection (5.3) | Write a static viewer, the viewer and a copy of the saved dataset, for hosting or CI artifacts. `build-example.ts` now calls it. |
 | `atlas lens <id> [path...]` | 0.1, done in 2.7 | Print one lens from the saved dataset, through `lib/render`, or as saved with `--json`. An unknown id exits `2`; a dataset without the lens exits `1`. |
 | `atlas check [path...]` | 0.1, done in 3.3 | Print the saved `rules` lens: the workspace's rules against the dataset. Exit 3 on a violation, 1 when a `require` could not be checked. CLI only, `lib/check.ts`. |
 | `atlas plan <opportunity> [path...]` | 0.1, done in 3.4 | Plan one internalize opportunity from the saved dataset, named by its id, its plan's id, or `path#name`, and authorize it under the saved `rules` lens's rules; save an authorized plan's record in the state directory. Runs the workspace's test and typecheck scripts as readiness's baseline, and writes nothing in the workspace. Exit 0 on any verdict. CLI only, `lib/codemod.ts`. A rule as the argument (`rule:<n>`) is deferred. |

@@ -1,7 +1,20 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { expect, it } from "vitest";
-import { HELP, parseArguments, UsageError } from "../../src/cli/args";
+import {
+  HELP,
+  parseArguments,
+  UsageError,
+  workspacesOf,
+} from "../../src/cli/args";
 
 const REPOSITORY = resolve(import.meta.dirname, "../../../..");
 /** The help block, which each page puts right after this heading. */
@@ -185,25 +198,43 @@ it("reads a command's name as a path when it is written as one", () => {
   });
 });
 
-it("refuses a second path, naming the collection work", () => {
-  expect(usageError(["scan", "one", "two"]).message).toBe(
-    "atlas scan takes one workspace path. Reading several workspaces at once is not supported yet."
-  );
-  expect(usageError(["one", "two"]).message).toBe(
-    "atlas takes one workspace path. Reading several workspaces at once is not supported yet."
-  );
-  expect(usageError(["report", "@s/a", "one", "two"]).message).toContain(
-    "atlas report takes one workspace path."
-  );
-  expect(usageError(["lens", "domains", "one", "two"]).message).toContain(
-    "atlas lens takes one workspace path."
-  );
-  expect(usageError(["check", "one", "two"]).message).toContain(
-    "atlas check takes one workspace path."
-  );
-  expect(usageError(["plan", "a.ts#A", "one", "two"]).message).toContain(
-    "atlas plan takes one workspace path."
-  );
+it("reads several paths for the commands that read a collection", () => {
+  expect(parseArguments(["scan", "one", "two"], "/here")).toMatchObject({
+    command: "scan",
+    paths: ["one", "two"],
+  });
+  expect(parseArguments(["one", "two", "three"], "/here")).toMatchObject({
+    command: "open",
+    paths: ["one", "two", "three"],
+  });
+  expect(parseArguments(["serve", "one", "two"], "/here")).toMatchObject({
+    command: "serve",
+    paths: ["one", "two"],
+  });
+  expect(
+    parseArguments(["export", "site", "one", "two"], "/here")
+  ).toMatchObject({
+    command: "export",
+    directory: "site",
+    paths: ["one", "two"],
+  });
+  expect(parseArguments(["export", "site"], "/here")).toMatchObject({
+    paths: ["/here"],
+  });
+});
+
+it("refuses a second path where a command reads one workspace's dataset", () => {
+  for (const [argv, command] of [
+    [["report", "@s/a", "one", "two"], "report"],
+    [["lens", "domains", "one", "two"], "lens"],
+    [["check", "one", "two"], "check"],
+    [["plan", "a.ts#A", "one", "two"], "plan"],
+    [["apply", "a.ts#A", "one", "two"], "apply"],
+  ] as const) {
+    expect(usageError([...argv]).message).toBe(
+      `atlas ${command} reads one workspace's dataset; give one path.`
+    );
+  }
 });
 
 it("refuses a flag the command does not take", () => {
@@ -331,5 +362,41 @@ it("is the help the CLI reference and the README print", () => {
   for (const [page, heading] of Object.entries(HELP_BLOCKS)) {
     const text = readFileSync(resolve(REPOSITORY, page), "utf8");
     expect(blockAfter(text, heading), page).toBe(HELP);
+  }
+});
+
+it("reads one path as one workspace, as given, and several distinct ones as a collection", async () => {
+  expect(await workspacesOf(["/not/resolved/yet"])).toEqual({
+    root: "/not/resolved/yet",
+  });
+  const directory = realpathSync(mkdtempSync(join(tmpdir(), "atlas-args-")));
+  try {
+    const [a, b] = ["a", "b"].map((name) => join(directory, name));
+    for (const root of [a, b]) {
+      mkdirSync(root as string);
+    }
+    const link = join(directory, "link");
+    symlinkSync(a as string, link);
+    expect(await workspacesOf([b as string, a as string])).toEqual({
+      roots: [b, a],
+    });
+    const twice = workspacesOf([a as string, b as string, link]);
+    await expect(twice).rejects.toBeInstanceOf(UsageError);
+    await expect(twice).rejects.toThrow(
+      `${link} names the same workspace as ${a}, ${a}; give each workspace once.`
+    );
+    const nested = join(a as string, "packages", "nested");
+    mkdirSync(nested, { recursive: true });
+    const overlapping = workspacesOf([nested, b as string, a as string]);
+    await expect(overlapping).rejects.toBeInstanceOf(UsageError);
+    await expect(overlapping).rejects.toThrow(
+      `Workspace ${a} holds workspace ${nested}; the workspaces of a collection cannot overlap.`
+    );
+    const missing = [join(directory, "z"), join(directory, "y")];
+    await expect(workspacesOf([a as string, ...missing])).rejects.toThrow(
+      `Workspace path does not exist: ${missing[0]}`
+    );
+  } finally {
+    rmSync(directory, { force: true, recursive: true });
   }
 });

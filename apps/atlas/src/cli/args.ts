@@ -6,6 +6,7 @@ import { LENS_IDS } from "../lib/lenses/lens-types";
 import type { RenderDensity, RenderFormat } from "../lib/render/context";
 import { RENDER_DENSITIES, RENDER_FORMATS } from "../lib/render/context";
 import { checkPort, DEFAULT_PORT } from "../lib/serve";
+import { overlapRefusal, resolveRoot } from "../lib/state";
 
 /** A command line that cannot run: an unknown flag, a missing argument, or a bad value. */
 export class UsageError extends Error {
@@ -79,13 +80,15 @@ export type Command =
   | "scan"
   | "serve";
 
-/** One workspace until collections read several; the parser reads `path...`. */
-interface Paths {
+/** A command that reads one workspace's dataset: one path. */
+interface OnePath {
   readonly paths: readonly [string];
 }
 
-const SEVERAL_PENDING =
-  "Reading several workspaces at once is not supported yet.";
+/** A command that reads one workspace, or several as a collection. */
+interface Paths {
+  readonly paths: readonly [string, ...string[]];
+}
 
 /** A command's name in the help's flag list: `atlas` for the default. */
 function shortName(command: Command): string {
@@ -99,18 +102,64 @@ function spelling(command: Command): string {
     : `atlas ${shortName(command)}`;
 }
 
+/** The one path a single-workspace command reads; a second is refused. */
 function onePath(
   command: Command,
   words: readonly string[],
   cwd: string
-): Paths {
+): OnePath {
   const [path = cwd, ...more] = words;
   if (more.length > 0) {
     throw new UsageError(
-      `${spelling(command)} takes one workspace path. ${SEVERAL_PENDING}`
+      `${spelling(command)} reads one workspace's dataset; give one path.`
     );
   }
   return { paths: [path] };
+}
+
+/** Every path, the current directory when none is given. */
+function somePaths(words: readonly string[], cwd: string): Paths {
+  const [path = cwd, ...more] = words;
+  return { paths: [path, ...more] };
+}
+
+/** What a command's paths name: one workspace, or a collection of several. */
+export type Workspaces =
+  | { readonly root: string }
+  | { readonly roots: readonly [string, ...string[]] };
+
+/**
+ * What a command's paths name. One path is one workspace, passed on as
+ * given, so a single workspace runs as it always has. Two or more are a
+ * collection, once each resolves; two that name one workspace are a usage
+ * error naming both, so that the output's layout never changes silently
+ * from a collection's to a workspace's, and so are two of which one holds
+ * the other, in the library's words. A path that does not resolve fails
+ * as the library fails it, the first in the order given.
+ */
+export async function workspacesOf(
+  paths: readonly [string, ...string[]]
+): Promise<Workspaces> {
+  const [only, ...more] = paths;
+  if (more.length === 0) {
+    return { root: only };
+  }
+  const given = new Map<string, string>();
+  for (const path of paths) {
+    const root = await resolveRoot(path);
+    const earlier = given.get(root);
+    if (earlier !== undefined) {
+      throw new UsageError(
+        `${path} names the same workspace as ${earlier}, ${root}; give each workspace once.`
+      );
+    }
+    given.set(root, path);
+  }
+  const overlap = overlapRefusal([...given.keys()]);
+  if (overlap !== undefined) {
+    throw new UsageError(overlap);
+  }
+  return { roots: paths };
 }
 
 /** The word a command needs before its path, as `report <package>`. */
@@ -132,7 +181,7 @@ interface CommandSpec {
   /** The flags it takes beyond the shared ones; the parser refuses any other. */
   readonly flags: readonly CommandFlag[];
   /** Reads the words after the command's name. */
-  readonly read: (words: readonly string[], cwd: string) => Paths;
+  readonly read: (words: readonly string[], cwd: string) => OnePath | Paths;
   readonly summary: string;
   readonly usage: string;
 }
@@ -163,9 +212,9 @@ const COMMANDS = {
     flags: [],
     read: (words: readonly string[], cwd: string) => {
       const [directory, rest] = needed("export", "a directory", words);
-      return { directory, ...onePath("export", rest, cwd) };
+      return { directory, ...somePaths(rest, cwd) };
     },
-    summary: "Write a static viewer of the saved dataset to <dir>",
+    summary: "Write a static viewer of the saved datasets to <dir>",
     usage: "atlas export <dir> [path...]",
   },
   lens: {
@@ -179,9 +228,8 @@ const COMMANDS = {
   },
   open: {
     flags: ["history", "port", "no-open"],
-    read: (words: readonly string[], cwd: string) =>
-      onePath("open", words, cwd),
-    summary: "Scan a workspace, serve its dataset, and open the browser",
+    read: (words: readonly string[], cwd: string) => somePaths(words, cwd),
+    summary: "Scan, serve, and open the browser",
     usage: "atlas [path...]",
   },
   plan: {
@@ -205,16 +253,14 @@ const COMMANDS = {
   },
   scan: {
     flags: ["history"],
-    read: (words: readonly string[], cwd: string) =>
-      onePath("scan", words, cwd),
-    summary: "Scan and save the dataset",
+    read: (words: readonly string[], cwd: string) => somePaths(words, cwd),
+    summary: "Scan and save each workspace's dataset",
     usage: "atlas scan [path...]",
   },
   serve: {
     flags: ["port", "no-open"],
-    read: (words: readonly string[], cwd: string) =>
-      onePath("serve", words, cwd),
-    summary: "Serve the saved dataset without scanning",
+    read: (words: readonly string[], cwd: string) => somePaths(words, cwd),
+    summary: "Serve the saved datasets without scanning",
     usage: "atlas serve [path...]",
   },
 } as const satisfies { readonly [C in Command]: CommandSpec };
@@ -315,7 +361,8 @@ function helpText(): string {
     "",
     ...commands,
     "",
-    "The path defaults to the current directory; one workspace at a time.",
+    "The path defaults to the current directory. atlas, scan, serve, and export read",
+    "several paths as one collection; the other commands read one workspace.",
     `A directory named like a command is written as a path: ${names.join(", ")}.`,
     "",
     ...flags,

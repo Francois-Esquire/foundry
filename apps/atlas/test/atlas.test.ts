@@ -965,10 +965,10 @@ describe("built CLI commands", () => {
   });
 
   test("a usage error exits 2 with a pointer to the help", async () => {
-    expect(await runCli(["scan", "one", "two"], root)).toEqual({
+    expect(await runCli(["report", "@s/a", "one", "two"], root)).toEqual({
       code: 2,
       stderr:
-        "Atlas: atlas scan takes one workspace path. Reading several workspaces at once is not supported yet.\nRun atlas --help for usage.\n",
+        "Atlas: atlas report reads one workspace's dataset; give one path.\nRun atlas --help for usage.\n",
       stdout: "",
     });
     expect(await runCli(["serve", "--history"], root)).toEqual({
@@ -1009,6 +1009,271 @@ describe("built CLI commands", () => {
       }
     );
   }, 60_000);
+});
+
+describe("built CLI collections", () => {
+  let directory: string;
+  let platform: WorkspaceState;
+  let product: WorkspaceState;
+  let state: string;
+  let roots: [string, string];
+
+  beforeAll(async () => {
+    directory = await realpath(
+      await mkdtemp(join(tmpdir(), "atlas-collection-cli-"))
+    );
+    state = join(directory, "state");
+    roots = ["platform", "product"].map((name) => join(directory, name)) as [
+      string,
+      string,
+    ];
+    for (const [index, name] of ["platform", "product"].entries()) {
+      await cp(
+        resolve(import.meta.dirname, "lib/fixtures/collection", name),
+        roots[index] as string,
+        { recursive: true }
+      );
+    }
+    platform = await workspaceState(roots[0], state);
+    product = await workspaceState(roots[1], state);
+  });
+
+  afterAll(async () => {
+    await rm(directory, { force: true, recursive: true });
+  });
+
+  test("scan reads two paths as a collection, in the collection's order, and prints its result", async () => {
+    // Given out of order: the collection scans by resolved root.
+    const text = await runCli(
+      ["scan", roots[1], roots[0], "--state", state],
+      directory
+    );
+    expect(text.code).toBe(0);
+    expect(text.stdout).toBe(
+      `Dataset saved to ${platform.output}\nDataset saved to ${product.output}\nCollection: 2 workspaces, 2 crossings\n`
+    );
+    const headers = text.stderr
+      .split("\n")
+      .filter((line) => line.startsWith("workspace: "));
+    expect(headers).toEqual([
+      `workspace: ${platform.root}`,
+      `workspace: ${product.root}`,
+    ]);
+    const json = await runCli(
+      ["scan", ...roots, "--state", state, "--json", "--quiet"],
+      directory
+    );
+    expect(json.code).toBe(0);
+    expect(json.stderr).toBe("");
+    const result = JSON.parse(json.stdout) as {
+      manifest: { crossings: { from: string; to: string }[] };
+      workspaces: { manifest: unknown; output: string }[];
+    };
+    expect(Object.keys(result)).toEqual(["manifest", "workspaces"]);
+    expect(result.workspaces.map((saved) => saved.output)).toEqual([
+      platform.output,
+      product.output,
+    ]);
+    expect(result.manifest.crossings.map(({ from, to }) => [from, to])).toEqual(
+      [
+        [`${product.id}:@p/app`, `${platform.id}:@k/db`],
+        [`${product.id}:@p/web`, `${platform.id}:@k/db`],
+      ]
+    );
+  }, 120_000);
+
+  test("paths that name one workspace twice exit 2 and name the duplicate", async () => {
+    await symlink(roots[0], join(directory, "link"));
+    for (const [args, duplicate] of [
+      [["scan", roots[0], `${roots[0]}/`], `${roots[0]}/`],
+      [["serve", roots[0], roots[1], "link"], "link"],
+      [["export", join(directory, "site"), roots[0], roots[0]], roots[0]],
+      [[roots[1], roots[1]], roots[1]],
+    ] as const) {
+      const result = await runCli([...args, "--state", state], directory);
+      expect(result.code).toBe(2);
+      expect(result.stderr).toStartWith(
+        `Atlas: ${duplicate} names the same workspace as `
+      );
+      expect(result.stderr).toContain("give each workspace once.");
+      expect(result.stdout).toBe("");
+    }
+    // A workspace inside another is a usage error too.
+    const nested = join(roots[1], "apps");
+    const overlapping = await runCli(
+      ["scan", nested, roots[1], "--state", state],
+      directory
+    );
+    expect(overlapping).toEqual({
+      code: 2,
+      stderr: `Atlas: Workspace ${product.root} holds workspace ${nested}; the workspaces of a collection cannot overlap.\nRun atlas --help for usage.\n`,
+      stdout: "",
+    });
+  });
+
+  test("the commands that read one workspace's dataset refuse a second path with exit 2", async () => {
+    for (const [args, command] of [
+      [["report", "@k/db"], "report"],
+      [["lens", "package-sizes"], "lens"],
+      [["check"], "check"],
+    ] as const) {
+      const result = await runCli([...args, ...roots], directory);
+      expect(result.code).toBe(2);
+      expect(result.stderr).toBe(
+        `Atlas: atlas ${command} reads one workspace's dataset; give one path.\nRun atlas --help for usage.\n`
+      );
+    }
+  });
+
+  test("serve --json prints the roots and url, and serves the collection manifest and each dataset", async () => {
+    await withFirstLine(
+      [
+        "serve",
+        ...roots,
+        "--state",
+        state,
+        "--port",
+        "0",
+        "--no-open",
+        "--json",
+      ],
+      directory,
+      async (line) => {
+        const served = JSON.parse(line) as { roots: string[]; url: string };
+        expect(Object.keys(served).sort()).toEqual(["roots", "url"]);
+        expect(served.roots).toEqual([platform.root, product.root]);
+        const data = (path: string) =>
+          fetch(new URL(`data/${path}`, served.url));
+        const manifest = (await (
+          await data("collection-manifest.json")
+        ).json()) as {
+          workspaces: { dataset: string }[];
+        };
+        expect(manifest.workspaces.map((entry) => entry.dataset)).toEqual([
+          `${platform.id}/`,
+          `${product.id}/`,
+        ]);
+        expect(await (await data(`${product.id}/manifest.json`)).text()).toBe(
+          await readFile(join(product.output, "manifest.json"), "utf8")
+        );
+      }
+    );
+    const text = spawnCli(
+      ["serve", ...roots, "--state", state, "--port", "0", "--no-open"],
+      directory
+    );
+    try {
+      const reader = text.stdout.getReader();
+      let printed = "";
+      while (printed.split("\n").length < 4) {
+        const { done, value } = await reader.read();
+        if (done) {
+          break;
+        }
+        printed += new TextDecoder().decode(value);
+      }
+      expect(printed).toMatch(
+        new RegExp(
+          `^Atlas: http://127\\.0\\.0\\.1:\\d+/\\nWorkspace: ${platform.root}\\nWorkspace: ${product.root}\\n$`
+        )
+      );
+    } finally {
+      text.kill("SIGTERM");
+      await text.exited;
+    }
+  });
+
+  test("the default command scans, serves, and prints one line with --json", async () => {
+    await withFirstLine(
+      [
+        ...roots,
+        "--state",
+        state,
+        "--port",
+        "0",
+        "--no-open",
+        "--json",
+        "--quiet",
+      ],
+      directory,
+      async (line) => {
+        const result = JSON.parse(line) as Record<string, unknown>;
+        expect(Object.keys(result).sort()).toEqual([
+          "manifest",
+          "roots",
+          "url",
+          "workspaces",
+        ]);
+        const response = await fetch(
+          new URL("data/collection-manifest.json", String(result.url))
+        );
+        expect(await response.json()).toEqual(result.manifest);
+      }
+    );
+  }, 120_000);
+
+  test("export writes the collection beside each dataset, prints its result, and refuses a place that holds a workspace", async () => {
+    const site = join(directory, "site");
+    const result = await runCli(
+      ["export", site, ...roots, "--state", state, "--json"],
+      directory
+    );
+    expect(result.code).toBe(0);
+    const written = JSON.parse(result.stdout) as {
+      directory: string;
+      manifest: unknown;
+      workspaces: { dataset: string; id: string; root: string }[];
+    };
+    expect(Object.keys(written)).toEqual([
+      "directory",
+      "manifest",
+      "workspaces",
+    ]);
+    expect(written.workspaces).toEqual([
+      {
+        dataset: join(site, "data", platform.id),
+        id: platform.id,
+        root: platform.root,
+      },
+      {
+        dataset: join(site, "data", product.id),
+        id: product.id,
+        root: product.root,
+      },
+    ]);
+    expect(written.directory).toBe(site);
+    expect(
+      JSON.parse(
+        await readFile(join(site, "data/collection-manifest.json"), "utf8")
+      )
+    ).toEqual(written.manifest);
+    for (const workspace of [platform, product]) {
+      expect(
+        await readFile(
+          join(site, "data", workspace.id, "manifest.json"),
+          "utf8"
+        )
+      ).toBe(await readFile(join(workspace.output, "manifest.json"), "utf8"));
+    }
+    expect(existsSync(join(site, "data/manifest.json"))).toBe(false);
+    expect(existsSync(join(site, "index.html"))).toBe(true);
+    // A second export replaces the first.
+    const again = await runCli(
+      ["export", site, ...roots, "--state", state],
+      directory
+    );
+    expect(again.code).toBe(0);
+    expect(again.stdout).toBe(`Static viewer saved to ${site}\n`);
+    // A directory that holds the workspaces is refused, naming the first.
+    const holding = await runCli(
+      ["export", directory, ...roots, "--state", state],
+      directory
+    );
+    expect(holding.code).toBe(1);
+    expect(holding.stderr).toBe(
+      `Atlas: ${directory} holds the workspace ${platform.root}. Choose another directory.\n`
+    );
+  });
 });
 
 describe("built CLI check", () => {

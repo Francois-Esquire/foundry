@@ -11,10 +11,18 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
-import { afterAll, afterEach, beforeAll, expect, it, vi } from "vitest";
-import { exportViewer } from "../../src/lib/export";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
+import { exportCollection, exportViewer } from "../../src/lib/export";
 import type { WorkspaceScan } from "../../src/lib/scan";
 import { scan } from "../../src/lib/scan";
 import { viewerRoot } from "../../src/lib/serve";
@@ -28,11 +36,23 @@ import { lockState, workspaceState } from "../../src/lib/state";
 const beforeRename = vi.hoisted(() => ({
   hook: undefined as ((from: string, to: string) => void) | undefined,
 }));
+/** Runs before each `cp` the export makes, as `beforeRename` does for `rename`. */
+const beforeCopy = vi.hoisted(() => ({
+  hook: undefined as ((from: string, to: string) => void) | undefined,
+}));
 
 vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs/promises")>();
   return {
     ...actual,
+    cp: async (
+      from: string,
+      to: string,
+      options?: Parameters<typeof actual.cp>[2]
+    ) => {
+      beforeCopy.hook?.(from, to);
+      return actual.cp(from, to, options);
+    },
     rename: async (from: string, to: string) => {
       beforeRename.hook?.(from, to);
       return actual.rename(from, to);
@@ -42,6 +62,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 
 afterEach(() => {
   beforeRename.hook = undefined;
+  beforeCopy.hook = undefined;
 });
 
 const SCAN_TIMEOUT_MS = 120_000;
@@ -268,4 +289,134 @@ it("holds the state directory's lock while it copies, so it fails while a scan h
     release();
   }
   expect(existsSync(site)).toBe(false);
+});
+
+describe("a collection", () => {
+  let platform: WorkspaceState;
+  let product: WorkspaceState;
+  let roots: string[];
+
+  beforeAll(async () => {
+    roots = ["platform", "product"].map((name) => {
+      const copy = join(directory, name);
+      cpSync(join(import.meta.dirname, "fixtures", "collection", name), copy, {
+        recursive: true,
+      });
+      return copy;
+    });
+    for (const copy of roots) {
+      await scan.workspace(copy, { state });
+    }
+    platform = await workspaceState(roots[0] as string, state);
+    product = await workspaceState(roots[1] as string, state);
+  }, SCAN_TIMEOUT_MS);
+
+  /** The entries beside `site` whose names start with its own: itself, and any staging left behind. */
+  const besides = (site: string) =>
+    readdirSync(dirname(site)).filter((name) =>
+      name.startsWith(basename(site))
+    );
+
+  /** A previous collection export at `site`, and what it held. */
+  async function previous(site: string): Promise<string[]> {
+    await exportCollection(roots, site, { state });
+    return readdirSync(join(site, "data")).sort();
+  }
+
+  it("writes each dataset under its id and the collection manifest, and names what it wrote", async () => {
+    const site = target("collection");
+    const result = await exportCollection([...roots].reverse(), site, {
+      state,
+    });
+    expect(result.workspaces).toEqual([
+      {
+        dataset: join(site, "data", platform.id),
+        id: platform.id,
+        root: platform.root,
+      },
+      {
+        dataset: join(site, "data", product.id),
+        id: product.id,
+        root: product.root,
+      },
+    ]);
+    expect(readdirSync(join(site, "data")).sort()).toEqual(
+      ["collection-manifest.json", platform.id, product.id].sort()
+    );
+    expect(
+      JSON.parse(
+        readFileSync(join(site, "data/collection-manifest.json"), "utf8")
+      )
+    ).toEqual(result.manifest);
+    expect(result.manifest.crossings).toHaveLength(2);
+  });
+
+  it("releases the first workspace's lock and leaves the previous viewer when the second's is held", async () => {
+    const site = target("collection-locked");
+    const before = await previous(site);
+    const held = lockState(product);
+    try {
+      await expect(exportCollection(roots, site, { state })).rejects.toThrow(
+        `Workspace ${product.root} is being scanned, exported, or applied by this process.`
+      );
+    } finally {
+      held();
+    }
+    lockState(platform)();
+    expect(readdirSync(join(site, "data")).sort()).toEqual(before);
+    expect(besides(site)).toEqual([basename(site)]);
+  });
+
+  it("refuses while one workspace has an unfinished apply, and releases every lock", async () => {
+    const site = target("collection-apply");
+    const before = await previous(site);
+    const journal = join(product.directory, "apply", "journal.json");
+    mkdirSync(dirname(journal), { recursive: true });
+    writeFileSync(
+      journal,
+      JSON.stringify({
+        files: [],
+        phase: "verified",
+        schemaVersion: 1,
+        site: "packages/db/src/index.ts#Row",
+        startedAt: "2026-10-10T00:00:00.000Z",
+      })
+    );
+    try {
+      await expect(exportCollection(roots, site, { state })).rejects.toThrow(
+        "wrote and verified the sources, but the scan after it did not publish"
+      );
+    } finally {
+      rmSync(dirname(journal), { force: true, recursive: true });
+    }
+    lockState(platform)();
+    lockState(product)();
+    expect(readdirSync(join(site, "data")).sort()).toEqual(before);
+  });
+
+  it("refuses a target that overlaps the second workspace's state directory", async () => {
+    for (const site of [product.directory, join(product.directory, "site")]) {
+      await expect(exportCollection(roots, site, { state })).rejects.toThrow(
+        `${site} overlaps the state directory ${product.directory}. Choose another directory.`
+      );
+    }
+    expect(existsSync(join(product.directory, "site"))).toBe(false);
+  });
+
+  it("leaves the previous viewer and no staging directory when a copy fails part-way", async () => {
+    const site = target("collection-copy");
+    const before = await previous(site);
+    beforeCopy.hook = (from) => {
+      if (from === product.output) {
+        throw new Error("copy refused");
+      }
+    };
+    await expect(exportCollection(roots, site, { state })).rejects.toThrow(
+      "copy refused"
+    );
+    expect(readdirSync(join(site, "data")).sort()).toEqual(before);
+    expect(besides(site)).toEqual([basename(site)]);
+    lockState(platform)();
+    lockState(product)();
+  });
 });

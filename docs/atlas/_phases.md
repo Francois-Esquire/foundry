@@ -2510,7 +2510,7 @@ anything but its tests: `serve` and `atlas export` derive it in 5.3.
 reached the collection manifest before: the package exports, the exact
 values in `test/package.test.ts` and its TypeScript consumer, and
 `reference/output.md`, `reference/cli.md`, `reference/library.md`, and
-`_api.md`; (i) does all but `cli.md`, which goes with the commands.
+`_api.md`; (i) does all but `cli.md`, which (ii) does with the commands.
 
 **5.3 (i) The library and the server.** Done 2026-10-10.
 - `scan.collection(roots, options?)` (`lib/scan.ts`) resolves the
@@ -2592,6 +2592,104 @@ values in `test/package.test.ts` and its TypeScript consumer, and
   `serve.collection` are functions, and the TypeScript consumer uses every
   new type, a crossing by indexed access, and is refused `root` on a
   `CollectionServer` and one path for `scan.collection`).
+
+**5.3 (ii) The commands and `atlas export`.** Done 2026-10-10. Paths are
+plural for real.
+- `cli/args.ts`: `scan`, `serve`, the default command, and `export` read
+  `[path, ...paths]` (`somePaths`); `report`, `lens`, `check`, `plan`, and
+  `apply` keep one (`onePath`) and refuse a second with exit `2`, `atlas
+  <command> reads one workspace's dataset; give one path.`: each reads or
+  writes one workspace's dataset, rules, lens, or journal, and a package,
+  rule, or site could name a place in either workspace. `SEVERAL_PENDING`
+  is gone.
+- `workspacesOf(paths)` (`cli/args.ts`) is the CLI's one reading of the
+  paths. One path is one workspace, passed on as given, so the
+  single-workspace code runs unchanged, its messages included. Two or more
+  are resolved in the order given (a missing one fails as the library fails
+  it, exit `1`); two that resolve to one workspace (the same path twice,
+  `a` and `a/`, or a link) are a `UsageError`, exit `2`, `<path> names the
+  same workspace as <earlier path>, <root>; give each workspace once.`
+  (5.0, decision 8). Two of which one holds the other are a `UsageError`
+  too, exit `2`, in the library's words: `lib/state.ts` `overlapRefusal`
+  (pure, over resolved roots) gives the message to both `resolveCollection`,
+  which throws it as an `Error`, and `workspacesOf`. Otherwise a collection,
+  passed on as given, which the library orders.
+- `cli/atlas.ts`: `scan` and the default command call `scan.collection`,
+  `serve` and the default command `serve.collection`, and `export`
+  `exportCollection`, for a collection. Progress prints `workspace: <root>`
+  before each workspace's lines. `scan` prints one `Dataset saved to <dir>`
+  per workspace and `Collection: <n> workspaces, <n> crossings`; a server
+  prints `Atlas: <url>` and one `Workspace: <root>` per workspace.
+  `whileServing` takes any server's `{ url, stop }`.
+- `--json`, one line as before: `scan`, `{ manifest, workspaces }` (the
+  collection manifest, and each workspace's `{ manifest, output, history? }`);
+  `serve`, `{ roots, url }`; the default command, `{ manifest, workspaces,
+  roots, url }`; `export`, `{ directory, manifest, workspaces }`, the
+  collection manifest and each workspace's `{ id, root, dataset }`,
+  `dataset` being the directory its dataset was copied to, so that the line
+  is told from a single workspace's `{ directory, manifest }`.
+- `lib/export.ts` `exportCollection(roots, directory, options?)`, internal
+  as `exportViewer` is: `savedCollection` (every dataset checked), the place
+  checks for every workspace (`checkPlace` now takes a list, so it refuses a
+  directory that holds any workspace or overlaps any state directory),
+  `lockStates` for the copy, `refuseUnfinishedApply` for each, then the
+  viewer, each output whole under `data/<id>/`, one after another so that a
+  failure stops the copy where it is, and
+  `data/collection-manifest.json`, derived from the copied manifests, the
+  same compact JSON the server answers, and the marker (`writeMarker`, now
+  shared). No `data/manifest.json`.
+- `scripts/dev.ts` reads its paths through `workspacesOf` too and, for a
+  collection, gives `startServer` the `savedCollection` mount table that
+  `serve.collection` uses.
+- The help: the default command is "Scan, serve, and open the browser",
+  the others' summaries say datasets, and "The path defaults to the
+  current directory. atlas, scan, serve, and export read several paths as
+  one collection; the other commands read one workspace." The README and
+  `reference/cli.md` carry it verbatim; `cli.md` gains a "Several
+  workspaces" section, the collection's `--json` rows, exit code `2`'s new
+  cases, and the collection forms of the export and the server.
+- What 5.4a needs to find a collection, served or exported, is the same: no
+  `data/manifest.json`, `data/collection-manifest.json` instead, and each
+  workspace's dataset at its entry's `dataset`, relative to it. The fetch
+  transport knows a missing file by its `404` status, which a static host
+  gives too; a host that answers a missing path with `200` and an HTML
+  page (a single-page fallback) would make the probe fail to parse
+  `manifest.json` instead, which 5.4a may want to name. So the probe is: read
+  `./data/manifest.json`; on `DatasetNotFoundError`, read
+  `./data/collection-manifest.json`; then a reader per workspace at
+  `./data/<dataset>`. Three rules for it:
+  - Fall back to the collection manifest only when `manifest.json` is not
+    found (`404`, `DatasetNotFoundError`). A parse error or a `5xx` there is
+    an error the viewer shows, never a reason to try the collection.
+  - A `503` from the collection manifest means a workspace is being
+    swapped: retry after `Retry-After`, never report "no dataset".
+  - Pin each workspace's reader to its entry's `generatedAt`, so a scan of
+    one workspace mid-load is caught as a replaced dataset.
+  Until then, both forms show the viewer's "No dataset found".
+- Tests: `test/cli/args.test.ts` (several paths for the four commands, the
+  five refusals, and `workspacesOf`: one path as given, unresolved; several
+  in the order given; a link to a given one refused as a `UsageError`
+  naming both; a workspace inside another refused as one; the first
+  missing path named); `test/atlas.test.ts`,
+  "built CLI collections", over the platform and product fixtures and the
+  built CLI: `scan` of two paths given out of order (text, progress
+  headers, `--json` keys, outputs in order, the two crossings), duplicates
+  for `scan`, `serve` through a link, `export`, and the default command
+  (exit `2`, nothing on stdout), the refusals for `report`, `lens`, and
+  `check`, `serve --json` (roots, the manifest's datasets, a dataset file
+  byte for byte) and its text lines, the default command's one line, whose
+  manifest equals the served one, and `export --json` (the written
+  collection manifest equals the printed one, each dataset byte for byte,
+  no `data/manifest.json`, a second export replacing the first, and a
+  directory holding the workspaces refused, and `workspaces` in its
+  `--json`), and two overlapping paths exiting `2`;
+  `test/lib/export.test.ts` (`exportCollection`: each dataset under its id
+  and the collection manifest, given out of order; a held lock on the
+  second workspace refused, the first's released, and the previous viewer
+  intact; an unfinished apply in one workspace refused with every lock
+  released; a target that is or is inside the second workspace's state
+  directory refused; and a copy that fails at the second workspace, which
+  leaves the previous viewer intact and no staging directory beside it).
 
 **5.4 The viewer.** Waits for Phase 4. 5.4a, the data seam: the data root
 per workspace (1.5 reduced it to one place, `DATA_ROOT` in

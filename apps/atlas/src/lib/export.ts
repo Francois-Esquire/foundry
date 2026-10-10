@@ -15,12 +15,16 @@ import { basename, dirname, join, resolve, sep } from "node:path";
 import { isMissingPath } from "@foundry/lib/atomic-file";
 import { isFilesystemPathWithin } from "@foundry/lib/paths";
 import { refuseUnfinishedApply } from "./apply-journal";
+import type { CollectionManifestWorkspace } from "./collection-manifest";
+import { collectionManifest } from "./collection-manifest";
+import type { CollectionManifest } from "./collection-types";
 import { datasetReader } from "./dataset";
-import { fileTransport, savedDataset } from "./dataset-files";
+import { fileTransport, savedCollection, savedDataset } from "./dataset-files";
+import { COLLECTION_MANIFEST, collectionDataset } from "./dataset-layout";
 import type { DatasetManifest } from "./semantics-types";
 import { viewerRoot } from "./serve";
 import type { WorkspaceState } from "./state";
-import { lockState } from "./state";
+import { lockState, lockStates } from "./state";
 
 /** Where a static viewer finds its dataset: `./data/`, as `web/dataset.ts` reads it. */
 const DATA_DIRECTORY = "data";
@@ -43,6 +47,16 @@ export interface StaticViewer {
   directory: string;
   /** The manifest of the dataset it holds, read from the copy. */
   manifest: DatasetManifest;
+}
+
+/** What `exportCollection` wrote: a static viewer and the collection manifest of the datasets it copied. */
+export interface StaticCollectionViewer {
+  /** The directory the static viewer is in, resolved. */
+  directory: string;
+  /** The collection manifest, derived from the copied datasets' manifests and written beside them. */
+  manifest: CollectionManifest;
+  /** Each workspace, in the collection's order: its id, its resolved root, and the directory its dataset was copied to. */
+  workspaces: { dataset: string; id: string; root: string }[];
 }
 
 /** The marker's contents. */
@@ -68,7 +82,7 @@ export async function exportViewer(
   const viewer = await viewerRoot();
   const { workspace } = await savedDataset(root, options.state);
   const target = resolve(directory);
-  await checkPlace(target, workspace, viewer);
+  await checkPlace(target, [workspace], viewer);
   await checkContents(target);
   const release = lockState(workspace);
   try {
@@ -79,10 +93,7 @@ export async function exportViewer(
       await cp(workspace.output, join(stage, DATA_DIRECTORY), {
         recursive: true,
       });
-      const marker: StaticViewerMarker = {
-        entries: (await readdir(stage)).sort(),
-      };
-      await writeFile(join(stage, MARKER), `${JSON.stringify(marker)}\n`);
+      await writeMarker(stage);
       return datasetReader(
         fileTransport(join(stage, DATA_DIRECTORY))
       ).manifest();
@@ -93,21 +104,85 @@ export async function exportViewer(
   }
 }
 
-/** Refuses a target that holds the workspace or overlaps the state directory or the viewer. */
+/**
+ * Writes a static viewer of a collection to `directory`, as `exportViewer`
+ * writes one of a workspace, but with `data/` laid out as `serve.collection`
+ * serves it: each workspace's saved dataset, whole, under `data/<id>/`, and
+ * `data/collection-manifest.json`, derived from the copied datasets'
+ * manifests. The directory must not hold any of the workspaces or overlap
+ * any of their state directories. Holds every workspace's lock while it
+ * copies, or fails at once when one is held.
+ */
+export async function exportCollection(
+  roots: readonly string[],
+  directory: string,
+  options: ExportOptions = {}
+): Promise<StaticCollectionViewer> {
+  const viewer = await viewerRoot();
+  const { workspaces } = await savedCollection(roots, options.state);
+  const target = resolve(directory);
+  await checkPlace(target, workspaces, viewer);
+  await checkContents(target);
+  const release = lockStates(workspaces);
+  try {
+    for (const workspace of workspaces) {
+      refuseUnfinishedApply(workspace);
+    }
+    const manifest = await replaceDirectory(target, async (stage) => {
+      await cp(viewer, stage, { recursive: true });
+      const data = join(stage, DATA_DIRECTORY);
+      const copied: CollectionManifestWorkspace[] = [];
+      // One after another, so a failure stops the copy where it is.
+      for (const { id, output, root } of workspaces) {
+        const copy = join(data, collectionDataset(id));
+        await cp(output, copy, { recursive: true });
+        const saved = await datasetReader(fileTransport(copy)).manifest();
+        copied.push({ id, manifest: saved, root });
+      }
+      const derived = collectionManifest(copied);
+      await writeFile(join(data, COLLECTION_MANIFEST), JSON.stringify(derived));
+      await writeMarker(stage);
+      return derived;
+    });
+    return {
+      directory: target,
+      manifest,
+      workspaces: workspaces.map(({ id, root }) => ({
+        dataset: join(target, DATA_DIRECTORY, id),
+        id,
+        root,
+      })),
+    };
+  } finally {
+    release();
+  }
+}
+
+/** Lists what Atlas wrote at the top of the staged static viewer, so the next export replaces only that. */
+async function writeMarker(stage: string): Promise<void> {
+  const marker: StaticViewerMarker = {
+    entries: (await readdir(stage)).sort(),
+  };
+  await writeFile(join(stage, MARKER), `${JSON.stringify(marker)}\n`);
+}
+
+/** Refuses a target that holds a workspace or overlaps a state directory or the viewer. */
 async function checkPlace(
   target: string,
-  workspace: WorkspaceState,
+  workspaces: readonly WorkspaceState[],
   viewer: string
 ): Promise<void> {
   const real = await resolveThroughLinks(target);
   const refuse = (reason: string): never => {
     throw new Error(`${target} ${reason}. Choose another directory.`);
   };
-  if (isFilesystemPathWithin(real, workspace.root, sep)) {
-    refuse(`holds the workspace ${workspace.root}`);
-  }
-  if (overlaps(real, await realpath(workspace.directory))) {
-    refuse(`overlaps the state directory ${workspace.directory}`);
+  for (const workspace of workspaces) {
+    if (isFilesystemPathWithin(real, workspace.root, sep)) {
+      refuse(`holds the workspace ${workspace.root}`);
+    }
+    if (overlaps(real, await realpath(workspace.directory))) {
+      refuse(`overlaps the state directory ${workspace.directory}`);
+    }
   }
   if (overlaps(real, await realpath(viewer))) {
     refuse(`overlaps the viewer's files in ${viewer}`);
