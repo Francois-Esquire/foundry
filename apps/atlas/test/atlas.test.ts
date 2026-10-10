@@ -203,6 +203,151 @@ test("serve(root) refuses an invalid port, and a workspace with no saved dataset
   );
 });
 
+/** A hand-written schema 4 manifest that holds what the collection manifest reads. */
+function collectionFixtureManifest(
+  generatedAt: string,
+  packages: {
+    declaredDependencies?: Record<string, Record<string, string>>;
+    id: string;
+  }[]
+): string {
+  return JSON.stringify({
+    discovery: { unitsSkipped: [] },
+    generatedAt,
+    packages: packages.map((entry) => ({
+      declaredDependencies: {},
+      modules: { count: 0 },
+      path: entry.id,
+      status: "complete",
+      ...entry,
+    })),
+    schemaVersion: 4,
+    workspace: { root: "fixture" },
+  });
+}
+
+test("serve.collection derives the collection manifest per request and serves each dataset under its id", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "atlas-test-"));
+  directories.push(directory);
+  const state = join(directory, "state");
+  const roots = ["platform", "product"].map((name) => join(directory, name));
+  const [platform, product] = await Promise.all(
+    roots.map(async (root) => {
+      await mkdir(root);
+      return workspaceState(root, state);
+    })
+  );
+  if (platform === undefined || product === undefined) {
+    throw new Error("The collection should hold two workspaces.");
+  }
+  const platformManifest = collectionFixtureManifest(
+    "2026-10-10T00:00:00.000Z",
+    [{ id: "@k/db" }]
+  );
+  const write = async (workspace: WorkspaceState, text: string) => {
+    await mkdir(workspace.output, { recursive: true });
+    await writeFile(join(workspace.output, "manifest.json"), text);
+  };
+  await write(platform, platformManifest);
+  // The second workspace has no dataset yet, and is named.
+  await expect(serve.collection(roots, { port: 0, state })).rejects.toThrow(
+    `No dataset found for ${product.root} in ${product.output}. Run atlas scan to save one.`
+  );
+  await write(
+    product,
+    collectionFixtureManifest("2026-10-10T00:00:01.000Z", [
+      {
+        declaredDependencies: { dependencies: { "@k/db": "^1.0.0" } },
+        id: "@p/app",
+      },
+    ])
+  );
+  // Given out of order, served in the collection's.
+  const server = await serve.collection([...roots].reverse(), {
+    port: 0,
+    state,
+  });
+  const data = (path: string) => fetch(new URL(`data/${path}`, server.url));
+  try {
+    expect(server.roots).toEqual([platform.root, product.root]);
+    expect((await fetch(server.url)).status).toBe(200);
+    const served = await data("collection-manifest.json");
+    expect(served.headers.get("Cache-Control")).toBe("no-store");
+    expect(served.headers.get("Content-Type")).toStartWith("application/json");
+    const manifest = await served.json();
+    expect(manifest.crossings).toEqual([
+      {
+        from: `${product.id}:@p/app`,
+        kind: "dependencies",
+        range: "^1.0.0",
+        to: `${platform.id}:@k/db`,
+      },
+    ]);
+    expect(
+      manifest.workspaces.map((entry: { dataset: string }) => entry.dataset)
+    ).toEqual([`${platform.id}/`, `${product.id}/`]);
+    expect(await (await data(`${platform.id}/manifest.json`)).text()).toBe(
+      platformManifest
+    );
+    for (const missing of [
+      "manifest.json",
+      `${"0".repeat(12)}/manifest.json`,
+      platform.id,
+      `${platform.id}/absent.json`,
+    ]) {
+      expect((await data(missing)).status).toBe(404);
+    }
+    // A later scan of one workspace is seen at the next request.
+    await write(
+      product,
+      collectionFixtureManifest("2026-10-11T00:00:00.000Z", [{ id: "@p/app" }])
+    );
+    const again = await (await data("collection-manifest.json")).json();
+    expect(again.crossings).toEqual([]);
+    expect(again.workspaces[1].generatedAt).toBe("2026-10-11T00:00:00.000Z");
+    // HEAD answers as GET does, without the body.
+    const head = await fetch(
+      new URL("data/collection-manifest.json", server.url),
+      {
+        method: "HEAD",
+      }
+    );
+    expect(head.status).toBe(200);
+    expect(head.headers.get("Content-Type")).toStartWith("application/json");
+    expect(await head.text()).toBe("");
+    // An encoded slash is decoded before the path is split, and no path
+    // leaves the dataset it names, through `..` or a link.
+    await symlink(
+      join(platform.directory, "workspace.json"),
+      join(platform.output, "record.json")
+    );
+    await writeFile(join(platform.directory, "workspace.json"), "{}");
+    for (const outside of [
+      `${platform.id}%2F..%2F${product.id}/manifest.json`,
+      `${platform.id}/..%2Fworkspace.json`,
+      `${platform.id}/..%2F..%2F${product.id}%2Foutput%2Fmanifest.json`,
+      `${platform.id}/record.json`,
+    ]) {
+      expect((await data(outside)).status).toBe(404);
+    }
+    // A workspace whose dataset is gone, as mid-swap, makes the manifest
+    // unavailable for now, naming it.
+    await rm(join(product.output, "manifest.json"));
+    const unavailable = await data("collection-manifest.json");
+    expect(unavailable.status).toBe(503);
+    expect(unavailable.headers.get("Retry-After")).toBe("1");
+    expect(await unavailable.text()).toBe(
+      `No dataset found for ${product.root} in ${product.output}. Run atlas scan to save one.`
+    );
+    await write(product, '{ "schemaVersion": 3 }');
+    expect(await (await data("collection-manifest.json")).text()).toBe(
+      `Workspace ${product.root}: Atlas reads dataset schema version 4; this dataset has version 3. Run atlas scan to save it again.`
+    );
+  } finally {
+    await server.stop();
+  }
+});
+
 test("built CLI scans an external workspace and the web loaders read its saved dataset through the reader, over the real server", async () => {
   const { workspace, directory } = await fixture();
   const help = spawnCli(["--help"], workspace.root);

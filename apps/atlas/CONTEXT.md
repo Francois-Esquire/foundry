@@ -395,9 +395,9 @@ _Avoid_: workspace report
 ### Several workspaces
 
 **Collection**:
-Two or more workspaces read together, named by their paths each time; none
+One or more workspaces read together, named by their paths each time; none
 holds another. A collection keeps no state of its own: each workspace keeps
-its own.
+its own. The CLI forms one only from two or more distinct paths.
 _Avoid_: project set, multi-workspace, merged atlas
 
 **Qualified id**:

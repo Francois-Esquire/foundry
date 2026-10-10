@@ -99,6 +99,40 @@ written, and their files are reused the same way when they come out
 identical; each lens has its own schema version, so a lens can change
 without the dataset's. History is published after the dataset, into `history/`.
 
+## A collection
+
+Several workspaces read together keep nothing of their own under the state
+root: each workspace's state directory is as above. Their collection
+manifest is derived from the workspaces' saved manifests whenever it is
+asked for, and `atlas serve` with several paths serves it beside each
+workspace's dataset:
+
+```text
+/data/
+  collection-manifest.json   the collection manifest
+  <id>/                      a workspace's dataset, unchanged, under its workspace id
+```
+
+The collection manifest's schema version is 1, recorded as `schemaVersion`
+and independent of the dataset's. While a workspace's dataset cannot be
+read (deleted, caught mid-swap by a scan, or saved with another schema
+version), `/data/collection-manifest.json` answers `503` with
+`Retry-After: 1` and a message naming the workspace.
+
+| Field | What it holds |
+| --- | --- |
+| `workspaces` | Each workspace, ordered by resolved root: `id`, `label` (its `package.json` name, else its directory's name; where two are equal, `parent/name`, and where those are too, the id's first six digits in parentheses), `dataset` (`<id>/`, where its dataset is, relative to the collection manifest), `generatedAt` (its dataset manifest's), and `packages` (every package its manifest lists, qualified as `<id>:<package>`, sorted) |
+| `crossings` | Each declared dependency of a package in one workspace on a package in another: `from` and `to` (qualified ids), `kind` (`dependencies`, `devDependencies`, `peerDependencies`, or `optionalDependencies`), and `range` as written. Sorted by `from`, `to`, `kind`, and `range` |
+| `ambiguous` | Each declared dependency whose name two or more other workspaces hold, which makes no crossing: `from`, `kind`, `name`, `range`, `candidates` (the qualified ids of the analyzed packages of that name), and `skippedIn` (the workspaces that hold the name only as a unit their scan skipped), when there are any |
+
+A dependency is matched by the name it resolves to, after an `npm:` alias.
+It makes no crossing when its range uses the `workspace:` protocol, when
+its own workspace holds the name (as a package, or as a skipped unit with
+that `name`), or when the one other workspace that holds it holds it only as
+a skipped unit. The range is recorded, not checked against the version
+found, and other protocols (`file:`, `link:`, `catalog:`, `jsr:`) are
+matched by the name the dependency is written under.
+
 ## The cache
 
 ```text

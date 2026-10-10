@@ -10,6 +10,9 @@ import { basename, dirname, join } from "node:path";
 import { processAlive } from "@foundry/lib/file-lock";
 import { deleteJournal, verifiedJournal } from "./apply-journal";
 import { loadConfiguration } from "./atlas-config";
+import type { CollectionManifestWorkspace } from "./collection-manifest";
+import { collectionManifest } from "./collection-manifest";
+import type { CollectionManifest, WorkspaceId } from "./collection-types";
 import type { DatasetReader, PackageReport } from "./dataset";
 import { datasetReader } from "./dataset";
 import { fileTransport } from "./dataset-files";
@@ -29,6 +32,7 @@ import {
   lockState,
   recordSavedDataset,
   recordWorkspace,
+  resolveCollection,
   resolveRoot,
   workspaceState,
 } from "./state";
@@ -69,6 +73,31 @@ export interface WorkspaceScan {
 export interface Scan extends WorkspaceScan {
   /** One package's internals, as the dataset saved them; `scan.package` analyzes them fresh instead. */
   internals(name: string): Promise<PackageInternals>;
+}
+
+/** A workspace scan's own event, wrapped with the workspace of the collection it belongs to. */
+export interface CollectionProgressEvent {
+  event: ScanProgressEvent;
+  /** The workspace id. */
+  id: WorkspaceId;
+  kind: "workspace";
+  /** The workspace root, resolved through symlinks. */
+  root: string;
+}
+
+export interface CollectionScanOptions extends Omit<ScanOptions, "onProgress"> {
+  onProgress?: (event: CollectionProgressEvent) => void;
+}
+
+/**
+ * What `scan.collection` saved: each workspace's scan, in the collection's
+ * order, and the collection manifest derived from their manifests. The
+ * collection itself is not saved; `serve.collection` and `atlas export`
+ * derive the manifest again from what is saved then.
+ */
+export interface CollectionScan {
+  manifest: CollectionManifest;
+  workspaces: Scan[];
 }
 
 /** What a scan saved, before the accessors are attached. */
@@ -123,8 +152,48 @@ async function scanPackage(
   );
 }
 
+/**
+ * Scans each workspace of the collection of `roots` as `scan` does, one at a
+ * time, in the collection's order, each under its own lock, and derives the
+ * collection manifest from the manifests they saved. When one fails, the
+ * workspaces scanned before it keep the datasets they saved, and the error
+ * names the root that failed, with its own error as the cause and those
+ * workspaces' scans as `scanned`.
+ */
+async function scanCollection(
+  roots: readonly string[],
+  { onProgress, ...options }: CollectionScanOptions = {}
+): Promise<CollectionScan> {
+  const workspaces = await resolveCollection(roots, options.state);
+  const scans: Scan[] = [];
+  const saved: CollectionManifestWorkspace[] = [];
+  for (const { id, root } of workspaces) {
+    const progress =
+      onProgress &&
+      ((event: ScanProgressEvent) =>
+        onProgress({ event, id, kind: "workspace", root }));
+    try {
+      // One workspace at a time: each scan already runs its packages in
+      // parallel, and its progress stays in one piece.
+      const scanned = await scan(root, { ...options, onProgress: progress });
+      scans.push(scanned);
+      saved.push({ id, manifest: scanned.manifest, root });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw Object.assign(
+        new Error(`Atlas could not scan ${root}: ${message}`, {
+          cause: error,
+        }),
+        { scanned: scans }
+      );
+    }
+  }
+  return { manifest: collectionManifest(saved), workspaces: scans };
+}
+
 scan.workspace = scanWorkspace;
 scan.package = scanPackage;
+scan.collection = scanCollection;
 
 /**
  * Runs one scan holding the state directory's lock, which a second scan of

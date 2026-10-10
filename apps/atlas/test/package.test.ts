@@ -330,6 +330,7 @@ test(
       )
     );
     expect(result.exports).toEqual(VALUE_EXPORTS);
+    expect(result.collections).toEqual(["function", "function"]);
     expect(result.full).toMatchObject({
       internals: "@s/a",
       packages: ["@s/a:complete", "@s/b:complete", "@s/c:complete"],

@@ -113,10 +113,12 @@ await server.stop();
 | `scan.workspace(root, options?)` | The workspace-level results only, without internals; a dataset the viewer loads | `generateSemantics` without internals; the manifest's declared dependencies are what the viewer reads for every package |
 | `scan.package(root, name)` | One package's internals, analyzed fresh; saves nothing | `packageInternals` over `analyzePackageLocal` |
 | `serve(root, options?)` | Serves the saved dataset and the viewer; returns the URL, the resolved root, and `stop` | `lib/serve.ts` over `startServer`, checking the dataset through the reader |
+| `scan.collection(roots, options?)` | Scans each workspace of a collection as `scan` does, in turn; returns their scans and the collection manifest, and saves nothing for the collection (5.3) | `lib/scan.ts` over `resolveCollection` and `collectionManifest` |
+| `serve.collection(roots, options?)` | Serves each workspace's saved dataset under its id and the collection manifest, derived per request; returns the URL, the resolved roots, and `stop` (5.3) | `lib/serve.ts` over `startServer`'s collection mount, from `dataset-files.ts` `savedCollection` |
 | `DatasetNotFoundError` | What a missing dataset throws: `serve`, and an accessor once the dataset is gone | `lib/dataset.ts` |
 | `DatasetReplacedError` | What an accessor throws once a later scan saved over its dataset | `lib/dataset.ts` |
-| `DATASET_SCHEMA_VERSION`, `HISTORY_SCHEMA_VERSION` | The dataset's and history's schema versions, the promise a reader holds them to | `semantics-types.ts`, `semantics-history-types.ts` |
-| Types | `Scan`, `WorkspaceScan`, `ScanOptions`, `ScanProgressEvent`, `PackageInternals`, `PackageReport`, `WorkspaceReport`, `AtlasServer`, `ServeOptions`, `DatasetManifest`, `HistoryManifest`, `AtlasConfig` | `scan.ts`, `serve.ts`, `dataset.ts`, `internal-analysis-types.ts`, `workspace-types.ts`, `semantics-types.ts`, `semantics-history-types.ts`, `atlas-config.ts` |
+| `DATASET_SCHEMA_VERSION`, `HISTORY_SCHEMA_VERSION`, `COLLECTION_SCHEMA_VERSION` | The dataset's, history's, and the collection manifest's schema versions, the promise a reader holds them to | `semantics-types.ts`, `semantics-history-types.ts`, `collection-types.ts` |
+| Types | `Scan`, `WorkspaceScan`, `ScanOptions`, `ScanProgressEvent`, `CollectionScan`, `CollectionScanOptions`, `CollectionProgressEvent`, `PackageInternals`, `PackageReport`, `WorkspaceReport`, `AtlasServer`, `CollectionServer`, `ServeOptions`, `DatasetManifest`, `HistoryManifest`, `CollectionManifest`, `AtlasConfig` | `scan.ts`, `serve.ts`, `dataset.ts`, `internal-analysis-types.ts`, `workspace-types.ts`, `semantics-types.ts`, `semantics-history-types.ts`, `collection-types.ts`, `atlas-config.ts` |
 
 **Public names.** The glossary's words (`apps/atlas/CONTEXT.md`): dataset,
 history, package, workspace. A name takes an `Atlas` prefix only where the

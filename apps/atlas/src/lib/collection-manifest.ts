@@ -9,6 +9,7 @@ import type {
   WorkspaceId,
 } from "./collection-types";
 import { COLLECTION_SCHEMA_VERSION } from "./collection-types";
+import { collectionDataset } from "./dataset-layout";
 import type {
   DatasetManifest,
   SemanticsDeclaredDependencyKind,
@@ -205,7 +206,7 @@ function collectionWorkspaces(
       `${named[index]} (${workspaces[index]?.id.slice(0, ID_PREFIX_LENGTH)})`
   );
   return workspaces.map(({ id, manifest }, index) => ({
-    dataset: `${id}/`,
+    dataset: collectionDataset(id),
     generatedAt: manifest.generatedAt,
     id,
     label: labels[index] ?? id,

@@ -2505,13 +2505,93 @@ anything but its tests: `serve` and `atlas export` derive it in 5.3.
   and the skipped entries in `ignore.test.ts`, `scan.test.ts`, and
   `package.test.ts` gain their names.
 
-**5.3 Many paths for real** in the commands, the library, and `serve`,
-which serves each dataset under its own prefix. `AtlasServer.root` is
-singular until then. Deferred to it from 5.2, since nothing reaches the
-collection manifest before: the package exports (`COLLECTION_SCHEMA_VERSION`
-and the collection types), the exact values in `test/package.test.ts` and
-its TypeScript consumer, and `reference/output.md`, `reference/cli.md`,
-`reference/library.md`, and `_api.md`.
+**5.3 Many paths for real,** in two parts: (i) the library and the server,
+(ii) the commands and `atlas export`. Deferred to it from 5.2, since nothing
+reached the collection manifest before: the package exports, the exact
+values in `test/package.test.ts` and its TypeScript consumer, and
+`reference/output.md`, `reference/cli.md`, `reference/library.md`, and
+`_api.md`; (i) does all but `cli.md`, which goes with the commands.
+
+**5.3 (i) The library and the server.** Done 2026-10-10.
+- `scan.collection(roots, options?)` (`lib/scan.ts`) resolves the
+  collection (`resolveCollection`), runs `scan` for each workspace in the
+  collection's order, one at a time and each under its own lock, and
+  returns a `CollectionScan`, `{ manifest, workspaces }`: the collection
+  manifest derived from the manifests just saved, and each workspace's
+  `Scan` with its accessors. Nothing is saved for the collection, so there
+  is no `output`. One at a time because each scan already runs its packages
+  in parallel and its progress stays in one piece. When a workspace fails,
+  those before it keep their saved datasets and the call rejects with
+  `Atlas could not scan <root>: <message>`, the workspace's own error as
+  `cause` (the class of a `DatasetNotFoundError` and the like is then on
+  the cause, not the error) and the scans that succeeded as `scanned`, so
+  a caller keeps them.
+- `CollectionScanOptions` is `ScanOptions` with `onProgress` receiving a
+  `CollectionProgressEvent`, `{ kind: "workspace", id, root, event }`
+  (5.0's decision 4): the exported `ScanProgressEvent` gains no member.
+- `serve.collection(roots, options?)` (`lib/serve.ts`) makes `serve`'s
+  checks (Bun, the port, the viewer; one `serving` helper now does them for
+  both), then `dataset-files.ts` `savedCollection(roots, state?)`, which
+  checks each workspace's saved dataset in the collection's order, as
+  `savedDataset` checks one, so the first without one is named. It returns
+  a `CollectionServer`, `{ roots, url, stop }`. `AtlasServer` keeps its
+  singular `root`, deliberately: a collection's server is its own type, so
+  no single-workspace caller sees a change. Both extend an internal
+  `RunningServer`, `{ url, stop }`.
+- `savedCollection` is the one mount table: `{ workspaces, datasets,
+  manifest() }`, each workspace's output by exact workspace id, and the
+  collection manifest derived from the manifests saved when it is called.
+  `server/server.ts` `startServer` takes it as `collection`, or one
+  workspace's `output` as before, never both (a union type), so the single
+  call sites (`serve`, `scripts/dev.ts`, the tests) are unchanged.
+  `/data/collection-manifest.json` is the manifest, built at each request,
+  compact JSON as the dataset's files are; `/data/<id>/<path>` is that
+  workspace's file, through the same `serveFile` and its guards; any other
+  `/data/` path, an unknown id or a bare `/data/<id>` included, is 404.
+  `Cache-Control: no-store` as for every `/data/` response. A workspace
+  whose manifest cannot be read when the manifest is asked for (deleted,
+  caught mid-swap, or of another schema) makes it `503` with
+  `Retry-After: 1`, not a bare `500`: `savedCollection`'s `manifest()`
+  rejects naming the workspace, with `savedDataset`'s message when nothing
+  is saved and `Workspace <root>: <message>` otherwise. `scripts/dev.ts`
+  takes the same mount table once the command line reads several paths,
+  in (ii).
+- `lib/dataset-layout.ts` names the collection's files:
+  `COLLECTION_MANIFEST` (`collection-manifest.json`) and
+  `collectionDataset(id)` (`<id>/`), which `collectionManifest` now uses
+  for each workspace's `dataset`.
+- Exports: `COLLECTION_SCHEMA_VERSION` (a value: the library now exports
+  seven, the six of 1.10 and this one), `scan.collection` and
+  `serve.collection` (properties of `scan` and `serve`, as
+  `scan.workspace` is, so not values of their own), and the types
+  `CollectionScan`, `CollectionScanOptions`, `CollectionProgressEvent`,
+  `CollectionServer`, and `CollectionManifest`; a crossing is
+  `CollectionManifest["crossings"][number]`. No browser-read collection
+  file exists yet beyond `lib/collection-types.ts`, which the
+  `lib/*-types.ts` override covers; the collection reader comes with 5.4a.
+- The viewer does not read the collection manifest yet: it still reads
+  `./data/manifest.json`, which a collection's server does not serve, so
+  `serve.collection` shows the viewer's "No dataset found" until 5.4a.
+- Tests: `test/lib/collection-scan.test.ts` (the two fixtures given out of
+  order and scanned in the collection's, each workspace's output and full
+  scan, the crossings, the result's JSON keys, `savedCollection`'s manifest
+  equal to the scan's, progress wrapped and one workspace after the other,
+  and a held lock on the second workspace: the first stays saved, the error
+  names the root and carries the cause and the first workspace's scan as
+  `scanned`, and `savedCollection` then names
+  the workspace with no dataset); `test/lib/serve.test.ts`
+  (`serve.collection` under Node names Bun); `test/atlas.test.ts`, under
+  Bun (`serve.collection` refuses a workspace with no dataset, serves the
+  roots in order, the manifest with its headers and crossing, a dataset
+  file byte for byte, 404 for `manifest.json`, an unknown id, a bare id,
+  and a missing file, a rewritten manifest seen at the next request, `HEAD`
+  on the manifest, `%2F`-encoded `..` from one dataset into another and
+  into the state directory and a link inside an output all 404, and a
+  removed and an outdated manifest each a `503` naming the workspace);
+  `test/package.test.ts` (seven values, `scan.collection` and
+  `serve.collection` are functions, and the TypeScript consumer uses every
+  new type, a crossing by indexed access, and is refused `root` on a
+  `CollectionServer` and one path for `scan.collection`).
 
 **5.4 The viewer.** Waits for Phase 4. 5.4a, the data seam: the data root
 per workspace (1.5 reduced it to one place, `DATA_ROOT` in

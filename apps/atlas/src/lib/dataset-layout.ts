@@ -26,6 +26,18 @@ export const DATASET_FILES = {
   workspace: "workspace.json",
 } as const;
 
+/**
+ * Where a collection's files are, relative to its data root (`/data/` when
+ * served, `data/` in a static viewer): its manifest, and each workspace's
+ * dataset in a directory named by the workspace's id.
+ */
+export const COLLECTION_MANIFEST = "collection-manifest.json";
+
+/** A collection workspace's dataset, relative to the collection manifest. */
+export function collectionDataset(workspace: string): string {
+  return `${workspace}/`;
+}
+
 /** The directory under the output that holds history, when a scan asks for it. */
 export const HISTORY_DIRECTORY = "history";
 

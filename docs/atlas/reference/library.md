@@ -17,6 +17,12 @@ const past = await scan("./my-workspace", { history: true });
 const server = await serve("./my-workspace", { port: 0 });
 server.url;
 await server.stop();
+
+// Several workspaces, read together as a collection
+const collection = await scan.collection(["./platform", "./product"]);
+collection.manifest.crossings; // dependencies from one workspace on another
+const both = await serve.collection(["./platform", "./product"], { port: 0 });
+await both.stop();
 ```
 
 ## Runtime
@@ -41,14 +47,17 @@ imported.
 | `scan(root, options?)` | function | Scans the workspace and every complete package's internals, saves the dataset, and returns a `Scan` |
 | `scan.workspace(root, options?)` | function | Scans the workspace level only, saves the dataset without internals, and returns a `WorkspaceScan` |
 | `scan.package(root, name)` | function | Analyzes one package's internals fresh and returns them as `PackageInternals`; saves nothing |
+| `scan.collection(roots, options?)` | function | Scans each workspace of a [collection](#several-workspaces) as `scan` does, in turn, and returns a `CollectionScan` |
 | `serve(root, options?)` | function | Serves the saved dataset and the viewer on `127.0.0.1` and returns an `AtlasServer` |
+| `serve.collection(roots, options?)` | function | Serves a collection's saved datasets, its collection manifest, and the viewer, and returns a `CollectionServer` |
 | `DatasetNotFoundError` | class | No dataset is saved where one was expected |
 | `DatasetReplacedError` | class | A later scan saved over the dataset an accessor reads |
 | `DATASET_SCHEMA_VERSION` | constant | The dataset's schema version, `4` |
 | `HISTORY_SCHEMA_VERSION` | constant | History's schema version, `1` |
+| `COLLECTION_SCHEMA_VERSION` | constant | The collection manifest's schema version, `1` |
 
-`root` is the workspace directory, resolved through symbolic links. One
-workspace at a time.
+`root` is the workspace directory, resolved through symbolic links; `roots`
+are a collection's.
 
 ## What a scan returns
 
@@ -121,6 +130,53 @@ A `ScanProgressEvent` is one of these, told apart by `kind`:
 `serve` takes no lock. A scan that runs while it serves replaces the
 dataset atomically, and later requests see the new one.
 
+## Several workspaces
+
+A collection is one or more workspaces read together, such as a product
+split across repositories that depend on each other. The CLI forms one only
+from two or more distinct paths; the library also takes one. Each workspace keeps
+its own state, dataset, cache, and lock; nothing is saved for the
+collection itself. What ties them is the collection manifest, derived from
+the workspaces' saved manifests whenever it is asked for: each workspace
+with its id, label, and qualified package ids (`<workspace id>:<package>`),
+and the crossings, the declared dependencies of a package in one workspace
+on a package in another. See [output](/atlas/reference/output#a-collection).
+
+The paths are resolved through symbolic links, and a workspace given twice
+counts once. They are put in one order, by resolved root, whatever the
+order given. A workspace inside another is refused, and so are no paths at
+all; one workspace is a collection of one.
+
+`scan.collection(roots, options?)` scans each workspace as `scan` does, one
+after the other in that order, each under its own lock, and returns a
+`CollectionScan`:
+
+| Field | Type | Holds |
+| --- | --- | --- |
+| `manifest` | `CollectionManifest` | The collection manifest, derived from the manifests the scans just saved |
+| `workspaces` | `Scan[]` | Each workspace's scan, in the collection's order, with its accessors |
+
+Its options are `scan`'s (`state`, `history`), except that `onProgress`
+receives a `CollectionProgressEvent`, `{ kind: "workspace", id, root,
+event }`: the workspace's id and resolved root, and the `ScanProgressEvent`
+its own scan emitted. When a workspace fails, the ones scanned before it
+keep the datasets they saved, and the call rejects with `Atlas could not
+scan <root>: <message>`, the workspace's own error as its `cause` and
+their scans, each a `Scan` with its accessors, as `scanned`.
+
+`serve.collection(roots, options?)` takes `serve`'s options and returns a
+`CollectionServer`, with `url` and `stop()` as an `AtlasServer` has and
+`roots`, the resolved roots in the collection's order, in place of `root`.
+It serves `data/collection-manifest.json`, derived at each request, and
+each workspace's dataset under `data/<workspace id>/`; any other path under
+`data/`, an unknown id included, is not found. It checks every workspace's
+saved dataset first, as `serve` checks one, and takes no lock: a scan of
+one workspace while it serves is seen by later requests, the collection
+manifest included. While a workspace's dataset cannot be read (deleted,
+caught mid-swap by a scan, or saved with another schema version), the
+collection manifest answers `503` with `Retry-After: 1` and a message
+naming the workspace. The viewer does not read a collection yet.
+
 ## Errors
 
 Every function rejects with an `Error` whose message says what to do; the
@@ -142,6 +198,8 @@ CLI prints the same message after `Atlas: `.
 | The path is missing or not a directory | `Workspace path does not exist: <path>`, `Workspace is not a directory: <root>` |
 | The configuration is invalid | The message names the file and the setting; see [configuration](/atlas/reference/configuration) |
 | `serve` without Bun, or with a bad port | `Atlas serve needs Bun (>=1.3.14).`, `Port must be an integer between 0 and 65535.` |
+| A collection has no paths, or a workspace inside another | `A collection needs at least one workspace.`, `Workspace <outer> holds workspace <inner>; the workspaces of a collection cannot overlap.` |
+| A workspace of `scan.collection` fails | `Atlas could not scan <root>: <message>`, with the workspace's own error as `cause` and the scans before it as `scanned`; those workspaces stay saved |
 | `serve` cannot find the viewer's files | `The viewer's files are missing from <dir>. Reinstall the package, or build it first when running from source.` |
 
 Only the two dataset errors have their own classes in 0.1. Test for them
@@ -157,6 +215,9 @@ with `instanceof`; tell the others apart by message.
 | `PackageReport` | One package's report |
 | `WorkspaceReport` | The workspace report |
 | `AtlasServer`, `ServeOptions` | What `serve` returns and takes |
+| `CollectionScan`, `CollectionScanOptions`, `CollectionProgressEvent` | What `scan.collection` returns and takes, and its progress events |
+| `CollectionServer` | What `serve.collection` returns |
+| `CollectionManifest` | The collection manifest, `data/collection-manifest.json` when served or exported |
 | `DatasetManifest` | The dataset's manifest, `output/manifest.json` |
 | `HistoryManifest` | History's manifest, `output/history/manifest.json` |
 | `AtlasConfig` | What one configuration file default-exports |
@@ -200,7 +261,9 @@ rule `NonNullable<AtlasConfig["rules"]>[number]`. See
 directory from start to finish, history included. A second scan or export
 of the same workspace fails at once rather than waiting; scans of
 different workspaces, or of one workspace under different state roots, run
-side by side. `scan.package` and `serve` take no lock.
+side by side. `scan.collection` holds each workspace's lock while it scans
+that workspace. `scan.package`, `serve`, and `serve.collection` take no
+lock.
 
 ## Not exported
 

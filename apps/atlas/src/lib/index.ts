@@ -1,6 +1,8 @@
 /**
- * The library entry, `@foundry/atlas`: `scan` and `serve`, the types of what
- * they return and take, the two dataset errors, and the two schema versions.
+ * The library entry, `@foundry/atlas`: `scan` and `serve` (with
+ * `scan.collection` and `serve.collection` for several workspaces), the
+ * types of what they return and take, the two dataset errors, and the three
+ * schema versions.
  * Every name is listed here; nothing else in `src/lib` is public, so the
  * analyses, the reader, and `serve`'s helpers (`viewerRoot`, `DEFAULT_PORT`,
  * `checkPort`) stay internal.
@@ -15,11 +17,16 @@
  */
 
 export type { AtlasConfig } from "./atlas-config";
-export type { PackageReport } from "./dataset";
+export type { CollectionManifest } from "./collection-types";
 // biome-ignore lint/performance/noBarrelFile: This is the public package entry point.
+export { COLLECTION_SCHEMA_VERSION } from "./collection-types";
+export type { PackageReport } from "./dataset";
 export { DatasetNotFoundError, DatasetReplacedError } from "./dataset";
 export type { PackageInternals } from "./internal-analysis-types";
 export type {
+  CollectionProgressEvent,
+  CollectionScan,
+  CollectionScanOptions,
   Scan,
   ScanOptions,
   ScanProgressEvent,
@@ -30,6 +37,6 @@ export type { HistoryManifest } from "./semantics-history-types";
 export { HISTORY_SCHEMA_VERSION } from "./semantics-history-types";
 export type { DatasetManifest } from "./semantics-types";
 export { DATASET_SCHEMA_VERSION } from "./semantics-types";
-export type { AtlasServer, ServeOptions } from "./serve";
+export type { AtlasServer, CollectionServer, ServeOptions } from "./serve";
 export { serve } from "./serve";
 export type { WorkspaceReport } from "./workspace-types";

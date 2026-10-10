@@ -10,4 +10,10 @@ describe("serve outside Bun", () => {
       "Atlas serve needs Bun (>=1.3.14)."
     );
   });
+
+  it("rejects a collection with the same message, before reading anything", async () => {
+    await expect(
+      serve.collection([tmpdir(), "/nowhere/at/all"])
+    ).rejects.toThrow("Atlas serve needs Bun (>=1.3.14).");
+  });
 });
