@@ -101,7 +101,7 @@ await server.stop();
 | `scan(root, options?)` | Scans the workspace and every package's internals; returns the results and saves the dataset | `lib/scan.ts` over `generateSemantics`, which derives the internals, and `generateSemanticsHistory` |
 | `scan.workspace(root, options?)` | The workspace-level results only, without internals; a dataset the viewer loads | `generateSemantics` without internals; the manifest's declared dependencies are what the viewer reads for every package |
 | `scan.package(root, name)` | One package's internals, analyzed fresh; saves nothing | `packageInternals` over `analyzePackageLocal` |
-| `serve(root, options?)` | Serves the saved dataset and the viewer; returns the URL and `stop` | `startServer` plus the web root resolution in `cli/index.ts` |
+| `serve(root, options?)` | Serves the saved dataset and the viewer; returns the URL, the resolved root, and `stop` | `lib/serve.ts` over `startServer`, checking the dataset through the reader |
 | Types | What `scan` returns, and the dataset schema version | `semantics-types.ts`, `semantics-history-types.ts`, `workspace-projection-types.ts`, `types.ts` |
 
 - **`scan` returns the results**, typed, read back from the dataset it just
@@ -118,8 +118,8 @@ await server.stop();
 - **One reader, internal.** The code that knows dataset paths moves out of
   the browser's `codex/source.ts` into `lib`. `scan` and the viewer both
   use it; it is not exported.
-- **`lib/semantics-serve.ts`**, a second server only its test uses, is
-  retired.
+- **`lib/semantics-serve.ts`**, a second server only its test used, was
+  retired in 1.6.
 - **Not exported:** the report printer (`report` is CLI only), the
   codemods (phase 3), and rules and domains (phases 2 and 3).
 

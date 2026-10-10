@@ -1,14 +1,15 @@
+/**
+ * The static file server: the dataset under `/data/`, the viewer elsewhere.
+ *
+ * It calls `globalThis.Bun` where it needs it, not `import … from "bun"`: the
+ * bundler turns a top-level import from "bun" into a destructure of
+ * `globalThis.Bun` that throws as the module loads under Node, and that would
+ * break importing `scan` from the library entry. `serve` checks for Bun
+ * before it gets here.
+ */
 import { realpath, stat } from "node:fs/promises";
 import { isAbsolute, relative, resolve } from "node:path";
-import { file as bunFile, serve } from "bun";
-
-function missing(error: unknown): boolean {
-  return (
-    error instanceof Error &&
-    "code" in error &&
-    (error.code === "ENOENT" || error.code === "ENOTDIR")
-  );
-}
+import { isMissingPath } from "@foundry/lib/atomic-file";
 
 async function serveFile(
   directory: string,
@@ -25,9 +26,9 @@ async function serveFile(
     ) {
       return new Response("Not found", { status: 404 });
     }
-    return new Response(bunFile(file));
+    return new Response(globalThis.Bun.file(file));
   } catch (error) {
-    if (missing(error)) {
+    if (isMissingPath(error)) {
       return new Response("Not found", { status: 404 });
     }
     throw error;
@@ -37,9 +38,10 @@ async function serveFile(
 export function startServer(options: {
   output: string;
   port: number;
-  webRoot?: string;
+  /** The viewer's built files; without them only `/data/` is served. */
+  viewer?: string;
 }) {
-  return serve({
+  return globalThis.Bun.serve({
     error(error) {
       process.stderr.write(`Atlas server: ${error.message}\n`);
       return new Response("Atlas could not read the requested file.", {
@@ -66,9 +68,9 @@ export function startServer(options: {
       if (pathname.startsWith("/data/")) {
         response = await serveFile(options.output, pathname.slice(5));
         response.headers.set("Cache-Control", "no-store");
-      } else if (options.webRoot) {
+      } else if (options.viewer) {
         response = await serveFile(
-          options.webRoot,
+          options.viewer,
           pathname === "/" ? "/index.html" : pathname
         );
       } else {

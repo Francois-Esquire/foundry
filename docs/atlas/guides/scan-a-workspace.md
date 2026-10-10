@@ -101,8 +101,15 @@ messages you are most likely to meet:
   workspace is running; one scan at a time writes a state directory, and
   the second fails instead of waiting. A lock left by a process that has
   exited is taken over.
-- `Web assets are missing from <path>`: the default command scans, then
-  finds no built viewer. Reinstall the package or, from source, build it;
-  or use `scan` alone.
+- `The viewer's files are missing from <path>`: the default command or
+  `serve` finds no built viewer. The default command checks before it
+  scans, so nothing is scanned. Reinstall the package or, from source,
+  build it; or use `scan` alone.
+- `No dataset found for <root> in <output>`: `serve` on a workspace that
+  has never been scanned with this `--state`. Run `atlas scan` first.
+- `Atlas reads dataset schema version 4; this dataset has version <n>`:
+  `serve` on a dataset saved by another Atlas version. Scan again.
+- A port in use: found after the scan, which has already saved the
+  dataset. Serve it on another port with `atlas serve --port <number>`.
 - `Command failed: git rev-parse HEAD`: `--history` on a directory that is
   not a Git repository. The dataset without history was already saved.

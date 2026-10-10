@@ -110,3 +110,10 @@ reuse work, kept in `<state directory>/cache`.
 The state directory's `workspace.json`: which workspace it belongs to and
 when a scan last saved its dataset.
 _Avoid_: workspace report
+
+### What reads a dataset
+
+**Viewer**:
+What a browser loads to show a dataset; `serve` hosts it beside the
+dataset.
+_Avoid_: web assets, web root, app, explorer, client

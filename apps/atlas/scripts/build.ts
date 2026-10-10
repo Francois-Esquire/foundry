@@ -5,6 +5,11 @@ import { build } from "vite";
 import { dependencies } from "../package.json" with { type: "json" };
 
 const root = resolve(import.meta.dirname, "..");
+/**
+ * Built entries go directly in dist/cli: lib/semantics.ts finds the worker
+ * beside the running entry, and lib/serve.ts finds the viewer at ../web. A
+ * deeper or shallower entry breaks both.
+ */
 const outdir = resolve(root, "dist/cli");
 /**
  * Only declared dependencies stay imports. Workspace `@foundry/*` packages

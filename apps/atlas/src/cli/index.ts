@@ -1,10 +1,8 @@
 #!/usr/bin/env bun
-import { resolve } from "node:path";
-import { file } from "bun";
 import type { ScanProgressEvent } from "../lib/scan";
 import { scan } from "../lib/scan";
-import { workspaceState } from "../lib/state";
-import { startServer } from "../server/server";
+import { serve, viewerRoot } from "../lib/serve";
+import type { Arguments } from "./args";
 import { HELP, parseArguments } from "./args";
 import { openBrowser } from "./browser";
 
@@ -19,46 +17,37 @@ function printProgress(event: ScanProgressEvent) {
   }
 }
 
+async function scanWorkspace(args: Arguments) {
+  const result = await scan(args.target, {
+    history: args.history,
+    onProgress: printProgress,
+    state: args.state,
+  });
+  process.stdout.write(`Output saved to ${result.output}\n`);
+}
+
 async function main() {
   const args = parseArguments(process.argv.slice(2));
   if (args.help) {
     process.stdout.write(HELP);
     return;
   }
-  const workspace = await workspaceState(args.target, args.state);
-  if (args.command !== "serve") {
-    const result = await scan(workspace.root, {
-      history: args.history,
-      onProgress: printProgress,
-      state: args.state,
-    });
-    process.stdout.write(`Output saved to ${result.output}\n`);
-  }
   if (args.command === "scan") {
+    await scanWorkspace(args);
     return;
   }
-  // Build preserves this relative location; source execution has a different base.
-  const webRoot = resolve(
-    import.meta.dirname,
-    import.meta.main && import.meta.file === "atlas.js"
-      ? "../web"
-      : "../../dist/web"
-  );
-  if (!(await file(resolve(webRoot, "index.html")).exists())) {
-    throw new Error(
-      `Web assets are missing from ${webRoot}. Reinstall the package, or build it first when running from source.`
-    );
+  if (args.command === "open") {
+    // Fail before the scan, not after it, when there is no viewer to open.
+    await viewerRoot();
+    await scanWorkspace(args);
   }
-  const server = startServer({
-    output: workspace.output,
+  const server = await serve(args.target, {
     port: args.port,
-    webRoot,
+    state: args.state,
   });
   const url = server.url.href;
-  process.stdout.write(`Atlas: ${url}\nWorkspace: ${workspace.root}\n`);
-  const stop = () => {
-    server.stop(true);
-  };
+  process.stdout.write(`Atlas: ${url}\nWorkspace: ${server.root}\n`);
+  const stop = () => server.stop();
   process.once("SIGINT", stop);
   process.once("SIGTERM", stop);
   if (args.open) {

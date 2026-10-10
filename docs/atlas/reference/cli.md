@@ -40,7 +40,7 @@ command; `--history` only has an effect when a scan runs.
 | Code | When |
 | --- | --- |
 | `0` | The command finished, or `--help` |
-| `1` | Bad arguments, a path that is not a directory, a package that failed analysis, a workspace already being scanned, `--history` without Git, missing web assets, or a port in use |
+| `1` | Bad arguments, a path that is not a directory, a package that failed analysis, a workspace already being scanned, `--history` without Git, the viewer's files missing, a port in use, or, for `serve`, no saved dataset, or one with another schema version |
 
 A browser that fails to open is not a failure: the URL is printed instead.
 
@@ -53,6 +53,12 @@ A browser that fails to open is not a failure: the URL is printed instead.
 including through a symlink, is `404`. The cache is never served. There is
 no API and no directory listing.
 
-The default command scans first and only then checks for the viewer's
-assets, so a checkout without a build pays for the scan before it reports
-`Web assets are missing`.
+The default command checks for the viewer's files before it scans, so a
+checkout without a build reports `The viewer's files are missing` at once.
+A port in use is only found once the scan has saved the dataset; serve it
+on another port with `atlas serve --port <number>`.
+
+`serve` reads the saved dataset's manifest before it starts, and refuses a
+workspace with no saved dataset or one saved with another schema version.
+It takes no lock: a scan that runs while it serves replaces the dataset
+atomically, and later requests see the new one.

@@ -253,18 +253,30 @@ test(
 
       // The CLI reports the resolved path; macOS temporary directories are
       // reached through a symlink.
-      const webRoot = join(realpathSync(installed), "dist/web");
-      rmSync(webRoot, { force: true, recursive: true });
+      const viewer = join(realpathSync(installed), "dist/web");
+      rmSync(viewer, { force: true, recursive: true });
       const unserved = spawnSync(serve, {
         cwd: consumer,
         stderr: "pipe",
         stdout: "pipe",
         timeout: SERVER_TIMEOUT_MS,
       });
+      const missingViewer = `Atlas: The viewer's files are missing from ${viewer}. Reinstall the package, or build it first when running from source.\n`;
       expect(unserved.exitCode).toBe(1);
-      expect(unserved.stderr.toString()).toBe(
-        `Atlas: Web assets are missing from ${webRoot}. Reinstall the package, or build it first when running from source.\n`
+      expect(unserved.stderr.toString()).toBe(missingViewer);
+      // The default command checks for the viewer before it scans.
+      const unscanned = spawnSync(
+        [cli, workspace, "--state", join(consumer, "fresh-state"), "--no-open"],
+        {
+          cwd: consumer,
+          stderr: "pipe",
+          stdout: "pipe",
+          timeout: SERVER_TIMEOUT_MS,
+        }
       );
+      expect(unscanned.exitCode).toBe(1);
+      expect(unscanned.stderr.toString()).toBe(missingViewer);
+      expect(unscanned.stdout.toString()).not.toContain("saved to");
     } finally {
       rmSync(consumer, { force: true, recursive: true });
     }

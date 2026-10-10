@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 import { createServer } from "vite";
 import { HELP, parseArguments } from "../src/cli/args";
+import { DEFAULT_PORT } from "../src/lib/serve";
 import { workspaceState } from "../src/lib/state";
 import { startServer } from "../src/server/server";
 
@@ -18,7 +19,7 @@ if (args.help) {
       server: {
         host: "127.0.0.1",
         open: args.open,
-        port: args.port,
+        port: args.port ?? DEFAULT_PORT,
         proxy: { "/data": files.url.href },
         strictPort: true,
       },

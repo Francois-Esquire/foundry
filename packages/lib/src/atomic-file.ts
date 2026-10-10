@@ -15,6 +15,11 @@ export function hasErrorCode(error: unknown, code: string): boolean {
   return error instanceof Error && "code" in error && error.code === code;
 }
 
+/** True when `error` says a path, or a directory on it, does not exist (ENOENT or ENOTDIR). */
+export function isMissingPath(error: unknown): boolean {
+  return hasErrorCode(error, "ENOENT") || hasErrorCode(error, "ENOTDIR");
+}
+
 export interface AtomicWriteOptions {
   /** Create missing parent directories first. Implied by `directoryMode`. */
   readonly createDirectory?: boolean;

@@ -122,9 +122,10 @@ bun run --cwd=apps/atlas test:package      # install the tarball and run the bin
 ```
 
 `build` bundles the CLI and its analysis worker into `dist/cli` with Bun and
-the browser app into `dist/web` with Vite. `dev` runs Vite with hot reload
-against saved output; it never scans. Vitest covers the library and renderer;
-Bun tests exercise the built CLI, worker, server, and browser loaders.
+the viewer into `dist/web` with Vite. `dev` runs Vite with hot reload
+against saved output; it never scans. Vitest covers the library and renderer,
+apart from serving, which needs Bun; Bun tests exercise `serve`, the built
+CLI, worker, server, and browser loaders.
 `test:package` packs the tarball, installs it into a temporary consumer, and
 scans and serves a fixture through the installed bin, which is what the
 release workflow runs before publishing.
@@ -137,13 +138,13 @@ a Chrome binary and `--webgpu` to test the WebGPU path; without it the
 capture uses the software WebGL 2 fallback.
 
 ```text
-src/cli/       commands, argument parsing, workspace identity
+src/cli/       commands, argument parsing, progress, browser opening
 src/lib/       semantic analysis library
-src/server/    static file server
+src/server/    static file server behind lib/serve.ts
 src/web/       browser viewer: data loading, geography, and semantic overlays
 src/web/ui/    React chrome, hooks, and the stylesheet
 src/web/scene/ three.js scene, render pipeline, materials, and layers
-public/        static web assets, including the ship model
+public/        the viewer's static files, including the ship model
 docs/          design notes and the migration record
 ```
 

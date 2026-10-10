@@ -18,10 +18,11 @@ bun run --cwd=apps/atlas test:package
 
 `build` bundles the CLI and its analysis worker into `dist/cli` with Bun and
 the viewer into `dist/web` with Vite. Vitest covers the library and the
-renderer; the Bun test runs the built CLI, worker, server, and browser
-loaders together. `test:package` packs the tarball, installs it into a
-temporary consumer, and scans and serves a fixture through the installed
-bin. The release workflow runs the same check before publishing.
+renderer, apart from serving, which needs Bun; the Bun test runs `serve`,
+the built CLI, worker, server, and browser loaders together.
+`test:package` packs the tarball, installs it into a temporary consumer,
+and scans and serves a fixture through the installed bin. The release
+workflow runs the same check before publishing.
 
 Atlas is a separate public package, `@foundry/atlas`, not yet published.
 The repository's release tooling publishes every non-private workspace

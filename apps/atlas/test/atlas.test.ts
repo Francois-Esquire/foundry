@@ -4,6 +4,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  realpath,
   rm,
   symlink,
   writeFile,
@@ -14,6 +15,7 @@ import { spawn } from "bun";
 import { parseArguments } from "../src/cli/args";
 import type { SemanticsHistoryManifest } from "../src/lib/semantics-history-types";
 import type { SemanticsManifest } from "../src/lib/semantics-types";
+import { serve } from "../src/lib/serve";
 import { workspaceState } from "../src/lib/state";
 import { startServer } from "../src/server/server";
 import { loadAtlas } from "../src/web/load-atlas";
@@ -85,7 +87,7 @@ test("the workspace id, the first 12 hex digits of the root's SHA-256, names the
 
 test("server preserves generated file bytes and serves public assets without exposing caches", async () => {
   const { workspace, directory } = await fixture();
-  const webRoot = resolve(import.meta.dirname, "../dist/web");
+  const viewer = resolve(import.meta.dirname, "../dist/web");
   await mkdir(workspace.output, { recursive: true });
   await mkdir(workspace.cache);
   await writeFile(join(workspace.cache, "private.json"), "private");
@@ -98,7 +100,7 @@ test("server preserves generated file bytes and serves public assets without exp
   const secret = join(directory, "secret.txt");
   await writeFile(secret, "secret");
   await symlink(secret, join(workspace.output, "escape.txt"));
-  const server = startServer({ output: workspace.output, port: 0, webRoot });
+  const server = startServer({ output: workspace.output, port: 0, viewer });
   const request = (path: string, init?: RequestInit) =>
     fetch(new URL(path, server.url), init);
   try {
@@ -113,11 +115,11 @@ test("server preserves generated file bytes and serves public assets without exp
       const response = await request(asset);
       expect(response.status).toBe(200);
       expect(await response.bytes()).toEqual(
-        new Uint8Array(await readFile(join(webRoot, asset)))
+        new Uint8Array(await readFile(join(viewer, asset)))
       );
     }
     expect(await (await request("/atlas/two-masted-brig.glb")).bytes()).toEqual(
-      new Uint8Array(await readFile(join(webRoot, "atlas/two-masted-brig.glb")))
+      new Uint8Array(await readFile(join(viewer, "atlas/two-masted-brig.glb")))
     );
     expect((await request("/atlas.svg")).headers.get("content-type")).toContain(
       "image/svg+xml"
@@ -146,6 +148,56 @@ test("server preserves generated file bytes and serves public assets without exp
   } finally {
     server.stop(true);
   }
+});
+
+test("serve(root) serves the saved dataset and the viewer, frees its port on stop, and stops twice", async () => {
+  const { directory, workspace } = await fixture();
+  const state = join(directory, "state");
+  await mkdir(workspace.output, { recursive: true });
+  const manifest = '{ "schemaVersion": 4, "packages": [] }\n';
+  await writeFile(join(workspace.output, "manifest.json"), manifest);
+  const root = join(directory, "workspace");
+  const server = await serve(root, { port: 0, state });
+  const port = Number(server.url.port);
+  try {
+    expect(server.root).toBe(await realpath(root));
+    const page = await fetch(server.url);
+    expect(page.status).toBe(200);
+    expect(await page.text()).toContain("<html");
+    expect(
+      await (await fetch(new URL("data/manifest.json", server.url))).text()
+    ).toBe(manifest);
+  } finally {
+    await server.stop();
+  }
+  await server.stop();
+  const again = await serve(root, { port, state });
+  try {
+    expect(Number(again.url.port)).toBe(port);
+  } finally {
+    await again.stop();
+  }
+});
+
+test("serve(root) refuses an invalid port, and a workspace with no saved dataset or an outdated one", async () => {
+  const { directory, workspace } = await fixture();
+  const state = join(directory, "state");
+  for (const port of [-1, 1.5, 65_536]) {
+    await expect(serve(workspace.root, { port, state })).rejects.toThrow(
+      "Port must be an integer between 0 and 65535."
+    );
+  }
+  await expect(serve(workspace.root, { port: 0, state })).rejects.toThrow(
+    `No dataset found for ${workspace.root} in ${workspace.output}. Run atlas scan to save one.`
+  );
+  await mkdir(workspace.output, { recursive: true });
+  await writeFile(
+    join(workspace.output, "manifest.json"),
+    '{ "schemaVersion": 3 }\n'
+  );
+  await expect(serve(workspace.root, { port: 0, state })).rejects.toThrow(
+    "Atlas reads dataset schema version 4; this dataset has version 3. Run atlas scan to save it again."
+  );
 });
 
 test("built CLI scans an external workspace and the web loaders read its saved dataset through the reader, over the real server", async () => {
@@ -295,7 +347,7 @@ test("built CLI includes Git history when requested", async () => {
 test("source and built CLI serve generated files from an external workspace", async () => {
   const { workspace, directory } = await fixture();
   await mkdir(workspace.output, { recursive: true });
-  const manifest = '{ "unchanged": true }\n';
+  const manifest = '{ "schemaVersion": 4, "unchanged": true }\n';
   await writeFile(join(workspace.output, "manifest.json"), manifest);
   for (const entry of ["../src/cli/index.ts", "../dist/cli/atlas.js"]) {
     const child = spawn(

@@ -1,4 +1,11 @@
-import { mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
+import {
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -6,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   hasErrorCode,
+  isMissingPath,
   readJsonFile,
   writeFileAtomic,
   writeFileAtomicSync,
@@ -99,5 +107,25 @@ describe("hasErrorCode", () => {
     expect(hasErrorCode(error, "EEXIST")).toBe(false);
     expect(hasErrorCode(new Error("ENOENT"), "ENOENT")).toBe(false);
     expect(hasErrorCode({ code: "ENOENT" }, "ENOENT")).toBe(false);
+  });
+});
+
+describe("isMissingPath", () => {
+  it("matches a missing path and a file in place of a directory, and nothing else", async () => {
+    const missing = await readFile(join(directory, "missing")).catch(
+      (caught: unknown) => caught
+    );
+    const file = join(directory, "file");
+    await writeFile(file, "");
+    const underFile = await readFile(join(file, "child")).catch(
+      (caught: unknown) => caught
+    );
+    const directoryRead = await readFile(directory).catch(
+      (caught: unknown) => caught
+    );
+    expect(isMissingPath(missing)).toBe(true);
+    expect(isMissingPath(underFile)).toBe(true);
+    expect(isMissingPath(directoryRead)).toBe(false);
+    expect(isMissingPath(new Error("ENOENT"))).toBe(false);
   });
 });

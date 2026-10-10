@@ -48,7 +48,7 @@ Where new work attaches. All exist today.
 | `AnalysisConfig.anchors` | Declared package boundaries the analyses respect | Domains, when they need to reach the gates |
 | `operators.ts`, `apply.ts` | Reduction plans: preview, write, verify, restore | `atlas apply` |
 | `operator-readiness.ts` | Authorization of architectural plans | `atlas plan`, rules, domains |
-| `server/server.ts` `startServer` | A dataset and a web root on a port | Library `serve`, collections |
+| `server/server.ts` `startServer` | A dataset and the viewer on a port | Library `serve`, collections |
 | `docs/scripts/build-example.ts` | A static viewer plus dataset | `atlas export` |
 | `@foundry/lib` | Atomic files, file locks, digests | The cache and state code |
 | Marbles (`apps/marbles`) | Exports layout, tsup bundling, `.foundry/<tool>/`, `workspace.json` | Patterns to mirror; not importable |
@@ -300,18 +300,56 @@ returns its results through it.
   `compareSemanticsDatasets` ignores history's timings inside a dataset;
   before, only the `kind` override did.
 
-**1.6 `serve`.**
-- `startServer` plus the web root resolution from `cli/index.ts` become the
-  library `serve`.
-- Retire `lib/semantics-serve.ts` and its test.
-- Done when the CLI's default command and `serve` call it.
-- The CLI drops its own `workspaceState` call once `serve(root)` resolves
-  the state itself.
-- The server side of the data root is this effort's: `/data/` in
-  `server/server.ts`, the `scripts/dev.ts` proxy, and
-  `docs/scripts/build-example.ts`. A missing dataset can be told apart by
-  `DatasetNotFoundError`. `lib/semantics-serve.ts` names
-  `/semantics/manifest.json` until it is retired here.
+**1.6 `serve`.** Done 2026-10-10.
+- `lib/serve.ts` `serve(root, { port, state })` resolves the workspace
+  state, finds the viewer, checks the saved dataset through the reader
+  (`datasetReader(fileTransport(output)).manifest()`), and starts
+  `startServer`, whose `webRoot` option is now `viewer`. It returns an
+  `AtlasServer`: `url`, `root` (resolved
+  through symlinks, which the CLI prints since it no longer calls
+  `workspaceState`), and `stop()`, which is `server.stop(true)`: open
+  connections are closed, the promise resolves once the port is free, and a
+  second call does nothing. The name avoids Bun's and Node's `Server`.
+- `DatasetNotFoundError` becomes `No dataset found for <root> in <output>.
+  Run atlas scan to save one.`, with the reader's error as its cause; a
+  dataset with another schema version fails with the reader's own message.
+  So `atlas serve` on a workspace never scanned, or saved at schema 3, now
+  exits 1 instead of serving a viewer that shows the error. `serve` takes no
+  lock; a concurrent scan's atomic swap is seen by later requests.
+- `viewerRoot()`, an internal export of `lib/serve.ts`, is the viewer
+  lookup moved out of `cli/index.ts`: `../web` from a built entry and
+  `dist/web` from source, told apart by `import.meta.filename` as the worker
+  is (`lib/semantics.ts`). Built entries go directly in `dist/cli`, beside
+  the worker; `scripts/build.ts` says so. Its message is now
+  `The viewer's files are missing from <dir>. Reinstall the package, or
+  build it first when running from source.`
+- The default command calls `viewerRoot()` before it scans, so a checkout
+  without a build fails at once; `atlas scan` never checks. A port in use
+  is still found after the scan, since the dataset must exist to serve.
+- `DEFAULT_PORT` (4173) is `serve`'s default, and `serve` refuses a port
+  that is not an integer from 0 to 65535 with the CLI's message, through
+  the `checkPort` both share. `--port` is optional in `cli/args.ts`, which
+  prints the constant in its help, and `scripts/dev.ts`
+  applies it to Vite. Otherwise `scripts/dev.ts` keeps a data-only
+  `startServer` (it needs no built viewer), and
+  `docs/scripts/build-example.ts` is unchanged until 1.8 replaces it.
+- `server/server.ts` calls `globalThis.Bun` instead of `import … from
+  "bun"`, which the bundler turns into a destructure of `globalThis.Bun`
+  that throws as the module loads under Node. `serve` throws `Atlas serve
+  needs Bun (>=1.3.14).`, the range read from `package.json#engines`, first,
+  so a Node importer of the 1.10 entry can still load `scan`.
+  `@foundry/lib/atomic-file` gains `isMissingPath` (ENOENT or ENOTDIR),
+  which replaces the copied `missing` checks in `server/server.ts` and
+  `lib/dataset-files.ts` and serves `viewerRoot`.
+- `lib/semantics-serve.ts` and its test are gone.
+- `test/lib/serve.test.ts` runs on Vitest's Node host and checks that
+  `serve` loads there and rejects with the Bun message. The rest are in
+  `test/atlas.test.ts`, under Bun: `serve` serves `index.html` and the
+  manifest byte for byte, reports the realpath root, frees its port on `stop` (the port binds
+  again) and stops twice; a missing dataset and a schema-3 dataset are
+  refused. `test/package.test.ts` checks the new missing-viewer message
+  through the installed `serve` and the default command, which fails
+  without scanning.
 
 **1.7 Configuration.**
 - Resolve `.foundry/atlas/` as Marbles resolves `.foundry/marbles/`
@@ -363,6 +401,13 @@ others.
   The analysis worker ships beside it.
 - The exported dataset types carry a `Semantics*` prefix
   (`SemanticsManifest`); alias them or document the prefix.
+- `serve` returns an `AtlasServer`, prefixed (unlike `Scan`) so it does
+  not collide with Bun's or Node's `Server`.
+- The entry names its exports explicitly, with no `export *`, so
+  `viewerRoot`, `DEFAULT_PORT`, and `checkPort` in `lib/serve.ts` stay
+  internal.
+- The entry sits one directory under `dist/`, beside the worker, so that
+  the worker and `viewerRoot` find their files (`scripts/build.ts`).
 - `test/package.test.ts` imports the library from the installed tarball and
   runs `scan`, `scan.workspace`, `scan.package`, and `serve` against the
   fixture.
@@ -502,7 +547,8 @@ against. The shape, a collection dataset, is recommended already.
 from declared dependencies.
 
 **5.3 Many paths for real** in the commands, the library, and `serve`,
-which serves each dataset under its own prefix.
+which serves each dataset under its own prefix. `AtlasServer.root` is
+singular until then.
 
 **5.4 The viewer's data root per workspace,** which 1.5 reduces to one
 place, `DATA_ROOT` in `web/dataset.ts`; the server's `/data/` mount and the
