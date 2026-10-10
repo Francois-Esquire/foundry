@@ -1,6 +1,6 @@
-import { insidePolygons } from "../atmosphere";
 import { reliefHachure } from "../codex/bindings";
 import { unit } from "../geography";
+import { insidePolygons } from "../polygons";
 import type { Territory } from "../types";
 import type { TerrainField } from "./terrain-field";
 

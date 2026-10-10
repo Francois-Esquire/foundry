@@ -1,4 +1,3 @@
-import { insidePolygons } from "../atmosphere";
 import {
   lowland,
   rangeBlend,
@@ -7,6 +6,7 @@ import {
   summitProfile,
   summitReach,
 } from "../codex/bindings";
+import { insidePolygons } from "../polygons";
 import type { Territory } from "../types";
 
 // Fixed survey-space sampling, never a zoom-dependent mesh or level of detail.

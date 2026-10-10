@@ -1,6 +1,6 @@
 import { Mesh, MeshBasicMaterial, PlaneGeometry } from "three";
-import { insidePolygons } from "../atmosphere";
 import { islandPlinth } from "../codex/bindings";
+import { insidePolygons } from "../polygons";
 import type { AtlasFile, Territory } from "../types";
 import type { InkView, MapLabel } from "./exploration";
 import { createInkTexture } from "./ink-texture";

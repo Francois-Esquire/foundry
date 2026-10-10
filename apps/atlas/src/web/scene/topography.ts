@@ -1,6 +1,6 @@
 import { contours } from "d3-contour";
-import { insidePolygons } from "../atmosphere";
 import { terrainContourLevels } from "../codex/bindings";
+import { insidePolygons } from "../polygons";
 import type { AtlasData, Polygon, Territory } from "../types";
 import type { InkView, MapLabel } from "./exploration";
 import { oceanField } from "./ocean";

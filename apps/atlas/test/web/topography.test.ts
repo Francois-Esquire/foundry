@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 
-import { insidePolygons } from "../../src/web/atmosphere";
+import { insidePolygons } from "../../src/web/polygons";
 import { islandTop, terrainHeight } from "../../src/web/scene/terrain";
 import {
   archipelagoRings,

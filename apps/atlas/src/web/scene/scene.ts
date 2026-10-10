@@ -19,13 +19,6 @@ import {
 } from "three";
 import { MapControls } from "three/addons/controls/MapControls.js";
 import { WebGPURenderer } from "three/webgpu";
-import type { MapPoint } from "../atmosphere";
-import {
-  atmosphereStrength,
-  clearWind,
-  islandAt,
-  windPath,
-} from "../atmosphere";
 import type { BelongingLayer, BelongingRegion } from "../belonging";
 import { hitBelonging, matchedRegion } from "../belonging";
 import type { ChartSettings } from "../chart-settings";
@@ -36,13 +29,13 @@ import {
   hitNaturalFeature,
   type NaturalFeature,
 } from "../natural-feature-inspection";
+import { islandAt } from "../polygons";
 import type { ResponsibilityOverlay } from "../responsibility-focus";
 import { createRoadNetwork } from "../roads";
 import { markLoad, type TimedStage, timeStage } from "../timings";
 import type { TradeRoute } from "../trade-routes";
 import { createTradeNavigation, leadingTrades } from "../trade-routes";
 import type { AtlasData, AtlasFile, FormerPackage, Territory } from "../types";
-import { createAtmosphereLayer } from "./atmosphere-layer";
 import { atlasBoundaries, paintBoundaries } from "./boundaries";
 import { hitComposition } from "./composition-hit";
 import { detailLevel, detailVisibility, fileInView } from "./detail-level";
@@ -56,13 +49,17 @@ import {
   zoomForPixels,
 } from "./exploration";
 import { createFrameRenderer } from "./frame-render";
+import { paintHoverInk } from "./hover-ink";
+import {
+  createHoverTarget,
+  hoveredIsland,
+  type PagePoint,
+} from "./hover-target";
 import { createInkTexture } from "./ink-texture";
 import { createLabelProjector, createLettering } from "./lettering";
 import { paintMap } from "./paint-map";
 import { createPaperMaterials, paperThickness } from "./paper-material";
 import { createRenderPipeline } from "./pipeline";
-import type { PlaybackSnapshot, TrackId } from "./playback";
-import { createPlayback } from "./playback";
 import { createReliefLayer } from "./relief-layer";
 import { createRoadLayer } from "./road-layer";
 import { copySeaInk } from "./sea-ink";
@@ -248,7 +245,7 @@ export async function createAtlasScene(
   ink.renderOrder = 1;
   scene.add(ink);
   const materials = createPaperMaterials(paperTexture);
-  const water = createWaterMaterial(texture, seaData, coasts);
+  const water = createWaterMaterial(texture, seaData);
   const ground = new Mesh(
     new PlaneGeometry(seaData.width, seaData.height),
     water.material
@@ -325,61 +322,25 @@ export async function createAtlasScene(
   let showConnections = false;
   let labels: MapLabel[] = [];
   let frame = 0;
-  let focusedTerritory: Territory | null = null;
-  const projectAtmosphere = ({ x, y }: { x: number; y: number }) => {
-    const p = new Vector3(x, -y, paperThickness + 0.04).project(camera);
-    return {
-      x: ((p.x + 1) * host.clientWidth) / 2,
-      y: ((1 - p.y) * host.clientHeight) / 2,
-    };
-  };
-  const currentStrength = () =>
-    atmosphereStrength(
-      (host.clientWidth * camera.zoom) / (camera.right - camera.left)
-    );
+  /** The resting pointer; each repaint inks the island under it (`paintHoverInk`). */
+  const hoverTarget = createHoverTarget();
+  let hoveredId: string | null = null;
   let settings = { ...defaultChartSettings };
-  const playback = createPlayback();
-  const playbackMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
-  const pauseForReducedMotion = () => {
-    if (playbackMotion.matches) {
-      playback.play(false);
-    }
+  const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+  const motionChanged = () => {
     if (responsibility) {
       render();
     }
   };
-  pauseForReducedMotion();
-  playbackMotion.addEventListener("change", pauseForReducedMotion);
-  let waveTimer = 0;
-  let firstFrame = false;
-  const atmosphere = createAtmosphereLayer(host, projectAtmosphere, {
-    running: playback.running,
-    strength: currentStrength,
-    update: (time, enabled) => {
-      playback.tick(time);
-      water.update(playback.snapshot(), enabled ? currentStrength() : 0);
-      water.setWreckReveal(
-        (host.clientWidth * camera.zoom) / (camera.right - camera.left)
-      );
-      // CPU encode and submit only, on every frame this loop draws, repaint
-      // or not; 4.1 moves it, and the first-frame mark, into drawMap.
-      timed("render-submit", () => pipeline.render());
-      if (!firstFrame) {
-        firstFrame = true;
-        markLoad("atlas:first-frame");
-      }
-    },
-  });
+  reducedMotion.addEventListener("change", motionChanged);
   const pipeline = createRenderPipeline({
     camera,
     filter: () => settings.filter,
     onStatus: (status) => {
-      atmosphere.setComposited(status.postProcessing);
       host.dispatchEvent(new CustomEvent("atlas:render", { detail: status }));
       // A stage finishes building after the frame that asked for it.
       render();
     },
-    overlay: atmosphere.texture,
     renderer,
     scene,
     unitsPerPixel: () =>
@@ -396,26 +357,6 @@ export async function createAtlasScene(
     );
   };
   applyRendering();
-  const seekCurrent = (milliseconds: number | null) => {
-    if (
-      milliseconds !== null &&
-      (!Number.isFinite(milliseconds) || milliseconds < 0)
-    ) {
-      return;
-    }
-    playback.play(milliseconds === null);
-    if (milliseconds !== null) {
-      playback.seek(milliseconds / 1000);
-    }
-    atmosphere.setCurrentTime(milliseconds);
-  };
-  const setCurrentTime = (event: Event) => {
-    const time: unknown = (event as CustomEvent<unknown>).detail;
-    if (time === null || typeof time === "number") {
-      seekCurrent(time);
-    }
-  };
-  host.addEventListener("atlas:current-time", setCurrentTime);
   let reportedRegionTerritory: string | null = null;
   const constrainCamera = () =>
     keepSeaInFrame(
@@ -431,6 +372,13 @@ export async function createAtlasScene(
       ),
       panRoom
     );
+  /** Draws one frame: the chart is still, so a frame is drawn only when a repaint asks. */
+  const submitFrame = (pixelsPerUnit: number) => {
+    water.setWreckReveal(pixelsPerUnit);
+    // CPU encode and submit only; GPU time is not measured.
+    timed("render-submit", () => pipeline.render());
+    markLoad("atlas:first-frame");
+  };
   const drawMap = () => {
     constrainCamera();
     const view = inkView(
@@ -486,7 +434,7 @@ export async function createAtlasScene(
         settings.contours ? topography : [],
         responsibility && {
           ...responsibility,
-          reducedMotion: playbackMotion.matches,
+          reducedMotion: reducedMotion.matches,
         },
         showConnections,
         belonging,
@@ -508,6 +456,12 @@ export async function createAtlasScene(
           view.pixelsPerUnit
         )
       );
+      hoveredId = hoverTarget.island((pointer) => hit(pointer)?.territory.id);
+      paintHoverInk(
+        inkContext,
+        hoveredIsland(hoveredId, drawingData.territories, selected),
+        view.pixelsPerUnit
+      );
     }
     timed("sea-ink", () =>
       copySeaInk(seaInkCanvas, inkCanvas, drawingData, view)
@@ -516,14 +470,13 @@ export async function createAtlasScene(
     timed("lettering", () => lettering.update(view));
     seaInkTexture.needsUpdate = true;
     inkTexture.needsUpdate = true;
-    atmosphere.cameraChanged();
+    submitFrame(view.pixelsPerUnit);
   };
   const frameRenderer = createFrameRenderer(drawMap);
   const render = frameRenderer.request;
   controls.addEventListener("change", frameRenderer.request);
   controls.addEventListener("start", () => {
     cancelAnimationFrame(frame);
-    atmosphere.wind(null);
   });
   let viewportWidth = 0;
   let overviewZoom = 1;
@@ -577,7 +530,7 @@ export async function createAtlasScene(
   const raycaster = new Raycaster();
   const plane = new Plane(new Vector3(0, 0, 1), -paperThickness);
   const point = new Vector3();
-  const hit = (event: PointerEvent): AtlasSelection | null =>
+  const hit = (event: PagePoint): AtlasSelection | null =>
     resolveHit(
       renderer.domElement,
       raycaster,
@@ -592,7 +545,7 @@ export async function createAtlasScene(
       responsibility,
       drawingData,
       visibility,
-      playbackMotion,
+      reducedMotion,
       belonging,
       settings.streams,
       relief.pick,
@@ -612,7 +565,7 @@ export async function createAtlasScene(
     cancelAnimationFrame(previewFrame);
     belonging = {
       ...belonging,
-      emphasis: playbackMotion.matches ? 1 : 0,
+      emphasis: reducedMotion.matches ? 1 : 0,
       featureFocus: selection?.feature ?? selectedFeature,
       hovered: selection?.regionId ?? selection?.compositeId,
     };
@@ -621,7 +574,7 @@ export async function createAtlasScene(
       if (!belonging) {
         return;
       }
-      const progress = playbackMotion.matches
+      const progress = reducedMotion.matches
         ? 1
         : Math.min(1, (performance.now() - start) / 180);
       belonging = { ...belonging, emphasis: 1 - (1 - progress) ** 3 };
@@ -673,6 +626,9 @@ export async function createAtlasScene(
     onSelect(selection);
   };
   const pointerMove = (e: PointerEvent) => {
+    // Kept while dragging too: a pan follows the pointer, so the island
+    // under it stays the one inked.
+    hoverTarget.move(e);
     if (e.buttons) {
       return;
     }
@@ -697,19 +653,9 @@ export async function createAtlasScene(
         preview(selection);
       }, 90);
     }
-    atmosphere.highlight(selection?.territory ?? focusedTerritory);
-    const origin = { x: point.x, y: -point.y };
-    atmosphere.wind(
-      resolvePointerMove(
-        selection,
-        selectedFile,
-        host,
-        camera,
-        origin,
-        data,
-        labels
-      )
-    );
+    if ((selection?.territory.id ?? null) !== hoveredId) {
+      render();
+    }
   };
   const pointerLeave = () => {
     clearTimeout(previewTimer);
@@ -725,8 +671,10 @@ export async function createAtlasScene(
       };
       render();
     }
-    atmosphere.highlight(focusedTerritory);
-    atmosphere.wind(null);
+    hoverTarget.leave();
+    if (hoveredId) {
+      render();
+    }
   };
   renderer.domElement.addEventListener("pointerdown", pointerDown);
   renderer.domElement.addEventListener("pointerup", pointerUp);
@@ -754,8 +702,6 @@ export async function createAtlasScene(
     );
     light.shadow.needsUpdate = true;
     onTrades?.(trades);
-    focusedTerritory = territory;
-    atmosphere.highlight(territory);
     selectedFile = file?.id ?? null;
     paintMap(
       paperCanvas,
@@ -823,26 +769,9 @@ export async function createAtlasScene(
       y: controls.target.y,
     }),
     configure: (next: ChartSettings) => {
-      const directionChanged = next.windDirection !== settings.windDirection;
-      const contoursChanged =
-        next.contours !== settings.contours ||
-        next.boundaries !== settings.boundaries ||
-        next.streams !== settings.streams;
       settings = { ...next };
-      water.configure(settings);
       applyRendering();
-      if (directionChanged) {
-        clearTimeout(waveTimer);
-        waveTimer = window.setTimeout(() => {
-          water.rebuildWaves(settings.windDirection);
-          atmosphere.cameraChanged();
-        }, 180);
-      }
-      if (contoursChanged) {
-        render();
-      } else {
-        atmosphere.cameraChanged();
-      }
+      render();
     },
     dispose: () => {
       frameRenderer.dispose();
@@ -851,10 +780,7 @@ export async function createAtlasScene(
       cancelAnimationFrame(revealFrame);
       cancelAnimationFrame(frame);
       observer.disconnect();
-      clearTimeout(waveTimer);
-      playbackMotion.removeEventListener("change", pauseForReducedMotion);
-      atmosphere.dispose();
-      host.removeEventListener("atlas:current-time", setCurrentTime);
+      reducedMotion.removeEventListener("change", motionChanged);
       controls.dispose();
       renderer.domElement.removeEventListener("pointerdown", pointerDown);
       renderer.domElement.removeEventListener("pointerup", pointerUp);
@@ -889,7 +815,7 @@ export async function createAtlasScene(
       const offset = camera.position.clone().sub(controls.target);
       const zoomStart = camera.zoom;
       const began = performance.now();
-      const reduced = playbackMotion.matches;
+      const reduced = reducedMotion.matches;
       cancelAnimationFrame(frame);
       const animate = () => {
         const t = reduced ? 1 : Math.min(1, (performance.now() - began) / 650);
@@ -906,27 +832,10 @@ export async function createAtlasScene(
       };
       animate();
     },
-    getPlayback: playback.snapshot,
     getRenderStatus: pipeline.status,
-    highlight: (territory: Territory | null) => {
-      atmosphere.highlight(territory ?? focusedTerritory);
-    },
     pinRegion: () => {
       selectedFile = null;
       render();
-    },
-    play: (value: boolean) => {
-      playback.play(value);
-      atmosphere.setCurrentTime(null);
-      atmosphere.cameraChanged();
-    },
-    restorePlayback: (value: PlaybackSnapshot) => {
-      playback.restore(value);
-      if (playbackMotion.matches) {
-        playback.play(false);
-      }
-      water.update(playback.snapshot(), currentStrength());
-      atmosphere.cameraChanged();
     },
     restoreView: (view: { x: number; y: number; pixels: number }) => {
       const offset = camera.position.clone().sub(controls.target);
@@ -941,11 +850,6 @@ export async function createAtlasScene(
       controls.update();
       render();
     },
-    seek: (seconds: number) => {
-      playback.play(false);
-      seekCurrent(seconds * 1000);
-    },
-    setAtmosphere: atmosphere.setEnabled,
     setBelonging: (value: BelongingLayer | null) => {
       if (value?.featureFocus) {
         selectedFile = null;
@@ -960,7 +864,7 @@ export async function createAtlasScene(
         belonging?.parents?.at(-1)?.id !== value?.parents?.at(-1)?.id ||
         (!belonging?.regions.length && !!value?.regions.length);
       belonging = value;
-      if (belonging && changed && !playbackMotion.matches) {
+      if (belonging && changed && !reducedMotion.matches) {
         belonging = { ...belonging, reveal: 0 };
         const start = performance.now();
         const animate = () => {
@@ -982,10 +886,6 @@ export async function createAtlasScene(
       showConnections = visible;
       render();
     },
-    setCurrentTime: seekCurrent,
-    setPlaybackSpeed: (value: number) => {
-      playback.speed(value);
-    },
     setResponsibility: (value: ResponsibilityOverlay | null) => {
       responsibility = value;
       const territory = drawingData.territories.find(
@@ -1003,10 +903,6 @@ export async function createAtlasScene(
         current,
         current?.files.find((item) => item.id === selectedFile)
       );
-    },
-    setTrackPlaying: (id: TrackId, value: boolean) => {
-      playback.track(id, value);
-      atmosphere.cameraChanged();
     },
     zoom: (factor: number) => {
       cancelAnimationFrame(frame);
@@ -1034,32 +930,6 @@ function resolveSetTerritoryLayout(
     };
   }
   return data;
-}
-
-function resolvePointerMove(
-  selection: AtlasSelection | null,
-  selectedFile: string | null,
-  host: HTMLElement,
-  camera: OrthographicCamera,
-  origin: { x: number; y: number },
-  data: AtlasData,
-  labels: MapLabel[]
-): (() => MapPoint[] | null) | null {
-  if (selection || selectedFile) {
-    return null;
-  }
-  return () => {
-    const scale =
-      (host.clientWidth * camera.zoom) / (camera.right - camera.left);
-    const path = windPath(origin, scale);
-    const onscreen = path.every((p) => {
-      const projected = new Vector3(p.x, -p.y, paperThickness + 0.04).project(
-        camera
-      );
-      return Math.abs(projected.x) < 0.9 && Math.abs(projected.y) < 0.9;
-    });
-    return onscreen && clearWind(path, data, labels, 14 / scale) ? path : null;
-  };
 }
 
 function hitTerritory(
@@ -1136,11 +1006,11 @@ function resolveHit(
   responsibility: ResponsibilityOverlay | null,
   drawingData: AtlasData,
   visibility: { composition: boolean; files: boolean },
-  playbackMotion: MediaQueryList,
+  reducedMotion: MediaQueryList,
   belonging: BelongingLayer | null,
   streams: boolean,
   pickTerrain: (point: Vector3) => Vector3 | undefined,
-  event: PointerEvent
+  event: PagePoint
 ): AtlasSelection | null {
   const rect = canvas.getBoundingClientRect();
   raycaster.setFromCamera(
@@ -1189,7 +1059,7 @@ function resolveHit(
       overlay,
       drawingData,
       point,
-      playbackMotion.matches,
+      reducedMotion.matches,
       (host.clientWidth * camera.zoom) / (camera.right - camera.left)
     );
     if (compositionHit) {

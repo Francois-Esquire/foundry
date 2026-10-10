@@ -42,10 +42,6 @@ export function dependencyPen(strength: number, strongest: number) {
   );
 }
 
-export function currentStrength(imports: number) {
-  return Math.log1p(imports);
-}
-
 /** `value` as a multiple of the package's saved high fan-in cutoff; 0 for a package without one, so it raises and widens nothing. */
 function perCutoff(value: number, cutoff: number) {
   return cutoff > 0 ? value / cutoff : 0;

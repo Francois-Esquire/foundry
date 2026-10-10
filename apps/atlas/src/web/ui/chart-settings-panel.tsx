@@ -1,4 +1,4 @@
-import type { ChangeEvent, MouseEvent, RefObject } from "react";
+import type { ChangeEvent, RefObject } from "react";
 import { useCallback, useEffect, useState } from "react";
 import type { ChartSettings, RenderSettings } from "../chart-settings";
 import { chartFilters } from "../chart-settings";
@@ -6,7 +6,6 @@ import { defaultLandmassSettings } from "../landmasses";
 import type { BoundaryId } from "../scene/boundaries";
 import { boundaryStyles } from "../scene/boundaries";
 import type { RenderStatus } from "../scene/pipeline";
-import { createPlayback, trackIds } from "../scene/playback";
 import type { AtlasMapHandle } from "./atlas-map";
 import { RenderingSettings } from "./rendering-settings";
 
@@ -36,25 +35,11 @@ export function ChartSettingsPanel({
   onReset: () => void;
   layoutPending?: boolean;
 }) {
-  const [playback, setPlayback] = useState(
-    () => scene.current?.getPlayback() ?? createPlayback().snapshot()
-  );
-  const [reduced, setReduced] = useState(false);
   const [renderStatus, setRenderStatus] = useState<RenderStatus | null>(
     () => scene.current?.getRenderStatus() ?? null
   );
   useEffect(() => {
-    const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const preference = () => {
-      setReduced(motion.matches);
-    };
-    preference();
-    motion.addEventListener("change", preference);
     const timer = window.setInterval(() => {
-      const value = scene.current?.getPlayback();
-      if (value) {
-        setPlayback(value);
-      }
       const status = scene.current?.getRenderStatus() ?? null;
       setRenderStatus((current) =>
         renderStatusKey(current) === renderStatusKey(status) ? current : status
@@ -62,15 +47,8 @@ export function ChartSettingsPanel({
     }, 150);
     return () => {
       clearInterval(timer);
-      motion.removeEventListener("change", preference);
     };
   }, [scene]);
-  const sync = useCallback(() => {
-    const value = scene.current?.getPlayback();
-    if (value) {
-      setPlayback(value);
-    }
-  }, [scene, setPlayback]);
   const changeNumericSetting = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
       const key = event.currentTarget.name as keyof ChartSettings;
@@ -113,16 +91,6 @@ export function ChartSettingsPanel({
     },
     [onChange, settings]
   );
-  const toggleTrack = useCallback(
-    (event: MouseEvent<HTMLButtonElement>) => {
-      const id = trackIds.find((track) => track === event.currentTarget.value);
-      if (id) {
-        scene.current?.setTrackPlaying(id, !playback.tracks[id].playing);
-        sync();
-      }
-    },
-    [playback, scene, sync]
-  );
   const range = (
     label: string,
     key: Exclude<
@@ -130,7 +98,6 @@ export function ChartSettingsPanel({
       | "contours"
       | "streams"
       | "volcanic"
-      | "waterColor"
       | "filter"
       | "boundaries"
       | "layers"
@@ -164,30 +131,6 @@ export function ChartSettingsPanel({
   const handleChange3 = useCallback(() => {
     onChange({ ...settings, ...defaultLandmassSettings });
   }, [onChange, settings]);
-  const handleClick = useCallback(() => {
-    scene.current?.play(!playback.playing);
-    sync();
-  }, [playback, scene, sync]);
-  const handlePlaybackSpeed = useCallback(
-    (event: ChangeEvent<HTMLSelectElement, HTMLSelectElement>) => {
-      scene.current?.setPlaybackSpeed(Number(event.target.value));
-      sync();
-    },
-    [scene, sync]
-  );
-  const handleChange5 = useCallback(
-    (event: ChangeEvent<HTMLInputElement, HTMLInputElement>) => {
-      scene.current?.seek(Number(event.target.value));
-      sync();
-    },
-    [scene, sync]
-  );
-  const handleChange6 = useCallback(
-    (event: ChangeEvent<HTMLInputElement, HTMLInputElement>) => {
-      onChange({ ...settings, waterColor: event.target.value });
-    },
-    [onChange, settings]
-  );
   const handleChange7 = useCallback(
     (event: ChangeEvent<HTMLSelectElement, HTMLSelectElement>) => {
       const filter = Object.keys(chartFilters).find(
@@ -217,10 +160,6 @@ export function ChartSettingsPanel({
     },
     [onChange, settings]
   );
-  const handleReset = useCallback(() => {
-    onReset();
-    sync();
-  }, [onReset, sync]);
   return (
     <div className="atlas-chart-settings">
       <h2>Chart settings</h2>
@@ -337,98 +276,6 @@ export function ChartSettingsPanel({
           })}
         </fieldset>
       </details>
-      <fieldset disabled={!scene.current}>
-        <legend>Playback</legend>
-        <div className="atlas-transport">
-          <button
-            aria-label={
-              playback.playing && !reduced ? "Pause timeline" : "Play timeline"
-            }
-            disabled={reduced}
-            onClick={handleClick}
-            type="button"
-          >
-            {playback.playing && !reduced ? "Pause" : "Play"}
-          </button>
-          <output aria-label="Timeline position">
-            {playback.time.toFixed(1)} s
-          </output>
-          <label>
-            Speed
-            <select onChange={handlePlaybackSpeed} value={playback.speed}>
-              {[0.25, 0.5, 1, 2, 3].map((speed) => (
-                <option key={speed} value={speed}>
-                  {speed}×
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-        <label className="atlas-setting">
-          <span>
-            Timeline <span>Seek to pause</span>
-          </span>
-          <input
-            aria-label="Timeline"
-            max={Math.max(120, Math.ceil(playback.time / 60) * 60)}
-            min="0"
-            onChange={handleChange5}
-            step="0.1"
-            type="range"
-            value={playback.time}
-          />
-        </label>
-        <div className="atlas-track-list">
-          {trackIds.map((id) => (
-            <div key={id}>
-              <span>{id}</span>
-              <output>{playback.tracks[id].time.toFixed(1)} s</output>
-              <button
-                aria-label={`${playback.tracks[id].playing ? "Pause" : "Resume"} ${id} track`}
-                aria-pressed={!playback.tracks[id].playing}
-                onClick={toggleTrack}
-                type="button"
-                value={id}
-              >
-                {playback.tracks[id].playing ? "Pause" : "Resume"}
-              </button>
-            </div>
-          ))}
-        </div>
-        <p>
-          {reduced
-            ? "Reduced motion is on. Scrub to preview any frame."
-            : "Pause one track while the others continue. Seeking moves every track."}
-        </p>
-      </fieldset>
-      <details open>
-        <summary>Wind</summary>
-        <fieldset disabled={!scene.current}>
-          {range("Direction toward", "windDirection", 0, 359, 1, "°")}
-          <p>0° north · 90° east · 180° south · 270° west</p>
-          {range("Wind strength", "windStrength", 0, 2, 0.05)}
-        </fieldset>
-      </details>
-      <details open>
-        <summary>Current</summary>
-        <fieldset disabled={!scene.current}>
-          {range("Current speed", "currentSpeed", 0, 3, 0.05, "×")}
-          {range("Dependency influence", "dependencyInfluence", 0, 2, 0.05)}
-          {range("Wind influence", "windInfluence", 0, 1, 0.05)}
-        </fieldset>
-      </details>
-      <details open>
-        <summary>Waves</summary>
-        <fieldset disabled={!scene.current}>
-          {range("Wave amount", "waveAmount", 0, 1, 0.05)}
-          {range("Wavelength", "wavelength", 12, 100, 1)}
-          {range("Wave strength", "waveStrength", 0, 2, 0.05)}
-          <p>
-            Depth-aware crests; quieter water behind islands. Not a water-level
-            simulation.
-          </p>
-        </fieldset>
-      </details>
       <details>
         <summary>Rendering</summary>
         <RenderingSettings
@@ -441,15 +288,6 @@ export function ChartSettingsPanel({
       <details>
         <summary>Appearance</summary>
         <fieldset disabled={!scene.current}>
-          <label className="atlas-appearance-control">
-            Water pigment
-            <input
-              aria-label="Water pigment"
-              onChange={handleChange6}
-              type="color"
-              value={settings.waterColor}
-            />
-          </label>
           <label className="atlas-appearance-control">
             Map filter
             <select
@@ -468,7 +306,6 @@ export function ChartSettingsPanel({
             Filters tint the whole map. Monochrome filters replace package
             colors.
           </p>
-          {range("Water contrast", "waterContrast", 0, 2, 0.05)}
           <label className="atlas-check">
             <input
               checked={settings.contours}
@@ -479,11 +316,7 @@ export function ChartSettingsPanel({
           </label>
         </fieldset>
       </details>
-      <button
-        className="atlas-settings-reset"
-        onClick={handleReset}
-        type="button"
-      >
+      <button className="atlas-settings-reset" onClick={onReset} type="button">
         Reset visualization
       </button>
     </div>

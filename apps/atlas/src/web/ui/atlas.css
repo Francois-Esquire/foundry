@@ -99,13 +99,6 @@ h2 {
 .atlas-map canvas {
   display: block;
 }
-.atlas-map .atlas-atmosphere {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-}
 .atlas-map-view {
   position: relative;
   width: 100%;
@@ -658,32 +651,6 @@ h2 {
   margin: 8px 0 0;
   accent-color: #875222;
   cursor: pointer;
-}
-.atlas-transport {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  justify-content: space-between;
-  margin-top: 12px;
-}
-.atlas-transport label {
-  display: flex;
-  gap: 4px;
-  align-items: center;
-}
-.atlas-track-list > div {
-  display: grid;
-  grid-template-columns: 1fr auto 64px;
-  gap: 12px;
-  align-items: center;
-  padding: 7px 0;
-  border-bottom: 1px solid #d8ccb2;
-}
-.atlas-track-list > div > span {
-  text-transform: capitalize;
-}
-.atlas-track-list button[aria-pressed="true"] {
-  background: #dfd1b3;
 }
 .atlas-check {
   display: flex;

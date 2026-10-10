@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { insidePolygons } from "../../src/web/atmosphere";
+import { insidePolygons } from "../../src/web/polygons";
 import {
   dependencyLinks,
   selectionOffset,

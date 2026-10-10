@@ -17,7 +17,6 @@ vi.mock("../../src/web/scene/scene", () => ({
       configure: vi.fn(),
       dispose: vi.fn(() => canvas.remove()),
       focus: vi.fn(),
-      getPlayback: vi.fn(() => ({ time: 15 })),
       getRenderStatus: vi.fn(() => ({
         adapted: false,
         backend: "webgl" as const,
@@ -27,9 +26,7 @@ vi.mock("../../src/web/scene/scene", () => ({
         postProcessing: true,
         quality: "medium" as const,
       })),
-      restorePlayback: vi.fn(),
       restoreView: vi.fn(),
-      setAtmosphere: vi.fn(),
       setBelonging: vi.fn(),
       setConnections: vi.fn(),
       setResponsibility: vi.fn(),
@@ -81,7 +78,6 @@ it("keeps the scene alive across state and callback changes, including StrictMod
   const selection = { territory };
   const next = {
     ...state,
-    atmosphereEnabled: true,
     chartSettings: { ...state.chartSettings, contours: true },
     hover: selection,
     selection,
@@ -106,7 +102,6 @@ it("keeps the scene alive across state and callback changes, including StrictMod
   expect(createAtlasScene).toHaveBeenCalledTimes(1);
   expect(container.querySelector("canvas")).toBe(canvas);
   expect(scene.configure).toHaveBeenLastCalledWith(next.chartSettings);
-  expect(scene.setAtmosphere).toHaveBeenLastCalledWith(true);
   expect(scene.setConnections).toHaveBeenLastCalledWith(true);
   const [call] = vi.mocked(createAtlasScene).mock.calls;
   assert(call);
@@ -120,7 +115,7 @@ it("keeps the scene alive across state and callback changes, including StrictMod
   expect(container.querySelector("canvas")).toBeNull();
 });
 
-it("restores camera, playback, and overlays after a geometry rebuild", async () => {
+it("restores the camera and overlays after a geometry rebuild", async () => {
   const state = createAtlasState(await loadAtlas());
   await act(async () => root.render(createElement(AtlasMap, { state })));
   const [firstResult] = vi.mocked(createAtlasScene).mock.results;
@@ -141,7 +136,6 @@ it("restores camera, playback, and overlays after a geometry rebuild", async () 
   expect(first.dispose).toHaveBeenCalledTimes(1);
   expect(container.querySelectorAll("canvas")).toHaveLength(1);
   expect(second.restoreView).toHaveBeenCalledWith({ pixels: 2, x: 10, y: 20 });
-  expect(second.restorePlayback).toHaveBeenCalledWith({ time: 15 });
   expect(second.setTerritoryLayout).toHaveBeenCalledWith(next.territoryLayout);
 });
 

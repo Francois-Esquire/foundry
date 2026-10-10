@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   attraction,
-  currentStrength,
   footprint,
   labelPriority,
   landmarkRadius,
@@ -65,11 +64,6 @@ describe("relationship bindings", () => {
     expect(roadWidth(0, 10)).toBe(0.7);
     expect(roadWidth(10, 10)).toBeCloseTo(1.7);
     expect(roadWidth(3, 10)).toBeGreaterThan(roadWidth(2, 10));
-  });
-
-  it("dampens import counts for currents", () => {
-    expect(currentStrength(0)).toBe(0);
-    expect(currentStrength(Math.E - 1)).toBeCloseTo(1);
   });
 });
 

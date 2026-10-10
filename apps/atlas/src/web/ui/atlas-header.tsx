@@ -11,7 +11,6 @@ export function AtlasHeader({
   regions,
   composites,
   mapLayer,
-  atmosphere,
   panelOpen,
   section,
   panelToggleRef,
@@ -23,13 +22,11 @@ export function AtlasHeader({
   onZoomIn,
   onZoomOut,
   onWholeAtlas,
-  onAtmosphere,
 }: {
   selection: AtlasSelection | null;
   regions: BelongingRegion[];
   composites: BelongingRegion[];
   mapLayer: MapLayer;
-  atmosphere: boolean;
   panelOpen: boolean;
   section: PanelSection;
   panelToggleRef: Ref<HTMLButtonElement>;
@@ -41,7 +38,6 @@ export function AtlasHeader({
   onZoomIn: () => void;
   onZoomOut: () => void;
   onWholeAtlas: () => void;
-  onAtmosphere: () => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const territory = selection?.territory;
@@ -176,21 +172,10 @@ export function AtlasHeader({
             <span className="atlas-control-label">Zoom in</span>
           </button>
           <button
-            aria-pressed={atmosphere}
-            onClick={onAtmosphere}
-            title="Dependency currents, wind and coastlight"
-            type="button"
-          >
-            <svg aria-hidden="true" viewBox="0 0 24 24">
-              <path d="M3 8h12c5 0 5-6 1-6M3 12h16c4 0 4 6 0 6M3 16h6c4 0 4 5 1 5" />
-            </svg>
-            <span className="atlas-control-label">Decorative atmosphere</span>
-          </button>
-          <button
             aria-controls="atlas-panel"
             aria-expanded={panelOpen && section === "chart"}
             onClick={openSection}
-            title="Chart settings and playback"
+            title="Chart settings"
             type="button"
             value="chart"
           >

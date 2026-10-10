@@ -1,7 +1,6 @@
 import { type RefObject, useEffect, useRef, useState } from "react";
 import { chartFilters } from "../chart-settings";
 import type { RenderStatus } from "../scene/pipeline";
-import type { PlaybackSnapshot } from "../scene/playback";
 import { type AtlasSelection, createAtlasScene } from "../scene/scene";
 import type { TradeRoute } from "../trade-routes";
 import type { FormerPackage, Territory } from "../types";
@@ -10,16 +9,7 @@ import type { AtlasState } from "./atlas-state";
 /** Commands used by the surrounding UI; scene ownership stays in AtlasMap. */
 export type AtlasMapHandle = Pick<
   Awaited<ReturnType<typeof createAtlasScene>>,
-  | "focus"
-  | "focusWreck"
-  | "getRenderStatus"
-  | "pinRegion"
-  | "zoom"
-  | "getPlayback"
-  | "setTrackPlaying"
-  | "setPlaybackSpeed"
-  | "seek"
-  | "play"
+  "focus" | "focusWreck" | "getRenderStatus" | "pinRegion" | "zoom"
 >;
 
 interface AtlasMapProps {
@@ -34,24 +24,19 @@ interface AtlasMapProps {
   state: AtlasState;
 }
 
-/** Presentation state and any saved camera or playback reach a fresh scene. */
+/** Presentation state and any saved camera reach a fresh scene. */
 function applyState(
   current: Awaited<ReturnType<typeof createAtlasScene>>,
   next: AtlasState,
-  view: { x: number; y: number; pixels: number } | null,
-  playback: PlaybackSnapshot | null
+  view: { x: number; y: number; pixels: number } | null
 ) {
   current.configure(next.chartSettings);
-  current.setAtmosphere(next.atmosphereEnabled);
   current.setBelonging(next.belongingLayer);
   current.setTerritoryLayout(next.territoryLayout);
   current.setConnections(next.showConnections);
   current.setResponsibility(next.responsibility);
   if (view) {
     current.restoreView(view);
-  }
-  if (playback) {
-    current.restorePlayback(playback);
   }
 }
 
@@ -65,7 +50,6 @@ export function AtlasMap(props: AtlasMapProps) {
   );
   const latest = useRef(props);
   const view = useRef<{ x: number; y: number; pixels: number } | null>(null);
-  const playback = useRef<PlaybackSnapshot | null>(null);
   const [status, setStatus] = useState("Unfolding the atlas…");
   // The pipeline grades the image itself; CSS filters only cover a direct draw.
   const [postProcessing, setPostProcessing] = useState(false);
@@ -75,7 +59,7 @@ export function AtlasMap(props: AtlasMapProps) {
   });
 
   // Only geometry changes replace the scene. Event handlers and presentation
-  // settings reach the existing scene without restarting its animation loops.
+  // settings reach the existing scene without rebuilding it.
   useEffect(() => {
     let disposed = false;
     const onSettings = latest.current.onSettings
@@ -123,12 +107,7 @@ export function AtlasMap(props: AtlasMapProps) {
         if (mapRef) {
           mapRef.current = current;
         }
-        applyState(
-          current,
-          latest.current.state,
-          view.current,
-          playback.current
-        );
+        applyState(current, latest.current.state, view.current);
         setStatus("");
       } catch {
         if (!disposed) {
@@ -161,7 +140,6 @@ export function AtlasMap(props: AtlasMapProps) {
       disposed = true;
       element?.removeEventListener("atlas:render", handleRender);
       view.current = scene.current?.captureView() ?? null;
-      playback.current = scene.current?.getPlayback() ?? null;
       scene.current?.dispose();
       scene.current = null;
       if (mapRef) {
@@ -174,9 +152,6 @@ export function AtlasMap(props: AtlasMapProps) {
   useEffect(() => {
     scene.current?.configure(chartSettings);
   }, [chartSettings]);
-  useEffect(() => {
-    scene.current?.setAtmosphere(state.atmosphereEnabled);
-  }, [state.atmosphereEnabled]);
   useEffect(() => {
     scene.current?.setBelonging(state.belongingLayer);
   }, [state.belongingLayer]);

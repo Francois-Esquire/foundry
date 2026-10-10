@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { pairEndpoints, resolveCodex } from "../../../src/web/codex/resolve";
 import type { CodexSource } from "../../../src/web/codex/source";
+import { loadAtlas } from "../../helpers/reference-atlas";
 
 const coreRoles = [
   {
@@ -234,5 +235,32 @@ describe("resolveCodex", () => {
     expect(
       resolveCodex({ ...source, history: undefined }).retiredPackages
     ).toBeUndefined();
+  });
+});
+
+/**
+ * 2.2f's characterization, moved unchanged from the retired
+ * `current-field.test.ts`: the dependency graph's pair counts, which the
+ * codex's routes carry, equal the viewer's old per-pair count of file edges.
+ */
+describe("pair traffic", () => {
+  it("the captured routes' weights equal each pair's cross-package file edges", async () => {
+    const data = await loadAtlas();
+    const owner = new Map(
+      data.territories.flatMap((p) => p.files.map((f) => [f.id, p.id]))
+    );
+    const counted = new Map<string, number>();
+    for (const edge of data.fileEdges) {
+      const from = owner.get(edge.source);
+      const to = owner.get(edge.target);
+      if (from && to && from !== to) {
+        const key = `${from}→${to}`;
+        counted.set(key, (counted.get(key) ?? 0) + 1);
+      }
+    }
+    expect(counted.size).toBeGreaterThan(0);
+    expect(
+      new Map(data.routes.map((r) => [`${r.from}→${r.to}`, r.weight]))
+    ).toEqual(counted);
   });
 });

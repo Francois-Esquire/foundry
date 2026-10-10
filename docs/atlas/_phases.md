@@ -1109,7 +1109,8 @@ projection carries each pair's count.
   fixture (2 pairs, one of them carrying a test file's import). No
   difference, so nothing is lost: type-only and test edges count the same
   on both sides, and no route has weight 0. The fixture's equality is
-  pinned in `test/web/current-field.test.ts`.
+  pinned in `test/web/current-field.test.ts`; since 4.1a deleted the
+  current, the same test, unchanged, is in `test/web/codex/resolve.test.ts`.
 - `scene/current-field.ts` reads `data.routes`' weights instead of counting
   `fileEdges`.
 - The codex joins each dependency to its endpoint files once:
@@ -1126,8 +1127,9 @@ projection carries each pair's count.
   `pairEndpoints`, the codex's own join, so the capture stays unmodified.
 - Visible change: none. The roads test pins that each road's endpoint
   files are those the old per-pair filter found on the reference atlas.
-- Tests: `test/web/current-field.test.ts` (the characterization; the
-  current from route weights); `test/lib/semantics.test.ts` (on a live
+- Tests: `test/web/current-field.test.ts` (the characterization, in
+  `test/web/codex/resolve.test.ts` since 4.1a; the current from route
+  weights, deleted with the current in 4.1a); `test/lib/semantics.test.ts` (on a live
   scan, each pair's strength equals the import edges between its endpoint
   files, and both lists are non-empty); `codex/resolve.test.ts` (the join: deduped,
   sorted, both directions, intra-package and unknown files out; the
@@ -1937,9 +1939,10 @@ that every later effort has a before.
 
 **4.1 Reader settings and renderer settings.** Reader settings are only
 layers that carry data; the rest is a developer session's or is deleted.
-- The developer flag from the measurement work reaches `createAtlasScene`,
-  and a reader's scene builds no wave or current field and runs no 30 fps
-  loop.
+- The developer flag from the measurement work reaches `createAtlasScene`.
+  No scene builds a wave or current field any more. A reader never ran the
+  30 fps loop, since the atmosphere that drove it started off; the loop is
+  gone for everyone.
 - `ChartSettings` splits into `ReaderSettings` and `DeveloperSettings`, and
   the Chart panel into a reader's section and a developer's.
 - Deleted: forests; houses (`settlementTier`); `scene/ecosystem-layer.ts`;
@@ -1955,6 +1958,75 @@ layers that carry data; the rest is a developer session's or is deleted.
 - The panel's stale copy is fixed.
 - `atlas:first-frame` and `atlas:render-submit` move out of the
   atmosphere's callback, with the loop they sat in, into the repaint.
+- Split in two units, so each is reviewable: 4.1a, the still chart (the
+  animation and the loop it ran in), and 4.1b, the reader's settings (the
+  settings split and the remaining deletions).
+
+**4.1a The still chart.** Done 2026-10-10. Nothing on the chart moves on its
+own, and a frame is drawn only when a repaint asks for one.
+- Deleted: the atmosphere layer (`scene/atmosphere-layer.ts`: coastlight
+  and the wind strokes, and the loop that drew them and the sea);
+  `web/atmosphere.ts`, apart from `insidePolygons` and `islandAt`, which
+  are `web/polygons.ts` now; wind and waves (`scene/wave-field.ts`); the
+  current (`scene/current-field.ts`, `scene/coastal-current.ts`, the
+  pigment advection in `scene/water-material.ts`, and `currentStrength` in
+  `codex/bindings.ts`); playback (`scene/playback.ts`, the scene's
+  `getPlayback`, `play`, `seek`, `restorePlayback`, `setPlaybackSpeed`,
+  `setTrackPlaying`, and `setCurrentTime`, and the `atlas:current-time`
+  event); the water pigment picker and water contrast; the header's
+  Decorative atmosphere button with `AtlasState.atmosphereEnabled`; the
+  pipeline's `overlay` input, which only the atmosphere used; and the
+  chart settings' Playback, Wind, Current, and Waves sections. Their tests
+  go with them (`atmosphere`, `ocean-atmosphere`, `wave-field`,
+  `current-field`, `coastal-current`, `playback`), except the 2.2f
+  characterization in `current-field.test.ts`, which pins the route
+  weights against the captured fixture's 65 pairs and moves, unchanged,
+  into `test/web/codex/resolve.test.ts`.
+- `scene/water-material.ts` is the painted sea sheet under the paper
+  surface, thinned over wrecks: one texture sample and the wreck mask, no
+  current or wave field. Wrecks are kept.
+- `drawMap` submits each frame itself (`submitFrame`): the wreck reveal,
+  then `atlas:render-submit`, then `atlas:first-frame`, which `markLoad`
+  records once.
+- Hover ink (`scene/hover-ink.ts`) is new for readers, who never saw the
+  coastlight, since it drew only with the atmosphere on: the hovered
+  island's coast in amber, a 1.6-pixel line over a 6-pixel band, drawn on
+  the ink canvas after `paintMap`; a selected island keeps its gilt ring.
+  The island is asked for again at every repaint (`scene/hover-target.ts`):
+  the resting pointer is kept, and cleared when it leaves the map, and the
+  repaint's own hit test names the island under it, looked up by id in the
+  territories being drawn. A wheel zoom toward the cursor keeps the ink;
+  Escape or a header zoom, which move the camera under a still pointer,
+  move it to the island now under the pointer or drop it.
+- Measured as before, against this branch at `72e1c7f` built in a temporary
+  copy, three runs each:
+
+  | Backend | Build | terrain built | first frame |
+  | --- | --- | --- | --- |
+  | WebGPU (Metal) | before | 3.61–3.62 s | 3.98–3.99 s |
+  | WebGPU (Metal) | after | 2.93–3.20 s | 3.31–3.60 s |
+  | WebGL 2 (ANGLE on Metal) | before | 3.58–3.66 s | 4.03–4.10 s |
+  | WebGL 2 (ANGLE on Metal) | after | 2.85–2.90 s | 3.25–3.51 s |
+
+  The data read is unchanged: 20 files, 1.71 MB decoded. At rest, over
+  5 s at the overview and in a developer session (`?dev`), since only it
+  counts frames, neither build submits a frame in its default state, because the atmosphere started off; the main thread is 0.4–1.4%
+  busy in both. With Decorative atmosphere on, the build before submitted
+  113 frames in those 5 s, with the main thread 2.7% busy; that state no
+  longer exists. Panning at island zoom still kept pace with 60 Hz, with
+  no long task. `scripts/capture.ts` gains an `idle=<ms>` step for these:
+  main-thread task and script time over the window, and the frames
+  submitted in it, counted by one observer that is disconnected at the
+  window's end, and `null` outside a developer session.
+- Tests: `test/web/polygons.test.ts` (the containment case kept from the
+  atmosphere tests); `test/web/hover-ink.test.ts`;
+  `test/web/hover-target.test.ts` (a wheel zoom keeps the island; a camera
+  moved under a still pointer moves or drops it; leaving drops it; the
+  island is the repaint's, and never the selection);
+  `codex/resolve.test.ts` (the 2.2f characterization, moved); `atlas-shell.test.ts`
+  (no Decorative atmosphere in the header; no Playback, Wind, Current,
+  Waves, water pigment, or timeline in chart settings); `atlas-map.test.ts`
+  without playback or atmosphere.
 
 **4.2 The four questions by default,** from the phase 2 lenses, with
 departures as the strongest signal.
@@ -1964,6 +2036,13 @@ departures as the strongest signal.
   argument still type-checks wherever two neighbors share a type.
   `paintMap` becomes an ordered list of layer painters, and each painter
   is timed as its own stage, in place of the one `ink` stage.
+  Then the ink ladder: one ink module ranks every mark's contrast against
+  its ground, and with it islands lose their package hue, since pigment
+  means responsibility only (4.0). Its table of hue × dash × weight →
+  meaning has a row for hover ink (4.1a), which must stay distinct from
+  the selection's gilt: today hover is amber `rgb(190, 132, 48)`, solid,
+  1.6 px over a 6 px band, and the selection ring is gilt `#b38a32`
+  (`rgb(179, 138, 50)`), nearly the same hue, told apart only by weight.
 
 **4.3 Directories drawn,** and a domain drawn across islands.
 

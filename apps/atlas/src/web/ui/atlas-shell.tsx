@@ -51,7 +51,6 @@ export function AtlasShell({
     hoveredWreck,
     mapLayer,
     trades,
-    atmosphereEnabled,
     chartSettings,
     layoutSettings,
     showConnections,
@@ -247,11 +246,9 @@ export function AtlasShell({
   return (
     <main className="atlas-shell">
       <AtlasHeader
-        atmosphere={atmosphereEnabled}
         composites={belonging.composites}
         mapLayer={mapLayer}
         menuToggleRef={menuToggle}
-        onAtmosphere={actions.atmosphere}
         onMapLayer={actions.mapLayer}
         onPanel={togglePanel}
         onSection={toggleSection}

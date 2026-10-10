@@ -20,16 +20,6 @@ vi.mock("../../src/web/scene/scene", () => ({
       dispose: vi.fn(() => canvas.remove()),
       focus: vi.fn(),
       focusWreck: vi.fn(),
-      getPlayback: vi.fn(() => ({
-        playing: true,
-        speed: 1,
-        time: 0,
-        tracks: {
-          current: { playing: true, time: 0 },
-          waves: { playing: true, time: 0 },
-          wind: { playing: true, time: 0 },
-        },
-      })),
       getRenderStatus: vi.fn(() => ({
         adapted: false,
         backend: "webgl" as const,
@@ -40,17 +30,11 @@ vi.mock("../../src/web/scene/scene", () => ({
         quality: "medium" as const,
       })),
       pinRegion: vi.fn(),
-      play: vi.fn(),
-      restorePlayback: vi.fn(),
       restoreView: vi.fn(),
-      seek: vi.fn(),
-      setAtmosphere: vi.fn(),
       setBelonging: vi.fn(),
       setConnections: vi.fn(),
-      setPlaybackSpeed: vi.fn(),
       setResponsibility: vi.fn(),
       setTerritoryLayout: vi.fn(),
-      setTrackPlaying: vi.fn(),
       zoom: vi.fn(),
     };
   }),
@@ -117,7 +101,6 @@ it("keeps every control in the header and starts with the panel closed", async (
     "Zoom out",
     "Whole atlas",
     "Zoom in",
-    "Decorative atmosphere",
     "Chart settings",
     "Side panel",
     "Find a place",
@@ -125,6 +108,8 @@ it("keeps every control in the header and starts with the panel closed", async (
     expect(header.contains(button(name))).toBe(true);
   }
   expect(container.querySelector(".atlas-map-bottom")).toBeNull();
+  // The atmosphere, and its header toggle, are gone: the chart is still.
+  expect(container.textContent).not.toContain("Decorative atmosphere");
   expect(panel()?.hidden).toBe(true);
   expect(container.querySelector('[aria-live="polite"]')).not.toBeNull();
 });
@@ -257,4 +242,22 @@ it("renders no chrome in map-only mode", async () => {
   expect(container.querySelector("header")).toBeNull();
   expect(panel()).toBeNull();
   expect(container.querySelector(".atlas-map-view")).not.toBeNull();
+});
+
+it("offers no playback, wind, current, waves, or water pigment in chart settings", async () => {
+  const data = await loadAtlas();
+  await act(async () => {
+    root.render(createElement(Atlas, { data, developer: true }));
+  });
+  await act(async () => button("Chart settings").click());
+  const settings = container.querySelector(".atlas-chart-settings");
+  assert(settings);
+  const headings = [...settings.querySelectorAll("summary, legend")].map(
+    (heading) => heading.textContent
+  );
+  for (const gone of ["Playback", "Wind", "Current", "Waves"]) {
+    expect(headings).not.toContain(gone);
+  }
+  expect(settings.querySelector('[aria-label="Water pigment"]')).toBeNull();
+  expect(settings.querySelector('[aria-label="Timeline"]')).toBeNull();
 });

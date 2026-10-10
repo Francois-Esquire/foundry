@@ -83,7 +83,6 @@ the lens, says so; missing history never becomes a zero count.
 | `laneWidth`            | Dependency strength                           | sea lane width        | `scene/trade-layer.ts`                |
 | `dependencyPen` | Module imports between two packages | Selected package's dependency line width, 0.9–1.8 screen pixels | `scene/selection-ink.ts` |
 | `roadWidth`            | Dependency strength, merged per road          | road width            | `scene/road-layer.ts`                 |
-| `currentStrength`      | route weight: the dependency graph's module edges between two packages | sea current | `scene/current-field.ts` |
 | `landmarkRadius`           | Module internal fan-in and its package's saved cutoff, for a structural landmark | bounded inspection footprint `min(6, 2 + 0.8 × √(5 × internalFanIn / cutoff))`: `2 + 0.8√5` at the cutoff, 2 without one | `landmarks.ts`           |
 | `streamWidth`          | responsibility link module edges, accumulated on shared runs | stream width | `natural-features.ts`, `river-network.ts`           |
 | `marshDetail` | Unresolved module count and zoom | reed opacity and screen spacing | `scene/paint-features.ts` |
@@ -108,7 +107,6 @@ change swaps an inline read or transform for a codex export; nothing else moved.
 | `scene/paint-map.ts`      | `clamp(0.15r, 13, 22)`; `incoming + outgoing`                        | `territoryLabelSize`; `labelPriority`                                                 |
 | `scene/trade-layer.ts`    | inline lane width                                                    | `laneWidth`                                                                           |
 | `scene/road-layer.ts`     | inline road width                                                    | `roadWidth`                                                                           |
-| `current-field.ts`        | `log1p(count)`                                                       | `currentStrength`                                                                     |
 
 ## Outside the codex, deliberately
 

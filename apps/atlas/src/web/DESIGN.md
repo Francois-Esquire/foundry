@@ -43,8 +43,9 @@ displaying. Live agents and historical playback are future work.
 
 Initial load shows separate islands at the established positions. Connecting land,
 roads, houses, forests, sea trade routes, topographic lines, all six boundary
-overlays and decorative atmosphere start off. Current playback retains its existing
-default. Features below are opt-in where noted.
+overlays start off. The chart is still: nothing animates on its own, and a frame
+is drawn only when the view or what it shows changes. Features below are opt-in
+where noted.
 
 The overview retains the older chart's dense file marks, pale sage sea, fine grid,
 dark labels and fine coast ink while keeping today's relief and map-first
@@ -134,8 +135,8 @@ the renderer. Label sizes remain bounded as the camera approaches.
 
 The atlas fills 100dvh with no permanent sidebar or outer gutter. A single
 header row holds the breadcrumb, the map layer selector, Find a place, and the
-map controls: zoom out, whole atlas, zoom in, decorative atmosphere, chart
-settings, and the side panel toggle. The world below it holds the canvas, a thin
+map controls: zoom out, whole atlas, zoom in, chart settings, and the side panel
+toggle. The world below it holds the canvas, a thin
 inset frame around the map, and one 360px paper side panel on the right with
 Place, Find, Chart and, when history exists, Wrecks sections. Only one section
 shows at a time; Place stays mounted so loaded evidence survives switching.
@@ -257,7 +258,8 @@ Three-pixel crowding suppression and four-pixel label clearance protect reading.
 
 Neutral ambient fill (1.23) and a warm directional light (3.16) illuminate the
 paper, balanced so level paper renders at its own pigment rather than greyed. Land uses slope shading without cast shadows on the sea. Optional props use a
-cached shadow map. The overview current animates the sea material at at most 30 fps.
+cached shadow map. The sea is the painted sea sheet under the shared paper surface,
+thinned over wrecks as the camera comes in; it does not move.
 The full-screen sheet has no outer border or CSS shadow. Paper drawers and the
 selected-place inspector use `0 8px 26px #584a3328` to separate them from the map.
 
@@ -265,14 +267,6 @@ Pointer rays intersect the relief for file and feature inspection; projected
 lettering is tested first. Scene teardown releases the ink and lettering canvas
 textures, all materials and geometries, the light's
 shadow resources, controls and renderer.
-
-Decorative coastlight follows projected coastline contours on a transparent
-canvas above the scene, including holes and disconnected islands. Warm amber
-strokes soften outward. The layer ignores pointer input and stays below the
-fixed margin controls. The same bounded clock updates the sea shader. Atmosphere
-fades between 0.8 and 2.8 CSS pixels per map unit. Reduced motion uses a static
-composition. Hidden tabs and offscreen maps cancel pending wind and animation. Teardown
-removes the canvas, timers, frames, visibility listeners and observer.
 
 ## Shapes
 
@@ -326,9 +320,9 @@ remain disposable presentation data; temporal stability is not guaranteed.
 - Experimental layers in Chart settings offers Connecting land, Road network,
   Houses, Forests and Sea trade routes, all off initially. Roads and forests
   require connecting land. Layer changes rebuild rendering and coast masks at the
-  exact existing island positions; camera, playback and preferences survive while
-  selection clears. Reset visualization turns every experimental layer, boundary,
-  topographic line and decorative atmosphere off.
+  exact existing island positions; camera and preferences survive while
+  selection clears. Reset visualization turns every experimental layer, boundary
+  and topographic line off.
 - When enabled, continental ground shares the paper material and persists through focus repaints.
   Deterministic physical forest groves leave shore, settlement, label and overview
   trace clearances. Pitched-roof settlements use villages below 40 files, towns
@@ -473,8 +467,7 @@ remain disposable presentation data; temporal stability is not guaranteed.
   300ms before rebuilding layout, boundaries, scene, water and routes from original
   data. Package world positions and connecting ground change; original relief and
   local file geometry stay fixed. Repeated edits do not accumulate drift.
-  Camera target and world scale, visual preferences, the open drawer and independent
-  playback clocks, pause states and speed survive. Selection and architectural
+  Camera target and world scale, visual preferences and the open drawer survive. Selection and architectural
   inspection clear. Reset layout restores only these two controls; Reset visualization
   restores all chart settings.
 - Six independent boundary checkboxes have
@@ -485,20 +478,6 @@ remain disposable presentation data; temporal stability is not guaranteed.
   shows 32-unit padded hulls; Coastlines retains every original ring. Pocket rings
   show potential space, not a guarantee that an island fits. Checkboxes and focus
   use amber.
-- The master timeline supports play, pause, speed and explicit seeking. Current,
-  Wind and Waves each have a local clock and independent pause. Global resume
-  preserves track pause states; a seek realigns every track and pauses playback.
-  Reduced motion keeps the composition static but permits seeking. Reset restores
-  parameters, playback speed, track states and time zero. Nothing is persisted.
-- Wind direction is a bearing toward which water travels. Two precomputed coastal
-  wind bases mix with the dependency field. The Wind clock moves a fine ripple
-  pattern; pausing it does not remove steady wind force. Wave arrival times follow
-  water paths, slow in shallows and use upwind shelter to reduce lee-side crests.
-  This is a lightweight wavefront approximation, not a flooding simulation.
-- Settings expose wind direction/strength; current speed and dependency/wind
-  influence; wave amount, wavelength and strength; water contrast and topographic
-  lines. Only wind-direction changes rebuild arrival times, debounced 180 ms.
-  Contour changes repaint ink; other controls update shader uniforms.
 
 - The header pairs an Atlas/island/district/responsibility/file breadcrumb with a Belonging/Files
   map layer selector (`mapLayer` in the map state), Find a place, and the map controls. Belonging is the initial layer. Search lists
@@ -548,24 +527,11 @@ remain disposable presentation data; temporal stability is not guaranteed.
   updates use a polite live region. Search remains usable if WebGL fails to
   initialize. Without JavaScript, the page links to the atlas guide; a missing
   survey produces an explanatory page.
-- Hover and selection light the territory's coast. Leaving hover
-  restores the selected territory's emphasis or fades the coastlight away.
-  Reduced motion applies the same emphasis immediately and suppresses wind.
-- A one-second pointer pause over clear water can trigger three curved engraved
-  wind strokes. The gesture lasts 2.4 seconds, with a 12-second cooldown from its
-  start. Placement checks coasts, shallows, labels, dependency routes, compass,
-  sea caption and viewport edges; file detail suppresses wind. Camera movement
-  cancels it. Island bustle remains a candidate.
-- The sea current blends directed cross-package file imports into a prevailing
-  vector and smooth local influences. Logarithmic edge counts weight influence;
-  an obstacle-aware pressure solve redirects it around the actual coast masks.
-  A 256-cell flow texture
-  advects pigment in the ground material, leaving land and ink unchanged. No
-  extra wave symbols remain. See the atmosphere spec for direction conventions.
-- The independently controlled "Decorative atmosphere" toggle defaults off and
-  exposes its state through `aria-pressed`. Scene initialization applies the
-  latest toggle value after fonts load. Effects communicate exploration only,
-  never agent activity or survey changes.
+- Hovering an island inks its coast in amber, a fine line over a soft band at a
+  constant screen width, drawn on the ink canvas after the map; it appears and goes
+  with the pointer, without fading. Each repaint asks again which island lies under
+  the resting pointer, so a zoom or camera move under a still pointer inks the
+  island now beneath it. A selected island keeps its gilt ring instead.
 - Territory names lead the overview. Zooming near an island loads its Belonging
   regions without selecting it. Island clicks frame the region scale; further
   zoom reveals files. An island shows no grouping until its Belonging
@@ -597,13 +563,10 @@ remain disposable presentation data; temporal stability is not guaranteed.
 
 ## Color controls
 
-Chart settings → Appearance offers a water pigment picker and Original,
-Treasure parchment, Graphite, and Faded pigments filters. Water pigment changes
-the ground shader while preserving depth variation and motion. Filters apply to
-the map alone, including land and ink, never the controls or drawers. Monochrome
-treatments intentionally remove package color distinctions. Initial load and Reset
-use water pigment `#c6e6e2`, RGB 198/230/226, and water contrast `0.3`.
-Settings last only for the mounted atlas.
+Chart settings → Appearance offers Original, Treasure parchment, Graphite, and
+Faded pigments filters. Filters apply to the map alone, including land and ink,
+never the controls or drawers. Monochrome treatments intentionally remove package
+color distinctions. Settings last only for the mounted atlas.
 
 Filters are graded inside the render pipeline as the last stage, after
 exposure and tone mapping, so occlusion and bloom never operate on an
@@ -613,7 +576,7 @@ applies only when the pipeline is off or failed and the scene draws directly.
 ## Rendering pipeline
 
 Chart settings → Rendering controls one pass graph shared by the chart and
-wreck dives: scene → coastlight and wind overlay → ambient occlusion → indirect
+wreck dives: scene → ambient occlusion → indirect
 light → bloom → exposure and tone mapping → grade. Quality tiers trade resolution
 and filtering for speed. Off draws directly with the CSS filter restored; shader
 failure also falls back to direct draw and is disclosed in the panel.

@@ -80,17 +80,16 @@ The **Chart settings** button opens the panel's **Chart** section. Every
 optional layer is off by default: connecting land between related islands,
 a road network over it, houses, forests, sea trade routes, and district
 streams. Boundary
-overlays, topographic contours, water pigment, and a map filter such as
-graphite or parchment are there too, with a **Reset visualization**. Water,
-wind, and waves animate only when you press play, and a separate
-**Decorative atmosphere** toggle in the header adds currents and coastlight.
+overlays, topographic contours, and a map filter such as graphite or
+parchment are there too, with a **Reset visualization**. The chart is
+still: nothing on it moves unless you move the view.
 A **Rendering** section sets quality, tone mapping, exposure, occlusion, and
 bloom; **Off** draws the map directly with no post-processing, and **Show
 stage** reveals one stage of the pipeline on its own. Settings are not saved
 between visits.
 
-Under a reduced-motion preference, the map paints still frames: focus jumps
-instead of travelling, and playback stays paused.
+Under a reduced-motion preference, focus jumps instead of travelling, and
+regions appear without fading in.
 
 ## History
 

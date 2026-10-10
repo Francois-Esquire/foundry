@@ -85,12 +85,14 @@ What the map encodes, from the codex bindings and the design record:
 
 What the map draws that carries no data: the layered sea and its six depth
 steps, gilded coast ripples, the archipelago rim, paper grain and grid,
-forests, wind, waves, currents, coastlight, the chart filters (faded,
-graphite, treasure, original), and the rendering controls: quality, five
-tone mappings, exposure, occlusion, global illumination, bloom, and a stage
-inspector. Pigment colors are seeded from package ids and carry no meaning;
-4.0 decided that pigment means responsibility only, so islands are to carry
-no package hue, and a package is told apart by its coast and outline.
+forests, the chart filters (faded, graphite, treasure, original), and the
+rendering controls: quality, five tone mappings, exposure, occlusion, global
+illumination, bloom, and a stage inspector. Wind, waves, the current,
+coastlight, and the water pigment picker were deleted in 4.1, with the
+animation loop they ran in. Pigment colors are seeded from package ids and
+carry no meaning; 4.0 decided that pigment means responsibility only, so
+islands lose their package hue in 4.2a, and a package is told apart by its
+coast and outline.
 
 ## Observations
 

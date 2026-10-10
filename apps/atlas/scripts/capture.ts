@@ -11,7 +11,10 @@
  * key=Enter|Tab|Escape, motion=reduce|normal, wait=<ms>, shot=<name>,
  * eval=<expression>, profile=pan|zoom|pointer|sweep[@x,y], clearlog, errors,
  * marks (the load marks from `src/web/timings.ts`, the data fetched, and, with
- * `?dev` in the URL or on the dev server, each timed stage's durations).
+ * `?dev` in the URL or on the dev server, each timed stage's durations),
+ * idle=<ms> (the page at rest: main-thread task and script time as a share of
+ * the window, and the frames submitted in it, which only a developer session
+ * counts; null otherwise).
  * WebGL 2 runs on SwiftShader unless --angle metal (or another ANGLE backend)
  * is passed; --webgpu enables WebGPU instead, and --webgl hides it so the
  * renderer takes its WebGL 2 backend. Profiles use a 1500x1000 viewport; pass --pixel-ratio 2 for Retina. Screenshots land in .cache/shots/<tag>-<name>.png.
@@ -233,6 +236,42 @@ function readTimings() {
   });
 }
 
+/** Main-thread busy time while nothing is touched, from the DevTools Performance domain. */
+async function measureIdle(session: Session, milliseconds: number) {
+  const metrics = async () => {
+    const response = (await session.send("Performance.getMetrics")) as {
+      result?: { metrics?: { name: string; value: number }[] };
+    };
+    return new Map(
+      (response.result?.metrics ?? []).map(({ name, value }) => [name, value])
+    );
+  };
+  // One observer for the window, disconnected at its end; it counts rather
+  // than reading the entries, since each stage's measures are cleared at a cap.
+  await session.evaluate(
+    `(() => { const idle = { frames: 0 }; idle.observer = new PerformanceObserver((list) => { for (const entry of list.getEntries()) { if (entry.name === "atlas:render-submit") { idle.frames += 1; } } }); idle.observer.observe({ type: "measure" }); globalThis.atlasIdle = idle; })()`
+  );
+  await session.send("Performance.enable");
+  const before = await metrics();
+  await sleep(milliseconds);
+  const after = await metrics();
+  // Only a developer session times its repaints, so only it can count frames.
+  const frames = await session.evaluate(
+    `(() => { const { frames, observer } = globalThis.atlasIdle; observer.disconnect(); delete globalThis.atlasIdle; return performance.getEntriesByType("measure").some((entry) => entry.name.startsWith("atlas:")) ? frames : null; })()`
+  );
+  const share = (name: string) =>
+    Math.round(
+      (((after.get(name) ?? 0) - (before.get(name) ?? 0)) * 10_000_000) /
+        milliseconds
+    ) / 100;
+  return {
+    framesSubmitted: typeof frames === "number" ? frames : null,
+    milliseconds,
+    scriptPercent: share("ScriptDuration"),
+    taskPercent: share("TaskDuration"),
+  };
+}
+
 const buttonScript = (label: string) =>
   `(() => { const wanted = ${JSON.stringify(label)}; const button = [...document.querySelectorAll("button")].find((b) => (b.textContent || "").trim() === wanted || b.getAttribute("aria-label") === wanted || b.title === wanted); if (!button) { return "missing"; } button.click(); return "ok"; })()`;
 
@@ -364,6 +403,11 @@ async function runStep(
       break;
     case "marks":
       log(`marks: ${String(await session.evaluate(`(${readTimings})()`))}`);
+      break;
+    case "idle":
+      log(
+        `idle: ${JSON.stringify(await measureIdle(session, Number(argument)))}`
+      );
       break;
     default:
       throw new Error(`Unknown step: ${step}`);

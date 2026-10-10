@@ -1,6 +1,4 @@
 import { expect, it } from "vitest";
-
-import { insidePolygons } from "../../src/web/atmosphere";
 import { settlementTier } from "../../src/web/codex/bindings";
 import {
   continentCell,
@@ -9,6 +7,7 @@ import {
   forestSites,
   settlementBuildings,
 } from "../../src/web/continent";
+import { insidePolygons } from "../../src/web/polygons";
 import { ecosystemOpacity } from "../../src/web/scene/ecosystem-layer";
 import { loadAtlas } from "../helpers/reference-atlas";
 

@@ -6,7 +6,6 @@ import type { AtlasInternals } from "../internals";
 import { relayoutAtlas } from "../landmasses";
 import type { NaturalFeatures } from "../natural-features";
 import type { ResponsibilityOverlay } from "../responsibility-focus";
-import { trackIds } from "../scene/playback";
 import type { AtlasSelection } from "../scene/scene";
 import type { TradeRoute } from "../trade-routes";
 import type {
@@ -71,9 +70,6 @@ export function useAtlasState(initial: AtlasState) {
     initial.territoryLayout
   );
   const [viewTerritory, setViewTerritory] = useState<Territory | null>(null);
-  const [atmosphereEnabled, setAtmosphereEnabled] = useState(
-    initial.atmosphereEnabled
-  );
   const [chartSettings, setChartSettings] = useState(initial.chartSettings);
   const chartPreference = useRef(chartSettings);
   const { coastalBuffer, islandClearance } = chartSettings;
@@ -309,28 +305,7 @@ export function useAtlasState(initial: AtlasState) {
     const next = createAtlasState(sourceData).chartSettings;
     chartPreference.current = next;
     setChartSettings(next);
-    for (const id of trackIds) {
-      scene.current?.setTrackPlaying(id, true);
-    }
-    scene.current?.setPlaybackSpeed(1);
-    scene.current?.seek(0);
-    scene.current?.play(
-      !window.matchMedia("(prefers-reduced-motion: reduce)").matches
-    );
-    setAtmosphereEnabled(false);
-  }, [
-    chartPreference,
-    sourceData,
-    scene,
-    setAtmosphereEnabled,
-    setChartSettings,
-    setHover,
-    setSelection,
-  ]);
-  const toggleAtmosphere = useCallback(() => {
-    const enabled = !atmosphereEnabled;
-    setAtmosphereEnabled(enabled);
-  }, [atmosphereEnabled, setAtmosphereEnabled]);
+  }, [chartPreference, sourceData, setChartSettings, setHover, setSelection]);
   const closeWreck = useCallback(() => {
     setSelectedWreck(null);
   }, [setSelectedWreck]);
@@ -349,7 +324,6 @@ export function useAtlasState(initial: AtlasState) {
     selectRef.current(resolveCurrentEscape(selectionRef.current));
   }, []);
   const state: AtlasState = {
-    atmosphereEnabled,
     belongingLayer,
     chartSettings,
     data,
@@ -369,7 +343,6 @@ export function useAtlasState(initial: AtlasState) {
     trades,
   };
   return {
-    atmosphere: toggleAtmosphere,
     belonging,
     closeWreck,
     district: selectDistrict,

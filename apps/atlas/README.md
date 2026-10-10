@@ -203,7 +203,7 @@ The viewer composition lives in `src/web/ui/atlas-view.tsx`. It instantiates a
 plain `AtlasState` and passes the current state explicitly to `AtlasShell`
 and its nested `AtlasMap`. `useAtlasState` holds selection and data-loading
 bindings; drawer visibility and focus stay in the shell. The map owns the
-scene lifetime, while camera and playback commands use a separate map ref.
+scene lifetime, while camera commands use a separate map ref.
 There is no context provider.
 
 Add `?view=map` to the viewer URL to render the interactive map without the

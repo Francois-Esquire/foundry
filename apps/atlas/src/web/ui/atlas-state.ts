@@ -11,7 +11,6 @@ export type MapLayer = "belonging" | "files";
 
 /** Plain map data. React, the renderer, and shell UI have separate lifetimes. */
 export interface AtlasState {
-  atmosphereEnabled: boolean;
   belongingLayer: BelongingLayer | null;
   chartSettings: ChartSettings;
   data: AtlasData;
@@ -34,7 +33,6 @@ export function createAtlasState(
   developer = false
 ): AtlasState {
   return {
-    atmosphereEnabled: false,
     belongingLayer: null,
     chartSettings: {
       ...defaultChartSettings,

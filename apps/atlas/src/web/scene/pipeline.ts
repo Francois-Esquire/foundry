@@ -1,4 +1,4 @@
-import type { Camera, Scene, Texture } from "three";
+import type { Camera, Scene } from "three";
 import {
   ACESFilmicToneMapping,
   AgXToneMapping,
@@ -15,9 +15,7 @@ import {
   output,
   pass,
   renderOutput,
-  texture as sampleTexture,
   saturation,
-  screenUV,
   uniform,
   vec3,
   vec4,
@@ -55,7 +53,6 @@ export interface RenderPipelineOptions {
   camera: Camera;
   filter: (settings: RenderSettings) => Filter;
   onStatus?: (status: RenderStatus) => void;
-  overlay?: Texture;
   renderer: Renderer;
   scene: Scene;
   /**
@@ -168,14 +165,14 @@ interface Frame {
 }
 
 /**
- * One pass graph for every atlas view: scene → overlay → occlusion → indirect
+ * One pass graph for every atlas view: scene → occlusion → indirect
  * light → bloom → exposure and tone mapping → grade. Stages are optional
  * and reads the same depth and normal targets, so a future stage such as a
  * cloud layer plugs into the same inputs. When quality is off, or the graph
  * cannot compile on this device, the scene draws directly as it always has.
  */
 export function createRenderPipeline(options: RenderPipelineOptions) {
-  const { renderer, scene, camera, filter, overlay, onStatus } = options;
+  const { renderer, scene, camera, filter, onStatus } = options;
   const unitsPerPixel = options.unitsPerPixel ?? (() => 1);
   const perspective =
     (camera as { isPerspectiveCamera?: boolean }).isPerspectiveCamera === true;
@@ -392,15 +389,6 @@ export function createRenderPipeline(options: RenderPipelineOptions) {
     };
     if (settings.stage === "depth") {
       frame.view = vec4(vec3(frame.depth.r.mul(40).fract()), 1);
-    }
-    if (overlay) {
-      // Coastlight and wind strokes join the frame before occlusion and bloom
-      // so they glow and grade with everything else.
-      const layer = sampleTexture(overlay, screenUV.flipY());
-      frame.color = vec4(
-        mix(frame.color.rgb, layer.rgb, layer.a),
-        frame.color.a
-      );
     }
     addOcclusion(frame, settings, tier, modules);
     if (useGi) {

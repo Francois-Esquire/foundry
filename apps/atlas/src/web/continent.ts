@@ -1,9 +1,9 @@
-import { insidePolygons } from "./atmosphere";
 import type { SettlementTier } from "./codex/bindings";
 import { settlementTier } from "./codex/bindings";
 import { territoryLabelY, unit } from "./geography";
 import { landmassFootprint } from "./landmass-footprint";
 import { packageGroups } from "./landmasses";
+import { insidePolygons } from "./polygons";
 import type { AtlasData, Polygon, Territory } from "./types";
 
 export type Continent = ReturnType<typeof createContinents>[number];

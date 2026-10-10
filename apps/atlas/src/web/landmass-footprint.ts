@@ -1,7 +1,7 @@
 import { contours } from "d3-contour";
-import { insidePolygons } from "./atmosphere";
 import { shoreDistances } from "./distance-field";
 import { landmassHull } from "./landmass-hull";
+import { insidePolygons } from "./polygons";
 import type { Territory } from "./types";
 
 export function oceanAccess(open: Uint8Array, width: number, height: number) {

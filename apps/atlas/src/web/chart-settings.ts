@@ -71,8 +71,6 @@ export const defaultChartSettings = {
   ...defaultLandmassSettings,
   boundaries: defaultBoundaries,
   contours: false,
-  currentSpeed: 1,
-  dependencyInfluence: 1,
   filter: "original" as keyof typeof chartFilters,
   layers: {
     forests: false,
@@ -85,14 +83,6 @@ export const defaultChartSettings = {
   /** District streams: imports between responsibilities drawn on the land. */
   streams: false,
   volcanic: false,
-  waterColor: "#d5dbca",
-  waterContrast: 0.3,
-  waveAmount: 0.45,
-  wavelength: 36,
-  waveStrength: 0.45,
-  windDirection: 45,
-  windInfluence: 0.3,
-  windStrength: 0.5,
 };
 
 export type ChartSettings = typeof defaultChartSettings;

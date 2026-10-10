@@ -1,5 +1,4 @@
 import { expect, it } from "vitest";
-import { insidePolygons } from "../../src/web/atmosphere";
 import { shoreDistances } from "../../src/web/distance-field";
 import {
   landmassFootprint,
@@ -12,6 +11,7 @@ import {
   relayoutAtlas,
   settleLandmasses,
 } from "../../src/web/landmasses";
+import { insidePolygons } from "../../src/web/polygons";
 import type { AtlasRoute, Territory } from "../../src/web/types";
 import { loadAtlas } from "../helpers/reference-atlas";
 
