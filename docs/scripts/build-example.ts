@@ -10,7 +10,9 @@ const atlas = dirname(
   fileURLToPath(import.meta.resolve("@foundry/atlas/package.json"))
 );
 const state = join(docs, ".cache", "atlas-example");
-const id = createHash("sha256").update(root).digest("hex");
+// The state directory's name, as apps/atlas/src/lib/state.ts derives it,
+// until `atlas export` (1.8) replaces this script.
+const id = createHash("sha256").update(root).digest("hex").slice(0, 12);
 const example = join(docs, "public", "atlas", "examples", "foundry");
 
 const scan = spawn(

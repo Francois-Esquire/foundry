@@ -72,6 +72,17 @@ test("workspace identity resolves symlinks and isolates separate checkouts", asy
   ).not.toBe(workspace.output);
 });
 
+test("the workspace id, the first 12 hex digits of the root's SHA-256, names the state directory", async () => {
+  const { directory } = await fixture();
+  const state = join(directory, "state");
+  // sha256("/") is 8a5edab282632443219e051e4ade2d1d5bbc671c781051bf1437897cbdfea0f1.
+  const workspace = await workspaceState("/", state);
+  expect(workspace.id).toBe("8a5edab28263");
+  expect(workspace.directory).toBe(join(state, "8a5edab28263"));
+  expect(workspace.output).toBe(join(workspace.directory, "output"));
+  expect(workspace.cache).toBe(join(workspace.directory, "cache"));
+});
+
 test("server preserves generated file bytes and serves public assets without exposing caches", async () => {
   const { workspace, directory } = await fixture();
   const webRoot = resolve(import.meta.dirname, "../dist/web");

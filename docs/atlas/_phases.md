@@ -108,20 +108,48 @@ Paths are under `apps/atlas` unless they say otherwise.
   internals timing stripped), and `test/lib/scan.test.ts` covers the three
   functions and history.
 
-**1.3 State and cache.** Loading code, which the ground rules allow to
-change.
-- The cache lock in `lib/semantics-cache.ts:354,367` uses
-  `@foundry/lib/file-lock` `tryFileLock` and `processAlive`, as Marbles
-  does. Two scans can no longer both take it.
-- `writeJsonAtomic` delegates to `@foundry/lib/atomic-file`.
-- Each state directory gets a `workspace.json` record (root, id, Atlas
-  version, last scan), as Marbles keeps, so the state root can be listed.
-- The state id is Marbles' 12-hex id, settled 2026-10-10. Existing state
-  directories are orphaned, which costs one rescan before 0.1.
-- `docs/scripts/build-example.ts:13` recomputes the sha256 state id; it
-  follows the new id, or calls the library, until 1.8 replaces it.
-- Done when a test runs two scans of one workspace at once and one waits or
-  fails cleanly. Waits for 1.1 and 1.2.
+**1.3 State and cache.** Done 2026-10-10.
+- One lock, the state directory's: `lib/state.ts` `lockState` takes
+  `<state>/<id>/lock` with `@foundry/lib/file-lock` `tryFileLock` and
+  `breakStale`, as Marbles takes its locks. `scan` and `scan.workspace` hold
+  it for the whole run (`whileScanning` in `lib/scan.ts`), history
+  included; `scan.package` saves nothing and takes none. A second scan
+  fails at once, not waiting, with `Workspace <root> is being scanned by
+  process <n>. If no scan is running, remove <lock>.` (or `… by this
+  process.`); a lock whose process has exited is taken over. The cache
+  lock (`acquireCacheLock`) and its acquire and release in
+  `generateSemantics` are gone, so whatever calls `generateSemantics` next,
+  such as the 3.6 refresh after a codemod, must go through the state lock.
+- `@foundry/lib/atomic-file` gains `writeFileAtomicSync`, the sync twin of
+  `writeFileAtomic` (exclusive `randomUUID` temporary, removed on failure).
+  `writeJsonAtomic` is a one-line call to it and writes the same compact
+  JSON, so dataset bytes are unchanged. Moving Marbles' own sync writer
+  (`apps/marbles/src/lib/state/json.ts` `writeJson`) onto it is a later
+  cleanup.
+- The workspace record `<state>/<id>/workspace.json`. Once the lock is
+  held, `{ id, root, schemaVersion: 1 }` is written if there is no record
+  yet (`recordWorkspace`). As soon as the dataset is published, at the end
+  of `publishWorkspace` (after the swap and `manifests/`, before internals
+  and history), the full record is written with `atlasVersion` and
+  `lastScannedAt`, which are set together (`recordSavedDataset`). A later
+  internals or history failure still leaves a record that matches the
+  saved dataset. `WorkspaceRecord` is not exported, and nothing lists the
+  state root yet (5.1).
+- The workspace id is Marbles' 12-hex id, the first 12 hex digits of the
+  resolved root's SHA-256; `WorkspaceState` gains `directory` and `id`, and
+  `workspaceState` still creates nothing. Existing state directories are
+  orphaned and cost one rescan.
+- `docs/scripts/build-example.ts:13` slices the id to 12 digits until 1.8
+  replaces the script.
+- `@foundry/lib` is a devDependency of Atlas, inlined by the 1.1 build.
+- Tests: `test/lib/scan.test.ts` starts a second `scan.workspace` from the
+  first scan's first progress event and checks it fails, that the first
+  saves its dataset, and that no `lock` or `lock.break` remains; a live
+  foreign holder is refused with no record written; a scan that fails in
+  history after saving its dataset releases the lock and records the save;
+  the record's contents. `test/lib/state.test.ts` covers `lockState` with
+  hand-written lock files. `test/atlas.test.ts` checks the id for `/`
+  against an independently computed digest.
 
 **1.4 The dataset, complete.** Fixed in the moved `lib/scan.ts`.
 - `internals/` and `manifests/` are written before the atomic publish, are

@@ -1,15 +1,12 @@
 import {
   existsSync,
-  mkdirSync,
   readdirSync,
   readFileSync,
-  renameSync,
   rmSync,
   statSync,
-  writeFileSync,
 } from "node:fs";
-import { dirname, join, relative } from "node:path";
-
+import { join, relative } from "node:path";
+import { writeFileAtomicSync } from "@foundry/lib/atomic-file";
 import type { PackageLocalReport } from "./package-local-types";
 import { PACKAGE_LOCAL_REPORT_SCHEMA_VERSION } from "./package-local-types";
 import { encodePackageFile } from "./semantics";
@@ -91,12 +88,9 @@ function readJson(file: string): unknown {
   return JSON.parse(readFileSync(file, "utf8"));
 }
 
-/** Whole file or nothing: written beside the target, then renamed over it. */
+/** Whole file or nothing, as compact JSON; missing directories are created. */
 export function writeJsonAtomic(file: string, value: unknown): void {
-  mkdirSync(dirname(file), { recursive: true });
-  const tmp = `${file}.tmp-${process.pid}`;
-  writeFileSync(tmp, JSON.stringify(value));
-  renameSync(tmp, file);
+  writeFileAtomicSync(file, JSON.stringify(value), { createDirectory: true });
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -341,62 +335,4 @@ export function storeWorkspaceInputsMeta(
     files: Object.fromEntries(files),
   };
   writeJsonAtomic(join(dir, INPUTS_FILE), meta);
-}
-
-// ---------------------------------------------------------------------------
-// LOCK
-
-interface LockFile {
-  pid: number;
-  startedAt: string;
-}
-
-function alive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === "EPERM";
-  }
-}
-
-/**
- * One build per cache directory. A lock left by a dead process is taken
- * over; a live holder fails this build before it touches anything.
- */
-export function acquireCacheLock(dir: string): () => void {
-  const file = join(dir, "lock.json");
-  mkdirSync(dir, { recursive: true });
-  if (existsSync(file)) {
-    let holder: LockFile | undefined;
-    try {
-      holder = readJson(file) as LockFile;
-    } catch {
-      holder = undefined;
-    }
-    if (
-      holder !== undefined &&
-      holder.pid !== process.pid &&
-      alive(holder.pid)
-    ) {
-      throw new Error(
-        `semantics cache ${dir} is locked by process ${holder.pid} since ${holder.startedAt}`
-      );
-    }
-  }
-  const lock: LockFile = {
-    pid: process.pid,
-    startedAt: new Date().toISOString(),
-  };
-  writeJsonAtomic(file, lock);
-  return () => {
-    try {
-      const current = readJson(file) as LockFile;
-      if (current.pid === process.pid) {
-        rmSync(file, { force: true });
-      }
-    } catch {
-      // already gone
-    }
-  };
 }

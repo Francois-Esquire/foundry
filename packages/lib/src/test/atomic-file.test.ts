@@ -4,7 +4,12 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { hasErrorCode, readJsonFile, writeFileAtomic } from "../atomic-file";
+import {
+  hasErrorCode,
+  readJsonFile,
+  writeFileAtomic,
+  writeFileAtomicSync,
+} from "../atomic-file";
 
 let directory: string;
 
@@ -35,9 +40,7 @@ describe("writeFileAtomic", () => {
     }
   );
 
-  it("leaves the previous file and nothing else when the write fails", async () => {
-    const path = join(directory, "state.json");
-    await writeFileAtomic(path, "kept");
+  it("leaves no temporary behind when the rename fails", async () => {
     // Renaming a file over a directory fails after the temporary is written.
     const blocked = join(directory, "blocked");
     await writeFileAtomic(join(blocked, "inner"), "x", {
@@ -45,11 +48,29 @@ describe("writeFileAtomic", () => {
     });
 
     await expect(writeFileAtomic(blocked, "lost")).rejects.toThrow();
-    expect(await readFile(path, "utf8")).toBe("kept");
-    expect((await readdir(directory)).sort()).toEqual([
-      "blocked",
-      "state.json",
-    ]);
+    expect(await readdir(directory)).toEqual(["blocked"]);
+    expect(await readdir(blocked)).toEqual(["inner"]);
+  });
+});
+
+describe("writeFileAtomicSync", () => {
+  it("replaces the file and leaves no temporary behind", async () => {
+    const path = join(directory, "nested", "state.json");
+    writeFileAtomicSync(path, "first", { createDirectory: true });
+    writeFileAtomicSync(path, "second");
+
+    expect(await readFile(path, "utf8")).toBe("second");
+    expect(await readdir(join(directory, "nested"))).toEqual(["state.json"]);
+  });
+
+  it("leaves no temporary behind when the rename fails", async () => {
+    // Renaming a file over a directory fails after the temporary is written.
+    const blocked = join(directory, "blocked");
+    writeFileAtomicSync(join(blocked, "inner"), "x", { createDirectory: true });
+
+    expect(() => writeFileAtomicSync(blocked, "lost")).toThrow();
+    expect(await readdir(directory)).toEqual(["blocked"]);
+    expect(await readdir(blocked)).toEqual(["inner"]);
   });
 });
 

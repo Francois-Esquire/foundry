@@ -39,11 +39,11 @@ file. Other layouts are configured in
 
 ## What you get
 
-The dataset is saved under `~/.foundry/atlas/`, in a directory named by a
-hash of the workspace path, so two checkouts never share state. Nothing is
-written inside the workspace. A second scan is incremental: packages whose
-sources have not changed reuse their last analysis, and the whole dataset is
-replaced in one move when the scan finishes.
+The dataset is saved under `~/.foundry/atlas/`, in a directory named by the
+workspace id, so two checkouts never share state. Nothing is written inside
+the workspace. A second scan is incremental: packages whose sources have not
+changed reuse their last analysis, and the whole dataset is replaced in one
+move when the scan finishes.
 
 The viewer binds to `127.0.0.1` and serves the saved dataset as static files.
 Open it, and the map shows one island per package. Continue with

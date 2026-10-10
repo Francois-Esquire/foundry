@@ -17,7 +17,7 @@ current directory and must be an existing directory.
 
 | Flag | Default | Effect |
 | --- | --- | --- |
-| `--state <path>` | `~/.foundry/atlas` | The state root. Output and cache live under `<state>/<sha256 of the workspace path>/`. |
+| `--state <path>` | `~/.foundry/atlas` | The state root. Each workspace's record, output, and cache live under `<state>/<id>/`; see [output](/atlas/reference/output). |
 | `--port <number>` | `4173` | The port to serve on, `0` to `65535`. `0` picks a free port. |
 | `--no-open` | open | Do not open the browser after serving. |
 | `--history` | off | Analyze Git checkpoints as well; see [history](/atlas/guides/history). |
@@ -40,7 +40,7 @@ command; `--history` only has an effect when a scan runs.
 | Code | When |
 | --- | --- |
 | `0` | The command finished, or `--help` |
-| `1` | Bad arguments, a path that is not a directory, a package that failed analysis, a held cache lock, `--history` without Git, missing web assets, or a port in use |
+| `1` | Bad arguments, a path that is not a directory, a package that failed analysis, a workspace already being scanned, `--history` without Git, missing web assets, or a port in use |
 
 A browser that fails to open is not a failure: the URL is printed instead.
 

@@ -13,7 +13,13 @@ import { generateSemanticsHistory } from "./semantics-history";
 import type { SemanticsHistoryManifest } from "./semantics-history-types";
 import type { SemanticsConfig, SemanticsManifest } from "./semantics-types";
 import type { WorkspaceState } from "./state";
-import { resolveRoot, workspaceState } from "./state";
+import {
+  lockState,
+  recordSavedDataset,
+  recordWorkspace,
+  resolveRoot,
+  workspaceState,
+} from "./state";
 
 export type ScanProgressEvent =
   | SemanticsProgressEvent
@@ -69,24 +75,23 @@ interface ScanRun {
 const ignoreProgress = (): void => undefined;
 
 /** Scans the workspace and every complete package's internals, and saves the dataset. */
-export async function scan(
-  root: string,
-  options: ScanOptions = {}
-): Promise<Scan> {
-  const run = await prepare(root, options);
-  const manifest = await publishWorkspace(run);
-  await saveInternals(run, manifest);
-  return await withHistory(run, manifest);
+export function scan(root: string, options: ScanOptions = {}): Promise<Scan> {
+  return whileScanning(root, options, async (run) => {
+    const manifest = await publishWorkspace(run);
+    await saveInternals(run, manifest);
+    return await withHistory(run, manifest);
+  });
 }
 
 /** Scans the workspace level only and saves the dataset, without internals. */
-async function scanWorkspace(
+function scanWorkspace(
   root: string,
   options: ScanOptions = {}
 ): Promise<WorkspaceScan> {
-  const run = await prepare(root, options);
-  const manifest = await publishWorkspace(run);
-  return await withHistory(run, manifest);
+  return whileScanning(root, options, async (run) => {
+    const manifest = await publishWorkspace(run);
+    return await withHistory(run, manifest);
+  });
 }
 
 /** One package's internals, analyzed fresh. Saves nothing. */
@@ -117,6 +122,26 @@ async function scanPackage(
 scan.workspace = scanWorkspace;
 scan.package = scanPackage;
 
+/**
+ * Runs one scan holding the state directory's lock, which a second scan of
+ * the workspace fails to take. Once the lock is held, the state directory
+ * gets a workspace record if it has none.
+ */
+async function whileScanning<T>(
+  root: string,
+  options: ScanOptions,
+  body: (run: ScanRun) => Promise<T>
+): Promise<T> {
+  const run = await prepare(root, options);
+  const release = lockState(run.state);
+  try {
+    recordWorkspace(run.state);
+    return await body(run);
+  } finally {
+    release();
+  }
+}
+
 async function prepare(root: string, options: ScanOptions): Promise<ScanRun> {
   const state = await workspaceState(root, options.state);
   return {
@@ -127,7 +152,11 @@ async function prepare(root: string, options: ScanOptions): Promise<ScanRun> {
   };
 }
 
-/** The workspace dataset, published, plus every package's declared manifest. */
+/**
+ * The workspace dataset, published, plus every package's declared manifest.
+ * The workspace record notes the save at once, so a later internals or
+ * history failure leaves a record that matches the saved dataset.
+ */
 async function publishWorkspace({
   config,
   progress,
@@ -154,6 +183,7 @@ async function publishWorkspace({
       join(state.output, "manifests", `${encodePackageFile(pkg.id)}.json`)
     );
   }
+  recordSavedDataset(state);
   return manifest;
 }
 

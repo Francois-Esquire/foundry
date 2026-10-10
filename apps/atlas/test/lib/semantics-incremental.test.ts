@@ -285,7 +285,6 @@ describe("no changes", () => {
     await incremental(root);
     const after = hashTree(cacheDir(root));
     expect([...after.keys()].sort()).toEqual([...first.keys()].sort());
-    expect(existsSync(join(cacheDir(root), "lock.json"))).toBe(false);
   });
 
   it("stores one local and one assembled entry per package", async () => {
@@ -652,29 +651,6 @@ describe("cache state", () => {
       compareSemanticsDatasets(valid, join(root, ".foundry", "semantics"))
         .equivalent
     ).toBe(true);
-  });
-
-  it("refuses to run while another live process holds the cache lock", async () => {
-    const root = copyFixture();
-    await full(root);
-    const lock = join(cacheDir(root), "lock.json");
-    writeFileSync(
-      lock,
-      JSON.stringify({
-        pid: process.pid + 1_000_000,
-        startedAt: "2027-01-01T00:00:00Z",
-      })
-    );
-    // a pid that cannot exist counts as a dead holder: the lock is taken over
-    await expect(incremental(root)).resolves.toMatchObject({
-      packages: { reused: 3 },
-    });
-    writeFileSync(
-      lock,
-      JSON.stringify({ pid: process.ppid, startedAt: "2027-01-01T00:00:00Z" })
-    );
-    await expect(incremental(root)).rejects.toThrow("is locked by process");
-    rmSync(lock);
   });
 });
 

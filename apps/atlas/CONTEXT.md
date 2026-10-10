@@ -70,9 +70,18 @@ _Avoid_: workspace record
 The directory that holds every workspace's state.
 
 **State directory**:
-One workspace's directory under the state root, holding its output and its
-cache.
+One workspace's directory under the state root, named by the workspace's
+id, holding its workspace record, its output, and its cache.
+
+**Workspace id**:
+The short digest of a workspace's resolved root that names its state
+directory.
+
+**Cache**:
+Per-package results and the workspace fingerprint that let the next scan
+reuse work, kept in `<state directory>/cache`.
 
 **Workspace record**:
-The state directory's `workspace.json`, naming the workspace it belongs to.
+The state directory's `workspace.json`: which workspace it belongs to and
+when a scan last saved its dataset.
 _Avoid_: workspace report

@@ -753,9 +753,8 @@ describe("failure handling", () => {
       })
     ).rejects.toThrow("no @s/a");
     expect(seen).toEqual(["@s/a"]);
-    expect(existsSync(join(root, ".foundry"))).toBe(true);
-    // the failed build published nothing; only the disposable cache remains
-    expect(readdirSync(join(root, ".foundry"))).toEqual(["cache"]);
+    // the failed build published nothing and left no temporary output
+    expect(readdirSync(join(root, ".foundry"))).toEqual([]);
     rmSync(root, { force: true, recursive: true });
   });
 });

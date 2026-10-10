@@ -6,10 +6,11 @@ takes to draw several workspaces in one visualization. Draft for discussion.
 ## What assumes one workspace today
 
 - **The CLI takes one path.** `parseArguments` rejects a second positional.
-- **State is per path.** `lib/state.ts` hashes the resolved root into
-  `<state>/<sha256>/`, with its own `output/` and `cache/`. Two workspaces
-  never share a dataset, which is right for scanning and is the thing a
-  merged view has to work around.
+- **State is per path.** `lib/state.ts` names each state directory by the
+  workspace id, the first 12 hex digits of the resolved root's SHA-256, as
+  Marbles does: `<state>/<id>/`, with its own `output/` and `cache/`. Two
+  workspaces never share a dataset, which is right for scanning and is the
+  thing a merged view has to work around.
 - **Identity is a package name.** Package ids are `package.json` names, and
   file ids hang off them. Two workspaces can both contain `@acme/utils`, and
   forks or checkouts of one repository will contain the same names on
@@ -19,10 +20,12 @@ takes to draw several workspaces in one visualization. Draft for discussion.
   `codex/source.ts` and `load-internals.ts`; island layout, latitude, and
   attraction come from one graph; positions and pigment hash the package id
   alone.
-- **State cannot be listed.** Atlas writes no record into a state
-  directory. Marbles writes `workspace.json` per directory and lists the
-  state root to answer `marbles status`; Atlas should do the same before
-  collections need it.
+- **State can be listed, but nothing lists it yet.** Since effort 1.3,
+  `scan` and `scan.workspace` write a workspace record,
+  `<state>/<id>/workspace.json` (root, id, and, once a dataset is saved,
+  Atlas version and `lastScannedAt`), as Marbles does for `marbles status`.
+  Nothing reads the records yet; a collection (5.1) lists the state root
+  through them.
 - **`@foundry/workspaces` is not the answer.** It is a live file catalog
   with watchers, not a registry of scanned repositories.
 - **Cross-workspace relationships are not recorded.** An import of a

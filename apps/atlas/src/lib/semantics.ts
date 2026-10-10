@@ -23,7 +23,6 @@ import {
 import type { PackageLocalReport } from "./package-local-types";
 import type { CachedPackageMeta } from "./semantics-cache";
 import {
-  acquireCacheLock,
   cacheStatistics,
   DEFAULT_SEMANTICS_CACHE,
   listCachedPackages,
@@ -920,7 +919,6 @@ export async function generateSemantics(
 
   const output = resolve(root, config.output);
   const cacheDir = resolve(root, options.cache ?? DEFAULT_SEMANTICS_CACHE);
-  const release = dryRun ? () => undefined : acquireCacheLock(cacheDir);
   const tmp = `${output}.tmp-${process.pid}`;
   const previous = existsSync(output) ? output : undefined;
   if (!dryRun) {
@@ -1503,8 +1501,6 @@ export async function generateSemantics(
   } catch (error) {
     rmSync(tmp, { force: true, recursive: true });
     throw error;
-  } finally {
-    release();
   }
 }
 

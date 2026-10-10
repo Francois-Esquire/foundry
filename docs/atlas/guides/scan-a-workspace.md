@@ -62,14 +62,16 @@ PATH. The scan ends with `Output saved to <directory>` on stdout.
 ## Where it goes
 
 ```text
-~/.foundry/atlas/<sha256 of the workspace path>/
-  output/    the dataset
-  cache/     per-package results and the workspace fingerprint
+~/.foundry/atlas/<id>/
+  workspace.json   the workspace record: which workspace this is
+  lock             held while a scan runs
+  output/          the dataset
+  cache/           per-package results and the workspace fingerprint
 ```
 
-The hash is of the resolved path, so a symlinked path and its target share
-one state directory and two checkouts never do. `--state <path>` replaces
-`~/.foundry/atlas`. The files are described in the
+`<id>` is derived from the resolved path, so a symlinked path and its target
+share one state directory and two checkouts never do. `--state <path>`
+replaces `~/.foundry/atlas`. The files are described in the
 [output reference](/atlas/reference/output).
 
 ## Incremental scans
@@ -93,8 +95,10 @@ messages you are most likely to meet:
 - `Workspace is not a directory`: the path does not exist.
 - `N packages failed analysis.`: the first failure stops the scan; the
   manifest names the package and the error.
-- `semantics cache … is locked by process …`: another scan of the same
-  workspace is running. A lock left by a dead process is taken over.
+- `Workspace … is being scanned by process …`: another scan of the same
+  workspace is running; one scan at a time writes a state directory, and
+  the second fails instead of waiting. A lock left by a process that has
+  exited is taken over.
 - `Web assets are missing from <path>`: the default command scans, then
   finds no built viewer. Reinstall the package or, from source, build it;
   or use `scan` alone.

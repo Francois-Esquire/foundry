@@ -4,10 +4,24 @@ description: The dataset a scan writes, file by file.
 ---
 
 ```text
-<state>/<sha256 of the workspace path>/
-  output/
-  cache/
+<state>/<id>/
+  workspace.json   the workspace record
+  lock             held while a scan runs
+  output/          the dataset
+  cache/           per-package results and the workspace fingerprint
 ```
+
+`<id>` is the workspace id: the first 12 hex digits of the SHA-256 of the
+workspace's resolved path.
+
+`workspace.json` here is the workspace record, not the dataset's workspace
+report. A scan writes `id`, `root`, and `schemaVersion` when it starts, if
+there is no record yet. When it saves the dataset it adds `atlasVersion`,
+the Atlas version that saved it, and `lastScannedAt`, when; the two are
+always set together. A scan that fails after saving the dataset, in
+internals or history, still leaves a record that matches it. Listing the
+state root's directories and reading their records finds every workspace
+scanned under it.
 
 `output/` holds the dataset. The viewer reads it over `/data/…`, unchanged, and
 anything else can read it from disk. `cache/` holds per-package results and
@@ -45,7 +59,6 @@ rewritten.
 
 ```text
 cache/
-  lock.json                 held while a scan runs
   workspace-inputs.json     the last scan's input hashes
   packages/<name>.local.json, .local.meta.json     package-local results
   packages/<name>.json, .meta.json                 assembled reports

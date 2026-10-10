@@ -62,7 +62,9 @@ units:
 ## Where output goes
 
 ```text
-~/.foundry/atlas/<sha256 of the workspace path>/
+~/.foundry/atlas/<id>/
+  workspace.json       the workspace record: root, id, Atlas version, last scan
+  lock                 held while a scan runs
   output/              the dataset the viewer reads
     manifest.json      what was scanned, what was skipped, where each file is
     workspace.json     the whole workspace report
@@ -75,6 +77,9 @@ units:
     history/           checkpoints, timeline, and deltas with --history
   cache/               analysis cache; delete the directory to force a rebuild
 ```
+
+`<id>` is the first 12 hex digits of the SHA-256 of the resolved workspace
+path.
 
 `--state` replaces `~/.foundry/atlas`. The server maps `/data/*` to
 `output/*` unchanged and never serves the cache.
