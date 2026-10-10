@@ -331,6 +331,7 @@ const result = await env.exec(["bun", "test"]);
 const version = await artifacts.write(weeklyReport, { "report.md": markdown }); // a definition: a new version. report.artifact does this and posts it
 const page = await artifacts.create({ name: "Prototype", type: "text/html", entries }); // on the spot
 const file = await artifacts.readFile(version.id, "report.md");                // read a version back
+const kept = await artifacts.latest(weeklyReport);                             // what the last run left, or undefined
 await artifacts.write(weeklyReport, { "notes.md": notes }, { replace: false }); // change some files
 ```
 

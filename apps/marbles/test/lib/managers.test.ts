@@ -294,6 +294,39 @@ describe("artifacts", () => {
     expect((await artifacts.create(prototype)).id).toBe(fresh.id);
   });
 
+  it("reads the latest version, from the real store under a dry run", async () => {
+    const real = new ArtifactManager({ store: new InMemoryArtifactStore() });
+    const memory = {
+      id: "artifact#1",
+      kind: "artifact",
+      name: "Memory",
+      type: "application/json",
+    } as const;
+    const live = new ArtifactsManager({ artifacts: real, workspaceId: "ws" });
+    await expect(live.latest(memory)).resolves.toBeUndefined();
+    await live.write(memory, { "ref.json": '{"id":"s-1"}' });
+    const kept = await live.latest(memory);
+    expect(JSON.parse((await kept?.text("ref.json")) ?? "{}")).toEqual({
+      id: "s-1",
+    });
+    await expect(kept?.text("missing.json")).resolves.toBeUndefined();
+
+    // A dry run writes to memory and reads what real runs left.
+    const dry = new ArtifactsManager({
+      artifacts: new ArtifactManager({ store: new InMemoryArtifactStore() }),
+      readThrough: real,
+      workspaceId: "ws",
+    });
+    expect((await dry.latest(memory))?.version.id).toBe(kept?.version.id);
+    await dry.write(memory, { "ref.json": '{"id":"s-2"}' });
+    expect(await (await dry.latest(memory))?.text("ref.json")).toBe(
+      '{"id":"s-2"}'
+    );
+    expect(await (await live.latest(memory))?.text("ref.json")).toBe(
+      '{"id":"s-1"}'
+    );
+  });
+
   it("reads versions back, records who wrote them, and changes only some files", async () => {
     const manager = new ArtifactsManager({
       artifacts: new ArtifactManager({ store: new InMemoryArtifactStore() }),

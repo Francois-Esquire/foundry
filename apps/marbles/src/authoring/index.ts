@@ -34,6 +34,7 @@ export type {
   Context,
   FilesSandbox,
   ImageSandbox,
+  LatestArtifact,
   LoadedWorkspace,
   Report,
   Run,

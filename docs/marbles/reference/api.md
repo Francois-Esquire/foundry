@@ -100,7 +100,7 @@ const lines = await count.run({ path: "README.md" });                  // run it
 | `step`, `workflow` | `run(input?)` | Locking it as a child, run on its own |
 | `workspace` | `root`, `files()`, `git` | `workspaces.load(def)` |
 | `sandbox` | `exec`, `close`, and the container's `commands`, `filesystem`, `processes`, `shell`, `ports`, `services`, `volumes`; started by the first call | `sandboxes.start(def)` |
-| `artifact` | `write(files, options?)` | `artifacts.write(def, files)` |
+| `artifact` | `write(files, options?)`, `latest()` | `artifacts.write(def, files)`, `artifacts.latest(def)` |
 
 - **Inside a step body** a call joins the step's run: it stops with the
   step, writes to its stream, and a replay after a question or a pause
@@ -311,6 +311,12 @@ await fetch(url, { signal });
   unless `{ replace: false }`; a file is text, bytes, or the package's file
   input (`{ bytes, mime }`, a stored `blobId`). Reads take the artifact's
   declaration or its package id, and a version's `id`.
+- **Memory between runs.** `artifacts.latest(def)` (or `def.latest()`) is
+  the artifact's current version with `text(path)` and `bytes(path)`, or
+  `undefined` before the first write. A declared artifact belongs to the
+  workspace, so this is what the last run here kept. Under `--dry-run` it
+  reads what real runs kept while its own writes stay in memory. See the
+  [persistent reviewer](/marbles/recipes/persistent-reviewer).
 - **Report.** Entries are fire-and-forget and land on the run and the feed.
   `media` paths resolve from the workspace root and are copied into the
   entry; refer to them in the body as `media/<file name>`. `report.artifact`

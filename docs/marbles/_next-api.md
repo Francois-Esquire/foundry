@@ -914,6 +914,14 @@ already.
 
 ### F.2 Memory between runs (finding 5)
 
+**Landed 2026-10-10** as `artifacts.latest(ref)` and `def.latest()`,
+returning `{ version, text(path), bytes(path) }`. Under `--dry-run`,
+`createEngine` passes the real store as `artifactReads` when its directory
+exists; the manager reads it only when its own in-memory store has
+nothing, and never writes it. The persistent reviewer keeps its session
+reference this way. Design Sync keeps its snapshot in the repository,
+which is the merged palette, so it stays as it is.
+
 `artifacts.latest(def)` returns the active content's version and a reader,
 or `undefined`. The id is `artifactIdFor(workspaceId, def.name)`
 (`artifacts.ts:36-42`), so "latest" is per workspace by construction. The

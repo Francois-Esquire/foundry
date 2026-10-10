@@ -271,6 +271,8 @@ export type SandboxInstance = SandboxDefinition &
 
 /** A declared artifact you can use: each `write` adds a version. */
 export interface ArtifactInstance extends ArtifactDefinition {
+  /** The current version, or undefined before the first write. */
+  latest(): Promise<LatestArtifact | undefined>;
   write(
     files: ArtifactFiles,
     options?: ArtifactWriteOptions
@@ -374,6 +376,15 @@ export interface ArtifactWriteOptions {
   readonly replace?: boolean;
 }
 
+/** An artifact's current version, with its files to read. */
+export interface LatestArtifact {
+  /** A file's bytes; undefined when the version has no such file. */
+  bytes(path: string): Promise<Uint8Array | undefined>;
+  /** A file as UTF-8 text; undefined when the version has no such file. */
+  text(path: string): Promise<string | undefined>;
+  readonly version: ArtifactVersion;
+}
+
 export interface Artifacts {
   create(
     input: Pick<
@@ -386,6 +397,12 @@ export interface Artifacts {
   /** The artifact and its current version, or null when it has none yet. */
   get(artifact: ArtifactRef): Promise<ArtifactResolved | null>;
   getContent(versionId: string): Promise<ContentResolved | null>;
+  /**
+   * The artifact's current version, or undefined before its first. A
+   * declared artifact is per workspace, so this is what an earlier run in
+   * this workspace left. Under `--dry-run` it reads the real store.
+   */
+  latest(artifact: ArtifactRef): Promise<LatestArtifact | undefined>;
   /** Every version, oldest first. */
   listContents(artifact: ArtifactRef): Promise<readonly ContentSummary[]>;
   readFile(versionId: string, path: string): Promise<FileResolved | null>;

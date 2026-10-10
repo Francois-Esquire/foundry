@@ -18,6 +18,7 @@ import type {
   Artifacts,
   ArtifactVersion,
   ArtifactWriteOptions,
+  LatestArtifact,
 } from "../types";
 
 /**
@@ -39,6 +40,11 @@ export interface ArtifactsDeps {
     | "readRoot"
     | "revise"
   >;
+  /**
+   * Where `latest` also looks when `artifacts` has nothing: the real store
+   * under `--dry-run`, whose own store is in memory. Only read.
+   */
+  readonly readThrough?: Pick<ArtifactOperations, "get" | "readFile">;
   /** Part of a declared artifact's identity, so two configs never collide. */
   readonly workspaceId: string;
 }
@@ -184,6 +190,29 @@ export class ArtifactsManager implements Artifacts {
     return this.#deps.artifacts.getContent(contentIdSchema.parse(versionId));
   }
 
+  /** The current version from this store, else the read-through one. */
+  async latest(artifact: ArtifactRef): Promise<LatestArtifact | undefined> {
+    const id = this.#idOf(artifact);
+    for (const source of [this.#deps.artifacts, this.#deps.readThrough]) {
+      const found = await source?.get(id);
+      if (source && found?.content) {
+        const { content } = found;
+        const bytes = async (path: string) =>
+          (await source.readFile(content.id, path))?.blob;
+        return {
+          bytes,
+          text: async (path) => {
+            const read = await bytes(path);
+            return read === undefined
+              ? undefined
+              : new TextDecoder().decode(read);
+          },
+          version: versionOf(content),
+        };
+      }
+    }
+  }
+
   listContents(artifact: ArtifactRef) {
     return this.#deps.artifacts.listContents(this.#idOf(artifact));
   }
@@ -231,6 +260,7 @@ export class ArtifactsManager implements Artifacts {
         once(CREATE_KIND, () => this.#create(input, provenance)),
       get: (artifact) => this.get(artifact),
       getContent: (versionId) => this.getContent(versionId),
+      latest: (artifact) => this.latest(artifact),
       listContents: (artifact) => this.listContents(artifact),
       readFile: (versionId, path) => this.readFile(versionId, path),
       readRoot: (versionId) => this.readRoot(versionId),

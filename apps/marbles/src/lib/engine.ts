@@ -76,6 +76,8 @@ import type { Schedule } from "~/lib/triggers";
  */
 
 export interface EngineOptions {
+  /** Read by `artifacts.latest` when `artifacts` has nothing: the real store under `--dry-run`. */
+  readonly artifactReads?: ArtifactSubstrate;
   /** Versioned outputs and the feed; one system may serve many workspaces. */
   readonly artifacts: ArtifactSubstrate;
   /**
@@ -306,6 +308,7 @@ export class Engine {
     });
     this.artifacts = new ArtifactsManager({
       artifacts: options.artifacts,
+      ...(options.artifactReads ? { readThrough: options.artifactReads } : {}),
       workspaceId,
     });
     this.workspaces = new WorkspacesManager({

@@ -17,28 +17,6 @@ instead**, **Proposal**, and **Open**. A finding that came from use rather
 than a page says what changed or what the rule is in place of **The page
 does instead**.
 
-## 5. Memory an automation keeps between runs
-
-**Found by** the Persistent Reviewer and Design Sync recipes.
-
-**Today.** Nothing in the context reads back what an earlier run kept.
-Artifacts can be written but not read, and session references must be
-passed back by hand.
-
-**The page does instead.** The persistent reviewer writes its session
-reference to `.marbles/<name>.json` in the workspace. Design Sync commits
-its last palette to the repository and reads it back. Both are the step's
-own file I/O, so both happen under `--dry-run` too.
-
-**Proposal.** A read for the latest version of a declared artifact,
-`artifacts.latest(def)`, which covers both: the reviewer keeps its reference
-in an artifact, Design Sync keeps its last proposed palette. Dry runs read
-it and do not write.
-
-**Open.** Whether the latest version is per workspace or global to the
-artifact store, and whether a session reference belongs in an artifact at
-all or in a smaller keyed store.
-
 ## 6. Command steps: `step(name).exec(template)`
 
 **Found by** an API proposal, 2026-10-09. The nearest pages are the Software

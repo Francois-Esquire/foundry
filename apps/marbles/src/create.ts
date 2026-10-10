@@ -1,4 +1,4 @@
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import type { SessionStore } from "@foundry/agents/session";
@@ -184,6 +184,10 @@ export function createEngine(options: CreateEngineOptions): Engine {
   const worktrees = Engine.worktreesFor(state);
   const engine = new Engine({
     artifacts: artifactsAt(dry ? undefined : options.artifacts),
+    // A dry run writes to memory but reads what real runs left, if any.
+    ...(dry && options.artifacts && existsSync(options.artifacts)
+      ? { artifactReads: artifactsAt(options.artifacts) }
+      : {}),
     askable: options.askable,
     containers: containersFor(options, worktrees),
     dry,

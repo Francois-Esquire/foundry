@@ -337,7 +337,14 @@ export function artifactInstance(
           artifacts.write(definition, files, options)
         );
   };
+  const latest = () => {
+    const run = inRun();
+    return run
+      ? run.bindings.artifacts(run.args).latest(definition)
+      : instanceRuntime().then(({ artifacts }) => artifacts.latest(definition));
+  };
   return Object.defineProperties(definition, {
+    latest: { value: latest },
     write: { value: write },
   }) as ArtifactInstance;
 }
