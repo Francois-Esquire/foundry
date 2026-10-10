@@ -388,6 +388,7 @@ describe("generation", () => {
       "intelligence",
       "project",
       "write",
+      "lenses",
     ]);
     expect(manifest.generation.partial).toBe(false);
     expect(manifest.generation.command).toBe("test");
@@ -405,6 +406,41 @@ describe("generation", () => {
     const text = readFileSync(join(dataset, "manifest.json"), "utf8");
     expect(text).not.toContain(root);
     expect(text).not.toContain(tmpdir());
+  });
+
+  it("publishes each lens's output, named in the manifest with its schema version", () => {
+    expect(manifest.lenses).toEqual({
+      "package-sizes": {
+        file: "lenses/package-sizes.json",
+        schemaVersion: 1,
+      },
+    });
+    const kinds = { config: 0, other: 0, source: 0, story: 0, test: 0 };
+    expect(readJson(dataset, "lenses/package-sizes.json")).toEqual({
+      packages: [
+        {
+          analyzed: true,
+          id: "@s/a",
+          layer: 1,
+          modules: {
+            byKind: { ...kinds, source: 1, test: 1, unknown: 0 },
+            total: 2,
+          },
+        },
+        {
+          analyzed: true,
+          id: "@s/b",
+          layer: 0,
+          modules: { byKind: { ...kinds, source: 2, unknown: 0 }, total: 2 },
+        },
+        {
+          analyzed: true,
+          id: "@s/c",
+          layer: 1,
+          modules: { byKind: { ...kinds, source: 3, unknown: 0 }, total: 3 },
+        },
+      ],
+    });
   });
 
   it("materializes each package report exactly as the canonical analyzer returns it", () => {

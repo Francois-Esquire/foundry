@@ -31,6 +31,7 @@
         "apps/atlas/src/lib/dataset.ts",
         "apps/atlas/src/lib/dataset-layout.ts",
         "apps/atlas/src/lib/*-types.ts",
+        "apps/atlas/src/lib/lenses/*-types.ts",
         "apps/atlas/src/web/**"
       ],
       "linter": {

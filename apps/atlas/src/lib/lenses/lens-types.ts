@@ -1,0 +1,86 @@
+import type { DatasetReader } from "../dataset";
+import { lensFile } from "../dataset-layout";
+import type { DomainDeclaration } from "../domain-declaration";
+import type { DatasetManifest } from "../semantics-types";
+import type { PackageSizes } from "./package-sizes-types";
+import { PACKAGE_SIZES_SCHEMA_VERSION } from "./package-sizes-types";
+
+// The lens contract (docs/atlas/_lenses.md). A leaf the viewer bundles: the
+// dataset reader imports the schema versions from here.
+
+/** Every lens's saved output, by the lens's id. */
+export interface LensOutputs {
+  "package-sizes": PackageSizes;
+}
+
+/** A lens's id: stable, it names the lens's stage and its file in the dataset. */
+export type LensId = keyof LensOutputs;
+
+/** Each lens's schema version, which the reader checks against the manifest's. */
+export const LENS_SCHEMA_VERSIONS: Record<LensId, number> = {
+  "package-sizes": PACKAGE_SIZES_SCHEMA_VERSION,
+};
+
+/** What a lens may read beyond the dataset: the workspace's own settings. */
+export interface LensSettings {
+  domains: readonly DomainDeclaration[];
+}
+
+/** A package as the manifest lists it, by its deterministic fields only. */
+interface LensPackage {
+  id: string;
+  /** Whether the dataset holds the package's internals; a lens that needs them reports the package missing otherwise. */
+  internals: boolean;
+  status: DatasetManifest["packages"][number]["status"];
+}
+
+/**
+ * The dataset as a lens reads it: the reader without `history()`, which is
+ * written after the dataset is published, and without `manifest()`, whose
+ * generation fields differ between the draft a lens runs against and the
+ * manifest finally published. `packages()` stands in for the manifest's
+ * package list. Within one scan, every file is parsed once and shared by
+ * every lens, so a lens never changes what it reads.
+ */
+export type LensReader = Omit<DatasetReader, "history" | "manifest"> & {
+  packages(): readonly LensPackage[];
+};
+
+export interface Lens<
+  I extends LensId,
+  Source,
+  K extends keyof LensSettings = never,
+> {
+  /** The lenses whose output this one reads; they run first, and it may read no others. */
+  consumes?: readonly LensId[];
+  /** Pure: the same source and settings give the same output. */
+  derive(source: Source, settings: Pick<LensSettings, K>): LensOutputs[I];
+  id: I;
+  /** Picks every dataset field the lens reads, as the codex's `readCodexSource` does. */
+  read(reader: LensReader): Promise<Source>;
+  /** Bumped when Output's shape or meaning changes; the lens stage's schema version. */
+  schemaVersion: number;
+  /** The settings the lens reads; a lens that names none sees none. */
+  settings: readonly K[];
+}
+
+/** A lens's entry in the manifest. */
+interface DatasetManifestLens {
+  file: string;
+  schemaVersion: number;
+}
+
+/** The manifest's `lenses`: every lens's entry, by id. A dataset saved before a lens existed has none for it. */
+export type DatasetManifestLenses = { [I in LensId]?: DatasetManifestLens };
+
+/** Each lens's manifest entry, known before any lens runs. */
+export function lensEntries(): DatasetManifestLenses {
+  const entries: DatasetManifestLenses = {};
+  for (const id of Object.keys(LENS_SCHEMA_VERSIONS) as LensId[]) {
+    entries[id] = {
+      file: lensFile(id),
+      schemaVersion: LENS_SCHEMA_VERSIONS[id],
+    };
+  }
+  return entries;
+}

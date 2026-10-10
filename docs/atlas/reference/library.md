@@ -102,7 +102,7 @@ A `ScanProgressEvent` is one of these, told apart by `kind`:
 
 | `kind` | When | Carries |
 | --- | --- | --- |
-| `phase` | A phase starts: `discover`, `fingerprint`, `analyze`, `derive`, `ingest`, `intelligence`, `project`, `write` | `phase`, and `detail` when there is one |
+| `phase` | A phase starts: `discover`, `fingerprint`, `analyze`, `derive`, `ingest`, `intelligence`, `project`, `write`, `lenses` | `phase`, and `detail` when there is one |
 | `plan` | Once, before any analysis | `invalidations`: per package and stage, whether it is reused, recomputed, or removed, and why |
 | `unit` | A package's own analysis finishes or is reused | `unit`, `status` (`complete`, `failed`, `reused`), `durationMs`, `done` of `total`, and `error` when it failed |
 | `internals` | A package's internals are written | `package`, `index` (1-based) of `total` |

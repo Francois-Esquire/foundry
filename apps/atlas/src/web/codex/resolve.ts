@@ -15,10 +15,6 @@ export function resolveCodex(source: CodexSource): Codex {
     dependents.set(edge.target, (dependents.get(edge.target) ?? 0) + 1);
     dependencies.set(edge.source, (dependencies.get(edge.source) ?? 0) + 1);
   }
-  const sizes = new Map<string, number>();
-  for (const m of source.modules) {
-    sizes.set(m.package, (sizes.get(m.package) ?? 0) + 1);
-  }
   const current = new Set(source.packages.map((p) => p.id));
   return {
     declaredDependencies: source.declaredDependencies.flatMap(
@@ -49,21 +45,24 @@ export function resolveCodex(source: CodexSource): Codex {
       package: m.package,
       path: m.path,
     })),
-    packages: [...source.packages]
-      .sort((a, b) => a.id.localeCompare(b.id))
-      .map((p) => ({
-        analyzed: p.analyzed,
-        id: p.id,
-        label: p.label,
-        layer: p.layer ?? 0,
-        size: sizes.get(p.id) ?? 0,
-      })),
+    packages: source.packages.map((p) => ({
+      analyzed: p.analyzed,
+      id: p.id,
+      label: shortName(p.id),
+      layer: p.layer ?? 0,
+      size: p.modules.total,
+    })),
     retiredPackages: source.history && retiredPackages(source.history, current),
     workspace: {
       coverage: source.dataset.coverage,
       surveyedAt: source.dataset.generatedAt,
     },
   };
+}
+
+/** A package's name without its scope: `@scope/core` is `core`. */
+function shortName(id: string): string {
+  return id.split("/").at(-1) ?? id;
 }
 
 function retiredPackages(
@@ -87,7 +86,7 @@ function retiredPackages(
         .sort()
         .at(-1);
       return lastSeen
-        ? [{ id: pkg.id, label: pkg.id.split("/").at(-1) ?? pkg.id, lastSeen }]
+        ? [{ id: pkg.id, label: shortName(pkg.id), lastSeen }]
         : [];
     });
 }

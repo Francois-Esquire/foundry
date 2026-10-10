@@ -30,9 +30,10 @@ imports from the renderer, so the folder moves as a unit. Tests are in
 | Codex value                                | Source field                                                              |
 | ------------------------------------------ | ------------------------------------------------------------------------- |
 | Workspace `surveyedAt`, `coverage`         | manifest `generatedAt`, `coverage`                                        |
-| Package `id`, `label`, `analyzed`          | dependency-graph node                                                     |
-| Package `size`                             | module index entries in the package                                       |
-| Package `layer`                            | graph node `layer`; `null` becomes 0                                      |
+| Package `id`, `analyzed`                   | `package-sizes` lens, from the dependency graph                           |
+| Package `label`                            | the id without its scope                                                  |
+| Package `size`                             | `package-sizes` lens `modules.total`                                      |
+| Package `layer`                            | `package-sizes` lens `layer`; `null` becomes 0                            |
 | Module `id`, `package`, `path`, `fileKind` | module index; a missing kind becomes `unknown`                            |
 | Module `directory`                         | path up to its last `/`                                                   |
 | Module `dependents`, `dependencies`        | edge shards, within and across packages                                   |

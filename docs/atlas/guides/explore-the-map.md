@@ -52,8 +52,8 @@ chart, or evidence first, then the file, then the district, then the island.
 **Find a place** opens the panel's **Find** section, a search that matches
 island names, and, inside a selected island, its districts,
 responsibilities, and file paths. It is the keyboard route to any place on
-the map. A **Map layer** control switches the island lens between belonging
-and files.
+the map. A **Map layer** control switches the islands between belonging and
+files.
 
 ## What selecting reveals
 

@@ -40,6 +40,10 @@ What a package's `package.json` names under `dependencies`,
 with its range as written. The manifest holds them for each package.
 _Avoid_: dependencies alone (that is the import graph), package manifest
 
+**Dependency layer**:
+A package's depth in the package dependency graph, 0 for a package that
+depends on no other.
+
 **Internals**:
 One package's internal structure: topology, symbol locality,
 responsibilities, primitive conventions, rewiring, and the review.
@@ -110,8 +114,8 @@ _Avoid_: survey, refresh, build
 
 **Dataset**:
 The files a scan saves: among them the manifest, the workspace report,
-package reports, and projections, plus internals and history when the scan
-includes them. The dataset is the product.
+package reports, projections, and lens outputs, plus internals and history
+when the scan includes them. The dataset is the product.
 _Avoid_: output (that is its directory), semantics, survey (the viewer's
 word)
 
@@ -142,10 +146,19 @@ The dataset's analysis of one package, `output/packages/<name>.json`, where
 _Avoid_: surface report
 
 **Projection**:
-A shape of the reports that no renderer owns: the workspace's in
-`output/projections/`, each package's in
+A shape of the reports that no renderer owns; it copies and never infers.
+The workspace's are in `output/projections/`, each package's in
 `output/packages/<name>.projection.json`, with `<name>` encoded as for a
 package report.
+
+**Lens**:
+A read-only derivation over the dataset, plus the settings it names, that
+produces a view: labels, groupings, and measures. A scan runs every lens
+and saves each one's output as `output/lenses/<id>.json`, with the lens's
+own schema version. Unlike a projection, which copies and never infers, a
+lens may derive, rank, and label.
+_Avoid_: projection (that copies and never infers), map layer (the viewer's
+Belonging / Files control)
 
 ### Where a scan is kept
 

@@ -24,6 +24,7 @@ const internals = (id: string) => ({
 function dataset(overrides: Record<string, unknown> = {}) {
   return {
     "internals/@s__a.json": internals("@s/a"),
+    "lenses/package-sizes.json": { packages: [] },
     "manifest.json": {
       files: {
         moduleIndex: "modules/index.json",
@@ -31,6 +32,12 @@ function dataset(overrides: Record<string, unknown> = {}) {
         workspace: "workspace.json",
       },
       generatedAt: SAVED_AT,
+      lenses: {
+        "package-sizes": {
+          file: "lenses/package-sizes.json",
+          schemaVersion: 1,
+        },
+      },
       packages: [
         {
           id: "@s/a",
@@ -180,6 +187,48 @@ describe("one package", () => {
     );
     await expect(saved.packageReport("@s/a")).rejects.toThrow(
       "The dataset is missing packages/@s__a.json. Run atlas scan again."
+    );
+  });
+});
+
+describe("one lens", () => {
+  const withLens = (entry: unknown) => {
+    const { "manifest.json": manifest } = dataset();
+    return dataset({
+      "manifest.json": { ...manifest, lenses: { "package-sizes": entry } },
+    });
+  };
+
+  /** A schema 4 dataset saved before lenses existed: its manifest has no `lenses` key. */
+  const beforeLenses = () => {
+    const {
+      "manifest.json": { lenses: _lenses, ...manifest },
+    } = dataset();
+    return dataset({ "manifest.json": manifest });
+  };
+
+  it("reads its output through the manifest and nothing else", async () => {
+    const { dataset: saved, reads } = reader();
+    await expect(saved.lens("package-sizes")).resolves.toEqual({
+      packages: [],
+    });
+    expect(reads).toEqual(["manifest.json", "lenses/package-sizes.json"]);
+  });
+
+  it("is refused when the dataset was saved before lenses existed", async () => {
+    const { dataset: saved } = reader(beforeLenses());
+    await expect(saved.manifest()).resolves.toMatchObject({ lenses: {} });
+    await expect(saved.lens("package-sizes")).rejects.toThrow(
+      "The dataset has no package-sizes lens. Run atlas scan again."
+    );
+  });
+
+  it("is refused at another schema version", async () => {
+    const { dataset: saved } = reader(
+      withLens({ file: "lenses/package-sizes.json", schemaVersion: 9 })
+    );
+    await expect(saved.lens("package-sizes")).rejects.toThrow(
+      "Atlas reads package-sizes lens schema version 1; this dataset's package-sizes lens has version 9. Run atlas scan to save it again."
     );
   });
 });

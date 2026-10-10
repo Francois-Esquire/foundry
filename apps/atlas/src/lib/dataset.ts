@@ -5,6 +5,8 @@ import {
 } from "./dataset-layout";
 import type { PackageInternals } from "./internal-analysis-types";
 import { verifyInternals } from "./internal-analysis-types";
+import type { LensId, LensOutputs } from "./lenses/lens-types";
+import { LENS_SCHEMA_VERSIONS } from "./lenses/lens-types";
 import type {
   HistoryManifest,
   SemanticsHistoryEntities,
@@ -52,14 +54,16 @@ interface DatasetHistory {
  * schema version (and the pin, when given), and kept, so one reader is one
  * read: create one per read to see a later scan. History's manifest is found
  * by its fixed path; every other file through what the manifest records.
- * `packageReport` and `internals` read the manifest plus one file, never a
- * shard.
+ * `packageReport`, `internals`, and `lens` read the manifest plus one file,
+ * never a shard.
  */
 export interface DatasetReader {
   dependencyGraph(): Promise<WorkspaceGraphProjection>;
   /** `undefined` when the scan did not include history. */
   history(): Promise<DatasetHistory | undefined>;
   internals(name: string): Promise<PackageInternals>;
+  /** One lens's output, at the schema version this Atlas reads. */
+  lens<I extends LensId>(id: I): Promise<LensOutputs[I]>;
   manifest(): Promise<DatasetManifest>;
   moduleEdgeShards(): Promise<SemanticsModuleEdgeShard[]>;
   moduleIndex(): Promise<SemanticsModuleIndex>;
@@ -129,6 +133,7 @@ export function datasetReader(
         await fromManifest((saved) => internalsPath(packageEntry(saved, name))),
         name
       ),
+    lens: (id) => fromManifest((saved) => lensPath(saved, id)),
     manifest: readManifest,
     moduleEdgeShards: () => shards((saved) => saved.edgeShards),
     moduleIndex: readIndex,
@@ -169,7 +174,9 @@ async function checkedManifest(
   if (pin !== undefined && generatedAt !== pin) {
     throw new DatasetReplacedError();
   }
-  return manifest as DatasetManifest;
+  // Schema 4 was saved without lenses before 2.1; such a dataset has none.
+  const saved = manifest as DatasetManifest;
+  return { ...saved, lenses: saved.lenses ?? {} };
 }
 
 async function readHistory(
@@ -223,6 +230,20 @@ function reportPath(pkg: SemanticsManifestPackage): string {
     );
   }
   return pkg.report;
+}
+
+function lensPath(manifest: DatasetManifest, id: LensId): string {
+  const entry = manifest.lenses[id];
+  if (entry === undefined) {
+    throw new Error(`The dataset has no ${id} lens. Run atlas scan again.`);
+  }
+  const expected = LENS_SCHEMA_VERSIONS[id];
+  if (entry.schemaVersion !== expected) {
+    throw new Error(
+      `Atlas reads ${id} lens schema version ${expected}; this dataset's ${id} lens has version ${entry.schemaVersion}. Run atlas scan to save it again.`
+    );
+  }
+  return entry.file;
 }
 
 function internalsPath(pkg: SemanticsManifestPackage): string {

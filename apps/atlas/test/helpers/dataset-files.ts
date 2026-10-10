@@ -12,7 +12,7 @@ function readJson(file: string): unknown {
 
 /**
  * Every file the dataset names, sorted: `manifest.json` itself and what it
- * names directly or through `modules/index.json`, and, when the dataset
+ * names directly (lenses included) or through `modules/index.json`, and, when the dataset
  * includes history, what `history/manifest.json` names under `history/`.
  */
 export function listedFiles(output: string): string[] {
@@ -26,6 +26,7 @@ export function listedFiles(output: string): string[] {
     manifest.files.moduleIndex,
     manifest.files.conceptIndex,
     ...Object.values(manifest.files.projections),
+    ...Object.values(manifest.lenses).map((lens) => lens.file),
     ...index.shards.map((shard) => shard.file),
     ...index.edgeShards.map((shard) => shard.file),
     ...index.modules.map((module) => module.shard),

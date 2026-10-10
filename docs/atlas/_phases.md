@@ -44,6 +44,7 @@ Where new work attaches. All exist today.
 | `lib/render` `renderSurface` | Terminal, text, Markdown; three densities | `atlas report` |
 | `lib/render/views.ts` | The renderer-neutral view model | Terminal output of lenses |
 | `lib/semantics-stages.ts` | Stage versions, dependencies, fingerprints | Versioning lenses |
+| `lib/lenses/run.ts` `LENSES`, `writeLenses` | Every lens, in dependency order; the lens phase over the unpublished dataset | `generateSemantics`, each new lens |
 | Projection context (`lib/workspace-projection.ts:376`) | `workspace.json` plus intelligence, indexed once | Lens mechanics |
 | `AnalysisConfig.anchors` | Declared package boundaries the analyses respect | Domains, when they need to reach the gates |
 | `operators.ts`, `apply.ts` | Reduction plans: preview, write, verify, restore | `atlas apply` |
@@ -631,18 +632,105 @@ and [`_viewer.md`](./_viewer.md).
 
 **2.0 Decide when lenses run.** Decided 2026-10-10: at scan time, written
 into the dataset, so that the viewer and third parties read them and nobody
-recomputes, in keeping with the dataset as the product. Settings, such as
-domains, never enter `configFingerprint`, so a settings-only edit reuses
-every package's results; every lens output is recomputed on every scan
+recomputes, in keeping with the dataset as the product. The settings
+lenses read (`LensSettings`, such as domains) never enter
+`configFingerprint`, so an edit to them alone reuses every package's
+results; every lens output is recomputed on every scan
 until a per-setting digest has a consumer, 2.6 at the earliest. See
 [`_lenses.md`](./_lenses.md#in-the-dataset).
 
-**2.1 The lens layer.** A sibling of the analyses in `lib`: the projection
-mechanics (a context built once, pure functions), the codex's
-source-to-value pipeline over the 1.5 reader, a contract that allows
-derivation, and an entry in `SEMANTIC_STAGE_VERSIONS`. Terminal output
-through `lib/render/views.ts`. Done when one trivial lens is computed,
-versioned, published, and printed.
+**2.1 The lens layer.** Done 2026-10-10. The contract of
+[`_lenses.md`](./_lenses.md), built, with one lens that is computed,
+versioned, published, and renderable (printed under test; `atlas report`
+sections in 2.7).
+- `lib/lenses/lens-types.ts`, a browser-safe leaf, holds the contract
+  (`Lens<I, Source, K>`, whose `id: I` ties `derive`'s result to
+  `LensOutputs[I]`; `LensReader`; `LensSettings`), the `LensOutputs` map
+  whose keys are `LensId`, `LENS_SCHEMA_VERSIONS`, the manifest entry
+  `{ file, schemaVersion }`, and `lensEntries()`, built from the schema
+  versions and `lensFile`, so the manifest builder does not import the
+  runner. Each lens keeps its output type and schema version in its own
+  `lib/lenses/<id>-types.ts`; the Biome browser override covers
+  `lib/lenses/*-types.ts`.
+- `lib/lenses/run.ts` holds `LENSES: readonly AnyLens[]`, every lens in
+  dependency order (no `register`), and `writeLenses({ dir, draft,
+  settings, write })`, the lens phase. Its reader is private: the manifest
+  path answers the draft manifest and every other path reads the
+  unpublished tree, each file parsed once for the phase and shared by every
+  lens, except that a miss under `lenses/` is never kept. `LensReader` is
+  the reader without `history()` and `manifest()`, plus `packages()` (id,
+  status, and whether the dataset holds the package's internals) and
+  `lens(id)`. Each lens gets its own reader, whose `lens(id)` allows only
+  the lenses its `consumes` names, once they have run, and otherwise fails
+  with `The <lens> lens reads the <id> lens without naming it in consumes,
+  or before the <id> lens runs.` Settings are carried (`{ domains: config.domains }`);
+  a lens sees only those it names, and none does yet.
+- The first lens is `package-sizes` (`lib/lenses/package-sizes.ts`): each
+  package's place in the dependency graph joined to its file count by
+  kind, by manifest id and sorted with the projections' `byId`. Its size is
+  the file count from the module index, by kind and in total; `analyzed`
+  and `layer` are taken from the graph only so that the codex can drop its
+  own join. It retires that join: `readCodexSource` reads the lens through
+  `reader.lens("package-sizes")`, `resolveCodex` no longer counts modules
+  or sorts packages, and it names each package without its scope, as it
+  already named former packages. It is 2.1's trivial lens, not the shape
+  effort the note below says is not needed. It reads no internals, so it
+  carries no `missing` list; a lens that reads internals reports the
+  packages without them as `missing` instead of failing.
+- `generateSemantics` runs the `lenses` phase after `write`, internals
+  included, and before the manifest is written: one call,
+  `writeLenses({ dir: tmp, draft, settings, write })`. Every lens runs on
+  every scan, and an output whose bytes are unchanged keeps its inode
+  through the `Writer`. A lens that throws fails the scan and the tmp tree
+  is removed; dry runs and history snapshots run no lenses.
+- First, as its own change: the manifest builder is
+  `lib/dataset-manifest.ts` `datasetManifest(input)`, pure, with one input
+  object instead of 23 positional parameters, and objects rather than
+  counts. The draft the lenses read and the published manifest are the
+  same call, apart from `finishedAt` and the files and phases written in
+  between. `totalDurationMs` is now `finishedAt − startedAt`, and
+  `versions.packageSchema` is the named `SURFACE_REPORT_SCHEMA_VERSION`
+  (`SurfaceReport["schemaVersion"]`, 35) instead of the first report's.
+- `SemanticStage` gains `` `lens:${LensId}` ``. `lens:package-sizes`
+  depends on `materialization`, which is now documented as the dataset
+  before its lenses. Outputs are not reused by fingerprint (none is
+  recorded) until a per-setting digest has a consumer.
+- The manifest gains `lenses` (`{ [id]: { file, schemaVersion } }`). A
+  schema 4 dataset saved before 2.1 has no such key; the reader gives it
+  an empty map, so the type holds and the viewer asks for a scan. The
+  reader's `lens(id)` reads the manifest plus one file and refuses a
+  missing entry ("The dataset has no <id> lens. Run atlas scan again.") or
+  another schema version ("Atlas reads <id> lens schema version N; this
+  dataset's <id> lens has version M. Run atlas scan to save it again."), so
+  a lens bump never needs a dataset schema bump. Dataset schema 4 keeps its
+  number.
+- `lib/render/index.ts` renders through one private `renderView`, which
+  takes the view as a function of the density so that the context is
+  resolved once; `renderSurface` uses it, and `renderLens(id, output,
+  options)` renders a lens through `LENS_VIEWS` (`lib/render/reports/lenses.ts`,
+  one view per `LensId`).
+- Rejected: lenses over in-memory values (what third parties read would be
+  a different thing from what the lens read); running after the publish and
+  publishing again (two swaps, and a reader could see a dataset without
+  its lenses); writing the manifest first (it would name the lens files
+  before they exist, and the generation fields would need rewriting).
+- Tests: `test/lib/lenses.test.ts` (the lens on literal values; the
+  registry against the reader's and the stage graph's versions and the
+  consumes order; the phase: the draft, `packages()`, one parse per file,
+  a lens reading a lens it consumes, refusals for an undeclared read and a
+  read before the lens runs, settings picked, a throw);
+  `test/lib/dataset.test.ts` (`lens(id)`, and a manifest without
+  `lenses`); `test/web/codex/source.test.ts` (the viewer over such a
+  dataset); `test/lib/semantics.test.ts` (the manifest entry and the
+  fixture's file, by hand); the inode tests in
+  `test/lib/semantics-incremental.test.ts`, including a domains-only edit
+  that keeps the lens file; `test/lib/render-lens.test.ts`; the codex tests;
+  and `listedFiles`, so the "every file is listed" checks cover `lenses/`.
+  The phase lists in `semantics.test.ts`, `scan.test.ts`, and
+  `test/atlas.test.ts` gain `lenses`. The fixture dataset compares
+  equivalent to the one before, apart from `lenses/package-sizes.json` and
+  `manifest.lenses`; the `lenses` phase is in the generation metadata the
+  comparison ignores.
 
 **2.2 The viewer's duplicates, one lens each.** For each, the lens is
 written in `lib`, the viewer reads it, and the viewer's own computation is
@@ -682,7 +770,8 @@ Waits for 1.9.
 (`web/ui/atlas-state.ts:18`); rename it.
 
 Shape has no effort of its own: the graph projection, layers, gravity, and
-file counts already answer it.
+file counts already answer it. The 2.1 `package-sizes` lens joins two of
+these for the codex and is not that effort.
 
 ## Phase 3: rules and codemods
 

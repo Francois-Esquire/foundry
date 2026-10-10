@@ -42,7 +42,7 @@ through `modules/index.json`, except those under `history/`, which
 
 | File | What it holds |
 | --- | --- |
-| `manifest.json` | Schema version, counts, coverage (`complete` or `partial`), discovery (the package patterns as the workspace declaration lists them, `declarationSource` for which file that is, `packagePatternsUnmatched` for patterns that matched no directory, `excludeUnmatched` for exclusions that matched no unit, `unitsDiscovered` for every directory a pattern matched, `packagesFound` for the units that are packages, `unitsAnalyzed`, and the units skipped and why), the paths of the workspace-level files, generation details (mode, phases, reuse, failures), and one entry per package: its status, its declared dependencies (`declaredDependencies`: each of `dependencies`, `devDependencies`, `peerDependencies`, and `optionalDependencies` its `package.json` has, every range as written), and the paths of its report, projection, module shard, and internals (`internals`, absent when the scan left internals out or the package failed) |
+| `manifest.json` | Schema version, counts, coverage (`complete` or `partial`), discovery (the package patterns as the workspace declaration lists them, `declarationSource` for which file that is, `packagePatternsUnmatched` for patterns that matched no directory, `excludeUnmatched` for exclusions that matched no unit, `unitsDiscovered` for every directory a pattern matched, `packagesFound` for the units that are packages, `unitsAnalyzed`, and the units skipped and why), the paths of the workspace-level files, each lens's file and schema version (`lenses`), generation details (mode, phases, reuse, failures), and one entry per package: its status, its declared dependencies (`declaredDependencies`: each of `dependencies`, `devDependencies`, `peerDependencies`, and `optionalDependencies` its `package.json` has, every range as written), and the paths of its report, projection, module shard, and internals (`internals`, absent when the scan left internals out or the package failed) |
 | `workspace.json` | The whole workspace report: architecture, boundaries, concepts, evolution (churn, hotspots, change coupling, and change radius from the Git log, when there is one), the graph, ingestion diagnostics, and the workspace intelligence |
 | `packages/<name>.json` | One package's full report |
 | `packages/<name>.projection.json` | That package's renderer-neutral projection |
@@ -52,6 +52,7 @@ through `modules/index.json`, except those under `history/`, which
 | `projections/dependency-graph.json` | The package dependency graph the viewer lays islands out from |
 | `projections/overview.json`, `package-roles.json`, `directions.json`, `boundaries.json`, `implementation-flow.json`, `behavior-flow.json`, `patterns.json`, `manifest.json` | The other workspace views |
 | `concepts/index.json` | Every concept: id, name, kind, packages, centers, coverage |
+| `lenses/<id>.json` | A view the scan derives from the dataset, one file per lens. `package-sizes.json`: every package in the dependency graph, sorted by name, with `analyzed` (whether the scan analyzed it), `layer` (its dependency layer, 0 for a package that depends on no other, `null` when the graph could not place it), and its size as a file count: `modules.byKind` counts its files of each kind (`source`, `test`, `story`, `config`, `other`, and `unknown` for a file the module index gives no kind), and `modules.total` is their sum |
 | `internals/<name>.json` | The package's internal structure: topology, symbol locality, responsibilities, primitive conventions, rewiring scenarios, and the review of them. Written by every CLI scan and the library's `scan`, not by `scan.workspace` |
 | `history/…` | Checkpoints, timeline, entities, snapshots, and deltas; see [history](/atlas/guides/history) |
 
@@ -61,7 +62,10 @@ sees a half-written dataset. A scan in which a package fails publishes
 nothing and keeps the previous dataset. Files that came out identical to the
 previous scan are linked, not rewritten; a package's internals are derived
 from its package-local results, so an unchanged package's internals file is
-reused. History is published after the dataset, into `history/`.
+reused. Lenses run on every scan, after internals and before the manifest is
+written, and their files are reused the same way when they come out
+identical; each lens has its own schema version, so a lens can change
+without the dataset's. History is published after the dataset, into `history/`.
 
 ## The cache
 

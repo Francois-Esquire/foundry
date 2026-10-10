@@ -8,6 +8,8 @@ import {
 import { INTERNAL_RESPONSIBILITY_SCHEMA_VERSION } from "./internal-responsibility-types";
 import { INTERNAL_REWIRING_SCHEMA_VERSION } from "./internal-rewiring-types";
 import { INTERNAL_PACKAGE_TOPOLOGY_SCHEMA_VERSION } from "./internal-topology-types";
+import type { LensId } from "./lenses/lens-types";
+import { LENS_SCHEMA_VERSIONS } from "./lenses/lens-types";
 import { PACKAGE_LOCAL_REPORT_SCHEMA_VERSION } from "./package-local-types";
 import { PRIMITIVE_CONVENTION_SCHEMA_VERSION } from "./primitive-convention-types";
 import { HISTORY_SCHEMA_VERSION } from "./semantics-history-types";
@@ -41,7 +43,15 @@ export type SemanticStage =
   | "workspaceIntelligence"
   | "workspaceProjection"
   | "materialization"
-  | "historySnapshot";
+  | "historySnapshot"
+  | LensStage;
+
+/** One stage per lens, named by its id. */
+export type LensStage = `lens:${LensId}`;
+
+export function lensStage(id: LensId): LensStage {
+  return `lens:${id}`;
+}
 
 export interface SemanticStageVersions {
   policyVersion?: number;
@@ -63,6 +73,9 @@ export const SEMANTIC_STAGE_VERSIONS: Record<
   },
   /** V13.4: pure derivation from the five package-intelligence reports above. */
   internalRewiring: { schemaVersion: INTERNAL_REWIRING_SCHEMA_VERSION },
+  "lens:package-sizes": {
+    schemaVersion: LENS_SCHEMA_VERSIONS["package-sizes"],
+  },
   materialization: { schemaVersion: DATASET_SCHEMA_VERSION },
   /** The assembled `SurfaceReport`: local analysis joined with derivation. */
   packageAnalysis: {
@@ -112,7 +125,9 @@ const SEMANTIC_STAGE_DEPENDENCIES: Record<
     "internalResponsibilities",
     "primitiveConventions",
   ],
-  /** The dataset: the workspace, its projections, and each package's internals. */
+  /** A lens reads the dataset, and the lenses it consumes. */
+  "lens:package-sizes": ["materialization"],
+  /** The dataset before its lenses: the workspace, its projections, and each package's internals. */
   materialization: [
     "workspaceIntelligence",
     "workspaceProjection",

@@ -1,12 +1,15 @@
 import type { AnalysisConfig } from "../config";
 import { ANALYSIS_CONFIG } from "../config";
+import type { LensId, LensOutputs } from "../lenses/lens-types";
 import type { SurfaceReport } from "../types";
 import type { RenderContext } from "./context";
 import { createMarkdownRenderer } from "./markdown";
 import type { Renderer } from "./renderer";
+import { LENS_VIEWS } from "./reports/lenses";
 import { buildSurfaceView } from "./reports/surface";
 import { createTerminalRenderer } from "./terminal";
 import { createTextRenderer } from "./text";
+import type { ReportView } from "./views";
 
 export interface RenderOptions extends Partial<RenderContext> {
   config?: AnalysisConfig;
@@ -33,13 +36,30 @@ function rendererFor(context: RenderContext): Renderer {
   }
 }
 
+function renderView(
+  view: (density: RenderContext["density"]) => ReportView,
+  overrides: Partial<RenderContext>
+): string {
+  const context: RenderContext = { ...DEFAULT_CONTEXT, ...overrides };
+  return rendererFor(context).report(view(context.density));
+}
+
 export function renderSurface(
   report: SurfaceReport,
   options: RenderOptions = {}
 ): string {
   const { config = ANALYSIS_CONFIG, ...overrides } = options;
-  const context: RenderContext = { ...DEFAULT_CONTEXT, ...overrides };
-  return rendererFor(context).report(
-    buildSurfaceView(report, config, context.density)
+  return renderView(
+    (density) => buildSurfaceView(report, config, density),
+    overrides
   );
+}
+
+/** One lens's output, through the lens's report view. */
+export function renderLens<I extends LensId>(
+  id: I,
+  output: LensOutputs[I],
+  options: Partial<RenderContext> = {}
+): string {
+  return renderView((density) => LENS_VIEWS[id](output, density), options);
 }

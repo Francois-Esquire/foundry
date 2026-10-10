@@ -1,9 +1,10 @@
 # Lenses
 
 Maintainer note, excluded from the Blume site. Dated 2026-10-10. The
-contract every lens follows, set in 1.9 so that 2.1 builds the layer
-against it. It is a shape only: no code implements it yet, and the type
-ships with the first lens in 2.1. The ground rules, chief among them that
+contract every lens follows, set in 1.9 and built in 2.1. The types live in
+`apps/atlas/src/lib/lenses/lens-types.ts`, the registry and the lens phase
+in `lib/lenses/run.ts`, and the first lens, `package-sizes`, in
+`lib/lenses/package-sizes.ts`. The ground rules, chief among them that
 new views are lenses, are in [`_phases.md`](./_phases.md#ground-rules); the
 first lens to read the workspace's domains is in [`_domains.md`](./_domains.md).
 
@@ -25,27 +26,41 @@ interface LensSettings {
  * The dataset as a lens reads it: the 1.5 reader without `history()`, which
  * is written after the dataset is published, and without `manifest()`, whose
  * generation fields differ between the draft a lens runs against and the
- * manifest that is finally published.
+ * manifest that is finally published. `packages()` stands in for the
+ * manifest's package list, by its deterministic fields; `lens(id)` reads a
+ * lens that ran earlier in the phase.
  */
-type LensReader = Omit<DatasetReader, "history" | "manifest">;
+type LensReader = Omit<DatasetReader, "history" | "manifest"> & {
+  packages(): readonly { id: string; internals: boolean; status: "complete" | "failed" }[];
+};
 
-/** A lens's id: stable, it names the lens's stage and its file in the dataset. */
-type LensId = string;
+/** Every lens's output by id; a lens's id is a key of this map. */
+interface LensOutputs {
+  "package-sizes": PackageSizes;
+}
+type LensId = keyof LensOutputs;
 
-interface Lens<Source, Output, K extends keyof LensSettings = never> {
-  id: LensId;
-  /** The lenses whose output this one reads; they run first. 2.1 gives the reader a way to read them. */
+interface Lens<I extends LensId, Source, K extends keyof LensSettings = never> {
+  id: I;
+  /** The lenses whose output this one reads, through `reader.lens(id)`; they run first, and it may read no others. */
   consumes?: readonly LensId[];
-  /** Bumped when Output's shape or meaning changes; the lens stage's schemaVersion. */
+  /** Bumped when the output's shape or meaning changes; the lens stage's schemaVersion. */
   schemaVersion: number;
   /** The settings the lens reads; a lens that names none sees none. */
   settings: readonly K[];
   /** Picks every dataset field the lens reads, as the codex's readCodexSource does. */
   read(reader: LensReader): Promise<Source>;
   /** Pure: the same source and settings give the same output. */
-  derive(source: Source, settings: Pick<LensSettings, K>): Output;
+  derive(source: Source, settings: Pick<LensSettings, K>): LensOutputs[I];
 }
 ```
+
+A new lens adds its key to `LensOutputs`, its schema version to
+`LENS_SCHEMA_VERSIONS`, its stage to `SEMANTIC_STAGE_VERSIONS` and the
+stage dependencies, its view to `LENS_VIEWS`, and itself to `LENSES`. The
+maps are keyed by `LensId`, so a missing entry in one of them does not
+compile; `LENSES` is an array, and the registry test checks that it holds
+every lens once, in `consumes` order.
 
 `read` and `derive` are the codex's split (`web/codex/source.ts`,
 `web/codex/resolve.ts`): `Source` lists every field the lens reads, so
@@ -70,11 +85,24 @@ which lenses it reaches.
   infers, a lens may derive, rank, and label. A label adds to an
   observation and never hides one.
 - **Lenses may build on lenses.** A lens names the lenses it reads in
-  `consumes`; the stage graph orders them.
-- **Versioning.** One `SemanticStage` per lens, in `SEMANTIC_STAGE_VERSIONS`,
-  with the lens's `schemaVersion`. Its stage fingerprint covers the code.
-  Outputs are recomputed on every scan, so none is reused, until a
-  per-setting digest exists (2.6 at the earliest).
+  `consumes`; the stage graph orders them. A lens that reads a lens it
+  does not consume, or one that has not run yet, fails the scan.
+- **Versioning.** One `SemanticStage` per lens, `` `lens:${LensId}` `` in
+  `SEMANTIC_STAGE_VERSIONS`, with the lens's `schemaVersion`. Its stage
+  fingerprint covers the code. Outputs are recomputed on every scan, with
+  no computation skipped, until a per-setting digest exists (2.6 at the
+  earliest); an output whose bytes are unchanged keeps its file, as every
+  dataset file does. The reader checks each lens's schema version on its
+  own, so a lens bump needs no dataset schema bump.
+- **Internals.** A lens that needs a package's internals checks
+  `packages()` for them, since `scan.workspace` saves none, and lists the
+  packages without them in its output as `missing: string[]` instead of
+  failing. Module ids are root-relative: the package's
+  `topology.package.root` joined to the internals module id, as
+  `web/internals.ts` does.
+- **Shared reads.** Within one scan, the lens phase parses each dataset file
+  once and hands the same value to every lens that reads it, so a lens
+  never changes what it reads.
 - **Failure.** A lens that throws fails the scan, as an analysis does.
 - **Where they run.** Dry runs and history snapshots run no lenses.
 - **Terminal output** renders a lens's output through a report view
@@ -84,9 +112,13 @@ which lenses it reaches.
 ## In the dataset
 
 Decided in 2.0: lenses run at scan time, and their output is written into
-the dataset. Settings never enter the configuration fingerprint, so a
-settings-only edit reuses every package's results, and every lens output
-is recomputed on every scan. Each lens's output is a file the manifest
+the dataset. The `lenses` phase runs after `write`, internals included, and
+before the manifest is written: the lenses read the unpublished tree
+through the reader, with the manifest answered by the draft that the
+published manifest is built from by the same call. The settings lenses
+read (`LensSettings`) never enter the configuration fingerprint, so an edit
+to them alone reuses every package's results, and every lens output is
+recomputed on every scan. Each lens's output is a file the manifest
 names, with the entry `{ file, schemaVersion }`. A digest per setting, so that a reader can tell
 which settings an output was derived under, comes only when something
 consumes it: 2.6 at the earliest.

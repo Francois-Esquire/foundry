@@ -1,4 +1,5 @@
 import type { DomainDeclaration } from "./domain-declaration";
+import type { DatasetManifestLenses } from "./lenses/lens-types";
 import type { SemanticsHistoryConfig } from "./semantics-history-types";
 import type { FileKind, ModuleRole } from "./types";
 import type { WorkspaceConceptCoverage } from "./workspace-concepts-types";
@@ -120,7 +121,8 @@ export type SemanticsPhase =
   | "ingest"
   | "intelligence"
   | "project"
-  | "write";
+  | "write"
+  | "lenses";
 
 export type SemanticsGenerationMode = "full" | "incremental";
 
@@ -224,6 +226,8 @@ export interface DatasetManifest {
   files: SemanticsManifestFiles;
   generatedAt: string;
   generation: SemanticsGenerationMetadata;
+  /** Every lens's output, by id; the reader gives a dataset saved before lenses existed an empty map. */
+  lenses: DatasetManifestLenses;
   packages: SemanticsManifestPackage[];
   schemaVersion: number;
   versions: {

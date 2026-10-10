@@ -1,4 +1,5 @@
 import type { DatasetReader } from "../../lib/dataset";
+import type { PackageSize } from "../../lib/lenses/package-sizes-types";
 import type {
   SemanticsHistoryEntities,
   SemanticsHistorySnapshotRef,
@@ -10,10 +11,7 @@ import type {
   SemanticsModuleIndexEntry,
   SemanticsModuleRecord,
 } from "../../lib/semantics-types";
-import type {
-  WorkspaceDependencyEdgeProjection,
-  WorkspaceGraphProjectionNode,
-} from "../../lib/workspace-projection-types";
+import type { WorkspaceDependencyEdgeProjection } from "../../lib/workspace-projection-types";
 
 /** Every source field the codex reads. Resolvers see nothing else. */
 export interface CodexSource {
@@ -41,10 +39,10 @@ export interface CodexSource {
     SemanticsModuleIndexEntry,
     "id" | "package" | "path" | "fileKind"
   >[];
-  packages: Pick<
-    WorkspaceGraphProjectionNode,
-    "id" | "label" | "analyzed" | "layer"
-  >[];
+  /** The `package-sizes` lens, sorted by id. */
+  packages: (Pick<PackageSize, "id" | "analyzed" | "layer"> & {
+    modules: Pick<PackageSize["modules"], "total">;
+  })[];
   participation: Pick<SemanticsModuleRecord, "id" | "concepts">[];
 }
 
@@ -52,11 +50,12 @@ export interface CodexSource {
 export async function readCodexSource(
   reader: DatasetReader
 ): Promise<CodexSource> {
-  const [manifest, index, graph, edgeShards, moduleShards, history] =
+  const [manifest, index, graph, sizes, edgeShards, moduleShards, history] =
     await Promise.all([
       reader.manifest(),
       reader.moduleIndex(),
       reader.dependencyGraph(),
+      reader.lens("package-sizes"),
       reader.moduleEdgeShards(),
       reader.moduleShards(),
       reader.history(),
@@ -76,7 +75,7 @@ export async function readCodexSource(
     },
     imports: edgeShards.flatMap((s) => s.edges),
     modules: index.modules,
-    packages: graph.nodes,
+    packages: sizes.packages,
     participation: moduleShards.flatMap((s) => s.modules),
   };
 }

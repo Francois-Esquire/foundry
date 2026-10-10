@@ -120,6 +120,7 @@ for every setting.
     packages/          one report and one projection per package
     modules/           file records and import edges, sharded by package
     projections/       the dependency graph and other renderer-neutral views
+    lenses/            views derived from the dataset, one file per lens
     concepts/          the concept index
     internals/         per-package internal structure evidence
     history/           checkpoints, timeline, and deltas with --history

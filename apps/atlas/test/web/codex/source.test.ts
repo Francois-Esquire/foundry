@@ -11,8 +11,16 @@ const entry = {
   shard: "modules/core.json",
 };
 
+const sized = {
+  analyzed: true,
+  id: "@foundry/core",
+  layer: 0,
+  modules: { byKind: { source: 1 }, total: 1 },
+};
+
 function scanned(): Record<string, unknown> {
   return {
+    "lenses/package-sizes.json": { packages: [sized] },
     "manifest.json": {
       coverage: "complete",
       files: {
@@ -20,6 +28,12 @@ function scanned(): Record<string, unknown> {
         projections: { dependencyGraph: "projections/graph.json" },
       },
       generatedAt: "2026-09-23T00:00:00.000Z",
+      lenses: {
+        "package-sizes": {
+          file: "lenses/package-sizes.json",
+          schemaVersion: 1,
+        },
+      },
       packages: [
         {
           declaredDependencies: { dependencies: { react: "^19" } },
@@ -71,7 +85,7 @@ describe("readCodexSource", () => {
       coverage: "complete",
       generatedAt: "2026-09-23T00:00:00.000Z",
     });
-    expect(source.packages.map((p) => p.id)).toEqual(["@foundry/core"]);
+    expect(source.packages).toEqual([sized]);
     expect(source.modules).toEqual([entry]);
     expect(source.participation.map((m) => m.id)).toEqual([entry.id]);
     expect(source.imports).toEqual([{ source: entry.id, target: entry.id }]);
@@ -85,6 +99,17 @@ describe("readCodexSource", () => {
       },
     ]);
     expect(source.history).toBeUndefined();
+  });
+
+  it("asks for a new scan when the dataset was saved before lenses existed", async () => {
+    const files = scanned();
+    const { lenses: _lenses, ...manifest } = files["manifest.json"] as Record<
+      string,
+      unknown
+    >;
+    await expect(read({ ...files, "manifest.json": manifest })).rejects.toThrow(
+      "The dataset has no package-sizes lens. Run atlas scan again."
+    );
   });
 
   it("picks package history when it was recorded", async () => {

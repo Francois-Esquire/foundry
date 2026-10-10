@@ -18,10 +18,6 @@ import { basename, dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { DEFAULT_CONFIGURATION } from "./atlas-config";
 import {
-  ANALYSIS_POLICY_VERSION,
-  WORKSPACE_INTELLIGENCE_POLICY_VERSION,
-} from "./config";
-import {
   DATASET_FILES,
   encodePackageFile,
   internalsFile,
@@ -30,8 +26,10 @@ import {
   packageProjectionFile,
   packageReportFile,
 } from "./dataset-layout";
+import { datasetManifest } from "./dataset-manifest";
 import type { InternalsProgressEvent } from "./internal-analysis";
 import { writeInternals } from "./internal-analysis";
+import { writeLenses } from "./lenses/run";
 import type { PackageLocalReport } from "./package-local-types";
 import type { CachedPackageMeta } from "./semantics-cache";
 import {
@@ -64,7 +62,6 @@ import {
 } from "./semantics-fingerprint";
 import type {
   DatasetManifest,
-  DeclaredDiscovery,
   SemanticsConceptIndex,
   SemanticsConfig,
   SemanticsGenerationError,
@@ -97,14 +94,12 @@ import {
   workspaceProjectionManifest,
 } from "./workspace-projection";
 import type { WorkspaceProjectionContext } from "./workspace-projection-types";
-import { WORKSPACE_PROJECTION_SCHEMA_VERSION } from "./workspace-projection-types";
 import {
   listConceptDirections,
   projectWorkspaceGraph,
   projectWorkspaceMatrix,
 } from "./workspace-projection-views";
 import type { WorkspaceReport } from "./workspace-types";
-import { WORKSPACE_SCHEMA_VERSION } from "./workspace-types";
 
 // V12.0 materializer. Orchestrates the canonical analyzers — package
 // analysis (in a worker process per unit), V9 ingestion and intelligence,
@@ -1391,33 +1386,38 @@ export async function generateSemantics(
     );
     const reportsUnchanged = count((o) => o.reportSource, "unchanged");
     const reportsReused = count((o) => o.reportSource, "reused");
-    const artifactsReused = writer.files.filter((f) => f.reused).length;
-    const finishedAt = new Date();
-    const manifest: DatasetManifest = generateSemanticsEntries(
-      workspace,
-      concepts,
-      modules,
-      context,
-      partial,
-      discovery,
-      packages,
-      failures,
-      finishedAt,
-      writer,
-      artifactsReused,
-      options,
-      concurrency,
-      deriving,
-      mode,
-      analyzed,
-      reused,
-      phases,
-      startedAt,
-      started,
-      reports,
-      workspaceName,
-      root
+    // Read when called: the draft the lenses run against and the published
+    // manifest differ only in the files and phases written in between.
+    const manifestAt = (finishedAt: Date): DatasetManifest =>
+      datasetManifest({
+        command: options.command ?? "generateSemantics",
+        concepts,
+        concurrency,
+        context,
+        derived: deriving,
+        discovery,
+        files: writer.files,
+        finishedAt,
+        mode,
+        modules,
+        packages,
+        packagesAnalyzed: analyzed,
+        packagesReused: reused,
+        partial,
+        phases,
+        root,
+        startedAt,
+        workspaceName,
+      });
+    await timed("lenses", undefined, () =>
+      writeLenses({
+        dir: tmp,
+        draft: manifestAt(new Date()),
+        settings: { domains: config.domains },
+        write: (file, value) => writer.write(file, value),
+      })
     );
+    const manifest = manifestAt(new Date());
     writer.write(DATASET_FILES.manifest, manifest);
 
     const written = new Set(writer.files.map((f) => f.file));
@@ -1431,6 +1431,7 @@ export async function generateSemantics(
     storeWorkspaceInputsMeta(cacheDir, inputs.files);
 
     const bytes = writer.files.reduce((sum, f) => sum + f.bytes, 0);
+    const { artifactsReused } = manifest.generation;
     return {
       artifacts: {
         generated: writer.files.length - artifactsReused,
@@ -1494,83 +1495,5 @@ function collectConfig(options: SemanticsGenerateOptions) {
     mode,
     now,
     progress,
-  };
-}
-
-function generateSemanticsEntries(
-  workspace: WorkspaceReport,
-  concepts: SemanticsConceptIndex,
-  modules: SemanticsModuleRecord[],
-  context: WorkspaceProjectionContext,
-  partial: boolean,
-  discovery: DeclaredDiscovery,
-  packages: SemanticsManifestPackage[],
-  failures: number,
-  finishedAt: Date,
-  writer: Writer,
-  artifactsReused: number,
-  options: SemanticsGenerateOptions,
-  concurrency: number,
-  deriving: boolean,
-  mode: SemanticsGenerationMode,
-  analyzed: number,
-  reused: number,
-  phases: SemanticsPhaseTiming[],
-  startedAt: Date,
-  started: number,
-  reports: SurfaceReport[],
-  workspaceName: string | undefined,
-  root: string
-): DatasetManifest {
-  return {
-    counts: {
-      boundaries: workspace.boundaries.boundaries.length,
-      concepts: concepts.concepts.length,
-      modules: modules.length,
-      packages: workspace.packages.packages.length,
-      patterns: context.index.patterns.length,
-    },
-    coverage: partial ? "partial" : "complete",
-    discovery: {
-      declarationSource: discovery.declarationSource,
-      excludeUnmatched: discovery.excludeUnmatched,
-      packagePatterns: discovery.packagePatterns,
-      packagePatternsUnmatched: discovery.packagePatternsUnmatched,
-      packagesFound: discovery.units.length,
-      unitsAnalyzed: packages.length - failures,
-      unitsDiscovered: discovery.unitsDiscovered,
-      unitsSkipped: discovery.skipped,
-    },
-    files: DATASET_FILES,
-    generatedAt: finishedAt.toISOString(),
-    generation: {
-      artifactsGenerated: writer.files.length - artifactsReused,
-      artifactsReused,
-      command: options.command ?? "generateSemantics",
-      concurrency,
-      derived: deriving,
-      finishedAt: finishedAt.toISOString(),
-      mode,
-      packageFailures: failures,
-      packagesAnalyzed: analyzed,
-      packagesReused: reused,
-      partial,
-      phases,
-      startedAt: startedAt.toISOString(),
-      totalDurationMs: Math.round(performance.now() - started),
-    },
-    packages,
-    schemaVersion: DATASET_SCHEMA_VERSION,
-    versions: {
-      packagePolicy: ANALYSIS_POLICY_VERSION,
-      packageSchema: reports[0]?.schemaVersion ?? 35,
-      projectionSchema: WORKSPACE_PROJECTION_SCHEMA_VERSION,
-      workspaceIntelligencePolicy: WORKSPACE_INTELLIGENCE_POLICY_VERSION,
-      workspaceSchema: WORKSPACE_SCHEMA_VERSION,
-    },
-    workspace: {
-      ...(workspaceName !== undefined && { name: workspaceName }),
-      root: basename(root),
-    },
   };
 }

@@ -249,6 +249,7 @@ describe("no changes", () => {
       ])
     );
     expect([...inodes.keys()]).toContain("internals/@s__a.json");
+    expect([...inodes.keys()]).toContain("lenses/package-sizes.json");
 
     const seen: string[] = [];
     let derived = 0;
@@ -525,7 +526,10 @@ describe("source changes", () => {
     "reuses every package report and derives nothing when only the domains change, under %s",
     async (_patterns, makeRoot) => {
       const root = makeRoot();
-      await full(root);
+      const { output } = await full(root);
+      // A lens that reads no settings keeps its file, inode and all.
+      const lens = join(output, "lenses", "package-sizes.json");
+      const lensInode = statSync(lens).ino;
       const declare = async (
         facet: string
       ): Promise<SemanticsGenerationResult> => {
@@ -549,6 +553,7 @@ describe("source changes", () => {
         expect(Object.values(reportCauses(result))).not.toContain(
           "recompute:config-changed"
         );
+        expect(statSync(lens).ino).toBe(lensInode);
       }
     },
     60_000

@@ -69,8 +69,18 @@ const source: CodexSource = {
     },
   ],
   packages: [
-    { analyzed: true, id: "@foundry/ui", label: "ui", layer: 1 },
-    { analyzed: false, id: "@foundry/core", label: "core", layer: null },
+    {
+      analyzed: false,
+      id: "@foundry/core",
+      layer: null,
+      modules: { total: 2 },
+    },
+    {
+      analyzed: true,
+      id: "@foundry/ui",
+      layer: 1,
+      modules: { total: 1 },
+    },
   ],
   participation: [
     {
@@ -94,7 +104,7 @@ describe("resolveCodex", () => {
     });
   });
 
-  it("sizes packages by their modules and seats unknown layers at the foundation", () => {
+  it("sizes packages from the package-sizes lens, names them without their scope, and seats unknown layers at the foundation", () => {
     expect(codex.packages).toEqual([
       {
         analyzed: false,

@@ -3,6 +3,8 @@
 // reader needs only the manifest's own path and history's names from here,
 // and finds everything else through what the manifest records.
 
+import type { LensId } from "./lenses/lens-types";
+
 const PACKAGE_FILE_SEPARATOR = /\//g;
 
 /** The dataset's fixed files; the manifest records this object as `files`. */
@@ -53,6 +55,10 @@ export function moduleShardFile(id: string): string {
 
 export function moduleEdgeShardFile(id: string): string {
   return `modules/edges/${encodePackageFile(id)}.json`;
+}
+
+export function lensFile(id: LensId): string {
+  return `lenses/${id}.json`;
 }
 
 export function internalsFile(id: string): string {

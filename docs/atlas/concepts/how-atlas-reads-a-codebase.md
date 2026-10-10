@@ -66,6 +66,11 @@ are computed on top:
 From these, renderer-neutral projections are written under `projections/`.
 The viewer lays islands out from `dependency-graph.json`.
 
+Last, before the manifest, the scan runs its lenses over the dataset it has
+just written. A lens derives a view, such as each package's dependency layer and
+file count by kind (`lenses/package-sizes.json`), and never analyzes the
+code again.
+
 ## Inside a package
 
 Before the dataset is published, each complete package's internals are
