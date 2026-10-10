@@ -190,7 +190,8 @@ export default {
 
 The import is type-only, so it is removed before the file runs; the
 workspace needs `@foundry/atlas` installed only for its editor to check
-the types. A domain is `NonNullable<AtlasConfig["domains"]>[number]`. See
+the types. A domain is `NonNullable<AtlasConfig["domains"]>[number]`, and a
+rule `NonNullable<AtlasConfig["rules"]>[number]`. See
 [configuration](/atlas/reference/configuration).
 
 ## One scan at a time

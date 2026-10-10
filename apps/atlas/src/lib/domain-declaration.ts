@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { facetSchema } from "./facet";
 
 // The domain declaration: how a workspace tells Atlas its own mental model.
 // A configuration file declares it under `domains`. It is kept as written,
@@ -25,12 +26,6 @@ export interface DomainDeclaration {
 }
 
 const NAME = /^[a-z][a-z0-9-]*$/;
-/** A JavaScript identifier, as `getName()` returns a top-level declaration's name. */
-const IDENTIFIER = /^[\p{ID_Start}$_][\p{ID_Continue}$\u200C\u200D]*$/u;
-const DRIVE = /^[A-Za-z]:/;
-/** Kept for patterns, so that adding them later changes no facet's meaning. */
-const RESERVED = /[*?]|^!/;
-
 const NAME_RULE =
   "must be lowercase letters, digits, and hyphens, starting with a letter";
 const WEIGHT_RULE = "must be a number from 0 to 1";
@@ -40,51 +35,6 @@ const OBJECT_RULE = "must be an object";
 /** Deeper than any model a workspace writes by hand; a cycle built in code is caught first. */
 const MAX_NESTING = 64;
 type IssuePath = (string | number)[];
-
-/** What is wrong with a facet, as the configuration error says it; undefined when nothing is. */
-function facetIssue(facet: string): string | undefined {
-  if (facet === "") {
-    return "must be a workspace-relative path";
-  }
-  if (facet.trim() !== facet) {
-    return "must have no leading or trailing whitespace";
-  }
-  if (facet.includes("\\")) {
-    return 'must use "/" as the separator';
-  }
-  if (facet.startsWith("/") || DRIVE.test(facet)) {
-    return "must be relative to the workspace root";
-  }
-  if (RESERVED.test(facet)) {
-    return 'must not use "*", "?", or a leading "!", which are reserved for patterns';
-  }
-  const [path = "", symbol, ...rest] = facet.split("#");
-  if (rest.length > 0) {
-    return 'must name at most one symbol, after one "#"';
-  }
-  if (path === "" && symbol !== undefined) {
-    return 'must name a file before "#"';
-  }
-  if (
-    path
-      .split("/")
-      .some((segment) => segment === "" || segment === "." || segment === "..")
-  ) {
-    return 'must have no empty, ".", or ".." segments, and no trailing "/"';
-  }
-  if (symbol !== undefined && !IDENTIFIER.test(symbol)) {
-    return 'must name one top-level declaration after "#"';
-  }
-}
-
-const facetSchema = z
-  .string({ error: "must be a workspace-relative path" })
-  .superRefine((facet, context) => {
-    const message = facetIssue(facet);
-    if (message !== undefined) {
-      context.addIssue({ code: "custom", input: facet, message });
-    }
-  });
 
 /**
  * An issue about a whole domain, which its message names; the configuration

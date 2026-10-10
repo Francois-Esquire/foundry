@@ -1663,13 +1663,50 @@ mean for 3.6 are in [`_codemods.md`](./_codemods.md#refresh-measured-2026-10-10)
   larger savings are splitting the derivation key and reusing the saved
   report for `apply`'s before and after.
 
-**3.1 Rules.** The shape `{ operator, subject, effect }`, declared in the
-configuration from 1.7, with subjects addressed by path and `path#symbol`.
+**3.1 Rules.** Done 2026-10-10. Declaration and validation only; nothing
+reads the rules yet.
+- `lib/rule-declaration.ts` holds `Rule` (`{ effect, operator, subject }`,
+  written out) and `rulesSchema`, a strict zod schema. `AtlasConfig` gains
+  `rules?`; the resolved `SemanticsConfig` carries `rules`, `[]` by default,
+  and `configFingerprint`, an allow-list, leaves it out. `rules` follows
+  1.7's one-file rule, and `foundry.config.json#semantics` rejects it as an
+  unknown key (`legacySchema` omits it with `domains`). `Rule` is not
+  exported; it is `NonNullable<AtlasConfig["rules"]>[number]`.
+- `operator` accepts `internalize` only, the one executable catalog kind;
+  the list widens kind by kind as each becomes executable (3.8). `effect`
+  is `permit` or `require`. `subject` is a facet: the facet checks moved
+  unchanged from `domain-declaration.ts` to `lib/facet.ts`, which both
+  declarations import.
+- A rule is named by its index, `rules[0]`, as errors name it, so
+  reordering the list renames every rule (and, from 3.2, invalidates an
+  authorization). One operator and subject take one rule: the same rule
+  twice is `rules[1] repeats rules[0]`, and a permit beside a require of
+  the same subject is refused too, since a require permits. Neither issue
+  shows a `got`.
+- `lib/facet.ts` also holds `covers(facet, place)`, the domains lens's
+  private matcher moved out unchanged, so that 3.2's permits and 3.3's
+  rules lens match as the domains lens does: whole segments, `#` as a
+  boundary, downward only. Lens code, so no analysis change.
+- The rules lens is 3.3's, not 3.1's: its output is the violations, which
+  nothing could read before `check`, and `LensSettings` gains `rules` with
+  the lens that names it.
+- Rules are not written in terms of domains, so no per-setting digest is
+  needed yet.
+- Tests: `test/lib/rule-declaration.test.ts` through `parseConfigFile`
+  (every message and path, an unknown key, both repeats);
+  `test/lib/facet.test.ts` (`packages/co` does not cover `packages/core`,
+  `#` as a boundary, downward only); `test/lib/atlas-config.test.ts` (rules
+  through the loader, declared in two files, an invalid one by file and
+  setting, the fallback rejecting them); `test/lib/semantics-incremental.test.ts`
+  (a rules-only edit reuses every package and derives nothing); and the
+  installed package's configuration and TypeScript consumer declare a rule.
 
 **3.2 Wire the two stacks** at `authorizeMutationPlan`. No third.
 
 **3.3 `atlas check`.** Rules against the dataset; exit 3 on a violation,
 as 1.8 reserved, so it differs from a failed run (1) and bad arguments (2).
+The rules lens (`settings: ["rules"]`) computes the violations at scan
+time; `check` reads it from the saved dataset.
 
 **3.4 `atlas plan`.** One plan for one site, read-only.
 

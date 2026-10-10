@@ -1,5 +1,6 @@
 import type { DomainDeclaration } from "./domain-declaration";
 import type { DatasetManifestLenses } from "./lenses/lens-types";
+import type { Rule } from "./rule-declaration";
 import type { SemanticsHistoryConfig } from "./semantics-history-types";
 import type { FileKind, ModuleRole } from "./types";
 import type { WorkspaceConceptCoverage } from "./workspace-concepts-types";
@@ -25,6 +26,8 @@ export interface SemanticsConfig {
   exclude: string[];
   /** The checkpoint policy of `scan --history`. */
   history: SemanticsHistoryConfig;
+  /** The workspace's rules, as declared. No analysis reads them, and the configuration fingerprint leaves them out. */
+  rules: readonly Rule[];
 }
 
 /** Where the workspace declaration came from. */

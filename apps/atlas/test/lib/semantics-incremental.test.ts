@@ -600,6 +600,28 @@ describe("source changes", () => {
     60_000
   );
 
+  it("reuses every package report and derives nothing when only the rules change", async () => {
+    const root = copyFixture();
+    await full(root);
+    for (const effect of ["require", "permit"]) {
+      write(
+        root,
+        ".foundry/atlas/rules.ts",
+        `export default { rules: [{ effect: "${effect}", operator: "internalize", subject: "packages/b" }] };\n`
+      );
+      const config = await loadConfiguration(root);
+      expect(config.rules).toEqual([
+        { effect, operator: "internalize", subject: "packages/b" },
+      ]);
+      const result = await incremental(root, { config });
+      expect(result.packages).toMatchObject({ analyzed: 0, reused: 3 });
+      expect(result.reports).toEqual({ derived: 0, reused: 3, unchanged: 0 });
+      expect(Object.values(reportCauses(result))).not.toContain(
+        "recompute:config-changed"
+      );
+    }
+  }, 60_000);
+
   it("never takes .foundry/ as a workspace input, even when the cruise reaches it", async () => {
     const root = starFixture();
     write(

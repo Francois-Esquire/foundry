@@ -204,7 +204,7 @@ beforeAll(() => {
   mkdirSync(join(workspace, ".foundry/atlas"), { recursive: true });
   writeFileSync(
     join(workspace, ".foundry/atlas/index.ts"),
-    'import type { AtlasConfig } from "@foundry/atlas";\n\nexport default { exclude: ["packages/docs-only"] } satisfies AtlasConfig;\n'
+    'import type { AtlasConfig } from "@foundry/atlas";\n\nexport default { exclude: ["packages/docs-only"], rules: [{ effect: "require", operator: "internalize", subject: "packages/a" }] } satisfies AtlasConfig;\n'
   );
 }, TEST_TIMEOUT_MS);
 

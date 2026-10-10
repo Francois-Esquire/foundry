@@ -1,4 +1,5 @@
 import type { DomainDeclaration } from "../domain-declaration";
+import { covers } from "../facet";
 import { byId, sorted } from "../workspace-projection";
 import type {
   DomainLabel,
@@ -118,20 +119,6 @@ function matchOf(domain: FlatDomain, places: Places): DomainMatch {
     unmatched: unmatched.sort(byId),
     ...(weight !== undefined && { weight }),
   };
-}
-
-/**
- * Whether a facet covers a place: a symbol facet only the symbol it names, a
- * path facet everything at or below its path. Coverage runs downward only,
- * so a package is not in a domain for holding one of its facets, and a
- * consumer module, being a file, is covered by path facets alone.
- */
-function covers(facet: string, place: string): boolean {
-  if (facet.includes("#")) {
-    return facet === place;
-  }
-  const [path = place] = place.split("#");
-  return path === facet || path.startsWith(`${facet}/`);
 }
 
 /** Every domain a place is in: those whose own facets cover it, and their parents. Nesting is membership. */

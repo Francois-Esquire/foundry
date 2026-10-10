@@ -15,6 +15,8 @@ import { z } from "zod";
 import { normalizeWorkspacePath } from "./boundary";
 import type { DomainDeclaration } from "./domain-declaration";
 import { domainsSchema } from "./domain-declaration";
+import type { Rule } from "./rule-declaration";
+import { rulesSchema } from "./rule-declaration";
 import { HISTORY_RANGE } from "./semantics-history-timeline";
 import { SEMANTICS_HISTORY_STRATEGIES } from "./semantics-history-types";
 import type { SemanticsConfig } from "./semantics-types";
@@ -52,6 +54,8 @@ export interface AtlasConfig {
     range?: string;
     strategy?: (typeof SEMANTICS_HISTORY_STRATEGIES)[number];
   };
+  /** What the workspace permits or requires of its own structure: read by `check` and the codemods, never an analysis. */
+  rules?: Rule[];
 }
 
 /** The configuration directory, relative to the workspace root. */
@@ -71,6 +75,7 @@ export const DEFAULT_CONFIGURATION: SemanticsConfig = {
     range: "1y",
     strategy: "monthly",
   },
+  rules: [],
 };
 
 const DIRECTORY = "must be a workspace-relative directory";
@@ -120,10 +125,11 @@ const configSchema = z.strictObject({
       { error: "must be an object" }
     )
     .optional(),
+  rules: rulesSchema.optional(),
 }) satisfies z.ZodType<AtlasConfig, unknown>;
 
-/** `foundry.config.json#semantics` declares no domains; they live in `.foundry/atlas/` only. */
-const legacySchema = configSchema.omit({ domains: true });
+/** `foundry.config.json#semantics` declares no domains or rules; they live in `.foundry/atlas/` only. */
+const legacySchema = configSchema.omit({ domains: true, rules: true });
 
 /** A value as an error message shows it after "got". */
 function shown(value: unknown): string {
@@ -414,6 +420,7 @@ function withDefaults(config: AtlasConfig): SemanticsConfig {
     domains: config.domains ?? DEFAULT_CONFIGURATION.domains,
     exclude: config.exclude ?? DEFAULT_CONFIGURATION.exclude,
     history: { ...DEFAULT_CONFIGURATION.history, ...config.history },
+    rules: config.rules ?? DEFAULT_CONFIGURATION.rules,
   };
 }
 

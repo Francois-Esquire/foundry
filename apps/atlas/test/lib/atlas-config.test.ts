@@ -54,6 +54,7 @@ it(
       domains: [],
       exclude: ["packages/fixtures"],
       history: { ...DEFAULT_CONFIGURATION.history, range: "6m" },
+      rules: [],
     });
   },
   LOAD_TIMEOUT_MS
@@ -79,6 +80,7 @@ it(
         ...DEFAULT_CONFIGURATION.history,
         strategy: "evenly-spaced",
       },
+      rules: [],
     });
   },
   LOAD_TIMEOUT_MS
@@ -153,6 +155,42 @@ it(
 );
 
 it(
+  "reads the rules a configuration file declares, as written, and rejects an invalid one by its file and setting",
+  async () => {
+    const rules = [
+      { effect: "require", operator: "internalize", subject: "packages/core" },
+      {
+        effect: "permit",
+        operator: "internalize",
+        subject: "packages/lib/src/ids.ts#InvoiceId",
+      },
+    ];
+    const root = workspace({
+      ".foundry/atlas/rules.ts": `export default { rules: ${JSON.stringify(rules)} };\n`,
+    });
+    expect(await loadConfiguration(root)).toEqual({
+      ...DEFAULT_CONFIGURATION,
+      rules,
+    });
+    const twice = workspace({
+      ".foundry/atlas/a.ts": "export default { rules: [] };\n",
+      ".foundry/atlas/b.ts": "export default { rules: [] };\n",
+    });
+    await expect(loadConfiguration(twice)).rejects.toThrow(
+      "Configuration: rules is declared in .foundry/atlas/a.ts and .foundry/atlas/b.ts. Declare it in one."
+    );
+    const invalid = workspace({
+      ".foundry/atlas/rules.ts":
+        'export default { rules: [{ effect: "permit", operator: "move", subject: "packages/core" }] };\n',
+    });
+    await expect(loadConfiguration(invalid)).rejects.toThrow(
+      'Configuration .foundry/atlas/rules.ts: rules[0].operator must be "internalize", the one operator rules can name so far; got "move".'
+    );
+  },
+  LOAD_TIMEOUT_MS
+);
+
+it(
   "names the file and the setting for every invalid value",
   async () => {
     const cases: [string, string][] = [
@@ -169,8 +207,8 @@ it(
         "Configuration .foundry/atlas/index.ts: history.checkpoints must be a whole number of at least 1; got 0; history.every must be a whole number of at least 1; got 2.5.",
       ],
       [
-        "export default { rules: [] };",
-        "Configuration .foundry/atlas/index.ts: unknown key rules.",
+        "export default { lenses: [] };",
+        "Configuration .foundry/atlas/index.ts: unknown key lenses.",
       ],
       [
         "export default { exclude: () => [] };",
@@ -240,6 +278,7 @@ it("reads foundry.config.json#semantics when there is no configuration directory
     domains: [],
     exclude: ["packages/x"],
     history: { ...DEFAULT_CONFIGURATION.history, every: 10 },
+    rules: [],
   });
   expect(
     await loadConfiguration(
@@ -273,6 +312,20 @@ it("rejects removed and invalid settings in foundry.config.json", async () => {
         },
       },
       "foundry.config.json: semantics has unknown key domains.",
+    ],
+    [
+      {
+        semantics: {
+          rules: [
+            {
+              effect: "require",
+              operator: "internalize",
+              subject: "packages/core",
+            },
+          ],
+        },
+      },
+      "foundry.config.json: semantics has unknown key rules.",
     ],
   ];
   for (const [content, message] of cases) {

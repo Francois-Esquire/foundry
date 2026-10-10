@@ -133,12 +133,18 @@ export const config = {
   domains: [{ facets: ["packages/a"], name: "core", reason: "The model." }],
   exclude: ["packages/fixtures"],
   history: { checkpoints: 6, strategy: "monthly" },
+  rules: [{ effect: "require", operator: "internalize", subject: "packages/a" }],
 } satisfies AtlasConfig;
 const domain: NonNullable<AtlasConfig["domains"]>[number] = { name: "core" };
+type Rule = NonNullable<AtlasConfig["rules"]>[number];
+const rule: Rule = { effect: "permit", operator: "internalize", subject: "packages/a" };
+// @ts-expect-error A rule names internalize, the one operator so far.
+const moved: Rule = { effect: "permit", operator: "move", subject: "packages/a" };
 
 export const used = [
   address, caught, dataset, DEFAULT_PORT, domain, fresh, history, historySchema,
-  internals, kinds, manifest, report, skipped, status, viewerRoot, workspaceReport,
+  internals, kinds, manifest, moved, report, rule, skipped, status, viewerRoot,
+  workspaceReport,
 ];
 `;
 

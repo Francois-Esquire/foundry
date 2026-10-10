@@ -1,6 +1,6 @@
 ---
 title: Configuration
-description: The configuration directory, .foundry/atlas/, its settings and domains, and what else Atlas reads from a workspace.
+description: The configuration directory, .foundry/atlas/, its settings, domains, and rules, and what else Atlas reads from a workspace.
 ---
 
 Atlas takes its runtime options from the command line. What a workspace
@@ -48,6 +48,7 @@ export default {
 | `history.every` | whole number, at least 1 | `100` | Commit stride for the `every-n-commits` strategy. |
 | `history.range` | string | `"1y"` | How far back from `HEAD`: `<n>y` for years, `<n>m` for months, `<n>d` for days, or `all`. |
 | `history.strategy` | string | `"monthly"` | `monthly`, `evenly-spaced`, or `every-n-commits`. |
+| `rules` | list of rules | `[]` | What the workspace permits or requires of its own structure; no analysis reads it. See [Rules](#rules). |
 
 Unknown keys are errors. Which directories are packages is not a setting:
 the workspace declaration decides it (see
@@ -116,6 +117,48 @@ symbol. A place in a nested domain is in its parents too.
 Domains are not an analysis input: a scan with new domains reuses every
 package's results, and only the lens outputs are written again.
 
+## Rules
+
+A rule says what the workspace wants to be true of its own structure: that
+an operator may be applied to the places under a subject, or that its
+outcome must hold there.
+
+```ts
+// .foundry/atlas/rules.ts
+export default {
+  rules: [
+    { operator: "internalize", subject: "packages/core", effect: "require" },
+    {
+      operator: "internalize",
+      subject: "packages/lib/src/ids.ts#InvoiceId",
+      effect: "permit",
+    },
+  ],
+};
+```
+
+| Field | Type | Effect |
+| --- | --- | --- |
+| `operator` | string | The kind of change the rule is about. `internalize`, a package-public symbol leaving its package's public surface, is the only one so far; others are added as Atlas learns to apply them. |
+| `subject` | string | The place the rule names, written as a facet: a package, folder, or file by its workspace-relative path, or a symbol as `path#name`. The rule covers the subject and everything below it. |
+| `effect` | string | `permit`: a plan to apply the operator to a place under the subject may be authorized. `require`: under the subject, the operator's outcome must hold; for `internalize`, no package-public symbol is unused outside its package. A `require` permits too. |
+
+A subject follows the facet rules of [Domains](#domains): relative to the
+workspace root, `/` as the separator, no empty, `.`, or `..` segment, no
+trailing `/`, no `*`, `?`, or leading `!`, and at most one symbol after
+`#`. It covers by whole segments, so `packages/co` does not cover
+`packages/core`, and it need not exist yet.
+
+A rule is named by its index, as errors name it: `rules[0]`. Reordering the
+list renames every rule. One operator and subject take one rule: the same
+rule twice is an error, and so is a `permit` beside a `require` of the same
+subject, since the `require` already permits. `rules` is declared in one
+configuration file, like every key. `foundry.config.json` does not accept
+rules.
+
+Rules are not an analysis input: a scan with new rules reuses every
+package's results.
+
 ## Errors
 
 The configuration is checked before anything is analyzed. Each message
@@ -123,7 +166,8 @@ names the file and the setting, and lists every problem in that file:
 
 ```text
 Configuration .foundry/atlas/index.ts: history.strategy must be monthly, evenly-spaced, or every-n-commits; got "weekly".
-Configuration .foundry/atlas/index.ts: unknown key rules.
+Configuration .foundry/atlas/index.ts: unknown key lenses.
+Configuration .foundry/atlas/rules.ts: rules[0].operator must be "internalize", the one operator rules can name so far; got "move".
 Configuration .foundry/atlas/domains.ts: domains[0].facets[1] must be relative to the workspace root; got "/packages/billing".
 Configuration .foundry/atlas/index.ts: the default export must be an object.
 Configuration .foundry/atlas/index.ts: the file has no default export. Export the configuration as the default, or start a helper file's name with _.
@@ -184,8 +228,8 @@ When the configuration runs:
   process.
 
 A changed `exclude` invalidates the cached package reports on the next
-scan; the package-local analyses are reused. Domains and history settings
-invalidate none. An edit that changes no setting, such as a comment,
+scan; the package-local analyses are reused. Domains, rules, and history
+settings invalidate none. An edit that changes no setting, such as a comment,
 invalidates nothing.
 
 ## What else Atlas reads

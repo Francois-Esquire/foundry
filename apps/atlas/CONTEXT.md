@@ -119,8 +119,8 @@ One checkpoint's saved analysis.
 
 **Configuration**:
 What a workspace declares to Atlas in its configuration directory,
-`.foundry/atlas/`: exclusions, history settings, and domains. Analysis thresholds are
-not configuration; they are built in.
+`.foundry/atlas/`: exclusions, history settings, domains, and rules. Analysis
+thresholds are not configuration; they are built in.
 _Avoid_: config, semantics config, analysis config
 
 **Configuration directory**:
@@ -154,11 +154,59 @@ _Avoid_: concept (the scan's observation), anchor (AnalysisConfig's built-in
 pin), domain behavior, bounded context, area
 
 **Facet**:
-A reference by which a domain claims places, a path or `path#name`. A path
-facet covers its place and every place below it, a symbol facet only its
-symbol. A facet that names no place in the dataset is unmatched, and the
-`domains` lens reports it.
+A reference to places, a path or `path#name`: a domain claims places by its
+facets, and a rule names its subject as one. A path facet covers its place
+and every place below it, a symbol facet only its symbol. A domain facet
+that names no place in the dataset is unmatched, and the `domains` lens
+reports it.
 _Avoid_: member, path, scope, region, anchor (AnalysisConfig's built-in pin)
+
+**Rule**:
+What the workspace says of its own structure: that an operator may be
+applied under a subject, or that its outcome must hold there. Declared under
+`rules`, as `{ operator, subject, effect }`, and named by its index,
+`rules[0]`, so reordering the list renames every rule. No analysis reads
+rules.
+_Avoid_: policy (AnalysisConfig's thresholds), constraint (readiness's word),
+lint rule, gate
+
+**Subject**:
+The place a rule names, written as a facet is, a path or `path#name`. It
+covers places as a facet does: a path subject covers its place and every
+place below it, by whole segments, and a symbol subject only its symbol. It
+need not exist.
+_Avoid_: target, scope, operator subject (`OperatorSubject`, the symbol,
+concept, package, boundary, or behavior an architectural operator acts on)
+
+**Effect**:
+What a rule says of its operator. `permit`: a plan to apply the operator to a
+place under the subject may be authorized. `require`: under the subject, the
+operator's outcome must hold; for `internalize`, no package-public symbol is
+unused outside its package. A `require` permits too.
+_Avoid_: action, mode, expected effect and covered effect (an operator's
+predicted architectural change and the plan's coverage of it)
+
+**Operator**:
+A kind of architectural change from the operator catalog, such as
+`internalize`: a package-public symbol leaves its package's public surface.
+A rule names an operator; `internalize` is the only one so far.
+_Avoid_: codemod, mutator, `internalize-symbol` (the opportunity's
+operation), `internalize-export` (its mutator)
+
+**Mutator**:
+The code that edits the workspace to apply a plan: `internalize-export`, for
+`internalize`. Nothing else in Atlas edits a workspace's sources. The code
+still calls it an operator (`StructuralOperator` and `OperatorId` in
+`operators.ts`, `MutationResult.operator`, and the catalog's
+`legacyOperatorId`).
+_Avoid_: operator, codemod, apply
+
+**Violation**:
+A place where a `require` rule's outcome does not hold: for `internalize`, an
+opportunity to internalize a symbol under the rule's subject. A violation
+carries the saved plan's status and blockers, so a symbol of a publishable
+package shows why it cannot simply be internalized.
+_Avoid_: finding, error, failure
 
 ### What a scan saves
 
@@ -199,6 +247,19 @@ _Avoid_: workspace record
 The dataset's analysis of one package, `output/packages/<name>.json`, where
 `<name>` is the package name with `/` encoded (`@s/a` is `@s__a`).
 _Avoid_: surface report
+
+**Opportunity**:
+A structural reduction a package report records once its hard gates pass,
+such as `internalize-symbol` for a package-public symbol nothing outside
+its package uses. Weighted evidence never stands in for a failed gate.
+_Avoid_: suggestion, recommendation, finding, violation (that needs a rule)
+
+**Plan**:
+A package report's read-only plan for one opportunity: the files it would
+change, what it predicts, and its status, `ready`, `blocked`, or
+`unsupported`, with the blockers' reasons. A plan never writes; a mutator
+applies it.
+_Avoid_: patch, fix, codemod
 
 **Projection**:
 A shape of the reports that no renderer owns; it copies and never infers.
