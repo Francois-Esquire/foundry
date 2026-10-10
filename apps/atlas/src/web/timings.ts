@@ -29,10 +29,14 @@ export function markLoad(mark: LoadMark): void {
   performance.mark(mark);
 }
 
-/** The stages of one map repaint, each measured as `atlas:paint:<stage>`. */
+/**
+ * The stages of one map repaint, each measured as `atlas:paint:<stage>`: the
+ * ink canvas as a whole (`ink`) and each of its layers (`ink:<layer>`, in
+ * `scene/ink/layers.ts`), then the scene's own stages.
+ */
 export type PaintStage =
-  | "boundaries"
   | "ink"
+  | `ink:${string}`
   | "lettering"
   | "relief"
   | "sea-ink";

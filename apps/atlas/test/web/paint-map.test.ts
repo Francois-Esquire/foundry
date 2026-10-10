@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { memberContours } from "../../src/web/belonging";
 import type { ResponsibilityOverlay } from "../../src/web/responsibility-focus";
-import { paintMap } from "../../src/web/scene/paint-map";
+import { inkLayers } from "../../src/web/scene/ink/layers";
+import { inkState } from "../../src/web/scene/ink/state";
+import { paintInk } from "../../src/web/scene/paint-map";
 import {
   paintCoastInk,
   paintGridReferences,
@@ -107,37 +109,34 @@ describe("map detail drawing", () => {
     const alphas: number[] = [];
     ctx.fill.mockImplementation(() => alphas.push(ctx.globalAlpha));
     ctx.fillRect.mockImplementation(() => alphas.push(ctx.globalAlpha));
-    paintMap(canvas, data, null, null, "ink", {
-      height: 500,
-      pixelsPerUnit: 2,
-      width: 500,
-      x: 0,
-      y: 0,
+    paintInk(canvas, {
+      data,
+      view: {
+        height: 500,
+        pixelsPerUnit: 2,
+        width: 500,
+        x: 0,
+        y: 0,
+      },
     });
     expect(alphas).toContain(0.85);
     alphas.length = 0;
-    paintMap(canvas, data, null, null, "ink", {
-      height: 500,
-      pixelsPerUnit: 5,
-      width: 500,
-      x: 0,
-      y: 0,
+    paintInk(canvas, {
+      data,
+      view: {
+        height: 500,
+        pixelsPerUnit: 5,
+        width: 500,
+        x: 0,
+        y: 0,
+      },
     });
     expect(alphas).toContain(1);
   });
   it("draws Belonging regions at island scale without selection", () => {
     const { canvas, ctx } = canvasFixture();
-    paintMap(
-      canvas,
-      data,
-      null,
-      null,
-      "ink",
-      { height: 500, pixelsPerUnit: 2, width: 500, x: 0, y: 0 },
-      [],
-      null,
-      false,
-      {
+    paintInk(canvas, {
+      belonging: {
         regions: [
           {
             color: "#678",
@@ -149,8 +148,10 @@ describe("map detail drawing", () => {
           },
         ],
         territory,
-      }
-    );
+      },
+      data,
+      view: { height: 500, pixelsPerUnit: 2, width: 500, x: 0, y: 0 },
+    });
     expect(ctx.clip).toHaveBeenCalled();
   });
   it("retains parent labels through composition and leaves neighboring anchors passive", () => {
@@ -166,15 +167,17 @@ describe("map detail drawing", () => {
       uncertain: false,
     };
     const neighbor = { ...parent, id: "neighbor", label: "Neighbor" };
-    const labels = paintMap(
-      canvas,
+    const labels = paintInk(canvas, {
+      belonging: {
+        files: territory.files.slice(0, 1),
+        parents: [parent],
+        regions: [],
+        surroundings: [neighbor],
+        territory,
+      },
       data,
-      "island",
-      "one",
-      "ink",
-      { height: 500, pixelsPerUnit: 8, width: 500, x: 0, y: 0 },
-      [],
-      {
+      fileId: "one",
+      responsibility: {
         composition: {
           active: [],
           fileId: "one",
@@ -189,15 +192,9 @@ describe("map detail drawing", () => {
         totalLinks: 0,
         unresolved: [],
       },
-      false,
-      {
-        files: territory.files.slice(0, 1),
-        parents: [parent],
-        regions: [],
-        surroundings: [neighbor],
-        territory,
-      }
-    );
+      selected: "island",
+      view: { height: 500, pixelsPerUnit: 8, width: 500, x: 0, y: 0 },
+    });
     expect(labels.some((label) => label.compositeId === "composite")).toBe(
       true
     );
@@ -216,42 +213,30 @@ describe("map detail drawing", () => {
       polygons: memberContours(territory.files.slice(0, 1)),
       uncertain: false,
     };
-    const labels = paintMap(
-      canvas,
+    const labels = paintInk(canvas, {
+      belonging: { pinned: region.id, regions: [region], territory },
       data,
-      "island",
-      null,
-      "ink",
-      { height: 500, pixelsPerUnit: 2, width: 500, x: 0, y: 0 },
-      [],
-      null,
-      false,
-      { pinned: region.id, regions: [region], territory }
-    );
+      selected: "island",
+      view: { height: 500, pixelsPerUnit: 2, width: 500, x: 0, y: 0 },
+    });
     expect(ctx.clip).toHaveBeenCalledWith("evenodd");
     expect(labels.some((label) => label.regionId === region.id)).toBe(true);
     expect(
       ctx.strokeRect.mock.calls.filter((args) => args[2] === 3.5 / 2)
     ).toHaveLength(1);
-    const closeLabels = paintMap(
-      canvas,
+    const closeLabels = paintInk(canvas, {
+      belonging: { pinned: region.id, regions: [region], territory },
       data,
-      "island",
-      null,
-      "ink",
-      { height: 500, pixelsPerUnit: 5, width: 500, x: 0, y: 0 },
-      [],
-      null,
-      false,
-      { pinned: region.id, regions: [region], territory }
-    );
+      selected: "island",
+      view: { height: 500, pixelsPerUnit: 5, width: 500, x: 0, y: 0 },
+    });
     expect(closeLabels.some((label) => label.file?.id === "two")).toBe(false);
   });
   it("retires district and neighboring file labels as composition becomes dominant", () => {
     const { canvas } = canvasFixture();
     const view = { height: 500, pixelsPerUnit: 2, width: 500, x: 0, y: 0 };
     // A selected island shows no grouping until its responsibilities load.
-    const unentered = paintMap(canvas, data, "island", null, "ink", view);
+    const unentered = paintInk(canvas, { data, selected: "island", view });
     expect(
       unentered
         .filter((label) => label.territory.id === "island")
@@ -265,28 +250,31 @@ describe("map detail drawing", () => {
       polygons: memberContours(territory.files),
       uncertain: false,
     };
-    const districts = paintMap(
-      canvas,
+    const districts = paintInk(canvas, {
+      belonging: { regions: [district], territory },
       data,
-      "island",
-      null,
-      "ink",
+      selected: "island",
       view,
-      [],
-      null,
-      false,
-      { regions: [district], territory }
-    );
+    });
     expect(districts.some((label) => label.regionId === "district")).toBe(true);
     expect(districts.some((label) => label.file)).toBe(false);
-    const files = paintMap(canvas, data, "island", null, "ink", {
-      ...view,
-      pixelsPerUnit: 5,
+    const files = paintInk(canvas, {
+      data,
+      selected: "island",
+      view: {
+        ...view,
+        pixelsPerUnit: 5,
+      },
     });
     expect(files.filter((label) => label.file)).toHaveLength(2);
-    const focused = paintMap(canvas, data, "island", "one", "ink", {
-      ...view,
-      pixelsPerUnit: 5,
+    const focused = paintInk(canvas, {
+      data,
+      fileId: "one",
+      selected: "island",
+      view: {
+        ...view,
+        pixelsPerUnit: 5,
+      },
     });
     expect(
       focused.filter((label) => label.file).map((label) => label.file?.id)
@@ -306,32 +294,26 @@ describe("map detail drawing", () => {
       totalLinks: 0,
       unresolved: [],
     };
-    const composition = paintMap(
-      canvas,
+    const composition = paintInk(canvas, {
       data,
-      "island",
-      "one",
-      "ink",
-      { ...view, pixelsPerUnit: 8 },
-      [],
-      overlay
-    );
+      fileId: "one",
+      responsibility: overlay,
+      selected: "island",
+      view: { ...view, pixelsPerUnit: 8 },
+    });
     expect(
       composition.filter((label) => label.file).map((label) => label.file?.id)
     ).toEqual(["one"]);
     expect(composition.find((label) => label.file?.id === "one")?.y).toBe(
       -21 / 8
     );
-    const elsewhere = paintMap(
-      canvas,
+    const elsewhere = paintInk(canvas, {
       data,
-      "island",
-      "one",
-      "ink",
-      { ...view, pixelsPerUnit: 8, width: 40, x: 30 },
-      [],
-      overlay
-    );
+      fileId: "one",
+      responsibility: overlay,
+      selected: "island",
+      view: { ...view, pixelsPerUnit: 8, width: 40, x: 30 },
+    });
     expect(
       elsewhere.filter((label) => label.file).map((label) => label.file?.id)
     ).toEqual(["two"]);
@@ -353,26 +335,17 @@ describe("map detail drawing", () => {
       })),
     };
     const view = { height: 140, pixelsPerUnit: 5, width: 180, x: 0, y: 0 };
-    const crowded = paintMap(
-      canvas,
-      { ...data, territories: [populated] },
-      "island",
-      null,
-      "ink",
-      view
-    );
+    const crowded = paintInk(canvas, {
+      data: { ...data, territories: [populated] },
+      selected: "island",
+      view,
+    });
     expect(crowded.filter((label) => label.file).length).toBeLessThanOrEqual(
       15
     );
-    const focused = paintMap(
-      canvas,
-      { ...data, territories: [populated] },
-      "island",
-      null,
-      "ink",
-      view,
-      [],
-      {
+    const focused = paintInk(canvas, {
+      data: { ...data, territories: [populated] },
+      responsibility: {
         links: [],
         members: ["file:0"],
         pathDisagreement: [],
@@ -380,20 +353,25 @@ describe("map detail drawing", () => {
         territoryId: "island",
         totalLinks: 0,
         unresolved: [],
-      }
-    );
+      },
+      selected: "island",
+      view,
+    });
     expect(
       focused.filter((label) => label.file).map((label) => label.file?.id)
     ).toEqual(["file:0"]);
   });
   it("captions each package name with its real file count", () => {
     const { canvas } = canvasFixture();
-    const labels = paintMap(canvas, data, null, null, "ink", {
-      height: 500,
-      pixelsPerUnit: 1,
-      width: 500,
-      x: 0,
-      y: 0,
+    const labels = paintInk(canvas, {
+      data,
+      view: {
+        height: 500,
+        pixelsPerUnit: 1,
+        width: 500,
+        x: 0,
+        y: 0,
+      },
     });
     const caption = (text: string) =>
       labels.find((label) => label.text === text)?.caption;
@@ -463,4 +441,73 @@ describe("map detail drawing", () => {
     expect(new Set(first).size).toBeGreaterThan(2);
     expect(widths()).toEqual(first);
   });
+});
+
+describe("ink layers", () => {
+  it("paints every layer once, in z-order, timing each in a developer session", () => {
+    performance.clearMeasures();
+    const { canvas } = canvasFixture();
+    const view = { height: 500, pixelsPerUnit: 2, width: 500, x: 0, y: 0 };
+    paintInk(canvas, { data, view });
+    expect(
+      performance
+        .getEntriesByType("measure")
+        .filter((entry) => entry.name.startsWith("atlas:paint:ink:"))
+    ).toEqual([]);
+    paintInk(canvas, { data, developer: true, view });
+    expect(
+      performance
+        .getEntriesByType("measure")
+        .filter((entry) => entry.name.startsWith("atlas:paint:ink:"))
+        .map((entry) => entry.name.slice("atlas:paint:ink:".length))
+    ).toEqual(inkLayers.map((layer) => layer.id));
+    performance.clearMeasures();
+  });
+
+  it("asks for the hovered island once labels are placed, and inks its coast last", () => {
+    const { canvas, ctx } = canvasFixture();
+    const view = { height: 500, pixelsPerUnit: 2, width: 500, x: 0, y: 0 };
+    const seen: number[] = [];
+    const labels = paintInk(canvas, {
+      data,
+      hovered: (placed) => {
+        seen.push(placed.length);
+        return data.territories[0] ?? null;
+      },
+      view,
+    });
+    expect(seen).toEqual([labels.length]);
+    expect(labels.length).toBeGreaterThan(0);
+    expect(ctx.stroke).toHaveBeenCalled();
+  });
+});
+
+it("runs every layer that reads the placed labels after the labels layer", () => {
+  const { canvas } = canvasFixture();
+  const ctx = canvas.getContext("2d") as unknown as CanvasRenderingContext2D;
+  const view = { height: 500, pixelsPerUnit: 2, width: 500, x: 0, y: 0 };
+  const readers: string[] = [];
+  for (const layer of inkLayers) {
+    const state = inkState(ctx, ctx, {
+      data,
+      hovered: () => null,
+      selected: "island",
+      topography: [],
+      view,
+    });
+    Object.defineProperty(state, "labels", {
+      get: () => {
+        readers.push(layer.id);
+        return [];
+      },
+      set: () => undefined,
+    });
+    layer.paint(state);
+  }
+  const order: string[] = inkLayers.map((layer) => layer.id);
+  const labels = order.indexOf("labels");
+  expect(readers.length).toBeGreaterThan(0);
+  for (const reader of new Set(readers)) {
+    expect(order.indexOf(reader)).toBeGreaterThan(labels);
+  }
 });

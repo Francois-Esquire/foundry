@@ -4,7 +4,7 @@ import { landmarkFootprint } from "../../src/web/landmark-footprint";
 import type { NaturalFeatures } from "../../src/web/natural-features";
 import { riverRuns } from "../../src/web/river-network";
 import { paintNaturalFeatures } from "../../src/web/scene/paint-features";
-import { paintMap } from "../../src/web/scene/paint-map";
+import { paintInk } from "../../src/web/scene/paint-map";
 import type { AtlasData, AtlasFile, Territory } from "../../src/web/types";
 
 const file = (id: string, x: number, y: number): AtlasFile => ({
@@ -197,24 +197,22 @@ describe("natural feature drawing", () => {
     };
     const paint = (withFeatures: boolean, fileId: string | null = null) => {
       const ctx = context();
-      paintMap(
+      paintInk(
         {
           getContext: () => ctx,
           height: 500,
           width: 500,
         } as unknown as HTMLCanvasElement,
-        data,
-        fileId && territory.id,
-        fileId,
-        "ink",
-        { height: 500, pixelsPerUnit: 6, width: 500, x: 0, y: 0 },
-        [],
-        null,
-        false,
         {
-          features: withFeatures ? features : undefined,
-          regions: [],
-          territory,
+          belonging: {
+            features: withFeatures ? features : undefined,
+            regions: [],
+            territory,
+          },
+          data,
+          fileId,
+          selected: fileId && territory.id,
+          view: { height: 500, pixelsPerUnit: 6, width: 500, x: 0, y: 0 },
         }
       );
       return ctx;

@@ -70,15 +70,15 @@ the lens, says so; missing history never becomes a zero count.
 | `rangeBlend` | Overlapping summit profiles | Soft maximum (power 8): clustered summits join into one range | `scene/terrain-field.ts` |
 | `lowland` | Clearance from the unchanged coast | Beach round-over (1, 4-unit falloff) plus gentle inland rise (0.9, 30-unit falloff); no table | `scene/terrain-field.ts` |
 | `islandPlinth` | None (constant) | 0.45-unit raised coast above the paper | `scene/terrain.ts`, `scene/lettering.ts` |
-| `speckRadius` | View pixels per map unit | Overview file dot radius `1.45 / √pixels` | `scene/paint-map.ts` |
+| `speckRadius` | View pixels per map unit | Overview file dot radius `1.45 / √pixels` | `scene/ink/files.ts` |
 | `terrainContourLevels` | Shared elevation scale | Optional contours at 2, 4, 6 and 8 units; every second line emphasized | `scene/topography.ts` |
 | `shoreRamp` | Clearance from the unchanged coast | Summits fade over ten units toward the shoreline | `scene/terrain-field.ts` |
 | `chartGrid` | View pixels per map unit | Fixed 90-unit majors and 18-unit minor lines; minor opacity fades in at 30–60 screen pixels of spacing | `scene/paint-paper.ts` |
 | `footprint`            | Package size                                  | island radius         | `load-atlas.ts`                 |
 | `latitude`             | Package layer                                 | north/south position  | `load-atlas.ts`, `geography.ts` |
 | `attraction`           | Dependency strength                           | pull between islands  | `geography.ts`                  |
-| `territoryLabelSize`   | Package footprint                             | territory label size  | `scene/paint-map.ts`                  |
-| `labelPriority`        | Module dependents, dependencies               | file label order      | `scene/paint-map.ts`                  |
+| `territoryLabelSize`   | Package footprint                             | territory label size  | `scene/ink/labels.ts`                 |
+| `labelPriority`        | Module dependents, dependencies               | file label order      | `scene/ink/labels.ts`                 |
 | `laneWidth`            | Dependency strength                           | sea lane width        | `scene/trade-layer.ts`                |
 | `dependencyPen` | Module imports between two packages | Selected package's dependency line width, 0.9–1.8 screen pixels | `scene/selection-ink.ts` |
 | `roadWidth`            | Dependency strength, merged per road          | road width            | `scene/road-layer.ts`                 |
@@ -87,7 +87,7 @@ the lens, says so; missing history never becomes a zero count.
 | `marshDetail` | Unresolved module count and zoom | reed opacity and screen spacing | `scene/paint-features.ts` |
 | `riverPen` | Bound stream width and zoom | mineral river pen width | `scene/paint-features.ts` |
 | `reliefHachure` | Current height-field slope and zoom | engraved fall-line threshold, length and opacity | `scene/relief-ink.ts` |
-| `filePen` | Zoom | file settlement mark size | `scene/paint-map.ts` |
+| `filePen` | Zoom | file settlement mark size | `scene/ink/files.ts` |
 
 ## Contact points
 
@@ -101,7 +101,7 @@ change swaps an inline read or transform for a codex export; nothing else moved.
 | `former-packages.ts`      | took raw history; found each package's last complete checkpoint      | takes `CodexRetiredPackage[]`; placement only                                         |
 | `former-packages.test.ts` | checkpoint selection and placement                                   | placement; selection moved to `codex/resolve.test.ts`                                 |
 | `geography.ts`            | `layer · −220`, `log2(2 + w)`                                        | `latitude`, `attraction`                                                              |
-| `scene/paint-map.ts`      | `clamp(0.15r, 13, 22)`; `incoming + outgoing`                        | `territoryLabelSize`; `labelPriority`                                                 |
+| `scene/ink/labels.ts`     | `clamp(0.15r, 13, 22)`; `incoming + outgoing`                        | `territoryLabelSize`; `labelPriority`                                                 |
 | `scene/trade-layer.ts`    | inline lane width                                                    | `laneWidth`                                                                           |
 | `scene/road-layer.ts`     | inline road width                                                    | `roadWidth`                                                                           |
 

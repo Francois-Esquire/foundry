@@ -12,7 +12,8 @@
  * eval=<expression>, profile=pan|zoom|pointer|sweep[@x,y], clearlog, errors,
  * marks (the load marks from `src/web/timings.ts`, the data fetched, and, with
  * `?dev` in the URL or on the dev server, each timed stage's durations),
- * idle=<ms> (the page at rest: main-thread task and script time as a share of
+ * compare=<a.png>,<b.png> (two screenshots in --out, decoded in the page: the
+ * pixels that differ and the largest difference), idle=<ms> (the page at rest: main-thread task and script time as a share of
  * the window, and the frames submitted in it, which only a developer session
  * counts; null otherwise).
  * WebGL 2 runs on SwiftShader unless --angle metal (or another ANGLE backend)
@@ -20,7 +21,7 @@
  * renderer takes its WebGL 2 backend. Profiles use a 1500x1000 viewport; pass --pixel-ratio 2 for Retina. Screenshots land in .cache/shots/<tag>-<name>.png.
  */
 import { spawn } from "node:child_process";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { profileInteraction } from "./profile-interaction";
@@ -272,6 +273,42 @@ async function measureIdle(session: Session, milliseconds: number) {
   };
 }
 
+/**
+ * Decodes two screenshots in the page and counts the pixels that differ: any
+ * channel by more than 0, and by more than 8 of 255, with the largest
+ * difference and the share of the image it covers.
+ */
+async function compareShots(session: Session, a: string, b: string) {
+  const dataUrl = async (file: string) =>
+    `data:image/png;base64,${(await readFile(resolve(values.out, file))).toString("base64")}`;
+  const [first, second] = [await dataUrl(a), await dataUrl(b)];
+  return await session.evaluate(`(async () => {
+    const decode = async (url) => {
+      const bitmap = await createImageBitmap(await (await fetch(url)).blob(), { colorSpaceConversion: "none", premultiplyAlpha: "none" });
+      const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+      const context = canvas.getContext("2d");
+      context.drawImage(bitmap, 0, 0);
+      return context.getImageData(0, 0, bitmap.width, bitmap.height);
+    };
+    const [a, b] = [await decode(${JSON.stringify(first)}), await decode(${JSON.stringify(second)})];
+    if (a.width !== b.width || a.height !== b.height) {
+      return { sizes: [a.width, a.height, b.width, b.height] };
+    }
+    let differing = 0, beyond = 0, maxDelta = 0;
+    for (let i = 0; i < a.data.length; i += 4) {
+      let delta = 0;
+      for (let c = 0; c < 3; c += 1) {
+        delta = Math.max(delta, Math.abs(a.data[i + c] - b.data[i + c]));
+      }
+      if (delta > 0) { differing += 1; }
+      if (delta > 8) { beyond += 1; }
+      maxDelta = Math.max(maxDelta, delta);
+    }
+    const pixels = a.width * a.height;
+    return { beyond8: beyond, differing, maxDelta, pixels, share: differing / pixels };
+  })()`);
+}
+
 const buttonScript = (label: string) =>
   `(() => { const wanted = ${JSON.stringify(label)}; const button = [...document.querySelectorAll("button")].find((b) => (b.textContent || "").trim() === wanted || b.getAttribute("aria-label") === wanted || b.title === wanted); if (!button) { return "missing"; } button.click(); return "ok"; })()`;
 
@@ -404,6 +441,13 @@ async function runStep(
     case "marks":
       log(`marks: ${String(await session.evaluate(`(${readTimings})()`))}`);
       break;
+    case "compare": {
+      const [a = "", b = ""] = argument.split(",");
+      log(
+        `compare ${a} ${b}: ${JSON.stringify(await compareShots(session, a, b))}`
+      );
+      break;
+    }
     case "idle":
       log(
         `idle: ${JSON.stringify(await measureIdle(session, Number(argument)))}`

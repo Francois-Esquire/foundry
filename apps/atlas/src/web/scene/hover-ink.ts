@@ -9,8 +9,8 @@ const hoverStrokes = [
 
 /**
  * Inks the coast of the island under the pointer, at a constant screen width,
- * on a context already in map coordinates (as `paintMap` leaves the ink
- * canvas). Static: it appears and goes with the hover, nothing fades.
+ * on a context already in map coordinates (as `paintInk` sets up the ink
+ * canvas for every layer). Static: it appears and goes with the hover, nothing fades.
  */
 export function paintHoverInk(
   ctx: CanvasRenderingContext2D,

@@ -33,7 +33,7 @@ import { markLoad, type TimedStage, timeStage } from "../timings";
 import type { TradeRoute } from "../trade-routes";
 import { createTradeNavigation, leadingTrades } from "../trade-routes";
 import type { AtlasData, AtlasFile, FormerPackage, Territory } from "../types";
-import { atlasBoundaries, paintBoundaries } from "./boundaries";
+import { atlasBoundaries } from "./boundaries";
 import { hitComposition } from "./composition-hit";
 import { createContinentGround } from "./continent-ground";
 import { detailLevel, detailVisibility, fileInView } from "./detail-level";
@@ -46,7 +46,6 @@ import {
   zoomForPixels,
 } from "./exploration";
 import { createFrameRenderer } from "./frame-render";
-import { paintHoverInk } from "./hover-ink";
 import {
   createHoverTarget,
   hoveredIsland,
@@ -54,7 +53,7 @@ import {
 } from "./hover-target";
 import { createInkTexture } from "./ink-texture";
 import { createLabelProjector, createLettering } from "./lettering";
-import { paintMap } from "./paint-map";
+import { paintCoast, paintInk, paintSea } from "./paint-map";
 import { createPaperMaterials, paperThickness } from "./paper-material";
 import { createRenderPipeline } from "./pipeline";
 import { createReliefLayer } from "./relief-layer";
@@ -164,20 +163,7 @@ export async function createAtlasScene(
   );
   canvas.width = maxTextureSize;
   canvas.height = Math.round((canvas.width * seaData.height) / seaData.width);
-  paintMap(
-    canvas,
-    seaData,
-    null,
-    null,
-    "sea",
-    undefined,
-    [],
-    null,
-    false,
-    null,
-    undefined,
-    continents
-  );
+  paintSea(canvas, seaData, continents);
   const texture = new CanvasTexture(canvas);
   texture.colorSpace = SRGBColorSpace;
   texture.anisotropy = renderer.getMaxAnisotropy();
@@ -186,20 +172,7 @@ export async function createAtlasScene(
   paperCanvas.height = Math.round(
     (paperCanvas.width * data.height) / data.width
   );
-  paintMap(
-    paperCanvas,
-    data,
-    null,
-    null,
-    "coast",
-    undefined,
-    [],
-    null,
-    false,
-    null,
-    undefined,
-    continents
-  );
+  paintCoast(paperCanvas, data, continents);
   const paperTexture = new CanvasTexture(paperCanvas);
   paperTexture.colorSpace = SRGBColorSpace;
   paperTexture.anisotropy = texture.anisotropy;
@@ -211,7 +184,7 @@ export async function createAtlasScene(
   const inkCanvas = document.createElement("canvas");
   inkCanvas.width = canvas.width;
   inkCanvas.height = canvas.height;
-  paintMap(inkCanvas, data, null, null, "ink");
+  paintInk(inkCanvas, { data });
   let inkTexture = createInkTexture(inkCanvas);
   const seaInkCanvas = document.createElement("canvas");
   let seaInkTexture = createInkTexture(seaInkCanvas);
@@ -377,45 +350,33 @@ export async function createAtlasScene(
     ink.scale.set(width, height, 1);
     ink.position.set(x, -y, paperThickness + 0.02);
     labels = timed("ink", () =>
-      paintMap(
-        inkCanvas,
-        drawingData,
-        selected,
-        selectedFile,
-        "ink",
-        view,
-        settings.contours ? topography : [],
-        responsibility && {
+      paintInk(inkCanvas, {
+        belonging,
+        boundaries: { layers: boundaries, visible: settings.boundaries },
+        data: drawingData,
+        developer,
+        fileId: selectedFile,
+        hovered: (placed) => {
+          hoveredId = hoverTarget.island(
+            (pointer) => hit(pointer, placed)?.territory.id
+          );
+          return hoveredIsland(hoveredId, drawingData.territories, selected);
+        },
+        lettering: { canvas: lettering.canvas, project: projectLabel },
+        matches,
+        relief: reliefInk,
+        responsibility: responsibility && {
           ...responsibility,
           reducedMotion: reducedMotion.matches,
         },
+        ripples,
+        selected,
         showConnections,
-        belonging,
-        matches,
-        [],
-        settings.streams,
-        reliefInk,
-        { canvas: lettering.canvas, project: projectLabel },
-        ripples
-      )
+        streams: settings.streams,
+        topography: settings.contours ? topography : [],
+        view,
+      })
     );
-    const inkContext = inkCanvas.getContext("2d");
-    if (inkContext) {
-      timed("boundaries", () =>
-        paintBoundaries(
-          inkContext,
-          boundaries,
-          settings.boundaries,
-          view.pixelsPerUnit
-        )
-      );
-      hoveredId = hoverTarget.island((pointer) => hit(pointer)?.territory.id);
-      paintHoverInk(
-        inkContext,
-        hoveredIsland(hoveredId, drawingData.territories, selected),
-        view.pixelsPerUnit
-      );
-    }
     timed("sea-ink", () =>
       copySeaInk(seaInkCanvas, inkCanvas, drawingData, view)
     );
@@ -483,14 +444,18 @@ export async function createAtlasScene(
   const raycaster = new Raycaster();
   const plane = new Plane(new Vector3(0, 0, 1), -paperThickness);
   const point = new Vector3();
-  const hit = (event: PagePoint): AtlasSelection | null =>
+  /** The place under a page point; `placed` are the labels to hit first, the last repaint's by default. */
+  const hit = (
+    event: PagePoint,
+    placed: readonly MapLabel[] = labels
+  ): AtlasSelection | null =>
     resolveHit(
       renderer.domElement,
       raycaster,
       camera,
       plane,
       point,
-      labels,
+      placed,
       controls,
       tilt,
       host,
@@ -654,21 +619,6 @@ export async function createAtlasScene(
     );
     onTrades?.(trades);
     selectedFile = file?.id ?? null;
-    paintMap(
-      paperCanvas,
-      data,
-      selected,
-      file?.id ?? null,
-      "coast",
-      undefined,
-      [],
-      null,
-      false,
-      null,
-      undefined,
-      continents
-    );
-    paperTexture.needsUpdate = true;
     const bounds = territory
       ? frameFiles(
           territory.files.filter((f) => !fileIds || fileIds.includes(f.id))
@@ -943,7 +893,7 @@ function resolveHit(
   camera: OrthographicCamera,
   plane: Plane,
   point: Vector3,
-  labels: MapLabel[],
+  labels: readonly MapLabel[],
   controls: MapControls,
   tilt: 0.7,
   host: HTMLElement,

@@ -2094,7 +2094,11 @@ departures as the strongest signal.
   had to drop an argument at every call site by position, and a shifted
   argument still type-checks wherever two neighbors share a type.
   `paintMap` becomes an ordered list of layer painters, and each painter
-  is timed as its own stage, in place of the one `ink` stage.
+  is timed as its own stage, in place of the one `ink` stage. Done in
+  4.2a(i). Required in 4.2a(ii), not optional: each layer runs inside its
+  own `ctx.save()` and `restore()` in `paintInk`, so no layer inherits
+  another's drawing state, with the pixel compare run again afterwards to
+  show what that alone changes.
   Then the ink ladder: one ink module ranks every mark's contrast against
   its ground, and with it islands lose their package hue, since pigment
   means responsibility only (4.0). Its table of hue × dash × weight →
@@ -2104,6 +2108,59 @@ departures as the strongest signal.
   (`rgb(179, 138, 50)`), nearly the same hue, told apart only by weight.
   The ink pass also rewords DESIGN.md's "ports" and "settlements" (files
   drawn as settlements, lanes' harbors), left as they are by 4.1b.
+
+**4.2a(i) The ink canvas as layers.** Done 2026-10-10, with no visual
+change; 4.2a is split in two, and the ladder, relief, and legend are
+4.2a(ii).
+- `scene/paint-map.ts` (1,257 lines, sixteen positional parameters and a
+  mode string) is three functions and 130 lines: `paintSea(canvas, data,
+  continents)` and `paintCoast(canvas, data, continents)` for the two
+  sheets painted once, and `paintInk(canvas, options)` for the ink canvas
+  at the view, which takes one `InkOptions` object and returns the labels
+  placed.
+- `scene/ink/state.ts` resolves the options once into an `InkState` (the
+  unpinned focus, the composition dropped off screen, the matched region,
+  the evidence files, the zoom's detail and region strength), and
+  `scene/ink/layers.ts` holds `inkLayers`, the ordered list every repaint
+  runs: chart grid, sea ripples, coast, relief, belonging, connections,
+  files, responsibility, file focus, labels, topography, selection, grid
+  references, compass, sea caption, boundaries, hover. That list is the
+  map's z-order. The boundary overlays and the hover ink, which the scene
+  painted after `paintMap`, are its last two layers; the hover layer asks
+  the scene for the island under the pointer once the labels are placed,
+  through `hit(pointer, placed)`, so a label is still hit before the land
+  beneath it.
+- Each layer's code is in its own file under `scene/ink/` (belonging,
+  coast ink, compass, connections, file focus, files, labels,
+  responsibility, sea caption), renamed, bodies unchanged; the
+  layers that already had a painter (grid, ripples, relief, topography,
+  selection, grid references, boundaries, hover) are entries that call it.
+  Layers share one context and inherit each other's drawing state, as the
+  painter they came from did; 4.2a(ii) gives each its own (see 4.2a).
+- The focus path no longer repaints the coast sheet: that paint never
+  depended on the selection, and a rebuild repaints it. Deleted with its
+  texture upload.
+- Each layer is timed in a developer session as `atlas:paint:ink:<layer>`,
+  inside the whole canvas's `atlas:paint:ink`; the scene's `boundaries`
+  stage is now the `ink:boundaries` layer, and the hover hit-test, which
+  ran outside the ink stage, now counts under `ink` and `ink:hover`. On
+  this repository at island
+  zoom (WebGL 2 on Metal, 150 repaints), every layer's median is 0.5 ms or
+  less, files 0.5 ms and labels 0.3 ms the largest, for 1.5 ms of ink.
+- No visual change, shown by pixels: the same five views captured from the
+  build at `441a4c8` and from this one, with the pipeline Off so the frame
+  is deterministic (the default tier's occlusion noise differs between two
+  runs of one build), and compared in the page by the capture script's new
+  `compare=<a.png>,<b.png>` step. The overview, a hovered island, the
+  selected `@foundry/atlas` island, its close zoom, and the overview with
+  every reader layer and all six boundary overlays on: 0 of 1,500,000
+  pixels differ in each. Two runs of the build before agree exactly on the
+  first four and on all but 749 pixels (at most 4 of 255) of the fifth.
+- Tests: `paint-map.test.ts` and `paint-features.test.ts` call
+  `paintInk(canvas, { … })`; `paint-map.test.ts` adds that every layer is
+  painted once in `inkLayers` order and timed only in a developer session,
+  and that the hovered island is asked for once, after the labels, and
+  that every layer reading the placed labels runs after the labels layer.
 
 **4.3 Directories drawn,** and a domain drawn across islands.
 
