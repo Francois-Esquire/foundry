@@ -161,7 +161,7 @@ inline stays internal.
 | `workspace` | definition | `workspace({ path })` | Another directory to work on. The config's own is implicit. |
 | `sandbox` | definition | `sandbox({ image, mount?, resources? })` or `sandbox({ files, image? })` | An isolated place to run commands; the files form is a scratch sandbox seeded under `/workspace`. |
 | `artifact` | definition | `artifact({ name, type })` | A versioned output. |
-| `skills` | definition | `skills.load().add(glob).pick(...names)` | A set of skills for a session. |
+| `skills` | definition | `skills.load()` or `skills.none()`, then `.add(glob \| skill).pick(...names)` | A set of skills for a session. `.add` takes a `defineSkill(…)` too. |
 | `step` | work | `step(name?).input(s).output(s).do(fn)` | One unit of work. |
 | `workflow` | work | `workflow(name?, tree)` or `workflow(name?).input(s).do(fn)` | Setup plus a tree of steps. |
 | `schedule` | trigger | `schedule(definition).at(slot)` or `.every(interval)` | Runs a step or workflow on a clock. |

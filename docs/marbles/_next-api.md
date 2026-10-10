@@ -858,6 +858,13 @@ and log fields.
 
 ### E.5 Skills (7.6)
 
+**Landed 2026-10-10**, except the fourth item. Files are read as bytes and
+kept as text when they are UTF-8; the registry describes a binary file
+instead of decoding it. `SkillOp` has a `skill` kind, cached by name and a
+SHA-256 of the skill, and `defineSkill` is re-exported. Sandbox sessions
+getting the registry's tools is the same permission question as `tools`
+and `mcp` on `agent()` (B.5), so it waits with them.
+
 - Read bundle files as bytes (`marbles/lib/managers/skills.ts:43`). The
   registry's `load_skill` decodes as UTF-8
   (`packages/agents/src/skills/registry.ts:177-181`); keep that for text

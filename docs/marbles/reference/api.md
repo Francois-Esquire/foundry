@@ -75,9 +75,13 @@ const reviewing = skills.load().add("./skills/review/*").pick("caveman");
 - **`artifact`.** A declared artifact keeps its identity across runs; each
   `report.artifact` or `artifacts.write` adds a version to it.
 - **`skills`.** `skills.load()` is the global set under `~/.foundry/skills`
-  plus the workspace's `skills/` folder. `.add(glob)` appends every folder
-  matching the glob that holds a `SKILL.md`. `.pick(...names)` narrows.
-  Each call returns a new set.
+  plus the workspace's `skills/` folder; `skills.none()` starts empty.
+  `.add(glob)` appends every folder matching the glob that holds a
+  `SKILL.md`, and `.add(skill)` appends a skill defined in code with
+  `defineSkill({ manifest, files? })`, exported from `@foundry/marbles`.
+  `.pick(...names)` narrows. Each call returns a new set. A skill's files
+  are read as bytes: text stays text, and an agent loading a binary file
+  is told its size rather than shown mangled bytes.
 
 ## Using a definition
 
@@ -422,8 +426,8 @@ override outer ones.
 
 ## Exports
 
-The package exports the nine words, the AI SDK's `Output`, `dispose`, and
-the types behind them: `Agent`, `Runnable`, `WorkspaceInstance`,
+The package exports the nine words, the AI SDK's `Output`, `bail`,
+`defineSkill`, `dispose`, and the types behind them: `Agent`, `Runnable`, `WorkspaceInstance`,
 `SandboxInstance`, `ArtifactInstance`, `Context`,
 `StepDefinition`, `WorkflowDefinition`, `LockedNode`, the definition types
 (`AgentDefinition`, `AgentSettings`, `WorkspaceDefinition`, `SandboxDefinition`,

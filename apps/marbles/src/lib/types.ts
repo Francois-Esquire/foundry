@@ -14,6 +14,7 @@ import type {
   SessionStream,
   SessionUsage,
 } from "@foundry/agents/session";
+import type { Skill } from "@foundry/agents/skills";
 import type {
   ArtifactResolved,
   Content,
@@ -47,13 +48,16 @@ import type { Log } from "~/lib/log";
 
 export interface SkillOp {
   readonly glob?: string;
-  readonly kind: "load" | "add" | "pick";
+  readonly kind: "load" | "add" | "pick" | "skill";
   readonly names?: readonly string[];
+  /** A skill defined in code, for `kind: "skill"`. */
+  readonly skill?: Skill;
 }
 
 /** An immutable recipe for a set of skills, resolved when a session opens. */
 export interface SkillSet {
-  add(glob: string): SkillSet;
+  /** A folder of skills by glob, or a skill defined in code (`defineSkill`). */
+  add(source: string | Skill): SkillSet;
   readonly kind: "skills";
   readonly ops: readonly SkillOp[];
   pick(...names: readonly string[]): SkillSet;

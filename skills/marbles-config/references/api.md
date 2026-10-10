@@ -30,7 +30,7 @@ import {
 | `workspace` | definition | `workspace({ path })` | Another directory to work on. The config's own is implicit. |
 | `sandbox` | definition | `sandbox({ image, mount?, resources? })` or `sandbox({ files, image? })` | An isolated place to run commands. |
 | `artifact` | definition | `artifact({ name, type })` | A versioned output; each run adds a version. |
-| `skills` | definition | `skills.load().add(glob).pick(...names)` | A skill set an agent takes. |
+| `skills` | definition | `skills.load()` or `skills.none()`, then `.add(glob \| defineSkill(…)).pick(...names)` | A skill set an agent takes. |
 | `step` | work | `step(name?).describe(text).input(s).output(s).config({ retry?, timeout? }).do(fn)` | One unit of work. A retried attempt starts fresh; `timeout` aborts the body's signal; return `bail(error)` to fail without retry. |
 | `workflow` | work | `workflow(name?, tree)`, `workflow(name?, () => tree)`, `workflow(name?).input(s).do(fn)` | A named tree of steps. |
 | `schedule` | trigger | `schedule(target).at(slot)` or `.every(interval)` | Runs a step or workflow on a clock. |
@@ -72,8 +72,10 @@ const reviewing = skills.load().add("./skills/review/*").pick("caveman");
   time with `escapes the trusted host roots`. `~/.foundry`, `~/.claude`,
   `~/.codex` mount read-only when they exist. The `files` form mounts nothing
   and copies the files under `/workspace` after boot.
-- `skills.load()` is the global and workspace skills; `.add(glob)` appends a
-  folder; `.pick(...names)` narrows. Each call returns a new set.
+- `skills.load()` is the global and workspace skills; `skills.none()` is
+  empty. `.add(glob)` appends a folder, `.add(defineSkill({ manifest }))` a
+  skill defined in code; `.pick(...names)` narrows. Each call returns a new
+  set.
 
 ## The builder
 

@@ -44,9 +44,9 @@ in order. Items 1 to 3 have landed; 4 stays open alongside 5; 6 comes last.
       monitors (finding 1) and the environment for launchd ticks (finding
       2). Design Sync shows the monitor as a variation until the hash
       question in `_next-api.md` D.1 is settled.
-   5. **Pass-through for the other keys.** Sandboxes, workspaces,
-      artifacts, steps, and skills (7.2 to 7.6), with finding 8's handles
-      for `workspace`, `sandbox`, and `artifact`.
+   5. **Pass-through for the other keys.** Landed 2026-10-10: sandboxes,
+      workspaces, artifacts, steps, and skills (7.2 to 7.6). What each left
+      open is under its section of finding 7.
    6. **New API that needs design.** Command steps (finding 6) and memory
       between runs (finding 5).
 6. **Branding, last.** Bring the brand into the docs on top of item 4. Done

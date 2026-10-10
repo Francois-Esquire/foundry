@@ -2,6 +2,7 @@ import { realpathSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { defineSkill } from "@foundry/agents/skills";
 import type { ArtifactId, ContentId } from "@foundry/artifacts";
 import { ArtifactManager, InMemoryArtifactStore } from "@foundry/artifacts";
 import { createContainers } from "@foundry/sandbox/container/containers";
@@ -59,6 +60,31 @@ async function skill(dir: string, name: string, description = name) {
 }
 
 describe("skills", () => {
+  it("keeps binary skill files as bytes and takes skills defined in code", async () => {
+    const workspace = join(tmp, "ws-bytes");
+    const dir = join(workspace, "skills", "brand");
+    await skill(dir, "brand");
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0xff, 0xfe]);
+    await writeFile(join(dir, "logo.png"), png);
+    await writeFile(join(dir, "notes.md"), "Use the logo.");
+    const resolve = skillResolver({ global: join(tmp, "none"), workspace });
+
+    const [brand] = await resolve(skills.load());
+    expect(brand?.files?.["logo.png"]).toEqual(png);
+    expect(brand?.files?.["notes.md"]).toBe("Use the logo.");
+
+    const tone = defineSkill({
+      manifest:
+        "---\nname: tone\ndescription: Write plainly.\n---\nWrite plainly.",
+    });
+    const defined = await resolve(skills.none().add(tone));
+    expect(defined.map((entry) => entry.name)).toEqual(["tone"]);
+    expect(
+      (await resolve(skills.load().add(tone).pick("tone"))).map((e) => e.name)
+    ).toEqual(["tone"]);
+    await expect(resolve(skills.none())).resolves.toEqual([]);
+  });
+
   it("loads global and workspace skills, adds globs, and picks by name", async () => {
     const home = join(tmp, "home");
     const workspace = join(tmp, "ws");

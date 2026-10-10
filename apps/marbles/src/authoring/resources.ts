@@ -103,11 +103,17 @@ export function artifact(spec: {
 
 function skillSet(ops: readonly SkillOp[]): SkillSet {
   return {
-    add(glob) {
-      if (!glob.trim()) {
+    add(source) {
+      if (typeof source !== "string") {
+        if (!source.name.trim()) {
+          throw new Error("skills.add(): a skill needs a name");
+        }
+        return skillSet([...ops, { kind: "skill", skill: source }]);
+      }
+      if (!source.trim()) {
         throw new Error("skills.add(): a glob is required");
       }
-      return skillSet([...ops, { glob, kind: "add" }]);
+      return skillSet([...ops, { glob: source, kind: "add" }]);
     },
     kind: "skills",
     ops,
@@ -124,5 +130,9 @@ export const skills = {
   /** The global and workspace skills. Chain `.add(glob)` and `.pick(...)`. */
   load(): SkillSet {
     return skillSet([{ kind: "load" }]);
+  },
+  /** No skills yet: start a set from only what `.add` gives it. */
+  none(): SkillSet {
+    return skillSet([]);
   },
 };

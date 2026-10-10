@@ -143,17 +143,11 @@ that does not overload `log(...values)`.
 
 ### 7.6 Skills
 
-- Bundle files are read as UTF-8, so binary files in a skill are corrupted
-  (`apps/marbles/src/lib/managers/skills.ts:43`).
-- A skill defined in code cannot be added; `SkillOp` is only `load`, `add`,
-  `pick` (`types.ts:24-28`).
-- In a sandbox session, skill instructions are pasted into the system
-  prompt and the skill's files, description, and registry tools are dropped
-  (`apps/marbles/src/lib/managers/agents.ts:343-348`). Local sessions use the
-  registry.
-
-**Proposal.** Read bundle files as bytes, accept `Skill` objects in a set,
-and give sandbox sessions the same registry tools local sessions get.
+Bytes, `skills.add(skill)`, and `skills.none()` landed 2026-10-10
+([`_next-api.md`](./_next-api.md), E.5). Still open, with 7.1's `tools`
+and `mcp`: in a sandbox session, skill instructions are pasted into the
+system prompt and the skill's files and registry tools are dropped
+(`apps/marbles/src/lib/managers/agents.ts`, `openSandboxSession`).
 
 ## 9. A roll cancelled at an ask is not saved
 
