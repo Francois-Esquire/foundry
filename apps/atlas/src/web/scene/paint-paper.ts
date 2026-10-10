@@ -2,12 +2,10 @@ import { chartGrid } from "../codex/bindings";
 import { unit } from "../geography";
 import type { AtlasData, Territory } from "../types";
 import type { InkView, MapLabel } from "./exploration";
-
-/** Gold leaf, yellower and paler than the amber reserved for focus. */
-const gilt = "#c9a443";
+import { inkAlpha, inks } from "./ink-ladder";
 
 /** One graticule ink on sea and land, so the grid reads as a single printing. */
-export const gridInk = "#6c6852";
+const gridInk = inks.grid;
 
 /** Coordinates stay fixed while minor divisions become legible with zoom. */
 export function paintChartGrid(
@@ -29,7 +27,7 @@ export function paintChartGrid(
   ctx.clip("evenodd");
   for (const { step, opacity, width } of [
     { opacity: minorOpacity, step: minorStep, width: 0.5 },
-    { opacity: 0.3, step: majorStep, width: 0.7 },
+    { opacity: inkAlpha.gridMajor, step: majorStep, width: 0.7 },
   ]) {
     if (!opacity) {
       continue;
@@ -83,7 +81,7 @@ export function paintGridReferences(
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.lineWidth = 3 / pixels;
-  ctx.strokeStyle = "#e3e6d4";
+  ctx.strokeStyle = inks.gridReferenceHalo;
   ctx.fillStyle = gridInk;
   const clearance = 14 / pixels;
   // References give way to place names; they are margin notes, not places.
@@ -198,18 +196,21 @@ export function paintCoastInk(
   // All coast ink stays inside the shore: it drapes on the raised land, so no
   // half-stroke is left on the sea plane to ghost across a far-side coast.
   ctx.clip("evenodd");
-  // A gilt rule framed by a fine inner hairline; occlusion never dims it.
-  // Selection is shown by the gilt surround in selection-ink.ts.
-  ctx.strokeStyle = "#5a4a2e8c";
+  // A gilt rule framed by a fine inner hairline, on the ladder's coast rung.
+  // Selection is shown by the ring in selection-ink.ts.
+  ctx.strokeStyle = inks.coastFrame;
+  ctx.globalAlpha = inkAlpha.coastFrame;
   ctx.lineWidth = 6.5 / pixels;
   ctx.stroke();
-  ctx.strokeStyle = gilt;
+  ctx.strokeStyle = inks.coastRule;
+  ctx.globalAlpha = 1;
   ctx.lineWidth = 5.5 / pixels;
   ctx.stroke();
   // Hand-inked coastline: the pen swells and thins along the shore. Widths are
   // doubled because only the inner half survives the clip.
   ctx.lineCap = "round";
-  ctx.strokeStyle = "#4c4031d9";
+  ctx.strokeStyle = inks.coastPen;
+  ctx.globalAlpha = inkAlpha.coastPen;
   strokePen(ctx, territory, (selected ? 2.6 : 2) / pixels);
   ctx.restore();
 }

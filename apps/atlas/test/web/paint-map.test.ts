@@ -3,6 +3,7 @@ import { memberContours } from "../../src/web/belonging";
 import type { ResponsibilityOverlay } from "../../src/web/responsibility-focus";
 import { inkLayers } from "../../src/web/scene/ink/layers";
 import { inkState } from "../../src/web/scene/ink/state";
+import { fileInk, inks } from "../../src/web/scene/ink-ladder";
 import { paintInk } from "../../src/web/scene/paint-map";
 import {
   paintCoastInk,
@@ -13,7 +14,6 @@ import type { AtlasData, Territory } from "../../src/web/types";
 const territory: Territory = {
   analyzed: true,
   coast: [],
-  color: "#abcdef",
   fileRoles: undefined,
   files: ["one", "two"].map((id, index) => ({
     directory: "src",
@@ -104,7 +104,7 @@ function canvasFixture() {
 }
 
 describe("map detail drawing", () => {
-  it("keeps bold specks at region scale and full files without island selection", () => {
+  it("keeps specks at full strength at region scale, and full files without island selection", () => {
     const { canvas, ctx } = canvasFixture();
     const alphas: number[] = [];
     ctx.fill.mockImplementation(() => alphas.push(ctx.globalAlpha));
@@ -119,7 +119,9 @@ describe("map detail drawing", () => {
         y: 0,
       },
     });
-    expect(alphas).toContain(0.85);
+    // File marks never recede behind the districts (the ladder's file rung).
+    expect(alphas).toContain(1);
+    expect(alphas).not.toContain(0.85);
     alphas.length = 0;
     paintInk(canvas, {
       data,
@@ -510,4 +512,48 @@ it("runs every layer that reads the placed labels after the labels layer", () =>
   for (const reader of new Set(readers)) {
     expect(order.indexOf(reader)).toBeGreaterThan(labels);
   }
+});
+
+it("draws with the ladder's inks: selection, file marks, labels, and coast", () => {
+  const { canvas, ctx } = canvasFixture();
+  const pen = ctx as unknown as CanvasRenderingContext2D;
+  const used = new Set<string>();
+  const record = () => {
+    used.add(String(pen.strokeStyle));
+    used.add(String(pen.fillStyle));
+  };
+  for (const method of ["fill", "fillRect", "fillText", "stroke"] as const) {
+    ctx[method].mockImplementation(record);
+  }
+  const shore = {
+    ...territory,
+    coast: [
+      [
+        [
+          [-90, -90],
+          [90, -90],
+          [90, 90],
+          [-90, -90],
+        ],
+      ],
+    ] as Territory["coast"],
+  };
+  paintInk(canvas, {
+    data: { ...data, territories: [shore] },
+    fileId: "one",
+    selected: "island",
+    view: { height: 500, pixelsPerUnit: 5, width: 500, x: 0, y: 0 },
+  });
+  for (const ink of [
+    inks.selection,
+    fileInk("source"),
+    inks.label,
+    inks.coastPen,
+    inks.coastRule,
+  ]) {
+    expect(used).toContain(ink);
+  }
+  // The gilt and amber the ladder replaced are gone from these layers.
+  expect(used).not.toContain("#b38a32");
+  expect(used).not.toContain("#875222");
 });

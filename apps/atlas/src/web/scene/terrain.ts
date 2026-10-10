@@ -107,18 +107,3 @@ export function coastWallGeometry(
   );
   return geometry;
 }
-
-export function settlementColor(kind: string): string {
-  switch (kind) {
-    case "test":
-      return "#526f7b";
-    case "story":
-      return "#975b70";
-    case "config":
-      return "#896629";
-    case "source":
-      return "#665139";
-    default:
-      return "#8d8064";
-  }
-}

@@ -70,18 +70,6 @@ export function riverPen(width: number, pixels: number) {
   return Math.min(width, (0.65 + 1.6 * width) / pixels);
 }
 
-/** Engraving follows density slope; zoom limits its contrast beneath file ink. */
-export function reliefHachure(slope: number, pixels = 1) {
-  if (slope <= 0.24) {
-    return { length: 0, opacity: 0 };
-  }
-  return {
-    length: Math.min(3.6, 0.8 + slope * 3),
-    opacity:
-      Math.min(0.22, slope * 0.25) * Math.min(1, Math.max(0, pixels - 1.2)),
-  };
-}
-
 /** Overview file dots grow gently with zoom, so dense packages stay dotted rather than blotted. */
 export function speckRadius(pixels: number) {
   return 1.45 / Math.sqrt(Math.max(0.25, pixels));

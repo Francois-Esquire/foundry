@@ -7,6 +7,7 @@ import type { AtlasData, Territory } from "../../types";
 import { detailLevel, fileInView } from "../detail-level";
 import type { InkView, MapLabel } from "../exploration";
 import { visibleLabels } from "../exploration";
+import { inks } from "../ink-ladder";
 import type { InkState } from "./state";
 
 const paintLabelsPattern = /^src\//;
@@ -146,10 +147,10 @@ function paintLabels(
   for (const label of labels) {
     ctx.globalAlpha = label.opacity ?? 1;
     ctx.font = label.font;
-    ctx.strokeStyle = "#f5efdf";
+    ctx.strokeStyle = inks.labelHalo;
     ctx.lineWidth = (label.file?.id === fileId ? 6 : 3) / pixels;
     ctx.strokeText(label.text, label.x, label.y);
-    ctx.fillStyle = label.file?.id === fileId ? "#743d1b" : "#39372e";
+    ctx.fillStyle = label.file?.id === fileId ? inks.selection : inks.label;
     ctx.fillText(label.text, label.x, label.y);
     if (label.caption) {
       paintCaption(ctx, label, label.caption, pixels);
@@ -171,7 +172,7 @@ function paintCaption(
   const y = label.y + 14 / pixels;
   ctx.lineWidth = 2.5 / pixels;
   ctx.strokeText(caption, label.x, y);
-  ctx.fillStyle = "#5f5747";
+  ctx.fillStyle = inks.labelCaption;
   ctx.fillText(caption, label.x, y);
   ctx.restore();
 }

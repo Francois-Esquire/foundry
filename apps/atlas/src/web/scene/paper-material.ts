@@ -1,38 +1,50 @@
 import type { Texture } from "three";
-import { attribute, float, materialColor, uniform } from "three/tsl";
-import { MeshStandardNodeMaterial } from "three/webgpu";
-
+import {
+  attribute,
+  clamp,
+  float,
+  materialColor,
+  max,
+  normalize,
+  normalWorld,
+  vec3,
+} from "three/tsl";
+import { MeshBasicNodeMaterial } from "three/webgpu";
+import { inkAlpha } from "./ink-ladder";
 import { paperSurface, terrainGrid } from "./paper-surface";
 
 export const paperThickness = 0.4;
 
-/** Full occlusion strength darkens a valley floor by this fraction. */
-const reliefShade = 0.24;
+/** The chart's light: from the north-west, above, as the scene's own light is placed. */
+const hillshadeLight = normalize(vec3(-600, 700, 700));
 
 /**
- * Paper is engraved: the relief carries a per-vertex occlusion term (see
- * terrainGeometry) that this material darkens with, so valleys and the foot
- * of hills read as shading on the direct draw and in the pipeline alike.
+ * The island paper, unlit: its colour is its own, and relief is one term.
+ * Slopes turned from the light, and the concavity each vertex carries (see
+ * terrainGeometry), darken the paper by at most the ladder's relief cap, so
+ * relief never reads darker than a file mark on the direct draw or in the
+ * pipeline.
  */
 export function createPaperMaterials(map: Texture) {
-  const strength = uniform(0);
-  const paper = new MeshStandardNodeMaterial({
-    map,
-    metalness: 0,
-    roughness: 0.96,
-  });
-  const occlusion = attribute<"float">("occlusion", "float");
+  const paper = new MeshBasicNodeMaterial({ map });
+  const level = hillshadeLight.z;
+  const turned = clamp(
+    level.sub(normalWorld.dot(hillshadeLight)).div(level),
+    0,
+    1
+  );
+  const relief = clamp(
+    max(turned, attribute<"float">("occlusion", "float")),
+    0,
+    1
+  );
   paper.colorNode = terrainGrid(paperSurface(materialColor.rgb)).mul(
-    float(1).sub(occlusion.mul(strength).mul(reliefShade))
+    float(1).sub(relief.mul(inkAlpha.reliefCap))
   );
   return {
     dispose: () => {
       paper.dispose();
     },
     paper,
-    /** Occlusion strength; zero removes valley darkening, retaining slope shading. */
-    setOcclusion: (value: number) => {
-      strength.value = value;
-    },
   };
 }

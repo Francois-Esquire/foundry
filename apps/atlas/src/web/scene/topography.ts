@@ -3,6 +3,7 @@ import { terrainContourLevels } from "../codex/bindings";
 import { insidePolygons } from "../polygons";
 import type { AtlasData, Polygon, Territory } from "../types";
 import type { InkView, MapLabel } from "./exploration";
+import { inkAlpha, inks } from "./ink-ladder";
 import { oceanField } from "./ocean";
 import { baseTerrainField, type TerrainField } from "./terrain-field";
 
@@ -178,6 +179,14 @@ export function paintTopography(
   ctx.restore();
 }
 
+/** Contour ink sits on the ladder: land contours on the relief rung, sea rings on the sea rung. */
+function contourAlpha(line: ContourLine): number {
+  if (line.sea) {
+    return line.major ? inkAlpha.seaContourMajor : inkAlpha.seaContourMinor;
+  }
+  return line.major ? inkAlpha.landContourMajor : inkAlpha.landContourMinor;
+}
+
 function paintTopographyEntries(
   lines: ContourLine[],
   pixels: number,
@@ -194,9 +203,8 @@ function paintTopographyEntries(
     if (!detail) {
       continue;
     }
-    ctx.strokeStyle = line.sea ? "#487f78" : "#806c4f";
-    ctx.globalAlpha =
-      opacity * detail * line.opacity * (line.major ? 0.34 : 0.21);
+    ctx.strokeStyle = line.sea ? inks.seaContour : inks.landContour;
+    ctx.globalAlpha = opacity * detail * line.opacity * contourAlpha(line);
     ctx.lineWidth = (line.major ? 0.7 : 0.45) / pixels;
     ctx.beginPath();
     let drawing = false;

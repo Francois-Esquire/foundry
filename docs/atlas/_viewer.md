@@ -71,7 +71,7 @@ What the map encodes, from the codex bindings and the design record:
 | Distance between islands | Dependency strength and shared concepts. | yes |
 | File mark | A file. Placed by imports and shared concepts. | yes |
 | District | A responsibility group: responsibilities the `responsibility-groups` lens joins (since 2.2b). | at island zoom |
-| Relief and summits | High fan-in files: imported by at least their package's cutoff of its own source files (`file-roles` lens, since 2.2a). | yes |
+| Relief and summits | High fan-in files: imported by at least their package's cutoff of its own source files (`file-roles` lens, since 2.2a). One capped term in the paper since 4.2a, never darker than a file mark. | yes |
 | Lake | A module many responsibilities draw on. | yes |
 | Marsh | A module the analysis could not place in one responsibility. | yes |
 | Selection ink | A package's dependency lines, a file's imports. | on selection |
@@ -89,10 +89,10 @@ global illumination, bloom, and a stage inspector) are a developer session's
 since 4.1b. Wind, waves, the current, coastlight, and the water pigment
 picker were deleted in 4.1a, with the animation loop they ran in; forests,
 houses, the ports' warehouses and beacons, the props' shadow map, and the
-chart filters were deleted in 4.1b. Pigment colors are seeded from package
-ids and carry no meaning; 4.0 decided that pigment means responsibility
-only, so islands lose their package hue in 4.2a, and a package is told apart
-by its coast and outline.
+chart filters were deleted in 4.1b. Islands lost their package hue in 4.2a:
+the land is paper, pigment marks responsibilities only, and a package is
+told apart by its coast and its name. Every ink now follows the ink ladder
+(`scene/ink-ladder.ts`).
 
 ## Observations
 
@@ -114,8 +114,9 @@ conclusions.
 - **Decoration outweighs evidence on screen.** Relief, sea layers, and coast
   ink are the strongest marks at most zoom levels; file marks are among the
   faintest. This and the previous point come from the diagnosis under
-  [Earlier work](#earlier-work), made at `73d227f`; worth re-checking
-  against the current build.
+  [Earlier work](#earlier-work), made at `73d227f`. Resolved in 4.2a: the
+  ink ladder ranks file marks above labels, coast, relief, and sea, and a
+  test holds every mark to its rung.
 - **The metaphor adds vocabulary the reader must learn.** Lake, marsh,
   stream, summit, wreck, trade route, district, settlement. Each is
   explained in the docs, and each explanation says it describes a role, not

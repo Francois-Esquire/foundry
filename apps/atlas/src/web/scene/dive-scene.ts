@@ -29,9 +29,10 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { abs, materialColor, positionLocal, pow, sin, vec3 } from "three/tsl";
 import { MeshStandardNodeMaterial, WebGPURenderer } from "three/webgpu";
 import type { RenderSettings } from "../chart-settings";
-import { defaultRenderSettings } from "../chart-settings";
+import { defaultRenderSettings, diveRenderSettings } from "../chart-settings";
 import { unit } from "../geography";
 import type { FormerPackage } from "../types";
+import { materials as lit } from "./ink-ladder";
 import { createRenderPipeline } from "./pipeline";
 import { createWreckLayer } from "./wreck-layer";
 
@@ -82,10 +83,10 @@ export function createDiveScene(host: HTMLElement, wreck: FormerPackage) {
   host.append(renderer.domElement);
   let ready = false;
   const scene = new Scene();
-  scene.background = new Color("#4a7778");
-  scene.fog = new FogExp2("#4a7778", 0.012);
-  scene.add(new AmbientLight("#b4d8c8", 1.25));
-  const light = new DirectionalLight("#e1ecd0", 3.8);
+  scene.background = new Color(lit.dive.water);
+  scene.fog = new FogExp2(lit.dive.water, 0.012);
+  scene.add(new AmbientLight(lit.dive.ambient, 1.25));
+  const light = new DirectionalLight(lit.dive.sun, 3.8);
   light.position.set(-22, -18, 45);
   light.castShadow = true;
   light.shadow.mapSize.set(1024, 1024);
@@ -94,7 +95,7 @@ export function createDiveScene(host: HTMLElement, wreck: FormerPackage) {
   light.shadow.camera.top = 90;
   light.shadow.camera.right = light.shadow.camera.top;
   scene.add(light);
-  const fill = new DirectionalLight("#9bc8bd", 1.15);
+  const fill = new DirectionalLight(lit.dive.fill, 1.15);
   fill.position.set(28, -40, 4);
   scene.add(fill);
 
@@ -110,7 +111,7 @@ export function createDiveScene(host: HTMLElement, wreck: FormerPackage) {
   }
   floorGeometry.computeVertexNormals();
   const floorMaterial = new MeshStandardNodeMaterial({
-    color: "#8f9c89",
+    color: lit.dive.floor,
     roughness: 1,
   });
   // Caustic light dancing on the seabed, keyed to the floor's local position.
@@ -128,7 +129,7 @@ export function createDiveScene(host: HTMLElement, wreck: FormerPackage) {
 
   const rockGeometry = new DodecahedronGeometry(1, 0);
   const rockMaterial = new MeshStandardMaterial({
-    color: "#75877b",
+    color: lit.dive.rock,
     flatShading: true,
     roughness: 1,
   });
@@ -160,7 +161,7 @@ export function createDiveScene(host: HTMLElement, wreck: FormerPackage) {
 
   const timberGeometry = new CylinderGeometry(0.2, 0.3, 1, 5);
   const timberMaterial = new MeshStandardMaterial({
-    color: "#566d61",
+    color: lit.dive.timber,
     roughness: 1,
   });
   const timbers = new InstancedMesh(timberGeometry, timberMaterial, 18);
@@ -211,7 +212,7 @@ export function createDiveScene(host: HTMLElement, wreck: FormerPackage) {
         : [object.material]) {
         if (material instanceof MeshStandardMaterial) {
           material.roughness = 1;
-          material.color.lerp(new Color("#82988a"), 0.17);
+          material.color.lerp(new Color(lit.dive.silt), 0.17);
         }
       }
     });
@@ -234,7 +235,7 @@ export function createDiveScene(host: HTMLElement, wreck: FormerPackage) {
   const dust = new Points(
     dustGeometry,
     new PointsMaterial({
-      color: "#d8e8d6",
+      color: lit.dive.dust,
       depthWrite: false,
       opacity: 0.3,
       size: 0.13,
@@ -244,7 +245,7 @@ export function createDiveScene(host: HTMLElement, wreck: FormerPackage) {
   scene.add(dust);
 
   const shaftMaterial = new MeshBasicMaterial({
-    color: "#c5e2cc",
+    color: lit.dive.shaft,
     depthWrite: false,
     opacity: 0.025,
     side: DoubleSide,
@@ -307,7 +308,7 @@ export function createDiveScene(host: HTMLElement, wreck: FormerPackage) {
   resize();
   // The backend (WebGPU, or WebGL 2 when unavailable) initializes
   // asynchronously; the first frame waits for it.
-  let rendering: RenderSettings = defaultRenderSettings;
+  let rendering: RenderSettings = diveRenderSettings(defaultRenderSettings);
   renderer.init().then(
     () => {
       if (disposed) {
@@ -346,9 +347,9 @@ export function createDiveScene(host: HTMLElement, wreck: FormerPackage) {
   };
   return {
     configure: (settings: RenderSettings) => {
-      rendering = settings;
+      rendering = diveRenderSettings(settings);
       if (ready) {
-        pipeline.configure(settings);
+        pipeline.configure(rendering);
         render();
       }
     },

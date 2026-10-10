@@ -3,40 +3,41 @@ import { landmassHull } from "../landmass-hull";
 import { packageGroups } from "../landmasses";
 import type { AtlasData } from "../types";
 import { archipelagoHull, traceArchipelago } from "./archipelago";
+import { developerInks } from "./ink-ladder";
 
 export const boundaryStyles = {
   clearance: {
-    color: "#866279",
+    color: developerInks.boundaries.clearance,
     dash: [2, 4],
     description: "32-unit padded package hulls",
     label: "Package clearance",
   },
   coasts: {
-    color: "#555e42",
+    color: developerInks.boundaries.coasts,
     dash: [],
     description: "Original island geometry",
     label: "Coastlines",
   },
   footprint: {
-    color: "#3f716b",
+    color: developerInks.boundaries.footprint,
     dash: [],
     description: "Concave envelope · placement boundary",
     label: "Landmass outlines",
   },
   groups: {
-    color: "#766549",
+    color: developerInks.boundaries.groups,
     dash: [3, 5],
     description: "Connected groups · convex bounds",
     label: "Group hulls",
   },
   outer: {
-    color: "#596f68",
+    color: developerInks.boundaries.outer,
     dash: [5, 7],
     description: "All packages · outer envelope",
     label: "Atlas hull",
   },
   pockets: {
-    color: "#a06438",
+    color: developerInks.boundaries.pockets,
     dash: [7, 3, 1, 3],
     description: "Ocean-accessible space inside each hull",
     label: "Coastal pockets",

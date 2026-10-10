@@ -2162,6 +2162,127 @@ change; 4.2a is split in two, and the ladder, relief, and legend are
   and that the hovered island is asked for once, after the labels, and
   that every layer reading the placed labels runs after the labels layer.
 
+**4.2a(ii) The ink ladder.** Done 2026-10-10. 4.2a(ii) is split once more:
+this unit is the ladder, the relief, and the package hue; the latitude
+scale, the always-visible legend, the map key read from the ink table, and
+DESIGN.md's "ports" and "settlements" are 4.2a(iii).
+- First, each ink layer runs inside its own `save()` and `restore()` in
+  `paintInk`, on the ink canvas and the lettering canvas. The pixel compare
+  against `441a4c8` stayed at 0 differing pixels in all five views, so the
+  isolation alone changes nothing; everything below is the ladder.
+- `scene/ink-ladder.ts` holds every colour the chart scene uses; a grep of
+  `scene/` and `scene/ink/` for colour literals finds them only there. It
+  has the sheets (`grounds`: land `#f1ead9` and sea `#d5dbca`, which the
+  ladder measures against, and the shallows, the sea's depths, and
+  connecting land), the named zooms (overview 1, island 2.2, close 10
+  pixels per unit), the rungs strongest first (selection, departure, file,
+  label, coast, relief, sea) with each rung's floor as a WCAG contrast ratio
+  against its ground, every ink and its opacity, `ladderMarks` (each mark
+  the ladder rules, its opacity a function of zoom), `inkTable` (hue, dash,
+  and weight to meaning, by kind: line, fill, text), the lit materials and
+  lights of the chart and the wreck dive (`materials`), and a developer
+  session's boundary and road inks (`developerInks`). A mark meets its
+  rung's floor and stays under the floor of the rung above.
+- Contrast is measured in linear light, as the renderer blends: the ink and
+  lettering canvases are sRGB textures composited over the scene in linear,
+  and the paper's relief term multiplies its linear colour. Translucent
+  inks read lighter than an sRGB blend would put them, so the numbers below
+  replace the first draft's. Contrast with the ground, the same at the
+  three named zooms unless shown:
+
+  | Rung (floor) | Marks |
+  | --- | --- |
+  | selection (10) | file ring and name 12.74 on land; island ring at overview, and lines, 10.78 on sea |
+  | departure (8) | 9.96 on land, 8.42 on sea; defined, drawn in 4.2b |
+  | file (5.5) | story 6.40, entered ring 6.56 on sea (island zoom and closer), test 7.15, config 7.64, other 7.75, source 7.88 |
+  | label (4.5) | caption 5.02, label 5.34 |
+  | coast (1.8) | frame 1.90, rule 1.97, pen 2.90 |
+  | relief (1.25) | steepest shade 1.26, land contour 1.35 |
+  | sea (none) | ripple 1.01 to 1.10, minor grid 1.03 to 1.12 as it fades in, sea contour 1.14, grid 1.15 on sea and land |
+
+- Measured on screen, with the capture script's new `probe=<shot>:<segment>`
+  step (the darkest pixel along a segment against its median, in linear
+  light), at default quality on this repository: a grid line on open sea
+  1.06 to 1.07 (the 0.7-pixel line never reaches full ink); relief 1.13 on
+  the beach slopes of the small islands, the steepest ground without file
+  marks over it (the 1.26 of the steepest slope is reached only on summit
+  flanks, under marks); coast ink, the pen over the frame, 3.36 and 3.55;
+  a test file mark 7.01; and the entered ring 2.80 to 2.95 (one pixel, so
+  antialiasing halves it). The ladder's numbers are each ink's own; the
+  probe shows thin lines rendering lighter, never darker.
+- The selection is one deep amber-brown, `#3b1e06`: the island's ring at
+  overview and its dependency lines (dashed to what it imports, dotted from
+  what imports it, both opaque), the file's ring and name, and a focused
+  natural feature's outline (which was the `#875222` amber). Once an island
+  is entered (from `enteredAt`, 1.8 pixels per unit, where district pigment
+  is fully in) its ring steps down to the file rung, `#4f4634` at 1 pixel:
+  the breadcrumb carries the selection there, and a strong ring around
+  every islet read as a second coast.
+- Hover is `#9a5512`, a mid amber, opaque: 2.41:1 over the coast rule it is
+  drawn on, 2.68:1 against the selection ink, 4.76:1 on land. Three to one
+  from both is not possible, the rule being light and the selection near
+  black, so the test holds 2.3 from each. Departures are magenta,
+  `#681049`, with a notched ring and a dash-dot line as their second cue
+  (`drawn: false` until 4.2b); story files move from plum to green,
+  `#3f5a3a`, and a test keeps every file ink more than 60 degrees of hue
+  from the departure's magenta.
+- The table holds every reader-visible ink: the compass, the sea caption,
+  the selected file's halo, a selected group's member mark and its paper
+  edge, the stream's banks and glint, label halos, grid references, paper,
+  and the architecture overlays (responsibility evidence, hints, links,
+  notches, unresolved diamonds, composition declarations and blockers, the
+  proposed positions, and both scenario routes). No two rows of one kind
+  share hue, dash, and weight, and rows of one kind, hue, and dash differ
+  by a pixel of weight or more. The `#875222` collision is resolved: a
+  focused feature takes the selection ink; an overlay's members and the
+  declarations a trace moves are one meaning, evidence in focus; and trade
+  lanes (`[8, 6]` in map units), hints (`[1, 2]`), proposed positions
+  (`[2, 2]`), and proposed scenario routes (`[3, 3]` at 1.2) share the
+  evidence amber only by distinct dashes. The path-disagreement notch is
+  2 pixels, a pixel heavier than a composition blocker in the same red.
+- Optional layers and on-demand inks are outside the rung order: sea trade
+  routes (a reader layer), streams, marsh drains, traced imports, the
+  architecture overlays, and hover. The table still keeps each apart.
+- Relief is one capped term: the island paper is unlit
+  (`MeshBasicNodeMaterial`), and the slope turned from a north-west light,
+  or the vertex's concavity where it is larger, multiplies its linear
+  colour by 1 minus at most `inkAlpha.reliefCap`, 0.22, so the steepest
+  shade clears the relief floor. The hachures are deleted
+  (`scene/relief-ink.ts`, `reliefHachure` and its README row, the relief
+  layer of `inkLayers`), and so is the material's separate occlusion
+  strength (`setOcclusion`).
+- Quality: the chart defaults to Light (`low`), which runs no screen-space
+  occlusion on the chart. The wreck dive is floored at Balanced
+  (`diveRenderSettings`): its perspective camera runs screen-space
+  occlusion at every enabled tier, and at Light it did so at half
+  resolution without denoising, which showed as noise.
+- File marks no longer recede: overview specks kept 85% of their strength
+  once districts faded in, which put them under the label rung; they keep
+  full strength until file marks replace them. Labels are lighter
+  (`#665e50`) and the coast pen is lighter (`#7a6a50`), as the rungs order
+  them.
+- The package hue is gone: `Territory.color`, the pigments in `loadAtlas`,
+  the package swatch in Find, and the coast sheet's pigment wash. The land
+  is the land ground, every coast wall one colour, and pigment marks
+  responsibilities only.
+- `codex/README.md`'s contradiction is fixed: it said `bindings.ts` held
+  "every constant that tunes how a value looks" and that palettes stay with
+  the painters; inks are the ladder's now, and the README says so.
+- Screenshots for review, a reader's session at default quality, from the
+  build at `441a4c8` (which draws as `a6a54b0` does) and from this one:
+  `/tmp/review-shots/{before,after}-{overview,hover,island,close}.png`.
+- Tests: `test/web/ink-ladder.test.ts` (every mark within its rung at every
+  named zoom; the rungs in order, each rung's weakest mark above every mark
+  below it; relief lighter than any file mark; the table's styles unique by
+  kind; hover against the coast rule and the selection; departure's second
+  cue; file inks away from magenta and distinct); `chart-settings.test.ts`
+  (the chart Light, the dive never below Balanced); `paint-map.test.ts`
+  (the layers draw with the ladder's inks and none of the replaced gilt or
+  amber; specks at full strength); `hover-ink.test.ts`,
+  `paper-material.test.ts` (unlit paper), `detail-level.test.ts`, and
+  `pipeline.test.ts`; `terrain.test.ts` loses the settlement colours, now
+  the ladder's; about fifteen fixtures lose `color`.
+
 **4.3 Directories drawn,** and a domain drawn across islands.
 
 **4.4 Loading.** Covered by the lazy reader in 1.5; the module shards stopped

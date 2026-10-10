@@ -119,10 +119,6 @@ export function AtlasSearch({
               type="button"
               value={item.id}
             >
-              <span
-                className="atlas-swatch"
-                style={{ background: item.color }}
-              />
               <span>{item.label}</span>
               <small>{item.files.length}</small>
             </button>

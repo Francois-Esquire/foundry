@@ -18,28 +18,29 @@ import {
 } from "three";
 import { unit } from "../geography";
 import type { FormerPackage } from "../types";
+import { materials as lit } from "./ink-ladder";
 
 function wreckMaterials() {
   const timber = new MeshStandardMaterial({
-    color: "#4b655d",
+    color: lit.wreck.timber,
     roughness: 1,
     side: DoubleSide,
   });
   const hold = new MeshStandardMaterial({
-    color: "#304a47",
+    color: lit.wreck.hold,
     roughness: 1,
   });
   const bone = new MeshStandardMaterial({
-    color: "#829785",
+    color: lit.wreck.bone,
     roughness: 1,
   });
   const canvas = new MeshStandardMaterial({
-    color: "#95aa9e",
+    color: lit.wreck.canvas,
     roughness: 1,
     side: DoubleSide,
   });
   const seabed = new MeshStandardMaterial({
-    color: "#a9bdad",
+    color: lit.wreck.seabed,
     roughness: 1,
   });
   return { bone, canvas, hold, seabed, timber };
@@ -193,7 +194,7 @@ export function createWreckLayer(packages: FormerPackage[]) {
         new Vector3(0, 13, 2.5),
       ]),
       new LineBasicMaterial({
-        color: "#667f74",
+        color: lit.wreck.rigging,
         opacity: 0.7,
         transparent: true,
       })

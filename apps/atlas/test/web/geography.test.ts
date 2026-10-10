@@ -22,7 +22,6 @@ const file = (id: string): AtlasFile => ({
 const region = (id: string, x: number): Territory => ({
   analyzed: true,
   coast: [],
-  color: "#ffffff",
   fileRoles: undefined,
   files: [],
   highFanInCutoff: 0,

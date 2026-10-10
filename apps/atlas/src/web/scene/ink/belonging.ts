@@ -1,6 +1,7 @@
 import type { BelongingLayer, BelongingRegion } from "../../belonging";
 import { compositionInsideLand } from "../../composition-placement";
 import type { ResponsibilityOverlay } from "../../responsibility-focus";
+import { dashAt, inkStyle } from "../ink-ladder";
 import { paintNaturalFeatures } from "../paint-features";
 import type { InkState } from "./state";
 import { trace } from "./trace";
@@ -153,7 +154,9 @@ function paintRegions(
       (retained ? 1 : (1 - detail.composition) * (belonging.reveal ?? 1)) *
       regionStrength;
     ctx.lineWidth = (active ? 1.5 : 0.7) / pixels;
-    ctx.setLineDash(region.uncertain ? [3 / pixels, 3 / pixels] : []);
+    ctx.setLineDash(
+      region.uncertain ? dashAt(inkStyle("unresolved-outline"), pixels) : []
+    );
     ctx.stroke();
     ctx.restore();
   }
@@ -190,7 +193,10 @@ function paintParents(
     ctx.fill("evenodd");
     ctx.globalAlpha = (passive ? 0.2 : 0.45) * regionStrength;
     ctx.lineWidth = 1 / pixels;
-    ctx.setLineDash(parent.children ? [] : [3 / pixels, 3 / pixels]);
+    // An entered responsibility's long dash keeps it apart from unresolved belonging.
+    ctx.setLineDash(
+      parent.children ? [] : dashAt(inkStyle("entered-outline"), pixels)
+    );
     ctx.stroke();
     if (parent.anchor) {
       ctx.globalAlpha = (passive ? 0.35 : 0.85) * regionStrength;

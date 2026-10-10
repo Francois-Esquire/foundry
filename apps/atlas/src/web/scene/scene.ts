@@ -51,6 +51,7 @@ import {
   hoveredIsland,
   type PagePoint,
 } from "./hover-target";
+import { materials as lit } from "./ink-ladder";
 import { createInkTexture } from "./ink-texture";
 import { createLabelProjector, createLettering } from "./lettering";
 import { paintCoast, paintInk, paintSea } from "./paint-map";
@@ -129,8 +130,8 @@ export async function createAtlasScene(
   await renderer.init();
   const scene = new Scene();
   // Balanced so level paper renders at its own pigment: (1.23 + 3.16 × 0.6) / π ≈ 1.
-  scene.add(new AmbientLight("#ffffff", 1.23));
-  const light = new DirectionalLight("#fffaf4", 3.16);
+  scene.add(new AmbientLight(lit.light.ambient, 1.23));
+  const light = new DirectionalLight(lit.light.sun, 3.16);
   light.position.set(-600, 700, 700);
   scene.add(light);
   const camera = new OrthographicCamera(-1, 1, 1, -1, 1, 10_000);
@@ -216,7 +217,6 @@ export async function createAtlasScene(
 
   const relief = createReliefLayer(data, materials.paper, inkTexture, tilt);
   scene.add(relief.group);
-  const reliefInk = relief.reliefInk();
   markLoad("atlas:terrain-built");
   const lettering = createLettering();
   scene.add(lettering.mesh);
@@ -288,12 +288,6 @@ export async function createAtlasScene(
   });
   const applyRendering = () => {
     pipeline.configure(settings.rendering);
-    const { rendering } = settings;
-    materials.setOcclusion(
-      rendering.quality !== "off" && rendering.ambientOcclusion
-        ? rendering.aoIntensity
-        : 0
-    );
   };
   applyRendering();
   let reportedRegionTerritory: string | null = null;
@@ -364,7 +358,6 @@ export async function createAtlasScene(
         },
         lettering: { canvas: lettering.canvas, project: projectLabel },
         matches,
-        relief: reliefInk,
         responsibility: responsibility && {
           ...responsibility,
           reducedMotion: reducedMotion.matches,

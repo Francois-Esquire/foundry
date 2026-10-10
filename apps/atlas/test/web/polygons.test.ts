@@ -14,7 +14,6 @@ const square: Polygon = [
 const territory: Territory = {
   analyzed: true,
   coast: [square],
-  color: "#d9be83",
   fileRoles: undefined,
   files: [],
   highFanInCutoff: 0,

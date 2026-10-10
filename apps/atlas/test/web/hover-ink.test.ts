@@ -1,5 +1,6 @@
 import { expect, it, vi } from "vitest";
 import { paintHoverInk } from "../../src/web/scene/hover-ink";
+import { inks } from "../../src/web/scene/ink-ladder";
 import type { Territory } from "../../src/web/types";
 
 function context() {
@@ -43,9 +44,9 @@ it("inks the hovered island's coast at a constant screen width", () => {
   expect(ctx.moveTo).toHaveBeenCalledWith(90, 40);
   expect(ctx.lineTo).toHaveBeenCalledWith(110, 60);
   expect(strokes.map((stroke) => stroke.lineWidth)).toEqual([1.5, 0.4]);
-  expect(
-    strokes.every((stroke) => stroke.strokeStyle.includes("190, 132, 48"))
-  ).toBe(true);
+  expect(strokes.every((stroke) => stroke.strokeStyle === inks.hover)).toBe(
+    true
+  );
   expect(ctx.restore).toHaveBeenCalledTimes(1);
 });
 

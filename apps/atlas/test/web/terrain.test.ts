@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   islandTop,
-  settlementColor,
   terrainGeometry,
   terrainHeight,
 } from "../../src/web/scene/terrain";
@@ -45,13 +44,5 @@ describe("atlas terrain", () => {
     expect(Math.max(...heights)).toBeLessThanOrEqual(islandTop + 14);
     expect(p).toEqual(before);
     geo.dispose();
-  });
-  it("distinguishes canonical kinds and leaves unknown kinds neutral", () => {
-    expect(
-      new Set(
-        ["source", "test", "story", "config", "other"].map(settlementColor)
-      ).size
-    ).toBe(5);
-    expect(settlementColor("unknown")).toBe(settlementColor("other"));
   });
 });

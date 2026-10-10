@@ -19,7 +19,6 @@ const island = (id: string, x: number, radius = 20): Territory => ({
       ],
     ],
   ],
-  color: "#efcf88",
   fileRoles: undefined,
   files: [
     {

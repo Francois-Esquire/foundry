@@ -166,7 +166,6 @@ const territory: Territory = {
       ],
     ],
   ],
-  color: "#abcdef",
   fileRoles: undefined,
   files: [],
   highFanInCutoff: 0,

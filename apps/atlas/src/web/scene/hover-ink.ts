@@ -1,10 +1,10 @@
 import type { Territory } from "../types";
+import { inkAlpha, inkStyle, inks } from "./ink-ladder";
 
-/** Amber, the ink of focus; a soft band beneath a fine line. */
-const hoverInk = "190, 132, 48";
+/** A soft band beneath a fine solid line, in the ladder's hover amber. */
 const hoverStrokes = [
-  { alpha: 0.14, pixels: 6 },
-  { alpha: 0.7, pixels: 1.6 },
+  { alpha: inkAlpha.hoverBand, pixels: 6 },
+  { alpha: inkAlpha.hoverLine, pixels: inkStyle("hover").weight },
 ] as const;
 
 /**
@@ -37,7 +37,8 @@ export function paintHoverInk(
   ctx.setLineDash([]);
   ctx.lineJoin = "round";
   for (const { alpha, pixels } of hoverStrokes) {
-    ctx.strokeStyle = `rgba(${hoverInk}, ${alpha})`;
+    ctx.strokeStyle = inks.hover;
+    ctx.globalAlpha = alpha;
     ctx.lineWidth = pixels / pixelsPerUnit;
     ctx.stroke();
   }

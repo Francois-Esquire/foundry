@@ -13,12 +13,12 @@ import { positionWorld, texture, uniform, vec2 } from "three/tsl";
 import { MeshBasicNodeMaterial, MeshStandardNodeMaterial } from "three/webgpu";
 import type { AtlasData } from "../types";
 import type { InkView } from "./exploration";
-import { sampleReliefInk } from "./relief-ink";
+import { grounds, materials } from "./ink-ladder";
 import { coastWallGeometry, terrainGeometry } from "./terrain";
 import { baseTerrainField } from "./terrain-field";
 import { createTerrainPicker } from "./terrain-picking";
 
-const cliffEarth = new Color("#8a6a45");
+const cliffEarth = new Color(materials.cliffEarth);
 
 /** Terrain and cartographic ink share vertices, projection, and pointer geometry. */
 export function createReliefLayer(
@@ -50,21 +50,13 @@ export function createReliefLayer(
     .and(coordinates.y.greaterThanEqual(0))
     .and(coordinates.y.lessThanEqual(1));
   ink.opacityNode = inView.select(sampled.a, 0);
-  // Raised coasts: each island's low cliff is a slightly deeper shade of its pigment.
-  const cliffs = new Map<string, MeshStandardNodeMaterial>();
-  const cliffFor = (color: string) => {
-    let cliff = cliffs.get(color);
-    if (!cliff) {
-      cliff = new MeshStandardNodeMaterial({
-        color: new Color(color).lerp(cliffEarth, 0.22),
-        metalness: 0,
-        roughness: 0.95,
-        side: DoubleSide,
-      });
-      cliffs.set(color, cliff);
-    }
-    return cliff;
-  };
+  // Raised coasts: every island's low cliff is the land a shade deeper.
+  const cliff = new MeshStandardNodeMaterial({
+    color: new Color(grounds.land).lerp(cliffEarth, 0.22),
+    metalness: 0,
+    roughness: 0.95,
+    side: DoubleSide,
+  });
   const walls: BufferGeometry[] = [];
   const entries = data.territories.map((territory) => {
     const geometry = territory.coast.map((polygon) => {
@@ -77,18 +69,15 @@ export function createReliefLayer(
       surfaces.add(new Mesh(shape, paper));
       const wall = coastWallGeometry(territory, polygon);
       walls.push(wall);
-      surfaces.add(new Mesh(wall, cliffFor(territory.color)));
+      surfaces.add(new Mesh(wall, cliff));
       const drawing = new Mesh(shape, ink);
       drawing.renderOrder = 2;
       group.add(drawing);
       return shape;
     });
-    const field = baseTerrainField(territory);
     return {
       geometry,
       pick: createTerrainPicker(geometry, tilt),
-      strokes: sampleReliefInk(territory, field).strokes,
-      territory,
     };
   });
   group.add(surfaces);
@@ -102,9 +91,7 @@ export function createReliefLayer(
       for (const wall of walls) {
         wall.dispose();
       }
-      for (const cliff of cliffs.values()) {
-        cliff.dispose();
-      }
+      cliff.dispose();
       ink.dispose();
     },
     fieldFor: baseTerrainField,
@@ -119,11 +106,6 @@ export function createReliefLayer(
       }
       return closest;
     },
-    reliefInk: () =>
-      entries.map((entry) => ({
-        strokes: entry.strokes,
-        territory: entry.territory,
-      })),
     setMap(next: Texture) {
       sampled.value = next;
     },

@@ -1,3 +1,4 @@
+import { inks } from "../ink-ladder";
 import type { InkState } from "./state";
 
 /** The compass rose at the chart's north-east corner; it opens chart settings. */
@@ -16,8 +17,8 @@ function paintCompass(
 ): void {
   ctx.save();
   ctx.translate(x, y);
-  ctx.strokeStyle = "#8b7656";
-  ctx.fillStyle = "#8b7656";
+  ctx.strokeStyle = inks.compass;
+  ctx.fillStyle = inks.compass;
   ctx.lineWidth = 0.65;
   ctx.beginPath();
   ctx.arc(0, 0, 23, 0, Math.PI * 2);

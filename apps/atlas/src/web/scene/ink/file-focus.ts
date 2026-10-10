@@ -1,4 +1,5 @@
 import type { AtlasData } from "../../types";
+import { inkStyle, inks } from "../ink-ladder";
 import type { InkState } from "./state";
 
 /** The selected file's amber ring, above every other mark. */
@@ -29,13 +30,13 @@ function paintFileFocus(
   ctx.globalAlpha = 1;
   ctx.beginPath();
   ctx.arc(0, 0, 9 / pixels, 0, Math.PI * 2);
-  ctx.strokeStyle = "#faf4e4";
-  ctx.lineWidth = 5 / pixels;
+  ctx.strokeStyle = inks.focusHalo;
+  ctx.lineWidth = inkStyle("focus-halo").weight / pixels;
   ctx.stroke();
-  ctx.strokeStyle = "#875222";
+  ctx.strokeStyle = inks.selection;
   ctx.lineWidth = 2 / pixels;
   ctx.stroke();
-  ctx.fillStyle = "#875222";
+  ctx.fillStyle = inks.selection;
   ctx.fillRect(-2 / pixels, -2 / pixels, 4 / pixels, 4 / pixels);
   ctx.restore();
 }

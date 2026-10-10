@@ -9,6 +9,7 @@ import {
 
 import { roadWidth } from "../codex/bindings";
 import type { createRoadNetwork } from "../roads";
+import { developerInks } from "./ink-ladder";
 
 export function createRoadLayer(network: ReturnType<typeof createRoadNetwork>) {
   const positions: number[] = [],
@@ -26,7 +27,7 @@ export function createRoadLayer(network: ReturnType<typeof createRoadNetwork>) {
         length = Math.hypot(dx, dy);
       const width = roadWidth(weight, maximum);
       const count = Math.ceil(length / 2);
-      const color = new Color("#997c4e");
+      const color = new Color(developerInks.road);
       for (let i = 0; i < count; i += 1) {
         const corners = [i, i + 1].flatMap((n) =>
           [-1, 1].map((side) => {

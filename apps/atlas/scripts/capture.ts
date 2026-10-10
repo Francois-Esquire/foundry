@@ -13,7 +13,8 @@
  * marks (the load marks from `src/web/timings.ts`, the data fetched, and, with
  * `?dev` in the URL or on the dev server, each timed stage's durations),
  * compare=<a.png>,<b.png> (two screenshots in --out, decoded in the page: the
- * pixels that differ and the largest difference), idle=<ms> (the page at rest: main-thread task and script time as a share of
+ * pixels that differ and the largest difference), probe=<shot.png>:<x0>,<y0>,<x1>,<y1>
+ * (the darkest pixel along a segment against the median, as a contrast ratio), idle=<ms> (the page at rest: main-thread task and script time as a share of
  * the window, and the frames submitted in it, which only a developer session
  * counts; null otherwise).
  * WebGL 2 runs on SwiftShader unless --angle metal (or another ANGLE backend)
@@ -274,6 +275,42 @@ async function measureIdle(session: Session, milliseconds: number) {
 }
 
 /**
+ * Samples a screenshot along a segment, in the page: the darkest pixel, the
+ * median one as the ground, and their WCAG contrast, so a ladder rung can be
+ * checked against what was rendered.
+ */
+async function probeShot(
+  session: Session,
+  file: string,
+  [x0, y0, x1, y1]: [number, number, number, number]
+) {
+  const url = `data:image/png;base64,${(await readFile(resolve(values.out, file))).toString("base64")}`;
+  return await session.evaluate(`(async () => {
+    const bitmap = await createImageBitmap(await (await fetch(${JSON.stringify(url)})).blob(), { colorSpaceConversion: "none", premultiplyAlpha: "none" });
+    const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+    const context = canvas.getContext("2d");
+    context.drawImage(bitmap, 0, 0);
+    const linear = (c) => { c /= 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+    const steps = Math.max(Math.abs(${x1} - ${x0}), Math.abs(${y1} - ${y0}), 1);
+    const samples = [];
+    for (let i = 0; i <= steps; i += 1) {
+      const x = Math.round(${x0} + ((${x1} - ${x0}) * i) / steps);
+      const y = Math.round(${y0} + ((${y1} - ${y0}) * i) / steps);
+      const [r, g, b] = context.getImageData(x, y, 1, 1).data;
+      samples.push({ luminance: 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b), rgb: [r, g, b], x, y });
+    }
+    const sorted = samples.toSorted((a, b) => a.luminance - b.luminance);
+    const darkest = sorted[0];
+    const ground = sorted[Math.floor(sorted.length / 2)];
+    return {
+      contrast: Math.round(((ground.luminance + 0.05) / (darkest.luminance + 0.05)) * 100) / 100,
+      darkest: { at: [darkest.x, darkest.y], rgb: darkest.rgb },
+      ground: ground.rgb,
+    };
+  })()`);
+}
+
+/**
  * Decodes two screenshots in the page and counts the pixels that differ: any
  * channel by more than 0, and by more than 8 of 255, with the largest
  * difference and the share of the image it covers.
@@ -441,6 +478,14 @@ async function runStep(
     case "marks":
       log(`marks: ${String(await session.evaluate(`(${readTimings})()`))}`);
       break;
+    case "probe": {
+      const [file = "", segment = ""] = argument.split(":");
+      const [x0 = 0, y0 = 0, x1 = 0, y1 = 0] = segment.split(",").map(Number);
+      log(
+        `probe ${argument}: ${JSON.stringify(await probeShot(session, file, [x0, y0, x1, y1]))}`
+      );
+      break;
+    }
     case "compare": {
       const [a = "", b = ""] = argument.split(",");
       log(

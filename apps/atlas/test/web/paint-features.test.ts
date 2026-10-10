@@ -173,7 +173,6 @@ describe("natural feature drawing", () => {
     const territory: Territory = {
       analyzed: true,
       coast: [],
-      color: "#abcdef",
       fileRoles: undefined,
       files: [commons, junction, lost],
       highFanInCutoff: 0,

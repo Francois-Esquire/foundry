@@ -4,6 +4,8 @@ import {
   defaultChartSettings,
   defaultDeveloperSettings,
   defaultReaderSettings,
+  defaultRenderSettings,
+  diveRenderSettings,
 } from "../../src/web/chart-settings";
 import { defaultLandmassSettings } from "../../src/web/landmasses";
 
@@ -36,4 +38,18 @@ it("splits the chart's settings into a reader's layers and a developer's control
     "land",
     "roads",
   ]);
+});
+
+it("raises the wreck dive to at least Balanced while the chart defaults to Light", () => {
+  expect(defaultRenderSettings.quality).toBe("low");
+  const order = ["off", "low", "medium", "high"];
+  for (const quality of ["off", "low", "medium", "high"] as const) {
+    const dive = diveRenderSettings({ ...defaultRenderSettings, quality });
+    expect(order.indexOf(dive.quality)).toBeGreaterThanOrEqual(
+      order.indexOf("medium")
+    );
+  }
+  expect(
+    diveRenderSettings({ ...defaultRenderSettings, quality: "high" }).quality
+  ).toBe("high");
 });

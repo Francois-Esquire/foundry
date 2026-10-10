@@ -4,17 +4,13 @@ description: Foundry dependency geography rendered as a navigable paper atlas.
 colors:
   paper: "#f1ead9"
   paper-edge: "#bba785"
-  ink: "#4a4233"
-  amber: "#875222"
   seawater: "#d5dbca"
   shallows: "#c3cebd"
-  ochre: "#efcf88"
-  sage: "#b4d5a5"
-  clay: "#edb59d"
-  mineral-green: "#a3d6bc"
-  sand: "#ead6a5"
-  mauve: "#cab6df"
-  lichen: "#d6dda0"
+  selection: "#3b1e06"
+  departure: "#681049"
+  label: "#665e50"
+  coast: "#7a6a50"
+  hover: "#be8430"
   index-active: "#dfd5bc"
 typography:
   display:
@@ -32,8 +28,9 @@ typography:
 ## Overview
 
 This record applies only to `/atlas`. It does not define the documentation
-site or Studio. The established direction is a paper atlas with mineral
-pigments, engraved labels, amber ink and shallow relief. Exploration starts on
+site or Studio. The established direction is a paper chart whose inks follow
+one ladder of strength, with district pigments for responsibilities, engraved
+labels and shallow relief. Exploration starts on
 the map; search and architectural evidence open in optional paper drawers.
 
 The implementation reads the existing semantic snapshot when Astro serves or
@@ -64,11 +61,21 @@ CC0, with provenance in `public/atlas/MODEL.md`.
 
 ## Colors
 
-Amber marks file focus and navigation; package selection and its dependency lines are gilt. Brown ink sits on warm paper. Desaturated
-seawater and shallows separate the package territories. The seven mineral
-pigments derive from stable package identifiers; colors can repeat and carry
-no quality ranking. Package names provide identity alongside color. Muted
-paper edges distinguish the raised land from the sea sheet.
+Every colour comes from the ink ladder (`scene/ink-ladder.ts`), which sets how
+strongly each kind of mark is drawn as luminance contrast against the land
+(`#f1ead9`) or the sea (`#d5dbca`), measured in linear light as the renderer
+blends, strongest first: the selection, a deep amber-brown (12.7:1 on land,
+10.8:1 on sea); departures, magenta, with a notched ring and a dash-dot line
+as a second cue (4.2b draws them); file marks (6.4–7.9:1); labels
+(5.0–5.3:1); the coast (1.9–2.9:1); relief (at most 1.35:1, the steepest
+shade 1.26:1); and sea lines (at most 1.15:1). Once an island is entered the
+selected island's ring steps down to the file rung at one pixel. The same
+module holds the one table of hue, dash, and weight that says what each line,
+fill, and text means, and the map key reads it. Hover is a mid amber, solid,
+apart from both the coast rule and the selection. Islands carry no package
+hue: the land is paper, pigment marks responsibilities only, and a package is
+told apart by its coast and its name. Muted paper edges distinguish the
+raised land from the sea sheet.
 
 Ocean pigment follows distance to the nearest land across all
 territories. A 1280-pixel longest-axis land mask feeds a separable Euclidean
@@ -112,7 +119,7 @@ Standalone islands have no group outline. Concave and convex outlines remain
 available as optional overlays. Accessible coastal
 pockets can contain unrelated islands without changing group membership.
 Optional connecting land adds continuous sage ground within each group; isolated packages remain
-offshore. Original package relief and local file geometry remain intact. The
+offshore. Original relief and local file geometry remain intact. The
 combined continental and island coast drives water shading and sea contours.
 
 ## Typography
@@ -162,8 +169,8 @@ their marks remain legible; pan and zoom still reach the full atlas.
 
 Three.js uses an orthographic camera with a fixed 0.7-radian tilt. Coastlines
 remain unchanged. Every island stands on a slight 0.45-unit lift above the
-0.4-unit paper: a short vertical coast, tinted 22% toward earth from the
-island's own pigment, gives the old-game raised rim without a cliff.
+0.4-unit paper: a short vertical coast, the land tinted 22% toward earth,
+gives the old-game raised rim without a cliff.
 
 Interiors are natural lowland. Ground rounds over the beach (1 unit with a
 four-unit falloff) and keeps rising gently inland (0.9 units with a 30-unit
@@ -183,7 +190,7 @@ files forms one range rather than stacked needles, and summits fade over ten
 units toward the shore. Ordinary files never raise their own ground.
 The field is sampled once on a fixed three-unit grid and interpolated cubically;
 the fixed three-unit mesh does not change with zoom. Normals use a three-unit
-span to keep slope shading continuous. Commons and junction roles remain in Place
+span to keep the relief term continuous. Commons and junction roles remain in Place
 and do not change the terrain when their evidence arrives. File placement and
 coastline XY stay fixed. No terrain noise, peak icons or activity elevation are added.
 
@@ -193,9 +200,10 @@ shore. Pen pressure is seeded from the territory and arc length, so it is
 identical on every repaint; runs are grouped into four weights and stroked once
 per weight. All coast ink is clipped inside the shore so it drapes on the raised
 land; nothing is left on the flat sea plane to ghost across a far-side coast.
-Selection is gilded. A selected island is ringed by a gilt line five map units
-offshore of its own coast (a contour of a per-island distance field, built once
-per island), and gilt curves lead to its package dependencies: dashed to the
+Selection is the ladder's strongest ink. A selected island is ringed by a line
+five map units offshore of its own coast (a contour of a per-island distance
+field, built once per island), and curves in the same ink lead to its package
+dependencies: dashed to the
 packages it imports from, dotted from the packages that import it, each ending
 in a small bead at the other package. Weight follows module imports between the
 pair (`dependencyPen`). Lines run between the nearest shores with a gentle bow,
@@ -214,7 +222,7 @@ hits use an eight-unit grid of projected mesh triangles for the fixed camera,
 then exact barycentric intersection within the relevant bin. The index rebuilds
 only when that terrain changes; it does not approximate the picked surface.
 
-Terrain, contour/hachure ink and picking are built once from the initial survey.
+Terrain, contour ink and picking are built once from the initial survey.
 Zoom and late-arriving package evidence never replace the land beneath the ink.
 There are no browser workers or alternate terrain variants. Camera and
 detail-reveal changes share one map repaint per display frame. Viewport-resolution
@@ -226,12 +234,11 @@ Unknown kinds stay neutral. These marks preserve mixed areas of an island rather
 than splitting islands by classification. Finer source
 roles remain unclassified. File specks are round dots, one per file, that grow
 gently with zoom (radius 1.45 / √pixels map units) and are filled once per kind.
-They stay bold across every island at overview, keep 85% as regions take focus,
-then give way to full file marks between 3 and 5 pixels per map unit. File marks
+They stay at full strength across every island, regions or not, then give way
+to full file marks between 3 and 5 pixels per map unit. File marks
 stay visible at closer zoom.
 
-Matte mineral pigments retain quiet flats beneath engraved relief. A 48% warm
-stock wash leaves package pigments visible. The coordinate grid uses 90-unit
+The land is plain paper, with no package wash. The coordinate grid uses 90-unit
 major lines and 18-unit subdivisions, which fade in at 30–60 pixels of spacing.
 On land the grid is printed in world coordinates on the displaced mesh, so lines
 bend with the relief. Derivative antialiasing keeps the ink fine.
@@ -245,7 +252,7 @@ File and declaration connections still require an explicit trace.
 
 Engraved topography is generated from the current height and distance fields.
 Land levels at 2, 4, 6 and 8 units use one-unit sampling; their ink follows
-the mesh. Land contours and hachures are built once with the survey terrain. Seven coastal rings sit 2, 3.5, 5.5, 8,
+the mesh. Land contours are built once with the survey terrain. Seven coastal rings sit 2, 3.5, 5.5, 8,
 11.5, 15.5 and 20 units from land. Seven outer rings sit 3, 4.5, 6.5, 9.5, 13, 17
 and 22 units beyond the archipelago rim. Their spacing increases and ink fades
 outward; the coastal reach stays capped at 20 units. A finer 1280-pixel distance
@@ -257,9 +264,14 @@ per map unit. Land ink is warm brown; sea ink is muted teal. Contours are solid,
 with slightly stronger major lines; boundaries and dependencies retain dashes.
 Three-pixel crowding suppression and four-pixel label clearance protect reading.
 
-Neutral ambient fill (1.23) and a warm directional light (3.16) illuminate the
-paper, balanced so level paper renders at its own pigment rather than greyed. Land uses slope shading without cast shadows on the sea. Nothing on the chart
-casts a shadow, so the scene keeps no shadow map. The sea is the painted sea sheet under the shared paper surface,
+The island paper is unlit: its colour is its own, and relief is one term in it.
+Slopes turned from a north-west light, and each vertex's concavity, multiply
+the paper's linear colour by 1 minus at most 0.22, the ladder's relief cap, so
+the steepest shade just clears the relief rung and is never darker than a file
+mark. There are no hachures. The sea and the coast walls still take the
+scene's ambient fill (1.23) and warm directional light (3.16), balanced so
+level ground renders at its own colour. Nothing on the chart casts a shadow, so
+the scene keeps no shadow map. The sea is the painted sea sheet under the shared paper surface,
 thinned over wrecks as the camera comes in; it does not move.
 The full-screen sheet has no outer border or CSS shadow. Paper drawers and the
 selected-place inspector use `0 8px 26px #584a3328` to separate them from the map.
@@ -525,7 +537,7 @@ remain disposable presentation data; temporal stability is not guaranteed.
   constant screen width, drawn on the ink canvas after the map; it appears and goes
   with the pointer, without fading. Each repaint asks again which island lies under
   the resting pointer, so a zoom or camera move under a still pointer inks the
-  island now beneath it. A selected island keeps its gilt ring instead.
+  island now beneath it. A selected island keeps its selection ring instead.
 - Territory names lead the overview. Zooming near an island loads its Belonging
   regions without selecting it. Island clicks frame the region scale; further
   zoom reveals files. An island shows no grouping until its Belonging
@@ -540,7 +552,7 @@ remain disposable presentation data; temporal stability is not guaranteed.
   and exits below 3.6; declaration interaction enters at 7 and exits below 6.2.
   These separate thresholds prevent detail flicker. Ordinary file labels require 5;
   only the selected file's name remains while that file is in view. Its 20px
-  name takes placement priority, and its amber ring has a paper knockout drawn
+  name takes placement priority, and its selection-ink ring has a paper knockout drawn
   above composition, so detail cannot erase the selected settlement. Selecting a
   group limits file labels to its members. Labels outside the view or
   colliding with earlier labels are omitted; crowded file names may stay hidden.
@@ -565,10 +577,9 @@ trade resolution and filtering for speed. Off draws directly; shader failure als
 falls back to direct draw and is disclosed in the panel. There are no map
 filters.
 
-Land uses a rough, nonmetallic lit paper material under warm northwest light.
-No land cast shadows are added. Concavity still comes from fixed-radius samples
-of the current terrain field. Hachures appear only above slope 0.24,
-leaving gentle flats clear. There are no full-sheet fold bands or screen grain.
+Land is unlit paper whose relief is the one capped term above; concavity comes
+from fixed-radius samples of the current terrain field. There are no
+full-sheet fold bands or screen grain.
 Fine fibers and faint broad stock variation are stationary world-coordinate
 material texture, shared by land and sea. They fade when too small to resolve,
 never distort geometry, and never encode activity. Material texture also works
@@ -591,8 +602,10 @@ Sliders are uniforms and change nothing in the graph; quality, toggles, tone
 mapping, and stage view rebuild it. Stage modules load on first use.
 When the device reports GPU frame times, a sustained frame over budget steps
 the tier down one level, never to Off, and the panel says so; choosing a
-quality again clears the cap. On the chart, Light retains engraved terrain
-concavity and full-resolution ink while omitting screen-space occlusion;
+quality again clears the cap. A reader's chart runs Light, the default: the
+paper's relief term and full-resolution ink, without screen-space occlusion;
+the wreck dive never runs below Balanced, since its perspective view keeps
+screen-space occlusion at every enabled tier;
 Balanced, Full, and the occlusion stage preview retain that pass. Perspective
 wreck views retain screen-space occlusion at every enabled tier. The Show stage select replaces the image with a
 single stage's output for tuning.

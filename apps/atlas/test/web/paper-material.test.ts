@@ -7,11 +7,12 @@ import {
 } from "../../src/web/scene/paper-material";
 
 describe("atlas paper", () => {
-  it("uses matte solid pigment without decorative bump or displacement", () => {
+  it("is unlit paper whose relief is one term, without bump or displacement", () => {
     const map = new Texture();
     const materials = createPaperMaterials(map);
     expect(materials.paper.map).toBe(map);
-    expect(materials.paper.isMeshStandardNodeMaterial).toBe(true);
+    // Unlit: no light shades the paper; the relief term in its colour does.
+    expect(materials.paper.isMeshBasicNodeMaterial).toBe(true);
     expect(materials.paper.colorNode).toBeDefined();
     expect(paperThickness).toBe(0.4);
     let disposed = false;

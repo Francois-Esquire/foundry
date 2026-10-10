@@ -1,14 +1,15 @@
 import { shoreDistances } from "../distance-field";
 import type { AtlasData, Polygon } from "../types";
 import { archipelagoHull, traceArchipelago } from "./archipelago";
+import { channels, grounds } from "./ink-ladder";
 
 /** Offshore distances (map units) where the sea steps one shade deeper. */
 export const depthSteps = [6, 14, 26, 42, 64, 92];
 /** Distances beyond the archipelago rim where open water steps toward ocean blue. */
 export const openSeaSteps = [14, 80, 170, 280, 410, 560];
-const shoreWater = [223, 227, 211] as const;
-const deepWater = [199, 210, 199] as const;
-const oceanBlue = [180, 196, 197] as const;
+const shoreWater = channels(grounds.shoreWater);
+const deepWater = channels(grounds.deepWater);
+const oceanBlue = channels(grounds.openWater);
 
 /** Fraction of `steps` passed at `distance`; each step is a soft wash, never a line. */
 function layered(distance: number, steps: readonly number[], softness: number) {

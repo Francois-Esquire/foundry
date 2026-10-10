@@ -1,5 +1,6 @@
 import type { ResponsibilityOverlay } from "../../responsibility-focus";
 import type { AtlasData } from "../../types";
+import { dashAt, inkStyle } from "../ink-ladder";
 import type { InkState } from "./state";
 
 /** The traced imports of the selected file, when Trace imports is on. */
@@ -29,9 +30,11 @@ function paintTracedImports(
         p.files.map((f) => [f.id, { x: p.x + f.x, y: p.y + f.y }] as const)
       )
     );
-    ctx.strokeStyle = "#8a5a31ba";
-    ctx.lineWidth = 1 / pixels;
-    ctx.setLineDash([3 / pixels, 5 / pixels]);
+    const traced = inkStyle("traced-import");
+    ctx.strokeStyle = traced.hue;
+    ctx.globalAlpha = 0.73;
+    ctx.lineWidth = traced.weight / pixels;
+    ctx.setLineDash(dashAt(traced, pixels));
     for (const edge of data.fileEdges) {
       if (edge.source !== fileId && edge.target !== fileId) {
         continue;

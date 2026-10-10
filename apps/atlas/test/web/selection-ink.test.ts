@@ -21,7 +21,6 @@ const square = (half: number): Territory["coast"] => [
 const island = (id: string, x: number): Territory => ({
   analyzed: true,
   coast: square(20),
-  color: "#fff",
   fileRoles: undefined,
   files: [],
   highFanInCutoff: 0,

@@ -33,7 +33,6 @@ const territory: Territory = {
       ],
     ],
   ],
-  color: "#fff",
   fileRoles: undefined,
   files: [shared, ordinary],
   highFanInCutoff: 0,

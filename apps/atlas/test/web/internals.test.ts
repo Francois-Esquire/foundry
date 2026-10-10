@@ -134,7 +134,6 @@ describe("atlas package internals", () => {
           ],
         ],
       ],
-      color: "#aaa",
       fileRoles: undefined,
       files: files.map((file) => ({
         ...file,

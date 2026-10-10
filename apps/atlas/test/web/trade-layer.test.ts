@@ -18,7 +18,6 @@ const island = (id: string, x: number): Territory => ({
       ],
     ],
   ],
-  color: "#efcf88",
   fileRoles: undefined,
   files: [],
   highFanInCutoff: 0,

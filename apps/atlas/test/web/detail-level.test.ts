@@ -21,7 +21,7 @@ describe("atlas detail hierarchy", () => {
     expect(detailVisibility(state, 6.1, true).composition).toBe(false);
     expect(detailVisibility(state, 8, false).composition).toBe(false);
   });
-  it("keeps overview specks, favors regions, then restores full files", () => {
+  it("keeps specks at full strength under the regions, then restores full files", () => {
     expect(detailLevel(0.8, true)).toEqual({
       composition: 0,
       districts: 0,
@@ -32,7 +32,7 @@ describe("atlas detail hierarchy", () => {
       composition: 0,
       districts: 1,
       files: 0,
-      specks: 0.85,
+      specks: 1,
     });
     expect(detailLevel(5, true)).toEqual({
       composition: 0,

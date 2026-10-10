@@ -1,7 +1,7 @@
 import type { BelongingLayer, BelongingRegion } from "../../belonging";
 import { filePen, speckRadius } from "../../codex/bindings";
 import type { AtlasData, AtlasFile, Territory } from "../../types";
-import { settlementColor } from "../terrain";
+import { fileInk, inks } from "../ink-ladder";
 import type { InkState } from "./state";
 
 /** Every file: specks at overview, marks by kind and role closer in, and a group's exact members. */
@@ -61,9 +61,9 @@ function paintExactMembers(
   }
   ctx.globalAlpha = 1;
   ctx.fillStyle = belonging.files
-    ? "#4a4233"
-    : (activeRegion?.color ?? "#4a4233");
-  ctx.strokeStyle = "#f1ead9";
+    ? inks.selection
+    : (activeRegion?.color ?? inks.selection);
+  ctx.strokeStyle = inks.paper;
   ctx.lineWidth = 1 / pixels;
   for (const file of exactMembers) {
     const size = (belonging.files ? 5 : 3.5) / pixels;
@@ -94,7 +94,7 @@ function paintIslandFiles(
     ctx.globalAlpha =
       detail.files *
       (evidenceFiles?.size && !evidenceFiles.has(f.id) ? 0.15 : 1);
-    ctx.fillStyle = settlementColor(f.kind);
+    ctx.fillStyle = fileInk(f.kind);
     ctx.strokeStyle = ctx.fillStyle;
     const size = filePen(pixels);
     ctx.lineWidth = Math.min(0.45, 1 / pixels);
@@ -123,7 +123,7 @@ function paintSpecks(
       ctx.moveTo(file.x + radius, file.y);
       ctx.arc(file.x, file.y, radius, 0, Math.PI * 2);
     }
-    ctx.fillStyle = settlementColor(kind);
+    ctx.fillStyle = fileInk(kind);
     ctx.fill();
   }
 }

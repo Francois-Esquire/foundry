@@ -26,7 +26,9 @@ export function detailLevel(pixels: number, hasComposition = false) {
     composition,
     districts: regionIntro * (1 - files),
     files,
-    specks: (1 - regionIntro + regionIntro * 0.85) * (1 - files),
+    // Specks keep full strength until file marks replace them: a file never
+    // recedes behind the districts (ink ladder, file rung).
+    specks: 1 - files,
   };
 }
 

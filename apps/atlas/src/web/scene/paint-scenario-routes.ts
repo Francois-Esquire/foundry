@@ -1,6 +1,7 @@
 import type { ResponsibilityOverlay } from "../responsibility-focus";
 import type { RouteEndpoint } from "../scenario-routes";
 import type { Territory } from "../types";
+import { dashAt, inkAlpha, inkStyle } from "./ink-ladder";
 
 export function paintScenarioRoutes(
   ctx: CanvasRenderingContext2D,
@@ -29,14 +30,14 @@ export function paintScenarioRoutes(
       : undefined;
   };
   ctx.save();
-  ctx.lineWidth = 1.2 / pixels;
-  for (const [links, color, alpha] of [
-    [routes.baseline, "#587575", 0.5],
-    [routes.proposed, "#875222", routes.progress],
+  for (const [links, style, alpha] of [
+    [routes.baseline, inkStyle("scenario-baseline"), inkAlpha.scenarioBaseline],
+    [routes.proposed, inkStyle("scenario-proposed"), routes.progress],
   ] as const) {
-    ctx.strokeStyle = color;
+    ctx.strokeStyle = style.hue;
+    ctx.lineWidth = style.weight / pixels;
     ctx.globalAlpha = alpha;
-    ctx.setLineDash([3 / pixels, 3 / pixels]);
+    ctx.setLineDash(dashAt(style, pixels));
     for (const route of links.slice(0, 64)) {
       const source = point(route.source),
         target = point(route.target);

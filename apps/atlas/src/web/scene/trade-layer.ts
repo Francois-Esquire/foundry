@@ -24,11 +24,14 @@ import { compositionInsideLand } from "../composition-placement";
 import { roundSeaLane } from "../sea-lane";
 import type { TradePoint, TradeRoute } from "../trade-routes";
 import type { AtlasData } from "../types";
+import { inkStyle } from "./ink-ladder";
 
 /** Sea trade routes: one dashed lane per route, between its two harbors. */
 export function createTradeLayer(data: AtlasData) {
   const group = new Group();
-  const ink = uniform(new Color("#875222"));
+  const style = inkStyle("trade");
+  const [dash = 8, gap = 6] = style.dash;
+  const ink = uniform(new Color(style.hue));
   const laneMaterial = new MeshBasicNodeMaterial({
     depthWrite: false,
     side: DoubleSide,
@@ -36,11 +39,11 @@ export function createTradeLayer(data: AtlasData) {
   });
   const laneUv = uv();
   const laneLength = attribute<"float">("routeLength", "float");
-  // Dashed sea lanes: a 14-unit cadence with 8-unit gaps measured from both
-  // ends, so dashes stay symmetric no matter the route length.
+  // Dashed sea lanes in map units, measured from both ends so dashes stay
+  // symmetric no matter the route length.
   laneMaterial.colorNode = Fn(() => {
     const along = min(laneUv.x, laneLength.sub(laneUv.x));
-    Discard(mod(along, 14).greaterThan(8));
+    Discard(mod(along, dash + gap).greaterThan(dash));
     return ink;
   })();
   laneMaterial.opacityNode = float(1)

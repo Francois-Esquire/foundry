@@ -8,16 +8,6 @@ import { settleLandmasses } from "./landmasses";
 import { markLoad } from "./timings";
 import type { AtlasData, Territory } from "./types";
 
-const pigments = [
-  "#efcf88",
-  "#b4d5a5",
-  "#edb59d",
-  "#a3d6bc",
-  "#ead6a5",
-  "#cab6df",
-  "#d6dda0",
-];
-
 export async function loadAtlas(signal?: AbortSignal): Promise<AtlasData> {
   markLoad("atlas:data-requested");
   const saved = await readCodexSource(viewerDataset({ signal }));
@@ -46,9 +36,6 @@ export async function loadAtlas(signal?: AbortSignal): Promise<AtlasData> {
     return {
       analyzed: p.analyzed,
       coast,
-      color:
-        pigments[Math.floor(unit(`${p.id}:pigment`) * pigments.length)] ??
-        "#efcf88",
       fileRoles: p.fileRoles,
       files,
       highFanInCutoff: p.highFanInCutoff,

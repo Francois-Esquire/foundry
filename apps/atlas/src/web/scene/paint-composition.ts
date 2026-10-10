@@ -1,6 +1,7 @@
 import { compositionFrame, compositionReveal } from "../composition-motion";
 import type { ResponsibilityOverlay } from "../responsibility-focus";
 import type { Territory } from "../types";
+import { dashAt, inkAlpha, inkStyle, inks } from "./ink-ladder";
 
 export function paintComposition(
   ctx: CanvasRenderingContext2D,
@@ -39,7 +40,7 @@ export function paintComposition(
   ctx.lineWidth = 1 / pixels;
   for (const mark of compositionFrame(overlay, pixels)) {
     const { x, y } = mark;
-    ctx.fillStyle = "#f1ead9";
+    ctx.fillStyle = inks.paper;
     ctx.fillRect(x - 0.8, y - 0.8, 1.6, 1.6);
     ctx.strokeStyle = resolvePaintComposition(blockers, mark, active);
     ctx.strokeRect(x - 0.5, y - 0.5, 1, 1);
@@ -52,16 +53,18 @@ export function paintComposition(
     if (mark.ghost) {
       const { x: tx, y: ty, alpha, tether } = mark.ghost;
       ctx.globalAlpha = detail * alpha;
-      ctx.strokeStyle = "#875222";
-      ctx.setLineDash([2 / pixels, 2 / pixels]);
+      ctx.strokeStyle = inks.evidence;
+      ctx.setLineDash(dashAt(inkStyle("inspection-proposal"), pixels));
       if (tether) {
         ctx.beginPath();
         ctx.moveTo(x, y);
         ctx.lineTo(tx, ty);
         ctx.stroke();
       }
-      ctx.fillStyle = "#f1ead9b8";
+      ctx.globalAlpha = detail * alpha * inkAlpha.paperVeil;
+      ctx.fillStyle = inks.paper;
       ctx.fillRect(tx - 0.6, ty - 0.6, 1.2, 1.2);
+      ctx.globalAlpha = detail * alpha;
       ctx.strokeRect(tx - 0.6, ty - 0.6, 1.2, 1.2);
       ctx.setLineDash([]);
       ctx.globalAlpha = detail;
@@ -81,10 +84,10 @@ function resolvePaintComposition(
   active: Set<string>
 ): string | CanvasGradient | CanvasPattern {
   if (blockers.has(mark.id)) {
-    return "#963f32";
+    return inks.declarationBlocker;
   }
   if (active.has(mark.id)) {
-    return "#875222";
+    return inks.evidence;
   }
-  return "#4a4233";
+  return inks.declaration;
 }

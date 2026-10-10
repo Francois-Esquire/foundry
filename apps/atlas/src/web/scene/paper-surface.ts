@@ -11,7 +11,7 @@ import {
 } from "three/tsl";
 import type { Node } from "three/webgpu";
 import { chartGrid } from "../codex/bindings";
-import { gridInk } from "./paint-paper";
+import { inkAlpha, inks } from "./ink-ladder";
 
 /** Stationary fibers and uneven stock, shared by land and sea in chart space. */
 export function paperSurface(pigment: Node<"vec3">) {
@@ -41,7 +41,7 @@ export function terrainGrid(pigment: Node<"vec3">) {
   const spacing = float(minorStep).div(derivative.y.max(derivative.x));
   const minor = line(minorStep)
     .mul(smoothstep(30, 60, spacing))
-    .mul(0.16);
-  const ink = line(majorStep).mul(0.3).max(minor);
-  return mix(pigment, color(gridInk), ink);
+    .mul(inkAlpha.gridMinor(Number.POSITIVE_INFINITY));
+  const ink = line(majorStep).mul(inkAlpha.gridMajor).max(minor);
+  return mix(pigment, color(inks.grid), ink);
 }

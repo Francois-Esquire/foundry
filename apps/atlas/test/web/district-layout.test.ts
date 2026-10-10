@@ -35,7 +35,6 @@ const territory: Territory = {
       ],
     ],
   ],
-  color: "#aaa",
   fileRoles: undefined,
   files: Array.from({ length: 60 }, (_, i) => ({
     directory: "src",

@@ -3,9 +3,10 @@ import { unit } from "../geography";
 import type { NaturalFeature } from "../natural-feature-inspection";
 import type { FeaturePoint, Marsh, NaturalFeatures } from "../natural-features";
 import type { RiverRun } from "../river-network";
+import { dashAt, inkAlpha, inkStyle, inks } from "./ink-ladder";
 
-const streamInk = "#537d78";
-const marshInk = "#697855";
+const streamInk = inks.stream;
+const marshInk = inks.marsh;
 
 function path(
   ctx: CanvasRenderingContext2D,
@@ -36,15 +37,15 @@ function paintStreams(
   for (const run of runs) {
     const width = riverPen(run.width, pixels);
     path(ctx, run.points);
-    ctx.globalAlpha = 0.12 * strength;
-    ctx.strokeStyle = "#605b47";
+    ctx.globalAlpha = inkAlpha.streamBank * strength;
+    ctx.strokeStyle = inks.streamBank;
     ctx.lineWidth = width + 5 / pixels;
     ctx.stroke();
     ctx.save();
     ctx.translate(0.65 / pixels, 0.9 / pixels);
     path(ctx, run.points);
-    ctx.globalAlpha = 0.75 * strength;
-    ctx.strokeStyle = "#fff5da";
+    ctx.globalAlpha = inkAlpha.streamGlint * strength;
+    ctx.strokeStyle = inks.streamGlint;
     ctx.lineWidth = width + 1.3 / pixels;
     ctx.stroke();
     ctx.restore();
@@ -108,7 +109,7 @@ function paintMarshes(
     }
     ctx.globalAlpha = 0.2 * detail.opacity * strength;
     ctx.lineWidth = 0.6 / pixels;
-    ctx.setLineDash([0.7 / pixels, 2.7 / pixels]);
+    ctx.setLineDash(dashAt(inkStyle("marsh-drain"), pixels));
     for (const drain of marsh.drains) {
       path(ctx, drain.points);
       ctx.stroke();
@@ -153,9 +154,10 @@ function paintFocus(
   if (!focus) {
     return;
   }
-  ctx.globalAlpha = 0.9;
-  ctx.strokeStyle = "#875222";
-  ctx.lineWidth = 1.5 / pixels;
+  // A focused feature is a selection, drawn in the selection's ink.
+  ctx.globalAlpha = 1;
+  ctx.strokeStyle = inks.selection;
+  ctx.lineWidth = inkStyle("selection").weight / pixels;
   if (focus.kind === "landmark") {
     path(ctx, focus.landmark.footprint, true);
   } else if (focus.kind === "river") {

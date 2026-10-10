@@ -15,7 +15,7 @@ produces byte-identical data with and without the codex.
 | `source.ts`     | `readCodexSource(reader)`: picks the codex's fields through the library's dataset reader; `CodexSource` lists every field read.  |
 | `vocabulary.ts` | Codex entities and values, named by meaning.                                                                                     |
 | `resolve.ts`    | `resolveCodex(source)`: source fields to codex values. Pure.                                                                     |
-| `bindings.ts`   | Codex values to visual channels. Every constant that tunes how a value looks.                                                    |
+| `bindings.ts`   | Codex values to visual channels: the size, position, width, and spacing a value maps to. Inks are not here; see below.           |
 
 `bindings.ts` imports nothing; `vocabulary.ts` imports one library type.
 `resolve.ts` imports codex files and the library's
@@ -86,7 +86,6 @@ the lens, says so; missing history never becomes a zero count.
 | `streamWidth`          | responsibility link module edges, accumulated on shared runs | stream width | `natural-features.ts`, `river-network.ts`           |
 | `marshDetail` | Unresolved module count and zoom | reed opacity and screen spacing | `scene/paint-features.ts` |
 | `riverPen` | Bound stream width and zoom | mineral river pen width | `scene/paint-features.ts` |
-| `reliefHachure` | Current height-field slope and zoom | engraved fall-line threshold, length and opacity | `scene/relief-ink.ts` |
 | `filePen` | Zoom | file settlement mark size | `scene/ink/files.ts` |
 
 ## Contact points
@@ -111,9 +110,11 @@ change swaps an inline read or transform for a codex export; nothing else moved.
   anchors and wreck sites. They carry no meaning, so layout keeps them.
 - **Geometry.** Coasts, relief, ocean depth and every field derived from positions
   belong to layout.
-- **Palettes and selection rules.** File-kind colors and shapes, the six
-  strongest trades and label budgets stay with the painters. The
-  codex owns the categories, not how they look.
+- **Inks.** Every hue, and how strongly each mark is drawn against the land
+  or the sea, is in `scene/ink-ladder.ts`, the ink ladder, with the one table
+  of hue, dash, and weight that says what each line means. The codex owns the
+  categories and magnitudes; the ladder owns the ink; painters own the shapes
+  (file kinds and roles), the six strongest trades, and label budgets.
 - **Per-island evidence.** `load-internals.ts` reads the analyzer's internal
   reports through the same dataset reader, and belonging, composition and the
   inspection panels use them as-is. The district grouping is no longer the

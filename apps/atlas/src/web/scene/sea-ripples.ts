@@ -1,12 +1,13 @@
 import { contours } from "d3-contour";
 import type { AtlasData, Polygon } from "../types";
 import type { InkView } from "./exploration";
+import { inkAlpha, inks } from "./ink-ladder";
 import { oceanField } from "./ocean";
 import { penRuns, penWeights, strokeRuns } from "./paint-paper";
 
 /** Offshore distances of the gilded ripples, in map units. */
 const rippleOffsets = [2.4, 4.8, 7.6];
-const rippleOpacity = [0.16, 0.11, 0.07];
+const rippleOpacity = inkAlpha.ripple;
 /** Below this pressure the pen lifts, so ripples are broken lines. */
 const rippleLift = 0.28;
 
@@ -73,14 +74,14 @@ export function paintSeaRipples(
   view: InkView
 ) {
   const pixels = view.pixelsPerUnit;
-  const reveal = Math.max(0, Math.min(1, (pixels - 0.9) / 1.4));
+  const reveal = inkAlpha.rippleReveal(pixels);
   if (!(reveal && ripples.length)) {
     return;
   }
   const left = view.x - view.width / 2;
   const top = view.y - view.height / 2;
   ctx.save();
-  ctx.strokeStyle = "#a8873c";
+  ctx.strokeStyle = inks.ripple;
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
   for (const ripple of ripples) {

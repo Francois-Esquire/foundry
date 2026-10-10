@@ -32,7 +32,6 @@ export type Polygon = [number, number][][];
 export interface Territory {
   analyzed: boolean;
   coast: Polygon[];
-  color: string;
   /** The `file-roles` lens's modules, bound on entering the island; `undefined` without internals. */
   fileRoles: Pick<FileRolesPackage, "modules"> | undefined;
   files: AtlasFile[];

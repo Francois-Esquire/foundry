@@ -4,7 +4,6 @@ import type { AtlasData, Territory } from "../../types";
 import type { atlasBoundaries, BoundaryVisibility } from "../boundaries";
 import { detailLevel, fileInView } from "../detail-level";
 import type { InkView, MapLabel } from "../exploration";
-import type { ReliefInk } from "../relief-ink";
 import type { SeaRipple } from "../sea-ripples";
 import type { ContourLine } from "../topography";
 
@@ -31,7 +30,6 @@ export interface InkOptions {
     project: (label: MapLabel) => MapLabel;
   };
   matches?: BelongingRegion;
-  relief?: ReliefInk[];
   responsibility?: ResponsibilityOverlay | null;
   ripples?: readonly SeaRipple[];
   selected?: string | null;
@@ -69,7 +67,6 @@ export interface InkState {
   /** How strongly district pigment shows at this zoom. */
   regionStrength: number;
   regions: Map<string, Territory>;
-  relief: ReliefInk[];
   responsibility: ResponsibilityOverlay | null;
   ripples: readonly SeaRipple[];
   selected: string | null;
@@ -209,7 +206,6 @@ export function inkState(
     project: options.lettering?.project ?? ((label) => label),
     regionStrength,
     regions,
-    relief: options.relief ?? [],
     responsibility,
     ripples: options.ripples ?? [],
     selected,

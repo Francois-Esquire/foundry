@@ -1,7 +1,6 @@
 import { paintBoundaries } from "../boundaries";
 import { paintHoverInk } from "../hover-ink";
 import { paintChartGrid, paintGridReferences } from "../paint-paper";
-import { paintReliefInk } from "../relief-ink";
 import { paintSeaRipples } from "../sea-ripples";
 import { paintSelectionInk } from "../selection-ink";
 import { paintTopography } from "../topography";
@@ -24,8 +23,8 @@ export interface InkLayer {
 
 /**
  * The ink canvas's layers, bottom to top: this order is the map's z-order.
- * Layers share one context and inherit each other's drawing state, as the
- * single painter they were split from did.
+ * `paintInk` saves and restores the context around each, so a layer starts
+ * from the scene's drawing state and never inherits another's.
  */
 export const inkLayers = [
   {
@@ -38,11 +37,6 @@ export const inkLayers = [
       view && paintSeaRipples(ctx, ripples, view),
   },
   { id: "coast", paint: paintCoastline },
-  {
-    id: "relief",
-    paint: ({ ctx, pixels, relief, view }) =>
-      paintReliefInk(ctx, relief, view?.pixelsPerUnit ?? pixels),
-  },
   { id: "belonging", paint: paintBelonging },
   { id: "connections", paint: paintConnections },
   { id: "files", paint: paintFiles },

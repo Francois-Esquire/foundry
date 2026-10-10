@@ -3,6 +3,7 @@ import { dependencyPen } from "../codex/bindings";
 import { shoreDistances } from "../distance-field";
 import type { AtlasData, AtlasRoute, Territory } from "../types";
 import type { MapLabel } from "./exploration";
+import { dashAt, enteredAt, inkStyle, inks } from "./ink-ladder";
 import { traceLand } from "./paint-paper";
 
 type Point = [number, number];
@@ -15,7 +16,6 @@ const linkClearance = 7;
 /** Sideways bow of a dependency curve, as a fraction of its length. */
 const linkBow = 0.12;
 
-const gilt = "#b38a32";
 const rings = new WeakMap<Territory, Point[][]>();
 
 /** Even-odd scanline fill of the coast on a local grid; no canvas required. */
@@ -188,8 +188,9 @@ export function dependencyLinks(
 }
 
 /**
- * Selection ink: a gilt ring around the selected island and dashed gilt
- * curves to the packages it imports from (finer dots from its dependents).
+ * Selection ink, the ladder's strongest: a ring around the selected island
+ * and dashed curves to the packages it imports from (dots from its
+ * dependents), all in the selection ink.
  * Lines pass beneath other islands; they are sea ink only.
  */
 export function paintSelectionInk(
@@ -221,27 +222,29 @@ export function paintSelectionInk(
   ctx.clip("evenodd");
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
-  ctx.strokeStyle = gilt;
+  ctx.strokeStyle = inks.selection;
+  const imports = inkStyle("selection-imports");
+  const importers = inkStyle("selection-importers");
   for (const link of routes) {
-    ctx.globalAlpha = link.outgoing ? 0.85 : 0.7;
     ctx.lineWidth = dependencyPen(link.route.weight, strongest) / pixels;
-    ctx.setLineDash(
-      link.outgoing ? [7 / pixels, 5 / pixels] : [0.1 / pixels, 4 / pixels]
-    );
+    ctx.setLineDash(dashAt(link.outgoing ? imports : importers, pixels));
     ctx.beginPath();
     ctx.moveTo(...link.start);
     ctx.quadraticCurveTo(...link.control, ...link.end);
     ctx.stroke();
     ctx.setLineDash([]);
-    // A small gilt bead marks the other package's end of each line.
+    // A small bead marks the other package's end of each line.
     ctx.beginPath();
     ctx.arc(...link.end, 2.2 / pixels, 0, Math.PI * 2);
-    ctx.fillStyle = gilt;
+    ctx.fillStyle = inks.selection;
     ctx.fill();
   }
-  ctx.globalAlpha = 0.95;
+  // Once the island is entered the breadcrumb carries the selection, and the
+  // ring steps down to the file rung so it does not read as another coast.
+  const ringStyle = inkStyle(pixels < enteredAt ? "selection" : "entered-ring");
   ctx.setLineDash([]);
-  ctx.lineWidth = 1.8 / pixels;
+  ctx.strokeStyle = ringStyle.hue;
+  ctx.lineWidth = ringStyle.weight / pixels;
   for (const ring of selectionRing(territory)) {
     ctx.beginPath();
     for (const [index, [x, y]] of ring.entries()) {

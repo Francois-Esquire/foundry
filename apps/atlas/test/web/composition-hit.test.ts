@@ -21,7 +21,6 @@ const territory: Territory = {
       ],
     ],
   ],
-  color: "#aaa",
   fileRoles: undefined,
   files: [
     {

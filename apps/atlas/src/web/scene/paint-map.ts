@@ -6,6 +6,7 @@ import type { InkView, MapLabel } from "./exploration";
 import { inkLayers } from "./ink/layers";
 import { type InkOptions, inkState } from "./ink/state";
 import { trace } from "./ink/trace";
+import { grounds } from "./ink-ladder";
 import { paintOcean } from "./ocean";
 
 /** The sea sheet: the ocean's depth steps under every coast and continent. */
@@ -33,7 +34,7 @@ export function paintCoast(
       ctx,
       c.field.outline.map((ring) => [ring])
     );
-    ctx.fillStyle = "#c4cca0";
+    ctx.fillStyle = grounds.continent;
     ctx.fill();
   }
   for (const p of data.territories) {
@@ -42,8 +43,9 @@ export function paintCoast(
 }
 
 /**
- * The ink canvas at the view: every layer of `inkLayers`, in order, each
- * timed as `ink:<id>` in a developer session. Returns the labels placed.
+ * The ink canvas at the view: every layer of `inkLayers`, in order, each in
+ * its own drawing state and timed as `ink:<id>` in a developer session.
+ * Returns the labels placed.
  */
 export function paintInk(
   canvas: HTMLCanvasElement,
@@ -61,10 +63,23 @@ export function paintInk(
     ),
     options
   );
+  const contexts =
+    state.labelContext === ctx ? [ctx] : [ctx, state.labelContext];
   for (const layer of inkLayers) {
-    timeStage(options.developer ?? false, `ink:${layer.id}`, () =>
-      layer.paint(state)
-    );
+    // Each layer starts from the scene's own drawing state and leaves none
+    // behind: no layer's alpha, dash, font or fill reaches the next.
+    for (const context of contexts) {
+      context.save();
+    }
+    try {
+      timeStage(options.developer ?? false, `ink:${layer.id}`, () =>
+        layer.paint(state)
+      );
+    } finally {
+      for (const context of contexts) {
+        context.restore();
+      }
+    }
   }
   return state.labels;
 }
@@ -114,17 +129,14 @@ function paintLand(
     // depth change, never as stair-stepped texels.
     ctx.filter = "blur(3px)";
     trace(ctx, p.shallows);
-    ctx.fillStyle = "#e3e6d7";
+    ctx.fillStyle = grounds.shallows;
     ctx.fill("evenodd");
     ctx.filter = "none";
   }
   trace(ctx, p.coast);
-  ctx.fillStyle = p.color;
+  // Islands carry no package hue: pigment means responsibility only, and a
+  // package is told apart by its coast and outline (4.0).
+  ctx.fillStyle = grounds.land;
   ctx.fill("evenodd");
-  // Pigment is a wash into warm stock; relief supplies the landform.
-  ctx.fillStyle = "#f1ead9";
-  ctx.globalAlpha = 0.48;
-  ctx.fill("evenodd");
-  ctx.globalAlpha = 1;
   ctx.restore();
 }
