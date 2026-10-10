@@ -6,9 +6,9 @@ import type {
 } from "../../lenses/placement-types";
 import { byId } from "../../workspace-projection";
 import type { RenderDensity } from "../context";
-import { LISTED_AT_DENSITY } from "../context";
 import { count, percent } from "../format";
-import type { BlockView, ReportView, SectionView } from "../views";
+import type { ReportView, SectionView } from "../views";
+import { rankedSection } from "./ranked-section";
 
 const LEVELS: { label: string; level: PlacementLevel }[] = [
   { label: "Symbols", level: "symbol" },
@@ -39,31 +39,23 @@ function summed(lens: Placements, level: PlacementLevel): PlacementCounts {
 type Departure = Extract<Placement, { label: "departs" }>;
 
 /** Places, the most consumer modules away first, then by place. */
-function rankedSection<P extends Placement>(
+function rankedPlaces<P extends Placement>(
   placements: P[],
   density: RenderDensity,
   title: string,
   detail: (placement: P) => string
 ): SectionView | undefined {
-  const ranked = [...placements].sort(
-    (a, b) => awayModules(b) - awayModules(a) || byId(a.place, b.place)
+  return rankedSection(
+    [...placements]
+      .sort((a, b) => awayModules(b) - awayModules(a) || byId(a.place, b.place))
+      .map((placement) => ({
+        detail: [detail(placement)],
+        label: placement.place,
+        value: awayModules(placement),
+      })),
+    density,
+    title
   );
-  const shown = ranked.slice(0, LISTED_AT_DENSITY[density]);
-  if (shown.length === 0) {
-    return;
-  }
-  const list: BlockView = {
-    items: shown.map((placement) => ({
-      detail: [detail(placement)],
-      label: placement.place,
-      value: awayModules(placement),
-    })),
-    kind: "rankedList",
-    ...(ranked.length > shown.length && {
-      overflow: ranked.length - shown.length,
-    }),
-  };
-  return { blocks: [list], title };
 }
 
 /** The `placement` lens: counts by level, then departures and spread places, the most used away first. */
@@ -95,7 +87,7 @@ export function buildPlacementView(
   ];
   const home = (placement: Placement) =>
     `${count(placement.home.modules.length)} at home`;
-  const departures = rankedSection(
+  const departures = rankedPlaces(
     lens.places.filter(
       (placement): placement is Departure => placement.label === "departs"
     ),
@@ -104,7 +96,7 @@ export function buildPlacementView(
     (placement) =>
       `${placement.level} · ${placement.package} → ${placement.toward} · ${home(placement)}`
   );
-  const spread = rankedSection(
+  const spread = rankedPlaces(
     lens.places.filter((placement) => placement.label === "spread"),
     density,
     "Spread",

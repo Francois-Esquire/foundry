@@ -1,8 +1,16 @@
 import type { PackageSizes } from "../../lenses/package-sizes-types";
 import type { RenderDensity } from "../context";
-import { LISTED_AT_DENSITY } from "../context";
 import { count } from "../format";
-import type { BlockView, ReportView } from "../views";
+import type { ReportView, SectionView } from "../views";
+import { rankedSection } from "./ranked-section";
+
+const BY_PACKAGE = "Files by package";
+
+/** The section an empty dependency graph still prints, its heading over no packages. */
+const NO_PACKAGES: SectionView = {
+  blocks: [{ items: [], kind: "rankedList" }],
+  title: BY_PACKAGE,
+};
 
 /** The `package-sizes` lens: totals, then packages by file count, largest first. */
 export function buildPackageSizesView(
@@ -14,21 +22,19 @@ export function buildPackageSizesView(
   const layers = new Set(
     packages.flatMap((pkg) => (pkg.layer === null ? [] : [pkg.layer]))
   );
-  const ranked = [...packages].sort(
-    (a, b) => b.modules.total - a.modules.total || a.id.localeCompare(b.id)
+  const byPackage = rankedSection(
+    [...packages]
+      .sort(
+        (a, b) => b.modules.total - a.modules.total || a.id.localeCompare(b.id)
+      )
+      .map((pkg) => ({
+        detail: [pkg.layer === null ? "no layer" : `layer ${pkg.layer}`],
+        label: pkg.id,
+        value: pkg.modules.total,
+      })),
+    density,
+    BY_PACKAGE
   );
-  const shown = ranked.slice(0, LISTED_AT_DENSITY[density]);
-  const list: BlockView = {
-    items: shown.map((pkg) => ({
-      detail: [pkg.layer === null ? "no layer" : `layer ${pkg.layer}`],
-      label: pkg.id,
-      value: pkg.modules.total,
-    })),
-    kind: "rankedList",
-    ...(ranked.length > shown.length && {
-      overflow: ranked.length - shown.length,
-    }),
-  };
   return {
     sections: [
       {
@@ -46,10 +52,7 @@ export function buildPackageSizesView(
           },
         ],
       },
-      {
-        blocks: [list],
-        title: "Files by package",
-      },
+      byPackage ?? NO_PACKAGES,
     ],
     title: "Package sizes",
   };

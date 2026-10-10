@@ -1,9 +1,9 @@
 import type { FrequentChange } from "../../lenses/frequent-change-types";
 import { byId } from "../../workspace-projection";
 import type { RenderDensity } from "../context";
-import { LISTED_AT_DENSITY } from "../context";
 import { count, percent } from "../format";
-import type { BlockView, ReportView, SectionView } from "../views";
+import type { ReportView, SectionView } from "../views";
+import { rankedSection } from "./ranked-section";
 
 /** The `frequent-change` lens: the gate, then the files with the most commits first. */
 export function buildFrequentChangeView(
@@ -13,10 +13,6 @@ export function buildFrequentChangeView(
   const files = lens.packages.flatMap((pkg) =>
     pkg.files.map((file) => ({ ...file, package: pkg.id }))
   );
-  const ranked = [...files].sort(
-    (a, b) => b.commits - a.commits || byId(a.file, b.file)
-  );
-  const shown = ranked.slice(0, LISTED_AT_DENSITY[density]);
   const sections: SectionView[] = [
     {
       blocks: [
@@ -34,21 +30,21 @@ export function buildFrequentChangeView(
       ],
     },
   ];
-  if (shown.length > 0) {
-    const list: BlockView = {
-      items: shown.map((file) => ({
+  const changed = rankedSection(
+    [...files]
+      .sort((a, b) => b.commits - a.commits || byId(a.file, b.file))
+      .map((file) => ({
         detail: [
           `${file.package} · ${percent(file.commitPercentile)} commit percentile`,
         ],
         label: file.file,
         value: file.commits,
       })),
-      kind: "rankedList",
-      ...(ranked.length > shown.length && {
-        overflow: ranked.length - shown.length,
-      }),
-    };
-    sections.push({ blocks: [list], title: "Frequently changed files" });
+    density,
+    "Frequently changed files"
+  );
+  if (changed !== undefined) {
+    sections.push(changed);
   }
   if (lens.missing.length > 0) {
     sections.push({

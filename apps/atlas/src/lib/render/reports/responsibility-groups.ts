@@ -1,9 +1,9 @@
 import type { ResponsibilityGroups } from "../../lenses/responsibility-groups-types";
 import { byId } from "../../workspace-projection";
 import type { RenderDensity } from "../context";
-import { LISTED_AT_DENSITY } from "../context";
 import { count } from "../format";
-import type { BlockView, ReportView, SectionView } from "../views";
+import type { ReportView, SectionView } from "../views";
+import { rankedSection } from "./ranked-section";
 
 /** The `responsibility-groups` lens: totals, then the groups with the most responsibilities first. */
 export function buildResponsibilityGroupsView(
@@ -23,7 +23,6 @@ export function buildResponsibilityGroupsView(
       byId(a.package, b.package) ||
       byId(a.id, b.id)
   );
-  const shown = ranked.slice(0, LISTED_AT_DENSITY[density]);
   const sections: SectionView[] = [
     {
       blocks: [
@@ -50,23 +49,21 @@ export function buildResponsibilityGroupsView(
       ],
     },
   ];
-  if (shown.length > 0) {
-    const list: BlockView = {
-      items: shown.map((group) => ({
-        detail: [
-          group.anchorModule === undefined
-            ? group.package
-            : `${group.package} · anchored on ${group.anchorModule}`,
-        ],
-        label: group.label,
-        value: group.responsibilities.length,
-      })),
-      kind: "rankedList",
-      ...(ranked.length > shown.length && {
-        overflow: ranked.length - shown.length,
-      }),
-    };
-    sections.push({ blocks: [list], title: "Responsibility groups" });
+  const listed = rankedSection(
+    ranked.map((group) => ({
+      detail: [
+        group.anchorModule === undefined
+          ? group.package
+          : `${group.package} · anchored on ${group.anchorModule}`,
+      ],
+      label: group.label,
+      value: group.responsibilities.length,
+    })),
+    density,
+    "Responsibility groups"
+  );
+  if (listed !== undefined) {
+    sections.push(listed);
   }
   if (lens.missing.length > 0) {
     sections.push({

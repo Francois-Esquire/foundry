@@ -1,9 +1,9 @@
 import type { FileRole, FileRoles } from "../../lenses/file-roles-types";
 import { byId } from "../../workspace-projection";
 import type { RenderDensity } from "../context";
-import { LISTED_AT_DENSITY } from "../context";
 import { count } from "../format";
-import type { BlockView, ReportView, SectionView } from "../views";
+import type { ReportView, SectionView } from "../views";
+import { rankedSection } from "./ranked-section";
 
 /** Each file role's row label, in the order the roles are tried. */
 const ROLE_ROWS: readonly (readonly [FileRole, string])[] = [
@@ -25,23 +25,20 @@ export function buildFileRolesView(
     label,
     value: count(modules.filter((module) => module.role === role).length),
   }));
-  const ranked = modules
-    .filter((module) => module.highFanIn)
-    .sort((a, b) => b.fanIn - a.fanIn || byId(a.module, b.module));
-  const shown = ranked.slice(0, LISTED_AT_DENSITY[density]);
-  const highFanIn: BlockView = {
-    items: shown.map((module) => ({
-      detail: [
-        `${module.package.id} · cutoff ${module.package.highFanInCutoff}`,
-      ],
-      label: module.module,
-      value: module.fanIn,
-    })),
-    kind: "rankedList",
-    ...(ranked.length > shown.length && {
-      overflow: ranked.length - shown.length,
-    }),
-  };
+  const highFanIn = rankedSection(
+    modules
+      .filter((module) => module.highFanIn)
+      .sort((a, b) => b.fanIn - a.fanIn || byId(a.module, b.module))
+      .map((module) => ({
+        detail: [
+          `${module.package.id} · cutoff ${module.package.highFanInCutoff}`,
+        ],
+        label: module.module,
+        value: module.fanIn,
+      })),
+    density,
+    "High fan-in"
+  );
   const sections: SectionView[] = [
     {
       blocks: [
@@ -56,8 +53,8 @@ export function buildFileRolesView(
       ],
     },
   ];
-  if (ranked.length > 0) {
-    sections.push({ blocks: [highFanIn], title: "High fan-in" });
+  if (highFanIn !== undefined) {
+    sections.push(highFanIn);
   }
   if (roles.missing.length > 0) {
     sections.push({
