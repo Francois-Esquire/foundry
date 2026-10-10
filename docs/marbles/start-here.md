@@ -76,7 +76,7 @@ step("count")
   .input(z.object({ extension: z.string() }))
   .do(async ({ input: { extension }, workspaces }) => {
     const files = await workspaces.current.files();
-    return { extension, files: files.filter((file) => file.endsWith(extension)).length };
+    return { extension, files: files.filter((file) => file.path.endsWith(extension)).length };
   });
 ```
 

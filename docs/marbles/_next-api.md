@@ -762,6 +762,12 @@ Tests: `apps/marbles/test/lib/managers.test.ts:223-390`.
 
 ### E.2 Workspaces (7.3)
 
+**Landed 2026-10-10**, breaking `files()` with no `paths()` shortcut
+(the pass-through rule). Every handle (`current`, `load`, a `workspace()`
+instance) forwards `WORKSPACE_METHODS`, loading at the first call; `rename`
+and `remove` are left to the host. Only `load` adds `id` and `source`,
+since a lazy handle does not know them yet (`LoadedWorkspace`).
+
 Return the package's `Workspace` with `git` decorated (C.1 and C.4), instead
 of `{ root, files(), git }` (`workspaces.ts:90-112`). `files()` keeps kind,
 extension, and metadata; `read`, `save`, `createFile`, `entries`, `refresh`,

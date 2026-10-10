@@ -8,6 +8,7 @@ import type { directory } from "@foundry/workspaces/node";
 import type { ManagerArgs } from "../bindings";
 import { current } from "../run-scope";
 import type {
+  LoadedWorkspace,
   WorkspaceDefinition,
   WorkspaceHandle,
   Workspaces,
@@ -101,18 +102,44 @@ function wrapGit<G extends Git>(
   });
 }
 
+/**
+ * The package Workspace's methods a handle passes through. `rename` and
+ * `remove` change the workspace registry, so they stay with the host.
+ */
+export const WORKSPACE_METHODS = [
+  "createFile",
+  "entries",
+  "files",
+  "read",
+  "refresh",
+  "registration",
+  "save",
+  "scan",
+  "summary",
+] as const satisfies readonly (keyof Loaded)[];
+
+type Method = (...args: unknown[]) => Promise<unknown>;
+
+/**
+ * A handle over a workspace that may not be loaded yet: each method loads
+ * it, once, then calls the package's own. `root` and `git` need no load.
+ */
 function handle(
   root: string,
   loaded: () => Promise<Loaded>,
   gitOf: () => Git | undefined,
   worktreeHome: string | undefined
 ): WorkspaceHandle {
-  return {
-    async files() {
-      const files = await (await loaded()).files();
-      return files.map((file: { readonly path: string }) => file.path);
-    },
-    get git() {
+  const target: Record<string, unknown> = { root };
+  for (const name of WORKSPACE_METHODS) {
+    target[name] = async (...args: unknown[]) => {
+      const workspace = await loaded();
+      return (Reflect.get(workspace, name) as Method).apply(workspace, args);
+    };
+  }
+  Object.defineProperty(target, "git", {
+    enumerable: true,
+    get() {
       const found = gitOf();
       if (!found) {
         throw new Error(
@@ -121,8 +148,8 @@ function handle(
       }
       return wrapGit(found, worktreeHome);
     },
-    root,
-  };
+  });
+  return target as unknown as WorkspaceHandle;
 }
 
 export class WorkspacesManager implements Workspaces {
@@ -163,13 +190,16 @@ export class WorkspacesManager implements Workspaces {
 
   async load(
     ref: WorkspaceDefinition | { readonly path: string }
-  ): Promise<WorkspaceHandle> {
+  ): Promise<LoadedWorkspace> {
     const workspace = await this.#load(ref.path);
-    return handle(
-      workspace.root,
-      () => Promise.resolve(workspace),
-      () => workspace.git,
-      this.#deps.worktreeHome
+    return Object.assign(
+      handle(
+        workspace.root,
+        () => Promise.resolve(workspace),
+        () => workspace.git,
+        this.#deps.worktreeHome
+      ),
+      { id: workspace.id, source: workspace.source }
     );
   }
 

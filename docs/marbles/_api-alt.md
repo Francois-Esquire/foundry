@@ -308,7 +308,7 @@ SDK `result` when the harness has one.
 
 ```ts
 const here = workspaces.current;                          // the config's own
-const files = await here.files();
+const files = await here.files();                         // file entries: path, kind, extension, …
 await here.git.withWorktree({ base: "main" }, async (checkout) => { … });
 
 const siteWs = await workspaces.load(site);               // a definition

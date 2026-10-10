@@ -54,7 +54,8 @@ it("exposes the config directory and dry-run git through the engine's workspaces
       write: () => undefined,
     });
     expect(workspaces.current.root).toBe(root);
-    await expect(workspaces.current.files()).resolves.toContain("notes.md");
+    const files = await workspaces.current.files();
+    expect(files.map((file) => file.path)).toContain("notes.md");
     const loaded = await workspaces.load({ path: root });
     expect(loaded.root).toBe(root);
     expect(() => workspaces.current.git).toThrow(NOT_A_REPOSITORY);

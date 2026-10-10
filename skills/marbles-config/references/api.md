@@ -143,7 +143,7 @@ step().do(async ({ input, agents, workspaces, sandboxes, artifacts, ask, report,
 | --- | --- |
 | `input` | Typed input, validated against `.input(schema)`. |
 | `agents` | `session(def, { cwd?, session?, compaction? })` → `{ generate(prompt, turn?) → { text, output, usage, result? }, stream(prompt, turn?), ref, harness }`. `turn`: `{ output?, temperature?, maxOutputTokens?, stopWhen?, providerOptions?, …, signal?, onText? }`. |
-| `workspaces` | `current` (the config's directory) and `load(def | { path })` → `{ root, files(), git }`. |
+| `workspaces` | `current` (the config's directory) and `load(def | { path })` → the `@foundry/workspaces` workspace: `root`, `files()` (entries: `id`, `path`, `extension`, `kind`), `entries()`, `read(id)`, `save`, `createFile`, `refresh()`, `summary()`, `git`. |
 | `sandboxes` | `start(def | spec)` → `{ exec(argv) → { exitCode, stdout, stderr }, close(), id }`; `open(id)`. |
 | `artifacts` | `write(def, files)` adds a version; `create({ name, type, entries })` makes one on the spot. |
 | `ask` | `approval({ title, body? })` → `{ approved, note? }`; `question({ title, body?, choices? })` → `string`. |
@@ -164,7 +164,7 @@ reply.text;
 const once = await reviewer.generate("Review the change.");  // same as a one-turn agents.session
 const total = await count.run({ path: "README.md" });         // a step or workflow, run now
 await box.exec(["bun", "test"]);                              // a declared sandbox starts at its first exec
-await site.files(); await weeklyReport.write({ "report.md": markdown }); // workspace handle, artifact version
+(await site.files()).map((file) => file.path); await weeklyReport.write({ "report.md": markdown }); // file entries, artifact version
 
 // Structured output: `Output` is re-exported from the AI SDK. A reply that
 // does not match the schema rejects with NoObjectGeneratedError.

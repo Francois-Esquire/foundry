@@ -216,7 +216,7 @@ step().do(async ({ input, agents, workspaces, sandboxes, artifacts, ask, report,
 | --- | --- |
 | `input` | Typed input, validated against `.input(schema)`. |
 | `agents` | `session(def, { cwd?, session?, compaction? })` → `{ generate(prompt, turn?) → { text, output, usage, … }, stream(prompt, turn?), ref, harness }`. |
-| `workspaces` | `current` (the workspace root) and `load(def \| { path })` → `{ root, files(), git }`. |
+| `workspaces` | `current` (the workspace root) and `load(def \| { path })` → the `@foundry/workspaces` workspace: `root`, `files()`, `entries()`, `read(id)`, `save`, `createFile`, `refresh()`, `summary()`, `git`. |
 | `sandboxes` | `start(def \| spec)` → `{ exec(argv) → { exitCode, stdout, stderr }, close(), id }`; `open(id)`. |
 | `artifacts` | `write(def, files)` adds a version; `create({ name, type, entries })` makes one on the spot. |
 | `ask` | `approval({ title, body?, key? })` → `{ approved, note? }`; `question({ title, body?, choices?, key? })` → `string`. |
@@ -269,8 +269,14 @@ await fetch(url, { signal });
   turn whose `output` gets no matching value rejects with
   `NoObjectGeneratedError` after the reply is committed. See
   [structured output](/marbles/concepts/agents-and-sessions#structured-output).
-- **Workspaces.** `current.git` throws when the workspace root is not a
-  repository. `withWorktree({ base, branch?, home? }, body)` cuts a checkout
+- **Workspaces.** A handle is the `@foundry/workspaces` workspace, loaded
+  at its first call: `files()` returns file entries (`id`, `path`,
+  `extension`, `kind`, size, and modification time), `entries()` adds
+  directories, `read(file.id)` returns the content, and `save` and
+  `createFile` write through the workspace's confinement checks. A handle
+  from `load` also has its registry `id` and `source`. Renaming or removing
+  a workspace is the host's, not a step's. `current.git` throws when the
+  workspace root is not a repository. `withWorktree({ base, branch?, home? }, body)` cuts a checkout
   under the workspace's state, runs `body` with the working directory
   narrowed to it, and removes it on return; a `branch` outlives the worktree.
   `worktree(options)` cuts one you remove yourself, under the same home.

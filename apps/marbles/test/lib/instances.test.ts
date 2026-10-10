@@ -217,7 +217,12 @@ describe("a workspace, a sandbox, or an artifact", () => {
       const site = workspace({ path: repo });
       expect(site.root).toBe(repo);
       expect(site.git.root).toBe(repo);
-      await expect(site.files()).resolves.toContain("README.md");
+      const files = await site.files();
+      expect(files.map((file) => file.path)).toContain("README.md");
+      const readme = files.find((file) => file.path === "README.md");
+      expect(readme && (await site.read(readme.id))).toMatchObject({
+        kind: "text",
+      });
       expect(await site.git.status()).toMatchObject({ branch: "main" });
       expect(Object.keys({ ...site })).toEqual(["id", "kind", "path"]);
     } finally {

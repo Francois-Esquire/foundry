@@ -147,17 +147,9 @@ narrowing.
 
 ### 7.3 Workspaces
 
-`git` is passed through whole by a proxy; the workspace itself is not.
-
-- `files()` returns paths and drops kind, extension, and metadata
-  (`apps/marbles/src/lib/managers/workspaces.ts:97-100`).
-- `read`, `save`, `createFile`, `entries`, `refresh`, `summary`, `scan`,
-  `id`, and `source` are hidden (`workspaces.ts:90-112`), and the workspace
-  system's `on("change")`, `list`, `open`, and `close` are unreachable from a
-  step (`workspaces.ts:163-165`).
-- The worktree-defaults bug landed 2026-10-10 (`_next-api.md`, C.1).
-
-**Proposal.** Return the package's `Workspace` with `git` decorated.
+Landed 2026-10-10 ([`_next-api.md`](./_next-api.md), C.1 and E.2). The
+workspace system's `on("change")`, `list`, `open`, and `close`, and a
+workspace's `rename` and `remove`, stay host operations.
 
 ### 7.4 Artifacts
 

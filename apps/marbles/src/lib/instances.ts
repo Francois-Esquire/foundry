@@ -11,6 +11,7 @@ import type { AnyDefinition } from "./definition";
 import { SANDBOX_HANDLE } from "./handles";
 import { deferredStream } from "./managers/agent-turns";
 import type { AgentTurns } from "./managers/agents";
+import { WORKSPACE_METHODS } from "./managers/workspaces";
 import { current, RunScopes } from "./run-scope";
 import type { InstanceRuntime } from "./runtime";
 import { instanceRoot, instanceRuntime } from "./runtime";
@@ -175,7 +176,7 @@ async function runHere(
 
 /**
  * Give a workspace definition its handle: `root` resolved against the run's
- * or host's root, and `files` and `git` from the handle `workspaces.load`
+ * or host's root, and the methods and `git` of the handle `workspaces.load`
  * returns, loaded at first use so nothing is watched until then.
  */
 export function workspaceInstance(
@@ -203,8 +204,21 @@ export function workspaceInstance(
         });
     },
   });
+  const methods = Object.fromEntries(
+    WORKSPACE_METHODS.map((name) => [
+      name,
+      {
+        value: (...args: unknown[]) =>
+          loaded().then((handle) =>
+            (Reflect.get(handle, name) as (...values: unknown[]) => unknown)(
+              ...args
+            )
+          ),
+      },
+    ])
+  );
   return Object.defineProperties(definition, {
-    files: { value: () => loaded().then((handle) => handle.files()) },
+    ...methods,
     git: { get: () => git },
     root: { get: root },
   }) as WorkspaceInstance;

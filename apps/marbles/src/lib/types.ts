@@ -15,6 +15,7 @@ import type {
   SessionUsage,
 } from "@foundry/agents/session";
 import type { ContainerSandboxConstraints } from "@foundry/sandbox/container/constraints";
+import type { Workspace as PackageWorkspace } from "@foundry/workspaces";
 import type { Git } from "@foundry/workspaces/git";
 import type {
   InferGenerateOutput,
@@ -233,19 +234,39 @@ export interface Agents {
   ): Promise<Session<OUTPUT>>;
 }
 
-export interface WorkspaceHandle {
-  files(): Promise<readonly string[]>;
+/**
+ * A directory, as `@foundry/workspaces` has it: `files()` and `entries()`
+ * with kind and metadata, `read`, `save`, `createFile`, `refresh`,
+ * `summary`, and `scan`, loaded at the first call. `git` carries Marbles'
+ * worktree defaults. Registry operations (`rename`, `remove`) are the host's.
+ */
+export type WorkspaceHandle = Pick<
+  PackageWorkspace,
+  | "createFile"
+  | "entries"
+  | "files"
+  | "read"
+  | "refresh"
+  | "registration"
+  | "save"
+  | "scan"
+  | "summary"
+> & {
   /** Throws when the directory is not a git repository. */
   readonly git: Git;
   readonly root: string;
-}
+};
+
+/** A workspace already loaded, so its registry identity is known. */
+export type LoadedWorkspace = WorkspaceHandle &
+  Pick<PackageWorkspace, "id" | "source">;
 
 export interface Workspaces {
   /** The config's own directory. */
   readonly current: WorkspaceHandle;
   load(
     ref: WorkspaceDefinition | { readonly path: string }
-  ): Promise<WorkspaceHandle>;
+  ): Promise<LoadedWorkspace>;
 }
 
 interface ExecResult {

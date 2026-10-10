@@ -118,7 +118,12 @@ describe("workspaces", () => {
       const a = args(repo);
       const workspaces = manager.scoped(a);
       expect(workspaces.current.root).toBe(repo);
-      await expect(workspaces.current.files()).resolves.toContain("README.md");
+      const files = await workspaces.current.files();
+      expect(files.map((file) => file.path)).toContain("README.md");
+      expect(files.find((file) => file.path === "README.md")).toMatchObject({
+        extension: "md",
+        type: "file",
+      });
       expect(repositoryRoot(join(repo, "nested", "deeper"))).toBe(repo);
 
       const seen: string[] = [];
