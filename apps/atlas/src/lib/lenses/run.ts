@@ -9,6 +9,7 @@ import type { Lens, LensId, LensReader, LensSettings } from "./lens-types";
 import { nestingLens } from "./nesting";
 import { packageSizesLens } from "./package-sizes";
 import { placementLens } from "./placement";
+import { proximityLens } from "./proximity";
 import { responsibilityGroupsLens } from "./responsibility-groups";
 
 // The lens phase of a scan. Every lens runs on every scan, after the
@@ -25,6 +26,7 @@ export const LENSES: readonly AnyLens[] = [
   nestingLens,
   packageSizesLens,
   placementLens,
+  proximityLens,
   responsibilityGroupsLens,
 ];
 

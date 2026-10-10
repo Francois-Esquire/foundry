@@ -6,6 +6,7 @@ import { buildFrequentChangeView } from "./frequent-change";
 import { buildNestingView } from "./nesting";
 import { buildPackageSizesView } from "./package-sizes";
 import { buildPlacementView } from "./placement";
+import { buildProximityView } from "./proximity";
 import { buildResponsibilityGroupsView } from "./responsibility-groups";
 
 /** Each lens's report view; the lens itself returns no display strings. */
@@ -17,5 +18,6 @@ export const LENS_VIEWS: {
   nesting: buildNestingView,
   "package-sizes": buildPackageSizesView,
   placement: buildPlacementView,
+  proximity: buildProximityView,
   "responsibility-groups": buildResponsibilityGroupsView,
 };

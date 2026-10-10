@@ -408,4 +408,96 @@ describe("renderLens", () => {
       ].join("\n")
     );
   });
+  it("prints the proximity lens: counts, then folders of unrelated groups, files apart, and co-changes apart", () => {
+    const text = renderLens(
+      "proximity",
+      {
+        apart: {
+          coChanges: [
+            {
+              coChangeCommits: 3,
+              distance: 5,
+              id: "packages/a/src/x/a.ts|packages/b/src/z.ts",
+              jaccard: 0.5,
+              left: "packages/a/src/x/a.ts",
+              right: "packages/b/src/z.ts",
+              scope: "cross-package",
+              staticPath: "none",
+            },
+            {
+              coChangeCommits: 4,
+              distance: 2,
+              id: "packages/a/src/x/a.ts|packages/a/src/y/b.ts",
+              jaccard: 0.4,
+              left: "packages/a/src/x/a.ts",
+              right: "packages/a/src/y/b.ts",
+              scope: "same-package",
+              staticPath: "direct",
+            },
+          ],
+          files: [
+            {
+              distance: 2,
+              file: "packages/a/src/y/e.ts",
+              folder: "packages/a/src/y",
+              package: "@w/a",
+              responsibility: "R1",
+              responsibilityFolder: "packages/a/src/x",
+            },
+          ],
+        },
+        close: [
+          {
+            folder: "packages/a/src/x",
+            groups: [
+              {
+                apart: [],
+                files: ["packages/a/src/x/a.ts", "packages/a/src/x/c.ts"],
+                responsibilities: ["R1", "R3"],
+              },
+              {
+                apart: [],
+                files: ["packages/a/src/x/b.ts"],
+                responsibilities: ["R2"],
+              },
+            ],
+            package: "@w/a",
+            unresolved: 1,
+          },
+        ],
+        missing: ["@w/c"],
+        packages: [{ id: "@w/a", unresolved: 1 }],
+      },
+      { format: "text" }
+    );
+    expect(text).toBe(
+      [
+        "Proximity",
+        "═════════",
+        "Close, unrelated  1 folder of unrelated groups",
+        "Files apart       1 away from their responsibility's folder",
+        "Co-changes apart  2 across folders, 1 with no import path",
+        "Unresolved        1 file in no responsibility",
+        "",
+        "Folders of unrelated groups",
+        "  packages/a/src/x  2",
+        "    @w/a · 3 files · 1 unresolved",
+        "",
+        "Files away from their responsibility, by folder steps",
+        "  packages/a/src/y/e.ts  2",
+        "    @w/a · its responsibility in packages/a/src/x",
+        "",
+        "Changing together, apart, by folder steps",
+        "  packages/a/src/x/a.ts  5",
+        "    with packages/b/src/z.ts",
+        "    3 commits together · no import path",
+        "  packages/a/src/x/a.ts  2",
+        "    with packages/a/src/y/b.ts",
+        "    4 commits together · import path direct",
+        "",
+        "Saved without internals",
+        "  @w/c",
+      ].join("\n")
+    );
+  });
 });

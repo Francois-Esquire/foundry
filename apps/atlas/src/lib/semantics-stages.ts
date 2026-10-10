@@ -82,6 +82,7 @@ export const SEMANTIC_STAGE_VERSIONS: Record<
     schemaVersion: LENS_SCHEMA_VERSIONS["package-sizes"],
   },
   "lens:placement": { schemaVersion: LENS_SCHEMA_VERSIONS.placement },
+  "lens:proximity": { schemaVersion: LENS_SCHEMA_VERSIONS.proximity },
   "lens:responsibility-groups": {
     schemaVersion: LENS_SCHEMA_VERSIONS["responsibility-groups"],
   },
@@ -140,6 +141,7 @@ const SEMANTIC_STAGE_DEPENDENCIES: Record<
   "lens:nesting": ["materialization"],
   "lens:package-sizes": ["materialization"],
   "lens:placement": ["materialization"],
+  "lens:proximity": ["materialization"],
   "lens:responsibility-groups": ["materialization"],
   /** The dataset before its lenses: the workspace, its projections, and each package's internals. */
   materialization: [

@@ -24,6 +24,7 @@ import type { FileRoles } from "../src/lib/lenses/file-roles-types";
 import type { Nesting } from "../src/lib/lenses/nesting-types";
 import { rootRelativeFolder } from "../src/lib/lenses/package-internals";
 import type { Placements } from "../src/lib/lenses/placement-types";
+import type { Proximity } from "../src/lib/lenses/proximity-types";
 import type { ResponsibilityGroups } from "../src/lib/lenses/responsibility-groups-types";
 import { scan } from "../src/lib/scan";
 import type { HistoryManifest } from "../src/lib/semantics-history-types";
@@ -449,6 +450,23 @@ test("built CLI scans an external workspace and the web loaders read its saved d
     "tooling/c",
     "tooling/c/src",
   ]);
+  // @s/c's two responsibilities share tooling/c/src and import each other,
+  // so they are one group: nothing sits close unrelated. Every file is in
+  // its responsibility's folder, and the fixture has no Git history.
+  expect(
+    JSON.parse(
+      await readFile(join(workspace.output, "lenses/proximity.json"), "utf8")
+    ) as Proximity
+  ).toEqual({
+    apart: { coChanges: [], files: [] },
+    close: [],
+    missing: [],
+    packages: [
+      { id: "@s/a", unresolved: 0 },
+      { id: "@s/b", unresolved: 0 },
+      { id: "@s/c", unresolved: 0 },
+    ],
+  });
   const { dependencies } = JSON.parse(
     await readFile(join(workspace.root, pkg.path, "package.json"), "utf8")
   ) as { dependencies?: Record<string, string> };

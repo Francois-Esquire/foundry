@@ -235,6 +235,14 @@ for files directly in the root. It holds every folder its internals
 list.
 _Avoid_: region alone (responsibilities are regions too), area, module group
 
+**Responsibility**:
+A group of source files inside one package that its internals infer belong
+together, from their imports, concepts, and directories; files the
+inference cannot place are unresolved. Responsibilities are related when
+one imports from the other or their files change together.
+_Avoid_: responsibility region, region alone, neighborhood, district (the
+viewer's word for one drawn), domain
+
 **Seam**:
 The primary edges, imports between two source files, from one path region
 into another of the same package.

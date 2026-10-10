@@ -41,6 +41,7 @@ interface LensOutputs {
   nesting: Nesting;
   "package-sizes": PackageSizes;
   placement: Placements;
+  proximity: Proximity;
   "responsibility-groups": ResponsibilityGroups;
 }
 type LensId = keyof LensOutputs;

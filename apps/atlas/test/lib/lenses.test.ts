@@ -642,6 +642,7 @@ describe("the registry", () => {
       nesting: { file: "lenses/nesting.json", schemaVersion: 1 },
       "package-sizes": { file: "lenses/package-sizes.json", schemaVersion: 1 },
       placement: { file: "lenses/placement.json", schemaVersion: 1 },
+      proximity: { file: "lenses/proximity.json", schemaVersion: 1 },
       "responsibility-groups": {
         file: "lenses/responsibility-groups.json",
         schemaVersion: 1,
@@ -675,8 +676,23 @@ describe("writeLenses", () => {
       ],
     },
     responsibilities: {
+      modules: [
+        {
+          directory: "src",
+          module: "src/a.ts",
+          pathAgreesWithRegion: true,
+          region: "only",
+        },
+      ],
       package: { id: "@s/a" },
-      regions: [{ id: "only", label: "only", modules: ["src/a.ts"] }],
+      regions: [
+        {
+          id: "only",
+          label: "only",
+          modules: ["src/a.ts"],
+          path: { dominantDirectory: { id: "src" } },
+        },
+      ],
       relationships: [],
     },
     review: {},
@@ -741,6 +757,7 @@ describe("writeLenses", () => {
         edges: [],
         nodes: [{ analyzed: true, id: "@s/a", label: "a", layer: 0 }],
       },
+      "workspace.json": { evolution: { couplings: [] } },
     };
     for (const [file, value] of Object.entries(files)) {
       mkdirSync(dirname(join(dir, file)), { recursive: true });
@@ -750,6 +767,7 @@ describe("writeLenses", () => {
       files: {
         moduleIndex: "modules/index.json",
         projections: { dependencyGraph: "projections/dependency-graph.json" },
+        workspace: "workspace.json",
       },
       lenses: lensEntries(),
       packages: [
@@ -941,6 +959,15 @@ describe("writeLenses", () => {
           ],
           places: [],
           policy: { dominantShare: 0.6 },
+        },
+      ],
+      [
+        "lenses/proximity.json",
+        {
+          apart: { coChanges: [], files: [] },
+          close: [],
+          missing: ["@s/c"],
+          packages: [{ id: "@s/a", unresolved: 0 }],
         },
       ],
       [

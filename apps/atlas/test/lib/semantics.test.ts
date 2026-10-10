@@ -426,6 +426,7 @@ describe("generation", () => {
         schemaVersion: 1,
       },
       placement: { file: "lenses/placement.json", schemaVersion: 1 },
+      proximity: { file: "lenses/proximity.json", schemaVersion: 1 },
       "responsibility-groups": {
         file: "lenses/responsibility-groups.json",
         schemaVersion: 1,
@@ -499,6 +500,14 @@ describe("generation", () => {
       missing: ["@s/a", "@s/b", "@s/c"],
       pathRegions: [],
       seams: [],
+    });
+    // Without internals there are no responsibilities, and outside Git no
+    // co-change, so proximity observes nothing.
+    expect(readJson(dataset, "lenses/proximity.json")).toEqual({
+      apart: { coChanges: [], files: [] },
+      close: [],
+      missing: ["@s/a", "@s/b", "@s/c"],
+      packages: [],
     });
     // Without internals the home use is unknown, so no place is labelled.
     expect(readJson(dataset, "lenses/placement.json")).toEqual({

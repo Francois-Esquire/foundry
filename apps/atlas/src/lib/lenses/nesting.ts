@@ -13,9 +13,7 @@ import type {
 } from "./nesting-types";
 import { NESTING_SCHEMA_VERSION } from "./nesting-types";
 import { readPackageInternals, rootRelativeFolder } from "./package-internals";
-
-/** The workspace root, as a folder id. */
-const WORKSPACE_ROOT = ".";
+import { folderOf, WORKSPACE_ROOT } from "./paths";
 
 /** One package's internals, by the fields the lens reads; directory ids are the package's own. */
 export interface NestingSourceInternals {
@@ -45,12 +43,6 @@ function rootFolder(path: string): string {
   return path === "" ? WORKSPACE_ROOT : path;
 }
 
-/** The folder holding a file or folder; the workspace root for a top-level one. */
-function folderAbove(path: string): string {
-  const slash = path.lastIndexOf("/");
-  return slash === -1 ? WORKSPACE_ROOT : path.slice(0, slash);
-}
-
 /**
  * A folder and every folder above it, nearest first, ending at the top of
  * the workspace: the workspace root only when a package lives there, since
@@ -61,7 +53,7 @@ function chain(folder: string, rootIsPackage: boolean): string[] {
   let current = folder;
   while (current !== WORKSPACE_ROOT) {
     folders.push(current);
-    current = folderAbove(current);
+    current = folderOf(current);
   }
   if (rootIsPackage) {
     folders.push(WORKSPACE_ROOT);
@@ -86,7 +78,7 @@ function deriveFolders(
     });
   /** Counts a file directly in its own folder and below every folder above it. */
   const countFile = (file: string) => {
-    const [own, ...above] = foldersFrom(folderAbove(file));
+    const [own, ...above] = foldersFrom(folderOf(file));
     if (own === undefined) {
       return;
     }

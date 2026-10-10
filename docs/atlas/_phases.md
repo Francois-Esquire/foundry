@@ -1334,9 +1334,100 @@ tree across packages.
     with `path`.
   - `test/lib/render-lens.test.ts`: the view.
 
-**2.5 Proximity.** What sits close without being related, and what is
-related without sitting close: `pathAgreesWithRegion`, change coupling,
-boundary interactions.
+**2.5 Proximity.** Done 2026-10-10. What sits close without being
+related, and what is related without sitting close.
+- Definitions:
+  - Close means files directly in one folder, the file system's own
+    grouping, named as `nesting` names it.
+  - Related means one responsibility, a responsibility relationship (an
+    import between two, either way), or a co-change between source files.
+  - Co-changes are the workspace report's pairs as stored, already past
+    `lib`'s coupling gates. Only `source-source` pairs count, as `lib`'s
+    own uses of co-change read them (`conceptOwnership.evolutionCenter.couplingContexts`).
+    `verified` is ignored: it says a pair was seen by more than one
+    package.
+- `lib/lenses/proximity.ts` reports three things:
+  - `close`: each folder whose files directly in it fall into two or more
+    groups. A group is a connected component of the folder's
+    responsibilities, joined by a relationship or a co-change, so a row
+    says "this folder holds k unrelated groups", not pairs.
+    - Groups join only through responsibilities in the same folder. A
+      responsibility both relate to that has no file there joins nothing.
+    - Each group names in `apart` its files that are also in `apart.files`.
+      A group can consist only of such files, and a reader counting
+      signals counts each of them once.
+  - `apart.files`: each file whose responsibility's dominant folder is
+    another, the responsibilities' own `pathAgreesWithRegion`, copied,
+    with the folder steps between them.
+  - `apart.coChanges`: every source pair whose files sit in different
+    folders, with the steps, `scope`, `staticPath`, commits, and Jaccard.
+- `responsibilities.pathSeams`, the same comparison between path regions
+  (how many of a seam's edges stay inside one responsibility), is not
+  copied: it is per seam, already in the internals, and nothing in phase 4
+  needs it in one file yet.
+- Files no responsibility holds are left out of relatedness and counted:
+  per close folder, and per package in `packages`. A complete package
+  without internals is in `missing`, which `close` and `apart.files` do not
+  cover; `apart.coChanges` needs no internals.
+- Responsibilities are read from the internals, not through the
+  `responsibility-groups` lens. Its groups carry neither the modules, the
+  relationships, nor the dominant folders this needs. They also come from a
+  modularity merge, which would make "related" depend on the lens's
+  heuristic instead of the analysis's evidence. So there is no `consumes`.
+- Boundary interactions are not read, contrary to the planned entry. The
+  dependency graph projection's edges are built from them, and 2.2f routes
+  package-pair traffic through the projection. Their destination modules
+  are the declaring files of consumed symbols, which is placement's
+  evidence (2.3). At package level "related without sitting close" would
+  hold for every dependency, so it would say nothing.
+- `lib/lenses/paths.ts` holds `folderOf` (moved from `nesting.ts`) and
+  `directoryDistance`, a copy of the internal topology's private measure,
+  which stays unexported. A parity test checks it against
+  `InternalModuleEdge.distance` on an analyzed package, at distances 1, 2,
+  and 3, package-relative and root-relative.
+- Folder ids come from `rootRelativeFolder` and `folderOf`, the helpers
+  nesting uses. On Foundry, all 780 folders that proximity names are
+  nesting folders. `lib/render/reports/ranked-section.ts` is the ranked
+  list the nesting and proximity views share.
+- Foundry at this commit:
+  - 30 folders hold unrelated groups (78 groups in all). The most is
+    `packages/lib/src`, a folder of independent utilities, with 11 groups.
+  - 143 files sit apart from their responsibility's folder.
+  - 232 of the 378 source co-change pairs are in different folders, 125 of
+    them with no import path and 29 across packages.
+  - 115 files are in no responsibility; nothing is missing.
+  - `proximity.json` is 117 KB.
+- Cost, measured on Foundry with a fresh `--state` under `/tmp`:
+  - Lens phase, over the saved dataset, two runs each: 417–427 ms and a
+    701–720 MB peak with proximity, against 386–397 ms and 704–737 MB
+    without. Proximity alone takes 94–101 ms and peaks at 365 MB, since the
+    internals it reads are shared with the other lenses.
+  - Scans: a cold scan takes 39 s, with a maximum RSS of 9.2 GB (the
+    derivation worker) and a 1.41 GB footprint. Warm scans peak at
+    2.10–2.13 GB footprint and 2.58–2.64 GB RSS, within the range measured
+    for 2.3 and 2.4.
+- Tests:
+  - `test/lib/proximity-lens.test.ts`:
+    - `directoryDistance`'s cases and its parity with the topology;
+    - a folder's components from a relationship, a source co-change, and a
+      chain through a third, with a test co-change ignored and an
+      unresolved file counted;
+    - no join through a responsibility outside the folder, and a group of
+      apart files named in `apart`;
+    - a file apart;
+    - co-changes across folders, a same-folder pair and a source-test pair
+      left out;
+    - a package at the workspace root;
+    - every named folder a nesting folder;
+    - the same output for inputs in any order;
+    - `read` keeps only the fields it needs, including an unverified pair.
+  - `test/atlas.test.ts`: the real fixture scan. `@s/c`'s two
+    responsibilities share a folder and import each other, so nothing sits
+    close unrelated.
+  - `test/lib/semantics.test.ts`: without internals or Git, nothing is
+    observed and every package is missing.
+  - `test/lib/lenses.test.ts`: the registry and the phase.
+  - `test/lib/render-lens.test.ts`: the view.
 
 **2.6 Domains.** The domain lens over 2.3: declared domains joined to
 symbol ids, module paths, and consumers, adding the Shares a domain label.

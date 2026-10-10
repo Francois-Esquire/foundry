@@ -30,7 +30,7 @@ What the scan already measures for each:
 | Question | Data that exists | Drawn today |
 | --- | --- | --- |
 | Shape | Package graph, dependency layers, gravity, file counts | Island size and north–south position |
-| Proximity | Responsibility regions; change coupling; boundary interactions; `pathAgreesWithRegion` | Distance from a directory hash plus imports; one grouping, `lib`'s responsibilities, once an island is entered (the viewer's own neighborhoods retired in 2.2d); path agreement only inside a responsibility overlay |
+| Proximity | The `proximity` lens (2.5): folders whose files fall into unrelated groups of responsibilities, files apart from their responsibility's folder (`pathAgreesWithRegion`), and co-changing files in different folders; responsibility regions; change coupling; boundary interactions | Distance from a directory hash plus imports; one grouping, `lib`'s responsibilities, once an island is entered (the viewer's own neighborhoods retired in 2.2d); path agreement only inside a responsibility overlay |
 | Nesting | The `nesting` lens (2.4): one folder tree across every package, from the module index, with path regions and seams from `internals/`; scopes with parent chains | Islands and districts; directories only seed a random angle |
 | Lives vs used | The `placement` lens (2.3): every symbol, file, folder, and package labelled fits, spread, or departs from its consumer modules; per-symbol consumer packages; symbol locality `commonScope` and `dominant*`; concept miscentering; `fold-package` | Package trade, selection ink, import traces; none of the `lib` placement data is read |
 

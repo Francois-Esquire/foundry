@@ -1,29 +1,9 @@
 import type { Nesting, NestingFolder } from "../../lenses/nesting-types";
 import { byId } from "../../workspace-projection";
 import type { RenderDensity } from "../context";
-import { LISTED_AT_DENSITY } from "../context";
 import { count, plural } from "../format";
-import type { BlockView, RankedItem, ReportView, SectionView } from "../views";
-
-/** A ranked list of the first items at the density, counting the rest. */
-function ranked(
-  items: RankedItem[],
-  density: RenderDensity,
-  title: string
-): SectionView | undefined {
-  const shown = items.slice(0, LISTED_AT_DENSITY[density]);
-  if (shown.length === 0) {
-    return;
-  }
-  const list: BlockView = {
-    items: shown,
-    kind: "rankedList",
-    ...(items.length > shown.length && {
-      overflow: items.length - shown.length,
-    }),
-  };
-  return { blocks: [list], title };
-}
+import type { ReportView, SectionView } from "../views";
+import { rankedSection } from "./ranked-section";
 
 /** How many folders sit above a folder, through its parents. */
 function depthOf(
@@ -71,7 +51,7 @@ export function buildNestingView(
       ],
     },
   ];
-  const folders = ranked(
+  const folders = rankedSection(
     [...lens.folders]
       .filter((folder) => folder.fileCounts.direct > 0)
       .sort(
@@ -87,7 +67,7 @@ export function buildNestingView(
     density,
     "Folders by files"
   );
-  const seams = ranked(
+  const seams = rankedSection(
     [...lens.seams]
       .sort(
         (a, b) =>
