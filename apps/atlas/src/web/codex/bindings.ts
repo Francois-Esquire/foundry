@@ -1,5 +1,3 @@
-export type SettlementTier = "village" | "town" | "city";
-
 export function footprint(size: number) {
   return 28 + 5.8 * Math.sqrt(size);
 }
@@ -10,13 +8,6 @@ export function latitude(layer: number) {
 
 export function attraction(strength: number) {
   return Math.log2(2 + strength);
-}
-
-export function settlementTier(size: number): SettlementTier {
-  if (size >= 300) {
-    return "city";
-  }
-  return size >= 40 ? "town" : "village";
 }
 
 export function territoryLabelSize(radius: number) {

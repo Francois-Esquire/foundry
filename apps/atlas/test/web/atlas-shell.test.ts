@@ -261,3 +261,60 @@ it("offers no playback, wind, current, waves, or water pigment in chart settings
   expect(settings.querySelector('[aria-label="Water pigment"]')).toBeNull();
   expect(settings.querySelector('[aria-label="Timeline"]')).toBeNull();
 });
+
+/** The Chart section's headings and labelled controls, after opening it. */
+async function chartSettings(developer: boolean) {
+  const data = await loadAtlas();
+  await act(async () => {
+    root.render(createElement(Atlas, { data, developer }));
+  });
+  await act(async () => button("Chart settings").click());
+  const settings = container.querySelector(".atlas-chart-settings");
+  assert(settings);
+  return {
+    headings: [...settings.querySelectorAll("summary, h3")].map(
+      (heading) => heading.textContent
+    ),
+    labels: [...settings.querySelectorAll("label")].map(
+      (label) => label.textContent ?? ""
+    ),
+  };
+}
+
+it("shows a reader only the layers that carry data", async () => {
+  const { headings, labels } = await chartSettings(false);
+  expect(headings).toEqual(["Layers"]);
+  expect(labels).toEqual([
+    "Sea trade routes",
+    "District streams",
+    "Recorded change · evidence in Place",
+    "Topographic lines",
+  ]);
+});
+
+it("adds the developer's controls, without forests, houses, or map filters", async () => {
+  const { headings, labels } = await chartSettings(true);
+  expect(headings).toEqual([
+    "Layers",
+    "Developer",
+    "Dependency, drawn again",
+    "Display boundaries",
+    "Rendering",
+  ]);
+  expect(labels).toContain("Connecting land");
+  expect(labels).toContain("Road network");
+  for (const gone of ["Houses", "Forests", "Map filter"]) {
+    expect(labels.some((label) => label.includes(gone))).toBe(false);
+  }
+});
+
+it("resets a reader's settings without building a new scene", async () => {
+  const data = await loadAtlas();
+  await act(async () => {
+    root.render(createElement(Atlas, { data }));
+  });
+  await act(async () => button("Chart settings").click());
+  const calls = vi.mocked(createAtlasScene).mock.calls.length;
+  await act(async () => button("Reset visualization").click());
+  expect(vi.mocked(createAtlasScene).mock.calls.length).toBe(calls);
+});

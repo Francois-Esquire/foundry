@@ -1,11 +1,4 @@
-import {
-  Box3,
-  BufferAttribute,
-  BufferGeometry,
-  ExtrudeGeometry,
-  Group,
-  Mesh,
-} from "three";
+import { BufferAttribute, BufferGeometry, Mesh } from "three";
 import { MeshBasicNodeMaterial } from "three/webgpu";
 import { describe, expect, it, vi } from "vitest";
 import { createTradeLayer } from "../../src/web/scene/trade-layer";
@@ -40,7 +33,7 @@ const island = (id: string, x: number): Territory => ({
 });
 
 describe("3D coastal trade", () => {
-  it("builds raised settlements and a water-level lane, reuses geometry, and disposes replaced routes", () => {
+  it("builds only a water-level lane, with nothing built at its harbors, reuses geometry, and disposes replaced routes", () => {
     const data: AtlasData = {
       coverage: "test",
       fileEdges: [],
@@ -62,17 +55,8 @@ describe("3D coastal trade", () => {
     const routes = createTradeNavigation(data)();
     const layer = createTradeLayer(data);
     layer.setRoutes(routes);
-    const towns = layer.group.children.filter((c) => c instanceof Group);
-    expect(towns).toHaveLength(2);
-    expect(
-      towns.every((t) =>
-        t.children.some(
-          (c) => c instanceof Mesh && c.geometry instanceof ExtrudeGeometry
-        )
-      )
-    ).toBe(true);
-    layer.group.updateMatrixWorld(true);
-    expect(new Box3().setFromObject(layer.group).max.z).toBeGreaterThan(3);
+    // One lane per route and nothing else: the ports' warehouses are gone.
+    expect(layer.group.children).toHaveLength(routes.length);
     const lane = layer.group.children.find((c) => c instanceof Mesh);
     if (
       !(lane instanceof Mesh && lane.material instanceof MeshBasicNodeMaterial)

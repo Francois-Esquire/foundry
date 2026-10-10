@@ -282,7 +282,6 @@ export function createDiveScene(host: HTMLElement, wreck: FormerPackage) {
 
   const pipeline = createRenderPipeline({
     camera,
-    filter: () => "original",
     // A stage finishes building after the frame that asked for it.
     onStatus: () => render(),
     renderer,

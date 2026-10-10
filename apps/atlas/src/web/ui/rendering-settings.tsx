@@ -32,7 +32,7 @@ function statusText(status: RenderStatus | null) {
   } else if (status.failure) {
     parts.push(`direct draw, the pipeline failed: ${status.failure}`);
   } else {
-    parts.push("direct draw, map filter via CSS");
+    parts.push("direct draw");
   }
   if (status.frameMs !== null) {
     parts.push(`${status.frameMs.toFixed(0)} ms per frame`);

@@ -77,7 +77,6 @@ the lens, says so; missing history never becomes a zero count.
 | `footprint`            | Package size                                  | island radius         | `load-atlas.ts`                 |
 | `latitude`             | Package layer                                 | north/south position  | `load-atlas.ts`, `geography.ts` |
 | `attraction`           | Dependency strength                           | pull between islands  | `geography.ts`                  |
-| `settlementTier`       | Package size                                  | village, town, city   | `continent.ts`                  |
 | `territoryLabelSize`   | Package footprint                             | territory label size  | `scene/paint-map.ts`                  |
 | `labelPriority`        | Module dependents, dependencies               | file label order      | `scene/paint-map.ts`                  |
 | `laneWidth`            | Dependency strength                           | sea lane width        | `scene/trade-layer.ts`                |
@@ -102,8 +101,6 @@ change swaps an inline read or transform for a codex export; nothing else moved.
 | `former-packages.ts`      | took raw history; found each package's last complete checkpoint      | takes `CodexRetiredPackage[]`; placement only                                         |
 | `former-packages.test.ts` | checkpoint selection and placement                                   | placement; selection moved to `codex/resolve.test.ts`                                 |
 | `geography.ts`            | `layer · −220`, `log2(2 + w)`                                        | `latitude`, `attraction`                                                              |
-| `continent.ts`            | `settlementKind`                                                     | removed; `settlementTier`                                                             |
-| `continent.test.ts`       | imported `settlementKind`                                            | imports `settlementTier`                                                              |
 | `scene/paint-map.ts`      | `clamp(0.15r, 13, 22)`; `incoming + outgoing`                        | `territoryLabelSize`; `labelPriority`                                                 |
 | `scene/trade-layer.ts`    | inline lane width                                                    | `laneWidth`                                                                           |
 | `scene/road-layer.ts`     | inline road width                                                    | `roadWidth`                                                                           |
@@ -114,8 +111,8 @@ change swaps an inline read or transform for a codex export; nothing else moved.
   anchors and wreck sites. They carry no meaning, so layout keeps them.
 - **Geometry.** Coasts, relief, ocean depth and every field derived from positions
   belong to layout.
-- **Palettes and selection rules.** File-kind colors and shapes, buildings per
-  tier, the six strongest trades and label budgets stay with the painters. The
+- **Palettes and selection rules.** File-kind colors and shapes, the six
+  strongest trades and label budgets stay with the painters. The
   codex owns the categories, not how they look.
 - **Per-island evidence.** `load-internals.ts` reads the analyzer's internal
   reports through the same dataset reader, and belonging, composition and the

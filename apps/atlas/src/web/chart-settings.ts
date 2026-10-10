@@ -1,16 +1,6 @@
 import { defaultLandmassSettings } from "./landmasses";
 import { defaultBoundaries } from "./scene/boundaries";
 
-export const chartFilters = {
-  faded: { filter: "saturate(0.45) sepia(0.18)", label: "Faded pigments" },
-  graphite: { filter: "grayscale(1)", label: "Graphite" },
-  original: { filter: "none", label: "Original" },
-  treasure: {
-    filter: "grayscale(1) sepia(0.65) saturate(0.85)",
-    label: "Treasure parchment",
-  },
-};
-
 /** Post-processing tiers. "off" draws the scene directly, as the atlas always has. */
 export const renderQualities = {
   high: { label: "Full" },
@@ -67,22 +57,37 @@ export const defaultRenderSettings = {
 
 export type RenderSettings = typeof defaultRenderSettings;
 
-export const defaultChartSettings = {
-  ...defaultLandmassSettings,
-  boundaries: defaultBoundaries,
+/** What a reader may change: only layers that carry data. */
+export const defaultReaderSettings = {
+  /** Topographic lines: contours of the high fan-in summits. */
   contours: false,
-  filter: "original" as keyof typeof chartFilters,
-  layers: {
-    forests: false,
-    houses: false,
-    land: false,
-    roads: false,
-    trade: false,
-  },
-  rendering: defaultRenderSettings,
   /** District streams: imports between responsibilities drawn on the land. */
   streams: false,
+  /** Sea trade routes: each package's leading consumers. */
+  trade: false,
+  /** Recorded change: frequently changed files, with their counts in Place. */
   volcanic: false,
 };
 
-export type ChartSettings = typeof defaultChartSettings;
+export type ReaderSettings = typeof defaultReaderSettings;
+
+/**
+ * A developer session's controls: the layout's tuning and outlines, the two
+ * layers that draw package dependency again (connecting land and roads,
+ * which rebuild the scene), and the renderer.
+ */
+export const defaultDeveloperSettings = {
+  ...defaultLandmassSettings,
+  boundaries: defaultBoundaries,
+  layers: { land: false, roads: false },
+  rendering: defaultRenderSettings,
+};
+
+export type DeveloperSettings = typeof defaultDeveloperSettings;
+
+export type ChartSettings = ReaderSettings & DeveloperSettings;
+
+export const defaultChartSettings: ChartSettings = {
+  ...defaultReaderSettings,
+  ...defaultDeveloperSettings,
+};

@@ -1,18 +1,10 @@
 import {
-  BoxGeometry,
   BufferGeometry,
   Color,
-  ConeGeometry,
-  CylinderGeometry,
   DoubleSide,
-  ExtrudeGeometry,
   Float32BufferAttribute,
   Group,
-  type Material,
   Mesh,
-  MeshStandardMaterial,
-  type Raycaster,
-  Shape,
 } from "three";
 import {
   abs,
@@ -30,41 +22,12 @@ import { MeshBasicNodeMaterial } from "three/webgpu";
 import { laneWidth } from "../codex/bindings";
 import { compositionInsideLand } from "../composition-placement";
 import { roundSeaLane } from "../sea-lane";
-import type { TradePoint, TradePort, TradeRoute } from "../trade-routes";
-import type { AtlasData, Territory } from "../types";
-import { terrainHeight } from "./terrain";
+import type { TradePoint, TradeRoute } from "../trade-routes";
+import type { AtlasData } from "../types";
 
-export function createTradeLayer(
-  data: AtlasData,
-  inlandPackages = new Set<string>()
-) {
+/** Sea trade routes: one dashed lane per route, between its two harbors. */
+export function createTradeLayer(data: AtlasData) {
   const group = new Group();
-  const cube = new BoxGeometry(1, 1, 1);
-  const cylinder = new CylinderGeometry(1, 1, 1, 8).rotateX(Math.PI / 2);
-  const cone = new ConeGeometry(1, 1, 8).rotateX(Math.PI / 2);
-  const roofShape = new Shape()
-    .moveTo(-0.5, 0)
-    .lineTo(0.5, 0)
-    .lineTo(0, 0.5)
-    .closePath();
-  const roof = new ExtrudeGeometry(roofShape, {
-    bevelEnabled: false,
-    depth: 1,
-  })
-    .translate(0, 0, -0.5)
-    .rotateX(Math.PI / 2);
-  const material = (color: string) =>
-    new MeshStandardMaterial({
-      color,
-      metalness: 0,
-      opacity: 1,
-      roughness: 0.9,
-      transparent: true,
-    });
-  const stone = material("#ead6a5"),
-    walls = material("#f1ead9"),
-    roofs = material("#875222"),
-    timber = material("#4a4233");
   const ink = uniform(new Color("#875222"));
   const laneMaterial = new MeshBasicNodeMaterial({
     depthWrite: false,
@@ -85,151 +48,6 @@ export function createTradeLayer(
     .mul(0.65);
   let paths: BufferGeometry[] = [];
   let signature = "";
-  let occupied: { x: number; y: number; radius: number }[] = [];
-  const mesh = (
-    parent: Group,
-    geometry: BufferGeometry,
-    surface: Material,
-    x: number,
-    y: number,
-    z: number,
-    sx: number,
-    sy: number,
-    sz: number
-  ) => {
-    const item = new Mesh(geometry, surface);
-    item.position.set(x, y, z);
-    item.scale.set(sx, sy, sz);
-    item.receiveShadow = true;
-    item.castShadow = item.receiveShadow;
-    item.renderOrder = 2;
-    parent.add(item);
-    return item;
-  };
-  const port = (p: Territory, site: TradePort, resource: boolean) => {
-    if (inlandPackages.has(p.id)) {
-      return;
-    }
-    const town = new Group();
-    town.userData.territory = p.id;
-    const vertices = p.coast.flat(2);
-    const xs = vertices.map(([x]) => x),
-      ys = vertices.map(([, y]) => y);
-    const scale = Math.min(
-      1,
-      Math.max(
-        Math.max(...xs) - Math.min(...xs),
-        Math.max(...ys) - Math.min(...ys)
-      ) / 200
-    );
-    const origin = 0.4 * (1 - scale);
-    town.scale.setScalar(scale);
-    const angle = -Math.atan2(
-      site.water.y - site.coast.y,
-      site.water.x - site.coast.x
-    );
-    town.position.set(site.coast.x, -site.coast.y, origin);
-    town.rotation.z = angle;
-    group.add(town);
-    const local = (rawX: number, rawY: number) => {
-      const x = rawX * scale,
-        y = rawY * scale;
-      return {
-        x: site.coast.x + Math.cos(angle) * x - Math.sin(angle) * y - p.x,
-        y: -(-site.coast.y + Math.sin(angle) * x + Math.cos(angle) * y) - p.y,
-      };
-    };
-    const fits = (x: number, y: number, w: number, d: number) =>
-      [
-        [-1, -1],
-        [-1, 1],
-        [1, -1],
-        [1, 1],
-      ].every(([dx = 0, dy = 0]) => {
-        const q = local(x + (dx * w) / 2, y + (dy * d) / 2);
-        return compositionInsideLand(q.x, q.y, p.coast);
-      });
-    const building = (
-      x: number,
-      y: number,
-      w: number,
-      d: number,
-      h: number
-    ) => {
-      if (!fits(x, y, w + 1, d + 1)) {
-        return;
-      }
-      const center = local(x, y),
-        radius = (Math.hypot(w + 1, d + 1) * scale) / 2;
-      const position = { radius, x: center.x + p.x, y: center.y + p.y };
-      if (
-        occupied.some(
-          (other) =>
-            Math.hypot(other.x - position.x, other.y - position.y) <
-            other.radius + radius + scale
-        )
-      ) {
-        return;
-      }
-      occupied.push(position);
-      const heights = [
-        [-1, -1],
-        [-1, 1],
-        [1, -1],
-        [1, 1],
-      ].map(([dx = 0, dy = 0]) => {
-        const q = local(x + (dx * w) / 2, y + (dy * d) / 2);
-        return (terrainHeight(p, q.x, q.y) - origin) / scale;
-      });
-      const base = Math.max(...heights),
-        bottom = Math.min(...heights);
-      mesh(
-        town,
-        cube,
-        stone,
-        x,
-        y,
-        (base + bottom) / 2 + 0.4,
-        w + 1,
-        d + 1,
-        base - bottom + 0.8
-      );
-      mesh(town, cube, walls, x, y, base + h / 2 + 0.8, w, d, h);
-      mesh(town, roof, roofs, x, y, base + h + 0.8, w + 1, d + 1, w * 0.65);
-      mesh(
-        town,
-        cube,
-        timber,
-        x + w / 2 + 0.03,
-        y,
-        base + 2,
-        0.15,
-        d * 0.32,
-        2.4
-      );
-    };
-    mesh(town, cube, stone, 0, 0, 0.75, 5, 22, 1.5);
-    for (const y of [-8, 7]) {
-      mesh(town, cube, timber, 7, y, 1.15, 15, 2.5, 1);
-      for (const x of [2, 12]) {
-        mesh(town, cylinder, timber, x, y, 0.6, 0.55, 0.55, 2.4);
-      }
-      mesh(town, cube, timber, 13, y, 1.15, 2.5, 7, 1);
-    }
-    building(-8, -7, 7, 9, resource ? 7 : 5);
-    building(-9, 7, 6, 8, 4);
-    building(-19, -6, resource ? 10 : 7, 8, resource ? 8 : 5);
-    building(-19, 8, 6, 7, 5);
-    if (resource) {
-      building(-29, 1, 7, 10, 6);
-    }
-    if (fits(-3, 12, 3, 3)) {
-      const q = local(-3, 12),
-        base = (terrainHeight(p, q.x, q.y) - origin) / scale;
-      mesh(town, cylinder, walls, -3, 12, base + 4, 1.5, 1.5, 8);
-      mesh(town, cone, roofs, -3, 12, base + 9, 2.2, 2.2, 2);
-    }
-  };
   const clearWater = (a: TradePoint, b: TradePoint) => {
     const steps = Math.ceil(Math.hypot(b.x - a.x, b.y - a.y));
     for (let n = 0; n <= steps; n += 1) {
@@ -251,26 +69,10 @@ export function createTradeLayer(
       for (const geometry of paths) {
         geometry.dispose();
       }
-      for (const geometry of [cube, cylinder, cone, roof]) {
-        geometry.dispose();
-      }
-      for (const surface of [stone, walls, roofs, timber, laneMaterial]) {
-        surface.dispose();
-      }
+      laneMaterial.dispose();
       group.clear();
     },
     group,
-    pick: (raycaster: Raycaster) => {
-      if (!group.visible) {
-        return;
-      }
-      const [hit] = raycaster.intersectObjects(
-        group.children.filter((child) => child instanceof Group),
-        true
-      );
-      const id: unknown = hit?.object.parent?.userData.territory;
-      return data.territories.find((p) => p.id === id);
-    },
     setRoutes: (routes: TradeRoute[]) => {
       const next = JSON.stringify(
         routes.map((r) => [
@@ -288,8 +90,6 @@ export function createTradeLayer(
         geometry.dispose();
       }
       paths = [];
-      occupied = [];
-      const painted: TradePort[] = [];
       const maximum = Math.max(1, ...routes.map((r) => r.dependency.weight));
       for (const route of routes) {
         const points = roundSeaLane(
@@ -337,28 +137,6 @@ export function createTradeLayer(
         geometry.setIndex(indices);
         paths.push(geometry);
         group.add(new Mesh(geometry, laneMaterial));
-        for (const [site, resource] of [
-          [route.supplier, true],
-          [route.consumer, false],
-        ] as const) {
-          if (
-            painted.some(
-              (s) =>
-                s.territory === site.territory &&
-                Math.hypot(s.coast.x - site.coast.x, s.coast.y - site.coast.y) <
-                  25
-            )
-          ) {
-            continue;
-          }
-          const p = data.territories.find(
-            (territory2) => territory2.id === site.territory
-          );
-          if (p) {
-            port(p, site, resource);
-            painted.push(site);
-          }
-        }
       }
     },
   };

@@ -168,3 +168,17 @@ it("builds the scene for a reader unless the session is a developer's", async ()
       .mock.calls.map(([, , options]) => options.developer)
   ).toEqual([false, true]);
 });
+
+it("applies sea trade routes through configure, without building a new scene", async () => {
+  const state = createAtlasState(await loadAtlas());
+  await act(async () => root.render(createElement(AtlasMap, { state })));
+  const next = {
+    ...state,
+    chartSettings: { ...state.chartSettings, trade: true },
+  };
+  await act(async () => root.render(createElement(AtlasMap, { state: next })));
+  expect(createAtlasScene).toHaveBeenCalledTimes(1);
+  const [result] = vi.mocked(createAtlasScene).mock.results;
+  assert(result);
+  expect(result.value.configure).toHaveBeenLastCalledWith(next.chartSettings);
+});

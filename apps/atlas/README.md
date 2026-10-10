@@ -140,16 +140,18 @@ Documentation: <https://francois-esquire.github.io/foundry/atlas/>
 ## Rendering
 
 The viewer draws with WebGPU and falls back to WebGL 2 where WebGPU is
-unavailable. The Chart panel's **Rendering** section controls a post-processing
-pipeline: quality tier, tone mapping, exposure, saturation, vibrance, ambient
-occlusion, bloom, and indirect light. Quality **Off** draws the scene directly,
-exactly as before the pipeline, with the map filter applied as CSS. Low, Medium,
-and High trade resolution and denoising for speed; they never remove a control.
+unavailable. In a developer session (`?dev` on the viewer's address, or the dev
+server), the Chart panel's **Developer → Rendering** section controls a
+post-processing pipeline: quality tier, tone mapping, exposure, saturation,
+vibrance, ambient occlusion, bloom, and indirect light. A reader gets the
+default tier. Quality **Off** draws the scene directly, exactly as before the
+pipeline. Low, Medium, and High trade resolution and denoising for speed; they
+never remove a control.
 If the pass graph cannot compile on a device, the viewer returns to the direct
 draw and the panel reports it.
 
-Sliders are live uniforms; only quality, toggles, tone mapping, the filter, and
-the stage view rebuild the graph. Occlusion reach is a screen size in pixels, so
+Sliders are live uniforms; only quality, toggles, tone mapping, and the stage
+view rebuild the graph. Occlusion reach is a screen size in pixels, so
 the look holds at every zoom. When the device reports frame times, a sustained
 frame over budget steps the tier down one level and the panel says so; choosing
 a quality again clears that. **Show stage** swaps the image for one stage's

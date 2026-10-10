@@ -1,6 +1,4 @@
 import { type RefObject, useEffect, useRef, useState } from "react";
-import { chartFilters } from "../chart-settings";
-import type { RenderStatus } from "../scene/pipeline";
 import { type AtlasSelection, createAtlasScene } from "../scene/scene";
 import type { TradeRoute } from "../trade-routes";
 import type { FormerPackage, Territory } from "../types";
@@ -43,7 +41,9 @@ function applyState(
 export function AtlasMap(props: AtlasMapProps) {
   const { state, mapRef } = props;
   const { data, developer, layoutSettings, chartSettings } = state;
-  const { layers } = chartSettings;
+  // Primitives, so a new settings object with the same layers (Reset, or any
+  // reader setting) reaches the scene through configure, not a rebuild.
+  const { land, roads } = chartSettings.layers;
   const host = useRef<HTMLDivElement>(null);
   const scene = useRef<Awaited<ReturnType<typeof createAtlasScene>> | null>(
     null
@@ -51,8 +51,6 @@ export function AtlasMap(props: AtlasMapProps) {
   const latest = useRef(props);
   const view = useRef<{ x: number; y: number; pixels: number } | null>(null);
   const [status, setStatus] = useState("Unfolding the atlas…");
-  // The pipeline grades the image itself; CSS filters only cover a direct draw.
-  const [postProcessing, setPostProcessing] = useState(false);
 
   useEffect(() => {
     latest.current = props;
@@ -84,7 +82,7 @@ export function AtlasMap(props: AtlasMapProps) {
         const current = await createAtlasScene(host.current, data, {
           coastalBuffer: layoutSettings.coastalBuffer,
           developer,
-          layers,
+          layers: { land, roads },
           onHover: (value) => latest.current.onHover?.(value),
           onRegionTerritory: (territory) =>
             latest.current.onViewTerritory?.(territory),
@@ -128,17 +126,8 @@ export function AtlasMap(props: AtlasMapProps) {
       }
     };
     window.addEventListener("keydown", handleEscape);
-    const element = host.current;
-    const handleRender = (event: Event) => {
-      const detail: unknown = (event as CustomEvent<unknown>).detail;
-      if (detail && typeof detail === "object" && "postProcessing" in detail) {
-        setPostProcessing((detail as RenderStatus).postProcessing);
-      }
-    };
-    element?.addEventListener("atlas:render", handleRender);
     return () => {
       disposed = true;
-      element?.removeEventListener("atlas:render", handleRender);
       view.current = scene.current?.captureView() ?? null;
       scene.current?.dispose();
       scene.current = null;
@@ -147,7 +136,7 @@ export function AtlasMap(props: AtlasMapProps) {
       }
       window.removeEventListener("keydown", handleEscape);
     };
-  }, [data, developer, layoutSettings.coastalBuffer, layers, mapRef]);
+  }, [data, developer, land, layoutSettings.coastalBuffer, mapRef, roads]);
 
   useEffect(() => {
     scene.current?.configure(chartSettings);
@@ -165,15 +154,7 @@ export function AtlasMap(props: AtlasMapProps) {
 
   return (
     <section aria-label="Interactive atlas" className="atlas-map-view">
-      <div
-        className="atlas-map"
-        ref={host}
-        style={{
-          filter: postProcessing
-            ? "none"
-            : chartFilters[chartSettings.filter].filter,
-        }}
-      />
+      <div className="atlas-map" ref={host} />
       {status && (
         <p className="atlas-status" role="status">
           {status}

@@ -78,21 +78,21 @@ What the map encodes, from the codex bindings and the design record:
 | Wreck | A package seen at a history checkpoint and gone now. | with `--history` |
 | Sea trade routes | Each package's leading consumers. | no |
 | District streams | Imports between responsibilities. | no |
-| Roads, connecting land | Dependency strength, merged. | no |
-| Houses | Settlement tier from package size. | no |
-| Boundary overlays (six) | Package and region boundaries. | no |
+| Roads, connecting land | Dependency strength, merged. | no; a developer session's since 4.1b |
+| Boundary overlays (six) | The layout's own geometry: the atlas hull, group hulls, landmass outlines, coastal pockets, package clearance, and coastlines. No region. | no; a developer session's since 4.1b |
 | Recorded change | Churn percentile per file. | no |
 
 What the map draws that carries no data: the layered sea and its six depth
-steps, gilded coast ripples, the archipelago rim, paper grain and grid,
-forests, the chart filters (faded, graphite, treasure, original), and the
-rendering controls: quality, five tone mappings, exposure, occlusion, global
-illumination, bloom, and a stage inspector. Wind, waves, the current,
-coastlight, and the water pigment picker were deleted in 4.1, with the
-animation loop they ran in. Pigment colors are seeded from package ids and
-carry no meaning; 4.0 decided that pigment means responsibility only, so
-islands lose their package hue in 4.2a, and a package is told apart by its
-coast and outline.
+steps, gilded coast ripples, the archipelago rim, and paper grain and grid.
+The rendering controls (quality, five tone mappings, exposure, occlusion,
+global illumination, bloom, and a stage inspector) are a developer session's
+since 4.1b. Wind, waves, the current, coastlight, and the water pigment
+picker were deleted in 4.1a, with the animation loop they ran in; forests,
+houses, the ports' warehouses and beacons, the props' shadow map, and the
+chart filters were deleted in 4.1b. Pigment colors are seeded from package
+ids and carry no meaning; 4.0 decided that pigment means responsibility
+only, so islands lose their package hue in 4.2a, and a package is told apart
+by its coast and outline.
 
 ## Observations
 
@@ -103,10 +103,9 @@ conclusions.
   relationships on screen are positions. Imports between packages, imports
   between districts, and change history are all behind toggles. A first-time
   reader sees islands and has to know that north means foundation.
-- **The settings panel is a renderer's debug panel.** Tone mapping, bloom,
-  and a stage inspector are tools for building the renderer, not for reading
-  a codebase. They sit beside the layers that carry evidence, with equal
-  weight.
+- **The settings panel is a renderer's debug panel.** Resolved in 4.1: tone
+  mapping, bloom, and the stage inspector are a developer session's, and a
+  reader's Chart section holds only the layers that carry evidence.
 - **Two groupings inside an island.** Resolved in 2.2d: the viewer's import
   and concept neighborhoods are gone, and responsibilities, grouped into
   districts, are the only grouping. Neighborhoods never placed files (the

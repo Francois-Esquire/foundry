@@ -7,7 +7,6 @@ import {
   laneWidth,
   latitude,
   roadWidth,
-  settlementTier,
   summitHeight,
   territoryLabelSize,
 } from "../../../src/web/codex/bindings";
@@ -29,17 +28,6 @@ describe("package bindings", () => {
     expect(attraction(0)).toBe(1);
     expect(attraction(2)).toBe(2);
     expect(attraction(6)).toBe(3);
-  });
-
-  it("tiers settlements at 40 and 300 modules", () => {
-    expect([0, 39, 40, 299, 300, 1000].map(settlementTier)).toEqual([
-      "village",
-      "village",
-      "town",
-      "town",
-      "city",
-      "city",
-    ]);
   });
 
   it("bounds territory labels between 13 and 22", () => {

@@ -9,8 +9,6 @@ import {
 } from "three";
 import {
   diffuseColor,
-  grayscale,
-  mix,
   mrt,
   output,
   pass,
@@ -22,13 +20,8 @@ import {
   vibrance,
 } from "three/tsl";
 import { type Node, type Renderer, RenderPipeline } from "three/webgpu";
-import type {
-  chartFilters,
-  RenderQuality,
-  RenderSettings,
-} from "../chart-settings";
+import type { RenderQuality, RenderSettings } from "../chart-settings";
 
-type Filter = keyof typeof chartFilters;
 type ColorNode = Node<"vec4">;
 type Tier = Exclude<RenderQuality, "off">;
 
@@ -51,7 +44,6 @@ export interface RenderStatus {
 
 export interface RenderPipelineOptions {
   camera: Camera;
-  filter: (settings: RenderSettings) => Filter;
   onStatus?: (status: RenderStatus) => void;
   renderer: Renderer;
   scene: Scene;
@@ -71,7 +63,6 @@ const stageLoaders = {
   ao: () => import("three/addons/tsl/display/GTAONode.js"),
   bloom: () => import("three/addons/tsl/display/BloomNode.js"),
   denoise: () => import("three/addons/tsl/display/DenoiseNode.js"),
-  sepia: () => import("three/addons/tsl/display/Sepia.js"),
   ssgi: () => import("three/addons/tsl/display/SSGINode.js"),
 };
 
@@ -142,37 +133,22 @@ const qualityTiers = {
   },
 } as const;
 
-/** Mirrors the former CSS filters so each preset keeps its character. */
-function createGrades(stages: Stages) {
-  const sepiaTone = (rgb: Node<"vec3">) =>
-    stages.sepia ? (stages.sepia.sepia(rgb) as Node<"vec3">) : rgb;
-  const grades: Record<Filter, (rgb: Node<"vec3">) => Node<"vec3">> = {
-    faded: (rgb) =>
-      mix(saturation(rgb, 0.45), sepiaTone(saturation(rgb, 0.45)), 0.18),
-    graphite: (rgb) => vec3(grayscale(rgb)),
-    original: (rgb) => rgb,
-    treasure: (rgb) =>
-      saturation(mix(grayscale(rgb), sepiaTone(grayscale(rgb)), 0.65), 0.85),
-  };
-  return grades;
-}
-
 interface Frame {
   color: ColorNode;
   depth: ReturnType<ReturnType<typeof pass>["getTextureNode"]>;
-  /** A stage view replaces the graded image with one stage's output. */
+  /** A stage view replaces the finished image with one stage's output. */
   view: ColorNode | null;
 }
 
 /**
  * One pass graph for every atlas view: scene → occlusion → indirect
- * light → bloom → exposure and tone mapping → grade. Stages are optional
+ * light → bloom → exposure, tone mapping, saturation and vibrance. Stages are optional
  * and reads the same depth and normal targets, so a future stage such as a
  * cloud layer plugs into the same inputs. When quality is off, or the graph
  * cannot compile on this device, the scene draws directly as it always has.
  */
 export function createRenderPipeline(options: RenderPipelineOptions) {
-  const { renderer, scene, camera, filter, onStatus } = options;
+  const { renderer, scene, camera, onStatus } = options;
   const unitsPerPixel = options.unitsPerPixel ?? (() => 1);
   const perspective =
     (camera as { isPerspectiveCamera?: boolean }).isPerspectiveCamera === true;
@@ -228,7 +204,6 @@ export function createRenderPipeline(options: RenderPipelineOptions) {
       settings.globalIllumination && perspective,
       settings.stage,
       settings.toneMapping,
-      filter(settings),
     ].join("|");
   const release = () => {
     for (const stage of stages) {
@@ -267,10 +242,6 @@ export function createRenderPipeline(options: RenderPipelineOptions) {
     }
     if (settings.globalIllumination && perspective) {
       names.push("ssgi");
-    }
-    const grade = filter(settings);
-    if (grade === "faded" || grade === "treasure") {
-      names.push("sepia");
     }
     return names;
   };
@@ -406,13 +377,10 @@ export function createRenderPipeline(options: RenderPipelineOptions) {
       saturation(display.rgb, uniforms.saturation),
       uniforms.vibrance
     );
-    const graded = vec4(
-      createGrades(modules)[filter(settings)](adjusted),
-      display.a
-    );
+    const finished = vec4(adjusted, display.a);
     const next = new RenderPipeline(renderer);
     next.outputColorTransform = false;
-    next.outputNode = frame.view ?? graded;
+    next.outputNode = frame.view ?? finished;
     pipeline = next;
   };
 

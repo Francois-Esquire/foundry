@@ -1,14 +1,11 @@
-import type { Object3DEventMap } from "three";
 import {
   AmbientLight,
   CanvasTexture,
   DirectionalLight,
-  type Group,
   MathUtils,
   Mesh,
   MeshBasicMaterial,
   OrthographicCamera,
-  PCFSoftShadowMap,
   Plane,
   PlaneGeometry,
   Raycaster,
@@ -38,8 +35,8 @@ import { createTradeNavigation, leadingTrades } from "../trade-routes";
 import type { AtlasData, AtlasFile, FormerPackage, Territory } from "../types";
 import { atlasBoundaries, paintBoundaries } from "./boundaries";
 import { hitComposition } from "./composition-hit";
+import { createContinentGround } from "./continent-ground";
 import { detailLevel, detailVisibility, fileInView } from "./detail-level";
-import { createEcosystemLayer } from "./ecosystem-layer";
 import type { InkView, MapLabel } from "./exploration";
 import {
   frameFiles,
@@ -123,8 +120,6 @@ export async function createAtlasScene(
   });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.outputColorSpace = SRGBColorSpace;
-  renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = PCFSoftShadowMap;
   host.append(renderer.domElement);
   renderer.domElement.setAttribute(
     "aria-label",
@@ -138,20 +133,6 @@ export async function createAtlasScene(
   scene.add(new AmbientLight("#ffffff", 1.23));
   const light = new DirectionalLight("#fffaf4", 3.16);
   light.position.set(-600, 700, 700);
-  light.castShadow = true;
-  light.shadow.mapSize.set(2048, 2048);
-  const shadowSpan = Math.max(data.width, data.height) * 0.75;
-  light.shadow.camera.bottom = -shadowSpan;
-  light.shadow.camera.left = light.shadow.camera.bottom;
-  light.shadow.camera.top = shadowSpan;
-  light.shadow.camera.right = light.shadow.camera.top;
-  light.shadow.camera.near = 1;
-  light.shadow.camera.far = 4000;
-  light.shadow.bias = -0.0001;
-  light.shadow.normalBias = 0.3;
-  // Shadows only re-render when the props change, not on every frame.
-  light.shadow.autoUpdate = false;
-  light.shadow.needsUpdate = true;
   scene.add(light);
   const camera = new OrthographicCamera(-1, 1, 1, -1, 1, 10_000);
   const tilt = 0.7;
@@ -246,12 +227,11 @@ export async function createAtlasScene(
   scene.add(ink);
   const materials = createPaperMaterials(paperTexture);
   const water = createWaterMaterial(texture, seaData);
-  const ground = new Mesh(
+  const sea = new Mesh(
     new PlaneGeometry(seaData.width, seaData.height),
     water.material
   );
-  ground.receiveShadow = true;
-  scene.add(ground);
+  scene.add(sea);
   const coast = new Mesh(
     new PlaneGeometry(data.width, data.height),
     coastMaterial
@@ -293,22 +273,9 @@ export async function createAtlasScene(
   const roadLayer = createRoadLayer(roads);
   scene.add(roadLayer.group);
   let trades = navigateTrades();
-  const tradeLayer = createTradeLayer(
-    data,
-    new Set(
-      layers.houses
-        ? continents.flatMap((c) => c.members.map((p) => p.id))
-        : data.territories.map((p) => p.id)
-    )
-  );
-  const ecosystem = createEcosystemLayer(
-    data,
-    continents,
-    materials.paper,
-    roads.paths,
-    layers
-  );
-  scene.add(ecosystem.group);
+  const tradeLayer = createTradeLayer(data);
+  const ground = createContinentGround(data, continents, materials.paper);
+  scene.add(ground.group);
   tradeLayer.setRoutes(
     trades.filter((r) => !inland(r.dependency.from, r.dependency.to))
   );
@@ -335,7 +302,6 @@ export async function createAtlasScene(
   reducedMotion.addEventListener("change", motionChanged);
   const pipeline = createRenderPipeline({
     camera,
-    filter: () => settings.filter,
     onStatus: (status) => {
       host.dispatchEvent(new CustomEvent("atlas:render", { detail: status }));
       // A stage finishes building after the frame that asked for it.
@@ -395,16 +361,6 @@ export async function createAtlasScene(
       onRegionTerritory?.(regionTerritory);
     }
     const { x, y, width, height } = view;
-    if (
-      ecosystem.update(
-        view.pixelsPerUnit,
-        Boolean(selectedFile) ||
-          Boolean(belonging?.parents?.length) ||
-          Boolean(responsibility)
-      )
-    ) {
-      light.shadow.needsUpdate = true;
-    }
     const tradeVisible = !(
       selectedFile ||
       belonging?.parents?.length ||
@@ -412,10 +368,7 @@ export async function createAtlasScene(
     );
     roadLayer.group.visible = tradeVisible && layers.roads;
     roadLayer.update(view.pixelsPerUnit);
-    if (tradeLayer.group.visible !== (tradeVisible && layers.trade)) {
-      tradeLayer.group.visible = tradeVisible && layers.trade;
-      light.shadow.needsUpdate = true;
-    }
+    tradeLayer.group.visible = tradeVisible && settings.trade;
     visibility = detailVisibility(
       visibility,
       view.pixelsPerUnit,
@@ -538,7 +491,6 @@ export async function createAtlasScene(
       plane,
       point,
       labels,
-      tradeLayer,
       controls,
       tilt,
       host,
@@ -700,7 +652,6 @@ export async function createAtlasScene(
     tradeLayer.setRoutes(
       trades.filter((r) => !inland(r.dependency.from, r.dependency.to))
     );
-    light.shadow.needsUpdate = true;
     onTrades?.(trades);
     selectedFile = file?.id ?? null;
     paintMap(
@@ -786,7 +737,7 @@ export async function createAtlasScene(
       renderer.domElement.removeEventListener("pointerup", pointerUp);
       renderer.domElement.removeEventListener("pointermove", pointerMove);
       renderer.domElement.removeEventListener("pointerleave", pointerLeave);
-      ground.geometry.dispose();
+      sea.geometry.dispose();
       coast.geometry.dispose();
       coastMaterial.dispose();
       relief.dispose();
@@ -802,8 +753,7 @@ export async function createAtlasScene(
       wreckLayer.dispose();
       tradeLayer.dispose();
       roadLayer.dispose();
-      ecosystem.dispose();
-      light.shadow.dispose();
+      ground.dispose();
       pipeline.dispose();
       renderer.dispose();
       renderer.domElement.remove();
@@ -994,12 +944,6 @@ function resolveHit(
   plane: Plane,
   point: Vector3,
   labels: MapLabel[],
-  tradeLayer: {
-    dispose: () => void;
-    group: Group<Object3DEventMap>;
-    pick: (raycaster: Raycaster) => Territory | undefined;
-    setRoutes: (routes: TradeRoute[]) => void;
-  },
   controls: MapControls,
   tilt: 0.7,
   host: HTMLElement,
@@ -1040,10 +984,6 @@ function resolveHit(
   const surface = pickTerrain(point);
   if (surface) {
     point.copy(surface);
-  }
-  const port = tradeLayer.pick(raycaster);
-  if (port) {
-    return { territory: port };
   }
   const view = inkView(
     camera,

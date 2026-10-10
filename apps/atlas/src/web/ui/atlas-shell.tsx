@@ -216,6 +216,7 @@ export function AtlasShell({
     {
       content: (
         <ChartSettingsPanel
+          developer={state.developer}
           layoutPending={
             chartSettings.coastalBuffer !== layoutSettings.coastalBuffer ||
             chartSettings.islandClearance !== layoutSettings.islandClearance

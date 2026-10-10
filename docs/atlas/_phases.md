@@ -2028,6 +2028,65 @@ own, and a frame is drawn only when a repaint asks for one.
   Waves, water pigment, or timeline in chart settings); `atlas-map.test.ts`
   without playback or atmosphere.
 
+**4.1b Reader settings.** Done 2026-10-10. A reader's Chart section holds
+only layers that carry data; the rest is a developer session's or deleted.
+- `web/chart-settings.ts`: `ReaderSettings` (`trade`, `streams`,
+  `volcanic`, `contours`, all off) and `DeveloperSettings` (the layout's
+  `coastalBuffer` and `islandClearance`, `boundaries`, `layers: { land,
+  roads }`, `rendering`); `ChartSettings` is their intersection, and the
+  test pins that their keys are disjoint and cover it.
+- The panel: `ui/reader-settings.tsx` (Layers: sea trade routes, district
+  streams, recorded change, topographic lines) and `ui/developer-settings.tsx`
+  (Dependency, drawn again: connecting land and roads; Display boundaries;
+  Rendering, with the render-status readout polled only while it is
+  mounted), composed by `ui/chart-settings-panel.tsx`, which renders the
+  developer's section only in a developer session. The stale copy
+  ("Experimental layers", "Roads and forests require connecting land") is
+  gone.
+- Sea trade routes are a reader's setting: the scene reads `settings.trade`
+  at each repaint, so turning them on goes through `configure` and builds
+  no new scene. Connecting land and roads stay scene options, behind the
+  developer flag, and still rebuild it; the map's scene effect depends on
+  `layers.land` and `layers.roads` as values, so a Reset or any reader
+  setting, which makes a new settings object, builds no new scene either.
+- The boundary overlays and the layout's tuning (coastal buffer, island
+  clearance) move behind the flag because they draw the layout's own
+  geometry, not data the scan measured.
+- Deleted: forests and houses (`continent.ts` `forestSites` and
+  `settlementBuildings`, `codex/bindings.ts` `settlementTier` with its
+  test and README rows); `scene/ecosystem-layer.ts`, whose connecting-land
+  mesh is `scene/continent-ground.ts`; the ports' warehouses and beacons
+  and their picking (`trade-layer.ts` draws only lanes, and `resolveHit`
+  no longer hit-tests ports); the chart's shadow map and every shadow flag
+  in the chart scene, so the chart's wreck no longer casts a shadow; the
+  wreck layer keeps its shadow flags, since the wreck dive shares it and
+  keeps its own shadow map; and the chart filters
+  (`chartFilters`, the pipeline's `filter` option, its grades and Sepia
+  stage, and the map element's CSS filter with the `atlas:render`
+  listener that only served it).
+- Measured as before, against `bd4fd6f` built in a temporary copy, three
+  runs each, interleaved, on a machine under other load:
+
+  | Backend | Build | terrain built | first frame |
+  | --- | --- | --- | --- |
+  | WebGPU (Metal) | before | 2.93–3.77 s | 3.33–4.15 s |
+  | WebGPU (Metal) | after | 2.92–2.93 s | 3.28–3.31 s |
+  | WebGL 2 (ANGLE on Metal) | before | 2.92–2.96 s | 3.40–4.13 s |
+  | WebGL 2 (ANGLE on Metal) | after | 2.89–3.01 s | 3.30–3.68 s |
+
+  No change beyond the noise, as expected: everything deleted was off by
+  default, and the shadow map was drawn once. The data read is unchanged,
+  20 files, 1.71 MB decoded; at rest under `?dev`, neither build submits a
+  frame in 5 s, with the main thread 0.3% busy.
+- Tests: `chart-settings.test.ts` (the split); `atlas-shell.test.ts` (a
+  reader sees only Layers and its four layers; a developer also sees
+  Developer, its three sections, connecting land and roads, and no houses,
+  forests, or map filter); `atlas-map.test.ts` (trade goes through
+  `configure` without a new scene); `atlas-shell.test.ts` again (Reset in
+  a reader's session builds no new scene); `trade-layer.test.ts` (one lane per
+  route and nothing else); `continent.test.ts`, `codex/bindings.test.ts`,
+  and `pipeline.test.ts` lose the forest, settlement, and filter cases.
+
 **4.2 The four questions by default,** from the phase 2 lenses, with
 departures as the strongest signal.
 - **4.2a** First, `paintMap`'s positional parameters (sixteen, after 2.2d
@@ -2043,6 +2102,8 @@ departures as the strongest signal.
   the selection's gilt: today hover is amber `rgb(190, 132, 48)`, solid,
   1.6 px over a 6 px band, and the selection ring is gilt `#b38a32`
   (`rgb(179, 138, 50)`), nearly the same hue, told apart only by weight.
+  The ink pass also rewords DESIGN.md's "ports" and "settlements" (files
+  drawn as settlements, lanes' harbors), left as they are by 4.1b.
 
 **4.3 Directories drawn,** and a domain drawn across islands.
 

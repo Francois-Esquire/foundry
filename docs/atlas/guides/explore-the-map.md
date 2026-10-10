@@ -76,17 +76,19 @@ to reload Atlas.
 
 ## Chart settings
 
-The **Chart settings** button opens the panel's **Chart** section. Every
-optional layer is off by default: connecting land between related islands,
-a road network over it, houses, forests, sea trade routes, and district
-streams. Boundary
-overlays, topographic contours, and a map filter such as graphite or
-parchment are there too, with a **Reset visualization**. The chart is
-still: nothing on it moves unless you move the view.
-A **Rendering** section sets quality, tone mapping, exposure, occlusion, and
-bloom; **Off** draws the map directly with no post-processing, and **Show
-stage** reveals one stage of the pipeline on its own. Settings are not saved
-between visits.
+The **Chart settings** button opens the panel's **Chart** section. Its
+**Layers** each draw something the scan measured, and all start off: sea
+trade routes between each package and its leading consumers, district
+streams, recorded change, and topographic lines over the summits. Turning a
+layer on or off moves no island, and **Reset visualization** turns them all
+off again. The chart is still: nothing on it moves unless you move the
+view. Settings are not saved between visits.
+
+Adding `?dev` to the address opens a developer session, with a
+**Developer** section beneath the layers: connecting land and roads, which
+draw package dependency again; the layout's boundaries and spacing; and the
+renderer's quality, tone mapping, exposure, occlusion, bloom, and a stage
+view.
 
 Under a reduced-motion preference, focus jumps instead of travelling, and
 regions appear without fading in.

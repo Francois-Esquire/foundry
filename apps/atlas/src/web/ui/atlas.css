@@ -541,6 +541,17 @@ h2 {
 .atlas-chart-settings h2 {
   margin: 0 0 12px;
 }
+.atlas-developer-settings {
+  padding-top: 8px;
+  margin-top: 16px;
+  border-top: 1px solid #d8ccb2;
+}
+.atlas-developer-settings h3 {
+  margin: 0 0 4px;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
 .atlas-chart-settings button,
 .atlas-chart-settings select {
   padding: 5px 8px;
@@ -595,14 +606,6 @@ h2 {
   align-items: center;
   justify-content: space-between;
   margin-block: 12px;
-}
-.atlas-appearance-control input[type="color"] {
-  width: 44px;
-  height: 32px;
-  padding: 2px;
-  cursor: pointer;
-  background: #f1ead9;
-  border: 1px solid #b9aa87;
 }
 .atlas-appearance-control select {
   min-width: 0;

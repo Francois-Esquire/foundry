@@ -1,14 +1,9 @@
 import { expect, it } from "vitest";
-import { settlementTier } from "../../src/web/codex/bindings";
 import {
   continentCell,
   continentCoasts,
   createContinents,
-  forestSites,
-  settlementBuildings,
 } from "../../src/web/continent";
-import { insidePolygons } from "../../src/web/polygons";
-import { ecosystemOpacity } from "../../src/web/scene/ecosystem-layer";
 import { loadAtlas } from "../helpers/reference-atlas";
 
 it("forms land from connected groups while retaining every original coastline at zero buffer", async () => {
@@ -38,62 +33,4 @@ it("forms land from connected groups while retaining every original coastline at
     }
   }
   expect(data).toEqual(saved);
-});
-
-it("places deterministic forests between settlements with shoreline clearance", async () => {
-  const data = await loadAtlas();
-  const [c] = createContinents(data, 0);
-  if (!c) {
-    throw new Error("Missing continent");
-  }
-  const trees = forestSites(c);
-  expect(trees.length).toBeGreaterThan(100);
-  expect(trees).toEqual(forestSites(c));
-  for (const tree of trees) {
-    const i = continentCell(c, tree.x, tree.y);
-    expect(c.field.filled[i]).toBe(1);
-    expect((c.field.inland[i] ?? 0) * c.field.step).toBeGreaterThanOrEqual(14);
-    expect(
-      (c.field.settlementDistance[i] ?? 0) * c.field.step
-    ).toBeGreaterThanOrEqual(20);
-  }
-});
-
-it("uses file count for settlement scale and keeps building footprints inside package terrain", async () => {
-  expect([0, 39, 40, 299, 300, 1000].map(settlementTier)).toEqual([
-    "village",
-    "village",
-    "town",
-    "town",
-    "city",
-    "city",
-  ]);
-  const data = await loadAtlas();
-  for (const p of data.territories) {
-    const buildings = settlementBuildings(p);
-    expect(buildings).toEqual(settlementBuildings(p));
-    expect(buildings.length).toBeLessThanOrEqual(64);
-    for (const b of buildings) {
-      for (const dx of [-1, 1]) {
-        for (const dy of [-1, 1]) {
-          expect(
-            insidePolygons(
-              { x: b.x + dx * b.size, y: b.y + dy * b.size },
-              p.coast
-            )
-          ).toBe(true);
-        }
-      }
-      for (const other of buildings) {
-        if (other !== b) {
-          expect(Math.hypot(b.x - other.x, b.y - other.y)).toBeGreaterThan(
-            (b.size + other.size) * 0.6
-          );
-        }
-      }
-    }
-  }
-  expect(ecosystemOpacity(0.5)).toBe(1);
-  expect(ecosystemOpacity(2)).toBeCloseTo(0.5);
-  expect(ecosystemOpacity(4)).toBe(0);
 });

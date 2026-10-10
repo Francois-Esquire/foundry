@@ -60,7 +60,6 @@ describe("render pipeline", () => {
     const renderer = fakeRenderer(true);
     const pipeline = createRenderPipeline({
       camera: new OrthographicCamera(),
-      filter: () => "original",
       renderer,
       scene: new Scene(),
     });
@@ -85,7 +84,6 @@ describe("render pipeline", () => {
     const statuses: boolean[] = [];
     const pipeline = createRenderPipeline({
       camera: new PerspectiveCamera(),
-      filter: () => "treasure",
       onStatus: (status) => statuses.push(status.postProcessing),
       renderer,
       scene: new Scene(),
@@ -116,7 +114,6 @@ describe("render pipeline", () => {
     let rebuilds = 0;
     const pipeline = createRenderPipeline({
       camera: new PerspectiveCamera(),
-      filter: () => "original",
       onStatus: () => {
         rebuilds += 1;
       },
@@ -159,7 +156,6 @@ describe("render pipeline", () => {
     const qualities: string[] = [];
     const pipeline = createRenderPipeline({
       camera: new PerspectiveCamera(),
-      filter: () => "original",
       onStatus: (status) => qualities.push(status.quality),
       renderer,
       scene: new Scene(),
@@ -207,7 +203,6 @@ it("drains timestamp queries during direct rendering so the GPU query pool canno
   } as unknown as Parameters<typeof createRenderPipeline>[0]["renderer"];
   const pipeline = createRenderPipeline({
     camera: new OrthographicCamera(),
-    filter: () => "original",
     renderer,
     scene: new Scene(),
   });
@@ -227,7 +222,6 @@ it("drains timestamp queries during direct rendering so the GPU query pool canno
 
 it("uses engraved chart relief in Light while retaining screen-space occlusion for its preview and wreck views", async () => {
   const options = {
-    filter: () => "original" as const,
     renderer: fakeRenderer(),
     scene: new Scene(),
   };

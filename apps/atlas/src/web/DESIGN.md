@@ -41,9 +41,10 @@ builds the page. Development reloads pick up regenerated survey and history data
 static deployments need a rebuild. Evidence checks the map's survey identity before
 displaying. Live agents and historical playback are future work.
 
-Initial load shows separate islands at the established positions. Connecting land,
-roads, houses, forests, sea trade routes, topographic lines, all six boundary
-overlays start off. The chart is still: nothing animates on its own, and a frame
+Initial load shows separate islands at the established positions. Sea trade
+routes, district streams, recorded change and topographic lines, the reader's
+layers, start off; so do a developer session's connecting land, roads and six
+boundary overlays. The chart is still: nothing animates on its own, and a frame
 is drawn only when the view or what it shows changes. Features below are opt-in
 where noted.
 
@@ -257,8 +258,8 @@ with slightly stronger major lines; boundaries and dependencies retain dashes.
 Three-pixel crowding suppression and four-pixel label clearance protect reading.
 
 Neutral ambient fill (1.23) and a warm directional light (3.16) illuminate the
-paper, balanced so level paper renders at its own pigment rather than greyed. Land uses slope shading without cast shadows on the sea. Optional props use a
-cached shadow map. The sea is the painted sea sheet under the shared paper surface,
+paper, balanced so level paper renders at its own pigment rather than greyed. Land uses slope shading without cast shadows on the sea. Nothing on the chart
+casts a shadow, so the scene keeps no shadow map. The sea is the painted sea sheet under the shared paper surface,
 thinned over wrecks as the camera comes in; it does not move.
 The full-screen sheet has no outer border or CSS shadow. Paper drawers and the
 selected-place inspector use `0 8px 26px #584a3328` to separate them from the map.
@@ -317,19 +318,17 @@ remain disposable presentation data; temporal stability is not guaranteed.
 
 ## Components
 
-- Experimental layers in Chart settings offers Connecting land, Road network,
-  Houses, Forests and Sea trade routes, all off initially. Roads and forests
-  require connecting land. Layer changes rebuild rendering and coast masks at the
-  exact existing island positions; camera and preferences survive while
-  selection clears. Reset visualization turns every experimental layer, boundary
-  and topographic line off.
-- When enabled, continental ground shares the paper material and persists through focus repaints.
-  Deterministic physical forest groves leave shore, settlement, label and overview
-  trace clearances. Pitched-roof settlements use villages below 40 files, towns
-  from 40 and cities from 300. Their bounded building counts express package scale,
-  not individual files. Buildings fit original land with roof clearance.
-  Trees and settlement props fade between 1.1 and 2.9 pixels per world unit and
-  disappear during internal inspection; continental ground remains.
+- Chart settings holds the reader's layers: Sea trade routes, District streams,
+  Recorded change and Topographic lines, all off initially. Each draws data the
+  scan measured, and each applies to the existing scene without rebuilding it.
+  In a developer session (`?dev`, or the dev server) a Developer section follows:
+  Connecting land and Road network, which draw package dependency a third and
+  fourth time and rebuild the scene at the exact existing island positions,
+  with roads requiring connecting land; Display boundaries; and Rendering.
+  Camera and preferences survive a rebuild while selection clears. Reset
+  visualization turns every layer, boundary and topographic line off.
+- When enabled, continental ground (`scene/continent-ground.ts`) shares the paper
+  material and persists through focus repaints.
 - Optional sea trade shows the six largest consumer packages by total module dependencies,
   each linked to its strongest supplier. Island selection shows its six strongest
   incoming or outgoing trades. Fine static dashed routes vary slightly in width
@@ -351,11 +350,7 @@ remain disposable presentation data; temporal stability is not guaranteed.
   roads and suppress sea traces; an unavailable land route has no fallback through
   water. The inspector reports mapped-route availability or no safe mapped path,
   with consumer/resource endpoint counts; it does not label roads as sea routes.
-  Three.js ports have raised paper-colored warehouses, amber pitched roofs,
-  stone foundations, timber piers and a coastal beacon. Warehouse footprints
-  must fit on land and clear other warehouse footprints; foundations span the
-  sampled terrain heights. Resource ports use larger warehouses where they fit.
-  Connected-package harbor props retire inland; offshore ports retain this treatment.
+  A harbor is where a lane meets the coast; nothing is built there.
 - When enabled, continental roads retain every routable measured package relationship, independent
   of the six-partner inspector limit. Stable anchors lie inside settlements.
   Dijkstra routing uses a 12-unit grid over the 4-unit land mask, with 10-unit
@@ -367,8 +362,7 @@ remain disposable presentation data; temporal stability is not guaranteed.
   subdivisions follow; every accepted segment retains land clearance. Junctions
   and settlement terminals stay fixed, including degree-two terminals. No random
   displacement is added; straight stretches and angular junctions can remain.
-  Ochre roads follow terrain height. Forests and buildings clear the rendered
-  curves. Opacity decreases with zoom.
+  Ochre roads follow terrain height. Opacity decreases with zoom.
   Declared-only dependencies add no roads or weights; file roads and terrain
   grading remain unimplemented.
 - Internal exploration hides roads, ports and sea traces. Routes do not animate.
@@ -561,25 +555,15 @@ remain disposable presentation data; temporal stability is not guaranteed.
   Selecting a responsibility alone does not draw its entire dependency graph.
   Drawing explanations, map keys, and alternative comparisons start collapsed.
 
-## Color controls
-
-Chart settings → Appearance offers Original, Treasure parchment, Graphite, and
-Faded pigments filters. Filters apply to the map alone, including land and ink,
-never the controls or drawers. Monochrome treatments intentionally remove package
-color distinctions. Settings last only for the mounted atlas.
-
-Filters are graded inside the render pipeline as the last stage, after
-exposure and tone mapping, so occlusion and bloom never operate on an
-already-tinted image. The CSS filter on the map element is the fallback: it
-applies only when the pipeline is off or failed and the scene draws directly.
-
 ## Rendering pipeline
 
-Chart settings → Rendering controls one pass graph shared by the chart and
-wreck dives: scene → ambient occlusion → indirect
-light → bloom → exposure and tone mapping → grade. Quality tiers trade resolution
-and filtering for speed. Off draws directly with the CSS filter restored; shader
-failure also falls back to direct draw and is disclosed in the panel.
+Chart settings → Developer → Rendering, in a developer session, controls one
+pass graph shared by the chart and wreck dives: scene → ambient occlusion →
+indirect light → bloom → exposure, tone mapping, saturation and vibrance. A
+reader gets the default tier, which adapts down on a slow device. Quality tiers
+trade resolution and filtering for speed. Off draws directly; shader failure also
+falls back to direct draw and is disclosed in the panel. There are no map
+filters.
 
 Land uses a rough, nonmetallic lit paper material under warm northwest light.
 No land cast shadows are added. Concavity still comes from fixed-radius samples
@@ -587,8 +571,8 @@ of the current terrain field. Hachures appear only above slope 0.24,
 leaving gentle flats clear. There are no full-sheet fold bands or screen grain.
 Fine fibers and faint broad stock variation are stationary world-coordinate
 material texture, shared by land and sea. They fade when too small to resolve,
-never distort geometry, and never encode activity. Post-processing grades the
-finished drawing; material texture also works in direct draw.
+never distort geometry, and never encode activity. Material texture also works
+in direct draw.
 
 Recorded change evidence is optional, off initially. It reads the same survey's
 `frequent-change` lens only when enabled, matched by exact workspace-relative
@@ -604,7 +588,7 @@ partial Git history remain in Place. No history means no inferred count.
 Bloom starts off so bright paper slopes retain their edges.
 
 Sliders are uniforms and change nothing in the graph; quality, toggles, tone
-mapping, filter, and stage view rebuild it. Stage modules load on first use.
+mapping, and stage view rebuild it. Stage modules load on first use.
 When the device reports GPU frame times, a sustained frame over budget steps
 the tier down one level, never to Off, and the panel says so; choosing a
 quality again clears the cap. On the chart, Light retains engraved terrain
