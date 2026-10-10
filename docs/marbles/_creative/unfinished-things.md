@@ -34,4 +34,4 @@ The schedule creates a reason to return. It does not establish which fragments
 matter; that remains a judgment to inspect in the resulting suggestions. The
 step returns its session reference so a run's record shows which conversation
 it held; to continue that conversation next week, keep the reference the way
-the [persistent reviewer](/marbles/use-cases/persistent-reviewer) does.
+the [persistent reviewer](/marbles/recipes/persistent-reviewer) does.

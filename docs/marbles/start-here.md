@@ -1,6 +1,6 @@
 ---
 title: Start Here
-description: Get the Marbles CLI running and dispatch a deterministic automation once or on a schedule.
+description: Get the Marbles CLI running, write one step, give it input, and add an agent.
 ---
 
 `@foundry/marbles` is not published to npm yet. It runs from the Foundry
@@ -23,21 +23,10 @@ bun /path/to/foundry/apps/marbles/dist/cli.js --help
 The rest of these pages write `marbles …`; substitute either form. Point the
 CLI at an authoring folder or module outside the repository with `--source <path>`.
 
-## Set up a workspace
-
-Run `marbles init` from your project root for a codebase-summary starter.
-Choose `marbles init developer` for code review or `marbles init design`
-for a prototype step. Opening `marbles` without an authoring folder offers
-interactive setup instead.
-
-The following example needs no agent harness. Create `.foundry/marbles/`
-if it does not exist, then add the module below. Files and directories with
-a leading underscore are skipped by discovery but remain importable. See
-[authoring](/marbles/reference/configuration) for helpers and micro apps.
-
 ## Create one step
 
-Save this as `.foundry/marbles/inspect.ts` in the directory you want to inspect:
+Marbles reads modules from `.foundry/marbles/` in the directory you run it
+from. Save this as `.foundry/marbles/inspect.ts`:
 
 ```ts
 import { schedule, step } from "@foundry/marbles";
@@ -51,8 +40,13 @@ const inspect = step("inspect").do(async ({ workspaces, log }) => {
 schedule(inspect).every("1h");
 ```
 
-The step lists the files of the workspace root and returns
-their count. It makes no model calls and needs no installed agent harness.
+The step lists the files of the workspace root and returns their count. It
+makes no model calls and needs no installed agent harness.
+
+Prefer a starter? `marbles init` writes a codebase-summary module, and
+`marbles init developer` or `marbles init design` writes a review or
+prototype step instead. Opening `marbles` without an authoring folder offers
+the same setup interactively.
 
 ## Run and inspect
 
@@ -67,8 +61,38 @@ Declaring a schedule does not start a clock. `roll inspect` dispatches it now
 and prints the result. `--dry-run` runs the same thing without writing state.
 
 To keep the schedule active in your terminal, run `marbles` with no command.
-It opens the dashboard; Enter starts the triggers, and `q` quits. For
-scheduled processes on macOS, continue to [launchd](/marbles/guides/launchd).
+It opens the dashboard; Enter starts the triggers, and `q` quits.
+
+## Give it input
+
+A schema before the body gives the step typed, validated input. Add this
+module beside the first, in a project that has `zod` installed:
+
+```ts
+import { step } from "@foundry/marbles";
+import { z } from "zod";
+
+step("count")
+  .input(z.object({ extension: z.string() }))
+  .do(async ({ input: { extension }, workspaces }) => {
+    const files = await workspaces.current.files();
+    return { extension, files: files.filter((file) => file.endsWith(extension)).length };
+  });
+```
+
+```sh
+marbles roll count --input '{"extension":".ts"}'
+```
+
+`roll` parses the JSON, validates it against the schema, and runs the body.
+The same schema builds the launch form in the dashboard. Any
+[Standard Schema](https://standardschema.dev) library works; the docs use zod.
+It must resolve from the importing file, because the CLI supplies
+`@foundry/marbles` itself but not the schema library.
+
+The body receives one object. Destructure `input` and whatever else it needs:
+`log`, `agents`, `workspaces`, `ask`, `report`. The
+[API reference](/marbles/reference/api#context) lists every key.
 
 ## Add judgment when it helps
 
@@ -87,13 +111,14 @@ step("explain").do(async ({ agents }) => {
 ```
 
 Run `marbles roll explain`, then `marbles sessions` to see the conversation it
-kept. The session runs in the workspace root without being told; the
-prompt supplies agent instructions, not permissions. Read
+kept. The session runs in the workspace root without being told. Read
 [safety and limits](/marbles/safety-and-limits) before using agents on work
 you care about.
 
 ## Next steps
 
-- [Concepts](/marbles/concepts) explains the nine words and how they compose.
-- [Your first workflow](/marbles/guides/first-workflow) composes a small workflow.
+- [Concepts](/marbles/concepts) explains how steps compose into workflows,
+  how agents keep a conversation, and how triggers bring work back.
+- [The Software Factory](/marbles/guides/software-factory) builds a complete
+  automation, one station at a time.
 - [CLI reference](/marbles/reference/cli) covers every command and flag.

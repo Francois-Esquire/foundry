@@ -38,7 +38,7 @@ to inspect managed execution, not to contain arbitrary code.
 
 A working directory sets context, not a security boundary, and a sandbox
 mounts the step's workspace read/write. A prompt asking an agent not to edit
-is a agent instruction, not an enforceable permission. Authentication and
+is an agent instruction, not an enforceable permission. Authentication and
 available tools belong to the installed Claude Code or Codex CLI. Review their
 configuration before granting an automation access to your work.
 
@@ -57,6 +57,3 @@ its process stopped is not resumed; its finished steps keep their results, and
 `status` marks it orphaned. Cancellation stops what Marbles opened and cannot
 undo side effects already made. Model judgments and conversation history do
 not guarantee correctness.
-
-Explorations in the use-case section are application blueprints, not a hosted
-service, desktop application, or general-purpose personal assistant.

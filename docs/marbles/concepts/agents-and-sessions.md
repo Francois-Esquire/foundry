@@ -1,6 +1,6 @@
 ---
-title: Give an agent continuity
-description: Open a session in a step, then continue the same conversation in a later run.
+title: Agents and sessions
+description: Declare who does model work, open a session in a step, and continue the conversation in a later run.
 ---
 
 Install and authenticate Claude Code or Codex before running model turns.
@@ -56,18 +56,41 @@ may still miss changes or misinterpret history.
   transcript, so keep those calls in a fixed order.
 - **Wired by default.** The session runs in the step's working directory,
   which is the workspace root or, inside a worktree callback, the
-  worktree. Its turns write to the step's stream and stop when the step is
-  cancelled or paused. Pass `{ cwd }` only to leave that default.
+  worktree. That is how `implement` in [Composition](/marbles/concepts/composition)
+  works on its own branch without naming a directory. Its turns write to
+  the step's stream and stop when the step is cancelled or paused. Pass
+  `{ cwd }` only to leave that default.
 - **Compaction is off.** `{ compaction: true }` lets older history be
   replaced by a summary made with the turn model; partial settings adjust
   it.
 
+## Agents
+
 `agent` declares who does the work: a prompt, optionally a `provider`
 (`codex` or `claude-code`) and a `model` the provider serves. Declaring one
-starts nothing; opening a session does. Neither a directory nor a review
-prompt enforces read-only access.
+starts nothing; opening a session does. The prompt is an instruction, not a
+permission; see [safety and limits](/marbles/safety-and-limits).
 
 From the dashboard, `s` on a running step hands the agent a prompt mid-turn
-and `p` parks the step; neither needs authored code. See the
-[API reference](/marbles/reference/api#context) and
-[safety and limits](/marbles/safety-and-limits).
+and `p` parks the step; neither needs authored code.
+
+## Prebuilt reviewers
+
+`@foundry/marbles/prebuilt` has read-only steps with the sessions already
+wired. `reviewInWorktree()` reviews any revision in a temporary checkout:
+
+```ts
+import { reviewInWorktree } from "@foundry/marbles/prebuilt";
+
+reviewInWorktree();
+```
+
+```sh
+marbles roll review-in-worktree --input '{"repository":".","base":"main"}'
+```
+
+To keep a review conversation across scheduled runs, see the
+[persistent reviewer](/marbles/recipes/persistent-reviewer). The
+[configuration reference](/marbles/reference/configuration#prebuilt-steps)
+lists every prebuilt step, and the [API reference](/marbles/reference/api#context)
+lists every session option.

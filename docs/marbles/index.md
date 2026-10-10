@@ -21,34 +21,34 @@ launchd invoke it on a schedule.
 Code + Workflows + Agents + Schedules + Monitors + Persistent State
 ```
 
-## What could you build?
-
-- [A repository caretaker](/marbles/use-cases/repository-caretaker) that notices
-  instruction changes and investigates meaningful drift.
-- [A persistent reviewer](/marbles/use-cases/persistent-reviewer) that compares
-  revisions with its earlier findings.
-- [A correspondent](/marbles/use-cases/pen-pal) with conversation history and a
-  deliberate cadence. This is an application blueprint, with transport supplied
-  by your code.
-
-Small automations can stay small. Start with one deterministic step:
+Each piece of work is a step. Steps lock into a tree, and a named tree is a
+workflow. This one, from the [Software Factory](/marbles/guides/software-factory),
+implements a task on a branch, reviews the branch, and waits for a person to
+approve it:
 
 ```ts
-import { step } from "@foundry/marbles";
-
-step("inspect").do(async ({ workspaces, log }) => {
-  const files = await workspaces.current.files();
-  log(files.length, "files");
-  return { files: files.length };
-});
+const ship = workflow("ship")
+  .input(z.object({ task: z.string() }))
+  .do(({ input: { task } }) =>
+    approve({ review: review({ branch: implement({}, { task }) }) })
+  );
 ```
 
-The step does not need model judgment. Other automations can combine deterministic
-operations with a coding agent, retain a conversation across runs, or react when
-a source changes.
+`implement` and `review` each open an agent session. `approve` asks a person.
+A monitor on an issue feed can start `ship` whenever a new task appears.
 
-Save it as `.foundry/marbles/inspect.ts` and run `marbles roll inspect`. The
-[nine words](/marbles/concepts) let that function grow into something that
-composes work, observes change, remembers, and returns.
+## What could you build?
 
-[Build your first automation](/marbles/start-here) · [Walk through the Software Factory](/marbles/walkthroughs/software-factory) · [Explore use cases](/marbles/use-cases)
+- [A software factory](/marbles/guides/software-factory) that implements,
+  tests, reviews, and reports on a schedule.
+- [A repository caretaker](/marbles/recipes/repository-caretaker) that notices
+  instruction changes and investigates meaningful drift.
+- [A persistent reviewer](/marbles/recipes/persistent-reviewer) that compares
+  revisions with its earlier findings.
+- [A release watcher](/marbles/recipes/release-watcher) that asks whether a new
+  release matters to this workspace.
+
+Small automations can stay small: a single deterministic step is a complete
+module. [Start Here](/marbles/start-here) builds one.
+
+[Build your first automation](/marbles/start-here) · [Learn the concepts](/marbles/concepts) · [Build the Software Factory](/marbles/guides/software-factory)

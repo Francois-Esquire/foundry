@@ -1,11 +1,11 @@
 ---
-title: Scheduling with launchd
+title: launchd
 description: Let macOS start a fresh Marbles process for each scheduled tick.
 ---
 
 On macOS, launchd owns the clock and Marbles exits after each tick.
 
-From the directory containing the [Start Here workspace](/marbles/start-here),
+From the directory containing the [Start Here](/marbles/start-here) module,
 whose schedule `list` prints with the key `inspect`:
 
 ```sh

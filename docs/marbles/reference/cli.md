@@ -68,7 +68,7 @@ and sends output to `~/Library/Logs/marbles/<key>.log`. Under `--dry-run` it
 changes nothing: `install` prints the plist path and contents and the
 `launchctl` commands, `uninstall` the `launchctl bootout` command and the
 plist it would remove. See
-the [launchd guide](/marbles/guides/launchd).
+the [launchd reference](/marbles/reference/launchd).
 
 ## Flags
 

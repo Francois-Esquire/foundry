@@ -6,7 +6,7 @@ description: The software lifecycle as inputs, marbles, and outputs, in one modu
 A factory takes materials in, works them at stations, and sends products out.
 Software has the same shape. A task comes in; someone implements it, someone
 tests it, someone reviews it, someone decides; a branch, a verdict, and a
-report come out. This walkthrough builds that line as one `.foundry/marbles/software-factory.ts`,
+report come out. This guide builds that line as one `.foundry/marbles/software-factory.ts`,
 one station at a time, and then wires it to a clock and a feed.
 
 Every excerpt below is cut from the complete file at the end. Save that file
@@ -234,7 +234,7 @@ start the triggers, and launch `ship` from the catalog. The run parks at
 "Merge it?"; answer it from the feed, with a note if you like, and `approve`
 returns the decision. Quit while it is parked and the next dashboard adopts
 it. For the Friday schedule without a terminal, see
-[launchd](/marbles/guides/launchd).
+[launchd](/marbles/reference/launchd).
 
 ## What this line does not do
 
@@ -242,8 +242,8 @@ Loops and retries are not available. A rejected `approve` ends the run;
 launch `ship` again with the findings appended to the task. `test` verifies
 the workspace root, not `implement`'s branch; to test the branch, give
 `test` a `branch` input and run it inside a worktree callback the way
-`implement` does. The [implement-review pattern](/marbles/use-cases/implement-review)
-goes further into that handoff.
+`implement` does. [Composition](/marbles/concepts/composition#hand-a-result-to-the-next-step)
+shows a review that checks out the branch it was handed.
 
 ## The complete file
 
@@ -340,5 +340,5 @@ monitor("https://tracker.example.com/issues/latest")
   .do(async ({ response }) => ship({}, { task: (await response.json()).title }));
 ```
 
-Continue with the [use cases](/marbles/use-cases) for automations that watch a
-repository, remember earlier findings, or keep a correspondence.
+Continue with the [recipes](/marbles/recipes) for smaller automations that
+watch a repository, remember earlier findings, or assess a release.

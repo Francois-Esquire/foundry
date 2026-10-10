@@ -4,7 +4,7 @@ description: Compare new revisions with earlier findings in one retained convers
 ---
 
 A reviewer becomes more useful when it can revisit unresolved findings. The
-[agents and sessions guide](/marbles/guides/agents-and-sessions) continues a
+[agents and sessions](/marbles/concepts/agents-and-sessions) page continues a
 conversation by passing the session reference from one `roll` to the next by
 hand. A scheduled run has nobody to pass it, so the step keeps the reference
 itself, in a small file in the workspace:

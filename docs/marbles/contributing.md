@@ -62,6 +62,21 @@ to its own folder. The home page is the custom `pages/index.astro`, rendered
 without a sidebar; its links are not covered by `docs:check`, so confirm them
 against the built site.
 
+Each Marbles section has one job:
+
+- **Start Here** gets one automation running by the shortest path.
+- **Concepts** explain one idea per page, with short examples drawn from the
+  guides and recipes rather than toy code.
+- **Guides** build one real-world automation end to end, station by station,
+  and finish with the complete file.
+- **Recipes** are one complete module for one job, ready to save and run.
+- **Reference** holds exhaustive detail: every flag, key format, lock rule,
+  and file layout. Narrative pages link to it instead of restating it.
+
+Caveats about authority and dry runs live in Safety and Limits; other pages
+link there rather than repeating them. Parked pages that are not ready to
+publish live under `_creative/` and other `_`-prefixed paths.
+
 Most pages use Markdown. Pages with Mermaid diagrams, callouts, or pattern cards
 use MDX because Blume renders those components through its MDX pipeline. Internal
 links use site routes such as `/marbles/start-here`.
@@ -75,12 +90,17 @@ bun run docs:build
 
 The static site is generated in `docs/dist/`. Blume's generated runtime lives
 in `docs/.blume/`. Both are ignored by Git. Maintainer notes prefixed with `_`,
-such as `_api-alt.md` and `_rebuild-gaps.md`, stay outside the rendered site.
+such as `_api-alt.md`, `_rebuild-gaps.md`, and `_findings.md`, stay outside
+the rendered site. When a guide or recipe has to work around the library,
+the page says what it does instead, and `_findings.md` records the limit
+with a proposal.
 Where a public page and the code disagree, the code wins and the page changes;
 where `_api-alt.md` and the code disagree, the difference is recorded under
 its open items.
 
-Every code sample on a public page loads: extract it into a scratch module
+Every complete code sample on a public page loads. An excerpt that does not
+load alone names the guide or recipe it is cut from, and that page's complete
+file loads. To check a sample, extract it into a scratch module
 with `zod` and `typescript` resolvable beside it, then run it with
 `bun run marbles -- --source <path> --dry-run list` and, where a step is named,
 `--dry-run roll <name>`.

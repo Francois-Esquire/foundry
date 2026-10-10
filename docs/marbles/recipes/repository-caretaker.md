@@ -37,6 +37,5 @@ workspace root, so the agent can read `git log` itself; there is no
 dedicated Git-history monitor, and the directory scanner does not look inside
 `.git`.
 
-A review prompt does not enforce read-only access. To keep a conversation
-across polls, keep the session reference the way the
-[persistent reviewer](/marbles/use-cases/persistent-reviewer) does.
+To keep a conversation across polls, keep the session reference the way the
+[persistent reviewer](/marbles/recipes/persistent-reviewer) does.
