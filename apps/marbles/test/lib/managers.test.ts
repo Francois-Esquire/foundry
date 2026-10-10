@@ -243,19 +243,16 @@ describe("artifacts", () => {
       .scoped(b)
       .write(report, { "report.md": "# two\n" });
     expect(second.artifactId).toBe(first.artifactId);
-    expect(second.contentId).not.toBe(first.contentId);
+    expect(second.id).not.toBe(first.id);
     const stored = await system.get(first.artifactId as ArtifactId);
-    expect(stored?.content?.id).toBe(second.contentId);
-    const file = await system.readFile(
-      second.contentId as ContentId,
-      "report.md"
-    );
+    expect(stored?.content?.id).toBe(second.id);
+    const file = await system.readFile(second.id as ContentId, "report.md");
     expect(new TextDecoder().decode(file?.blob)).toBe("# two\n");
 
     // A replay of the same body returns the recorded version, no new write.
     await a.scope.enter(a.frame);
     const replayed = await artifacts.write(report, { "report.md": "# x\n" });
-    expect(replayed).toEqual(first);
+    expect(replayed.id).toBe(first.id);
 
     const prototype = {
       entries: { "index.html": "<p>hi</p>" },
@@ -268,7 +265,45 @@ describe("artifacts", () => {
     // A replayed create returns the artifact it made, not a second one.
     await a.scope.enter(a.frame);
     await artifacts.write(report, { "report.md": "# x\n" });
-    expect(await artifacts.create(prototype)).toEqual(fresh);
+    expect((await artifacts.create(prototype)).id).toBe(fresh.id);
+  });
+
+  it("reads versions back, records who wrote them, and changes only some files", async () => {
+    const manager = new ArtifactsManager({
+      artifacts: new ArtifactManager({ store: new InMemoryArtifactStore() }),
+      workspaceId: "ws",
+    });
+    const site = {
+      id: "artifact#1",
+      kind: "artifact",
+      name: "Site",
+      type: "text/html",
+    } as const;
+    const a = args();
+    const artifacts = manager.scoped(a);
+    const first = await artifacts.write(site, {
+      "about.html": "<p>about</p>",
+      "index.html": "<p>home</p>",
+    });
+    expect(first.metadata).toMatchObject({
+      runId: a.scope.id,
+      sessionId: a.scope.session.id,
+    });
+    expect(first.digest).toEqual(expect.any(String));
+
+    const b = args();
+    const second = await manager
+      .scoped(b)
+      .write(site, { "index.html": "<p>new</p>" }, { replace: false });
+    const about = await artifacts.readFile(second.id, "about.html");
+    expect(new TextDecoder().decode(about?.blob)).toBe("<p>about</p>");
+    const root = await artifacts.readRoot(second.id);
+    expect(new TextDecoder().decode(root?.blob)).toBe("<p>new</p>");
+
+    expect((await artifacts.get(site))?.content?.id).toBe(second.id);
+    const versions = (await artifacts.listContents(site)).map((row) => row.id);
+    expect([...versions].sort()).toEqual([first.id, second.id].sort());
+    expect((await artifacts.getContent(first.id))?.id).toBe(first.id);
   });
 });
 

@@ -131,27 +131,8 @@ workspace's `rename` and `remove`, stay host operations.
 
 ### 7.4 Artifacts
 
-The context has `create` and `write` only; the manager underneath is held
-as `Pick<ArtifactOperations, "create" | "get" | "revise">`
-(`apps/marbles/src/lib/managers/artifacts.ts:26`).
-
-- **No reads.** `get`, `list`, versions, `readFile`, `readRoot`: nothing
-  written can be read back. This is finding 5's root cause.
-- **Results stripped.** `ArtifactVersion` is `{ artifactId, contentId, id }`
-  (`types.ts:194-199`): digest, state, tag, metadata, and timestamps are
-  dropped.
-- **Inputs narrowed.** Files are `string | Uint8Array` (no streaming
-  source, blob reuse, or explicit MIME); `write` always replaces the whole
-  tree (`artifacts.ts:112`); `create` drops `metadata` and `freeze`;
-  `tag`, `freeze`, `fork`, `archive`, and transactions are unreachable.
-- **No provenance.** Content metadata has `runId` and `sessionId`; neither
-  is set, though the run id is at hand.
-- The replay bug in the scoped `create` landed 2026-10-10
-  (`_next-api.md`, C.2).
-
-**Proposal.** Pass the manager's operations through with the workspace
-identity and replay applied, and record run and session provenance by
-default.
+Landed 2026-10-10 ([`_next-api.md`](./_next-api.md), C.2 and E.3). Still
+open: `tag`, `freeze`, `fork`, `archive`, and transactions.
 
 ### 7.5 Steps and workflows
 
@@ -193,4 +174,18 @@ written, so `status` and the dashboard may not show it.
 **Proposal.** Find where the engine saves a run cancelled while suspended
 (the run row says `suspended`, its frame says `cancelled`), and settle the
 run's status before the save.
+
+## 10. A step that returns a Date hangs its run
+
+**Found by** use, 2026-10-10, while landing `_next-api.md` E.3, whose
+artifact versions first carried `Date` fields.
+
+**Reproduction.** `step("dated").do(() => ({ when: new Date() }))`,
+launched on a started engine: the run never settles, and the test times
+out. Step results are documented as JSON-serializable, but nothing says so
+when one is not.
+
+**Proposal.** Find where the result is checked or serialized (likely the
+workflows package's step snapshot schema), and fail the step with a clear
+message naming the step and the value's path, rather than hanging.
 

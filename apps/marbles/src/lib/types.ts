@@ -14,6 +14,15 @@ import type {
   SessionStream,
   SessionUsage,
 } from "@foundry/agents/session";
+import type {
+  ArtifactResolved,
+  Content,
+  ContentResolved,
+  ContentSummary,
+  CreateArtifactInput,
+  FileInput,
+  FileResolved,
+} from "@foundry/artifacts";
 import type { ContainerSandboxConstraints } from "@foundry/sandbox/container/constraints";
 import type { Container } from "@foundry/sandbox/container/containers";
 import type {
@@ -258,7 +267,10 @@ export type SandboxInstance = SandboxDefinition &
 
 /** A declared artifact you can use: each `write` adds a version. */
 export interface ArtifactInstance extends ArtifactDefinition {
-  write(files: ArtifactFiles): Promise<ArtifactVersion>;
+  write(
+    files: ArtifactFiles,
+    options?: ArtifactWriteOptions
+  ): Promise<ArtifactVersion>;
 }
 
 export interface Agents {
@@ -321,25 +333,65 @@ export interface Sandboxes {
   start(sandbox: SandboxDefinition | SandboxSpec): Promise<SandboxHandle>;
 }
 
-export type ArtifactFiles = Readonly<Record<string, string | Uint8Array>>;
+/**
+ * Files by path: text, bytes, or any of the package's file inputs (a blob
+ * already stored, an explicit `mime`).
+ */
+export type ArtifactFiles = Readonly<
+  Record<string, string | Uint8Array | FileInput>
+>;
 
-export interface ArtifactVersion {
-  readonly artifactId: string;
-  readonly contentId: string;
-  /** `artifactId:contentId`. */
-  readonly id: string;
+/** A value as JSON carries it: dates become ISO strings. */
+type AsJson<T> = T extends string | number | boolean | null | undefined
+  ? T
+  : T extends Date
+    ? string
+    : T extends readonly (infer U)[]
+      ? readonly AsJson<U>[]
+      : T extends object
+        ? { readonly [K in keyof T]: AsJson<T[K]> }
+        : T;
+
+/**
+ * One version of an artifact: the `@foundry/artifacts` Content, as JSON,
+ * since a step returns it and a run records it. `id` is the version's own
+ * id; `digest`, `state`, `tag`, `metadata` (with the run and session that
+ * wrote it), `tree`, and the timestamps (ISO strings) come with it.
+ */
+export type ArtifactVersion = AsJson<Content>;
+
+/** An artifact by its declaration, or by the id the package gave it. */
+export type ArtifactRef = ArtifactDefinition | string;
+
+export interface ArtifactWriteOptions {
+  /** Merged into the new version's metadata. */
+  readonly metadata?: Readonly<Record<string, unknown>>;
+  /** `false` changes only the files given and keeps the rest; replaces by default. */
+  readonly replace?: boolean;
 }
 
 export interface Artifacts {
-  create(input: {
-    readonly name: string;
-    readonly type: string;
-    readonly entries?: ArtifactFiles;
-  }): Promise<ArtifactVersion>;
+  create(
+    input: Pick<
+      CreateArtifactInput,
+      "freeze" | "metadata" | "name" | "type"
+    > & {
+      readonly entries?: ArtifactFiles;
+    }
+  ): Promise<ArtifactVersion>;
+  /** The artifact and its current version, or null when it has none yet. */
+  get(artifact: ArtifactRef): Promise<ArtifactResolved | null>;
+  getContent(versionId: string): Promise<ContentResolved | null>;
+  /** Every version, oldest first. */
+  listContents(artifact: ArtifactRef): Promise<readonly ContentSummary[]>;
+  readFile(versionId: string, path: string): Promise<FileResolved | null>;
+  /** The version's entry file: `metadata.entry`, the only file, or `index.html`. */
+  readRoot(versionId: string): Promise<FileResolved | null>;
   /** Adds a version to the declared artifact. */
   write(
     artifact: ArtifactDefinition,
-    files: ArtifactFiles
+    files: ArtifactFiles,
+    options?: ArtifactWriteOptions
   ): Promise<ArtifactVersion>;
 }
 

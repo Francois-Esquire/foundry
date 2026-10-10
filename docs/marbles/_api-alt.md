@@ -330,7 +330,14 @@ const result = await env.exec(["bun", "test"]);
 ```ts
 const version = await artifacts.write(weeklyReport, { "report.md": markdown }); // a definition: a new version. report.artifact does this and posts it
 const page = await artifacts.create({ name: "Prototype", type: "text/html", entries }); // on the spot
+const file = await artifacts.readFile(version.id, "report.md");                // read a version back
+await artifacts.write(weeklyReport, { "notes.md": notes }, { replace: false }); // change some files
 ```
+
+A version is the package's content record as JSON (dates as ISO strings),
+since a step returns it and a run records it. A version written in a step
+carries `runId` and `sessionId` in its metadata. The ledger keeps the
+version id; a replay reads the version back.
 
 ### ask
 

@@ -184,7 +184,7 @@ function buildReport({
       post(
         "result",
         { ...entry, title: entry?.title ?? definition.name },
-        { artifactId: version.artifactId, contentId: version.contentId }
+        { artifactId: version.artifactId, contentId: version.id }
       );
       return version;
     },

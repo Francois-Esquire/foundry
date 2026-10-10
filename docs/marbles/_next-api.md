@@ -792,6 +792,16 @@ Start Here `count` example and the Software Factory's `inspect`. Keep a
 
 ### E.3 Artifacts (7.4)
 
+**Landed 2026-10-10.** `ArtifactVersion` is `AsJson<Content>`: the
+package's record with dates as ISO strings, because a step returns it and
+a run records it (a step that returns a `Date` hangs its run today;
+`_findings.md` 10). The ledger keeps the version id and a replay reads the
+version back with `getContent`, so a run parked before this change, which
+recorded `{ artifactId, contentId, id }`, writes a new version on replay;
+acceptable before release. Reads take an `ArtifactRef` (a declaration or a
+package id). Not done: `tag`, `freeze`, `fork`, `archive`, and
+transactions, which are artifact management rather than a step's output.
+
 Widen the manager's `Pick<ArtifactOperations, "create" | "get" | "revise">`
 (`artifacts.ts:26`) to the read operations (`getContent`, `listContents`,
 `readFile`, `readRoot`) and pass them through with the workspace identity

@@ -96,7 +96,7 @@ const lines = await count.run({ path: "README.md" });                  // run it
 | `step`, `workflow` | `run(input?)` | Locking it as a child, run on its own |
 | `workspace` | `root`, `files()`, `git` | `workspaces.load(def)` |
 | `sandbox` | `exec`, `close`, and the container's `commands`, `filesystem`, `processes`, `shell`, `ports`, `services`, `volumes`; started by the first call | `sandboxes.start(def)` |
-| `artifact` | `write(files)` | `artifacts.write(def, files)` |
+| `artifact` | `write(files, options?)` | `artifacts.write(def, files)` |
 
 - **Inside a step body** a call joins the step's run: it stops with the
   step, writes to its stream, and a replay after a question or a pause
@@ -222,7 +222,7 @@ step().do(async ({ input, agents, workspaces, sandboxes, artifacts, ask, report,
 | `agents` | `session(def, { cwd?, session?, compaction? })` → `{ generate(prompt, turn?) → { text, output, usage, … }, stream(prompt, turn?), ref, harness }`. |
 | `workspaces` | `current` (the workspace root) and `load(def \| { path })` → the `@foundry/workspaces` workspace: `root`, `files()`, `entries()`, `read(id)`, `save`, `createFile`, `refresh()`, `summary()`, `git`. |
 | `sandboxes` | `start(def \| spec)` → the `@foundry/sandbox` container: `exec(command, { cwd?, environment?, user? })` → `{ exitCode, stdout, stderr }`, `commands`, `files`, `processes`, `shell`, `ports`, `services`, `volumes`, `close()`, `id`; `open(id)`. |
-| `artifacts` | `write(def, files)` adds a version; `create({ name, type, entries })` makes one on the spot. |
+| `artifacts` | `write(def, files, { replace?, metadata? })` adds a version; `create({ name, type, entries, metadata?, freeze? })` makes one on the spot; `get(def \| id)`, `listContents(def \| id)`, `getContent(versionId)`, `readFile(versionId, path)`, `readRoot(versionId)` read them back. |
 | `ask` | `approval({ title, body?, key? })` → `{ approved, note? }`; `question({ title, body?, choices?, key? })` → `string`. |
 | `report` | `milestone({ title, body?, media?, key? })`, `result(entry)`, `artifact(def, files, entry?)` → version. |
 | `log` | `log(...values)` at info; `log.debug`, `.info`, `.warn`, `.error` pick a level. |
@@ -300,6 +300,13 @@ await fetch(url, { signal });
   of at most nine; without it the answer is free text. Both are identified
   by position in the body; `key` is optional, for updating one entry across
   steps.
+- **Artifacts.** A version is the `@foundry/artifacts` content record as
+  JSON: `id`, `artifactId`, `digest`, `state`, `tag`, `metadata`, `tree`,
+  and ISO timestamps. A version written in a step records the run and its
+  session in `metadata` (`runId`, `sessionId`). `write` replaces the files
+  unless `{ replace: false }`; a file is text, bytes, or the package's file
+  input (`{ bytes, mime }`, a stored `blobId`). Reads take the artifact's
+  declaration or its package id, and a version's `id`.
 - **Report.** Entries are fire-and-forget and land on the run and the feed.
   `media` paths resolve from the workspace root and are copied into the
   entry; refer to them in the body as `media/<file name>`. `report.artifact`

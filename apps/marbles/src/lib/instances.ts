@@ -23,6 +23,7 @@ import type {
   ArtifactFiles,
   ArtifactInstance,
   ArtifactVersion,
+  ArtifactWriteOptions,
   SandboxDefinition,
   SandboxHandle,
   SandboxInstance,
@@ -325,12 +326,15 @@ export function sandboxInstance(
 export function artifactInstance(
   definition: ArtifactDefinition
 ): ArtifactInstance {
-  const write = (files: ArtifactFiles): Promise<ArtifactVersion> => {
+  const write = (
+    files: ArtifactFiles,
+    options?: ArtifactWriteOptions
+  ): Promise<ArtifactVersion> => {
     const run = inRun();
     return run
-      ? run.bindings.artifacts(run.args).write(definition, files)
+      ? run.bindings.artifacts(run.args).write(definition, files, options)
       : instanceRuntime().then(({ artifacts }) =>
-          artifacts.write(definition, files)
+          artifacts.write(definition, files, options)
         );
   };
   return Object.defineProperties(definition, {

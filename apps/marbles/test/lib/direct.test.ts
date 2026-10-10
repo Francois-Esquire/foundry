@@ -112,7 +112,7 @@ describe("the managers on the engine", () => {
     const two = await engine.artifacts.write(report, { "report.md": "two" });
 
     expect(two.artifactId).toBe(one.artifactId);
-    expect(two.contentId).not.toBe(one.contentId);
+    expect(two.id).not.toBe(one.id);
   });
 
   it("starts a sandbox the caller closes, over the containers it was handed", async () => {
