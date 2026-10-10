@@ -2361,8 +2361,54 @@ from declared dependencies. No collection is persisted: the collection
 manifest is derived from the saved workspace manifests by `serve` and
 `export`. The viewer draws one archipelago per workspace, side by side.
 
-**5.1 Resolve a collection:** the paths resolved, deduplicated, refused
-when they overlap, in a canonical order, each with its workspace state.
+**5.1 Resolve a collection.** Done 2026-10-10. No collection is persisted
+(5.0), so this is the whole of what a collection is before its manifest:
+its workspaces.
+- `lib/state.ts` `resolveCollection(roots, state?)` resolves every path
+  through `workspaceState`, so through symbolic links, with `resolveRoot`'s
+  messages; when several fail, the first in the order given is named. A
+  workspace given twice is kept once, and the workspaces come back as one
+  `WorkspaceState` each, ordered by resolved root compared by code unit, so
+  that the same paths in any order, in any locale, give the same
+  collection. It creates nothing.
+- It refuses no paths at all (`A collection needs at least one
+  workspace.`) and accepts one workspace: the library's collection of one
+  is well defined. The CLI is stricter, by the ruling in
+  [`_workspaces.md`](./_workspaces.md#decisions) (decision 8): paths that
+  name one workspace twice are refused there, in 5.3, so the output's
+  layout never changes silently.
+- It refuses two workspaces of which one holds the other (`Workspace
+  <outer> holds workspace <inner>; the workspaces of a collection cannot
+  overlap.`), including through a link that resolves inside another, with
+  `@foundry/lib/paths` `isFilesystemPathWithin`, which export's place check
+  uses too. A root sorts before every root inside it, so each is checked
+  against the roots after it only; a sibling whose name extends another's
+  (`repo` and `repo-b`) is not inside it.
+- `resolveRoot` must stay the native `fs/promises` `realpath`, which a
+  comment now says: it returns a case-insensitive file system's own
+  spelling, so `Mixed` typed as `mixed` and `MIXED` is one workspace with
+  one id; a test checks this where the temporary directory ignores case.
+  Known limit, not fixed: `realpath` does not see through firmlinks or bind
+  mounts, so one directory reached through two of them is two workspaces,
+  with two ids and two state directories.
+- `lockStates(states, lock?)` takes every workspace's lock in the order of
+  the state directories' paths, which it sorts itself, or none: when one is
+  held, the locks already taken are released in reverse and the held lock's
+  error is thrown, with any failure to release attached as its `cause`.
+  The release it returns runs once and tries every lock before it throws
+  the one failure, or an `AggregateError` of them all. `lock` defaults to
+  `lockState`, so a test can stand in a lock whose release throws. Only
+  `atlas export` of several paths will take it (5.3), so that no
+  workspace's dataset is replaced mid-copy; `scan.collection` scans one
+  workspace at a time, each under its own lock.
+- Tests: `test/lib/state.test.ts` (the order whatever the order of the
+  paths, nothing created, a workspace given twice or through a link kept
+  once, a collection of one accepted and of none refused, two spellings of
+  one directory kept once, overlap refused directly and through a link, a
+  prefix-named sibling allowed, the first missing path named in the order
+  given, every lock taken and released once, none taken when one is held,
+  every release tried when one throws, an `AggregateError` when several do,
+  and the lock's error kept with a release's failure as its cause).
 
 **5.2 The collection manifest:** qualified ids and the crossings from
 declared dependencies, as a pure function of the workspace manifests.

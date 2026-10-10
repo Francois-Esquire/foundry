@@ -143,3 +143,11 @@ who could not be asked.
    crossings drawn across the sea between them. Waits for Phase 4 (5.4).
 7. **History stays per workspace.** `--history` applies to each
    workspace's scan; separate repositories cannot be aligned by commit.
+8. **One workspace given twice, on the command line, is refused.** Ruled
+   2026-10-10 during 5.1's review. Two or more paths that name one
+   workspace, such as `atlas scan . .` or a path and a link to it, exit `2`
+   and name the path given twice, so that the output's layout never changes
+   silently between a workspace's and a collection's. One path, given once,
+   runs the single-workspace commands unchanged; two or more distinct
+   workspaces are a collection. The library's `resolveCollection` accepts a
+   collection of one.

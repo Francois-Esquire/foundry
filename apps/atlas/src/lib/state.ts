@@ -2,10 +2,11 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync } from "node:fs";
 import { realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { isMissingPath, writeFileAtomicSync } from "@foundry/lib/atomic-file";
 import type { FileLockHolder } from "@foundry/lib/file-lock";
 import { processAlive, tryFileLock } from "@foundry/lib/file-lock";
+import { isFilesystemPathWithin } from "@foundry/lib/paths";
 import { version } from "../../package.json" with { type: "json" };
 
 /** One workspace's resolved root, and the paths of its state directory. */
@@ -38,7 +39,13 @@ interface WorkspaceRecord {
 const DEFAULT_STATE_ROOT = join(homedir(), ".foundry", "atlas");
 const WORKSPACE_ID_LENGTH = 12;
 
-/** The workspace root resolved through symlinks; it must exist and be a directory. */
+/**
+ * The workspace root resolved through symlinks; it must exist and be a
+ * directory. It must stay `fs/promises` `realpath`, the native one: that
+ * also gives a case-insensitive file system's own spelling of the path and
+ * its Unicode normalization, so one directory has one id however it is
+ * typed. It does not see through firmlinks or bind mounts.
+ */
 export async function resolveRoot(target: string): Promise<string> {
   const path = resolve(target);
   let root: string;
@@ -76,6 +83,119 @@ export async function workspaceState(
     output: join(directory, "output"),
     root: resolved,
   };
+}
+
+/**
+ * The workspaces of a collection: each path resolved through symlinks, a
+ * workspace given twice kept once, in a canonical order (by resolved root),
+ * each with its state directory. Refuses no workspaces at all, a path that
+ * does not resolve (the first in the order given), and two workspaces that
+ * overlap, since one would hold the other's files. Creates nothing.
+ */
+export async function resolveCollection(
+  roots: readonly string[],
+  state?: string
+): Promise<WorkspaceState[]> {
+  if (roots.length === 0) {
+    throw new Error("A collection needs at least one workspace.");
+  }
+  const settled = await Promise.allSettled(
+    roots.map((root) => workspaceState(root, state))
+  );
+  const byRoot = new Map<string, WorkspaceState>();
+  for (const result of settled) {
+    if (result.status === "rejected") {
+      throw result.reason;
+    }
+    byRoot.set(result.value.root, result.value);
+  }
+  const workspaces = [...byRoot.values()].sort((a, b) =>
+    compareCodeUnits(a.root, b.root)
+  );
+  refuseOverlap(workspaces);
+  return workspaces;
+}
+
+/** By code unit, so the order is the same in every locale. */
+function compareCodeUnits(a: string, b: string): number {
+  return Number(a > b) - Number(a < b);
+}
+
+/** Throws when one workspace holds another; `workspaces` is sorted by root. */
+function refuseOverlap(workspaces: readonly WorkspaceState[]): void {
+  // A root sorts before every root inside it, so only later ones can be inside.
+  for (const [index, outer] of workspaces.entries()) {
+    const inner = workspaces
+      .slice(index + 1)
+      .find((other) => isFilesystemPathWithin(outer.root, other.root, sep));
+    if (inner !== undefined) {
+      throw new Error(
+        `Workspace ${outer.root} holds workspace ${inner.root}; the workspaces of a collection cannot overlap.`
+      );
+    }
+  }
+}
+
+/**
+ * Takes the lock of every state directory, in the order of their paths, or
+ * none: when one is held, the locks already taken are released and its
+ * error is thrown, with any failure to release as its `cause`. Returns the
+ * release of them all, which runs once and tries every lock before it
+ * throws. `lock` is `lockState` unless a test stands in for it.
+ */
+export function lockStates(
+  states: readonly WorkspaceState[],
+  lock: (state: WorkspaceState) => () => void = lockState
+): () => void {
+  const releases: (() => void)[] = [];
+  const releaseAll = (): void => releaseEach(releases.splice(0).reverse());
+  const ordered = [...states].sort((a, b) =>
+    compareCodeUnits(a.directory, b.directory)
+  );
+  try {
+    for (const state of ordered) {
+      releases.push(lock(state));
+    }
+  } catch (error) {
+    try {
+      releaseAll();
+    } catch (failure) {
+      throw withCause(error, failure);
+    }
+    throw error;
+  }
+  return releaseAll;
+}
+
+/** Runs every release, then throws what failed: the one error, or all of them. */
+function releaseEach(releases: readonly (() => void)[]): void {
+  const failures: unknown[] = [];
+  for (const release of releases) {
+    try {
+      release();
+    } catch (error) {
+      failures.push(error);
+    }
+  }
+  const [only, ...more] = failures;
+  if (more.length > 0) {
+    throw new AggregateError(
+      failures,
+      "Atlas could not release every workspace's lock."
+    );
+  }
+  if (only !== undefined) {
+    throw only;
+  }
+}
+
+/** `error` with `cause` attached, when it is an `Error` without one; else a new error carrying both. */
+function withCause(error: unknown, cause: unknown): Error {
+  if (error instanceof Error && error.cause === undefined) {
+    error.cause = cause;
+    return error;
+  }
+  return new Error(String(error), { cause });
 }
 
 /**

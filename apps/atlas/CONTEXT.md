@@ -392,6 +392,14 @@ The state directory's `workspace.json`: which workspace it belongs to and
 when a scan last saved its dataset.
 _Avoid_: workspace report
 
+### Several workspaces
+
+**Collection**:
+Two or more workspaces read together, named by their paths each time; none
+holds another. A collection keeps no state of its own: each workspace keeps
+its own.
+_Avoid_: project set, multi-workspace, merged atlas
+
 ### What reads a dataset
 
 **Viewer**:
