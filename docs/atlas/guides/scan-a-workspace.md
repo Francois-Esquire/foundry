@@ -38,18 +38,19 @@ unit, files under `test/fixtures/` and build configuration files such as
 
 ## What a scan does
 
-Progress lines go to stderr, one per phase:
+Progress lines go to stderr, one per phase, from `atlas scan` and from the
+default `atlas <path>` alike:
 
 ```text
 discover       find the units
 fingerprint    hash every source, manifest, and the Git state
 analyze        one worker per package, in parallel, for package-local facts
-derive         one worker for the whole workspace: imports, references, history, concepts
+derive         one worker for the whole workspace: imports, references, evolution, concepts
 ingest         merge the package reports into one workspace report
 intelligence   graph metrics, concepts on the graph, recurring patterns
 project        renderer-neutral views
-write          the dataset, then the manifest, then one atomic swap
-internals: …   per-package internal structure, after the dataset is published
+write          the dataset with each package's internals, then the manifest, then one atomic swap
+internals: …   per-package internal structure, derived during write, before the swap
 ```
 
 Git is read when it is there: churn, hotspots, and change coupling come from
@@ -93,8 +94,9 @@ Atlas prints `Atlas: <message>` on stderr and exits with code 1. The
 messages you are most likely to meet:
 
 - `Workspace is not a directory`: the path does not exist.
-- `N packages failed analysis.`: the first failure stops the scan; the
-  manifest names the package and the error.
+- `Packages failed analysis: <id> (<error>)`, or the failing package's own
+  error: the first failure stops the scan, nothing is published, and the
+  previous dataset stays.
 - `Workspace … is being scanned by process …`: another scan of the same
   workspace is running; one scan at a time writes a state directory, and
   the second fails instead of waiting. A lock left by a process that has

@@ -38,19 +38,19 @@ says otherwise.
 | Structure | Architectural profile | Descriptive shape signals: foundation-like, leaf-like, shared hub, surface-heavy |
 | Structure | Boundary interactions | Traffic per package boundary, from usage, imports, and module edges |
 | Structure | Structural pressure | Where independent measurements converge on the same place |
-| History | Churn | Commits, line churn, recency, and authors per file over the last year, following renames |
-| History | Hotspots | Files where churn and complexity meet |
-| History | Change coupling | File and package pairs that change together, and whether a static edge or path explains it; also `history/couplings.json` |
-| History | Change radius | How many files, packages, and static edges each commit touched |
-| History | Evolutionary pressure | Whether history reinforces, contradicts, or leaves unsupported the structural findings |
+| Evolution | Churn | Commits, line churn, recency, and authors per file over the last year, following renames |
+| Evolution | Hotspots | Files where churn and complexity meet |
+| Evolution | Change coupling | File and package pairs that change together, and whether a static edge or path explains it |
+| Evolution | Change radius | How many files, packages, and static edges each commit touched |
+| Evolution | Evolutionary pressure | Whether the Git log reinforces, contradicts, or leaves unsupported the structural findings |
 | Concepts | Inventory and distribution | Each concept, and how it spreads across packages, files, and references |
 | Concepts | Overlap | Concepts that may be the same thing: shared shape, properties, converters, or name tokens |
 | Concepts | Ownership | Where a concept is declared, represented, used, and acted on, and the tensions between those centers |
-| Concepts | Locality | How far apart the files and packages that share a concept sit in the graph and in history |
+| Concepts | Locality | How far apart the files and packages that share a concept sit in the graph and in the Git log |
 | Concepts | Re-centering | Concepts whose declared home differs from their observed center, with alternative scenarios, their simulated impact, and a review that compares them without ranking |
 | Opportunities | Reduction opportunities and plans | Gated structural operations the graph supports: internalizing an export, folding a package. Each comes with evidence, cautions, and a read-only plan |
 
-History rows need Git; without it they are empty and the rest is
+Evolution rows need Git; without it they are empty and the rest is
 unaffected.
 
 ## The workspace as a whole
@@ -68,8 +68,8 @@ The viewer lays islands out from `dependency-graph.json`.
 
 ## Inside a package
 
-After the dataset is published, each complete package gets its internals
-in `internals/<name>.json`, computed fresh every scan:
+Before the dataset is published, each complete package's internals are
+derived from its package-local results into `internals/<name>.json`:
 
 1. **Topology.** The import graph among the package's own source files.
 2. **Symbol locality.** For each symbol used inside the package, where it is

@@ -6,8 +6,9 @@ outside the workspace, and serves a map you can explore in the browser:
 packages as territories, files as settlements, dependencies as the routes
 between them.
 
-Atlas runs on [Bun](https://bun.sh) 1.3.14 or newer. Git history is optional
-and needs `git` on the PATH.
+Atlas runs on [Bun](https://bun.sh) 1.3.14 or newer. Git is optional: a scan
+reads evolution from the Git log, and `--history` analyzes Git checkpoints,
+when `git` is on the PATH.
 
 ```sh
 bun add -g @foundry/atlas     # once published
@@ -33,7 +34,7 @@ atlas serve [path]   Serve the saved dataset without running analysis
   --state <path>     State root (default: ~/.foundry/atlas)
   --port <number>    Local port (default: 4173; 0 chooses a free port)
   --no-open          Do not open the browser
-  --history          Include Git history when scanning
+  --history          Analyze Git checkpoints as well when scanning
   --help, -h         Show this help
 ```
 
@@ -66,13 +67,14 @@ units:
   workspace.json       the workspace record: root, id, Atlas version, last scan
   lock                 held while a scan runs
   output/              the dataset the viewer reads
-    manifest.json      what was scanned, what was skipped, where each file is
+    manifest.json      what was scanned and skipped, each package's declared
+                       dependencies, and where every file is, itself or
+                       through modules/index.json (history/ has its own)
     workspace.json     the whole workspace report
     packages/          one report and one projection per package
     modules/           file records and import edges, sharded by package
     projections/       the dependency graph and other renderer-neutral views
     concepts/          the concept index
-    manifests/         byte-for-byte copies of each package.json
     internals/         per-package internal structure evidence
     history/           checkpoints, timeline, and deltas with --history
   cache/               analysis cache; delete the directory to force a rebuild

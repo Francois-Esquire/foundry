@@ -12,6 +12,17 @@ const noConcepts = {
 };
 
 const source: CodexSource = {
+  declaredDependencies: [
+    {
+      declared: {
+        dependencies: { "@foundry/core": "workspace:*", react: "^19" },
+        devDependencies: { "@foundry/ui": "workspace:*" },
+        peerDependencies: { "@foundry/core": "workspace:*" },
+      },
+      package: "@foundry/ui",
+    },
+    { declared: {}, package: "@foundry/core" },
+  ],
   dependencies: [
     {
       concepts: { total: 2 },
@@ -36,17 +47,6 @@ const source: CodexSource = {
   imports: [
     { source: "packages/core/src/b.test.ts", target: "packages/core/src/a.ts" },
     { source: "packages/ui/index.ts", target: "packages/core/src/a.ts" },
-  ],
-  manifests: [
-    {
-      declared: {
-        dependencies: { "@foundry/core": "workspace:*", react: "^19" },
-        devDependencies: { "@foundry/ui": "workspace:*" },
-        peerDependencies: { "@foundry/core": "workspace:*" },
-      },
-      package: "@foundry/ui",
-    },
-    { declared: {}, package: "@foundry/core" },
   ],
   modules: [
     {

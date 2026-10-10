@@ -188,7 +188,7 @@ test("built CLI scans an external workspace and the web loaders consume its save
     ) as SemanticsManifest;
   };
   const first = await runScan();
-  expect(first.schemaVersion).toBe(3);
+  expect(first.schemaVersion).toBe(4);
   expect(first.generation.packageFailures).toBe(0);
   expect(first.generation.packagesAnalyzed).toBeGreaterThan(0);
   const second = await runScan();
@@ -203,11 +203,16 @@ test("built CLI scans an external workspace and the web loaders consume its save
     throw new Error("The fixture did not produce a complete package.");
   }
   const filename = `${pkg.id.replaceAll("/", "__")}.json`;
-  expect(
-    await readFile(join(workspace.output, "manifests", filename), "utf8")
-  ).toBe(
+  expect(pkg.internals).toBe(`internals/${filename}`);
+  const { dependencies } = JSON.parse(
     await readFile(join(workspace.root, pkg.path, "package.json"), "utf8")
+  ) as { dependencies?: Record<string, string> };
+  expect(pkg.declaredDependencies).toEqual(
+    dependencies === undefined ? {} : { dependencies }
   );
+  await expect(
+    readFile(join(workspace.output, "manifests", filename))
+  ).rejects.toThrow("ENOENT");
   // Rendering uses the saved output even after the source workspace is removed.
   await rm(workspace.root, { recursive: true });
   const server = startServer({ output: workspace.output, port: 0 });

@@ -1,19 +1,14 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
-import { reviewPackageArchitecture } from "../../src/lib/architecture-review";
-import { analyzeInternalResponsibilities } from "../../src/lib/internal-responsibility";
-import { analyzeInternalRewiring } from "../../src/lib/internal-rewiring";
-import { analyzeInternalPackageTopology } from "../../src/lib/internal-topology";
+import { packageInternals } from "../../src/lib/internal-analysis";
 import { analyzePackageLocal } from "../../src/lib/package-local";
 import type { PackageLocalReport } from "../../src/lib/package-local-types";
-import { analyzePrimitiveConventions } from "../../src/lib/primitive-convention";
 import {
   DEFAULT_SEMANTICS_CACHE,
   lookupPackage,
 } from "../../src/lib/semantics-cache";
 import { packageLocalFingerprint } from "../../src/lib/semantics-fingerprint";
 import type { SemanticsManifestPackage } from "../../src/lib/semantics-types";
-import { analyzeSymbolLocality } from "../../src/lib/symbol-locality";
 
 import type { AtlasInternals } from "../../src/web/internals";
 import { bindInternals } from "../../src/web/internals";
@@ -79,13 +74,14 @@ export function loadInternals(
     if (report.package.name !== pkg.id || report.package.path !== pkg.path) {
       return unavailable("package-changed");
     }
-    const topology = analyzeInternalPackageTopology(report);
-    const locality = analyzeSymbolLocality(report, topology);
-    const responsibilities = analyzeInternalResponsibilities(
-      report,
+    const {
       topology,
-      locality
-    );
+      locality,
+      responsibilities,
+      primitives,
+      rewiring,
+      review,
+    } = packageInternals(report);
     const internals = bindInternals(
       topology,
       locality,
@@ -93,24 +89,7 @@ export function loadInternals(
       responsibilities
     );
     if (includeArchitecture) {
-      const primitives = analyzePrimitiveConventions(
-        report,
-        topology,
-        locality,
-        responsibilities
-      );
-      const rewiring = analyzeInternalRewiring(
-        report,
-        topology,
-        locality,
-        responsibilities,
-        primitives
-      );
-      internals.architecture = {
-        primitives,
-        review: reviewPackageArchitecture(rewiring),
-        rewiring,
-      };
+      internals.architecture = { primitives, review, rewiring };
     }
     if (packageLocalFingerprint(root, unit).combined !== fingerprint) {
       return unavailable("source-changed");

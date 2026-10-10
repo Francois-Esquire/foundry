@@ -195,7 +195,7 @@ const cacheDir = (root: string): string =>
 describe("no changes", () => {
   it("reuses every local and assembled report, skips derivation, and reproduces the full dataset", async () => {
     const root = copyFixture();
-    const first = await full(root);
+    const first = await full(root, { internals: true });
     expect(first.mode).toBe("full");
     expect(first.packages.analyzed).toBe(3);
     expect(first.reports.derived).toBe(3);
@@ -211,6 +211,7 @@ describe("no changes", () => {
         statSync(join(first.output, f)).ino,
       ])
     );
+    expect([...inodes.keys()]).toContain("internals/@s__a.json");
 
     const seen: string[] = [];
     let derived = 0;
@@ -223,6 +224,7 @@ describe("no changes", () => {
         derived += 1;
         return inProcessDerive(locals, context);
       },
+      internals: true,
     });
     expect(seen).toEqual([]);
     expect(derived).toBe(0);

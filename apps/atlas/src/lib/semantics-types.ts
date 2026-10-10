@@ -10,7 +10,7 @@ import type { WorkspaceConceptCoverage } from "./workspace-concepts-types";
  * directory contract is versioned on its own; the package, workspace, and
  * projection schemas it embeds keep theirs.
  */
-export const SEMANTICS_DATASET_SCHEMA_VERSION = 3;
+export const SEMANTICS_DATASET_SCHEMA_VERSION = 4;
 
 export interface SemanticsConfig {
   /** Repository-relative unit directories to skip (`packages/foo`). */
@@ -25,10 +25,10 @@ export interface SemanticsConfig {
 
 export interface SemanticsWorkspaceUnit {
   analyzable: boolean;
+  declaredDependencies: SemanticsDeclaredDependencies;
   /** Package name from the manifest. */
   id: string;
   manifestPath: string;
-  name: string;
   /** Repository-relative directory, posix. */
   path: string;
   root: string;
@@ -57,11 +57,25 @@ export interface SemanticsDiscovery {
 
 type SemanticsPackageStatus = "complete" | "failed" | "skipped";
 
+/** The `package.json` fields that declare dependencies. */
+export type SemanticsDeclaredDependencyKind =
+  | "dependencies"
+  | "devDependencies"
+  | "peerDependencies"
+  | "optionalDependencies";
+
+/** Each kind a package's `package.json` declares, every name with its range as written. */
+export type SemanticsDeclaredDependencies = Partial<
+  Record<SemanticsDeclaredDependencyKind, Record<string, string>>
+>;
+
 export interface SemanticsManifestPackage {
+  declaredDependencies: SemanticsDeclaredDependencies;
   error?: string;
   id: string;
+  /** `PackageInternals`; absent when the scan left internals out or the package failed. */
+  internals?: string;
   modules: { count: number; shard?: string };
-  name: string;
   path: string;
   /** V9.4 `WorkspacePackageProjection`; absent when the workspace does not hold the package. */
   projection?: string;
@@ -148,7 +162,6 @@ export interface SemanticsInvalidation {
 
 interface SemanticsManifestFiles {
   conceptIndex: string;
-  couplings: string;
   moduleIndex: string;
   projections: {
     manifest: string;
@@ -210,6 +223,17 @@ export interface SemanticsModuleRecord {
   };
   /** Cross-package module edges only; see the index coverage note. */
   dependencies: { incoming: string[]; outgoing: string[] };
+  /** What the Git log says of the module; absent without Git. */
+  evolution?: {
+    commits: number;
+    linesChanged: number;
+    authors: number;
+    lastChangedAt?: string;
+    hotspot: boolean;
+    hotspotSignals: string[];
+    /** Ids of the co-change pairs this module takes part in, which resolve in `workspace.json#evolution.couplings`. */
+    couplings: string[];
+  };
   /** By path convention: source, test, story, config, other. */
   fileKind?: FileKind;
   /** V9.1 facts over the cross-package module graph. */
@@ -220,16 +244,6 @@ export interface SemanticsModuleRecord {
     fanOut: number;
     transitiveDependents: number;
     transitiveDependencies: number;
-  };
-  history?: {
-    commits: number;
-    linesChanged: number;
-    authors: number;
-    lastChangedAt?: string;
-    hotspot: boolean;
-    hotspotSignals: string[];
-    /** Coupling pair ids this module takes part in. */
-    couplings: string[];
   };
   /** Root-relative path; the canonical module id. */
   id: string;
@@ -289,34 +303,6 @@ export interface SemanticsModuleIndex {
   modules: SemanticsModuleIndexEntry[];
   schemaVersion: number;
   shards: { package: string; file: string; count: number }[];
-}
-
-/**
- * One co-change pair as the workspace recorded it. `left`/`right` follow the
- * sorted pair id and carry no direction; the conditionals are per side.
- */
-interface SemanticsCouplingPair {
-  coChangeCommits: number;
-  /** `${left}|${right}` */
-  id: string;
-  jaccard: number;
-  lastCoChangedAt?: string;
-  left: string;
-  leftCommits: number;
-  /** coChangeCommits / leftCommits: how often left's change included right. */
-  leftConditional: number;
-  leftPackage: string;
-  right: string;
-  rightCommits: number;
-  /** coChangeCommits / rightCommits: how often right's change included left. */
-  rightConditional: number;
-  rightPackage: string;
-  scope: "same-package" | "cross-package";
-}
-
-export interface SemanticsCouplingIndex {
-  couplings: SemanticsCouplingPair[];
-  schemaVersion: number;
 }
 
 interface SemanticsConceptIndexEntry {

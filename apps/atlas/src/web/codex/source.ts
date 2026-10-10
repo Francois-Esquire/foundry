@@ -4,6 +4,7 @@ import type {
   SemanticsHistorySnapshotRef,
 } from "../../lib/semantics-history-types";
 import type {
+  SemanticsDeclaredDependencies,
   SemanticsManifest,
   SemanticsModuleEdge,
   SemanticsModuleEdgeShard,
@@ -17,10 +18,13 @@ import type {
   WorkspaceGraphProjection,
   WorkspaceGraphProjectionNode,
 } from "../../lib/workspace-projection-types";
-import type { DeclaredDependencyKind } from "./vocabulary";
 
 /** Every source field the codex reads. Resolvers see nothing else. */
 export interface CodexSource {
+  declaredDependencies: {
+    declared: SemanticsDeclaredDependencies;
+    package: string;
+  }[];
   dependencies: (Pick<WorkspaceDependencyEdgeProjection, "from" | "to"> & {
     concepts: Pick<WorkspaceDependencyEdgeProjection["concepts"], "total">;
     dependency: Pick<
@@ -36,10 +40,6 @@ export interface CodexSource {
     >[];
   };
   imports: Pick<SemanticsModuleEdge, "source" | "target">[];
-  manifests: {
-    declared: Partial<Record<DeclaredDependencyKind, Record<string, string>>>;
-    package: string;
-  }[];
   modules: Pick<
     SemanticsModuleIndexEntry,
     "id" | "package" | "path" | "fileKind"
@@ -68,7 +68,7 @@ export async function readCodexSource(
     return (await response.json()) as T;
   };
   const manifest = await read<SemanticsManifest>("manifest.json");
-  if (manifest.schemaVersion !== 3) {
+  if (manifest.schemaVersion !== 4) {
     throw new Error(
       `Unsupported semantics dataset version ${manifest.schemaVersion}.`
     );
@@ -77,28 +77,23 @@ export async function readCodexSource(
     read<SemanticsModuleIndex>(manifest.files.moduleIndex),
     read<WorkspaceGraphProjection>(manifest.files.projections.dependencyGraph),
   ]);
-  const [edgeShards, moduleShards, manifests, history] = await Promise.all([
+  const [edgeShards, moduleShards, history] = await Promise.all([
     Promise.all(
       index.edgeShards.map((s) => read<SemanticsModuleEdgeShard>(s.file))
     ),
     Promise.all(index.shards.map((s) => read<SemanticsModuleShard>(s.file))),
-    Promise.all(
-      manifest.packages.map(async (p) => ({
-        declared: await read<CodexSource["manifests"][number]["declared"]>(
-          `manifests/${encodeURIComponent(p.id.replaceAll("/", "__"))}.json`
-        ),
-        package: p.id,
-      }))
-    ),
     readHistory(read, signal),
   ]);
   return {
+    declaredDependencies: manifest.packages.map((p) => ({
+      declared: p.declaredDependencies,
+      package: p.id,
+    })),
     dependencies: graph.edges.flatMap((e) =>
       e.kind === "dependency" ? [e] : []
     ),
     history,
     imports: edgeShards.flatMap((s) => s.edges),
-    manifests,
     modules: index.modules,
     packages: graph.nodes,
     participation: moduleShards.flatMap((s) => s.modules),

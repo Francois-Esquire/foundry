@@ -98,9 +98,9 @@ await server.stop();
 
 | Export | Does | Built from |
 | --- | --- | --- |
-| `scan(root, options?)` | Scans the workspace and every package's internals; returns the results and saves the dataset | `lib/scan.ts` over `generateSemantics`, `runInternalAnalysis`, `generateSemanticsHistory` |
-| `scan.workspace(root, options?)` | The workspace-level results only, without internals; a dataset the viewer loads | `generateSemantics` plus `manifests/`, which the viewer reads for every package |
-| `scan.package(root, name)` | One package's internals, analyzed fresh; saves nothing | `runInternalAnalysis` |
+| `scan(root, options?)` | Scans the workspace and every package's internals; returns the results and saves the dataset | `lib/scan.ts` over `generateSemantics`, which derives the internals, and `generateSemanticsHistory` |
+| `scan.workspace(root, options?)` | The workspace-level results only, without internals; a dataset the viewer loads | `generateSemantics` without internals; the manifest's declared dependencies are what the viewer reads for every package |
+| `scan.package(root, name)` | One package's internals, analyzed fresh; saves nothing | `packageInternals` over `analyzePackageLocal` |
 | `serve(root, options?)` | Serves the saved dataset and the viewer; returns the URL and `stop` | `startServer` plus the web root resolution in `cli/index.ts` |
 | Types | What `scan` returns, and the dataset schema version | `semantics-types.ts`, `semantics-history-types.ts`, `workspace-projection-types.ts`, `types.ts` |
 
@@ -127,15 +127,17 @@ Settled with the maintainer on 2026-10-10.
    and `scan.package`, and `serve`. No `open`; `scan` returns the results.
    No `./render` subpath.
 2. **The dataset is public**, with the schema version as the promise. Before
-   0.1, `internals/` and `manifests/` join the manifest and the atomic
-   publish, `manifests/` stops copying raw `package.json` files, and the
-   schema version goes to 4.
+   0.1, `internals/` joins the manifest and the atomic publish, raw
+   `package.json` copies stop, and the schema version goes to 4. Done in
+   1.4: each package's declared dependencies are in the manifest, and
+   `manifests/` is gone.
 3. **Configuration lives in `.foundry/atlas/`**, resolved as Marbles
    resolves `.foundry/marbles/`, with `foundry.config.json#semantics` read
    as a validated fallback during 0.x. Domains and rules are declared there
    later. `AnalysisConfig` stays built in until phase 3 needs otherwise.
 4. **`atlas export`** is `docs/scripts/build-example.ts` moved into the
-   CLI, without raw `package.json` copies. No viewer component.
+   CLI. The dataset it copies holds no `package.json` copies since 1.4. No
+   viewer component.
 5. **`atlas report <package>`** is in 0.1, CLI only, through
    `renderSurface`. The older `report.ts` renderer is not used.
 

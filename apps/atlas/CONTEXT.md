@@ -22,10 +22,22 @@ A unit that Atlas analyzes. Its id in the dataset is its `package.json`
 name.
 _Avoid_: territory, island (viewer words), module
 
+**Declared dependencies**:
+What a package's `package.json` names under `dependencies`,
+`devDependencies`, `peerDependencies`, and `optionalDependencies`, each name
+with its range as written. The manifest holds them for each package.
+_Avoid_: dependencies alone (that is the import graph), package manifest
+
 **Internals**:
 One package's internal structure: topology, symbol locality,
 responsibilities, primitive conventions, rewiring, and the review.
 _Avoid_: internal survey, in-depth analysis
+
+**Evolution**:
+What every scan reads from the Git log, when there is one: churn, hotspots,
+change coupling, and change radius, in the workspace report and each file's
+record.
+_Avoid_: history (that is checkpoints)
 
 **History**:
 Past checkpoints of the workspace, read from Git; part of the dataset when a
@@ -46,8 +58,8 @@ _Avoid_: survey, refresh, build
 
 **Dataset**:
 The files a scan saves: the manifest, the workspace report, package
-reports, projections, and package manifests, plus internals and history
-when the scan includes them. The dataset is the product.
+reports, and projections, plus internals and history when the scan includes
+them. The dataset is the product.
 _Avoid_: output (that is its directory), semantics, survey (the viewer's
 word)
 
@@ -56,9 +68,11 @@ The directory a dataset is saved in, `<state directory>/output`.
 _Avoid_: dataset (that is its contents)
 
 **Manifest**:
-The dataset's index: its schema version, every package with its status,
-and the files it holds. Not the dataset's `manifests/`, which holds a copy
-of each package's `package.json`.
+The dataset's index: its schema version, every package with its status and
+declared dependencies, and where the dataset's files are. Not
+`history/manifest.json`, which indexes history, nor
+`projections/manifest.json`, which describes the projections, nor a
+package's `package.json`.
 
 **Workspace report**:
 The dataset's workspace-level analysis, `output/workspace.json`.

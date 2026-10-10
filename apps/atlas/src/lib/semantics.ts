@@ -20,6 +20,8 @@ import {
   ANALYSIS_POLICY_VERSION,
   WORKSPACE_INTELLIGENCE_POLICY_VERSION,
 } from "./config";
+import type { InternalsProgressEvent } from "./internal-analysis";
+import { writeInternals } from "./internal-analysis";
 import type { PackageLocalReport } from "./package-local-types";
 import type { CachedPackageMeta } from "./semantics-cache";
 import {
@@ -56,7 +58,6 @@ import {
 import type {
   SemanticsConceptIndex,
   SemanticsConfig,
-  SemanticsCouplingIndex,
   SemanticsDiscovery,
   SemanticsGenerationError,
   SemanticsGenerationMode,
@@ -143,7 +144,8 @@ export type SemanticsProgressEvent =
       done: number;
       total: number;
       error?: string;
-    };
+    }
+  | InternalsProgressEvent;
 
 export interface SemanticsGenerateOptions {
   analyzeLocal?: SemanticsLocalAnalyzer;
@@ -155,7 +157,13 @@ export interface SemanticsGenerateOptions {
   derive?: SemanticsDeriver;
   /** Fingerprint and look up the cache, then stop: no analysis, no output. */
   dryRun?: boolean;
+  /** Stop at the first failed package, and publish nothing when any package failed. */
   failFast?: boolean;
+  /**
+   * Also derive each complete package's internals into the dataset. An
+   * internals crash aborts the generation, with or without `failFast`.
+   */
+  internals?: boolean;
   /** `full` (default) analyzes every unit; `incremental` reuses cached reports. */
   mode?: SemanticsGenerationMode;
   /**
@@ -275,7 +283,6 @@ export function decodePackageFile(file: string): string {
 
 const FILES = {
   conceptIndex: "concepts/index.json",
-  couplings: "history/couplings.json",
   manifest: "manifest.json",
   moduleIndex: "modules/index.json",
   projections: {
@@ -306,6 +313,10 @@ function shardFile(id: string): string {
 
 function edgeShardFile(id: string): string {
   return `modules/edges/${encodePackageFile(id)}.json`;
+}
+
+function internalsFile(id: string): string {
+  return `internals/${encodePackageFile(id)}.json`;
 }
 
 /**
@@ -508,7 +519,7 @@ function buildModuleRecords(
         cautions.push("gravity-unobserved");
       }
       if (fileChurn === undefined) {
-        cautions.push("history-unavailable");
+        cautions.push("evolution-unavailable");
       }
       return {
         id: module.id,
@@ -538,7 +549,7 @@ function buildModuleRecords(
           outgoing: [...(outgoing.get(module.id) ?? [])].sort(),
         },
         ...(fileChurn !== undefined && {
-          history: {
+          evolution: {
             authors: fileChurn.authors,
             commits: fileChurn.commits,
             linesChanged: fileChurn.linesChanged,
@@ -631,31 +642,6 @@ function buildModuleEdgeShards(
       edges: edges.sort((a, b) => a.id.localeCompare(b.id)),
       package: pkg,
     }));
-}
-
-function buildCouplingIndex(
-  workspace: WorkspaceReport
-): SemanticsCouplingIndex {
-  return {
-    couplings: workspace.evolution.couplings.map((pair) => ({
-      coChangeCommits: pair.coChangeCommits,
-      id: pair.id,
-      jaccard: pair.jaccard,
-      left: pair.left,
-      leftCommits: pair.leftCommits,
-      leftConditional: pair.leftConditional,
-      leftPackage: pair.leftPackage,
-      right: pair.right,
-      rightCommits: pair.rightCommits,
-      rightConditional: pair.rightConditional,
-      rightPackage: pair.rightPackage,
-      scope: pair.scope,
-      ...(pair.lastCoChangedAt !== undefined && {
-        lastCoChangedAt: pair.lastCoChangedAt,
-      }),
-    })),
-    schemaVersion: SEMANTICS_DATASET_SCHEMA_VERSION,
-  };
 }
 
 // ---------------------------------------------------------------------------
@@ -849,6 +835,16 @@ const WORKSPACE_STAGES = [
   "workspaceProjection",
   "materialization",
 ] as const;
+
+/** Under `failFast`, before anything is written: a package without a report fails the generation. */
+function failOnUnreported(outcomes: readonly UnitOutcome[]): void {
+  const failed = outcomes.flatMap((o) =>
+    o.report === undefined ? [`${o.unit.id} (${o.error})`] : []
+  );
+  if (failed.length > 0) {
+    throw new Error(`Packages failed analysis: ${failed.join(", ")}`);
+  }
+}
 
 export function rootName(root: string): string | undefined {
   const file = join(root, "package.json");
@@ -1169,6 +1165,10 @@ export async function generateSemantics(
 
     const planById = new Map(plans.map((plan) => [plan.unit.id, plan]));
     let derivationTiming: WorkspaceDerivationTiming | undefined;
+    const failDerivation = (outcome: UnitOutcome, message: string): void => {
+      outcome.error = message;
+      errors.push({ message, phase: "derive", unit: outcome.unit.id });
+    };
     await timed(
       "derive",
       deriving
@@ -1178,7 +1178,11 @@ export async function generateSemantics(
         if (!deriving) {
           for (const outcome of outcomes) {
             const report = planById.get(outcome.unit.id)?.report.cached?.value;
-            if (report === undefined || outcome.local === undefined) {
+            if (outcome.local === undefined) {
+              continue;
+            }
+            if (report === undefined) {
+              failDerivation(outcome, "The cached report is missing.");
               continue;
             }
             outcome.report = report;
@@ -1203,6 +1207,7 @@ export async function generateSemantics(
           const fresh = derived.reports[index];
           const plan = planById.get(outcome.unit.id);
           if (fresh === undefined || plan === undefined) {
+            failDerivation(outcome, "Derivation produced no report.");
             return;
           }
           const { unit } = outcome;
@@ -1250,6 +1255,10 @@ export async function generateSemantics(
       });
     }
 
+    if (options.failFast === true) {
+      failOnUnreported(outcomes);
+    }
+
     const reports = outcomes.flatMap((o) =>
       o.report === undefined ? [] : [o.report]
     );
@@ -1268,7 +1277,6 @@ export async function generateSemantics(
     const modules = buildModuleRecords(workspace, reports);
     const concepts = buildConceptIndex(workspace);
     const edgeShards = buildModuleEdgeShards(workspace, reports);
-    const couplings = buildCouplingIndex(workspace);
 
     await timed("project", undefined, () => {
       writer.write(
@@ -1326,7 +1334,6 @@ export async function generateSemantics(
     await timed("write", undefined, () => {
       writer.write(FILES.workspace, workspace);
       writer.write(FILES.conceptIndex, concepts);
-      writer.write(FILES.couplings, couplings);
       for (const shard of edgeShards) {
         writer.write(edgeShardFile(shard.package), shard);
       }
@@ -1370,6 +1377,11 @@ export async function generateSemantics(
         })),
       };
       writer.write(FILES.moduleIndex, moduleIndex);
+      if (options.internals === true) {
+        writeInternals(outcomes, progress, (id, internals) =>
+          writer.write(internalsFile(id), internals)
+        );
+      }
     });
 
     const workspacePackages = new Set(
@@ -1380,8 +1392,12 @@ export async function generateSemantics(
         const { unit } = outcome;
         const count = byPackage.get(unit.id)?.length ?? 0;
         return {
+          declaredDependencies: unit.declaredDependencies,
           id: unit.id,
-          name: unit.name,
+          ...(options.internals === true &&
+            outcome.report !== undefined && {
+              internals: internalsFile(unit.id),
+            }),
           path: unit.path,
           root: unit.root,
           status: outcome.report === undefined ? "failed" : "complete",

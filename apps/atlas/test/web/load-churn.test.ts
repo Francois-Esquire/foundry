@@ -3,7 +3,14 @@ import { loadInternals } from "../../src/web/load-internals";
 
 afterEach(() => vi.unstubAllGlobals());
 
-function surveyFetch() {
+const scanned = {
+  id: "example",
+  internals: "internals/example.json",
+  report: "packages/example.json",
+  status: "complete",
+};
+
+function surveyFetch(entry: object = scanned) {
   const pkg = { id: "example", root: "packages/example" };
   return vi.fn((url: string) => {
     let body: object = { churn: { available: false, reason: "not-collected" } };
@@ -11,7 +18,7 @@ function surveyFetch() {
       body = {
         files: { moduleIndex: "index.json" },
         generatedAt: "survey",
-        packages: [{ id: "example", report: "packages/example.json" }],
+        packages: [entry],
       };
     } else if (url.includes("internals/")) {
       body = {
@@ -56,4 +63,33 @@ it("loads recorded change only on request and preserves unavailable history", as
   expect(fetch.mock.calls.some(([url]) => url.includes("packages/"))).toBe(
     true
   );
+});
+
+it("says when the dataset was saved without internals", async () => {
+  const { internals: _internals, ...workspaceOnly } = scanned;
+  vi.stubGlobal("fetch", surveyFetch(workspaceOnly));
+  await expect(
+    loadInternals("example", "survey", new AbortController().signal)
+  ).rejects.toThrow(
+    "This dataset was saved without internals. Run atlas scan to include them."
+  );
+});
+
+it("says a package that failed analysis has no internals", async () => {
+  vi.stubGlobal(
+    "fetch",
+    surveyFetch({ error: "boom", id: "example", status: "failed" })
+  );
+  await expect(
+    loadInternals("example", "survey", new AbortController().signal)
+  ).rejects.toThrow(
+    "Atlas could not analyze this package, so it has no internals."
+  );
+});
+
+it("says when the dataset has no such package", async () => {
+  vi.stubGlobal("fetch", surveyFetch());
+  await expect(
+    loadInternals("missing", "survey", new AbortController().signal)
+  ).rejects.toThrow("The dataset has no package named missing.");
 });

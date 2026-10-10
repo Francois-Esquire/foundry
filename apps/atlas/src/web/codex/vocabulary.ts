@@ -1,10 +1,6 @@
-type FileKind = "source" | "test" | "story" | "config" | "other" | "unknown";
+import type { SemanticsDeclaredDependencyKind } from "../../lib/semantics-types";
 
-export type DeclaredDependencyKind =
-  | "dependencies"
-  | "devDependencies"
-  | "peerDependencies"
-  | "optionalDependencies";
+type FileKind = "source" | "test" | "story" | "config" | "other" | "unknown";
 
 interface CodexWorkspace {
   coverage: "complete" | "partial";
@@ -50,7 +46,7 @@ interface CodexDependency {
 
 interface CodexDeclaredDependency {
   from: string;
-  kind: DeclaredDependencyKind;
+  kind: SemanticsDeclaredDependencyKind;
   to: string;
 }
 

@@ -30,9 +30,9 @@ import { loadInternals } from "../helpers/reference-internals";
 
 let root: string;
 const pkg: SemanticsManifestPackage = {
+  declaredDependencies: {},
   id: "@test/p",
   modules: { count: 5 },
-  name: "@test/p",
   path: "packages/p",
   root: "packages",
   status: "complete",

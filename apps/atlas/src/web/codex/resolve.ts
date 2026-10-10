@@ -1,11 +1,8 @@
+import type { SemanticsDeclaredDependencyKind } from "../../lib/semantics-types";
 import type { CodexSource } from "./source";
-import type {
-  Codex,
-  CodexRetiredPackage,
-  DeclaredDependencyKind,
-} from "./vocabulary";
+import type { Codex, CodexRetiredPackage } from "./vocabulary";
 
-const declaredKinds: DeclaredDependencyKind[] = [
+const declaredKinds: SemanticsDeclaredDependencyKind[] = [
   "dependencies",
   "devDependencies",
   "peerDependencies",
@@ -31,7 +28,7 @@ export function resolveCodex(source: CodexSource): Codex {
   }
   const current = new Set(source.packages.map((p) => p.id));
   return {
-    declaredDependencies: source.manifests.flatMap(
+    declaredDependencies: source.declaredDependencies.flatMap(
       ({ package: from, declared }) =>
         declaredKinds.flatMap((kind) =>
           Object.keys(declared[kind] ?? {})

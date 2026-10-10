@@ -5,6 +5,8 @@ import { createIgnorer, type Ignorer } from "./ignore";
 import type { SemanticsHistoryConfig } from "./semantics-history-types";
 import type {
   SemanticsConfig,
+  SemanticsDeclaredDependencies,
+  SemanticsDeclaredDependencyKind,
   SemanticsDiscovery,
   SemanticsSkippedDirectory,
   SemanticsWorkspaceUnit,
@@ -67,13 +69,39 @@ function hasTypeScriptSources(dir: string): boolean {
   return false;
 }
 
-function readName(manifest: string): string | undefined {
-  const parsed = JSON.parse(readFileSync(manifest, "utf8")) as {
-    name?: unknown;
-  };
-  return typeof parsed.name === "string" && parsed.name !== ""
-    ? parsed.name
+type PackageManifest = Partial<
+  Record<"name" | SemanticsDeclaredDependencyKind, unknown>
+>;
+
+function packageName(manifest: PackageManifest): string | undefined {
+  return typeof manifest.name === "string" && manifest.name !== ""
+    ? manifest.name
     : undefined;
+}
+
+const DECLARED_DEPENDENCY_KINDS: readonly SemanticsDeclaredDependencyKind[] = [
+  "dependencies",
+  "devDependencies",
+  "peerDependencies",
+  "optionalDependencies",
+];
+
+/** The dependencies a `package.json` declares; a kind it lacks is omitted, and ranges stay as written. */
+function declaredDependencies(
+  manifest: PackageManifest
+): SemanticsDeclaredDependencies {
+  const declared: SemanticsDeclaredDependencies = {};
+  for (const kind of DECLARED_DEPENDENCY_KINDS) {
+    const ranges = manifest[kind];
+    if (typeof ranges === "object" && ranges !== null) {
+      declared[kind] = Object.fromEntries(
+        Object.entries(ranges).filter(
+          (entry): entry is [string, string] => typeof entry[1] === "string"
+        )
+      );
+    }
+  }
+  return declared;
 }
 
 /** One level below each configured root; a unit is a named package manifest with TypeScript sources. */
@@ -153,8 +181,11 @@ function discoverSemanticsUnitsName(
     }
     const manifestPath = `${rel}/package.json`;
     const manifest = join(root, manifestPath);
-    const id = existsSync(manifest) ? readName(manifest) : undefined;
-    if (id === undefined) {
+    const parsed = existsSync(manifest)
+      ? (JSON.parse(readFileSync(manifest, "utf8")) as PackageManifest)
+      : undefined;
+    const id = parsed === undefined ? undefined : packageName(parsed);
+    if (parsed === undefined || id === undefined) {
       skip("no package manifest");
       continue;
     }
@@ -164,9 +195,9 @@ function discoverSemanticsUnitsName(
     }
     units.push({
       analyzable: true,
+      declaredDependencies: declaredDependencies(parsed),
       id,
       manifestPath,
-      name: id,
       path: rel,
       root: configured,
     });

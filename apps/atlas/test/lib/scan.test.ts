@@ -3,6 +3,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   realpathSync,
   rmSync,
@@ -22,6 +23,7 @@ import { scan } from "../../src/lib/scan";
 import { encodePackageFile } from "../../src/lib/semantics";
 import { workspaceState } from "../../src/lib/state";
 import { commitFixture } from "../helpers/commit-fixture";
+import { listedFiles } from "../helpers/dataset-files";
 
 const SCAN_TIMEOUT_MS = 120_000;
 const FIXTURE_PACKAGES = ["@s/a", "@s/b", "@s/c"];
@@ -51,6 +53,22 @@ function datasetFile(output: string, folder: string, id: string): string {
   return join(output, folder, `${encodePackageFile(id)}.json`);
 }
 
+/** Every file under `dir`, relative, posix. */
+function filesUnder(dir: string, prefix = ""): string[] {
+  return readdirSync(join(dir, prefix), { withFileTypes: true }).flatMap(
+    (entry) => {
+      const file = prefix === "" ? entry.name : `${prefix}/${entry.name}`;
+      return entry.isDirectory() ? filesUnder(dir, file) : [file];
+    }
+  );
+}
+
+/** Files under the dataset that it does not name. */
+function unlistedFiles(output: string): string[] {
+  const listed = new Set(listedFiles(output));
+  return filesUnder(output).filter((file) => !listed.has(file));
+}
+
 beforeAll(async () => {
   directory = realpathSync(mkdtempSync(join(tmpdir(), "atlas-scan-")));
   root = copyFixture(directory);
@@ -72,7 +90,7 @@ afterAll(() => {
   rmSync(directory, { force: true, recursive: true });
 });
 
-it("scan.workspace saves the dataset and manifests/, without internals", () => {
+it("scan.workspace saves the dataset without internals, every file listed in its manifest", () => {
   expect(workspace.output.startsWith(join(directory, "workspace-state"))).toBe(
     true
   );
@@ -82,12 +100,16 @@ it("scan.workspace saves the dataset and manifests/, without internals", () => {
   expect(workspace.manifest.packages.map((pkg) => pkg.id)).toEqual(
     FIXTURE_PACKAGES
   );
-  for (const id of FIXTURE_PACKAGES) {
-    expect(existsSync(datasetFile(workspace.output, "manifests", id))).toBe(
-      true
-    );
-  }
+  expect(unlistedFiles(workspace.output)).toEqual([]);
+  expect(
+    workspace.manifest.packages.map((pkg) => [pkg.id, pkg.internals])
+  ).toEqual(FIXTURE_PACKAGES.map((id) => [id, undefined]));
+  expect(
+    workspace.manifest.packages.find((pkg) => pkg.id === "@s/a")
+      ?.declaredDependencies
+  ).toEqual({ dependencies: { "@s/b": "workspace:*" } });
   expect(existsSync(join(workspace.output, "internals"))).toBe(false);
+  expect(existsSync(join(workspace.output, "manifests"))).toBe(false);
   expect(workspace.history).toBeUndefined();
   const phases = workspaceEvents.flatMap((event) =>
     event.kind === "phase" ? [event.phase] : []
@@ -209,19 +231,22 @@ it(
   SCAN_TIMEOUT_MS
 );
 
-it("scan saves every complete package's internals and reports each one after the dataset", () => {
+it("scan saves every complete package's internals in the dataset it publishes, reporting each one", () => {
   expect(everything.manifest).toEqual(
     readJson(join(everything.output, "manifest.json"))
   );
   const complete = everything.manifest.packages
     .filter((pkg) => pkg.status === "complete")
     .map((pkg) => pkg.id);
-  expect(complete.length).toBeGreaterThan(0);
-  for (const id of complete) {
-    expect(existsSync(datasetFile(everything.output, "internals", id))).toBe(
-      true
-    );
-  }
+  expect(complete).toEqual(FIXTURE_PACKAGES);
+  expect(
+    everything.manifest.packages.map((pkg) => [pkg.id, pkg.internals])
+  ).toEqual([
+    ["@s/a", "internals/@s__a.json"],
+    ["@s/b", "internals/@s__b.json"],
+    ["@s/c", "internals/@s__c.json"],
+  ]);
+  expect(unlistedFiles(everything.output)).toEqual([]);
   const lastPhase = everythingEvents.findLastIndex(
     (event) => event.kind === "phase"
   );
@@ -239,10 +264,9 @@ it("scan saves every complete package's internals and reports each one after the
 it("scan.package returns one package's internals, as the dataset saves them", async () => {
   const internals: PackageInternals = await scan.package(root, "@s/b");
   expect(internals.topology.package.id).toBe("@s/b");
-  const { timing: _timing, ...saved } = readJson(
-    datasetFile(everything.output, "internals", "@s/b")
-  ) as Record<string, unknown>;
-  expect(internals).toEqual(saved);
+  expect(internals).toEqual(
+    readJson(datasetFile(everything.output, "internals", "@s/b"))
+  );
   expect(existsSync(join(root, ".foundry"))).toBe(false);
   // Read-only: resolving the default state directory creates nothing, and
   // scan.package writes no record there.
@@ -279,6 +303,7 @@ it(
     expect(existsSync(datasetFile(past.output, "internals", "@s/a"))).toBe(
       true
     );
+    expect(unlistedFiles(past.output)).toEqual([]);
     expect(events.at(-1)?.kind).toBe("history");
   },
   SCAN_TIMEOUT_MS

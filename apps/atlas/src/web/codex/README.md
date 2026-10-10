@@ -36,7 +36,7 @@ imports from the renderer, so the folder moves as a unit. Tests are in
 | Module `concepts`                          | module shard `concepts`, every role, deduplicated                         |
 | Import                                     | edge shards                                                               |
 | Dependency `strength`, `sharedConcepts`    | graph dependency edge `dependency.moduleEdges`, `concepts.total`          |
-| Declared dependency                        | `manifests/<package>.json`, four dependency fields, current packages only |
+| Declared dependency                        | manifest `packages[].declaredDependencies`, current packages only         |
 | Retired package `lastSeen`                 | `history/entities.json` checkpoints, latest complete snapshot             |
 
 ## Bindings
@@ -127,10 +127,12 @@ Against the design doc's open decisions:
 
 ## Analysis library
 
-No changes needed in `src/lib`; the codex reads dataset schema 3 as it is.
-`CodexSource` picks its fields from the library's own types, so a renamed or
-removed field, or a new file kind, stops the codex compiling instead of reaching
-the map.
+No changes needed in `src/lib`; the codex reads dataset schema 4 as it is.
+`CodexSource` picks its fields from the library's own types (the manifest,
+module index and shards, edge shards, graph projection, history entities, and
+`SemanticsDeclaredDependencies`, with `SemanticsDeclaredDependencyKind` for the
+declared dependency kinds), so a renamed or removed field, or a new file kind,
+stops the codex compiling instead of reaching the map.
 
 ## Adding a value
 

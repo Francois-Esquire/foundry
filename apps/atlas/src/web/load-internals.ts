@@ -1,4 +1,4 @@
-import type { runInternalAnalysis } from "../lib/internal-analysis";
+import type { PackageInternals } from "../lib/internal-analysis";
 import type {
   SemanticsManifest,
   SemanticsModuleIndex,
@@ -26,12 +26,23 @@ export async function loadInternals(
   if (manifest.generatedAt !== survey) {
     throw new Error("The survey changed. Reload Atlas to align its evidence.");
   }
-  const name = encodeURIComponent(packageId.replaceAll("/", "__"));
-  const reportPath = manifest.packages.find(
-    (pkg) => pkg.id === packageId
-  )?.report;
+  const entry = manifest.packages.find((pkg) => pkg.id === packageId);
+  if (entry === undefined) {
+    throw new Error(`The dataset has no package named ${packageId}.`);
+  }
+  if (entry.status === "failed") {
+    throw new Error(
+      "Atlas could not analyze this package, so it has no internals."
+    );
+  }
+  if (entry.internals === undefined) {
+    throw new Error(
+      "This dataset was saved without internals. Run atlas scan to include them."
+    );
+  }
+  const reportPath = entry.report;
   const [report, index, history] = await Promise.all([
-    read<ReturnType<typeof runInternalAnalysis>>(`internals/${name}.json`),
+    read<PackageInternals>(entry.internals),
     read<SemanticsModuleIndex>(manifest.files.moduleIndex),
     recordedChange && reportPath
       ? read<Pick<SurfaceReport, "churn">>(reportPath).catch(() => undefined)

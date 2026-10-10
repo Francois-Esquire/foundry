@@ -56,6 +56,6 @@ Open it, and the map shows one island per package. Continue with
 | `--state <path>` | Save the dataset under this directory instead of `~/.foundry/atlas` |
 | `--port <number>` | Serve on this port; the default is 4173 and `0` picks a free one |
 | `--no-open` | Do not open the browser |
-| `--history` | Include Git history in the scan; requires a Git repository |
+| `--history` | Analyze Git checkpoints as well; requires a Git repository |
 
 Everything else is in the [CLI reference](/atlas/reference/cli).

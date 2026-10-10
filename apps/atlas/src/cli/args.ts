@@ -11,7 +11,7 @@ Paths default to the current working directory.
   --state <path>       State root (default: ~/.foundry/atlas)
   --port <number>      Local port (default: 4173; 0 chooses a free port)
   --no-open            Do not open the browser
-  --history            Include Git history when scanning
+  --history            Analyze Git checkpoints as well when scanning
   --help, -h           Show this help
 `;
 

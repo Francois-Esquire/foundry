@@ -38,7 +38,7 @@ Where new work attaches. All exist today.
 | --- | --- | --- |
 | `generateSemantics` (`lib/semantics.ts`) | The dataset; `onProgress` with phase, plan, and unit events; `dryRun` | Library `scan`, the refresh after a codemod |
 | `generateSemanticsHistory` | History checkpoints | Library `scan` with history |
-| `runInternalAnalysis` | One package's internal structure, through a chosen stage | Library `scan`, nesting and locality lenses |
+| `runInternalAnalysis`, `packageInternals` (`lib/internal-analysis.ts`) | One package's internal structure, through a chosen stage, from the package or from its local report | The materializer, `scan.package`, nesting and locality lenses |
 | `output/`, the dataset | Every analysis's result, versioned | The reader, lenses, the viewer, `report`, `check` |
 | `web/codex/source.ts` | The one typed read of the dataset, in the browser | Becomes the library reader, shared with the viewer |
 | `lib/render` `renderSurface` | Terminal, text, Markdown; three densities | `atlas report` |
@@ -151,30 +151,73 @@ Paths are under `apps/atlas` unless they say otherwise.
   hand-written lock files. `test/atlas.test.ts` checks the id for `/`
   against an independently computed digest.
 
-**1.4 The dataset, complete.** Fixed in the moved `lib/scan.ts`.
-- `internals/` and `manifests/` are written before the atomic publish, are
-  listed in `manifest.files`, and fall under a stage fingerprint. Today
-  `lib/scan.ts` writes them after the swap (`publishWorkspace` and
-  `saveInternals`).
-- The manifest records per package whether internals exist. A dataset
-  saved by `scan.workspace` then loads, and the drill-down says internals
-  were not scanned (the viewer side is 1.5).
-- A package that fails in derivation still publishes a partial dataset,
-  and only then does the scan throw. Decide here whether that publish
-  should happen.
-- At the schema-4 bump, consider renaming `manifests/`, which stops being
-  `package.json` copies, and the duplicate `id` and `name` fields of
-  `SemanticsManifestPackage`.
-- `manifests/` keeps only the declared dependencies, which are all the
-  viewer reads, instead of raw `package.json` copies.
-- A `--history` scan keeps the `history/couplings.json` that a plain scan
-  wrote, or the manifest stops pointing at it.
-- The schema version: these change the dataset's shape, so
-  `SEMANTICS_DATASET_SCHEMA_VERSION` goes to 4 before 0.1 is published.
-  The viewer's literal `3` goes in 1.5.
-- `reference/output.md` follows.
-- Done when every file under `output/` is in the manifest and the viewer
-  loads the fixture unchanged. Waits for 1.2.
+**1.4 The dataset, complete.** Done 2026-10-10. Dataset schema 4.
+- Internals are derived inside `generateSemantics`, opted into with
+  `internals: true` (`scan` passes it, `scan.workspace` does not), from
+  each complete package's local report and through its `Writer`, before
+  the swap, by `writeInternals` in `lib/internal-analysis.ts`, which emits
+  the `internals` progress events within the `write` phase. They are listed on the package's manifest entry as
+  `internals`, which is absent when the scan left internals out or the
+  package failed, and saved without `timing`, so an unchanged package's
+  file is reused by inode. No separate cache is needed: from a local
+  report the six stages take tens of milliseconds, against hundreds for a
+  fresh `runInternalAnalysis`, and on the fixture and two Foundry packages
+  the output is byte-identical to it. `recordSavedDataset` still runs
+  after the publish, which now includes internals.
+- `lib/internal-analysis.ts` gains `packageInternals(local)`, the six
+  stages in a straight line, and a private `analyzeInternals(local,
+  through)`, today's stage chain with its timings, which
+  `runInternalAnalysis` now calls; `runInternalAnalysis` is unchanged in
+  signature and output.
+  `PackageInternals` is `packageInternals`' return type. `scan.package`,
+  the materializer, and `test/helpers/reference-internals.ts` (which had
+  its own copy of the stage chain) use `packageInternals`. Logged below.
+- The stage graph's `materialization` depends on
+  `packageArchitectureReview` too. This is documentary: nothing consumes
+  the materialization fingerprint yet.
+- `manifests/` is gone. Each package entry carries `declaredDependencies`
+  (`SemanticsDeclaredDependencies`: the four kinds its `package.json` has,
+  ranges as written), parsed once in discovery with the package's name and
+  carried on `SemanticsWorkspaceUnit`; the codex reads them from the
+  manifest (`CodexSource.declaredDependencies`), with no per-package fetch,
+  and uses the library's `SemanticsDeclaredDependencyKind`. The `name`
+  fields of `SemanticsManifestPackage` and `SemanticsWorkspaceUnit`,
+  always equal to `id`, are gone.
+- `history/couplings.json` and `files.couplings` are deleted: a
+  field-for-field copy of `workspace.json#evolution.couplings` that nothing
+  read, which also ends its loss on a `--history` scan.
+  `SemanticsModuleRecord.history` is `evolution`, and the caution
+  `history-unavailable` is `evolution-unavailable`, since these are the
+  plain scan's Git facts, not checkpoints.
+- Under `failFast`, a failed package publishes nothing: one guard at the
+  end of the derive phase, when every failure is known, throws
+  `Packages failed analysis: <id> (<error>)`, so nothing after it runs and
+  the previous dataset survives. It replaces the post-publish check in
+  `lib/scan.ts`. A package the derivation leaves out, or whose cached
+  report is missing, records an `error` and an `errors` entry; without
+  `failFast` the partial dataset is published as before. The second case
+  is a type guard: a reused report slot always holds its report, so no
+  test reaches it. An internals crash always aborts the generation, with
+  or without `failFast`; before, it came after the publish.
+- `manifest.json` names every file in the dataset, itself or through
+  `modules/index.json`, except those under `history/`, which
+  `history/manifest.json` names when the dataset includes history; history
+  is still published after the dataset. `test/helpers/dataset-files.ts`
+  `listedFiles` lists them; `test/lib/scan.test.ts` checks every file under
+  `output/` is listed, for `scan`, `scan.workspace`, and a `--history`
+  scan, and `test/lib/semantics.test.ts` that every listed file exists.
+- The viewer checks for schema 4 as a literal (the constant goes in 1.5).
+  `web/load-internals.ts` reads the path from `pkg.internals`, and says
+  "The dataset has no package named <id>.", "This dataset was saved
+  without internals. Run atlas scan to include them.", or, for a failed
+  package, "Atlas could not analyze this package, so it has no internals."
+- `--history` is worded as Git checkpoints in the CLI help, the README, and
+  `start-here.md`, as `reference/cli.md` has it.
+- The fixture dataset compares equivalent before and after
+  (`compareSemanticsDatasets`), apart from the schema version, the package
+  entries' fields, `manifests/` and the couplings file, internals `timing`,
+  and the renamed caution; `packages/`, `workspace.json`, `projections/`,
+  and the module and edge shards show no differences.
 
 **1.5 One reader, internal.** Split `web/codex/source.ts` into its two
 layers. Not exported; `scan` returns its results through it.
@@ -182,8 +225,8 @@ layers. Not exported; `scan` returns its results through it.
   schema version against the constant, and reads through an injected
   transport (`fetch` in the browser, the file system in Node).
 - It reads lazily: one package's results read the manifest and one report,
-  not every shard. Today the viewer loads every edge shard, module shard,
-  and package manifest at once.
+  not every shard. Today the viewer loads every edge shard and module shard
+  at once.
 - The codex keeps its own part, the `CodexSource` picks, and builds it on
   the reader. `web/load-internals.ts` uses the same reader and reads the
   manifest once, not twice.
@@ -191,9 +234,17 @@ layers. Not exported; `scan` returns its results through it.
   `Scan` gains `internals(name)` returning `PackageInternals`, and the
   manifest is read with the schema-version check instead of the cast in
   `lib/scan.ts`.
-- The reader owns the complete-internals check that `lib/scan.ts`
-  `completeInternals` and `web/load-internals.ts` both make today; the
-  viewer's copy goes.
+- The reader owns the read-side complete-internals check, and the copy in
+  `web/load-internals.ts` goes. It needs its own validator for the saved
+  `PackageInternals` shape: `packageInternals` runs the analysis and cannot
+  validate a file.
+- The web shares the dependency-kind list and the schema constant with
+  `lib`: `web/codex/resolve.ts` `declaredKinds` duplicates
+  `DECLARED_DEPENDENCY_KINDS` in `semantics-discover.ts`, and
+  `web/codex/source.ts` checks a literal `4`.
+- `FILES`, `encodePackageFile`, and the per-package path helpers move out
+  of `lib/semantics.ts` into a leaf layout module that the reader, the
+  materializer, and the worker share.
 - Done when the viewer and a Node test read the fixture through one reader,
   and no file outside it names a dataset path. Waits for 1.4.
 
@@ -259,6 +310,10 @@ others.
   runs `scan`, `scan.workspace`, `scan.package`, and `serve` against the
   fixture.
 - Public pages for the library, beside the CLI pages.
+- Two public names to decide before 0.1: `SemanticsPackageStatus`
+  `"skipped"` is never written, and the invalidation reason
+  `"history-changed"` names Git state, which the glossary calls evolution,
+  not history.
 
 **Phase 1 is done** when the library and the CLI work over unchanged
 analyses, the installed-package test covers every export and the binary,
@@ -346,9 +401,10 @@ configuration from 1.7, with subjects addressed by path and `path#symbol`.
 revalidation, a dirty tree blocks, preview by default, write with
 `--write`, verify, restore on failure.
 
-**3.6 Refresh after every write.** Internals cached per package, as
-`test/helpers/reference-internals.ts` does; the project `apply` builds
-passed through instead of building three. Sized by 3.0.
+**3.6 Refresh after every write.** Internals are already reused per
+package since 1.4, derived from the cached local reports; what remains is
+passing the project `apply` builds through instead of building three. Sized
+by 3.0.
 
 **3.7 Domains reaching the gates,** through anchors, if a codemod needs
 them. The analysis changes logged below come due here.
@@ -403,4 +459,5 @@ Every change to analysis code, with its reason, before it is made.
 | Symbol ids carry no kind | `symbols.ts:133` forms `path#name`; an interface and a const of one name share an id, and five lookup maps keep the last one. | Confirmed. No change for now: a facet without a kind matches every symbol of that id. Revisit only if a codemod needs to tell them apart. |
 | Anchors matched by name only in concept recentering | `concept-recentering.ts:1383`; an anchor declared by path is invisible there. | Only if domains feed anchors (phase 3). |
 | The worker passes no `AnalysisConfig`, and the fingerprint does not cover it | `semantics-worker.ts:39`; per-workspace anchors would be ignored, and a changed config would leave stale caches. | Only if domains feed anchors (phase 3). |
+| `analyzeInternals` and `packageInternals` extracted from `runInternalAnalysis` | The materializer derives each package's internals from the local report it already holds, instead of analyzing the package again; `runInternalAnalysis` is unchanged in signature and output. | Done in 1.4. |
 | The `@foundry/workspaces` anchor is built in | `lib/config.ts:816-819`; it blocks `fold-package` for any package of that name in any scanned repository. | Remove in 1.7. A Foundry scan loses its one anchor until workspaces can declare their own (3.7). |

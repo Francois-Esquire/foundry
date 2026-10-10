@@ -65,9 +65,6 @@ release tooling item.
 - `semantics.output` is read from the config file and ignored by the CLI.
 - `history.strategy` is not validated; an unrecognized value behaves as
   `every-n-commits`.
-- A `--history` scan replaces `output/history/` and drops the
-  `history/couplings.json` a plain scan wrote there, while the manifest
-  still points at it. Confirmed on the fixture.
 - The viewer's `atlas-world` class loses its space when settings are open
   (`atlas-worldatlas-settings-open`), so the wide-layout shift stops
   applying.

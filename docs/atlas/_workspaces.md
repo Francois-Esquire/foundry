@@ -29,9 +29,10 @@ takes to draw several workspaces in one visualization. Draft for discussion.
 - **`@foundry/workspaces` is not the answer.** It is a live file catalog
   with watchers, not a registry of scanned repositories.
 - **Cross-workspace relationships are not recorded.** An import of a
-  package outside the workspace is external. The copied `manifests/` do
-  record declared dependencies by name, which is enough to match a
-  dependency in one workspace to a package in another, at package level.
+  package outside the workspace is external. The manifest records each
+  package's declared dependencies (`packages[].declaredDependencies`),
+  which is enough to match a dependency in one workspace to a package in
+  another, at package level; matching is by name only.
 - **History is one Git repository.** Checkpoints are commits in one log.
 
 ## Shapes
@@ -84,6 +85,6 @@ viewer, in line with the dataset-first principle in [`_api.md`](./_api.md).
 3. **Same name in two workspaces: one package or two?** For forks and
    checkouts, linking them is useful. For unrelated repositories, it is
    wrong. Probably a collection-level setting, defaulting to two.
-4. **Module-level cross edges in 0.1?** Package level comes from manifests
-   for free. File level needs the scan to record, per file, which external
-   package specifiers it imports.
+4. **Module-level cross edges in 0.1?** Package level comes from the
+   declared dependencies for free. File level needs the scan to record, per
+   file, which external package specifiers it imports.

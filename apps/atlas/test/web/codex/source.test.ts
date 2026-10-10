@@ -9,7 +9,7 @@ const entry = {
   shard: "modules/core.json",
 };
 
-function survey(schemaVersion = 3): Record<string, unknown> {
+function survey(schemaVersion = 4): Record<string, unknown> {
   return {
     "/data/manifest.json": {
       coverage: "complete",
@@ -18,12 +18,14 @@ function survey(schemaVersion = 3): Record<string, unknown> {
         projections: { dependencyGraph: "projections/graph.json" },
       },
       generatedAt: "2026-09-23T00:00:00.000Z",
-      packages: [{ id: "@foundry/core", path: "packages/core" }],
+      packages: [
+        {
+          declaredDependencies: { dependencies: { react: "^19" } },
+          id: "@foundry/core",
+          path: "packages/core",
+        },
+      ],
       schemaVersion,
-    },
-    "/data/manifests/%40foundry__core.json": {
-      dependencies: { react: "^19" },
-      name: "@foundry/core",
     },
     "/data/modules/core-edges.json": {
       edges: [{ source: entry.id, target: entry.id }],
@@ -85,7 +87,7 @@ describe("readCodexSource", () => {
   it.each([
     "http://localhost:4173/",
     "http://localhost:4173/foundry/atlas/examples/foundry/",
-  ])("reads the survey and package manifests beneath %s", async (base) => {
+  ])("reads the survey and declared dependencies beneath %s", async (base) => {
     serve(survey(), 404, base);
     const source = await readCodexSource();
     expect(source.survey).toMatchObject({
@@ -99,9 +101,9 @@ describe("readCodexSource", () => {
     expect(source.dependencies).toEqual([
       expect.objectContaining({ kind: "dependency" }),
     ]);
-    expect(source.manifests).toEqual([
+    expect(source.declaredDependencies).toEqual([
       {
-        declared: { dependencies: { react: "^19" }, name: "@foundry/core" },
+        declared: { dependencies: { react: "^19" } },
         package: "@foundry/core",
       },
     ]);

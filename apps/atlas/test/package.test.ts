@@ -211,7 +211,7 @@ test(
       const dataset = JSON.parse(
         readFileSync(join(output, "manifest.json"), "utf8")
       );
-      expect(dataset.schemaVersion).toBe(3);
+      expect(dataset.schemaVersion).toBe(4);
       expect(dataset.coverage).toBe("complete");
       expect(
         dataset.packages.filter(
@@ -219,7 +219,7 @@ test(
         )
       ).toHaveLength(3);
       expect(existsSync(join(output, "internals"))).toBe(true);
-      expect(existsSync(join(output, "manifests"))).toBe(true);
+      expect(existsSync(join(output, "manifests"))).toBe(false);
 
       const serve = [
         cli,

@@ -33,7 +33,6 @@ import {
 } from "../../src/lib/semantics-discover";
 import type {
   SemanticsConceptIndex,
-  SemanticsCouplingIndex,
   SemanticsManifest,
   SemanticsModuleEdgeShard,
   SemanticsModuleIndex,
@@ -53,6 +52,7 @@ import { projectWorkspaceGraph } from "../../src/lib/workspace-projection-views"
 import { analyzeWorkspaceSurfaces } from "../../src/lib/workspace-surface";
 import type { WorkspaceReport } from "../../src/lib/workspace-types";
 import { WORKSPACE_SCHEMA_VERSION } from "../../src/lib/workspace-types";
+import { listedFiles } from "../helpers/dataset-files";
 import { hashTree } from "./helpers/planning-fixture";
 
 let fixture: string;
@@ -104,6 +104,12 @@ const inProcessDerive: SemanticsDeriver = async (locals, context) => {
 };
 
 const inProcess = { analyzeLocal: inProcessLocal, derive: inProcessDerive };
+
+/** A deriver that returns no report for the last package, `@s/c`. */
+const withoutLastReport: SemanticsDeriver = async (locals, context) => {
+  const derived = await inProcessDerive(locals, context);
+  return { ...derived, reports: derived.reports.slice(0, -1) };
+};
 
 function copyFixture(): string {
   const dir = mkdtempSync(join(tmpdir(), "semantics-"));
@@ -270,6 +276,18 @@ describe("generation", () => {
       ["@s/b", "complete", 2],
       ["@s/c", "complete", 3],
     ]);
+    // Ranges as each package.json writes them; a kind it lacks is omitted.
+    expect(
+      manifest.packages.map((p) => [p.id, p.declaredDependencies])
+    ).toEqual([
+      ["@s/a", { dependencies: { "@s/b": "workspace:*" } }],
+      ["@s/b", {}],
+      ["@s/c", { dependencies: { "@s/b": "workspace:*" } }],
+    ]);
+    for (const pkg of manifest.packages) {
+      expect(pkg).not.toHaveProperty("name");
+      expect(pkg.internals).toBeUndefined();
+    }
     expect(manifest.discovery.unitsDiscovered).toBe(3);
     expect(manifest.discovery.unitsAnalyzed).toBe(3);
     expect(manifest.discovery.unitsSkipped).toHaveLength(3);
@@ -288,41 +306,14 @@ describe("generation", () => {
   });
 
   it("references only relative files that exist", () => {
-    const urls: string[] = [
-      manifest.files.workspace,
-      manifest.files.moduleIndex,
-      manifest.files.conceptIndex,
-      manifest.files.couplings,
-      ...Object.values(manifest.files.projections),
-    ];
-    for (const pkg of manifest.packages) {
-      if (pkg.report !== undefined) {
-        urls.push(pkg.report);
-      }
-      if (pkg.projection !== undefined) {
-        urls.push(pkg.projection);
-      }
-      if (pkg.modules.shard !== undefined) {
-        urls.push(pkg.modules.shard);
-      }
+    const listed = listedFiles(dataset);
+    expect(listed.length).toBeGreaterThan(10);
+    for (const file of listed) {
+      expect(isAbsolute(file)).toBe(false);
+      expect(file.startsWith("..")).toBe(false);
+      expect(existsSync(join(dataset, file))).toBe(true);
     }
-    const index = readJson(
-      dataset,
-      manifest.files.moduleIndex
-    ) as SemanticsModuleIndex;
-    urls.push(
-      ...index.shards.map((s) => s.file),
-      ...index.edgeShards.map((s) => s.file),
-      ...index.modules.map((m) => m.shard)
-    );
-    expect(urls.length).toBeGreaterThan(10);
-    for (const url of urls) {
-      expect(isAbsolute(url)).toBe(false);
-      expect(url.startsWith("..")).toBe(false);
-      expect(existsSync(join(dataset, url))).toBe(true);
-    }
-    const referenced = new Set([...urls, "manifest.json"]);
-    expect(listFiles(dataset).filter((f) => !referenced.has(f))).toEqual([]);
+    expect(listFiles(dataset)).toEqual(listed);
     const text = readFileSync(join(dataset, "manifest.json"), "utf8");
     expect(text).not.toContain(root);
     expect(text).not.toContain(tmpdir());
@@ -403,8 +394,8 @@ describe("generation", () => {
       "packages/b/src/shape.ts#Shape",
     ]);
     expect(record?.concepts.usage).toEqual(["apps/a/src/index.ts#Tile"]);
-    expect(record?.history).toBeUndefined();
-    expect(record?.cautions).toEqual(["history-unavailable"]);
+    expect(record?.evolution).toBeUndefined();
+    expect(record?.cautions).toEqual(["evolution-unavailable"]);
     const c = readShard(dataset, "modules/@s__c.json");
     const fence = c.modules.find((m) => m.id === "tooling/c/src/index.ts");
     expect(fence?.concepts).toMatchObject({
@@ -523,39 +514,6 @@ describe("generation", () => {
         typeOnly: false,
       },
     ]);
-  });
-
-  it("materializes co-change pairs with the canonical raw values", () => {
-    const written = readJson(
-      dataset,
-      manifest.files.couplings
-    ) as SemanticsCouplingIndex;
-    expect(written.schemaVersion).toBe(SEMANTICS_DATASET_SCHEMA_VERSION);
-    expect(written.couplings.map((c) => c.id)).toEqual(
-      workspace.evolution.couplings.map((c) => c.id)
-    );
-    for (const pair of written.couplings) {
-      const canonical = workspace.evolution.couplings.find(
-        (c) => c.id === pair.id
-      );
-      expect(pair).toEqual({
-        coChangeCommits: canonical?.coChangeCommits,
-        id: canonical?.id,
-        jaccard: canonical?.jaccard,
-        left: canonical?.left,
-        leftCommits: canonical?.leftCommits,
-        leftConditional: canonical?.leftConditional,
-        leftPackage: canonical?.leftPackage,
-        right: canonical?.right,
-        rightCommits: canonical?.rightCommits,
-        rightConditional: canonical?.rightConditional,
-        rightPackage: canonical?.rightPackage,
-        scope: canonical?.scope,
-        ...(canonical?.lastCoChangedAt !== undefined && {
-          lastCoChangedAt: canonical.lastCoChangedAt,
-        }),
-      });
-    }
   });
 
   it("indexes every concept with its declaring package and centers", () => {
@@ -708,6 +666,30 @@ describe("failure handling", () => {
     rmSync(root, { force: true, recursive: true });
   });
 
+  it("marks a package the derivation leaves out as failed, with the reason", async () => {
+    const root = copyFixture();
+    const result = await generateSemantics({
+      analyzeLocal: inProcessLocal,
+      derive: withoutLastReport,
+      now,
+      root,
+    });
+    expect(result.errors).toEqual([
+      {
+        message: "Derivation produced no report.",
+        phase: "derive",
+        unit: "@s/c",
+      },
+    ]);
+    expect(
+      readManifest(result.output).packages.find((p) => p.id === "@s/c")
+    ).toMatchObject({
+      error: "Derivation produced no report.",
+      status: "failed",
+    });
+    rmSync(root, { force: true, recursive: true });
+  });
+
   it("leaves the previous dataset byte-identical when generation fails", async () => {
     const root = copyFixture();
     const first = await generateSemantics({ now, root, ...inProcess });
@@ -727,6 +709,16 @@ describe("failure handling", () => {
         root,
       })
     ).rejects.toThrow("disk on fire");
+    expect(hashTree(first.output)).toEqual(good);
+    await expect(
+      generateSemantics({
+        analyzeLocal: inProcessLocal,
+        derive: withoutLastReport,
+        failFast: true,
+        now,
+        root,
+      })
+    ).rejects.toThrow("@s/c");
     expect(hashTree(first.output)).toEqual(good);
     expect(readdirSync(join(root, ".foundry")).sort()).toEqual([
       "cache",
@@ -764,9 +756,9 @@ describe("worker", () => {
     const root = copyFixture();
     const unit = {
       analyzable: true,
+      declaredDependencies: {},
       id: "@s/b",
       manifestPath: "packages/b/package.json",
-      name: "@s/b",
       path: "packages/b",
       root: "packages",
     };

@@ -112,7 +112,12 @@ const SEMANTIC_STAGE_DEPENDENCIES: Record<
     "internalResponsibilities",
     "primitiveConventions",
   ],
-  materialization: ["workspaceIntelligence", "workspaceProjection"],
+  /** The dataset: the workspace, its projections, and each package's internals. */
+  materialization: [
+    "workspaceIntelligence",
+    "workspaceProjection",
+    "packageArchitectureReview",
+  ],
   packageAnalysis: ["packageLocalAnalysis", "workspaceDerivation"],
   packageArchitectureReview: ["internalRewiring"],
   packageLocalAnalysis: [],
