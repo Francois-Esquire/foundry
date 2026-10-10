@@ -38,6 +38,7 @@ import {
 } from "../natural-feature-inspection";
 import type { ResponsibilityOverlay } from "../responsibility-focus";
 import { createRoadNetwork } from "../roads";
+import { markLoad, type TimedStage, timeStage } from "../timings";
 import type { TradeRoute } from "../trade-routes";
 import { createTradeNavigation, leadingTrades } from "../trade-routes";
 import type { AtlasData, AtlasFile, FormerPackage, Territory } from "../types";
@@ -84,18 +85,40 @@ export interface AtlasSelection {
 /** Largest chart texture edge; every supported backend allows at least this. */
 const maxTextureSize = 4096;
 
+/** What a scene is built with, beside its host and data: read once when the scene is built. */
+export interface AtlasSceneOptions {
+  coastalBuffer?: number;
+  /** A developer session: the repaint stages and frame submits are timed (`timeStage`). */
+  developer?: boolean;
+  layers?: ChartSettings["layers"];
+  onHover: (selection: AtlasSelection | null) => void;
+  /** The island whose regions the view frames, as the camera moves. */
+  onRegionTerritory?: (territory: Territory | null) => void;
+  onSelect: (selection: AtlasSelection | null) => void;
+  /** Opens chart settings from the painted compass; without it the compass is inert. */
+  onSettings?: () => void;
+  onTrades?: (routes: TradeRoute[]) => void;
+  onWreck?: (wreck: FormerPackage | null, selected: boolean) => void;
+}
+
 export async function createAtlasScene(
   host: HTMLElement,
   data: AtlasData,
-  onSelect: (selection: AtlasSelection | null) => void,
-  onHover: (selection: AtlasSelection | null) => void,
-  onSettings?: () => void,
-  onTrades?: (routes: TradeRoute[]) => void,
-  coastalBuffer = 32,
-  layers = defaultChartSettings.layers,
-  onWreck?: (wreck: FormerPackage | null, selected: boolean) => void,
-  onRegionTerritory?: (territory: Territory | null) => void
+  options: AtlasSceneOptions
 ) {
+  const {
+    coastalBuffer = 32,
+    developer = false,
+    layers = defaultChartSettings.layers,
+    onHover,
+    onRegionTerritory,
+    onSelect,
+    onSettings,
+    onTrades,
+    onWreck,
+  } = options;
+  const timed = <T>(stage: TimedStage, work: () => T): T =>
+    timeStage(developer, stage, work);
   const renderer = new WebGPURenderer({
     alpha: true,
     antialias: true,
@@ -244,6 +267,7 @@ export async function createAtlasScene(
   const relief = createReliefLayer(data, materials.paper, inkTexture, tilt);
   scene.add(relief.group);
   const reliefInk = relief.reliefInk();
+  markLoad("atlas:terrain-built");
   const lettering = createLettering();
   scene.add(lettering.mesh);
   const projectLabel = createLabelProjector(relief.fieldFor, tilt);
@@ -327,6 +351,7 @@ export async function createAtlasScene(
   pauseForReducedMotion();
   playbackMotion.addEventListener("change", pauseForReducedMotion);
   let waveTimer = 0;
+  let firstFrame = false;
   const atmosphere = createAtmosphereLayer(host, projectAtmosphere, {
     running: playback.running,
     strength: currentStrength,
@@ -336,7 +361,13 @@ export async function createAtlasScene(
       water.setWreckReveal(
         (host.clientWidth * camera.zoom) / (camera.right - camera.left)
       );
-      pipeline.render();
+      // CPU encode and submit only, on every frame this loop draws, repaint
+      // or not; 4.1 moves it, and the first-frame mark, into drawMap.
+      timed("render-submit", () => pipeline.render());
+      if (!firstFrame) {
+        firstFrame = true;
+        markLoad("atlas:first-frame");
+      }
     },
   });
   const pipeline = createRenderPipeline({
@@ -444,39 +475,45 @@ export async function createAtlasScene(
     );
     ink.scale.set(width, height, 1);
     ink.position.set(x, -y, paperThickness + 0.02);
-    labels = paintMap(
-      inkCanvas,
-      drawingData,
-      selected,
-      selectedFile,
-      "ink",
-      view,
-      settings.contours ? topography : [],
-      responsibility && {
-        ...responsibility,
-        reducedMotion: playbackMotion.matches,
-      },
-      showConnections,
-      belonging,
-      matches,
-      [],
-      settings.streams,
-      reliefInk,
-      { canvas: lettering.canvas, project: projectLabel },
-      ripples
+    labels = timed("ink", () =>
+      paintMap(
+        inkCanvas,
+        drawingData,
+        selected,
+        selectedFile,
+        "ink",
+        view,
+        settings.contours ? topography : [],
+        responsibility && {
+          ...responsibility,
+          reducedMotion: playbackMotion.matches,
+        },
+        showConnections,
+        belonging,
+        matches,
+        [],
+        settings.streams,
+        reliefInk,
+        { canvas: lettering.canvas, project: projectLabel },
+        ripples
+      )
     );
     const inkContext = inkCanvas.getContext("2d");
     if (inkContext) {
-      paintBoundaries(
-        inkContext,
-        boundaries,
-        settings.boundaries,
-        view.pixelsPerUnit
+      timed("boundaries", () =>
+        paintBoundaries(
+          inkContext,
+          boundaries,
+          settings.boundaries,
+          view.pixelsPerUnit
+        )
       );
     }
-    copySeaInk(seaInkCanvas, inkCanvas, drawingData, view);
-    relief.setView(view);
-    lettering.update(view);
+    timed("sea-ink", () =>
+      copySeaInk(seaInkCanvas, inkCanvas, drawingData, view)
+    );
+    timed("relief", () => relief.setView(view));
+    timed("lettering", () => lettering.update(view));
     seaInkTexture.needsUpdate = true;
     inkTexture.needsUpdate = true;
     atmosphere.cameraChanged();

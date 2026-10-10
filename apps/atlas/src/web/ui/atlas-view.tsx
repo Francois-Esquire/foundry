@@ -7,12 +7,15 @@ import { useAtlasState } from "./use-atlas-state";
 
 export default function Atlas({
   data,
+  developer = false,
   mapOnly = false,
 }: {
   data: AtlasData;
+  /** A developer session; see `AtlasState.developer`. */
+  developer?: boolean;
   mapOnly?: boolean;
 }) {
-  const [initial] = useState(() => createAtlasState(data));
+  const [initial] = useState(() => createAtlasState(data, developer));
   const { state, ...actions } = useAtlasState(initial);
   const shell = useRef<AtlasShellHandle>(null);
   const openSettings = useCallback(() => shell.current?.openSettings(), []);

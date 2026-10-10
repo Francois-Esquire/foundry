@@ -15,6 +15,8 @@ export interface AtlasState {
   belongingLayer: BelongingLayer | null;
   chartSettings: ChartSettings;
   data: AtlasData;
+  /** A developer session (`?dev`, or the dev server): paint timings (renderer controls follow in 4.1). */
+  developer: boolean;
   hover: AtlasSelection | null;
   hoveredWreck: FormerPackage | null;
   layoutSettings: LandmassSettings;
@@ -27,7 +29,10 @@ export interface AtlasState {
   trades: TradeRoute[];
 }
 
-export function createAtlasState(data: AtlasData): AtlasState {
+export function createAtlasState(
+  data: AtlasData,
+  developer = false
+): AtlasState {
   return {
     atmosphereEnabled: false,
     belongingLayer: null,
@@ -38,6 +43,7 @@ export function createAtlasState(data: AtlasData): AtlasState {
       rendering: { ...defaultChartSettings.rendering },
     },
     data,
+    developer,
     hover: null,
     hoveredWreck: null,
     layoutSettings: { ...defaultLandmassSettings },

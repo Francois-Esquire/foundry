@@ -9,8 +9,12 @@
  * Steps: click=<button text or aria-label>, press=<label> (no screenshot),
  * zoom=<steps>, hover=<x>,<y>, tap=<x>,<y> (a mouse click on the page),
  * key=Enter|Tab|Escape, motion=reduce|normal, wait=<ms>, shot=<name>,
- * eval=<expression>, profile=pan|zoom|pointer|sweep[@x,y], clearlog, errors.
- * Profiles use a 1500x1000 viewport; pass --pixel-ratio 2 for Retina. Screenshots land in .cache/shots/<tag>-<name>.png.
+ * eval=<expression>, profile=pan|zoom|pointer|sweep[@x,y], clearlog, errors,
+ * marks (the load marks from `src/web/timings.ts`, the data fetched, and, with
+ * `?dev` in the URL or on the dev server, each timed stage's durations).
+ * WebGL 2 runs on SwiftShader unless --angle metal (or another ANGLE backend)
+ * is passed; --webgpu enables WebGPU instead, and --webgl hides it so the
+ * renderer takes its WebGL 2 backend. Profiles use a 1500x1000 viewport; pass --pixel-ratio 2 for Retina. Screenshots land in .cache/shots/<tag>-<name>.png.
  */
 import { spawn } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -36,6 +40,8 @@ interface CdpMessage {
 const { values, positionals } = parseArgs({
   allowPositionals: true,
   options: {
+    /** ANGLE's backend for WebGL 2: `swiftshader` (software) or, on macOS, `metal`. */
+    angle: { default: "swiftshader", type: "string" },
     browser: { type: "string" },
     height: { default: "800", type: "string" },
     out: {
@@ -45,6 +51,8 @@ const { values, positionals } = parseArgs({
     "pixel-ratio": { default: "1", type: "string" },
     tag: { default: "capture", type: "string" },
     url: { default: "http://127.0.0.1:5199/", type: "string" },
+    /** Hides WebGPU, so the renderer takes its WebGL 2 backend. */
+    webgl: { default: false, type: "boolean" },
     webgpu: { default: false, type: "boolean" },
     width: { default: "1200", type: "string" },
   },
@@ -52,6 +60,14 @@ const { values, positionals } = parseArgs({
 if (!values.browser) {
   throw new Error(
     "Pass --browser with the path to a Chrome or Chromium binary."
+  );
+}
+if (values.webgpu && values.webgl) {
+  throw new Error("Pass --webgpu or --webgl, not both.");
+}
+if (values.webgpu && values.angle !== "swiftshader") {
+  throw new Error(
+    "--angle sets WebGL's backend; it does not apply with --webgpu."
   );
 }
 const width = Number(values.width);
@@ -67,7 +83,12 @@ const args = [
   "--ignore-gpu-blocklist",
   ...(values.webgpu
     ? ["--enable-unsafe-webgpu", "--enable-features=Vulkan,WebGPU"]
-    : ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"]),
+    : [
+        `--use-angle=${values.angle}`,
+        ...(values.angle === "swiftshader"
+          ? ["--enable-unsafe-swiftshader"]
+          : []),
+      ]),
   "about:blank",
 ];
 const sleep = (ms: number) =>
@@ -158,6 +179,59 @@ function connect(url: string) {
 }
 
 type Session = ReturnType<typeof connect>;
+
+/**
+ * Serialized into the page: the load marks in milliseconds since navigation,
+ * the requests under `data/` and their decoded bytes, and, per timed stage
+ * (`paint:<stage>` and `render-submit`), the count, median, and maximum in
+ * milliseconds of the durations the page still holds: at most the latest
+ * `stageMeasureCap` of each (`src/web/timings.ts`).
+ */
+function readTimings() {
+  const round = (value: number) => Math.round(value * 10) / 10;
+  const marks = Object.fromEntries(
+    performance
+      .getEntriesByType("mark")
+      .filter((entry) => entry.name.startsWith("atlas:"))
+      .map((entry) => [entry.name, round(entry.startTime)])
+  );
+  const data = performance
+    .getEntriesByType("resource")
+    .filter(
+      (entry): entry is PerformanceResourceTiming =>
+        entry instanceof PerformanceResourceTiming &&
+        entry.name.includes("/data/")
+    );
+  const stages = new Map<string, number[]>();
+  for (const entry of performance.getEntriesByType("measure")) {
+    if (entry.name.startsWith("atlas:")) {
+      const name = entry.name.slice("atlas:".length);
+      const durations = stages.get(name) ?? [];
+      durations.push(entry.duration);
+      stages.set(name, durations);
+    }
+  }
+  return JSON.stringify({
+    data: {
+      bytes: data.reduce((sum, entry) => sum + entry.decodedBodySize, 0),
+      requests: data.length,
+    },
+    marks,
+    stages: Object.fromEntries(
+      [...stages].map(([name, durations]) => {
+        const sorted = durations.toSorted((a, b) => a - b);
+        return [
+          name,
+          {
+            count: sorted.length,
+            maxMs: round(sorted.at(-1) ?? 0),
+            medianMs: round(sorted[Math.floor(sorted.length / 2)] ?? 0),
+          },
+        ];
+      })
+    ),
+  });
+}
 
 const buttonScript = (label: string) =>
   `(() => { const wanted = ${JSON.stringify(label)}; const button = [...document.querySelectorAll("button")].find((b) => (b.textContent || "").trim() === wanted || b.getAttribute("aria-label") === wanted || b.title === wanted); if (!button) { return "missing"; } button.click(); return "ok"; })()`;
@@ -288,6 +362,9 @@ async function runStep(
     case "eval":
       log(`eval: ${String(await session.evaluate(argument))}`);
       break;
+    case "marks":
+      log(`marks: ${String(await session.evaluate(`(${readTimings})()`))}`);
+      break;
     default:
       throw new Error(`Unknown step: ${step}`);
   }
@@ -307,6 +384,12 @@ async function main() {
       mobile: false,
       width,
     });
+    if (values.webgl) {
+      await session.send("Page.addScriptToEvaluateOnNewDocument", {
+        source:
+          "Object.defineProperty(Navigator.prototype, 'gpu', { get: () => undefined });",
+      });
+    }
     await session.send("Page.navigate", { url: values.url });
     for (let attempt = 0; attempt < 120; attempt += 1) {
       await sleep(500);

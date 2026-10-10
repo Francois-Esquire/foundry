@@ -194,7 +194,9 @@ it("opens chart settings from the scene callback used by the painted compass", a
   await act(async () => {
     root.render(createElement(Atlas, { data }));
   });
-  const onSettings = vi.mocked(createAtlasScene).mock.calls.at(-1)?.[4];
+  const onSettings = vi
+    .mocked(createAtlasScene)
+    .mock.calls.at(-1)?.[2].onSettings;
   assert(onSettings);
   await act(async () => onSettings());
   expect(panel()?.hidden).toBe(false);

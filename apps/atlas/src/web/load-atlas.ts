@@ -5,6 +5,7 @@ import { viewerDataset } from "./dataset";
 import { formerPackages } from "./former-packages";
 import { landContours, settleFiles, settlePackages, unit } from "./geography";
 import { settleLandmasses } from "./landmasses";
+import { markLoad } from "./timings";
 import type { AtlasData, Territory } from "./types";
 
 const pigments = [
@@ -18,7 +19,10 @@ const pigments = [
 ];
 
 export async function loadAtlas(signal?: AbortSignal): Promise<AtlasData> {
-  const codex = resolveCodex(await readCodexSource(viewerDataset({ signal })));
+  markLoad("atlas:data-requested");
+  const saved = await readCodexSource(viewerDataset({ signal }));
+  markLoad("atlas:data-loaded");
+  const codex = resolveCodex(saved);
   const edges = codex.imports;
   const territories: Territory[] = codex.packages.map((p) => {
     const files = codex.modules
@@ -92,5 +96,6 @@ export async function loadAtlas(signal?: AbortSignal): Promise<AtlasData> {
   if (codex.retiredPackages) {
     data.formerPackages = formerPackages(data, codex.retiredPackages);
   }
+  markLoad("atlas:layout-settled");
   return data;
 }

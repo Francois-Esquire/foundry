@@ -3,7 +3,21 @@ import { loadAtlas } from "../load-atlas";
 import type { AtlasData } from "../types";
 import Atlas from "./atlas-view";
 
+/**
+ * Read once from the page's address: `?view=map` shows the map alone, and
+ * `?dev` (or the Vite dev server) opens a developer session, with paint
+ * timings (renderer controls follow in 4.1).
+ */
+export function readSession(search = window.location.search) {
+  const params = new URLSearchParams(search);
+  return {
+    developer: import.meta.env.DEV || params.has("dev"),
+    mapOnly: params.get("view") === "map",
+  };
+}
+
 export function App() {
+  const [session] = useState(() => readSession());
   const [data, setData] = useState<AtlasData>();
   const [error, setError] = useState<string>();
   useEffect(() => {
@@ -27,9 +41,8 @@ export function App() {
     return (
       <Atlas
         data={data}
-        mapOnly={
-          new URLSearchParams(window.location.search).get("view") === "map"
-        }
+        developer={session.developer}
+        mapOnly={session.mapOnly}
       />
     );
   }

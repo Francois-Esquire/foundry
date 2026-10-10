@@ -554,7 +554,16 @@ test("built CLI scans an external workspace and the web loaders read its saved d
   );
   globalThis.fetch = fetchFromServer;
   try {
+    performance.clearMarks();
     const atlas = await loadAtlas();
+    // The load marks its three points, in order, for the capture script.
+    expect(
+      performance.getEntriesByType("mark").map((entry) => entry.name)
+    ).toEqual([
+      "atlas:data-requested",
+      "atlas:data-loaded",
+      "atlas:layout-settled",
+    ]);
     const territory = atlas.territories.find((item) => item.id === pkg.id);
     if (!territory) {
       throw new Error(`The map has no island for ${pkg.id}.`);

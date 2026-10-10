@@ -110,8 +110,8 @@ it("keeps the scene alive across state and callback changes, including StrictMod
   expect(scene.setConnections).toHaveBeenLastCalledWith(true);
   const [call] = vi.mocked(createAtlasScene).mock.calls;
   assert(call);
-  call[2](selection);
-  call[3](selection);
+  call[2].onSelect(selection);
+  call[2].onHover(selection);
   expect(nextSelect).toHaveBeenCalledWith(selection);
   expect(onSelect).not.toHaveBeenCalled();
   expect(onHover).toHaveBeenCalledWith(selection);
@@ -156,4 +156,21 @@ it("does not create a scene after unmount while fonts are loading", async () => 
     finish([]);
   });
   expect(createAtlasScene).not.toHaveBeenCalled();
+});
+
+it("builds the scene for a reader unless the session is a developer's", async () => {
+  const data = await loadAtlas();
+  await act(async () =>
+    root.render(createElement(AtlasMap, { state: createAtlasState(data) }))
+  );
+  await act(async () =>
+    root.render(
+      createElement(AtlasMap, { state: createAtlasState(data, true) })
+    )
+  );
+  expect(
+    vi
+      .mocked(createAtlasScene)
+      .mock.calls.map(([, , options]) => options.developer)
+  ).toEqual([false, true]);
 });

@@ -353,6 +353,7 @@ export function useAtlasState(initial: AtlasState) {
     belongingLayer,
     chartSettings,
     data,
+    developer: initial.developer,
     hover,
     hoveredWreck,
     layoutSettings,

@@ -1875,9 +1875,86 @@ orchestrator because the maintainer could not be asked; the answers are in
   lenses' fields are read, 4.3b, 4.3c, and 4.4. 4.2b to 4.3c are planned
   against the real lens fields when they start.
 
-**4.1 Reader settings and renderer settings.** Renderer controls (tone
-mapping, bloom, the stage inspector) move behind a developer flag. Needs
-none of the 4.0 answers and can be done at any time.
+**Measuring the viewer.** Done 2026-10-10, before any drawing changes, so
+that every later effort has a before.
+- `web/timings.ts` names five load marks, recorded through the Performance
+  API once per page, so a scene built again after a layout change adds no
+  second mark: `atlas:data-requested` and `atlas:data-loaded` around the
+  codex's read, `atlas:layout-settled` when `loadAtlas` returns,
+  `atlas:terrain-built` once the scene has built its relief, and
+  `atlas:first-frame` after the first frame is submitted. A reader's
+  session records these marks and nothing else.
+- In a developer session, each repaint's stages are measures too:
+  `atlas:paint:ink`, `boundaries`, `sea-ink`, `relief`, and `lettering`.
+  They are the scene's stages, not each painter's: `paintMap` is one stage,
+  `ink`, until 4.2a times each layer painter. Separately,
+  `atlas:render-submit` is the CPU time to encode and submit a frame; it is
+  not a repaint stage, since it fires on every frame the atmosphere loop
+  draws until 4.1 removes that loop. GPU time is not measured.
+- Each timed stage keeps at most its latest 240 measures: at the cap its
+  measures are cleared and counting starts again, so a long session's
+  entries stay bounded.
+- `createAtlasScene(host, data, options)` takes one options object, which
+  carries `developer`, instead of ten positional parameters.
+- `scripts/capture.ts` gains a `marks` step: the marks in milliseconds
+  since navigation, the requests under `data/` and their decoded bytes, and
+  each timed stage's count, median, and maximum over the measures the page
+  still holds. It also gains `--angle` (ANGLE's backend: `metal` for the
+  GPU on macOS, SwiftShader otherwise) and `--webgl`, which hides
+  `navigator.gpu` before the page loads so the renderer takes its WebGL 2
+  backend; neither applies with `--webgpu`. The script drives Chrome over
+  the DevTools Protocol, outside the default test command, in place of the
+  planned Playwright capture, because Playwright is no dependency of the
+  repository and the script already drove the same browser.
+- Tests: `test/web/timings.test.ts` (once per page, developer only, the
+  cap); `test/web/app.test.ts` (a reader's session, `?dev`, and the dev
+  server); `test/atlas.test.ts` checks that `loadAtlas` over a served scan
+  records its three marks in order; `test/web/atlas-map.test.ts` checks
+  that `developer` reaches the scene.
+- Baseline, measured before the cap and the once-per-page rule, which do
+  not change these numbers: a scan of this repository (15 packages, 1,552
+  files), served by `atlas serve`, in headless Chrome 155 on an Apple M4
+  Max at 1500×1000 and a pixel ratio of 1, three runs each:
+
+  | Backend | data loaded | layout settled | terrain built | first frame |
+  | --- | --- | --- | --- | --- |
+  | WebGPU (Metal) | 73–88 ms | 412–429 ms | 3.81–3.87 s | 4.21–4.28 s |
+  | WebGL 2 (ANGLE on Metal) | 77–115 ms | 414–453 ms | 3.79–3.85 s | 4.27–5.34 s |
+  | WebGL 2 (SwiftShader) | 73–77 ms | 399–418 ms | 5.86–6.44 s | 18.3–19.2 s |
+
+  The load reads 20 files, 1.71 MB decoded. About 3.4 s of the first frame
+  falls between the settled layout and the built terrain; how it splits is
+  not measured. It holds the fonts, the renderer's start, the 4096-pixel
+  sea, the water's current and wave fields, and the relief.
+- At island zoom, in a developer session on WebGL 2 on Metal, panning and
+  zooming kept pace with 60 Hz, with no long task. Over all 295 repaints of
+  that run, the ink stage took 1.3 ms at the median and 3 ms at most, and
+  every other stage under 1 ms.
+- Entering islands raises the data read to 36 files, 9.24 MB decoded, the
+  difference being their internals. These numbers hold for this workspace
+  and this machine only; nothing here validates a budget for a larger
+  workspace.
+
+**4.1 Reader settings and renderer settings.** Reader settings are only
+layers that carry data; the rest is a developer session's or is deleted.
+- The developer flag from the measurement work reaches `createAtlasScene`,
+  and a reader's scene builds no wave or current field and runs no 30 fps
+  loop.
+- `ChartSettings` splits into `ReaderSettings` and `DeveloperSettings`, and
+  the Chart panel into a reader's section and a developer's.
+- Deleted: forests; houses (`settlementTier`); `scene/ecosystem-layer.ts`;
+  the ports' warehouses and beacons; the props' shadow map; wind and waves
+  (`scene/wave-field.ts`, the wind strokes); the current (the pigment
+  advection); the chart filters; and the water pigment picker.
+- Behind the developer flag: roads and connecting land, a third and fourth
+  drawing of package dependency; the rendering controls and the stage
+  inspector.
+- Kept: wrecks.
+- The atmosphere's deletion is paired with hover ink, so a hovered island
+  is still marked.
+- The panel's stale copy is fixed.
+- `atlas:first-frame` and `atlas:render-submit` move out of the
+  atmosphere's callback, with the loop they sat in, into the repaint.
 
 **4.2 The four questions by default,** from the phase 2 lenses, with
 departures as the strongest signal.
@@ -1885,6 +1962,8 @@ departures as the strongest signal.
   removed one) become one options object, before any drawing changes: 2.2d
   had to drop an argument at every call site by position, and a shifted
   argument still type-checks wherever two neighbors share a type.
+  `paintMap` becomes an ordered list of layer painters, and each painter
+  is timed as its own stage, in place of the one `ink` stage.
 
 **4.3 Directories drawn,** and a domain drawn across islands.
 

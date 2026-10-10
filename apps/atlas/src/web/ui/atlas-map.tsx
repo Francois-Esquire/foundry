@@ -57,7 +57,7 @@ function applyState(
 
 export function AtlasMap(props: AtlasMapProps) {
   const { state, mapRef } = props;
-  const { data, layoutSettings, chartSettings } = state;
+  const { data, developer, layoutSettings, chartSettings } = state;
   const { layers } = chartSettings;
   const host = useRef<HTMLDivElement>(null);
   const scene = useRef<Awaited<ReturnType<typeof createAtlasScene>> | null>(
@@ -97,24 +97,24 @@ export function AtlasMap(props: AtlasMapProps) {
         if (disposed || !host.current) {
           return;
         }
-        const current = await createAtlasScene(
-          host.current,
-          data,
-          (value) => {
+        const current = await createAtlasScene(host.current, data, {
+          coastalBuffer: layoutSettings.coastalBuffer,
+          developer,
+          layers,
+          onHover: (value) => latest.current.onHover?.(value),
+          onRegionTerritory: (territory) =>
+            latest.current.onViewTerritory?.(territory),
+          onSelect: (value) => {
             if (latest.current.onSelect) {
               latest.current.onSelect(value);
             } else {
               scene.current?.focus(value?.territory ?? null, value?.file);
             }
           },
-          (value) => latest.current.onHover?.(value),
           onSettings,
-          (value) => latest.current.onTrades?.(value),
-          layoutSettings.coastalBuffer,
-          layers,
-          selectWreck,
-          (territory) => latest.current.onViewTerritory?.(territory)
-        );
+          onTrades: (value) => latest.current.onTrades?.(value),
+          onWreck: selectWreck,
+        });
         if (disposed) {
           current.dispose();
           return;
@@ -169,7 +169,7 @@ export function AtlasMap(props: AtlasMapProps) {
       }
       window.removeEventListener("keydown", handleEscape);
     };
-  }, [data, layoutSettings.coastalBuffer, layers, mapRef]);
+  }, [data, developer, layoutSettings.coastalBuffer, layers, mapRef]);
 
   useEffect(() => {
     scene.current?.configure(chartSettings);
