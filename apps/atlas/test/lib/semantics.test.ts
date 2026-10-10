@@ -15,6 +15,8 @@ import { basename, isAbsolute, join, sep } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { assembleSurfaceReport } from "../../src/lib/assemble";
 import { DEFAULT_CONFIGURATION } from "../../src/lib/atlas-config";
+import { datasetReader } from "../../src/lib/dataset";
+import { fileTransport } from "../../src/lib/dataset-files";
 import { encodePackageFile } from "../../src/lib/dataset-layout";
 import { analyzePackageLocal } from "../../src/lib/package-local";
 import type {
@@ -49,6 +51,8 @@ import { projectWorkspaceGraph } from "../../src/lib/workspace-projection-views"
 import { analyzeWorkspaceSurfaces } from "../../src/lib/workspace-surface";
 import type { WorkspaceReport } from "../../src/lib/workspace-types";
 import { WORKSPACE_SCHEMA_VERSION } from "../../src/lib/workspace-types";
+import { resolveCodex } from "../../src/web/codex/resolve";
+import { readCodexSource } from "../../src/web/codex/source";
 import { listedFiles } from "../helpers/dataset-files";
 import { hashTree } from "./helpers/planning-fixture";
 
@@ -410,10 +414,16 @@ describe("generation", () => {
 
   it("publishes each lens's output, named in the manifest with its schema version", () => {
     expect(manifest.lenses).toEqual({
+      "file-roles": { file: "lenses/file-roles.json", schemaVersion: 1 },
       "package-sizes": {
         file: "lenses/package-sizes.json",
         schemaVersion: 1,
       },
+    });
+    // This scan saves no internals, so every complete package is missing.
+    expect(readJson(dataset, "lenses/file-roles.json")).toEqual({
+      missing: ["@s/a", "@s/b", "@s/c"],
+      packages: [],
     });
     const kinds = { config: 0, other: 0, source: 0, story: 0, test: 0 };
     expect(readJson(dataset, "lenses/package-sizes.json")).toEqual({
@@ -539,6 +549,20 @@ describe("generation", () => {
     expect(shape?.concepts.declared).toEqual(["packages/b/src/shape.ts#Shape"]);
     expect(shape?.concepts.behavior).toEqual(["packages/b/src/shape.ts#Shape"]);
     expect(shape?.dependencies.incoming).toEqual([]);
+  });
+
+  it("gives the viewer each module's import counts as its saved gravity fan-in and fan-out", async () => {
+    const reader = datasetReader(fileTransport(dataset));
+    const codex = resolveCodex(await readCodexSource(reader));
+    const records = (await reader.moduleShards()).flatMap((s) => s.modules);
+    expect(codex.modules).toHaveLength(records.length);
+    for (const record of records) {
+      const counted = codex.modules.find((m) => m.id === record.id);
+      expect([counted?.dependents, counted?.dependencies]).toEqual([
+        record.gravity?.fanIn,
+        record.gravity?.fanOut,
+      ]);
+    }
   });
 
   it("shards every directed module edge by source package with scope and type metadata", () => {

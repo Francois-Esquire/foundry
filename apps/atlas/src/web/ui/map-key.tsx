@@ -46,9 +46,10 @@ export function MapKey({
         </div>
       </dl>
       <p>
-        Islands are low ground. Only a package's most-imported files (at least 5
-        incoming imports, above 95% of its files) raise rounded summits; nearby
-        summits join into one range. Commons and composition junctions are
+        Islands are low ground. Only a package's high fan-in files raise rounded
+        summits: those that at least its cutoff of the package's own source
+        files import. Nearby summits join into one range. A package saved
+        without internals stays low. Commons and composition junctions are
         identified in Place. Height is not a quality score.
         {volcanic
           ? " Recorded Git change counts and dates are in Place."

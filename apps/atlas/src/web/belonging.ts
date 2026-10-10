@@ -1,6 +1,5 @@
 import { contours } from "d3-contour";
 import { compositionInsideLand } from "./composition-placement";
-import { classifyFiles } from "./district-layout";
 import type { deriveHierarchy } from "./hierarchy";
 import type { AtlasInternals } from "./internals";
 import type { NaturalFeature } from "./natural-feature-inspection";
@@ -147,9 +146,7 @@ export function belongingRegions(
   data: AtlasInternals,
   territory: Territory
 ): BelongingRegion[] {
-  const files = new Map(
-    classifyFiles(data, territory.files).map((file) => [file.id, file])
-  );
+  const files = new Map(territory.files.map((file) => [file.id, file]));
   const region = (
     id: string,
     label: string,

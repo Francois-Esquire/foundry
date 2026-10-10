@@ -9,8 +9,10 @@ import type { AtlasData, AtlasFile, Territory } from "../../src/web/types";
 
 const file = (id: string, x: number, y: number): AtlasFile => ({
   directory: "src",
+  highFanIn: false,
   id,
   incoming: 0,
+  internalFanIn: 0,
   kind: "source",
   outgoing: 0,
   path: `src/${id}.ts`,
@@ -25,12 +27,13 @@ const features: NaturalFeatures = {
   confluences: [{ streams: 2, x: junction.x, y: junction.y }],
   landmarks: [
     {
+      basis: "commons" as const,
       consumers: [],
+      cutoff: 0,
       file: commons,
       footprint: landmarkFootprint(commons, 4, []),
       kind: "summit" as const,
       radius: 4,
-      role: "commons" as const,
     },
   ],
   marshes: [
@@ -171,7 +174,9 @@ describe("natural feature drawing", () => {
       analyzed: true,
       coast: [],
       color: "#abcdef",
+      fileRoles: undefined,
       files: [commons, junction, lost],
+      highFanInCutoff: 0,
       hills: [],
       id: "island",
       label: "Island",

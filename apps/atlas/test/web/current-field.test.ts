@@ -7,11 +7,14 @@ function fixture(edges: { source: string; target: string }[]): AtlasData {
     analyzed: true,
     coast: [],
     color: "#efcf88",
+    fileRoles: undefined,
     files: [
       {
         directory: "",
+        highFanIn: false,
         id,
         incoming: 0,
+        internalFanIn: 0,
         kind: "source",
         outgoing: 0,
         path: id,
@@ -19,6 +22,7 @@ function fixture(edges: { source: string; target: string }[]): AtlasData {
         y: 0,
       },
     ],
+    highFanInCutoff: 0,
     hills: [],
     id,
     label: id,

@@ -21,12 +21,13 @@ export function useBelonging(
   }>();
   const [attempt, setAttempt] = useState(0);
   const id = territory?.id;
+  const roles = territory?.fileRoles;
   useEffect(() => {
     if (!id) {
       return;
     }
     const controller = new AbortController();
-    loadInternals(id, survey, controller.signal, volcanic)
+    loadInternals(id, roles, survey, controller.signal, volcanic)
       .then((data) => {
         if (!controller.signal.aborted) {
           setResult({ data, id, survey, volcanic });
@@ -48,7 +49,7 @@ export function useBelonging(
     return () => {
       controller.abort();
     };
-  }, [id, survey, attempt, volcanic]);
+  }, [id, roles, survey, attempt, volcanic]);
   const current =
     result?.id === id &&
     result?.survey === survey &&

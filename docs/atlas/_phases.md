@@ -732,20 +732,130 @@ sections in 2.7).
   `manifest.lenses`; the `lenses` phase is in the generation metadata the
   comparison ignores.
 
-**2.2 The viewer's duplicates, one lens each.** For each, the lens is
-written in `lib`, the viewer reads it, and the viewer's own computation is
-deleted. Where the viewer and `lib` disagree, the maintainer picks the
-threshold.
-- Landmarks against `highFan`: the viewer counts cross-package edges with 5
-  and the 95th percentile; `lib` counts internal edges with 3 and the 90th.
-- Change craters against hotspots.
-- Neighborhoods against responsibility regions. Two clusterings of one
-  island; one goes. This is a maintainer decision, and it ties to the
-  viewer's "two groupings" observation.
-- Composite districts (`web/hierarchy.ts`) and file roles
-  (`web/district-layout.ts:132`), which have no counterpart in `lib`.
-- Package-pair traffic needs no lens: the dependency graph projection
-  carries it, and the viewer's three re-aggregations go.
+**2.2 The viewer's duplicates, one lens each.** For each, the meaning is
+defined once, in `lib`, the viewer reads it, and the viewer's own
+computation is deleted. Decided 2026-10-10: where the viewer and `lib`
+measure one thing with different thresholds, `lib`'s definition wins (ground
+rule 1); where the viewer measures something `lib` does not, the measure
+moves into a lens under its own name. Five sub-efforts, one commit each, in
+this order, which is deliberate (2.2e comes before 2.2d):
+- **2.2a `file-roles`**, which also carries high fan-in: file roles
+  (`web/district-layout.ts` `classifyFiles`) and the summits and landmarks
+  against `highFan`. The landmarks were planned as their own 2.2c; they are
+  folded into 2.2a, so there is no 2.2c. Done; below.
+- **2.2b `responsibility-groups`**: composite districts (`web/hierarchy.ts`)
+  as a lens.
+- **2.2e `frequent-change`**: change craters against hotspots. It will read
+  the hotspot commit gate from `ANALYSIS_CONFIG`, which is the built-in
+  analysis policy, not the workspace's Configuration; the rule is in
+  [`_lenses.md`](./_lenses.md#rules).
+- **2.2d Retire neighborhoods**: responsibility regions are the grouping;
+  the viewer's neighborhoods (`web/neighborhoods.ts`, `relationships.ts`)
+  go. They do not place files, so no layout helper stays.
+- **2.2f Pair traffic**: no lens. The dependency graph projection carries
+  each pair's count, so the viewer's re-aggregations go; the endpoint files
+  are one join in the codex.
+
+**2.2a `file-roles`.** Done 2026-10-10.
+- `lib/lenses/file-roles.ts`: for every package whose internals the dataset
+  holds, every module of its topology with its file role (`junction`,
+  `mixed`, `commons`, `unknown`, first match wins, exactly
+  `classifyFiles`' order), its `fanIn`, and `highFanIn`, beside the
+  package's `highFanInCutoff`; and `missing`. Nothing is measured again:
+  fan-in, the `high-fan-in` role, and the cutoff are what the topology saved
+  (`topology.modules[].fanIn`, `topology.roles`,
+  `summary.highFanCutoff.fanIn`), so a package whose saved cutoff is 0 has
+  no high fan-in module. Role and high fan-in are separate fields.
+- `lib/lenses/package-internals.ts`, browser-safe, is the one join:
+  `readPackageInternals(reader)` gives the packages with internals, with
+  their roots, and `missing` (complete packages without internals; a
+  failed package is in neither), and `rootRelative(root, module)` joins a
+  module id to its root, adding nothing for `""` or `"."`. The lens and
+  `web/internals.ts` `bindInternals` both use it. That fixes the viewer's
+  join for a package at the workspace root: `bindInternals` joined with
+  `filter(Boolean).join("/")`, which made `./src/a.ts` of a root `.` and
+  matched no file. The Biome browser override names the file.
+- The codex reads the lens once, at load: each module's `internalFanIn`
+  and `highFanIn` (always set, 0 and false without internals), and each
+  package's `highFanInCutoff` (0 when it has no cutoff, as without
+  internals) and `fileRoles`, the lens's entry (`undefined` without
+  internals). Fan-in is needed at load because relief is drawn for every
+  island at overview (`scene/relief-layer.ts` builds every island's terrain
+  once, `scene/terrain.ts`), not only in a dive.
+- Roles are bound on entering an island, from that load-time entry:
+  `loadInternals(packageId, territory.fileRoles, pin, …)` passes it to
+  `bindInternals`, which keeps `fileRoles` by file id, and the lens is not
+  read again. The dive's internals are read under the pin of the dataset
+  the map loaded, so they and the entry come from one scan. Landmarks and
+  drainage read the roles from `NaturalEvidence.fileRoles`; only the
+  district arrangement attaches them to files (`AtlasFile.fileRole`, which
+  was `architectureKind`) for its role marks, so the overview, and belonging
+  regions, carry none. `classifyFiles` and `prominentFile` are deleted.
+- One measure for the whole summit: membership is `highFanIn`, and
+  `summitHeight` and `landmarkRadius` take internal fan-in against the
+  package's cutoff (`1.8 × log₂((1 + internalFanIn) / cutoff)`, and
+  `min(6, 2 + 0.8 × √(5 × internalFanIn / cutoff))`, so a module at its
+  cutoff gets `2 + 0.8√5`), with one guard for a package without a cutoff.
+  `Landmark.role` is `Landmark.basis`, and `dependents` is `high-fan-in`,
+  labeled "High fan-in". Every high fan-in file's text, in a landmark or
+  in Place, leads with its internal fan-in and its package's cutoff, then
+  gives its import edges as the different, workspace-wide count ("N import
+  edges reach it from across the workspace").
+- The codex still counts each module's `dependents` and `dependencies`
+  from the edge shards; they equal the module record's `gravity.fanIn` and
+  `fanOut` on every module of the fixture (pinned in
+  `test/lib/semantics.test.ts`) and of Foundry (1,517 of 1,517).
+- Decided: the landmarks follow `lib`'s high fan-in. What the map shows
+  now, measured on Foundry at this commit (15 packages, 1,517 files):
+  - Roles are unchanged: the lens and `classifyFiles` agree on every file
+    (1,517 compared; 33 junction, 94 mixed, 29 commons, 79 unknown), and on
+    the semantics fixture (7 files).
+  - Summits went from 62 to 78: 38 stay, 24 go, 40 appear.
+  - Gone: files imported mostly from other packages or from tests. Entry
+    points and barrels (`packages/artifacts/src/index.ts`, 45 incoming and
+    fan-in 2; `packages/agents/src/harness/index.ts` and `session/index.ts`;
+    `packages/workspaces/src/node/index.ts`; `packages/lib/src/digest.ts`),
+    test helpers (`apps/marbles/test/helpers/*`,
+    `apps/works/test/helpers/*`), and modules below their package's cutoff
+    (`packages/workflows/src/step.ts`, 55 incoming and fan-in 10 against a
+    cutoff of 11).
+  - New: modules many source files of their own package import, whatever
+    other packages do: types and error modules (`packages/sandbox/src/types.ts`
+    and `errors.ts`, `packages/agents/src/harness/types.ts`), and most of all
+    `apps/marbles` (10 to 16) and `apps/works` (3 to 7). There the old count
+    missed them: `apps/marbles/src/components/ui/theme.ts` has 4 incoming
+    edges in the edge shards but a topology fan-in of 32, and
+    `apps/works/src/app/lib/cn.ts` has 0 against 16. The two `lib` measures
+    disagree on these modules, apparently on path-alias imports; that is
+    left as it is.
+  - `@foundry/core`, `release`, and `website` have a cutoff of 3 and no
+    high fan-in module; `@foundry/docs` has a cutoff of 0.
+  - A package saved without internals (`scan.workspace`, or a failed
+    package) raises no summit. Selecting it says why: belonging fails with
+    the reader's "saved without internals" message. Saying it at overview is
+    left to phase 4.
+- Cost, on the same Foundry scan (cold, 43.6 s): the `lenses` phase took
+  66 ms for both lenses. In isolation (`writeLenses` over the saved
+  dataset, three runs) it takes 57 ms and raises RSS by about 200 MB, from
+  38 MB to 231 MB, of which about 30 MB is live heap afterwards: it parses
+  all 15 internals files, 36 MB of JSON, and keeps them in the phase-long
+  `parsed` cache. Releasing a file after its last reader is a later loader
+  change. `lenses/file-roles.json` is 133 KB.
+- Tests: `test/lib/lenses.test.ts` (`rootRelative`; role order on literal
+  evidence: junction over mixed, mixed over commons, commons over unknown,
+  `unknown` only with symbols; a module the topology does not list; the
+  high fan-in role, fan-in, and cutoff copied, sorted, an empty-root join;
+  a saved cutoff of 0; `missing` and a failed package through the phase);
+  the registry; `test/lib/render-lens.test.ts` (with no high fan-in
+  section when there is none); `test/lib/semantics.test.ts` (a scan
+  without internals lists every package missing; the gravity parity);
+  `test/atlas.test.ts` (the fixture's lens output by hand, the entry the
+  map keeps from load, and the roles a dive binds from it);
+  `test/web/internals.test.ts` (`bindInternals` and `withFileRoles`);
+  `test/web/landmarks.test.ts` (high fan-in only where the topology says
+  so, and a commons file that is also high fan-in); the codex, terrain,
+  bindings, natural-feature, topography, and load tests. The reference
+  internals helper binds the roles the lens derives for its package.
 
 **2.3 Placement: where it lives against where it is used.** The motivating
 case. Per symbol from `consumerPackages` and its neighbors; per file and

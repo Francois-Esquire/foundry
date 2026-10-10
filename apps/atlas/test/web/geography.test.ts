@@ -9,8 +9,10 @@ import { loadAtlas } from "../helpers/reference-atlas";
 
 const file = (id: string): AtlasFile => ({
   directory: "src",
+  highFanIn: false,
   id,
   incoming: 0,
+  internalFanIn: 0,
   kind: "source",
   outgoing: 0,
   path: id,
@@ -21,7 +23,9 @@ const region = (id: string, x: number): Territory => ({
   analyzed: true,
   coast: [],
   color: "#ffffff",
+  fileRoles: undefined,
   files: [],
+  highFanInCutoff: 0,
   hills: [],
   id,
   label: id,

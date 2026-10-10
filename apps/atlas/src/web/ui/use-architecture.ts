@@ -3,12 +3,14 @@ import { useEffect, useState } from "react";
 import type { AtlasInternals } from "../internals";
 
 import { loadInternals } from "../load-internals";
+import type { Territory } from "../types";
 
 export function useArchitecture(
-  packageId: string,
+  territory: Pick<Territory, "id" | "fileRoles">,
   survey: string,
   enabled: boolean
 ) {
+  const { id: packageId, fileRoles } = territory;
   const [data, setData] = useState<AtlasInternals | null>(null);
   const [error, setError] = useState("");
   const [attempt, setAttempt] = useState(0);
@@ -17,7 +19,7 @@ export function useArchitecture(
       return;
     }
     const controller = new AbortController();
-    loadInternals(packageId, survey, controller.signal)
+    loadInternals(packageId, fileRoles, survey, controller.signal)
       .then((internals) => {
         if (!controller.signal.aborted) {
           setData(internals);
@@ -35,7 +37,7 @@ export function useArchitecture(
     return () => {
       controller.abort();
     };
-  }, [packageId, survey, enabled, attempt]);
+  }, [packageId, fileRoles, survey, enabled, attempt]);
   return {
     data,
     error,

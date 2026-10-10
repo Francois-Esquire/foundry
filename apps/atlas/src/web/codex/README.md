@@ -36,7 +36,9 @@ imports from the renderer, so the folder moves as a unit. Tests are in
 | Package `layer`                            | `package-sizes` lens `layer`; `null` becomes 0                            |
 | Module `id`, `package`, `path`, `fileKind` | module index; a missing kind becomes `unknown`                            |
 | Module `directory`                         | path up to its last `/`                                                   |
-| Module `dependents`, `dependencies`        | edge shards, within and across packages                                   |
+| Module `dependents`, `dependencies`        | edge shards, within and across packages; equal to the module record's `gravity.fanIn`, `fanOut` (pinned by `test/lib/semantics.test.ts`) |
+| Module `internalFanIn`, `highFanIn`        | `file-roles` lens `fanIn`, `highFanIn`, by module id; 0 and false for a package without internals |
+| Package `highFanInCutoff`, `fileRoles`     | `file-roles` lens `highFanInCutoff` and `modules`; 0 and `undefined` for a package without internals |
 | Module `concepts`                          | module shard `concepts`, every role, deduplicated                         |
 | Import                                     | edge shards                                                               |
 | Dependency `strength`, `sharedConcepts`    | graph dependency edge `dependency.moduleEdges`, `concepts.total`          |
@@ -45,16 +47,20 @@ imports from the renderer, so the folder moves as a unit. Tests are in
 
 ## Bindings
 
-Landmarks also consume `SurfaceReport.churn`: exact workspace-relative file
+The map keeps each package's `file-roles` lens entry from load
+(`Territory.fileRoles`), and `load-internals.ts` binds its file roles on
+entering the island, without reading the lens again; landmarks and drainage
+read them from `NaturalEvidence.fileRoles`, and only the district arrangement
+attaches them to files (`AtlasFile.fileRole`) for role marks. The overview
+reads only internal fan-in, so it draws no role marks. Landmarks also consume `SurfaceReport.churn`: exact workspace-relative file
 paths, commit and line-change counts, same-kind repository percentiles, and
 `history` window/completeness. This is loaded with the island's internal evidence only when Recorded change is enabled;
 missing history never becomes a zero count.
 
 | Binding                | Codex input                                   | Channel               | Used in                         |
 | ---------------------- | --------------------------------------------- | --------------------- | ------------------------------- |
-| `prominentFile` | Incoming imports and fraction of package files with strictly fewer | Structural evidence index at >=5 imports and >=95th percentile; the same files raise terrain summits | `landmarks.ts`, `scene/terrain-field.ts` |
 | `changeCrater` | Commits and repository same-kind commit percentile in the recorded window | Recorded-change index at >=3 commits and >=80th percentile | `landmarks.ts` |
-| `summitHeight` | Incoming imports of a prominent file (`prominentFile`) | Summit `1.8 × log₂((1 + incoming) / 5)` above lowland; other files raise nothing | `scene/terrain-field.ts` |
+| `summitHeight` | Internal fan-in of a high fan-in module and its package's saved cutoff | Summit `1.8 × log₂((1 + internalFanIn) / cutoff)` above lowland; other files, and a package without a cutoff, raise nothing | `scene/terrain-field.ts` |
 | `summitReach` / `summitProfile` | Summit height | Rounded foot reaching `10 + 4 × height` units, zero slope at crown and foot | `scene/terrain-field.ts` |
 | `rangeBlend` | Overlapping summit profiles | Soft maximum (power 8): clustered summits join into one range | `scene/terrain-field.ts` |
 | `lowland` | Clearance from the unchanged coast | Beach round-over (1, 4-unit falloff) plus gentle inland rise (0.9, 30-unit falloff); no table | `scene/terrain-field.ts` |
@@ -75,7 +81,7 @@ missing history never becomes a zero count.
 | `roadWidth`            | Dependency strength, merged per road          | road width            | `scene/road-layer.ts`                 |
 | `currentStrength`      | cross-package imports between two packages    | sea current           | `current-field.ts`              |
 | `districtAffinity`     | responsibility link module edges, symbol flow | district grouping     | `hierarchy.ts`                  |
-| `landmarkRadius`           | Module dependents, for a structural landmark       | bounded inspection footprint           | `landmarks.ts`           |
+| `landmarkRadius`           | Module internal fan-in and its package's saved cutoff, for a structural landmark | bounded inspection footprint `min(6, 2 + 0.8 × √(5 × internalFanIn / cutoff))`: `2 + 0.8√5` at the cutoff, 2 without one | `landmarks.ts`           |
 | `streamWidth`          | responsibility link module edges, accumulated on shared runs | stream width | `natural-features.ts`, `river-network.ts`           |
 | `marshDetail` | Unresolved module count and zoom | reed opacity and screen spacing | `scene/paint-features.ts` |
 | `riverPen` | Bound stream width and zoom | mineral river pen width | `scene/paint-features.ts` |

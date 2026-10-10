@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { FileChurn } from "../../src/lib/types";
 import { defaultChartSettings } from "../../src/web/chart-settings";
-import { changeCrater, prominentFile } from "../../src/web/codex/bindings";
+import { changeCrater, landmarkRadius } from "../../src/web/codex/bindings";
 import { buildLandmarks } from "../../src/web/landmarks";
 import { featureText } from "../../src/web/natural-feature-inspection";
 import type { NaturalEvidence } from "../../src/web/natural-features";
@@ -9,18 +9,17 @@ import type { AtlasFile, Territory } from "../../src/web/types";
 
 const file = (id: string, x: number, incoming = 0): AtlasFile => ({
   directory: "src",
+  highFanIn: false,
   id,
   incoming,
+  internalFanIn: 0,
   kind: "source",
   outgoing: 0,
   path: `packages/example/src/${id}.ts`,
   x,
   y: 0,
 });
-const shared = {
-  ...file("shared", -15, 12),
-  architectureKind: "commons" as const,
-};
+const shared = file("shared", -15, 12);
 const ordinary = file("ordinary", 15);
 const territory: Territory = {
   analyzed: true,
@@ -36,7 +35,9 @@ const territory: Territory = {
     ],
   ],
   color: "#fff",
+  fileRoles: undefined,
   files: [shared, ordinary],
+  highFanInCutoff: 0,
   hills: [],
   id: "example",
   label: "Example",
@@ -69,19 +70,17 @@ const evidence: NaturalEvidence = {
     },
   },
   fileIds: {},
+  fileRoles: { [shared.id]: "commons" },
   relationships: [],
   unresolved: [],
 };
 
 describe("structural summits and recorded change", () => {
-  it("keeps structure and churn as independent gates, with the change layer off initially", () => {
+  it("keeps the change gate apart from structure, with the change layer off initially", () => {
     expect(defaultChartSettings.volcanic).toBe(false);
     expect(changeCrater(2, 1)).toBe(false);
     expect(changeCrater(3, 0.79)).toBe(false);
     expect(changeCrater(3, 0.8)).toBe(true);
-    expect(prominentFile(4, 1)).toBe(false);
-    expect(prominentFile(5, 0.94)).toBe(false);
-    expect(prominentFile(5, 0.95)).toBe(true);
   });
 
   it("draws one volcano for a shared changed file and a low crater for an ordinary changed file", () => {
@@ -129,13 +128,50 @@ describe("structural summits and recorded change", () => {
     expect(wrongPath.map((mark) => mark.kind)).toEqual(["summit"]);
   });
 
-  it("does not promote a tied population of equally used files into dependency hubs", () => {
-    const tied = {
-      ...territory,
-      files: [file("a", -15, 20), file("b", 15, 20)],
+  it("marks high fan-in only where the package's topology says so, however many imports reach a file", () => {
+    const summit = {
+      ...file("summit", 15, 2),
+      highFanIn: true,
+      internalFanIn: 4,
     };
-    expect(buildLandmarks(tied, [], { ...evidence, churn: undefined })).toEqual(
-      []
+    const busy = { ...file("busy", -15, 40), internalFanIn: 2 };
+    const island = { ...territory, files: [busy, summit], highFanInCutoff: 3 };
+    const landmarks = buildLandmarks(island, [], {
+      ...evidence,
+      churn: undefined,
+      fileRoles: {},
+    });
+    expect(landmarks.map((item) => [item.file.id, item.basis])).toEqual([
+      ["summit", "high-fan-in"],
+    ]);
+    const [mark] = landmarks;
+    if (!mark) {
+      throw new Error("Missing high fan-in landmark");
+    }
+    expect(mark.radius).toBe(landmarkRadius(4, 3));
+    expect(featureText({ kind: "landmark", landmark: mark }).detail).toBe(
+      "High fan-in · 4 source modules of this package import it, at or above its high fan-in cutoff of 3."
+    );
+  });
+
+  it("gives the fan-in of a commons file that is also high fan-in, ahead of its import edges", () => {
+    const commons = {
+      ...file("commons", 15, 30),
+      highFanIn: true,
+      internalFanIn: 7,
+    };
+    const island = { ...territory, files: [commons], highFanInCutoff: 5 };
+    const [mark] = buildLandmarks(island, [], {
+      ...evidence,
+      churn: undefined,
+      fileRoles: { commons: "commons" },
+    });
+    expect(mark?.basis).toBe("commons");
+    if (!mark) {
+      throw new Error("Missing commons landmark");
+    }
+    expect(featureText({ kind: "landmark", landmark: mark }).detail).toBe(
+      "Shared commons · 7 source modules of this package import it, at or above its high fan-in cutoff of 5."
     );
   });
 });

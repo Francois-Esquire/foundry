@@ -564,11 +564,11 @@ function paintMapPFEntries(
   ctx: CanvasRenderingContext2D,
   size: number
 ) {
-  if (f.architectureKind === "commons") {
+  if (f.fileRole === "commons") {
     ctx.beginPath();
     ctx.arc(f.x, f.y, size, 0, Math.PI * 2);
     ctx.stroke();
-  } else if (f.architectureKind === "junction") {
+  } else if (f.fileRole === "junction") {
     ctx.beginPath();
     ctx.moveTo(f.x - size, f.y);
     ctx.lineTo(f.x + size, f.y);
@@ -576,10 +576,10 @@ function paintMapPFEntries(
     ctx.lineTo(f.x, f.y + size);
     ctx.stroke();
     ctx.strokeRect(f.x - size / 2, f.y - size / 2, size, size);
-  } else if (f.architectureKind === "mixed") {
+  } else if (f.fileRole === "mixed") {
     ctx.fillRect(f.x - size, f.y - size / 2, size * 0.65, size);
     ctx.strokeRect(f.x + size * 0.35, f.y - size / 2, size * 0.65, size);
-  } else if (f.architectureKind === "unknown") {
+  } else if (f.fileRole === "unknown") {
     ctx.strokeRect(f.x - size / 2, f.y - size / 2, size, size);
   } else if (f.kind === "story") {
     ctx.beginPath();

@@ -1,3 +1,4 @@
+import type { FileRole } from "../lib/lenses/file-roles-types";
 import type { ChurnReport } from "../lib/types";
 import type { BelongingRegion } from "./belonging";
 import { streamWidth } from "./codex/bindings";
@@ -73,6 +74,8 @@ export interface NaturalEvidence {
       >
     | Extract<ChurnReport, { available: false }>;
   fileIds: Record<string, string>;
+  /** The `file-roles` lens's roles bound to the island, by file id. */
+  fileRoles: Readonly<Record<string, FileRole>>;
   recordedChange?: boolean;
   relationships: readonly {
     dominantSymbols?: readonly {
@@ -195,12 +198,13 @@ function marshes(
 
 function mouthOf(
   region: BelongingRegion,
-  sources: ReadonlySet<string>
+  sources: ReadonlySet<string>,
+  fileRoles: NaturalEvidence["fileRoles"]
 ): AtlasFile | undefined {
   const byIncoming = (a: AtlasFile, b: AtlasFile) =>
     b.incoming - a.incoming || a.id.localeCompare(b.id);
   const junctions = region.members
-    .filter((file) => file.architectureKind === "junction")
+    .filter((file) => fileRoles[file.id] === "junction")
     .sort(
       (a, b) =>
         Number(sources.has(b.id)) - Number(sources.has(a.id)) ||
@@ -260,7 +264,11 @@ function streams(
     }
     const ids = (modules: readonly string[]) =>
       new Set(modules.flatMap((module) => evidence.fileIds[module] ?? []));
-    const mouth = mouthOf(consumer, ids(link.sourceModules));
+    const mouth = mouthOf(
+      consumer,
+      ids(link.sourceModules),
+      evidence.fileRoles
+    );
     const spring = mouth && springOf(supplier, ids(link.targetModules), mouth);
     if (!(mouth && spring) || spring.id === mouth.id) {
       omitted.push({ ...link, reason: "endpoints" });

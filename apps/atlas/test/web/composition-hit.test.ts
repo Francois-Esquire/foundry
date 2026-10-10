@@ -22,11 +22,14 @@ const territory: Territory = {
     ],
   ],
   color: "#aaa",
+  fileRoles: undefined,
   files: [
     {
       directory: "src",
+      highFanIn: false,
       id: "file",
       incoming: 0,
+      internalFanIn: 0,
       kind: "source",
       outgoing: 0,
       path: "src/file.ts",
@@ -34,6 +37,7 @@ const territory: Territory = {
       y: 0,
     },
   ],
+  highFanInCutoff: 0,
   hills: [],
   id: "package",
   label: "Package",

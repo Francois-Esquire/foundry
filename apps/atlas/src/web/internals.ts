@@ -1,6 +1,11 @@
 import type { InternalResponsibilityReport } from "../lib/internal-responsibility-types";
 import type { InternalPackageTopology } from "../lib/internal-topology-types";
 import type {
+  FileRole,
+  FileRolesPackage,
+} from "../lib/lenses/file-roles-types";
+import { rootRelative } from "../lib/lenses/package-internals";
+import type {
   ArchitecturalScopeRef,
   SymbolLocalityReport,
 } from "../lib/symbol-locality-types";
@@ -12,6 +17,8 @@ export interface AtlasInternals {
   architecture?: AtlasArchitecture;
   churn?: ChurnReport;
   fileIds: Record<string, string>;
+  /** Each file's role from the `file-roles` lens, by file id; a file without one is absent. */
+  fileRoles: Record<string, FileRole>;
   locality: SymbolLocalityReport;
   responsibilities: InternalResponsibilityReport;
   topology: InternalPackageTopology;
@@ -23,7 +30,8 @@ export function bindInternals(
   topology: InternalPackageTopology,
   locality: SymbolLocalityReport,
   files: readonly Pick<AtlasFile, "id" | "path">[],
-  responsibilities: InternalResponsibilityReport
+  responsibilities: InternalResponsibilityReport,
+  roles: Pick<FileRolesPackage, "modules"> | undefined
 ): AtlasInternals {
   if (
     topology.package.id !== locality.package.id ||
@@ -37,8 +45,7 @@ export function bindInternals(
   const fileIds: Record<string, string> = {};
   const unmatchedModules: string[] = [];
   for (const module of topology.modules) {
-    const path = [topology.package.root, module.id].filter(Boolean).join("/");
-    const fileId = paths.get(path);
+    const fileId = paths.get(rootRelative(topology.package.root, module.id));
     if (fileId === undefined) {
       unmatchedModules.push(module.id);
     } else {
@@ -46,8 +53,16 @@ export function bindInternals(
     }
   }
   const mapped = new Set(Object.values(fileIds));
+  const fileRoles: Record<string, FileRole> = {};
+  for (const module of roles?.modules ?? []) {
+    const fileId = paths.get(module.module);
+    if (fileId !== undefined && module.role !== undefined) {
+      fileRoles[fileId] = module.role;
+    }
+  }
   return {
     fileIds,
+    fileRoles,
     locality,
     responsibilities,
     topology,
@@ -84,4 +99,15 @@ export function scopeFileIds(
     })
     .flatMap((module) => internals.fileIds[module.id] ?? [])
     .sort();
+}
+
+/** `files` with the `file-roles` lens's role each holds, for role marks; the input is not changed. */
+export function withFileRoles(
+  internals: Pick<AtlasInternals, "fileRoles">,
+  files: readonly AtlasFile[]
+): AtlasFile[] {
+  return files.map((file) => {
+    const fileRole = internals.fileRoles[file.id];
+    return fileRole ? { ...file, fileRole } : file;
+  });
 }

@@ -65,4 +65,70 @@ describe("renderLens", () => {
     expect(text).not.toContain("@s/f");
     expect(text).toContain("2 more");
   });
+
+  it("prints the file-roles lens: files by role, high fan-in by fan-in, and packages saved without internals", () => {
+    const text = renderLens(
+      "file-roles",
+      {
+        missing: ["@s/c"],
+        packages: [
+          {
+            highFanInCutoff: 3,
+            id: "@s/a",
+            modules: [
+              {
+                fanIn: 4,
+                highFanIn: true,
+                module: "a/hub.ts",
+                role: "junction",
+              },
+              { fanIn: 9, highFanIn: true, module: "a/types.ts" },
+              { fanIn: 1, highFanIn: false, module: "a/x.ts", role: "mixed" },
+            ],
+          },
+        ],
+      },
+      { format: "text" }
+    );
+    expect(text).toBe(
+      [
+        "File roles",
+        "══════════",
+        "Packages               1",
+        "Files                  3",
+        "Composition junctions  1",
+        "Mixed scope            1",
+        "Shared commons         0",
+        "Unknown scope          0",
+        "",
+        "High fan-in",
+        "  a/types.ts  9",
+        "    @s/a · cutoff 3",
+        "  a/hub.ts    4",
+        "    @s/a · cutoff 3",
+        "",
+        "Saved without internals",
+        "  @s/c",
+      ].join("\n")
+    );
+  });
+
+  it("leaves out the high fan-in list when no package has a high fan-in file", () => {
+    const text = renderLens(
+      "file-roles",
+      {
+        missing: [],
+        packages: [
+          {
+            highFanInCutoff: 0,
+            id: "@s/a",
+            modules: [{ fanIn: 0, highFanIn: false, module: "a/x.ts" }],
+          },
+        ],
+      },
+      { format: "text" }
+    );
+    expect(text).not.toContain("High fan-in");
+    expect(text).not.toContain("Saved without internals");
+  });
 });

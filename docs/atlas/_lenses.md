@@ -36,6 +36,7 @@ type LensReader = Omit<DatasetReader, "history" | "manifest"> & {
 
 /** Every lens's output by id; a lens's id is a key of this map. */
 interface LensOutputs {
+  "file-roles": FileRoles;
   "package-sizes": PackageSizes;
 }
 type LensId = keyof LensOutputs;
@@ -71,7 +72,9 @@ which lenses it reaches.
 
 - **Inputs.** The reader and the settings the lens names, and nothing
   else: no file system, no Git, no TypeScript program, no configuration
-  beyond its settings. A lens never analyzes again.
+  beyond its settings. A lens never analyzes again. A lens that imports
+  `ANALYSIS_CONFIG` reads the built-in analysis policy, not the workspace's
+  Configuration, which reaches a lens only through its settings.
 - **Output.** JSON data. Names and ids are data, never prose. A place is
   addressed in facet syntax, a workspace-relative path or `path#name`, and
   a package is a place too, so a lens that labels places addresses a
@@ -94,12 +97,15 @@ which lenses it reaches.
   earliest); an output whose bytes are unchanged keeps its file, as every
   dataset file does. The reader checks each lens's schema version on its
   own, so a lens bump needs no dataset schema bump.
-- **Internals.** A lens that needs a package's internals checks
-  `packages()` for them, since `scan.workspace` saves none, and lists the
-  packages without them in its output as `missing: string[]` instead of
-  failing. Module ids are root-relative: the package's
-  `topology.package.root` joined to the internals module id, as
-  `web/internals.ts` does.
+- **Internals.** A lens that needs a package's internals reads them
+  through `readPackageInternals(reader)` (`lib/lenses/package-internals.ts`),
+  since `scan.workspace` saves none: it returns the packages with
+  internals, each with its root, and `missing`, the complete packages
+  without them, which the lens lists in its output instead of failing; a
+  failed package is in neither. Module ids are root-relative, joined by
+  `rootRelative(root, module)` in the same file (a root of `.` adds no
+  prefix), which `web/internals.ts` uses too, so a lens and the map name a
+  module one way.
 - **Shared reads.** Within one scan, the lens phase parses each dataset file
   once and hands the same value to every lens that reads it, so a lens
   never changes what it reads.

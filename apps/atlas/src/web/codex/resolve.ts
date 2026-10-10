@@ -15,6 +15,10 @@ export function resolveCodex(source: CodexSource): Codex {
     dependents.set(edge.target, (dependents.get(edge.target) ?? 0) + 1);
     dependencies.set(edge.source, (dependencies.get(edge.source) ?? 0) + 1);
   }
+  const measured = new Map(
+    source.fileRoles.flatMap((pkg) => pkg.modules.map((m) => [m.module, m]))
+  );
+  const roles = new Map(source.fileRoles.map((pkg) => [pkg.id, pkg]));
   const current = new Set(source.packages.map((p) => p.id));
   return {
     declaredDependencies: source.declaredDependencies.flatMap(
@@ -41,17 +45,24 @@ export function resolveCodex(source: CodexSource): Codex {
       dependents: dependents.get(m.id) ?? 0,
       directory: m.path.slice(0, m.path.lastIndexOf("/")),
       fileKind: m.fileKind ?? "unknown",
+      highFanIn: measured.get(m.id)?.highFanIn ?? false,
       id: m.id,
+      internalFanIn: measured.get(m.id)?.fanIn ?? 0,
       package: m.package,
       path: m.path,
     })),
-    packages: source.packages.map((p) => ({
-      analyzed: p.analyzed,
-      id: p.id,
-      label: shortName(p.id),
-      layer: p.layer ?? 0,
-      size: p.modules.total,
-    })),
+    packages: source.packages.map((p) => {
+      const saved = roles.get(p.id);
+      return {
+        analyzed: p.analyzed,
+        fileRoles: saved && { modules: saved.modules },
+        highFanInCutoff: saved?.highFanInCutoff ?? 0,
+        id: p.id,
+        label: shortName(p.id),
+        layer: p.layer ?? 0,
+        size: p.modules.total,
+      };
+    }),
     retiredPackages: source.history && retiredPackages(source.history, current),
     workspace: {
       coverage: source.dataset.coverage,

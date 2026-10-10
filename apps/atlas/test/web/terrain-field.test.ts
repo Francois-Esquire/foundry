@@ -13,8 +13,10 @@ import type { AtlasFile, Territory } from "../../src/web/types";
 
 const file: AtlasFile = {
   directory: "src",
+  highFanIn: false,
   id: "shared",
   incoming: 20,
+  internalFanIn: 0,
   kind: "source",
   outgoing: 0,
   path: "src/shared.ts",
@@ -35,7 +37,9 @@ const territory: Territory = {
     ],
   ],
   color: "#fff",
+  fileRoles: undefined,
   files: [file],
+  highFanInCutoff: 0,
   hills: [],
   id: "example",
   label: "Example",
@@ -49,18 +53,24 @@ const territory: Territory = {
 const quietFiles = Array.from({ length: 40 }, (_, index) => ({
   ...file,
   id: `quiet-${index}`,
-  incoming: index % 3,
+  incoming: 30,
+  internalFanIn: index % 3,
   x: -40 + (index % 8) * 11,
   y: -40 + Math.floor(index / 8) * 20,
 }));
+const summit: AtlasFile = { ...file, highFanIn: true, internalFanIn: 20 };
 
-it("raises a summit only for a prominent file and leaves the rest as lowland", () => {
-  const island = { ...territory, files: [...quietFiles, file] };
+it("raises a summit only for a high fan-in file and leaves the rest as lowland, however many imports reach them", () => {
+  const island = {
+    ...territory,
+    files: [...quietFiles, summit],
+    highFanInCutoff: 3,
+  };
   const before = structuredClone(island);
   const terrain = createTerrainField(island);
   const lowland = createTerrainField({
     ...island,
-    files: island.files.map((member) => ({ ...member, incoming: 0 })),
+    files: island.files.map((member) => ({ ...member, highFanIn: false })),
   });
   expect(
     terrain.sample(0, 0).elevation - lowland.sample(0, 0).elevation

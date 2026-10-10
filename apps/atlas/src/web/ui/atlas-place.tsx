@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import type { BelongingRegion } from "../belonging";
-import { featureText } from "../natural-feature-inspection";
+import { featureText, importCounts } from "../natural-feature-inspection";
 import type { NaturalFeatures } from "../natural-features";
 import type { ResponsibilityOverlay } from "../responsibility-focus";
 import type { AtlasSelection } from "../scene/scene";
@@ -283,6 +283,11 @@ function browseLabel(
   return "Browse districts";
 }
 
+/** A file's kind and import counts; a summit file leads with its internal fan-in and its package's cutoff. */
+function fileDetail(file: AtlasFile, territory: Territory): string {
+  return `${file.kind} · ${importCounts(file, territory.highFanInCutoff)} It imports ${file.outgoing} ${file.outgoing === 1 ? "module" : "modules"}.`;
+}
+
 function describeSelection(
   selection: AtlasSelection,
   place: BelongingRegion | undefined,
@@ -291,7 +296,7 @@ function describeSelection(
   composites: BelongingRegion[]
 ): string {
   if (selection.file) {
-    return `${selection.file.kind} · ${selection.file.incoming} incoming · ${selection.file.outgoing} outgoing`;
+    return fileDetail(selection.file, territory);
   }
   if (place) {
     return `${place.members.length} files · ${describePlaceKind(region, place)}`;
@@ -365,7 +370,7 @@ function inspectionDetail(
   region: BelongingRegion | undefined
 ): string {
   if (inspected.file) {
-    return `${inspected.file.kind} · ${inspected.file.incoming} incoming imports · ${inspected.file.outgoing} outgoing imports`;
+    return fileDetail(inspected.file, inspected.territory);
   }
   if (region) {
     return `${region.members.length} files · ${region.children ? "Enter district" : "Enter responsibility"}`;

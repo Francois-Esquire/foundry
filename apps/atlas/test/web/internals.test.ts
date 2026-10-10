@@ -21,7 +21,11 @@ import {
   scenarioReview,
 } from "../../src/web/architecture";
 import { districtLayout, planDistricts } from "../../src/web/district-layout";
-import { bindInternals, scopeFileIds } from "../../src/web/internals";
+import {
+  bindInternals,
+  scopeFileIds,
+  withFileRoles,
+} from "../../src/web/internals";
 import { responsibilityFocus } from "../../src/web/responsibility-focus";
 import { scenarioRoutes } from "../../src/web/scenario-routes";
 import type { Territory } from "../../src/web/types";
@@ -131,13 +135,17 @@ describe("atlas package internals", () => {
         ],
       ],
       color: "#aaa",
+      fileRoles: undefined,
       files: files.map((file) => ({
         ...file,
         directory: "src",
+        highFanIn: false,
         incoming: 0,
+        internalFanIn: 0,
         kind: "source",
         outgoing: 0,
       })),
+      highFanInCutoff: 0,
       hills: [],
       id: pkg.id,
       label: "Test",
@@ -385,7 +393,8 @@ describe("atlas package internals", () => {
         data.topology,
         data.locality,
         [...files].reverse(),
-        data.responsibilities
+        data.responsibilities,
+        result.fileRoles
       )
     ).toEqual(data);
   });
@@ -582,5 +591,65 @@ describe("atlas package internals", () => {
       reason: "package-changed",
       status: "unavailable",
     });
+  });
+});
+
+describe("file roles on entering an island", () => {
+  type Evidence = Parameters<typeof bindInternals>;
+  // Only the fields bindInternals reads; the rest of each report is unused here.
+  const evidence = (
+    packageRoot: string
+  ): [Evidence[0], Evidence[1], Evidence[3]] => {
+    const owner = { id: "@test/r", root: packageRoot };
+    return [
+      { modules: [{ id: "src/a.ts" }, { id: "src/b.ts" }], package: owner },
+      { package: owner },
+      { package: owner },
+    ] as never;
+  };
+
+  it("binds the file-roles lens's roles by root-relative path and attaches them without changing the files", () => {
+    const [topology, locality, responsibilities] = evidence(".");
+    const atlasFile = (id: string) => ({
+      directory: "src",
+      highFanIn: false,
+      id,
+      incoming: 0,
+      internalFanIn: 0,
+      kind: "source",
+      outgoing: 0,
+      path: `src/${id}.ts`,
+      x: 0,
+      y: 0,
+    });
+    const atlasFiles = [atlasFile("a"), atlasFile("b")];
+    const bound = bindInternals(
+      topology,
+      locality,
+      atlasFiles,
+      responsibilities,
+      {
+        modules: [
+          { fanIn: 4, highFanIn: true, module: "src/a.ts", role: "junction" },
+          { fanIn: 0, highFanIn: false, module: "src/b.ts" },
+          { fanIn: 1, highFanIn: false, module: "src/gone.ts", role: "mixed" },
+        ],
+      }
+    );
+    expect(bound.fileIds).toEqual({ "src/a.ts": "a", "src/b.ts": "b" });
+    expect(bound.fileRoles).toEqual({ a: "junction" });
+    const before = structuredClone(atlasFiles);
+    expect(
+      withFileRoles(bound, atlasFiles).map((roled) => roled.fileRole)
+    ).toEqual(["junction", undefined]);
+    expect(atlasFiles).toEqual(before);
+  });
+
+  it("binds no roles when the dataset gives the package none", () => {
+    const [topology, locality, responsibilities] = evidence("packages/r");
+    expect(
+      bindInternals(topology, locality, [], responsibilities, undefined)
+        .fileRoles
+    ).toEqual({});
   });
 });

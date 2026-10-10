@@ -22,6 +22,7 @@ export function useNaturalFeatures(
       {
         churn: volcanic ? data.churn : undefined,
         fileIds: data.fileIds,
+        fileRoles: data.fileRoles,
         recordedChange: volcanic,
         relationships: data.responsibilities.relationships,
         unresolved: data.responsibilities.unresolved,

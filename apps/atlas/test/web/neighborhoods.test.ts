@@ -5,8 +5,10 @@ import type { AtlasFile } from "../../src/web/types";
 
 const file = (id: string): AtlasFile => ({
   directory: "src",
+  highFanIn: false,
   id,
   incoming: 0,
+  internalFanIn: 0,
   kind: "source",
   outgoing: 0,
   path: `src/${id}.ts`,

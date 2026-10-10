@@ -54,9 +54,20 @@ export function districtAffinity(moduleEdges: number, symbolFlow: number) {
   return Math.log1p(moduleEdges) + Math.log1p(symbolFlow);
 }
 
-/** Landmark footprint for a structurally significant module, from the modules that draw on it. */
-export function landmarkRadius(dependents: number) {
-  return Math.min(6, 2 + 0.8 * Math.sqrt(dependents));
+/** `value` as a multiple of the package's saved high fan-in cutoff; 0 for a package without one, so it raises and widens nothing. */
+function perCutoff(value: number, cutoff: number) {
+  return cutoff > 0 ? value / cutoff : 0;
+}
+
+/** A module at its package's cutoff gets a footprint of 2 + 0.8 × √5; it grows with the square root of fan-in over the cutoff and stops at 6. */
+const footprintAtCutoff = 5;
+
+/** Landmark footprint for a structurally significant module, from its internal fan-in against its package's cutoff. */
+export function landmarkRadius(internalFanIn: number, cutoff: number) {
+  return Math.min(
+    6,
+    2 + 0.8 * Math.sqrt(footprintAtCutoff * perCutoff(internalFanIn, cutoff))
+  );
 }
 
 /** Stream width between two districts, from their module edges. */
@@ -111,19 +122,14 @@ export function chartGrid(pixels: number) {
   };
 }
 
-/** Prominence is dependency reach within this package, never a quality score. */
-export function prominentFile(dependents: number, percentile: number) {
-  return dependents >= 5 && percentile >= 0.95;
-}
-
 /** Recorded commits, ranked against repository files of the same kind/window. */
 export function changeCrater(commits: number, percentile: number) {
   return commits >= 3 && percentile >= 0.8;
 }
 
-/** Summit height from incoming imports above the prominence floor; never quality or churn. */
-export function summitHeight(incoming: number) {
-  return Math.max(0, 1.8 * Math.log2((1 + incoming) / 5));
+/** Summit height of a high fan-in module, from its internal fan-in against its package's cutoff; never quality or churn. */
+export function summitHeight(internalFanIn: number, cutoff: number) {
+  return Math.max(0, 1.8 * Math.log2(perCutoff(1 + internalFanIn, cutoff)));
 }
 
 /** A summit's foot widens with its height, so heights stay rounded hills. */

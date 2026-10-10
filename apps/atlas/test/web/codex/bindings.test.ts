@@ -5,11 +5,13 @@ import {
   districtAffinity,
   footprint,
   labelPriority,
+  landmarkRadius,
   laneWidth,
   latitude,
   neighborhoodAffinity,
   roadWidth,
   settlementTier,
+  summitHeight,
   territoryLabelSize,
 } from "../../../src/web/codex/bindings";
 
@@ -78,5 +80,21 @@ describe("relationship bindings", () => {
     expect(currentStrength(Math.E - 1)).toBeCloseTo(1);
     expect(districtAffinity(0, 0)).toBe(0);
     expect(districtAffinity(Math.E - 1, Math.E - 1)).toBeCloseTo(2);
+  });
+});
+
+describe("summit bindings", () => {
+  it("raises a high fan-in summit from its fan-in over the package's saved cutoff", () => {
+    expect(summitHeight(3, 3)).toBeCloseTo(1.8 * Math.log2(4 / 3));
+    expect(summitHeight(11, 3)).toBeCloseTo(3.6);
+    expect(summitHeight(1, 3)).toBe(0);
+    expect(summitHeight(20, 0)).toBe(0);
+  });
+
+  it("gives a module at its cutoff a footprint of 2 + 0.8√5, growing with fan-in up to 6, and 2 without a cutoff", () => {
+    expect(landmarkRadius(3, 3)).toBeCloseTo(2 + 0.8 * Math.sqrt(5));
+    expect(landmarkRadius(0, 3)).toBe(2);
+    expect(landmarkRadius(12, 0)).toBe(2);
+    expect(landmarkRadius(300, 3)).toBe(6);
   });
 });

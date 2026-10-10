@@ -1,15 +1,18 @@
 import { DatasetReplacedError } from "../lib/dataset";
 import { viewerDataset } from "./dataset";
 import { bindInternals } from "./internals";
+import type { Territory } from "./types";
 
 /**
  * One package's internals, from the dataset whose manifest was saved at
  * `pin`: the map's own dataset. The manifest is read again once the files
  * are in, so a scan that replaces the dataset mid-read cannot mix two
- * datasets.
+ * datasets. `roles` is the `file-roles` lens's entry the map read at load
+ * from that same dataset, so the lens is not read again.
  */
 export async function loadInternals(
   packageId: string,
+  roles: Territory["fileRoles"],
   pin: string,
   signal: AbortSignal,
   recordedChange = false
@@ -26,7 +29,8 @@ export async function loadInternals(
     topology,
     locality,
     index.modules.filter((file) => file.package === packageId),
-    responsibilities
+    responsibilities,
+    roles
   );
   bound.churn = report?.churn;
   bound.architecture = { primitives, review, rewiring };

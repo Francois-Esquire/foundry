@@ -8,8 +8,10 @@ import type { AtlasFile, Polygon } from "../../src/web/types";
 
 const anchor: AtlasFile = {
   directory: "src",
+  highFanIn: false,
   id: "file",
   incoming: 0,
+  internalFanIn: 0,
   kind: "source",
   outgoing: 0,
   path: "src/file.ts",

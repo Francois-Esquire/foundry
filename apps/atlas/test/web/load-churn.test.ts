@@ -45,6 +45,7 @@ it("does not fetch the full package report for ordinary belonging exploration", 
   vi.stubGlobal("fetch", fetch);
   const result = await loadInternals(
     "example",
+    undefined,
     "survey",
     new AbortController().signal
   );
@@ -59,6 +60,7 @@ it("loads recorded change only on request and preserves unavailable history", as
   vi.stubGlobal("fetch", fetch);
   const result = await loadInternals(
     "example",
+    undefined,
     "survey",
     new AbortController().signal,
     true
@@ -73,7 +75,7 @@ it("says when the dataset was saved without internals", async () => {
   const { internals: _internals, ...workspaceOnly } = scanned;
   vi.stubGlobal("fetch", surveyFetch(workspaceOnly));
   await expect(
-    loadInternals("example", "survey", new AbortController().signal)
+    loadInternals("example", undefined, "survey", new AbortController().signal)
   ).rejects.toThrow(
     "The dataset was saved without internals for example. Run atlas scan to include them."
   );
@@ -85,21 +87,26 @@ it("says a package that failed analysis has no internals", async () => {
     surveyFetch({ error: "boom", id: "example", status: "failed" })
   );
   await expect(
-    loadInternals("example", "survey", new AbortController().signal)
+    loadInternals("example", undefined, "survey", new AbortController().signal)
   ).rejects.toThrow("Atlas could not analyze example, so it has no internals.");
 });
 
 it("says when the dataset has no such package", async () => {
   vi.stubGlobal("fetch", surveyFetch());
   await expect(
-    loadInternals("missing", "survey", new AbortController().signal)
+    loadInternals("missing", undefined, "survey", new AbortController().signal)
   ).rejects.toThrow("The dataset has no package named missing.");
 });
 
 it("reads the manifest to start and again to close, and nothing it does not need", async () => {
   const fetch = surveyFetch();
   vi.stubGlobal("fetch", fetch);
-  await loadInternals("example", "survey", new AbortController().signal);
+  await loadInternals(
+    "example",
+    undefined,
+    "survey",
+    new AbortController().signal
+  );
   const urls = fetch.mock.calls.map(([url]) => url);
   expect(urls.at(0)).toBe("./data/manifest.json");
   expect(urls.at(-1)).toBe("./data/manifest.json");
@@ -118,7 +125,12 @@ it.each([
   async (_when, savedAt) => {
     vi.stubGlobal("fetch", surveyFetch(scanned, savedAt));
     await expect(
-      loadInternals("example", "survey", new AbortController().signal)
+      loadInternals(
+        "example",
+        undefined,
+        "survey",
+        new AbortController().signal
+      )
     ).rejects.toThrow(
       "A later scan replaced the dataset. Reload Atlas to see it."
     );
@@ -128,7 +140,7 @@ it.each([
 it("says when the saved internals are incomplete", async () => {
   vi.stubGlobal("fetch", surveyFetch({ ...scanned, id: "other" }));
   await expect(
-    loadInternals("other", "survey", new AbortController().signal)
+    loadInternals("other", undefined, "survey", new AbortController().signal)
   ).rejects.toThrow(
     "The dataset's internals for other are incomplete. Run atlas scan again."
   );

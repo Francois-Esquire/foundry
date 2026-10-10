@@ -1,3 +1,7 @@
+import type {
+  FileRole,
+  FileRolesPackage,
+} from "../lib/lenses/file-roles-types";
 import type { Neighborhood } from "./neighborhoods";
 
 export interface AtlasSymbol {
@@ -6,10 +10,16 @@ export interface AtlasSymbol {
 }
 
 export interface AtlasFile {
-  architectureKind?: "commons" | "junction" | "mixed" | "unknown";
   directory: string;
+  /** Its file role from the `file-roles` lens, attached only where the district arrangement draws role marks. */
+  fileRole?: FileRole;
+  /** Whether its package's topology calls it high fan-in; such a file raises a summit. */
+  highFanIn: boolean;
   id: string;
+  /** Import edges ending here, within and across packages. */
   incoming: number;
+  /** Source modules of its own package importing it, from the `file-roles` lens; 0 without internals. */
+  internalFanIn: number;
   kind: string;
   outgoing: number;
   path: string;
@@ -23,7 +33,11 @@ export interface Territory {
   analyzed: boolean;
   coast: Polygon[];
   color: string;
+  /** The `file-roles` lens's modules, bound on entering the island; `undefined` without internals. */
+  fileRoles: Pick<FileRolesPackage, "modules"> | undefined;
   files: AtlasFile[];
+  /** The package's saved high fan-in cutoff; 0 when it has none, as without internals. */
+  highFanInCutoff: number;
   hills: Polygon[];
   id: string;
   label: string;

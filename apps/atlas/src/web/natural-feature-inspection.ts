@@ -1,6 +1,7 @@
 import type { Landmark } from "./landmarks";
 import type { FeaturePoint, Marsh, NaturalFeatures } from "./natural-features";
 import type { RiverRun } from "./river-network";
+import type { AtlasFile } from "./types";
 
 export type NaturalFeature =
   | { kind: "landmark"; landmark: Landmark }
@@ -84,22 +85,35 @@ export function hitNaturalFeature(
   return marsh ? { kind: "marsh", marsh } : undefined;
 }
 
+/**
+ * A file's import counts, leading with its internal fan-in against its
+ * package's cutoff when it is high fan-in; the import edges are a different,
+ * workspace-wide count.
+ */
+export function importCounts(
+  file: Pick<AtlasFile, "highFanIn" | "incoming" | "internalFanIn">,
+  cutoff: number
+): string {
+  // A high fan-in file is described by the measure that raised it; the
+  // module graph's edge count measures something else and would read as a
+  // contradiction beside it.
+  return file.highFanIn
+    ? `${file.internalFanIn} source modules of this package import it, at or above its high fan-in cutoff of ${cutoff}.`
+    : `The module graph records ${file.incoming} import ${file.incoming === 1 ? "edge" : "edges"} ending here.`;
+}
+
 function landmarkText(landmark: Landmark) {
-  const { file, consumers, role, change } = landmark;
-  const roles = {
+  const { basis, change, consumers, cutoff, file } = landmark;
+  const labels = {
     change: "Recorded change",
     commons: "Shared commons",
-    dependents: "Dependency hub",
+    "high-fan-in": "High fan-in",
     junction: "Composition junction",
   };
   const served = consumers.length
     ? ` Drawn on by ${consumers.map((item) => item.label).join(", ")}.`
     : "";
-  let detail = `${roles[role]} · ${file.incoming} incoming imports.${served}`;
-  if (role === "dependents") {
-    detail +=
-      " At least 5 incoming imports and the 95th percentile or higher within this package.";
-  }
+  let detail = `${labels[basis]} · ${importCounts(file, cutoff)}${served}`;
   if (change) {
     const { history, file: changed } = change;
     const window = history.since

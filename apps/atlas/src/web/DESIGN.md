@@ -167,10 +167,15 @@ Interiors are natural lowland. Ground rounds over the beach (1 unit with a
 four-unit falloff) and keeps rising gently inland (0.9 units with a 30-unit
 falloff); both terms depend only on clearance from the coast, so nothing levels
 into a table or shelf. Height above the lowland expresses usage, never quality,
-churn or live activity. Only a package's prominent files raise summits: at
-least 5 incoming module imports with at least 95% of the package's files having
-strictly fewer (the same rule as structural landmarks). A summit's height is
-1.8 × log₂((1 + incoming) / 5); its rounded foot reaches 10 + 4 × height units.
+churn or live activity. Only a package's high fan-in files raise summits: the
+modules its internal topology gives the `high-fan-in` role, read from the
+`file-roles` lens (the same rule as structural landmarks). A module's internal
+fan-in is the number of the package's own source modules that import it, and the cutoff is
+the topology's saved one: the larger of 3 and the 90th percentile among the
+package's modules with any dependent. Imports from other packages and from tests
+do not count, and a package saved without internals raises none. A summit's
+height is 1.8 × log₂((1 + internal fan-in) / cutoff); its rounded foot reaches
+10 + 4 × height units.
 Neighbouring summits join through a soft maximum, so a cluster of heavily used
 files forms one range rather than stacked needles, and summits fade over ten
 units toward the shore. Ordinary files never raise their own ground.
@@ -400,8 +405,10 @@ remain disposable presentation data; temporal stability is not guaranteed.
 - Natural features draw an island's internal evidence on its own land, in
   island-local ink under the file marks. They need no connecting land. A
   file's structural evidence remains inspectable: shared commons, composition
-  junctions, and dependency hubs. A hub has at least 5 incoming module imports and
-  at least 95% of this package's files have strictly fewer incoming imports.
+  junctions, and high fan-in files, the `file-roles` lens's reading of the
+  package's topology: imported by at least the package's saved cutoff of its own
+  source modules. Roles arrive with the island's internals; the overview reads
+  only fan-in, for relief.
   The rejected summit and crater stamps are removed. Every file retains its own
   visible mark and selection ring. Structural roles and consuming responsibilities
   remain in Place and its keyboard index. They shape the actual relief without

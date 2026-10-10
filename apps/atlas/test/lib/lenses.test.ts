@@ -3,6 +3,8 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { PackageInternals } from "../../src/lib/internal-analysis-types";
+import type { FileRolesSource } from "../../src/lib/lenses/file-roles";
+import { fileRolesLens } from "../../src/lib/lenses/file-roles";
 import type {
   LensId,
   LensReader,
@@ -12,6 +14,7 @@ import {
   LENS_SCHEMA_VERSIONS,
   lensEntries,
 } from "../../src/lib/lenses/lens-types";
+import { rootRelative } from "../../src/lib/lenses/package-internals";
 import { packageSizesLens } from "../../src/lib/lenses/package-sizes";
 import type { AnyLens } from "../../src/lib/lenses/run";
 import { LENSES, writeLenses } from "../../src/lib/lenses/run";
@@ -70,6 +73,195 @@ describe("the package-sizes lens", () => {
   });
 });
 
+/** One module's role evidence, as the primitive conventions save it. */
+function evidence(
+  module: string,
+  {
+    crossResponsibility = 0,
+    localGroups = 1,
+    packageWide = 0,
+    scopes = "single-scope" as "single-scope" | "mixed-scope" | "none",
+    symbols = 1,
+    unresolvedSymbols = 0,
+  } = {}
+) {
+  return {
+    composition: { scopes },
+    fragmentation: { crossResponsibility, localGroups, packageWide },
+    module,
+    symbols,
+    unresolvedSymbols,
+  };
+}
+
+type SourcePackage = FileRolesSource["packages"][number];
+
+/** A package of `modules`, each with fan-in 0, unless the overrides say otherwise. */
+function rolesPackage(
+  id: string,
+  root: string,
+  modules: string[],
+  overrides: Partial<Omit<SourcePackage, "id" | "root">> = {}
+): SourcePackage {
+  return {
+    id,
+    primitives: { modules: [] },
+    rewiring: { composition: [] },
+    root,
+    topology: {
+      modules: modules.map((module) => ({ fanIn: 0, id: module })),
+      roles: [],
+      summary: { highFanCutoff: { fanIn: 0 } },
+    },
+    ...overrides,
+  };
+}
+
+describe("rootRelative", () => {
+  it("joins a module id to its package root, adding nothing for a package at the workspace root", () => {
+    expect(rootRelative("packages/r", "src/a.ts")).toBe("packages/r/src/a.ts");
+    expect(rootRelative(".", "src/a.ts")).toBe("src/a.ts");
+    expect(rootRelative("", "src/a.ts")).toBe("src/a.ts");
+  });
+});
+
+describe("the file-roles lens", () => {
+  it("gives each module the first role that holds: junction, mixed, commons, unknown", () => {
+    const roles = fileRolesLens.derive(
+      {
+        missing: [],
+        packages: [
+          rolesPackage(
+            "@s/a",
+            "packages/a",
+            [
+              "root.ts",
+              "mixed.ts",
+              "commons.ts",
+              "unknown.ts",
+              "empty.ts",
+              "plain.ts",
+            ],
+            {
+              primitives: {
+                modules: [
+                  evidence("root.ts", { scopes: "mixed-scope" }),
+                  evidence("mixed.ts", {
+                    crossResponsibility: 2,
+                    localGroups: 0,
+                    scopes: "mixed-scope",
+                  }),
+                  evidence("commons.ts", {
+                    localGroups: 0,
+                    packageWide: 1,
+                    symbols: 3,
+                    unresolvedSymbols: 3,
+                  }),
+                  evidence("unknown.ts", { symbols: 2, unresolvedSymbols: 2 }),
+                  evidence("empty.ts", { symbols: 0, unresolvedSymbols: 0 }),
+                  evidence("elsewhere.ts", { scopes: "mixed-scope" }),
+                ],
+              },
+              rewiring: {
+                composition: [
+                  { compositionRoot: true, module: "root.ts" },
+                  { compositionRoot: false, module: "plain.ts" },
+                ],
+              },
+            }
+          ),
+        ],
+      },
+      {}
+    );
+    const [pkg] = roles.packages;
+    expect(
+      pkg?.modules.map((module) => [module.module, module.role ?? null])
+    ).toEqual([
+      ["packages/a/commons.ts", "commons"],
+      ["packages/a/empty.ts", null],
+      ["packages/a/mixed.ts", "mixed"],
+      ["packages/a/plain.ts", null],
+      ["packages/a/root.ts", "junction"],
+      ["packages/a/unknown.ts", "unknown"],
+    ]);
+    expect(pkg?.modules.find((m) => m.role === undefined)).not.toHaveProperty(
+      "role"
+    );
+  });
+
+  it("copies the topology's high fan-in role, fan-in, and cutoff without measuring again", () => {
+    const roles = fileRolesLens.derive(
+      {
+        missing: ["@s/z"],
+        packages: [
+          rolesPackage("@s/b", ".", ["src/b.ts", "src/a.ts"], {
+            topology: {
+              modules: [
+                { fanIn: 2, id: "src/b.ts" },
+                { fanIn: 9, id: "src/a.ts" },
+              ],
+              roles: [
+                { module: "src/a.ts", roles: ["high-fan-in", "bridge"] },
+                { module: "src/b.ts", roles: ["dependency-sink"] },
+              ],
+              summary: { highFanCutoff: { fanIn: 4 } },
+            },
+          }),
+          rolesPackage("@s/a", "packages/a", ["src/c.ts"]),
+        ],
+      },
+      {}
+    );
+    expect(roles).toEqual({
+      missing: ["@s/z"],
+      packages: [
+        {
+          highFanInCutoff: 0,
+          id: "@s/a",
+          modules: [
+            { fanIn: 0, highFanIn: false, module: "packages/a/src/c.ts" },
+          ],
+        },
+        {
+          highFanInCutoff: 4,
+          id: "@s/b",
+          modules: [
+            { fanIn: 9, highFanIn: true, module: "src/a.ts" },
+            { fanIn: 2, highFanIn: false, module: "src/b.ts" },
+          ],
+        },
+      ],
+    });
+  });
+
+  it("names no module high fan-in in a package whose saved cutoff is 0", () => {
+    const roles = fileRolesLens.derive(
+      {
+        missing: [],
+        packages: [
+          rolesPackage("@s/a", "packages/a", ["a.ts", "b.ts"], {
+            topology: {
+              modules: [
+                { fanIn: 0, id: "a.ts" },
+                { fanIn: 0, id: "b.ts" },
+              ],
+              roles: [
+                { module: "a.ts", roles: ["isolated"] },
+                { module: "b.ts", roles: ["isolated"] },
+              ],
+              summary: { highFanCutoff: { fanIn: 0 } },
+            },
+          }),
+        ],
+      },
+      {}
+    );
+    expect(roles.packages[0]?.highFanInCutoff).toBe(0);
+    expect(roles.packages[0]?.modules.some((m) => m.highFanIn)).toBe(false);
+  });
+});
+
 describe("the registry", () => {
   it("registers every lens once, at the schema version the reader and its stage hold", () => {
     const ids = LENSES.map((lens) => lens.id);
@@ -98,6 +290,7 @@ describe("the registry", () => {
 
   it("names each lens's file and schema version for the manifest", () => {
     expect(lensEntries()).toEqual({
+      "file-roles": { file: "lenses/file-roles.json", schemaVersion: 1 },
       "package-sizes": { file: "lenses/package-sizes.json", schemaVersion: 1 },
     });
   });
@@ -112,11 +305,30 @@ describe("writeLenses", () => {
 
   const internals = {
     locality: { package: { id: "@s/a" } },
-    primitives: {},
+    primitives: {
+      modules: [
+        {
+          composition: { scopes: "mixed-scope" },
+          fragmentation: {
+            crossResponsibility: 0,
+            localGroups: 2,
+            packageWide: 0,
+          },
+          module: "src/a.ts",
+          symbols: 2,
+          unresolvedSymbols: 0,
+        },
+      ],
+    },
     responsibilities: { package: { id: "@s/a" } },
     review: {},
-    rewiring: {},
-    topology: { modules: [], package: { id: "@s/a", root: "packages/a" } },
+    rewiring: { composition: [] },
+    topology: {
+      modules: [{ fanIn: 0, id: "src/a.ts" }],
+      package: { id: "@s/a", root: "packages/a" },
+      roles: [],
+      summary: { highFanCutoff: { fanIn: 0 } },
+    },
   };
 
   /** An unpublished tree, and the draft manifest that names its files. */
@@ -150,6 +362,7 @@ describe("writeLenses", () => {
           status: "complete",
         },
         { id: "@s/b", path: "packages/b", status: "failed" },
+        { id: "@s/c", path: "packages/c", status: "complete" },
       ],
       schemaVersion: 4,
     } as unknown as DatasetManifest;
@@ -201,6 +414,26 @@ describe("writeLenses", () => {
   it("reads the unpublished tree through the draft manifest and writes each lens's file", async () => {
     expect(await run(undefined)).toEqual([
       [
+        "lenses/file-roles.json",
+        {
+          missing: ["@s/c"],
+          packages: [
+            {
+              highFanInCutoff: 0,
+              id: "@s/a",
+              modules: [
+                {
+                  fanIn: 0,
+                  highFanIn: false,
+                  module: "packages/a/src/a.ts",
+                  role: "mixed",
+                },
+              ],
+            },
+          ],
+        },
+      ],
+      [
         "lenses/package-sizes.json",
         {
           packages: [
@@ -224,6 +457,7 @@ describe("writeLenses", () => {
     expect(written[0]?.[1]).toEqual([
       { id: "@s/a", internals: true, status: "complete" },
       { id: "@s/b", internals: false, status: "failed" },
+      { id: "@s/c", internals: false, status: "complete" },
     ]);
   });
 

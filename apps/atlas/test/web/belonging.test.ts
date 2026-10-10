@@ -10,8 +10,10 @@ import type { AtlasFile, Territory } from "../../src/web/types";
 
 const file = (id: string, x: number, y = 0): AtlasFile => ({
   directory: "src",
+  highFanIn: false,
   id,
   incoming: 0,
+  internalFanIn: 0,
   kind: "source",
   outgoing: 0,
   path: id,
@@ -160,7 +162,9 @@ const territory: Territory = {
     ],
   ],
   color: "#abcdef",
+  fileRoles: undefined,
   files: [],
+  highFanInCutoff: 0,
   hills: [],
   id: "island",
   label: "Island",

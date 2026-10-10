@@ -29,8 +29,10 @@ export async function loadAtlas(signal?: AbortSignal): Promise<AtlasData> {
       .sort((a, b) => a.id.localeCompare(b.id))
       .map((m) => ({
         directory: m.directory,
+        highFanIn: m.highFanIn,
         id: m.id,
         incoming: m.dependents,
+        internalFanIn: m.internalFanIn,
         kind: m.fileKind,
         outgoing: m.dependencies,
         path: m.path,
@@ -52,7 +54,9 @@ export async function loadAtlas(signal?: AbortSignal): Promise<AtlasData> {
       color:
         pigments[Math.floor(unit(`${p.id}:pigment`) * pigments.length)] ??
         "#efcf88",
+      fileRoles: p.fileRoles,
       files,
+      highFanInCutoff: p.highFanInCutoff,
       hills,
       id: p.id,
       label: p.label,

@@ -4,7 +4,7 @@ import type { ResponsibilityRelationship } from "../../lib/internal-responsibili
 import { districtLayout } from "../district-layout";
 import type { AtlasInternals } from "../internals";
 import type { ResponsibilityOverlay } from "../responsibility-focus";
-import type { AtlasFile, AtlasSymbol, Polygon, Territory } from "../types";
+import type { AtlasFile, AtlasSymbol, Territory } from "../types";
 import { CompositionInspection } from "./composition-inspection";
 import { RelationshipInspection } from "./relationship-inspection";
 import { UnmappedModuleInspection } from "./unmapped-module-inspection";
@@ -39,7 +39,7 @@ export function ArchitecturePanel({
 }) {
   const [choice, setChoice] = useState<{ id: string; fileId?: string }>();
   const relationshipId = choice?.fileId === file?.id ? (choice?.id ?? "") : "";
-  const { data, error, retry } = useArchitecture(territory.id, survey, true);
+  const { data, error, retry } = useArchitecture(territory, survey, true);
   const [districts, setDistricts] = useState(false);
   const layout = useMemo(
     () => (data && districts ? districtLayout(data, territory) : null),
@@ -282,29 +282,7 @@ function resolveArchitecturePanel(
   relationshipId: string,
   module: string | undefined,
   file: AtlasFile | undefined,
-  layout: {
-    territory: {
-      files: AtlasFile[];
-      neighborhoods: {
-        id: string;
-        imports: number;
-        label: string;
-        members: string[];
-        sharedConcepts: number;
-      }[];
-      analyzed: boolean;
-      coast: Polygon[];
-      color: string;
-      hills: Polygon[];
-      id: string;
-      label: string;
-      radius: number;
-      shallows: Polygon[];
-      x: number;
-      y: number;
-    };
-    unplaced: string[];
-  } | null,
+  layout: ReturnType<typeof districtLayout> | null,
   handleFile: (symbolEntry: AtlasSymbol | undefined) => void,
   symbol: AtlasSymbol | undefined,
   territory: Territory

@@ -1,7 +1,6 @@
 import { insidePolygons } from "../atmosphere";
 import {
   lowland,
-  prominentFile,
   rangeBlend,
   shoreRamp,
   summitHeight,
@@ -13,16 +12,15 @@ import type { Territory } from "../types";
 // Fixed survey-space sampling, never a zoom-dependent mesh or level of detail.
 const cell = 3;
 
-/** Only prominent files (the package's landmarks) raise summits; the rest is lowland. */
+/** Only high fan-in files raise summits; the rest is lowland, as is a package without internals. */
 function summitSamples(territory: Territory) {
-  const { files } = territory;
-  return files
-    .filter((file) => {
-      const lower = files.filter((other) => other.incoming < file.incoming);
-      return prominentFile(file.incoming, lower.length / files.length);
-    })
+  return territory.files
+    .filter((file) => file.highFanIn)
     .map((file) => {
-      const height = summitHeight(file.incoming);
+      const height = summitHeight(
+        file.internalFanIn,
+        territory.highFanInCutoff
+      );
       return { height, reach: summitReach(height), x: file.x, y: file.y };
     })
     .filter((summit) => summit.height > 0);

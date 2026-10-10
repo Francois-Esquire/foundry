@@ -19,6 +19,7 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawn } from "bun";
+import type { FileRoles } from "../src/lib/lenses/file-roles-types";
 import { scan } from "../src/lib/scan";
 import type { HistoryManifest } from "../src/lib/semantics-history-types";
 import type { DatasetManifest } from "../src/lib/semantics-types";
@@ -242,6 +243,45 @@ test("built CLI scans an external workspace and the web loaders read its saved d
   }
   const filename = `${pkg.id.replaceAll("/", "__")}.json`;
   expect(pkg.internals).toBe(`internals/${filename}`);
+  const roles = JSON.parse(
+    await readFile(join(workspace.output, "lenses/file-roles.json"), "utf8")
+  ) as FileRoles;
+  const plain = (module: string, fanIn = 0) => ({
+    fanIn,
+    highFanIn: false,
+    module,
+  });
+  expect(roles).toEqual({
+    missing: [],
+    packages: [
+      {
+        // No source module of @s/a has a dependent, so the topology saved no cutoff.
+        highFanInCutoff: 0,
+        id: "@s/a",
+        modules: [
+          plain("apps/a/src/index.test.ts"),
+          { ...plain("apps/a/src/index.ts"), role: "unknown" },
+        ],
+      },
+      {
+        highFanInCutoff: 3,
+        id: "@s/b",
+        modules: [
+          plain("packages/b/src/index.ts"),
+          { ...plain("packages/b/src/shape.ts", 1), role: "unknown" },
+        ],
+      },
+      {
+        highFanInCutoff: 3,
+        id: "@s/c",
+        modules: [
+          { ...plain("tooling/c/src/index.ts"), role: "unknown" },
+          plain("tooling/c/src/pad.ts", 1),
+          { ...plain("tooling/c/src/unit.ts", 2), role: "mixed" },
+        ],
+      },
+    ],
+  });
   const { dependencies } = JSON.parse(
     await readFile(join(workspace.root, pkg.path, "package.json"), "utf8")
   ) as { dependencies?: Record<string, string> };
@@ -268,20 +308,41 @@ test("built CLI scans an external workspace and the web loaders read its saved d
   globalThis.fetch = fetchFromServer;
   try {
     const atlas = await loadAtlas();
-    expect(atlas.territories.map((territory) => territory.id)).toContain(
-      pkg.id
+    const territory = atlas.territories.find((item) => item.id === pkg.id);
+    if (!territory) {
+      throw new Error(`The map has no island for ${pkg.id}.`);
+    }
+    // The map keeps the lens's entry from load and binds it on entering the island.
+    const { fileRoles } = territory;
+    expect(fileRoles?.modules).toEqual(
+      roles.packages.find((saved) => saved.id === pkg.id)?.modules
     );
     const { signal } = new AbortController();
-    const evidence = await loadInternals(pkg.id, second.generatedAt, signal);
+    const evidence = await loadInternals(
+      pkg.id,
+      fileRoles,
+      second.generatedAt,
+      signal
+    );
     expect(evidence.architecture?.review).toBeDefined();
+    // Roles reach the island from the lens, by file id, which is the module id here.
+    expect(evidence.fileRoles).toEqual(
+      Object.fromEntries(
+        (
+          roles.packages.find((saved) => saved.id === pkg.id)?.modules ?? []
+        ).flatMap((module) =>
+          module.role ? [[module.module, module.role]] : []
+        )
+      )
+    );
     await expect(
-      loadInternals(pkg.id, "2000-01-01T00:00:00.000Z", signal)
+      loadInternals(pkg.id, fileRoles, "2000-01-01T00:00:00.000Z", signal)
     ).rejects.toThrow(
       "A later scan replaced the dataset. Reload Atlas to see it."
     );
     await rm(join(workspace.output, "internals", filename));
     await expect(
-      loadInternals(pkg.id, second.generatedAt, signal)
+      loadInternals(pkg.id, fileRoles, second.generatedAt, signal)
     ).rejects.toThrow(
       `The dataset is missing internals/${filename}. Run atlas scan again.`
     );

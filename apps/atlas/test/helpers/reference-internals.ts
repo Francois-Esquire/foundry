@@ -1,6 +1,8 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { packageInternals } from "../../src/lib/internal-analysis";
+import { fileRolesLens } from "../../src/lib/lenses/file-roles";
+import type { FileRolesPackage } from "../../src/lib/lenses/file-roles-types";
 import { analyzePackageLocal } from "../../src/lib/package-local";
 import type { PackageLocalReport } from "../../src/lib/package-local-types";
 import {
@@ -33,6 +35,8 @@ export type AtlasInternalsResult =
       sourceFingerprint: string;
       localSchemaVersion: number;
       analysisSource: "cache" | "fresh";
+      /** The `file-roles` lens's entry the internals were bound with. */
+      fileRoles: FileRolesPackage | undefined;
       internals: AtlasInternals;
     };
 
@@ -82,11 +86,28 @@ export function loadInternals(
       rewiring,
       review,
     } = packageInternals(report);
+    // The roles the file-roles lens would save for this package.
+    const [roles] = fileRolesLens.derive(
+      {
+        missing: [],
+        packages: [
+          {
+            id: pkg.id,
+            primitives,
+            rewiring,
+            root: topology.package.root,
+            topology,
+          },
+        ],
+      },
+      {}
+    ).packages;
     const internals = bindInternals(
       topology,
       locality,
       files,
-      responsibilities
+      responsibilities,
+      roles
     );
     if (includeArchitecture) {
       internals.architecture = { primitives, review, rewiring };
@@ -96,6 +117,7 @@ export function loadInternals(
     }
     return {
       analysisSource: useCache ? "cache" : "fresh",
+      fileRoles: roles,
       internals,
       localSchemaVersion: report.schemaVersion,
       packageId: pkg.id,

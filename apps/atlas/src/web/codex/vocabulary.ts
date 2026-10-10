@@ -1,3 +1,4 @@
+import type { FileRolesPackage } from "../../lib/lenses/file-roles-types";
 import type { SemanticsDeclaredDependencyKind } from "../../lib/semantics-types";
 
 type FileKind = "source" | "test" | "story" | "config" | "other" | "unknown";
@@ -9,6 +10,10 @@ interface CodexWorkspace {
 
 interface CodexPackage {
   analyzed: boolean;
+  /** The `file-roles` lens's modules, bound on entering the island; `undefined` when the dataset holds no internals for the package. */
+  fileRoles: Pick<FileRolesPackage, "modules"> | undefined;
+  /** The internal fan-in at which the package's topology calls a module high fan-in; 0 when it has no cutoff, as without internals. */
+  highFanInCutoff: number;
   id: string;
   label: string;
   /** Dependency layer; 0 is the foundation. */
@@ -26,7 +31,11 @@ interface CodexModule {
   dependents: number;
   directory: string;
   fileKind: FileKind;
+  /** Whether its topology gave it the `high-fan-in` role; never without internals. */
+  highFanIn: boolean;
   id: string;
+  /** Source modules of its own package importing it, as its topology saved it; 0 without internals. */
+  internalFanIn: number;
   package: string;
   path: string;
 }

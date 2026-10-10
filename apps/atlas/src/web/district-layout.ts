@@ -1,5 +1,6 @@
 import { clearOfCoast, compositionInsideLand } from "./composition-placement";
 import type { AtlasInternals } from "./internals";
+import { withFileRoles } from "./internals";
 import type { AtlasFile, Territory } from "./types";
 
 function hash(value: string) {
@@ -123,56 +124,9 @@ export function fitDistricts(
   };
 }
 
-/**
- * Architectural role of each file from the package's own evidence: composition
- * roots are junctions, modules whose symbols are consumed only across
- * responsibilities are commons, and the rest keep their scope reading. Pure,
- * and independent of any arrangement, so the same roles reach every drawing.
- */
-export function classifyFiles(
-  data: Pick<AtlasInternals, "architecture" | "fileIds">,
-  files: readonly AtlasFile[]
-): AtlasFile[] {
-  const modules = new Map(
-    data.architecture?.primitives.modules.map((module) => [
-      data.fileIds[module.module],
-      module,
-    ]) ?? []
-  );
-  const roots = new Set(
-    data.architecture?.rewiring.composition
-      .filter((module) => module.compositionRoot)
-      .map((module) => data.fileIds[module.module]) ?? []
-  );
-  return files.map((file): AtlasFile => {
-    const module = modules.get(file.id);
-    let architectureKind: AtlasFile["architectureKind"];
-    if (roots.has(file.id)) {
-      architectureKind = "junction";
-    } else if (module) {
-      if (module.composition.scopes === "mixed-scope") {
-        architectureKind = "mixed";
-      } else if (
-        module.fragmentation.localGroups === 0 &&
-        module.fragmentation.crossResponsibility +
-          module.fragmentation.packageWide >
-          0
-      ) {
-        architectureKind = "commons";
-      } else if (
-        module.unresolvedSymbols === module.symbols &&
-        module.symbols > 0
-      ) {
-        architectureKind = "unknown";
-      }
-    }
-    return architectureKind ? { ...file, architectureKind } : file;
-  });
-}
-
 export function districtLayout(data: AtlasInternals, territory: Territory) {
   const fitted = fitDistricts(territory, planDistricts(data, territory));
-  const classified = classifyFiles(data, fitted.files);
+  const classified = withFileRoles(data, fitted.files);
   return {
     territory: {
       ...territory,

@@ -2,6 +2,8 @@ import type { DatasetReader } from "../dataset";
 import { lensFile } from "../dataset-layout";
 import type { DomainDeclaration } from "../domain-declaration";
 import type { DatasetManifest } from "../semantics-types";
+import type { FileRoles } from "./file-roles-types";
+import { FILE_ROLES_SCHEMA_VERSION } from "./file-roles-types";
 import type { PackageSizes } from "./package-sizes-types";
 import { PACKAGE_SIZES_SCHEMA_VERSION } from "./package-sizes-types";
 
@@ -10,6 +12,7 @@ import { PACKAGE_SIZES_SCHEMA_VERSION } from "./package-sizes-types";
 
 /** Every lens's saved output, by the lens's id. */
 export interface LensOutputs {
+  "file-roles": FileRoles;
   "package-sizes": PackageSizes;
 }
 
@@ -18,6 +21,7 @@ export type LensId = keyof LensOutputs;
 
 /** Each lens's schema version, which the reader checks against the manifest's. */
 export const LENS_SCHEMA_VERSIONS: Record<LensId, number> = {
+  "file-roles": FILE_ROLES_SCHEMA_VERSION,
   "package-sizes": PACKAGE_SIZES_SCHEMA_VERSION,
 };
 

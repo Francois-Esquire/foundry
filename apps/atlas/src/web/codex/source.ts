@@ -1,4 +1,5 @@
 import type { DatasetReader } from "../../lib/dataset";
+import type { FileRolesPackage } from "../../lib/lenses/file-roles-types";
 import type { PackageSize } from "../../lib/lenses/package-sizes-types";
 import type {
   SemanticsHistoryEntities,
@@ -27,6 +28,8 @@ export interface CodexSource {
       "moduleEdges"
     >;
   })[];
+  /** The `file-roles` lens: fan-in raises summits; roles are bound on entering an island. */
+  fileRoles: FileRolesPackage[];
   history?: {
     packages: SemanticsHistoryEntities["packages"];
     snapshots: Pick<
@@ -50,16 +53,25 @@ export interface CodexSource {
 export async function readCodexSource(
   reader: DatasetReader
 ): Promise<CodexSource> {
-  const [manifest, index, graph, sizes, edgeShards, moduleShards, history] =
-    await Promise.all([
-      reader.manifest(),
-      reader.moduleIndex(),
-      reader.dependencyGraph(),
-      reader.lens("package-sizes"),
-      reader.moduleEdgeShards(),
-      reader.moduleShards(),
-      reader.history(),
-    ]);
+  const [
+    manifest,
+    index,
+    graph,
+    sizes,
+    roles,
+    edgeShards,
+    moduleShards,
+    history,
+  ] = await Promise.all([
+    reader.manifest(),
+    reader.moduleIndex(),
+    reader.dependencyGraph(),
+    reader.lens("package-sizes"),
+    reader.lens("file-roles"),
+    reader.moduleEdgeShards(),
+    reader.moduleShards(),
+    reader.history(),
+  ]);
   return {
     dataset: manifest,
     declaredDependencies: manifest.packages.map((p) => ({
@@ -69,6 +81,7 @@ export async function readCodexSource(
     dependencies: graph.edges.flatMap((e) =>
       e.kind === "dependency" ? [e] : []
     ),
+    fileRoles: roles.packages,
     history: history && {
       packages: history.entities.packages,
       snapshots: history.manifest.snapshots,

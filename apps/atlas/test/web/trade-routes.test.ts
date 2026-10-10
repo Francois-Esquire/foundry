@@ -20,11 +20,14 @@ const island = (id: string, x: number, radius = 20): Territory => ({
     ],
   ],
   color: "#efcf88",
+  fileRoles: undefined,
   files: [
     {
       directory: "src",
+      highFanIn: false,
       id,
       incoming: 1,
+      internalFanIn: 0,
       kind: "source",
       outgoing: 1,
       path: id,
@@ -32,6 +35,7 @@ const island = (id: string, x: number, radius = 20): Territory => ({
       y: 0,
     },
   ],
+  highFanInCutoff: 0,
   hills: [],
   id,
   label: id,

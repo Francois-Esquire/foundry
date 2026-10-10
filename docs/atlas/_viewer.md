@@ -64,7 +64,7 @@ What the map encodes, from the codex bindings and the design record:
 | Distance between islands | Dependency strength and shared concepts. | yes |
 | File mark | A file. Placed by imports and shared concepts. | yes |
 | District | A responsibility region from the internal analysis. | at island zoom |
-| Relief and summits | Files with many incoming imports (95th percentile, 5 or more). | yes |
+| Relief and summits | High fan-in files: imported by at least their package's cutoff of its own source files (`file-roles` lens, since 2.2a). | yes |
 | Lake | A module many responsibilities draw on. | yes |
 | Marsh | A module the analysis could not place in one responsibility. | yes |
 | Selection ink | A package's dependency lines, a file's imports. | on selection |

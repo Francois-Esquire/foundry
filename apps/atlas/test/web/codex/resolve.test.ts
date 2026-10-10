@@ -11,6 +11,16 @@ const noConcepts = {
   usage: [],
 };
 
+const coreRoles = [
+  {
+    fanIn: 4,
+    highFanIn: true,
+    module: "packages/core/src/a.ts",
+    role: "junction" as const,
+  },
+  { fanIn: 0, highFanIn: false, module: "packages/core/src/b.test.ts" },
+];
+
 const source: CodexSource = {
   dataset: { coverage: "partial", generatedAt: "2026-09-23T00:00:00.000Z" },
   declaredDependencies: [
@@ -30,6 +40,13 @@ const source: CodexSource = {
       dependency: { moduleEdges: 1 },
       from: "@foundry/ui",
       to: "@foundry/core",
+    },
+  ],
+  fileRoles: [
+    {
+      highFanInCutoff: 3,
+      id: "@foundry/core",
+      modules: coreRoles,
     },
   ],
   history: {
@@ -108,12 +125,22 @@ describe("resolveCodex", () => {
     expect(codex.packages).toEqual([
       {
         analyzed: false,
+        fileRoles: { modules: coreRoles },
+        highFanInCutoff: 3,
         id: "@foundry/core",
         label: "core",
         layer: 0,
         size: 2,
       },
-      { analyzed: true, id: "@foundry/ui", label: "ui", layer: 1, size: 1 },
+      {
+        analyzed: true,
+        fileRoles: undefined,
+        highFanInCutoff: 0,
+        id: "@foundry/ui",
+        label: "ui",
+        layer: 1,
+        size: 1,
+      },
     ]);
   });
 
@@ -122,6 +149,13 @@ describe("resolveCodex", () => {
     expect(a).toMatchObject({ dependencies: 0, dependents: 2 });
     expect(test).toMatchObject({ dependencies: 1, dependents: 0 });
     expect(index).toMatchObject({ dependencies: 1, dependents: 0 });
+  });
+
+  it("takes each module's internal fan-in and high fan-in from the file-roles lens, and 0 and false without internals", () => {
+    const [a, test, index] = codex.modules;
+    expect(a).toMatchObject({ highFanIn: true, internalFanIn: 4 });
+    expect(test).toMatchObject({ highFanIn: false, internalFanIn: 0 });
+    expect(index).toMatchObject({ highFanIn: false, internalFanIn: 0 });
   });
 
   it("names module directory, kind and the concepts it takes part in", () => {

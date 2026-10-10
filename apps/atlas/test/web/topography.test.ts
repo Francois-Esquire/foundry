@@ -25,10 +25,27 @@ it("packs rings near the rim and increases spacing without extending their reach
 
 it("extracts contours from actual relief without changing geography", async () => {
   const data = await loadAtlas();
-  const p = data.territories.find((territory) => territory.files.length > 500);
-  if (!p) {
+  const island = data.territories.find(
+    (territory) => territory.files.length > 500
+  );
+  if (!island) {
     throw new Error("Missing large island");
   }
+  // The reference predates the file-roles lens. Its relief came from files
+  // with at least 5 incoming imports and 95% of the island below them; as
+  // high fan-in against a cutoff of 5 they raise the same summits.
+  const p = {
+    ...island,
+    files: island.files.map((file) => {
+      const below = island.files.filter((o) => o.incoming < file.incoming);
+      const summit =
+        file.incoming >= 5 && below.length / island.files.length >= 0.95;
+      return summit
+        ? { ...file, highFanIn: true, internalFanIn: file.incoming }
+        : file;
+    }),
+    highFanInCutoff: 5,
+  };
   const before = structuredClone(p);
   const lines = landContours(p);
   expect(lines.length).toBeGreaterThan(0);

@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { memberContours } from "../../src/web/belonging";
 import { compositionInsideLand } from "../../src/web/composition-placement";
-import { classifyFiles } from "../../src/web/district-layout";
 import { createLandRouter } from "../../src/web/inland-routing";
 import { landmarkFootprint } from "../../src/web/landmark-footprint";
 import {
@@ -18,8 +17,10 @@ const file = (
   extra: Partial<AtlasFile> = {}
 ): AtlasFile => ({
   directory: "src",
+  highFanIn: false,
   id,
   incoming: 0,
+  internalFanIn: 0,
   kind: "source",
   outgoing: 0,
   path: id,
@@ -47,7 +48,9 @@ const territory: Territory = {
     ],
   ],
   color: "#aaa",
+  fileRoles: undefined,
   files: [],
+  highFanInCutoff: 3,
   hills: [],
   id: "island",
   label: "Island",
@@ -59,8 +62,8 @@ const territory: Territory = {
 };
 
 const west = [
-  file("w-junction", -40, -40, { architectureKind: "junction", incoming: 3 }),
-  file("w-commons", -40, 40, { architectureKind: "commons", incoming: 9 }),
+  file("w-junction", -40, -40, { incoming: 3 }),
+  file("w-commons", -40, 40, { incoming: 9, internalFanIn: 9 }),
   file("w-plain", -50, 0),
 ];
 const east = [
@@ -88,6 +91,7 @@ const evidence = {
     "w-junction": "w-junction",
     "w-plain": "w-plain",
   },
+  fileRoles: { "w-commons": "commons", "w-junction": "junction" } as const,
   relationships: [
     {
       from: "west",
@@ -115,7 +119,7 @@ const evidence = {
 describe("natural features", () => {
   const features = naturalFeatures(territory, regions, evidence);
 
-  it("makes landmarks from commons files, sized by dependents and fitted to land", () => {
+  it("makes landmarks from commons files, sized by fan-in against the package's cutoff and fitted to land", () => {
     expect(features.landmarks.map((item) => item.file.id)).toEqual([
       "w-commons",
       "w-junction",
@@ -125,8 +129,13 @@ describe("natural features", () => {
     expect(landmark?.radius).toBeLessThanOrEqual(6);
     const shore = naturalFeatures(
       territory,
-      [region("edge", [file("edge", -58, 0, { architectureKind: "commons" })])],
-      { fileIds: {}, relationships: [], unresolved: [] }
+      [region("edge", [file("edge", -58, 0)])],
+      {
+        fileIds: {},
+        fileRoles: { edge: "commons" },
+        relationships: [],
+        unresolved: [],
+      }
     );
     expect(shore.landmarks).toEqual([]);
   });
@@ -204,49 +213,6 @@ describe("natural features", () => {
   });
 });
 
-describe("file classification", () => {
-  it("assigns roles from primitives and composition roots without touching input", () => {
-    const files = [
-      file("root", 0, 0),
-      file("shared", 1, 0),
-      file("other", 2, 0),
-    ];
-    const before = structuredClone(files);
-    const classified = classifyFiles(
-      {
-        architecture: {
-          primitives: {
-            modules: [
-              {
-                composition: { scopes: "single-scope" },
-                fragmentation: {
-                  crossResponsibility: 2,
-                  localGroups: 0,
-                  packageWide: 0,
-                },
-                module: "shared",
-                symbols: 3,
-                unresolvedSymbols: 0,
-              },
-            ],
-          },
-          rewiring: {
-            composition: [{ compositionRoot: true, module: "root" }],
-          },
-        } as never,
-        fileIds: { root: "root", shared: "shared" },
-      },
-      files
-    );
-    expect(classified.map((f) => f.architectureKind)).toEqual([
-      "junction",
-      "commons",
-      undefined,
-    ]);
-    expect(files).toEqual(before);
-  });
-});
-
 describe("shared drainage", () => {
   const basin = {
     ...territory,
@@ -262,7 +228,7 @@ describe("shared drainage", () => {
       ],
     ],
   } as Territory;
-  const mouth = file("mouth", 35, 25, { architectureKind: "junction" });
+  const mouth = file("mouth", 35, 25);
   const suppliers = [
     file("a", -40, -25),
     file("b", -35, -10),
@@ -281,6 +247,7 @@ describe("shared drainage", () => {
   }));
   const recorded = {
     fileIds: { a: "a", b: "b", c: "c", mouth: "mouth" },
+    fileRoles: { mouth: "junction" } as const,
     relationships: links,
     unresolved: [],
   };
@@ -335,7 +302,7 @@ describe("shared drainage", () => {
 });
 
 it("keeps role evidence while leaving file picking to the visible file marks", () => {
-  const commons = file("commons", 0, 0, { architectureKind: "commons" });
+  const commons = file("commons", 0, 0);
   const neighbor = file("neighbor", 2, 0);
   const shore = landmarkFootprint(commons, 6, [commons, neighbor]);
   expect(Math.max(...shore.map((point) => point.x))).toBeLessThan(1);
@@ -343,12 +310,13 @@ it("keeps role evidence while leaving file picking to the visible file marks", (
     confluences: [],
     landmarks: [
       {
+        basis: "commons" as const,
         consumers: [{ id: "reader", label: "Reader" }],
+        cutoff: 0,
         file: commons,
         footprint: shore,
         kind: "summit" as const,
         radius: 6,
-        role: "commons" as const,
       },
     ],
     marshes: [],

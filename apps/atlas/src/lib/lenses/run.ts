@@ -3,6 +3,7 @@ import { datasetReader } from "../dataset";
 import { fileTransport } from "../dataset-files";
 import { DATASET_FILES, lensFile } from "../dataset-layout";
 import type { DatasetManifest } from "../semantics-types";
+import { fileRolesLens } from "./file-roles";
 import type { Lens, LensId, LensReader, LensSettings } from "./lens-types";
 import { packageSizesLens } from "./package-sizes";
 
@@ -14,7 +15,7 @@ import { packageSizesLens } from "./package-sizes";
 export type AnyLens = Lens<LensId, unknown, keyof LensSettings>;
 
 /** Every lens, in dependency order: a lens comes after the lenses it consumes. */
-export const LENSES: readonly AnyLens[] = [packageSizesLens];
+export const LENSES: readonly AnyLens[] = [fileRolesLens, packageSizesLens];
 
 export interface WriteLensesOptions {
   /** The unpublished tree, holding every dataset file but the manifest. */

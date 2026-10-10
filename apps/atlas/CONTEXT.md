@@ -49,6 +49,35 @@ One package's internal structure: topology, symbol locality,
 responsibilities, primitive conventions, rewiring, and the review.
 _Avoid_: internal survey, in-depth analysis
 
+**Fan-in**:
+How many modules import a module, which takes a qualifier, since three
+counts go by the name. *Internal fan-in* is the topology's: the distinct
+source modules of the same package that import it; imports from other
+packages and from tests do not count. *Gravity fan-in* counts the
+import edges of the workspace module graph that end at it, across packages;
+it equals the viewer's *incoming imports*. The two are different measures,
+and neither contains the other: the module graph can miss imports the
+topology resolves, such as path aliases.
+_Avoid_: fan-in unqualified where two of them could be meant
+
+**High fan-in**:
+A topology role: a module whose internal fan-in is at least the package's
+high fan-in cutoff. The cutoff is the topology's, saved with the internals:
+the larger of a minimum and a percentile among the package's modules that
+have any dependent. The workspace graph's `highFanInModules` is a different
+measure: the modules ranked by gravity fan-in across the workspace.
+_Avoid_: hub, prominent, most-imported
+
+**File role**:
+What a file does in its package's architecture, from its internals, first
+match wins: `junction` (a composition root), `mixed` (its exported symbols
+serve more than one scope), `commons` (they serve no single responsibility
+but are consumed across responsibilities or package-wide), or `unknown`
+(every symbol's scope is unplaced or unclear). The `file-roles` lens saves
+it, beside each module's internal fan-in and high fan-in.
+_Avoid_: role alone, architecture kind, `unknown` for a responsibility's
+`unresolved` belonging
+
 **Evolution**:
 What every scan reads from the Git log, when there is one: churn, hotspots,
 change coupling, and change radius, in the workspace report and each file's
