@@ -32,8 +32,10 @@ are the context a step body receives.
 
 ## Definitions
 
-Definitions are optional presets. The context can create the same things on
-the spot.
+Definitions are optional; the context can create the same things on the
+spot. A definition is also something you can use: `agent` returns an agent
+with `generate` and `stream`, and `step` and `workflow` return definitions
+with `run`. See [using a definition](#using-a-definition).
 
 ```ts
 const reviewer = agent({ prompt: "Review without editing.", provider: "codex" });
@@ -73,6 +75,42 @@ const reviewing = skills.load().add("./skills/review/*").pick("caveman");
   plus the workspace's `skills/` folder. `.add(glob)` appends every folder
   matching the glob that holds a `SKILL.md`. `.pick(...names)` narrows.
   Each call returns a new set.
+
+## Using a definition
+
+```ts
+const designer = agent({ prompt: "Design within the brand." });
+const reply = await designer.generate("Sketch three logo ideas.");   // one turn
+const live = designer.stream("Sketch one more.");                      // the same, streamed
+
+const count = step().input(z.object({ path: z.string() })).do(({ input }) => …);
+const lines = await count.run({ path: "README.md" });                  // run it now
+```
+
+| Word | What it adds | Inside a run, the same as |
+| --- | --- | --- |
+| `agent` | `generate(input, turn?)`, `stream(input, turn?)` | `agents.session(def)`, one turn |
+| `step`, `workflow` | `run(input?)` | Locking it as a child, run on its own |
+
+- **Inside a step body** a call joins the step's run: it stops with the
+  step, writes to its stream, and a replay after a question or a pause
+  returns what the call returned the first time instead of running it
+  again. Keep these calls in a fixed order, as with `agents.session`.
+- **Anywhere else** (module top level, a plain `bun` script) it runs on the
+  engine `marbles` built for the module, or, with none, on a default one:
+  the installed CLI harnesses, the current directory as the workspace, and
+  the shared artifact store under `~/.foundry/artifacts`. Call `dispose()`
+  from `@foundry/marbles` when a script is done with it; a Codex turn keeps
+  a child process open until then.
+- **An agent's call is one turn on a fresh session.** For a conversation,
+  open a session with `agents.session(designer)`. The data fields are plain
+  properties and the methods are not, so `{ ...designer }` is a plain
+  definition that `agents.session` takes.
+- **`run` runs in this process**, not through the engine's queue, so a body
+  can await it; a nameless definition runs too. The nested run is not shown
+  on the dashboard and cannot be paused on its own. A step that asks a
+  person with nobody to answer rejects with `asked a person; run it with
+  marbles to answer`.
 
 ## The builder
 
@@ -327,8 +365,8 @@ override outer ones.
 
 ## Exports
 
-The package exports the nine words, the AI SDK's `Output`, and the types
-behind them: `Context`,
+The package exports the nine words, the AI SDK's `Output`, `dispose`, and
+the types behind them: `Agent`, `Runnable`, `Context`,
 `StepDefinition`, `WorkflowDefinition`, `LockedNode`, the definition types
 (`AgentDefinition`, `AgentSettings`, `WorkspaceDefinition`, `SandboxDefinition`,
 `SandboxSpec`, `ArtifactDefinition`, `SkillSet`), the context types

@@ -12,7 +12,7 @@ import { createContainers } from "@foundry/sandbox/container/containers";
 import { createMemoryContainerStore } from "@foundry/sandbox/container/store";
 import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
 import type { GitRun } from "@foundry/workspaces/git";
-import type { Catalog } from "~/authoring/catalog";
+import { Catalog } from "~/authoring/catalog";
 import { configuredMonitorUrl } from "~/lib/automation/configured";
 import { AutomationService } from "~/lib/automation/service";
 import { Engine } from "~/lib/engine";
@@ -27,6 +27,7 @@ import { echoModels } from "~/lib/models/echo";
 import { Registry } from "~/lib/registry";
 import { JsonSessionStore } from "~/lib/sessions/json-store";
 import { InMemoryStateStore, JsonStateStore } from "~/lib/state/store";
+import { workspaceState } from "~/lib/state/workspace";
 
 /**
  * The engine as Marbles runs it. The machine is inspected and the flags are
@@ -200,6 +201,30 @@ export function createEngine(options: CreateEngineOptions): Engine {
   declareCatalog(engine, catalog);
   return engine;
 }
+
+/**
+ * The runtime a definition's instance uses in a script no host loaded: the
+ * detected CLI harnesses, the current directory as the workspace, the
+ * shared artifact store, and nothing else persisted. Not started; no run is
+ * launched through it.
+ */
+export function createDefaultEngine(): Engine {
+  const { id, root } = workspaceState(STATE_DIR, process.cwd());
+  return createEngine({
+    artifacts: join(homedir(), ".foundry", "artifacts"),
+    catalog: new Catalog(),
+    dry: false,
+    only: [],
+    print: (line) => {
+      process.stderr.write(`${line}\n`);
+    },
+    root,
+    workspaceId: id,
+  });
+}
+
+/** Where `marbles` keeps workspace state by default; only the id is read here. */
+const STATE_DIR = join(homedir(), ".foundry", "marbles");
 
 /** Prints the command a sandbox would run and returns a clean exit. */
 function echoExec(print: (line: string) => void): (

@@ -6,6 +6,7 @@ import { catalog } from "~/authoring/catalog";
 import type { Triggers } from "~/create";
 import { createEngine, readTriggers } from "~/create";
 import type { Engine } from "~/lib/engine";
+import { setHost } from "~/lib/runtime";
 import type { Workspace } from "~/lib/state/workspace";
 import { workspaceState } from "~/lib/state/workspace";
 import { resolveSource, sourceFiles, sourceRoot } from "~/source";
@@ -133,7 +134,7 @@ export function hostEngine(
     readonly print: (line: string) => void;
   }
 ): Engine {
-  return createEngine({
+  const engine = createEngine({
     artifacts: resolve(args.artifacts),
     askable: options.askable,
     catalog,
@@ -144,6 +145,10 @@ export function hostEngine(
     stateDir: workspace.dir,
     workspaceId: workspace.id,
   });
+  // Definitions called outside a run use the host's models, stores, and
+  // dry-run echo; disposing the engine clears it.
+  setHost(engine);
+  return engine;
 }
 
 /** What an engine over this workspace would trigger, read without building one. */

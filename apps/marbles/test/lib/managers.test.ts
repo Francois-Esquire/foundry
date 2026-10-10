@@ -13,7 +13,7 @@ import { directory } from "@foundry/workspaces/node";
 import { nodeObserver } from "@foundry/workspaces/node/watch";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { skills } from "~/authoring/resources";
-import type { ManagerArgs } from "~/lib/bindings";
+import type { Bindings, ManagerArgs } from "~/lib/bindings";
 import { ArtifactsManager, artifactIdFor } from "~/lib/managers/artifacts";
 import {
   allowedMountRoots,
@@ -38,6 +38,9 @@ beforeEach(async () => {
 afterEach(async () => {
   await rm(tmp, { force: true, recursive: true });
 });
+
+/** These managers never reach the bindings a body's context carries. */
+const NO_BINDINGS = {} as Bindings;
 
 function args(cwd = tmp): ManagerArgs & { readonly written: unknown[] } {
   const scope = new RunScope(`run-${Math.random()}`, cwd);
@@ -118,7 +121,7 @@ describe("workspaces", () => {
       expect(repositoryRoot(join(repo, "nested", "deeper"))).toBe(repo);
 
       const seen: string[] = [];
-      await current.run({ cwd: repo, frame: a.frame, scope: a.scope }, () =>
+      await current.run({ ...a, bindings: NO_BINDINGS, cwd: repo }, () =>
         workspaces.current.git.withWorktree({ base: "main" }, (worktree) => {
           seen.push(current.getStore()?.cwd ?? "");
           return Promise.resolve(worktree.root);
@@ -342,7 +345,7 @@ describe("sandboxes", () => {
     const a = args(root);
     const sandboxes = manager.scoped(a);
     const env = await current.run(
-      { cwd: worktree, frame: a.frame, scope: a.scope },
+      { ...a, bindings: NO_BINDINGS, cwd: worktree },
       () => sandboxes.start({ image: "img:1" })
     );
     const [row] = await containers.list();

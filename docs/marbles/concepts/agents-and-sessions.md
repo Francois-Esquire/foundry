@@ -71,6 +71,17 @@ may still miss changes or misinterpret history.
 starts nothing; opening a session does. The prompt is an instruction, not a
 permission; see [safety and limits](/marbles/safety-and-limits).
 
+An agent is also usable on its own. `designer.generate(prompt)` and
+`designer.stream(prompt)` run one turn on a fresh session, in the calling
+step when there is one, or on a default runtime in a plain script:
+
+```ts
+const designer = agent({ prompt: "Design within the brand." });
+const { text } = await designer.generate("Name this palette.");
+```
+
+Use `agents.session(designer)` when the conversation should continue.
+
 `settings` holds what every turn starts from: the AI SDK's model settings
 (`temperature`, `maxOutputTokens`, `stopWhen`, `providerOptions`, …) and an
 `output`. A turn's own options override them. Claude Code and Codex run

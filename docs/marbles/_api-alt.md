@@ -157,7 +157,7 @@ inline stays internal.
 
 | Word | Kind | Shape | Purpose |
 | --- | --- | --- | --- |
-| `agent` | definition | `agent({ name?, prompt, model?, provider?, skills? })` | Who does model work, with its default context. `skills` takes a skill set. Its id (grants and created triggers are kept under it) is `name`, else the top-level `const`, else a digest of prompt and route. |
+| `agent` | definition | `agent({ name?, prompt, model?, provider?, settings?, skills? })` | Who does model work, with its default context. `settings` holds the model settings and `output` every turn starts from. `skills` takes a skill set. Its id (grants and created triggers are kept under it) is `name`, else the top-level `const`, else a digest of prompt and route. |
 | `workspace` | definition | `workspace({ path })` | Another directory to work on. The config's own is implicit. |
 | `sandbox` | definition | `sandbox({ image, mount?, resources? })` or `sandbox({ files, image? })` | An isolated place to run commands; the files form is a scratch sandbox seeded under `/workspace`. |
 | `artifact` | definition | `artifact({ name, type })` | A versioned output. |
@@ -167,8 +167,37 @@ inline stays internal.
 | `schedule` | trigger | `schedule(definition).at(slot)` or `.every(interval)` | Runs a step or workflow on a clock. |
 | `monitor` | trigger | `monitor(source).every?(interval).do(fn)` | Runs when files or an HTTP response change. |
 
-Definitions are presets. They are optional: the context can also create the
-same thing on the spot (see [Context](#context)).
+A definition is an instance. Calling a word still builds and registers the
+definition under the same id rules, but what it returns is a usable
+instance of the thing it names. Its data fields stay on it, so everything
+that takes a definition keeps taking it, and a spread of one is the plain
+definition. Definitions stay optional: the context creates the same things
+on the spot (see [Context](#context)).
+
+| Word | The instance adds | The run-scoped way in |
+| --- | --- | --- |
+| `agent` | `generate(input, turn?)`, `stream(input, turn?)`. Nothing else. | `agents.session(def)` |
+| `step` | `run(input)`. Calling it still locks a node. | A lock in a tree |
+| `workflow` | `run(input)`. Calling it still locks a node. | A launch or a trigger |
+| `workspace` | The workspace handle: `root`, `files()`, `git`. | `workspaces.load(def)` |
+| `sandbox` | The sandbox handle: `exec`, `close`; started on first use. | `sandboxes.start(def)` |
+| `artifact` | `write(files)` and `latest()`. | `artifacts.write(def, files)` |
+| `skills` | Unchanged: a set is already a value. | An agent's `skills` |
+
+`schedule` and `monitor` are triggers, not definitions; they return nothing
+to use.
+
+- **Where an instance runs.** Inside a step body, in the body's run: the call
+  is attributed to it, cancelled with the step, written to its stream, and
+  replayed from the ledger. Outside a body, on the host's engine when the
+  CLI or dashboard loaded the module, else on a default runtime built on
+  first use from the detected CLI harnesses, the current directory, and the
+  shared artifact store. `dispose()` closes the default runtime.
+- **An agent's call is one turn.** Each `generate` or `stream` opens a fresh
+  session and runs one turn. A conversation stays with `agents.session`.
+- **`run` runs in this process.** It does not go through the engine's
+  queue, so a body can await it. A nameless definition runs too. A step
+  that asks a person with no host to answer rejects.
 
 - **A declared artifact keeps its identity across runs.** Each run adds a
   version to the same artifact.
@@ -242,8 +271,16 @@ What Marbles adds to each of these keys:
 - **Stored in the config's residency.** State lives in the config's folder under
   `~/.foundry`, not in memory.
 
-Top-level definitions are optional presets. The context creates the same
-things on the spot, as often as a run needs.
+**Pass-through.** Marbles fills in what it owns: the working directory,
+cancellation, the step's stream, dry-run echo, replay, and run identity.
+Everything else passes through to the package underneath. A default is an
+argument filled in, not an option removed: each wrapper takes the
+underlying options type minus the keys Marbles owns, and returns the
+underlying result plus Marbles' own fields.
+
+Top-level definitions are optional. The context creates the same things on
+the spot, as often as a run needs, and a definition's own methods (see
+[Top-level words](#top-level-words)) reach the same managers.
 
 **Naming rule.** Singular words are imports (`agent`, `workspace`, `sandbox`,
 `artifact`). Plural keys are the context (`agents`, `workspaces`, `sandboxes`,
@@ -256,7 +293,16 @@ const session = await agents.session(reviewer);                   // a definitio
 const scoped = await agents.session(reviewer, { cwd: checkout.root }); // with an override
 const again = await agents.session(reviewer, { session });         // continue a session
 const reply = await session.generate("Review the change.");
+
+const { output } = await session.generate("Verdict?", { output: Output.object({ schema }) }); // structured
+const once = await reviewer.generate("Review the change.");        // one turn, no session kept
 ```
+
+A turn's options are the AI SDK's call settings (`output`, `temperature`,
+`maxOutputTokens`, `stopWhen`, `toolChoice`, `providerOptions`, …) plus
+`signal` and stream handlers; Marbles owns `abortSignal` and `messages`. A
+reply is the committed message with `text`, `output`, `usage`, and the AI
+SDK `result` when the harness has one.
 
 ### workspaces
 
@@ -699,8 +745,9 @@ const drafter = agent({ prompt: "Draft the page.", model: "anthropic/claude-sonn
 - **Sandbox API.** The `@foundry/sandbox` surface is due to change. The
   `sandboxes` key follows it.
 - **Shortcuts.** One-call helpers on top of the context: loading a workspace,
-  a sandbox handler that returns a sandbox already started, mounted, and scoped
-  to the run, or calling an agent directly with its presets.
+  or a sandbox handler that returns a sandbox already started, mounted, and
+  scoped to the run. A definition's own instance covers these once its
+  handle lands (`_next-api.md`, A.5 and A.6).
 - **Agents inside a sandbox (phase 2).** Today an agent wraps a sandbox; no
   architecture invokes an agent in one. Phase 2 installs the image, the CLIs,
   and Foundry's own library into the sandbox and drives the providers from

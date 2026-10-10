@@ -45,6 +45,7 @@ import type { DefinitionEntry, MonitorRecord } from "~/lib/registry";
 import { Registry } from "~/lib/registry";
 import type { ReadonlyRunScopes } from "~/lib/run-scope";
 import { PAUSE_KIND, RunScopes } from "~/lib/run-scope";
+import { clearHost } from "~/lib/runtime";
 import { HarnessActivities } from "~/lib/sandbox/activities";
 import { JsonAgentGrantRepository } from "~/lib/sandbox/grants";
 import { HarnessInteractions } from "~/lib/sandbox/interactions";
@@ -315,6 +316,7 @@ export class Engine {
       log: createLog((_level, message) => print(message)),
       root,
       sandboxes: (args) => this.sandboxes.scoped(args),
+      turns: (args) => this.agents.turns(args),
       workspaces: (args) => this.workspaces.scoped(args),
     };
   }
@@ -858,6 +860,7 @@ export class Engine {
   }
 
   async #dispose(): Promise<void> {
+    clearHost(this);
     try {
       await this.#starting?.catch(() => undefined);
       await this.stop({ cancel: true });

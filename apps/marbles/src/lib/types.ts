@@ -193,6 +193,23 @@ export interface Session<DEFAULT extends Output.Output = never> {
   ): SessionStream<OUTPUT>;
 }
 
+/**
+ * An agent definition you can use directly: each call is one turn on a
+ * fresh session, in the calling step when there is one. For a
+ * conversation, open a session with `agents.session(agent)`.
+ */
+export interface Agent<DEFAULT extends Output.Output = never>
+  extends AgentDefinition<DEFAULT> {
+  generate<OUTPUT extends Output.Output = DEFAULT>(
+    input: SessionInput,
+    options?: TurnOptions<OUTPUT>
+  ): Promise<SessionReply<OUTPUT>>;
+  stream<OUTPUT extends Output.Output = DEFAULT>(
+    input: SessionInput,
+    options?: TurnOptions<OUTPUT>
+  ): SessionStream<OUTPUT>;
+}
+
 export interface Agents {
   session<OUTPUT extends Output.Output = never>(
     agent: AgentDefinition<OUTPUT>,

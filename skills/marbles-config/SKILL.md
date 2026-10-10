@@ -17,8 +17,9 @@ a step asks a person something.
 
 ## The mental model in five lines
 
-1. **Definitions are presets.** `agent`, `workspace`, `sandbox`, `artifact`,
-   `skills` describe defaults. They do nothing on their own.
+1. **Definitions carry defaults.** `agent`, `workspace`, `sandbox`,
+   `artifact`, `skills` describe them. Nothing starts until used: an agent's
+   own `generate` is one turn; `agents.session(agent)` is a conversation.
 2. **Steps do the work.** `step(name).input(schema).output(schema).do(fn)`.
    `fn` gets one context object and returns the step's result.
 3. **Locking builds the tree.** Calling a step, `review({}, { target: "." })`,

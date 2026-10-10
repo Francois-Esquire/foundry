@@ -73,6 +73,20 @@ Each has a recommendation; the parts below are written assuming it.
 
 ## Part A. Definitions are instances
 
+**A.1 to A.4 landed 2026-10-10**, with the `_api-alt.md` amendments 1, 2, 3,
+and 6. Where the code differs from the sections below:
+
+- The slot is `apps/marbles/src/lib/runtime.ts` (`setHost`, `clearHost`,
+  `instanceRuntime`, `dispose`); the build keeps it in one chunk shared by
+  both entries. The default runtime is `createDefaultEngine()` in
+  `create.ts`, an unstarted engine with an empty catalog, so `report` in a
+  directly run step publishes to the shared feed rather than `print`.
+- One-turn calls live on `AgentsManager.turns(args?)`, reached through an
+  optional `Bindings.turns`. They claim their own ledger kind,
+  `agent.turn`, never `agents.session`, and record the committed message's
+  session and id; a replay reads that message back from the session store.
+- `step.run` records `{ output }`, so an `undefined` output replays too.
+
 ### Today
 
 - `agent({ … })` returns `AgentDefinition`, a plain record

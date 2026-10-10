@@ -91,7 +91,7 @@ monitors have no names; they are keyed by what they trigger and watch. See
 [triggers](/marbles/reference/api#triggers).
 
 Definitions such as `agent`, `workspace`, `sandbox`, `artifact`, and skill
-sets are presets, not catalog entries. Only steps and workflows are launched.
+sets are not catalog entries. Only steps and workflows are launched.
 
 ## Package resolution
 

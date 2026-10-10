@@ -2,7 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import type { ChannelMessage } from "@foundry/workflows/channels";
 import type { Step } from "@foundry/workflows/step";
 
-import type { HostBindings } from "./bindings";
+import type { Bindings, HostBindings } from "./bindings";
 import { Ledger } from "./ledger";
 import type { SessionRef } from "./types";
 
@@ -55,9 +55,13 @@ export interface Frame {
 }
 
 export interface Current {
+  /** The engine's managers: a definition called in the body uses them. */
+  readonly bindings: Bindings;
   readonly cwd: string;
   readonly frame: Frame;
   readonly scope: RunScope;
+  /** The step's stream. */
+  readonly write: (value: unknown) => void;
 }
 
 /**

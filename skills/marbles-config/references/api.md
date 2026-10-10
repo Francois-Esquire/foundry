@@ -41,8 +41,11 @@ plural keys (`agents`, `workspaces`, `sandboxes`, `artifacts`) are the context.
 
 ## Definitions
 
-Definitions are optional presets. The context can create the same things on
-the spot.
+Definitions are optional; the context can create the same things on the
+spot. An `agent` also has `generate` and `stream` (one turn on a fresh
+session), and a `step` or `workflow` has `run(input)`; inside a body these
+join the step's run and replay, elsewhere they use the host's engine or a
+default runtime (`dispose()` closes it).
 
 ```ts
 const reviewer = agent({ prompt: "Review without editing.", provider: "codex" });
@@ -156,6 +159,10 @@ const scoped = await agents.session(reviewer, { cwd: worktree.root });  // overr
 const again = await agents.session(reviewer, { session });              // continue one
 const reply = await session.generate("Review the change.");
 reply.text;
+
+// A definition is usable on its own: one turn on a fresh session, or a run.
+const once = await reviewer.generate("Review the change.");  // same as a one-turn agents.session
+const total = await count.run({ path: "README.md" });         // a step or workflow, run now
 
 // Structured output: `Output` is re-exported from the AI SDK. A reply that
 // does not match the schema rejects with NoObjectGeneratedError.

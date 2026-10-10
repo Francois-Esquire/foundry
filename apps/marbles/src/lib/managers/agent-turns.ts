@@ -9,9 +9,14 @@ import type {
   SessionMessage,
   SessionStream,
 } from "@foundry/agents/session";
-import type { InferStreamOutput, Output } from "ai";
+import type { InferGenerateOutput, InferStreamOutput, Output } from "ai";
 import type { LiveSession } from "../run-scope";
-import type { AgentSettings, Session, SessionRef } from "../types";
+import type {
+  AgentSettings,
+  Session,
+  SessionRef,
+  SessionReply,
+} from "../types";
 
 export interface SessionTurnSite {
   readonly recorded?: SessionRef;
@@ -25,6 +30,72 @@ function textOf(message: SessionMessage): string {
   return message.parts
     .flatMap((part) => (part.type === "text" ? [part.text] : []))
     .join("\n");
+}
+
+/** A committed message as a reply: what a replayed turn returns, without the SDK result. */
+export function replyOf<OUTPUT extends Output.Output>(
+  message: SessionMessage
+): SessionReply<OUTPUT> {
+  return {
+    ...message,
+    output: message.metadata?.output as InferGenerateOutput<OUTPUT>,
+    text: textOf(message),
+    usage: message.metadata?.usage ?? {
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+    },
+  };
+}
+
+/** A finished turn's reply as a stream: one finish event, no partials. */
+export function replayedStream<OUTPUT extends Output.Output>(
+  reply: SessionReply<OUTPUT>
+): SessionStream<OUTPUT> {
+  return {
+    async *[Symbol.asyncIterator]() {
+      yield* [{ message: reply, type: "finish", usage: reply.usage } as const];
+    },
+    message: Promise.resolve(reply),
+    outcome: Promise.resolve("complete"),
+    output: Promise.resolve(reply.output),
+    partialOutputStream: (async function* () {
+      // A replayed turn streams nothing.
+    })(),
+    result: Promise.resolve(undefined),
+    text: Promise.resolve(reply.text),
+    usage: Promise.resolve(reply.usage),
+  };
+}
+
+/**
+ * A stream returned at once over one that is still being opened: each
+ * final waits for it, and iteration starts when it is there.
+ */
+export function deferredStream<OUTPUT extends Output.Output>(
+  opening: Promise<SessionStream<OUTPUT>>
+): SessionStream<OUTPUT> {
+  const final = <T>(pick: (stream: SessionStream<OUTPUT>) => Promise<T>) => {
+    const value = opening.then(pick);
+    value.catch(() => undefined);
+    return value;
+  };
+  return {
+    async *[Symbol.asyncIterator]() {
+      yield* await opening;
+    },
+    message: final((stream) => stream.message),
+    outcome: final((stream) => stream.outcome),
+    output: final((stream) => stream.output),
+    partialOutputStream: {
+      async *[Symbol.asyncIterator]() {
+        yield* (await opening).partialOutputStream;
+      },
+    },
+    result: final((stream) => stream.result),
+    text: final((stream) => stream.text),
+    usage: final((stream) => stream.usage),
+  };
 }
 
 /**

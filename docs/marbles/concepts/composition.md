@@ -112,6 +112,10 @@ parks on a question, the others finish and the parent waits.
   fixed tree launchable and schedulable. `workflow("ship").input(schema).do(setup)`
   builds the tree from input at launch. A workflow is a definition too:
   `weekly({})` locks it, which is what a monitor handler returns to start it.
+- **A definition also runs on its own.** `review.run({ target: "." })`
+  runs a step or workflow now and returns its output, inside a body or in
+  a plain script. In a body it is recorded, so a replay returns the same
+  output; prefer a child when the result should show as its own step.
 - **Setup is not durable.** A workflow's `.do` receives `{ input, log, run }`
   and runs on every setup, including after a restart, so it prepares and
   returns the tree rather than doing work. Anything it must keep goes into a

@@ -1,7 +1,16 @@
 import type { AgentSpec } from "@foundry/agents/agents/index";
 import { createAgentPreset } from "@foundry/agents/agents/index";
-import type { HarnessSession, SessionHarness } from "@foundry/agents/harness";
-import type { SessionStore } from "@foundry/agents/session";
+import type {
+  HarnessSession,
+  SessionHarness,
+  TurnOptions,
+} from "@foundry/agents/harness";
+import type {
+  SessionInput,
+  SessionMessage,
+  SessionStore,
+  SessionStream,
+} from "@foundry/agents/session";
 import type { Skill } from "@foundry/agents/skills";
 import type { ModelManager, TurnExecutorRef } from "@foundry/models";
 import { observeAgentTurn } from "@foundry/models";
@@ -26,9 +35,16 @@ import type {
   Session,
   SessionOptions,
   SessionRef,
+  SessionReply,
   SkillSet,
 } from "../types";
-import { type SessionTurnSite, wrapAgentSession } from "./agent-turns";
+import {
+  deferredStream,
+  replayedStream,
+  replyOf,
+  type SessionTurnSite,
+  wrapAgentSession,
+} from "./agent-turns";
 import { resolveCompaction } from "./session-options";
 
 /**
@@ -69,6 +85,31 @@ export interface AgentsDeps {
 }
 
 const KIND = "agents.session";
+/** A definition's own `generate` or `stream`: one turn on a fresh session. */
+const TURN_KIND = "agent.turn";
+
+/** Where a one-turn call's reply is, for replay. */
+interface RecordedTurn {
+  readonly message: string;
+  readonly session: string;
+}
+
+/**
+ * One turn on a fresh session, as an agent definition's `generate` and
+ * `stream` run it. Continuity across turns stays with `agents.session`.
+ */
+export interface AgentTurns {
+  generate<OUTPUT extends Output.Output>(
+    definition: AgentDefinition<Output.Output>,
+    input: SessionInput,
+    options?: TurnOptions<OUTPUT>
+  ): Promise<SessionReply<OUTPUT>>;
+  stream<OUTPUT extends Output.Output>(
+    definition: AgentDefinition<Output.Output>,
+    input: SessionInput,
+    options?: TurnOptions<OUTPUT>
+  ): SessionStream<OUTPUT>;
+}
 /** The run id of a session opened on the manager, outside any run. */
 const DIRECT = "direct";
 
@@ -437,19 +478,124 @@ export class AgentsManager implements Agents {
     validateSessionOptions(options);
     return await openSession(
       this.#deps,
-      {
-        cwd: this.#deps.root,
-        record: () => undefined,
-        retain: (closable) => this.#held.add(closable),
-        signal: () => this.#closing.signal,
-        source: { definition: definition.id, path: [], runId: DIRECT },
-        takeResume: () => undefined,
-        track: () => undefined,
-        write: () => undefined,
-      },
+      this.#directSite(definition, (closable) => this.#held.add(closable)),
       definition,
       options
     );
+  }
+
+  /**
+   * One-turn calls, inside a step when `args` is given, else outside any.
+   * In a step each call claims its own place in the ledger, never an
+   * `agents.session` one, and a replay returns the reply it recorded
+   * without running the turn again.
+   */
+  turns(args?: ManagerArgs): AgentTurns {
+    const open = (definition: AgentDefinition<Output.Output>) =>
+      this.#turn(definition, args);
+    return {
+      generate: async (definition, input, options) => {
+        const turn = open(definition);
+        const replayed = await turn.replayed();
+        if (replayed) {
+          return replyOf(replayed);
+        }
+        try {
+          const session = await turn.session();
+          const reply = await session.generate(input, options);
+          turn.record(reply);
+          return reply;
+        } finally {
+          await turn.close();
+        }
+      },
+      stream: (definition, input, options) => {
+        const turn = open(definition);
+        const opening = (async () => {
+          const replayed = await turn.replayed();
+          if (replayed) {
+            return replayedStream(replyOf(replayed));
+          }
+          try {
+            const stream = (await turn.session()).stream(input, options);
+            Promise.all([stream.message, stream.output])
+              .then(([message]) => turn.record(message))
+              .catch(() => undefined)
+              .finally(() => turn.close());
+            return stream;
+          } catch (error) {
+            await turn.close();
+            throw error;
+          }
+        })();
+        return deferredStream(opening);
+      },
+    };
+  }
+
+  /** A one-turn call's place: claimed at once, so call order decides it. */
+  #turn(definition: AgentDefinition<Output.Output>, args?: ManagerArgs) {
+    const held = new Set<Closable>();
+    const claim = args?.scope.claim(args.frame, TURN_KIND);
+    const recorded = claim && args?.scope.ledger.get<RecordedTurn>(claim.key);
+    const site: SessionSite = args
+      ? {
+          cwd: args.scope.cwd,
+          parent: args.scope.session.id,
+          record: () => undefined,
+          retain: (closable) => held.add(closable),
+          signal: () => args.frame.signal,
+          source: {
+            definition: args.frame.path[0] ?? definition.id,
+            path: [...args.frame.path],
+            runId: args.scope.id,
+          },
+          takeResume: () => undefined,
+          track: (live) => args.frame.sessions.push(live),
+          write: args.write,
+        }
+      : this.#directSite(definition, (closable) => held.add(closable));
+    return {
+      close: async () => {
+        await Promise.allSettled([...held].map((closable) => closable.close()));
+      },
+      /** Only a complete reply is kept; anything else runs again on replay. */
+      record: (message: SessionMessage) => {
+        if (claim && message.status === "complete") {
+          args?.scope.ledger.set(claim.key, {
+            message: message.id,
+            session: message.sessionId,
+          } satisfies RecordedTurn);
+        }
+      },
+      replayed: async (): Promise<SessionMessage | undefined> => {
+        if (!recorded) {
+          return;
+        }
+        const messages = await this.#deps.sessions.listMessages(
+          recorded.session
+        );
+        return messages.find((message) => message.id === recorded.message);
+      },
+      session: () => openSession(this.#deps, site, definition, {}),
+    };
+  }
+
+  /** Outside any step: the workspace root, stopped only by the manager's close. */
+  #directSite(
+    definition: AgentDefinition<Output.Output>,
+    retain: (closable: Closable) => void
+  ): SessionSite {
+    return {
+      cwd: this.#deps.root,
+      record: () => undefined,
+      retain,
+      signal: () => this.#closing.signal,
+      source: { definition: definition.id, path: [], runId: DIRECT },
+      takeResume: () => undefined,
+      track: () => undefined,
+      write: () => undefined,
+    };
   }
 
   /** What a step body sees: sessions bound to its frame's signal, stream, and working directory. */

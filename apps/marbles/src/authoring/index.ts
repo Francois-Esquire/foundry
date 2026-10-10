@@ -9,6 +9,7 @@ export type {
   MonitorContext,
   MonitorHandler,
 } from "~/lib/monitor";
+export { dispose } from "~/lib/runtime";
 export type {
   CalendarSlot,
   Schedule,
@@ -16,6 +17,7 @@ export type {
   Weekday,
 } from "~/lib/triggers";
 export type {
+  Agent,
   AgentDefinition,
   AgentSettings,
   Agents,
@@ -46,7 +48,7 @@ export type {
   Workspaces,
 } from "~/lib/types";
 export { step, workflow } from "./builder";
-export type { StepDefinition, WorkflowDefinition } from "./lock";
+export type { Runnable, StepDefinition, WorkflowDefinition } from "./lock";
 export { agent, artifact, sandbox, skills, workspace } from "./resources";
 export type { MonitorBuilder, ScheduleBuilder } from "./triggers";
 export { monitor, schedule } from "./triggers";

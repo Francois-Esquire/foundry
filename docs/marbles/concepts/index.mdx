@@ -19,8 +19,9 @@ words registers definitions and triggers; exports are optional.
 | `schedule` | trigger | A cadence bound to a step or workflow, bare or locked with input. |
 | `monitor` | trigger | A file glob or an HTTP source, polled, with a handler for changes. |
 
-Definitions are presets. A step body can create the same things on the spot
-through its context.
+Definitions carry defaults, and you can use them directly: an agent
+generates, a step or workflow runs. A step body can create the same things
+on the spot through its context.
 
 ```mermaid
 flowchart TD

@@ -8,7 +8,6 @@ import { buildContext } from "./context";
 import type {
   AnyDefinition,
   LockedNode,
-  NamedDefinition,
   StepRecord,
   WorkflowRecord,
 } from "./definition";
@@ -140,7 +139,13 @@ async function runBody(
       ? await validate(definition.input, merged, `${where} input`)
       : merged
   ) as Input;
-  const store = { cwd: scope.cwd, frame, scope };
+  const store = {
+    bindings,
+    cwd: scope.cwd,
+    frame,
+    scope,
+    write: (value: unknown) => ctx.write(value),
+  };
   let output: unknown;
   let attempt: Promise<unknown> | undefined;
   try {
@@ -217,14 +222,15 @@ export type DefinitionFactory = (
 /**
  * Each run's scope is opened in `scopes`, which holds it only once its tree
  * is built: a launch rejected on its input or by its setup leaves nothing
- * in the run table.
+ * in the run table. `name` is the root's key, the definition's own name
+ * unless one is given for a nameless definition run directly.
  */
 export function factoryFor(
-  definition: NamedDefinition,
+  definition: AnyDefinition,
   bindings: () => Bindings,
-  scopes: RunScopes
+  scopes: RunScopes,
+  name: string = nameOf(definition)
 ): DefinitionFactory {
-  const { name } = definition;
   return async (rawInput, execution) => {
     const bound = bindings();
     const input = (
@@ -245,6 +251,13 @@ export function factoryFor(
         )
     );
   };
+}
+
+function nameOf(definition: AnyDefinition): string {
+  if (definition.name === undefined) {
+    throw new Error("a nameless definition needs a key to run as a root");
+  }
+  return definition.name;
 }
 
 async function rootNode(

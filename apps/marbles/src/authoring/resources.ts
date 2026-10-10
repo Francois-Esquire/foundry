@@ -2,8 +2,9 @@ import { createHash } from "node:crypto";
 import { canonicalizeJson } from "@foundry/lib/json";
 import type { Output } from "ai";
 import { catalog } from "~/authoring/catalog";
+import { agentInstance } from "~/lib/instances";
 import type {
-  AgentDefinition,
+  Agent,
   AgentSettings,
   ArtifactDefinition,
   SandboxDefinition,
@@ -36,7 +37,7 @@ export function agent<OUTPUT extends Output.Output = never>(spec: {
   /** Model settings and structured output every turn starts from. */
   readonly settings?: AgentSettings<OUTPUT>;
   readonly skills?: SkillSet;
-}): AgentDefinition<OUTPUT> {
+}): Agent<OUTPUT> {
   const { name, ...rest } = spec;
   if (!rest.prompt.trim()) {
     throw new Error("agent(): a prompt is required");
@@ -55,7 +56,7 @@ export function agent<OUTPUT extends Output.Output = never>(spec: {
     (site === undefined ? undefined : bindingAt(site)) ??
     `agent-${digest.slice(0, 16)}`;
   catalog.claimAgent(id, digest, site && originOf(site));
-  return { id, kind: "agent", ...rest };
+  return agentInstance<OUTPUT>({ id, kind: "agent", ...rest });
 }
 
 export function workspace(spec: {
