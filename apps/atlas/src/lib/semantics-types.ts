@@ -4,14 +4,13 @@ import type { FileKind, ModuleRole } from "./types";
 import type { WorkspaceConceptCoverage } from "./workspace-concepts-types";
 
 /**
- * V12.0 static semantics dataset. One generation materializes every canonical
- * layer (package reports, the V9 workspace, V9.4 projections) plus small
- * indexes and per-module records under `.foundry/semantics/`, so a plain
- * HTTP client can explore the architecture without the analyzer. The
- * directory contract is versioned on its own; the package, workspace, and
- * projection schemas it embeds keep theirs.
+ * The dataset's schema version, the promise a reader holds the dataset to:
+ * every file the manifest names, in the shape this version gives it. A scan
+ * saves it in the manifest, and a reader refuses any other. The package,
+ * workspace, and projection schemas the dataset embeds keep their own
+ * versions.
  */
-export const SEMANTICS_DATASET_SCHEMA_VERSION = 4;
+export const DATASET_SCHEMA_VERSION = 4;
 
 /**
  * The resolved configuration a scan runs under: what the workspace's
@@ -75,7 +74,7 @@ export type DeclaredDiscovery = SemanticsDiscovery & {
   declarationSource: SemanticsDeclarationSource;
 };
 
-type SemanticsPackageStatus = "complete" | "failed" | "skipped";
+type SemanticsPackageStatus = "complete" | "failed";
 
 /** The `package.json` fields that declare dependencies, in the order the dataset's manifest lists them. */
 export const SEMANTICS_DECLARED_DEPENDENCY_KINDS = [
@@ -150,7 +149,7 @@ interface SemanticsGenerationMetadata {
 export type SemanticsInvalidationReason =
   | "full-rebuild"
   | "sources-changed"
-  | "history-changed"
+  | "evolution-changed"
   | "clock-changed"
   | "config-changed"
   | "analysis-changed"
@@ -200,7 +199,7 @@ interface SemanticsManifestFiles {
   workspace: string;
 }
 
-export interface SemanticsManifest {
+export interface DatasetManifest {
   counts: {
     packages: number;
     modules: number;

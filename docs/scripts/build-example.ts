@@ -5,9 +5,10 @@ import { spawn } from "bun";
 
 const docs = resolve(import.meta.dirname, "..");
 const root = await realpath(resolve(docs, ".."));
+// The bin sits beside the library entry; the exports map names only `.`.
 const atlas = join(
-  dirname(fileURLToPath(import.meta.resolve("@foundry/atlas/package.json"))),
-  "dist/cli/atlas.js"
+  dirname(fileURLToPath(import.meta.resolve("@foundry/atlas"))),
+  "atlas.js"
 );
 const state = join(docs, ".cache", "atlas-example");
 const example = join(docs, "public", "atlas", "examples", "foundry");

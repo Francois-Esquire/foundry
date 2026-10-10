@@ -10,8 +10,8 @@ import { INTERNAL_REWIRING_SCHEMA_VERSION } from "./internal-rewiring-types";
 import { INTERNAL_PACKAGE_TOPOLOGY_SCHEMA_VERSION } from "./internal-topology-types";
 import { PACKAGE_LOCAL_REPORT_SCHEMA_VERSION } from "./package-local-types";
 import { PRIMITIVE_CONVENTION_SCHEMA_VERSION } from "./primitive-convention-types";
-import { SEMANTICS_HISTORY_SCHEMA_VERSION } from "./semantics-history-types";
-import { SEMANTICS_DATASET_SCHEMA_VERSION } from "./semantics-types";
+import { HISTORY_SCHEMA_VERSION } from "./semantics-history-types";
+import { DATASET_SCHEMA_VERSION } from "./semantics-types";
 import { SYMBOL_LOCALITY_SCHEMA_VERSION } from "./symbol-locality-types";
 import { WORKSPACE_SURFACE_DERIVATION_SCHEMA_VERSION } from "./workspace-derive-types";
 import { WORKSPACE_PROJECTION_SCHEMA_VERSION } from "./workspace-projection-types";
@@ -52,7 +52,7 @@ export const SEMANTIC_STAGE_VERSIONS: Record<
   SemanticStage,
   SemanticStageVersions
 > = {
-  historySnapshot: { schemaVersion: SEMANTICS_HISTORY_SCHEMA_VERSION },
+  historySnapshot: { schemaVersion: HISTORY_SCHEMA_VERSION },
   /** V13.0: pure derivation from one local report; no workspace stage consumes it. */
   internalPackageTopology: {
     schemaVersion: INTERNAL_PACKAGE_TOPOLOGY_SCHEMA_VERSION,
@@ -63,7 +63,7 @@ export const SEMANTIC_STAGE_VERSIONS: Record<
   },
   /** V13.4: pure derivation from the five package-intelligence reports above. */
   internalRewiring: { schemaVersion: INTERNAL_REWIRING_SCHEMA_VERSION },
-  materialization: { schemaVersion: SEMANTICS_DATASET_SCHEMA_VERSION },
+  materialization: { schemaVersion: DATASET_SCHEMA_VERSION },
   /** The assembled `SurfaceReport`: local analysis joined with derivation. */
   packageAnalysis: {
     policyVersion: ANALYSIS_POLICY_VERSION,

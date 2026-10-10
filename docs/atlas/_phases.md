@@ -551,33 +551,78 @@ built on them yet.
   though they belong to no package and appear nowhere in the dataset
   (checked on a scanned `*` workspace).
 
-**1.10 Exports and the installed package.** Last, because it publishes the
-others.
-- The `exports` map: `.` only, with `scan`, `serve`, and the result types.
-  The analysis worker ships beside it.
-- The exported dataset types carry a `Semantics*` prefix
-  (`SemanticsManifest`); alias them or document the prefix.
-- `serve` returns an `AtlasServer`, prefixed (unlike `Scan`) so it does
-  not collide with Bun's or Node's `Server`.
-- The entry names its exports explicitly, with no `export *`, so
-  `viewerRoot`, `DEFAULT_PORT`, and `checkPort` in `lib/serve.ts` stay
-  internal.
-- The entry sits one directory under `dist/`, beside the worker, so that
-  the worker and `viewerRoot` find their files (`scripts/build.ts`).
-- `test/package.test.ts` imports the library from the installed tarball and
-  runs `scan`, `scan.workspace`, `scan.package`, and `serve` against the
-  fixture.
-- Public pages for the library, beside the CLI pages.
-- Two public names to decide before 0.1: `SemanticsPackageStatus`
-  `"skipped"` is never written, and the invalidation reason
-  `"history-changed"` names Git state, which the glossary calls evolution,
-  not history.
+**1.10 Exports and the installed package.** Done 2026-10-10.
+- `package.json` has an `exports` map with `.` only, `types` first:
+  `dist/lib/index.d.ts` and `dist/lib/index.js`. `src/lib/index.ts` names
+  every export, with no `export *`, so `viewerRoot`, `DEFAULT_PORT`,
+  `checkPort`, the reader, and the analyses stay internal. Values: `scan`
+  (with `scan.workspace` and `scan.package`), `serve`,
+  `DatasetNotFoundError`, `DatasetReplacedError`, `DATASET_SCHEMA_VERSION`,
+  and `HISTORY_SCHEMA_VERSION`. Types: `Scan`, `WorkspaceScan`,
+  `ScanOptions`, `ScanProgressEvent`, `PackageInternals`, `PackageReport`,
+  `WorkspaceReport`, `AtlasServer`, `ServeOptions`, `DatasetManifest`,
+  `HistoryManifest`, and `AtlasConfig`. `DomainDeclaration` is not
+  exported; it is `NonNullable<AtlasConfig["domains"]>[number]`.
+- Public names are the glossary's words, with an `Atlas` prefix only where
+  the bare word would collide with a platform name (`Server`) or say
+  nothing in a consumer's file (`Config`). `SemanticsManifest`,
+  `SemanticsHistoryManifest`, and the two `SEMANTICS_*_SCHEMA_VERSION`
+  constants are renamed at the source, since they are dataset and loading
+  code; the other `Semantics*` types stay internal and are reached by
+  indexed access, and editors show their internal names, as they show
+  `SurfaceReport` for `PackageReport`. Both are documented on the library
+  page. The constants' comments now say what the versions promise.
+- The two public names from 1.4: `SemanticsPackageStatus` loses
+  `"skipped"`, which nothing wrote (a skipped unit is
+  `discovery.unitsSkipped`, not a package), so no schema version moves.
+  The invalidation reason `"history-changed"` is `"evolution-changed"`, and
+  the fingerprint component `history` is `evolution`, as the glossary says.
+  The component name is hashed into every fingerprint, so
+  `SEMANTICS_CACHE_SCHEMA_VERSION` goes to 3 and an old cache reads as a
+  schema change rather than as changed evolution. Neither touches an
+  analysis, so neither is in the changes table.
+- `serve` rejects with a `DatasetNotFoundError` when nothing is saved (it
+  goes through 1.8's `savedDataset`), so the exported class is what a
+  caller catches. A schema mismatch stays a plain `Error` in 0.1.
+- The build clears all of `dist`, so no file of an earlier layout is
+  packed, then makes one Bun build with shared chunks: `src/cli/index.ts`
+  is now `src/cli/atlas.ts`, and `atlas.js`, `index.js`,
+  `semantics-worker.js`, `config-worker.js`, and `chunk-[hash].js` all go
+  in `dist/lib`. Every file stays there, one directory under `dist`, so
+  `workerEntry` finds the workers beside whichever chunk it was bundled
+  into and `viewerRoot` finds `../web`. The CLI and the library share one
+  copy of the code, so the error classes a consumer imports are the ones
+  the accessors throw. tsup, declarations only, writes one
+  `dist/lib/index.d.ts` (about 250 KB) that imports nothing:
+  `ignoreDeprecations: "6.0"` for the `baseUrl` tsup injects, `paths` to
+  `packages/lib/src` so no build of `@foundry/lib` is needed first, and
+  `resolve` for `@foundry/*`. tsup is a devDependency at Marbles' range.
+- `test/package.test.ts` installs once and runs flat tests: the bin (the
+  layout is `dist/lib` and `dist/web` only, the exports map exactly, the
+  declarations import nothing, and the private-import walk covers chunks
+  and declarations); the library from a consumer script under Bun with an
+  empty PATH (the six values exactly, `scan` and its accessors, a
+  `DatasetReplacedError` after `scan.workspace` saves over it,
+  `scan.package`, `serve` and `stop`, a `DatasetNotFoundError` from `serve`
+  on an empty state root); a TypeScript consumer with `nodenext`, no
+  ambient types, and no `skipLibCheck`, which imports every name, uses
+  `satisfies AtlasConfig`, and is refused `viewerRoot`, `DEFAULT_PORT`,
+  `internals` on a `WorkspaceScan`, and `scan.package` without a name;
+  Node importing the package, where `serve` says it needs Bun; and, last,
+  the missing viewer.
+- `docs/atlas/reference/library.md` is the public page, beside the CLI
+  page, linked from the introduction, the CLI and configuration pages, and
+  the README. The glossary gains **History manifest** and the
+  `AtlasConfig` spelling.
 
-**Phase 1 is done** when the library and the CLI work over unchanged
+**Phase 1 is done.** The library and the CLI work over unchanged
 analyses, the installed-package test covers every export and the binary,
 and the "Before the first publish" list in [`_roadmap.md`](./_roadmap.md)
-is empty apart from the release tooling item, which belongs to the release
-scripts, not to Atlas.
+holds only the release tooling item, which belongs to the release scripts,
+not to Atlas. Checked in 1.10: the caption and the `@foundry/workspaces`
+anchor are gone, `semantics.output` is gone, `history.strategy` is
+validated, `pnpm-workspace.yaml` is read, and the `atlas-world` class keeps
+its space when a panel is open.
 
 ## Phase 2: lenses and domains
 

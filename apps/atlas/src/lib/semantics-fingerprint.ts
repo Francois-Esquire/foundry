@@ -39,10 +39,10 @@ export interface WorkspaceInputs {
   clock: string;
   /** `configFingerprint`: the exclusions and the profile. */
   config: string;
+  /** Evolution's inputs: every commit hash in the root's Git log plus every tracked path, or the reason Git is unavailable. */
+  evolution: string;
   /** Root-relative posix path → content sha1 of every workspace input file, sorted. */
   files: Map<string, string>;
-  /** Every commit hash in the root's history plus every tracked path, or the unavailability reason. */
-  history: string;
   /** Hash of `files`. */
   sources: string;
 }
@@ -54,7 +54,7 @@ type PackageFingerprintComponents = {
   analysis: string;
   clock: string;
   config: string;
-  history: string;
+  evolution: string;
   sources: string;
 };
 
@@ -171,7 +171,7 @@ export async function collectWorkspaceInputs(
   }
 
   const history = await collectGitHistory(root, { now });
-  const historyInputs = history.available
+  const evolution = history.available
     ? sha1(
         JSON.stringify({
           commits: history.commits.map((commit) => commit.hash),
@@ -184,8 +184,8 @@ export async function collectWorkspaceInputs(
     analysis: stageFingerprint("packageAnalysis"),
     clock: now.toISOString(),
     config: configFingerprint({ exclude: config.exclude, profile }),
+    evolution,
     files,
-    history: historyInputs,
     sources: hashPairs(files),
   };
 }
@@ -198,7 +198,7 @@ export function packageFingerprint(
     analysis: inputs.analysis,
     clock: inputs.clock,
     config: inputs.config,
-    history: inputs.history,
+    evolution: inputs.evolution,
     sources: inputs.sources,
   };
   return {

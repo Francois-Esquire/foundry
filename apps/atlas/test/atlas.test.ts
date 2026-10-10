@@ -20,8 +20,8 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawn } from "bun";
 import { scan } from "../src/lib/scan";
-import type { SemanticsHistoryManifest } from "../src/lib/semantics-history-types";
-import type { SemanticsManifest } from "../src/lib/semantics-types";
+import type { HistoryManifest } from "../src/lib/semantics-history-types";
+import type { DatasetManifest } from "../src/lib/semantics-types";
 import { serve } from "../src/lib/serve";
 import type { WorkspaceState } from "../src/lib/state";
 import { workspaceState } from "../src/lib/state";
@@ -222,7 +222,7 @@ test("built CLI scans an external workspace and the web loaders read its saved d
     ]);
     return JSON.parse(
       await readFile(join(workspace.output, "manifest.json"), "utf8")
-    ) as SemanticsManifest;
+    ) as DatasetManifest;
   };
   const first = await runScan();
   expect(first.schemaVersion).toBe(4);
@@ -519,7 +519,7 @@ test("built CLI includes Git history when requested", async () => {
   expect(code, stderr).toBe(0);
   const manifest = JSON.parse(
     await readFile(join(workspace.output, "history/manifest.json"), "utf8")
-  ) as SemanticsHistoryManifest;
+  ) as HistoryManifest;
   expect(manifest.generation.failedSnapshots).toBe(0);
   expect(manifest.generation.successfulSnapshots).toBeGreaterThan(0);
   expect(
@@ -533,7 +533,7 @@ test("source and built CLI serve generated files from an external workspace", as
   const manifest = '{ "schemaVersion": 4, "unchanged": true }\n';
   await writeFile(join(workspace.output, "manifest.json"), manifest);
   for (const entry of [
-    resolve(import.meta.dirname, "../src/cli/index.ts"),
+    resolve(import.meta.dirname, "../src/cli/atlas.ts"),
     CLI,
   ]) {
     const child = spawn(

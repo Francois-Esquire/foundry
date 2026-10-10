@@ -63,6 +63,7 @@ import {
   startOfUtcDay,
 } from "./semantics-fingerprint";
 import type {
+  DatasetManifest,
   DeclaredDiscovery,
   SemanticsConceptIndex,
   SemanticsConfig,
@@ -71,7 +72,6 @@ import type {
   SemanticsGenerationResult,
   SemanticsInvalidation,
   SemanticsInvalidationReason,
-  SemanticsManifest,
   SemanticsManifestPackage,
   SemanticsModuleEdge,
   SemanticsModuleEdgeShard,
@@ -83,7 +83,7 @@ import type {
   SemanticsPhaseTiming,
   SemanticsWorkspaceUnit,
 } from "./semantics-types";
-import { SEMANTICS_DATASET_SCHEMA_VERSION } from "./semantics-types";
+import { DATASET_SCHEMA_VERSION } from "./semantics-types";
 import type { AnalysisProfile, SurfaceReport } from "./types";
 import { WORKER_RUNTIME, workerEntry } from "./worker-runtime";
 import type { WorkspaceDerivationTiming } from "./workspace-derive-types";
@@ -547,7 +547,7 @@ function buildConceptIndex(workspace: WorkspaceReport): SemanticsConceptIndex {
         packages: placement.presence.packages,
       }))
       .sort((a, b) => a.id.localeCompare(b.id)),
-    schemaVersion: SEMANTICS_DATASET_SCHEMA_VERSION,
+    schemaVersion: DATASET_SCHEMA_VERSION,
   };
 }
 
@@ -633,7 +633,7 @@ function componentCause(
     ["analysis", "analysis-changed"],
     ["config", "config-changed"],
     ["sources", "sources-changed"],
-    ["history", "history-changed"],
+    ["evolution", "evolution-changed"],
     ["clock", "clock-changed"],
   ] as const) {
     if (component in next && previous[component] !== next[component]) {
@@ -1325,7 +1325,7 @@ export async function generateSemantics(
           package: shard.package,
         })),
         modules: entries.sort((a, b) => a.id.localeCompare(b.id)),
-        schemaVersion: SEMANTICS_DATASET_SCHEMA_VERSION,
+        schemaVersion: DATASET_SCHEMA_VERSION,
         shards: shardPackages.map((id) => ({
           count: byPackage.get(id)?.length ?? 0,
           file: moduleShardFile(id),
@@ -1393,7 +1393,7 @@ export async function generateSemantics(
     const reportsReused = count((o) => o.reportSource, "reused");
     const artifactsReused = writer.files.filter((f) => f.reused).length;
     const finishedAt = new Date();
-    const manifest: SemanticsManifest = generateSemanticsEntries(
+    const manifest: DatasetManifest = generateSemanticsEntries(
       workspace,
       concepts,
       modules,
@@ -1521,7 +1521,7 @@ function generateSemanticsEntries(
   reports: SurfaceReport[],
   workspaceName: string | undefined,
   root: string
-): SemanticsManifest {
+): DatasetManifest {
   return {
     counts: {
       boundaries: workspace.boundaries.boundaries.length,
@@ -1560,7 +1560,7 @@ function generateSemanticsEntries(
       totalDurationMs: Math.round(performance.now() - started),
     },
     packages,
-    schemaVersion: SEMANTICS_DATASET_SCHEMA_VERSION,
+    schemaVersion: DATASET_SCHEMA_VERSION,
     versions: {
       packagePolicy: ANALYSIS_POLICY_VERSION,
       packageSchema: reports[0]?.schemaVersion ?? 35,

@@ -1,6 +1,6 @@
 # Atlas
 
-A CLI and local web viewer for workspace semantic surveys. Point it at a
+Workspace analysis as a CLI, a library, and a local viewer. Point it at a
 directory of TypeScript packages; Atlas analyzes them, saves the result
 outside the workspace, and serves a map you can explore in the browser:
 packages as territories, files as settlements, dependencies as the routes
@@ -57,6 +57,30 @@ last analysis. The workspace is never modified, except where you point
 nothing; `export` writes a static viewer, the viewer and a copy of the
 dataset, for any static host. See the [CLI reference](https://github.com/Francois-Esquire/foundry/blob/main/docs/atlas/reference/cli.md) for output,
 `--json`, and exit codes.
+
+## Library
+
+The same scans and server from code:
+
+```ts
+import { scan, serve } from "@foundry/atlas";
+
+const everything = await scan("./my-workspace"); // workspace and every complete package's internals
+const report = await everything.packageReport("@acme/db");
+const workspace = await scan.workspace("./my-workspace"); // workspace level only
+const db = await scan.package("./my-workspace", "@acme/db"); // one package's internals, saves nothing
+
+const server = await serve("./my-workspace", { port: 0 });
+console.log(server.url.href);
+await server.stop();
+```
+
+A scan returns the dataset it saved: the manifest and the directory as JSON,
+and accessors that read the saved reports and internals when called. The
+package exports `scan`, `serve`, their option and result types, the two
+dataset errors, and the two schema versions; the analyses themselves
+stay internal. `serve` needs Bun; under Node, `scan` works with `bun` on the
+PATH. See the [library reference](https://github.com/Francois-Esquire/foundry/blob/main/docs/atlas/reference/library.md).
 
 ## What a workspace is
 
@@ -136,20 +160,22 @@ Occlusion strength control drives and which shades on the direct draw too.
 ## Development
 
 ```sh
-bun run --filter @foundry/atlas build      # dist/cli and dist/web
+bun run --filter @foundry/atlas build      # dist/lib and dist/web
 bun run --filter @foundry/atlas dev -- /path/to/workspace --no-open
 bun run --filter @foundry/atlas typecheck
 bun run test --filter=@foundry/atlas
 bun run --cwd=apps/atlas test:package      # install the tarball and run the bin
 ```
 
-`build` bundles the CLI and its analysis worker into `dist/cli` with Bun and
-the viewer into `dist/web` with Vite. `dev` runs Vite with hot reload
-against saved output; it never scans. Vitest covers the library and renderer,
-apart from serving, which needs Bun; Bun tests exercise `serve`, the built
-CLI, worker, server, and browser loaders.
-`test:package` packs the tarball, installs it into a temporary consumer, and
-scans and serves a fixture through the installed bin, which is what the
+`build` clears `dist`, bundles the CLI, the library entry, both workers, and
+their shared chunks into `dist/lib` with Bun, writes the library's
+declarations to `dist/lib/index.d.ts` with tsup, and builds the viewer into
+`dist/web` with Vite. `dev` runs Vite with hot reload against saved output;
+it never scans. Vitest covers the library and renderer, apart from serving,
+which needs Bun; Bun tests exercise `serve`, the built CLI, worker, server,
+and browser loaders. `test:package` packs the tarball, installs it into a
+temporary consumer, and drives the installed bin, the library under Bun and
+Node, and a TypeScript consumer of its declarations, which is what the
 release workflow runs before publishing.
 
 `scripts/capture.ts` is a manual look check, outside the test command: it
@@ -161,7 +187,7 @@ capture uses the software WebGL 2 fallback.
 
 ```text
 src/cli/       commands, argument parsing, progress, browser opening
-src/lib/       semantic analysis library
+src/lib/       the library: scan, serve, the dataset, and the analyses
 src/server/    static file server behind lib/serve.ts
 src/web/       browser viewer: data loading, geography, and semantic overlays
 src/web/ui/    React chrome, hooks, and the stylesheet

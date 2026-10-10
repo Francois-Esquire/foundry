@@ -16,7 +16,7 @@ import { isMissingPath } from "@foundry/lib/atomic-file";
 import { isFilesystemPathWithin } from "@foundry/lib/paths";
 import { datasetReader } from "./dataset";
 import { fileTransport, savedDataset } from "./dataset-files";
-import type { SemanticsManifest } from "./semantics-types";
+import type { DatasetManifest } from "./semantics-types";
 import { viewerRoot } from "./serve";
 import type { WorkspaceState } from "./state";
 import { lockState } from "./state";
@@ -41,7 +41,7 @@ export interface StaticViewer {
   /** The directory the static viewer is in, resolved. */
   directory: string;
   /** The manifest of the dataset it holds, read from the copy. */
-  manifest: SemanticsManifest;
+  manifest: DatasetManifest;
 }
 
 /** The marker's contents. */

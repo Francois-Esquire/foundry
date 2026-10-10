@@ -4,8 +4,8 @@ import type {
   SemanticsHistorySnapshotRef,
 } from "../../lib/semantics-history-types";
 import type {
+  DatasetManifest,
   SemanticsDeclaredDependencies,
-  SemanticsManifest,
   SemanticsModuleEdge,
   SemanticsModuleIndexEntry,
   SemanticsModuleRecord,
@@ -17,7 +17,7 @@ import type {
 
 /** Every source field the codex reads. Resolvers see nothing else. */
 export interface CodexSource {
-  dataset: Pick<SemanticsManifest, "generatedAt" | "coverage">;
+  dataset: Pick<DatasetManifest, "generatedAt" | "coverage">;
   declaredDependencies: {
     declared: SemanticsDeclaredDependencies;
     package: string;

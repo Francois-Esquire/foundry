@@ -27,8 +27,8 @@ subcommand, Atlas does both and opens the browser. The workspace itself is
 never modified, except where you point `atlas export`, and nothing leaves
 your machine.
 
-Atlas is a package, `@foundry/atlas`, with one binary. It runs on Bun and
-needs Git only when you ask for history.
+Atlas is a package, `@foundry/atlas`, with one binary and a library. It
+runs on Bun and needs Git only when you ask for history.
 
 - [Start here](/atlas/start-here): install, scan, and open the viewer.
 - [Examples](/atlas/examples): explore Atlas's map of Foundry in your browser.
@@ -36,5 +36,6 @@ needs Git only when you ask for history.
   what the scan computes.
 - [Explore the map](/atlas/guides/explore-the-map): what you are looking at
   and how to move around.
-- [CLI](/atlas/reference/cli), [configuration](/atlas/reference/configuration),
-  and [output](/atlas/reference/output): the reference.
+- [CLI](/atlas/reference/cli), [library](/atlas/reference/library),
+  [configuration](/atlas/reference/configuration), and
+  [output](/atlas/reference/output): the reference.

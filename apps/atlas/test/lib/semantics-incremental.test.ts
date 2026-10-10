@@ -35,9 +35,9 @@ import {
 } from "../../src/lib/semantics-equivalence";
 import { collectWorkspaceInputs } from "../../src/lib/semantics-fingerprint";
 import type {
+  DatasetManifest,
   SemanticsGenerationResult,
   SemanticsInvalidation,
-  SemanticsManifest,
 } from "../../src/lib/semantics-types";
 import { deriveWorkspaceSurface } from "../../src/lib/workspace-derive";
 import { hashTree } from "./helpers/planning-fixture";
@@ -220,10 +220,10 @@ async function expectEquivalentToFull(root: string): Promise<void> {
   rmSync(incrementalCopy, { force: true, recursive: true });
 }
 
-function readManifest(root: string): SemanticsManifest {
+function readManifest(root: string): DatasetManifest {
   return JSON.parse(
     readFileSync(join(root, ".foundry", "semantics", "manifest.json"), "utf8")
-  ) as SemanticsManifest;
+  ) as DatasetManifest;
 }
 
 const cacheDir = (root: string): string =>

@@ -10,7 +10,8 @@ export const WORKER_RUNTIME = process.versions.bun ? process.execPath : "bun";
 
 /**
  * A worker entry beside this module: `src/lib/<name>.ts` from source, and
- * `dist/cli/<name>.js` once built, where every bundle sits side by side.
+ * `dist/lib/<name>.js` once built, where every entry and shared chunk sits
+ * side by side, so the lookup holds from whichever chunk this module is in.
  */
 export function workerEntry(name: string): string {
   return join(

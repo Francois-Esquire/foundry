@@ -1,8 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { SemanticsHistoryManifest } from "../../src/lib/semantics-history-types";
+import type { HistoryManifest } from "../../src/lib/semantics-history-types";
 import type {
-  SemanticsManifest,
+  DatasetManifest,
   SemanticsModuleIndex,
 } from "../../src/lib/semantics-types";
 
@@ -16,7 +16,7 @@ function readJson(file: string): unknown {
  * includes history, what `history/manifest.json` names under `history/`.
  */
 export function listedFiles(output: string): string[] {
-  const manifest = readJson(join(output, "manifest.json")) as SemanticsManifest;
+  const manifest = readJson(join(output, "manifest.json")) as DatasetManifest;
   const index = readJson(
     join(output, manifest.files.moduleIndex)
   ) as SemanticsModuleIndex;
@@ -44,7 +44,7 @@ export function listedFiles(output: string): string[] {
   }
   const historyManifest = join(output, "history", "manifest.json");
   if (existsSync(historyManifest)) {
-    const history = readJson(historyManifest) as SemanticsHistoryManifest;
+    const history = readJson(historyManifest) as HistoryManifest;
     for (const file of [
       ...Object.values(history.files),
       ...history.snapshots.flatMap((snapshot) => snapshot.file ?? []),

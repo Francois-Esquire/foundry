@@ -2,14 +2,12 @@ import type { SemanticsDeclarationSource } from "./semantics-types";
 import type { FileKind, ModuleRole } from "./types";
 
 /**
- * V12.3 temporal semantic twin. `semantics history` reconstructs the
- * workspace at selected first-parent commits with the current analyzer and
- * writes compact checkpoint snapshots, a commit timeline, entity lineage,
- * and derived deltas under `.foundry/semantics-history/`. The directory has
- * its own schema and lifecycle: regenerating the current dataset never
- * touches it, and it never touches the current dataset.
+ * History's schema version, kept apart from the dataset's: `history/` is
+ * published after the rest of the dataset and indexed by its own manifest,
+ * `history/manifest.json`. Every file under `history/` carries it, and a
+ * reader checks the manifest's against it.
  */
-export const SEMANTICS_HISTORY_SCHEMA_VERSION = 1;
+export const HISTORY_SCHEMA_VERSION = 1;
 
 /** How `scan --history` picks its checkpoints. */
 export const SEMANTICS_HISTORY_STRATEGIES = [
@@ -288,7 +286,7 @@ export interface SemanticsHistoryCheckpointTiming {
   worktreeMs: number;
 }
 
-export interface SemanticsHistoryManifest {
+export interface HistoryManifest {
   deltas: SemanticsHistoryDeltaRef[];
   files: {
     manifest: string;
@@ -347,6 +345,6 @@ export interface SemanticsHistoryManifest {
 export interface SemanticsHistoryGenerationResult {
   bytes: number;
   files: number;
-  manifest: SemanticsHistoryManifest;
+  manifest: HistoryManifest;
   output: string;
 }

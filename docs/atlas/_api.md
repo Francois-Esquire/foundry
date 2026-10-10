@@ -10,29 +10,26 @@ How `src/lib` implements it is free to change.
 
 ## Where it stands
 
-- **One binary, no library.** `package.json` declares `bin` and nothing
-  else. There is no `exports` map, so nothing under `src/lib` is importable
-  by a consumer. Marbles, by comparison, exports `.`, `./lib`, and
-  `./prebuilt`.
+- **One binary and a library** since 1.10. `package.json` declares `bin`
+  and an `exports` map with one entry, `.`, which names `scan`, `serve`,
+  and the types below; nothing else under `src/lib` is importable. Marbles,
+  by comparison, exports `.`, `./lib`, and `./prebuilt`.
 - **Five commands** since 1.8: `atlas [path...]`, `scan`, `serve`,
   `report`, and `export`, from a typed command table; each takes only its
   own flags, plus `--state`, `--json`, and `--quiet`. One path at most
   until collections. See `reference/cli.md`.
-- **The dataset is already a contract.** `output/` is versioned
-  (`SEMANTICS_DATASET_SCHEMA_VERSION = 4` in the manifest), documented file
+- **The dataset is a contract.** `output/` is versioned
+  (`DATASET_SCHEMA_VERSION = 4` in the manifest, exported), documented file
   by file in `reference/output.md`, published atomically, and read by the
-  viewer unchanged. The docs site already builds a static viewer plus
-  dataset from it (`docs/scripts/build-example.ts`).
-- **The library is written; only tests reach it.** Scan, history,
-  internals, terminal reports, both codemod stacks, progress events, and
-  dry runs all exist in `src/lib`. The CLI that used them is gone.
-  `test/lib/workspace-e2e.test.ts` drives the whole pipeline and is the de
-  facto shape of the library. The table is in
-  [`_review.md`](./_review.md#the-library-already-exists-behind-tests).
-- **Config.** One optional `foundry.config.json` with a `semantics` key,
-  cast and shallow-merged, not validated. `semantics.output` is read and
-  ignored. Analysis policy is built in, with "intentionally no user-facing
-  config loader yet" (`lib/config.ts:9-10`).
+  viewer unchanged. The docs site builds its static viewer with
+  `atlas export` (`docs/scripts/build-example.ts`).
+- **The rest of the library stays behind tests.** Terminal reports, both
+  codemod stacks, and dry runs exist in `src/lib` and are not exported.
+  `test/lib/workspace-e2e.test.ts` drives the whole pipeline. The table is
+  in [`_review.md`](./_review.md#the-library-already-exists-behind-tests).
+- **Config** since 1.7: `.foundry/atlas/` files, validated, with
+  `foundry.config.json#semantics` as a validated fallback during 0.x.
+  Analysis policy is built in.
 
 The "Before the first publish" list in [`_roadmap.md`](./_roadmap.md) still
 applies; this document does not repeat it.
@@ -110,7 +107,21 @@ await server.stop();
 | `scan.workspace(root, options?)` | The workspace-level results only, without internals; a dataset the viewer loads | `generateSemantics` without internals; the manifest's declared dependencies are what the viewer reads for every package |
 | `scan.package(root, name)` | One package's internals, analyzed fresh; saves nothing | `packageInternals` over `analyzePackageLocal` |
 | `serve(root, options?)` | Serves the saved dataset and the viewer; returns the URL, the resolved root, and `stop` | `lib/serve.ts` over `startServer`, checking the dataset through the reader |
-| Types | What `scan` returns, and the dataset schema version | `semantics-types.ts`, `semantics-history-types.ts`, `workspace-projection-types.ts`, `types.ts` |
+| `DatasetNotFoundError` | What a missing dataset throws: `serve`, and an accessor once the dataset is gone | `lib/dataset.ts` |
+| `DatasetReplacedError` | What an accessor throws once a later scan saved over its dataset | `lib/dataset.ts` |
+| `DATASET_SCHEMA_VERSION`, `HISTORY_SCHEMA_VERSION` | The dataset's and history's schema versions, the promise a reader holds them to | `semantics-types.ts`, `semantics-history-types.ts` |
+| Types | `Scan`, `WorkspaceScan`, `ScanOptions`, `ScanProgressEvent`, `PackageInternals`, `PackageReport`, `WorkspaceReport`, `AtlasServer`, `ServeOptions`, `DatasetManifest`, `HistoryManifest`, `AtlasConfig` | `scan.ts`, `serve.ts`, `dataset.ts`, `internal-analysis-types.ts`, `workspace-types.ts`, `semantics-types.ts`, `semantics-history-types.ts`, `atlas-config.ts` |
+
+**Public names.** The glossary's words (`apps/atlas/CONTEXT.md`): dataset,
+history, package, workspace. A name takes an `Atlas` prefix only where the
+bare word would collide with a platform name (`Server`) or say nothing in a
+consumer's file (`Config`); hence `AtlasServer` and `AtlasConfig`, but
+`Scan`. `DatasetManifest`, `HistoryManifest`, and the two schema versions
+were renamed at the source in 1.10. Nested types are not exported and keep
+their internal `Semantics*` names, which editors show on hover; they are
+reached by indexed access. `PackageReport` is an alias of the analysis's
+`SurfaceReport`, which hovers show. A schema mismatch is a plain `Error`
+in 0.1; a typed one can be added without breaking anyone.
 
 - **`scan` returns the results**, typed, read back from the dataset it just
   published, along with the path it was saved to. Scans reuse the cache,
@@ -121,15 +132,17 @@ await server.stop();
 - `scan.package(root, name)` analyzes fresh what `scan(root).internals(name)`
   reads back.
 - **`onProgress`** passes through in the options, with its event type
-  exported (today it is not). There is no `AbortSignal` in `lib`;
+  exported. There is no `AbortSignal` in `lib`;
   cancellation waits until it is needed.
 - **One reader, internal.** The code that knows dataset paths moves out of
   the browser's `codex/source.ts` into `lib`. `scan` and the viewer both
   use it; it is not exported.
 - **`lib/semantics-serve.ts`**, a second server only its test used, was
   retired in 1.6.
-- **Not exported:** the report printer (`report` is CLI only), the
-  codemods (phase 3), and rules and domains (phases 2 and 3).
+- **Not exported:** the report printer (`report` is CLI only), `export`
+  (CLI only), the codemods (phase 3), and rules and domains (phases 2 and
+  3); a domain declaration is reachable as
+  `NonNullable<AtlasConfig["domains"]>[number]`.
 
 ## Forks
 
@@ -158,15 +171,19 @@ Also settled: state directories adopt Marbles' 12-hex id and
 
 ## Packaging
 
-From the release tooling and Marbles, not a fork:
+From the release tooling and Marbles, not a fork. Done by 1.10:
 
-- An `exports` map with one entry, `.`.
+- An `exports` map with one entry, `.`, `types` first:
+  `dist/lib/index.d.ts` and `dist/lib/index.js`.
 - `@foundry/*` bundled into `dist`, as Marbles does with tsup's
-  `noExternal`; Atlas's build keeps only `package.json#dependencies`
+  `noExternal`; Atlas's build kept only `package.json#dependencies`
   external, so workspace packages are inlined.
-- The analysis worker is found beside the entry file, so it ships beside
-  the library entry as well as the CLI.
-- The package test checks the built output for private imports, as
-  Marbles' does.
+- One Bun build with shared chunks puts the CLI (`atlas.js`), the library
+  (`index.js`), both workers, and the chunks in `dist/lib`, so the workers
+  are found beside whichever file asks and the viewer at `../web`. tsup,
+  declarations only, bundles `dist/lib/index.d.ts`, which imports nothing.
+- The package test checks the built output and the declarations for
+  private imports, as Marbles' does, and drives the bin, the library under
+  Bun and Node, and a TypeScript consumer.
 - A `workspace.json` record in each state directory, as Marbles keeps, so
   state can be listed.

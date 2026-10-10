@@ -29,7 +29,9 @@ const listCachedPackagesPattern = /__/g;
 // keeps what it finished. Schema-1 entries stored full reports under the
 // bare name and are rejected by the schema check, never read as local.
 
-export const SEMANTICS_CACHE_SCHEMA_VERSION = 2;
+// Schema 3 renames the Git fingerprint component `history` to `evolution`,
+// so a schema-2 entry reads as a schema change, not as changed evolution.
+export const SEMANTICS_CACHE_SCHEMA_VERSION = 3;
 export const DEFAULT_SEMANTICS_CACHE = ".foundry/cache/semantics";
 
 export type CacheEntryKind = "package-local" | "package-report";

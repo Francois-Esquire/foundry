@@ -2,7 +2,7 @@
   "name": "@foundry/atlas",
   "version": "0.1.0",
   "private": false,
-  "description": "A CLI and local web viewer for workspace semantic surveys",
+  "description": "Workspace analysis as a CLI, a library, and a local viewer",
   "homepage": "https://github.com/Francois-Esquire/foundry/tree/main/apps/atlas#readme",
   "bugs": {
     "url": "https://github.com/Francois-Esquire/foundry/issues"
@@ -14,8 +14,14 @@
   },
   "license": "MIT",
   "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/lib/index.d.ts",
+      "default": "./dist/lib/index.js"
+    }
+  },
   "bin": {
-    "atlas": "./dist/cli/atlas.js"
+    "atlas": "./dist/lib/atlas.js"
   },
   "files": [
     "dist",
@@ -26,7 +32,7 @@
     "clean": "rm -rf dist .cache .turbo coverage",
     "dev": "bun scripts/dev.ts",
     "prepack": "bun run build",
-    "start": "bun src/cli/index.ts",
+    "start": "bun src/cli/atlas.ts",
     "test": "vitest run && bun test test/atlas.test.ts",
     "test:package": "bun test test/package.test.ts",
     "test:watch": "vitest",
@@ -56,6 +62,7 @@
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "three": "^0.185.1",
+    "tsup": "^8.5.1",
     "vite": "8.2.2",
     "vitest": "^4.1.9"
   },

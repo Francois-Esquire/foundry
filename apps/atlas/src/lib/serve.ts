@@ -10,7 +10,7 @@ export const DEFAULT_PORT = 4173;
 const HIGHEST_PORT = 65_535;
 
 export interface ServeOptions {
-  /** The port on 127.0.0.1, an integer from 0 to 65535; 0 picks a free one. Default {@link DEFAULT_PORT}. */
+  /** The port on 127.0.0.1, an integer from 0 to 65535; 0 picks a free one. Default 4173. */
   port?: number;
   /** The state root (`--state`), as `ScanOptions.state`. Default `~/.foundry/atlas`. */
   state?: string;
@@ -27,10 +27,10 @@ export interface AtlasServer {
 }
 
 /**
- * The viewer's built files. Every built entry sits one directory under
- * `dist/` (`dist/cli/atlas.js` today), so from a bundle they are `../web`;
- * from source they are the package's `dist/web`, which the build writes.
- * The analysis worker is found the same way (`semantics.ts`).
+ * The viewer's built files. Every built entry and chunk sits in `dist/lib`,
+ * so from a bundle they are `../web`; from source they are the package's
+ * `dist/web`, which the build writes. The workers are found the same way
+ * (`worker-runtime.ts`).
  */
 const VIEWER = resolve(
   import.meta.dirname,

@@ -51,10 +51,10 @@ the others depend on it.
 
 ## Before the first publish
 
-Found while packaging on 2026-09-28. Each is small; together they decide
-whether a first install feels finished. Each is now assigned to a phase 1
-effort in [`_phases.md`](./_phases.md#phase-1-shape-the-api), except the
-release tooling item.
+Found while packaging on 2026-09-28. Each was small; together they decided
+whether a first install feels finished. Phase 1 fixed the rest (1.7 and
+1.8, checked again in 1.10); what remains belongs to the release scripts,
+not to Atlas.
 
 - The release tooling publishes every non-private workspace under one
   shared version from one `v*` tag. Atlas and Marbles release together until
@@ -62,7 +62,8 @@ release tooling item.
 
 ## Documentation
 
-The public pages describe the packed binary as of 2026-09-28. The viewer's
+The public pages describe the packed binary as of 2026-09-28, and the
+library since 2026-10-10 (`reference/library.md`). The viewer's
 components were being renamed while the pages were written, so the guides
 name stable vocabulary and a few controls, not every panel. When the viewer
 settles, "Explore the map" can grow screenshots and a controls table.

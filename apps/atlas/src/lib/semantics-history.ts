@@ -49,13 +49,13 @@ import {
   selectCheckpoints,
 } from "./semantics-history-timeline";
 import type {
+  HistoryManifest,
   SemanticsHistoryCheckpointTiming,
   SemanticsHistoryCommit,
   SemanticsHistoryConfig,
   SemanticsHistoryDeltaRef,
   SemanticsHistoryEntities,
   SemanticsHistoryGenerationResult,
-  SemanticsHistoryManifest,
   SemanticsHistoryPhase,
   SemanticsHistoryPhaseTiming,
   SemanticsHistorySnapshotRef,
@@ -70,7 +70,7 @@ import type {
   TemporalSnapshotDelta,
   TemporalWorkspaceSnapshot,
 } from "./semantics-history-types";
-import { SEMANTICS_HISTORY_SCHEMA_VERSION } from "./semantics-history-types";
+import { HISTORY_SCHEMA_VERSION } from "./semantics-history-types";
 import { stageFingerprint } from "./semantics-stages";
 import type {
   SemanticsConfig,
@@ -292,7 +292,7 @@ function projectSnapshot(
     modules,
     packages,
     profile: "temporal",
-    schemaVersion: SEMANTICS_HISTORY_SCHEMA_VERSION,
+    schemaVersion: HISTORY_SCHEMA_VERSION,
     timestamp: commit.timestamp,
   };
 }
@@ -601,7 +601,7 @@ function diffSnapshots(
     from: from.commit,
     modules: { ...moduleIds, moved, renamed, roles },
     packages: { ...packageIds, moduleCount },
-    schemaVersion: SEMANTICS_HISTORY_SCHEMA_VERSION,
+    schemaVersion: HISTORY_SCHEMA_VERSION,
     to: to.commit,
   };
 }
@@ -843,7 +843,7 @@ function readCachedSnapshot(
       return undefined;
     }
     const snapshot = parsed as Partial<TemporalWorkspaceSnapshot>;
-    return snapshot.schemaVersion === SEMANTICS_HISTORY_SCHEMA_VERSION &&
+    return snapshot.schemaVersion === HISTORY_SCHEMA_VERSION &&
       snapshot.commit === commit &&
       Array.isArray(snapshot.packages) &&
       Array.isArray(snapshot.modules)
@@ -1087,12 +1087,12 @@ export async function generateSemanticsHistory(
             checkpoints: packageCheckpoints,
             id,
           })),
-        schemaVersion: SEMANTICS_HISTORY_SCHEMA_VERSION,
+        schemaVersion: HISTORY_SCHEMA_VERSION,
       };
       writer.write(HISTORY_FILES.entities, entities);
       const timelineFile: SemanticsHistoryTimeline = {
         commits: timeline.commits,
-        schemaVersion: SEMANTICS_HISTORY_SCHEMA_VERSION,
+        schemaVersion: HISTORY_SCHEMA_VERSION,
       };
       writer.write(HISTORY_FILES.timeline, timelineFile);
     });
@@ -1100,7 +1100,7 @@ export async function generateSemanticsHistory(
     const [oldest] = timeline.commits;
     const newest = timeline.commits.at(-1);
     const finishedAt = new Date();
-    const manifest: SemanticsHistoryManifest = {
+    const manifest: HistoryManifest = {
       deltas: deltaRefs,
       files: HISTORY_FILES,
       fingerprint,
@@ -1138,10 +1138,10 @@ export async function generateSemanticsHistory(
         head: timeline.head,
         ...(timeline.branch !== undefined && { branch: timeline.branch }),
       },
-      schemaVersion: SEMANTICS_HISTORY_SCHEMA_VERSION,
+      schemaVersion: HISTORY_SCHEMA_VERSION,
       snapshots: refs,
       versions: {
-        historySchema: SEMANTICS_HISTORY_SCHEMA_VERSION,
+        historySchema: HISTORY_SCHEMA_VERSION,
         packagePolicy: ANALYSIS_POLICY_VERSION,
         packageSchema: Math.max(...SUPPORTED_PACKAGE_SCHEMAS),
         workspaceIntelligencePolicy: WORKSPACE_INTELLIGENCE_POLICY_VERSION,

@@ -3,6 +3,9 @@ title: CLI
 description: Commands, flags, output, and exit codes of the atlas binary.
 ---
 
+The same scans and server are available from code: see the
+[library](/atlas/reference/library).
+
 ## Usage
 
 ```text
@@ -75,7 +78,7 @@ error too: `atlas serve does not take --history.`
 
 ### `--json`
 
-With `--json`, stdout is one line: the library's result as JSON.
+With `--json`, stdout is one line: the [library](/atlas/reference/library)'s result as JSON.
 
 | Command | The line |
 | --- | --- |

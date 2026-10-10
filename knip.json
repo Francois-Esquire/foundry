@@ -4,6 +4,7 @@
     "apps/atlas": {
       "entry": [
         "scripts/*.ts",
+        "src/lib/index.ts",
         "src/lib/semantics-worker.ts",
         "src/lib/config-worker.ts"
       ],

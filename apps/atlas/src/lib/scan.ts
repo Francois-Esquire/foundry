@@ -12,8 +12,8 @@ import { generateSemantics } from "./semantics";
 import { discoverSemanticsUnits, requireDeclared } from "./semantics-discover";
 import type { SemanticsHistoryProgressEvent } from "./semantics-history";
 import { generateSemanticsHistory } from "./semantics-history";
-import type { SemanticsHistoryManifest } from "./semantics-history-types";
-import type { SemanticsConfig, SemanticsManifest } from "./semantics-types";
+import type { HistoryManifest } from "./semantics-history-types";
+import type { DatasetManifest, SemanticsConfig } from "./semantics-types";
 import type { WorkspaceState } from "./state";
 import {
   lockState,
@@ -23,9 +23,6 @@ import {
   workspaceState,
 } from "./state";
 import type { WorkspaceReport } from "./workspace-types";
-
-export type { PackageReport } from "./dataset";
-export type { PackageInternals } from "./internal-analysis-types";
 
 export type ScanProgressEvent =
   | SemanticsProgressEvent
@@ -48,8 +45,8 @@ export interface ScanOptions {
  * fields are JSON; `JSON.stringify` leaves the accessors out.
  */
 export interface WorkspaceScan {
-  history?: { manifest: SemanticsHistoryManifest };
-  manifest: SemanticsManifest;
+  history?: { manifest: HistoryManifest };
+  manifest: DatasetManifest;
   /** The directory the dataset is saved in. */
   output: string;
   /** One package's report, as the dataset saved it. */
@@ -162,7 +159,7 @@ async function prepare(root: string, options: ScanOptions): Promise<ScanRun> {
 async function publish(
   { config, progress, state }: ScanRun,
   { internals }: { internals: boolean }
-): Promise<SemanticsManifest> {
+): Promise<DatasetManifest> {
   const result = await generateSemantics({
     cache: state.cache,
     config,
@@ -181,7 +178,7 @@ async function publish(
 /** The scan's result, after saving history into the dataset when the scan asks for it. */
 async function withHistory(
   { config, history, progress, state }: ScanRun,
-  manifest: SemanticsManifest
+  manifest: DatasetManifest
 ): Promise<Saved> {
   const saved = { manifest, output: state.output };
   if (!history) {

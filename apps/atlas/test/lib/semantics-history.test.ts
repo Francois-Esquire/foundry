@@ -36,14 +36,14 @@ import {
   selectCheckpoints,
 } from "../../src/lib/semantics-history-timeline";
 import type {
+  HistoryManifest,
   SemanticsHistoryCommit,
   SemanticsHistoryEntities,
-  SemanticsHistoryManifest,
   SemanticsHistoryTimeline,
   TemporalSnapshotDelta,
   TemporalWorkspaceSnapshot,
 } from "../../src/lib/semantics-history-types";
-import { SEMANTICS_HISTORY_SCHEMA_VERSION } from "../../src/lib/semantics-history-types";
+import { HISTORY_SCHEMA_VERSION } from "../../src/lib/semantics-history-types";
 import { stageClosure } from "../../src/lib/semantics-stages";
 import { deriveWorkspaceSurface } from "../../src/lib/workspace-derive";
 import { hashTree } from "./helpers/planning-fixture";
@@ -477,7 +477,7 @@ describe("module lineage", () => {
 describe("history generation", () => {
   let repo: { dir: string; commits: string[] };
   let before: RepoState;
-  let manifest: SemanticsHistoryManifest;
+  let manifest: HistoryManifest;
   let output: string;
   const snapshots = new Map<string, TemporalWorkspaceSnapshot>();
 
@@ -508,7 +508,7 @@ describe("history generation", () => {
   });
 
   it("selects every monthly commit and ends at HEAD", () => {
-    expect(manifest.schemaVersion).toBe(SEMANTICS_HISTORY_SCHEMA_VERSION);
+    expect(manifest.schemaVersion).toBe(HISTORY_SCHEMA_VERSION);
     expect(manifest.snapshots.map((s) => s.commit)).toEqual(repo.commits);
     expect(manifest.repository).toEqual({
       branch: "main",
@@ -973,7 +973,7 @@ describe("history generation", () => {
     // an input to any package-local report, so no package is re-analyzed
     for (const id of ["@s/a", "@s/b", "@s/d"]) {
       expect(byId.get(id)?.reason).toEqual({
-        cause: "history-changed",
+        cause: "evolution-changed",
         type: "direct",
       });
     }

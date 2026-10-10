@@ -33,8 +33,10 @@ export default {
 - A configuration directory reached through a symbolic link, at `.foundry`
   or at `.foundry/atlas`, is refused.
 - Nothing has to be installed for the files to run. A type-only import is
-  removed before the file runs, so `satisfies AtlasConfig` works once
-  `@foundry/atlas` exports the `AtlasConfig` type.
+  removed before the file runs, so `import type { AtlasConfig } from
+  "@foundry/atlas"` and `satisfies AtlasConfig` check a file in an editor
+  where Atlas is installed, and cost nothing where it is not; see the
+  [library](/atlas/reference/library#configuration-files).
 
 ## Settings
 

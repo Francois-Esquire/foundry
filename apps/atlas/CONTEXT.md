@@ -126,6 +126,12 @@ declared dependencies, and where the dataset's files are. Not
 `projections/manifest.json`, which describes the projections, nor a
 package's `package.json`.
 
+**History manifest**:
+History's index, `output/history/manifest.json`: its own schema version,
+the checkpoints, and where history's files are. Published after the rest of
+the dataset, and present only when the scan includes history.
+_Avoid_: manifest alone (that is the dataset's)
+
 **Workspace report**:
 The dataset's workspace-level analysis, `output/workspace.json`.
 _Avoid_: workspace record

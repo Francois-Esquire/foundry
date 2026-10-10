@@ -6,18 +6,18 @@ import {
 import type { PackageInternals } from "./internal-analysis-types";
 import { verifyInternals } from "./internal-analysis-types";
 import type {
+  HistoryManifest,
   SemanticsHistoryEntities,
-  SemanticsHistoryManifest,
 } from "./semantics-history-types";
-import { SEMANTICS_HISTORY_SCHEMA_VERSION } from "./semantics-history-types";
+import { HISTORY_SCHEMA_VERSION } from "./semantics-history-types";
 import type {
-  SemanticsManifest,
+  DatasetManifest,
   SemanticsManifestPackage,
   SemanticsModuleEdgeShard,
   SemanticsModuleIndex,
   SemanticsModuleShard,
 } from "./semantics-types";
-import { SEMANTICS_DATASET_SCHEMA_VERSION } from "./semantics-types";
+import { DATASET_SCHEMA_VERSION } from "./semantics-types";
 import type { SurfaceReport } from "./types";
 import type { WorkspaceGraphProjection } from "./workspace-projection-types";
 import type { WorkspaceReport } from "./workspace-types";
@@ -44,7 +44,7 @@ export interface DatasetReaderOptions {
 /** A dataset's history: its manifest and the entities it names. */
 interface DatasetHistory {
   entities: SemanticsHistoryEntities;
-  manifest: SemanticsHistoryManifest;
+  manifest: HistoryManifest;
 }
 
 /**
@@ -60,7 +60,7 @@ export interface DatasetReader {
   /** `undefined` when the scan did not include history. */
   history(): Promise<DatasetHistory | undefined>;
   internals(name: string): Promise<PackageInternals>;
-  manifest(): Promise<SemanticsManifest>;
+  manifest(): Promise<DatasetManifest>;
   moduleEdgeShards(): Promise<SemanticsModuleEdgeShard[]>;
   moduleIndex(): Promise<SemanticsModuleIndex>;
   moduleShards(): Promise<SemanticsModuleShard[]>;
@@ -96,16 +96,16 @@ export function datasetReader(
   read: DatasetTransport,
   options: DatasetReaderOptions = {}
 ): DatasetReader {
-  let manifest: Promise<SemanticsManifest> | undefined;
+  let manifest: Promise<DatasetManifest> | undefined;
   let index: Promise<SemanticsModuleIndex> | undefined;
   let history: Promise<DatasetHistory | undefined> | undefined;
-  const readManifest = (): Promise<SemanticsManifest> => {
+  const readManifest = (): Promise<DatasetManifest> => {
     manifest ??= checkedManifest(read, options.pin);
     return manifest;
   };
   /** One file the manifest names, read once the manifest is checked. */
   const fromManifest = async <T>(
-    pick: (saved: SemanticsManifest) => string
+    pick: (saved: DatasetManifest) => string
   ): Promise<T> => required<T>(read, pick(await readManifest()));
   const readIndex = (): Promise<SemanticsModuleIndex> => {
     index ??= fromManifest((saved) => saved.files.moduleIndex);
@@ -150,7 +150,7 @@ async function required<T>(read: DatasetTransport, path: string): Promise<T> {
 async function checkedManifest(
   read: DatasetTransport,
   pin: string | undefined
-): Promise<SemanticsManifest> {
+): Promise<DatasetManifest> {
   const manifest = await read(DATASET_FILES.manifest);
   if (manifest === undefined) {
     throw new DatasetNotFoundError();
@@ -160,30 +160,30 @@ async function checkedManifest(
       "The dataset's manifest is unreadable. Run atlas scan again."
     );
   }
-  const { generatedAt, schemaVersion } = manifest as SemanticsManifest;
-  if (schemaVersion !== SEMANTICS_DATASET_SCHEMA_VERSION) {
+  const { generatedAt, schemaVersion } = manifest as DatasetManifest;
+  if (schemaVersion !== DATASET_SCHEMA_VERSION) {
     throw new Error(
-      `Atlas reads dataset schema version ${SEMANTICS_DATASET_SCHEMA_VERSION}; this dataset has version ${schemaVersion}. Run atlas scan to save it again.`
+      `Atlas reads dataset schema version ${DATASET_SCHEMA_VERSION}; this dataset has version ${schemaVersion}. Run atlas scan to save it again.`
     );
   }
   if (pin !== undefined && generatedAt !== pin) {
     throw new DatasetReplacedError();
   }
-  return manifest as SemanticsManifest;
+  return manifest as DatasetManifest;
 }
 
 async function readHistory(
   read: DatasetTransport
 ): Promise<DatasetHistory | undefined> {
   const manifest = (await read(HISTORY_MANIFEST)) as
-    | SemanticsHistoryManifest
+    | HistoryManifest
     | undefined;
   if (manifest === undefined) {
     return;
   }
-  if (manifest.schemaVersion !== SEMANTICS_HISTORY_SCHEMA_VERSION) {
+  if (manifest.schemaVersion !== HISTORY_SCHEMA_VERSION) {
     throw new Error(
-      `Atlas reads history schema version ${SEMANTICS_HISTORY_SCHEMA_VERSION}; this dataset's history has version ${manifest.schemaVersion}. Run atlas scan --history to save it again.`
+      `Atlas reads history schema version ${HISTORY_SCHEMA_VERSION}; this dataset's history has version ${manifest.schemaVersion}. Run atlas scan --history to save it again.`
     );
   }
   const entities = await required<SemanticsHistoryEntities>(
@@ -194,7 +194,7 @@ async function readHistory(
 }
 
 function packageEntry(
-  manifest: SemanticsManifest,
+  manifest: DatasetManifest,
   name: string
 ): SemanticsManifestPackage {
   const found = manifest.packages.find((pkg) => pkg.id === name);

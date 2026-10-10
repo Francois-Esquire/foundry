@@ -13,12 +13,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
+import type { PackageReport } from "../../src/lib/dataset";
 import { DatasetReplacedError, datasetReader } from "../../src/lib/dataset";
 import { fileTransport } from "../../src/lib/dataset-files";
 import { encodePackageFile } from "../../src/lib/dataset-layout";
+import type { PackageInternals } from "../../src/lib/internal-analysis-types";
 import type {
-  PackageInternals,
-  PackageReport,
   Scan,
   ScanProgressEvent,
   WorkspaceScan,

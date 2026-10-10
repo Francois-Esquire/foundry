@@ -29,13 +29,13 @@ import {
 import { discoverSemanticsUnits } from "../../src/lib/semantics-discover";
 import { compareSemanticsDatasets } from "../../src/lib/semantics-equivalence";
 import type {
+  DatasetManifest,
   SemanticsConceptIndex,
-  SemanticsManifest,
   SemanticsModuleEdgeShard,
   SemanticsModuleIndex,
   SemanticsModuleShard,
 } from "../../src/lib/semantics-types";
-import { SEMANTICS_DATASET_SCHEMA_VERSION } from "../../src/lib/semantics-types";
+import { DATASET_SCHEMA_VERSION } from "../../src/lib/semantics-types";
 import type { SurfaceReport } from "../../src/lib/types";
 import { deriveWorkspaceSurface } from "../../src/lib/workspace-derive";
 import { ingestWorkspaceReports } from "../../src/lib/workspace-ingest";
@@ -118,8 +118,8 @@ function readJson(dir: string, file: string): unknown {
   return JSON.parse(readFileSync(join(dir, file), "utf8"));
 }
 
-function readManifest(dir: string): SemanticsManifest {
-  return readJson(dir, "manifest.json") as SemanticsManifest;
+function readManifest(dir: string): DatasetManifest {
+  return readJson(dir, "manifest.json") as DatasetManifest;
 }
 
 function readShard(dir: string, file: string): SemanticsModuleShard {
@@ -306,7 +306,7 @@ describe("discovery", () => {
 describe("generation", () => {
   let root: string;
   let before: Map<string, string>;
-  let manifest: SemanticsManifest;
+  let manifest: DatasetManifest;
   let dataset: string;
   let reports: SurfaceReport[];
   let workspace: WorkspaceReport;
@@ -339,7 +339,7 @@ describe("generation", () => {
 
   it("writes the dataset under .foundry/semantics with a complete manifest", () => {
     expect(dataset).toBe(join(root, ".foundry", "semantics"));
-    expect(manifest.schemaVersion).toBe(SEMANTICS_DATASET_SCHEMA_VERSION);
+    expect(manifest.schemaVersion).toBe(DATASET_SCHEMA_VERSION);
     expect(manifest.coverage).toBe("complete");
     expect(manifest.workspace).toEqual({
       name: "semantics-root",
