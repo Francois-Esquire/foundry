@@ -245,3 +245,72 @@ binary.
 - **Batching.** Today one plan runs at a time. A rule that is violated in
   many places wants to apply many plans, which raises ordering, shared
   files, and one rollback across all of them.
+
+## Decisions needed
+
+Added 2026-10-09, when the API work picked this up again. The open
+questions above, as decisions with a recommended default each. The CLI
+words that depend on them, `check`, `plan`, and `apply`, are listed in
+[`_api.md`](./_api.md).
+
+1. **Rule shape.** Recommendation: a rule is `{ operator, subject, effect }`.
+   `operator` is an entry in `operator-catalog.ts`; `subject` is a selector
+   over packages, symbols, concepts, or boundaries; `effect` is `permit`
+   (a plan for this operator on this subject may become `authorized`) or
+   `require` (a violation is reported by `atlas check`). `forbid` waits until
+   a `preserve-*` case needs it, so preservation stays plan-local for now.
+   Subjects are addressed the way [`_domains.md`](./_domains.md) addresses
+   facets: by path, and by `path#symbol` for symbols. Domains are the
+   descriptive side of the same model: a plan that would move a facet out
+   of its domain is `blocked`, as an anchor blocks `fold-package` today.
+2. **Where rules live.** Recommendation: in the workspace config next to the
+   scan settings, wherever fork 3 in `_api.md` lands it. Package-level rules
+   come later, and when they do, the narrower scope wins for its own
+   package and cannot permit what the workspace requires.
+3. **Verification per kind.** Recommendation: every executable kind gets
+   its own structural verifier, like `verifyInternalizeExport`, plus the
+   shared typecheck diff. A general "predicted delta equals observed delta"
+   check is the goal, but it is not proven, so it runs beside the bespoke
+   checks rather than replacing them.
+4. **Batching.** Recommendation: one plan per `apply` in 0.1. `atlas check`
+   lists every violation; applying them one at a time keeps rollback exact.
+   Batching is its own design once two executable kinds exist.
+5. **Refresh the dataset after every write.** Decided by the maintainer.
+   A codemod changes the code, and the dataset describes the code, so a
+   write is not finished until the dataset matches again. Recomputing it is
+   expensive, so the refresh is an incremental scan through the existing
+   cache, run by `apply` itself after verification passes. Until that scan
+   publishes, the dataset is stale, and anything reading it (the viewer's
+   survey identity check, `check`, the next `plan`) must see that.
+   The same edit updates any domain declaration whose facet moved (see
+   [`_domains.md`](./_domains.md)).
+
+   What the cache does today, confirmed in the code review
+   ([`_review.md`](./_review.md#cache-and-refresh)): a package's local
+   analysis is reused when its own sources are unchanged, so an edit in one
+   package re-analyzes that package. Workspace derivation is all or
+   nothing; its key covers every source, the day, and git as the commit
+   list plus tracked files, so a codemod's commit alone re-derives every
+   package. Internals run for every package on every scan and repeat the
+   local analysis the cache already holds. `apply` builds three programs
+   per call and discards the analysis it runs after writing.
+
+   So after a one-package codemod, the cost is one local analysis, one full
+   derivation, and every package's internals. Measure those on Foundry,
+   cold, warm, and after a one-file edit, before deciding what to make
+   cheaper. The fixes are in loading and caching, not in the analyses:
+   cache internals per package by the same key, as
+   `test/helpers/reference-internals.ts` already does, and pass the
+   project `apply` built through to derivation, which already accepts one.
+
+Two codemod stacks exist, both reachable only from tests: the reduction
+operators (`operators.ts`, `plan.ts`, `validate.ts`, `apply.ts`) that
+execute, and the architectural operators (`architectural-operator.ts`
+through `operator-readiness.ts`) that plan and authorize. They meet at
+`authorizeMutationPlan`. The work connects them; it does not add a third.
+
+The order of work this implies: rule shape and loading, then the readiness
+gate reading rules, then `atlas check` (read-only, useful on its own in CI),
+then `plan`, then `apply` for `internalize-export` with the refresh, then a
+second executable kind. Which second kind matters most is a question for the maintainer:
+`rewrite-import` and `move-module` are the likely candidates.

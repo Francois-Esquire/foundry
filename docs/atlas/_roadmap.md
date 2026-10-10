@@ -24,10 +24,36 @@ scan and a viewer. The next layers, in the maintainer's words:
    CLI does not expose it, and nothing should until rules say when it may
    run. Research and an opinion on tooling: [`_codemods.md`](./_codemods.md).
 
+## Current work
+
+Started 2026-10-09 on the `feat/atlas` branch. What all of it serves: show
+the shape of the code, what sits next to what, how it nests, and where
+things live against where they are used, so that a misplaced part is
+visible, and an intended one is labeled rather than hidden. Domains are
+the workspace's side of that: [`_domains.md`](./_domains.md).
+
+The sequence and the ground rules, chief among them that the existing
+analyses are built on rather than changed, are in
+[`_phases.md`](./_phases.md). What already exists, found by reviewing the
+code before building anything, is in [`_review.md`](./_review.md). The
+external surface comes first, because
+the others depend on it.
+
+1. **The 0.1 API, CLI and library.** What ships in the first version, and
+   the principles that shape it: [`_api.md`](./_api.md).
+2. **Codemods.** Rules first, then `check`, `plan`, and `apply`, in that
+   order: the decisions section of [`_codemods.md`](./_codemods.md).
+3. **The viewer.** A diagnosis of where it stands and the questions to
+   settle before reworking it: [`_viewer.md`](./_viewer.md).
+4. **Many workspaces in one atlas.** What assumes one workspace today, and
+   the shapes a collection could take: [`_workspaces.md`](./_workspaces.md).
+
 ## Before the first publish
 
 Found while packaging on 2026-09-28. Each is small; together they decide
-whether a first install feels finished.
+whether a first install feels finished. Each is now assigned to a phase 1
+effort in [`_phases.md`](./_phases.md#phase-1-shape-the-api), except the
+release tooling item.
 
 - The release tooling publishes every non-private workspace under one
   shared version from one `v*` tag. Atlas and Marbles release together until
