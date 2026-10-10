@@ -1,6 +1,11 @@
-import type { ModelMessage, ProviderMetadata } from "ai";
+import type { ModelMessage, Output, ProviderMetadata } from "ai";
 
-import type { LoopAgent, TurnContext } from "../agents/loop-agent";
+import type {
+  LoopAgent,
+  TurnCallSettings,
+  TurnContext,
+} from "../agents/loop-agent";
+import { TURN_SETTINGS } from "../agents/loop-agent";
 import type { Mesh } from "../agents/mesh";
 import { createMesh } from "../agents/mesh";
 import type { AgentModel, ModelRoute } from "../agents/model";
@@ -67,9 +72,17 @@ export interface CompactionSettings {
 /** High-water fraction of headroom that triggers a compaction. */
 const DEFAULT_COMPACTION_HIGH_WATER = 0.8;
 
-export type SessionStreamOptions = {
-  signal?: AbortSignal;
-} & StreamHandlers;
+/**
+ * One turn's options: the model settings it overrides, the structured
+ * `output` to parse its final text into, an abort signal, and handlers. A
+ * CLI harness honours `output` and ignores the model settings, which its
+ * own loop owns.
+ */
+export type TurnOptions<OUTPUT extends Output.Output = never> =
+  TurnCallSettings<OUTPUT> &
+    StreamHandlers & {
+      signal?: AbortSignal;
+    };
 
 /**
  * An {@link AgentHarness} run as a persisted session: each turn appends its
@@ -138,15 +151,15 @@ export class SessionHarness {
     this.#baseProviderOptions = settings.providerOptions;
   }
 
-  stream(
+  stream<OUTPUT extends Output.Output = never>(
     input: SessionInput,
-    options: SessionStreamOptions = {}
-  ): SessionStream {
+    options: TurnOptions<OUTPUT> = {}
+  ): SessionStream<OUTPUT> {
     // Set once the input is in the store: a turn rejected before then (a bad
     // approval response) must leave the session untouched, error reply included.
     let appended = false;
 
-    const source: StreamSource = (async () => {
+    const started = (async () => {
       const inputParts = normalizeInput(input);
       await this.#validateApprovalResponses(inputParts);
       await this.#ensureSession();
@@ -159,17 +172,21 @@ export class SessionHarness {
       await this.#maybeCompact();
       const history = await readContext(this.store, this.sessionId);
       const messages = await toModelMessages(history, this.agent.tools);
-      const providerOptions = this.#applyCacheDirectives(messages);
+      const providerOptions = this.#applyCacheDirectives(
+        messages,
+        options.providerOptions
+      );
 
-      const { parts } = await this.#harness.stream({
+      return this.#harness.stream<OUTPUT>({
         abortSignal: options.signal,
         messages,
+        ...turnSettings(options),
         // A call's options are spread over the agent's settings, so an
         // explicit `undefined` would erase the construction-time options.
         ...(providerOptions ? { providerOptions } : {}),
       });
-      return parts;
     })();
+    const source: StreamSource = started.then(({ parts }) => parts);
 
     const commit = (message: SessionMessage): Promise<SessionMessage> => {
       const { sessionId } = this;
@@ -191,12 +208,17 @@ export class SessionHarness {
       commit,
       handlers: options,
       model: this.route,
+      ...(options.output ? { output: options.output } : {}),
+      result: started.then(
+        ({ result }) => result,
+        () => undefined
+      ),
     });
   }
 
-  generate(
+  generate<OUTPUT extends Output.Output = never>(
     input: SessionInput,
-    options: SessionStreamOptions = {}
+    options: TurnOptions<OUTPUT> = {}
   ): Promise<SessionMessage> {
     return this.stream(input, options).message;
   }
@@ -206,11 +228,13 @@ export class SessionHarness {
    * `messages` to mark the Anthropic `cacheControl` breakpoint on the last
    * (appended-only, therefore now-stable) message, and returns the request-level
    * options (OpenAI `promptCacheKey` / Google `cachedContent`) merged over the
-   * agent's construction-time `providerOptions`. No-ops when the provider/model
-   * is unknown; OpenAI/Google otherwise ride the stable prefix for free.
+   * agent's construction-time `providerOptions` and the turn's own. No-ops when
+   * the provider/model is unknown; OpenAI/Google otherwise ride the stable
+   * prefix for free.
    */
   #applyCacheDirectives(
-    messages: ModelMessage[]
+    messages: ModelMessage[],
+    turn: ProviderMetadata | undefined
   ): ProviderMetadata | undefined {
     const directives = cacheDirectivesFor({
       modelId: this.route.id,
@@ -228,13 +252,15 @@ export class SessionHarness {
       }
     }
 
+    const base = turn
+      ? mergeProviderOptions(this.#baseProviderOptions, turn)
+      : this.#baseProviderOptions;
     if (!directives.request) {
-      return undefined;
+      return turn ? (base as ProviderMetadata | undefined) : undefined;
     }
-    return mergeProviderOptions(
-      this.#baseProviderOptions,
-      directives.request
-    ) as ProviderMetadata | undefined;
+    return mergeProviderOptions(base, directives.request) as
+      | ProviderMetadata
+      | undefined;
   }
 
   /**
@@ -326,6 +352,23 @@ function readContext(
 /** Narrow a store to {@link SummarizableStore} when it exposes the active view. */
 function asSummarizable(store: SessionStore): SummarizableStore | undefined {
   return "activeMessages" in store ? (store as SummarizableStore) : undefined;
+}
+
+/**
+ * The model settings a turn overrides. Picked by name: the options also
+ * carry stream handlers, and the SDK's own `onFinish`/`onError` must not
+ * receive them.
+ */
+function turnSettings<OUTPUT extends Output.Output>(
+  options: TurnOptions<OUTPUT>
+): TurnCallSettings<OUTPUT> {
+  const settings: Record<string, unknown> = {};
+  for (const key of [...TURN_SETTINGS, "output"] as const) {
+    if (options[key] !== undefined) {
+      settings[key] = options[key];
+    }
+  }
+  return settings as TurnCallSettings<OUTPUT>;
 }
 
 function normalizeInput(input: SessionInput): SessionPart[] {

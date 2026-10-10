@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { GenerateTextResult, StreamTextResult, ToolSet } from "ai";
+import type { GenerateTextResult, Output, StreamTextResult, ToolSet } from "ai";
 
 import type {
   LoopAgentCallParameters,
@@ -79,9 +79,9 @@ export type AgentHarnessSettings = Omit<LoopAgentSettings, "toolsContext"> & {
 
 /** One streamed turn: the SDK result, and its parts with every tool call
  *  stamped with the registration the compiler gave it. */
-export interface AgentHarnessStream {
+export interface AgentHarnessStream<OUTPUT extends Output.Output = never> {
   readonly parts: AsyncIterable<StreamPart>;
-  readonly result: StreamTextResult<ToolSet, Record<string, unknown>, never>;
+  readonly result: StreamTextResult<ToolSet, Record<string, unknown>, OUTPUT>;
 }
 
 export class AgentHarness {
@@ -174,7 +174,9 @@ export class AgentHarness {
    * and the derived `capability` on each approval request — the facts the
    * session layer persists, which only the live compiler still knows.
    */
-  async stream(opts: LoopAgentStreamParameters): Promise<AgentHarnessStream> {
+  async stream<OUTPUT extends Output.Output = never>(
+    opts: LoopAgentStreamParameters<OUTPUT>
+  ): Promise<AgentHarnessStream<OUTPUT>> {
     const result = await this.agent.stream(opts);
     return {
       parts: withToolCallRegistration(result.stream, this.#registrationFor, {
@@ -190,9 +192,9 @@ export class AgentHarness {
    * tools authorize every call just as they do when streaming, and the
    * provenance stamping only serves the session layer, which always streams.
    */
-  generate(
-    opts: LoopAgentCallParameters
-  ): Promise<GenerateTextResult<ToolSet, Record<string, unknown>, never>> {
+  generate<OUTPUT extends Output.Output = never>(
+    opts: LoopAgentCallParameters<OUTPUT>
+  ): Promise<GenerateTextResult<ToolSet, Record<string, unknown>, OUTPUT>> {
     return this.agent.generate(opts);
   }
 }

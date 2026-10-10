@@ -1,11 +1,8 @@
-import type { Instructions } from "ai";
+import type { Instructions, Output } from "ai";
 import { stepCountIs } from "ai";
 import type { TurnContext } from "../agents/loop-agent";
 import type { SessionInput } from "../session/events";
-import type {
-  SessionHarnessSettings,
-  SessionStreamOptions,
-} from "./session-harness";
+import type { SessionHarnessSettings, TurnOptions } from "./session-harness";
 import { SessionHarness } from "./session-harness";
 import type { HarnessSession } from "./turn-driver";
 import { validateHarnessProfile } from "./turn-driver";
@@ -38,7 +35,10 @@ export function createBuiltinCodingHarness(
     context
   );
   const gate = createTurnGate("Coding");
-  const stream = (input: SessionInput, options: SessionStreamOptions = {}) =>
+  const stream = <OUTPUT extends Output.Output = never>(
+    input: SessionInput,
+    options: TurnOptions<OUTPUT> = {}
+  ) =>
     gate.run(options.signal, ({ signal }) =>
       harness.stream(input, { ...options, signal })
     );

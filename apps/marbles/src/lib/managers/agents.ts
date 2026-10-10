@@ -7,6 +7,7 @@ import type { ModelManager, TurnExecutorRef } from "@foundry/models";
 import { observeAgentTurn } from "@foundry/models";
 import { DEFAULT_SANDBOX_WORKING_DIRECTORY } from "@foundry/sandbox/constants";
 import type { Container } from "@foundry/sandbox/container/containers";
+import type { Output } from "ai";
 
 import type { AutomationService } from "~/lib/automation/service";
 import { isCliHarness } from "~/lib/cli-harnesses";
@@ -252,7 +253,7 @@ interface Route {
 
 /** What both kinds of session are opened with, once the route and id are settled. */
 interface Opening {
-  readonly definition: AgentDefinition;
+  readonly definition: AgentDefinition<Output.Output>;
   readonly id: string;
   readonly options: SessionOptions;
   readonly route: Route;
@@ -266,12 +267,12 @@ interface Opening {
  * created in the store the first time the run needs it, so a host can read
  * every agent the run opened through `run.session`.
  */
-async function openSession(
+async function openSession<OUTPUT extends Output.Output>(
   deps: AgentsDeps,
   site: SessionSite,
-  definition: AgentDefinition,
+  definition: AgentDefinition<OUTPUT>,
   options: SessionOptions
-): Promise<Session> {
+): Promise<Session<OUTPUT>> {
   const wanted = options.session ? refOf(options.session) : undefined;
   const fallback =
     definition.provider === undefined && definition.model === undefined
@@ -297,7 +298,7 @@ async function openSession(
     options.sandbox && !deps.dry
       ? await openSandboxSession(deps, { ...opening, options }, options.sandbox)
       : await openLocalSession(deps, opening);
-  return retainSession(harness, id, site);
+  return retainSession(harness, id, site, definition.settings);
 }
 
 /** A harness inside the sandbox's container, with approvals, questions, and activity routed to the host. */
@@ -386,11 +387,12 @@ async function openLocalSession(
   });
 }
 
-function retainSession(
+function retainSession<OUTPUT extends Output.Output>(
   harness: SessionHarness | HarnessSession,
   id: string,
-  site: SessionSite
-): Session {
+  site: SessionSite,
+  settings: AgentDefinition<OUTPUT>["settings"]
+): Session<OUTPUT> {
   if ("close" in harness && harness.close) {
     const { close } = harness;
     site.retain({ close: () => close.call(harness) });
@@ -401,7 +403,7 @@ function retainSession(
     provider: harness.route.provider,
   };
   site.record(ref);
-  return wrapAgentSession(harness, ref, site);
+  return wrapAgentSession(harness, ref, site, settings);
 }
 
 export class AgentsManager implements Agents {
@@ -428,10 +430,10 @@ export class AgentsManager implements Agents {
    * the call names a directory, each call is a new session, and it stays
    * open until the engine is disposed. Pass `onText` to a turn to stream it.
    */
-  async session(
-    definition: AgentDefinition,
+  async session<OUTPUT extends Output.Output = never>(
+    definition: AgentDefinition<OUTPUT>,
     options: SessionOptions = {}
-  ): Promise<Session> {
+  ): Promise<Session<OUTPUT>> {
     validateSessionOptions(options);
     return await openSession(
       this.#deps,

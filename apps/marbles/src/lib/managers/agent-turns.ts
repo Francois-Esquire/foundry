@@ -1,7 +1,7 @@
 import type {
   HarnessSession,
   SessionHarness,
-  SessionStreamOptions,
+  TurnOptions,
 } from "@foundry/agents/harness";
 import type {
   SessionEvent,
@@ -9,8 +9,9 @@ import type {
   SessionMessage,
   SessionStream,
 } from "@foundry/agents/session";
+import type { InferStreamOutput, Output } from "ai";
 import type { LiveSession } from "../run-scope";
-import type { Session, SessionRef } from "../types";
+import type { AgentSettings, Session, SessionRef } from "../types";
 
 export interface SessionTurnSite {
   readonly recorded?: SessionRef;
@@ -26,12 +27,17 @@ function textOf(message: SessionMessage): string {
     .join("\n");
 }
 
-/** One turn controller for collected and streamed replies, including every steering continuation. */
-export function wrapAgentSession(
+/**
+ * One turn controller for collected and streamed replies, including every
+ * steering continuation. `settings` are the agent's own; a turn's options
+ * override them.
+ */
+export function wrapAgentSession<DEFAULT extends Output.Output = never>(
   harness: SessionHarness | HarnessSession,
   ref: SessionRef,
-  site: SessionTurnSite
-): Session {
+  site: SessionTurnSite,
+  settings: AgentSettings<DEFAULT> = {}
+): Session<DEFAULT> {
   const live: LiveSession = { ref };
   site.track(live);
   const check = () => site.signal().throwIfAborted();
@@ -46,10 +52,11 @@ export function wrapAgentSession(
     site.write(`\n[resume] ${prompt}\n`);
     return `${prompt}\n\n${input}`;
   };
-  const stream = (
+  const stream = <OUTPUT extends Output.Output = DEFAULT>(
     input: SessionInput,
-    options?: SessionStreamOptions
-  ): SessionStream => {
+    turnOptions?: TurnOptions<OUTPUT>
+  ): SessionStream<OUTPUT> => {
+    const options = { ...settings, ...turnOptions } as TurnOptions<OUTPUT>;
     check();
     if (live.turn !== undefined) {
       throw new Error("A session can run only one turn at a time.");
@@ -61,6 +68,15 @@ export function wrapAgentSession(
     const events = new ReadableStream<SessionEvent>({
       start(value) {
         controller = value;
+      },
+    });
+    // Partials from every turn, steered ones included.
+    let partialController!: ReadableStreamDefaultController<
+      InferStreamOutput<OUTPUT>
+    >;
+    const partials = new ReadableStream<InferStreamOutput<OUTPUT>>({
+      start(value) {
+        partialController = value;
       },
     });
     const openTurn = (next: SessionInput) => {
@@ -79,7 +95,12 @@ export function wrapAgentSession(
         ]),
       });
     };
-    const publishEvents = async (current: SessionStream) => {
+    const publishEvents = async (current: SessionStream<OUTPUT>) => {
+      const publishPartials = (async () => {
+        for await (const partial of current.partialOutputStream) {
+          partialController.enqueue(partial);
+        }
+      })();
       for await (const event of current) {
         if (
           event.type !== "finish" &&
@@ -88,6 +109,7 @@ export function wrapAgentSession(
           controller.enqueue(event);
         }
       }
+      await publishPartials;
     };
     const run = async () => {
       try {
@@ -107,36 +129,55 @@ export function wrapAgentSession(
           const usage = await current.usage;
           controller.enqueue({ message, type: "finish", usage });
           controller.close();
-          return { message, outcome, usage };
+          partialController.close();
+          return { current, message, outcome, usage };
         }
       } catch (error) {
         controller.error(error);
+        partialController.error(error);
         throw error;
       } finally {
         live.turn = undefined;
         live.steer = undefined;
       }
     };
-    const result = run();
-    const message = result.then((value) => value.message);
-    const outcome = result.then((value) => value.outcome);
+    const turns = run();
+    const message = turns.then((value) => value.message);
+    const outcome = turns.then((value) => value.outcome);
+    const output = turns.then((value) => value.current.output);
+    const result = turns.then((value) => value.current.result);
     const text = message.then(textOf);
-    const usage = result.then((value) => value.usage);
-    for (const final of [message, outcome, text, usage]) {
+    const usage = turns.then((value) => value.usage);
+    for (const final of [message, outcome, output, result, text, usage]) {
       final.catch(() => undefined);
     }
     return {
       [Symbol.asyncIterator]: () => events.values({ preventCancel: true }),
       message,
       outcome,
+      output,
+      partialOutputStream: partials.values({ preventCancel: true }),
+      result,
       text,
       usage,
     };
   };
   return {
     async generate(input, options) {
-      const message = await stream(input, options).message;
-      return { ...message, text: textOf(message) };
+      const turn = stream(input, options);
+      const message = await turn.message;
+      const [output, usage, result] = await Promise.all([
+        turn.output,
+        turn.usage,
+        turn.result,
+      ]);
+      return {
+        ...message,
+        output,
+        ...(result ? { result } : {}),
+        text: textOf(message),
+        usage,
+      };
     },
     harness,
     ref,

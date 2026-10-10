@@ -1,5 +1,8 @@
 import type { LanguageModelV4 } from "@ai-sdk/provider";
-import type { HarnessToolEvent } from "@foundry/agents/harness";
+import type {
+  HarnessResponseFormat,
+  HarnessToolEvent,
+} from "@foundry/agents/harness";
 import { tool } from "ai";
 import type { ClaudeCodeSettings } from "ai-sdk-provider-claude-code";
 import { describe, expect, it, vi } from "vitest";
@@ -415,5 +418,79 @@ describe("Codex native app-server driver", () => {
     const parts = await collect(stream);
     expect(parts).toHaveLength(1);
     expect(child.killed).toBe(true);
+  });
+});
+
+describe("structured output in native drivers", () => {
+  const responseFormat: HarnessResponseFormat = {
+    schema: {
+      $schema: "http://json-schema.org/draft-07/schema#",
+      properties: {
+        format: { format: "uri", title: "Format", type: "string" },
+      },
+      required: ["format"],
+      type: "object",
+    },
+    type: "json",
+  };
+
+  it("hands Claude Code the response format", async () => {
+    let received: unknown;
+    const model: LanguageModelV4 = {
+      doGenerate: vi.fn(),
+      doStream(options) {
+        received = options.responseFormat;
+        return Promise.resolve({
+          stream: new ReadableStream({
+            start(controller) {
+              controller.close();
+            },
+          }),
+        });
+      },
+      modelId: "sonnet",
+      provider: "test",
+      specificationVersion: "v4",
+      supportedUrls: {},
+    };
+    const driver = createClaudeCodeDriver({
+      agentId: "agent-1",
+      createModel: () => model,
+      cwd: "/workspace",
+      modelId: "sonnet",
+      spawnClaudeCodeProcess: vi.fn(),
+    });
+    await collect(await driver.run(runOptions({ responseFormat })));
+    expect(received).toEqual(responseFormat);
+  });
+
+  it("sends Codex the schema without the keywords it rejects", async () => {
+    const child = new FakeAppServer();
+    const abort = new AbortController();
+    const driver = createCodexDriver({
+      agentId: "agent-1",
+      binPath: "/opt/codex",
+      cwd: "/workspace",
+      modelId: "model-1",
+      spawn: async () => child,
+    });
+    const stream = await driver.run(
+      runOptions({
+        profile: { ...runOptions().profile, disallowedTools: [] },
+        responseFormat,
+        signal: abort.signal,
+      })
+    );
+    expect(
+      child.messages.find((message) => message.method === "turn/start")?.params
+    ).toMatchObject({
+      outputSchema: {
+        properties: { format: { type: "string" } },
+        required: ["format"],
+        type: "object",
+      },
+    });
+    abort.abort();
+    await collect(stream);
   });
 });

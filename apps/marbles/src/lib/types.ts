@@ -5,15 +5,23 @@ import type {
   HarnessQuestionCallback,
   HarnessSession,
   SessionHarness,
-  SessionStreamOptions,
+  TurnCallSettings,
+  TurnOptions,
 } from "@foundry/agents/harness";
 import type {
   SessionInput,
   SessionMessage,
   SessionStream,
+  SessionUsage,
 } from "@foundry/agents/session";
 import type { ContainerSandboxConstraints } from "@foundry/sandbox/container/constraints";
 import type { Git } from "@foundry/workspaces/git";
+import type {
+  InferGenerateOutput,
+  Output,
+  StreamTextResult,
+  ToolSet,
+} from "ai";
 import type { Log } from "~/lib/log";
 
 /**
@@ -35,7 +43,17 @@ export interface SkillSet {
   pick(...names: readonly string[]): SkillSet;
 }
 
-export interface AgentDefinition {
+export type { TurnOptions } from "@foundry/agents/harness";
+
+/**
+ * Model settings and structured output every turn starts from; a turn's own
+ * options override them. A CLI harness honours `output` and ignores the
+ * model settings, which its own loop owns.
+ */
+export type AgentSettings<OUTPUT extends Output.Output = never> =
+  TurnCallSettings<OUTPUT>;
+
+export interface AgentDefinition<OUTPUT extends Output.Output = never> {
   readonly id: string;
   readonly kind: "agent";
   /** A catalog model id, e.g. `anthropic/claude-sonnet-4.6`. */
@@ -43,6 +61,7 @@ export interface AgentDefinition {
   readonly prompt: string;
   /** A models provider id: `codex`, `claude-code`. Omit for the default. */
   readonly provider?: string;
+  readonly settings?: AgentSettings<OUTPUT>;
   readonly skills?: SkillSet;
 }
 
@@ -104,7 +123,7 @@ interface SharedSessionOptions {
   /** Enable automatic compaction or supply its settings; false disables it. */
   readonly compaction?: boolean | Partial<CompactionSettings>;
   /** Continue this session instead of starting a new one. */
-  readonly session?: SessionRef | Session;
+  readonly session?: SessionRef | Session<Output.Output>;
 }
 
 interface HostSessionOptions extends SharedSessionOptions {
@@ -137,24 +156,48 @@ export interface SandboxAgentOptions extends SharedSessionOptions {
 
 export type SessionOptions = HostSessionOptions | SandboxAgentOptions;
 
-export type SessionReply = SessionMessage & { readonly text: string };
+export type SessionReply<OUTPUT extends Output.Output = never> =
+  SessionMessage & {
+    /** Every text part of the final turn, joined with newlines. */
+    readonly text: string;
+    /** The parsed structured value; present when the turn had an `output`. */
+    readonly output: InferGenerateOutput<OUTPUT>;
+    readonly usage: SessionUsage;
+    /**
+     * The AI SDK result of the final turn, settled. Absent for a CLI
+     * harness, which runs its own loop.
+     */
+    readonly result?: StreamTextResult<
+      ToolSet,
+      Record<string, unknown>,
+      OUTPUT
+    >;
+  };
 
 /**
  * A session, pre-wired: every turn is aborted with the step and its text
  * lands on the step's stream. `harness` is the package object underneath.
+ * A turn with an `output` that produces no valid value rejects, after its
+ * message is committed; `DEFAULT` is the agent's own `output`.
  */
-export interface Session {
-  generate(
+export interface Session<DEFAULT extends Output.Output = never> {
+  generate<OUTPUT extends Output.Output = DEFAULT>(
     input: SessionInput,
-    options?: SessionStreamOptions
-  ): Promise<SessionReply>;
+    options?: TurnOptions<OUTPUT>
+  ): Promise<SessionReply<OUTPUT>>;
   readonly harness: SessionHarness | HarnessSession;
   readonly ref: SessionRef;
-  stream(input: SessionInput, options?: SessionStreamOptions): SessionStream;
+  stream<OUTPUT extends Output.Output = DEFAULT>(
+    input: SessionInput,
+    options?: TurnOptions<OUTPUT>
+  ): SessionStream<OUTPUT>;
 }
 
 export interface Agents {
-  session(agent: AgentDefinition, options?: SessionOptions): Promise<Session>;
+  session<OUTPUT extends Output.Output = never>(
+    agent: AgentDefinition<OUTPUT>,
+    options?: SessionOptions
+  ): Promise<Session<OUTPUT>>;
 }
 
 export interface WorkspaceHandle {

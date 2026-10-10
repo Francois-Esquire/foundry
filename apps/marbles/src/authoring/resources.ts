@@ -1,8 +1,10 @@
 import { createHash } from "node:crypto";
 import { canonicalizeJson } from "@foundry/lib/json";
+import type { Output } from "ai";
 import { catalog } from "~/authoring/catalog";
 import type {
   AgentDefinition,
+  AgentSettings,
   ArtifactDefinition,
   SandboxDefinition,
   SandboxSpec,
@@ -25,14 +27,16 @@ import { bindingAt, callSite, originOf } from "./identity";
  * registration-order ids: nothing durable is keyed by them.
  */
 
-export function agent(spec: {
+export function agent<OUTPUT extends Output.Output = never>(spec: {
   /** The agent's id; approvals and triggers it creates are kept under it. */
   readonly name?: string;
   readonly prompt: string;
   readonly model?: string;
   readonly provider?: string;
+  /** Model settings and structured output every turn starts from. */
+  readonly settings?: AgentSettings<OUTPUT>;
   readonly skills?: SkillSet;
-}): AgentDefinition {
+}): AgentDefinition<OUTPUT> {
   const { name, ...rest } = spec;
   if (!rest.prompt.trim()) {
     throw new Error("agent(): a prompt is required");

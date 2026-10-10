@@ -71,6 +71,51 @@ may still miss changes or misinterpret history.
 starts nothing; opening a session does. The prompt is an instruction, not a
 permission; see [safety and limits](/marbles/safety-and-limits).
 
+`settings` holds what every turn starts from: the AI SDK's model settings
+(`temperature`, `maxOutputTokens`, `stopWhen`, `providerOptions`, …) and an
+`output`. A turn's own options override them. Claude Code and Codex run
+their own loop, so they honour `output` and ignore the model settings.
+
+## Structured output
+
+Pass an AI SDK `Output` to a turn and the reply carries the parsed value:
+
+```ts
+import { agent, Output, step } from "@foundry/marbles";
+import { z } from "zod";
+
+const triage = agent({ prompt: "Triage issues for this repository." });
+const verdict = Output.object({
+  schema: z.object({
+    labels: z.array(z.string()),
+    severity: z.enum(["low", "medium", "high"]),
+  }),
+});
+
+step("triage")
+  .input(z.object({ issue: z.string() }))
+  .do(async ({ input, agents }) => {
+    const session = await agents.session(triage);
+    const { output } = await session.generate(input.issue, { output: verdict });
+    return output; // { labels: string[]; severity: "low" | "medium" | "high" }
+  });
+```
+
+- **Every harness.** Claude Code and Codex are given the schema and answer
+  with JSON that matches it; Marbles parses it the same way for each.
+- **A mismatch rejects.** When the answer does not match the schema, the
+  turn rejects with the AI SDK's `NoObjectGeneratedError`, which carries the
+  text. The reply is still in the session's transcript.
+- **Streaming.** `session.stream(…, { output })` has `partialOutputStream`,
+  the value as it fills in, and `output`, the final value.
+- **Kept with the message.** The value is stored on the reply's metadata in
+  the session's transcript.
+- **Dry runs.** `--dry-run` answers with the smallest value the schema
+  accepts and prints the keys it asked for.
+
+`Output.array`, `Output.choice`, and `Output.json` work the same way.
+`Output` is the AI SDK's; `@foundry/marbles` re-exports it.
+
 From the dashboard, `s` on a running step hands the agent a prompt mid-turn
 and `p` parks the step; neither needs authored code.
 

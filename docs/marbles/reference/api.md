@@ -16,7 +16,7 @@ import {
 
 | Word | Kind | Shape | Purpose |
 | --- | --- | --- | --- |
-| `agent` | definition | `agent({ name?, prompt, model?, provider?, skills? })` | Who does model work, with defaults. |
+| `agent` | definition | `agent({ name?, prompt, model?, provider?, settings?, skills? })` | Who does model work, with defaults. |
 | `workspace` | definition | `workspace({ path })` | Another directory to work on. The current workspace is implicit. |
 | `sandbox` | definition | `sandbox({ image, mount?, resources? })` or `sandbox({ files, image?, resources? })` | An isolated place to run commands. |
 | `artifact` | definition | `artifact({ name, type })` | A versioned output; each run adds a version. |
@@ -157,7 +157,7 @@ step().do(async ({ input, agents, workspaces, sandboxes, artifacts, ask, report,
 | Key | What it is |
 | --- | --- |
 | `input` | Typed input, validated against `.input(schema)`. |
-| `agents` | `session(def, { cwd?, session?, compaction? })` → `{ generate(prompt) → { text, … }, stream(prompt), ref, harness }`. |
+| `agents` | `session(def, { cwd?, session?, compaction? })` → `{ generate(prompt, turn?) → { text, output, usage, … }, stream(prompt, turn?), ref, harness }`. |
 | `workspaces` | `current` (the workspace root) and `load(def \| { path })` → `{ root, files(), git }`. |
 | `sandboxes` | `start(def \| spec)` → `{ exec(argv) → { exitCode, stdout, stderr }, close(), id }`; `open(id)`. |
 | `artifacts` | `write(def, files)` adds a version; `create({ name, type, entries })` makes one on the spot. |
@@ -196,10 +196,21 @@ await fetch(url, { signal });
 ```
 
 - **Agents.** A session's turns write to the step's stream and stop with the
-  step. `generate` returns the message with a `text` field; `stream` returns
-  the harness's stream. `ref` is a small serializable handle (`id`, and the
-  `model` and `provider` it opened with) for continuing the session later.
-  `compaction: true` summarizes older history with the turn model.
+  step. `generate` returns the message with `text` (every text part of the
+  final turn), `output`, `usage`, and `result` (the AI SDK's result, absent
+  for Claude Code and Codex); `stream` returns the harness's stream, with
+  `output` and `partialOutputStream` beside `text` and `message`. `ref` is a
+  small serializable handle (`id`, and the `model` and `provider` it opened
+  with) for continuing the session later. `compaction: true` summarizes
+  older history with the turn model.
+- **Turn options.** The second argument to `generate` and `stream` takes
+  `output` (an AI SDK `Output`), the AI SDK's model settings (`temperature`,
+  `maxOutputTokens`, `topP`, `topK`, `seed`, `stopSequences`, `stopWhen`,
+  `toolChoice`, `activeTools`, `reasoning`, `providerOptions`, …), `signal`,
+  and handlers such as `onText`. They override the agent's `settings`. A
+  turn whose `output` gets no matching value rejects with
+  `NoObjectGeneratedError` after the reply is committed. See
+  [structured output](/marbles/concepts/agents-and-sessions#structured-output).
 - **Workspaces.** `current.git` throws when the workspace root is not a
   repository. `withWorktree({ base, branch?, home? }, body)` cuts a checkout
   under the workspace's state, runs `body` with the working directory
@@ -316,11 +327,12 @@ override outer ones.
 
 ## Exports
 
-The package exports the nine words and the types behind them: `Context`,
+The package exports the nine words, the AI SDK's `Output`, and the types
+behind them: `Context`,
 `StepDefinition`, `WorkflowDefinition`, `LockedNode`, the definition types
-(`AgentDefinition`, `WorkspaceDefinition`, `SandboxDefinition`,
+(`AgentDefinition`, `AgentSettings`, `WorkspaceDefinition`, `SandboxDefinition`,
 `SandboxSpec`, `ArtifactDefinition`, `SkillSet`), the context types
-(`Agents`, `Session`, `SessionRef`, `SessionReply`, `Workspaces`,
+(`Agents`, `Session`, `SessionRef`, `SessionReply`, `TurnOptions`, `Workspaces`,
 `WorkspaceHandle`, `Sandboxes`, `Sandbox`, `Artifacts`, `ArtifactVersion`,
 `Ask`, `Approval`, `Report`, `Stream`, `Run`, `Log`, `LogLevel`), and the
 trigger types (`Schedule`, `ScheduleBuilder`, `MonitorBuilder`,

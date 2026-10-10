@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { Output } from "ai";
 
 import type { SessionInput, SessionStream } from "../session/events";
 import {
@@ -10,7 +11,7 @@ import type { EventQueue } from "./event-queue";
 import { createEventQueue } from "./event-queue";
 import { createHarnessPermission, redactHarnessSummary } from "./permission";
 import { createHarnessQuestionCallback } from "./question";
-import type { SessionStreamOptions } from "./session-harness";
+import type { TurnOptions } from "./session-harness";
 import type { StreamPart } from "./stream-transform";
 import { transformStream } from "./stream-transform";
 import type {
@@ -57,11 +58,11 @@ export function createDriverSession(
     }
   };
 
-  const runTurn = (
+  const runTurn = <OUTPUT extends Output.Output>(
     turn: GatedTurn,
     input: SessionInput,
-    options: SessionStreamOptions
-  ): SessionStream => {
+    options: TurnOptions<OUTPUT>
+  ): SessionStream<OUTPUT> => {
     const { signal } = turn;
     const queue = createEventQueue<DriverQueuePart>();
 
@@ -105,6 +106,7 @@ export function createDriverSession(
           role: "user",
           sessionId,
         });
+        const responseFormat = await options.output?.responseFormat;
         const source = await driver.run({
           input,
           nativeSessionId:
@@ -142,6 +144,7 @@ export function createDriverSession(
             settings.parentActivityId
           ),
           profile: settings.profile,
+          ...(responseFormat?.type === "json" ? { responseFormat } : {}),
           question: withParentActivity(
             createHarnessQuestionCallback({
               question: settings.question,
@@ -209,11 +212,14 @@ export function createDriverSession(
         }),
       handlers: options,
       model: settings.model,
+      ...(options.output ? { output: options.output } : {}),
     });
     return result;
   };
-  const stream = (input: SessionInput, options: SessionStreamOptions = {}) =>
-    gate.run(options.signal, (turn) => runTurn(turn, input, options));
+  const stream = <OUTPUT extends Output.Output = never>(
+    input: SessionInput,
+    options: TurnOptions<OUTPUT> = {}
+  ) => gate.run(options.signal, (turn) => runTurn(turn, input, options));
 
   return {
     capabilities: driver.capabilities,

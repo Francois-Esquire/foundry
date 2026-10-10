@@ -297,6 +297,20 @@ host, `latest()` reads the real store and `write` is echoed (see F.2).
 
 ## Part B. The agent surface and structured output
 
+**Landed 2026-10-10.** Where the code differs from the sections below:
+
+- `LoopAgent` is generic per call (`stream<OUTPUT>`, `generate<OUTPUT>`),
+  not per class. An agent's `settings` (B.5) are applied by the Marbles
+  turn wrapper as each turn's defaults, not through `AgentSpec.settings`,
+  so they reach sandboxed CLI sessions too.
+- A turn with `output` skips `LoopAgent`'s line smoothing, which would hold
+  a one-line JSON answer back until it ended and leave no partials.
+- `SessionStream` carries `result` as a promise, `undefined` for drivers.
+- Structured output parses the final step's text: `transformStream` resets
+  it on each `start-step` part.
+- `@foundry/marbles` re-exports the AI SDK's `Output`, and exports
+  `TurnOptions` and `AgentSettings`.
+
 The AI SDK is `ai@7.0.58` in `packages/agents`, `packages/models`, and
 `apps/marbles`. Structured output is `output: Output.object({ schema })`
 (also `array`, `choice`, `json`, `text`), giving `result.output` on

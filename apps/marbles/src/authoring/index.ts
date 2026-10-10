@@ -1,3 +1,5 @@
+// biome-ignore lint/performance/noBarrelFile: This is the public package entry point for authoring imports.
+export { Output } from "ai";
 export type { LockedNode } from "~/lib/definition";
 export type { Log, LogLevel } from "~/lib/log";
 export type {
@@ -15,6 +17,7 @@ export type {
 } from "~/lib/triggers";
 export type {
   AgentDefinition,
+  AgentSettings,
   Agents,
   Approval,
   ArtifactDefinition,
@@ -37,11 +40,11 @@ export type {
   SessionReply,
   SkillSet,
   Stream,
+  TurnOptions,
   WorkspaceDefinition,
   WorkspaceHandle,
   Workspaces,
 } from "~/lib/types";
-// biome-ignore lint/performance/noBarrelFile: This is the public package entry point for authoring imports.
 export { step, workflow } from "./builder";
 export type { StepDefinition, WorkflowDefinition } from "./lock";
 export { agent, artifact, sandbox, skills, workspace } from "./resources";

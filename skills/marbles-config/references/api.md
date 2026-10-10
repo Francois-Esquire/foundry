@@ -26,7 +26,7 @@ import {
 
 | Word | Kind | Shape | Purpose |
 | --- | --- | --- | --- |
-| `agent` | definition | `agent({ name?, prompt, model?, provider?, skills? })` | Who does model work, with defaults. |
+| `agent` | definition | `agent({ name?, prompt, model?, provider?, settings?, skills? })` | Who does model work, with defaults. `settings`: AI SDK model settings and `output` every turn starts from. |
 | `workspace` | definition | `workspace({ path })` | Another directory to work on. The config's own is implicit. |
 | `sandbox` | definition | `sandbox({ image, mount?, resources? })` or `sandbox({ files, image? })` | An isolated place to run commands. |
 | `artifact` | definition | `artifact({ name, type })` | A versioned output; each run adds a version. |
@@ -139,7 +139,7 @@ step().do(async ({ input, agents, workspaces, sandboxes, artifacts, ask, report,
 | Key | What it is |
 | --- | --- |
 | `input` | Typed input, validated against `.input(schema)`. |
-| `agents` | `session(def, { cwd?, session?, compaction? })` → `{ generate(prompt) → { text }, stream(prompt), ref, harness }`. |
+| `agents` | `session(def, { cwd?, session?, compaction? })` → `{ generate(prompt, turn?) → { text, output, usage, result? }, stream(prompt, turn?), ref, harness }`. `turn`: `{ output?, temperature?, maxOutputTokens?, stopWhen?, providerOptions?, …, signal?, onText? }`. |
 | `workspaces` | `current` (the config's directory) and `load(def | { path })` → `{ root, files(), git }`. |
 | `sandboxes` | `start(def | spec)` → `{ exec(argv) → { exitCode, stdout, stderr }, close(), id }`; `open(id)`. |
 | `artifacts` | `write(def, files)` adds a version; `create({ name, type, entries })` makes one on the spot. |
@@ -156,6 +156,12 @@ const scoped = await agents.session(reviewer, { cwd: worktree.root });  // overr
 const again = await agents.session(reviewer, { session });              // continue one
 const reply = await session.generate("Review the change.");
 reply.text;
+
+// Structured output: `Output` is re-exported from the AI SDK. A reply that
+// does not match the schema rejects with NoObjectGeneratedError.
+const verdict = Output.object({ schema: z.object({ approve: z.boolean(), reasons: z.array(z.string()) }) });
+const { output } = await session.generate("Should this merge?", { output: verdict });
+output.approve;
 
 const here = workspaces.current;
 await here.git.withWorktree({ base: "main", branch: "task/x" }, async (worktree) => {

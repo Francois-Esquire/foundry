@@ -110,7 +110,10 @@ Reading `--dry-run` output: `roll` labels steps by their path in the tree
 (`weekly.findings`, `ship.decision.review.branch`), not by definition name,
 so choose child keys that read well in a log. Agent turns are echoed as
 `[provider/model] in <dir> <prompt>` and `generate().text` is that echo, so a
-"finding" that reads like the prompt is expected. Sandbox commands are echoed
+"finding" that reads like the prompt is expected. A turn with `{ output }`
+is answered with the smallest value its schema accepts (required keys, empty
+arrays, the first enum member), so a branch on that value takes its default
+path. Sandbox commands are echoed
 as `[sandbox] argv` and return exit 0 with empty output, so a failure branch
 never runs under `--dry-run`; test it by forcing the value once. Reports and
 artifacts are recorded (a version id is returned) but not echoed. Nothing is

@@ -235,75 +235,14 @@ underlying result plus Marbles' own fields. Today most wrappers do the
 opposite: they declare a small shape of their own and copy a few fields
 across.
 
-Structured output comes first; the other sections are the same problem in
-the other context keys. Paths are relative to the repository root.
+Structured output came first and has landed; the other sections are the
+same problem in the other context keys. Paths are relative to the repository root.
 
 ### 7.1 Agents: structured output and model settings
 
-The AI SDK (v7) has structured output on both calls, and both CLI providers
-honour it: `ai-sdk-provider-claude-code` maps a JSON-schema `responseFormat`
-to Claude Code's `structured_output`, and `ai-sdk-provider-codex-cli` to an
-output schema. Four layers of ours stop it before it gets there:
-
-1. **`LoopAgent`** extends `ToolLoopAgent<never, ToolSet>`
-   (`packages/agents/src/agents/loop-agent.ts:134`). `ToolLoopAgent`'s fourth
-   type parameter, `OUTPUT`, defaults to `never`, so `output` can only be
-   `undefined`, and every result is typed
-   `StreamTextResult<ToolSet, Record<string, unknown>, never>`. A call may
-   override only `providerOptions` (`loop-agent.ts:34-43`).
-2. **`SessionHarness.stream`** accepts `SessionStreamOptions = { signal } &
-   StreamHandlers` (`packages/agents/src/harness/session-harness.ts:70`) and
-   reaches the model with `abortSignal`, `messages`, and `providerOptions`
-   only (`session-harness.ts:164-170`). No `output`, `temperature`,
-   `maxOutputTokens`, `stopWhen`, `toolChoice`, or `activeTools` per turn.
-3. **Marbles' `AgentDefinition`** is `prompt`, `model`, `provider`, `skills`
-   (`apps/marbles/src/lib/types.ts:38-47`). `@foundry/agents` takes
-   `AgentSpec.settings` (most of `ToolLoopAgentSettings`), `tools`, and `mcp`,
-   but `openLocalSession` builds the spec from four fields
-   (`apps/marbles/src/lib/managers/agents.ts:370-376`), and
-   `models.model(…)` gets only `workingDirectory` (`agents.ts:367-369`).
-4. **`session.generate`** returns the committed message plus `text`
-   (`apps/marbles/src/lib/managers/agent-turns.ts:137-140`). The AI SDK
-   result is gone: `output`, `steps`, tool calls and results, `finishReason`,
-   `response`, and provider metadata. `stream` keeps `usage` and the events
-   but not `partialOutputStream`.
-
-In a sandbox, the Claude Code driver sends the prompt text alone and sets
-`sdkOptions: undefined` so no overlay can replace the run's authority
-(`packages/models/src/harness/claude-code.ts:113-137`); the Codex driver's
-`turn/start` sends no output schema (`packages/models/src/harness/codex.ts:299`).
-
-**Proposal.**
-
-```ts
-import { Output } from "ai";
-
-const verdict = z.object({ passed: z.boolean(), findings: z.array(z.string()) });
-
-const session = await agents.session(reviewer);
-const { output } = await session.generate("Review the branch.", {
-  output: Output.object({ schema: verdict }),
-});
-```
-
-- `LoopAgent`, `SessionHarness`, and the Marbles `Session` become generic
-  over `OUTPUT`. Per-turn options are the AI SDK's call settings minus what
-  Marbles owns (`abortSignal`, `messages`), including `output`,
-  `temperature`, `maxOutputTokens`, `stopWhen`, `toolChoice`,
-  `activeTools`, and `providerOptions`.
-- `generate` returns the AI SDK result with the committed message and `text`
-  added; `stream` adds `partialOutputStream` and the result's promises.
-- `agent({ … })` takes `settings` and passes them to `AgentSpec.settings`,
-  so an agent can carry a default `output`, temperature, or step limit.
-- The sandbox drivers translate `output` into the CLI's own form (Claude
-  Code's JSON-schema output format, Codex's turn output schema) without
-  opening `sdkOptions` to arbitrary overlays.
-
-**Open.** What a dry run returns for a turn with `output`: the echo model
-has no object to give. Whether the structured value is stored on the
-session message so a replay returns it. Whether `tools` and `mcp` on
-`agent()` land here or with the `AgentSpec` fields `_api-alt.md` already
-lists as unwired.
+Landed 2026-10-10 ([`_next-api.md`](./_next-api.md), Part B). Still open:
+`tools` and `mcp` on `agent()`, which stay with the `AgentSpec` fields
+`_api-alt.md` lists as unwired.
 
 ### 7.2 Sandboxes
 

@@ -31,8 +31,9 @@ in order. Items 1 to 3 have landed; 4 stays open alongside 5; 6 comes last.
    1. **The agent surface.** Pass-through for agent turns, starting with
       structured output (finding 7.1), and definitions you can use, starting
       with `agent()` returning an agent (finding 8). Both reshape the same
-      surface, so they are designed together. Finding 8 amends
-      `_api-alt.md`; settle it there first.
+      surface, so they are designed together. Structured output and agent
+      settings landed 2026-10-10; finding 8 is next and amends
+      `_api-alt.md`, so settle it there first.
    2. **Two bugs from the audit.** Worktree defaults apply only inside
       `withWorktree` (7.3), and a scoped artifact `create` is not counted for
       replay (7.4).

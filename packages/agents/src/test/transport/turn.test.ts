@@ -1,11 +1,9 @@
 import { describe, expect, it } from "vitest";
-
-import type { SessionHarness } from "../../harness/session-harness";
 import type {
-  SessionInput,
-  SessionStream,
-  StreamOptions,
-} from "../../session/events";
+  SessionHarness,
+  TurnOptions,
+} from "../../harness/session-harness";
+import type { SessionInput, SessionStream } from "../../session/events";
 import type { SessionMessage, SessionUsage } from "../../session/types";
 
 import {
@@ -24,6 +22,11 @@ function emptyStream(): SessionStream {
     },
     message: Promise.resolve({} as SessionMessage),
     outcome: Promise.resolve("complete"),
+    output: Promise.resolve(undefined as never),
+    partialOutputStream: (async function* () {
+      // No structured output.
+    })(),
+    result: Promise.resolve(undefined),
     text: Promise.resolve(""),
     usage: Promise.resolve(USAGE),
   };
@@ -33,14 +36,14 @@ function emptyStream(): SessionStream {
 function recordingAgent(): {
   agent: SessionHarness;
   inputs: SessionInput[];
-  calls: StreamOptions[];
+  calls: TurnOptions[];
 } {
   const inputs: SessionInput[] = [];
-  const calls: StreamOptions[] = [];
+  const calls: TurnOptions[] = [];
   // `streamSessionAgent` only calls `.stream`, so a minimal fake cast to the
   // class is enough — no need to construct a real harness.
   const agent = {
-    stream(input: SessionInput, options: StreamOptions = {}) {
+    stream(input: SessionInput, options: TurnOptions = {}) {
       inputs.push(input);
       calls.push(options);
       return emptyStream();

@@ -299,6 +299,7 @@ export function createCodexDriver(
           await liveConnection.request("turn/start", {
             ...turnDefaults,
             input: [{ text, text_elements: [], type: "text" }],
+            ...structuredOutput(run),
             sandboxPolicy:
               sandbox === "read-only"
                 ? { type: "readOnly" }
@@ -353,4 +354,53 @@ async function threadParameters(run: DriverRun, resumeId?: string) {
     return { dynamicTools: await dynamicTools(run) };
   }
   return {};
+}
+
+/** The turn's structured output, as `turn/start` takes it. */
+function structuredOutput(run: DriverRun) {
+  const schema = run.responseFormat?.schema;
+  return schema ? { outputSchema: outputSchema(schema) } : {};
+}
+
+/** Schema keywords the app server's structured output rejects. */
+const UNSUPPORTED_SCHEMA_KEYS = new Set([
+  "$defs",
+  "$id",
+  "$ref",
+  "$schema",
+  "default",
+  "definitions",
+  "examples",
+  "format",
+  "pattern",
+  "title",
+]);
+
+/**
+ * A turn's JSON schema as `turn/start` accepts it: the keywords Codex
+ * rejects removed at every level, property names kept even when they
+ * collide with one. Mirrors `ai-sdk-provider-codex-cli`, which does not
+ * export its own.
+ */
+function outputSchema(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(outputSchema);
+  }
+  if (typeof value !== "object" || value === null) {
+    return value;
+  }
+  const result: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (key === "properties" && typeof entry === "object" && entry !== null) {
+      result[key] = Object.fromEntries(
+        Object.entries(entry).map(([name, schema]) => [
+          name,
+          outputSchema(schema),
+        ])
+      );
+    } else if (!UNSUPPORTED_SCHEMA_KEYS.has(key)) {
+      result[key] = outputSchema(entry);
+    }
+  }
+  return result;
 }
