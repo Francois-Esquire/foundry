@@ -1,4 +1,6 @@
 import { parseArgs } from "node:util";
+import type { LensId } from "../lib/lenses/lens-types";
+import { LENS_IDS } from "../lib/lenses/lens-types";
 import type { RenderDensity, RenderFormat } from "../lib/render/context";
 import { RENDER_DENSITIES, RENDER_FORMATS } from "../lib/render/context";
 import { checkPort, DEFAULT_PORT } from "../lib/serve";
@@ -62,7 +64,7 @@ function usageErrorFrom(error: unknown): UsageError {
 }
 
 /** Every command; `open` is the default, which has no name of its own. */
-export type Command = "export" | "open" | "report" | "scan" | "serve";
+export type Command = "export" | "lens" | "open" | "report" | "scan" | "serve";
 
 /** One workspace until collections read several; the parser reads `path...`. */
 interface Paths {
@@ -100,7 +102,7 @@ function onePath(
 
 /** The word a command needs before its path, as `report <package>`. */
 function needed(
-  command: "export" | "report",
+  command: "export" | "lens" | "report",
   what: string,
   words: readonly string[]
 ): [string, readonly string[]] {
@@ -136,6 +138,15 @@ const COMMANDS = {
     },
     summary: "Write a static viewer of the saved dataset to <dir>",
     usage: "atlas export <dir> [path...]",
+  },
+  lens: {
+    flags: ["format", "density"],
+    read: (words: readonly string[], cwd: string) => {
+      const [id, rest] = needed("lens", "a lens", words);
+      return { lens: lensId(id), ...onePath("lens", rest, cwd) };
+    },
+    summary: "Print a lens from the saved dataset",
+    usage: "atlas lens <id> [path...]",
   },
   open: {
     flags: ["history", "port", "no-open"],
@@ -175,6 +186,7 @@ const COMMAND_ORDER = [
   "scan",
   "serve",
   "report",
+  "lens",
   "export",
 ] as const satisfies readonly Command[];
 
@@ -297,7 +309,7 @@ export function parseArguments(
   const flags = commandFlags(values);
   if (values.json && (values.format ?? values.density) !== undefined) {
     throw new UsageError(
-      "--json prints the report as saved; drop --format and --density."
+      `--json prints the ${command === "lens" ? "lens" : "report"} as saved; drop --format and --density.`
     );
   }
   const own = Object.fromEntries(taken.map((flag) => [flag, flags[flag]]));
@@ -339,22 +351,33 @@ function commandFlags(values: Values): CommandFlags {
   };
 }
 
+/** One of the allowed words; any other is a usage error that lists them. */
+function chosen<T extends string>(
+  what: string,
+  allowed: readonly T[],
+  value: string
+): T {
+  const found = allowed.find((candidate) => candidate === value);
+  if (found === undefined) {
+    const last = allowed.at(-1);
+    throw new UsageError(
+      `${what} takes ${allowed.slice(0, -1).join(", ")}, or ${last}.`
+    );
+  }
+  return found;
+}
+
 function oneOf<T extends string>(
   flag: string,
   allowed: readonly T[],
   value: string | undefined
 ): T | undefined {
-  if (value === undefined) {
-    return;
-  }
-  const found = allowed.find((candidate) => candidate === value);
-  if (found === undefined) {
-    const last = allowed.at(-1);
-    throw new UsageError(
-      `${flag} takes ${allowed.slice(0, -1).join(", ")}, or ${last}.`
-    );
-  }
-  return found;
+  return value === undefined ? undefined : chosen(flag, allowed, value);
+}
+
+/** A lens the dataset saves, by id. */
+function lensId(word: string): LensId {
+  return chosen("atlas lens", LENS_IDS, word);
 }
 
 function parsePort(value: string): number {

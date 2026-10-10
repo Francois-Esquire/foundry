@@ -128,11 +128,13 @@ messages you are most likely to meet:
   `serve` finds no built viewer. The default command checks before it
   scans, so nothing is scanned. Reinstall the package or, from source,
   build it; or use `scan` alone.
-- `No dataset found for <root> in <output>`: `serve`, `report`, or
-  `export` on a workspace that has never been scanned with this `--state`. Run `atlas scan` first.
+- `No dataset found for <root> in <output>`: `serve`, `report`,
+  `lens`, or `export` on a workspace that has never been scanned with this `--state`. Run `atlas scan` first.
 - `Atlas reads dataset schema version 4; this dataset has version <n>`:
-  `serve`, `report`, or `export` on a dataset saved by another Atlas
-  version. Scan again.
+  `serve`, `report`, `lens`, or `export` on a dataset saved by another
+  Atlas version. Scan again.
+- `The dataset has no <id> lens. Run atlas scan again.`: `lens` on a
+  dataset saved before that lens existed. Scan again.
 - A port in use: found after the scan, which has already saved the
   dataset. Serve it on another port with `atlas serve --port <number>`.
 - `Command failed: git rev-parse HEAD`: `--history` on a directory that is

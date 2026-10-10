@@ -138,8 +138,9 @@ only the package reports its symbol facets name otherwise. A lens whose
 - **Failure.** A lens that throws fails the scan, as an analysis does.
 - **Where they run.** Dry runs and history snapshots run no lenses.
 - **Terminal output** renders a lens's output through a report view
-  (`lib/render/views.ts`), separately from the lens (2.7). The lens itself
-  returns no display strings.
+  (`lib/render/views.ts`), separately from the lens. `atlas lens <id>`
+  prints it from the saved dataset (2.7), and `--json` prints the saved
+  output. The lens itself returns no display strings.
 
 ## In the dataset
 

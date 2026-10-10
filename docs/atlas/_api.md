@@ -66,6 +66,7 @@ Proposed. These decide the shape of everything below.
 | `atlas serve [path...]` | 0.1, one path | Serve the saved dataset. |
 | `atlas report <package> [path...]` | 0.1, done in 1.8 | Print a package report in the terminal, through `lib/render`. `--format markdown` for docs and PRs. Package only: `renderSurface` takes a package's `SurfaceReport`, and no file report exists. |
 | `atlas export <dir> [path...]` | 0.1, done in 1.8 | Write a static viewer, the viewer and a copy of the saved dataset, for hosting or CI artifacts. `build-example.ts` now calls it. |
+| `atlas lens <id> [path...]` | 0.1, done in 2.7 | Print one lens from the saved dataset, through `lib/render`, or as saved with `--json`. An unknown id exits `2`; a dataset without the lens exits `1`. |
 | `atlas check [path...]` | proposed, depends on rules | Evaluate the workspace's rules against the dataset. Exit 3 on a violation. |
 | `atlas plan <rule-or-opportunity>` | proposed, depends on rules | Print the plan that would satisfy a rule at one site. Read-only. |
 | `atlas apply <plan> [--write]` | proposed, depends on rules | Preview a plan's edits; write and verify with `--write`. |

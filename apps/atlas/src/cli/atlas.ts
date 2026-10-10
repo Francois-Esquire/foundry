@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { savedDataset } from "../lib/dataset-files";
 import { exportViewer } from "../lib/export";
-import { renderSurface } from "../lib/render";
+import { renderLens, renderSurface } from "../lib/render";
 import type { RenderContext } from "../lib/render/context";
 import type { ScanProgressEvent, WorkspaceScan } from "../lib/scan";
 import { scan } from "../lib/scan";
@@ -77,7 +77,7 @@ async function whileServing(
 function renderContext({
   density,
   format,
-}: ArgsOf<"report">): Partial<RenderContext> {
+}: Pick<ArgsOf<"report">, "density" | "format">): Partial<RenderContext> {
   const terminal = process.stdout.isTTY === true;
   const chosen = format ?? (terminal ? "terminal" : "text");
   return {
@@ -99,6 +99,14 @@ const RUN: { readonly [C in Command]: (args: ArgsOf<C>) => Promise<void> } = {
       args,
       written,
       () => `Static viewer saved to ${written.directory}`
+    );
+  },
+  async lens(args) {
+    const [root] = args.paths;
+    const { reader } = await savedDataset(root, args.state);
+    const output = await reader.lens(args.lens);
+    printResult(args, output, () =>
+      renderLens(args.lens, output, renderContext(args))
     );
   },
   async open(args) {

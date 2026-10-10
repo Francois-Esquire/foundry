@@ -13,6 +13,7 @@ import type {
   LensSettings,
 } from "../../src/lib/lenses/lens-types";
 import {
+  LENS_IDS,
   LENS_SCHEMA_VERSIONS,
   lensEntries,
 } from "../../src/lib/lenses/lens-types";
@@ -617,6 +618,22 @@ describe("the registry", () => {
         lens.schemaVersion
       );
     }
+  });
+
+  it("lists every lens id once, by code unit, for the CLI", () => {
+    expect(LENS_IDS).toEqual([
+      "domains",
+      "file-roles",
+      "frequent-change",
+      "nesting",
+      "package-sizes",
+      "placement",
+      "proximity",
+      "responsibility-groups",
+    ]);
+    expect([...LENS_IDS].sort()).toEqual(
+      Object.keys(LENS_SCHEMA_VERSIONS).sort()
+    );
   });
 
   it("orders each lens after the lenses it consumes, which its stage depends on", () => {

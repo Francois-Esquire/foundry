@@ -89,6 +89,35 @@ it("reads each command's positionals and flags", () => {
       "/here"
     )
   ).toMatchObject({ density: "compact", format: "markdown", paths: ["/ws"] });
+  expect(parseArguments(["lens", "domains"], "/here")).toEqual({
+    command: "lens",
+    density: "normal",
+    format: undefined,
+    json: false,
+    lens: "domains",
+    paths: ["/here"],
+    quiet: false,
+    state: undefined,
+  });
+  expect(
+    parseArguments(
+      [
+        "lens",
+        "placement",
+        "/ws",
+        "--format",
+        "markdown",
+        "--density",
+        "compact",
+      ],
+      "/here"
+    )
+  ).toMatchObject({
+    density: "compact",
+    format: "markdown",
+    lens: "placement",
+    paths: ["/ws"],
+  });
   expect(parseArguments(["export", "site", "/ws"], "/here")).toEqual({
     command: "export",
     directory: "site",
@@ -104,6 +133,10 @@ it("reads a command's name as a path when it is written as one", () => {
     command: "open",
     paths: ["./report"],
   });
+  expect(parseArguments(["./lens"], "/here")).toMatchObject({
+    command: "open",
+    paths: ["./lens"],
+  });
 });
 
 it("refuses a second path, naming the collection work", () => {
@@ -115,6 +148,9 @@ it("refuses a second path, naming the collection work", () => {
   );
   expect(usageError(["report", "@s/a", "one", "two"]).message).toContain(
     "atlas report takes one workspace path."
+  );
+  expect(usageError(["lens", "domains", "one", "two"]).message).toContain(
+    "atlas lens takes one workspace path."
   );
 });
 
@@ -134,6 +170,9 @@ it("refuses a flag the command does not take", () => {
   expect(usageError(["export", "site", "--history"]).message).toBe(
     "atlas export does not take --history."
   );
+  expect(usageError(["lens", "domains", "--history"]).message).toBe(
+    "atlas lens does not take --history."
+  );
 });
 
 it("refuses missing positionals and invalid values", () => {
@@ -142,6 +181,13 @@ it("refuses missing positionals and invalid values", () => {
   );
   expect(usageError(["export"]).message).toBe(
     "atlas export needs a directory: atlas export <dir> [path...]"
+  );
+  // There is no overview of every lens: an id is required.
+  expect(usageError(["lens"]).message).toBe(
+    "atlas lens needs a lens: atlas lens <id> [path...]"
+  );
+  expect(usageError(["lens", "domain"]).message).toBe(
+    "atlas lens takes domains, file-roles, frequent-change, nesting, package-sizes, placement, proximity, or responsibility-groups."
   );
   for (const port of ["65536", "-1", "1.5", "", "x"]) {
     expect(usageError(["serve", `--port=${port}`]).message).toBe(
@@ -157,6 +203,9 @@ it("refuses missing positionals and invalid values", () => {
   expect(
     usageError(["report", "@s/a", "--json", "--format", "text"]).message
   ).toBe("--json prints the report as saved; drop --format and --density.");
+  expect(
+    usageError(["lens", "domains", "--json", "--density", "compact"]).message
+  ).toBe("--json prints the lens as saved; drop --format and --density.");
 });
 
 it("checks for unknown flags first, then lets --help win over the rest", () => {
@@ -173,7 +222,9 @@ it("checks for unknown flags first, then lets --help win over the rest", () => {
 
 it("generates the help from the command table", () => {
   expect(HELP).toContain("  atlas report <package> [path...]");
+  expect(HELP).toContain("  atlas lens <id> [path...]");
   expect(HELP).toContain("  atlas export <dir> [path...]");
+  expect(HELP).toContain("report, lens: ");
   expect(HELP).toContain("atlas, serve: ");
   expect(HELP).toContain("Exit codes: 0 done, 1 failed, 2 bad arguments.");
   expect(HELP.split("\n")[0]).toBe(

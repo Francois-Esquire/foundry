@@ -15,17 +15,18 @@ Atlas — workspace analysis and a local viewer
   atlas scan [path...]              Scan and save the dataset
   atlas serve [path...]             Serve the saved dataset without scanning
   atlas report <package> [path...]  Print a package report from the saved dataset
+  atlas lens <id> [path...]         Print a lens from the saved dataset
   atlas export <dir> [path...]      Write a static viewer of the saved dataset to <dir>
 
 The path defaults to the current directory; one workspace at a time.
-A directory named like a command is written as a path: ./scan, ./serve, ./report, ./export.
+A directory named like a command is written as a path: ./scan, ./serve, ./report, ./lens, ./export.
 
   --state <path>        State root (default: ~/.foundry/atlas)
   --history             atlas, scan: analyze Git checkpoints as well
   --port <number>       atlas, serve: local port (default: 4173; 0 chooses a free port)
   --no-open             atlas, serve: do not open the browser
-  --format <format>     report: terminal, text, markdown (default: terminal; text when piped)
-  --density <density>   report: compact, normal, expanded (default: normal)
+  --format <format>     report, lens: terminal, text, markdown (default: terminal; text when piped)
+  --density <density>   report, lens: compact, normal, expanded (default: normal)
   --json                Print the result as one line of JSON
   --quiet               Print no progress
   --help, -h            Show this help
@@ -34,8 +35,8 @@ Exit codes: 0 done, 1 failed, 2 bad arguments.
 ```
 
 The first argument is a command only when it is exactly `scan`, `serve`,
-`report`, or `export`; anything else is the workspace path, for the default
-command. A directory with a command's name is written as a path,
+`report`, `lens`, or `export`; anything else is the workspace path, for
+the default command. A directory with a command's name is written as a path,
 `atlas ./report`. The path defaults to the current directory and must be
 an existing directory. The parser reads `path...`, but one workspace at a
 time is supported for now: a second path is refused until several
@@ -49,8 +50,8 @@ workspaces can be read as one collection.
 | `--history` | `atlas`, `scan` | off | Analyze Git checkpoints as well; see [history](/atlas/guides/history). |
 | `--port <number>` | `atlas`, `serve` | `4173` | The port to serve on, `0` to `65535`. `0` picks a free port. |
 | `--no-open` | `atlas`, `serve` | open | Do not open the browser after serving. |
-| `--format <format>` | `report` | `terminal` on a terminal, `text` when piped | `terminal`, `text`, or `markdown`. |
-| `--density <density>` | `report` | `normal` | `compact`, `normal`, or `expanded`. |
+| `--format <format>` | `report`, `lens` | `terminal` on a terminal, `text` when piped | `terminal`, `text`, or `markdown`. |
+| `--density <density>` | `report`, `lens` | `normal` | `compact`, `normal`, or `expanded`. |
 | `--json` | all | off | Print the result as one line of JSON instead of text. |
 | `--quiet` | all | off | Print no progress. |
 | `--help`, `-h` | | | Print the help and exit. |
@@ -67,6 +68,7 @@ error too: `atlas serve does not take --history.`
   per package. `--quiet` silences it, and nothing else.
 - `scan` ends with `Dataset saved to <dir>` on stdout.
 - `report` prints the package report, rendered for the format.
+- `lens` prints the lens, rendered for the format.
 - `export` prints `Static viewer saved to <dir>`.
 - A server prints `Atlas: <url>` and `Workspace: <root>` on stdout, then
   runs until `SIGINT` or `SIGTERM`, such as Ctrl-C, which stop it and exit
@@ -84,20 +86,22 @@ With `--json`, stdout is one line: the [library](/atlas/reference/library)'s res
 | --- | --- |
 | `scan` | `{ "manifest", "output", "history"? }`: the dataset's manifest, the directory it is saved in, and history's manifest when the scan includes it |
 | `report` | The package report exactly as the dataset holds it, `output/packages/<name>.json` |
+| `lens` | The lens's output exactly as the dataset holds it, `output/lenses/<id>.json` |
 | `export` | `{ "directory", "manifest" }`: where the static viewer is, and the manifest of the dataset it holds |
 | `serve` | `{ "root", "url" }`, printed once the server listens |
 | `atlas` | One line once the server listens: the scan's fields and the server's, `{ "manifest", "output", "history"?, "root", "url" }` |
 
 `--json` does not change stderr: progress still goes there unless
-`--quiet` is given. `report --json` takes no `--format` or `--density`.
+`--quiet` is given. `report --json` and `lens --json` take no `--format`
+or `--density`.
 
 ## Exit codes
 
 | Code | When |
 | --- | --- |
 | `0` | The command finished, or `--help` |
-| `1` | The command ran and failed: a path that does not exist or is not a directory, a package that failed analysis, a workspace being scanned or exported, `--history` without Git, the viewer's files missing, a port in use, no saved dataset or one with another schema version, an unknown package, or a directory export refuses |
-| `2` | Bad arguments: an unknown flag, a flag the command does not take, a bad value, a missing package or directory, or a second path |
+| `1` | The command ran and failed: a path that does not exist or is not a directory, a package that failed analysis, a workspace being scanned or exported, `--history` without Git, the viewer's files missing, a port in use, no saved dataset or one with another schema version, an unknown package, a dataset saved without the lens asked for or with another version of it, or a directory export refuses |
+| `2` | Bad arguments: an unknown flag, a flag the command does not take, a bad value, an unknown lens, a missing package, lens, or directory, or a second path |
 
 Codes above `2` are kept for commands' own results: `atlas check`, once
 rules exist, will exit `3` on a violation, so that a CI job can tell a
@@ -116,6 +120,26 @@ An unknown name fails and lists the dataset's packages. `terminal` uses
 colour unless `NO_COLOR` is set, and wraps to the terminal's width; piped
 output is 80 columns wide. Every format draws with Unicode glyphs.
 `markdown` suits documentation and pull requests.
+
+## Lens
+
+`atlas lens <id> [path...]` prints one lens from the saved dataset; it scans
+nothing, and renders as `report` does. Every scan saves every lens; see
+[output](/atlas/reference/output) for each one's fields.
+
+| Lens | What it shows |
+| --- | --- |
+| `domains` | The declared domains: the places each one's facets name, the facets that name none, and a domain label for each placed place in a domain |
+| `file-roles` | Each package's files by role, and its high fan-in files |
+| `frequent-change` | The files at or above the hotspots' commit gate |
+| `nesting` | The folder tree, path regions, and the seams between them |
+| `package-sizes` | Each package's dependency layer and files by kind |
+| `placement` | Where each place is used against where it lives: fits, spread, or departs |
+| `proximity` | What sits close without being related, and what is related without sitting close |
+| `responsibility-groups` | Each package's responsibilities joined into groups |
+
+An unknown id is a usage error that lists the ids. A dataset saved before a
+lens existed, or with another version of it, fails and asks for a new scan.
 
 ## Export
 
@@ -166,7 +190,7 @@ A port in use is only found once the scan has saved the dataset; serve it
 on another port with `atlas serve --port <number>`.
 
 `serve` and `export` first check for the viewer's files. Then `serve`,
-`report`, and `export` read the saved dataset's manifest, and refuse a
+`report`, `lens`, and `export` read the saved dataset's manifest, and refuse a
 workspace with no saved dataset or one saved with another schema version. A workspace whose directory has been removed
 fails at once, since its path no longer resolves, even though its dataset is
 still in the state root. `serve` takes no lock: a scan that runs while it

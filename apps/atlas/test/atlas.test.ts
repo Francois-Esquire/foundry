@@ -668,13 +668,14 @@ describe("built CLI commands", () => {
     await rm(directory, { force: true, recursive: true });
   });
 
-  test("report and export fail on a workspace never scanned", async () => {
+  test("report, lens, and export fail on a workspace never scanned", async () => {
     const other = join(directory, "never-scanned");
     await mkdir(other);
     const fresh = await workspaceState(other, state);
     const missing = `Atlas: No dataset found for ${fresh.root} in ${fresh.output}. Run atlas scan to save one.\n`;
     for (const args of [
       ["report", "@s/a"],
+      ["lens", "package-sizes"],
       ["export", join(directory, "never-site")],
     ]) {
       expect(await runCli([...args, "--state", state], other)).toEqual({
@@ -734,6 +735,56 @@ describe("built CLI commands", () => {
         "Atlas: The dataset has no package named @s/x. Its packages: @s/a, @s/b, @s/c.\n",
       stdout: "",
     });
+  });
+
+  test("lens renders a saved lens in each format and prints it as saved with --json", async () => {
+    const lens = (args: string[]) =>
+      runCli(["lens", ...args, "--state", state], root, {
+        ...process.env,
+        NO_COLOR: undefined,
+      });
+    const text = await lens(["package-sizes"]);
+    expect(text.code, text.stderr).toBe(0);
+    expect(text.stdout.split("\n")[0]).toBe("Package sizes");
+    expect(text.stdout).toContain("Packages  3 (3 analyzed)");
+    expect(text.stdout).not.toContain("\u001b[");
+    const markdown = await lens(["package-sizes", "--format", "markdown"]);
+    expect(markdown.stdout.split("\n")[0]).toBe("# Package sizes");
+    // The fixture declares no domains.
+    expect((await lens(["domains"])).stdout).toBe(
+      "Domains\n═══════\nNo domains declared.\n"
+    );
+    const json = await lens(["placement", "--json"]);
+    expect(json.stdout.trimEnd().split("\n")).toHaveLength(1);
+    expect(JSON.parse(json.stdout)).toEqual(
+      await readJson(join(workspace.output, "lenses/placement.json"))
+    );
+    expect(await lens(["places"])).toEqual({
+      code: 2,
+      stderr:
+        "Atlas: atlas lens takes domains, file-roles, frequent-change, nesting, package-sizes, placement, proximity, or responsibility-groups.\nRun atlas --help for usage.\n",
+      stdout: "",
+    });
+  });
+
+  test("lens fails on a dataset saved before the lens existed", async () => {
+    const file = join(workspace.output, "manifest.json");
+    const saved = await readFile(file, "utf8");
+    const { lenses, ...manifest } = JSON.parse(saved) as DatasetManifest;
+    const { domains: _domains, ...others } = lenses;
+    try {
+      await writeFile(file, JSON.stringify({ ...manifest, lenses: others }));
+      expect(await runCli(["lens", "domains", "--state", state], root)).toEqual(
+        {
+          code: 1,
+          stderr:
+            "Atlas: The dataset has no domains lens. Run atlas scan again.\n",
+          stdout: "",
+        }
+      );
+    } finally {
+      await writeFile(file, saved);
+    }
   });
 
   test("export writes a static viewer, prints the library's result with --json, and refuses the workspace", async () => {

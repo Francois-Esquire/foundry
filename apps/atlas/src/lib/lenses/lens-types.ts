@@ -49,6 +49,16 @@ export const LENS_SCHEMA_VERSIONS: Record<LensId, number> = {
   "responsibility-groups": RESPONSIBILITY_GROUPS_SCHEMA_VERSION,
 };
 
+/** Every lens id, by code unit, as the CLI lists them. */
+export const LENS_IDS: readonly LensId[] = (
+  Object.keys(LENS_SCHEMA_VERSIONS) as LensId[]
+).sort((a, b) => {
+  if (a < b) {
+    return -1;
+  }
+  return a > b ? 1 : 0;
+});
+
 /** What a lens may read beyond the dataset: the workspace's own settings. */
 export interface LensSettings {
   domains: readonly DomainDeclaration[];

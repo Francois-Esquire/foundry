@@ -1544,8 +1544,51 @@ every placed place inside a domain. The rules are in
     the same settings.
   - `test/lib/render-lens.test.ts`: the view and its empty state.
 
-**2.7 In the terminal.** `atlas report` gains the lens sections through
-`views.ts`, with `--json`.
+**2.7 In the terminal.** Done 2026-10-10. `atlas lens <id> [path...]`
+prints one lens from the saved dataset through its report view, and with
+`--json` its saved output.
+- The planned entry had `atlas report` gain the lens sections; a command of
+  its own is the least surface the 1.8 table allows.
+  - `atlas report` with no package cannot be told from `atlas report
+    <path>`, since its first word is the package.
+  - Lens rows in `report <package>` would break 1.8's rule that `--json`
+    prints the package report as saved, and would need each lens to slice
+    itself by package.
+  - `report --lens <id>` would make `read` see the flags and add a rule
+    that it excludes the package.
+- `cli/args.ts`: `lens` is one row of the command table, taking
+  `--format` and `--density` as `report` does. `needed` reads the id, so
+  `atlas lens` alone is a usage error (`atlas lens needs a lens: atlas lens
+  <id> [path...]`); there is no overview. The id is read against
+  `LENS_IDS`, so an unknown id is a usage error (exit 2) that lists them;
+  the parsed line's `lens` is a `LensId`. `oneOf`'s check and message are
+  now `chosen`, which `--format`, `--density`, and the id share. `--json`
+  with `--format` or `--density` names the command's result: "--json
+  prints the lens as saved". `report <package>` is unchanged.
+- `lib/lenses/lens-types.ts` exports `LENS_IDS`, the keys of
+  `LENS_SCHEMA_VERSIONS` sorted with an explicit code-unit comparator, so
+  the browser-safe leaf imports nothing.
+- `cli/atlas.ts`: `RUN.lens` opens the saved dataset through
+  `savedDataset`, reads `reader.lens(id)`, and prints it through
+  `renderLens` or as JSON; the reader stays the only path to the dataset.
+  A dataset saved without the lens, or with another version of it, fails
+  with the reader's message and exit 1. `renderContext` takes only the
+  format and density.
+- The library is unchanged: `lens` is a command, not an export. The
+  reader's `lens(id)` is already reachable from `scan`'s and `serve`'s
+  results.
+- Docs: the help in `reference/cli.md` and the README, the flags, `--json`
+  and exit-code tables, and a `## Lens` section listing the ids.
+- Tests:
+  - `test/cli/args.test.ts`: the parsed line, flags, `./lens` as a path,
+    a second path, a refused flag, no id, an unknown id, `--json` with
+    `--density`, and the generated help.
+  - `test/lib/lenses.test.ts`: `LENS_IDS` holds every lens once, in
+    code-unit order.
+  - `test/atlas.test.ts`: the built CLI prints `package-sizes` as text and
+    Markdown, `domains` empty, `placement --json` as saved on one line, an
+    unknown id with exit 2, a dataset without the lens with exit 1, and a
+    workspace never scanned with exit 1.
 
 **2.8 Naming.** The viewer's Belonging / Files toggle is typed as a lens
 (`web/ui/atlas-state.ts:18`); rename it.

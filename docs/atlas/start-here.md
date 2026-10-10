@@ -31,10 +31,11 @@ dataset and prints `Atlas: http://127.0.0.1:4173/`. Running
 `atlas /path/to/workspace` with no subcommand scans, serves, and opens the
 browser. Paths default to the current directory.
 
-Two more commands read the saved dataset without scanning:
+Three more commands read the saved dataset without scanning:
 
 ```sh
 atlas report @acme/db /path/to/workspace        # one package's report in the terminal
+atlas lens placement /path/to/workspace         # one lens, such as where each place is used
 atlas export ./atlas-viewer /path/to/workspace  # a static viewer: the viewer and the dataset as static files
 ```
 
