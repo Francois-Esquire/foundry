@@ -39,6 +39,7 @@ import type {
   StreamTextResult,
   ToolSet,
 } from "ai";
+import type { Exec } from "~/lib/command";
 import type { Log } from "~/lib/log";
 
 /**
@@ -486,6 +487,13 @@ export interface Context<I = Record<string, never>> {
   readonly agents: Agents;
   readonly artifacts: Artifacts;
   readonly ask: Ask;
+  /**
+   * Run a command as an argument list, never shell text: in the step's
+   * working directory, stopped with it, its output on the step's stream,
+   * printed instead under `--dry-run`. A non-zero exit throws unless
+   * `{ check: false }`; `{ sandbox }` runs it there.
+   */
+  readonly exec: Exec;
   readonly input: I;
   readonly log: Log;
   readonly report: Report;

@@ -24,6 +24,7 @@ import { nodeObserver } from "@foundry/workspaces/node/watch";
 import { configuredMonitorUrl } from "~/lib/automation/configured";
 import { AutomationService } from "~/lib/automation/service";
 import type { Bindings } from "~/lib/bindings";
+import { commandRunner } from "~/lib/command";
 import type { AnyDefinition } from "~/lib/definition";
 import type { FeedAnswer } from "~/lib/feed/entry";
 import type { FeedPublisher } from "~/lib/feed/publish";
@@ -44,7 +45,7 @@ import { observeSteps } from "~/lib/observe";
 import type { DefinitionEntry, MonitorRecord } from "~/lib/registry";
 import { Registry } from "~/lib/registry";
 import type { ReadonlyRunScopes } from "~/lib/run-scope";
-import { PAUSE_KIND, RunScopes } from "~/lib/run-scope";
+import { PAUSE_KIND, RunScopes, workingDirectory } from "~/lib/run-scope";
 import { clearHost } from "~/lib/runtime";
 import { HarnessActivities } from "~/lib/sandbox/activities";
 import { JsonAgentGrantRepository } from "~/lib/sandbox/grants";
@@ -320,6 +321,14 @@ export class Engine {
     this.bindings = {
       agents: (args) => this.agents.scoped(args),
       artifacts: (args) => this.artifacts.scoped(args),
+      exec: ({ frame, scope, write }) =>
+        commandRunner({
+          cwd: () => workingDirectory(scope.cwd),
+          dry: options.dry ?? false,
+          print,
+          signal: () => frame.signal,
+          write,
+        }),
       host: { catalogue, store: this.store },
       log: createLog((_level, message) => print(message)),
       root,

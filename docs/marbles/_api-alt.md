@@ -420,7 +420,15 @@ step(name?)          // a builder
   .output(schema)    // optional
   .config({ retry?, timeout? }) // optional: the package's retry policy, a per-attempt timeout
   .do(fn)            // returns the definition
+  // or .exec("npm i $pkg", options?): a step that is one command
 ```
+
+`.exec` splits its template into arguments at load and never runs a
+shell: `$name` fills one argument from the input (an array, one per
+element), the program is written out, and every placeholder is an input
+key. Its output is `{ exitCode, stdout, stderr }`; a non-zero exit fails
+it unless `{ check: false }`; `{ sandbox }` runs it there. A body has the
+same runner as `exec(argv, options?)` in its context.
 
 - **Name.** A string first argument makes the step launchable by that name.
   Without one the step is anonymous and used by reference. A repeated name is

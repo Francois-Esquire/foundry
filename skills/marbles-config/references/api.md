@@ -31,7 +31,7 @@ import {
 | `sandbox` | definition | `sandbox({ image, mount?, resources? })` or `sandbox({ files, image? })` | An isolated place to run commands. |
 | `artifact` | definition | `artifact({ name, type })` | A versioned output; each run adds a version. |
 | `skills` | definition | `skills.load()` or `skills.none()`, then `.add(glob \| defineSkill(…)).pick(...names)` | A skill set an agent takes. |
-| `step` | work | `step(name?).describe(text).input(s).output(s).config({ retry?, timeout? }).do(fn)` | One unit of work. A retried attempt starts fresh; `timeout` aborts the body's signal; return `bail(error)` to fail without retry. |
+| `step` | work | `step(name?).describe(text).input(s).output(s).config({ retry?, timeout? }).do(fn)`, or `.exec("cmd $key", { check?, sandbox? })` for a step that is one command | One unit of work. `.exec` splits the template at load (no shell; `$key` fills one argument from input, arrays one per element) and returns `{ exitCode, stdout, stderr }`. A retried attempt starts fresh; `timeout` aborts the body's signal; return `bail(error)` to fail without retry. |
 | `workflow` | work | `workflow(name?, tree)`, `workflow(name?, () => tree)`, `workflow(name?).input(s).do(fn)` | A named tree of steps. |
 | `schedule` | trigger | `schedule(target).at(slot)` or `.every(interval)` | Runs a step or workflow on a clock. |
 | `monitor` | trigger | `monitor(source).request?(init).every?(interval).do(fn)` | Runs when files or an HTTP response change. |
@@ -146,6 +146,7 @@ step().do(async ({ input, agents, workspaces, sandboxes, artifacts, ask, report,
 | `input` | Typed input, validated against `.input(schema)`. |
 | `agents` | `session(def, { cwd?, session?, compaction? })` → `{ generate(prompt, turn?) → { text, output, usage, result? }, stream(prompt, turn?), ref, harness }`. `turn`: `{ output?, temperature?, maxOutputTokens?, stopWhen?, providerOptions?, …, signal?, onText? }`. |
 | `workspaces` | `current` (the config's directory) and `load(def | { path })` → the `@foundry/workspaces` workspace: `root`, `files()` (entries: `id`, `path`, `extension`, `kind`), `entries()`, `read(id)`, `save`, `createFile`, `refresh()`, `summary()`, `git`. |
+| `exec` | `exec(argv, { check?, cwd?, environment?, sandbox? })` → `{ exitCode, stdout, stderr }`: a command as argv in the step's directory, on its stream, echoed under `--dry-run`; non-zero throws unless `check: false`. |
 | `sandboxes` | `start(def | spec)` → the `@foundry/sandbox` container: `exec(argv | "shell string", { cwd?, environment?, user? })` → `{ exitCode, stdout, stderr }` (written to the step stream), `files`, `processes`, `shell`, `ports`, `services`, `volumes`, `close()`, `id`; `open(id)`. A declared sandbox's own filesystem is `box.filesystem`. |
 | `artifacts` | `write(def, files, { replace?, metadata? })` adds a version; `create({ name, type, entries, metadata?, freeze? })` makes one on the spot; `latest(def)` → `{ version, text(path), bytes(path) }` or undefined (memory between runs; dry runs read real versions), `get(def \| id)`, `listContents(def \| id)`, `getContent(versionId)`, `readFile(versionId, path)`, `readRoot(versionId)` read them back. |
 | `ask` | `approval({ title, body? })` → `{ approved, note? }`; `question({ title, body?, choices? })` → `string`. |

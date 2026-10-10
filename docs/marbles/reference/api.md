@@ -136,6 +136,8 @@ step(name?)          // a builder
   .output(schema)    // optional
   .config({ retry?, timeout? }) // optional: how the step runs
   .do(fn)            // returns the definition
+  // or, for a step that is one command:
+  .exec("npm i $pkg", { check?, cwd?, environment?, sandbox? })
 ```
 
 - A string first argument makes the step launchable by that name. A repeated
@@ -160,6 +162,16 @@ step(name?)          // a builder
   again from the top, fresh: agent turns, sandboxes, artifact writes, and
   `run` calls it made are not replayed. Children that finished are not run
   again. Without `retry`, a throw fails the step.
+- **`.exec(template, options?)`** ends a step whose work is one command.
+  The template is split into arguments when the module loads, honouring
+  quotes, and never read by a shell. `$name` fills one argument from the
+  input, never split again, so `{"pkg":"zod; rm -rf ~"}` is one odd
+  package name; an array fills one argument per element. The program, the
+  first word, must be written out, and each placeholder must be an input
+  key, or the module fails to load. `.exec(({ input }) => argv)` computes
+  the list instead. The step's output is `{ exitCode, stdout, stderr }`; a
+  non-zero exit fails it unless `{ check: false }`. It runs like a body's
+  `exec`.
 - **`bail(error)`**, exported from `@foundry/marbles`, is a failure as a
   value: return it from `do` to fail the step without a retry. It is not
   checked against the output schema.
@@ -217,12 +229,13 @@ a question parks the parent with it while the others finish.
 The one object every step body receives:
 
 ```ts
-step().do(async ({ input, agents, workspaces, sandboxes, artifacts, ask, report, log, stream, signal, run }) => …);
+step().do(async ({ input, agents, workspaces, sandboxes, artifacts, ask, exec, report, log, stream, signal, run }) => …);
 ```
 
 | Key | What it is |
 | --- | --- |
 | `input` | Typed input, validated against `.input(schema)`. |
+| `exec` | `exec(argv, { check?, cwd?, environment?, sandbox? })` → `{ exitCode, stdout, stderr }`. A command as an argument list, in the step's working directory, on its stream, stopped with it, printed under `--dry-run`. |
 | `agents` | `session(def, { cwd?, session?, compaction? })` → `{ generate(prompt, turn?) → { text, output, usage, … }, stream(prompt, turn?), ref, harness }`. |
 | `workspaces` | `current` (the workspace root) and `load(def \| { path })` → the `@foundry/workspaces` workspace: `root`, `files()`, `entries()`, `read(id)`, `save`, `createFile`, `refresh()`, `summary()`, `git`. |
 | `sandboxes` | `start(def \| spec)` → the `@foundry/sandbox` container: `exec(command, { cwd?, environment?, user? })` → `{ exitCode, stdout, stderr }`, `commands`, `files`, `processes`, `shell`, `ports`, `services`, `volumes`, `close()`, `id`; `open(id)`. |

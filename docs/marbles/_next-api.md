@@ -882,6 +882,16 @@ and `mcp` on `agent()` (B.5), so it waits with them.
 
 ### F.1 Command steps (finding 6)
 
+**Landed 2026-10-10.** `packages/lib/src/argv.ts` has `parseArgv`,
+`fillArgv`, `placeholdersOf`, and `shellQuote`/`showArgv`. A placeholder
+may sit inside a word (`--since=$since`) and fills part of that one
+argument; only a placeholder that is the whole argument spreads an array.
+The runner is `apps/marbles/src/lib/command.ts`; a body's context has it as
+`exec`, and the engine gives it the dry flag through `Bindings.exec`.
+`.exec` drops an `.output` schema, since the result is the command's.
+Children fill placeholders by key, since they fill the node's input.
+Under a sandbox the handle's own `exec` writes to the stream.
+
 ```ts
 step("install")
   .input(z.object({ pkg: z.string() }))

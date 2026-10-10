@@ -90,16 +90,18 @@ The working tree arrives; an exit code leaves. Nothing here needs a model.
 ```ts
 const test = step()
   .output(z.number())
-  .do(async ({ sandboxes, stream }) => {
+  .do(async ({ sandboxes }) => {
     const env = await sandboxes.start(box);
-    const result = await env.exec(["bun", "test"]);
-    stream.write(result.stdout);
-    return result.exitCode;
+    return (await env.exec(["bun", "test"])).exitCode;
   });
 ```
 
-The sandbox's output is written to the step's stream, which the dashboard
-shows live. Under `--dry-run` the command is echoed and the exit code is zero.
+`exec` writes the command and its output to the step's stream, which the
+dashboard shows live. Under `--dry-run` the command is echoed and the exit
+code is zero. A step that is only a command can say so:
+`step().exec("bun test", { sandbox: box, check: false })` returns
+`{ exitCode, stdout, stderr }`; this one returns the bare exit code because
+`publish` takes a number.
 
 ## Review
 
@@ -276,11 +278,9 @@ const implement = step()
 // Verify: the working tree becomes an exit code
 const test = step()
   .output(z.number())
-  .do(async ({ sandboxes, stream }) => {
+  .do(async ({ sandboxes }) => {
     const env = await sandboxes.start(box);
-    const result = await env.exec(["bun", "test"]);
-    stream.write(result.stdout);
-    return result.exitCode;
+    return (await env.exec(["bun", "test"])).exitCode;
   });
 
 // Review: a branch or a directory becomes findings

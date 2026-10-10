@@ -112,6 +112,10 @@ parks on a question, the others finish and the parent waits.
   fixed tree launchable and schedulable. `workflow("ship").input(schema).do(setup)`
   builds the tree from input at launch. A workflow is a definition too:
   `weekly({})` locks it, which is what a monitor handler returns to start it.
+- **A step can be one command.** `step("install").input(schema).exec("npm i
+  $pkg")` runs the command with the input filling its placeholders, each
+  one argument, never read by a shell; see the
+  [API reference](/marbles/reference/api#the-builder).
 - **A definition also runs on its own.** `review.run({ target: "." })`
   runs a step or workflow now and returns its output, inside a body or in
   a plain script. In a body it is recorded, so a replay returns the same

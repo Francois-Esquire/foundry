@@ -17,62 +17,6 @@ instead**, **Proposal**, and **Open**. A finding that came from use rather
 than a page says what changed or what the rule is in place of **The page
 does instead**.
 
-## 6. Command steps: `step(name).exec(template)`
-
-**Found by** an API proposal, 2026-10-09. The nearest pages are the Software
-Factory, whose `test` step starts a sandbox to run one command, and Design
-Sync, which shells out to `git rev-parse` from a body.
-
-**Today.** A step's work is always a `.do(fn)` body. Running one command
-means a body that starts a sandbox or calls `node:child_process`, then
-shapes the result by hand.
-
-**Proposal.** `.exec(template)` as a terminal call beside `.do`. The input
-schema names the values; `$name` placeholders in the template take them:
-
-```ts
-step("install")
-  .input(z.object({ pkg: z.string() }))
-  .exec("npm i $pkg");
-```
-
-```sh
-marbles roll install --input '{"pkg":"zod"}'
-```
-
-The template is a plain string with `$name`, not `${name}`: a template
-literal would be evaluated when the module loads, before any input exists.
-
-- **No shell.** The template is split into arguments when the module loads,
-  honouring quotes. Each placeholder fills exactly one argument and is never
-  split again or read by a shell, so `{"pkg":"zod; rm -rf ~"}` is one odd
-  package name, not a second command. An array value fills one argument per
-  element: `.input(z.object({ pkgs: z.array(z.string()) })).exec("npm i $pkgs")`.
-  A pipe or redirect has to be written as an explicit `sh -c '…'`.
-- **Checked when the module loads.** Every placeholder must name a key of
-  the input schema, and the program, the first word, must be literal.
-- **Wired like everything else.** The command runs in the step's working
-  directory, writes to the step's stream, and is killed by its `signal`.
-  `--dry-run` echoes it and returns exit 0 with empty output, as sandbox
-  commands do. `{ sandbox: box }` runs it in a sandbox instead.
-- **A typed result.** The output is `{ exitCode, stdout, stderr }`. A
-  non-zero exit fails the step; `{ check: false }` returns the exit code
-  instead, which is what the factory's `test` wants:
-  `step().exec("bun test", { sandbox: box, check: false })`.
-- **A function for computed arguments.** `.exec(({ input }) => ["npm", "i", ...input.pkgs])`
-  returns argv directly when a template is not enough.
-
-**Open.**
-
-- Builder order. The first sketch was `step(name).exec(template).input(schema)`.
-  Today `.do` is terminal and `.input` comes before it; `.exec` should
-  probably follow the same rule, so the schema is known when the
-  placeholders are checked.
-- Whether a step built with `.exec` can take children, and whether their
-  results can fill placeholders by key, as they fill a body's `input`.
-- A context-level `exec` for bodies, under the same rules, so Design Sync's
-  `git rev-parse` stops bypassing dry runs and cwd plumbing.
-
 ## 7. Pass-through to the packages underneath
 
 **Found by** using Marbles for real, 2026-10-09: structured output from an

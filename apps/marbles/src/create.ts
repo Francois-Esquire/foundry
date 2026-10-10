@@ -6,6 +6,7 @@ import { InMemorySessionStore } from "@foundry/agents/session";
 import type { Artifacts } from "@foundry/artifacts";
 import { ArtifactManager, InMemoryArtifactStore } from "@foundry/artifacts";
 import { blobFiles, JsonArtifactStore } from "@foundry/artifacts/node";
+import { showArgv } from "@foundry/lib/argv";
 import type { ModelManager, Provider } from "@foundry/models";
 import type { Containers } from "@foundry/sandbox/container/containers";
 import { createContainers } from "@foundry/sandbox/container/containers";
@@ -239,7 +240,7 @@ function echoExec(print: (line: string) => void): (
   stdout: string;
 } {
   return (command) => {
-    print(`[sandbox] ${command.join(" ")}`);
+    print(`[sandbox] ${showArgv(command)}`);
     return { exitCode: 0, stderr: "", stdout: "" };
   };
 }

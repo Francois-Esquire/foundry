@@ -2,6 +2,8 @@
 export { defineSkill } from "@foundry/agents/skills";
 export { bail } from "@foundry/workflows/types";
 export { Output } from "ai";
+export type { CommandResult, Exec, ExecOptions } from "~/lib/command";
+export { CommandError } from "~/lib/command";
 export type { LockedNode, StepConfig } from "~/lib/definition";
 export type { Log, LogLevel } from "~/lib/log";
 export type {

@@ -1,6 +1,8 @@
+import { fillArgv, parseArgv, placeholdersOf } from "@foundry/lib/argv";
 import type { Bail } from "@foundry/workflows/types";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { catalog } from "~/authoring/catalog";
+import type { CommandResult, ExecOptions } from "~/lib/command";
 import type {
   LockedNode,
   SetupFn,
@@ -10,7 +12,9 @@ import type {
 } from "~/lib/definition";
 import { isLockedNode } from "~/lib/definition";
 import type { Input, Output } from "~/lib/schema";
+import { inputKeysOf } from "~/lib/schema";
 import { timeoutMs } from "~/lib/tree";
+import type { Context } from "~/lib/types";
 import type { CallSite } from "./identity";
 import { bindingAt, callSite, canInfer, originOf } from "./identity";
 import type { StepDefinition, WorkflowDefinition } from "./lock";
@@ -124,6 +128,33 @@ export class StepBuilder<I = Empty, R = Empty, Ret = unknown, O = unknown> {
     return new StepBuilder({ ...this.#fields, output: schema });
   }
 
+  /**
+   * A step whose work is one command. A template is split into arguments
+   * now, not by a shell: `$name` fills one argument from the input (an
+   * array, one per element), so a value can never add an argument or a
+   * command. The program must be written out, and every placeholder must
+   * be an input key. A function returns the argument list instead. The
+   * output is `{ exitCode, stdout, stderr }`; a non-zero exit fails the
+   * step unless `{ check: false }`.
+   */
+  exec(
+    command:
+      | string
+      | ((context: Context<I>) => CommandLine | Promise<CommandLine>),
+    options?: ExecOptions
+  ): StepDefinition<I, CommandResult, R> {
+    const run =
+      typeof command === "string"
+        ? templateCommand(command, this.#fields)
+        : command;
+    // The result is the command's; an output schema does not apply.
+    const { output: _output, ...fields } = this.#fields;
+    const untyped = new StepBuilder<I, R>(fields);
+    return untyped.do(async (context) =>
+      context.exec(await run(context), options)
+    ) as unknown as StepDefinition<I, CommandResult, R>;
+  }
+
   /** The body; it may return `bail(error)` for a failure the run should not retry. */
   do<X extends Ret | Bail<unknown>>(
     fn: StepFn<I, X>
@@ -144,6 +175,46 @@ export class StepBuilder<I = Empty, R = Empty, Ret = unknown, O = unknown> {
     catalog.define(definition, identity.inferred);
     return definition;
   }
+}
+
+type CommandLine = readonly string[];
+
+/**
+ * A template's command, checked at load: it splits, its program is
+ * written out, and each placeholder is an input key. Filled per run.
+ */
+function templateCommand(
+  template: string,
+  { input, name }: StepFields
+): (context: Context<unknown>) => CommandLine {
+  const where = `step(${name === undefined ? "" : JSON.stringify(name)}).exec(${JSON.stringify(template)})`;
+  let args: ReturnType<typeof parseArgv>;
+  try {
+    args = parseArgv(template);
+  } catch (error) {
+    throw new Error(
+      `${where}: ${error instanceof Error ? error.message : String(error)}`,
+      {
+        cause: error,
+      }
+    );
+  }
+  const [program] = args;
+  if (!program || program.some((segment) => segment.kind !== "text")) {
+    throw new Error(
+      `${where}: the program, the first word, must be written out`
+    );
+  }
+  const placeholders = placeholdersOf(args);
+  const keys = input ? inputKeysOf(input) : [];
+  const unknown = keys && placeholders.filter((key) => !keys.includes(key));
+  if (unknown && unknown.length > 0) {
+    throw new Error(
+      `${where}: ${unknown.map((key) => `$${key}`).join(", ")} ${unknown.length === 1 ? "is" : "are"} not ${input ? "an input key" : "declared; add it to .input()"}`
+    );
+  }
+  return ({ input: values }) =>
+    fillArgv(args, (values ?? {}) as Readonly<Record<string, unknown>>);
 }
 
 export function step(name?: string): StepBuilder {

@@ -47,7 +47,7 @@ in order. Items 1 to 3 have landed; 4 stays open alongside 5; 6 comes last.
    5. **Pass-through for the other keys.** Landed 2026-10-10: sandboxes,
       workspaces, artifacts, steps, and skills (7.2 to 7.6). What each left
       open is under its section of finding 7.
-   6. **New API that needs design.** Command steps (finding 6) and memory
-      between runs (finding 5).
+   6. **New API that needs design.** Landed 2026-10-10: memory between runs
+      (finding 5) and command steps (finding 6).
 6. **Branding, last.** Bring the brand into the docs on top of item 4. Done
    together with the maintainer, not ahead of time.

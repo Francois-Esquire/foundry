@@ -9,7 +9,9 @@ import {
 import { createLog } from "~/lib/log";
 
 import type { Bindings } from "./bindings";
+import { commandRunner } from "./command";
 import type { Frame, RunScope } from "./run-scope";
+import { workingDirectory } from "./run-scope";
 import type {
   Approval,
   ApprovalRequest,
@@ -233,6 +235,15 @@ export function buildContext<I>({
       return bindings.artifacts(managerArgs);
     },
     ask: buildAsk(askArgs),
+    exec:
+      bindings.exec?.(managerArgs) ??
+      commandRunner({
+        cwd: () => workingDirectory(scope.cwd),
+        dry: false,
+        print: (line) => bindings.log.info(line),
+        signal: () => frame.signal,
+        write,
+      }),
     input,
     log,
     report: buildReport({
