@@ -64,18 +64,17 @@ Phase 2 is planned to the lens. Phases 3 to 5 open with the decision that
 unblocks them and stay coarse until the phase before them lands, so that
 nothing is planned against code that has not been written.
 
-The five forks in [`_api.md`](./_api.md#forks) are not yet confirmed. The
-plan below assumes their recommendations; an effort that depends on one
-says which.
+The forks in [`_api.md`](./_api.md#forks) were settled on 2026-10-10.
+Each effort is implemented, reviewed, and committed on its own, one commit
+per effort.
 
 ## Phase 1: shape the API
 
 Mostly exposing what is written. Detail in [`_api.md`](./_api.md).
 Paths are under `apps/atlas` unless they say otherwise.
 
-**1.0 Settle the forks.** The maintainer confirms or changes the five
-recommendations in `_api.md`. Blocks starting 1.2 onward; 1.1 can start
-without it.
+**1.0 Settle the forks.** Done 2026-10-10; see
+[`_api.md`](./_api.md#forks).
 
 **1.1 Build and install.** The groundwork every later effort ships through.
 - Bundle `@foundry/*` into `dist`. `@foundry/lib` is private, and a public
@@ -94,13 +93,17 @@ without it.
   today, and the private-import check passes.
 
 **1.2 `scan` into the library.** A move, not a rewrite.
-- `cli/scan.ts` becomes `lib/scan.ts`, taking options instead of the CLI's
-  workspace object and reporting through `onProgress` instead of writing to
-  stderr. The progress event type is exported.
+- `cli/scan.ts` becomes `lib/scan.ts`, taking a root and options instead
+  of the CLI's workspace object, and reporting through `onProgress` instead
+  of writing to stderr. The progress event type is exported.
+- The shape settled in [`_api.md`](./_api.md#library): `scan(root)` scans
+  the workspace and every package's internals, `scan.workspace(root)` the
+  workspace level only, and `scan.package(root, name)` one package in
+  depth. Each returns its results; how they are read back is 1.5.
 - `cli/workspace.ts` moves with it as the state resolver.
 - The CLI calls the moved function; `test/atlas.test.ts` follows.
 - Done when the CLI behaves as before and the fixture snapshots do not
-  change. Waits for 1.0 (fork 1).
+  change.
 
 **1.3 State and cache.** Loading code, which the ground rules allow to
 change.
@@ -110,9 +113,8 @@ change.
 - `writeJsonAtomic` delegates to `@foundry/lib/atomic-file`.
 - Each state directory gets a `workspace.json` record (root, id, Atlas
   version, last scan), as Marbles keeps, so the state root can be listed.
-- The state id: keep `sha256(root)`, or adopt Marbles' 12-hex id. Adopting
-  it orphans every existing state directory, which costs one rescan before
-  0.1 and nothing after. Recommendation: adopt it now.
+- The state id is Marbles' 12-hex id, settled 2026-10-10. Existing state
+  directories are orphaned, which costs one rescan before 0.1.
 - Done when a test runs two scans of one workspace at once and one waits or
   fails cleanly. Waits for 1.1 and 1.2.
 
@@ -129,14 +131,14 @@ change.
   The viewer's literal `3` goes in 1.5.
 - `reference/output.md` follows.
 - Done when every file under `output/` is in the manifest and the viewer
-  loads the fixture unchanged. Waits for 1.2 and fork 2.
+  loads the fixture unchanged. Waits for 1.2.
 
-**1.5 `open`, one reader.** Split `web/codex/source.ts` into its two
-layers.
+**1.5 One reader, internal.** Split `web/codex/source.ts` into its two
+layers. Not exported; `scan` returns its results through it.
 - The reader moves to `lib`: it knows the dataset's paths, checks the
   schema version against the constant, and reads through an injected
   transport (`fetch` in the browser, the file system in Node).
-- It reads lazily: `atlas.package(name)` reads the manifest and one report,
+- It reads lazily: one package's results read the manifest and one report,
   not every shard. Today the viewer loads every edge shard, module shard,
   and package manifest at once.
 - The codex keeps its own part, the `CodexSource` picks, and builds it on
@@ -151,7 +153,7 @@ layers.
 - Retire `lib/semantics-serve.ts` and its test.
 - Done when the CLI's default command and `serve` call it.
 
-**1.7 Configuration.** Waits for fork 3.
+**1.7 Configuration.**
 - Resolve `.foundry/atlas/` as Marbles resolves `.foundry/marbles/`
   (`apps/marbles/src/source.ts`), copied rather than imported.
 - Read `foundry.config.json#semantics` as a fallback during 0.x, now
@@ -176,29 +178,29 @@ layers.
 - `atlas report <package>`: reads `packages/<name>.json` through the reader
   and calls `renderSurface` with `--format` and `--density`. Package
   reports only, because `renderSurface` takes a `SurfaceReport`, which is a
-  package; there are no file reports yet. Waits for fork 5.
+  package; there are no file reports yet.
 - `atlas export <dir> [path]`: `docs/scripts/build-example.ts` moved into
   the library and the CLI. The docs script calls it and stops recomputing
-  the state layout. Waits for fork 4.
+  the state layout.
 - Viewer fixes from the publish list: the idle caption "The Foundry
   archipelago" goes, and the `atlas-world` class keeps its space when
   settings are open.
 - `reference/cli.md` follows.
 
 **1.9 Foundations for phase 2.** Shapes only; nothing is built on them yet.
-- The domain declaration type and its validation, read by the 1.7 loader
-  and returned by `open`. The sketch is in
+- The domain declaration type and its validation, read by the 1.7
+  loader. The sketch is in
   [`_domains.md`](./_domains.md#what-a-domain-is).
 - The lens contract as a type: inputs, output, version. Written down in
   `_domains.md` or a lens note, with no implementation.
 
 **1.10 Exports and the installed package.** Last, because it publishes the
 others.
-- The `exports` map: `.` (`scan`, `open`, `serve`), `./dataset` (types and
-  schema versions), `./render` (`renderSurface`). The analysis worker ships
-  beside every entry.
-- `test/package.test.ts` imports each entry from the installed tarball and
-  runs `scan` and `open` against the fixture.
+- The `exports` map: `.` only, with `scan`, `serve`, and the result types.
+  The analysis worker ships beside it.
+- `test/package.test.ts` imports the library from the installed tarball and
+  runs `scan`, `scan.workspace`, `scan.package`, and `serve` against the
+  fixture.
 - Public pages for the library, beside the CLI pages.
 
 **Phase 1 is done** when the library and the CLI work over unchanged

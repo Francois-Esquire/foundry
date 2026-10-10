@@ -60,7 +60,7 @@ viewer, in line with the dataset-first principle in [`_api.md`](./_api.md).
 - **API.** `atlas scan a b`, `atlas serve a b`, and `atlas a b` work on a
   collection. A collection may need a name and a file so it can be
   reopened (`atlas.collection.json`, or a `workspaces` key in the config).
-  `open()` returns a collection reader. Ids become qualified,
+  `scan` returns the collection's results. Ids become qualified,
   `<workspace>:<package>`, in the collection and in the viewer's URLs, and
   stay bare inside a single workspace's dataset.
 - **Viewer.** Either one archipelago where each workspace is a region with
