@@ -1,16 +1,25 @@
 import type { BelongingLayer, BelongingRegion } from "../../belonging";
 import { labelPriority, territoryLabelSize } from "../../codex/bindings";
 import type { CompositionMark } from "../../composition-layout";
+import { folderWithin } from "../../folder-sectors";
 import { territoryLabelY } from "../../geography";
 import type { ResponsibilityOverlay } from "../../responsibility-focus";
-import type { AtlasData, Territory } from "../../types";
+import type { AtlasData, AtlasFile, Territory } from "../../types";
 import { detailLevel, fileInView } from "../detail-level";
 import type { InkView, MapLabel } from "../exploration";
 import { visibleLabels } from "../exploration";
-import { inks } from "../ink-ladder";
+import { enteredAt, inks } from "../ink-ladder";
+import { cellsShown, namedFolders } from "./folders";
 import type { InkState } from "./state";
 
 const paintLabelsPattern = /^src\//;
+
+/** Whether a district's name, at its anchor file, is the name of the folder it sits in. */
+type FolderNamed = (
+  territory: Territory,
+  file: AtlasFile,
+  text: string
+) => boolean;
 
 /** Island, region and file names within their budgets; the placed labels go on the state. */
 export function paintMapLabels(state: InkState): void {
@@ -99,7 +108,26 @@ function paintLabels(
       );
     }
   }
-  addRegionLabels(belonging, detail, add, composition, pixels);
+  // A district named as the folder it sits in leaves the name to the folder;
+  // Place and the panel still name the district.
+  const namesItsFolder = (
+    territory: Territory,
+    file: AtlasFile,
+    text: string
+  ) => {
+    const tree = data.folderCells[territory.id];
+    if (!(tree && pixels >= enteredAt && cellsShown(territory, belonging))) {
+      return false;
+    }
+    const within = folderWithin(file.directory, territory.folder);
+    return namedFolders(tree).some(
+      ({ cell, name }) =>
+        (within === cell.folder || within.startsWith(`${cell.folder}/`)) &&
+        (text === name || text === cell.folder)
+    );
+  };
+  addRegionLabels(belonging, detail, add, composition, pixels, namesItsFolder);
+  addFolderLabels(data, territories, belonging, add, pixels);
   addTerritoryLabels(
     territories,
     pixels,
@@ -155,7 +183,7 @@ function paintLabels(
     ctx.strokeStyle = inks.labelHalo;
     ctx.lineWidth = (label.file?.id === fileId ? 6 : 3) / pixels;
     ctx.strokeText(label.text, label.x, label.y);
-    ctx.fillStyle = label.file?.id === fileId ? inks.selection : inks.label;
+    ctx.fillStyle = labelInk(label, fileId);
     ctx.fillText(label.text, label.x, label.y);
     if (label.caption) {
       paintCaption(ctx, label, label.caption, pixels);
@@ -163,6 +191,64 @@ function paintLabels(
   }
   ctx.globalAlpha = 1;
   return labels;
+}
+
+function labelInk(label: MapLabel, fileId: string | null): string {
+  if (label.file?.id === fileId) {
+    return inks.selection;
+  }
+  return label.folder ? inks.folder : inks.label;
+}
+
+/** A folder name's size in screen pixels, under a district's. */
+const folderNameSize = 13;
+
+/**
+ * Each island's first branching folder's subfolders, named below it with a
+ * trailing slash ("web/" in `src`) at the centroid of their cells, from island zoom: after the districts' names, so a district
+ * wins a collision, and before the island's and the files'. None on an
+ * island "Group files by responsibility" has rearranged.
+ */
+function addFolderLabels(
+  data: AtlasData,
+  territories: Territory[],
+  belonging: BelongingLayer | null | undefined,
+  add: (
+    territory: Territory,
+    text: string,
+    x: number,
+    y: number,
+    size: number,
+    face: string,
+    extra?: Partial<MapLabel>
+  ) => void,
+  pixels: number
+) {
+  if (pixels < enteredAt) {
+    return;
+  }
+  const size = folderNameSize / pixels;
+  for (const territory of territories) {
+    const tree = data.folderCells[territory.id];
+    if (!(tree && cellsShown(territory, belonging))) {
+      continue;
+    }
+    for (const { cell, name } of namedFolders(tree)) {
+      const count = Math.max(1, cell.sites.length);
+      const x = cell.sites.reduce((sum, site) => sum + site.x, 0) / count;
+      const y = cell.sites.reduce((sum, site) => sum + site.y, 0) / count;
+      // Set a line above the centroid, where a proximity tie ends in a bead.
+      add(
+        territory,
+        `${name}/`,
+        territory.x + x,
+        territory.y + y - size,
+        size,
+        "AtlasBody",
+        { folder: true, font: `italic ${size}px AtlasBody` }
+      );
+    }
+  }
 }
 
 function paintCaption(
@@ -313,10 +399,18 @@ function addRegionLabels(
         stationary?: string[];
       }
     | undefined,
-  pixels: number
+  pixels: number,
+  namesItsFolder: FolderNamed
 ) {
   if (belonging) {
-    addBelongingRegionLabels(belonging, detail, add, composition, pixels);
+    addBelongingRegionLabels(
+      belonging,
+      detail,
+      add,
+      composition,
+      pixels,
+      namesItsFolder
+    );
   }
 }
 
@@ -346,7 +440,8 @@ function addBelongingRegionLabels(
         stationary?: string[];
       }
     | undefined,
-  pixels: number
+  pixels: number,
+  namesItsFolder: FolderNamed
 ) {
   const visitRegion = (region: BelongingRegion) => {
     if (!region.label) {
@@ -377,12 +472,13 @@ function addBelongingRegionLabels(
           Math.hypot(a.x - center.x, a.y - center.y) -
           Math.hypot(b.x - center.x, b.y - center.y)
       )[0];
-    if (!anchor) {
+    const text = region.label.replace(paintLabelsPattern, "");
+    if (!anchor || namesItsFolder(belonging.territory, anchor, text)) {
       return;
     }
     add(
       belonging.territory,
-      region.label.replace(paintLabelsPattern, ""),
+      text,
       belonging.territory.x + anchor.x,
       belonging.territory.y +
         anchor.y -

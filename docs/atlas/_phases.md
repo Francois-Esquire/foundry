@@ -3355,6 +3355,82 @@ drawn, and the overview is pixel-identical to 4.2c's.
   as folder names once folder names are drawn. While "Group files by
   responsibility" rearranges an island, its cells are hidden there, since
   its files no longer sit in them (recorded at 4.2d).
+- **4.3b plan.** Planned 2026-10-10 from the cell trees 4.2d keeps
+  (`AtlasData.folderCells`) and the `nesting` tree.
+  - Cell lines: each cut a cell made between its parts, a straight line at
+    its coordinate across the sites it divided, clipped to land. They start
+    at the island's first branching folder (a package whose files all sit
+    in `src` branches inside `src`), its cuts from island zoom, the next
+    level's from 4 pixels a unit, deeper ones close in. A new ink and a new
+    rung, `cell`, between tie and coast, so cell lines read under every tie
+    and over the coast; colour vision checked against every ink they lie
+    beside.
+  - Folder names: the branching folder's subfolders, named by their path
+    below the package with a trailing slash ("src/web/"), at the centroid
+    of their cells, in italics, in a darker ink of the cell lines' hue, on
+    the label rung, as label candidates after the districts' and before the
+    files', so a district's name wins a collision. The slash, the italics
+    and the hue tell a folder name from a district's ("lib/" against
+    "lib").
+  - Hidden on an island while "Group files by responsibility" rearranges
+    it, since its files no longer sit in their cells.
+  - The gutter experiment: a top gutter of 2.5 spacings for a coast cue,
+    with satellites and the folder share measured again; kept only if the
+    coast reads better and no satellite appears.
+  - Seams are not drawn: Place names an island's strongest, district
+    streams already draw imports between responsibilities on land, and a
+    third kind of line on an island would compete with the proximity ties.
+
+
+- **4.3b, done.** 2026-10-10, as planned, with these choices.
+  - `scene/ink/folders.ts` draws each cut from the island's first folder
+    with more than one subfolder (descending through a lone `src`): its own
+    from island zoom, its subfolders' from 8 pixels a unit, deeper from 14
+    (4 and 8 at first, which crowded an entered island with lines).
+    Clipped to land. The cell rung's ink, `#8975a3`, was found by a search
+    for a hue at least 10 ΔE76 from every ink a cut lies beside, in every
+    vision (the closest 11.8), that keeps the ladder's order on every
+    ground: over the coast pen at 0.85, under the proximity ties. The rung,
+    `cell`, has a floor of 3.
+  - Probed: at 1 pixel a cut never reached its ink (1.6:1), the anti-alias
+    and the tilted camera halving it; at 2 pixels a north–south cut's
+    pixels are exactly `#8975a3`, 3.26–3.41:1 on land, and an east–west one
+    reached 2.1 until widened by 1 / cos(tilt) for the camera's
+    foreshortening (`chartTilt`, now exported), then 3.05–3.37.
+  - Folder names: the branching folder's subfolders, below it with a
+    trailing slash ("web/"), italic, in `#5f5980` on the label rung (5.43:1
+    on land), at least 10.6 ΔE76 from the label and caption inks in every
+    vision; label candidates after the districts' and before the island's
+    and the files', so a district's name wins a collision. Tested.
+  - Hidden on an island "Group files by responsibility" rearranges: the
+    belonging layer then holds a territory with files of its own, which
+    `cellsShown` checks. Tested.
+  - The gutter experiment (`/tmp/review-shots/4.3b/gutter-*`): at 2.5
+    spacings the first split parts most islands in two, 7 satellites (13 on
+    the fixture), patches per district 2.414 → 2.759; at 2, 1 satellite; at
+    1.75 and 1.5 none, folder share 0.771 → 0.794 and 0.786, patches 2.586
+    and 2.483, but the bays the gutter cuts into the coast leave pinholes
+    along it that read as coast features, while the cut lines already show
+    the split from island zoom. Kept at 1.
+  - Seams are not drawn, as planned; Place names an island's strongest.
+  - At review: each cut spans its parent cell, the rectangle its split
+    divided, starting from the island's box widened by the gutter, so cuts
+    meet at T-junctions and the land clip trims them at the coast; a test
+    on the reference atlas finds a cut between every two sites of
+    different blocks. Levels below the subfolders' open 6 pixels a unit
+    apart (8, 14, 20, …). A folder's name sits a line above its cell's
+    centroid, so a proximity bead there stays seen. A district named as the
+    folder it sits in ("lib" in `src/lib`) is not labelled; the folder's
+    name carries the place, and Place and the panel name the district.
+    Districts take their names from their anchor responsibility, whose
+    label is mostly its folder; naming them by what they are responsible
+    for would be lens work (`responsibility-groups`). Only the cells are
+    compensated for the camera's tilt.
+  - The map key gains the cell row and a line on folder names.
+  - Screenshots: `/tmp/review-shots/4.3b/before-*.png` from `e60074b`;
+    `after-overview.png` (pixel-identical: nothing changes at overview),
+    `after-{zoomed,closeline,atlas-island,atlas-entered,agents-close,
+    narrow}.png`, and `gutter2.5-*`, `gutter1.75-*` for the experiment.
 
 **4.4 Loading.** Covered by the lazy reader in 1.5; the module shards stopped
 being read at load in 2.2d. What remains is the viewer reading only what the

@@ -36,13 +36,14 @@ describe("the ink ladder", () => {
     }
   });
 
-  it("orders the rungs selection, departure, file, label, tie, coast, relief, sea", () => {
+  it("orders the rungs selection, departure, file, label, tie, cell, coast, relief, sea", () => {
     expect(rungs).toEqual([
       "selection",
       "departure",
       "file",
       "label",
       "tie",
+      "cell",
       "coast",
       "relief",
       "sea",
@@ -347,6 +348,40 @@ describe("file inks", () => {
         expect(
           deltaE(inks.proximity, ink, deficiency),
           `proximity and ${name} under ${deficiency ?? "normal vision"}`
+        ).toBeGreaterThanOrEqual(10);
+      }
+    }
+  });
+
+  it("keeps the folder inks apart: names 10 ΔE76 from every label ink, cell lines from every ink they lie beside, in every vision", () => {
+    const pairs: [string, string, string][] = [
+      ["folder", inks.folder, inks.label],
+      ["folder", inks.folder, inks.labelCaption],
+      ...Object.entries({
+        ...inks.files,
+        coastPen: inks.coastPen,
+        coastRule: inks.coastRule,
+        folder: inks.folder,
+        grid: inks.grid,
+        label: inks.label,
+        landContour: inks.landContour,
+        marsh: inks.marsh,
+        proximity: inks.proximity,
+        seaContour: inks.seaContour,
+      }).map(([name, ink]): [string, string, string] => [
+        `folderLine and ${name}`,
+        inks.folderLine,
+        ink,
+      ]),
+    ];
+    for (const deficiency of [
+      undefined,
+      ...(Object.keys(deficiencies) as Deficiency[]),
+    ]) {
+      for (const [name, a, b] of pairs) {
+        expect(
+          deltaE(a, b, deficiency),
+          `${name} under ${deficiency ?? "normal vision"}`
         ).toBeGreaterThanOrEqual(10);
       }
     }

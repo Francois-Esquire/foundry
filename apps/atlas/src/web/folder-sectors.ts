@@ -21,7 +21,8 @@ interface Site {
 
 /**
  * A cut between the two sides of a split: the line `axis` = `at`, from
- * `from` to `to` along the other axis, over the sites it divided. It sits
+ * `from` to `to` along the other axis, across the whole of the rectangle the
+ * split divided, so a cut meets the cuts around it at T-junctions. It sits
  * mid-gutter, and no site crosses it afterwards.
  */
 interface CellSplit {
@@ -29,6 +30,14 @@ interface CellSplit {
   axis: "x" | "y";
   from: number;
   to: number;
+}
+
+/** A region of the island a split divides, in island units: the island's box, then each side of each cut. */
+interface Rect {
+  x0: number;
+  x1: number;
+  y0: number;
+  y1: number;
 }
 
 /**
@@ -152,7 +161,7 @@ function split(
   sites: Site[],
   count: number,
   gutter: number
-): [Site[], Site[], CellSplit] {
+): [Site[], Site[], Pick<CellSplit, "at" | "axis">] {
   const xs = sites.map((site) => site.x);
   const ys = sites.map((site) => site.y);
   const across =
@@ -178,14 +187,14 @@ function split(
       site.y += gutter / 2;
     }
   }
-  const extent = sites.map(other);
-  const cut: CellSplit = {
-    at: (Math.max(...first.map(along)) + Math.min(...second.map(along))) / 2,
-    axis: across ? "x" : "y",
-    from: Math.min(...extent),
-    to: Math.max(...extent),
-  };
-  return [first, second, cut];
+  return [
+    first,
+    second,
+    {
+      at: (Math.max(...first.map(along)) + Math.min(...second.map(along))) / 2,
+      axis: across ? "x" : "y",
+    },
+  ];
 }
 
 /** The index splitting `sizes` into two runs closest to equal, never empty. */
@@ -236,7 +245,8 @@ function divide(
   parts: readonly Block[],
   sites: Site[],
   gutter: number,
-  cell: FolderCell
+  cell: FolderCell,
+  region: Rect
 ): void {
   const [only] = parts;
   if (parts.length === 1 && only) {
@@ -251,17 +261,25 @@ function divide(
       splits: [],
     };
     cell.folders.push(below);
-    divide(only.parts, sites, gutter, below);
+    divide(only.parts, sites, gutter, below, region);
     return;
   }
   const at = balance(parts.map(blockSize));
   const count = parts
     .slice(0, at)
     .reduce((sum, block) => sum + blockSize(block), 0);
-  const [first, second, cut] = split(sites, count, gutter);
-  cell.splits.push(cut);
-  divide(parts.slice(0, at), first, gutter / 2, cell);
-  divide(parts.slice(at), second, gutter / 2, cell);
+  const [first, second, { at: where, axis }] = split(sites, count, gutter);
+  const across = axis === "x";
+  cell.splits.push({
+    at: where,
+    axis,
+    from: across ? region.y0 : region.x0,
+    to: across ? region.y1 : region.x1,
+  });
+  const before = across ? { ...region, x1: where } : { ...region, y1: where };
+  const after = across ? { ...region, x0: where } : { ...region, y0: where };
+  divide(parts.slice(0, at), first, gutter / 2, cell, before);
+  divide(parts.slice(at), second, gutter / 2, cell, after);
 }
 
 /**
@@ -333,12 +351,16 @@ export function settleFiles(
   const tree: FolderCell = { folder: "", folders: [], sites, splits: [] };
   if (files.length) {
     const order = districtOf ? byDistrict(files, districtOf) : byPath;
-    divide(
-      blocks(folderTree(files, root), order),
-      sites,
-      topGutter * spacing,
-      tree
-    );
+    // The island's box, wide enough for every gutter's push outward.
+    const margin = topGutter * spacing;
+    const xs = sites.map((site) => site.x);
+    const ys = sites.map((site) => site.y);
+    divide(blocks(folderTree(files, root), order), sites, margin, tree, {
+      x0: Math.min(...xs) - margin,
+      x1: Math.max(...xs) + margin,
+      y0: Math.min(...ys) - margin,
+      y1: Math.max(...ys) + margin,
+    });
   }
   return tree;
 }

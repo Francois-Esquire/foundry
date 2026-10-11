@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { memberContours } from "../../src/web/belonging";
 import { latitude } from "../../src/web/codex/bindings";
+import { settleFiles } from "../../src/web/folder-sectors";
 import type { ResponsibilityOverlay } from "../../src/web/responsibility-focus";
 import { inkLayers } from "../../src/web/scene/ink/layers";
 import { inkState } from "../../src/web/scene/ink/state";
@@ -779,4 +780,111 @@ it("marks a close folder with two arcs set apart, a shape no departure ring shar
   expect(ring).toHaveLength(1);
   const [, , , from = 0, to = 0] = ring[0]?.args ?? [];
   expect(to - from).toBeGreaterThan(Math.PI);
+});
+
+it("draws folders at island zoom, faint cuts and italic names ending in a slash, and none on an island rearranged by responsibility", () => {
+  const files = [
+    "pkg/src/web/a.ts",
+    "pkg/src/web/b.ts",
+    "pkg/src/lib/c.ts",
+    "pkg/src/lib/d.ts",
+  ].map((path, i) => ({
+    ...territory.files[0],
+    directory: path.slice(0, path.lastIndexOf("/")),
+    id: path,
+    path,
+    x: i,
+    y: 0,
+  })) as Territory["files"];
+  const tree = settleFiles(files, 80, "pkg");
+  const island = { ...territory, files, folder: "pkg" };
+  const foldered = {
+    ...data,
+    folderCells: { island: tree },
+    territories: [island],
+  };
+  const paint = (belonging?: Parameters<typeof paintInk>[1]["belonging"]) => {
+    const { canvas, ctx } = canvasFixture();
+    const pen = ctx as unknown as CanvasRenderingContext2D;
+    const strokes: string[] = [];
+    const names: { font: string; ink: string; text: string }[] = [];
+    ctx.stroke.mockImplementation(() => strokes.push(String(pen.strokeStyle)));
+    ctx.fillText.mockImplementation((text: string) =>
+      names.push({ font: pen.font, ink: String(pen.fillStyle), text })
+    );
+    paintInk(canvas, {
+      belonging,
+      data: foldered,
+      view: { height: 500, pixelsPerUnit: 2.2, width: 500, x: 0, y: 0 },
+    });
+    return { names, strokes };
+  };
+  const shown = paint();
+  expect(shown.strokes).toContain(inks.folderLine);
+  expect(shown.names).toContainEqual({
+    font: expect.stringContaining("italic"),
+    ink: inks.folder,
+    text: "lib/",
+  });
+  const rearranged = paint({
+    regions: [],
+    territory: { ...island, files: files.map((f) => ({ ...f })) },
+  });
+  expect(rearranged.strokes).not.toContain(inks.folderLine);
+  expect(rearranged.names.map((name) => name.text)).not.toContain("lib/");
+});
+
+it("leaves a district's name to the folder when the district is named as the folder it sits in, and sets folder names above their bead", () => {
+  const files = [
+    "pkg/src/web/a.ts",
+    "pkg/src/web/b.ts",
+    "pkg/src/lib/c.ts",
+    "pkg/src/lib/d.ts",
+  ].map((path, i) => ({
+    ...territory.files[0],
+    directory: path.slice(0, path.lastIndexOf("/")),
+    id: path,
+    path,
+    x: i,
+    y: 0,
+  })) as Territory["files"];
+  const tree = settleFiles(files, 80, "pkg");
+  const island = { ...territory, files, folder: "pkg" };
+  const region = (id: string, label: string, members: typeof files) => ({
+    color: "#000000",
+    id,
+    label,
+    members,
+    polygons: [],
+    uncertain: false,
+  });
+  const lib = files.filter((f) => f.directory.endsWith("lib"));
+  const web = files.filter((f) => f.directory.endsWith("web"));
+  const { canvas, ctx } = canvasFixture();
+  const printed: { text: string; y: number }[] = [];
+  ctx.fillText.mockImplementation((text: string, _x: number, y: number) =>
+    printed.push({ text, y })
+  );
+  paintInk(canvas, {
+    belonging: {
+      regions: [region("r1", "src/lib", lib), region("r2", "Sessions", web)],
+      territory: island,
+    },
+    data: { ...data, folderCells: { island: tree }, territories: [island] },
+    view: { height: 500, pixelsPerUnit: 2.2, width: 500, x: 0, y: 0 },
+  });
+  const texts = printed.map((label) => label.text);
+  expect(texts).toContain("lib/");
+  expect(texts).not.toContain("lib");
+  // A district named otherwise keeps its name beside the folder's.
+  expect(texts).toContain("Sessions");
+  const libCell = tree.folders[0]?.folders.find(
+    (cell) => cell.folder === "src/lib"
+  );
+  const centroid =
+    (libCell?.sites ?? []).reduce((sum, site) => sum + site.y, 0) /
+    Math.max(1, libCell?.sites.length ?? 1);
+  expect(printed.find((label) => label.text === "lib/")?.y).toBeCloseTo(
+    centroid - 13 / 2.2
+  );
 });

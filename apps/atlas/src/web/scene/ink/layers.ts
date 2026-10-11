@@ -11,6 +11,7 @@ import { paintConnections } from "./connections";
 import { paintDepartures } from "./departures";
 import { paintFocusedFile } from "./file-focus";
 import { paintFiles } from "./files";
+import { paintFolders } from "./folders";
 import { paintMapLabels } from "./labels";
 import { paintLatitudeScale } from "./latitude-scale";
 import { paintProximity } from "./proximity";
@@ -41,6 +42,7 @@ export const inkLayers = [
   },
   { id: "coast", paint: paintCoastline },
   { id: "belonging", paint: paintBelonging },
+  { id: "folders", paint: paintFolders },
   { id: "connections", paint: paintConnections },
   { id: "files", paint: paintFiles },
   { id: "responsibility", paint: paintResponsibilityOverlay },

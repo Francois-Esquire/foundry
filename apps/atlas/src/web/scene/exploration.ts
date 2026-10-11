@@ -2,6 +2,9 @@ import type { OrthographicCamera, Vector3 } from "three";
 
 import type { AtlasData, AtlasFile, Territory } from "../types";
 
+/** The camera's tilt off the vertical, in radians: the chart's north–south runs foreshortened by its cosine on screen. */
+export const chartTilt = 0.7;
+
 export function zoomForPixels(
   camera: OrthographicCamera,
   viewportWidth: number,
@@ -154,6 +157,8 @@ export interface MapLabel {
   caption?: string;
   compositeId?: string;
   file?: AtlasFile;
+  /** A folder's name, set in italics in the folder ink. */
+  folder?: boolean;
   font: string;
   height: number;
   opacity?: number;

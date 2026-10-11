@@ -39,6 +39,7 @@ import { createContinentGround } from "./continent-ground";
 import { detailLevel, detailVisibility, fileInView } from "./detail-level";
 import type { InkView, MapLabel } from "./exploration";
 import {
+  chartTilt,
   frameFiles,
   inkView,
   keepSeaInFrame,
@@ -135,7 +136,7 @@ export async function createAtlasScene(
   light.position.set(-600, 700, 700);
   scene.add(light);
   const camera = new OrthographicCamera(-1, 1, 1, -1, 1, 10_000);
-  const tilt = 0.7;
+  const tilt = chartTilt;
   camera.position.set(0, -Math.sin(tilt) * 2200, Math.cos(tilt) * 2200);
   camera.lookAt(0, 0, 0);
   const controls = new MapControls(camera, renderer.domElement);

@@ -228,6 +228,7 @@ const legendLines = [
  * it on; a row without one is drawn whenever its island is entered.
  */
 const keyRows: readonly [string, keyof ReaderSettings | null][] = [
+  ["folder-cell", null],
   ["proximity-apart", null],
   ["proximity-co-change", null],
   ["proximity-close", null],
@@ -342,8 +343,11 @@ export function MapKey({
           lists the rest, and co-changes across packages.
         </p>
         <p>
-          Place names a file's path region, and an island's path regions and the
-          seams between them, the imports from one region into another.
+          Closer in, an island's folders: a faint line between sibling folders,
+          and their names in italics ending in a slash ("web/"), apart from a
+          district's name. Place names a file's path region, and an island's
+          path regions and the seams between them, the imports from one region
+          into another.
         </p>
         <p>{domainNote(domains)}</p>
         <p>

@@ -47,6 +47,10 @@ folder, not physical scale; how far apart two islands sit means nothing.
   selected file, symbol, or package, where it is used: "placement: departs
   toward …", "fits", "spread", or "used by no other package". A departure
   is an observation, not a defect.
+- **Folders show closer in.** On an entered island faint violet-grey lines
+  part its folders, and their names stand in italics with a trailing slash
+  ("web/"), so "lib/" the folder never reads as "lib" the district. Deeper
+  folders' lines come in as you zoom closer.
 - **Proximity shows closer in.** On an entered island a slate dotted tie
   runs from a file to its responsibility's folder when the file sits
   apart from it; a slate dashed tie joins two files in different folders

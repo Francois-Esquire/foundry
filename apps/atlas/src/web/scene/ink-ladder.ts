@@ -50,6 +50,7 @@ export const rungs = [
   "file",
   "label",
   "tie",
+  "cell",
   "coast",
   "relief",
   "sea",
@@ -62,6 +63,8 @@ export type Rung = (typeof rungs)[number];
  * above, so no mark outranks one that matters more.
  */
 export const rungFloor: Record<Rung, number> = {
+  /** The lines between an island's folders: under every tie, over the coast. */
+  cell: 3,
   coast: 1.8,
   departure: 8,
   file: 5.5,
@@ -121,6 +124,13 @@ export const inks = {
   },
   /** The paper cut around the selected file's ring. */
   focusHalo: "#faf4e4",
+  /**
+   * Folders inside an island: a name in italics on the label rung, and the
+   * cuts between sibling folders, lighter, of the same violet-grey, a hue no
+   * label or district takes.
+   */
+  folder: "#5f5980",
+  folderLine: "#8975a3",
   /** The chart's grid, printed once on sea and land, and its references' halo. */
   grid: "#6c6852",
   gridReferenceHalo: "#e3e6d4",
@@ -298,6 +308,20 @@ export const ladderMarks: readonly LadderMark[] = [
     id: "departure-line",
     ink: inks.departureLine,
     rung: "departure",
+  },
+  {
+    alpha: entered,
+    ground: "land",
+    id: "folder-name",
+    ink: inks.folder,
+    rung: "label",
+  },
+  {
+    alpha: entered,
+    ground: "land",
+    id: "folder-cell",
+    ink: inks.folderLine,
+    rung: "cell",
   },
   {
     alpha: entered,
@@ -592,6 +616,12 @@ export const inkTable: readonly InkStyle[] = [
     { cue: "A dash-dot line, so it reads without its hue" }
   ),
   line(
+    "folder-cell",
+    inks.folderLine,
+    2,
+    "A cut between an island's sibling folders"
+  ),
+  line(
     "proximity-apart",
     inks.proximity,
     1.5,
@@ -625,6 +655,12 @@ export const inkTable: readonly InkStyle[] = [
     "The hairline framing the coast rule"
   ),
   flat("label", "text", inks.label, "A place's name"),
+  flat(
+    "folder-name",
+    "text",
+    inks.folder,
+    "A folder's name, in italics and ending in a slash"
+  ),
   flat(
     "label-caption",
     "text",

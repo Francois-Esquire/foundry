@@ -381,6 +381,32 @@ that consumers in no package are not counted. On a screen 760 pixels wide
 or narrower the legend shows only the map key's summary until it is
 opened, and each number of the latitude scale sits on a paper plate.
 
+## Folders
+
+From island zoom an island shows its folders, from the cell trees
+`settleFiles` keeps (`AtlasData.folderCells`). Drawing starts at the
+island's first folder with more than one subfolder: the package folder, or
+the first below it, since most packages hold `src` beside a few root files.
+Each cut its folder made between its parts is a straight line spanning the
+whole of its parent cell, the rectangle the split divided (the island's box
+at the top), so cuts meet at T-junctions, and the land clip trims them at
+the coast; in `#8975a3` on the ladder's `cell` rung (floor 3; 3.4:1 on
+land), between the ties and the coast. A cut is 2 pixels, and one running
+east to west is widened by the camera's foreshortening, 1 / cos(tilt), so
+both reach their full ink on screen; only the cells are compensated so, no
+other ink. The branching folder's cuts show from island zoom, its
+subfolders' from 8 pixels a unit, and each level below 6 more, one level at
+a time. Its subfolders are named a line above the centroid of their cells,
+where a proximity tie may end in a bead, below it and ending in a slash
+("web/" in `src`), in italics, in `#5f5980` on the label rung, as
+label candidates after the districts', so a district's name wins a
+collision; the slash, the italics and the violet-grey, at least 10 ΔE76 from
+the label inks in every vision, tell a folder's name from a district's. A
+district named as the folder it sits in leaves the name to the folder;
+Place and the panel still name the district.
+While "Group files by responsibility" has rearranged an island its cells and
+names are hidden there. Seams are named in Place, not drawn.
+
 ## Proximity
 
 Closer in, from `enteredAt`, the `proximity` lens is drawn in a slate,

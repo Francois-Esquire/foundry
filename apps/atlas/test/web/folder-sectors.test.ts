@@ -311,3 +311,58 @@ it("gives a file outside the package's folder a cell by its own path", () => {
   expect(tree.splits).toHaveLength(1);
   expect(cellsApart(tree, files, "pkg")).toEqual([]);
 });
+
+type Cut = FolderCell["splits"][number];
+
+/** Whether the straight path from `p` to `q` crosses the cut. */
+function crosses(
+  cut: Cut,
+  p: { x: number; y: number },
+  q: { x: number; y: number }
+) {
+  const along = (point: { x: number; y: number }) =>
+    cut.axis === "x" ? point.x : point.y;
+  const other = (point: { x: number; y: number }) =>
+    cut.axis === "x" ? point.y : point.x;
+  const a = along(p) - cut.at;
+  const b = along(q) - cut.at;
+  if (a * b > 0) {
+    return false;
+  }
+  const t = a === b ? 0 : a / (a - b);
+  const at = other(p) + (other(q) - other(p)) * t;
+  return at >= Math.min(cut.from, cut.to) && at <= Math.max(cut.from, cut.to);
+}
+
+it("draws each cut across the whole region its split divided, so a drawn cut lies between every two sites of different blocks", async () => {
+  const data = await loadAtlas();
+  for (const territory of data.territories) {
+    const files = territory.files.map((f) => ({ ...f }));
+    const tree = settleFiles(files, territory.radius, territory.folder);
+    const visit = (cell: FolderCell) => {
+      const own = files.filter(
+        (f) => folderWithin(f.directory, territory.folder) === cell.folder
+      );
+      const blocks = [
+        ...(own.length ? [own] : []),
+        ...cell.folders.map((child) => child.sites),
+      ].map((block) => block.slice(0, 12));
+      for (const [i, a] of blocks.entries()) {
+        for (const b of blocks.slice(i + 1)) {
+          for (const p of a) {
+            for (const q of b) {
+              expect(
+                cell.splits.some((cut) => crosses(cut, p, q)),
+                `${territory.id} ${cell.folder}`
+              ).toBe(true);
+            }
+          }
+        }
+      }
+      for (const child of cell.folders) {
+        visit(child);
+      }
+    };
+    visit(tree);
+  }
+});
