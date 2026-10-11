@@ -116,6 +116,7 @@ export function resolveCodex(source: CodexSource): Codex {
       };
     }),
     placement: {
+      dominantShare: source.placement.policy.dominantShare,
       labelled: source.placement.packages.map((p) => p.id),
       places: source.placement.places.map(resolvePlacement),
     },

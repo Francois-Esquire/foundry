@@ -1,7 +1,10 @@
 import { useCallback } from "react";
 import type { ReaderSettings } from "../chart-settings";
 import { filePen } from "../codex/bindings";
+import type { Departures } from "../departures";
+import { leastConsumers, linesPerTarget } from "../departures";
 import {
+  departureRing,
   fileInk,
   type InkStyle,
   inkStyle,
@@ -16,7 +19,7 @@ const swatch = { height: 14, width: 30 } as const;
  * weight and dash in pixels (a row in map units at one pixel per unit, as at
  * overview).
  */
-function InkSwatch({ style }: { style: InkStyle }) {
+function InkSwatch({ bead, style }: { bead?: InkStyle; style: InkStyle }) {
   const { height, width } = swatch;
   const view = `0 0 ${width} ${height}`;
   if (style.kind === "text") {
@@ -39,6 +42,9 @@ function InkSwatch({ style }: { style: InkStyle }) {
         strokeLinecap={dotted ? "round" : "butt"}
         strokeWidth={style.weight}
       />
+      {bead && (
+        <circle cx={width - 3} cy={height / 2} fill={swatchInk(bead)} r="2.2" />
+      )}
     </svg>
   );
 }
@@ -106,6 +112,48 @@ function FileSwatch({ kind }: { kind: string }) {
   );
 }
 
+/** A departure's notched ring at 1:1, as a file's mark on the map. */
+function DepartureRingSwatch() {
+  const size = 12;
+  const radius = departureRing.radius.file;
+  const center = size / 2;
+  const start = -Math.PI / 2 + departureRing.notch / 2;
+  const end = (3 * Math.PI) / 2 - departureRing.notch / 2;
+  const at = (angle: number) =>
+    `${center + radius * Math.cos(angle)} ${center + radius * Math.sin(angle)}`;
+  const style = inkStyle("departure");
+  return (
+    <svg
+      aria-hidden="true"
+      height={size}
+      viewBox={`0 0 ${size} ${size}`}
+      width={size}
+    >
+      <path
+        d={`M${at(start)} A${radius} ${radius} 0 1 1 ${at(end)}`}
+        fill="none"
+        stroke={swatchInk(style)}
+        strokeLinecap="round"
+        strokeWidth={style.weight}
+      />
+    </svg>
+  );
+}
+
+/** What the map draws of the departures against all of them, short enough for one line. */
+function departureTotals(
+  departures: Pick<Departures, "lines" | "totals">
+): string {
+  const { candidateLines, departing, symbols } = departures.totals;
+  const lines = candidateLines === 1 ? "line" : "lines";
+  return `${departing} departing · ${symbols} ${symbols === 1 ? "symbol" : "symbols"} in Place · ${departures.lines.length} of ${candidateLines} ${lines}`;
+}
+
+/** Why a departure is drawn or left out, for the map key. */
+function departureRules(dominantShare: number): string {
+  return `A place departs when one other package holds at least ${Math.round(dominantShare * 100)}% of the modules that use it, its own package counted as one. A line is drawn when it rests on at least ${leastConsumers} of those modules, and at most ${linesPerTarget} run into one package; the totals count every departure. Consumers in no package of the scan are not counted.`;
+}
+
 const fileKinds = [
   ["source", "Source"],
   ["test", "Test"],
@@ -142,9 +190,12 @@ const keyRows: readonly [string, keyof ReaderSettings | null][] = [
  * ladder's table, so the key draws every line as the map does.
  */
 export function MapKey({
+  departures,
   onHeight,
   settings,
 }: {
+  /** The departures the map draws, for their row and totals. */
+  departures: Pick<Departures, "dominantShare" | "lines" | "totals">;
   /** Called with the legend's height in CSS pixels whenever it changes, so margin notes clear it. */
   onHeight: (height: number) => void;
   settings: ReaderSettings;
@@ -186,6 +237,22 @@ export function MapKey({
           </li>
         ))}
       </ul>
+      {departures.totals.departing > 0 && (
+        <ul className="atlas-legend-row">
+          <li>
+            <DepartureRingSwatch />
+            {inkStyle("departure").meaning}
+          </li>
+          <li>
+            <InkSwatch
+              bead={inkStyle("departure-bead")}
+              style={inkStyle("departure-line")}
+            />
+            {inkStyle("departure-line").meaning}
+          </li>
+          <li className="atlas-legend-totals">{departureTotals(departures)}</li>
+        </ul>
+      )}
       <details className="atlas-map-key">
         <summary>Map key</summary>
         <dl>
@@ -202,6 +269,9 @@ export function MapKey({
             );
           })}
         </dl>
+        {departures.totals.departing > 0 && (
+          <p>{departureRules(departures.dominantShare)}</p>
+        )}
         <p>
           Islands are low ground. Only a package's high fan-in files raise
           rounded summits: those that at least its cutoff of the package's own

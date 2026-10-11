@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { insidePolygons } from "../../src/web/polygons";
 import {
+  clipToSea,
   dependencyLinks,
   nearestCoast,
   seaCurve,
@@ -42,7 +43,7 @@ const data: AtlasData = {
   generatedAt: "test",
   height: 400,
   packageLayers: {},
-  placement: { labelled: [], places: {} },
+  placement: { dominantShare: 0.6, labelled: [], places: {} },
   routes: [
     {
       consumerFiles: [],
@@ -128,5 +129,27 @@ describe("selection ink", () => {
     // The middle bows by 0.12 of the length between the held-back ends.
     expect(curve.control[0]).toBeCloseTo(46.5);
     expect(curve.control[1]).toBeCloseTo(0.12 * 93);
+  });
+
+  it("cuts each name from the sea clip on its own, so no name over land opens the clip again", () => {
+    const ctx = {
+      beginPath: vi.fn(),
+      clip: vi.fn(),
+      closePath: vi.fn(),
+      lineTo: vi.fn(),
+      moveTo: vi.fn(),
+      rect: vi.fn(),
+    };
+    const label = { caption: "", height: 10, width: 40, x: 0, y: 0 };
+    clipToSea(
+      ctx as unknown as CanvasRenderingContext2D,
+      data,
+      [label, { ...label, x: 10 }] as never[],
+      1
+    );
+    // Land first, then one clip per name: evenodd in one path would let a
+    // name over land, or two overlapping names, through again.
+    expect(ctx.clip).toHaveBeenCalledTimes(3);
+    expect(ctx.clip).toHaveBeenCalledWith("evenodd");
   });
 });

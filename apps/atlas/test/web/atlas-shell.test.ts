@@ -422,6 +422,7 @@ it("tells where a place is used: a file departing, its symbol fitting, a package
   const atlas = {
     ...data,
     placement: {
+      dominantShare: 0.6,
       labelled: [territory.id],
       places: {
         [`file:${file.path}`]: placed(file.path, "departs", 1, 3),
@@ -446,4 +447,49 @@ it("tells where a place is used: a file departing, its symbol fitting, a package
   );
   // A package the lens could not label says nothing of its use.
   expect(read({ territory: other })).not.toContain("placement");
+});
+
+it("adds a departure row to the legend with its totals, and the threshold, cap, and consumers left out to the map key", async () => {
+  const data = await loadAtlas();
+  const [territory, other] = data.territories;
+  assert(territory && other);
+  const [file] = territory.files;
+  assert(file);
+  const departing = {
+    ...data,
+    placement: {
+      dominantShare: 0.6,
+      labelled: [territory.id],
+      places: {
+        [`file:${file.path}`]: {
+          away: [{ modules: 1, package: other.id }],
+          home: 0,
+          label: "departs" as const,
+          level: "file" as const,
+          package: territory.id,
+          place: file.path,
+          share: 1,
+          toward: other.id,
+          unindexed: 0,
+        },
+      },
+    },
+  };
+  await act(async () => {
+    root.render(createElement(Atlas, { data: departing }));
+  });
+  const rows = container.querySelectorAll(
+    '[aria-label="Legend"] .atlas-legend-row'
+  );
+  expect(rows).toHaveLength(3);
+  const row = rows[2]?.textContent ?? "";
+  expect(row).toContain(inkStyle("departure").meaning);
+  expect(row).toContain(inkStyle("departure-line").meaning);
+  // One consumer module is too thin for a line: it counts, and is not drawn.
+  expect(row).toContain("1 departing · 0 symbols in Place · 0 of 1 line");
+  // Why, in the map key: the threshold, the cap, and the consumers left out.
+  const key = container.querySelector(".atlas-map-key")?.textContent ?? "";
+  expect(key).toContain("at least 2 of those modules");
+  expect(key).toContain("at most 3 run into one package");
+  expect(key).toContain("Consumers in no package of the scan are not counted");
 });

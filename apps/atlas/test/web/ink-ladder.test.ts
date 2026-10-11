@@ -24,20 +24,14 @@ function measured(pixels: number) {
 }
 
 describe("the ink ladder", () => {
-  it("keeps every mark within its rung at every named zoom", () => {
+  it("meets each rung's floor on the darkest ground each mark is drawn on, at every named zoom", () => {
+    // The sea ground is the darkest sea a line crosses, probed on screen.
     for (const pixels of Object.values(zooms)) {
       for (const mark of measured(pixels)) {
-        const rank = rungs.indexOf(mark.rung);
-        const above = rungs[rank - 1];
         expect(
           mark.contrast,
           `${mark.id} at ${pixels} px/unit`
         ).toBeGreaterThanOrEqual(rungFloor[mark.rung]);
-        if (above) {
-          expect(mark.contrast, `${mark.id} at ${pixels} px/unit`).toBeLessThan(
-            rungFloor[above]
-          );
-        }
       }
     }
   });
@@ -54,19 +48,34 @@ describe("the ink ladder", () => {
     ]);
     const floors = rungs.map((rung) => rungFloor[rung]);
     expect(floors).toEqual(floors.toSorted((a, b) => b - a));
+  });
+
+  it("keeps every mark lighter than every mark of the rungs above, on every ground, at every named zoom", () => {
+    // An order between inks, not a ceiling: on a light shore a line can pass
+    // the floor of the rung above and still read under every mark of it.
     for (const pixels of Object.values(zooms)) {
-      const marks = measured(pixels);
-      for (const [rank, rung] of rungs.entries()) {
-        const weakest = Math.min(
-          ...marks.filter((mark) => mark.rung === rung).map((m) => m.contrast)
-        );
-        const strongestBelow = Math.max(
-          1,
-          ...marks
-            .filter((mark) => rungs.indexOf(mark.rung) > rank)
-            .map((mark) => mark.contrast)
-        );
-        expect(weakest).toBeGreaterThan(strongestBelow);
+      for (const ground of Object.values(grounds)) {
+        const marks = ladderMarks
+          .filter((mark) => mark.alpha(pixels) > 0)
+          .map((mark) => ({
+            ...mark,
+            on: contrast(mark.ink, mark.alpha(pixels), ground),
+          }));
+        for (const [rank, rung] of rungs.entries()) {
+          const own = marks.filter((mark) => mark.rung === rung);
+          if (!own.length) {
+            continue;
+          }
+          const weakest = Math.min(...own.map((mark) => mark.on));
+          for (const below of marks.filter(
+            (mark) => rungs.indexOf(mark.rung) > rank
+          )) {
+            expect(
+              below.on,
+              `${below.id} under ${rung} on ${ground} at ${pixels} px/unit`
+            ).toBeLessThan(weakest);
+          }
+        }
       }
     }
   });
@@ -124,11 +133,19 @@ describe("the ink table", () => {
     expect(inkStyle("hover").hue).not.toBe(inkStyle("selection").hue);
   });
 
-  it("gives departures a cue beside their magenta, and draws none before 4.2b", () => {
-    const departure = inkStyle("departure");
-    expect(departure.cue).toBeTruthy();
-    expect(departure.dash.length).toBeGreaterThan(2);
-    expect(departure.drawn).toBe(false);
+  it("gives departures a cue beside their magenta, the line darker than the ring and of its hue", () => {
+    const ring = inkStyle("departure");
+    const line = inkStyle("departure-line");
+    expect(ring.cue).toBeTruthy();
+    expect(line.cue).toBeTruthy();
+    expect(line.dash.length).toBeGreaterThan(2);
+    expect(line.hue).not.toBe(ring.hue);
+    const apart = Math.abs(hue(line.hue) - hue(ring.hue));
+    expect(Math.min(apart, 360 - apart)).toBeLessThan(5);
+    // The line is clipped to the sea; on the sea it meets the departure rung.
+    expect(contrast(line.hue, 1, grounds.sea)).toBeGreaterThanOrEqual(
+      rungFloor.departure
+    );
   });
 
   it("shares an ink across kinds only where the table means it to", () => {
@@ -141,6 +158,7 @@ describe("the ink table", () => {
         "responsibility-outline",
         "unresolved-outline",
       ],
+      [inks.departureLine]: ["departure-bead", "departure-line"],
       [inks.grid]: ["grid", "grid-reference"],
       [inks.paper]: ["member-halo", "paper"],
       [inks.scale]: ["latitude-label", "latitude-scale"],
@@ -275,6 +293,23 @@ describe("file inks", () => {
               `${kind} and ${other} under ${deficiency}`
             ).toBeGreaterThanOrEqual(10);
           }
+        }
+      }
+    }
+  });
+
+  it("keeps the departure magenta 10 ΔE76 from every file ink and the selection, in every vision", () => {
+    const others = { ...inks.files, selection: inks.selection };
+    for (const deficiency of [
+      undefined,
+      ...(Object.keys(deficiencies) as Deficiency[]),
+    ]) {
+      for (const [name, ink] of Object.entries(others)) {
+        for (const departure of [inks.departure, inks.departureLine]) {
+          expect(
+            deltaE(departure, ink, deficiency),
+            `${departure} and ${name} under ${deficiency ?? "normal vision"}`
+          ).toBeGreaterThanOrEqual(10);
         }
       }
     }

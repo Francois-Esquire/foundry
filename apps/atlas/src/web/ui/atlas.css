@@ -841,6 +841,11 @@ h2 {
   gap: 6px;
   align-items: center;
 }
+.atlas-legend-row .atlas-legend-totals {
+  flex-basis: 100%;
+  font-size: 11px;
+  color: #5d5444;
+}
 .atlas-legend-north {
   font-family: AtlasDisplay, serif;
   font-size: 14px;
@@ -914,6 +919,10 @@ h2 {
 @media (max-width: 760px) {
   .atlas-panel-open .atlas-legend {
     visibility: hidden;
+  }
+  /* A narrow screen keeps the map: only the key's summary, until it opens. */
+  .atlas-legend:not(:has(.atlas-map-key[open])) .atlas-legend-row {
+    display: none;
   }
 }
 

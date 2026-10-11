@@ -21,7 +21,12 @@ export const grounds = {
   deepWater: "#c7d2c7",
   land: "#f1ead9",
   openWater: "#b4c4c5",
-  sea: "#d5dbca",
+  /**
+   * The darkest sea a line crosses at the named zooms, probed on screen
+   * between the rows at overview (4.2b): the sea marks are measured on it,
+   * so that a line meets its rung wherever it runs.
+   */
+  sea: "#c8d1c3",
   shallows: "#e3e6d7",
   shoreWater: "#dfe3d3",
 } as const;
@@ -91,8 +96,10 @@ export const inks = {
   /** A declaration in a composition drawing, and one that blocks a trace. */
   declaration: "#4a4233",
   declarationBlocker: "#963f32",
-  /** Departures (4.2b): magenta, with a notched ring and a dash-dot line as a second cue. */
+  /** Departures: magenta, with a notched ring and a dash-dot line as a second cue. */
   departure: "#681049",
+  /** A departure's line, darker than its ring, since the sea it crosses is darker than the land the ring sits on. */
+  departureLine: "#5e0d42",
   /** The selected island's ring once it is entered: file-rung strength. */
   enteredRing: "#4f4634",
   /** Evidence in focus in the architecture overlays, and their proposals. */
@@ -138,7 +145,7 @@ export const inks = {
   seaCaption: "#64786b",
   seaContour: "#487f78",
   /** The selection: an island's ring at overview and its lines, a file's ring and name, a feature's outline. */
-  selection: "#3b1e06",
+  selection: "#361b05",
   stream: "#537d78",
   streamBank: "#605b47",
   streamGlint: "#fff5da",
@@ -242,8 +249,7 @@ const entered = (pixels: number) => (pixels < enteredAt ? 0 : 1);
 
 /**
  * Every mark on the ladder, as the painters draw it at rest: nothing
- * hovered, no overlay receding the other files. Departures have a rung and an
- * ink but no painter until 4.2b. Optional layers and on-demand ink (trade
+ * hovered, no overlay receding the other files. Optional layers and on-demand ink (trade
  * lanes, streams, marsh drains, traced imports, the architecture overlays,
  * hover) are outside the rung order; the table below still keeps each
  * apart.
@@ -281,7 +287,7 @@ export const ladderMarks: readonly LadderMark[] = [
     alpha: always,
     ground: "sea",
     id: "departure-line",
-    ink: inks.departure,
+    ink: inks.departureLine,
     rung: "departure",
   },
   {
@@ -418,6 +424,15 @@ export function contrast(ink: string, alpha: number, ground: string): number {
   return (Math.max(over, under) + 0.05) / (Math.min(over, under) + 0.05);
 }
 
+/**
+ * A departure's mark: a ring, its radius in screen pixels by what departs,
+ * with a notch at the top, in radians, its second cue beside the hue.
+ */
+export const departureRing = {
+  notch: Math.PI / 3,
+  radius: { file: 4, folder: 5.5, package: 9 },
+} as const;
+
 /** A line's dash in screen pixels; empty is solid. */
 type Dash = readonly number[];
 
@@ -426,8 +441,6 @@ export interface InkStyle {
   /** A second cue beside the hue, for readers who cannot tell the hue apart. */
   cue?: string;
   dash: Dash;
-  /** Drawn by a reader's map today; departures wait for 4.2b. */
-  drawn: boolean;
   hue: string;
   id: string;
   /** Lines and marks can be confused with each other; fills and text only with their own kind. */
@@ -448,7 +461,6 @@ const line = (
   extra: Partial<InkStyle> = {}
 ): InkStyle => ({
   dash,
-  drawn: true,
   hue,
   id,
   kind: "line",
@@ -462,7 +474,7 @@ const flat = (
   kind: "fill" | "text",
   hue: string,
   meaning: string
-): InkStyle => ({ dash: [], drawn: true, hue, id, kind, meaning, weight: 0 });
+): InkStyle => ({ dash: [], hue, id, kind, meaning, weight: 0 });
 
 /**
  * Every line, mark, fill and text a reader's map can show, by hue, dash and
@@ -497,6 +509,12 @@ export const inkTable: readonly InkStyle[] = [
     "The selected island's ring, once it is entered"
   ),
   flat(
+    "departure-bead",
+    "fill",
+    inks.departureLine,
+    "The end of a departure line: the package that uses the place most"
+  ),
+  flat(
     "exact-member",
     "fill",
     inks.selection,
@@ -525,12 +543,19 @@ export const inkTable: readonly InkStyle[] = [
     "departure",
     inks.departure,
     1.6,
-    "Used mostly from another package (4.2b)",
-    [8, 3, 1, 3],
+    "Used mostly from another package",
+    [],
     {
-      cue: "A notched ring on the place and a dash-dot line, so it reads without its hue",
-      drawn: false,
+      cue: "A notched ring on the place, so it reads without its hue",
     }
+  ),
+  line(
+    "departure-line",
+    inks.departureLine,
+    1.6,
+    "Toward the package that uses it most",
+    [8, 3, 1, 3],
+    { cue: "A dash-dot line, so it reads without its hue" }
   ),
   line("hover", inks.hover, 1.6, "The island under the pointer"),
   line("coast", inks.coastPen, 2, "A package's coast"),

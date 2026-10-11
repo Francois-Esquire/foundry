@@ -37,7 +37,7 @@ export async function loadAtlas(): Promise<AtlasData> {
     // The capture has no layers; its scale is empty, so none is drawn.
     packageLayers: {},
     // Nor has it a placement lens: no place departs.
-    placement: { labelled: [], places: {} },
+    placement: { dominantShare: 0.6, labelled: [], places: {} },
     routes: captured.routes.map((route) => ({
       ...route,
       ...endpoints(route.from, route.to),

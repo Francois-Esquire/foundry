@@ -31,13 +31,28 @@ folder, not physical scale; how far apart two islands sit means nothing.
   are open boxes and stories half-discs, and the other kinds are small
   blocks.
 - **The legend** at the lower right is always open: where north points, the
-  file kinds, and the lines for a selection and a coast. Its **Map key**
-  explains each optional layer, drawn as the map draws it.
-- **Dependency is placement.** By default no lines are drawn between
-  islands; the rows and the distances carry the relationship. Sea trade
-  routes are an optional layer in the chart settings: switched on, they
-  connect each package to its leading consumers, and a selected island
-  shows its own trade instead. A selected file can trace its imports.
+  file kinds, the lines for a selection and a coast, and departures with
+  their totals. Its **Map key** explains each optional layer, drawn as the
+  map draws it.
+- **Departures are drawn by default.** A file, folder, or package used
+  mostly from one other package (at least 60% of the modules that use it,
+  counting its own package as one) departs: a magenta notched ring marks
+  it, and a magenta dash-dot line runs from its folder to that package's
+  coast. A package used by only one other package is marked once, as a
+  whole. Lines are grouped by folder and target, ranked by how dominant
+  the other package's use is, drawn only when at least two modules there
+  use the place, and at most three run into one package; the legend says
+  how many places depart and how many lines are drawn. While anything is
+  selected, its own lines replace the departure lines. Place says, for a
+  selected file, symbol, or package, where it is used: "placement: departs
+  toward …", "fits", "spread", or "used by no other package". A departure
+  is an observation, not a defect.
+- **Dependency is otherwise drawn on selection.** How far apart two
+  islands sit means nothing. Selecting an island draws its imports and
+  importers; sea trade routes are an optional layer in the chart settings:
+  switched on, they connect each package to its leading consumers, and a
+  selected island shows its own trade instead. A selected file can trace
+  its imports.
 - **Districts are responsibilities.** Inside an island, files that the
   internal analysis groups under one responsibility share a region.
 - **Natural features carry meaning.** A lake is a shared module that many

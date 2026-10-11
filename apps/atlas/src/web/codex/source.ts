@@ -57,6 +57,7 @@ export interface CodexSource {
   placement: {
     packages: Pick<PlacementPackage, "id">[];
     places: Placements["places"];
+    policy: Placements["policy"];
   };
   /** The `responsibility-groups` lens, drawn as districts on entering an island. */
   responsibilityGroups: ResponsibilityGroupsPackage[];
@@ -108,6 +109,7 @@ export async function readCodexSource(
     placement: {
       packages: placement.packages.map(({ id }) => ({ id })),
       places: placement.places,
+      policy: placement.policy,
     },
     responsibilityGroups: groups.packages,
   };

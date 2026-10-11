@@ -75,6 +75,7 @@ What the map encodes, from the codex bindings and the design record:
 | Lake | A module many responsibilities draw on. | yes |
 | Marsh | A module the analysis could not place in one responsibility. | yes |
 | Selection ink | A package's dependency lines, a file's imports. | on selection |
+| Departure | Since 4.2b, a place used mostly from one other package (`placement` lens): a magenta notched ring, and a dash-dot line to that package's coast; selection lines replace the lines while anything is selected. | yes |
 | Wreck | A package seen at a history checkpoint and gone now. | with `--history` |
 | Sea trade routes | Each package's leading consumers. | no |
 | District streams | Imports between responsibilities. | no |

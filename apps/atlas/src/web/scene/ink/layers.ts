@@ -8,6 +8,7 @@ import { paintBelonging } from "./belonging";
 import { paintCoastline } from "./coast-ink";
 import { paintChartCompass } from "./compass";
 import { paintConnections } from "./connections";
+import { paintDepartures } from "./departures";
 import { paintFocusedFile } from "./file-focus";
 import { paintFiles } from "./files";
 import { paintMapLabels } from "./labels";
@@ -56,6 +57,7 @@ export const inkLayers = [
       ctx.restore();
     },
   },
+  { id: "departures", paint: paintDepartures },
   {
     id: "selection",
     paint: ({ ctx, data, labels, selected, view }) =>

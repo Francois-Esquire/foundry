@@ -4,10 +4,11 @@ description: Foundry dependency geography rendered as a navigable paper atlas.
 colors:
   paper: "#f1ead9"
   paper-edge: "#bba785"
-  seawater: "#d5dbca"
+  seawater: "#c8d1c3"
   shallows: "#c3cebd"
-  selection: "#3b1e06"
+  selection: "#361b05"
   departure: "#681049"
+  departure-line: "#5e0d42"
   label: "#665e50"
   coast: "#7a6a50"
   hover: "#be8430"
@@ -63,10 +64,11 @@ CC0, with provenance in `public/atlas/MODEL.md`.
 
 Every colour comes from the ink ladder (`scene/ink-ladder.ts`), which sets how
 strongly each kind of mark is drawn as luminance contrast against the land
-(`#f1ead9`) or the sea (`#d5dbca`), measured in linear light as the renderer
-blends, strongest first: the selection, a deep amber-brown (12.7:1 on land,
-10.8:1 on sea); departures, magenta, with a notched ring and a dash-dot line
-as a second cue (4.2b draws them); file marks (6.4–7.9:1); labels
+(`#f1ead9`) or the sea (`#c8d1c3`, the darkest sea a line crosses at the
+named zooms, probed on screen), measured in linear light as the renderer
+blends, strongest first: the selection, a deep amber-brown (13.3:1 on land,
+10.2:1 on sea); departures, magenta, a notched ring on land (`#681049`) and
+a darker dash-dot line on the sea (`#5e0d42`, 8.3:1); file marks (6.4–7.9:1); labels
 (5.0–5.3:1); the coast (1.9–2.9:1); relief (at most 1.35:1, the steepest
 shade 1.26:1); and sea lines (at most 1.15:1). Once an island is entered the
 selected island's ring steps down to the file rung at one pixel. The same
@@ -351,6 +353,33 @@ lens, hold it; a package without internals has no districts, and its files
 go in path order. When files are grouped by responsibility on request,
 `fitDistricts` places them by district. Coordinates and contours remain
 disposable presentation data; temporal stability is not guaranteed.
+
+## Departures
+
+Departures are the strongest signal after a selection, drawn by default
+from the `placement` lens in the ladder's departure rung: magenta
+`#681049` for the ring on land and a darker `#5e0d42` of its hue for the
+line on the sea, with the notched ring and the dash-dot line (8, 3, 1, 3
+pixels at 1.6) as their second cues, each kept at least 10 ΔE76 from every
+file ink and the selection's in normal, deutan, protan and tritan vision. `departures.ts`
+works out what is drawn once per atlas: a ring on every departing file, at
+its position, and folder, at its files' centroid, 4 and 5.5 pixels across;
+a package whose only consumer is one other package is folded into one
+9-pixel ring at its files' centroid, its own places unmarked. Lines group
+places by folder and target package, rank by dominance share, then the
+consumer modules they rest on, then breadth, places, folder and target;
+a line is drawn only on at least 2 consumer modules, and at most 3 run into
+one package. Each is routed as a selection line: a bowed curve from the
+group's centroid to the target's nearest coast, held 7 units off it, sea
+ink only and cut around names. While anything is selected, no departure
+line is drawn and the selection's lines stand alone; the rings stay, on
+land. Each line ends in a bead of its own ink at the target, as selection
+lines do. The legend's third row names the ring and the line and gives
+short totals: places departing, symbols told only in Place, and lines drawn
+of all; the map key gives the dominant share, the threshold and cap, and
+that consumers in no package are not counted. On a screen 760 pixels wide
+or narrower the legend shows only the map key's summary until it is
+opened, and each number of the latitude scale sits on a paper plate.
 
 ## Components
 

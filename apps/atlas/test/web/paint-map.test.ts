@@ -45,7 +45,7 @@ const data: AtlasData = {
   generatedAt: "test",
   height: 500,
   packageLayers: {},
-  placement: { labelled: [], places: {} },
+  placement: { dominantShare: 0.6, labelled: [], places: {} },
   routes: [
     {
       consumerFiles: [],
@@ -613,4 +613,68 @@ it("draws no latitude scale without placed layers", () => {
   });
   const printed = ctx.fillText.mock.calls.map(([text]) => String(text));
   expect(printed.some((text) => text.startsWith("LAYER"))).toBe(false);
+});
+
+it("draws departures by default, and lets the selection's lines win while anything is selected", () => {
+  const departing = {
+    ...data,
+    placement: {
+      dominantShare: 0.6,
+      labelled: ["island"],
+      places: {
+        "file:src/one.ts": {
+          away: [{ modules: 2, package: "other" }],
+          home: 0,
+          label: "departs" as const,
+          level: "file" as const,
+          package: "island",
+          place: "src/one.ts",
+          share: 1,
+          toward: "other",
+          unindexed: 0,
+        },
+      },
+    },
+  };
+  const strokes = (chosen: string | null) => {
+    const { canvas, ctx } = canvasFixture();
+    const pen = ctx as unknown as CanvasRenderingContext2D;
+    const curves: string[] = [];
+    const rings: string[] = [];
+    ctx.quadraticCurveTo.mockImplementation(() =>
+      curves.push(String(pen.strokeStyle))
+    );
+    ctx.arc.mockImplementation(() => rings.push(String(pen.strokeStyle)));
+    paintInk(canvas, {
+      data: departing,
+      selected: chosen,
+      view: { height: 500, pixelsPerUnit: 1, width: 500, x: 0, y: 0 },
+    });
+    return { curves, rings };
+  };
+  const shown = strokes(null);
+  expect(shown.rings).toContain(inks.departure);
+  expect(shown.curves).toContain(inks.departureLine);
+  const selected = strokes("island");
+  // The ring stays on land; the line gives way to the selection's.
+  expect(selected.rings).toContain(inks.departure);
+  expect(selected.curves).not.toContain(inks.departureLine);
+  expect(selected.curves).toContain(inks.selection);
+});
+
+it("sets the latitude scale on a paper plate on a narrow screen, where islands reach the margin", () => {
+  const plates = (width: number) => {
+    const { canvas, ctx } = canvasFixture();
+    const pen = ctx as unknown as CanvasRenderingContext2D;
+    const filled: string[] = [];
+    ctx.fillRect.mockImplementation(() => filled.push(String(pen.fillStyle)));
+    paintInk(canvas, {
+      data: { ...data, packageLayers: { island: 0 } },
+      view: { height: 800, pixelsPerUnit: 1, width, x: 0, y: 0 },
+    });
+    return filled.filter((fill) => fill === inks.labelHalo).length;
+  };
+  // One plate under each number: the foundation's here.
+  expect(plates(390)).toBe(1);
+  expect(plates(1500)).toBe(0);
 });

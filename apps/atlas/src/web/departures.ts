@@ -53,6 +53,8 @@ interface DepartureLine {
 
 /** What the map draws of the `placement` lens, and what it leaves out, for the legend to disclose. */
 export interface Departures {
+  /** The lens's dominant share: the least a package holds of a place's use for the place to depart toward it. */
+  dominantShare: number;
   /** Ranked, resting on at least `leastConsumers`, at most `linesPerTarget` into each package. */
   lines: DepartureLine[];
   marks: DepartureMark[];
@@ -213,6 +215,7 @@ export function departures(data: AtlasData): Departures {
     return count < linesPerTarget;
   });
   const result: Departures = {
+    dominantShare: data.placement.dominantShare,
     lines,
     marks,
     totals: {

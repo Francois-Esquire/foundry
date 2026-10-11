@@ -192,7 +192,7 @@ describe("natural feature drawing", () => {
       generatedAt: "test",
       height: 500,
       packageLayers: {},
-      placement: { labelled: [], places: {} },
+      placement: { dominantShare: 0.6, labelled: [], places: {} },
       routes: [],
       territories: [territory],
       width: 500,

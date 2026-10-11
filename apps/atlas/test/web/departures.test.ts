@@ -75,6 +75,7 @@ const placements = [
 
 const data = {
   placement: {
+    dominantShare: 0.6,
     labelled: ["@s/a", "@s/b", "@s/c"],
     places: Object.fromEntries(
       placements.map((p) => [`${p.level}:${p.place}`, p])
@@ -150,9 +151,10 @@ it("draws nothing for an atlas whose places all stay home", () => {
   expect(
     departures({
       ...data,
-      placement: { labelled: [], places: {} },
+      placement: { dominantShare: 0.6, labelled: [], places: {} },
     } as AtlasData)
   ).toEqual({
+    dominantShare: 0.6,
     lines: [],
     marks: [],
     totals: {

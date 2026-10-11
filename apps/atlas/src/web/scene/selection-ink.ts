@@ -174,26 +174,33 @@ export function seaCurve(
 
 /**
  * Clips `ctx` to the sea, cut around every name, so that lines drawn after
- * pass beneath islands and leave names clear. The caller restores.
+ * pass beneath islands and leave names clear. Each name is its own clip:
+ * cut in the one even-odd path with the land, a name over land, or over
+ * another name, would open the clip there again. The caller restores.
  */
-function clipToSea(
+export function clipToSea(
   ctx: CanvasRenderingContext2D,
   data: AtlasData,
   labels: readonly MapLabel[],
   pixels: number
 ) {
+  const sheet = () =>
+    ctx.rect(-data.width, -data.height, data.width * 2, data.height * 2);
   ctx.beginPath();
-  ctx.rect(-data.width, -data.height, data.width * 2, data.height * 2);
+  sheet();
   traceLand(ctx, data);
+  ctx.clip("evenodd");
   for (const label of labels) {
+    ctx.beginPath();
+    sheet();
     ctx.rect(
       label.x - label.width / 2 - 4 / pixels,
       label.y - label.height - 4 / pixels,
       label.width + 8 / pixels,
       label.height + (label.caption ? 18 : 8) / pixels
     );
+    ctx.clip("evenodd");
   }
-  ctx.clip("evenodd");
 }
 
 function nearestCoasts(a: Territory, b: Territory): [Point, Point] {

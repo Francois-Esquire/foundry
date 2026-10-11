@@ -2455,6 +2455,101 @@ only Place's text and the bytes read at load change.
   7–23 ms before). Under the 4.4 gate's 500 KB for one lens; the module
   lists are most of it, and the viewer keeps only counts.
 
+**4.2b, the drawing.** Done 2026-10-10.
+- `scene/ink/departures.ts` paints, as its own ink layer just under the
+  selection's: a notched ring (`departureRing`: 4, 5.5 and 9 pixels for a
+  file, a folder and a folded package, the notch a sixth of the turn at
+  the top) on every mark, and the ranked lines in the dash-dot departure
+  pen, routed through `seaCurve`, `nearestCoast` and the sea clip from the
+  selection ink: from each group's centroid, so a line leaves its folder
+  and the land part is cut away, to 7 units off the target's nearest coast.
+  A package mark sits at its files' centroid, the middle of its island,
+  clear of its name, which is set above the coast.
+- Selection wins: while anything is selected no departure line is drawn,
+  so the gilt imports and importers never meet one; the rings stay, being
+  on land. Tested: unselected, the curves are drawn in the departure ink;
+  selected, only in the selection's.
+- The ink table's `drawn` field is retired with the last undrawn row.
+- Colour vision, ΔE76 between the departure magenta and each ink, normal
+  / deutan / protan / tritan: config 54.7 / 49.8 / 57.8 / 16.1, other 49.7
+  / 18.6 / 33.1 / 42.3, source 48.4 / 31.5 / 43.2 / 24.3, story (indigo
+  `#4c4485`) 33.8 / 29.7 / 21.8 / 52.3, test 53.6 / 16.6 / 21.3 / 70.2, and
+  the selection 44.5 / 29.7 / 38.3 / 23.8. A test holds each at least 10.
+- Probed on screen first, at overview: a line in `#681049` measured
+  7.61:1 on the sea between the rows (200–201, 209, 195), under the
+  departure floor of 8, while the ladder had computed 8.42 on its sea
+  ground `#d5dbca`. Ruled at review: the ground was wrong, so it is
+  corrected rather than the floor lowered.
+  - The ladder's sea ground is now `#c8d1c3`, the darkest sea a line
+    crosses at the named zooms: a sweep of 880 short probes over each of an
+    overview, a zoomed and a close shot found it at (200, 209, 195) at
+    overview and island zoom alike, and lighter close in.
+  - What moved, sea marks on the corrected ground: the selection's ring and
+    lines 10.78 → 9.72, under the selection floor, so the selection ink
+    darkens from `#3b1e06` to `#361b05` (10.16 on sea, 13.31 on land, from
+    12.74); the departure line 8.42 → 7.60, so the line takes its own ink
+    (below); the entered ring 6.56 → 5.92, still over the file floor of
+    5.5; the grid 1.15 → 1.14, minor grid 1.12 → 1.11, ripples 1.10 →
+    1.09, sea contours 1.14 → 1.13, all within the sea rung. Outside the
+    rung order: trade lanes 4.54 → 4.10, sea contours at full ink 3.23 →
+    2.92, hover 4.02 → 3.63.
+  - The departure line takes `#5e0d42`, the ring's magenta darker (hue
+    320.7° against 321.1°): 8.29 on the corrected sea. The ring keeps
+    `#681049` on land. They are two rows of the ink table, `departure` (the
+    ring, solid) and `departure-line` (dash-dot), so no two rows share hue,
+    dash, and weight, and the legend shows both.
+  - Colour vision, ΔE76 normal / deutan / protan / tritan, the line ink
+    against config 54.3 / 50.5 / 57.4 / 19.0, other 47.9 / 20.2 / 33.5 /
+    40.4, source 46.8 / 32.1 / 42.8 / 22.8, story 33.4 / 30.7 / 24.2 /
+    50.0, test 51.9 / 18.8 / 23.4 / 68.0, the selection 41.2 / 27.3 / 35.2
+    / 21.8; the ring's against the new selection 44.0 / 28.5 / 36.7 /
+    25.5. The test holds both inks at least 10 from every file ink and the
+    selection.
+  - Probed again with the same sweep: the line's pixels are exactly
+    `#5e0d42`, 8.29:1 at the darkest sea it crosses at overview and island
+    zoom (200, 209, 195), up to 9.71 at overview and 8.76–9.32 close in.
+    At island zoom a line's end, held 7 units off the target's coast,
+    reaches the light near-shore sea (237, 230, 213) at 10.47. Rings
+    measure 8.6–9.96 on land.
+  - The ladder's rule, ruled at review: a floor is met on the darkest ground
+    a mark is drawn on, and "under the rung above" is an order between
+    inks, not a ceiling: on every ground, each mark reads lighter than every
+    mark of every rung above it, at every named zoom. On the light shore the
+    line's 10.47 is under the selection's 13 there, so it is in order, not
+    an exception. The ladder test checks both.
+  - The sweep found the line on land at close zoom before: the sea clip cut
+    names out of the same even-odd path as the land, so a name over land
+    opened it again, and the line showed through file names. Each name is
+    now its own clip; the line no longer reaches land, and the selection's
+    lines, which share the clip, gain the same fix. Tested.
+- Each line ends in a bead of its own ink at the target, as selection
+  lines do, so it reads with a direction; the bead is a row of the ink
+  table, `departure-bead`, and the legend's line swatch ends in it.
+- The legend gains a third row: the ring, "Used mostly from another
+  package", the line, "Toward the package that uses it most", and short
+  totals, "40 departing · 101 symbols in Place · 9 of 19 lines". The map
+  key says why: the lens's dominant share, now read from its `policy`;
+  the 2-module threshold and the 3-line cap; that the totals count every
+  departure; and that consumers in no package are not counted. The row
+  and the explanation are left out when nothing departs.
+- On a screen 760 pixels wide or narrower the legend shows only the map
+  key's summary until it is opened, and each number of the latitude scale
+  sits on a paper plate of its own (0.85), since islands reach the right
+  margin there; a plate under the whole scale hid a third of a 390-pixel
+  map.
+- A focused wreck needs no rule of its own: focusing one opens its dive,
+  which covers the whole map, so no departure line can meet it; closing the
+  dive clears the focus.
+- Screenshots, a reader's session at default quality on this worktree's
+  rescan: `/tmp/review-shots/4.2b/before-{overview,island,close}.png` from
+  `d2e1f4d`, which draws as `e23a006` does, and
+  `after-{overview,zoomed,closeline,island,close}.png`, and at 390 × 800
+  `after-narrow{,-key}.png`; the island and close shots have lib selected,
+  so they show the selection's lines in place of the departures.
+- Docs: DESIGN.md "Departures"; the guide's "What you are looking at"
+  (its "Dependency is placement" bullet, stale since 4.3a, is rewritten);
+  `_viewer.md`'s table.
+
 **4.3 Directories drawn,** and a domain drawn across islands.
 - **4.3a** (recorded at 4.2a(iii)): each island's y is fixed to its
   layer's latitude, `latitude(layer)`, with x free and overlaps resolved

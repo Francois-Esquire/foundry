@@ -80,6 +80,7 @@ export async function loadAtlas(signal?: AbortSignal): Promise<AtlasData> {
     generatedAt: codex.workspace.surveyedAt,
     packageLayers,
     placement: {
+      dominantShare: codex.placement.dominantShare,
       labelled: codex.placement.labelled,
       places: Object.fromEntries(
         codex.placement.places.map((place) => [placementKey(place), place])

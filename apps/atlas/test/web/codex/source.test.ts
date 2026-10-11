@@ -143,6 +143,7 @@ describe("readCodexSource", () => {
     expect(source.placement).toEqual({
       packages: [{ id: "@foundry/core" }],
       places: [placed],
+      policy: { dominantShare: 0.6 },
     });
     expect(source.packagePaths).toEqual([
       { id: "@foundry/core", path: "packages/core" },

@@ -131,6 +131,7 @@ const source: CodexSource = {
         unindexed: 0,
       },
     ],
+    policy: { dominantShare: 0.6 },
   },
   responsibilityGroups: [
     {
@@ -183,6 +184,7 @@ describe("resolveCodex", () => {
 
   it("counts each place's consumer modules and gives its dominance share, leaving unindexed consumers out", () => {
     expect(codex.placement).toEqual({
+      dominantShare: 0.6,
       labelled: ["@foundry/core"],
       places: [
         {

@@ -4,6 +4,10 @@ import type { InkState } from "./state";
 /** Space kept clear above the legend, and at the foot when there is none, in CSS pixels. */
 const legendGap = 30;
 const footMargin = 96;
+/** Below this view width in CSS pixels, the legend's narrow breakpoint in atlas.css, islands reach the margin, so each number sits on a plate. */
+const narrowView = 760;
+/** The plate's paper over the map beneath. */
+const plateAlpha = 0.85;
 
 /**
  * The placed dependency layers, foundation first, each at its row's
@@ -24,6 +28,10 @@ function placedLayers(
   return [...rows]
     .map(([layer, y]) => ({ layer, y }))
     .sort((a, b) => a.layer - b.layer);
+}
+
+function scaleText(layer: number): string {
+  return layer === 0 ? "FOUNDATION · 0" : `LAYER ${layer}`;
 }
 
 /**
@@ -55,14 +63,17 @@ export function paintLatitudeScale(state: InkState): void {
   const ys = visible.map(({ y }) => y);
   ctx.save();
   ctx.globalAlpha *= detail.scale;
+  ctx.font = `${10 / pixels}px AtlasBody`;
+  ctx.letterSpacing = `${1 / pixels}px`;
+  // On a narrow screen islands run under the margin: each number sits on a
+  // paper plate of its own, so it stays clear of them and they stay seen.
+  const plated = view.width * pixels < narrowView;
   ctx.strokeStyle = style.hue;
   ctx.lineWidth = style.weight / pixels;
   ctx.beginPath();
   ctx.moveTo(x, Math.min(...ys));
   ctx.lineTo(x, Math.max(...ys));
   ctx.stroke();
-  ctx.font = `${10 / pixels}px AtlasBody`;
-  ctx.letterSpacing = `${1 / pixels}px`;
   ctx.textAlign = "right";
   ctx.textBaseline = "middle";
   for (const { layer, y } of visible) {
@@ -72,7 +83,21 @@ export function paintLatitudeScale(state: InkState): void {
     ctx.moveTo(x - tick, y);
     ctx.lineTo(x + tick, y);
     ctx.stroke();
-    const text = layer === 0 ? "FOUNDATION · 0" : `LAYER ${layer}`;
+    const text = scaleText(layer);
+    if (plated) {
+      const { width } = ctx.measureText(text);
+      const pad = 3 / pixels;
+      ctx.save();
+      ctx.globalAlpha *= plateAlpha;
+      ctx.fillStyle = inks.labelHalo;
+      ctx.fillRect(
+        x - tick * 1.6 - width - pad,
+        y - 7 / pixels,
+        width + pad * 2,
+        14 / pixels
+      );
+      ctx.restore();
+    }
     ctx.lineWidth = 3 / pixels;
     ctx.strokeStyle = inks.labelHalo;
     ctx.strokeText(text, x - tick * 1.6, y);

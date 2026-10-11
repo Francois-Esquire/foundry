@@ -112,7 +112,12 @@ export interface Codex {
   /** Sorted by id. */
   packages: CodexPackage[];
   /** The `placement` lens's places, as the lens sorts them, and the packages it labelled, whose other places no other package uses. */
-  placement: { labelled: string[]; places: CodexPlacement[] };
+  placement: {
+    /** The share of a place's consumer modules at which one package holds its use. */
+    dominantShare: number;
+    labelled: string[];
+    places: CodexPlacement[];
+  };
   /** Absent when no history was recorded; sorted by id. */
   retiredPackages?: CodexRetiredPackage[];
   workspace: CodexWorkspace;

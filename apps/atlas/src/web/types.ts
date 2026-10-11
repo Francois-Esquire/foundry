@@ -94,11 +94,13 @@ export interface AtlasData {
   packageLayers: Record<string, number | null>;
   /**
    * The `placement` lens: every place a module of another package uses, by
-   * `placementKey` (`level:place`), and the packages it labelled. A place of a labelled package that
-   * is absent is used by no other package; a package not labelled has no
-   * internals, and its use is unknown.
+   * `placementKey` (`level:place`), and the packages it labelled. A place of
+   * a labelled package that is absent is used by no other package; a
+   * package not labelled has no internals, and its use is unknown.
    */
   placement: {
+    /** The share of a place's consumer modules at which one package holds its use. */
+    dominantShare: number;
     labelled: readonly string[];
     places: Record<string, CodexPlacement>;
   };

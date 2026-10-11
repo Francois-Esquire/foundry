@@ -11,6 +11,7 @@ import {
   useState,
 } from "react";
 import { fileDistricts } from "../belonging";
+import { departures } from "../departures";
 import type { AtlasSelection } from "../scene/scene";
 import type { FormerPackage } from "../types";
 import { AtlasHeader } from "./atlas-header";
@@ -167,6 +168,7 @@ export function AtlasShell({
   const inspectedRegion =
     belonging.regions.find((region) => region.id === inspected?.regionId) ??
     belonging.composites.find((region) => region.id === inspected?.compositeId);
+  const atlasDepartures = useMemo(() => departures(data), [data]);
   const districts = useMemo(
     () => fileDistricts(belonging.regions, belonging.composites),
     [belonging.regions, belonging.composites]
@@ -272,7 +274,11 @@ export function AtlasShell({
       />
       <div className={open ? "atlas-world atlas-panel-open" : "atlas-world"}>
         {children}
-        <MapKey onHeight={actions.legendHeight} settings={chartSettings} />
+        <MapKey
+          departures={atlasDepartures}
+          onHeight={actions.legendHeight}
+          settings={chartSettings}
+        />
         <AtlasPanel
           focusToken={focusToken}
           onClose={closePanel}
