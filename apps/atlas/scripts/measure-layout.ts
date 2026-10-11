@@ -41,7 +41,12 @@ import { districtsOfGroups, settleFiles } from "../src/web/folder-sectors";
 import { landContours } from "../src/web/geography";
 import { loadAtlas } from "../src/web/load-atlas";
 import { loadInternals } from "../src/web/load-internals";
-import type { AtlasData, AtlasFile, Territory } from "../src/web/types";
+import {
+  type AtlasData,
+  type AtlasFile,
+  islandSource,
+  type Territory,
+} from "../src/web/types";
 
 const NEIGHBORS = 3;
 /** Where the viewer reads its dataset from, relative to the page. */
@@ -358,12 +363,14 @@ async function measureDataset(root: string) {
         };
       }
       const districtOf = districtsOfGroups(groups.groups);
-      const internals = await loadInternals(
-        territory.id,
-        territory.fileRoles,
-        data.generatedAt,
-        new AbortController().signal
-      );
+      const source = islandSource(data, territory.id);
+      const internals = await loadInternals({
+        dataset: source.dataset,
+        files: territory.files,
+        package: source.package,
+        roles: territory.fileRoles,
+        signal: new AbortController().signal,
+      });
       const responsibilities = new Map<string, string>();
       for (const region of belongingRegions(internals, territory)) {
         for (const file of region.uncertain ? [] : region.members) {

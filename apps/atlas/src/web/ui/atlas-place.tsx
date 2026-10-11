@@ -2,6 +2,7 @@ import { useCallback, useMemo, useRef } from "react";
 import { type BelongingRegion, fileDistricts } from "../belonging";
 import { placementKey } from "../codex/resolve";
 import type { CodexPlacement } from "../codex/vocabulary";
+import type { DomainRef } from "../domain-extent";
 import { folderWithin } from "../folder-sectors";
 import { featureText, importCounts } from "../natural-feature-inspection";
 import type { NaturalFeatures } from "../natural-features";
@@ -9,12 +10,18 @@ import { tieCount } from "../proximity";
 import type { ResponsibilityOverlay } from "../responsibility-focus";
 import type { AtlasSelection } from "../scene/scene";
 import type { TradeRoute } from "../trade-routes";
-import type {
-  AtlasData,
-  AtlasFile,
-  AtlasSymbol,
-  FormerPackage,
-  Territory,
+import {
+  type AtlasData,
+  type AtlasFile,
+  type AtlasFrame,
+  type AtlasSymbol,
+  bareIn,
+  type FormerPackage,
+  type FrameReadings,
+  frameOf,
+  islandSource,
+  qualifiedIn,
+  type Territory,
 } from "../types";
 import { ArchitecturePanel } from "./architecture-panel";
 import { DomainPlace } from "./domain-place";
@@ -65,7 +72,7 @@ export function AtlasPlace({
 }: {
   data: AtlasData;
   /** The domain drawn across the islands, told above the selection. */
-  domain: string | null;
+  domain: DomainRef | null;
   features?: NaturalFeatures;
   selection: AtlasSelection | null;
   hover: AtlasSelection | null;
@@ -84,7 +91,7 @@ export function AtlasPlace({
   evidenceOpen: boolean;
   evidence: EvidenceActions;
   onSelect: (value: AtlasSelection | null) => void;
-  onDomain: (name: string | null) => void;
+  onDomain: (domain: DomainRef | null) => void;
   onFrame: (ids: string[]) => void;
   onBrowse: () => void;
   onEvidence: () => void;
@@ -277,7 +284,7 @@ export function AtlasPlace({
             onLayout={evidence.layout}
             onOverlay={evidence.overlay}
             onUnmappedModule={evidence.unmappedModule}
-            survey={data.generatedAt}
+            source={islandSource(data, territory.id)}
             symbol={selection.symbol}
             territory={territory}
             unmappedModule={selection.unmappedModule}
@@ -364,21 +371,40 @@ function browseLabel(
   return "Browse districts";
 }
 
-/** What Place reads of the atlas beyond the selection: layers, and where each place is used. */
-type AtlasFacts = Pick<
-  AtlasData,
-  | "domains"
-  | "nesting"
-  | "packageLayers"
-  | "placement"
-  | "proximity"
-  | "territories"
->;
+/** What Place reads of the atlas beyond the selection: layers, frames, and their islands. */
+type AtlasFacts = Pick<AtlasData, "frames" | "packageLayers" | "territories">;
+
+/**
+ * An island as Place reads its workspace's lenses: the frame's readings,
+ * the island's bare package id in them, and the frame's islands, among
+ * which a lens's paths and package ids are found.
+ */
+interface PlaceView {
+  atlas: AtlasFacts;
+  frame: AtlasFrame;
+  /** The island's package id as its readings hold it. */
+  packageId: string;
+  readings: FrameReadings;
+  territories: readonly Territory[];
+}
+
+function placeView(atlas: AtlasFacts, territory: Territory): PlaceView {
+  const frame = frameOf(atlas, territory.id);
+  return {
+    atlas,
+    frame,
+    packageId: bareIn(frame, territory.id),
+    readings: frame.readings,
+    territories: atlas.territories.filter((item) =>
+      frame.territories.includes(item.id)
+    ),
+  };
+}
 
 /** A file's name, with its package's when it lives in another: "b.ts", or "b.ts in marbles". */
-function fileName(atlas: AtlasFacts, path: string, territory: Territory) {
+function fileName(view: PlaceView, path: string, territory: Territory) {
   const name = path.split("/").at(-1) ?? path;
-  const owner = atlas.territories.find((item) =>
+  const owner = view.territories.find((item) =>
     item.files.some((file) => file.path === path)
   );
   return owner && owner !== territory ? `${name} in ${owner.label}` : name;
@@ -392,17 +418,16 @@ function fileName(atlas: AtlasFacts, path: string, territory: Territory) {
  * internals.
  */
 function proximityText(
-  atlas: AtlasFacts,
+  view: PlaceView,
   file: AtlasFile,
   territory: Territory
 ): string | undefined {
-  if (!atlas.proximity.labelled.includes(territory.id)) {
+  const { proximity } = view.readings;
+  if (!proximity.labelled.includes(view.packageId)) {
     return;
   }
   const said: string[] = [];
-  const apart = atlas.proximity.apart.files.find(
-    (entry) => entry.file === file.path
-  );
+  const apart = proximity.apart.files.find((entry) => entry.file === file.path);
   if (apart) {
     const folder =
       folderWithin(apart.responsibilityFolder, territory.folder) ||
@@ -411,7 +436,7 @@ function proximityText(
       `apart from its responsibility's folder ${folder} · ${apart.distance} ${apart.distance === 1 ? "step" : "steps"}`
     );
   }
-  const pairs = atlas.proximity.apart.coChanges
+  const pairs = proximity.apart.coChanges
     .filter((pair) => pair.left === file.path || pair.right === file.path)
     .toSorted((a, b) => b.coChangeCommits - a.coChangeCommits);
   const [strongest] = pairs;
@@ -421,10 +446,10 @@ function proximityText(
     const imports = strongest.staticPath === "none" ? ", no import path" : "";
     const more = pairs.length > 1 ? `, and ${pairs.length - 1} more` : "";
     said.push(
-      `changes with ${fileName(atlas, other, territory)} · ${strongest.coChangeCommits} commits${imports}${more}`
+      `changes with ${fileName(view, other, territory)} · ${strongest.coChangeCommits} commits${imports}${more}`
     );
   }
-  const close = atlas.proximity.close.find(
+  const close = proximity.close.find(
     (folder) => folder.folder === file.directory
   );
   if (close) {
@@ -437,23 +462,24 @@ function proximityText(
 
 /** What the `proximity` lens counts for a package: its close folders, apart files, and co-changes. */
 function islandProximity(
-  atlas: AtlasFacts,
+  view: PlaceView,
   territory: Territory
 ): string | undefined {
-  if (!atlas.proximity.labelled.includes(territory.id)) {
+  const { proximity } = view.readings;
+  if (!proximity.labelled.includes(view.packageId)) {
     return;
   }
-  const close = atlas.proximity.close.filter(
-    (folder) => folder.package === territory.id
+  const close = proximity.close.filter(
+    (folder) => folder.package === view.packageId
   ).length;
-  const apart = atlas.proximity.apart.files.filter(
-    (entry) => entry.package === territory.id
+  const apart = proximity.apart.files.filter(
+    (entry) => entry.package === view.packageId
   ).length;
   const files = new Set(territory.files.map((file) => file.path));
-  const pairs = atlas.proximity.apart.coChanges.filter(
+  const pairs = proximity.apart.coChanges.filter(
     (pair) => files.has(pair.left) || files.has(pair.right)
   ).length;
-  const ties = tieCount(atlas, territory.id);
+  const ties = tieCount(view.atlas, territory.id);
   return `proximity: ${close} close but unrelated, ${apart} apart, ${pairs} co-changing pairs · ${ties.drawn} of ${ties.all} ties drawn`;
 }
 
@@ -473,18 +499,17 @@ interface FileContext {
  * beside it (4.2d).
  */
 function placementText(
-  atlas: AtlasFacts,
-  place: Pick<CodexPlacement, "level" | "place">,
-  packageId: string
+  view: PlaceView,
+  place: Pick<CodexPlacement, "level" | "place">
 ): string | undefined {
-  const reading = placementReading(atlas, place, packageId);
+  const reading = placementReading(view, place);
   if (!reading) {
     return;
   }
   // In a domain, a departure is told as two: the placement's, toward the
   // package, and the domain's, against the consumers' domains (4.2d).
   const key = placementKey(place);
-  const domain = domainLabelText(atlas, key);
+  const domain = domainLabelText(view.readings, key);
   if (domain && reading.startsWith("departs ")) {
     return `placement departure: ${reading.slice("departs ".length)} · ${domain}`;
   }
@@ -492,13 +517,13 @@ function placementText(
 }
 
 function placementReading(
-  atlas: AtlasFacts,
-  place: Pick<CodexPlacement, "level" | "place">,
-  packageId: string
+  view: PlaceView,
+  place: Pick<CodexPlacement, "level" | "place">
 ): string | undefined {
-  const placed = atlas.placement.places[placementKey(place)];
+  const { placement } = view.readings;
+  const placed = placement.places[placementKey(place)];
   if (!placed) {
-    return atlas.placement.labelled.includes(packageId)
+    return placement.labelled.includes(view.packageId)
       ? "used by no other package"
       : undefined;
   }
@@ -511,8 +536,9 @@ function placementReading(
   }
   const toward = placed.away.find((entry) => entry.package === placed.toward);
   if (placed.label === "departs" && toward) {
+    const island = qualifiedIn(view.frame, toward.package);
     const name =
-      atlas.territories.find((item) => item.id === toward.package)?.label ??
+      view.territories.find((item) => item.id === island)?.label ??
       toward.package;
     return `departs toward ${name} · ${toward.modules} of ${consumers} consumer modules`;
   }
@@ -534,19 +560,20 @@ function fileDetail(
   districts?: ReadonlyMap<string, BelongingRegion>
 ): string {
   const { file, symbol, territory } = selection;
+  const view = placeView(atlas, territory);
   const folder = folderWithin(file.directory, territory.folder);
-  const region = pathRegionText(atlas, file.directory);
+  const region = pathRegionText(view.readings, file.directory);
   const where = `in ${folder || "the package folder"}${region ? `, ${region}` : ""}`;
   const district = districts?.get(file.id);
   const place = symbol
     ? { level: "symbol" as const, place: `${file.path}#${symbol.name}` }
     : { level: "file" as const, place: file.path };
-  const inDomains = domainsText(atlas, place.place);
+  const inDomains = domainsText(view.readings, place.place);
   const serves = [district && `district ${district.label}`, inDomains]
     .flatMap((text) => (text ? [` · ${text}`] : []))
     .join("");
-  const use = placementText(atlas, place, territory.id);
-  const near = proximityText(atlas, file, territory);
+  const use = placementText(view, place);
+  const near = proximityText(view, file, territory);
   const used = [use, near]
     .flatMap((text) => (text ? [` · ${text}`] : []))
     .join("");
@@ -568,16 +595,16 @@ function layerName(
  * "apps/atlas · Layer 2 · used by no other package".
  */
 function islandPlacement(atlas: AtlasFacts, territory: Territory): string {
+  const view = placeView(atlas, territory);
   const layer = layerName(atlas.packageLayers, territory);
   const placed = territory.folder ? `${territory.folder} · ${layer}` : layer;
-  const use = placementText(
-    atlas,
-    { level: "package", place: territory.folder },
-    territory.id
-  );
-  const near = islandProximity(atlas, territory);
-  const nested = islandNestingText(atlas, territory);
-  const inDomains = domainsText(atlas, territory.folder);
+  const use = placementText(view, {
+    level: "package",
+    place: territory.folder,
+  });
+  const near = islandProximity(view, territory);
+  const nested = islandNestingText(view.readings, view.packageId);
+  const inDomains = domainsText(view.readings, territory.folder);
   return [placed, use, nested, inDomains, near].filter(Boolean).join(" · ");
 }
 

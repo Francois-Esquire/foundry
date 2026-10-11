@@ -40,6 +40,12 @@ export interface AtlasInternals {
   fileRoles: Record<string, FileRole>;
   /** Recorded change, read only when the layer is on. */
   frequentChange?: FrequentChangeEvidence;
+  /**
+   * The island they are bound to, by its id on the map: qualified in a
+   * collection, where the internals' own package id is bare. Absent where
+   * they were bound without one; the package id stands for it then.
+   */
+  island?: string;
   locality: SymbolLocalityReport;
   responsibilities: InternalResponsibilityReport;
   topology: InternalPackageTopology;

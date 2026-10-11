@@ -2,19 +2,21 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { BelongingLayer } from "../belonging";
 import { type BelongingRegion, belongingAncestry } from "../belonging";
 import type { ChartSettings } from "../chart-settings";
-import type { LateCodex } from "../codex/vocabulary";
+import type { DomainRef } from "../domain-extent";
 import { relayoutAtlas } from "../geography";
 import type { AtlasInternals } from "../internals";
+import type { LateReadings } from "../load-atlas";
 import type { NaturalFeatures } from "../natural-features";
 import type { ResponsibilityOverlay } from "../responsibility-focus";
 import type { AtlasSelection } from "../scene/scene";
 import type { TradeRoute } from "../trade-routes";
-import type {
-  AtlasData,
-  AtlasFile,
-  AtlasSymbol,
-  FormerPackage,
-  Territory,
+import {
+  type AtlasData,
+  type AtlasFile,
+  type AtlasSymbol,
+  type FormerPackage,
+  islandSource,
+  type Territory,
 } from "../types";
 import type { AtlasMapHandle } from "./atlas-map";
 import {
@@ -41,7 +43,7 @@ function canonicalSelection(data: AtlasData, value: AtlasSelection | null) {
 
 export function useAtlasState(
   initial: AtlasState,
-  late?: Promise<LateCodex>,
+  late?: Promise<LateReadings>,
   imports?: () => Promise<AtlasData["fileEdges"]>
 ) {
   const sourceData = initial.data;
@@ -59,7 +61,7 @@ export function useAtlasState(
   const traced = useImports(imports);
   const { edges } = traced;
   const data = useMemo(() => {
-    const read = readings ? { ...geometry, ...readings } : geometry;
+    const read = readings ? withLateReadings(geometry, readings) : geometry;
     return edges ? { ...read, fileEdges: edges } : read;
   }, [geometry, readings, edges]);
   const scene = useRef<AtlasMapHandle | null>(null);
@@ -75,7 +77,7 @@ export function useAtlasState(
     initial.hoveredWreck
   );
   const [mapLayer, setMapLayer] = useState<MapLayer>(initial.mapLayer);
-  const [domain, setDomain] = useState<string | null>(initial.domain);
+  const [domain, setDomain] = useState<DomainRef | null>(initial.domain);
   const [legendHeight, setLegendHeight] = useState(initial.legendHeight);
   const [tracedSelection, setTracedSelection] = useState<AtlasSelection | null>(
     null
@@ -92,7 +94,7 @@ export function useAtlasState(
   const territory = chosen?.territory;
   const viewBelonging = useBelonging(
     viewTerritory ?? undefined,
-    data.generatedAt,
+    viewTerritory ? islandSource(data, viewTerritory.id) : undefined,
     chartSettings.volcanic,
     chartSettings.streams
   );
@@ -103,7 +105,7 @@ export function useAtlasState(
       viewBelonging,
       territoryLayout
     ),
-    data.generatedAt,
+    territory ? islandSource(data, territory.id) : undefined,
     chartSettings.volcanic,
     chartSettings.streams
   );
@@ -441,9 +443,22 @@ function useImports(
   return { edges, failure, read, reading };
 }
 
+/** Each frame with its late readings joined to the ones it was laid out with. */
+function withLateReadings(atlas: AtlasData, late: LateReadings): AtlasData {
+  return {
+    ...atlas,
+    frames: atlas.frames.map((frame) => {
+      const read = late[frame.id];
+      return read
+        ? { ...frame, readings: { ...frame.readings, ...read } }
+        : frame;
+    }),
+  };
+}
+
 /** The late readings once they arrive; a refusal is the caller's to show (`App`). */
-function useLateReadings(late: Promise<LateCodex> | undefined) {
-  const [readings, setReadings] = useState<LateCodex | null>(null);
+function useLateReadings(late: Promise<LateReadings> | undefined) {
+  const [readings, setReadings] = useState<LateReadings | null>(null);
   useEffect(() => {
     if (!late) {
       return;

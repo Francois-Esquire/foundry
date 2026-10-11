@@ -78,18 +78,21 @@ function surveyFetch(
   });
 }
 
+/** One island's read, from the dataset at the data root saved at "survey", with no files to bind. */
+const request = (packageId: string) => ({
+  dataset: { generatedAt: "survey", root: "" },
+  files: [],
+  package: packageId,
+  roles: undefined,
+  signal: new AbortController().signal,
+});
+
 const read = (
   fetch: ReturnType<typeof surveyFetch>,
   recordedChange = false
 ) => {
   vi.stubGlobal("fetch", fetch);
-  return loadInternals(
-    "example",
-    undefined,
-    "survey",
-    new AbortController().signal,
-    recordedChange
-  );
+  return loadInternals({ ...request("example"), recordedChange });
 };
 
 it("reads no recorded change for ordinary belonging exploration", async () => {
@@ -133,9 +136,7 @@ it("says a dataset saved before the lens has no recorded change to show", async 
 it("says when the dataset was saved without internals", async () => {
   const { internals: _internals, ...workspaceOnly } = scanned;
   vi.stubGlobal("fetch", surveyFetch(workspaceOnly));
-  await expect(
-    loadInternals("example", undefined, "survey", new AbortController().signal)
-  ).rejects.toThrow(
+  await expect(loadInternals(request("example"))).rejects.toThrow(
     "The dataset was saved without internals for example. Run atlas scan to include them."
   );
 });
@@ -145,35 +146,28 @@ it("says a package that failed analysis has no internals", async () => {
     "fetch",
     surveyFetch({ error: "boom", id: "example", status: "failed" })
   );
-  await expect(
-    loadInternals("example", undefined, "survey", new AbortController().signal)
-  ).rejects.toThrow("Atlas could not analyze example, so it has no internals.");
+  await expect(loadInternals(request("example"))).rejects.toThrow(
+    "Atlas could not analyze example, so it has no internals."
+  );
 });
 
 it("says when the dataset has no such package", async () => {
   vi.stubGlobal("fetch", surveyFetch());
-  await expect(
-    loadInternals("missing", undefined, "survey", new AbortController().signal)
-  ).rejects.toThrow("The dataset has no package named missing.");
+  await expect(loadInternals(request("missing"))).rejects.toThrow(
+    "The dataset has no package named missing."
+  );
 });
 
 it("reads the manifest to start and again to close, and nothing it does not need", async () => {
   const fetch = surveyFetch();
   vi.stubGlobal("fetch", fetch);
-  await loadInternals(
-    "example",
-    undefined,
-    "survey",
-    new AbortController().signal
-  );
+  await loadInternals(request("example"));
   const urls = fetch.mock.calls.map(([url]) => url);
   expect(urls.at(0)).toBe("./data/manifest.json");
   expect(urls.at(-1)).toBe("./data/manifest.json");
-  // The two files between are read together, in either order.
-  expect(urls.slice(1, -1).sort()).toEqual([
-    "./data/index.json",
-    "./data/internals/example.json",
-  ]);
+  // Only the internals between: they bind to the island's own files, so
+  // the module index is not read.
+  expect(urls.slice(1, -1)).toEqual(["./data/internals/example.json"]);
 });
 
 it.each([
@@ -183,22 +177,15 @@ it.each([
   "refuses evidence when a later scan replaced the dataset %s",
   async (_when, savedAt) => {
     vi.stubGlobal("fetch", surveyFetch(scanned, savedAt));
-    await expect(
-      loadInternals(
-        "example",
-        undefined,
-        "survey",
-        new AbortController().signal
-      )
-    ).rejects.toThrow("A later scan replaced this dataset. Reload to see it.");
+    await expect(loadInternals(request("example"))).rejects.toThrow(
+      "A later scan replaced this dataset. Reload to see it."
+    );
   }
 );
 
 it("says when the saved internals are incomplete", async () => {
   vi.stubGlobal("fetch", surveyFetch({ ...scanned, id: "other" }));
-  await expect(
-    loadInternals("other", undefined, "survey", new AbortController().signal)
-  ).rejects.toThrow(
+  await expect(loadInternals(request("other"))).rejects.toThrow(
     "The dataset's internals for other are incomplete. Run atlas scan again."
   );
 });

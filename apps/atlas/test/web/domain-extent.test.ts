@@ -5,7 +5,13 @@ import { domainExtent } from "../../src/web/domain-extent";
 import { settleFiles } from "../../src/web/folder-sectors";
 import { relayoutAtlas } from "../../src/web/geography";
 import { toCoast, unionOutline } from "../../src/web/scene/ink/domain";
-import type { AtlasData, AtlasFile, Territory } from "../../src/web/types";
+import type {
+  AtlasData,
+  AtlasFile,
+  AtlasFrame,
+  Territory,
+} from "../../src/web/types";
+import { singleFrame, withReadings } from "../helpers/frames";
 import { loadAtlas } from "../helpers/reference-atlas";
 
 const file = (path: string): AtlasFile => ({
@@ -52,41 +58,47 @@ const domain = (
 
 function atlas(declared: DomainMatch[]): AtlasData {
   const territories = [core, lib, app];
-  return {
-    domains: {
-      declared,
-      placements: {
-        "file:packages/lib/src/x.ts": {
-          away: { shared: 2, total: 2, unindexed: 0 },
-          domainLabel: "shares-domain",
-          domains: ["runtime", "store"],
-          level: "file",
-          package: "lib",
-          place: "packages/lib/src/x.ts",
-          placementLabel: "departs",
-          sharedDomains: ["runtime"],
-        },
-        "folder:packages/core/src/node": {
-          away: { shared: 0, total: 3, unindexed: 0 },
-          domainLabel: "departs",
-          domains: ["runtime"],
-          level: "folder",
-          package: "core",
-          place: "packages/core/src/node",
-          placementLabel: "departs",
-          sharedDomains: [],
-        },
+  const domains: AtlasFrame["readings"]["domains"] = {
+    declared,
+    placements: {
+      "file:packages/lib/src/x.ts": {
+        away: { shared: 2, total: 2, unindexed: 0 },
+        domainLabel: "shares-domain",
+        domains: ["runtime", "store"],
+        level: "file",
+        package: "lib",
+        place: "packages/lib/src/x.ts",
+        placementLabel: "departs",
+        sharedDomains: ["runtime"],
+      },
+      "folder:packages/core/src/node": {
+        away: { shared: 0, total: 3, unindexed: 0 },
+        domainLabel: "departs",
+        domains: ["runtime"],
+        level: "folder",
+        package: "core",
+        place: "packages/core/src/node",
+        placementLabel: "departs",
+        sharedDomains: [],
       },
     },
+  } as AtlasFrame["readings"]["domains"];
+  return {
     folderCells: Object.fromEntries(
       territories.map((t) => [t.id, settleFiles(t.files, 60, t.folder)])
     ),
+    frames: [
+      singleFrame(
+        territories.map((t) => t.id),
+        { domains }
+      ),
+    ],
     territories,
   } as unknown as AtlasData;
 }
 
 it("draws nothing for a domain the atlas does not declare", () => {
-  expect(domainExtent(atlas([]), "runtime")).toBeNull();
+  expect(domainExtent(atlas([]), { frame: "", name: "runtime" })).toBeNull();
 });
 
 it("covers the topmost folder cells, the files named alone, and the islands covered whole, with its nested domains' facets", () => {
@@ -106,7 +118,7 @@ it("covers the topmost folder cells, the files named alone, and the islands cove
       { parents: ["runtime"], unmatched: ["packages/lib/src/gone"] }
     ),
   ]);
-  const extent = domainExtent(data, "runtime");
+  const extent = domainExtent(data, { frame: "", name: "runtime" });
   expect(extent?.islands.map((item) => item.territory.id)).toEqual([
     "core",
     "lib",
@@ -132,12 +144,12 @@ it("covers the topmost folder cells, the files named alone, and the islands cove
   ]);
   expect(extent?.departures).toBe(1);
   // The nested domain alone: the parent shares the departure, not it.
-  const store = domainExtent(data, "store");
+  const store = domainExtent(data, { frame: "", name: "store" });
   expect(store?.islands.map((item) => item.territory.id)).toEqual(["lib"]);
   expect(store?.explained.size).toBe(0);
   expect(store?.departures).toBe(0);
   // Worked out once per atlas and domain.
-  expect(domainExtent(data, "runtime")).toBe(extent);
+  expect(domainExtent(data, { frame: "", name: "runtime" })).toBe(extent);
 });
 
 it("covers a package whole by its package facet, and its files by a folder that has no cell", () => {
@@ -145,12 +157,15 @@ it("covers a package whole by its package facet, and its files by a folder that 
     domain("whole", [{ kind: "package", place: "packages/lib" }]),
     domain("loose", [{ kind: "folder", place: "packages/core/src/web" }]),
   ]);
-  expect(domainExtent(data, "whole")?.islands).toMatchObject([
-    { cells: [], files: [], territory: lib, whole: true },
-  ]);
+  expect(
+    domainExtent(data, { frame: "", name: "whole" })?.islands
+  ).toMatchObject([{ cells: [], files: [], territory: lib, whole: true }]);
   const withoutCells = { ...data, folderCells: {} } as AtlasData;
   expect(
-    domainExtent(withoutCells, "loose")?.islands[0]?.files.map((f) => f.path)
+    domainExtent(withoutCells, {
+      frame: "",
+      name: "loose",
+    })?.islands[0]?.files.map((f) => f.path)
   ).toEqual(["packages/core/src/web/e.ts", "packages/core/src/web/f.ts"]);
 });
 
@@ -206,18 +221,17 @@ it("works a domain out again for a relaid atlas, over its moved islands and the 
   const data = await loadAtlas();
   const [territory] = data.territories;
   assert(territory);
-  const declared: AtlasData = {
-    ...data,
+  const declared: AtlasData = withReadings(data, {
     domains: {
       declared: [
         domain("shapes", [{ kind: "package", place: territory.folder }]),
       ],
       placements: {},
     },
-  };
-  const before = domainExtent(declared, "shapes");
+  });
+  const before = domainExtent(declared, { frame: "", name: "shapes" });
   const relaid = relayoutAtlas(declared, 80);
-  const after = domainExtent(relaid, "shapes");
+  const after = domainExtent(relaid, { frame: "", name: "shapes" });
   expect(after).not.toBe(before);
   const moved = relaid.territories.find((item) => item.id === territory.id);
   expect(after?.islands[0]?.territory).toBe(moved);

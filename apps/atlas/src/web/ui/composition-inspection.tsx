@@ -151,7 +151,7 @@ export function CompositionInspection({
       members: [file.id],
       pathDisagreement: [],
       related: tracing ? related : [],
-      territoryId: data.topology.package.id,
+      territoryId: territory.id,
       totalLinks: related.length,
       unresolved: [],
       ...(routePreview

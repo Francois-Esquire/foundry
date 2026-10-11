@@ -278,7 +278,10 @@ export function paintDomainDepartures(state: InkState): void {
   ctx.lineCap = "butt";
   ctx.setLineDash([]);
   for (const mark of departures(data).marks) {
-    if (!domain.explained.has(placementKey(mark))) {
+    if (
+      mark.frame !== domain.frame ||
+      !domain.explained.has(placementKey(mark))
+    ) {
       continue;
     }
     ctx.beginPath();

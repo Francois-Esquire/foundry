@@ -172,7 +172,9 @@ maintainer disagrees with; 4.0 proceeded without it (question 3).
    package dependency a third or fourth time (roads, connecting land), are
    a developer session's: `import.meta.env.DEV || ?dev`. Decoration that
    carries nothing is deleted.
-6. **What has to change for many workspaces?** One archipelago per
-   workspace, or one archipelago for all of them. See
-   [`_workspaces.md`](./_workspaces.md); the answer changes the layout
-   code more than anything else here.
+6. **Answered 2026-10-10 (5.0, decision 6): one archipelago per
+   workspace, side by side,** with the crossings drawn across the sea
+   between them. See [`_workspaces.md`](./_workspaces.md). Since 5.4a the
+   viewer reads a collection as one frame per workspace, each laid out as
+   its workspace alone would be and set beside the others; 5.4b composes
+   them and draws the crossings.

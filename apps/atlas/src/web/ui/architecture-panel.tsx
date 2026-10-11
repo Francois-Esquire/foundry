@@ -4,7 +4,7 @@ import type { ResponsibilityRelationship } from "../../lib/internal-responsibili
 import { districtLayout } from "../district-layout";
 import type { AtlasInternals } from "../internals";
 import type { ResponsibilityOverlay } from "../responsibility-focus";
-import type { AtlasFile, AtlasSymbol, Territory } from "../types";
+import type { AtlasFile, AtlasSymbol, IslandSource, Territory } from "../types";
 import { CompositionInspection } from "./composition-inspection";
 import { RelationshipInspection } from "./relationship-inspection";
 import { UnmappedModuleInspection } from "./unmapped-module-inspection";
@@ -13,7 +13,7 @@ import { useArchitecture } from "./use-architecture";
 export function ArchitecturePanel({
   territory,
   file,
-  survey,
+  source,
   onOverlay,
   onFile,
   onFrame,
@@ -26,7 +26,8 @@ export function ArchitecturePanel({
 }: {
   territory: Territory;
   file?: AtlasFile;
-  survey: string;
+  /** Where the island's internals are read from. */
+  source: IslandSource;
   onOverlay: (value: ResponsibilityOverlay | null) => void;
   onFile: (file: AtlasFile, symbol?: AtlasSymbol) => void;
   symbol?: AtlasSymbol;
@@ -39,7 +40,7 @@ export function ArchitecturePanel({
 }) {
   const [choice, setChoice] = useState<{ id: string; fileId?: string }>();
   const relationshipId = choice?.fileId === file?.id ? (choice?.id ?? "") : "";
-  const { data, error, retry } = useArchitecture(territory, survey, true);
+  const { data, error, retry } = useArchitecture(territory, source, true);
   const [districts, setDistricts] = useState(false);
   const layout = useMemo(
     () => (data && districts ? districtLayout(data, territory) : null),

@@ -147,11 +147,86 @@ export function chartSize(territories: readonly Territory[]) {
   };
 }
 
-/** The atlas with its islands placed again at another clearance; coasts and file positions are unchanged. */
+/**
+ * Frames side by side, until 5.4b composes them: each frame's islands, laid
+ * out about the origin as a single workspace's are, moved along x so that
+ * the frames sit left to right in order, each its own chart's width apart,
+ * the whole centred. The offset of each frame, in order.
+ */
+export function besideEachOther(
+  frames: readonly (readonly Territory[])[]
+): number[] {
+  const widths = frames.map((territories) => chartSize(territories).width);
+  const total = widths.reduce((sum, width) => sum + width, 0);
+  let left = -total / 2;
+  return widths.map((width) => {
+    const offset = left + width / 2;
+    left += width;
+    return offset;
+  });
+}
+
+/** Each frame's islands, in the atlas's order, by frame. */
+export function islandsByFrame(
+  data: Pick<AtlasData, "frames" | "territories">
+): Territory[][] {
+  return data.frames.map((frame) =>
+    data.territories.filter((territory) =>
+      frame.territories.includes(territory.id)
+    )
+  );
+}
+
+/**
+ * The atlas with its islands placed again at another clearance; coasts and
+ * file positions are unchanged. A collection's frames are placed again one
+ * by one, so no row takes islands of two workspaces, and set side by side
+ * again; their former packages move with them.
+ */
 export function relayoutAtlas(data: AtlasData, clearance: number): AtlasData {
-  const territories = data.territories.map((p) => ({ ...p }));
-  settlePackages(territories, data.packageLayers, clearance);
-  return { ...data, ...chartSize(territories), territories };
+  if (data.frames.length <= 1) {
+    const territories = data.territories.map((p) => ({ ...p }));
+    settlePackages(territories, data.packageLayers, clearance);
+    return { ...data, ...chartSize(territories), territories };
+  }
+  const before = islandsByFrame(data);
+  const centred = before.map((islands) => {
+    const copies = islands.map((p) => ({ ...p }));
+    settlePackages(copies, data.packageLayers, clearance);
+    return copies;
+  });
+  const offsets = besideEachOther(centred);
+  const after = centred.map((islands, i) =>
+    islands.map((p) => ({ ...p, x: p.x + (offsets[i] ?? 0) }))
+  );
+  const territories = after.flat();
+  // A former package moves as far as its frame's middle does.
+  const moved = (id: string) => {
+    const at = data.frames.findIndex((frame) => id.startsWith(`${frame.id}:`));
+    return at < 0 ? 0 : frameCentre(after, at) - frameCentre(before, at);
+  };
+  return {
+    ...data,
+    ...chartSize(territories),
+    ...(data.formerPackages && {
+      formerPackages: data.formerPackages.map((former) => ({
+        ...former,
+        x: former.x + moved(former.id),
+      })),
+    }),
+    territories,
+  };
+}
+
+/** Where a frame's islands sit now, along x: the middle of their extent. */
+function frameCentre(frames: readonly (readonly Territory[])[], i: number) {
+  const islands = frames[i] ?? [];
+  if (!islands.length) {
+    return 0;
+  }
+  const left = Math.min(...islands.map((p) => p.x - p.radius));
+  const right = Math.max(...islands.map((p) => p.x + p.radius));
+  return (left + right) / 2;
 }
 
 /**

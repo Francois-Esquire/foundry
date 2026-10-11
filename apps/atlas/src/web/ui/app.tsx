@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
-import type { LateCodex } from "../codex/vocabulary";
-import { loadAtlas, loadImports, loadLateReadings } from "../load-atlas";
+import {
+  type LateReadings,
+  loadAtlas,
+  loadImports,
+  loadLateReadings,
+} from "../load-atlas";
 import { afterFirstFrame } from "../timings";
 import type { AtlasData } from "../types";
 import Atlas from "./atlas-view";
@@ -21,10 +25,11 @@ export function readSession(search = window.location.search) {
 export function App() {
   const [session] = useState(() => readSession());
   const [data, setData] = useState<AtlasData>();
-  const [late, setLate] = useState<Promise<LateCodex>>();
+  const [late, setLate] = useState<Promise<LateReadings>>();
   const [imports, setImports] =
     useState<() => Promise<AtlasData["fileEdges"]>>();
   const [error, setError] = useState<string>();
+  const [waiting, setWaiting] = useState<string>();
   useEffect(() => {
     const controller = new AbortController();
     const fail = (cause: unknown) => {
@@ -36,7 +41,9 @@ export function App() {
     };
     const load = async () => {
       try {
-        const atlas = await loadAtlas(controller.signal);
+        // A collection's server answers 503 while a workspace's dataset is
+        // swapped; the load waits, and says why.
+        const atlas = await loadAtlas(controller.signal, setWaiting);
         // Read beside the scene's build and merged after its first frame,
         // so neither the read nor the re-render it causes delays it; a
         // refusal fails the page as a refusal at load does.
@@ -71,7 +78,13 @@ export function App() {
     <main style={{ padding: "8vw" }}>
       <h1>Atlas</h1>
       {error ? <p role="status">{error}</p> : null}
-      {error ? null : <p role="status">Loading workspace…</p>}
+      {error ? null : (
+        <p role="status">
+          {waiting
+            ? `Waiting for a workspace's dataset: ${waiting}`
+            : "Loading workspace…"}
+        </p>
+      )}
     </main>
   );
 }

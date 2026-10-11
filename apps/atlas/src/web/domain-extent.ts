@@ -1,7 +1,16 @@
 import { byCodeUnit } from "@foundry/lib/ordering";
 import { covers } from "../lib/facet-cover";
 import { type FolderCell, folderWithin } from "./folder-sectors";
-import type { AtlasData, AtlasFile, Territory } from "./types";
+import type { AtlasData, AtlasFile, AtlasFrame, Territory } from "./types";
+
+/**
+ * A declared domain, by the frame that declares it and its name there: a
+ * name is unique within one workspace's configuration only.
+ */
+export interface DomainRef {
+  frame: string;
+  name: string;
+}
 
 /** What a domain covers on one island. */
 export interface DomainIsland {
@@ -32,6 +41,8 @@ export interface DomainExtent {
    * `shares-domain` with this domain among the shared, keyed `level:place`.
    */
   explained: ReadonlySet<string>;
+  /** The frame that declares it, by id. */
+  frame: string;
   /** Islands it covers some of, in the atlas's order. */
   islands: DomainIsland[];
   name: string;
@@ -169,49 +180,63 @@ function settleIsland(territory: Territory, claims: Claims): DomainIsland {
 const computed = new WeakMap<AtlasData, Map<string, DomainExtent | null>>();
 
 /**
- * Where the declared domain `name` lies across the islands: the islands it
+ * Where a declared domain lies across its frame's islands: the islands it
  * covers whole, the topmost folder cells and the lone files it covers on
  * the others, its symbols, its unmatched facets, and the departures it
- * explains; `null` for a domain the atlas does not declare. Deterministic,
+ * explains; `null` for a domain its frame does not declare. Deterministic,
  * and worked out once per atlas and domain.
  */
 export function domainExtent(
   data: AtlasData,
-  name: string
+  domain: DomainRef
 ): DomainExtent | null {
   const known = computed.get(data) ?? new Map<string, DomainExtent | null>();
   computed.set(data, known);
-  const cached = known.get(name);
+  const key = JSON.stringify([domain.frame, domain.name]);
+  const cached = known.get(key);
   if (cached !== undefined) {
     return cached;
   }
-  const extent = resolveExtent(data, name);
-  known.set(name, extent);
+  const frame = data.frames.find((item) => item.id === domain.frame);
+  const extent = frame ? resolveExtent(data, frame, domain.name) : null;
+  known.set(key, extent);
   return extent;
 }
 
-function resolveExtent(data: AtlasData, name: string): DomainExtent | null {
-  const { declared } = data.domains;
+function resolveExtent(
+  data: AtlasData,
+  frame: AtlasFrame,
+  name: string
+): DomainExtent | null {
+  const { domains } = frame.readings;
+  const { declared } = domains;
   if (!declared.some((domain) => domain.name === name)) {
     return null;
   }
   const members = declared.filter(
     (domain) => domain.name === name || domain.parents.includes(name)
   );
+  // Its own frame's islands only: its facets are that workspace's paths.
+  const own = {
+    folderCells: data.folderCells,
+    territories: data.territories.filter((territory) =>
+      frame.territories.includes(territory.id)
+    ),
+  };
   const claims = new Map<string, Claims>();
   const symbols = new Set<string>();
   for (const facet of members.flatMap((domain) => domain.places)) {
     if (facet.kind === "symbol") {
       symbols.add(facet.place);
     } else {
-      claimPath(data, claims, facet);
+      claimPath(own, claims, facet);
     }
   }
-  const islands = data.territories.flatMap((territory) => {
+  const islands = own.territories.flatMap((territory) => {
     const claim = claims.get(territory.id);
     return claim ? [settleIsland(territory, claim)] : [];
   });
-  const placed = Object.entries(data.domains.placements);
+  const placed = Object.entries(domains.placements);
   return {
     departures: placed.filter(
       ([, place]) =>
@@ -226,6 +251,7 @@ function resolveExtent(data: AtlasData, name: string): DomainExtent | null {
         )
         .map(([key]) => key)
     ),
+    frame: frame.id,
     islands,
     name,
     symbols: [...symbols].sort(byText),

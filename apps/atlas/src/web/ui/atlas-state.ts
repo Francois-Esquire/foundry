@@ -1,5 +1,6 @@
 import type { BelongingLayer } from "../belonging";
 import { type ChartSettings, defaultChartSettings } from "../chart-settings";
+import type { DomainRef } from "../domain-extent";
 import { defaultLandmassSettings, type LandmassSettings } from "../landmasses";
 import type { ResponsibilityOverlay } from "../responsibility-focus";
 import type { AtlasSelection } from "../scene/scene";
@@ -20,7 +21,7 @@ export interface AtlasState {
    * The declared domain drawn across the islands, chosen in Find. Not a
    * selection: it stays while islands, districts and files are selected.
    */
-  domain: string | null;
+  domain: DomainRef | null;
   /**
    * The atlas as laid out, without the readings that arrive after load: the
    * scene is built from it, and rebuilt only when it changes.

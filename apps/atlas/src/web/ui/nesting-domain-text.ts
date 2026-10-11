@@ -2,10 +2,10 @@ import { byCodeUnit } from "@foundry/lib/ordering";
 import { covers } from "../../lib/facet-cover";
 import type { DomainExtent, DomainIsland } from "../domain-extent";
 import { folderWithin } from "../folder-sectors";
-import type { AtlasData, Territory } from "../types";
+import type { FrameReadings } from "../types";
 
-/** What the nesting and domain readings take from the atlas. */
-type Readings = Pick<AtlasData, "domains" | "nesting">;
+/** What the nesting and domain readings take from a frame's readings. */
+type Readings = Pick<FrameReadings, "domains" | "nesting">;
 
 /** The seams Place names for an island, the strongest first. */
 const seamsNamed = 2;
@@ -30,16 +30,16 @@ export function pathRegionText(
  */
 export function islandNestingText(
   atlas: Readings,
-  territory: Territory
+  packageId: string
 ): string | undefined {
   const regions = atlas.nesting.pathRegions.filter(
-    (region) => region.package === territory.id
+    (region) => region.package === packageId
   ).length;
   if (!regions) {
     return;
   }
   const seams = atlas.nesting.seams
-    .filter((seam) => seam.package === territory.id)
+    .filter((seam) => seam.package === packageId)
     .toSorted(
       (a, b) =>
         b.moduleEdges - a.moduleEdges ||
@@ -135,7 +135,7 @@ function islandCover(island: DomainIsland): string {
  * place. Lines with nothing to say are left out.
  */
 export function domainReading(
-  atlas: Pick<AtlasData, "domains">,
+  atlas: Pick<FrameReadings, "domains">,
   extent: DomainExtent
 ): string[] {
   const declared = atlas.domains.declared.find(

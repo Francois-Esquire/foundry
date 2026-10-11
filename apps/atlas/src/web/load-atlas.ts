@@ -1,8 +1,14 @@
+import { DatasetNotFoundError } from "../lib/dataset";
 import { footprint } from "./codex/bindings";
 import { placementKey, resolveCodex, resolveLateCodex } from "./codex/resolve";
-import { readCodexSource, readLateCodexSource } from "./codex/source";
+import {
+  type CodexSource,
+  readCodexSource,
+  readLateCodexSource,
+} from "./codex/source";
 import type { LateCodex } from "./codex/vocabulary";
-import { pinnedRead, viewerDataset } from "./dataset";
+import { composeCollection } from "./collection";
+import { pinnedRead, readCollectionManifest, viewerDataset } from "./dataset";
 import {
   districtsOfGroups,
   type FolderCell,
@@ -12,7 +18,12 @@ import { formerPackages } from "./former-packages";
 import { chartSize, landContours, settlePackages } from "./geography";
 import { defaultLandmassSettings } from "./landmasses";
 import { markLoad } from "./timings";
-import type { AtlasData, Territory } from "./types";
+import {
+  type AtlasData,
+  type DatasetRef,
+  qualifyAtlasData,
+  type Territory,
+} from "./types";
 
 /**
  * The readings an atlas holds until `loadLateReadings` brings them: no
@@ -25,68 +36,158 @@ const unreadReadings: LateCodex = {
 };
 
 /**
- * Fails when a later scan has replaced the atlas's dataset: the manifest,
+ * Fails when a later scan has replaced a frame's dataset: the manifest,
  * read again after a late read, must still be the one the layout read. A
  * pinned reader checks the manifest before it reads; this catches a scan
  * that published while the files were being read.
  */
 async function stillTheSameDataset(
-  atlas: Pick<AtlasData, "generatedAt">,
+  dataset: DatasetRef,
   signal?: AbortSignal
 ): Promise<void> {
-  await viewerDataset({ pin: atlas.generatedAt, signal }).manifest();
+  await viewerDataset({ dataset, signal }).manifest();
 }
+
+/** The late readings of each frame, by frame id. */
+export type LateReadings = Readonly<Record<string, LateCodex>>;
 
 /**
  * The readings nothing at overview draws, read after the layout so that the
- * first one does not wait for them: the `nesting` and `proximity` lenses.
- * Pinned to the atlas's dataset, and checked against it again once read,
- * so a later scan is refused rather than mixed in. The atlas takes them as
- * they are (`AtlasData` fields of the same names).
+ * first one does not wait for them: the `nesting` and `proximity` lenses,
+ * for each frame from its own dataset. Pinned to it, and checked against it
+ * again once read, so a later scan is refused rather than mixed in. Each
+ * frame takes them as they are (`FrameReadings` fields of the same names).
  */
 export async function loadLateReadings(
-  atlas: Pick<AtlasData, "generatedAt">,
+  atlas: Pick<AtlasData, "frames">,
   signal?: AbortSignal
-): Promise<LateCodex> {
-  const late = await pinnedRead(async () => {
-    const read = resolveLateCodex(
-      await readLateCodexSource(
-        viewerDataset({ pin: atlas.generatedAt, signal })
-      )
-    );
-    await stillTheSameDataset(atlas, signal);
-    return read;
-  });
+): Promise<LateReadings> {
+  const late = await Promise.all(
+    atlas.frames.map(({ dataset, id }) =>
+      pinnedRead(async () => {
+        const read = resolveLateCodex(
+          await readLateCodexSource(viewerDataset({ dataset, signal }))
+        );
+        await stillTheSameDataset(dataset, signal);
+        return [id, read] as const;
+      })
+    )
+  );
   markLoad("atlas:readings-loaded");
-  return late;
+  return Object.fromEntries(late);
 }
 
 /**
- * Every import edge, for Trace imports: all of the edge shards at once,
- * since the files that import a file can sit in any package's shard. Read
- * only when a trace asks, pinned and checked as `loadLateReadings` is.
+ * Every import edge, for Trace imports: all of each frame's edge shards at
+ * once, since the files that import a file can sit in any package's shard.
+ * Read only when a trace asks, pinned and checked as `loadLateReadings` is.
  */
 export async function loadImports(
-  atlas: Pick<AtlasData, "generatedAt">,
+  atlas: Pick<AtlasData, "frames">,
   signal?: AbortSignal
 ): Promise<AtlasData["fileEdges"]> {
-  const shards = await pinnedRead(async () => {
-    const read = await viewerDataset({
-      pin: atlas.generatedAt,
-      signal,
-    }).moduleEdgeShards();
-    await stillTheSameDataset(atlas, signal);
-    return read;
-  });
-  return shards.flatMap((shard) =>
-    shard.edges.map(({ source, target }) => ({ source, target }))
+  const frames = await Promise.all(
+    atlas.frames.map(({ dataset, id }) =>
+      pinnedRead(async () => {
+        const read = await viewerDataset({
+          dataset,
+          signal,
+        }).moduleEdgeShards();
+        await stillTheSameDataset(dataset, signal);
+        // Qualified as the frame's files are (`qualifyAtlasData`).
+        const file = (path: string) => (id ? `${id}:${path}` : path);
+        return read.flatMap((shard) =>
+          shard.edges.map(({ source, target }) => ({
+            source: file(source),
+            target: file(target),
+          }))
+        );
+      })
+    )
   );
+  return frames.flat();
 }
 
-export async function loadAtlas(signal?: AbortSignal): Promise<AtlasData> {
+/** The dataset at the data root, as a single workspace's server or export gives it. */
+const atDataRoot = (generatedAt: string): DatasetRef => ({
+  generatedAt,
+  root: "",
+});
+
+/**
+ * The atlas the viewer was served with. A single workspace's dataset at the
+ * data root is read first; where the data root holds no `manifest.json`, a
+ * collection's manifest is (5.3: only on `DatasetNotFoundError`, never on a
+ * parse error or a server's failure), and each workspace's dataset is read
+ * on a reader pinned to the `generatedAt` the manifest gives it, laid out
+ * with its bare ids, qualified, and set beside the others. `onWait` hears
+ * the server's reason while a collection's workspace is being swapped.
+ */
+export async function loadAtlas(
+  signal?: AbortSignal,
+  onWait?: (reason: string) => void
+): Promise<AtlasData> {
   markLoad("atlas:data-requested");
-  const saved = await readCodexSource(viewerDataset({ signal }));
+  const single = await readCodexSource(viewerDataset({ signal })).catch(
+    (error: unknown) => {
+      if (error instanceof DatasetNotFoundError) {
+        return;
+      }
+      throw error;
+    }
+  );
+  if (single) {
+    markLoad("atlas:data-loaded");
+    const data = layoutWorkspace(
+      single,
+      atDataRoot(single.dataset.generatedAt)
+    );
+    markLoad("atlas:layout-settled");
+    return data;
+  }
+  const manifest = await readCollectionManifest({ onWait, signal });
+  const saved = await Promise.all(
+    manifest.workspaces.map(async (workspace) => {
+      const dataset: DatasetRef = {
+        generatedAt: workspace.generatedAt,
+        root: workspace.dataset,
+      };
+      const source = await pinnedRead(() =>
+        readCodexSource(viewerDataset({ dataset, signal }))
+      ).catch((error: unknown) => {
+        throw workspaceError(workspace.label, error);
+      });
+      return { dataset, source, workspace };
+    })
+  );
   markLoad("atlas:data-loaded");
+  const data = composeCollection(
+    saved.map(({ dataset, source, workspace }) =>
+      qualifyAtlasData(layoutWorkspace(source, dataset), workspace)
+    ),
+    manifest.crossings
+  );
+  markLoad("atlas:layout-settled");
+  return data;
+}
+
+/**
+ * A collection workspace's failure, named by its label: a dataset the
+ * collection manifest lists but the server no longer has is being saved
+ * (caught mid-swap); anything else, as it is, after the label.
+ */
+function workspaceError(label: string, error: unknown): Error {
+  if (error instanceof DatasetNotFoundError) {
+    return new Error(`Workspace ${label} is being saved; reload in a moment.`, {
+      cause: error,
+    });
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  return new Error(`Workspace ${label}: ${message}`, { cause: error });
+}
+
+/** One workspace's atlas from its saved source, laid out with its bare ids, as one frame. */
+function layoutWorkspace(saved: CodexSource, dataset: DatasetRef): AtlasData {
   const codex = resolveCodex(saved);
   const folderCells: Record<string, FolderCell> = {};
   const territories: Territory[] = codex.packages.map((p) => {
@@ -151,21 +252,33 @@ export async function loadAtlas(signal?: AbortSignal): Promise<AtlasData> {
   const data: AtlasData = {
     coverage: codex.workspace.coverage,
     declaredDependencies,
-    domains: codex.domains,
     // Read on Trace imports (`loadImports`); no edge shard is read at load.
     fileEdges: [],
     folderCells,
-    generatedAt: codex.workspace.surveyedAt,
-    nesting: unreadReadings.nesting,
+    frames: [
+      {
+        dataset,
+        id: "",
+        label: "",
+        readings: {
+          domains: codex.domains,
+          nesting: unreadReadings.nesting,
+          placement: {
+            dominantShare: codex.placement.dominantShare,
+            labelled: codex.placement.labelled,
+            places: Object.fromEntries(
+              codex.placement.places.map((place) => [
+                placementKey(place),
+                place,
+              ])
+            ),
+          },
+          proximity: unreadReadings.proximity,
+        },
+        territories: territories.map((territory) => territory.id),
+      },
+    ],
     packageLayers,
-    placement: {
-      dominantShare: codex.placement.dominantShare,
-      labelled: codex.placement.labelled,
-      places: Object.fromEntries(
-        codex.placement.places.map((place) => [placementKey(place), place])
-      ),
-    },
-    proximity: unreadReadings.proximity,
     routes,
     territories,
     ...chartSize(territories),
@@ -173,6 +286,5 @@ export async function loadAtlas(signal?: AbortSignal): Promise<AtlasData> {
   if (codex.retiredPackages) {
     data.formerPackages = formerPackages(data, codex.retiredPackages);
   }
-  markLoad("atlas:layout-settled");
   return data;
 }

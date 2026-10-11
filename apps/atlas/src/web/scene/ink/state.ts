@@ -1,5 +1,9 @@
 import type { BelongingLayer, BelongingRegion } from "../../belonging";
-import { type DomainExtent, domainExtent } from "../../domain-extent";
+import {
+  type DomainExtent,
+  type DomainRef,
+  domainExtent,
+} from "../../domain-extent";
 import type { ResponsibilityOverlay } from "../../responsibility-focus";
 import type { AtlasData, Territory } from "../../types";
 import type { atlasBoundaries, BoundaryVisibility } from "../boundaries";
@@ -20,7 +24,7 @@ export interface InkOptions {
   /** A developer session: each layer is timed (`timeStage`). */
   developer?: boolean;
   /** The declared domain the reader chose to draw across the islands. */
-  domain?: string | null;
+  domain?: DomainRef | null;
   fileId?: string | null;
   /**
    * The island to ink under the pointer, asked once the labels are placed,

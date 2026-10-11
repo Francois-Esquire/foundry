@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createTradeLayer } from "../../src/web/scene/trade-layer";
 import { createTradeNavigation } from "../../src/web/trade-routes";
 import type { AtlasData, Territory } from "../../src/web/types";
+import { singleFrame } from "../helpers/frames";
 
 const island = (id: string, x: number): Territory => ({
   analyzed: true,
@@ -36,19 +37,11 @@ describe("3D coastal trade", () => {
   it("builds only a water-level lane, with nothing built at its harbors, reuses geometry, and disposes replaced routes", () => {
     const data: AtlasData = {
       coverage: "test",
-      domains: { declared: [], placements: {} },
       fileEdges: [],
       folderCells: {},
-      generatedAt: "test",
+      frames: [singleFrame([])],
       height: 300,
-      nesting: { folders: [], pathRegions: [], seams: [] },
       packageLayers: {},
-      placement: { dominantShare: 0.6, labelled: [], places: {} },
-      proximity: {
-        apart: { coChanges: [], files: [] },
-        close: [],
-        labelled: [],
-      },
       routes: [
         {
           consumerFiles: [],

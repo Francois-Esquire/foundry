@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import { domainExtent } from "../domain-extent";
+import { type DomainRef, domainExtent } from "../domain-extent";
 import type { AtlasData } from "../types";
 import { domainReading } from "./nesting-domain-text";
 
@@ -16,16 +16,17 @@ export function DomainPlace({
   onDomain,
 }: {
   data: AtlasData;
-  domain: string | null;
+  domain: DomainRef | null;
   onCleared: () => void;
-  onDomain: (name: string | null) => void;
+  onDomain: (domain: DomainRef | null) => void;
 }) {
   const clear = useCallback(() => {
     onDomain(null);
     onCleared();
   }, [onCleared, onDomain]);
   const extent = domain ? domainExtent(data, domain) : null;
-  if (!extent) {
+  const frame = data.frames.find((item) => item.id === extent?.frame);
+  if (!(extent && frame)) {
     return null;
   }
   return (
@@ -36,7 +37,7 @@ export function DomainPlace({
           Clear domain
         </button>
       </div>
-      {domainReading(data, extent).map((line) => (
+      {domainReading(frame.readings, extent).map((line) => (
         <p className="atlas-place-note" key={line}>
           {line}
         </p>

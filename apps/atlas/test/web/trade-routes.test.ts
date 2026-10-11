@@ -5,6 +5,7 @@ import {
   leadingTrades,
 } from "../../src/web/trade-routes";
 import type { AtlasData, Territory } from "../../src/web/types";
+import { singleFrame } from "../helpers/frames";
 
 const island = (id: string, x: number, radius = 20): Territory => ({
   analyzed: true,
@@ -47,15 +48,11 @@ const island = (id: string, x: number, radius = 20): Territory => ({
 });
 const fixture = (): AtlasData => ({
   coverage: "test",
-  domains: { declared: [], placements: {} },
   fileEdges: [{ source: "consumer", target: "supplier" }],
   folderCells: {},
-  generatedAt: "test",
+  frames: [singleFrame([])],
   height: 300,
-  nesting: { folders: [], pathRegions: [], seams: [] },
   packageLayers: {},
-  placement: { dominantShare: 0.6, labelled: [], places: {} },
-  proximity: { apart: { coChanges: [], files: [] }, close: [], labelled: [] },
   routes: [
     {
       consumerFiles: ["consumer"],

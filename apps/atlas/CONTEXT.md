@@ -438,6 +438,12 @@ then by its id's first digits. Ids identify workspaces; labels only name
 them.
 _Avoid_: workspace name (that is the `package.json` name alone), title
 
+**Frame**:
+One workspace on the map: its islands, laid out as that workspace alone
+would be, beside the other workspaces of a collection. A single workspace is
+one frame.
+_Avoid_: region, panel, chart (the whole map)
+
 **Collection manifest**:
 The workspaces of a collection, where each one's dataset is, and the
 crossings between them, derived from their saved manifests, never kept as

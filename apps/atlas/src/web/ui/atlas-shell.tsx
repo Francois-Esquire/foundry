@@ -12,6 +12,7 @@ import {
 } from "react";
 import { fileDistricts } from "../belonging";
 import { departures } from "../departures";
+import type { DomainRef } from "../domain-extent";
 import type { AtlasSelection } from "../scene/scene";
 import type { FormerPackage } from "../types";
 import { AtlasHeader } from "./atlas-header";
@@ -154,8 +155,8 @@ export function AtlasShell({
     [select, openSection]
   );
   const chooseDomain = useCallback(
-    (name: string) => {
-      actions.domain(name);
+    (chosen: DomainRef) => {
+      actions.domain(chosen);
       openSection("place");
     },
     [actions.domain, openSection]
@@ -290,7 +291,10 @@ export function AtlasShell({
         {children}
         <MapKey
           departures={atlasDepartures}
-          domains={data.domains.declared.length}
+          domains={data.frames.reduce(
+            (sum, frame) => sum + frame.readings.domains.declared.length,
+            0
+          )}
           onHeight={actions.legendHeight}
           settings={chartSettings}
         />

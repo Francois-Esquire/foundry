@@ -3,13 +3,19 @@ import assert from "node:assert/strict";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import type { LateCodex } from "../../src/web/codex/vocabulary";
+import { composeCollection } from "../../src/web/collection";
 import { REPLACED_MESSAGE } from "../../src/web/dataset";
+import type { LateReadings } from "../../src/web/load-atlas";
 import { inkStyle } from "../../src/web/scene/ink-ladder";
 import { createAtlasScene } from "../../src/web/scene/scene";
+import { qualifyAtlasData } from "../../src/web/types";
 import { inspectionText } from "../../src/web/ui/atlas-place";
 import Atlas from "../../src/web/ui/atlas-view";
+import { withReadings } from "../helpers/frames";
 import { loadAtlas } from "../helpers/reference-atlas";
+
+/** The domain the tests choose: "shapes", declared by the single workspace's frame. */
+const shapes = { frame: "", name: "shapes" };
 
 vi.mock("../../src/web/scene/dive-scene", () => ({
   createDiveScene: vi.fn(() => ({ configure: vi.fn(), dispose: vi.fn() })),
@@ -423,8 +429,7 @@ it("tells where a place is used: a file departing, its symbol fitting, a package
     ...(label === "departs" ? { toward: other.id } : {}),
     unindexed: 0,
   });
-  const atlas = {
-    ...data,
+  const atlas = withReadings(data, {
     placement: {
       dominantShare: 0.6,
       labelled: [territory.id],
@@ -436,7 +441,7 @@ it("tells where a place is used: a file departing, its symbol fitting, a package
         },
       },
     },
-  };
+  });
   const read = (selection: Parameters<typeof inspectionText>[1]) =>
     inspectionText(null, selection, undefined, atlas)?.detail ?? "";
   expect(read({ file, territory })).toContain(
@@ -459,8 +464,7 @@ it("adds a departure row to the legend with its totals, and the threshold, cap, 
   assert(territory && other);
   const [file] = territory.files;
   assert(file);
-  const departing = {
-    ...data,
+  const departing = withReadings(data, {
     placement: {
       dominantShare: 0.6,
       labelled: [territory.id],
@@ -478,7 +482,7 @@ it("adds a departure row to the legend with its totals, and the threshold, cap, 
         },
       },
     },
-  };
+  });
   await act(async () => {
     root.render(createElement(Atlas, { data: departing }));
   });
@@ -507,8 +511,7 @@ it("tells what sits related but apart, and close but unrelated, for a file and i
   );
   const [far] = other.files;
   assert(file && partner && far);
-  const atlas = {
-    ...data,
+  const atlas = withReadings(data, {
     proximity: {
       apart: {
         coChanges: [
@@ -557,7 +560,7 @@ it("tells what sits related but apart, and close but unrelated, for a file and i
       ],
       labelled: [territory.id],
     },
-  };
+  });
   const read = (selection: Parameters<typeof inspectionText>[1]) =>
     inspectionText(null, selection, undefined, atlas)?.detail ?? "";
   const partnerName = partner.path.split("/").at(-1);
@@ -577,8 +580,7 @@ it("tells a departure in a domain as two, the placement's and the domain's, and 
   assert(territory && other);
   const [file] = territory.files;
   assert(file);
-  const atlas = {
-    ...data,
+  const atlas = withReadings(data, {
     domains: {
       declared: [
         {
@@ -618,7 +620,7 @@ it("tells a departure in a domain as two, the placement's and the domain's, and 
         },
       },
     },
-  };
+  });
   const detail =
     inspectionText(null, { file, territory }, undefined, atlas)?.detail ?? "";
   expect(detail).toContain(" · domains: shapes");
@@ -658,8 +660,7 @@ it("chooses a domain in Find, tells it in Place above the selection, keeps it wh
   );
   await act(() => root.unmount());
   root = createRoot(container);
-  const declared = {
-    ...data,
+  const declared = withReadings(data, {
     domains: {
       declared: [
         {
@@ -672,7 +673,7 @@ it("chooses a domain in Find, tells it in Place above the selection, keeps it wh
       ],
       placements: {},
     },
-  };
+  });
   await act(async () => {
     root.render(createElement(Atlas, { data: declared }));
   });
@@ -693,7 +694,7 @@ it("chooses a domain in Find, tells it in Place above the selection, keeps it wh
     entry.querySelector(".atlas-swatch")?.getAttribute("aria-hidden")
   ).toBe("true");
   await act(async () => entry.click());
-  expect(scene.setDomain).toHaveBeenLastCalledWith("shapes");
+  expect(scene.setDomain).toHaveBeenLastCalledWith(shapes);
   expect(
     container.querySelector('[role="tab"][aria-selected="true"]')?.textContent
   ).toBe("Place");
@@ -710,7 +711,7 @@ it("chooses a domain in Find, tells it in Place above the selection, keeps it wh
   );
   assert(island);
   await act(async () => island.click());
-  expect(scene.setDomain).toHaveBeenLastCalledWith("shapes");
+  expect(scene.setDomain).toHaveBeenLastCalledWith(shapes);
   expect(container.querySelector('[aria-label="Chosen domain"]')).not.toBe(
     null
   );
@@ -735,9 +736,9 @@ it("chooses a domain in Find, tells it in Place above the selection, keeps it wh
   );
   assert(again);
   await act(async () => again.click());
-  expect(scene.setDomain).toHaveBeenLastCalledWith("shapes");
+  expect(scene.setDomain).toHaveBeenLastCalledWith(shapes);
   await act(async () => pressEscape());
-  expect(scene.setDomain).toHaveBeenLastCalledWith("shapes");
+  expect(scene.setDomain).toHaveBeenLastCalledWith(shapes);
   await act(async () => pressEscape());
   expect(scene.setDomain).toHaveBeenLastCalledWith(null);
   expect(container.textContent).toContain(
@@ -750,8 +751,7 @@ it("keeps the chosen domain through a relayout, handing it to the rebuilt scene"
   const data = await loadAtlas();
   const [territory] = data.territories;
   assert(territory);
-  const declared = {
-    ...data,
+  const declared = withReadings(data, {
     domains: {
       declared: [
         {
@@ -763,7 +763,7 @@ it("keeps the chosen domain through a relayout, handing it to the rebuilt scene"
       ],
       placements: {},
     },
-  };
+  });
   await act(async () => {
     root.render(createElement(Atlas, { data: declared, developer: true }));
   });
@@ -791,15 +791,15 @@ it("keeps the chosen domain through a relayout, handing it to the rebuilt scene"
   const { results } = vi.mocked(createAtlasScene).mock;
   expect(results.length).toBeGreaterThan(scenes);
   const rebuilt = await results.at(-1)?.value;
-  expect(rebuilt?.setDomain).toHaveBeenLastCalledWith("shapes");
+  expect(rebuilt?.setDomain).toHaveBeenLastCalledWith(shapes);
 });
 
 it("tells an island's proximity and path regions once the readings read after load arrive, keeping the scene", async () => {
   const data = await loadAtlas();
   const [territory] = data.territories;
   assert(territory);
-  let arrive: (value: LateCodex) => void = () => undefined;
-  const late = new Promise<LateCodex>((done) => {
+  let arrive: (value: LateReadings) => void = () => undefined;
+  const late = new Promise<LateReadings>((done) => {
     arrive = done;
   });
   vi.stubGlobal(
@@ -821,17 +821,19 @@ it("tells an island's proximity and path regions once the readings read after lo
   expect(place()).not.toContain("path region");
   await act(async () => {
     arrive({
-      nesting: {
-        folders: [],
-        pathRegions: [
-          { files: 1, id: "src", package: territory.id, primaryFiles: 1 },
-        ],
-        seams: [],
-      },
-      proximity: {
-        apart: { coChanges: [], files: [] },
-        close: [],
-        labelled: [territory.id],
+      "": {
+        nesting: {
+          folders: [],
+          pathRegions: [
+            { files: 1, id: "src", package: territory.id, primaryFiles: 1 },
+          ],
+          seams: [],
+        },
+        proximity: {
+          apart: { coChanges: [], files: [] },
+          close: [],
+          labelled: [territory.id],
+        },
       },
     });
     await late;
@@ -842,7 +844,13 @@ it("tells an island's proximity and path regions once the readings read after lo
   const scene = await vi.mocked(createAtlasScene).mock.results.at(-1)?.value;
   expect(scene?.setData).toHaveBeenLastCalledWith(
     expect.objectContaining({
-      proximity: expect.objectContaining({ labelled: [territory.id] }),
+      frames: [
+        expect.objectContaining({
+          readings: expect.objectContaining({
+            proximity: expect.objectContaining({ labelled: [territory.id] }),
+          }),
+        }),
+      ],
     })
   );
   vi.unstubAllGlobals();
@@ -926,4 +934,53 @@ it("says when the import edges could not be read, and reads them again on one cl
   expect(container.textContent).not.toContain("Imports could not be read");
   expect(button("Hide imports").getAttribute("aria-pressed")).toBe("true");
   vi.unstubAllGlobals();
+});
+
+it("lists each frame's domains in a collection with the frame's label, and chooses one with its frame", async () => {
+  const [first, second] = await Promise.all([loadAtlas(), loadAtlas()]);
+  const [island] = first.territories;
+  assert(island);
+  const declared = {
+    name: "shapes",
+    parents: [],
+    places: [{ kind: "package" as const, place: island.folder }],
+    unmatched: [],
+  };
+  const declaring = withReadings(second, {
+    domains: { declared: [declared], placements: {} },
+  });
+  const data = composeCollection(
+    [
+      qualifyAtlasData(first, { id: "aaaaaaaaaaaa", label: "platform" }),
+      qualifyAtlasData(declaring, { id: "bbbbbbbbbbbb", label: "product" }),
+    ],
+    []
+  );
+  await act(async () => {
+    root.render(createElement(Atlas, { data }));
+  });
+  await act(async () => button("Find a place").click());
+  // Islands of one name in two workspaces are told apart by their frame's label.
+  const islands = container.querySelectorAll<HTMLButtonElement>(
+    `.atlas-index button[value$=":${island.id}"]`
+  );
+  expect(
+    [...islands].map((item) => item.querySelector("span")?.textContent)
+  ).toEqual([`${island.label} · platform`, `${island.label} · product`]);
+  const entry = container.querySelector<HTMLButtonElement>(
+    '.atlas-index button[value="bbbbbbbbbbbb:shapes"]'
+  );
+  assert(entry);
+  expect(entry.textContent).toBe("shapesdomain · product");
+  await act(async () => entry.click());
+  const [result] = vi.mocked(createAtlasScene).mock.results.slice(-1);
+  const scene = await result?.value;
+  expect(scene?.setDomain).toHaveBeenLastCalledWith({
+    frame: "bbbbbbbbbbbb",
+    name: "shapes",
+  });
+  // Over the declaring frame's island only, not its twin of the same folder.
+  expect(
+    container.querySelector('[aria-label="Chosen domain"]')?.textContent
+  ).toContain(" on 1 island: ");
 });

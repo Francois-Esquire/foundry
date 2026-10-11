@@ -114,7 +114,7 @@ export function responsibilityFocus(
       )
     ),
     related: mapped(related),
-    territoryId: report.package.id,
+    territoryId: data.island ?? report.package.id,
     totalLinks: mappedEdges.length,
     unresolved: mapped(unresolved),
   };

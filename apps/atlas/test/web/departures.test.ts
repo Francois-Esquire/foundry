@@ -6,6 +6,7 @@ import {
   linesPerTarget,
 } from "../../src/web/departures";
 import type { AtlasData, AtlasFile, Territory } from "../../src/web/types";
+import { singleFrame, withReadings } from "../helpers/frames";
 
 const file = (path: string, x: number): AtlasFile => ({
   directory: path.slice(0, path.lastIndexOf("/")),
@@ -73,14 +74,16 @@ const placements = [
   place("packages/c/f3/a.ts", "file", "@s/c", 0.6, "@s/u"),
 ];
 
+const placement = {
+  dominantShare: 0.6,
+  labelled: ["@s/a", "@s/b", "@s/c"],
+  places: Object.fromEntries(
+    placements.map((p) => [`${p.level}:${p.place}`, p])
+  ),
+};
+
 const data = {
-  placement: {
-    dominantShare: 0.6,
-    labelled: ["@s/a", "@s/b", "@s/c"],
-    places: Object.fromEntries(
-      placements.map((p) => [`${p.level}:${p.place}`, p])
-    ),
-  },
+  frames: [singleFrame(["@s/a", "@s/b", "@s/c"], { placement })],
   territories: [
     island("@s/a", "packages/a", [
       "packages/a/lib/z.ts",
@@ -149,10 +152,11 @@ it("ranks lines by dominance share, then evidence, then breadth, draws only thos
 
 it("draws nothing for an atlas whose places all stay home", () => {
   expect(
-    departures({
-      ...data,
-      placement: { dominantShare: 0.6, labelled: [], places: {} },
-    } as AtlasData)
+    departures(
+      withReadings(data, {
+        placement: { dominantShare: 0.6, labelled: [], places: {} },
+      })
+    )
   ).toEqual({
     dominantShare: 0.6,
     lines: [],

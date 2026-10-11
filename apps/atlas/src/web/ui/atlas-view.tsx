@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from "react";
-import type { LateCodex } from "../codex/vocabulary";
+import type { LateReadings } from "../load-atlas";
 import type { AtlasData } from "../types";
 import { AtlasMap } from "./atlas-map";
 import { AtlasShell, type AtlasShellHandle } from "./atlas-shell";
@@ -17,7 +17,7 @@ export default function Atlas({
   /** Reads every import edge, for Trace imports (`loadImports`); without it, the atlas's own edges are traced. */
   imports?: () => Promise<AtlasData["fileEdges"]>;
   /** The readings read after load (`loadLateReadings`), merged when they arrive. */
-  late?: Promise<LateCodex>;
+  late?: Promise<LateReadings>;
   /** A developer session; see `AtlasState.developer`. */
   developer?: boolean;
   mapOnly?: boolean;

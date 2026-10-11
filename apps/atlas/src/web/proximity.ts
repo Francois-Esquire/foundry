@@ -1,5 +1,11 @@
 import { byCodeUnit } from "@foundry/lib/ordering";
-import type { AtlasData, AtlasFile, Territory } from "./types";
+import {
+  type AtlasData,
+  type AtlasFile,
+  type AtlasFrame,
+  qualifiedIn,
+  type Territory,
+} from "./types";
 
 /**
  * The ties drawn on one island of each kind, unless a file of it is
@@ -18,7 +24,7 @@ interface Point {
  * that change together from different folders, tied to each other.
  */
 export interface ProximityTie {
-  /** The files it ties: one for an apart file, two for a co-change. */
+  /** The files it ties, by file id: one for an apart file, two for a co-change. */
   files: readonly string[];
   from: Point;
   kind: "apart" | "co-change";
@@ -59,7 +65,7 @@ function folderFiles(territory: Territory, folder: string): AtlasFile[] {
 }
 
 /** What the ties are worked out from. */
-type ProximityData = Pick<AtlasData, "proximity" | "territories">;
+type ProximityData = Pick<AtlasData, "frames" | "territories">;
 
 const computed = new WeakMap<ProximityData, Proximities>();
 
@@ -74,16 +80,36 @@ export function proximities(data: ProximityData): Proximities {
     return known;
   }
   const territories = new Map(data.territories.map((t) => [t.id, t]));
-  const paths = new Map(
-    data.territories.flatMap((territory) =>
-      territory.files.map((file) => [file.path, { file, territory }] as const)
-    )
-  );
   const ranked = new Map<string, ProximityTie[]>();
   const add = (tie: ProximityTie) => {
     ranked.set(tie.package, [...(ranked.get(tie.package) ?? []), tie]);
   };
-  const coChanges = data.proximity.apart.coChanges
+  const marks: CloseMark[] = [];
+  for (const frame of data.frames) {
+    marks.push(...frameProximities(frame, territories, add));
+  }
+  const result: Proximities = { marks, ties: ranked };
+  computed.set(data, result);
+  return result;
+}
+
+/** One frame's ties, added as they rank, and its close folders' marks, from its own readings and islands. */
+function frameProximities(
+  frame: AtlasFrame,
+  territories: ReadonlyMap<string, Territory>,
+  add: (tie: ProximityTie) => void
+): CloseMark[] {
+  const { proximity } = frame.readings;
+  const own = frame.territories.flatMap((id) => {
+    const territory = territories.get(id);
+    return territory ? [territory] : [];
+  });
+  const paths = new Map(
+    own.flatMap((territory) =>
+      territory.files.map((file) => [file.path, { file, territory }] as const)
+    )
+  );
+  const coChanges = proximity.apart.coChanges
     .filter((pair) => pair.scope === "same-package")
     .toSorted(
       (a, b) =>
@@ -96,7 +122,7 @@ export function proximities(data: ProximityData): Proximities {
     const right = paths.get(pair.right);
     if (left && right && left.territory === right.territory) {
       add({
-        files: [pair.left, pair.right],
+        files: [left.file.id, right.file.id],
         from: world(left.territory, [left.file]),
         kind: "co-change",
         package: left.territory.id,
@@ -104,7 +130,7 @@ export function proximities(data: ProximityData): Proximities {
       });
     }
   }
-  const apart = data.proximity.apart.files.toSorted(
+  const apart = proximity.apart.files.toSorted(
     (a, b) => b.distance - a.distance || byId(a.file, b.file)
   );
   for (const entry of apart) {
@@ -112,7 +138,7 @@ export function proximities(data: ProximityData): Proximities {
     const home = at && folderFiles(at.territory, entry.responsibilityFolder);
     if (at && home?.length) {
       add({
-        files: [entry.file],
+        files: [at.file.id],
         from: world(at.territory, [at.file]),
         kind: "apart",
         package: at.territory.id,
@@ -120,23 +146,21 @@ export function proximities(data: ProximityData): Proximities {
       });
     }
   }
-  const marks = data.proximity.close.flatMap((folder) => {
-    const territory = territories.get(folder.package);
+  return proximity.close.flatMap((folder) => {
+    const island = qualifiedIn(frame, folder.package);
+    const territory = territories.get(island);
     const files = territory && folderFiles(territory, folder.folder);
     return territory && files?.length
       ? [
           {
             folder: folder.folder,
             groups: folder.groups.length,
-            package: folder.package,
+            package: island,
             ...world(territory, files),
           },
         ]
       : [];
   });
-  const result: Proximities = { marks, ties: ranked };
-  computed.set(data, result);
-  return result;
 }
 
 /**

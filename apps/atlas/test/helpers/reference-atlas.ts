@@ -2,19 +2,15 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { importPairs } from "../../src/lib/lenses/import-traffic";
 import type { AtlasData, AtlasRoute, Territory } from "../../src/web/types";
+import { singleFrame } from "./frames";
 
 /** The capture, saved before routes carried their endpoint files, before the layer scale, and before islands knew their folders. */
 type CapturedAtlas = Omit<
   AtlasData,
-  | "domains"
-  | "folderCells"
-  | "nesting"
-  | "packageLayers"
-  | "placement"
-  | "proximity"
-  | "routes"
-  | "territories"
+  "folderCells" | "frames" | "packageLayers" | "routes" | "territories"
 > & {
+  /** When the capture's dataset was saved; the one frame's pin now. */
+  generatedAt: string;
   routes: Omit<AtlasRoute, "consumerFiles" | "supplierFiles">[];
   territories: Omit<Territory, "folder">[];
 };
@@ -49,17 +45,23 @@ export async function loadAtlas(): Promise<AtlasData> {
       supplierFiles: pair?.supplierFiles ?? [],
     };
   };
+  const { generatedAt, ...saved } = captured;
   return {
-    ...captured,
-    // Nor nesting, domains, or the cell trees the layout of its day did not make.
-    domains: { declared: [], placements: {} },
+    ...saved,
+    // Nor the cell trees the layout of its day did not make.
     folderCells: {},
-    nesting: { folders: [], pathRegions: [], seams: [] },
+    // One frame, a single workspace's, whose lenses say nothing: the capture
+    // has no nesting, domains, placement or proximity lens, so no place
+    // departs.
+    frames: [
+      singleFrame(
+        captured.territories.map((territory) => territory.id),
+        {},
+        generatedAt
+      ),
+    ],
     // The capture has no layers; its scale is empty, so none is drawn.
     packageLayers: {},
-    // Nor has it a placement lens: no place departs.
-    placement: { dominantShare: 0.6, labelled: [], places: {} },
-    proximity: { apart: { coChanges: [], files: [] }, close: [], labelled: [] },
     routes: captured.routes.map((route) => ({
       ...route,
       ...endpoints(route.from, route.to),

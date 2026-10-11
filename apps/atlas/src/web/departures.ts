@@ -1,6 +1,20 @@
 import { byCodeUnit } from "@foundry/lib/ordering";
+import { PLACEMENT_POLICY } from "../lib/lenses/placement-types";
 import type { CodexPlacement } from "./codex/vocabulary";
-import type { AtlasData, AtlasFile, Territory } from "./types";
+import {
+  type AtlasData,
+  type AtlasFile,
+  type AtlasFrame,
+  qualifiedIn,
+  type Territory,
+} from "./types";
+
+/**
+ * The lens's dominant share. It is the `placement` lens's policy constant,
+ * the same for every workspace, so the legend gives one; a frame's own
+ * reading of it is the first frame's, and the policy where there is none.
+ */
+const defaultShare = PLACEMENT_POLICY.dominantShare;
 
 /** The most departure lines drawn into any one package. */
 export const linesPerTarget = 3;
@@ -16,6 +30,8 @@ interface Point {
 interface DepartureMark extends Point {
   /** Consumer modules in the package it departs toward. */
   consumers: number;
+  /** The frame whose readings hold the place, by id. */
+  frame: string;
   level: "file" | "folder" | "package";
   /** The package it lives in, by id. */
   package: string;
@@ -115,7 +131,7 @@ function worldOf(territory: Territory, files: readonly AtlasFile[]): Point {
 function markOf(
   placement: CodexPlacement & { toward: string },
   territory: Territory
-): DepartureMark | undefined {
+): Omit<DepartureMark, "frame"> | undefined {
   const { level, place } = placement;
   if (level === "symbol") {
     return;
@@ -155,6 +171,9 @@ function folds(placement: CodexPlacement): boolean {
 
 const computed = new WeakMap<AtlasData, Departures>();
 
+/** A departing place of one frame, its package ids as the frame's readings hold them. */
+type FramePlacement = CodexPlacement & { frame: AtlasFrame; toward: string };
+
 /**
  * The departures the map draws, from the `placement` lens: a mark on every
  * departing file and folder, except that a package whose only consumer is
@@ -170,16 +189,31 @@ export function departures(data: AtlasData): Departures {
     return known;
   }
   const territories = new Map(data.territories.map((t) => [t.id, t]));
-  const places = Object.values(data.placement.places)
-    .filter(departing)
-    .sort((a, b) => byPlace(a.place, b.place));
-  const folded = new Set(places.filter(folds).map((p) => p.package));
+  // Frame by frame, each frame's places by place; ids qualified on the map.
+  const places: FramePlacement[] = data.frames.flatMap((frame) =>
+    Object.values(frame.readings.placement.places)
+      .filter(departing)
+      .sort((a, b) => byPlace(a.place, b.place))
+      .map((placement) => ({ ...placement, frame }))
+  );
+  const islandOf = (placement: FramePlacement) =>
+    qualifiedIn(placement.frame, placement.package);
+  const folded = new Set(places.filter(folds).map(islandOf));
   const marks = places.flatMap((placement) => {
-    const territory = territories.get(placement.package);
-    const absorbed =
-      folded.has(placement.package) && placement.level !== "package";
+    const island = islandOf(placement);
+    const territory = territories.get(island);
+    const absorbed = folded.has(island) && placement.level !== "package";
     const mark = territory && !absorbed && markOf(placement, territory);
-    return mark ? [mark] : [];
+    return mark
+      ? [
+          {
+            ...mark,
+            frame: placement.frame.id,
+            package: island,
+            toward: qualifiedIn(placement.frame, placement.toward),
+          },
+        ]
+      : [];
   });
   const groups = new Map<string, DepartureMark[]>();
   for (const mark of marks) {
@@ -215,7 +249,8 @@ export function departures(data: AtlasData): Departures {
     return count < linesPerTarget;
   });
   const result: Departures = {
-    dominantShare: data.placement.dominantShare,
+    dominantShare:
+      data.frames[0]?.readings.placement.dominantShare ?? defaultShare,
     lines,
     marks,
     totals: {

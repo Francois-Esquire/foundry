@@ -14,6 +14,7 @@ import {
   paintGridReferences,
 } from "../../src/web/scene/paint-paper";
 import type { AtlasData, Territory } from "../../src/web/types";
+import { singleFrame, withReadings } from "../helpers/frames";
 
 const territory: Territory = {
   analyzed: true,
@@ -44,15 +45,11 @@ const territory: Territory = {
 };
 const data: AtlasData = {
   coverage: "test",
-  domains: { declared: [], placements: {} },
   fileEdges: [],
   folderCells: {},
-  generatedAt: "test",
+  frames: [singleFrame([])],
   height: 500,
-  nesting: { folders: [], pathRegions: [], seams: [] },
   packageLayers: {},
-  placement: { dominantShare: 0.6, labelled: [], places: {} },
-  proximity: { apart: { coChanges: [], files: [] }, close: [], labelled: [] },
   routes: [
     {
       consumerFiles: [],
@@ -623,8 +620,7 @@ it("draws no latitude scale without placed layers", () => {
 });
 
 it("draws departures by default, and lets the selection's lines win while anything is selected", () => {
-  const departing = {
-    ...data,
+  const departing = withReadings(data, {
     placement: {
       dominantShare: 0.6,
       labelled: ["island"],
@@ -642,7 +638,7 @@ it("draws departures by default, and lets the selection's lines win while anythi
         },
       },
     },
-  };
+  });
   const strokes = (chosen: string | null) => {
     const { canvas, ctx } = canvasFixture();
     const pen = ctx as unknown as CanvasRenderingContext2D;
@@ -687,8 +683,7 @@ it("sets the latitude scale on a paper plate on a narrow screen, where islands r
 });
 
 it("draws proximity at island zoom only, so the overview stays the departures'", () => {
-  const related = {
-    ...data,
+  const related = withReadings(data, {
     proximity: {
       apart: {
         coChanges: [
@@ -708,7 +703,7 @@ it("draws proximity at island zoom only, so the overview stays the departures'",
       close: [],
       labelled: ["island"],
     },
-  };
+  });
   const strokes = (pixelsPerUnit: number) => {
     const { canvas, ctx } = canvasFixture();
     const pen = ctx as unknown as CanvasRenderingContext2D;
@@ -725,8 +720,7 @@ it("draws proximity at island zoom only, so the overview stays the departures'",
 });
 
 it("marks a close folder with two arcs set apart, a shape no departure ring shares", () => {
-  const close = {
-    ...data,
+  const close = withReadings(data, {
     placement: {
       dominantShare: 0.6,
       labelled: ["island"],
@@ -759,7 +753,7 @@ it("marks a close folder with two arcs set apart, a shape no departure ring shar
       ],
       labelled: ["island"],
     },
-  };
+  });
   const { canvas, ctx } = canvasFixture();
   const pen = ctx as unknown as CanvasRenderingContext2D;
   const arcs: { args: number[]; ink: string }[] = [];
@@ -907,55 +901,59 @@ it("draws a chosen domain across islands: its cells' band, the files it names, i
   })) as Territory["files"];
   const island = { ...territory, files, folder: "pkg" };
   const other = { ...territory, files: [], folder: "other", id: "other" };
-  const chosen = {
-    ...data,
-    domains: {
-      declared: [
-        {
-          name: "shapes",
-          parents: [],
-          places: [
-            { kind: "folder" as const, place: "pkg/src/lib" },
-            { kind: "file" as const, place: "pkg/src/web/a.ts" },
-          ],
-          unmatched: [],
-        },
-      ],
-      placements: {
-        "file:pkg/src/web/a.ts": {
-          away: { shared: 2, total: 2, unindexed: 0 },
-          domainLabel: "shares-domain" as const,
-          domains: ["shapes"],
-          level: "file" as const,
-          package: "island",
-          place: "pkg/src/web/a.ts",
-          placementLabel: "departs" as const,
-          sharedDomains: ["shapes"],
+  const chosen = withReadings(
+    {
+      ...data,
+      folderCells: { island: settleFiles(files, 80, "pkg") },
+      territories: [island, other],
+    },
+    {
+      domains: {
+        declared: [
+          {
+            name: "shapes",
+            parents: [],
+            places: [
+              { kind: "folder" as const, place: "pkg/src/lib" },
+              { kind: "file" as const, place: "pkg/src/web/a.ts" },
+            ],
+            unmatched: [],
+          },
+        ],
+        placements: {
+          "file:pkg/src/web/a.ts": {
+            away: { shared: 2, total: 2, unindexed: 0 },
+            domainLabel: "shares-domain" as const,
+            domains: ["shapes"],
+            level: "file" as const,
+            package: "island",
+            place: "pkg/src/web/a.ts",
+            placementLabel: "departs" as const,
+            sharedDomains: ["shapes"],
+          },
         },
       },
-    },
-    folderCells: { island: settleFiles(files, 80, "pkg") },
-    placement: {
-      dominantShare: 0.6,
-      labelled: ["island"],
-      places: {
-        "file:pkg/src/web/a.ts": {
-          away: [{ modules: 2, package: "other" }],
-          home: 0,
-          label: "departs" as const,
-          level: "file" as const,
-          package: "island",
-          place: "pkg/src/web/a.ts",
-          share: 1,
-          toward: "other",
-          unindexed: 0,
+      placement: {
+        dominantShare: 0.6,
+        labelled: ["island"],
+        places: {
+          "file:pkg/src/web/a.ts": {
+            away: [{ modules: 2, package: "other" }],
+            home: 0,
+            label: "departs" as const,
+            level: "file" as const,
+            package: "island",
+            place: "pkg/src/web/a.ts",
+            share: 1,
+            toward: "other",
+            unindexed: 0,
+          },
         },
       },
-    },
-    territories: [island, other],
-  };
+    }
+  );
   const paint = (
-    domain: string | null,
+    name: string | null,
     belonging?: Parameters<typeof paintInk>[1]["belonging"]
   ) => {
     const { canvas, ctx } = canvasFixture();
@@ -975,7 +973,7 @@ it("draws a chosen domain across islands: its cells' band, the files it names, i
     paintInk(canvas, {
       belonging,
       data: chosen,
-      domain,
+      domain: name ? { frame: "", name } : null,
       view: { height: 500, pixelsPerUnit: 2.2, width: 500, x: 0, y: 0 },
     });
     return { arcs, names, rects: ctx.rect.mock.calls, squares, strokes };

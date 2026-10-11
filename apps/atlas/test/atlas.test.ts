@@ -739,11 +739,21 @@ test("built CLI scans an external workspace and the web loaders read its saved d
     );
     // The nesting and proximity lenses come after the layout, pinned to its
     // dataset, and mark their arrival.
-    expect(atlas.nesting.folders).toEqual([]);
-    expect(atlas.proximity.labelled).toEqual([]);
-    const late = await loadLateReadings(atlas);
-    expect(late.nesting.folders.length).toBeGreaterThan(0);
-    expect(late.proximity.labelled).toContain(pkg.id);
+    // A single workspace is one frame, at the data root, pinned to its manifest.
+    const [frame] = atlas.frames;
+    expect(atlas.frames).toHaveLength(1);
+    expect(frame?.dataset).toEqual({
+      generatedAt: second.generatedAt,
+      root: "",
+    });
+    expect(frame?.territories).toEqual(
+      atlas.territories.map((item) => item.id)
+    );
+    expect(frame?.readings.nesting.folders).toEqual([]);
+    expect(frame?.readings.proximity.labelled).toEqual([]);
+    const late = (await loadLateReadings(atlas))[frame?.id ?? ""];
+    expect(late?.nesting.folders.length).toBeGreaterThan(0);
+    expect(late?.proximity.labelled).toContain(pkg.id);
     expect(performance.getEntriesByName("atlas:readings-loaded")).toHaveLength(
       1
     );
@@ -766,12 +776,14 @@ test("built CLI scans an external workspace and the web loaders read its saved d
       grouped && { groups: grouped.groups, independent: grouped.independent }
     );
     const { signal } = new AbortController();
-    const evidence = await loadInternals(
-      pkg.id,
-      fileRoles,
-      second.generatedAt,
-      signal
-    );
+    const request = {
+      dataset: { generatedAt: second.generatedAt, root: "" },
+      files: territory.files,
+      package: pkg.id,
+      roles: fileRoles,
+      signal,
+    };
+    const evidence = await loadInternals(request);
     expect(evidence.architecture?.review).toBeDefined();
     // Roles reach the island from the lens, by file id, which is the module id here.
     expect(evidence.fileRoles).toEqual(
@@ -784,12 +796,13 @@ test("built CLI scans an external workspace and the web loaders read its saved d
       )
     );
     await expect(
-      loadInternals(pkg.id, fileRoles, "2000-01-01T00:00:00.000Z", signal)
+      loadInternals({
+        ...request,
+        dataset: { generatedAt: "2000-01-01T00:00:00.000Z", root: "" },
+      })
     ).rejects.toThrow("A later scan replaced this dataset. Reload to see it.");
     await rm(join(workspace.output, "internals", filename));
-    await expect(
-      loadInternals(pkg.id, fileRoles, second.generatedAt, signal)
-    ).rejects.toThrow(
+    await expect(loadInternals(request)).rejects.toThrow(
       `The dataset is missing internals/${filename}. Run atlas scan again.`
     );
     await rm(join(workspace.output, "manifest.json"));
@@ -1129,6 +1142,74 @@ describe("built CLI collections", () => {
       ]
     );
   }, 120_000);
+
+  test("the viewer loads a served collection: one frame per workspace, qualified, its readings and imports each from its own dataset", async () => {
+    const server = await serve.collection(roots, { port: 0, state });
+    const nativeFetch = globalThis.fetch;
+    globalThis.fetch = Object.assign(
+      (input: Parameters<typeof fetch>[0], init?: RequestInit) =>
+        nativeFetch(
+          typeof input === "string" ? new URL(input, server.url) : input,
+          init
+        ),
+      { preconnect: nativeFetch.preconnect }
+    );
+    try {
+      // No manifest.json at the data root: the collection manifest is read.
+      const atlas = await loadAtlas();
+      expect(atlas.frames.map((frame) => frame.id)).toEqual([
+        platform.id,
+        product.id,
+      ]);
+      expect(atlas.frames.map((frame) => frame.dataset.root)).toEqual([
+        `${platform.id}/`,
+        `${product.id}/`,
+      ]);
+      const ids = atlas.territories.map((territory) => territory.id);
+      expect(new Set(ids).size).toBe(ids.length);
+      // @k/shared is two packages, one in each workspace.
+      expect(ids).toContain(`${platform.id}:@k/shared`);
+      expect(ids).toContain(`${product.id}:@k/shared`);
+      expect(atlas.frames.flatMap((frame) => frame.territories).sort()).toEqual(
+        [...ids].sort()
+      );
+      // The crossings resolve to islands of the two frames.
+      expect(atlas.crossings?.map(({ from, to }) => [from, to])).toEqual([
+        [`${product.id}:@p/app`, `${platform.id}:@k/db`],
+        [`${product.id}:@p/web`, `${platform.id}:@k/db`],
+      ]);
+      for (const crossing of atlas.crossings ?? []) {
+        expect(ids).toContain(crossing.from);
+        expect(ids).toContain(crossing.to);
+      }
+      const files = new Set(
+        atlas.territories.flatMap((territory) =>
+          territory.files.map((file) => file.id)
+        )
+      );
+      for (const route of atlas.routes) {
+        expect(ids).toContain(route.from);
+        expect(ids).toContain(route.to);
+        for (const file of [...route.consumerFiles, ...route.supplierFiles]) {
+          expect(files.has(file)).toBe(true);
+        }
+      }
+      // Each frame's late readings and imports come from its own dataset.
+      const late = await loadLateReadings(atlas);
+      expect(Object.keys(late).sort()).toEqual(
+        [platform.id, product.id].sort()
+      );
+      const edges = await loadImports(atlas);
+      expect(edges.length).toBeGreaterThan(0);
+      for (const edge of edges) {
+        expect(files.has(edge.source)).toBe(true);
+        expect(files.has(edge.target)).toBe(true);
+      }
+    } finally {
+      globalThis.fetch = nativeFetch;
+      await server.stop();
+    }
+  });
 
   test("paths that name one workspace twice exit 2 and name the duplicate", async () => {
     await symlink(roots[0], join(directory, "link"));

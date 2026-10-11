@@ -107,12 +107,10 @@ it("names a file's path region, and nothing where the internals list none", () =
 });
 
 it("counts an island's path regions and names its two strongest seams", () => {
-  expect(islandNestingText(atlas, island)).toBe(
+  expect(islandNestingText(atlas, island.id)).toBe(
     "3 path regions · seams . → shapes 9 module edges, shapes → lib 4"
   );
-  expect(
-    islandNestingText(atlas, { ...island, id: "@s/b" } as Territory)
-  ).toBeUndefined();
+  expect(islandNestingText(atlas, "@s/b")).toBeUndefined();
 });
 
 it("finds a place's domains from the facets above it, with the domains they nest in", () => {
@@ -155,6 +153,7 @@ it("reads a chosen domain for Place: its reason, weight and nesting, what it cov
   const extent: DomainExtent = {
     departures: 1,
     explained: new Set(["file:packages/a/src/point.ts"]),
+    frame: "",
     islands: [
       {
         cells: [{ folder: "src/shapes" } as FolderCell],

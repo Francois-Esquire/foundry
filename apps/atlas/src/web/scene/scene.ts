@@ -21,6 +21,7 @@ import { hitBelonging, matchedRegion } from "../belonging";
 import type { ChartSettings } from "../chart-settings";
 import { defaultChartSettings } from "../chart-settings";
 import { continentCoasts, createContinents } from "../continent";
+import type { DomainRef } from "../domain-extent";
 import {
   featureIdentity,
   hitNaturalFeature,
@@ -270,7 +271,7 @@ export async function createAtlasScene(
   let showConnections = false;
   let legendHeight = 0;
   /** The declared domain the reader chose to draw; none at first. */
-  let domain: string | null = null;
+  let domain: DomainRef | null = null;
   let labels: MapLabel[] = [];
   let frame = 0;
   /** The resting pointer; each repaint inks the island under it (`paintHoverInk`). */
@@ -801,8 +802,8 @@ export async function createAtlasScene(
       drawingData = resolveSetTerritoryLayout(layoutTerritory, readings);
       render();
     },
-    setDomain: (name: string | null) => {
-      domain = name;
+    setDomain: (chosen: DomainRef | null) => {
+      domain = chosen;
       render();
     },
     setLegendHeight: (height: number) => {

@@ -2,25 +2,43 @@ import type { FrequentChange } from "../lib/lenses/frequent-change-types";
 import { pinnedRead, viewerDataset } from "./dataset";
 import type { FrequentChangeEvidence } from "./internals";
 import { bindInternals } from "./internals";
-import type { Territory } from "./types";
+import type { AtlasFile, DatasetRef, Territory } from "./types";
+
+/** What `loadInternals` reads one island's internals for. */
+export interface InternalsRequest {
+  /** The island's workspace's dataset, which the read is pinned to. */
+  dataset: DatasetRef;
+  /** The island's files as the map holds them: the internals bind to them by path. */
+  files: readonly Pick<AtlasFile, "id" | "path">[];
+  /** The island's id on the map, which overlays name; its package id where absent. */
+  island?: string;
+  /** The package's bare id in that dataset. */
+  package: string;
+  recordedChange?: boolean;
+  /** The `file-roles` lens's entry the map read at load from that dataset, so the lens is not read again. */
+  roles: Territory["fileRoles"];
+  signal: AbortSignal;
+}
 
 /**
- * One package's internals, from the dataset whose manifest was saved at
- * `pin`: the map's own dataset. The manifest is read again once the files
- * are in, so a scan that replaces the dataset mid-read cannot mix two
- * datasets. `roles` is the `file-roles` lens's entry the map read at load
- * from that same dataset, so the lens is not read again.
+ * One package's internals, from its workspace's dataset, pinned to the
+ * manifest the map read. The manifest is read again once the files are in,
+ * so a scan that replaces the dataset mid-read cannot mix two datasets.
+ * They bind to the island's own files, so the module index is not read.
  */
-export async function loadInternals(
-  packageId: string,
-  roles: Territory["fileRoles"],
-  pin: string,
-  signal: AbortSignal,
-  recordedChange = false
-) {
-  const { internals, index, frequentChange } = await readEvidence(
+export async function loadInternals(request: InternalsRequest) {
+  const {
+    dataset,
+    files,
+    island,
+    package: packageId,
+    recordedChange = false,
+    roles,
+    signal,
+  } = request;
+  const { internals, frequentChange } = await readEvidence(
     packageId,
-    pin,
+    dataset,
     signal,
     recordedChange
   );
@@ -29,7 +47,7 @@ export async function loadInternals(
   const bound = bindInternals(
     topology,
     locality,
-    index.modules.filter((file) => file.package === packageId),
+    files,
     responsibilities,
     roles
   );
@@ -37,27 +55,29 @@ export async function loadInternals(
     bound.frequentChange = islandChange(frequentChange, packageId);
   }
   bound.architecture = { primitives, review, rewiring };
+  if (island !== undefined) {
+    bound.island = island;
+  }
   return bound;
 }
 
 async function readEvidence(
   packageId: string,
-  pin: string,
+  dataset: DatasetRef,
   signal: AbortSignal,
   recordedChange: boolean
 ) {
   return await pinnedRead(async () => {
-    const reader = viewerDataset({ pin, signal });
-    const [internals, index, frequentChange] = await Promise.all([
+    const reader = viewerDataset({ dataset, signal });
+    const [internals, frequentChange] = await Promise.all([
       reader.internals(packageId),
-      reader.moduleIndex(),
       // A dataset saved before the lens has none; the island says so.
       recordedChange
         ? reader.lens("frequent-change").catch(() => undefined)
         : undefined,
     ]);
-    await viewerDataset({ pin, signal }).manifest();
-    return { frequentChange, index, internals };
+    await viewerDataset({ dataset, signal }).manifest();
+    return { frequentChange, internals };
   });
 }
 

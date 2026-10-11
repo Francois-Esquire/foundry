@@ -1,9 +1,16 @@
 import type { ChangeEvent, MouseEvent } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { BelongingRegion } from "../belonging";
+import type { DomainRef } from "../domain-extent";
 import { inks } from "../scene/ink-ladder";
 import type { AtlasSelection } from "../scene/scene";
-import type { AtlasData, AtlasFile, Territory } from "../types";
+import {
+  type AtlasData,
+  type AtlasFile,
+  frameOf,
+  qualifiedIn,
+  type Territory,
+} from "../types";
 
 /**
  * Find a place: islands at overview, districts and files within an island;
@@ -20,11 +27,11 @@ export function AtlasSearch({
 }: {
   data: AtlasData;
   /** The domain drawn now, pressed in the list. */
-  domain: string | null;
+  domain: DomainRef | null;
   selection: AtlasSelection | null;
   regions: BelongingRegion[];
   composites: BelongingRegion[];
-  onDomain: (name: string) => void;
+  onDomain: (domain: DomainRef) => void;
   onSelect: (value: AtlasSelection) => void;
 }) {
   const [query, setQuery] = useState("");
@@ -40,8 +47,18 @@ export function AtlasSearch({
   const matches = (text: string) =>
     text.toLowerCase().includes(query.toLowerCase());
   const packages = data.territories.filter((item) => matches(item.label));
-  const declared = data.domains.declared.length > 0;
-  const domains = data.domains.declared.filter((item) => matches(item.name));
+  // Every frame's domains, each named within its frame; in a collection the
+  // frame's label says which workspace declares it.
+  const declaredDomains = data.frames.flatMap((frame) =>
+    frame.readings.domains.declared.map((item) => ({
+      frame,
+      item,
+      value: qualifiedIn(frame, item.name),
+    }))
+  );
+  const declared = declaredDomains.length > 0;
+  const domains = declaredDomains.filter(({ item }) => matches(item.name));
+  const collection = data.frames.length > 1;
   const groups = (
     composite
       ? regions.filter((item) => composite.children?.includes(item.id))
@@ -91,9 +108,15 @@ export function AtlasSearch({
     [onSelect, composite, files, region, territory]
   );
   const chooseDomain = useCallback(
-    (event: MouseEvent<HTMLButtonElement>) =>
-      onDomain(event.currentTarget.value),
-    [onDomain]
+    (event: MouseEvent<HTMLButtonElement>) => {
+      const chosen = declaredDomains.find(
+        ({ value }) => value === event.currentTarget.value
+      );
+      if (chosen) {
+        onDomain({ frame: chosen.frame.id, name: chosen.item.name });
+      }
+    },
+    [declaredDomains, onDomain]
   );
   const choosePackage = useCallback(
     (event: MouseEvent<HTMLButtonElement>) => {
@@ -136,19 +159,25 @@ export function AtlasSearch({
               type="button"
               value={item.id}
             >
-              <span>{item.label}</span>
+              <span>
+                {collection
+                  ? `${item.label} · ${frameOf(data, item.id).label}`
+                  : item.label}
+              </span>
               <small>{item.files.length}</small>
             </button>
           ))
         )}
-        {domains.map((item) => (
+        {domains.map(({ frame, item, value }) => (
           <button
-            aria-pressed={item.name === domain}
-            key={`domain:${item.name}`}
+            aria-pressed={
+              item.name === domain?.name && frame.id === domain.frame
+            }
+            key={`domain:${value}`}
             onClick={chooseDomain}
             title={item.reason}
             type="button"
-            value={item.name}
+            value={value}
           >
             <span
               aria-hidden="true"
@@ -156,7 +185,7 @@ export function AtlasSearch({
               style={{ background: inks.domain }}
             />
             <span>{item.name}</span>
-            <small>domain</small>
+            <small>{collection ? `domain · ${frame.label}` : "domain"}</small>
           </button>
         ))}
         {!(territory || packages.length || domains.length) && (

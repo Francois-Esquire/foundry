@@ -6,6 +6,7 @@ import { riverRuns } from "../../src/web/river-network";
 import { paintNaturalFeatures } from "../../src/web/scene/paint-features";
 import { paintInk } from "../../src/web/scene/paint-map";
 import type { AtlasData, AtlasFile, Territory } from "../../src/web/types";
+import { singleFrame } from "../helpers/frames";
 
 const file = (id: string, x: number, y: number): AtlasFile => ({
   directory: "src",
@@ -188,19 +189,11 @@ describe("natural feature drawing", () => {
     };
     const data: AtlasData = {
       coverage: "test",
-      domains: { declared: [], placements: {} },
       fileEdges: [],
       folderCells: {},
-      generatedAt: "test",
+      frames: [singleFrame([])],
       height: 500,
-      nesting: { folders: [], pathRegions: [], seams: [] },
       packageLayers: {},
-      placement: { dominantShare: 0.6, labelled: [], places: {} },
-      proximity: {
-        apart: { coChanges: [], files: [] },
-        close: [],
-        labelled: [],
-      },
       routes: [],
       territories: [territory],
       width: 500,

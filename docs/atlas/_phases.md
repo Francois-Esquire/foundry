@@ -4287,6 +4287,137 @@ island. 5.4b, the drawing: frames side by side, one rim per frame, and the
 crossings' ink. The collection manifest keeps one crossing per kind and
 range, so the drawing merges crossings by `from` and `to`: one line per
 pair of packages.
+- **5.4a plan.** Planned 2026-10-11 after Phase 4, ruled by the
+  coordinator.
+  - Option A: an island's lens readings stay bare and live in its frame,
+    `AtlasFrame { id, label, dataset, territories, readings }`, as decision 5
+    and the glossary keep ids bare inside a workspace's dataset. Readings
+    are looked up through the island's frame.
+  - `viewerDataset({ dataset })`. `DatasetRef` (data root and
+    `generatedAt`) replaces `data.generatedAt` in the hooks.
+  - The probe follows 5.3, with `loadInternals({ dataset, package, files,
+    … })` binding to the island's own files.
+  - `qualifyAtlasData` after each workspace's layout, beside `AtlasData`.
+  - A plain x offset per frame until 5.4b, and the relayout per frame.
+  - A chosen domain carries its frame, and Find shows frame labels in a
+    collection.
+  - Crossings: the field only; their listing and drawing are 5.4b.
+  - Split, as allowed: (i) the frame restructure, a single workspace with
+    no behaviour change; (ii) collections.
+- **5.4a, done.** 2026-10-11, in the two parts planned.
+  - (i) The frame restructure. `AtlasData` loses `placement`,
+    `proximity`, `nesting`, `domains` and `generatedAt`, and gains
+    `frames`.
+    - `types.ts` holds `DatasetRef`, `FrameReadings` and `AtlasFrame`,
+      with `frameOf`, `islandSource` (an island's dataset and bare package
+      id) and `qualifiedIn`/`bareIn`.
+    - Consumers read through the frame: `departures.ts` and
+      `proximity.ts` frame by frame, `domain-extent.ts` within a domain's
+      frame (`DomainRef { frame, name }`), and Place's text through a
+      `PlaceView`. Ties now name file ids, not paths, which are the same
+      strings in a single workspace.
+    - Late readings come back by frame id (`LateReadings`) and merge into
+      their frames.
+    - `viewerDataset({ dataset })` reads under a frame's root and pins to
+      its `generatedAt`. `useBelonging`, `useArchitecture` and the
+      architecture panel take an `IslandSource`.
+    - `loadInternals` takes one request, `{ dataset, files, island?,
+      package, recordedChange?, roles, signal }`, the pin being the
+      dataset's `generatedAt`. It binds the internals to the island's own
+      files by path, so it reads no module index. `island`, the island's id
+      on the map, is an addition to the ruled shape: overlays name their
+      island by it, and in a collection the internals' own package id is
+      bare.
+    - Measured on this worktree's scan, HEAD (`b667ca5`'s code) against
+      this unit, over the same session (select workspaces, as the capture
+      steps do): the module index was read 6 times, 2,269,338 bytes, and
+      now once, at load, 378,223 bytes. The session's data was 33
+      requests and 9.03 MB, and is now 25 requests and 6.12 MB; the run
+      before also read one island's internals twice.
+  - (ii) Collections.
+    - `loadAtlas` reads `./data/manifest.json` first. Only on
+      `DatasetNotFoundError` does it read `collection-manifest.json`
+      (`readCollectionManifest` in `web/dataset.ts`): a 404 there is "No
+      dataset found"; a 503 is asked again after `Retry-After` (1 second
+      if absent, at most 10, 30 attempts), and `App` shows the server's
+      reason while it waits; a parse error, another failure, or another
+      schema version is shown. A parse error or a 5xx at the data root is
+      shown and never falls back.
+    - Each workspace's source is read on a reader pinned to its entry's
+      `generatedAt`, laid out with its bare ids (`layoutWorkspace`), then
+      `qualifyAtlasData`. That qualifies, `<workspace id>:<package>` and
+      `<workspace id>:<path>`, the islands and their files, cells, layers,
+      routes and their endpoint files, import edges, declared dependencies
+      and former packages. Paths, folders and readings stay bare.
+    - `composeCollection` (`web/collection.ts`) sets the frames side by
+      side (`besideEachOther`: each frame its own chart's width, the whole
+      centred), joins their fields, and keeps the collection manifest's
+      crossings in `AtlasData.crossings`. Not routes, not drawn, not
+      listed: 5.4b.
+    - `relayoutAtlas` places a collection's frames again one by one, so no
+      row takes two workspaces' islands, and sets them side by side again;
+      former packages move as far as their frame's middle does. A single
+      workspace's relayout is unchanged.
+    - Late readings and Trace imports run frame by frame. Each frame has its
+      own pinned reader and second-manifest check, and the edges are
+      qualified as the frame's files are. `atlas:readings-loaded` is
+      marked once, after every frame.
+  - Unchanged for a single workspace: 0 differing pixels, HEAD against
+    this unit on the same scan, at overview, at island zoom, on the
+    entered workspaces island, close in, and with `workspace-system.ts`
+    traced; Place's text is identical; the load reads the same 9 requests
+    and 809,004 bytes before data-loaded.
+  - A collection, served from scans of the platform and product fixtures
+    with `atlas serve` of two paths, loads with no console error. It reads
+    19 requests and 18,822 bytes before data-loaded (the 404 at the data
+    root, the collection manifest, and each workspace's files), and 8
+    after; first frame at 1.22 s. The two frames sit side by side. Find
+    and Place read a qualified island (`@p/app`), with its readings and
+    internals, and its imports from product's own `@k/shared`
+    (`/tmp/review-shots/5.4a/collection-*.png`).
+  - Tests:
+    - `test/web/collection.test.ts`:
+      - the twin fixture (the reference atlas twice: twice the islands and
+        files, every id unique, every route, file edge, declared
+        dependency, crossing and former-package endpoint resolving);
+      - the readings and paths bare, and each frame's layout the one its
+        bare ids seeded;
+      - the per-frame relayout;
+      - the probe: neither manifest is "No dataset found"; an unparsable
+        or failing `manifest.json` never tries the collection; a 503 waits
+        and says why; another schema version or an unparsable collection
+        manifest is refused.
+    - `atlas.test.ts`, under Bun: `serve.collection` over the scanned
+      platform and product fixtures, loaded with `loadAtlas()` (frames,
+      datasets, unique qualified ids, `@k/shared` twice, the two crossings
+      resolving, routes, late readings by frame, qualified imports).
+    - `atlas-shell.test.ts`: a collection's Find shows "domain · product"
+      and chooses the domain with its frame, covering only that frame's
+      island.
+    - `test/helpers/frames.ts` (`singleFrame`, `withReadings`) carries the
+      existing tests' readings into frames. `load-churn.test.ts` now finds
+      no module index read by `loadInternals`.
+  - The glossary gains **Frame**. `_viewer.md` question 6 is recorded as
+    answered.
+  - At review:
+    - A workspace's failure in a collection is named by its label. A
+      dataset the collection manifest lists but the server no longer has
+      reads "Workspace <label> is being saved; reload in a moment."; any
+      other failure reads "Workspace <label>: …". Both are tested.
+    - Find lists a collection's islands as "<name> · <frame label>". Tested.
+    - The legend's dominant share is the `placement` lens's policy
+      constant (`PLACEMENT_POLICY`), the same for every workspace, so the
+      first frame's reading of it stands for all.
+    - `frameOf` throws for an island in no frame of a collection rather
+      than answering another frame's readings.
+  - Known gaps, for 5.4b:
+    - Island names, the breadcrumb and Place's title are bare labels, so
+      two workspaces' `shared` look alike outside Find.
+    - One latitude scale spans every frame, its ticks at the layer rows
+      all frames share.
+    - The interim spacing gives each frame its own chart margins.
+    - Crossings are in `AtlasData.crossings` only: neither drawn nor
+      listed.
 
 ## Changes to existing code
 

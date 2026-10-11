@@ -6,7 +6,13 @@ import {
   tieCount,
   tiesByKind,
 } from "../../src/web/proximity";
-import type { AtlasData, AtlasFile, Territory } from "../../src/web/types";
+import type {
+  AtlasData,
+  AtlasFile,
+  AtlasFrame,
+  Territory,
+} from "../../src/web/types";
+import { singleFrame, withReadings } from "../helpers/frames";
 
 const file = (path: string, x: number, y = 0): AtlasFile => ({
   directory: path.slice(0, path.lastIndexOf("/")),
@@ -64,50 +70,52 @@ const a = island("a", 100, [
 ]);
 const b = island("b", 500, [file("packages/b/src/z.ts", 0)]);
 
-const data = {
-  proximity: {
-    apart: {
-      coChanges: [
-        pair("packages/a/lib/x.ts", "packages/a/src/p.ts", 3),
-        pair("packages/a/lib/y.ts", "packages/a/src/q.ts", 6),
-        // Across packages: told in Place, never drawn over the sea.
-        pair("packages/a/lib/x.ts", "packages/b/src/z.ts", 9, "cross-package"),
-        ...Array.from({ length: 6 }, (_, i) =>
-          pair(`packages/a/t/f${i}.ts`, "packages/a/src/q.ts", 1)
-        ),
-      ],
-      files: [
-        {
-          distance: 2,
-          file: "packages/a/src/p.ts",
-          folder: "packages/a/src",
-          package: "a",
-          responsibility: "responsibility:r",
-          responsibilityFolder: "packages/a/lib",
-        },
-      ],
-    },
-    close: [
+const proximity: AtlasFrame["readings"]["proximity"] = {
+  apart: {
+    coChanges: [
+      pair("packages/a/lib/x.ts", "packages/a/src/p.ts", 3),
+      pair("packages/a/lib/y.ts", "packages/a/src/q.ts", 6),
+      // Across packages: told in Place, never drawn over the sea.
+      pair("packages/a/lib/x.ts", "packages/b/src/z.ts", 9, "cross-package"),
+      ...Array.from({ length: 6 }, (_, i) =>
+        pair(`packages/a/t/f${i}.ts`, "packages/a/src/q.ts", 1)
+      ),
+    ],
+    files: [
       {
+        distance: 2,
+        file: "packages/a/src/p.ts",
         folder: "packages/a/src",
-        groups: [
-          {
-            apart: [],
-            files: ["packages/a/src/p.ts"],
-            responsibilities: ["r1"],
-          },
-          {
-            apart: [],
-            files: ["packages/a/src/q.ts"],
-            responsibilities: ["r2"],
-          },
-        ],
         package: "a",
-        unresolved: 0,
+        responsibility: "responsibility:r",
+        responsibilityFolder: "packages/a/lib",
       },
     ],
-    labelled: ["a", "b"],
   },
+  close: [
+    {
+      folder: "packages/a/src",
+      groups: [
+        {
+          apart: [],
+          files: ["packages/a/src/p.ts"],
+          responsibilities: ["r1"],
+        },
+        {
+          apart: [],
+          files: ["packages/a/src/q.ts"],
+          responsibilities: ["r2"],
+        },
+      ],
+      package: "a",
+      unresolved: 0,
+    },
+  ],
+  labelled: ["a", "b"],
+} as unknown as AtlasFrame["readings"]["proximity"];
+
+const data = {
+  frames: [singleFrame(["a", "b"], { proximity })],
   territories: [a, b],
 } as unknown as AtlasData;
 
@@ -147,10 +155,9 @@ it("draws 3 co-change ties and 2 apart ties on an island, one kind making up for
 });
 
 it("gives a kind short of co-changes' share to the apart ties", () => {
-  const apartOnly = {
-    ...data,
+  const apartOnly = withReadings(data, {
     proximity: {
-      ...data.proximity,
+      ...proximity,
       apart: {
         coChanges: [],
         files: ["x", "y", "p", "q"].map((name) => ({
@@ -163,7 +170,7 @@ it("gives a kind short of co-changes' share to the apart ties", () => {
         })),
       },
     },
-  } as AtlasData;
+  });
   expect(drawnTies(apartOnly, "a").map((tie) => tie.kind)).toEqual([
     "apart",
     "apart",

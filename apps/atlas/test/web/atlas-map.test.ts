@@ -6,7 +6,11 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { createAtlasScene } from "../../src/web/scene/scene";
 import { AtlasMap } from "../../src/web/ui/atlas-map";
 import { createAtlasState } from "../../src/web/ui/atlas-state";
+import { withReadings } from "../helpers/frames";
 import { loadAtlas } from "../helpers/reference-atlas";
+
+/** The domain the tests choose: "shapes", declared by the single workspace's frame. */
+const shapes = { frame: "", name: "shapes" };
 
 vi.mock("../../src/web/scene/scene", () => ({
   createAtlasScene: vi.fn((host: HTMLElement) => {
@@ -82,7 +86,7 @@ it("keeps the scene alive across state and callback changes, including StrictMod
   const next = {
     ...state,
     chartSettings: { ...state.chartSettings, contours: true },
-    domain: "shapes",
+    domain: shapes,
     hover: selection,
     selection,
     showConnections: true,
@@ -108,7 +112,7 @@ it("keeps the scene alive across state and callback changes, including StrictMod
   expect(scene.configure).toHaveBeenLastCalledWith(next.chartSettings);
   expect(scene.setConnections).toHaveBeenLastCalledWith(true);
   // A chosen domain reaches the scene beside the selection, not as one.
-  expect(scene.setDomain).toHaveBeenLastCalledWith("shapes");
+  expect(scene.setDomain).toHaveBeenLastCalledWith(shapes);
   const [call] = vi.mocked(createAtlasScene).mock.calls;
   assert(call);
   call[2].onSelect(selection);
@@ -133,7 +137,7 @@ it("restores the camera and overlays after a geometry rebuild", async () => {
       ...state.chartSettings,
       layers: { ...state.chartSettings.layers, land: true },
     },
-    domain: "shapes",
+    domain: shapes,
     territoryLayout: state.data.territories[0] ?? null,
   };
   await act(async () => root.render(createElement(AtlasMap, { state: next })));
@@ -143,7 +147,7 @@ it("restores the camera and overlays after a geometry rebuild", async () => {
   expect(first.dispose).toHaveBeenCalledTimes(1);
   expect(container.querySelectorAll("canvas")).toHaveLength(1);
   expect(second.restoreView).toHaveBeenCalledWith({ pixels: 2, x: 10, y: 20 });
-  expect(second.setDomain).toHaveBeenCalledWith("shapes");
+  expect(second.setDomain).toHaveBeenCalledWith(shapes);
   expect(second.setTerritoryLayout).toHaveBeenCalledWith(next.territoryLayout);
 });
 
@@ -202,10 +206,13 @@ it("hands readings that arrive after load to the scene it has, without building 
   expect(scene.setData).toHaveBeenLastCalledWith(state.data);
   const read = {
     ...state,
-    data: {
-      ...state.data,
-      proximity: { ...state.data.proximity, labelled: ["island"] },
-    },
+    data: withReadings(state.data, {
+      proximity: {
+        apart: { coChanges: [], files: [] },
+        close: [],
+        labelled: ["island"],
+      },
+    }),
   };
   await act(async () => root.render(createElement(AtlasMap, { state: read })));
   expect(createAtlasScene).toHaveBeenCalledTimes(1);

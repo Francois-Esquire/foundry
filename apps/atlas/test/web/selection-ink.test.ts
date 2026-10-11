@@ -9,6 +9,7 @@ import {
   selectionRing,
 } from "../../src/web/scene/selection-ink";
 import type { AtlasData, Territory } from "../../src/web/types";
+import { singleFrame } from "../helpers/frames";
 
 const square = (half: number): Territory["coast"] => [
   [
@@ -39,15 +40,11 @@ const island = (id: string, x: number): Territory => ({
 });
 const data: AtlasData = {
   coverage: "test",
-  domains: { declared: [], placements: {} },
   fileEdges: [],
   folderCells: {},
-  generatedAt: "test",
+  frames: [singleFrame([])],
   height: 400,
-  nesting: { folders: [], pathRegions: [], seams: [] },
   packageLayers: {},
-  placement: { dominantShare: 0.6, labelled: [], places: {} },
-  proximity: { apart: { coChanges: [], files: [] }, close: [], labelled: [] },
   routes: [
     {
       consumerFiles: [],
