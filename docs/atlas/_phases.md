@@ -3886,6 +3886,55 @@ current zoom needs.
     how `DatasetReader` exposes it. `placement` cannot change in place,
     because the `domains` lens reads its consumer-module lists.
 
+**Phase 4 is done** (2026-10-11). The chart stays, and what changed is
+what is on by default and how strongly it is drawn. Position means folder
+and layer, pigment means responsibility, and departures read without a
+toggle.
+- 4.0: the direction (legibility, not a new metaphor), the two groupings
+  with one meaning each, and the developer flag (`?dev`).
+- 4.1: the still chart (no animation loop; a frame only when a repaint
+  asks) and a reader's settings, only layers that carry data. Wind, waves,
+  the current, forests, houses, the chart filters and the props' shadow
+  map are deleted. Roads, connecting land, the boundary overlays and the
+  rendering controls are a developer session's.
+- 4.2: the ink canvas as ordered layers, each in its own `save` and
+  `restore`; the ink ladder in `scene/ink-ladder.ts`, with every colour,
+  a contrast floor per rung, and one hue × dash × weight table the map key
+  reads; islands without package hue; the latitude scale and the
+  always-visible legend. The `placement`, `proximity`, `nesting` and
+  `domains` lenses are read. Departures are drawn as the strongest signal
+  after a selection, proximity at island zoom, and nesting and domains in
+  Place.
+- 4.3: islands on their layer's row in folder order, with no import pull;
+  files placed by the folder tree; folder cuts and names at island zoom;
+  a chosen domain drawn across islands.
+- 4.4: `nesting` and `proximity` are read after the first frame. The
+  module index carries each file's import counts, the new
+  `import-traffic` lens each package pair's endpoint files, and the edge
+  shards are read only on Trace imports. Dataset schema 5.
+- Load on Foundry, WebGPU on Metal, 1500×1000, before Phase 4 against now.
+  The datasets differ: the scan grew, and four lenses were added.
+  - Before: 20 files and 1.71 MB at load; layout settled 412–429 ms,
+    first frame 4.21–4.28 s.
+  - Now: 9 requests and 809,003 bytes before `atlas:data-loaded`, and 4
+    requests and 253,148 bytes after it; layout settled 93–98 ms, first
+    frame 2.64–2.67 s.
+  - At 10 Mbit/s, 4.4b alone took data-loaded from 3.05–3.07 s to
+    2.02 s, and the first frame from 5.75–5.78 s to 4.74–4.76 s.
+  - Most of the first frame is still the terrain build, about 2.1–2.2 s
+    after the layout, which no unit of this phase measured apart.
+- Left for later, by design:
+  - Folder names should avoid departure rings and proximity beads (4.3c:
+    `src/` over models' ring).
+  - A ring's foot reads 3.63:1 against the departure floor of 8. The
+    1.6-pixel line straddles two rows of pixels even under the tilt
+    stretch (4.3c); reaching the floor means a heavier departure row.
+  - Count-only `placement` and a `nesting` projection, which wait for a
+    lens-projection mechanism (4.4b).
+  - Every number here holds for Foundry, 15 packages, on one machine. No
+    budget is validated for a larger workspace, nor the layout for a flat
+    one: many layer-0 packages make one wide row (measurement, 4.3a).
+
 ## Phase 5: many workspaces
 
 Detail in [`_workspaces.md`](./_workspaces.md#questions).
