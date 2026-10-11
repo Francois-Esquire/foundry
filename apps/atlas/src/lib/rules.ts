@@ -1,4 +1,4 @@
-import { covers } from "./facet";
+import { covers } from "./facet-cover";
 import type { ArchitecturalOperator } from "./operator-types";
 import type { Rule } from "./rule-declaration";
 import { ruleCanName } from "./rule-declaration";

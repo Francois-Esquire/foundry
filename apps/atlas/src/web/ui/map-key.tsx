@@ -194,6 +194,14 @@ function departureTotals(
   return `${departing} departing · ${symbols} ${symbols === 1 ? "symbol" : "symbols"} in Place · ${departures.lines.length} of ${candidateLines} ${lines}`;
 }
 
+/** What the map key says of the declared domains: one line when there are none. */
+function domainNote(domains: number): string {
+  if (!domains) {
+    return "No domains are declared.";
+  }
+  return `${domains} ${domains === 1 ? "domain is" : "domains are"} declared. Place gives a place's domains and, beside a departure, its domain label: a domain departure when some consumer module shares none of its domains, or that it shares them with every consumer.`;
+}
+
 /** Why a departure is drawn or left out, for the map key. */
 function departureRules(dominantShare: number): string {
   return `A place departs when one other package holds at least ${Math.round(dominantShare * 100)}% of the modules that use it, its own package counted as one. A line is drawn when it rests on at least ${leastConsumers} of those modules, and at most ${linesPerTarget} run into one package; the totals count every departure. Consumers in no package of the scan are not counted.`;
@@ -239,9 +247,12 @@ const keyRows: readonly [string, keyof ReaderSettings | null][] = [
  */
 export function MapKey({
   departures,
+  domains,
   onHeight,
   settings,
 }: {
+  /** How many domains the workspace declares. */
+  domains: number;
   /** The departures the map draws, for their row and totals. */
   departures: Pick<Departures, "dominantShare" | "lines" | "totals">;
   /** Called with the legend's height in CSS pixels whenever it changes, so margin notes clear it. */
@@ -330,6 +341,11 @@ export function MapKey({
           it runs short, or all of a selected file's; Place counts them and
           lists the rest, and co-changes across packages.
         </p>
+        <p>
+          Place names a file's path region, and an island's path regions and the
+          seams between them, the imports from one region into another.
+        </p>
+        <p>{domainNote(domains)}</p>
         <p>
           Islands are low ground. Only a package's high fan-in files raise
           rounded summits: those that at least its cutoff of the package's own

@@ -6,7 +6,14 @@ import type { AtlasData, AtlasRoute, Territory } from "../../src/web/types";
 /** The capture, saved before routes carried their endpoint files, before the layer scale, and before islands knew their folders. */
 type CapturedAtlas = Omit<
   AtlasData,
-  "packageLayers" | "placement" | "proximity" | "routes" | "territories"
+  | "domains"
+  | "folderCells"
+  | "nesting"
+  | "packageLayers"
+  | "placement"
+  | "proximity"
+  | "routes"
+  | "territories"
 > & {
   routes: Omit<AtlasRoute, "consumerFiles" | "supplierFiles">[];
   territories: Omit<Territory, "folder">[];
@@ -34,6 +41,10 @@ export async function loadAtlas(): Promise<AtlasData> {
   );
   return {
     ...captured,
+    // Nor nesting, domains, or the cell trees the layout of its day did not make.
+    domains: { declared: [], placements: {} },
+    folderCells: {},
+    nesting: { folders: [], pathRegions: [], seams: [] },
     // The capture has no layers; its scale is empty, so none is drawn.
     packageLayers: {},
     // Nor has it a placement lens: no place departs.

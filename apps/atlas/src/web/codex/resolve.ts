@@ -82,6 +82,15 @@ export function resolveCodex(source: CodexSource): Codex {
       strength: d.dependency.moduleEdges,
       to: d.to,
     })),
+    domains: {
+      declared: source.domains.domains,
+      placements: Object.fromEntries(
+        source.domains.placements.map((placed) => [
+          placementKey(placed),
+          placed,
+        ])
+      ),
+    },
     imports: source.imports.map((edge) => ({
       source: edge.source,
       target: edge.target,
@@ -97,6 +106,7 @@ export function resolveCodex(source: CodexSource): Codex {
       package: m.package,
       path: m.path,
     })),
+    nesting: source.nesting,
     packages: source.packages.map((p) => {
       const saved = roles.get(p.id);
       const grouped = groups.get(p.id);

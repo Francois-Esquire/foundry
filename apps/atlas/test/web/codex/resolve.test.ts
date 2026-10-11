@@ -44,6 +44,29 @@ const source: CodexSource = {
       to: "@foundry/core",
     },
   ],
+  // The manifest lists ui only, as no real one would: core's folder is empty.
+  domains: {
+    domains: [
+      {
+        name: "shapes",
+        parents: [],
+        places: [{ kind: "folder", place: "packages/core/src" }],
+        unmatched: [],
+      },
+    ],
+    placements: [
+      {
+        away: { shared: 1, total: 2, unindexed: 0 },
+        domainLabel: "departs",
+        domains: ["shapes"],
+        level: "file",
+        package: "@foundry/core",
+        place: "packages/core/src/a.ts",
+        placementLabel: "departs",
+        sharedDomains: ["shapes"],
+      },
+    ],
+  },
   fileRoles: [
     {
       highFanInCutoff: 3,
@@ -87,7 +110,18 @@ const source: CodexSource = {
       path: "packages/ui/index.ts",
     },
   ],
-  // The manifest lists ui only, as no real one would: core's folder is empty.
+  nesting: {
+    folders: [
+      {
+        fileCounts: { descendant: 2, direct: 0 },
+        id: "packages/core",
+        package: "@foundry/core",
+        packageRoot: true,
+      },
+    ],
+    pathRegions: [],
+    seams: [],
+  },
   packagePaths: [{ id: "@foundry/ui", path: "packages/ui" }],
   packages: [
     {
@@ -229,6 +263,14 @@ describe("resolveCodex", () => {
         },
       ],
     });
+  });
+
+  it("keeps the nesting lens as saved, and keys domain labels as placements are keyed", () => {
+    expect(codex.nesting).toBe(source.nesting);
+    expect(codex.domains.declared).toBe(source.domains.domains);
+    expect(Object.keys(codex.domains.placements)).toEqual([
+      "file:packages/core/src/a.ts",
+    ]);
   });
 
   it("keeps the proximity lens as saved, with the packages it covered", () => {

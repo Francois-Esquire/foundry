@@ -3,7 +3,13 @@ import type {
   FileRolesPackage,
 } from "../lib/lenses/file-roles-types";
 import type { PackageResponsibilityGroups } from "../lib/lenses/responsibility-groups-types";
-import type { CodexPlacement, CodexProximity } from "./codex/vocabulary";
+import type {
+  CodexDomains,
+  CodexNesting,
+  CodexPlacement,
+  CodexProximity,
+} from "./codex/vocabulary";
+import type { FolderCell } from "./folder-sectors";
 
 export interface AtlasSymbol {
   id: string;
@@ -82,10 +88,16 @@ export interface AtlasData {
       | "peerDependencies"
       | "optionalDependencies";
   }[];
+  /** The `domains` lens: declared domains, and each placed place's domain label by `level:place`. */
+  domains: CodexDomains;
   fileEdges: { source: string; target: string }[];
+  /** Each island's folder cells from `settleFiles`, by package, in island coordinates, for drawing its folders. */
+  folderCells: Record<string, FolderCell>;
   formerPackages?: FormerPackage[];
   generatedAt: string;
   height: number;
+  /** The `nesting` lens: the folder tree, path regions, and seams. */
+  nesting: CodexNesting;
   /**
    * Each package's dependency layer, for the latitude scale; `null` for a
    * package the graph could not place, which sits at the foundation but

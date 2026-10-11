@@ -43,7 +43,14 @@ const placed = {
 
 function scanned(): Record<string, unknown> {
   return {
+    "lenses/domains.json": { domains: [], placements: [] },
     "lenses/file-roles.json": { missing: [], packages: [roles] },
+    "lenses/nesting.json": {
+      folders: [],
+      missing: [],
+      pathRegions: [],
+      seams: [],
+    },
     "lenses/package-sizes.json": { packages: [sized] },
     "lenses/placement.json": {
       missing: [],
@@ -66,7 +73,9 @@ function scanned(): Record<string, unknown> {
       },
       generatedAt: "2026-09-23T00:00:00.000Z",
       lenses: {
+        domains: { file: "lenses/domains.json", schemaVersion: 1 },
         "file-roles": { file: "lenses/file-roles.json", schemaVersion: 1 },
+        nesting: { file: "lenses/nesting.json", schemaVersion: 1 },
         "package-sizes": {
           file: "lenses/package-sizes.json",
           schemaVersion: 1,
@@ -129,7 +138,9 @@ describe("readCodexSource", () => {
     expect(reads).not.toContain("modules/core.json");
     expect([...new Set(reads)].sort()).toEqual([
       "history/manifest.json",
+      "lenses/domains.json",
       "lenses/file-roles.json",
+      "lenses/nesting.json",
       "lenses/package-sizes.json",
       "lenses/placement.json",
       "lenses/proximity.json",
@@ -148,6 +159,8 @@ describe("readCodexSource", () => {
       generatedAt: "2026-09-23T00:00:00.000Z",
     });
     expect(source.packages).toEqual([sized]);
+    expect(source.domains).toEqual({ domains: [], placements: [] });
+    expect(source.nesting).toEqual({ folders: [], pathRegions: [], seams: [] });
     expect(source.proximity).toEqual({
       apart: { coChanges: [], files: [] },
       close: [],
@@ -199,6 +212,19 @@ describe("readCodexSource", () => {
     ).rejects.toThrow(
       "The dataset has no placement lens. Run atlas scan again."
     );
+  });
+
+  it("asks for a new scan when the dataset was saved before the nesting or domains lens", async () => {
+    for (const id of ["nesting", "domains"]) {
+      const files = scanned();
+      const manifest = files["manifest.json"] as {
+        lenses: Record<string, unknown>;
+      };
+      const { [id]: _missing, ...lenses } = manifest.lenses;
+      await expect(
+        read({ ...files, "manifest.json": { ...manifest, lenses } })
+      ).rejects.toThrow(`The dataset has no ${id} lens. Run atlas scan again.`);
+    }
   });
 
   it("picks package history when it was recorded", async () => {

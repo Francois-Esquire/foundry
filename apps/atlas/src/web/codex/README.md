@@ -35,6 +35,8 @@ imports from the renderer, so the folder moves as a unit. Tests are in
 | Package `size`                             | `package-sizes` lens `modules.total`                                      |
 | Package `layer`                            | `package-sizes` lens `layer`; `null` stays `null` (unplaced)              |
 | Package `path`                             | manifest `packages[].path`, the package's folder; empty if the manifest omits the package |
+| Nesting `folders`, `pathRegions`, `seams` | `nesting` lens as saved |
+| Domains `declared`, `placements` | `domains` lens: its `domains` as saved; its `placements` keyed by `level:place`, as placements are |
 | Proximity `apart`, `close`, `labelled` | `proximity` lens as saved; `labelled`, the ids of its `packages` |
 | Placement `label`, `toward`, `home`, `away`, `share` | `placement` lens `places`: the label and target as saved; consumer modules counted at home and per other package; `share`, the most any one package holds (its own package counted as one of the packages) over all of them, unindexed consumers left out; `labelled`, the lens's `packages` |
 | Module `id`, `package`, `path`, `fileKind` | module index; a missing kind becomes `unknown`                            |

@@ -36,9 +36,12 @@ describe("3D coastal trade", () => {
   it("builds only a water-level lane, with nothing built at its harbors, reuses geometry, and disposes replaced routes", () => {
     const data: AtlasData = {
       coverage: "test",
+      domains: { declared: [], placements: {} },
       fileEdges: [],
+      folderCells: {},
       generatedAt: "test",
       height: 300,
+      nesting: { folders: [], pathRegions: [], seams: [] },
       packageLayers: {},
       placement: { dominantShare: 0.6, labelled: [], places: {} },
       proximity: {

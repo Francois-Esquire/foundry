@@ -726,6 +726,15 @@ test("built CLI scans an external workspace and the web loaders read its saved d
     expect(fileRoles?.modules).toEqual(
       roles.packages.find((saved) => saved.id === pkg.id)?.modules
     );
+    // The layout keeps each island's folder cells for drawing its folders,
+    // and the nesting lens comes with them.
+    expect(Object.keys(atlas.folderCells).sort()).toEqual(
+      atlas.territories.map((item) => item.id).sort()
+    );
+    expect(atlas.folderCells[pkg.id]?.sites).toHaveLength(
+      territory.files.length
+    );
+    expect(atlas.nesting.folders.length).toBeGreaterThan(0);
     const grouped = groups.packages.find((entry) => entry.id === pkg.id);
     expect(territory.responsibilityGroups).toEqual(
       grouped && { groups: grouped.groups, independent: grouped.independent }

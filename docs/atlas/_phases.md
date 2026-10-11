@@ -3114,6 +3114,89 @@ changes.
   atlas-island,key,narrow}.png`; the overview and narrow shots are
   unchanged, as the plan meant.
 
+**4.2d Nesting and domains, by default,** from the `nesting` (2.4) and
+`domains` (2.6) lenses, both schema 1. Planned 2026-10-10 against the
+lenses as saved on this worktree's scan: `nesting` has 319 folders in one
+tree (each with its parent, owning package, whether it is a package root,
+its file counts, and its path region where the internals list one), 84
+path regions and 106 seams (the primary edges from one region into
+another, with module edges, import sites, and the symbol names crossing);
+`domains` is empty, since this workspace declares none.
+- **What 4.2d builds: the data seam and the words.** The codex reads both
+  lenses; a dataset missing either is refused, as for any lens.
+  - `AtlasData.nesting`: the folder tree, path regions and seams as saved.
+    `AtlasData.folderCells`: each island's cell tree from `settleFiles`,
+    kept at load instead of thrown away, in island coordinates, so a
+    relayout leaves it valid.
+  - `AtlasData.domains`: each declared domain (name, parents, its facets'
+    places, what matched nothing, reason and weight), and the domain label
+    of every placed place in one, keyed as placements are, `level:place`.
+    A file's domains are found from the facets, a file facet naming it or a
+    folder or package facet above it.
+  - Place: a file's path region ("in path region lib"); an island's path
+    regions and its strongest seams ("4 path regions · seams web → lib 39
+    module edges, …"); a place's domains ("domains: shapes"); and, for a
+    placed place in a domain, its domain label beside the placement label:
+    "placement departure: toward … · 4 of 4 consumer modules · domain
+    departure: 2 of 5 consumer modules in other packages share its domains",
+    with any consumers outside the module index said apart, or "… · shares
+    shapes with every consumer".
+  - Map key: a line on path regions and seams; with domains declared, how
+    many and what a domain label means; with none, the one line "No
+    domains are declared."
+- **What 4.3b draws, from this seam:** the folder cells (faint lines from
+  `folderCells`' cuts) and top-level folder names, named from the nesting
+  tree; seams between path regions, if drawn at all, belong there too,
+  since a path region is a folder.
+- **What 4.3c draws, from this seam:** a chosen domain across islands, its
+  places from `AtlasData.domains` and their positions from the files and
+  `folderCells`. Departures are not redrawn here: a departure that shares
+  its domain stays a departure on the map, as the placement label stays
+  beside the domain label; whether it takes another mark is 4.3c's call.
+- **Not here:** no drawing, and no island caption change; the island's
+  folder is in Place since 4.3a.
+
+**4.2d, done.** 2026-10-10, as planned, in one unit; nothing new is
+drawn, and the overview is pixel-identical to 4.2c's.
+- The codex reads the `nesting` and `domains` lenses; a dataset missing
+  either is refused, tested for both. `AtlasData.nesting` holds the folder
+  tree, path regions and seams as saved; `AtlasData.domains` the declared
+  domains and each placed place's domain label by `level:place`; and
+  `AtlasData.folderCells` each island's cell tree from `settleFiles`, kept
+  at load in island coordinates. That is the seam 4.3b draws folders from
+  and 4.3c draws a domain from. Load: two requests and 79,626 bytes more,
+  2,145,021 in 24.
+- Place: a file reads "in src/node, path region node"; an island "6 path
+  regions · seams web → lib 39 module edges, cli → lib 10"; a place in a
+  domain "domains: node-runtime", its domains from the facets that name it
+  or a folder or package above it, with the domains those are nested in.
+  A departure in a domain reads as two: "placement departure: toward
+  marbles · 4 of 4 consumer modules · domain departure: 1 of 4 consumer
+  modules in other packages share its domains", adding "; N consumers
+  outside the module index can't be shown to share them" when the lens
+  counts any; a place sharing its domains with every consumer, "… · shares
+  shapes with every consumer". A symbol reads its own domains: a file facet
+  covers its symbols, and a symbol facet names only its own, matched with
+  `covers` from `lib/facet-cover.ts`, moved there from `lib/facet.ts` so
+  that the viewer matches facets as the configuration does without
+  bundling zod (a lens-code move; `rules.ts` and the `domains` and `rules`
+  lenses import it from there).
+- Map key: a line on path regions and seams, and on domains either "No
+  domains are declared." or how many and what a domain label means. With
+  none declared nothing more is shown.
+- Kept for 4.3c: a departure that shares its domains stays a departure on
+  the map, as the placement label stays beside the domain label; whether it
+  takes another mark is decided when the domain is drawn.
+- Tests: `nesting-domain-text.test.ts` (path region, seams, domains from
+  facets and parents, the two domain labels), `atlas-shell.test.ts` (the
+  departure told as two; the one-line note), the codex's source and
+  resolve tests, and `atlas.test.ts` (the cell trees and nesting at load,
+  over a real scan).
+- Screenshots: `/tmp/review-shots/4.2d/after-overview.png`, unchanged; and
+  `after-place.png` and `after-island-key.png` from a copy of this scan
+  whose `domains` lens declares one domain, `node-runtime`, over
+  `packages/workspaces/src/node`, since this workspace declares none.
+
 **4.3 Directories drawn,** and a domain drawn across islands.
 - **4.3a** (recorded at 4.2a(iii)): each island's y is fixed to its
   layer's latitude, `latitude(layer)`, with x free and overlaps resolved
@@ -3269,7 +3352,9 @@ changes.
   names at island zoom, from `settleFiles`'s cell tree. Try a top gutter of
   2–3 spacings as a cue in the coast, and measure satellites again if it is
   tried. Check that district labels such as "lib" or "scripts" do not read
-  as folder names once folder names are drawn.
+  as folder names once folder names are drawn. While "Group files by
+  responsibility" rearranges an island, its cells are hidden there, since
+  its files no longer sit in them (recorded at 4.2d).
 
 **4.4 Loading.** Covered by the lazy reader in 1.5; the module shards stopped
 being read at load in 2.2d. What remains is the viewer reading only what the
@@ -3277,6 +3362,11 @@ current zoom needs.
 - The load after 4.2c, on this worktree's scan: about 2.07 MB in 22
   requests (2,065,395 bytes), the `placement` and `proximity` lenses each
   adding over 120 KB (181,378 and 126,755) since 4.3a.
+- After 4.2d: 2,145,021 bytes in 24 requests. The lenses read since 4.2b,
+  `placement`, `proximity`, `nesting` and `domains`, add about 388 KB, some
+  22% over the 1,757,262 read before them. `nesting` could be read as a
+  projection instead, the folder tree with its regions and seams, since
+  the map reads it whole and derives nothing from it at load.
 - Recorded at 4.2b: the viewer downloads the `placement` lens's consumer
   module lists, most of its 181 KB, only to count them. Either a
   count-only projection of the lens, or a lazy read of the lists for the

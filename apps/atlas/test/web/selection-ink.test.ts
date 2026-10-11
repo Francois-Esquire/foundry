@@ -39,9 +39,12 @@ const island = (id: string, x: number): Territory => ({
 });
 const data: AtlasData = {
   coverage: "test",
+  domains: { declared: [], placements: {} },
   fileEdges: [],
+  folderCells: {},
   generatedAt: "test",
   height: 400,
+  nesting: { folders: [], pathRegions: [], seams: [] },
   packageLayers: {},
   placement: { dominantShare: 0.6, labelled: [], places: {} },
   proximity: { apart: { coChanges: [], files: [] }, close: [], labelled: [] },

@@ -1,5 +1,6 @@
 import { expect, it } from "vitest";
-import { covers, facetSchema } from "../../src/lib/facet";
+import { facetSchema } from "../../src/lib/facet";
+import { covers } from "../../src/lib/facet-cover";
 
 it.each([
   ["packages/core", "packages/core"],

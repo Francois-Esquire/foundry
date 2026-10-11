@@ -1,4 +1,9 @@
+import type {
+  DomainMatch,
+  DomainPlacement,
+} from "../../lib/lenses/domains-types";
 import type { FileRolesPackage } from "../../lib/lenses/file-roles-types";
+import type { Nesting } from "../../lib/lenses/nesting-types";
 import type {
   PlacementLabel,
   PlacementLevel,
@@ -111,6 +116,19 @@ export interface CodexProximity {
   labelled: string[];
 }
 
+/** The `nesting` lens as the map reads it: one folder tree, and each package's path regions and the seams between them. */
+export type CodexNesting = Pick<Nesting, "folders" | "pathRegions" | "seams">;
+
+/**
+ * The `domains` lens as the map reads it: every declared domain, and the
+ * domain label of each placed place in one, keyed as placements are,
+ * `level:place`.
+ */
+export interface CodexDomains {
+  declared: DomainMatch[];
+  placements: Record<string, DomainPlacement>;
+}
+
 export interface CodexRetiredPackage {
   id: string;
   label: string;
@@ -120,8 +138,10 @@ export interface CodexRetiredPackage {
 export interface Codex {
   declaredDependencies: CodexDeclaredDependency[];
   dependencies: CodexDependency[];
+  domains: CodexDomains;
   imports: CodexImport[];
   modules: CodexModule[];
+  nesting: CodexNesting;
   /** Sorted by id. */
   packages: CodexPackage[];
   /** The `placement` lens's places, as the lens sorts them, and the packages it labelled, whose other places no other package uses. */

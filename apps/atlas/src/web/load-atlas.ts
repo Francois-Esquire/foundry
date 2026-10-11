@@ -2,7 +2,11 @@ import { footprint } from "./codex/bindings";
 import { placementKey, resolveCodex } from "./codex/resolve";
 import { readCodexSource } from "./codex/source";
 import { viewerDataset } from "./dataset";
-import { districtsOfGroups, settleFiles } from "./folder-sectors";
+import {
+  districtsOfGroups,
+  type FolderCell,
+  settleFiles,
+} from "./folder-sectors";
 import { formerPackages } from "./former-packages";
 import { chartSize, landContours, settlePackages } from "./geography";
 import { defaultLandmassSettings } from "./landmasses";
@@ -14,6 +18,7 @@ export async function loadAtlas(signal?: AbortSignal): Promise<AtlasData> {
   const saved = await readCodexSource(viewerDataset({ signal }));
   markLoad("atlas:data-loaded");
   const codex = resolveCodex(saved);
+  const folderCells: Record<string, FolderCell> = {};
   const territories: Territory[] = codex.packages.map((p) => {
     const files = codex.modules
       .filter((m) => m.package === p.id)
@@ -32,7 +37,7 @@ export async function loadAtlas(signal?: AbortSignal): Promise<AtlasData> {
       }));
     const radius = footprint(p.size);
     // Without internals the island has no districts: its files go in path order.
-    settleFiles(
+    folderCells[p.id] = settleFiles(
       files,
       radius,
       p.path,
@@ -76,8 +81,11 @@ export async function loadAtlas(signal?: AbortSignal): Promise<AtlasData> {
   const data: AtlasData = {
     coverage: codex.workspace.coverage,
     declaredDependencies,
+    domains: codex.domains,
     fileEdges: codex.imports.map(({ source, target }) => ({ source, target })),
+    folderCells,
     generatedAt: codex.workspace.surveyedAt,
+    nesting: codex.nesting,
     packageLayers,
     placement: {
       dominantShare: codex.placement.dominantShare,

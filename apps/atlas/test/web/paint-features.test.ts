@@ -188,9 +188,12 @@ describe("natural feature drawing", () => {
     };
     const data: AtlasData = {
       coverage: "test",
+      domains: { declared: [], placements: {} },
       fileEdges: [],
+      folderCells: {},
       generatedAt: "test",
       height: 500,
+      nesting: { folders: [], pathRegions: [], seams: [] },
       packageLayers: {},
       placement: { dominantShare: 0.6, labelled: [], places: {} },
       proximity: {

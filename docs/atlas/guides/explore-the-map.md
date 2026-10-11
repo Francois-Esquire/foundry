@@ -53,6 +53,13 @@ folder, not physical scale; how far apart two islands sit means nothing.
   that change together; and two slate arcs set apart, "( )", mark a folder
   whose files serve responsibilities that nothing relates. A few ties show
   on each island, and all of a selected file's; Place lists the rest.
+- **Place names how a place is nested and what domain it is in.** A file
+  reads its folder and path region, an island its path regions and the
+  strongest seams between them, the imports from one region into another.
+  When the workspace declares domains, a place reads its domains, and a
+  departure inside a domain reads as two: the placement departure, toward
+  the package that uses it most, and the domain departure, how many of its
+  consumers share its domains; or that it shares them with every consumer.
 - **Dependency is otherwise drawn on selection.** How far apart two
   islands sit means nothing. Selecting an island draws its imports and
   importers; sea trade routes are an optional layer in the chart settings:

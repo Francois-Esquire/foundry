@@ -1,5 +1,5 @@
 import type { DomainDeclaration } from "../domain-declaration";
-import { covers } from "../facet";
+import { covers } from "../facet-cover";
 import { byId, sorted } from "../workspace-projection";
 import type {
   DomainLabel,

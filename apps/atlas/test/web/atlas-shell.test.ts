@@ -566,3 +566,65 @@ it("tells what sits related but apart, and close but unrelated, for a file and i
   // A package the lens did not cover says nothing of proximity.
   expect(read({ territory: other })).not.toContain("proximity");
 });
+
+it("tells a departure in a domain as two, the placement's and the domain's, and says when no domain is declared", async () => {
+  const data = await loadAtlas();
+  const [territory, other] = data.territories;
+  assert(territory && other);
+  const [file] = territory.files;
+  assert(file);
+  const atlas = {
+    ...data,
+    domains: {
+      declared: [
+        {
+          name: "shapes",
+          parents: [],
+          places: [{ kind: "file" as const, place: file.path }],
+          unmatched: [],
+        },
+      ],
+      placements: {
+        [`file:${file.path}`]: {
+          away: { shared: 1, total: 3, unindexed: 0 },
+          domainLabel: "departs" as const,
+          domains: ["shapes"],
+          level: "file" as const,
+          package: territory.id,
+          place: file.path,
+          placementLabel: "departs" as const,
+          sharedDomains: ["shapes"],
+        },
+      },
+    },
+    placement: {
+      dominantShare: 0.6,
+      labelled: [territory.id],
+      places: {
+        [`file:${file.path}`]: {
+          away: [{ modules: 3, package: other.id }],
+          home: 0,
+          label: "departs" as const,
+          level: "file" as const,
+          package: territory.id,
+          place: file.path,
+          share: 1,
+          toward: other.id,
+          unindexed: 0,
+        },
+      },
+    },
+  };
+  const detail =
+    inspectionText(null, { file, territory }, undefined, atlas)?.detail ?? "";
+  expect(detail).toContain(" · domains: shapes");
+  expect(detail).toContain(
+    `placement departure: toward ${other.label} · 3 of 3 consumer modules · domain departure: 1 of 3 consumer modules in other packages share its domains`
+  );
+  await act(async () => {
+    root.render(createElement(Atlas, { data }));
+  });
+  expect(container.querySelector(".atlas-map-key")?.textContent).toContain(
+    "No domains are declared."
+  );
+});

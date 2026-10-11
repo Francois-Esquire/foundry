@@ -276,6 +276,7 @@ export function AtlasShell({
         {children}
         <MapKey
           departures={atlasDepartures}
+          domains={data.domains.declared.length}
           onHeight={actions.legendHeight}
           settings={chartSettings}
         />

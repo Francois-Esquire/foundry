@@ -18,6 +18,12 @@ import type {
 } from "../types";
 import { ArchitecturePanel } from "./architecture-panel";
 import { NaturalFeaturePanel } from "./natural-feature-panel";
+import {
+  domainLabelText,
+  domainsText,
+  islandNestingText,
+  pathRegionText,
+} from "./nesting-domain-text";
 import { TradePartners } from "./trade-partners";
 
 export interface EvidenceActions {
@@ -305,7 +311,12 @@ function browseLabel(
 /** What Place reads of the atlas beyond the selection: layers, and where each place is used. */
 type AtlasFacts = Pick<
   AtlasData,
-  "packageLayers" | "placement" | "proximity" | "territories"
+  | "domains"
+  | "nesting"
+  | "packageLayers"
+  | "placement"
+  | "proximity"
+  | "territories"
 >;
 
 /** A file's name, with its package's when it lives in another: "b.ts", or "b.ts in marbles". */
@@ -411,7 +422,17 @@ function placementText(
   packageId: string
 ): string | undefined {
   const reading = placementReading(atlas, place, packageId);
-  return reading && `placement: ${reading}`;
+  if (!reading) {
+    return;
+  }
+  // In a domain, a departure is told as two: the placement's, toward the
+  // package, and the domain's, against the consumers' domains (4.2d).
+  const key = placementKey(place);
+  const domain = domainLabelText(atlas, key);
+  if (domain && reading.startsWith("departs ")) {
+    return `placement departure: ${reading.slice("departs ".length)} · ${domain}`;
+  }
+  return domain ? `placement: ${reading} · ${domain}` : `placement: ${reading}`;
 }
 
 function placementReading(
@@ -458,12 +479,16 @@ function fileDetail(
 ): string {
   const { file, symbol, territory } = selection;
   const folder = folderWithin(file.directory, territory.folder);
-  const where = `in ${folder || "the package folder"}`;
+  const region = pathRegionText(atlas, file.directory);
+  const where = `in ${folder || "the package folder"}${region ? `, ${region}` : ""}`;
   const district = districts?.get(file.id);
-  const serves = district ? ` · district ${district.label}` : "";
   const place = symbol
     ? { level: "symbol" as const, place: `${file.path}#${symbol.name}` }
     : { level: "file" as const, place: file.path };
+  const inDomains = domainsText(atlas, place.place);
+  const serves = [district && `district ${district.label}`, inDomains]
+    .flatMap((text) => (text ? [` · ${text}`] : []))
+    .join("");
   const use = placementText(atlas, place, territory.id);
   const near = proximityText(atlas, file, territory);
   const used = [use, near]
@@ -495,7 +520,9 @@ function islandPlacement(atlas: AtlasFacts, territory: Territory): string {
     territory.id
   );
   const near = islandProximity(atlas, territory);
-  return [placed, use, near].filter(Boolean).join(" · ");
+  const nested = islandNestingText(atlas, territory);
+  const inDomains = domainsText(atlas, territory.folder);
+  return [placed, use, nested, inDomains, near].filter(Boolean).join(" · ");
 }
 
 function describeSelection(

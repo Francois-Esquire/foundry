@@ -1,5 +1,7 @@
 import type { DatasetReader } from "../../lib/dataset";
+import type { Domains } from "../../lib/lenses/domains-types";
 import type { FileRolesPackage } from "../../lib/lenses/file-roles-types";
+import type { Nesting } from "../../lib/lenses/nesting-types";
 import type { PackageSize } from "../../lib/lenses/package-sizes-types";
 import type {
   PlacementPackage,
@@ -34,6 +36,9 @@ export interface CodexSource {
       "moduleEdges"
     >;
   })[];
+  /** The `placement` lens: where each place is used against where it lives, and the packages it labelled. */
+  /** The `domains` lens: the declared domains, and the domain label of every placed place in one. */
+  domains: Domains;
   /** The `file-roles` lens: fan-in raises summits; roles are bound on entering an island. */
   fileRoles: FileRolesPackage[];
   history?: {
@@ -48,6 +53,8 @@ export interface CodexSource {
     SemanticsModuleIndexEntry,
     "id" | "package" | "path" | "fileKind"
   >[];
+  /** The `nesting` lens: one folder tree, with each package's path regions and the seams between them. */
+  nesting: Pick<Nesting, "folders" | "pathRegions" | "seams">;
   /** Each package's workspace-relative folder, from the manifest. */
   packagePaths: Pick<SemanticsManifestPackage, "id" | "path">[];
   /** The `package-sizes` lens, sorted by id. */
@@ -59,7 +66,6 @@ export interface CodexSource {
     places: Placements["places"];
     policy: Placements["policy"];
   };
-  /** The `placement` lens: where each place is used against where it lives, and the packages it labelled. */
   /** The `proximity` lens: what sits close without being related, and what is related without sitting close. */
   proximity: Pick<Proximity, "apart" | "close" | "packages">;
   /** The `responsibility-groups` lens, drawn as districts on entering an island. */
@@ -79,6 +85,8 @@ export async function readCodexSource(
     groups,
     placement,
     proximity,
+    nesting,
+    domains,
     edgeShards,
     history,
   ] = await Promise.all([
@@ -90,6 +98,8 @@ export async function readCodexSource(
     reader.lens("responsibility-groups"),
     reader.lens("placement"),
     reader.lens("proximity"),
+    reader.lens("nesting"),
+    reader.lens("domains"),
     reader.moduleEdgeShards(),
     reader.history(),
   ]);
@@ -102,6 +112,7 @@ export async function readCodexSource(
     dependencies: graph.edges.flatMap((e) =>
       e.kind === "dependency" ? [e] : []
     ),
+    domains: { domains: domains.domains, placements: domains.placements },
     fileRoles: roles.packages,
     history: history && {
       packages: history.entities.packages,
@@ -109,6 +120,11 @@ export async function readCodexSource(
     },
     imports: edgeShards.flatMap((s) => s.edges),
     modules: index.modules,
+    nesting: {
+      folders: nesting.folders,
+      pathRegions: nesting.pathRegions,
+      seams: nesting.seams,
+    },
     packagePaths: manifest.packages.map(({ id, path }) => ({ id, path })),
     packages: sizes.packages,
     placement: {

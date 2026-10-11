@@ -1,4 +1,4 @@
-import { covers } from "../facet";
+import { covers } from "../facet-cover";
 import type { Rule } from "../rule-declaration";
 import { canonicalRules } from "../rules";
 import type { PlanStatus } from "../types";
