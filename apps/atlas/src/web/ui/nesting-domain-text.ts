@@ -1,5 +1,7 @@
 import { byCodeUnit } from "@foundry/lib/ordering";
 import { covers } from "../../lib/facet-cover";
+import type { DomainExtent, DomainIsland } from "../domain-extent";
+import { folderWithin } from "../folder-sectors";
 import type { AtlasData, Territory } from "../types";
 
 /** What the nesting and domain readings take from the atlas. */
@@ -106,4 +108,74 @@ export function domainLabelText(
       : "";
     return `domain departure: ${shared} of ${total} consumer modules in other packages share its domains${unknown}`;
   }
+}
+
+/** A count and its noun: "1 place", "2 places". */
+function counted(count: number, one: string, many = `${one}s`): string {
+  return `${count} ${count === 1 ? one : many}`;
+}
+
+/** What a domain covers on one island: "workspaces src/node/", "lib atomic-file.ts, file-lock.ts", "models, whole". */
+function islandCover(island: DomainIsland): string {
+  const { territory } = island;
+  if (island.whole) {
+    return `${territory.label}, whole`;
+  }
+  const parts = [
+    ...island.cells.map((cell) => `${cell.folder}/`),
+    ...island.files.map((file) => folderWithin(file.path, territory.folder)),
+  ];
+  return `${territory.label} ${parts.join(", ")}`;
+}
+
+/**
+ * What Place says of a chosen domain, line by line: its reason, weight and
+ * nesting; what it covers, island by island; its symbols, which the map
+ * does not draw; what its domain labels say; and its facets that match no
+ * place. Lines with nothing to say are left out.
+ */
+export function domainReading(
+  atlas: Pick<AtlasData, "domains">,
+  extent: DomainExtent
+): string[] {
+  const declared = atlas.domains.declared.find(
+    (domain) => domain.name === extent.name
+  );
+  const held = atlas.domains.declared
+    .filter((domain) => domain.parents.includes(extent.name))
+    .map((domain) => domain.name);
+  const about = [
+    declared?.reason,
+    declared?.weight === undefined ? undefined : `weight ${declared.weight}`,
+    declared?.parents.length
+      ? `nested in ${declared.parents.join(" › ")}`
+      : undefined,
+    held.length ? `holds ${held.join(", ")}` : undefined,
+  ].filter(Boolean);
+  const { islands } = extent;
+  const files = islands.reduce((sum, island) => sum + island.covered, 0);
+  const cover = islands.length
+    ? `covers ${counted(files, "file")} on ${counted(islands.length, "island")}: ${islands.map(islandCover).join("; ")}`
+    : "covers no file on the map";
+  const symbols = extent.symbols.length
+    ? `${counted(extent.symbols.length, "symbol")}, told only here: ${extent.symbols.map((symbol) => symbol.split("/").at(-1)).join(", ")}`
+    : undefined;
+  const labels = [
+    extent.explained.size
+      ? `${counted(extent.explained.size, "place shares", "places share")} it with every consumer elsewhere`
+      : undefined,
+    extent.departures
+      ? counted(extent.departures, "domain departure")
+      : undefined,
+  ].filter(Boolean);
+  const unmatched = extent.unmatched.length
+    ? `${counted(extent.unmatched.length, "facet matches", "facets match")} nothing: ${extent.unmatched.join(", ")}`
+    : undefined;
+  return [
+    about.join(" · "),
+    cover,
+    symbols,
+    labels.join(" · "),
+    unmatched,
+  ].filter((line): line is string => Boolean(line));
 }

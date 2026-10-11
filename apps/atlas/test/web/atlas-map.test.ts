@@ -29,6 +29,7 @@ vi.mock("../../src/web/scene/scene", () => ({
       restoreView: vi.fn(),
       setBelonging: vi.fn(),
       setConnections: vi.fn(),
+      setDomain: vi.fn(),
       setLegendHeight: vi.fn(),
       setResponsibility: vi.fn(),
       setTerritoryLayout: vi.fn(),
@@ -80,6 +81,7 @@ it("keeps the scene alive across state and callback changes, including StrictMod
   const next = {
     ...state,
     chartSettings: { ...state.chartSettings, contours: true },
+    domain: "shapes",
     hover: selection,
     selection,
     showConnections: true,
@@ -104,6 +106,8 @@ it("keeps the scene alive across state and callback changes, including StrictMod
   expect(container.querySelector("canvas")).toBe(canvas);
   expect(scene.configure).toHaveBeenLastCalledWith(next.chartSettings);
   expect(scene.setConnections).toHaveBeenLastCalledWith(true);
+  // A chosen domain reaches the scene beside the selection, not as one.
+  expect(scene.setDomain).toHaveBeenLastCalledWith("shapes");
   const [call] = vi.mocked(createAtlasScene).mock.calls;
   assert(call);
   call[2].onSelect(selection);
@@ -128,6 +132,7 @@ it("restores the camera and overlays after a geometry rebuild", async () => {
       ...state.chartSettings,
       layers: { ...state.chartSettings.layers, land: true },
     },
+    domain: "shapes",
     territoryLayout: state.data.territories[0] ?? null,
   };
   await act(async () => root.render(createElement(AtlasMap, { state: next })));
@@ -137,6 +142,7 @@ it("restores the camera and overlays after a geometry rebuild", async () => {
   expect(first.dispose).toHaveBeenCalledTimes(1);
   expect(container.querySelectorAll("canvas")).toHaveLength(1);
   expect(second.restoreView).toHaveBeenCalledWith({ pixels: 2, x: 10, y: 20 });
+  expect(second.setDomain).toHaveBeenCalledWith("shapes");
   expect(second.setTerritoryLayout).toHaveBeenCalledWith(next.territoryLayout);
 });
 

@@ -9,6 +9,7 @@ import { paintCoastline } from "./coast-ink";
 import { paintChartCompass } from "./compass";
 import { paintConnections } from "./connections";
 import { paintDepartures } from "./departures";
+import { paintDomain, paintDomainDepartures } from "./domain";
 import { paintFocusedFile } from "./file-focus";
 import { paintFiles } from "./files";
 import { paintFolders } from "./folders";
@@ -43,6 +44,7 @@ export const inkLayers = [
   { id: "coast", paint: paintCoastline },
   { id: "belonging", paint: paintBelonging },
   { id: "folders", paint: paintFolders },
+  { id: "domain", paint: paintDomain },
   { id: "connections", paint: paintConnections },
   { id: "files", paint: paintFiles },
   { id: "responsibility", paint: paintResponsibilityOverlay },
@@ -62,6 +64,7 @@ export const inkLayers = [
     },
   },
   { id: "departures", paint: paintDepartures },
+  { id: "domain-departures", paint: paintDomainDepartures },
   {
     id: "selection",
     paint: ({ ctx, data, labels, selected, view }) =>

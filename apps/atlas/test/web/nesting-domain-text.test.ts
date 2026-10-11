@@ -1,7 +1,10 @@
 import { expect, it } from "vitest";
-import type { Territory } from "../../src/web/types";
+import type { DomainExtent } from "../../src/web/domain-extent";
+import type { FolderCell } from "../../src/web/folder-sectors";
+import type { AtlasFile, Territory } from "../../src/web/types";
 import {
   domainLabelText,
+  domainReading,
   domainsText,
   islandNestingText,
   pathRegionText,
@@ -143,4 +146,59 @@ it("tells a domain departure from a place that shares its domains with every con
   expect(
     domainLabelText(atlas, "file:packages/a/src/other.ts")
   ).toBeUndefined();
+});
+
+it("reads a chosen domain for Place: its reason, weight and nesting, what it covers island by island, its symbols, labels and unmatched facets", () => {
+  const point = { path: "packages/a/src/point.ts" } as AtlasFile;
+  const territory = (label: string, folder: string) =>
+    ({ folder, label }) as Territory;
+  const extent: DomainExtent = {
+    departures: 1,
+    explained: new Set(["file:packages/a/src/point.ts"]),
+    islands: [
+      {
+        cells: [{ folder: "src/shapes" } as FolderCell],
+        covered: 4,
+        files: [point],
+        territory: territory("a", "packages/a"),
+        whole: false,
+      },
+      {
+        cells: [],
+        covered: 2,
+        files: [],
+        territory: territory("b", "packages/b"),
+        whole: true,
+      },
+    ],
+    name: "geometry",
+    symbols: ["packages/a/src/turn.ts#radians"],
+    unmatched: ["packages/c"],
+  };
+  const declared = atlas.domains.declared.map((domain) =>
+    domain.name === "geometry"
+      ? { ...domain, reason: "Shapes in the plane", weight: 0.8 }
+      : domain
+  );
+  expect(
+    domainReading({ ...atlas, domains: { ...atlas.domains, declared } }, extent)
+  ).toEqual([
+    "Shapes in the plane · weight 0.8 · holds shapes",
+    "covers 6 files on 2 islands: a src/shapes/, src/point.ts; b, whole",
+    "1 symbol, told only here: turn.ts#radians",
+    "1 place shares it with every consumer elsewhere · 1 domain departure",
+    "1 facet matches nothing: packages/c",
+  ]);
+  // A nested domain names its parents; one covering nothing says so.
+  expect(
+    domainReading(atlas, {
+      ...extent,
+      departures: 0,
+      explained: new Set(),
+      islands: [],
+      name: "shapes",
+      symbols: [],
+      unmatched: [],
+    })
+  ).toEqual(["nested in geometry", "covers no file on the map"]);
 });

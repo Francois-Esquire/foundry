@@ -35,6 +35,7 @@ vi.mock("../../src/web/scene/scene", () => ({
       restoreView: vi.fn(),
       setBelonging: vi.fn(),
       setConnections: vi.fn(),
+      setDomain: vi.fn(),
       setLegendHeight: vi.fn(),
       setResponsibility: vi.fn(),
       setTerritoryLayout: vi.fn(),
@@ -627,4 +628,165 @@ it("tells a departure in a domain as two, the placement's and the domain's, and 
   expect(container.querySelector(".atlas-map-key")?.textContent).toContain(
     "No domains are declared."
   );
+});
+
+it("chooses a domain in Find, tells it in Place above the selection, keeps it while places are selected, and puts it away with Clear or Escape", async () => {
+  const data = await loadAtlas();
+  const [territory] = data.territories;
+  assert(territory);
+  const [file] = territory.files;
+  assert(file);
+  // Selecting an island reads its belonging; this test needs none of it.
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(() => new Promise(() => undefined))
+  );
+  await act(async () => {
+    root.render(createElement(Atlas, { data }));
+  });
+  // With none declared, Find asks for islands only and lists no domain.
+  await act(async () => button("Find a place").click());
+  expect(
+    container.querySelector<HTMLInputElement>('input[type="search"]')
+      ?.placeholder
+  ).toBe("Find an island…");
+  expect(container.querySelector('.atlas-index button[value="shapes"]')).toBe(
+    null
+  );
+  await act(() => root.unmount());
+  root = createRoot(container);
+  const declared = {
+    ...data,
+    domains: {
+      declared: [
+        {
+          name: "shapes",
+          parents: [],
+          places: [{ kind: "file" as const, place: file.path }],
+          reason: "Geometry",
+          unmatched: [],
+        },
+      ],
+      placements: {},
+    },
+  };
+  await act(async () => {
+    root.render(createElement(Atlas, { data: declared }));
+  });
+  const [result] = vi.mocked(createAtlasScene).mock.results.slice(-1);
+  assert(result);
+  const scene = await result.value;
+  await act(async () => button("Find a place").click());
+  expect(
+    container.querySelector<HTMLInputElement>('input[type="search"]')
+      ?.placeholder
+  ).toBe("Find an island or domain…");
+  const entry = container.querySelector<HTMLButtonElement>(
+    '.atlas-index button[value="shapes"]'
+  );
+  assert(entry);
+  expect(entry.getAttribute("aria-pressed")).toBe("false");
+  expect(
+    entry.querySelector(".atlas-swatch")?.getAttribute("aria-hidden")
+  ).toBe("true");
+  await act(async () => entry.click());
+  expect(scene.setDomain).toHaveBeenLastCalledWith("shapes");
+  expect(
+    container.querySelector('[role="tab"][aria-selected="true"]')?.textContent
+  ).toBe("Place");
+  const told = container.querySelector('[aria-label="Chosen domain"]');
+  expect(told?.textContent).toContain("Domain shapes");
+  expect(told?.textContent).toContain("Geometry");
+  expect(told?.textContent).toContain(
+    `covers 1 file on 1 island: ${territory.label}`
+  );
+  // Selecting an island keeps the domain; Place tells both.
+  await act(async () => button("Find a place").click());
+  const island = container.querySelector<HTMLButtonElement>(
+    `.atlas-index button[value="${territory.id}"]`
+  );
+  assert(island);
+  await act(async () => island.click());
+  expect(scene.setDomain).toHaveBeenLastCalledWith("shapes");
+  expect(container.querySelector('[aria-label="Chosen domain"]')).not.toBe(
+    null
+  );
+  expect(container.querySelector(".atlas-place h2")?.textContent).toBe(
+    territory.label
+  );
+  // A real heading, under the selection's; the swatch is hidden from readers.
+  expect(
+    container.querySelector('[aria-label="Chosen domain"] h3')?.textContent
+  ).toBe("Domain shapes");
+  await act(async () => button("Clear domain").click());
+  expect(scene.setDomain).toHaveBeenLastCalledWith(null);
+  expect(container.querySelector('[aria-label="Chosen domain"]')).toBe(null);
+  // Focus goes to Place's heading, not the page.
+  expect(document.activeElement).toBe(
+    container.querySelector(".atlas-place h2")
+  );
+  // Escape leaves the selection first, then puts the domain away.
+  await act(async () => button("Find a place").click());
+  const again = container.querySelector<HTMLButtonElement>(
+    '.atlas-index button[value="shapes"]'
+  );
+  assert(again);
+  await act(async () => again.click());
+  expect(scene.setDomain).toHaveBeenLastCalledWith("shapes");
+  await act(async () => pressEscape());
+  expect(scene.setDomain).toHaveBeenLastCalledWith("shapes");
+  await act(async () => pressEscape());
+  expect(scene.setDomain).toHaveBeenLastCalledWith(null);
+  expect(container.textContent).toContain(
+    "1 domain is declared. Choose one in Find"
+  );
+  vi.unstubAllGlobals();
+});
+
+it("keeps the chosen domain through a relayout, handing it to the rebuilt scene", async () => {
+  const data = await loadAtlas();
+  const [territory] = data.territories;
+  assert(territory);
+  const declared = {
+    ...data,
+    domains: {
+      declared: [
+        {
+          name: "shapes",
+          parents: [],
+          places: [{ kind: "package" as const, place: territory.folder }],
+          unmatched: [],
+        },
+      ],
+      placements: {},
+    },
+  };
+  await act(async () => {
+    root.render(createElement(Atlas, { data: declared, developer: true }));
+  });
+  await act(async () => button("Find a place").click());
+  const entry = container.querySelector<HTMLButtonElement>(
+    '.atlas-index button[value="shapes"]'
+  );
+  assert(entry);
+  await act(async () => entry.click());
+  const scenes = vi.mocked(createAtlasScene).mock.results.length;
+  await act(async () => button("Chart settings").click());
+  const clearance = container.querySelector<HTMLInputElement>(
+    'input[aria-label="Island clearance"]'
+  );
+  assert(clearance);
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value"
+    )?.set?.call(clearance, "60");
+    clearance.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  // The relayout settles after its pause and rebuilds the scene.
+  await act(() => new Promise((done) => setTimeout(done, 400)));
+  const { results } = vi.mocked(createAtlasScene).mock;
+  expect(results.length).toBeGreaterThan(scenes);
+  const rebuilt = await results.at(-1)?.value;
+  expect(rebuilt?.setDomain).toHaveBeenLastCalledWith("shapes");
 });

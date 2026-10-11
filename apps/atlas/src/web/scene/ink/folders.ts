@@ -62,7 +62,11 @@ export function cellsShown(
   );
 }
 
-function inView(territory: Territory, view: InkView | undefined): boolean {
+/** Whether an island reaches into the view, by its radius; every island without one. */
+export function inView(
+  territory: Territory,
+  view: InkView | undefined
+): boolean {
   return (
     !view ||
     (Math.abs(territory.x - view.x) <= view.width / 2 + territory.radius &&

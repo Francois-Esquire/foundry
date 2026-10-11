@@ -32,6 +32,7 @@ function applyState(
   current.setBelonging(next.belongingLayer);
   current.setTerritoryLayout(next.territoryLayout);
   current.setConnections(next.showConnections);
+  current.setDomain(next.domain);
   current.setLegendHeight(next.legendHeight);
   current.setResponsibility(next.responsibility);
   if (view) {
@@ -148,6 +149,9 @@ export function AtlasMap(props: AtlasMapProps) {
   useEffect(() => {
     scene.current?.setTerritoryLayout(state.territoryLayout);
   }, [state.territoryLayout]);
+  useEffect(() => {
+    scene.current?.setDomain(state.domain);
+  }, [state.domain]);
   useEffect(() => {
     scene.current?.setConnections(state.showConnections);
     scene.current?.setLegendHeight(state.legendHeight);

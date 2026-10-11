@@ -5,6 +5,15 @@ import type { AtlasData, AtlasFile, Territory } from "../types";
 /** The camera's tilt off the vertical, in radians: the chart's north–south runs foreshortened by its cosine on screen. */
 export const chartTilt = 0.7;
 
+/**
+ * The stretch that undoes the tilt's foreshortening. A mark drawn under a
+ * transform scaling y by it, with every y divided by as much, keeps its
+ * place, looks round on screen where it is a circle, and keeps its weight
+ * in every direction, since each east–west run of its line is widened by
+ * the foreshortening.
+ */
+export const tiltStretch = 1 / Math.cos(chartTilt);
+
 export function zoomForPixels(
   camera: OrthographicCamera,
   viewportWidth: number,
@@ -156,6 +165,8 @@ export interface MapLabel {
   /** Small capitals printed beneath the name, e.g. a package's file count. */
   caption?: string;
   compositeId?: string;
+  /** The chosen domain's name, in the domain's ink. */
+  domain?: boolean;
   file?: AtlasFile;
   /** A folder's name, set in italics in the folder ink. */
   folder?: boolean;
@@ -168,6 +179,24 @@ export interface MapLabel {
   width: number;
   x: number;
   y: number;
+}
+
+/**
+ * The placed label under a point on the chart, which a click selects. The
+ * domain's name is a caption, not a place, so a click passes through it.
+ */
+export function labelUnder(
+  labels: readonly MapLabel[],
+  x: number,
+  y: number
+): MapLabel | undefined {
+  return labels.find(
+    (label) =>
+      !label.domain &&
+      Math.abs(x - label.x) < label.width / 2 &&
+      y >= label.y - label.height &&
+      y <= label.y
+  );
 }
 
 export function visibleLabels(

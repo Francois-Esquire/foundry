@@ -33,7 +33,7 @@ interface CellSplit {
 }
 
 /** A region of the island a split divides, in island units: the island's box, then each side of each cut. */
-interface Rect {
+export interface Rect {
   x0: number;
   x1: number;
   y0: number;
@@ -43,12 +43,16 @@ interface Rect {
 /**
  * A folder's cell: its sites, those of its own files and of every folder
  * below it; the cuts made between its own files and its subfolders, in the
- * order made; and its subfolders' cells, by name. The package's folder is
- * the root cell, `folder` "".
+ * order made; its subfolders' cells, by name; and its region, the rectangle
+ * its parent's cuts left it, which the coast trims to its land. The
+ * package's folder is the root cell, `folder` "", its region the island's
+ * box. Cells of one parent share the coordinate of the cut between them
+ * exactly, so their regions meet edge to edge.
  */
 export interface FolderCell {
   folder: string;
   folders: FolderCell[];
+  region: Readonly<Rect>;
   sites: readonly Readonly<Site>[];
   splits: CellSplit[];
 }
@@ -257,6 +261,7 @@ function divide(
     const below: FolderCell = {
       folder: only.folder,
       folders: [],
+      region,
       sites,
       splits: [],
     };
@@ -348,19 +353,28 @@ export function settleFiles(
     spacingPerSigma * contourSigma(radius, Math.max(1, files.length))
   );
   const sites = sunflower(files.length, spacing);
-  const tree: FolderCell = { folder: "", folders: [], sites, splits: [] };
+  // The island's box, wide enough for every gutter's push outward.
+  const margin = topGutter * spacing;
+  const xs = sites.map((site) => site.x);
+  const ys = sites.map((site) => site.y);
+  const region: Rect = files.length
+    ? {
+        x0: Math.min(...xs) - margin,
+        x1: Math.max(...xs) + margin,
+        y0: Math.min(...ys) - margin,
+        y1: Math.max(...ys) + margin,
+      }
+    : { x0: 0, x1: 0, y0: 0, y1: 0 };
+  const tree: FolderCell = {
+    folder: "",
+    folders: [],
+    region,
+    sites,
+    splits: [],
+  };
   if (files.length) {
     const order = districtOf ? byDistrict(files, districtOf) : byPath;
-    // The island's box, wide enough for every gutter's push outward.
-    const margin = topGutter * spacing;
-    const xs = sites.map((site) => site.x);
-    const ys = sites.map((site) => site.y);
-    divide(blocks(folderTree(files, root), order), sites, margin, tree, {
-      x0: Math.min(...xs) - margin,
-      x1: Math.max(...xs) + margin,
-      y0: Math.min(...ys) - margin,
-      y1: Math.max(...ys) + margin,
-    });
+    divide(blocks(folderTree(files, root), order), sites, margin, tree, region);
   }
   return tree;
 }

@@ -1,6 +1,7 @@
 import type { BelongingLayer, BelongingRegion } from "../../belonging";
 import { labelPriority, territoryLabelSize } from "../../codex/bindings";
 import type { CompositionMark } from "../../composition-layout";
+import type { DomainExtent } from "../../domain-extent";
 import { folderWithin } from "../../folder-sectors";
 import { territoryLabelY } from "../../geography";
 import type { ResponsibilityOverlay } from "../../responsibility-focus";
@@ -8,7 +9,8 @@ import type { AtlasData, AtlasFile, Territory } from "../../types";
 import { detailLevel, fileInView } from "../detail-level";
 import type { InkView, MapLabel } from "../exploration";
 import { visibleLabels } from "../exploration";
-import { enteredAt, inks } from "../ink-ladder";
+import { domainMark, enteredAt, inks } from "../ink-ladder";
+import { southOf } from "./domain";
 import { cellsShown, namedFolders } from "./folders";
 import type { InkState } from "./state";
 
@@ -43,7 +45,8 @@ export function paintMapLabels(state: InkState): void {
         : undefined),
     state.responsibility?.composition,
     state.belonging,
-    state.project
+    state.project,
+    state.domain
   );
 }
 
@@ -62,7 +65,8 @@ function paintLabels(
   evidenceFiles?: Set<string>,
   composition?: ResponsibilityOverlay["composition"],
   belonging?: BelongingLayer | null,
-  project: (label: MapLabel) => MapLabel = (label) => label
+  project: (label: MapLabel) => MapLabel = (label) => label,
+  domain: DomainExtent | null = null
 ): MapLabel[] {
   const candidates: MapLabel[] = [];
   const add = (
@@ -108,6 +112,7 @@ function paintLabels(
       );
     }
   }
+  addDomainLabel(domain, belonging, view, add);
   // A district named as the folder it sits in leaves the name to the folder;
   // Place and the panel still name the district.
   const namesItsFolder = (
@@ -177,11 +182,12 @@ function paintLabels(
     return fileLabels <= fileLabelBudget;
   });
   ctx.textAlign = "center";
+  ctx.lineJoin = "round";
   for (const label of labels) {
     ctx.globalAlpha = label.opacity ?? 1;
     ctx.font = label.font;
     ctx.strokeStyle = inks.labelHalo;
-    ctx.lineWidth = (label.file?.id === fileId ? 6 : 3) / pixels;
+    ctx.lineWidth = haloWidth(label, fileId) / pixels;
     ctx.strokeText(label.text, label.x, label.y);
     ctx.fillStyle = labelInk(label, fileId);
     ctx.fillText(label.text, label.x, label.y);
@@ -193,11 +199,121 @@ function paintLabels(
   return labels;
 }
 
+/**
+ * The paper halo a name is cut from, in screen pixels. Island names, their
+ * captions and the domain's name sit on the sea, darker than the labels'
+ * floor allows, so theirs is wide enough to fill the gaps between letters
+ * and become their ground (`grounds.labelHalo`); a name on land needs only
+ * a thin one. The selected file's name is cut widest.
+ */
+const nameHalo = { caption: 5, land: 3, sea: 6, selected: 6 } as const;
+
+function haloWidth(label: MapLabel, fileId: string | null): number {
+  if (label.file?.id === fileId) {
+    return nameHalo.selected;
+  }
+  return label.caption || label.domain ? nameHalo.sea : nameHalo.land;
+}
+
 function labelInk(label: MapLabel, fileId: string | null): string {
   if (label.file?.id === fileId) {
     return inks.selection;
   }
+  if (label.domain) {
+    return inks.domainName;
+  }
   return label.folder ? inks.folder : inks.label;
+}
+
+/** The chosen domain's name's size in screen pixels: a folder name's. */
+const domainNameSize = 13;
+/** How far below the middle of its piece the name's baseline sits, in its own size. */
+const domainNameDrop = 1.6;
+
+/**
+ * The chosen domain's name, once, at the largest piece of it in view:
+ * "domain node-runtime" just above the diamond of an island it covers
+ * whole, clear of a package's departure ring at its middle; or just below
+ * the middle of the files of the cells it covers on one, clear of the
+ * folder's name a line above and of a bead at the middle. It comes after
+ * only the selected file's name, so it wins every other collision. None
+ * when no piece is in view.
+ */
+function addDomainLabel(
+  domain: DomainExtent | null,
+  belonging: BelongingLayer | null | undefined,
+  view: InkView,
+  add: (
+    territory: Territory,
+    text: string,
+    x: number,
+    y: number,
+    size: number,
+    face: string,
+    extra?: Partial<MapLabel>
+  ) => void
+) {
+  if (!domain) {
+    return;
+  }
+  const pixels = view.pixelsPerUnit;
+  const size = domainNameSize / pixels;
+  const pieces = domain.islands.flatMap((island) => {
+    const { territory } = island;
+    if (island.whole) {
+      const [x, south] = southOf(territory);
+      const above = (domainMark.inset + domainMark.diamond + 3) / pixels;
+      return [{ covered: island.covered, territory, x, y: south - above }];
+    }
+    if (!(island.covered && cellsShown(territory, belonging))) {
+      return [];
+    }
+    const inside = new Set(island.files);
+    for (const cell of island.cells) {
+      const path = [territory.folder, cell.folder].filter(Boolean).join("/");
+      for (const file of territory.files) {
+        if (file.path.startsWith(`${path}/`)) {
+          inside.add(file);
+        }
+      }
+    }
+    const files = [...inside];
+    const x = files.reduce((sum, file) => sum + file.x, 0) / files.length;
+    const y = files.reduce((sum, file) => sum + file.y, 0) / files.length;
+    return [
+      {
+        covered: island.covered,
+        territory,
+        x,
+        y: y + domainNameDrop * size,
+      },
+    ];
+  });
+  const shown = pieces
+    .map((piece) => ({
+      ...piece,
+      x: piece.territory.x + piece.x,
+      y: piece.territory.y + piece.y,
+    }))
+    .filter(
+      (piece) =>
+        Math.abs(piece.x - view.x) <= view.width / 2 &&
+        Math.abs(piece.y - view.y) <= view.height / 2
+    )
+    .sort((a, b) => b.covered - a.covered);
+  const [largest] = shown;
+  if (!largest) {
+    return;
+  }
+  add(
+    largest.territory,
+    `domain ${domain.name}`,
+    largest.x,
+    largest.y,
+    size,
+    "AtlasBody",
+    { domain: true }
+  );
 }
 
 /** A folder name's size in screen pixels, under a district's. */
@@ -261,7 +377,7 @@ function paintCaption(
   ctx.font = `${9.5 / pixels}px AtlasBody`;
   ctx.letterSpacing = `${1.4 / pixels}px`;
   const y = label.y + 14 / pixels;
-  ctx.lineWidth = 2.5 / pixels;
+  ctx.lineWidth = nameHalo.caption / pixels;
   ctx.strokeText(caption, label.x, y);
   ctx.fillStyle = inks.labelCaption;
   ctx.fillText(caption, label.x, y);

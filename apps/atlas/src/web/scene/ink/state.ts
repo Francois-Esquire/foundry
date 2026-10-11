@@ -1,4 +1,5 @@
 import type { BelongingLayer, BelongingRegion } from "../../belonging";
+import { type DomainExtent, domainExtent } from "../../domain-extent";
 import type { ResponsibilityOverlay } from "../../responsibility-focus";
 import type { AtlasData, Territory } from "../../types";
 import type { atlasBoundaries, BoundaryVisibility } from "../boundaries";
@@ -18,6 +19,8 @@ export interface InkOptions {
   data: AtlasData;
   /** A developer session: each layer is timed (`timeStage`). */
   developer?: boolean;
+  /** The declared domain the reader chose to draw across the islands. */
+  domain?: string | null;
   fileId?: string | null;
   /**
    * The island to ink under the pointer, asked once the labels are placed,
@@ -55,6 +58,8 @@ export interface InkState {
   ctx: CanvasRenderingContext2D;
   data: AtlasData;
   detail: InkDetail;
+  /** Where the chosen domain lies; null when none is chosen. */
+  domain: DomainExtent | null;
   /** The files an overlay is about; every other file recedes. */
   evidenceFiles: Set<string> | undefined;
   fileId: string | null;
@@ -199,6 +204,7 @@ export function inkState(
     ctx,
     data,
     detail,
+    domain: options.domain ? domainExtent(data, options.domain) : null,
     evidenceFiles: evidenceOf(responsibility, focusedFileVisible),
     fileId,
     hovered: options.hovered,

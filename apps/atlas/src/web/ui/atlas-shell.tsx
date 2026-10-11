@@ -153,6 +153,13 @@ export function AtlasShell({
     },
     [select, openSection]
   );
+  const chooseDomain = useCallback(
+    (name: string) => {
+      actions.domain(name);
+      openSection("place");
+    },
+    [actions.domain, openSection]
+  );
   const zoomOut = useCallback(
     () => scene.current?.zoom(1 / ZOOM_STEP),
     [scene]
@@ -186,6 +193,7 @@ export function AtlasShell({
         <AtlasPlace
           composites={belonging.composites}
           data={data}
+          domain={state.domain}
           error={belonging.error}
           evidence={actions}
           evidenceOpen={evidenceOpen}
@@ -194,6 +202,7 @@ export function AtlasShell({
           hoveredWreck={hoveredWreck}
           loading={belonging.loading}
           onBrowse={browse}
+          onDomain={actions.domain}
           onEvidence={toggleEvidence}
           onFrame={actions.frame}
           onRetry={belonging.retry}
@@ -214,6 +223,8 @@ export function AtlasShell({
         <AtlasSearch
           composites={belonging.composites}
           data={data}
+          domain={state.domain}
+          onDomain={chooseDomain}
           onSelect={chooseFound}
           regions={belonging.regions}
           selection={selection}

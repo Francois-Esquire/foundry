@@ -33,7 +33,7 @@ What the scan already measures for each:
 | Shape | Package graph, dependency layers, gravity, file counts | Island size and north–south position |
 | Proximity | The `proximity` lens (2.5): folders whose files fall into unrelated groups of responsibilities, files apart from their responsibility's folder (`pathAgreesWithRegion`), and co-changing files in different folders; responsibility regions; change coupling; boundary interactions | Since 4.3a, position by folder cell inside an island, no import pull; since 4.2c, ties and close marks at island zoom, and Place |
 | Nesting | The `nesting` lens (2.4): one folder tree across every package, from the module index, with path regions and seams from `internals/`; scopes with parent chains | Since 4.3a, file positions by folder cell; since 4.2d, a file's path region and an island's regions and seams in Place; since 4.3b, folder lines and names at island zoom |
-| Lives vs used | The `placement` lens (2.3): every symbol, file, folder, and package labelled fits, spread, or departs from its consumer modules; per-symbol consumer packages; symbol locality `commonScope` and `dominant*`; concept miscentering; `fold-package` | Since 4.2b, departures drawn by default, and every place's placement in Place; since 4.2d, a place's domains and its domain label beside its placement label (the `domains` lens, 2.6) |
+| Lives vs used | The `placement` lens (2.3): every symbol, file, folder, and package labelled fits, spread, or departs from its consumer modules; per-symbol consumer packages; symbol locality `commonScope` and `dominant*`; concept miscentering; `fold-package` | Since 4.2b, departures drawn by default, and every place's placement in Place; since 4.2d, a place's domains and its domain label beside its placement label (the `domains` lens, 2.6); since 4.3c, a domain chosen in Find drawn across islands, and the departures it explains marked |
 
 The gap is clearest in the last two rows. Nesting by directory is in the
 data and not on the map, and "lives here, used there" is the question that
@@ -76,6 +76,7 @@ What the map encodes, from the codex bindings and the design record:
 | Marsh | A module the analysis could not place in one responsibility. | yes |
 | Selection ink | A package's dependency lines, a file's imports. | on selection |
 | Departure | Since 4.2b, a place used mostly from one other package (`placement` lens): a magenta notched ring, and a dash-dot line to that package's coast; selection lines replace the lines while anything is selected. | yes |
+| Domain | Since 4.3c, a declared domain chosen in Find: a cobalt dashed band inside the folders it covers, or a whole package's coast with a diamond, a square on a file it names alone, its name once, and the notch of each departure it explains closed. It stays while places are selected. | on choice |
 | Proximity | Since 4.2c, at island zoom: ties from files apart from their responsibility's folder and between co-changing files in different folders, and a broken ring on folders whose files serve unrelated responsibilities (`proximity` lens). | at island zoom |
 | Wreck | A package seen at a history checkpoint and gone now. | with `--history` |
 | Sea trade routes | Each package's leading consumers. | no |

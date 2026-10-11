@@ -1,4 +1,5 @@
 import { drawnTies, proximities } from "../../proximity";
+import { tiltStretch } from "../exploration";
 import { closeMark, dashAt, enteredAt, inkStyle } from "../ink-ladder";
 import { traceLand } from "../paint-paper";
 import type { InkState } from "./state";
@@ -55,6 +56,8 @@ export function paintProximity(state: InkState): void {
   ctx.setLineDash([]);
   const radius = closeMark.radius / pixels;
   const apart = closeMark.apart / pixels;
+  // Under the tilt's stretch, so the arcs are round on screen.
+  ctx.scale(1, tiltStretch);
   for (const mark of proximities(data).marks) {
     // "( )": two arcs set apart, one for each side of the folder.
     for (const side of [-1, 1]) {
@@ -62,7 +65,7 @@ export function paintProximity(state: InkState): void {
       ctx.beginPath();
       ctx.arc(
         mark.x + side * apart,
-        mark.y,
+        mark.y / tiltStretch,
         radius,
         facing - closeMark.sweep,
         facing + closeMark.sweep

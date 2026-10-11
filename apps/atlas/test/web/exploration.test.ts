@@ -8,6 +8,7 @@ import {
   frameFiles,
   inkView,
   keepSeaInFrame,
+  labelUnder,
   visibleLabels,
   visibleRegionTerritory,
   zoomForPixels,
@@ -251,4 +252,24 @@ describe("atlas exploration", () => {
       }).map((l) => l.text)
     ).toEqual(["first", "separate"]);
   });
+});
+
+it("selects the label under a point, and lets a click pass through the domain's name", () => {
+  const territory = { id: "island" } as MapLabel["territory"];
+  const label = (extra: Partial<MapLabel>): MapLabel => ({
+    font: "12px AtlasBody",
+    height: 10,
+    territory,
+    text: "name",
+    width: 40,
+    x: 0,
+    y: 0,
+    ...extra,
+  });
+  const island = label({ text: "island" });
+  expect(labelUnder([island], 5, -5)).toBe(island);
+  expect(labelUnder([island], 30, -5)).toBeUndefined();
+  const domain = label({ domain: true, text: "domain shapes" });
+  expect(labelUnder([domain], 5, -5)).toBeUndefined();
+  expect(labelUnder([domain, island], 5, -5)).toBe(island);
 });

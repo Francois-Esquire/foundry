@@ -1,4 +1,5 @@
 import { departures } from "../../departures";
+import { tiltStretch } from "../exploration";
 import { dashAt, departureRing, inkStyle } from "../ink-ladder";
 import { clipToSea, nearestCoast, seaCurve } from "../selection-ink";
 import type { InkState } from "./state";
@@ -24,6 +25,10 @@ export function paintDepartures(state: InkState): void {
     return;
   }
   const ring = inkStyle("departure");
+  // Drawn under the tilt's stretch, so a ring is round on screen and keeps
+  // its weight at its foot and crown.
+  ctx.save();
+  ctx.scale(1, tiltStretch);
   ctx.strokeStyle = ring.hue;
   ctx.lineWidth = ring.weight / pixels;
   ctx.lineCap = "round";
@@ -32,13 +37,14 @@ export function paintDepartures(state: InkState): void {
     ctx.beginPath();
     ctx.arc(
       mark.x,
-      mark.y,
+      mark.y / tiltStretch,
       radius,
       -Math.PI / 2 + departureRing.notch / 2,
       (3 * Math.PI) / 2 - departureRing.notch / 2
     );
     ctx.stroke();
   }
+  ctx.restore();
   if (selected) {
     return;
   }

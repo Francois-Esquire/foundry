@@ -64,6 +64,17 @@ folder, not physical scale; how far apart two islands sit means nothing.
   departure inside a domain reads as two: the placement departure, toward
   the package that uses it most, and the domain departure, how many of its
   consumers share its domains; or that it shares them with every consumer.
+- **A domain can be drawn across islands.** When the workspace declares
+  domains, Find lists them. Choose one to draw it with the domains nested
+  in it. A dashed cobalt band runs inside the edge of the folders it
+  covers, and along the whole coast of a package it covers whole, which
+  also takes a cobalt diamond. A file it names alone gets a square. Its
+  name, "domain billing", is written once on the map. A departure it
+  explains, one whose every consumer elsewhere shares it, has its ring's
+  notch closed in cobalt. The domain stays drawn while you select places.
+  Clear it in Place, or press Escape once nothing is selected. Place lists
+  what it covers island by island, its symbols, which the map does not
+  draw, and its facets that match nothing.
 - **Dependency is otherwise drawn on selection.** How far apart two
   islands sit means nothing. Selecting an island draws its imports and
   importers; sea trade routes are an optional layer in the chart settings:

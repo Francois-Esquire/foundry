@@ -16,6 +16,11 @@ export interface AtlasState {
   data: AtlasData;
   /** A developer session (`?dev`, or the dev server): paint timings (renderer controls follow in 4.1). */
   developer: boolean;
+  /**
+   * The declared domain drawn across the islands, chosen in Find. Not a
+   * selection: it stays while islands, districts and files are selected.
+   */
+  domain: string | null;
   hover: AtlasSelection | null;
   hoveredWreck: FormerPackage | null;
   layoutSettings: LandmassSettings;
@@ -44,6 +49,7 @@ export function createAtlasState(
     },
     data,
     developer,
+    domain: null,
     hover: null,
     hoveredWreck: null,
     layoutSettings: { ...defaultLandmassSettings },

@@ -343,6 +343,17 @@ h2 {
   font-size: 14px;
   line-height: 1.3;
 }
+.atlas-place-domain {
+  padding: 8px 0;
+  margin: 10px 0;
+  border-top: 1px solid #bba78566;
+  border-bottom: 1px solid #bba78566;
+}
+.atlas-place-domain h3 {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 600;
+}
 .atlas-place-actions {
   display: flex;
   flex-wrap: wrap;
@@ -493,6 +504,11 @@ h2 {
   height: 9px;
   border-radius: 50%;
   box-shadow: inset 0 0 0 1px #776c4f55;
+}
+/* A domain's swatch is the diamond a package it covers whole takes on the map. */
+.atlas-domain-swatch {
+  border-radius: 0;
+  transform: rotate(45deg) scale(0.85);
 }
 .atlas-file-name {
   font-size: 13px;

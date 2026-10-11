@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import { type BelongingRegion, fileDistricts } from "../belonging";
 import { placementKey } from "../codex/resolve";
 import type { CodexPlacement } from "../codex/vocabulary";
@@ -17,6 +17,7 @@ import type {
   Territory,
 } from "../types";
 import { ArchitecturePanel } from "./architecture-panel";
+import { DomainPlace } from "./domain-place";
 import { NaturalFeaturePanel } from "./natural-feature-panel";
 import {
   domainLabelText,
@@ -38,6 +39,7 @@ export interface EvidenceActions {
 /** Selected-place inspector with the pointer readout and architectural evidence. */
 export function AtlasPlace({
   data,
+  domain,
   features,
   selection,
   hover,
@@ -52,12 +54,15 @@ export function AtlasPlace({
   evidenceOpen,
   evidence,
   onSelect,
+  onDomain,
   onFrame,
   onBrowse,
   onEvidence,
   onTrace,
 }: {
   data: AtlasData;
+  /** The domain drawn across the islands, told above the selection. */
+  domain: string | null;
   features?: NaturalFeatures;
   selection: AtlasSelection | null;
   hover: AtlasSelection | null;
@@ -72,6 +77,7 @@ export function AtlasPlace({
   evidenceOpen: boolean;
   evidence: EvidenceActions;
   onSelect: (value: AtlasSelection | null) => void;
+  onDomain: (name: string | null) => void;
   onFrame: (ids: string[]) => void;
   onBrowse: () => void;
   onEvidence: () => void;
@@ -98,14 +104,28 @@ export function AtlasPlace({
     districts,
     features,
   });
+  // Clearing the domain removes its block; focus lands on Place's heading.
+  const heading = useRef<HTMLHeadingElement>(null);
+  const focusHeading = useCallback(() => heading.current?.focus(), []);
+  const chosen = (
+    <DomainPlace
+      data={data}
+      domain={domain}
+      onCleared={focusHeading}
+      onDomain={onDomain}
+    />
+  );
   if (!(territory && selection)) {
     return (
       <div className="atlas-place">
-        <h2>The archipelago</h2>
+        <h2 ref={heading} tabIndex={-1}>
+          The archipelago
+        </h2>
         <p>
           {data.territories.length} islands · Drag to explore · Scroll to move
           closer · Select a territory
         </p>
+        {chosen}
         {pointer}
       </div>
     );
@@ -113,7 +133,9 @@ export function AtlasPlace({
   return (
     <div className="atlas-place">
       <div className="atlas-place-heading">
-        <h2>{placeTitle(selection, place, territory)}</h2>
+        <h2 ref={heading} tabIndex={-1}>
+          {placeTitle(selection, place, territory)}
+        </h2>
         <button
           aria-label="Clear selection"
           className="atlas-place-close"
@@ -134,6 +156,7 @@ export function AtlasPlace({
           districts
         )}
       </p>
+      {chosen}
       {pointer}
       {loading && <p role="status">Reading belonging…</p>}
       {error && (

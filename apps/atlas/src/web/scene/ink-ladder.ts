@@ -19,6 +19,12 @@ import { detailLevel } from "./detail-level";
 export const grounds = {
   continent: "#c4cca0",
   deepWater: "#c7d2c7",
+  /**
+   * The paper a name on the sea is cut from: island names, their captions
+   * and a domain's name take a halo wide enough to be their ground there
+   * (`nameHalo` in `ink/labels.ts`).
+   */
+  labelHalo: "#f5efdf",
   land: "#f1ead9",
   openWater: "#b4c4c5",
   /**
@@ -30,7 +36,7 @@ export const grounds = {
   shallows: "#e3e6d7",
   shoreWater: "#dfe3d3",
 } as const;
-type Ground = "land" | "sea";
+type Ground = "land" | "labelHalo" | "sea";
 
 /** Named zooms, in CSS pixels per map unit: the overview, an entered island, a file close up. */
 export const zooms = { close: 10, island: 2.2, overview: 1 } as const;
@@ -49,6 +55,7 @@ export const rungs = [
   "departure",
   "file",
   "label",
+  "domain",
   "tie",
   "cell",
   "coast",
@@ -67,6 +74,8 @@ export const rungFloor: Record<Rung, number> = {
   cell: 3,
   coast: 1.8,
   departure: 8,
+  /** A chosen domain's outline and marks: under every name, over every tie. */
+  domain: 4,
   file: 5.5,
   label: 4.5,
   relief: 1.25,
@@ -106,6 +115,13 @@ export const inks = {
   departure: "#681049",
   /** A departure's line, darker than its ring, since the sea it crosses is darker than the land the ring sits on. */
   departureLine: "#5e0d42",
+  /**
+   * A chosen domain: its outline, the files and packages it covers, and the
+   * departures it explains, in a cobalt no other ink takes; its name in a
+   * darker ink of the same hue, on the label rung.
+   */
+  domain: "#1e6ccc",
+  domainName: "#125ecc",
   /** The selected island's ring once it is entered: file-rung strength. */
   enteredRing: "#4f4634",
   /** Evidence in focus in the architecture overlays, and their proposals. */
@@ -144,7 +160,7 @@ export const inks = {
   /** Names and their captions; the halo is the paper they are cut from. */
   label: "#665e50",
   labelCaption: "#6a6254",
-  labelHalo: "#f5efdf",
+  labelHalo: grounds.labelHalo,
   /** Height contours over the land and distance rings on the sea. */
   landContour: "#806c4f",
   marsh: "#697855",
@@ -310,6 +326,20 @@ export const ladderMarks: readonly LadderMark[] = [
     rung: "departure",
   },
   {
+    alpha: always,
+    ground: "land",
+    id: "domain",
+    ink: inks.domain,
+    rung: "domain",
+  },
+  {
+    alpha: always,
+    ground: "land",
+    id: "domain-name",
+    ink: inks.domainName,
+    rung: "label",
+  },
+  {
     alpha: entered,
     ground: "land",
     id: "folder-name",
@@ -363,6 +393,22 @@ export const ladderMarks: readonly LadderMark[] = [
     ink: inks.labelCaption,
     rung: "label",
   },
+  // Names on the sea are read against their halo, which fills their letters' gaps.
+  ...(
+    [
+      ["island-name", inks.label],
+      ["island-caption", inks.labelCaption],
+      ["domain-name-on-sea", inks.domainName],
+    ] as const
+  ).map(
+    ([id, ink]): LadderMark => ({
+      alpha: always,
+      ground: "labelHalo",
+      id,
+      ink,
+      rung: "label",
+    })
+  ),
   {
     alpha: () => inkAlpha.coastPen,
     ground: "land",
@@ -483,6 +529,18 @@ export const closeMark = {
   apart: 2,
   radius: 5,
   sweep: (55 * Math.PI) / 180,
+} as const;
+
+/**
+ * A chosen domain's marks, in screen pixels: the square round a file it
+ * names, half its side, wide enough to hold a departing file's ring; the
+ * diamond inside the coast of a package it covers whole, half its diagonal,
+ * held `inset` in from the coast's southern point.
+ */
+export const domainMark = {
+  diamond: 5,
+  fileSquare: 6.5,
+  inset: 9,
 } as const;
 
 /** A line's dash in screen pixels; empty is solid. */
@@ -614,6 +672,40 @@ export const inkTable: readonly InkStyle[] = [
     "Toward the package that uses it most",
     [8, 3, 1, 3],
     { cue: "A dash-dot line, so it reads without its hue" }
+  ),
+  line(
+    "domain-outline",
+    inks.domain,
+    2.5,
+    "Where the chosen domain lies: the folders it covers, or a whole package's coast",
+    [6, 3],
+    { cue: "Dashed, inside the edge of what it covers" }
+  ),
+  line(
+    "domain-file",
+    inks.domain,
+    2.5,
+    "A file the chosen domain names, in a square"
+  ),
+  flat(
+    "domain-package",
+    "fill",
+    inks.domain,
+    "A package the chosen domain covers whole: a diamond inside its coast"
+  ),
+  line(
+    "domain-explained",
+    inks.domain,
+    3.5,
+    "A departure the chosen domain explains: every consumer elsewhere shares it",
+    [],
+    { cue: "It closes the departure ring's notch" }
+  ),
+  flat(
+    "domain-name",
+    "text",
+    inks.domainName,
+    "The chosen domain's name, once"
   ),
   line(
     "folder-cell",

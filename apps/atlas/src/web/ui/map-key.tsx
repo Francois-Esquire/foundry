@@ -7,6 +7,7 @@ import { tiesByKind } from "../proximity";
 import {
   closeMark,
   departureRing,
+  domainMark,
   fileInk,
   type InkStyle,
   inkStyle,
@@ -114,8 +115,12 @@ function FileSwatch({ kind }: { kind: string }) {
   );
 }
 
-/** A departure's notched ring at 1:1, as a file's mark on the map. */
-function DepartureRingSwatch() {
+/**
+ * A departure's notched ring at 1:1, as a file's mark on the map; with
+ * `explained`, its notch closed in the domain's ink, as while a domain that
+ * explains it is drawn.
+ */
+function DepartureRingSwatch({ explained = false }: { explained?: boolean }) {
   const size = 12;
   const radius = departureRing.radius.file;
   const center = size / 2;
@@ -124,6 +129,7 @@ function DepartureRingSwatch() {
   const at = (angle: number) =>
     `${center + radius * Math.cos(angle)} ${center + radius * Math.sin(angle)}`;
   const style = inkStyle("departure");
+  const plug = inkStyle("domain-explained");
   return (
     <svg
       aria-hidden="true"
@@ -137,6 +143,56 @@ function DepartureRingSwatch() {
         stroke={swatchInk(style)}
         strokeLinecap="round"
         strokeWidth={style.weight}
+      />
+      {explained && (
+        <path
+          d={`M${at(-Math.PI / 2 - departureRing.notch / 2)} A${radius} ${radius} 0 0 1 ${at(start)}`}
+          fill="none"
+          stroke={swatchInk(plug)}
+          strokeWidth={plug.weight}
+        />
+      )}
+    </svg>
+  );
+}
+
+/** A chosen domain's marks at 1:1: the square round a file it names, or the diamond of a package it covers whole. */
+function DomainMarkSwatch({ id }: { id: "domain-file" | "domain-package" }) {
+  const size = 12;
+  const center = size / 2;
+  const style = inkStyle(id);
+  if (id === "domain-file") {
+    const half = domainMark.fileSquare;
+    return (
+      <svg
+        aria-hidden="true"
+        height={size}
+        viewBox={`0 0 ${size} ${size}`}
+        width={size}
+      >
+        <rect
+          fill="none"
+          height={2 * half}
+          stroke={swatchInk(style)}
+          strokeWidth={style.weight}
+          width={2 * half}
+          x={center - half}
+          y={center - half}
+        />
+      </svg>
+    );
+  }
+  const half = domainMark.diamond;
+  return (
+    <svg
+      aria-hidden="true"
+      height={size}
+      viewBox={`0 0 ${size} ${size}`}
+      width={size}
+    >
+      <path
+        d={`M${center} ${center - half} L${center + half} ${center} L${center} ${center + half} L${center - half} ${center} Z`}
+        fill={swatchInk(style)}
       />
     </svg>
   );
@@ -174,10 +230,16 @@ function ApartArcsSwatch() {
   );
 }
 
-/** A map key row's swatch: the arcs for a close folder, a tie with its bead, or the row's line. */
+/** A map key row's swatch: the arcs for a close folder, a domain's marks, a tie with its bead, or the row's line. */
 function KeySwatch({ id }: { id: string }) {
   if (id === "proximity-close") {
     return <ApartArcsSwatch />;
+  }
+  if (id === "domain-file" || id === "domain-package") {
+    return <DomainMarkSwatch id={id} />;
+  }
+  if (id === "domain-explained") {
+    return <DepartureRingSwatch explained />;
   }
   const bead = id.startsWith("proximity-")
     ? inkStyle("proximity-bead")
@@ -199,8 +261,16 @@ function domainNote(domains: number): string {
   if (!domains) {
     return "No domains are declared.";
   }
-  return `${domains} ${domains === 1 ? "domain is" : "domains are"} declared. Place gives a place's domains and, beside a departure, its domain label: a domain departure when some consumer module shares none of its domains, or that it shares them with every consumer.`;
+  return `${domains} ${domains === 1 ? "domain is" : "domains are"} declared. Choose one in Find to draw it across the islands, with the domains nested in it; it stays drawn while you select places, until you clear it in Place. Its symbols are told only in Place. Place gives a place's domains and, beside a departure, its domain label: a domain departure when some consumer module shares none of its domains, or that it shares them with every consumer.`;
 }
+
+/** The rows a chosen domain draws, in the key only where domains are declared. */
+const domainRows = [
+  "domain-outline",
+  "domain-file",
+  "domain-package",
+  "domain-explained",
+] as const;
 
 /** Why a departure is drawn or left out, for the map key. */
 function departureRules(dominantShare: number): string {
@@ -328,6 +398,15 @@ export function MapKey({
               </div>
             );
           })}
+          {domains > 0 &&
+            domainRows.map((id) => (
+              <div key={id}>
+                <dt>
+                  <KeySwatch id={id} />
+                  {inkStyle(id).meaning}
+                </dt>
+              </div>
+            ))}
         </dl>
         {departures.totals.departing > 0 && (
           <p>{departureRules(departures.dominantShare)}</p>

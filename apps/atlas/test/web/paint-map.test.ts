@@ -1,8 +1,10 @@
+import assert from "node:assert/strict";
 import { describe, expect, it, vi } from "vitest";
 import { memberContours } from "../../src/web/belonging";
 import { latitude } from "../../src/web/codex/bindings";
 import { settleFiles } from "../../src/web/folder-sectors";
 import type { ResponsibilityOverlay } from "../../src/web/responsibility-focus";
+import { toCoast } from "../../src/web/scene/ink/domain";
 import { inkLayers } from "../../src/web/scene/ink/layers";
 import { inkState } from "../../src/web/scene/ink/state";
 import { fileInk, inks } from "../../src/web/scene/ink-ladder";
@@ -887,4 +889,132 @@ it("leaves a district's name to the folder when the district is named as the fol
   expect(printed.find((label) => label.text === "lib/")?.y).toBeCloseTo(
     centroid - 13 / 2.2
   );
+});
+
+it("draws a chosen domain across islands: its cells' band, the files it names, its name once, and the departures it explains; nothing unchosen or on a rearranged island", () => {
+  const files = [
+    "pkg/src/web/a.ts",
+    "pkg/src/web/b.ts",
+    "pkg/src/lib/c.ts",
+    "pkg/src/lib/d.ts",
+  ].map((path, i) => ({
+    ...territory.files[0],
+    directory: path.slice(0, path.lastIndexOf("/")),
+    id: path,
+    path,
+    x: i,
+    y: 0,
+  })) as Territory["files"];
+  const island = { ...territory, files, folder: "pkg" };
+  const other = { ...territory, files: [], folder: "other", id: "other" };
+  const chosen = {
+    ...data,
+    domains: {
+      declared: [
+        {
+          name: "shapes",
+          parents: [],
+          places: [
+            { kind: "folder" as const, place: "pkg/src/lib" },
+            { kind: "file" as const, place: "pkg/src/web/a.ts" },
+          ],
+          unmatched: [],
+        },
+      ],
+      placements: {
+        "file:pkg/src/web/a.ts": {
+          away: { shared: 2, total: 2, unindexed: 0 },
+          domainLabel: "shares-domain" as const,
+          domains: ["shapes"],
+          level: "file" as const,
+          package: "island",
+          place: "pkg/src/web/a.ts",
+          placementLabel: "departs" as const,
+          sharedDomains: ["shapes"],
+        },
+      },
+    },
+    folderCells: { island: settleFiles(files, 80, "pkg") },
+    placement: {
+      dominantShare: 0.6,
+      labelled: ["island"],
+      places: {
+        "file:pkg/src/web/a.ts": {
+          away: [{ modules: 2, package: "other" }],
+          home: 0,
+          label: "departs" as const,
+          level: "file" as const,
+          package: "island",
+          place: "pkg/src/web/a.ts",
+          share: 1,
+          toward: "other",
+          unindexed: 0,
+        },
+      },
+    },
+    territories: [island, other],
+  };
+  const paint = (
+    domain: string | null,
+    belonging?: Parameters<typeof paintInk>[1]["belonging"]
+  ) => {
+    const { canvas, ctx } = canvasFixture();
+    const pen = ctx as unknown as CanvasRenderingContext2D;
+    const strokes: string[] = [];
+    const squares: string[] = [];
+    const arcs: string[] = [];
+    const names: { ink: string; text: string }[] = [];
+    ctx.stroke.mockImplementation(() => strokes.push(String(pen.strokeStyle)));
+    ctx.strokeRect.mockImplementation(() =>
+      squares.push(String(pen.strokeStyle))
+    );
+    ctx.arc.mockImplementation(() => arcs.push(String(pen.strokeStyle)));
+    ctx.fillText.mockImplementation((text: string) =>
+      names.push({ ink: String(pen.fillStyle), text })
+    );
+    paintInk(canvas, {
+      belonging,
+      data: chosen,
+      domain,
+      view: { height: 500, pixelsPerUnit: 2.2, width: 500, x: 0, y: 0 },
+    });
+    return { arcs, names, rects: ctx.rect.mock.calls, squares, strokes };
+  };
+  const libRegion = chosen.folderCells.island.folders[0]?.folders.find(
+    (cell) => cell.folder === "src/lib"
+  )?.region;
+  assert(libRegion);
+  // The band is clipped to the lib folder's cell region, reaching the coast
+  // where it lies on the island's box.
+  const reach = toCoast(
+    libRegion,
+    chosen.folderCells.island.region,
+    island.radius * 2
+  );
+  const libRect = [reach.x0, reach.x1 - reach.x0];
+  const traced = (rects: number[][]) =>
+    rects.filter(([x, , width]) => x === libRect[0] && width === libRect[1]);
+  const shown = paint("shapes");
+  const unchosen = paint(null);
+  expect(shown.strokes).toContain(inks.domain);
+  expect(traced(shown.rects)).toHaveLength(1);
+  expect(traced(unchosen.rects)).toHaveLength(0);
+  expect(shown.squares).toEqual([inks.domain]);
+  expect(shown.arcs).toContain(inks.domain);
+  expect(shown.names.filter((name) => name.text === "domain shapes")).toEqual([
+    { ink: inks.domainName, text: "domain shapes" },
+  ]);
+  expect(unchosen.strokes).not.toContain(inks.domain);
+  expect(unchosen.arcs).not.toContain(inks.domain);
+  expect(unchosen.squares).toEqual([]);
+  expect(unchosen.names.map((name) => name.text)).not.toContain(
+    "domain shapes"
+  );
+  // Rearranged by responsibility, the island's files leave their cells.
+  const rearranged = paint("shapes", {
+    regions: [],
+    territory: { ...island, files: files.map((f) => ({ ...f })) },
+  });
+  expect(traced(rearranged.rects)).toHaveLength(0);
+  expect(rearranged.squares).toEqual([]);
 });

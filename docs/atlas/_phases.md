@@ -3432,6 +3432,226 @@ drawn, and the overview is pixel-identical to 4.2c's.
     `after-{zoomed,closeline,atlas-island,atlas-entered,agents-close,
     narrow}.png`, and `gutter2.5-*`, `gutter1.75-*` for the experiment.
 
+- **4.3c plan.** Planned 2026-10-10 from `AtlasData.domains` and the cell
+  trees. A chosen domain is drawn across islands. With none chosen, or none
+  declared, the map is as before.
+  - Choosing: Find lists the declared domains as well as its places, at
+    every level, since a domain spans islands. Choosing one opens Place,
+    which gives the domain's reading: its reason and weight, the domains it
+    is nested in and holds, what it covers island by island, its symbols
+    (told only there) and facets that match nothing, and how many of its
+    departures it explains. Place also gets a Clear button. With no domain
+    declared, Find and the key are as before.
+  - What is drawn, from the domain and every domain nested in it: on each
+    island, the folder cells its folder facets cover, joined into one
+    outline, land ∩ the cells' rectangles, as a dashed band inside the
+    edge. A file it covers alone gets a square round its mark. A package it
+    covers whole (a package facet, or a folder facet above the package)
+    gets the band along its whole coast and a filled diamond inside its
+    south coast. Symbols are not drawn. A place under a covered folder is
+    not drawn twice. `FolderCell` records its rectangle (`region`) for
+    this.
+  - The name is drawn once: "domain node-runtime", as the first label
+    candidate, at the largest piece in view.
+  - Ink: a new rung, `domain`, between label and tie (floor 4), with a
+    cobalt line ink found by search: under every label mark and over every
+    tie, cell and coast mark on every ground, and at least 10 ΔE76 from
+    every ink it can lie beside in every vision, district pigments
+    included. The name takes a darker ink of the same hue on the label rung.
+    The band's dash is its second cue. East–west runs of the band are
+    widened for the camera's tilt, as cuts are.
+  - Departures stay as drawn. A departure the chosen domain explains
+    (domain label `shares-domain`, with the domain among its shared
+    domains) has its notch closed by a domain-ink plug while the domain is
+    chosen. A domain departure takes no extra mark.
+  - Precedence: the domain is not a selection. Choosing one keeps the
+    selection, and selecting an island, district or file keeps the domain.
+    Selection ink stays above the domain's. The domain goes with Clear,
+    with another choice, or with Escape once nothing is selected. On an
+    island "Group files by responsibility" has rearranged, its band and
+    squares are hidden, as its cells are; the package mark stays. The
+    camera does not move; Place names the islands.
+
+- **4.3c, done.** 2026-10-10, as planned, with these choices.
+  - `domain-extent.ts` works out, once per atlas and domain, where a
+    domain lies, from its own facets and those of the domains nested in
+    it:
+    - islands covered whole, by a package facet or a folder facet above
+      the package;
+    - the topmost covered folder cells;
+    - the files named alone, outside every covered cell;
+    - its symbols and unmatched facets;
+    - the placed places it explains (`shares-domain`, the domain among
+      the shared) and its domain departures.
+
+    A folder facet with no cell of its own falls back to its files. Each
+    `FolderCell` now records its `region`, the rectangle its parent's cuts
+    left it (web code, not `lib/`).
+  - `scene/ink/domain.ts` draws it, in a layer after the folders and under
+    the files, so files, ties, labels, departures and the selection draw
+    over it. The band is the inner half of a 5-pixel dashed stroke, clipped
+    to the island's land ∩ the covered cells' regions, so it reads 2.5
+    pixels inside the edge.
+    - Neighbouring cells meet exactly, so the edge between them drops out
+      of the outline (`unionOutline`).
+    - A cell edge on the island's box is pushed out past the coast
+      (`toCoast`). The box falls short of the land on most islands, and
+      without this the band stopped short of the coast as 4.3b's cuts do.
+    - The whole band, and each file's square, are drawn under a transform
+      that stretches y by 1 / cos(tilt), which widens every east–west run
+      by the camera's foreshortening, whatever its direction.
+  - A second layer after the departures closes the notch of each departure
+    the domain explains with a cobalt plug. The plug is the decision the
+    4.2d note left here: such a departure stays a departure and its ring
+    is not redrawn. It gets a second mark because "every consumer
+    elsewhere shares the domain" is the motivating case of `_domains.md`,
+    the observation a domain marks as belonging without hiding it. The
+    ring still reads in two tones without its hue: the plug is heavier
+    than the ring and lighter, 4.3:1 against the magenta's 8 or more. A
+    domain departure takes no extra mark; Place gives both labels.
+  - Ink: cobalt `#1e6ccc` on a new rung, `domain`, between label and tie,
+    with a floor of 4. It reads 4.30:1 on land.
+    - It was found by searching sRGB with chroma kept at the ladder's
+      strongest (C* ≤ 58). Below 45 no hue cleared 10 ΔE76 from every ink
+      beside it.
+    - It sits under every label mark and over every tie, cell, coast,
+      relief and sea mark on every ground. It is at least 13.3 ΔE76 from
+      every ink it can lie beside in every vision, all eight district
+      pigments and an overlay's inks included; the nearest is the stream
+      ink under tritan vision.
+    - The name is `#125ecc` on the label rung, 5.01:1, at least 13.4 ΔE76
+      from the label, caption, folder, selection and file inks.
+    - Table rows: `domain-outline` (2.5, dashed 6 3), `domain-file` (2.5,
+      solid), `domain-explained` (3.5, solid), `domain-package` (fill),
+      `domain-name` (text). Their shared hue is listed among the intended
+      shares.
+  - Weights changed against the on-screen probe. The file square was 1.5
+    pixels, then 2; its east–west sides read 1.74:1, then 2.1:1 once
+    compensated, and 3.3–3.5:1 at 2. At 2.5 pixels, compensated, every
+    side is the exact ink. The plug then moved from 2.6 to 3.5 pixels to
+    stay 1 pixel from the square in the table. The square grew from 4.5 to
+    6.5 pixels half-side, since at 4.5 it lay under a departing file's
+    4-pixel ring.
+  - Name: "domain node-runtime", the first label candidate after a
+    selected file's name, at the largest piece in view. On an island
+    covered whole it sits just above the diamond, since at the middle it
+    covered the package's departure ring and its plug. For cells it sits
+    just below the middle of their files, since a line above it took the
+    folder name's place.
+  - Selection precedence: the domain is its own state (`AtlasState.domain`,
+    the scene's `setDomain`), not an `AtlasSelection`, which needs one
+    island.
+    - Choosing a domain keeps the selection, and selecting an island,
+      district or file (Find, the map, Whole atlas) keeps the domain.
+    - Selection ink stays above it, in the ladder and the layer order.
+    - Place tells the domain above the selection, with Clear domain.
+    - Escape leaves the selection level by level, then puts the domain
+      away.
+    - A relayout leaves it chosen, since it is not island-local.
+    - The camera does not move.
+  - Find lists the domains, by name with a diamond swatch, at every level,
+    and opens Place on a choice. Place reads, for node-runtime on the
+    fixture:
+    - "Node-only adapters · holds storage";
+    - "covers 18 files on 4 islands: artifacts src/node/; lib
+      src/atomic-file.ts, src/file-lock.ts; modules src/node/; workspaces
+      src/node/";
+    - "1 symbol, told only here: atomic-file.ts#AtomicWriteOptions";
+    - "1 place shares it with every consumer elsewhere · 2 domain
+      departures";
+    - and facets that match nothing, where there are any.
+
+    The map key gains four rows (the band, the square, the diamond and the
+    plugged ring) and a sentence on choosing, all only where domains are
+    declared.
+  - With none declared, nothing changes: no Find entries, the old
+    placeholder, no key rows, the one-line note. Before against after on a
+    copy of the scan with an empty `domains` lens: 0 differing pixels at
+    overview and at island zoom. On the fixture, with domains declared and
+    none chosen: 0 at overview and at island zoom. Both held until the
+    review's halos and round rings, which change every map (below).
+  - Load: no new request (the lens is read since 4.2d). The bundle is
+    1,383.81 kB against 1,372.90 kB at `9967822`.
+  - Probed on screen (WebGPU on Metal, 1500×1000, pixel ratio 1), against
+    the paper beside each mark:
+    - the band's east–west edge, the exact ink, 4.26:1;
+    - a north–south cell edge, 4.09:1;
+    - the band along a coast, the exact ink, 4.00–4.07:1 against the shore
+      tint;
+    - in the dash's gaps, the cell cut beneath, 3.35–3.41:1;
+    - the file square, the exact ink on every side, 4.22–4.30:1;
+    - the diamond, the exact ink, 4.10:1;
+    - the plug, the exact ink, 4.30:1;
+    - the name's stems, 4.37–4.68:1, as 13-pixel text anti-aliases.
+
+    Not compensated, as before: departure rings. A 9-pixel package ring
+    reads 9.4:1 at its sides and 1.8:1 at its foot. On models the `src/`
+    folder name sits over the top of the ring and its plug, a collision
+    that predates this unit.
+  - Fixture: `/tmp/atlas-viewer-state-domains-43c`, a hand-edited copy of
+    `/tmp/atlas-viewer-state-domains`, since Foundry declares no domains.
+    It holds four domains: agent-runtime, with a package, two folders,
+    weight 0.8 and an unmatched facet; marbles-host, which overlaps both
+    others; node-runtime; and storage, nested in node-runtime, with three
+    files and a symbol. Six placements were edited, three to
+    `shares-domain`. The labels are made up for drawing; no scan produced
+    them.
+  - Tests:
+    - `domain-extent.test.ts`: resolution, nesting, whole packages,
+      dedup, the fallback, the union outline, the cell regions, the coast
+      reach.
+    - `paint-map.test.ts`: the band, square, plug and name drawn when
+      chosen, none unchosen, none on a rearranged island.
+    - `ink-ladder.test.ts`: the rung order, the ΔE76 floors, the shared
+      hue.
+    - `nesting-domain-text.test.ts`: the reading.
+    - `atlas-shell.test.ts`: Find, Place, kept through a selection, Clear,
+      Escape, nothing when none is declared.
+    - `atlas-map.test.ts`: the domain reaches the scene and survives a
+      rebuild.
+  - At review (approved, with changes):
+    - The domain's name is a caption: label hit-testing moved into
+      `labelUnder` (`exploration.ts`), which passes a click through it.
+      Tested.
+    - Place's domain block has a real h3 and sits under the selection's
+      heading and description, so the headings stay in order. Clear domain
+      hands focus to Place's heading (`tabIndex` -1). The Find swatch is
+      `aria-hidden`. Tested.
+    - Names on the sea join the ladder as label marks on a new ground,
+      `labelHalo`. On the bare sea, island names, captions and the domain
+      name read 4.07, 3.83 and 3.82:1. They now take a 6-pixel halo (5 for
+      captions) that fills their letters' gaps, and read 5.57, 5.25 and
+      5.23:1 against it. Probed on screen against the halo pixels beside
+      them: the domain name's exact ink 5.23:1, the island name's 5.57:1,
+      the caption 4.93–5.09:1. Names on land keep a 3-pixel halo.
+    - Departure rings, the close mark's arcs, the selected file's ring
+      and the plug are drawn under the band's y-stretch (`tiltStretch`,
+      now in `exploration.ts`), so they are round on screen. The foot of
+      models' 9-pixel ring reads 3.63:1 (1.8 before) and its side 9.49:1.
+    - A relayout keeps the chosen domain: a shell test moves Island
+      clearance and checks the rebuilt scene gets it, and a unit test
+      checks the extent is worked out again over the moved islands.
+    - Because of the halos and the round rings, the map with no domain
+      declared is no longer pixel-identical to `9967822`: 0.83% of pixels
+      differ at overview and 0.20% at island zoom.
+  - Follow-ups, known:
+    - Folder names should avoid departure rings and proximity beads: on
+      models, `src/` sits over the top of the package ring and its plug.
+    - A ring's foot still falls short of the departure floor on screen
+      (3.63:1 against 8): at 1.6 pixels a horizontal run straddles two
+      rows of pixels. Reaching the floor needs a heavier ring, a change to
+      the departure row.
+  - Screenshots in `/tmp/review-shots/4.3c/`:
+    - `before-{initial,zoomed,find,key}.png` from `9967822` on the
+      fixture, and `after-{initial,unchosen-zoomed}.png` with no domain
+      chosen;
+    - `before-none-*`, `after-none-*` on the empty lens;
+    - `after-{node-runtime,agent-runtime,marbles-host}{,-place}.png`;
+    - `after-{find,key}.png`;
+    - `after-workspaces-{place,island,close,closer}.png`;
+    - `after-{workflows,models,lib}-close.png`;
+    - `after-narrow-{initial,place,map}.png`.
+
 **4.4 Loading.** Covered by the lazy reader in 1.5; the module shards stopped
 being read at load in 2.2d. What remains is the viewer reading only what the
 current zoom needs.

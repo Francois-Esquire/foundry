@@ -61,6 +61,7 @@ export function useAtlasState(initial: AtlasState) {
     initial.hoveredWreck
   );
   const [mapLayer, setMapLayer] = useState<MapLayer>(initial.mapLayer);
+  const [domain, setDomain] = useState<string | null>(initial.domain);
   const [legendHeight, setLegendHeight] = useState(initial.legendHeight);
   const [tracedSelection, setTracedSelection] = useState<AtlasSelection | null>(
     null
@@ -148,9 +149,11 @@ export function useAtlasState(initial: AtlasState) {
   );
   const selectRef = useRef(select);
   const selectionRef = useRef(selection);
+  const domainRef = useRef(domain);
   useEffect(() => {
     selectRef.current = select;
     selectionRef.current = selection;
+    domainRef.current = domain;
   });
   useEffect(() => {
     if (
@@ -322,6 +325,11 @@ export function useAtlasState(initial: AtlasState) {
     []
   );
   const handleEscape = useCallback(() => {
+    // With nothing selected, Escape puts away the chosen domain.
+    if (!selectionRef.current && domainRef.current) {
+      setDomain(null);
+      return;
+    }
     selectRef.current(resolveCurrentEscape(selectionRef.current));
   }, []);
   const state: AtlasState = {
@@ -329,6 +337,7 @@ export function useAtlasState(initial: AtlasState) {
     chartSettings,
     data,
     developer: initial.developer,
+    domain,
     hover,
     hoveredWreck,
     layoutSettings,
@@ -348,6 +357,7 @@ export function useAtlasState(initial: AtlasState) {
     belonging,
     closeWreck,
     district: selectDistrict,
+    domain: setDomain,
     escape: handleEscape,
     file: selectFile,
     frame: frameSelection,

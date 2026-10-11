@@ -43,6 +43,7 @@ import {
   frameFiles,
   inkView,
   keepSeaInFrame,
+  labelUnder,
   visibleRegionTerritory,
   zoomForPixels,
 } from "./exploration";
@@ -262,6 +263,8 @@ export async function createAtlasScene(
   let matches: BelongingRegion | undefined;
   let showConnections = false;
   let legendHeight = 0;
+  /** The declared domain the reader chose to draw; none at first. */
+  let domain: string | null = null;
   let labels: MapLabel[] = [];
   let frame = 0;
   /** The resting pointer; each repaint inks the island under it (`paintHoverInk`). */
@@ -351,6 +354,7 @@ export async function createAtlasScene(
         boundaries: { layers: boundaries, visible: settings.boundaries },
         data: drawingData,
         developer,
+        domain,
         fileId: selectedFile,
         hovered: (placed) => {
           hoveredId = hoverTarget.island(
@@ -782,6 +786,10 @@ export async function createAtlasScene(
       showConnections = visible;
       render();
     },
+    setDomain: (name: string | null) => {
+      domain = name;
+      render();
+    },
     setLegendHeight: (height: number) => {
       legendHeight = height;
       render();
@@ -917,12 +925,7 @@ function resolveHit(
   if (!raycaster.ray.intersectPlane(plane, point)) {
     return null;
   }
-  const label = labels.find(
-    (l) =>
-      Math.abs(point.x - l.x) < l.width / 2 &&
-      -point.y >= l.y - l.height &&
-      -point.y <= l.y
-  );
+  const label = labelUnder(labels, point.x, -point.y);
   if (label) {
     return {
       compositeId: label.compositeId,

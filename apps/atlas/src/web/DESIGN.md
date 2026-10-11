@@ -365,7 +365,11 @@ file ink and the selection's in normal, deutan, protan and tritan vision. `depar
 works out what is drawn once per atlas: a ring on every departing file, at
 its position, and folder, at its files' centroid, 4 and 5.5 pixels across;
 a package whose only consumer is one other package is folded into one
-9-pixel ring at its files' centroid, its own places unmarked. Lines group
+9-pixel ring at its files' centroid, its own places unmarked. Rings are
+drawn under a transform that stretches y by 1 / cos(tilt), so they are
+round on screen and their foot and crown are not thinned by the camera's
+foreshortening; the close mark's arcs and the selected file's ring are
+drawn so too. Lines group
 places by folder and target package, rank by dominance share, then the
 consumer modules they rest on, then breadth, places, folder and target;
 a line is drawn only on at least 2 consumer modules, and at most 3 run into
@@ -406,6 +410,67 @@ district named as the folder it sits in leaves the name to the folder;
 Place and the panel still name the district.
 While "Group files by responsibility" has rearranged an island its cells and
 names are hidden there. Seams are named in Place, not drawn.
+
+## Domains
+
+A declared domain is drawn across islands only when the reader chooses
+it in Find, which lists the domains at every level, since a domain spans
+islands. With none chosen the map is unchanged. With none declared, Find
+and the map key are as before, and the key says "No domains are declared."
+`domain-extent.ts` works out, once per atlas and domain, where it lies
+from its own facets and those of every domain nested in it:
+- an island covered whole, by a package facet or a folder facet above the
+  package;
+- elsewhere, the topmost folder cells its folder facets cover, from each
+  cell's region (the rectangle its parent's cuts left it);
+- the files it names alone, outside those cells.
+
+Symbols are told only in Place. Nothing is drawn twice: no cell below a
+covered cell, no file inside one.
+
+The drawing is cobalt, `#1e6ccc`, on the ladder's `domain` rung, between
+the labels and the ties (floor 4; 4.30:1 on land), at least 10 ΔE76 from
+every ink it can lie beside in every vision, district pigments and an
+overlay's inks included. On each island a dashed band (6, 3 pixels) runs
+inside the edge of the covered cells' land, joined into one outline. It
+is clipped to that land and stroked at twice its 2.5 pixels, so only the
+inner half shows. East–west runs are widened by 1 / cos(tilt) for the
+camera's foreshortening, under a transform rather than per segment, since
+the band follows the coast too. A package covered whole takes the band
+along its whole coast and a filled diamond 9 pixels inside its southern
+coast, away from its name in the north. A file named alone takes a
+2.5-pixel square 13 pixels across, wide enough to hold a departing
+file's ring; its east–west sides are widened for the tilt as the band's
+are. The name is written once, "domain node-runtime", in a darker cobalt,
+`#125ecc`, on the label rung, at the largest piece in view: just above
+the diamond of a package covered whole, or just below the middle of the
+files of covered cells, clear of the folder's name a line above. It is
+the first label candidate after a selected file's name, so it wins every
+other collision. It is a caption, not a place: a click passes through it.
+
+Island names, their captions and the domain's name sit on the sea, where
+their inks would read 4.07, 3.83 and 3.82:1, under the label floor. They
+are cut from a paper halo (`#f5efdf`) wide enough to fill the gaps between
+their letters, 6 pixels (5 for captions), which becomes their ground
+(`grounds.labelHalo` in the ladder): 5.57, 5.25 and 5.23:1 against it.
+Names on land keep a 3-pixel halo.
+
+Departures are not redrawn. A departure the chosen domain explains (its
+domain label `shares-domain`, the domain among the shared) has its ring's
+notch closed by a 3.5-pixel cobalt plug. The plug is heavier than the
+ring and far lighter (4.3:1 against the magenta's 8 or more), so the ring
+reads in two tones without its hue. A domain departure takes no extra
+mark; Place gives both labels.
+
+The domain is not a selection. Choosing one keeps the selection, and
+selecting an island, district or file keeps the domain. Selection ink
+stays above it, in the ladder and in the drawing order. Place tells the
+domain under the selection's heading and description, under its own
+heading, with a Clear button that hands focus to Place's heading. Escape puts the domain
+away once nothing is selected. On an island "Group files by
+responsibility" has rearranged, its cells' band and squares are hidden; a
+package covered whole keeps its coast band and diamond. The camera does
+not move when a domain is chosen; Place names the islands it covers.
 
 ## Proximity
 

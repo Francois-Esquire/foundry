@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   contrast,
+  districtPigments,
   fileInk,
   grounds,
   inkAlpha,
@@ -36,12 +37,13 @@ describe("the ink ladder", () => {
     }
   });
 
-  it("orders the rungs selection, departure, file, label, tie, cell, coast, relief, sea", () => {
+  it("orders the rungs selection, departure, file, label, domain, tie, cell, coast, relief, sea", () => {
     expect(rungs).toEqual([
       "selection",
       "departure",
       "file",
       "label",
+      "domain",
       "tie",
       "cell",
       "coast",
@@ -161,6 +163,12 @@ describe("the ink table", () => {
         "unresolved-outline",
       ],
       [inks.departureLine]: ["departure-bead", "departure-line"],
+      [inks.domain]: [
+        "domain-explained",
+        "domain-file",
+        "domain-outline",
+        "domain-package",
+      ],
       [inks.grid]: ["grid", "grid-reference"],
       [inks.proximity]: [
         "proximity-apart",
@@ -371,6 +379,70 @@ describe("file inks", () => {
       }).map(([name, ink]): [string, string, string] => [
         `folderLine and ${name}`,
         inks.folderLine,
+        ink,
+      ]),
+    ];
+    for (const deficiency of [
+      undefined,
+      ...(Object.keys(deficiencies) as Deficiency[]),
+    ]) {
+      for (const [name, a, b] of pairs) {
+        expect(
+          deltaE(a, b, deficiency),
+          `${name} under ${deficiency ?? "normal vision"}`
+        ).toBeGreaterThanOrEqual(10);
+      }
+    }
+  });
+
+  it("keeps the domain's cobalt 10 ΔE76 from every ink it can lie beside, and its name from every label ink, in every vision", () => {
+    // The band lies over district washes and their outlines, folder cuts,
+    // coasts, files, ties and departure rings, and over an overlay's inks
+    // when one is open.
+    const beside = {
+      ...inks.files,
+      ...Object.fromEntries(
+        districtPigments.palette.map((pigment, i) => [`district ${i}`, pigment])
+      ),
+      coastFrame: inks.coastFrame,
+      coastPen: inks.coastPen,
+      coastRule: inks.coastRule,
+      departure: inks.departure,
+      departureLine: inks.departureLine,
+      enteredRing: inks.enteredRing,
+      evidence: inks.evidence,
+      folder: inks.folder,
+      folderLine: inks.folderLine,
+      grid: inks.grid,
+      hover: inks.hover,
+      inspectionRelated: inks.inspectionRelated,
+      inspectionWarning: inks.inspectionWarning,
+      label: inks.label,
+      labelCaption: inks.labelCaption,
+      landContour: inks.landContour,
+      marsh: inks.marsh,
+      matched: districtPigments.matched,
+      proximity: inks.proximity,
+      selection: inks.selection,
+      stream: inks.stream,
+      tracedImport: inks.tracedImport,
+      unresolved: districtPigments.unresolved,
+    };
+    const pairs: [string, string, string][] = [
+      ...Object.entries(beside).map(([name, ink]): [string, string, string] => [
+        `domain and ${name}`,
+        inks.domain,
+        ink,
+      ]),
+      ...Object.entries({
+        folder: inks.folder,
+        label: inks.label,
+        labelCaption: inks.labelCaption,
+        selection: inks.selection,
+        ...inks.files,
+      }).map(([name, ink]): [string, string, string] => [
+        `domainName and ${name}`,
+        inks.domainName,
         ink,
       ]),
     ];
