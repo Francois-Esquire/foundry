@@ -46,6 +46,7 @@ const data: AtlasData = {
   height: 500,
   packageLayers: {},
   placement: { dominantShare: 0.6, labelled: [], places: {} },
+  proximity: { apart: { coChanges: [], files: [] }, close: [], labelled: [] },
   routes: [
     {
       consumerFiles: [],
@@ -677,4 +678,102 @@ it("sets the latitude scale on a paper plate on a narrow screen, where islands r
   // One plate under each number: the foundation's here.
   expect(plates(390)).toBe(1);
   expect(plates(1500)).toBe(0);
+});
+
+it("draws proximity at island zoom only, so the overview stays the departures'", () => {
+  const related = {
+    ...data,
+    proximity: {
+      apart: {
+        coChanges: [
+          {
+            coChangeCommits: 4,
+            distance: 1,
+            id: "src/one.ts|src/two.ts",
+            jaccard: 0.5,
+            left: "src/one.ts",
+            right: "src/two.ts",
+            scope: "same-package" as const,
+            staticPath: "none" as const,
+          },
+        ],
+        files: [],
+      },
+      close: [],
+      labelled: ["island"],
+    },
+  };
+  const strokes = (pixelsPerUnit: number) => {
+    const { canvas, ctx } = canvasFixture();
+    const pen = ctx as unknown as CanvasRenderingContext2D;
+    const used: string[] = [];
+    ctx.stroke.mockImplementation(() => used.push(String(pen.strokeStyle)));
+    paintInk(canvas, {
+      data: related,
+      view: { height: 500, pixelsPerUnit, width: 500, x: 0, y: 0 },
+    });
+    return used;
+  };
+  expect(strokes(1)).not.toContain(inks.proximity);
+  expect(strokes(2.2)).toContain(inks.proximity);
+});
+
+it("marks a close folder with two arcs set apart, a shape no departure ring shares", () => {
+  const close = {
+    ...data,
+    placement: {
+      dominantShare: 0.6,
+      labelled: ["island"],
+      places: {
+        "file:src/one.ts": {
+          away: [{ modules: 2, package: "other" }],
+          home: 0,
+          label: "departs" as const,
+          level: "file" as const,
+          package: "island",
+          place: "src/one.ts",
+          share: 1,
+          toward: "other",
+          unindexed: 0,
+        },
+      },
+    },
+    proximity: {
+      apart: { coChanges: [], files: [] },
+      close: [
+        {
+          folder: "src",
+          groups: [
+            { apart: [], files: ["src/one.ts"], responsibilities: ["a"] },
+            { apart: [], files: ["src/two.ts"], responsibilities: ["b"] },
+          ],
+          package: "island",
+          unresolved: 0,
+        },
+      ],
+      labelled: ["island"],
+    },
+  };
+  const { canvas, ctx } = canvasFixture();
+  const pen = ctx as unknown as CanvasRenderingContext2D;
+  const arcs: { args: number[]; ink: string }[] = [];
+  ctx.arc.mockImplementation((...args: number[]) =>
+    arcs.push({ args, ink: String(pen.strokeStyle) })
+  );
+  paintInk(canvas, {
+    data: close,
+    view: { height: 500, pixelsPerUnit: 2.2, width: 500, x: 0, y: 0 },
+  });
+  const sides = arcs.filter((arc) => arc.ink === inks.proximity);
+  expect(sides).toHaveLength(2);
+  const [left, right] = sides.map((arc) => arc.args);
+  // Two centres set apart across the folder's centroid, each arc facing out.
+  expect((right?.[0] ?? 0) - (left?.[0] ?? 0)).toBeCloseTo(4 / 2.2);
+  expect(((left?.[3] ?? 0) + (left?.[4] ?? 0)) / 2).toBeCloseTo(Math.PI);
+  expect(((right?.[3] ?? 0) + (right?.[4] ?? 0)) / 2).toBeCloseTo(0);
+  // The departure's ring is one arc round one centre, notched at the top.
+  const ring = arcs.filter((arc) => arc.ink === inks.departure);
+  expect(ring).toHaveLength(1);
+  const [, , , from = 0, to = 0] = ring[0]?.args ?? [];
+  expect(to - from).toBeGreaterThan(Math.PI);
 });

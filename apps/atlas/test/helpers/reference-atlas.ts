@@ -6,7 +6,7 @@ import type { AtlasData, AtlasRoute, Territory } from "../../src/web/types";
 /** The capture, saved before routes carried their endpoint files, before the layer scale, and before islands knew their folders. */
 type CapturedAtlas = Omit<
   AtlasData,
-  "packageLayers" | "routes" | "territories"
+  "packageLayers" | "placement" | "proximity" | "routes" | "territories"
 > & {
   routes: Omit<AtlasRoute, "consumerFiles" | "supplierFiles">[];
   territories: Omit<Territory, "folder">[];
@@ -38,6 +38,7 @@ export async function loadAtlas(): Promise<AtlasData> {
     packageLayers: {},
     // Nor has it a placement lens: no place departs.
     placement: { dominantShare: 0.6, labelled: [], places: {} },
+    proximity: { apart: { coChanges: [], files: [] }, close: [], labelled: [] },
     routes: captured.routes.map((route) => ({
       ...route,
       ...endpoints(route.from, route.to),

@@ -3030,6 +3030,90 @@ only Place's text and the bytes read at load change.
   (its "Dependency is placement" bullet, stale since 4.3a, is rewritten);
   `_viewer.md`'s table.
 
+**4.2c Proximity,** from the `proximity` lens (schema 1). Planned
+2026-10-10 against the lens as saved on this worktree's scan: 30 folders
+whose files fall into unrelated groups (`close`: 23 with two groups, the
+most eleven), 156 files apart from their responsibility's dominant folder
+(`apart.files`: 59 one folder step away, 77 two, 20 three), and 252
+co-changing pairs in different folders (`apart.coChanges`: 223 within a
+package, 29 across; 132 with no import path between them).
+- **Data.** The codex reads the lens (a dataset without it is refused, as
+  for any lens) and keeps it as it is, with the packages it covers.
+  `proximity.ts` works out, once per atlas, what is drawn on each island:
+  - "Related but apart" as ties on land: a file apart from its
+    responsibility's folder is tied to that folder's centroid; two files of
+    one package that change together from different folders are tied to
+    each other. Ranked: co-changes by commits, then Jaccard, then pair id;
+    apart files by folder steps, then path. At most 5 ties per island, the
+    co-changes first, since a change in one file foretells one in the
+    other; a selected file shows all of its own.
+  - "Close but unrelated" as one mark per folder at its files' centroid.
+  - Co-changes across packages are told in Place only: drawn, they would
+    cross the sea, which departures hold.
+- **Drawing,** at island zoom only (from `enteredAt`), so the overview
+  stays the departures': ties in a new proximity ink, green, a hue no file
+  ink or departure takes, on the label rung (4.5 on land, under every file
+  mark), dotted for an apart file and dashed for a co-change; the close mark
+  a ring broken in two, of the same ink, a ring meaning a place as the
+  departure's does, its two gaps the groups it holds. No toggle; the ties
+  and marks are on land, so they never meet the departure or selection
+  lines, which are sea ink. The map key explains them, so that the
+  always-open legend stays the overview's.
+- **Place** gives a file's proximity: "proximity: apart from its
+  responsibility's folder src/lib · 2 steps", "changes with …/b.ts · 6
+  commits, no import path", and "its folder holds 3 unrelated groups of
+  responsibilities"; an
+  island its counts. Cross-package co-changes are listed there.
+
+**4.2c, done.** 2026-10-10, as planned, in one unit, with the review's
+changes.
+- The codex reads the `proximity` lens and keeps it as saved
+  (`AtlasData.proximity`), with the ids of the packages it covered; a
+  dataset without it is refused, tested. Load: one request and 126,755
+  bytes more, 1,938,640 to 2,065,395.
+- `proximity.ts`: each island's ties, co-changes ranked by commits, then
+  Jaccard, then id, and apart files by folder steps, then path; and the
+  close folders' marks at the centroid of the files directly in them (or
+  below, where none is). Ruled at review, a budget by kind: an island draws
+  its 3 strongest co-change ties and 2 apart ties, one kind making up for
+  the other when it runs short, or every tie of a selected file; Place
+  gives "· N of M ties drawn" for each island. On this scan: 379 ties on 11
+  islands, 45 drawn at once; 30 close marks; 29 co-changes across packages
+  told in Place only.
+- Drawn by `scene/ink/proximity.ts` from `enteredAt` only, clipped to land
+  with `traceLand`, so a tie stays on land even if a coast curves in
+  between its ends. Ruled at review, the ties take a rung of their own,
+  `tie`, between label and coast (floor 3.5): the ink `proximity`
+  `#6b70b8`, a slate found by a search over hues away from the departure
+  magenta for 3.6–4.0:1 on land, at least 15.2 ΔE76 from every ink it can
+  lie beside in every vision (the closest, the sea contours). The ladder's
+  order between inks holds on every ground. Ties are 1.5 pixels, since at
+  1 pixel a diagonal tie never reached its full ink on screen; probed, its
+  pixels are exactly `#6b70b8`, 3.78:1 on land.
+- The close mark, ruled at review, says "two sides apart": two arcs, "( )",
+  each pushed 2 pixels from the centre and sweeping 55° either side of the
+  horizontal, which no departure's ring, one arc with one notch at the top,
+  shares; a test checks both shapes, and `after-key.png` shows the two
+  swatches together. Rows in the ink table: `proximity-apart` (dotted),
+  `proximity-co-change` (dashed), `proximity-close` (the arcs, 1.2 solid),
+  and `proximity-bead`.
+- The legend stays the overview's; the map key gains the three rows, with
+  their own swatches, and the budget's rule. Place gives a file's proximity
+  ("proximity: apart from its responsibility's folder src · 2 steps;
+  changes with b.ts · 6 commits, no import path, and 1 more; its folder
+  holds 2 unrelated groups of responsibilities") and a package's counts.
+  CONTEXT.md gains **Proximity**, with close and apart.
+- Tests: `proximity.test.ts` (ranking, cross-package left out, the apart
+  tie's folder, the budget by kind and its refill, a selected file, the
+  close mark), `paint-map.test.ts` (drawn at island zoom, not at overview;
+  the arcs against the departure's ring), `atlas-shell.test.ts` (Place),
+  `ink-ladder.test.ts` (the new rung, the slate's ΔE76), the codex's
+  source and resolve tests.
+- Screenshots: `/tmp/review-shots/4.2c/before-{overview,zoomed,closeline,
+  narrow}.png` from `ef4c3e3`, and `after-{overview,zoomed,closeline,
+  atlas-island,key,narrow}.png`; the overview and narrow shots are
+  unchanged, as the plan meant.
+
 **4.3 Directories drawn,** and a domain drawn across islands.
 - **4.3a** (recorded at 4.2a(iii)): each island's y is fixed to its
   layer's latitude, `latitude(layer)`, with x free and overlaps resolved
@@ -3190,6 +3274,9 @@ only Place's text and the bytes read at load change.
 **4.4 Loading.** Covered by the lazy reader in 1.5; the module shards stopped
 being read at load in 2.2d. What remains is the viewer reading only what the
 current zoom needs.
+- The load after 4.2c, on this worktree's scan: about 2.07 MB in 22
+  requests (2,065,395 bytes), the `placement` and `proximity` lenses each
+  adding over 120 KB (181,378 and 126,755) since 4.3a.
 - Recorded at 4.2b: the viewer downloads the `placement` lens's consumer
   module lists, most of its 181 KB, only to count them. Either a
   count-only projection of the lens, or a lazy read of the lists for the

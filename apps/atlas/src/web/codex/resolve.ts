@@ -120,6 +120,11 @@ export function resolveCodex(source: CodexSource): Codex {
       labelled: source.placement.packages.map((p) => p.id),
       places: source.placement.places.map(resolvePlacement),
     },
+    proximity: {
+      apart: source.proximity.apart,
+      close: source.proximity.close,
+      labelled: source.proximity.packages.map((p) => p.id),
+    },
     retiredPackages: source.history && retiredPackages(source.history, current),
     workspace: {
       coverage: source.dataset.coverage,

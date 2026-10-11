@@ -52,6 +52,7 @@ const fixture = (): AtlasData => ({
   height: 300,
   packageLayers: {},
   placement: { dominantShare: 0.6, labelled: [], places: {} },
+  proximity: { apart: { coChanges: [], files: [] }, close: [], labelled: [] },
   routes: [
     {
       consumerFiles: ["consumer"],

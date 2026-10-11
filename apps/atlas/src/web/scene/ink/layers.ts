@@ -13,6 +13,7 @@ import { paintFocusedFile } from "./file-focus";
 import { paintFiles } from "./files";
 import { paintMapLabels } from "./labels";
 import { paintLatitudeScale } from "./latitude-scale";
+import { paintProximity } from "./proximity";
 import { paintResponsibilityOverlay } from "./responsibility";
 import { paintSeaCaption } from "./sea-caption";
 import type { InkState } from "./state";
@@ -43,6 +44,7 @@ export const inkLayers = [
   { id: "connections", paint: paintConnections },
   { id: "files", paint: paintFiles },
   { id: "responsibility", paint: paintResponsibilityOverlay },
+  { id: "proximity", paint: paintProximity },
   { id: "file-focus", paint: paintFocusedFile },
   { id: "labels", paint: paintMapLabels },
   {

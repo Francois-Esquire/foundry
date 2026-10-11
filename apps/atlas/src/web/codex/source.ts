@@ -5,6 +5,7 @@ import type {
   PlacementPackage,
   Placements,
 } from "../../lib/lenses/placement-types";
+import type { Proximity } from "../../lib/lenses/proximity-types";
 import type { ResponsibilityGroupsPackage } from "../../lib/lenses/responsibility-groups-types";
 import type {
   SemanticsHistoryEntities,
@@ -53,12 +54,14 @@ export interface CodexSource {
   packages: (Pick<PackageSize, "id" | "analyzed" | "layer"> & {
     modules: Pick<PackageSize["modules"], "total">;
   })[];
-  /** The `placement` lens: where each place is used against where it lives, and the packages it labelled. */
   placement: {
     packages: Pick<PlacementPackage, "id">[];
     places: Placements["places"];
     policy: Placements["policy"];
   };
+  /** The `placement` lens: where each place is used against where it lives, and the packages it labelled. */
+  /** The `proximity` lens: what sits close without being related, and what is related without sitting close. */
+  proximity: Pick<Proximity, "apart" | "close" | "packages">;
   /** The `responsibility-groups` lens, drawn as districts on entering an island. */
   responsibilityGroups: ResponsibilityGroupsPackage[];
 }
@@ -75,6 +78,7 @@ export async function readCodexSource(
     roles,
     groups,
     placement,
+    proximity,
     edgeShards,
     history,
   ] = await Promise.all([
@@ -85,6 +89,7 @@ export async function readCodexSource(
     reader.lens("file-roles"),
     reader.lens("responsibility-groups"),
     reader.lens("placement"),
+    reader.lens("proximity"),
     reader.moduleEdgeShards(),
     reader.history(),
   ]);
@@ -110,6 +115,11 @@ export async function readCodexSource(
       packages: placement.packages.map(({ id }) => ({ id })),
       places: placement.places,
       policy: placement.policy,
+    },
+    proximity: {
+      apart: proximity.apart,
+      close: proximity.close,
+      packages: proximity.packages,
     },
     responsibilityGroups: groups.packages,
   };

@@ -51,6 +51,12 @@ function scanned(): Record<string, unknown> {
       places: [placed],
       policy: { dominantShare: 0.6 },
     },
+    "lenses/proximity.json": {
+      apart: { coChanges: [], files: [] },
+      close: [],
+      missing: [],
+      packages: [{ id: "@foundry/core", unresolved: 0 }],
+    },
     "lenses/responsibility-groups.json": { missing: [], packages: [groups] },
     "manifest.json": {
       coverage: "complete",
@@ -66,6 +72,7 @@ function scanned(): Record<string, unknown> {
           schemaVersion: 1,
         },
         placement: { file: "lenses/placement.json", schemaVersion: 1 },
+        proximity: { file: "lenses/proximity.json", schemaVersion: 1 },
         "responsibility-groups": {
           file: "lenses/responsibility-groups.json",
           schemaVersion: 2,
@@ -125,6 +132,7 @@ describe("readCodexSource", () => {
       "lenses/file-roles.json",
       "lenses/package-sizes.json",
       "lenses/placement.json",
+      "lenses/proximity.json",
       "lenses/responsibility-groups.json",
       "manifest.json",
       "modules/core-edges.json",
@@ -140,6 +148,11 @@ describe("readCodexSource", () => {
       generatedAt: "2026-09-23T00:00:00.000Z",
     });
     expect(source.packages).toEqual([sized]);
+    expect(source.proximity).toEqual({
+      apart: { coChanges: [], files: [] },
+      close: [],
+      packages: [{ id: "@foundry/core", unresolved: 0 }],
+    });
     expect(source.placement).toEqual({
       packages: [{ id: "@foundry/core" }],
       places: [placed],

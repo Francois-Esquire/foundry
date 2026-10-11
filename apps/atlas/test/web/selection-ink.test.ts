@@ -44,6 +44,7 @@ const data: AtlasData = {
   height: 400,
   packageLayers: {},
   placement: { dominantShare: 0.6, labelled: [], places: {} },
+  proximity: { apart: { coChanges: [], files: [] }, close: [], labelled: [] },
   routes: [
     {
       consumerFiles: [],

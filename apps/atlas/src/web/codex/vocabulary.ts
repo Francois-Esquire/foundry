@@ -3,6 +3,7 @@ import type {
   PlacementLabel,
   PlacementLevel,
 } from "../../lib/lenses/placement-types";
+import type { Proximity } from "../../lib/lenses/proximity-types";
 import type { PackageResponsibilityGroups } from "../../lib/lenses/responsibility-groups-types";
 import type { SemanticsDeclaredDependencyKind } from "../../lib/semantics-types";
 
@@ -98,6 +99,18 @@ export interface CodexPlacement {
   unindexed: number;
 }
 
+/**
+ * The `proximity` lens as the map reads it: folders whose files fall into
+ * unrelated groups (`close`), files apart from their responsibility's folder
+ * and co-changing files in different folders (`apart`), and the packages it
+ * covered, whose files are otherwise neither.
+ */
+export interface CodexProximity {
+  apart: Proximity["apart"];
+  close: Proximity["close"];
+  labelled: string[];
+}
+
 export interface CodexRetiredPackage {
   id: string;
   label: string;
@@ -118,6 +131,7 @@ export interface Codex {
     labelled: string[];
     places: CodexPlacement[];
   };
+  proximity: CodexProximity;
   /** Absent when no history was recorded; sorted by id. */
   retiredPackages?: CodexRetiredPackage[];
   workspace: CodexWorkspace;

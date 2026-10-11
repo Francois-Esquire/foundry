@@ -3,7 +3,9 @@ import type { ReaderSettings } from "../chart-settings";
 import { filePen } from "../codex/bindings";
 import type { Departures } from "../departures";
 import { leastConsumers, linesPerTarget } from "../departures";
+import { tiesByKind } from "../proximity";
 import {
+  closeMark,
   departureRing,
   fileInk,
   type InkStyle,
@@ -140,6 +142,49 @@ function DepartureRingSwatch() {
   );
 }
 
+/** The close-but-unrelated mark at 1:1, "( )": two arcs set apart. */
+function ApartArcsSwatch() {
+  const width = 18;
+  const height = 14;
+  const { apart, radius, sweep } = closeMark;
+  const y = height / 2;
+  const arc = (side: -1 | 1) => {
+    const cx = width / 2 + side * apart;
+    const facing = side < 0 ? Math.PI : 0;
+    const at = (angle: number) =>
+      `${cx + radius * Math.cos(angle)} ${y + radius * Math.sin(angle)}`;
+    return `M${at(facing - sweep)} A${radius} ${radius} 0 0 1 ${at(facing + sweep)}`;
+  };
+  const style = inkStyle("proximity-close");
+  return (
+    <svg
+      aria-hidden="true"
+      height={height}
+      viewBox={`0 0 ${width} ${height}`}
+      width={width}
+    >
+      <path
+        d={`${arc(-1)} ${arc(1)}`}
+        fill="none"
+        stroke={swatchInk(style)}
+        strokeLinecap="round"
+        strokeWidth={style.weight}
+      />
+    </svg>
+  );
+}
+
+/** A map key row's swatch: the arcs for a close folder, a tie with its bead, or the row's line. */
+function KeySwatch({ id }: { id: string }) {
+  if (id === "proximity-close") {
+    return <ApartArcsSwatch />;
+  }
+  const bead = id.startsWith("proximity-")
+    ? inkStyle("proximity-bead")
+    : undefined;
+  return <InkSwatch bead={bead} style={inkStyle(id)} />;
+}
+
 /** What the map draws of the departures against all of them, short enough for one line. */
 function departureTotals(
   departures: Pick<Departures, "lines" | "totals">
@@ -175,6 +220,9 @@ const legendLines = [
  * it on; a row without one is drawn whenever its island is entered.
  */
 const keyRows: readonly [string, keyof ReaderSettings | null][] = [
+  ["proximity-apart", null],
+  ["proximity-co-change", null],
+  ["proximity-close", null],
   ["trade", "trade"],
   ["stream", "streams"],
   ["marsh-drain", null],
@@ -261,7 +309,7 @@ export function MapKey({
             return (
               <div key={id}>
                 <dt>
-                  <InkSwatch style={style} />
+                  <KeySwatch id={id} />
                   {style.meaning}
                   {setting && !settings[setting] && " · off"}
                 </dt>
@@ -272,6 +320,16 @@ export function MapKey({
         {departures.totals.departing > 0 && (
           <p>{departureRules(departures.dominantShare)}</p>
         )}
+        <p>
+          Closer in, proximity: a dotted tie from a file to its responsibility's
+          folder when it sits apart, a dashed tie between two files in different
+          folders that change together, and two arcs set apart on a folder whose
+          files serve unrelated responsibilities. An island shows its{" "}
+          {tiesByKind["co-change"]} strongest co-change ties and{" "}
+          {tiesByKind.apart} apart ties, one kind making up for the other when
+          it runs short, or all of a selected file's; Place counts them and
+          lists the rest, and co-changes across packages.
+        </p>
         <p>
           Islands are low ground. Only a package's high fan-in files raise
           rounded summits: those that at least its cutoff of the package's own

@@ -3,7 +3,7 @@ import type {
   FileRolesPackage,
 } from "../lib/lenses/file-roles-types";
 import type { PackageResponsibilityGroups } from "../lib/lenses/responsibility-groups-types";
-import type { CodexPlacement } from "./codex/vocabulary";
+import type { CodexPlacement, CodexProximity } from "./codex/vocabulary";
 
 export interface AtlasSymbol {
   id: string;
@@ -104,6 +104,8 @@ export interface AtlasData {
     labelled: readonly string[];
     places: Record<string, CodexPlacement>;
   };
+  /** The `proximity` lens: close but unrelated folders, and related but apart files. */
+  proximity: CodexProximity;
   routes: AtlasRoute[];
   territories: Territory[];
   width: number;

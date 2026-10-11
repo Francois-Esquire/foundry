@@ -336,6 +336,16 @@ observation and never calls a place misplaced.
 _Avoid_: declaration placement (symbol locality's field inside one
 package), misplacement, belonging
 
+**Proximity**:
+How what sits together compares with what relates, as the `proximity`
+lens observes it, in two kinds. *Close*: one folder whose files serve
+responsibilities that nothing relates, two or more unrelated groups side by
+side. *Apart*: related, but in another folder, either a file whose
+responsibility's folder is not its own, or two files in different folders
+that change together. Related means one responsibility, a relationship
+between responsibilities, or a co-change. Neither calls a file misplaced.
+_Avoid_: near, far, neighbourhood, misplaced
+
 **Domain label**:
 What the `domains` lens says of a place the `placement` lens lists inside
 a domain: it shares a domain when every consumer module in another package

@@ -86,6 +86,7 @@ export async function loadAtlas(signal?: AbortSignal): Promise<AtlasData> {
         codex.placement.places.map((place) => [placementKey(place), place])
       ),
     },
+    proximity: codex.proximity,
     routes,
     territories,
     ...chartSize(territories),

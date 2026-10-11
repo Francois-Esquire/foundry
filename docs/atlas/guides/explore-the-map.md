@@ -47,6 +47,12 @@ folder, not physical scale; how far apart two islands sit means nothing.
   selected file, symbol, or package, where it is used: "placement: departs
   toward …", "fits", "spread", or "used by no other package". A departure
   is an observation, not a defect.
+- **Proximity shows closer in.** On an entered island a slate dotted tie
+  runs from a file to its responsibility's folder when the file sits
+  apart from it; a slate dashed tie joins two files in different folders
+  that change together; and two slate arcs set apart, "( )", mark a folder
+  whose files serve responsibilities that nothing relates. A few ties show
+  on each island, and all of a selected file's; Place lists the rest.
 - **Dependency is otherwise drawn on selection.** How far apart two
   islands sit means nothing. Selecting an island draws its imports and
   importers; sea trade routes are an optional layer in the chart settings:

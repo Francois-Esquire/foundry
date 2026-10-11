@@ -36,12 +36,13 @@ describe("the ink ladder", () => {
     }
   });
 
-  it("orders the rungs selection, departure, file, label, coast, relief, sea", () => {
+  it("orders the rungs selection, departure, file, label, tie, coast, relief, sea", () => {
     expect(rungs).toEqual([
       "selection",
       "departure",
       "file",
       "label",
+      "tie",
       "coast",
       "relief",
       "sea",
@@ -160,6 +161,12 @@ describe("the ink table", () => {
       ],
       [inks.departureLine]: ["departure-bead", "departure-line"],
       [inks.grid]: ["grid", "grid-reference"],
+      [inks.proximity]: [
+        "proximity-apart",
+        "proximity-bead",
+        "proximity-close",
+        "proximity-co-change",
+      ],
       [inks.paper]: ["member-halo", "paper"],
       [inks.scale]: ["latitude-label", "latitude-scale"],
       [inks.selection]: [
@@ -311,6 +318,36 @@ describe("file inks", () => {
             `${departure} and ${name} under ${deficiency ?? "normal vision"}`
           ).toBeGreaterThanOrEqual(10);
         }
+      }
+    }
+  });
+
+  it("keeps the proximity slate 10 ΔE76 from every ink it can lie beside, in every vision", () => {
+    const beside = {
+      ...inks.files,
+      coastPen: inks.coastPen,
+      departure: inks.departure,
+      departureLine: inks.departureLine,
+      enteredRing: inks.enteredRing,
+      grid: inks.grid,
+      hover: inks.hover,
+      label: inks.label,
+      labelCaption: inks.labelCaption,
+      landContour: inks.landContour,
+      marsh: inks.marsh,
+      seaContour: inks.seaContour,
+      selection: inks.selection,
+      trade: inks.trade,
+    };
+    for (const deficiency of [
+      undefined,
+      ...(Object.keys(deficiencies) as Deficiency[]),
+    ]) {
+      for (const [name, ink] of Object.entries(beside)) {
+        expect(
+          deltaE(inks.proximity, ink, deficiency),
+          `proximity and ${name} under ${deficiency ?? "normal vision"}`
+        ).toBeGreaterThanOrEqual(10);
       }
     }
   });

@@ -493,3 +493,76 @@ it("adds a departure row to the legend with its totals, and the threshold, cap, 
   expect(key).toContain("at most 3 run into one package");
   expect(key).toContain("Consumers in no package of the scan are not counted");
 });
+
+it("tells what sits related but apart, and close but unrelated, for a file and its package", async () => {
+  const data = await loadAtlas();
+  const [territory, other] = data.territories;
+  assert(territory && other);
+  const [file, partner] = territory.files.filter((f) =>
+    f.directory.includes("/src/")
+  );
+  const [far] = other.files;
+  assert(file && partner && far);
+  const atlas = {
+    ...data,
+    proximity: {
+      apart: {
+        coChanges: [
+          {
+            coChangeCommits: 6,
+            distance: 2,
+            id: `${file.path}|${partner.path}`,
+            jaccard: 0.5,
+            left: file.path,
+            right: partner.path,
+            scope: "same-package" as const,
+            staticPath: "none" as const,
+          },
+          {
+            coChangeCommits: 2,
+            distance: 4,
+            id: `${file.path}|${far.path}`,
+            jaccard: 0.2,
+            left: file.path,
+            right: far.path,
+            scope: "cross-package" as const,
+            staticPath: "direct" as const,
+          },
+        ],
+        files: [
+          {
+            distance: 2,
+            file: file.path,
+            folder: file.directory,
+            package: territory.id,
+            responsibility: "responsibility:r",
+            responsibilityFolder: `${territory.folder}/src`,
+          },
+        ],
+      },
+      close: [
+        {
+          folder: file.directory,
+          groups: [
+            { apart: [], files: [file.path], responsibilities: ["a"] },
+            { apart: [], files: [partner.path], responsibilities: ["b"] },
+          ],
+          package: territory.id,
+          unresolved: 0,
+        },
+      ],
+      labelled: [territory.id],
+    },
+  };
+  const read = (selection: Parameters<typeof inspectionText>[1]) =>
+    inspectionText(null, selection, undefined, atlas)?.detail ?? "";
+  const partnerName = partner.path.split("/").at(-1);
+  expect(read({ file, territory })).toContain(
+    `proximity: apart from its responsibility's folder src · 2 steps; changes with ${partnerName} · 6 commits, no import path, and 1 more; its folder holds 2 unrelated groups of responsibilities`
+  );
+  expect(read({ territory })).toContain(
+    "proximity: 1 close but unrelated, 1 apart, 2 co-changing pairs · 2 of 2 ties drawn"
+  );
+  // A package the lens did not cover says nothing of proximity.
+  expect(read({ territory: other })).not.toContain("proximity");
+});

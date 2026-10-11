@@ -49,6 +49,7 @@ export const rungs = [
   "departure",
   "file",
   "label",
+  "tie",
   "coast",
   "relief",
   "sea",
@@ -69,6 +70,8 @@ export const rungFloor: Record<Rung, number> = {
   // Sea lines fade in with zoom, so the sea rung has no floor of its own.
   sea: 1,
   selection: 10,
+  /** Proximity's ties and marks at island zoom: read after every name, before the coast. */
+  tie: 3.5,
 };
 
 /**
@@ -137,6 +140,12 @@ export const inks = {
   marsh: "#697855",
   /** Paper itself, where a mark is cut from what is under it. */
   paper: "#f1ead9",
+  /**
+   * Proximity, at island zoom: what sits related but apart, and close but
+   * unrelated. A slate on the tie rung, the hue left between test's and
+   * story's, kept 10 ΔE76 from every other ink in every vision.
+   */
+  proximity: "#6b70b8",
   /** Barely-there gilt water lines near each coast. */
   ripple: "#a8873c",
   /** The latitude scale in the right margin: dependency layers, foundation to the south. */
@@ -292,6 +301,13 @@ export const ladderMarks: readonly LadderMark[] = [
   },
   {
     alpha: entered,
+    ground: "land",
+    id: "proximity",
+    ink: inks.proximity,
+    rung: "tie",
+  },
+  {
+    alpha: entered,
     ground: "sea",
     id: "entered-ring",
     ink: inks.enteredRing,
@@ -433,6 +449,18 @@ export const departureRing = {
   radius: { file: 4, folder: 5.5, package: 9 },
 } as const;
 
+/**
+ * A close-but-unrelated folder's mark, in screen pixels: two arcs, "( )",
+ * each pushed `apart` from the centre, sweeping `sweep` radians either side
+ * of the horizontal, so it reads as two sides apart; the departure's ring is
+ * one ring with one notch.
+ */
+export const closeMark = {
+  apart: 2,
+  radius: 5,
+  sweep: (55 * Math.PI) / 180,
+} as const;
+
 /** A line's dash in screen pixels; empty is solid. */
 type Dash = readonly number[];
 
@@ -515,6 +543,12 @@ export const inkTable: readonly InkStyle[] = [
     "The end of a departure line: the package that uses the place most"
   ),
   flat(
+    "proximity-bead",
+    "fill",
+    inks.proximity,
+    "The end of a proximity tie: a folder, or a file that changes with another"
+  ),
+  flat(
     "exact-member",
     "fill",
     inks.selection,
@@ -556,6 +590,30 @@ export const inkTable: readonly InkStyle[] = [
     "Toward the package that uses it most",
     [8, 3, 1, 3],
     { cue: "A dash-dot line, so it reads without its hue" }
+  ),
+  line(
+    "proximity-apart",
+    inks.proximity,
+    1.5,
+    "A file apart from its responsibility's folder, tied to it",
+    [1, 3],
+    { cue: "Dotted, ending in a bead at the folder" }
+  ),
+  line(
+    "proximity-co-change",
+    inks.proximity,
+    1.5,
+    "Two files in different folders that change together",
+    [4, 3],
+    { cue: "Dashed, a bead at each file" }
+  ),
+  line(
+    "proximity-close",
+    inks.proximity,
+    1.2,
+    "A folder whose files serve unrelated responsibilities",
+    [],
+    { cue: "Two arcs set apart, ( ), one for each side" }
   ),
   line("hover", inks.hover, 1.6, "The island under the pointer"),
   line("coast", inks.coastPen, 2, "A package's coast"),

@@ -133,6 +133,25 @@ const source: CodexSource = {
     ],
     policy: { dominantShare: 0.6 },
   },
+  proximity: {
+    apart: {
+      coChanges: [
+        {
+          coChangeCommits: 3,
+          distance: 2,
+          id: "packages/core/src/a.ts|packages/core/lib/c.ts",
+          jaccard: 0.5,
+          left: "packages/core/src/a.ts",
+          right: "packages/core/lib/c.ts",
+          scope: "same-package",
+          staticPath: "none",
+        },
+      ],
+      files: [],
+    },
+    close: [],
+    packages: [{ id: "@foundry/core", unresolved: 0 }],
+  },
   responsibilityGroups: [
     {
       groups: [coreGroup],
@@ -210,6 +229,12 @@ describe("resolveCodex", () => {
         },
       ],
     });
+  });
+
+  it("keeps the proximity lens as saved, with the packages it covered", () => {
+    expect(codex.proximity.labelled).toEqual(["@foundry/core"]);
+    expect(codex.proximity.apart).toBe(source.proximity.apart);
+    expect(codex.proximity.close).toEqual([]);
   });
 
   it("counts module dependents and dependencies across package lines", () => {

@@ -5,6 +5,7 @@ import type { CodexPlacement } from "../codex/vocabulary";
 import { folderWithin } from "../folder-sectors";
 import { featureText, importCounts } from "../natural-feature-inspection";
 import type { NaturalFeatures } from "../natural-features";
+import { tieCount } from "../proximity";
 import type { ResponsibilityOverlay } from "../responsibility-focus";
 import type { AtlasSelection } from "../scene/scene";
 import type { TradeRoute } from "../trade-routes";
@@ -304,8 +305,90 @@ function browseLabel(
 /** What Place reads of the atlas beyond the selection: layers, and where each place is used. */
 type AtlasFacts = Pick<
   AtlasData,
-  "packageLayers" | "placement" | "territories"
+  "packageLayers" | "placement" | "proximity" | "territories"
 >;
+
+/** A file's name, with its package's when it lives in another: "b.ts", or "b.ts in marbles". */
+function fileName(atlas: AtlasFacts, path: string, territory: Territory) {
+  const name = path.split("/").at(-1) ?? path;
+  const owner = atlas.territories.find((item) =>
+    item.files.some((file) => file.path === path)
+  );
+  return owner && owner !== territory ? `${name} in ${owner.label}` : name;
+}
+
+/**
+ * What the `proximity` lens says of a file, as Place reads it: "proximity:
+ * apart from its responsibility's folder lib · 2 steps; changes with b.ts ·
+ * 6 commits, no import path, and 2 more; its folder holds 3 unrelated
+ * groups"; nothing when it says nothing, or when the package has no
+ * internals.
+ */
+function proximityText(
+  atlas: AtlasFacts,
+  file: AtlasFile,
+  territory: Territory
+): string | undefined {
+  if (!atlas.proximity.labelled.includes(territory.id)) {
+    return;
+  }
+  const said: string[] = [];
+  const apart = atlas.proximity.apart.files.find(
+    (entry) => entry.file === file.path
+  );
+  if (apart) {
+    const folder =
+      folderWithin(apart.responsibilityFolder, territory.folder) ||
+      "the package folder";
+    said.push(
+      `apart from its responsibility's folder ${folder} · ${apart.distance} ${apart.distance === 1 ? "step" : "steps"}`
+    );
+  }
+  const pairs = atlas.proximity.apart.coChanges
+    .filter((pair) => pair.left === file.path || pair.right === file.path)
+    .toSorted((a, b) => b.coChangeCommits - a.coChangeCommits);
+  const [strongest] = pairs;
+  if (strongest) {
+    const other =
+      strongest.left === file.path ? strongest.right : strongest.left;
+    const imports = strongest.staticPath === "none" ? ", no import path" : "";
+    const more = pairs.length > 1 ? `, and ${pairs.length - 1} more` : "";
+    said.push(
+      `changes with ${fileName(atlas, other, territory)} · ${strongest.coChangeCommits} commits${imports}${more}`
+    );
+  }
+  const close = atlas.proximity.close.find(
+    (folder) => folder.folder === file.directory
+  );
+  if (close) {
+    said.push(
+      `its folder holds ${close.groups.length} unrelated groups of responsibilities`
+    );
+  }
+  return said.length ? `proximity: ${said.join("; ")}` : undefined;
+}
+
+/** What the `proximity` lens counts for a package: its close folders, apart files, and co-changes. */
+function islandProximity(
+  atlas: AtlasFacts,
+  territory: Territory
+): string | undefined {
+  if (!atlas.proximity.labelled.includes(territory.id)) {
+    return;
+  }
+  const close = atlas.proximity.close.filter(
+    (folder) => folder.package === territory.id
+  ).length;
+  const apart = atlas.proximity.apart.files.filter(
+    (entry) => entry.package === territory.id
+  ).length;
+  const files = new Set(territory.files.map((file) => file.path));
+  const pairs = atlas.proximity.apart.coChanges.filter(
+    (pair) => files.has(pair.left) || files.has(pair.right)
+  ).length;
+  const ties = tieCount(atlas, territory.id);
+  return `proximity: ${close} close but unrelated, ${apart} apart, ${pairs} co-changing pairs · ${ties.drawn} of ${ties.all} ties drawn`;
+}
 
 /** What the two groupings say of a file, as Place reads them, and the shared shape of its readout. */
 interface FileContext {
@@ -382,7 +465,10 @@ function fileDetail(
     ? { level: "symbol" as const, place: `${file.path}#${symbol.name}` }
     : { level: "file" as const, place: file.path };
   const use = placementText(atlas, place, territory.id);
-  const used = use ? ` · ${use}` : "";
+  const near = proximityText(atlas, file, territory);
+  const used = [use, near]
+    .flatMap((text) => (text ? [` · ${text}`] : []))
+    .join("");
   return `${file.kind} · ${where}${serves}${used} · ${importCounts(file, territory.highFanInCutoff)} It imports ${file.outgoing} ${file.outgoing === 1 ? "module" : "modules"}.`;
 }
 
@@ -408,7 +494,8 @@ function islandPlacement(atlas: AtlasFacts, territory: Territory): string {
     { level: "package", place: territory.folder },
     territory.id
   );
-  return use ? `${placed} · ${use}` : placed;
+  const near = islandProximity(atlas, territory);
+  return [placed, use, near].filter(Boolean).join(" · ");
 }
 
 function describeSelection(

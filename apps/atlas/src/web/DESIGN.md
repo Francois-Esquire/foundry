@@ -381,6 +381,26 @@ that consumers in no package are not counted. On a screen 760 pixels wide
 or narrower the legend shows only the map key's summary until it is
 opened, and each number of the latitude scale sits on a paper plate.
 
+## Proximity
+
+Closer in, from `enteredAt`, the `proximity` lens is drawn in a slate,
+`#6b70b8`, on the ladder's tie rung, between the labels and the coast
+(floor 3.5; 3.78:1 on land, probed), kept 10 ΔE76 from every ink it can lie
+beside in every vision. It is clipped to land, so it never meets a
+departure or selection line, even where a coast curves in. `proximity.ts`
+works out each island's ties once: a dotted tie (1.5 pixels) from a file
+apart from its responsibility's folder to that folder's centroid, ending in
+a bead; a dashed tie between two files of the package, in different
+folders, that change together, a bead at each end. Co-changes rank by
+commits, then Jaccard; apart files by folder steps. An island shows its 3
+strongest co-change ties and 2 apart ties, one kind making up for the
+other when it runs short, or every tie of a selected file; Place says how
+many of how many are drawn. Co-changes across packages are not drawn,
+since they would cross the sea that departures hold; Place lists them. A
+folder whose files serve unrelated responsibilities takes two arcs set
+apart, "( )", at its files' centroid, a shape no departure's notched ring
+shares. The map key explains all three.
+
 ## Components
 
 - Chart settings holds the reader's layers: Sea trade routes, District streams,
