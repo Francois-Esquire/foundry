@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { BelongingLayer } from "../belonging";
 import { type BelongingRegion, belongingAncestry } from "../belonging";
 import type { ChartSettings } from "../chart-settings";
+import type { LateCodex } from "../codex/vocabulary";
 import { relayoutAtlas } from "../geography";
 import type { AtlasInternals } from "../internals";
 import type { NaturalFeatures } from "../natural-features";
@@ -38,15 +39,22 @@ function canonicalSelection(data: AtlasData, value: AtlasSelection | null) {
   };
 }
 
-export function useAtlasState(initial: AtlasState) {
+export function useAtlasState(initial: AtlasState, late?: Promise<LateCodex>) {
   const sourceData = initial.data;
   const [layoutSettings, setLayoutSettings] = useState(initial.layoutSettings);
-  const data = useMemo(
+  const geometry = useMemo(
     () =>
       layoutSettings === initial.layoutSettings
         ? sourceData
         : relayoutAtlas(sourceData, layoutSettings.islandClearance),
     [sourceData, layoutSettings, initial.layoutSettings]
+  );
+  // The late readings join after the relayout, so their arrival keeps the
+  // islands and the scene is not rebuilt.
+  const readings = useLateReadings(late);
+  const data = useMemo(
+    () => (readings ? { ...geometry, ...readings } : geometry),
+    [geometry, readings]
   );
   const scene = useRef<AtlasMapHandle | null>(null);
   const [chosen, setSelection] = useState<AtlasSelection | null>(
@@ -338,6 +346,7 @@ export function useAtlasState(initial: AtlasState) {
     data,
     developer: initial.developer,
     domain,
+    geometry,
     hover,
     hoveredWreck,
     layoutSettings,
@@ -378,6 +387,29 @@ export function useAtlasState(initial: AtlasState) {
     viewTerritory: setViewTerritory,
     wreck: handleWreck,
   };
+}
+
+/** The late readings once they arrive; a refusal is the caller's to show (`App`). */
+function useLateReadings(late: Promise<LateCodex> | undefined) {
+  const [readings, setReadings] = useState<LateCodex | null>(null);
+  useEffect(() => {
+    if (!late) {
+      return;
+    }
+    let live = true;
+    late.then(
+      (value) => {
+        if (live) {
+          setReadings(value);
+        }
+      },
+      () => undefined
+    );
+    return () => {
+      live = false;
+    };
+  }, [late]);
+  return readings;
 }
 
 function resolveValue(

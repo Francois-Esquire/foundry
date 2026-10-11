@@ -21,6 +21,11 @@ export interface AtlasState {
    * selection: it stays while islands, districts and files are selected.
    */
   domain: string | null;
+  /**
+   * The atlas as laid out, without the readings that arrive after load: the
+   * scene is built from it, and rebuilt only when it changes.
+   */
+  geometry: AtlasData;
   hover: AtlasSelection | null;
   hoveredWreck: FormerPackage | null;
   layoutSettings: LandmassSettings;
@@ -50,6 +55,7 @@ export function createAtlasState(
     data,
     developer,
     domain: null,
+    geometry: data,
     hover: null,
     hoveredWreck: null,
     layoutSettings: { ...defaultLandmassSettings },

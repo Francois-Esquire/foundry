@@ -29,6 +29,7 @@ vi.mock("../../src/web/scene/scene", () => ({
       restoreView: vi.fn(),
       setBelonging: vi.fn(),
       setConnections: vi.fn(),
+      setData: vi.fn(),
       setDomain: vi.fn(),
       setLegendHeight: vi.fn(),
       setResponsibility: vi.fn(),
@@ -188,4 +189,25 @@ it("applies sea trade routes through configure, without building a new scene", a
   const [result] = vi.mocked(createAtlasScene).mock.results;
   assert(result);
   expect(result.value.configure).toHaveBeenLastCalledWith(next.chartSettings);
+});
+
+it("hands readings that arrive after load to the scene it has, without building another", async () => {
+  const state = createAtlasState(await loadAtlas());
+  await act(async () => root.render(createElement(AtlasMap, { state })));
+  const [result] = vi.mocked(createAtlasScene).mock.results;
+  assert(result);
+  const scene = await result.value;
+  // Built from the laid-out atlas, given the same atlas to draw from.
+  expect(vi.mocked(createAtlasScene).mock.calls[0]?.[1]).toBe(state.geometry);
+  expect(scene.setData).toHaveBeenLastCalledWith(state.data);
+  const read = {
+    ...state,
+    data: {
+      ...state.data,
+      proximity: { ...state.data.proximity, labelled: ["island"] },
+    },
+  };
+  await act(async () => root.render(createElement(AtlasMap, { state: read })));
+  expect(createAtlasScene).toHaveBeenCalledTimes(1);
+  expect(scene.setData).toHaveBeenLastCalledWith(read.data);
 });

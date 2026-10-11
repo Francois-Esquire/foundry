@@ -12,9 +12,9 @@ produces byte-identical data with and without the codex.
 
 | File            | Role                                                                                                                             |
 | --------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `source.ts`     | `readCodexSource(reader)`: picks the codex's fields through the library's dataset reader; `CodexSource` lists every field read.  |
+| `source.ts`     | `readCodexSource(reader)`: picks the codex's fields through the library's dataset reader; `CodexSource` lists every field read for the first layout, and `LateCodexSource`, read by `readLateCodexSource`, the ones read after it. |
 | `vocabulary.ts` | Codex entities and values, named by meaning.                                                                                     |
-| `resolve.ts`    | `resolveCodex(source)`: source fields to codex values. Pure.                                                                     |
+| `resolve.ts`    | `resolveCodex(source)` and `resolveLateCodex(late)`: source fields to codex values. Pure.                                        |
 | `bindings.ts`   | Codex values to visual channels: the size, position, width, and spacing a value maps to. Inks are not here; see below.           |
 
 `bindings.ts` imports nothing; `vocabulary.ts` imports library types only.
@@ -35,9 +35,9 @@ imports from the renderer, so the folder moves as a unit. Tests are in
 | Package `size`                             | `package-sizes` lens `modules.total`                                      |
 | Package `layer`                            | `package-sizes` lens `layer`; `null` stays `null` (unplaced)              |
 | Package `path`                             | manifest `packages[].path`, the package's folder; empty if the manifest omits the package |
-| Nesting `folders`, `pathRegions`, `seams` | `nesting` lens as saved |
+| Nesting `folders`, `pathRegions`, `seams` | `nesting` lens as saved; read after the layout (`loadLateReadings`) |
 | Domains `declared`, `placements` | `domains` lens: its `domains` as saved; its `placements` keyed by `level:place`, as placements are |
-| Proximity `apart`, `close`, `labelled` | `proximity` lens as saved; `labelled`, the ids of its `packages` |
+| Proximity `apart`, `close`, `labelled` | `proximity` lens as saved; `labelled`, the ids of its `packages`; read after the layout (`loadLateReadings`) |
 | Placement `label`, `toward`, `home`, `away`, `share` | `placement` lens `places`: the label and target as saved; consumer modules counted at home and per other package; `share`, the most any one package holds (its own package counted as one of the packages) over all of them, unindexed consumers left out; `labelled`, the lens's `packages` |
 | Module `id`, `package`, `path`, `fileKind` | module index; a missing kind becomes `unknown`                            |
 | Module `directory`                         | path up to its last `/`                                                   |

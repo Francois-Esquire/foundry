@@ -4,18 +4,49 @@
  * reads them with its `marks` step.
  */
 
-/** Named points in the load, in the order they happen. */
+/**
+ * Named points in the load, in the order they happen; the last,
+ * `atlas:readings-loaded`, when the readings read after the layout
+ * (`loadLateReadings`) have arrived, falls wherever their read ends, most
+ * often during the terrain build.
+ */
 export const loadMarks = [
   "atlas:data-requested",
   "atlas:data-loaded",
   "atlas:layout-settled",
   "atlas:terrain-built",
   "atlas:first-frame",
+  "atlas:readings-loaded",
 ] as const;
 
 export type LoadMark = (typeof loadMarks)[number];
 
 const recorded = new Set<LoadMark>();
+
+let framed = false;
+const frameWaiters: (() => void)[] = [];
+
+/**
+ * Lets work wait for the first frame: everything waiting resolves, and
+ * `afterFirstFrame` resolves at once from then on. Called when the first
+ * frame is submitted, and by the map when it cannot open, so nothing waits
+ * for a frame that never comes.
+ */
+export function releaseFirstFrame(): void {
+  framed = true;
+  for (const resolve of frameWaiters.splice(0)) {
+    resolve();
+  }
+}
+
+/** Resolves once the first frame is submitted (or the map has failed to open), for work that must not delay it. */
+export function afterFirstFrame(): Promise<void> {
+  return framed
+    ? Promise.resolve()
+    : new Promise((resolve) => {
+        frameWaiters.push(resolve);
+      });
+}
 
 /**
  * Records one point in the load, once per page: a scene built again, after a
@@ -27,6 +58,9 @@ export function markLoad(mark: LoadMark): void {
   }
   recorded.add(mark);
   performance.mark(mark);
+  if (mark === "atlas:first-frame") {
+    releaseFirstFrame();
+  }
 }
 
 /**

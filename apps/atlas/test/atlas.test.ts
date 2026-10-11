@@ -40,7 +40,7 @@ import { serve } from "../src/lib/serve";
 import type { WorkspaceState } from "../src/lib/state";
 import { workspaceState } from "../src/lib/state";
 import { startServer } from "../src/server/server";
-import { loadAtlas } from "../src/web/load-atlas";
+import { loadAtlas, loadLateReadings } from "../src/web/load-atlas";
 import { loadInternals } from "../src/web/load-internals";
 import { CLI, spawnCli, spawnDetached } from "./helpers/cli";
 import { commitFixture } from "./helpers/commit-fixture";
@@ -726,15 +726,23 @@ test("built CLI scans an external workspace and the web loaders read its saved d
     expect(fileRoles?.modules).toEqual(
       roles.packages.find((saved) => saved.id === pkg.id)?.modules
     );
-    // The layout keeps each island's folder cells for drawing its folders,
-    // and the nesting lens comes with them.
+    // The layout keeps each island's folder cells for drawing its folders.
     expect(Object.keys(atlas.folderCells).sort()).toEqual(
       atlas.territories.map((item) => item.id).sort()
     );
     expect(atlas.folderCells[pkg.id]?.sites).toHaveLength(
       territory.files.length
     );
-    expect(atlas.nesting.folders.length).toBeGreaterThan(0);
+    // The nesting and proximity lenses come after the layout, pinned to its
+    // dataset, and mark their arrival.
+    expect(atlas.nesting.folders).toEqual([]);
+    expect(atlas.proximity.labelled).toEqual([]);
+    const late = await loadLateReadings(atlas);
+    expect(late.nesting.folders.length).toBeGreaterThan(0);
+    expect(late.proximity.labelled).toContain(pkg.id);
+    expect(performance.getEntriesByName("atlas:readings-loaded")).toHaveLength(
+      1
+    );
     const grouped = groups.packages.find((entry) => entry.id === pkg.id);
     expect(territory.responsibilityGroups).toEqual(
       grouped && { groups: grouped.groups, independent: grouped.independent }

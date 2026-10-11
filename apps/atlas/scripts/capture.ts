@@ -16,7 +16,9 @@
  * pixels that differ and the largest difference), probe=<shot.png>:<x0>,<y0>,<x1>,<y1>
  * (the darkest pixel along a segment against the median, as a contrast ratio), idle=<ms> (the page at rest: main-thread task and script time as a share of
  * the window, and the frames submitted in it, which only a developer session
- * counts; null otherwise).
+ * counts; null otherwise). The `marks` step splits the data read into what
+ * arrived before `atlas:data-loaded` and after it. `--throttle <kbit/s>`
+ * (with `--latency <ms>`, default 40) emulates a slow network.
  * WebGL 2 runs on SwiftShader unless --angle metal (or another ANGLE backend)
  * is passed; --webgpu enables WebGPU instead, and --webgl hides it so the
  * renderer takes its WebGL 2 backend. Profiles use a 1500x1000 viewport; pass --pixel-ratio 2 for Retina. Screenshots land in .cache/shots/<tag>-<name>.png.
@@ -49,12 +51,18 @@ const { values, positionals } = parseArgs({
     angle: { default: "swiftshader", type: "string" },
     browser: { type: "string" },
     height: { default: "800", type: "string" },
+    latency: { default: "40", type: "string" },
     out: {
       default: resolve(import.meta.dirname, "../.cache/shots"),
       type: "string",
     },
     "pixel-ratio": { default: "1", type: "string" },
     tag: { default: "capture", type: "string" },
+    /**
+     * Emulates a slow network: download and upload throughput in kilobits a
+     * second, with `--latency` milliseconds a request. Off by default.
+     */
+    throttle: { type: "string" },
     url: { default: "http://127.0.0.1:5199/", type: "string" },
     /** Hides WebGPU, so the renderer takes its WebGL 2 backend. */
     webgl: { default: false, type: "boolean" },
@@ -216,10 +224,21 @@ function readTimings() {
       stages.set(name, durations);
     }
   }
+  // Split at the data-loaded mark: what the first layout waited for, and
+  // what was read after it.
+  const [loaded] = performance.getEntriesByName("atlas:data-loaded");
+  const split = (entries: PerformanceResourceTiming[]) => ({
+    bytes: entries.reduce((sum, entry) => sum + entry.decodedBodySize, 0),
+    requests: entries.length,
+  });
+  const first = data.filter(
+    (entry) => !loaded || entry.responseEnd <= loaded.startTime
+  );
   return JSON.stringify({
     data: {
-      bytes: data.reduce((sum, entry) => sum + entry.decodedBodySize, 0),
-      requests: data.length,
+      ...split(data),
+      afterLoaded: split(data.filter((entry) => !first.includes(entry))),
+      beforeLoaded: split(first),
     },
     marks,
     stages: Object.fromEntries(
@@ -521,6 +540,16 @@ async function main() {
       await session.send("Page.addScriptToEvaluateOnNewDocument", {
         source:
           "Object.defineProperty(Navigator.prototype, 'gpu', { get: () => undefined });",
+      });
+    }
+    if (values.throttle) {
+      const throughput = (Number(values.throttle) * 1000) / 8;
+      await session.send("Network.enable");
+      await session.send("Network.emulateNetworkConditions", {
+        downloadThroughput: throughput,
+        latency: Number(values.latency),
+        offline: false,
+        uploadThroughput: throughput,
       });
     }
     await session.send("Page.navigate", { url: values.url });

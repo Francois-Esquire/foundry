@@ -1,6 +1,11 @@
 import { SEMANTICS_DECLARED_DEPENDENCY_KINDS } from "../../lib/semantics-types";
-import type { CodexSource } from "./source";
-import type { Codex, CodexPlacement, CodexRetiredPackage } from "./vocabulary";
+import type { CodexSource, LateCodexSource } from "./source";
+import type {
+  Codex,
+  CodexPlacement,
+  CodexRetiredPackage,
+  LateCodex,
+} from "./vocabulary";
 
 /** The files at each end of a package pair's imports. */
 export interface PairEndpoints {
@@ -43,6 +48,18 @@ export function pairEndpoints(
       consumerFiles: [...(pair?.sources ?? [])].sort(),
       supplierFiles: [...(pair?.targets ?? [])].sort(),
     };
+  };
+}
+
+/** The late readings as the map reads them: nesting as saved, proximity with the packages it covered. */
+export function resolveLateCodex(source: LateCodexSource): LateCodex {
+  return {
+    nesting: source.nesting,
+    proximity: {
+      apart: source.proximity.apart,
+      close: source.proximity.close,
+      labelled: source.proximity.packages.map((p) => p.id),
+    },
   };
 }
 
@@ -106,7 +123,6 @@ export function resolveCodex(source: CodexSource): Codex {
       package: m.package,
       path: m.path,
     })),
-    nesting: source.nesting,
     packages: source.packages.map((p) => {
       const saved = roles.get(p.id);
       const grouped = groups.get(p.id);
@@ -129,11 +145,6 @@ export function resolveCodex(source: CodexSource): Codex {
       dominantShare: source.placement.policy.dominantShare,
       labelled: source.placement.packages.map((p) => p.id),
       places: source.placement.places.map(resolvePlacement),
-    },
-    proximity: {
-      apart: source.proximity.apart,
-      close: source.proximity.close,
-      labelled: source.proximity.packages.map((p) => p.id),
     },
     retiredPackages: source.history && retiredPackages(source.history, current),
     workspace: {

@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { pairEndpoints, resolveCodex } from "../../../src/web/codex/resolve";
-import type { CodexSource } from "../../../src/web/codex/source";
+import {
+  pairEndpoints,
+  resolveCodex,
+  resolveLateCodex,
+} from "../../../src/web/codex/resolve";
+import type {
+  CodexSource,
+  LateCodexSource,
+} from "../../../src/web/codex/source";
 import { loadAtlas } from "../../helpers/reference-atlas";
 
 const coreRoles = [
@@ -110,18 +117,6 @@ const source: CodexSource = {
       path: "packages/ui/index.ts",
     },
   ],
-  nesting: {
-    folders: [
-      {
-        fileCounts: { descendant: 2, direct: 0 },
-        id: "packages/core",
-        package: "@foundry/core",
-        packageRoot: true,
-      },
-    ],
-    pathRegions: [],
-    seams: [],
-  },
   packagePaths: [{ id: "@foundry/ui", path: "packages/ui" }],
   packages: [
     {
@@ -167,6 +162,29 @@ const source: CodexSource = {
     ],
     policy: { dominantShare: 0.6 },
   },
+  responsibilityGroups: [
+    {
+      groups: [coreGroup],
+      id: "@foundry/core",
+      independent: ["responsibility:b"],
+    },
+  ],
+};
+
+/** The readings read after the layout. */
+const late: LateCodexSource = {
+  nesting: {
+    folders: [
+      {
+        fileCounts: { descendant: 2, direct: 0 },
+        id: "packages/core",
+        package: "@foundry/core",
+        packageRoot: true,
+      },
+    ],
+    pathRegions: [],
+    seams: [],
+  },
   proximity: {
     apart: {
       coChanges: [
@@ -186,13 +204,6 @@ const source: CodexSource = {
     close: [],
     packages: [{ id: "@foundry/core", unresolved: 0 }],
   },
-  responsibilityGroups: [
-    {
-      groups: [coreGroup],
-      id: "@foundry/core",
-      independent: ["responsibility:b"],
-    },
-  ],
 };
 
 describe("resolveCodex", () => {
@@ -266,7 +277,7 @@ describe("resolveCodex", () => {
   });
 
   it("keeps the nesting lens as saved, and keys domain labels as placements are keyed", () => {
-    expect(codex.nesting).toBe(source.nesting);
+    expect(resolveLateCodex(late).nesting).toBe(late.nesting);
     expect(codex.domains.declared).toBe(source.domains.domains);
     expect(Object.keys(codex.domains.placements)).toEqual([
       "file:packages/core/src/a.ts",
@@ -274,9 +285,10 @@ describe("resolveCodex", () => {
   });
 
   it("keeps the proximity lens as saved, with the packages it covered", () => {
-    expect(codex.proximity.labelled).toEqual(["@foundry/core"]);
-    expect(codex.proximity.apart).toBe(source.proximity.apart);
-    expect(codex.proximity.close).toEqual([]);
+    const { proximity } = resolveLateCodex(late);
+    expect(proximity.labelled).toEqual(["@foundry/core"]);
+    expect(proximity.apart).toBe(late.proximity.apart);
+    expect(proximity.close).toEqual([]);
   });
 
   it("counts module dependents and dependencies across package lines", () => {

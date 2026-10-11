@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { datasetReader } from "../../../src/lib/dataset";
-import { readCodexSource } from "../../../src/web/codex/source";
+import {
+  readCodexSource,
+  readLateCodexSource,
+} from "../../../src/web/codex/source";
 import { memoryTransport, recordReads } from "../../helpers/dataset-transport";
 
 const entry = {
@@ -131,6 +134,38 @@ function read(files: Record<string, unknown>) {
   return readCodexSource(datasetReader(memoryTransport(files)));
 }
 
+function readLate(files: Record<string, unknown>) {
+  return readLateCodexSource(datasetReader(memoryTransport(files)));
+}
+
+describe("readLateCodexSource", () => {
+  it("reads the nesting and proximity lenses after the layout, and nothing else but the manifest", async () => {
+    const { read: transport, reads } = recordReads(memoryTransport(scanned()));
+    const late = await readLateCodexSource(datasetReader(transport));
+    expect([...new Set(reads)].sort()).toEqual([
+      "lenses/nesting.json",
+      "lenses/proximity.json",
+      "manifest.json",
+    ]);
+    expect(late.nesting).toEqual({ folders: [], pathRegions: [], seams: [] });
+    expect(late.proximity).toEqual({
+      apart: { coChanges: [], files: [] },
+      close: [],
+      packages: [{ id: "@foundry/core", unresolved: 0 }],
+    });
+  });
+
+  it("refuses a dataset a later scan replaced, when pinned to the one the layout read", async () => {
+    await expect(
+      readLateCodexSource(
+        datasetReader(memoryTransport(scanned()), {
+          pin: "2026-01-01T00:00:00.000Z",
+        })
+      )
+    ).rejects.toThrow("A later scan replaced this dataset.");
+  });
+});
+
 describe("readCodexSource", () => {
   it("reads no module shard at load, only the index, the edge shards, the graph, and the lenses", async () => {
     const { read: transport, reads } = recordReads(memoryTransport(scanned()));
@@ -140,10 +175,8 @@ describe("readCodexSource", () => {
       "history/manifest.json",
       "lenses/domains.json",
       "lenses/file-roles.json",
-      "lenses/nesting.json",
       "lenses/package-sizes.json",
       "lenses/placement.json",
-      "lenses/proximity.json",
       "lenses/responsibility-groups.json",
       "manifest.json",
       "modules/core-edges.json",
@@ -160,12 +193,8 @@ describe("readCodexSource", () => {
     });
     expect(source.packages).toEqual([sized]);
     expect(source.domains).toEqual({ domains: [], placements: [] });
-    expect(source.nesting).toEqual({ folders: [], pathRegions: [], seams: [] });
-    expect(source.proximity).toEqual({
-      apart: { coChanges: [], files: [] },
-      close: [],
-      packages: [{ id: "@foundry/core", unresolved: 0 }],
-    });
+    expect(source).not.toHaveProperty("nesting");
+    expect(source).not.toHaveProperty("proximity");
     expect(source.placement).toEqual({
       packages: [{ id: "@foundry/core" }],
       places: [placed],
@@ -215,14 +244,17 @@ describe("readCodexSource", () => {
   });
 
   it("asks for a new scan when the dataset was saved before the nesting or domains lens", async () => {
-    for (const id of ["nesting", "domains"]) {
+    for (const [id, reads] of [
+      ["nesting", readLate],
+      ["domains", read],
+    ] as const) {
       const files = scanned();
       const manifest = files["manifest.json"] as {
         lenses: Record<string, unknown>;
       };
       const { [id]: _missing, ...lenses } = manifest.lenses;
       await expect(
-        read({ ...files, "manifest.json": { ...manifest, lenses } })
+        reads({ ...files, "manifest.json": { ...manifest, lenses } })
       ).rejects.toThrow(`The dataset has no ${id} lens. Run atlas scan again.`);
     }
   });

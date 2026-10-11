@@ -224,6 +224,12 @@ export async function createAtlasScene(
   scene.add(lettering.mesh);
   const projectLabel = createLabelProjector(relief.fieldFor, tilt);
   let selected: string | null = null;
+  /**
+   * The atlas the ink reads: the one the scene was built from, until
+   * `setData` brings its late readings; the geometry never changes.
+   */
+  let readings = data;
+  let layoutTerritory: Territory | null = null;
   let drawingData = data;
   const roads = createRoadNetwork(data, layers.roads ? continents : []);
   const inland = (from: string, to: string) =>
@@ -786,6 +792,15 @@ export async function createAtlasScene(
       showConnections = visible;
       render();
     },
+    /**
+     * The same atlas with its late readings (`loadLateReadings`): the
+     * islands and everything built from them stay; the ink repaints.
+     */
+    setData: (next: AtlasData) => {
+      readings = next;
+      drawingData = resolveSetTerritoryLayout(layoutTerritory, readings);
+      render();
+    },
     setDomain: (name: string | null) => {
       domain = name;
       render();
@@ -804,7 +819,8 @@ export async function createAtlasScene(
       render();
     },
     setTerritoryLayout: (territory: Territory | null) => {
-      drawingData = resolveSetTerritoryLayout(territory, data);
+      layoutTerritory = territory;
+      drawingData = resolveSetTerritoryLayout(territory, readings);
       const current =
         data.territories.find((item) => item.id === selected) ?? null;
       focus(

@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
-import { loadAtlas } from "../load-atlas";
+import type { LateCodex } from "../codex/vocabulary";
+import { loadAtlas, loadLateReadings } from "../load-atlas";
+import { afterFirstFrame } from "../timings";
 import type { AtlasData } from "../types";
 import Atlas from "./atlas-view";
 
@@ -19,29 +21,43 @@ export function readSession(search = window.location.search) {
 export function App() {
   const [session] = useState(() => readSession());
   const [data, setData] = useState<AtlasData>();
+  const [late, setLate] = useState<Promise<LateCodex>>();
   const [error, setError] = useState<string>();
   useEffect(() => {
     const controller = new AbortController();
+    const fail = (cause: unknown) => {
+      if (!controller.signal.aborted) {
+        setError(
+          cause instanceof Error ? cause.message : "Atlas could not load."
+        );
+      }
+    };
     const load = async () => {
       try {
-        setData(await loadAtlas(controller.signal));
+        const atlas = await loadAtlas(controller.signal);
+        // Read beside the scene's build and merged after its first frame,
+        // so neither the read nor the re-render it causes delays it; a
+        // refusal fails the page as a refusal at load does.
+        const read = loadLateReadings(atlas, controller.signal);
+        read.catch(fail);
+        setLate(
+          Promise.all([read, afterFirstFrame()]).then(([readings]) => readings)
+        );
+        setData(atlas);
       } catch (cause) {
-        if (!controller.signal.aborted) {
-          setError(
-            cause instanceof Error ? cause.message : "Atlas could not load."
-          );
-        }
+        fail(cause);
       }
     };
     load();
     return () => controller.abort();
   }, []);
 
-  if (data) {
+  if (data && !error) {
     return (
       <Atlas
         data={data}
         developer={session.developer}
+        late={late}
         mapOnly={session.mapOnly}
       />
     );

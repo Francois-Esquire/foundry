@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import type { LateCodex } from "../../src/web/codex/vocabulary";
 import { inkStyle } from "../../src/web/scene/ink-ladder";
 import { createAtlasScene } from "../../src/web/scene/scene";
 import { inspectionText } from "../../src/web/ui/atlas-place";
@@ -35,6 +36,7 @@ vi.mock("../../src/web/scene/scene", () => ({
       restoreView: vi.fn(),
       setBelonging: vi.fn(),
       setConnections: vi.fn(),
+      setData: vi.fn(),
       setDomain: vi.fn(),
       setLegendHeight: vi.fn(),
       setResponsibility: vi.fn(),
@@ -789,4 +791,58 @@ it("keeps the chosen domain through a relayout, handing it to the rebuilt scene"
   expect(results.length).toBeGreaterThan(scenes);
   const rebuilt = await results.at(-1)?.value;
   expect(rebuilt?.setDomain).toHaveBeenLastCalledWith("shapes");
+});
+
+it("tells an island's proximity and path regions once the readings read after load arrive, keeping the scene", async () => {
+  const data = await loadAtlas();
+  const [territory] = data.territories;
+  assert(territory);
+  let arrive: (value: LateCodex) => void = () => undefined;
+  const late = new Promise<LateCodex>((done) => {
+    arrive = done;
+  });
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(() => new Promise(() => undefined))
+  );
+  await act(async () => {
+    root.render(createElement(Atlas, { data, late }));
+  });
+  const scenes = vi.mocked(createAtlasScene).mock.results.length;
+  await act(async () => button("Find a place").click());
+  const island = container.querySelector<HTMLButtonElement>(
+    `.atlas-index button[value="${territory.id}"]`
+  );
+  assert(island);
+  await act(async () => island.click());
+  const place = () => container.querySelector(".atlas-place")?.textContent;
+  expect(place()).not.toContain("proximity:");
+  expect(place()).not.toContain("path region");
+  await act(async () => {
+    arrive({
+      nesting: {
+        folders: [],
+        pathRegions: [
+          { files: 1, id: "src", package: territory.id, primaryFiles: 1 },
+        ],
+        seams: [],
+      },
+      proximity: {
+        apart: { coChanges: [], files: [] },
+        close: [],
+        labelled: [territory.id],
+      },
+    });
+    await late;
+  });
+  expect(place()).toContain("1 path region");
+  expect(place()).toContain("proximity: 0 close but unrelated");
+  expect(vi.mocked(createAtlasScene).mock.results).toHaveLength(scenes);
+  const scene = await vi.mocked(createAtlasScene).mock.results.at(-1)?.value;
+  expect(scene?.setData).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      proximity: expect.objectContaining({ labelled: [territory.id] }),
+    })
+  );
+  vi.unstubAllGlobals();
 });

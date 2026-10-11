@@ -1,5 +1,6 @@
 import { type RefObject, useEffect, useRef, useState } from "react";
 import { type AtlasSelection, createAtlasScene } from "../scene/scene";
+import { releaseFirstFrame } from "../timings";
 import type { TradeRoute } from "../trade-routes";
 import type { FormerPackage, Territory } from "../types";
 import type { AtlasState } from "./atlas-state";
@@ -29,6 +30,7 @@ function applyState(
   view: { x: number; y: number; pixels: number } | null
 ) {
   current.configure(next.chartSettings);
+  current.setData(next.data);
   current.setBelonging(next.belongingLayer);
   current.setTerritoryLayout(next.territoryLayout);
   current.setConnections(next.showConnections);
@@ -42,7 +44,7 @@ function applyState(
 
 export function AtlasMap(props: AtlasMapProps) {
   const { state, mapRef } = props;
-  const { data, developer, layoutSettings, chartSettings } = state;
+  const { geometry, developer, layoutSettings, chartSettings } = state;
   // Primitives, so a new settings object with the same layers (Reset, or any
   // reader setting) reaches the scene through configure, not a rebuild.
   const { land, roads } = chartSettings.layers;
@@ -81,7 +83,7 @@ export function AtlasMap(props: AtlasMapProps) {
         if (disposed || !host.current) {
           return;
         }
-        const current = await createAtlasScene(host.current, data, {
+        const current = await createAtlasScene(host.current, geometry, {
           coastalBuffer: layoutSettings.coastalBuffer,
           developer,
           layers: { land, roads },
@@ -110,6 +112,8 @@ export function AtlasMap(props: AtlasMapProps) {
         applyState(current, latest.current.state, view.current);
         setStatus("");
       } catch {
+        // No frame will come; what waits for one goes ahead.
+        releaseFirstFrame();
         if (!disposed) {
           setStatus(
             "The map could not open. Reload in a browser with WebGL enabled."
@@ -138,7 +142,12 @@ export function AtlasMap(props: AtlasMapProps) {
       }
       window.removeEventListener("keydown", handleEscape);
     };
-  }, [data, developer, land, layoutSettings.coastalBuffer, mapRef, roads]);
+  }, [geometry, developer, land, layoutSettings.coastalBuffer, mapRef, roads]);
+
+  // Readings that arrive after load reach the scene without rebuilding it.
+  useEffect(() => {
+    scene.current?.setData(state.data);
+  }, [state.data]);
 
   useEffect(() => {
     scene.current?.configure(chartSettings);

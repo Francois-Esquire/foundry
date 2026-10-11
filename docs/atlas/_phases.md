@@ -3667,6 +3667,128 @@ current zoom needs.
   module lists, most of its 181 KB, only to count them. Either a
   count-only projection of the lens, or a lazy read of the lists for the
   place in Place, would leave the counts at load.
+- **4.4 plan.** Planned 2026-10-10 at `7d61ed7`, against this worktree's
+  scan with no domain declared. The load is 2,145,022 bytes in 24
+  requests.
+  - The largest part is not a lens. The 14 module edge shards are
+    1,212,593 bytes and 14 of the 24 requests. The viewer reads all 4,668
+    edges for three things:
+    - recounting each file's imports, which equals the module records'
+      `gravity.fanIn` and `fanOut`;
+    - joining each package pair's endpoint files for trade harbors, roads
+      and Trading partners;
+    - keeping the edges for Trace imports.
+
+    Then come the module index (334,194), `placement` (181,378),
+    `file-roles` (137,688), `proximity` (126,755) and `nesting` (79,596).
+  - Viewer only (this unit's first part):
+    - Read `proximity` and `nesting` off the critical path: 206,351 bytes
+      and 2 requests, which nothing at overview draws. They are read beside
+      the terrain build, on a reader pinned to the manifest, and merged into
+      the atlas after the relayout, keeping the islands, so the scene is not
+      rebuilt; a scene `setData` repaints with them. The one visible
+      deferral: Place and the hover readout give an island's proximity and
+      path regions once they arrive. A refused late lens is shown as the
+      load error is, not swallowed.
+    - The capture's `marks` step splits the bytes into those read before
+      `atlas:data-loaded` and after it.
+    - A `--throttle` option emulates a slow network, so the bytes show in
+      the timings.
+  - lib/, to ask before any change:
+    - A new lens, `import-traffic` (schema 1): each indexed module's
+      `gravity.fanIn` and `fanOut`, copied from the module records rather
+      than recounted, and each package pair's consumer and supplier files
+      from the edge shards. About 94 KB on this scan, against 1.21 MB. The
+      viewer's recount then retires, and the edge shards are read only on
+      Trace imports, all 14 at once, since a file's importers can sit in
+      any package's shard. It is a new lens rather than a `file-roles`
+      bump, because `file-roles` lists 1,559 of the 1,566 indexed modules
+      (packages without internals are missing).
+    - Count-only placement cannot be a schema bump of `placement`: the
+      `domains` lens reads its consumer-module lists. It needs a second
+      artifact, so the ask is also how a lens publishes a projection and
+      how `DatasetReader` exposes one. Counts for files, folders and
+      packages are 29 KB; with symbols 85 KB. Symbol places (244 of 377)
+      matter only when Place shows a symbol and could be read lazily.
+    - `nesting` as a projection: folders with a path region (`id`,
+      `pathRegion`), path regions per package, and seams as `{ package,
+      from, to, moduleEdges }`. 31 KB against 80 KB.
+    - Not asked: `file-roles` and the module index feed relief and layout
+      at overview, and `responsibility-groups` orders the cells.
+  - Acceptance: pixel-identical at overview and at island zoom once the
+    late lenses are in. Load marks over three runs each, at full speed and
+    throttled. Requests and bytes before and after `atlas:data-loaded`.
+- **4.4a, done.** 2026-10-10: the viewer-only part of the plan. The
+  `lib/` asks above are open.
+  - `readCodexSource` no longer reads `nesting` or `proximity`.
+    `readLateCodexSource` reads them, and `loadLateReadings` (in
+    `load-atlas.ts`) resolves them on a reader pinned to the load's
+    `generatedAt`, so a dataset a later scan replaced is refused. It marks
+    `atlas:readings-loaded`.
+    - Until they arrive, the atlas holds empty readings: no folder, path
+      region or seam, and no package the proximity lens covered. Place
+      says nothing of either rather than "none".
+    - `App` starts the read as soon as the layout is done, beside the
+      scene's build. It hands the readings to the map once the first frame
+      is submitted (`afterFirstFrame` in `timings.ts`; the map releases it
+      too if it cannot open), so the re-render they cause never lands in
+      the build.
+    - A refused read fails the page with its message, as a refusal at load
+      does.
+  - `useAtlasState` merges the readings after the relayout (`geometry` →
+    `data`), so the islands keep their identity. `AtlasMap` builds and
+    rebuilds the scene from `state.geometry` alone. A new scene method,
+    `setData`, hands it the merged atlas, re-resolved through the kept
+    territory layout, and repaints.
+  - The capture's `marks` step reports the data read before
+    `atlas:data-loaded` and after it. `--throttle <kbit/s>` (with
+    `--latency`, default 40 ms) emulates a slow network.
+  - Measured on this worktree's scan with an empty `domains` lens,
+    `7d61ed7` against this unit, three runs each (`/tmp/review-shots/4.4/`):
+
+    | | Requests before data-loaded | Bytes before data-loaded | Read after it |
+    | --- | --- | --- | --- |
+    | Before | 24 | 2,145,022 | none |
+    | After | 22 | 1,938,671 | 3 requests, 219,892 bytes |
+
+    The read after it includes `manifest.json` again (13,541 bytes): the
+    pinned reader reads it to check the dataset is the same.
+
+    | Timing | Before | After |
+    | --- | --- | --- |
+    | data-loaded, full speed | 74.7–85.4 ms | 81.2–85.3 ms |
+    | data-loaded, 10 Mbit/s, 40 ms | 3,134–3,152 ms | 2,974–2,983 ms |
+    | first frame, full speed, alternating runs | 2,651–2,682 ms | 2,610–2,671 ms |
+    | first frame, 10 Mbit/s | 5,713–5,757 ms | 5,636–5,666 ms |
+
+    Readings arrive at 114–118 ms at full speed, and are merged after the
+    first frame. Throttled, the read finishes during the terrain build, so
+    they are merged 6 ms after it. Locally the bytes cost about 7 ms. The
+    throttled run is where they show: 150–170 ms off data-loaded and
+    50–90 ms off the first frame. The first unalternated full-speed runs
+    looked 80 ms slower after; the alternating runs show that was drift.
+  - Unchanged on screen: before against after, 0 differing pixels at
+    overview, at island zoom, on an entered island (workspaces) and close
+    in, once the readings are in. Place's text for the island is identical
+    too, proximity and path regions included. Text arriving after the
+    first frame is the one deferral.
+  - Tests:
+    - `codex/source.test.ts`: the load reads neither lens; the late read
+      reads only them; a pinned late read refuses a replaced dataset; the
+      nesting refusal moves to the late read.
+    - `codex/resolve.test.ts`: `resolveLateCodex`.
+    - `timings.test.ts`: `afterFirstFrame`, by mark or release.
+    - `atlas-map.test.ts`: one scene, built from `geometry`, with
+      `setData` on arrival.
+    - `atlas-shell.test.ts`: Place gains proximity and path regions when
+      the readings arrive, and the scene is not rebuilt.
+    - `atlas.test.ts`: over the real server, the load holds no nesting,
+      then `loadLateReadings` brings it and marks it.
+  - Next, with the `lib/` asks approved: the `import-traffic` lens would
+    take the 14 edge shards (1,212,593 bytes) off the load for about
+    94 KB, and the edges would be read on Trace imports. Count-only
+    `placement` and the `nesting` projection would follow, once it is
+    settled how a lens publishes a projection.
 
 ## Phase 5: many workspaces
 

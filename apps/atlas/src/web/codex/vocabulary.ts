@@ -129,6 +129,16 @@ export interface CodexDomains {
   placements: Record<string, DomainPlacement>;
 }
 
+/**
+ * The readings read after the layout, since nothing at overview draws them:
+ * the `nesting` and `proximity` lenses, for Place, the hover readout and
+ * island zoom.
+ */
+export interface LateCodex {
+  nesting: CodexNesting;
+  proximity: CodexProximity;
+}
+
 export interface CodexRetiredPackage {
   id: string;
   label: string;
@@ -141,7 +151,6 @@ export interface Codex {
   domains: CodexDomains;
   imports: CodexImport[];
   modules: CodexModule[];
-  nesting: CodexNesting;
   /** Sorted by id. */
   packages: CodexPackage[];
   /** The `placement` lens's places, as the lens sorts them, and the packages it labelled, whose other places no other package uses. */
@@ -151,7 +160,6 @@ export interface Codex {
     labelled: string[];
     places: CodexPlacement[];
   };
-  proximity: CodexProximity;
   /** Absent when no history was recorded; sorted by id. */
   retiredPackages?: CodexRetiredPackage[];
   workspace: CodexWorkspace;

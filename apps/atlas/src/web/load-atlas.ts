@@ -1,6 +1,7 @@
 import { footprint } from "./codex/bindings";
-import { placementKey, resolveCodex } from "./codex/resolve";
-import { readCodexSource } from "./codex/source";
+import { placementKey, resolveCodex, resolveLateCodex } from "./codex/resolve";
+import { readCodexSource, readLateCodexSource } from "./codex/source";
+import type { LateCodex } from "./codex/vocabulary";
 import { viewerDataset } from "./dataset";
 import {
   districtsOfGroups,
@@ -12,6 +13,34 @@ import { chartSize, landContours, settlePackages } from "./geography";
 import { defaultLandmassSettings } from "./landmasses";
 import { markLoad } from "./timings";
 import type { AtlasData, Territory } from "./types";
+
+/**
+ * The readings an atlas holds until `loadLateReadings` brings them: no
+ * folder tree, path region or seam, and no package the proximity lens
+ * covered, so Place says nothing of either rather than "none".
+ */
+const unreadReadings: LateCodex = {
+  nesting: { folders: [], pathRegions: [], seams: [] },
+  proximity: { apart: { coChanges: [], files: [] }, close: [], labelled: [] },
+};
+
+/**
+ * The readings nothing at overview draws, read after the layout so that the
+ * first one does not wait for them: the `nesting` and `proximity` lenses.
+ * Pinned to the atlas's dataset, so a later scan is refused rather than
+ * mixed in. The atlas takes them as they are (`AtlasData` fields of the
+ * same names).
+ */
+export async function loadLateReadings(
+  atlas: Pick<AtlasData, "generatedAt">,
+  signal?: AbortSignal
+): Promise<LateCodex> {
+  const late = resolveLateCodex(
+    await readLateCodexSource(viewerDataset({ pin: atlas.generatedAt, signal }))
+  );
+  markLoad("atlas:readings-loaded");
+  return late;
+}
 
 export async function loadAtlas(signal?: AbortSignal): Promise<AtlasData> {
   markLoad("atlas:data-requested");
@@ -85,7 +114,7 @@ export async function loadAtlas(signal?: AbortSignal): Promise<AtlasData> {
     fileEdges: codex.imports.map(({ source, target }) => ({ source, target })),
     folderCells,
     generatedAt: codex.workspace.surveyedAt,
-    nesting: codex.nesting,
+    nesting: unreadReadings.nesting,
     packageLayers,
     placement: {
       dominantShare: codex.placement.dominantShare,
@@ -94,7 +123,7 @@ export async function loadAtlas(signal?: AbortSignal): Promise<AtlasData> {
         codex.placement.places.map((place) => [placementKey(place), place])
       ),
     },
-    proximity: codex.proximity,
+    proximity: unreadReadings.proximity,
     routes,
     territories,
     ...chartSize(territories),

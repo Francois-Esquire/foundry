@@ -53,8 +53,6 @@ export interface CodexSource {
     SemanticsModuleIndexEntry,
     "id" | "package" | "path" | "fileKind"
   >[];
-  /** The `nesting` lens: one folder tree, with each package's path regions and the seams between them. */
-  nesting: Pick<Nesting, "folders" | "pathRegions" | "seams">;
   /** Each package's workspace-relative folder, from the manifest. */
   packagePaths: Pick<SemanticsManifestPackage, "id" | "path">[];
   /** The `package-sizes` lens, sorted by id. */
@@ -66,13 +64,44 @@ export interface CodexSource {
     places: Placements["places"];
     policy: Placements["policy"];
   };
-  /** The `proximity` lens: what sits close without being related, and what is related without sitting close. */
-  proximity: Pick<Proximity, "apart" | "close" | "packages">;
   /** The `responsibility-groups` lens, drawn as districts on entering an island. */
   responsibilityGroups: ResponsibilityGroupsPackage[];
 }
 
-/** The codex's fields, read through one dataset reader. */
+/**
+ * The fields read after the layout (`readLateCodexSource`): nothing at
+ * overview draws them, so the first layout does not wait for them.
+ */
+export interface LateCodexSource {
+  /** The `nesting` lens: one folder tree, with each package's path regions and the seams between them. */
+  nesting: Pick<Nesting, "folders" | "pathRegions" | "seams">;
+  /** The `proximity` lens: what sits close without being related, and what is related without sitting close. */
+  proximity: Pick<Proximity, "apart" | "close" | "packages">;
+}
+
+/** The late fields, read through one dataset reader, pinned to the load's manifest. */
+export async function readLateCodexSource(
+  reader: DatasetReader
+): Promise<LateCodexSource> {
+  const [nesting, proximity] = await Promise.all([
+    reader.lens("nesting"),
+    reader.lens("proximity"),
+  ]);
+  return {
+    nesting: {
+      folders: nesting.folders,
+      pathRegions: nesting.pathRegions,
+      seams: nesting.seams,
+    },
+    proximity: {
+      apart: proximity.apart,
+      close: proximity.close,
+      packages: proximity.packages,
+    },
+  };
+}
+
+/** The codex's fields for the first layout, read through one dataset reader. */
 export async function readCodexSource(
   reader: DatasetReader
 ): Promise<CodexSource> {
@@ -84,8 +113,6 @@ export async function readCodexSource(
     roles,
     groups,
     placement,
-    proximity,
-    nesting,
     domains,
     edgeShards,
     history,
@@ -97,8 +124,6 @@ export async function readCodexSource(
     reader.lens("file-roles"),
     reader.lens("responsibility-groups"),
     reader.lens("placement"),
-    reader.lens("proximity"),
-    reader.lens("nesting"),
     reader.lens("domains"),
     reader.moduleEdgeShards(),
     reader.history(),
@@ -120,22 +145,12 @@ export async function readCodexSource(
     },
     imports: edgeShards.flatMap((s) => s.edges),
     modules: index.modules,
-    nesting: {
-      folders: nesting.folders,
-      pathRegions: nesting.pathRegions,
-      seams: nesting.seams,
-    },
     packagePaths: manifest.packages.map(({ id, path }) => ({ id, path })),
     packages: sizes.packages,
     placement: {
       packages: placement.packages.map(({ id }) => ({ id })),
       places: placement.places,
       policy: placement.policy,
-    },
-    proximity: {
-      apart: proximity.apart,
-      close: proximity.close,
-      packages: proximity.packages,
     },
     responsibilityGroups: groups.packages,
   };

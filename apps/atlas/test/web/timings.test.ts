@@ -27,6 +27,25 @@ it("records each point of the load once per page, in order", async () => {
   ).toEqual([...loadMarks]);
 });
 
+it("lets work wait for the first frame, or for the map's failure to open", async () => {
+  const framed = await timings();
+  let done = false;
+  const waiting = framed.afterFirstFrame().then(() => {
+    done = true;
+  });
+  await Promise.resolve();
+  expect(done).toBe(false);
+  framed.markLoad("atlas:first-frame");
+  await waiting;
+  expect(done).toBe(true);
+  // Once released, it no longer waits.
+  await framed.afterFirstFrame();
+  const failed = await timings();
+  const released = failed.afterFirstFrame();
+  failed.releaseFirstFrame();
+  await expect(released).resolves.toBeUndefined();
+});
+
 it("times a stage only in a developer session", async () => {
   const { timeStage } = await timings();
   expect(timeStage(false, "ink", () => 3)).toBe(3);
