@@ -40,12 +40,16 @@ import { serve } from "../src/lib/serve";
 import type { WorkspaceState } from "../src/lib/state";
 import { workspaceState } from "../src/lib/state";
 import { startServer } from "../src/server/server";
+import { latitude } from "../src/web/codex/bindings";
+import { crossingPairs } from "../src/web/crossings";
+import { frameSea } from "../src/web/geography";
 import {
   loadAtlas,
   loadImports,
   loadLateReadings,
 } from "../src/web/load-atlas";
 import { loadInternals } from "../src/web/load-internals";
+import { archipelagoRims } from "../src/web/scene/archipelago";
 import { CLI, spawnCli, spawnDetached } from "./helpers/cli";
 import { commitFixture } from "./helpers/commit-fixture";
 
@@ -1182,6 +1186,32 @@ describe("built CLI collections", () => {
         expect(ids).toContain(crossing.from);
         expect(ids).toContain(crossing.to);
       }
+      // One line for each pair, never a route.
+      expect(crossingPairs(atlas).map(({ from, to }) => [from, to])).toEqual([
+        [`${product.id}:@p/app`, `${platform.id}:@k/db`],
+        [`${product.id}:@p/web`, `${platform.id}:@k/db`],
+      ]);
+      expect(
+        atlas.routes.some((route) =>
+          crossingPairs(atlas).some(
+            (pair) => pair.from === route.from && pair.to === route.to
+          )
+        )
+      ).toBe(false);
+      // Side by side, one rim each with open water between them, and both
+      // frames' rows on one latitude axis: platform's two, product's three.
+      const [west = [], east = []] = archipelagoRims(atlas);
+      expect(
+        Math.min(...east.map(([x]) => x)) - Math.max(...west.map(([x]) => x))
+      ).toBeCloseTo(frameSea, 6);
+      const rows = new Set(
+        atlas.territories.map((island) =>
+          Math.round(
+            (island.y - latitude(atlas.packageLayers[island.id] ?? 0)) * 1e6
+          )
+        )
+      );
+      expect(rows.size).toBe(1);
       const files = new Set(
         atlas.territories.flatMap((territory) =>
           territory.files.map((file) => file.id)

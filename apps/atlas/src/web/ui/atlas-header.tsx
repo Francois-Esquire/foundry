@@ -2,11 +2,13 @@ import type { ChangeEvent, MouseEvent, Ref } from "react";
 import { useCallback, useState } from "react";
 import type { BelongingRegion } from "../belonging";
 import type { AtlasSelection } from "../scene/scene";
+import { type AtlasData, islandName } from "../types";
 import type { PanelSection } from "./atlas-panel";
 import type { MapLayer } from "./atlas-state";
 
 /** Breadcrumb, map layer, and every control that used to sit in the footer. */
 export function AtlasHeader({
+  atlas,
   selection,
   regions,
   composites,
@@ -23,6 +25,8 @@ export function AtlasHeader({
   onZoomOut,
   onWholeAtlas,
 }: {
+  /** The atlas's frames, so that a collection's island is named with its frame's label. */
+  atlas: Pick<AtlasData, "frames">;
   selection: AtlasSelection | null;
   regions: BelongingRegion[];
   composites: BelongingRegion[];
@@ -96,7 +100,10 @@ export function AtlasHeader({
           Atlas
         </button>
         {territory && (
-          <Crumb label={territory.label} onClick={crumbTerritory} />
+          <Crumb
+            label={islandName(atlas, territory)}
+            onClick={crumbTerritory}
+          />
         )}
         {composite && (
           <Crumb label={composite.label} onClick={crumbComposite} />

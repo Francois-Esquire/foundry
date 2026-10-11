@@ -1,13 +1,25 @@
+import type { AtlasData } from "../../types";
 import { inks } from "../ink-ladder";
 import type { InkState } from "./state";
 
+/** The compass rose's centre, in map units: at the chart's north-east corner. */
+function compassCentre(data: Pick<AtlasData, "height" | "width">) {
+  return { x: data.width / 2 - 88, y: -data.height / 2 + 94 };
+}
+
+/**
+ * What the compass rose covers, in map units: its points, 35 units from the
+ * centre, and the "N" above them. Names that would sit on it keep clear.
+ */
+export function compassBox(data: Pick<AtlasData, "height" | "width">) {
+  const { x, y } = compassCentre(data);
+  return { east: x + 35, north: y - 53, south: y + 35, west: x - 35 };
+}
+
 /** The compass rose at the chart's north-east corner; it opens chart settings. */
 export function paintChartCompass(state: InkState): void {
-  paintCompass(
-    state.ctx,
-    state.data.width / 2 - 88,
-    -state.data.height / 2 + 94
-  );
+  const { x, y } = compassCentre(state.data);
+  paintCompass(state.ctx, x, y);
 }
 
 function paintCompass(

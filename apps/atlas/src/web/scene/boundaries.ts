@@ -2,7 +2,7 @@ import { landmassFootprint } from "../landmass-footprint";
 import { landmassHull } from "../landmass-hull";
 import { packageGroups } from "../landmasses";
 import type { AtlasData } from "../types";
-import { archipelagoHull, traceArchipelago } from "./archipelago";
+import { archipelagoRims, traceArchipelago } from "./archipelago";
 import { developerInks } from "./ink-ladder";
 
 export const boundaryStyles = {
@@ -79,7 +79,7 @@ export function atlasBoundaries(
     ),
     footprint: footprints.flatMap((f) => f.outline),
     groups: groups.map((g) => landmassHull(g)),
-    outer: [archipelagoHull(data)],
+    outer: archipelagoRims(data),
     pockets: footprints.flatMap((f) => f.pocketRings),
   };
 }

@@ -1,5 +1,5 @@
 import { landmassHull } from "../landmass-hull";
-import type { AtlasData } from "../types";
+import { type AtlasData, islandsByFrame } from "../types";
 
 type Point = [number, number];
 
@@ -9,13 +9,15 @@ const rimSamples = 180;
 const rimWindow = 9;
 
 /**
- * The archipelago's outer rim: a padded hull around every island, smoothed in
- * polar form about its centre. A moving maximum of the radius only moves the
- * rim outward, then a triangular moving average of that maximum bends long
- * straight sides into broad arcs. Each averaged radius covers the hull's own
- * radius at that angle, so the smooth rim always contains the padded hull.
+ * An archipelago's outer rim: a padded hull around every island given,
+ * smoothed in polar form about its centre. A moving maximum of the radius
+ * only moves the rim outward, then a triangular moving average of that
+ * maximum bends long straight sides into broad arcs. Each averaged radius
+ * covers the hull's own radius at that angle, so the smooth rim always
+ * contains the padded hull. It moves with its islands: moved together, they
+ * give the same rim, moved.
  */
-export function archipelagoHull(data: AtlasData): Point[] {
+export function archipelagoHull(data: Pick<AtlasData, "territories">): Point[] {
   const hull = landmassHull(data.territories, 110);
   if (hull.length < 3) {
     return hull;
@@ -46,6 +48,22 @@ export function archipelagoHull(data: AtlasData): Point[] {
     const radius = total / weight;
     return [cx + radius * Math.cos(angle(i)), cy + radius * Math.sin(angle(i))];
   });
+}
+
+/**
+ * One rim per frame: each workspace of a collection is its own archipelago,
+ * set apart from the next by open water. A single workspace's one rim is
+ * built from all its islands, as before frames.
+ */
+export function archipelagoRims(
+  data: Pick<AtlasData, "frames" | "territories">
+): Point[][] {
+  if (data.frames.length <= 1) {
+    return [archipelagoHull(data)];
+  }
+  return islandsByFrame(data).map((territories) =>
+    archipelagoHull({ territories })
+  );
 }
 
 /** Distance from (cx, cy) along `theta` to where the ray leaves a convex ring. */

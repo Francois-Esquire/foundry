@@ -176,5 +176,7 @@ maintainer disagrees with; 4.0 proceeded without it (question 3).
    workspace, side by side,** with the crossings drawn across the sea
    between them. See [`_workspaces.md`](./_workspaces.md). Since 5.4a the
    viewer reads a collection as one frame per workspace, each laid out as
-   its workspace alone would be and set beside the others; 5.4b composes
-   them and draws the crossings.
+   its workspace alone would be and set beside the others. Since 5.4b each
+   frame has its own rim, with open water between, all frames' rows share
+   one latitude axis, and the crossings are drawn as one line per pair of
+   packages, listed in Place, and never selectable as routes.

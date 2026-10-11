@@ -1,6 +1,6 @@
 import { shoreDistances } from "../distance-field";
 import type { AtlasData, Polygon } from "../types";
-import { archipelagoHull, traceArchipelago } from "./archipelago";
+import { archipelagoRims, traceArchipelago } from "./archipelago";
 import { channels, grounds } from "./ink-ladder";
 
 /** Offshore distances (map units) where the sea steps one shade deeper. */
@@ -27,7 +27,7 @@ function layered(distance: number, steps: readonly number[], softness: number) {
 /**
  * Layered sea: each step offshore is a slightly deeper, slightly cooler wash.
  * Steps follow offsets of every coast, so neighbouring islands share their
- * lobes. Beyond the archipelago rim the same layering continues, slightly
+ * lobes. Beyond each archipelago's rim the same layering continues, slightly
  * darker, out to an ocean blue at the chart's edge: a natural vignette.
  */
 export function oceanShade(
@@ -82,15 +82,18 @@ export function oceanField(
     (_, i) => ((pixels.data[i * 4 + 3] ?? 0) > 0 ? 1 : 0)
   );
   const distances = shoreDistances(land, canvas.width, canvas.height);
-  const hull = archipelagoHull(data);
-  traceArchipelago(mask, hull);
-  mask.fill();
+  // One rim per frame; a single workspace's is the whole archipelago's.
+  const rims = archipelagoRims(data);
+  for (const rim of rims) {
+    traceArchipelago(mask, rim);
+    mask.fill();
+  }
   const envelope = mask.getImageData(0, 0, canvas.width, canvas.height);
   const region = Uint8Array.from(land, (_, i) =>
     (envelope.data[i * 4 + 3] ?? 0) > 0 ? 1 : 0
   );
   const outside = shoreDistances(region, canvas.width, canvas.height);
-  return { canvas, distances, hull, mask, outside, pixels, scale };
+  return { canvas, distances, mask, outside, pixels, rims, scale };
 }
 
 export function paintOcean(

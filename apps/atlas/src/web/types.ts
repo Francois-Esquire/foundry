@@ -132,7 +132,8 @@ export interface AtlasData {
   /**
    * In a collection, the declared dependencies of a package in one workspace
    * on a package of another, from the collection manifest, by qualified id;
-   * absent for a single workspace. Not routes: 5.4b draws them.
+   * absent for a single workspace. Not routes: the map draws one line per
+   * pair of packages (`crossingPairs`), and Place lists them.
    */
   crossings?: readonly Crossing[];
   declaredDependencies?: {
@@ -178,6 +179,32 @@ export function frameOf(
     throw new Error(`No frame of the atlas holds the island ${territoryId}.`);
   }
   return frame;
+}
+
+/** Each frame's islands, in the atlas's order, by frame. */
+export function islandsByFrame(
+  data: Pick<AtlasData, "frames" | "territories">
+): Territory[][] {
+  return data.frames.map((frame) =>
+    data.territories.filter((territory) =>
+      frame.territories.includes(territory.id)
+    )
+  );
+}
+
+/**
+ * What a reader calls an island off the map: its name, and in a collection
+ * its frame's label after it, "shared · platform", since two workspaces can
+ * each hold a package of one name. On the map, the frame's label sits above
+ * the frame instead.
+ */
+export function islandName(
+  atlas: Pick<AtlasData, "frames">,
+  territory: Pick<Territory, "id" | "label">
+): string {
+  return atlas.frames.length > 1
+    ? `${territory.label} · ${frameOf(atlas, territory.id).label}`
+    : territory.label;
 }
 
 /**

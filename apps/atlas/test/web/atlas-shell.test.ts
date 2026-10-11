@@ -13,6 +13,7 @@ import { inspectionText } from "../../src/web/ui/atlas-place";
 import Atlas from "../../src/web/ui/atlas-view";
 import { withReadings } from "../helpers/frames";
 import { loadAtlas } from "../helpers/reference-atlas";
+import { twins } from "../helpers/twins";
 
 /** The domain the tests choose: "shapes", declared by the single workspace's frame. */
 const shapes = { frame: "", name: "shapes" };
@@ -983,4 +984,107 @@ it("lists each frame's domains in a collection with the frame's label, and choos
   expect(
     container.querySelector('[aria-label="Chosen domain"]')?.textContent
   ).toContain(" on 1 island: ");
+});
+
+it("names a collection's island with its frame in the breadcrumb, Place's title and the readout, lists its crossings as text, and adds a crossing row to the legend", async () => {
+  const { atlas } = await twins();
+  const [crossing] = atlas.crossings ?? [];
+  assert(crossing);
+  const from = atlas.territories.find((item) => item.id === crossing.from);
+  const to = atlas.territories.find((item) => item.id === crossing.to);
+  assert(from && to);
+  // Selecting an island reads its belonging; this test needs none of it.
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(() => new Promise(() => undefined))
+  );
+  await act(async () => {
+    root.render(createElement(Atlas, { data: atlas }));
+  });
+  expect(container.querySelector(".atlas-legend")?.textContent).toContain(
+    `${inkStyle("crossing").meaning}1 line between 2 workspaces`
+  );
+  const choose = async (id: string) => {
+    await act(async () => button("Find a place").click());
+    const entry = container.querySelector<HTMLButtonElement>(
+      `.atlas-index button[value="${id}"]`
+    );
+    assert(entry);
+    await act(async () => entry.click());
+  };
+  await choose(from.id);
+  expect(
+    container.querySelector('[aria-label="Atlas breadcrumb"]')?.textContent
+  ).toBe(`Atlas/${from.label} · first`);
+  expect(container.querySelector(".atlas-place h2")?.textContent).toBe(
+    `${from.label} · first`
+  );
+  const listed = container.querySelector('[aria-label="Crossings"]');
+  expect(listed?.querySelectorAll("li")).toHaveLength(1);
+  expect(listed?.textContent).toContain(
+    `Depends on ${to.label} · second: dependencies ^1.0.0`
+  );
+  // Text, not a route: nothing in it to select.
+  expect(listed?.querySelectorAll("button")).toHaveLength(0);
+  expect(
+    inspectionText(null, { territory: from }, undefined, atlas)?.title
+  ).toBe(`${from.label} · first`);
+  await act(async () => button("Clear selection").click());
+  await choose(to.id);
+  expect(
+    container.querySelector('[aria-label="Crossings"]')?.textContent
+  ).toContain(`Depended on by ${from.label} · first: dependencies ^1.0.0`);
+  vi.unstubAllGlobals();
+});
+
+it("lists no crossings and adds no crossing row for a single workspace", async () => {
+  const data = await loadAtlas();
+  const [island] = data.territories;
+  assert(island);
+  // Selecting an island reads its belonging; this test needs none of it.
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(() => new Promise(() => undefined))
+  );
+  await act(async () => {
+    root.render(createElement(Atlas, { data }));
+  });
+  expect(container.querySelector(".atlas-legend")?.textContent).not.toContain(
+    inkStyle("crossing").meaning
+  );
+  await act(async () => button("Find a place").click());
+  const entry = container.querySelector<HTMLButtonElement>(
+    `.atlas-index button[value="${island.id}"]`
+  );
+  assert(entry);
+  await act(async () => entry.click());
+  expect(container.querySelector(".atlas-place h2")?.textContent).toBe(
+    island.label
+  );
+  expect(container.querySelector('[aria-label="Crossings"]')).toBeNull();
+  vi.unstubAllGlobals();
+});
+
+it("finds a collection's islands by their frame's label", async () => {
+  const { atlas } = await twins();
+  await act(async () => {
+    root.render(createElement(Atlas, { data: atlas }));
+  });
+  await act(async () => button("Find a place").click());
+  const search = container.querySelector<HTMLInputElement>(
+    'input[type="search"]'
+  );
+  assert(search);
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value"
+    )?.set?.call(search, "second");
+    search.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  const listed = [
+    ...container.querySelectorAll(".atlas-index button span"),
+  ].map((item) => item.textContent);
+  expect(listed).toHaveLength(atlas.frames[1]?.territories.length ?? -1);
+  expect(listed.every((text) => text?.endsWith(" · second"))).toBe(true);
 });

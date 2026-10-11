@@ -1,47 +1,27 @@
 import assert from "node:assert/strict";
 import { afterEach, expect, it, vi } from "vitest";
 import { DatasetNotFoundError } from "../../src/lib/dataset";
+import { latitude } from "../../src/web/codex/bindings";
 import { composeCollection } from "../../src/web/collection";
+import { crossingPairs, crossingsOf } from "../../src/web/crossings";
 import { readCollectionManifest } from "../../src/web/dataset";
-import { islandsByFrame, relayoutAtlas } from "../../src/web/geography";
+import { frameSea, relayoutAtlas } from "../../src/web/geography";
 import { loadAtlas } from "../../src/web/load-atlas";
+import { archipelagoRims } from "../../src/web/scene/archipelago";
 import {
   type AtlasData,
   frameOf,
+  islandName,
+  islandsByFrame,
   qualifyAtlasData,
   type Territory,
 } from "../../src/web/types";
 import { loadAtlas as referenceAtlas } from "../helpers/reference-atlas";
+import { twinIds, twins } from "../helpers/twins";
 
 afterEach(() => {
   vi.unstubAllGlobals();
 });
-
-const twinIds = ["aaaaaaaaaaaa", "bbbbbbbbbbbb"] as const;
-
-/** Two copies of one workspace, as a collection of two frames, with one crossing between them. */
-async function twins() {
-  const [first, second] = await Promise.all([
-    referenceAtlas(),
-    referenceAtlas(),
-  ]);
-  const [from, to] = first.territories;
-  assert(from && to);
-  const crossing = {
-    from: `${twinIds[0]}:${from.id}`,
-    kind: "dependencies" as const,
-    range: "^1.0.0",
-    to: `${twinIds[1]}:${to.id}`,
-  } as const;
-  const atlas = composeCollection(
-    [
-      qualifyAtlasData(first, { id: twinIds[0], label: "first" }),
-      qualifyAtlasData(second, { id: twinIds[1], label: "second" }),
-    ],
-    [crossing]
-  );
-  return { atlas, single: await referenceAtlas() };
-}
 
 const extent = (islands: readonly Territory[]) => ({
   left: Math.min(...islands.map((p) => p.x - p.radius)),
@@ -124,11 +104,12 @@ it("keeps each frame's readings and paths bare, and its layout the one its bare 
     const [bare] = single.territories;
     assert(first && bare);
     const dx = first.x - bare.x;
+    const dy = first.y - bare.y;
     for (const [i, island] of islands.entries()) {
       const original = single.territories[i];
       assert(original);
       expect(island.x - dx).toBeCloseTo(original.x);
-      expect(island.y).toBe(original.y);
+      expect(island.y - dy).toBeCloseTo(original.y);
       expect(island.files.map((file) => [file.path, file.x, file.y])).toEqual(
         original.files.map((file) => [file.path, file.x, file.y])
       );
@@ -137,6 +118,103 @@ it("keeps each frame's readings and paths bare, and its layout the one its bare 
   // Side by side, the first frame's islands west of the second's.
   const [west = [], east = []] = byFrame;
   expect(extent(west).right).toBeLessThan(extent(east).left);
+});
+
+/** The open water between each frame's rim and the next, west to east. */
+function seaBetweenRims(atlas: AtlasData): number[] {
+  const rims = archipelagoRims(atlas);
+  return rims.slice(1).map((rim, i) => {
+    const west = rims[i] ?? [];
+    return Math.min(...rim.map(([x]) => x)) - Math.max(...west.map(([x]) => x));
+  });
+}
+
+/** How far each island sits from its layer's latitude: one value when every frame's rows share one axis. */
+function rowOffsets(atlas: AtlasData): Set<number> {
+  return new Set(
+    atlas.territories.map(
+      (island) =>
+        Math.round(
+          (island.y - latitude(atlas.packageLayers[island.id] ?? 0)) * 1e6
+        ) / 1e6
+    )
+  );
+}
+
+/** The reference atlas laid out on dependency rows, each island's layer by its index. */
+async function onRows(layerOf: (index: number) => number): Promise<AtlasData> {
+  const atlas = await referenceAtlas();
+  return relayoutAtlas(
+    {
+      ...atlas,
+      packageLayers: Object.fromEntries(
+        atlas.territories.map((island, i) => [island.id, layerOf(i)])
+      ),
+    },
+    45
+  );
+}
+
+it("sets the frames side by side with open water between their rims, one rim each, and every frame's rows on one latitude axis", async () => {
+  const { atlas, single } = await twins();
+  expect(archipelagoRims(atlas)).toHaveLength(2);
+  expect(archipelagoRims(single)).toHaveLength(1);
+  for (const gap of seaBetweenRims(atlas)) {
+    expect(gap).toBeCloseTo(frameSea, 6);
+  }
+  // Two frames of different depths, three rows and two, each centred alone
+  // by a different offset: in the collection their rows share one axis.
+  const deep = await onRows((i) => i % 3);
+  const shallow = await onRows((i) => i % 2);
+  expect(rowOffsets(deep)).not.toEqual(rowOffsets(shallow));
+  const collection = composeCollection(
+    [
+      qualifyAtlasData(deep, { id: twinIds[0], label: "deep" }),
+      qualifyAtlasData(shallow, { id: twinIds[1], label: "shallow" }),
+    ],
+    []
+  );
+  expect(rowOffsets(collection).size).toBe(1);
+  for (const gap of seaBetweenRims(collection)) {
+    expect(gap).toBeCloseTo(frameSea, 6);
+  }
+});
+
+it("names a collection's island with its frame's label, and a single workspace's by its name alone", async () => {
+  const { atlas, single } = await twins();
+  const [island] = atlas.territories;
+  const [bare] = single.territories;
+  assert(island && bare);
+  expect(islandName(atlas, island)).toBe(`${island.label} · first`);
+  expect(islandName(single, bare)).toBe(bare.label);
+});
+
+it("merges crossings by the pair of packages they join, keeping every declaration", async () => {
+  const { atlas } = await twins();
+  const [crossing] = atlas.crossings ?? [];
+  assert(crossing);
+  const twice: AtlasData = {
+    ...atlas,
+    crossings: [
+      crossing,
+      { ...crossing, kind: "devDependencies", range: "^2.0.0" },
+      { ...crossing, from: crossing.to, to: crossing.from },
+    ],
+  };
+  const pairs = crossingPairs(twice);
+  expect(pairs.map(({ from, to }) => [from, to])).toEqual([
+    [crossing.from, crossing.to],
+    [crossing.to, crossing.from],
+  ]);
+  expect(pairs[0]?.declared.map(({ kind, range }) => [kind, range])).toEqual([
+    ["dependencies", "^1.0.0"],
+    ["devDependencies", "^2.0.0"],
+  ]);
+  const { incoming, outgoing } = crossingsOf(twice, crossing.from);
+  expect(outgoing.map((pair) => pair.to)).toEqual([crossing.to]);
+  expect(incoming.map((pair) => pair.from)).toEqual([crossing.to]);
+  // None for a single workspace.
+  expect(crossingPairs({})).toEqual([]);
 });
 
 it("places a collection's frames again one by one, never two workspaces' islands in one row, still side by side", async () => {
@@ -156,6 +234,11 @@ it("places a collection's frames again one by one, never two workspaces' islands
       expect(island.x - dx).toBeCloseTo(alone.territories[i]?.x ?? Number.NaN);
     }
   }
+  // Still apart by their rims, on one latitude axis.
+  for (const gap of seaBetweenRims(relaid)) {
+    expect(gap).toBeCloseTo(frameSea, 6);
+  }
+  expect(rowOffsets(relaid).size).toBe(1);
 });
 
 /** The viewer's fetch, answering paths under `./data/` as given. */

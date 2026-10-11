@@ -8,6 +8,7 @@ import { paintBelonging } from "./belonging";
 import { paintCoastline } from "./coast-ink";
 import { paintChartCompass } from "./compass";
 import { paintConnections } from "./connections";
+import { paintCrossings } from "./crossings";
 import { paintDepartures } from "./departures";
 import { paintDomain, paintDomainDepartures } from "./domain";
 import { paintFocusedFile } from "./file-focus";
@@ -63,6 +64,7 @@ export const inkLayers = [
       ctx.restore();
     },
   },
+  { id: "crossings", paint: paintCrossings },
   { id: "departures", paint: paintDepartures },
   { id: "domain-departures", paint: paintDomainDepartures },
   {

@@ -175,7 +175,9 @@ one workspace while it serves is seen by later requests, the collection
 manifest included. While a workspace's dataset cannot be read (deleted,
 caught mid-swap by a scan, or saved with another schema version), the
 collection manifest answers `503` with `Retry-After: 1` and a message
-naming the workspace. The viewer does not read a collection yet.
+naming the workspace. The viewer draws a collection as one archipelago
+per workspace, side by side, with the crossings between them drawn on the
+map and listed in Place.
 
 ## Errors
 

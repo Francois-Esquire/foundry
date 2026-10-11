@@ -19,11 +19,13 @@ import {
   type FormerPackage,
   type FrameReadings,
   frameOf,
+  islandName,
   islandSource,
   qualifiedIn,
   type Territory,
 } from "../types";
 import { ArchitecturePanel } from "./architecture-panel";
+import { CrossingsPlace } from "./crossings-place";
 import { DomainPlace } from "./domain-place";
 import { NaturalFeaturePanel } from "./natural-feature-panel";
 import {
@@ -150,7 +152,7 @@ export function AtlasPlace({
     <div className="atlas-place">
       <div className="atlas-place-heading">
         <h2 ref={heading} tabIndex={-1}>
-          {placeTitle(selection, place, territory)}
+          {placeTitle(selection, place, territory, data)}
         </h2>
         <button
           aria-label="Clear selection"
@@ -229,6 +231,9 @@ export function AtlasPlace({
           routes={trades}
           territory={territory}
         />
+      )}
+      {!(place || selection.file) && (
+        <CrossingsPlace data={data} territory={territory} />
       )}
       <div className="atlas-place-actions">
         {place && (
@@ -345,16 +350,18 @@ function traceLabel(tracing: boolean, reading: boolean | undefined): string {
   return reading ? "Reading imports…" : "Hide imports";
 }
 
+/** Place's heading: the symbol, file, or region selected, else the island, named with its frame in a collection. */
 function placeTitle(
   selection: AtlasSelection,
   place: BelongingRegion | undefined,
-  territory: Territory
+  territory: Territory,
+  atlas: Pick<AtlasData, "frames">
 ): string {
   return (
     selection.symbol?.name ??
     selection.file?.path.split("/").at(-1) ??
     place?.label ??
-    territory.label
+    islandName(atlas, territory)
   );
 }
 
@@ -686,7 +693,9 @@ export function inspectionText(
     detail: inspectionDetail(inspected, region, atlas, districts),
     title: inspected.symbol
       ? `${inspected.symbol.name} · ${inspected.file?.path ?? inspected.territory.id}`
-      : (inspected.file?.path ?? region?.label ?? inspected.territory.label),
+      : (inspected.file?.path ??
+        region?.label ??
+        islandName(atlas, inspected.territory)),
   };
 }
 

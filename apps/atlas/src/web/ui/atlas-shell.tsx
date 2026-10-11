@@ -11,6 +11,7 @@ import {
   useState,
 } from "react";
 import { fileDistricts } from "../belonging";
+import { crossingPairs } from "../crossings";
 import { departures } from "../departures";
 import type { DomainRef } from "../domain-extent";
 import type { AtlasSelection } from "../scene/scene";
@@ -177,6 +178,14 @@ export function AtlasShell({
     belonging.regions.find((region) => region.id === inspected?.regionId) ??
     belonging.composites.find((region) => region.id === inspected?.compositeId);
   const atlasDepartures = useMemo(() => departures(data), [data]);
+  // A collection's crossings for the legend; none for a single workspace.
+  const atlasCrossings = useMemo(
+    () => ({
+      lines: crossingPairs(data).length,
+      workspaces: data.frames.length,
+    }),
+    [data]
+  );
   const districts = useMemo(
     () => fileDistricts(belonging.regions, belonging.composites),
     [belonging.regions, belonging.composites]
@@ -271,6 +280,7 @@ export function AtlasShell({
   return (
     <main className="atlas-shell">
       <AtlasHeader
+        atlas={data}
         composites={belonging.composites}
         mapLayer={mapLayer}
         menuToggleRef={menuToggle}
@@ -290,6 +300,7 @@ export function AtlasShell({
       <div className={open ? "atlas-world atlas-panel-open" : "atlas-world"}>
         {children}
         <MapKey
+          crossings={atlasCrossings}
           departures={atlasDepartures}
           domains={data.frames.reduce(
             (sum, frame) => sum + frame.readings.domains.declared.length,

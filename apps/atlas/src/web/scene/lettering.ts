@@ -58,6 +58,10 @@ export function createLabelProjector(
   const fields = new WeakMap<TerrainField, WeakMap<AtlasFile, number>>();
   return (label: MapLabel) => {
     const { territory, file } = label;
+    // A frame's label names no island and sits on the sea, flat.
+    if (!territory) {
+      return label;
+    }
     const field = fieldFor(territory);
     if (!file) {
       const local = { x: label.x - territory.x, y: label.y - territory.y };

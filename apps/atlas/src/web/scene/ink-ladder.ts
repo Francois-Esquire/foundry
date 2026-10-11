@@ -26,6 +26,11 @@ export const grounds = {
    */
   labelHalo: "#f5efdf",
   land: "#f1ead9",
+  /**
+   * The ocean blue at the chart's edge, the darkest water there is: a
+   * crossing runs beyond the rims, between the frames, so it is measured
+   * here, wherever the open water it crosses steps to.
+   */
   openWater: "#b4c4c5",
   /**
    * The darkest sea a line crosses at the named zooms, probed on screen
@@ -36,7 +41,7 @@ export const grounds = {
   shallows: "#e3e6d7",
   shoreWater: "#dfe3d3",
 } as const;
-type Ground = "land" | "labelHalo" | "sea";
+type Ground = "land" | "labelHalo" | "openWater" | "sea";
 
 /** Named zooms, in CSS pixels per map unit: the overview, an entered island, a file close up. */
 export const zooms = { close: 10, island: 2.2, overview: 1 } as const;
@@ -53,6 +58,7 @@ export const enteredAt = 1.8;
 export const rungs = [
   "selection",
   "departure",
+  "crossing",
   "file",
   "label",
   "domain",
@@ -73,6 +79,8 @@ export const rungFloor: Record<Rung, number> = {
   /** The lines between an island's folders: under every tie, over the coast. */
   cell: 3,
   coast: 1.8,
+  /** A collection's crossings between workspaces: under every departure, over every file mark. */
+  crossing: 6,
   departure: 8,
   /** A chosen domain's outline and marks: under every name, over every tie. */
   domain: 4,
@@ -108,6 +116,12 @@ export const inks = {
   coastRule: "#c9a443",
   /** The compass rose, which opens chart settings. */
   compass: "#8b7656",
+  /**
+   * A crossing between two workspaces of a collection: a deep violet no other
+   * ink takes, kept 10 ΔE76 from every ink a sea line sits beside, in every
+   * vision.
+   */
+  crossing: "#580490",
   /** A declaration in a composition drawing, and one that blocks a trace. */
   declaration: "#4a4233",
   declarationBlocker: "#963f32",
@@ -324,6 +338,13 @@ export const ladderMarks: readonly LadderMark[] = [
     id: "departure-line",
     ink: inks.departureLine,
     rung: "departure",
+  },
+  {
+    alpha: always,
+    ground: "openWater",
+    id: "crossing",
+    ink: inks.crossing,
+    rung: "crossing",
   },
   {
     alpha: always,
@@ -674,6 +695,20 @@ export const inkTable: readonly InkStyle[] = [
     { cue: "A dash-dot line, so it reads without its hue" }
   ),
   line(
+    "crossing",
+    inks.crossing,
+    2,
+    "A declared dependency on a package of another workspace",
+    [10, 4],
+    { cue: "Long dashes, ending in a bead at the package depended on" }
+  ),
+  flat(
+    "crossing-bead",
+    "fill",
+    inks.crossing,
+    "The end of a crossing: the package depended on"
+  ),
+  line(
     "domain-outline",
     inks.domain,
     2.5,
@@ -746,7 +781,12 @@ export const inkTable: readonly InkStyle[] = [
     6.5,
     "The hairline framing the coast rule"
   ),
-  flat("label", "text", inks.label, "A place's name"),
+  flat(
+    "label",
+    "text",
+    inks.label,
+    "A place's name: an island's, or a workspace's above its frame"
+  ),
   flat(
     "folder-name",
     "text",

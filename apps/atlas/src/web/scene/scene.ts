@@ -943,7 +943,7 @@ function resolveHit(
     return null;
   }
   const label = labelUnder(labels, point.x, -point.y);
-  if (label) {
+  if (label?.territory) {
     return {
       compositeId: label.compositeId,
       file: label.file,

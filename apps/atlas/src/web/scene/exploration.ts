@@ -171,10 +171,13 @@ export interface MapLabel {
   /** A folder's name, set in italics in the folder ink. */
   folder?: boolean;
   font: string;
+  /** The frame whose label this is, by id: a workspace's label above its frame, in spaced capitals. It has no island. */
+  frame?: string;
   height: number;
   opacity?: number;
   regionId?: string;
-  territory: Territory;
+  /** The island the label names or sits on; none for a frame's label. */
+  territory?: Territory;
   text: string;
   width: number;
   x: number;
@@ -183,7 +186,8 @@ export interface MapLabel {
 
 /**
  * The placed label under a point on the chart, which a click selects. The
- * domain's name is a caption, not a place, so a click passes through it.
+ * domain's name and a frame's label are captions, not places, so a click
+ * passes through them.
  */
 export function labelUnder(
   labels: readonly MapLabel[],
@@ -193,6 +197,7 @@ export function labelUnder(
   return labels.find(
     (label) =>
       !label.domain &&
+      label.frame === undefined &&
       Math.abs(x - label.x) < label.width / 2 &&
       y >= label.y - label.height &&
       y <= label.y

@@ -13,7 +13,9 @@ const plateAlpha = 0.85;
  * The placed dependency layers, foundation first, each at its row's
  * latitude. Every island sits exactly on its layer's row, `latitude(layer)`
  * moved by the one offset that centres the atlas, so a tick is nominal: any
- * of the layer's islands gives it.
+ * of the layer's islands gives it. A collection's frames share that axis
+ * (`sideBySide`), so one scale serves every frame: each frame's layer is its
+ * own workspace's.
  */
 function placedLayers(
   state: Pick<InkState, "data">

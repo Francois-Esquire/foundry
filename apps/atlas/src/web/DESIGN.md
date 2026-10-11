@@ -68,7 +68,10 @@ strongly each kind of mark is drawn as luminance contrast against the land
 named zooms, probed on screen), measured in linear light as the renderer
 blends, strongest first: the selection, a deep amber-brown (13.3:1 on land,
 10.2:1 on sea); departures, magenta, a notched ring on land (`#681049`) and
-a darker dash-dot line on the sea (`#5e0d42`, 8.3:1); file marks (6.4–7.9:1); labels
+a darker dash-dot line on the sea (`#5e0d42`, 8.3:1); in a collection,
+crossings, a deep violet (`#580490`, 6.34:1 on the ocean blue at the chart's
+edge, `#b4c4c5`, the darkest water there is, since a crossing runs beyond the
+rims); file marks (6.4–7.9:1); labels
 (5.0–5.3:1); the coast (1.9–2.9:1); relief (at most 1.35:1, the steepest
 shade 1.26:1); and sea lines (at most 1.15:1). Once an island is entered the
 selected island's ring steps down to the file rung at one pixel. The same
@@ -95,7 +98,8 @@ coast's seeded pen pressure and broken where the pen lifts. At 16%, 11% and 7%
 opacity they surface only as the camera comes in and are absent at overview.
 
 A convex hull spans the outermost coast points of all packages with 110-unit
-padding, rebuilt once packages have settled. The rim is smoothed in polar form
+padding, rebuilt once packages have settled; in a collection, each frame's
+packages have their own (`archipelagoRims`), one archipelago per workspace. The rim is smoothed in polar form
 about the hull's centre over 180 angles: a moving maximum of the radius across
 ±18° only moves it outward, then a triangular moving average across the same
 window bends long straight sides into broad arcs. Every averaged radius covers
@@ -109,7 +113,9 @@ curved mask. Beyond it, open water continues the coastal layering: soft steps at
 toward a slightly darker ocean blue `#b4c4c5` at the chart's edges. The water is
 the vignette: light at the centre of the archipelago, deepest at the margins,
 a quiet base for type set on the sea. It is a cartographic boundary, not a
-dependency claim.
+dependency claim. Between two frames, the open water steps deeper past each
+rim and pales again toward the next, so the frames read as separate
+archipelagos.
 
 Optional inner dashed convex hulls use 32-unit padding around dependency-connected groups
 of two or more packages. Grouping unions positive analyzed module dependencies
@@ -332,6 +338,16 @@ on the chart, with 160 units more sea below the foundation row, where the
 legend sits at overview. Coastline shapes and local file geometry stay
 fixed. Trade routes and their harbors use the placed positions.
 
+A collection draws one archipelago per workspace, side by side
+(`sideBySide`). Each frame is laid out as its workspace alone would be, then
+moved whole: the frames run west to east in the collection's order, with 120
+units of open water (`frameSea`) between one frame's rim and the next, and
+every frame's rows sit on one latitude axis, so a frame's layer *n* is at
+`latitude(n)` as every other frame's is. One offset centres the whole, with
+the same sea below the foundation row. A frame's layer is its own
+workspace's: a crossing does not move a package up a row. A relayout places
+each frame again alone and sets them side by side again.
+
 Connecting land, drawn in a developer session, joins each group of packages
 that import from one another. A 4-unit grid combines original package
 coastlines with shortest center-distance spanning-tree corridors of 12-unit
@@ -384,6 +400,37 @@ of all; the map key gives the dominant share, the threshold and cap, and
 that consumers in no package are not counted. On a screen 760 pixels wide
 or narrower the legend shows only the map key's summary until it is
 opened, and each number of the latitude scale sits on a paper plate.
+
+## Crossings
+
+A collection's crossings, the declared dependencies of a package in one
+workspace on a package of another, are drawn by default whenever the atlas
+has any, on the ladder's `crossing` rung, between departures and file marks
+(floor 6). The ink is a deep violet, `#580490`, kept at least 10 ΔE76 from
+every ink a sea line sits beside in normal, deutan, protan and tritan
+vision: departures, the selection, the coast's inks, names and captions,
+the sea's own lines, trade, hover, and the file, ring and domain inks near
+a coast. It is measured on the ocean blue at the chart's edge (6.34:1),
+the darkest water there is, since a crossing runs beyond the rims; on the
+water between two frames it probes at 6.86–7.30:1. Its second cue is the
+dash: long dashes (10, 4 pixels at 2) ending in a 2.6-pixel bead at the
+package depended on.
+
+The collection manifest keeps one crossing per kind and range;
+`crossingPairs` merges them by `from` and `to`, so one line joins each pair
+of packages. A line runs between the two islands' nearest coasts, held 7
+units off each and bowed as selection lines are. It is sea ink only,
+passing beneath islands and cut around names.
+
+Selection wins. Crossings sit under departures and the selection, in the
+ladder and in the drawing order. While an island is selected, only its own
+crossings stay drawn, under its lines, and every other crossing goes. A
+crossing is not a route: it is never in `data.routes`, and it cannot be
+selected or hovered. Place lists the selected island's crossings under
+"Across workspaces", both directions, with every kind and range declared
+between the pair, as plain text. The legend gains a row for them, with the
+lines drawn and the workspaces they join, only when the atlas has
+crossings, so a single workspace's legend is unchanged.
 
 ## Folders
 
@@ -616,6 +663,9 @@ shares. The map key explains all three.
   where north points (deeper dependency layers north, the foundation south) and
   the five file kinds in their inks; then the lines a reader reads by, drawn from
   the ink table: the selection, its imports, its importers, and a package coast.
+  A collection's legend adds a crossing row, with the lines drawn and the
+  workspaces they join ("2 lines between 2 workspaces"), and its map key a
+  paragraph on crossings; a single workspace's has neither.
   Beneath it a collapsed Map key lists each optional layer by its table row and
   its meaning, marked off when its setting is off, and says that relief is a cap
   most slopes stay well under, never a quality score.
@@ -626,7 +676,8 @@ shares. The map key explains all three.
   fades out as an island's districts come in, so it never prints over an
   island seen close. A package
   the graph could not place sits at the foundation, stays off the scale, and its
-  caption adds "NO LAYER".
+  caption adds "NO LAYER". In a collection one scale serves every frame, since
+  their rows share one axis; each frame's layer is its own workspace's.
   Feature hover and selection report in Place and the polite live region.
   File inspection lists its structural role and measured consuming responsibilities. River
   inspection states import direction, module edges, contributing relationships
@@ -665,7 +716,11 @@ shares. The map key explains all three.
   use amber.
 
 - The header pairs an Atlas/island/district/responsibility/file breadcrumb with a Belonging/Files
-  map layer selector (`mapLayer` in the map state), Find a place, and the map controls. Belonging is the initial layer. Search lists
+  map layer selector (`mapLayer` in the map state), Find a place, and the map controls. Belonging is the initial layer.
+  In a collection the island's crumb, Place's title, the pointer readout and
+  Find name an island with its frame's label, "shared · platform"
+  (`islandName`), since two workspaces can each hold a package of one name.
+  Search lists
   islands at overview, districts within an island, responsibilities within an
   entered district, and exact members of an entered responsibility. A typed query
   also finds files within the current island or district. Direct file selection
@@ -717,7 +772,12 @@ shares. The map key explains all three.
   with the pointer, without fading. Each repaint asks again which island lies under
   the resting pointer, so a zoom or camera move under a still pointer inks the
   island now beneath it. A selected island keeps its selection ring instead.
-- Territory names lead the overview. Zooming near an island loads its Belonging
+- Territory names lead the overview. In a collection each frame's label is
+  set above the frame in spaced capitals, in the place-name ink on the sea's
+  halo, centred over its islands, or moved west where it would sit on the
+  compass rose; it is a caption, naming no island, so a click passes
+  through it. Where two frames hold islands of one name, each one's caption
+  adds its frame's label ("1 FILE · PLATFORM"). Zooming near an island loads its Belonging
   regions without selecting it. Island clicks frame the region scale; further
   zoom reveals files. An island shows no grouping until its Belonging
   regions load; there are none for a package saved without internals.

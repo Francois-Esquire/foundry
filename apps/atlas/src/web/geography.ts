@@ -2,7 +2,14 @@ import { byCodeUnit } from "@foundry/lib/ordering";
 import { contours } from "d3-contour";
 
 import { latitude } from "./codex/bindings";
-import type { AtlasData, AtlasFile, Polygon, Territory } from "./types";
+import { archipelagoHull } from "./scene/archipelago";
+import {
+  type AtlasData,
+  type AtlasFile,
+  islandsByFrame,
+  type Polygon,
+  type Territory,
+} from "./types";
 
 export function unit(id: string): number {
   let h = 2_166_136_261;
@@ -83,20 +90,29 @@ export function settlePackages(
 }
 
 /**
- * Moves every island by one offset, so the islands' padded extent, with
- * `footSea` below it, is centred on the origin, as the chart is.
+ * The middle of the islands' padded extent, with `footSea` below it: the
+ * offset that centres them on the origin, as the chart is.
  */
-function centre(
-  territories: Territory[],
+function middleOf(
+  territories: readonly Territory[],
   reachOf: (territory: Territory) => number
-) {
+): [number, number] {
   const west = Math.min(...territories.map((p) => p.x - reachOf(p)));
   const east = Math.max(...territories.map((p) => p.x + reachOf(p)));
   const north = Math.min(...territories.map((p) => p.y - reachOf(p)));
   const south = Math.max(...territories.map((p) => p.y + reachOf(p))) + footSea;
+  return [(west + east) / 2, (north + south) / 2];
+}
+
+/** Moves every island by one offset, so that their padded extent, with `footSea` below it, is centred on the origin. */
+function centre(
+  territories: Territory[],
+  reachOf: (territory: Territory) => number
+) {
+  const [x, y] = middleOf(territories, reachOf);
   for (const territory of territories) {
-    territory.x -= (west + east) / 2;
-    territory.y -= (north + south) / 2;
+    territory.x -= x;
+    territory.y -= y;
   }
 }
 
@@ -147,41 +163,68 @@ export function chartSize(territories: readonly Territory[]) {
   };
 }
 
-/**
- * Frames side by side, until 5.4b composes them: each frame's islands, laid
- * out about the origin as a single workspace's are, moved along x so that
- * the frames sit left to right in order, each its own chart's width apart,
- * the whole centred. The offset of each frame, in order.
- */
-export function besideEachOther(
-  frames: readonly (readonly Territory[])[]
-): number[] {
-  const widths = frames.map((territories) => chartSize(territories).width);
-  const total = widths.reduce((sum, width) => sum + width, 0);
-  let left = -total / 2;
-  return widths.map((width) => {
-    const offset = left + width / 2;
-    left += width;
-    return offset;
-  });
+/** Open water kept between one frame's rim and the next, in map units. */
+export const frameSea = 120;
+
+/** How far a frame's islands move, all together, to take their place in a collection. */
+export interface FrameOffset {
+  dx: number;
+  dy: number;
 }
 
-/** Each frame's islands, in the atlas's order, by frame. */
-export function islandsByFrame(
-  data: Pick<AtlasData, "frames" | "territories">
-): Territory[][] {
-  return data.frames.map((frame) =>
-    data.territories.filter((territory) =>
-      frame.territories.includes(territory.id)
-    )
+/**
+ * A collection's frames side by side. Each frame's islands are laid out as
+ * their workspace's alone would be (`settlePackages`) and moved whole, so
+ * its own layout is kept. The frames run west to east in the collection's
+ * order, with `frameSea` of open water between one frame's rim
+ * (`archipelagoHull`) and the next. Every frame's rows sit on one axis: a
+ * frame's layer is at `latitude(layer)`, as every other frame's is. One
+ * offset then centres the whole, as `centre` centres a single workspace.
+ * Each frame's offset, in order.
+ */
+export function sideBySide(
+  frames: readonly (readonly Territory[])[],
+  layers: Readonly<Record<string, number | null>>
+): FrameOffset[] {
+  // Back onto the latitude axis: `settlePackages` moved the frame's rows by
+  // one offset, which any one of its islands gives.
+  const rows = frames.map((islands) => {
+    const [first] = islands;
+    return first ? latitude(layers[first.id] ?? 0) - first.y : 0;
+  });
+  // The east edge of the rims placed so far; none before the first.
+  let east: number | undefined;
+  const columns = frames.map((islands) => {
+    const xs = archipelagoHull({ territories: [...islands] }).map(
+      ([west]) => west
+    );
+    if (!xs.length) {
+      return 0;
+    }
+    const dx =
+      east === undefined ? -Math.min(...xs) : east + frameSea - Math.min(...xs);
+    east = dx + Math.max(...xs);
+    return dx;
+  });
+  const placed = frames.flatMap((islands, i) =>
+    islands.map((p) => ({
+      ...p,
+      x: p.x + (columns[i] ?? 0),
+      y: p.y + (rows[i] ?? 0),
+    }))
   );
+  const [x, y] = placed.length ? middleOf(placed, reach) : [0, 0];
+  return frames.map((_, i) => ({
+    dx: (columns[i] ?? 0) - x,
+    dy: (rows[i] ?? 0) - y,
+  }));
 }
 
 /**
  * The atlas with its islands placed again at another clearance; coasts and
  * file positions are unchanged. A collection's frames are placed again one
  * by one, so no row takes islands of two workspaces, and set side by side
- * again; their former packages move with them.
+ * again (`sideBySide`); their former packages move with them.
  */
 export function relayoutAtlas(data: AtlasData, clearance: number): AtlasData {
   if (data.frames.length <= 1) {
@@ -190,43 +233,57 @@ export function relayoutAtlas(data: AtlasData, clearance: number): AtlasData {
     return { ...data, ...chartSize(territories), territories };
   }
   const before = islandsByFrame(data);
-  const centred = before.map((islands) => {
+  const alone = before.map((islands) => {
     const copies = islands.map((p) => ({ ...p }));
     settlePackages(copies, data.packageLayers, clearance);
     return copies;
   });
-  const offsets = besideEachOther(centred);
-  const after = centred.map((islands, i) =>
-    islands.map((p) => ({ ...p, x: p.x + (offsets[i] ?? 0) }))
-  );
+  const offsets = sideBySide(alone, data.packageLayers);
+  const after = alone.map((islands, i) => {
+    const { dx = 0, dy = 0 } = offsets[i] ?? {};
+    return islands.map((p) => ({ ...p, x: p.x + dx, y: p.y + dy }));
+  });
   const territories = after.flat();
   // A former package moves as far as its frame's middle does.
-  const moved = (id: string) => {
+  const moved = (id: string): [number, number] => {
     const at = data.frames.findIndex((frame) => id.startsWith(`${frame.id}:`));
-    return at < 0 ? 0 : frameCentre(after, at) - frameCentre(before, at);
+    if (at < 0) {
+      return [0, 0];
+    }
+    const [x0, y0] = frameMiddle(before[at] ?? []);
+    const [x1, y1] = frameMiddle(after[at] ?? []);
+    return [x1 - x0, y1 - y0];
   };
   return {
     ...data,
     ...chartSize(territories),
     ...(data.formerPackages && {
-      formerPackages: data.formerPackages.map((former) => ({
-        ...former,
-        x: former.x + moved(former.id),
-      })),
+      formerPackages: data.formerPackages.map((former) => {
+        const [dx, dy] = moved(former.id);
+        return { ...former, x: former.x + dx, y: former.y + dy };
+      }),
     }),
     territories,
   };
 }
 
-/** Where a frame's islands sit now, along x: the middle of their extent. */
-function frameCentre(frames: readonly (readonly Territory[])[], i: number) {
-  const islands = frames[i] ?? [];
+/** Where a frame's islands sit now: the middle of their extent. */
+function frameMiddle(islands: readonly Territory[]): [number, number] {
   if (!islands.length) {
-    return 0;
+    return [0, 0];
   }
-  const left = Math.min(...islands.map((p) => p.x - p.radius));
-  const right = Math.max(...islands.map((p) => p.x + p.radius));
-  return (left + right) / 2;
+  const middle = (low: number[], high: number[]) =>
+    (Math.min(...low) + Math.max(...high)) / 2;
+  return [
+    middle(
+      islands.map((p) => p.x - p.radius),
+      islands.map((p) => p.x + p.radius)
+    ),
+    middle(
+      islands.map((p) => p.y - p.radius),
+      islands.map((p) => p.y + p.radius)
+    ),
+  ];
 }
 
 /**

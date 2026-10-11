@@ -7,7 +7,7 @@ import type { AtlasSelection } from "../scene/scene";
 import {
   type AtlasData,
   type AtlasFile,
-  frameOf,
+  islandName,
   qualifiedIn,
   type Territory,
 } from "../types";
@@ -46,7 +46,11 @@ export function AtlasSearch({
   }, []);
   const matches = (text: string) =>
     text.toLowerCase().includes(query.toLowerCase());
-  const packages = data.territories.filter((item) => matches(item.label));
+  // An island by its name, and in a collection by its frame's label too, so
+  // "platform" lists platform's islands.
+  const packages = data.territories.filter((item) =>
+    matches(islandName(data, item))
+  );
   // Every frame's domains, each named within its frame; in a collection the
   // frame's label says which workspace declares it.
   const declaredDomains = data.frames.flatMap((frame) =>
@@ -159,11 +163,7 @@ export function AtlasSearch({
               type="button"
               value={item.id}
             >
-              <span>
-                {collection
-                  ? `${item.label} · ${frameOf(data, item.id).label}`
-                  : item.label}
-              </span>
+              <span>{islandName(data, item)}</span>
               <small>{item.files.length}</small>
             </button>
           ))

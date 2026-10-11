@@ -5,11 +5,18 @@ import type { DomainExtent } from "../../domain-extent";
 import { folderWithin } from "../../folder-sectors";
 import { territoryLabelY } from "../../geography";
 import type { ResponsibilityOverlay } from "../../responsibility-focus";
-import type { AtlasData, AtlasFile, Territory } from "../../types";
+import {
+  type AtlasData,
+  type AtlasFile,
+  frameOf,
+  islandsByFrame,
+  type Territory,
+} from "../../types";
 import { detailLevel, fileInView } from "../detail-level";
 import type { InkView, MapLabel } from "../exploration";
 import { visibleLabels } from "../exploration";
 import { domainMark, enteredAt, inks } from "../ink-ladder";
+import { compassBox } from "./compass";
 import { southOf } from "./domain";
 import { cellsShown, namedFolders } from "./folders";
 import type { InkState } from "./state";
@@ -113,6 +120,7 @@ function paintLabels(
     }
   }
   addDomainLabel(domain, belonging, view, add);
+  addFrameLabels(ctx, data, pixels, candidates);
   // A district named as the folder it sits in leaves the name to the folder;
   // Place and the panel still name the district.
   const namesItsFolder = (
@@ -147,7 +155,8 @@ function paintLabels(
       Object.entries(data.packageLayers).flatMap(([id, layer]) =>
         layer === null ? [id] : []
       )
-    )
+    ),
+    frameNotes(data)
   );
   const fileLabelBudget = Math.max(
     3,
@@ -185,6 +194,10 @@ function paintLabels(
   ctx.lineJoin = "round";
   for (const label of labels) {
     ctx.globalAlpha = label.opacity ?? 1;
+    if (label.frame !== undefined) {
+      paintFrameLabel(ctx, label, pixels);
+      continue;
+    }
     ctx.font = label.font;
     ctx.strokeStyle = inks.labelHalo;
     ctx.lineWidth = haloWidth(label, fileId) / pixels;
@@ -212,7 +225,9 @@ function haloWidth(label: MapLabel, fileId: string | null): number {
   if (label.file?.id === fileId) {
     return nameHalo.selected;
   }
-  return label.caption || label.domain ? nameHalo.sea : nameHalo.land;
+  return label.caption || label.domain || label.frame !== undefined
+    ? nameHalo.sea
+    : nameHalo.land;
 }
 
 function labelInk(label: MapLabel, fileId: string | null): string {
@@ -316,6 +331,121 @@ function addDomainLabel(
   );
 }
 
+/** A frame's label in screen pixels: its size, the space between its letters, and its gap above the frame's northernmost names. */
+const frameLabel = { gap: 18, size: 14, spacing: 3 } as const;
+
+/**
+ * Each frame's label in a collection, above the frame: in spaced capitals,
+ * centred over its islands, a gap above the tallest of its northernmost
+ * names, and moved west, clear of the compass rose, where it would sit on
+ * it. Set in the place-name ink, on the sea's halo. It names no island: a
+ * click passes through it. A single workspace has none.
+ */
+function addFrameLabels(
+  ctx: CanvasRenderingContext2D,
+  data: AtlasData,
+  pixels: number,
+  candidates: MapLabel[]
+) {
+  if (data.frames.length <= 1) {
+    return;
+  }
+  const size = frameLabel.size / pixels;
+  const font = `${size}px AtlasBody`;
+  const compass = compassBox(data);
+  const gap = frameLabel.gap / pixels;
+  for (const [i, islands] of islandsByFrame(data).entries()) {
+    const frame = data.frames[i];
+    if (!(islands.length && frame)) {
+      continue;
+    }
+    const text = frame.label.toUpperCase();
+    // Measured with the spacing it is painted with.
+    ctx.save();
+    ctx.font = font;
+    ctx.letterSpacing = `${frameLabel.spacing / pixels}px`;
+    const { width } = ctx.measureText(text);
+    ctx.restore();
+    const west = Math.min(...islands.map((p) => p.x - p.radius));
+    const east = Math.max(...islands.map((p) => p.x + p.radius));
+    const y =
+      Math.min(
+        ...islands.map(
+          (p) => p.y + territoryLabelY(p) - territoryNameSize(p, pixels)
+        )
+      ) - gap;
+    const centred = (west + east) / 2;
+    const onCompass =
+      centred + width / 2 > compass.west - gap &&
+      centred - width / 2 < compass.east + gap &&
+      y > compass.north - gap &&
+      y - size < compass.south + gap;
+    candidates.push({
+      font,
+      frame: frame.id,
+      height: size,
+      text,
+      width,
+      x: onCompass ? compass.west - gap - width / 2 : centred,
+      y,
+    });
+  }
+}
+
+function paintFrameLabel(
+  ctx: CanvasRenderingContext2D,
+  label: MapLabel,
+  pixels: number
+) {
+  ctx.save();
+  ctx.font = label.font;
+  ctx.letterSpacing = `${frameLabel.spacing / pixels}px`;
+  ctx.strokeStyle = inks.labelHalo;
+  ctx.lineWidth = nameHalo.sea / pixels;
+  ctx.strokeText(label.text, label.x, label.y);
+  ctx.fillStyle = inks.label;
+  ctx.fillText(label.text, label.x, label.y);
+  ctx.restore();
+}
+
+/**
+ * In a collection, what an island's caption adds where another frame has an
+ * island of the same name: its frame's label, " · PLATFORM", so the two read
+ * apart on the map. Nothing for a single workspace, or a name only one
+ * frame has.
+ */
+function frameNotes(data: AtlasData): ReadonlyMap<string, string> {
+  if (data.frames.length <= 1) {
+    return new Map();
+  }
+  const frames = new Map<string, Set<string>>();
+  for (const territory of data.territories) {
+    const holding = frames.get(territory.label) ?? new Set<string>();
+    holding.add(frameOf(data, territory.id).id);
+    frames.set(territory.label, holding);
+  }
+  return new Map(
+    data.territories.flatMap((territory) =>
+      (frames.get(territory.label)?.size ?? 0) > 1
+        ? [
+            [
+              territory.id,
+              ` · ${frameOf(data, territory.id).label.toUpperCase()}`,
+            ],
+          ]
+        : []
+    )
+  );
+}
+
+/** An island's name's size in map units at a zoom: bounded on screen, between 12 and 26 pixels. */
+function territoryNameSize(territory: Territory, pixels: number): number {
+  return Math.min(
+    26 / pixels,
+    Math.max(12 / pixels, territoryLabelSize(territory.radius))
+  );
+}
+
 /** A folder name's size in screen pixels, under a district's. */
 const folderNameSize = 13;
 
@@ -407,19 +537,18 @@ function addTerritoryLabels(
   fileId: string | null,
   view: InkView,
   evidenceFiles: Set<string> | undefined,
-  unplaced: ReadonlySet<string>
+  unplaced: ReadonlySet<string>,
+  notes: ReadonlyMap<string, string>
 ) {
   for (const p of territories) {
-    const size = Math.min(
-      26 / pixels,
-      Math.max(12 / pixels, territoryLabelSize(p.radius))
-    );
+    const size = territoryNameSize(p, pixels);
     if (size * pixels >= 9) {
       const count = p.files.length;
       add(p, p.label, p.x, p.y + territoryLabelY(p), size, "AtlasDisplay", {
         // A package the graph could not place sits at the foundation, off the
-        // latitude scale; its caption says so.
-        caption: `${count.toLocaleString("en")} ${count === 1 ? "FILE" : "FILES"}${unplaced.has(p.id) ? " · NO LAYER" : ""}`,
+        // latitude scale; its caption says so. In a collection, a name two
+        // frames share takes its frame's label.
+        caption: `${count.toLocaleString("en")} ${count === 1 ? "FILE" : "FILES"}${unplaced.has(p.id) ? " · NO LAYER" : ""}${notes.get(p.id) ?? ""}`,
       });
     }
     if (p.id !== selected && p.id !== belonging?.territory.id) {

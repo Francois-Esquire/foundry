@@ -37,10 +37,11 @@ describe("the ink ladder", () => {
     }
   });
 
-  it("orders the rungs selection, departure, file, label, domain, tie, cell, coast, relief, sea", () => {
+  it("orders the rungs selection, departure, crossing, file, label, domain, tie, cell, coast, relief, sea", () => {
     expect(rungs).toEqual([
       "selection",
       "departure",
+      "crossing",
       "file",
       "label",
       "domain",
@@ -156,6 +157,7 @@ describe("the ink table", () => {
     // A line and a fill, or a line and a text, in one ink read as one thing;
     // each pair here is that one thing on purpose.
     const intended: Record<string, string[]> = {
+      [inks.crossing]: ["crossing", "crossing-bead"],
       "district pigment": [
         "district",
         "entered-outline",
@@ -454,6 +456,49 @@ describe("file inks", () => {
         expect(
           deltaE(a, b, deficiency),
           `${name} under ${deficiency ?? "normal vision"}`
+        ).toBeGreaterThanOrEqual(10);
+      }
+    }
+  });
+
+  it("keeps the crossing violet 10 ΔE76 from every ink a sea line sits beside, in every vision", () => {
+    // A crossing runs over the sea between frames, beneath islands and cut
+    // around names, beside departure and selection lines, the coast's inks,
+    // names on their halo, and the sea's own lines; it ends near the coast,
+    // where file marks, rings and a domain's band lie.
+    const beside = {
+      ...inks.files,
+      coastFrame: inks.coastFrame,
+      coastPen: inks.coastPen,
+      coastRule: inks.coastRule,
+      departure: inks.departure,
+      departureLine: inks.departureLine,
+      domain: inks.domain,
+      domainName: inks.domainName,
+      enteredRing: inks.enteredRing,
+      folder: inks.folder,
+      folderLine: inks.folderLine,
+      grid: inks.grid,
+      hover: inks.hover,
+      label: inks.label,
+      labelCaption: inks.labelCaption,
+      landContour: inks.landContour,
+      proximity: inks.proximity,
+      ripple: inks.ripple,
+      scale: inks.scale,
+      seaCaption: inks.seaCaption,
+      seaContour: inks.seaContour,
+      selection: inks.selection,
+      trade: inks.trade,
+    };
+    for (const deficiency of [
+      undefined,
+      ...(Object.keys(deficiencies) as Deficiency[]),
+    ]) {
+      for (const [name, ink] of Object.entries(beside)) {
+        expect(
+          deltaE(inks.crossing, ink, deficiency),
+          `crossing and ${name} under ${deficiency ?? "normal vision"}`
         ).toBeGreaterThanOrEqual(10);
       }
     }

@@ -4418,6 +4418,233 @@ pair of packages.
     - The interim spacing gives each frame its own chart margins.
     - Crossings are in `AtlasData.crossings` only: neither drawn nor
       listed.
+- **5.4b plan.** Planned 2026-10-11, after 5.4a.
+  - Layout: `besideEachOther` goes. Each frame is placed alone
+    (`settlePackages`) and then moved whole, so its own layout is kept. Along
+    x, the frames sit west to east in the collection's order, with a fixed
+    stretch of open water between one frame's rim and the next. Along y,
+    every frame's rows sit on one `latitude(layer)` axis. One offset then
+    centres the whole, as `centre` does for a single workspace.
+    `relayoutAtlas` uses the same composition, and a former package moves
+    with its frame.
+  - One rim per frame: `archipelagoHull` takes a frame's islands, and the
+    sea, the topography's outer rings and the developer's Atlas hull
+    take one rim per frame. A single workspace has one rim, built as
+    before.
+  - Latitude scale: one shared axis, since the rows now align layer by
+    layer. A frame's layer *n* is its own workspace's layer *n*.
+  - Labels: one `islandName` helper gives "name · frame label" in a
+    collection. Find, the breadcrumb, Place's title and the pointer readout
+    use it. On the map, each frame's label is set above the frame in spaced
+    capitals. An island's caption adds its frame's label only where another
+    frame has an island of the same name.
+  - Crossings: merged by (`from`, `to`), one line per pair, between nearest
+    coasts, routed and clipped as departure lines are, with a bead at the
+    package depended on. A new `crossing` rung goes between `departure` and
+    `file`, measured on its own ground, the open water between two rims
+    that the lines cross. The new ink is kept 10 ΔE76 from every ink a sea
+    line sits beside, in every vision.
+  - Selection wins. With an island selected, only its own crossings stay
+    drawn, under the selection's ink. With nothing selected, every crossing
+    is drawn, under the departure lines.
+  - Place lists the selected island's crossings, both directions, beside
+    Trading partners. They are plain text: not routes, never in
+    `data.routes`, and not selectable. The legend gains a crossing row only
+    when the atlas has crossings.
+  - A single workspace must stay pixel-identical, checked against `d8fda37`
+    with the capture script's `compare` on one scan.
+- **5.4b, done.** 2026-10-11, as planned, with the deviations named below.
+  No `lib/` code changed.
+  - Layout:
+    - `geography.ts` `sideBySide(frames, layers)` replaces
+      `besideEachOther`. It returns each frame's `{ dx, dy }`.
+    - x: west to east in the collection's order, `frameSea` (120 units)
+      between one frame's rim and the next, measured on the rims' extents
+      along x. A frame with no islands takes no space.
+    - y: each frame back onto `latitude(layer)`, which any one of its
+      islands gives, since `settlePackages` moved its rows by one offset.
+    - Then one offset for the whole, from `middleOf`, the function
+      `centre` now calls too, so a single workspace's numbers are the same.
+    - `composeCollection` and `relayoutAtlas` both use it. A former package
+      moves with its frame, in x and y; in a relayout, by its frame's
+      middle.
+    - `islandsByFrame` moved to `types.ts`, beside `frameOf`, so that
+      `geography.ts` can read the rim without an import cycle.
+  - One rim per frame: `archipelagoHull` takes `{ territories }`, and
+    `archipelagoRims(data)` gives one rim per frame, or the one rim of every
+    island for a single workspace. `oceanField` fills each, so the open-water
+    steps, the topography's outer rings and the developer's Atlas hull are
+    per frame.
+  - Latitude scale, decided: one shared axis. With the rows aligned, the
+    5.4a scale code is right for every frame and is unchanged. A frame's
+    layer *n* is its own workspace's: a crossing does not move a package up
+    a row.
+  - Labels:
+    - `types.ts` `islandName` gives "shared · platform" in a collection and
+      the bare name otherwise. Find (its inline form retired), the
+      breadcrumb, Place's title and the pointer readout use it, so the
+      polite live region does too. Find matches on it, so "platform" lists
+      platform's islands.
+    - On the map each frame's label sits above the frame in spaced
+      capitals: 14 pixels, 3 pixels apart, centred over its islands, 18
+      pixels above the tallest of its northernmost names. It is set in the
+      label ink on the sea's halo, as a candidate right after the domain's
+      name. `MapLabel.frame` is its frame's id, and it has no `territory`,
+      so nothing can take it for an island's; a click passes through it.
+      Where it would sit on the compass rose (`compassBox`, in map units),
+      it moves west, clear of the rose by its gap. Only frame labels move,
+      so a single workspace's labels are untouched.
+    - Where two frames hold islands of one name, each caption adds its
+      frame's label ("1 FILE · PLATFORM"). Other captions are unchanged.
+  - Crossings:
+    - `crossings.ts` `crossingPairs` merges the manifest's crossings by
+      `from` and `to`, keeping every kind and range; `crossingsOf` gives an
+      island's pairs both ways.
+    - `scene/ink/crossings.ts` draws one curve per pair between the nearest
+      coasts (`nearestCoasts`, now exported), 7 units off each, bowed by
+      `seaCurve`, clipped by `clipToSea`, with a 2.6-pixel bead at the
+      package depended on. The curves are cached per atlas in a WeakMap.
+      The layer comes before `departures`.
+    - Ink: rung `crossing` between `departure` and `file` (floor 6), a deep
+      violet, `#580490`. Its table rows are `crossing` (2 pixels, long
+      dashes 10, 4) and `crossing-bead`. Its nearest ink in any vision is
+      the domain's name under deutan, at 19.1 ΔE76.
+    - Selection wins, decided: with an island selected, only its own
+      crossings stay, under the selection's lines; with nothing selected,
+      all are drawn, under the departure lines. Departure lines still go on
+      any selection, as before.
+    - Place, `ui/crossings-place.tsx`: "Across workspaces" under Trading
+      partners, for an island selection. One line per pair, "Depends on db
+      · platform: dependencies ^1.0.0" or "Depended on by …", with a
+      sentence saying these are declared dependencies, not routes. No
+      buttons.
+    - Legend: a crossing row, "2 lines between 2 workspaces", and a map key
+      paragraph, both only when the atlas has crossings.
+  - Deviations, with reasons:
+    - The crossing is measured on `grounds.openWater` (`#b4c4c5`, the ocean
+      blue at the chart's edge), not on a probed channel ground. A line
+      between frames crosses the open water beyond the rims, which steps
+      darker than `grounds.sea` and further where the rims curve away. The
+      darkest water there is cannot be undershot. The ladder's type gains
+      that ground.
+    - The frame's label takes the `label` row, whose meaning now includes
+      a workspace's name, rather than a text ink of its own. A second text
+      row in the label hue would break the table's uniqueness, and a new
+      text ink would have to sit inside the label rung on every ground and
+      10 ΔE76 from every label ink. Its form, spaced capitals above the
+      frame, tells it apart.
+    - The breadcrumb names the island "shared · platform" rather than
+      gaining a frame crumb. No frame is a selection to return to.
+  - Ladder numbers, computed (contrast at full strength, crossing against
+    departure ring): open water 6.34 against 6.62, sea 7.28 against 7.60,
+    land 9.54 against 9.96, halo 9.97 against 10.40. The entered ring, the
+    darkest file-rung mark, is 7.75 on land.
+  - Probed on screen, platform and product, overview at 1500×1000 on
+    Metal: the crossing renders exactly `#580490`, and reads 6.86, 7.01,
+    7.08 and 7.30:1 against the water beside it, the darkest ground
+    `rgb(194, 203, 192)`. A frame's label, in the label ink, reads
+    4.68–5.52:1, the lowest on a row where the 6-pixel halo leaves a gap
+    between spaced letters; still over the label floor of 4.5.
+  - Unchanged for a single workspace, checked on this worktree's scan into
+    a fresh state, `d8fda37` built in a temporary copy against this unit:
+    - 0 differing pixels at overview, zoomed twice, on the selected
+      `workspaces` island, close in on it, and with Topographic lines on,
+      which draws the outer rings at the rim.
+    - The breadcrumb, Place's text and the legend's text are identical.
+    - The load reads the same 9 requests and 809,991 bytes before
+      `atlas:data-loaded`, and 4 and 251,475 after; first frame 2.56 s
+      against 2.55 s.
+  - Collection load, the same fixtures, before against after: the same 19
+    requests and 18,823 bytes before `atlas:data-loaded`, 8 and 15,715
+    after, no console error. The chart is wider, 765 units against 615,
+    since the rims now keep open water between the frames, and the first
+    frame comes at 1.45–1.46 s against 1.21–1.24 s, as the terrain is
+    built over the larger sheet.
+  - Screenshots, `/tmp/review-shots/5.4b/`: `c-before-*` and `c-after-*`,
+    the collection at overview, `app` and `db` selected, `shared ·
+    platform` selected, and both with the developer's Atlas hull and
+    Topographic lines on (`*-dev-rims.png`, one rim against two); `s-*`,
+    the single workspace's compared views.
+  - Tests:
+    - `test/web/collection.test.ts`:
+      - twins' layout kept up to a translation in x and y;
+      - one rim per frame, `frameSea` between them, before and after a
+        relayout;
+      - two frames of three rows and two, each centred differently alone,
+        on one latitude axis together;
+      - `islandName`;
+      - merging by pair, both directions, and none for a single workspace.
+    - `test/web/crossings.test.ts`:
+      - one curve per pair, in the crossing ink, none for a single
+        workspace, never a route;
+      - only the selected island's own crossings;
+      - the frames' labels, naming their frame and no island, which a
+        click passes through;
+      - a long frame label moved off the compass rose at three zooms;
+      - frame captions only on shared names;
+      - none of either for a single workspace.
+    - `test/web/atlas-shell.test.ts`: the breadcrumb, Place's title and the
+      readout as "name · first"; the crossings listed both ways, without a
+      button; the legend row; none of it for a single workspace; Find by a
+      frame's label.
+    - `test/web/ink-ladder.test.ts`: the rung order, the crossing ink's
+      shared rows, and 10 ΔE76 from every ink a sea line sits beside, in
+      every vision.
+    - `atlas.test.ts`, under Bun, over the scanned platform and product:
+      two pairs, no route among them, `frameSea` between the rims, one
+      latitude axis.
+    - The twin fixture moved to `test/helpers/twins.ts`.
+  - Left for later:
+    - A crossing is not selectable, by the 0.1 ruling.
+    - The frames' order is the collection's, by root, not by their
+      crossings.
+    - Every number here is two one-file fixtures. No real collection of
+      repositories that depend on each other exists locally (5.0).
+
+**Phase 5 is done** (2026-10-11). Several workspaces are scanned, served
+and exported as one collection, each keeping its own state and dataset,
+and drawn as one archipelago per workspace with the crossings between
+them.
+- 5.0: the use case, a product split across repositories. A package of one
+  name in two workspaces is two packages, qualified `<workspace
+  id>:<package>`. Crossings are package level, from declared dependencies.
+  Nothing is persisted for a collection.
+- 5.1: `resolveCollection` resolves, dedupes and orders the roots by code
+  unit, refusing one inside another; `lockStates` takes every lock or
+  none, for export.
+- 5.2: `collectionManifest`, pure. Labels, crossings, and ambiguous
+  dependencies (a name two or more other workspaces hold, with no edge).
+  `npm:` aliases are resolved and ranges recorded unchecked. Discovery
+  records skipped units' names, so a workspace's own skipped package keeps
+  a dependency inside it.
+- 5.3: `scan.collection` scans one workspace after another, each under its
+  own lock. `serve.collection` builds the manifest per request and mounts
+  each dataset by exact id. `scan`, `serve`, the default command and
+  `export` take several paths; the other commands refuse a second, and one
+  workspace given twice exits `2`.
+- 5.4a: the viewer reads a collection when the data root has no
+  `manifest.json`. Each workspace is one frame with its own pinned reader
+  and readings, its ids qualified after its own layout. A single
+  workspace's load is unchanged, pixel for pixel.
+- 5.4b: frames side by side, one rim each, on one latitude axis. Frame
+  labels on the map and "name · frame" off it. Crossings are drawn, one
+  line per pair on their own rung, and listed in Place.
+- Where it lives: 5.0–5.3 landed on `feat/atlas`; 4.4b, 5.4a and 5.4b on
+  `feat/atlas-viewer`, which has merged back into `feat/atlas`.
+- Load: a collection of the two fixtures reads 19 requests and 18,823
+  bytes before `atlas:data-loaded`. A single workspace is unchanged across
+  the phase: 5.4a read the same requests and bytes as `b667ca5` on one scan
+  (9 and 809,004), and 5.4b the same requests, bytes and pixels as 5.4a on
+  another (9 and 809,991).
+- Left for later, by design:
+  - Crossings are not selectable as routes, and there are no module-level
+    edges across workspaces (decision 4).
+  - Ranges are recorded, not checked; `file:` and `link:` ranges are not
+    followed; linking same-named packages is a later collection setting.
+  - `realpath` does not see through firmlinks or bind mounts (5.1).
+    Discovery's skipped-unit order uses `localeCompare` (5.2).
+  - History stays per workspace (decision 7).
+  - Every collection number is for two small fixtures, on one machine.
 
 ## Changes to existing code
 

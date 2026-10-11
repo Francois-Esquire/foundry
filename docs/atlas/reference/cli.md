@@ -454,8 +454,9 @@ manifest, derived from the saved datasets at each request, and
 other path under `/data/`, an unknown workspace id included, is `404`.
 While a workspace's dataset cannot be read, such as while a scan swaps it,
 the collection manifest is `503` with `Retry-After: 1` and a message
-naming the workspace. The viewer does not read a collection yet: it shows
-that no dataset was found.
+naming the workspace. The viewer draws a collection as one archipelago
+per workspace, side by side, with the crossings between them drawn on the
+map and listed in Place.
 
 The default command checks for the viewer's files before it scans, so a
 checkout without a build reports `The viewer's files are missing` at once.

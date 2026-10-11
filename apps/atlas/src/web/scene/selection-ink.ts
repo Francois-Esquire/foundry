@@ -203,7 +203,8 @@ export function clipToSea(
   }
 }
 
-function nearestCoasts(a: Territory, b: Territory): [Point, Point] {
+/** The nearest pair of points on two islands' coasts, the first on `a`; their centres when either has no coast. */
+export function nearestCoasts(a: Territory, b: Territory): [Point, Point] {
   const from = outline(a);
   const to = outline(b);
   let best: [Point, Point] = [

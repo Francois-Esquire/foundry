@@ -4,6 +4,7 @@ import { filePen } from "../codex/bindings";
 import type { Departures } from "../departures";
 import { leastConsumers, linesPerTarget } from "../departures";
 import { tiesByKind } from "../proximity";
+import { crossingBead } from "../scene/ink/crossings";
 import {
   closeMark,
   departureRing,
@@ -22,7 +23,16 @@ const swatch = { height: 14, width: 30 } as const;
  * weight and dash in pixels (a row in map units at one pixel per unit, as at
  * overview).
  */
-function InkSwatch({ bead, style }: { bead?: InkStyle; style: InkStyle }) {
+function InkSwatch({
+  bead,
+  beadRadius = 2.2,
+  style,
+}: {
+  bead?: InkStyle;
+  /** The bead's radius in screen pixels, as the map draws it. */
+  beadRadius?: number;
+  style: InkStyle;
+}) {
   const { height, width } = swatch;
   const view = `0 0 ${width} ${height}`;
   if (style.kind === "text") {
@@ -46,7 +56,12 @@ function InkSwatch({ bead, style }: { bead?: InkStyle; style: InkStyle }) {
         strokeWidth={style.weight}
       />
       {bead && (
-        <circle cx={width - 3} cy={height / 2} fill={swatchInk(bead)} r="2.2" />
+        <circle
+          cx={width - 3}
+          cy={height / 2}
+          fill={swatchInk(bead)}
+          r={beadRadius}
+        />
       )}
     </svg>
   );
@@ -256,6 +271,11 @@ function departureTotals(
   return `${departing} departing · ${symbols} ${symbols === 1 ? "symbol" : "symbols"} in Place · ${departures.lines.length} of ${candidateLines} ${lines}`;
 }
 
+/** The legend's short count of crossings: "2 lines between 2 workspaces". */
+function crossingTotals(lines: number, workspaces: number): string {
+  return `${lines} ${lines === 1 ? "line" : "lines"} between ${workspaces} workspaces`;
+}
+
 /** What the map key says of the declared domains: one line when there are none. */
 function domainNote(domains: number): string {
   if (!domains) {
@@ -317,11 +337,14 @@ const keyRows: readonly [string, keyof ReaderSettings | null][] = [
  * ladder's table, so the key draws every line as the map does.
  */
 export function MapKey({
+  crossings,
   departures,
   domains,
   onHeight,
   settings,
 }: {
+  /** In a collection, the crossing lines drawn and the workspaces they join; none for a single workspace. */
+  crossings?: { lines: number; workspaces: number };
   /** How many domains the workspace declares. */
   domains: number;
   /** The departures the map draws, for their row and totals. */
@@ -383,6 +406,21 @@ export function MapKey({
           <li className="atlas-legend-totals">{departureTotals(departures)}</li>
         </ul>
       )}
+      {crossings && crossings.lines > 0 && (
+        <ul className="atlas-legend-row">
+          <li>
+            <InkSwatch
+              bead={inkStyle("crossing-bead")}
+              beadRadius={crossingBead}
+              style={inkStyle("crossing")}
+            />
+            {inkStyle("crossing").meaning}
+          </li>
+          <li className="atlas-legend-totals">
+            {crossingTotals(crossings.lines, crossings.workspaces)}
+          </li>
+        </ul>
+      )}
       <details className="atlas-map-key">
         <summary>Map key</summary>
         <dl>
@@ -428,6 +466,16 @@ export function MapKey({
           path regions and the seams between them, the imports from one region
           into another.
         </p>
+        {crossings && crossings.lines > 0 && (
+          <p>
+            Between workspaces, crossings: a package's declared dependencies on
+            packages of another workspace, one line for each pair of packages,
+            ending in a bead at the package depended on. They are drawn over the
+            sea between the frames, under departures and the selection; with an
+            island selected, only its own stay. Place lists them. They are not
+            routes: no imports are recorded across workspaces.
+          </p>
+        )}
         <p>{domainNote(domains)}</p>
         <p>
           Islands are low ground. Only a package's high fan-in files raise

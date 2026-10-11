@@ -440,8 +440,8 @@ _Avoid_: workspace name (that is the `package.json` name alone), title
 
 **Frame**:
 One workspace on the map: its islands, laid out as that workspace alone
-would be, beside the other workspaces of a collection. A single workspace is
-one frame.
+would be, beside the other workspaces of a collection, inside its own rim
+and under its label. A single workspace is one frame.
 _Avoid_: region, panel, chart (the whole map)
 
 **Collection manifest**:

@@ -249,7 +249,7 @@ describe("map detail drawing", () => {
     const unentered = paintInk(canvas, { data, selected: "island", view });
     expect(
       unentered
-        .filter((label) => label.territory.id === "island")
+        .filter((label) => label.territory?.id === "island")
         .map((label) => label.text)
     ).toEqual(["Island"]);
     const district = {
@@ -589,10 +589,10 @@ it("numbers the dependency layers on their rows and marks an unplaced island", (
   expect(tickAt("LAYER 1")).toBe(latitude(1));
   expect(tickAt("LAYER 2")).toBe(latitude(2));
   expect(
-    labels.find((label) => label.territory.id === "other")?.caption
+    labels.find((label) => label.territory?.id === "other")?.caption
   ).toContain("NO LAYER");
   expect(
-    labels.find((label) => label.territory.id === "island")?.caption
+    labels.find((label) => label.territory?.id === "island")?.caption
   ).not.toContain("NO LAYER");
 });
 
