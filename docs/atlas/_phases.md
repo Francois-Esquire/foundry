@@ -1827,21 +1827,501 @@ bad arguments (2).
   export removed, exit 0; `missing` exits 1 over a violation; a dataset
   without the lens exits 1; a never-scanned workspace exits 1.
 
-**3.4 `atlas plan`.** One plan for one site, read-only.
+**3.4 `atlas plan`.** Done 2026-10-10. One plan for one site; it writes
+nothing in the workspace.
+- `atlas plan <opportunity> [path...]` (`lib/codemod.ts` `planSite`, with
+  `lib/codemod-types.ts`; CLI only, not in the exports map). `resolveSite`
+  reads the opportunity id `internalize-symbol:<path#name>`, the saved
+  plan's id `plan:internalize-symbol:<path#name>`, or the bare `path#name`;
+  any other shape, another operation's id or a second `#` included, is a
+  usage error (2); `savedPlanOf` splits the place with the same helper.
+  The site's package comes from the module index; a file, opportunity, or
+  saved plan the dataset does not hold fails (1). `rule:<n>` is deferred
+  (decision 2).
+- The rules come from `reader.lens("rules").rules`, so no configuration
+  runs and the configuration invariant still holds; a dataset without the
+  lens fails (1). The chain is the decisions': the saved workspace report
+  and only the subject's package report into `createOperatorContext`, a
+  planning context over the subject package only, `executionPlanFor`, then
+  `authorizeMutationPlan`. The probe showed the saved `workspace.json`
+  carries the intelligence the projection needs, and that the narrowed
+  context still authorizes.
+- **Deviation from "read-only"** (decision 1 ruling): readiness runs the
+  baseline commands, the package's `test` script and its `typecheck`
+  script where it has one, with `CI=1`. Help, `cli.md`, `_api.md`, and the
+  README say "writes nothing in the workspace" and that the scripts run;
+  `_api.md`'s principle 3 notes it.
+- Only an authorized verdict writes: the record, as `authorizeMutationPlan`
+  returned it, to `<state directory>/plans/<hash16(plan id)>.json`, with
+  `writeFileAtomicSync` and without the state lock (A11). Any other verdict
+  deletes the site's earlier record, so a record exists only while the
+  last plan authorized it. **For 3.5:** apply never trusts a record without
+  authorizing again, fresh, and comparing the `auth:` hash. `cli.md` warns that plan's
+  scripts may run beside another command's. `output.md` lists `plans/`.
+- `plan` refuses (1) while `<state directory>/apply/journal.json` exists.
+  It reads only whether the file exists; `refuseUnfinishedApply` and the
+  path live in `codemod.ts`, where 3.5's `applyRecord` reuses them and
+  reads the phase (A1). `check` does not read the journal yet; its comment
+  still marks the place.
+- **A9 currentness: left to 3.6.** `collectWorkspaceInputs` takes the
+  resolved configuration, so `plan` cannot recompute the inputs fingerprint
+  without loading it, and the manifest records no fingerprint yet. 3.6 adds
+  the hash to `manifest.generation`; `plan` should compare against that
+  recorded hash, not recompute it, or solve the configuration input some
+  other way. Until then a stale dataset can yield a record, which apply's
+  fresh revalidation refuses; `cli.md` says to scan after an edit.
+- `--json` is `{ site, opportunity, plan, verdict, record? }`: `site` the
+  `path#name`, `plan` the saved plan as the package report holds it,
+  `verdict` the `MutationAuthorizationResult` unchanged, and `record` the
+  saved path. Exit 0 for every verdict; 1 for no dataset, an unknown site,
+  a journal, or no rules lens; 2 for bad arguments.
+- **Reading of the tests' "publishable is blocked":** the bridge answers
+  `not-executable` for any saved plan that is not `ready`, before
+  readiness, so a publishable plan's verdict is `not-executable` ("the
+  saved plan … is blocked: publishable"). The view and JSON show
+  `plan.status` `blocked`, its blockers, and `blockerDefinitions`' note on
+  `publishable`. No fifth verdict word was added. "Not ready, not
+  executable" is tested on an `unsupported` plan
+  (`internal-entrypoint-import`).
+- The view (`render/reports/codemod.ts`, `renderPlan`) is built on
+  `views.ts` primitives: the opportunity, package, and saved plan status;
+  the verdict as a signal, titled by the saved plan's status ("Blocked",
+  "Unsupported") when a plan that is not ready is why it is not
+  executable, and "Not executable" for the bridge's other reasons (a refusal gives the `permit` rule to declare,
+  an authorization the permitting rules by index and the record's path);
+  planned changes from the saved plan; the saved plan's blockers with
+  `blockerDefinitions`; readiness's blockers, cautions, and verification
+  steps with their commands; and, when authorized, "Run atlas apply <id>
+  to preview; add --write to write." That line, and the journal
+  refusal's "Run atlas apply to restore", name a command 3.5 adds; 3.5
+  revisits both strings.
+  `listSection` moved from `reports/rules.ts` to `reports/ranked-section.ts`,
+  beside `rankedSection`, and both views use it, instead of a second copy.
+  The help's command column is now the longest usage plus two.
+- No analysis code changed, so no Changes row: the existing files touched
+  are the CLI and the renderers (`reports/rules.ts`, `ranked-section.ts`,
+  `render/index.ts`).
+- Measured on Foundry (read-only, fresh state under `/tmp`, cold scan
+  43.9 s at 8.5 GB peak RSS). Foundry declares no rules, so `atlas plan`
+  there is refused before any baseline: 3.3–4.6 s wall, 2.6 GB peak, no
+  record. A probe driving the same chain with a permit on `packages` and a
+  stub runner, for `@foundry/workspaces` `AnyWorkspaceExtension`, three
+  runs: dataset read 44–53 ms, operator context 5–12 ms, planning context
+  0.71–0.76 s, execution plan 2.1–2.2 s, authorization 34–35 ms (readiness
+  `sourceMs` 28.5–29.1, `structuralMs` 3.8–4.2), 3.1–3.2 s wall, 2.4–2.5 GB
+  peak. The record is 1,489 bytes, with 5 source files. The planning
+  context and execution plan run for every verdict, refusals included; the
+  gate was not split to avoid that. `baselineMs` was **not** measured on
+  Foundry, since a real run would spawn `@foundry/workspaces`' test and
+  typecheck scripts. On the deps fixture (`test` is `true`), `baselineMs`
+  is 14.8–15.4 ms, plan takes 0.54–0.56 s wall at 0.37 GB, and the record
+  is 1,013 bytes.
+- Tests: `test/lib/codemod.test.ts` (`resolveSite`'s three spellings and
+  refused shapes; on a committed copy of the deps fixture, every package
+  private unless the fixture publishes it, each with a `test` script, an
+  injected runner: authorized writes the record and leaves `git status`
+  clean, the view exactly; no permitting rule refuses with no baseline and
+  no record; publishable shows why it is blocked; unsupported is not
+  executable; a failing baseline answers `readiness` `blocked` with no
+  record; a journal refuses; unknown sites fail); `test/cli/args.test.ts`
+  (the three spellings, missing and bad sites, `--write` refused, `--json`
+  with `--format`); and `test/atlas.test.ts` on the built CLI (authorized
+  exits 0 with one JSON line and the record on disk; the text view; a
+  clean tree; a refusal exits 0; an unknown site 1; a bad shape 2).
 
 **3.5 `atlas apply` for `internalize-export`.** Fresh analysis,
 revalidation, a dirty tree blocks, preview by default, write with
-`--write`, verify, restore on failure.
+`--write`, verify, restore on failure. Done 2026-10-10 in two units: (a),
+the mutator's hardening and a library preview; (b), the write with its
+journal, verification, the scan after it, and the CLI.
 
-**3.6 Refresh after every write.** Internals are already reused per
-package since 1.4, derived from the cached local reports; what remains is
-passing the project `apply` builds through instead of building three. Sized
-by 3.0.
+Unit (a), done 2026-10-10. Nothing is exposed in the CLI yet, and nothing
+writes through `applyRecord`.
+- `apply.ts` (Changes row): the snapshot is each planned file's raw bytes
+  and mode, not a UTF-8 read; a symbolic link is refused. Each edited file
+  is written with `writeFileAtomicSync` and its original mode (the sync
+  writer in `@foundry/lib` gains `mode`, set exactly whatever the umask),
+  instead of `saveSync`; ts-morph's `getFullText()` drops a byte order
+  mark, so the original's is put back. One `try` covers the first write
+  through the last check, so a throw anywhere in it restores as a failed
+  check does; the restore is atomic, with the mode, and guarded per file:
+  a file still holding its original bytes is left alone, one holding the
+  written bytes is restored, and one holding neither changed after the
+  write, is not overwritten, and is named in the error. The after-analysis
+  is a seam (`analyzeAfter`), which the tests throw through. Before, a
+  throw after `saveSync` left a half-applied tree, and the restore was a
+  plain `writeFileSync` of a lossy UTF-8 read.
+- Before any edit, each planned file's text as the project read it must
+  write back to its snapshot's bytes exactly; otherwise the plan is
+  refused (`apply-unsupported`). That refuses a file that is not UTF-8,
+  which the rewrite would re-encode, and a file that changed between the
+  snapshot and the project's read.
+- The restore tries every file, collects what it left untouched and what
+  failed, and throws once, naming them all, with the error that called for
+  it as the cause.
+- A write or restore is a rename over the file: it keeps the bytes and the
+  mode, but not another user's ownership, extended attributes, ACLs, or
+  other hard links to the file, which keep the old bytes. A crash can leave
+  a `<file>.<uuid>.tmp` beside a file; it is safe to delete.
+- `editRoute` says how each statement reads before and after
+  (`MutationResult.edits`, `{ file, before, after | null }`; a declaration
+  by its first line after any decorators), for the preview.
+- The working tree comes from one helper, `lib/working-tree.ts`
+  `workingTree`, which reads `git status --porcelain -z`, so a path with
+  spaces, quotes, or non-ASCII characters is matched as written (before, Git
+  quoted such a path and a dirty planned file slipped past both readers),
+  and tells Git missing, a workspace outside a repository, and a repository
+  Git cannot read (dubious ownership, a held `index.lock`, with Git's
+  message) apart; readiness's `gitDirty` and the mutator both use it, and
+  `dirtyPlannedFiles` is gone (A5). Only a dirty file the mutator writes
+  blocks. A write without Git, or outside a repository, is refused and
+  says which (decision 5); before, `dirtyPlannedFiles` returned `[]`
+  without Git, so a write had no dirty check. The shared helper also fixes
+  a bug both copies had: the porcelain output was trimmed whole, so the
+  first dirty file lost the first character of its path.
+- `DEFAULT_MUTATION_CAPABILITIES` holds what `editRoute` performs,
+  `remove-export`, `rewrite-reexport`, and `verify-only`, and
+  `MUTATION_CAPABILITY_VERSION` is 2 (decision 6, A12; Changes row). Every
+  record 3.4 saved now reports `capability` as moved, and a readiness
+  assessment of a plan that rewrites imports is `unsupported` under the
+  default; `test/lib/operator-readiness.test.ts`, which judges the gate,
+  runs those plans under a test-local copy of the old registry.
+- `codemod.ts` `applyRecord(root, site, { state, runner })`, preview only:
+  the state lock, taken before the saved dataset is read and held to the
+  end; an apply's journal
+  refused, as `plan` refuses it; the record `atlas plan` saved, read as
+  untrusted (missing: "run atlas plan"); the rules from
+  `loadConfiguration`, the second load site (decision 3; `scan.ts`
+  `prepare` says so); the chain authorized again, fresh, through the same
+  helper `planSite` now calls (`authorizeSite`), which runs the baseline
+  commands again (re-authorization is mandatory, so a preview runs the
+  workspace's scripts too); then the refusals, in order:
+  `refused-by-rule`, `not-executable`, or `readiness` from that answer;
+  `authorization-changed` with the parts that moved, in the order source
+  (naming the files from `sourceFiles`), rule, capability, verification,
+  plan (the saved plan's id and fingerprint count as the plan), rollback,
+  and `atlas-version` when every part is the record's but the hash or the
+  record's schema is not (A4); `rollback` when the plan creates or deletes
+  a file or a written file is not restorable (A2); `dirty` for a written
+  file readiness saw dirty (A5); and `revalidation` when the mutator's own
+  fresh analysis (`applyReductionPlan`, preview) disagrees. The result is
+  `{ site, planId, mode, status, refusal?, edits, changedFiles }`.
+- The mutator's own `dirty-working-tree` and `no-git` blockers map to the
+  `dirty` and `no-git` refusals, not `revalidation`. `no-git` is not reached
+  in (a): the mutator refuses only a write without Git, and a preview does
+  not write. The `git-missing` and `failed` branches of `workingTree` are
+  untested (they need Git off the `PATH`, or a repository Git refuses);
+  `not-a-repository` is tested.
+- A record of another schema version is read on its version alone and
+  reported as `atlas-version`. A missing dataset fails before the lock,
+  which creates the state directory; the reader is made again under it.
+- A10: the lock's messages name apply, and a live holder's no longer
+  suggests removing the lock.
+- Measured on a committed temp copy of the deps fixture (test scripts
+  `true`): `plan` 84–200 ms, an apply preview 366–434 ms, three runs each.
+  Nothing on Foundry, where a preview would run `@foundry/workspaces`'
+  scripts.
+- Tests: `test/lib/working-tree.test.ts` (a spaced, a quoted, and a
+  non-ASCII path, an untracked file, a rename, a workspace below the
+  repository's root, and no repository); `test/lib/operator.test.ts`
+  (preview edits for a shared re-export, a declaration, a removed
+  statement, and a decorated class; a file with a 0xE9 byte refused in both
+  modes; one restore failing while the others are restored; no Git previews but refuses a
+  write, saying why; the mode kept and an unrelated dirty file not
+  blocking; a byte order mark kept; a throw mid-verification restores
+  bytes and mode; the restore guard); `test/lib/codemod.test.ts` (a preview
+  re-runs the baseline and writes nothing; no record; a planned file
+  edited names `source` and the file; a rule moved names `rule`, and none
+  permitting refuses by rule; a tampered part and a tampered hash; a dirty
+  written file refuses, a dirty read-only or unrelated file does not; a
+  journal and a held lock refuse); `test/lib/operator-readiness.test.ts`
+  (the default registry judges an import rewrite unsupported);
+  `packages/lib` (`mode` set exactly under a narrow umask).
+
+Unit (b), done 2026-10-10.
+- `atlas apply <opportunity> [path...] [--write]` (`lib/codemod-apply.ts`
+  `applyRecord`, CLI only; `codemod.ts` keeps the site, `plan`, and the
+  chain both share, `authorizeSite`). `--write` is apply's only; the help
+  says "Preview a planned change; write and verify it with --write". Exit
+  0 for a preview, or a write verified and published; 1 for no record, a
+  refusal, a rollback, an interrupted write restored, or a verified write
+  whose scan failed (decision 9); 2 for bad arguments. `--json` is
+  `{ site, planId, mode, status, refusal?, edits, changedFiles,
+  verification?, scan?, timings? }`, `status` one of `preview`, `refused`,
+  `applied`, `rolled-back`.
+- The journal is the one record of an unfinished apply (A1;
+  `lib/apply-journal.ts`): `{ schemaVersion, site, planId, phase,
+  startedAt, files }`, each file with its original bytes (base64), mode,
+  and the SHA-256 of the original and of the written bytes; written with
+  `writeFileAtomic({ fsync: true })` before the first source write, through
+  the mutator's new `beforeWrite` hook, and rewritten `verified` once every
+  check passed. No `WorkspaceRecord` marker; `recordSavedDataset` is
+  unchanged. `writing`: the next apply, any site or mode, restores under
+  the lock with the same guard (`restoreWritten`, now comparing the written
+  hash), deletes the journal, says what it restored, and exits 1; `plan`,
+  `check`, and `scan` refuse. `verified`: `scan` publishes, then deletes it;
+  `plan`, `apply`, and `check` refuse. A restore that refuses a file keeps
+  the journal. The 3.4 strings are revisited: the refusals now say which
+  phase and what to run, and plan's "Run atlas apply … to preview; add
+  --write to write." names a command that exists.
+- Just before the first write the mutator reads each file again and checks
+  it against its snapshot and the hash readiness's rollback recorded, passed
+  in as `expectedHashes`, and again once the journal is flushed; a mismatch
+  is `stale`, writes nothing, and the journal of the write that never began
+  is deleted (A2). The mutator writes only with a `beforeWrite` journal.
+- Durability: each source write and each restore is flushed, file and
+  directory (`writeFileAtomicSync` gains `fsync`, and `@foundry/lib`
+  exports `syncDirectorySync`), so the written files are on disk before the
+  journal flips to `verified` or is deleted; the state directory is flushed
+  when `apply/` is new. On macOS, Bun's `fsync` is a plain `fsync(2)`, not
+  `F_FULLFSYNC`: 200 one-byte `fsyncSync` calls took 0.025 ms each under
+  Bun 1.3.14, the same as `fsync(2)` from C (0.026 ms), against 4.1 ms
+  under Node 26, which issues `F_FULLFSYNC` through libuv, as C's
+  `fcntl(F_FULLFSYNC)` does (4.05 ms). So a power loss on macOS can still
+  lose a flushed write; nothing is built around it.
+- A restore refused for a changed file names the journal, and says that
+  restoring the file from Git (its `HEAD` content) lets the next apply
+  finish, and that deleting the journal keeps the files as they are. The
+  journal's copy of each original is checked against its recorded hash
+  before any restore. An earlier interrupted write reports the files it
+  restored and, apart, those already as they were.
+- Under the lock, a scan and the scan after a write remove the
+  `output.tmp-<pid>`, `output.old-<pid>`, and `output.next.*-<pid>`
+  directories of a pid that no longer runs (`processAlive`, the lock's own
+  check). `atlas export` refuses while an apply is unfinished, in either
+  phase, since the dataset may not describe the sources.
+- SIGINT and SIGTERM are caught across the write and its checks (A3).
+  Under Bun 1.3.14 a signal's listener runs only at the next macrotask,
+  never when a blocking `execFileSync` returns, so every check first yields
+  (`setImmediate`) and then throws `InterruptedError` for a caught signal,
+  inside the mutator's `try`, which restores. The checks: before the
+  journal is written (a signal during the analysis before the write writes
+  nothing), around the after-analysis, after each script, and once more
+  after the mutator returns `applied`, before the `verified` flip, so a
+  signal dispatched late, as when a script traps SIGINT and exits 0, still
+  undoes the write, from the journal. A child killed on its own, by its
+  timeout (`ETIMEDOUT`) or a full buffer (`ENOBUFS`), is a failed step,
+  which rolls back and exits 1; it is an interrupt only when Atlas caught a
+  signal too. There is also a check right after the journal is written.
+  The listener stays installed through the restore, so a second signal
+  does not stop it. An interrupted write exits 130 for SIGINT and 143 for
+  SIGTERM. The scan after the write is outside the window: by then the
+  write is verified and journaled so. The window that remains, a few
+  synchronous statements between the last check and `stop()`, is accepted:
+  a signal there takes Bun's default action, ending the process with the
+  journal still `writing`, and the next apply restores. History's own
+  staging, `output/history.tmp-<pid>` and `.old-<pid>`, is swept with the
+  rest. A first version checked synchronously and
+  missed every signal during a script; the review reproduced it, and the
+  e2e now sends SIGINT to the CLI's process group during a sleeping script,
+  and one that traps it.
+- After the write, each readiness command step runs again (A6, decision 4;
+  Changes row): it must exit 0 or show only failures its baseline, run
+  under the lock in this apply's re-authorization, showed. The TypeScript
+  diff and `verifyInternalizeExport` run first. The checks are the mutator's
+  new `afterChecks` hook. Since a failing baseline blocks readiness and
+  apply passes no allowances, the subset rule bites only once allowances
+  exist; today any failure after a passing baseline rolls back.
+- The scan after the write (A7, A8): `scan.ts` `publishAfterWrite` stages
+  the dataset, internals included, in `output.next` with
+  `generateSemantics`' new `previous` option (the published dataset, for
+  hardlink reuse), hardlinks `output/history` into it, swaps it in with
+  `replaceDirectory`, and records the save; apply calls it under the lock
+  it already holds. History is carried over because it covers past
+  commits, HEAD included, and apply commits nothing; a plain scan without
+  `--history` drops it, as before. Once 3.6 takes "after" from the staged
+  scan, a failed scan means no after-report, so it rolls back; decision
+  9's "applied, but the scan failed, files stay" then survives only for a
+  failure in the swap or in recording the save. The staged scan is not
+  yet compared with anything: "after" is still `analyzeSurface`'s.
+- On a published scan apply deletes the record, only if its text is still
+  the one it loaded (A11), and then the journal. A refusal or rollback
+  keeps the record; a later apply re-authorizes anyway.
+- The text view (`render/reports/apply.ts`, `renderApply`): the outcome,
+  the refusal with what to run next, each edit as `before → after`, and the
+  checks after a write.
+- Measured on a fresh `git clone` of Foundry under `/tmp` (c97bb1b, its
+  own `bun install`, a committed `permit` on `packages/workspaces`, never
+  the user's checkout), one run each after a cold scan (49.7 s, 6.9 GB):
+  `plan` 6.2–7.7 s at 2.5 GB, its baseline (`@foundry/workspaces`' test
+  and typecheck scripts) 2.9–3.8 s; an apply preview 29.9 s at 5.9 GB
+  (re-authorization with the scripts, then the mutator's fresh
+  `analyzeSurface`); `apply --write` 82.4 s at 8.7 GB, of which the
+  baseline under the lock took 3.1 s, the scripts after the write 4.0 s,
+  and the scan after the write 34.4 s; the rest is the two analyses and
+  the re-authorization. 3.0 measured `apply` (32.9 s) and the refresh
+  (35.7 s) apart, 68.6 s together; the write now adds the re-authorization
+  and both script runs, about 14 s. Only `packages/workspaces/src/index.ts`
+  changed. On a committed copy of the deps fixture (test scripts `true`):
+  `apply --write` 2.45–2.50 s at 0.62 GB, the scan after it 1.28–1.33 s,
+  three sites. A preview of a multi-line export statement prints it whole;
+  a shorter form is a candidate.
+- Tests: `test/lib/codemod.test.ts` on committed copies of the deps
+  fixture with injected runners (a write journals before it writes,
+  verifies, re-runs the script once, scans, keeps history byte for byte,
+  advances `generatedAt`, leaves only the planned file changed, and deletes
+  the record and the journal, and a second apply has no record; a script
+  failing after the write rolls back byte for byte and keeps the record; a
+  baseline failing under the lock refuses; a throw and a SIGINT restore,
+  and the listeners go; an interrupted journal is refused by plan, check,
+  and scan, and restored by the next apply of another site; a file changed
+  since the interrupted write is not overwritten and the journal stays; a
+  failed scan keeps the verified write and the journal, apply then
+  refuses, and a scan finishes it; no Git previews but refuses the write);
+  `test/lib/operator.test.ts` (the pre-write hash check, absent and
+  wrong, and a failing `beforeWrite` write nothing);
+  `test/cli/args.test.ts` (apply's words and `--write`, refused elsewhere);
+  and `test/atlas.test.ts` on the built CLI over a committed copy of the
+  semantics fixture with a `require`: check exits 3; a dirty written file
+  refuses (1) and writes nothing; rules edited after the plan refuse (1),
+  naming the rule; a preview exits 0 with a clean tree; `--write --json`
+  exits 0 with one line, the file changed, `generatedAt` advanced, and no
+  journal; check then exits 0; apply again exits 1.
+
+**3.6 The scan after every write.** Done 2026-10-10. 3.0's item 4: both of
+`apply`'s analyses come from datasets instead of `analyzeSurface`.
+- "After" is the staged scan. `scan.ts` splits 3.5's `publishAfterWrite`
+  into `stageAfterWrite` (the dataset, internals included, generated into
+  `output.next` with the published one as `previous`, history hardlinked
+  in), `publishStaged` (swap, then `recordSavedDataset`), and
+  `discardStaged`. The mutator's `analyzeAfter` returns the staged package
+  report, so `verifyInternalizeExport` reads the dataset that will be
+  published, and the second `analyzeSurface` is gone. On a failed check, an
+  error, or a signal the files are restored and the staging discarded: the
+  published dataset is untouched (tested file by file). A scan that fails
+  leaves nothing to verify against, so the write rolls back ("The scan
+  after the write failed, so Atlas restores every file it wrote: …"); a
+  worker the signal stopped counts as the signal. Decision 9's "applied,
+  but the scan failed, files stay" now holds only for a failure in the
+  final swap or in recording it; cli.md's exit table says so. The staged
+  scan now runs before the scripts are run again, since the structural
+  checks precede them; the interrupt e2e waits for the script by a marker
+  file, and a new case interrupts the staged scan.
+- "Before" is the saved report, when the dataset is current (A9). The
+  manifest's `generation` gains an optional `inputs: { hash, config }`
+  (Changes row; output.md): `hash`, `workspaceInputsHash` over the five
+  components `collectWorkspaceInputs` already computes at the scan's
+  fingerprint phase (analysis version, the start-of-UTC-day clock, the
+  exclusions and profile, Git's commits and tracked files, every input
+  file's hash); `config`, the exclusions-and-profile component alone.
+  `lib/dataset-current.ts` `datasetCurrency` recomputes it with the same
+  units and clock. So a dataset is current exactly on the UTC day it was
+  scanned, with no commit (and no tracked file added or removed) and no
+  source edit since, under the same exclusions, profile, and analysis
+  version; `.foundry/` and the rules are not inputs. Apply loads the
+  configuration, recomputes every component, and refuses a dataset that is
+  not current (`stale-dataset`, "The saved dataset is stale: …. Run atlas
+  scan.") before any script runs; then the mutator validates against the
+  saved report (`before`), and the preview needs no analysis either.
+- Plan runs the same check and fails early (1), without loading the
+  configuration: the hash can be recomputed without it except for its
+  config component, so plan takes that component from the manifest. The
+  alternatives were reading the `exclude` setting, which means running the
+  configuration files and breaking the invariant, or skipping the check,
+  which lets plan run minutes of scripts against a stale dataset. The cost:
+  an exclusion edited since the scan is not caught by plan, only by apply,
+  which loads the configuration. Units come from the manifest's packages;
+  the cruise is workspace-wide, so only their presence matters.
+- The saved report agrees with a fresh analysis on every field validation,
+  verification, and the mutator read (the symbols' identity, exposure, and
+  outside use; each internalize plan whole; the summary's counts): a test
+  compares the deps fixture's saved reports with `analyzeSurface` for three
+  packages, and another that the dataset apply publishes equals, file for
+  file, what a later `atlas scan --history` saves, apart from the two
+  manifests' timings, with the same `inputs`.
+- Cache churn after a rollback: the staged scan caches the written
+  sources' local analysis and assembled reports, and records the written
+  inputs, so the next scan after a rollback analyzes the package again and
+  derives the workspace again (on the deps fixture 1 package analyzed, 20
+  reused, `derived: true`, 1.4 s, then 0.17 s); on Foundry that is a
+  one-file edit's scan, about 30 s by 3.0's table.
+- Not done: passing the project `apply` builds through (about 3 s by 3.0;
+  the planning context forbids AST changes), and splitting the derivation
+  key; both stay candidates. The mutator still builds one ts-morph project
+  for its edits and the TypeScript diff.
+- Measured on a fresh `git clone` of Foundry at c97bb1b under `/tmp`
+  (its own `bun install`, a committed `permit` on `packages/workspaces`;
+  never the user's checkout), one run each:
+
+  | Step | 3.0 | 3.5 | 3.6 |
+  | --- | --- | --- | --- |
+  | Cold scan | 40.4 s | 49.7 s | 44.7 s (8.6 GB) |
+  | Warm scan | 3.0 s | | 4.3 s |
+  | `plan` | | 6.2–7.7 s | 9.9–10.0 s (2.9 GB), its scripts 3.5–3.9 s |
+  | Preview | | 29.9 s | 12.9 s (4.4 GB) |
+  | `apply --write` with its scan | 32.9 + 35.7 s | 82.4 s | 53.1–55.2 s (8.2 GB): the staged scan 36.4–36.7 s, scripts 3.4–4.0 s before and 3.5 s after |
+  | Scan after that | | | 4.3–4.4 s (warm) |
+  | `plan` after a commit | | | 2.4 s, refused stale |
+  | Scan after a commit | 30.3 s | | 37.8 s |
+
+  Same day, the cycle plan, preview, write is about 76 s against 3.5's
+  119 s; the write itself takes about 28 s less than 3.5's. After a commit
+  the dataset is stale, plan refuses in 2.4 s, and a scan that re-derives
+  (37.8 s) comes first. The next-day case was not measured, since the clock
+  cannot be moved here: the UTC day is the hash's `clock` component, so it
+  refuses as a commit does, and 3.0 measured the day's first scan
+  re-deriving in full. On a committed copy of the deps fixture: cold scan
+  9.4 s, warm 0.82 s; plan 0.92 s; preview 1.08 s; write 2.91 s; the scan
+  after it 0.76 s; after a commit plan refuses in 0.57 s, the scan takes
+  1.76 s, then plan 0.85 s and write 2.83 s.
+- Tests: `test/lib/codemod.test.ts` (an edited file makes apply refuse
+  `stale-dataset` before any script, and plan fail early; the edit, the
+  dirty, and the moved-source tests now scan after editing; a failing
+  script leaves the published dataset file for file as it was and no
+  staging; the published dataset equals a later scan's; the field-level
+  agreement); `test/atlas.test.ts` on the built CLI (plan fails stale after
+  an edit, then succeeds after a scan; Ctrl-C during the staged scan exits
+  130 and restores).
 
 **3.7 Domains reaching the gates,** through anchors, if a codemod needs
-them. The analysis changes logged below come due here.
+them. Done 2026-10-10: not needed for 0.1, decided by the orchestrator.
+- The one executable codemod, `internalize-export`, only narrows a
+  symbol's exposure inside its package. It moves no facet, so every
+  `path#symbol` a domain declares stays valid after it.
+- Anchors gate `fold-package` only (`operator.test.ts`, "leaves
+  internalization plans unaffected"), and `createInternalizeOperator`
+  adds anchor preservation only for an anchored package; Foundry has
+  declared none since 1.7.
+- So the two "Only if domains feed anchors" rows below stay open, and
+  come due with the first codemod that moves, rehomes, or folds, which is
+  also when a Foundry scan gets an anchor back.
 
-**3.8 A second codemod kind,** chosen by the maintainer.
+**3.8 A second codemod kind,** chosen by the maintainer. Done 2026-10-10:
+deferred beyond 0.1, decided by the orchestrator acting for the
+maintainer.
+- A second kind must have a plan the dataset produces (so `check` and
+  `plan` have a source), a planner, and a mutator that stays inside one
+  package, creates and deletes nothing, and restores byte for byte. No
+  catalog kind but `internalize` meets that: `fold-package` moves and
+  deletes a package and edits manifests; `move`, `rehome-concept`, and
+  `rehome-behavior` plan edits no mutator performs; `redirect-dependency`
+  takes manual input only; the `preserve-*` kinds write nothing.
+- The candidate, `rewrite-import` and `update-test-import` under
+  `internalize`, would unblock plans that carry the
+  `internal-entrypoint-import` blocker. It needs analysis changes the
+  ground rules rule out for 0.1, written up in
+  [`_codemods.md`](./_codemods.md#a-second-kind-deferred).
+
+**Phase 3 is done** (2026-10-10). Rules are declared, checked, and gate
+the one codemod, which writes only under a rule that permits it.
+- 3.1: `{ operator, subject, effect }` in `.foundry/atlas/`, subjects
+  matched as domain facets are; not an analysis input.
+- 3.2: `authorizeMutationPlan` answers refused by rule, not executable,
+  the readiness verdict, or a record naming what it authorizes by id and
+  fingerprint part.
+- 3.3: the `rules` lens and `atlas check`, exit `3` on a broken rule.
+- 3.4–3.5: `atlas plan` saves an authorization; `atlas apply` previews
+  it and, with `--write`, journals, writes, verifies, restores on any
+  failure or signal, and scans again.
+- 3.6: the scan after a write is staged and read as "after"; "before"
+  comes from the saved report while the dataset is current. A write on
+  Foundry takes about 54 s, against 82 s in 3.5 and 69 s for 3.0's apply
+  plus refresh.
+- Left for later, by design: a second kind (3.8), domains at the gates
+  (3.7), splitting the derivation key and passing the apply project
+  through (3.6's candidates), `rule:<n>` as `plan`'s argument, and the
+  per-setting digest, which still has no consumer: rules name facets, not
+  domains.
 
 ## Phase 4: the viewer
 
@@ -2719,22 +3199,354 @@ current zoom needs.
 
 Detail in [`_workspaces.md`](./_workspaces.md#questions).
 
-**5.0 Decide the use case** and the first set of workspaces to build
-against. The shape, a collection dataset, is recommended already.
+**5.0 Decide the use case.** Done 2026-10-10; see
+[`_workspaces.md`](./_workspaces.md#decisions). A product split across
+repositories that depend on each other, built against two fixture
+workspaces (no local repository depends on a `@foundry/*` package across
+repositories; Foundry with the Agents checkout is the manual check of
+same-named packages). A package of the same name in two workspaces is two
+packages, qualified `<workspace id>:<package>`. Crossings are package level,
+from declared dependencies. No collection is persisted: the collection
+manifest is derived from the saved workspace manifests by `serve` and
+`export`. The viewer draws one archipelago per workspace, side by side.
 
-**5.1 A collection record,** listing the workspaces, built on the 1.3
-`workspace.json` records.
+**5.1 Resolve a collection.** Done 2026-10-10. No collection is persisted
+(5.0), so this is the whole of what a collection is before its manifest:
+its workspaces.
+- `lib/state.ts` `resolveCollection(roots, state?)` resolves every path
+  through `workspaceState`, so through symbolic links, with `resolveRoot`'s
+  messages; when several fail, the first in the order given is named. A
+  workspace given twice is kept once, and the workspaces come back as one
+  `WorkspaceState` each, ordered by resolved root compared by code unit, so
+  that the same paths in any order, in any locale, give the same
+  collection. It creates nothing.
+- It refuses no paths at all (`A collection needs at least one
+  workspace.`) and accepts one workspace: the library's collection of one
+  is well defined. The CLI is stricter, by the ruling in
+  [`_workspaces.md`](./_workspaces.md#decisions) (decision 8): paths that
+  name one workspace twice are refused there, in 5.3, so the output's
+  layout never changes silently.
+- It refuses two workspaces of which one holds the other (`Workspace
+  <outer> holds workspace <inner>; the workspaces of a collection cannot
+  overlap.`), including through a link that resolves inside another, with
+  `@foundry/lib/paths` `isFilesystemPathWithin`, which export's place check
+  uses too. A root sorts before every root inside it, so each is checked
+  against the roots after it only; a sibling whose name extends another's
+  (`repo` and `repo-b`) is not inside it.
+- `resolveRoot` must stay the native `fs/promises` `realpath`, which a
+  comment now says: it returns a case-insensitive file system's own
+  spelling, so `Mixed` typed as `mixed` and `MIXED` is one workspace with
+  one id; a test checks this where the temporary directory ignores case.
+  Known limit, not fixed: `realpath` does not see through firmlinks or bind
+  mounts, so one directory reached through two of them is two workspaces,
+  with two ids and two state directories.
+- `lockStates(states, lock?)` takes every workspace's lock in the order of
+  the state directories' paths, which it sorts itself, or none: when one is
+  held, the locks already taken are released in reverse and the held lock's
+  error is thrown, with any failure to release attached as its `cause`.
+  The release it returns runs once and tries every lock before it throws
+  the one failure, or an `AggregateError` of them all. `lock` defaults to
+  `lockState`, so a test can stand in a lock whose release throws. Only
+  `atlas export` of several paths will take it (5.3), so that no
+  workspace's dataset is replaced mid-copy; `scan.collection` scans one
+  workspace at a time, each under its own lock.
+- Tests: `test/lib/state.test.ts` (the order whatever the order of the
+  paths, nothing created, a workspace given twice or through a link kept
+  once, a collection of one accepted and of none refused, two spellings of
+  one directory kept once, overlap refused directly and through a link, a
+  prefix-named sibling allowed, the first missing path named in the order
+  given, every lock taken and released once, none taken when one is held,
+  every release tried when one throws, an `AggregateError` when several do,
+  and the lock's error kept with a release's failure as its cause).
 
-**5.2 The collection dataset:** qualified ids and the cross-workspace edges
-from declared dependencies.
+**5.2 The collection manifest.** Done 2026-10-10. Pure, and not yet read by
+anything but its tests: `serve` and `atlas export` derive it in 5.3.
+- `lib/collection-types.ts`, browser-safe under the `lib/*-types.ts`
+  override, holds `COLLECTION_SCHEMA_VERSION` (1, independent of the
+  dataset's), `QualifiedId` (`` `${string}:${string}` ``),
+  `CollectionWorkspace`, `Crossing`, `AmbiguousDependency`, and
+  `CollectionManifest` (`{ schemaVersion, workspaces, crossings,
+  ambiguous }`). It has no time and no collection id of its own, since it
+  is never saved (5.0, decision 5); each workspace's `generatedAt` is the
+  pin its frame reads with.
+- `lib/collection-manifest.ts` `collectionManifest(workspaces)` takes each
+  workspace's id, resolved root, and saved manifest (`generatedAt`,
+  `packages`, `workspace`, and `discovery.unitsSkipped`), orders them by
+  root itself (by code unit, as `resolveCollection` does), and returns the
+  same manifest for the same manifests in any order.
+  `qualifiedId(workspace, id)` is `<workspace id>:<package>`.
+- Each workspace lists its `dataset` (`<id>/`, relative to the collection
+  manifest), its `generatedAt`, its `label`, and every package its manifest
+  lists, failed ones included, qualified and sorted. The label is the
+  manifest's `workspace.name` (the root `package.json` name), else the
+  root's directory name; where two workspaces would share one, each is
+  `parent/name` from its root (decision 3), and where two share that too,
+  each adds its id's first six digits in parentheses. Two roots whose ids
+  also share six digits could still share a label; ids never repeat.
+- A declared dependency, of any of the four kinds, by the name it resolves
+  to: stays inside its workspace when its range starts `workspace:` or its
+  own workspace holds the name, analyzed or skipped; is a crossing when
+  exactly one other workspace holds the name, as an analyzed package; is
+  external when none does, or when the one other workspace holds it only as
+  a skipped unit, since a crossing ends at a listed package; and is
+  `ambiguous`, with no crossing, when two or more other workspaces hold it,
+  analyzed or skipped. An ambiguous entry's `candidates` are the analyzed
+  packages of that name, in the collection's order, and its optional
+  `skippedIn` the workspaces that hold it only as a skipped unit, so every
+  crossing's ends and every candidate are listed in some workspace's
+  `packages`, which a test checks (decision 4). An `npm:` alias resolves to the package
+  it names (`npm:@k/db@^1.0.0` and `npm:@k/db` are `@k/db`, `npm:lodash` is
+  `lodash`, and a bare `npm:` names none), and the key it is written under
+  is not read. The range is recorded as written and not checked against
+  the version found (decision 10); other protocols are matched by the name
+  they are written under (decision 4). Crossings are sorted by `from`,
+  `to`, `kind`, and `range`; ambiguous entries by `from`, `name`, `kind`,
+  and `range`; each field by code unit, through `@foundry/lib/ordering`
+  `byCodeUnit`, chained, which `lib/state.ts` now uses too. Follow-up, not
+  changed here: discovery itself sorts units and skipped entries with
+  `localeCompare` (`semantics-discover.ts`, where it builds the
+  discovery), and that order reaches the manifest, so it can differ by
+  locale.
+- A workspace holds the packages its scan skipped as well as those it
+  analyzed, so that a dependency on its own JavaScript-only `@x/cfg` does
+  not cross to another workspace's TypeScript `@x/cfg`. Discovery now
+  records the name each skipped unit's `package.json` gives, as the
+  manifest's optional `discovery.unitsSkipped[].name`: from the parsed
+  manifest for a unit skipped as `analysis unsupported`, and, for one
+  skipped as generated, gitignored, or excluded, read on purpose and
+  tolerantly, so a missing or unparsable `package.json` there gives no name
+  rather than failing discovery. Additive, so dataset
+  schema 4 keeps its number; it is discovery code, not analysis, and
+  nothing fingerprints the skipped list; logged below all the same, as
+  1.7 and 3.6 logged their additive manifest fields. Names are recorded
+  for all four reasons, since the path is recorded anyway;
+  `reference/output.md` documents the field. A dataset saved before this
+  change has no skipped names, so its workspace's skipped packages do not
+  keep a dependency inside it, and it can make a false crossing, until the
+  workspace is scanned again.
+- The fixtures `test/lib/fixtures/collection/platform` (`@k/db`, which
+  depends on `@k/shared` with `workspace:*`, and `@k/shared`) and
+  `product` (`@k/shared` of its own, `@p/app`, which declares `@k/db:
+  ^1.0.0`, `@k/shared: workspace:*`, and `left-pad`, and `@p/web`, which
+  declares `@k/db: workspace:*`, `@p/app: workspace:*`, and `database:
+  npm:@k/db@^1.0.0`). `@p/web`'s `@k/db: workspace:*` is deliberately
+  invalid, since product holds no `@k/db`: it is there to show that a
+  `workspace:` range never crosses. The two crossings are `@p/app` and
+  `@p/web` to platform's `@k/db`; `@k/shared` is two packages.
+- The glossary gains **Qualified id**, **Crossing**, **Ambiguous
+  dependency**, **Label**, and **Collection manifest**, which is not a
+  lens: a lens reads one dataset and is saved in it.
+- Tests: `test/lib/collection-manifest.test.ts`, over literal manifests (a
+  crossing per kind, a name the declaring workspace holds kept inside it,
+  a package naming itself, `workspace:` ranges and a `workspace:` alias
+  never crossing, `npm:` aliases scoped with and without a version,
+  unscoped, bare, and under a key that is itself a package name, the range
+  unchecked and last in the order, ambiguous across three workspaces with
+  an alias, a skipped package held by its workspace, never crossed to when
+  the one other workspace only skipped it, counted toward ambiguity but
+  named only in `skippedIn`, every crossing's ends and every candidate
+  listed (also over the fixtures), a failed package listed and crossed to, an
+  external name, the workspaces by root, shared labels by parent and by
+  id, and the same output with the workspaces, packages, and dependencies
+  in reverse) and over the two fixtures, scanned with `scan.workspace` into
+  a temporary state root; `test/lib/semantics.test.ts` (skipped units'
+  names, including a generated unit whose `package.json` does not parse),
+  and the skipped entries in `ignore.test.ts`, `scan.test.ts`, and
+  `package.test.ts` gain their names.
 
-**5.3 Many paths for real** in the commands, the library, and `serve`,
-which serves each dataset under its own prefix. `AtlasServer.root` is
-singular until then.
+**5.3 Many paths for real,** in two parts: (i) the library and the server,
+(ii) the commands and `atlas export`. Deferred to it from 5.2, since nothing
+reached the collection manifest before: the package exports, the exact
+values in `test/package.test.ts` and its TypeScript consumer, and
+`reference/output.md`, `reference/cli.md`, `reference/library.md`, and
+`_api.md`; (i) does all but `cli.md`, which (ii) does with the commands.
 
-**5.4 The viewer's data root per workspace,** which 1.5 reduces to one
-place, `DATA_ROOT` in `web/dataset.ts`; the server's `/data/` mount and the
-`scripts/dev.ts` proxy move with it.
+**5.3 (i) The library and the server.** Done 2026-10-10.
+- `scan.collection(roots, options?)` (`lib/scan.ts`) resolves the
+  collection (`resolveCollection`), runs `scan` for each workspace in the
+  collection's order, one at a time and each under its own lock, and
+  returns a `CollectionScan`, `{ manifest, workspaces }`: the collection
+  manifest derived from the manifests just saved, and each workspace's
+  `Scan` with its accessors. Nothing is saved for the collection, so there
+  is no `output`. One at a time because each scan already runs its packages
+  in parallel and its progress stays in one piece. When a workspace fails,
+  those before it keep their saved datasets and the call rejects with
+  `Atlas could not scan <root>: <message>`, the workspace's own error as
+  `cause` (the class of a `DatasetNotFoundError` and the like is then on
+  the cause, not the error) and the scans that succeeded as `scanned`, so
+  a caller keeps them.
+- `CollectionScanOptions` is `ScanOptions` with `onProgress` receiving a
+  `CollectionProgressEvent`, `{ kind: "workspace", id, root, event }`
+  (5.0's decision 4): the exported `ScanProgressEvent` gains no member.
+- `serve.collection(roots, options?)` (`lib/serve.ts`) makes `serve`'s
+  checks (Bun, the port, the viewer; one `serving` helper now does them for
+  both), then `dataset-files.ts` `savedCollection(roots, state?)`, which
+  checks each workspace's saved dataset in the collection's order, as
+  `savedDataset` checks one, so the first without one is named. It returns
+  a `CollectionServer`, `{ roots, url, stop }`. `AtlasServer` keeps its
+  singular `root`, deliberately: a collection's server is its own type, so
+  no single-workspace caller sees a change. Both extend an internal
+  `RunningServer`, `{ url, stop }`.
+- `savedCollection` is the one mount table: `{ workspaces, datasets,
+  manifest() }`, each workspace's output by exact workspace id, and the
+  collection manifest derived from the manifests saved when it is called.
+  `server/server.ts` `startServer` takes it as `collection`, or one
+  workspace's `output` as before, never both (a union type), so the single
+  call sites (`serve`, `scripts/dev.ts`, the tests) are unchanged.
+  `/data/collection-manifest.json` is the manifest, built at each request,
+  compact JSON as the dataset's files are; `/data/<id>/<path>` is that
+  workspace's file, through the same `serveFile` and its guards; any other
+  `/data/` path, an unknown id or a bare `/data/<id>` included, is 404.
+  `Cache-Control: no-store` as for every `/data/` response. A workspace
+  whose manifest cannot be read when the manifest is asked for (deleted,
+  caught mid-swap, or of another schema) makes it `503` with
+  `Retry-After: 1`, not a bare `500`: `savedCollection`'s `manifest()`
+  rejects naming the workspace, with `savedDataset`'s message when nothing
+  is saved and `Workspace <root>: <message>` otherwise. `scripts/dev.ts`
+  takes the same mount table once the command line reads several paths,
+  in (ii).
+- `lib/dataset-layout.ts` names the collection's files:
+  `COLLECTION_MANIFEST` (`collection-manifest.json`) and
+  `collectionDataset(id)` (`<id>/`), which `collectionManifest` now uses
+  for each workspace's `dataset`.
+- Exports: `COLLECTION_SCHEMA_VERSION` (a value: the library now exports
+  seven, the six of 1.10 and this one), `scan.collection` and
+  `serve.collection` (properties of `scan` and `serve`, as
+  `scan.workspace` is, so not values of their own), and the types
+  `CollectionScan`, `CollectionScanOptions`, `CollectionProgressEvent`,
+  `CollectionServer`, and `CollectionManifest`; a crossing is
+  `CollectionManifest["crossings"][number]`. No browser-read collection
+  file exists yet beyond `lib/collection-types.ts`, which the
+  `lib/*-types.ts` override covers; the collection reader comes with 5.4a.
+- The viewer does not read the collection manifest yet: it still reads
+  `./data/manifest.json`, which a collection's server does not serve, so
+  `serve.collection` shows the viewer's "No dataset found" until 5.4a.
+- Tests: `test/lib/collection-scan.test.ts` (the two fixtures given out of
+  order and scanned in the collection's, each workspace's output and full
+  scan, the crossings, the result's JSON keys, `savedCollection`'s manifest
+  equal to the scan's, progress wrapped and one workspace after the other,
+  and a held lock on the second workspace: the first stays saved, the error
+  names the root and carries the cause and the first workspace's scan as
+  `scanned`, and `savedCollection` then names
+  the workspace with no dataset); `test/lib/serve.test.ts`
+  (`serve.collection` under Node names Bun); `test/atlas.test.ts`, under
+  Bun (`serve.collection` refuses a workspace with no dataset, serves the
+  roots in order, the manifest with its headers and crossing, a dataset
+  file byte for byte, 404 for `manifest.json`, an unknown id, a bare id,
+  and a missing file, a rewritten manifest seen at the next request, `HEAD`
+  on the manifest, `%2F`-encoded `..` from one dataset into another and
+  into the state directory and a link inside an output all 404, and a
+  removed and an outdated manifest each a `503` naming the workspace);
+  `test/package.test.ts` (seven values, `scan.collection` and
+  `serve.collection` are functions, and the TypeScript consumer uses every
+  new type, a crossing by indexed access, and is refused `root` on a
+  `CollectionServer` and one path for `scan.collection`).
+
+**5.3 (ii) The commands and `atlas export`.** Done 2026-10-10. Paths are
+plural for real.
+- `cli/args.ts`: `scan`, `serve`, the default command, and `export` read
+  `[path, ...paths]` (`somePaths`); `report`, `lens`, `check`, `plan`, and
+  `apply` keep one (`onePath`) and refuse a second with exit `2`, `atlas
+  <command> reads one workspace's dataset; give one path.`: each reads or
+  writes one workspace's dataset, rules, lens, or journal, and a package,
+  rule, or site could name a place in either workspace. `SEVERAL_PENDING`
+  is gone.
+- `workspacesOf(paths)` (`cli/args.ts`) is the CLI's one reading of the
+  paths. One path is one workspace, passed on as given, so the
+  single-workspace code runs unchanged, its messages included. Two or more
+  are resolved in the order given (a missing one fails as the library fails
+  it, exit `1`); two that resolve to one workspace (the same path twice,
+  `a` and `a/`, or a link) are a `UsageError`, exit `2`, `<path> names the
+  same workspace as <earlier path>, <root>; give each workspace once.`
+  (5.0, decision 8). Two of which one holds the other are a `UsageError`
+  too, exit `2`, in the library's words: `lib/state.ts` `overlapRefusal`
+  (pure, over resolved roots) gives the message to both `resolveCollection`,
+  which throws it as an `Error`, and `workspacesOf`. Otherwise a collection,
+  passed on as given, which the library orders.
+- `cli/atlas.ts`: `scan` and the default command call `scan.collection`,
+  `serve` and the default command `serve.collection`, and `export`
+  `exportCollection`, for a collection. Progress prints `workspace: <root>`
+  before each workspace's lines. `scan` prints one `Dataset saved to <dir>`
+  per workspace and `Collection: <n> workspaces, <n> crossings`; a server
+  prints `Atlas: <url>` and one `Workspace: <root>` per workspace.
+  `whileServing` takes any server's `{ url, stop }`.
+- `--json`, one line as before: `scan`, `{ manifest, workspaces }` (the
+  collection manifest, and each workspace's `{ manifest, output, history? }`);
+  `serve`, `{ roots, url }`; the default command, `{ manifest, workspaces,
+  roots, url }`; `export`, `{ directory, manifest, workspaces }`, the
+  collection manifest and each workspace's `{ id, root, dataset }`,
+  `dataset` being the directory its dataset was copied to, so that the line
+  is told from a single workspace's `{ directory, manifest }`.
+- `lib/export.ts` `exportCollection(roots, directory, options?)`, internal
+  as `exportViewer` is: `savedCollection` (every dataset checked), the place
+  checks for every workspace (`checkPlace` now takes a list, so it refuses a
+  directory that holds any workspace or overlaps any state directory),
+  `lockStates` for the copy, `refuseUnfinishedApply` for each, then the
+  viewer, each output whole under `data/<id>/`, one after another so that a
+  failure stops the copy where it is, and
+  `data/collection-manifest.json`, derived from the copied manifests, the
+  same compact JSON the server answers, and the marker (`writeMarker`, now
+  shared). No `data/manifest.json`.
+- `scripts/dev.ts` reads its paths through `workspacesOf` too and, for a
+  collection, gives `startServer` the `savedCollection` mount table that
+  `serve.collection` uses.
+- The help: the default command is "Scan, serve, and open the browser",
+  the others' summaries say datasets, and "The path defaults to the
+  current directory. atlas, scan, serve, and export read several paths as
+  one collection; the other commands read one workspace." The README and
+  `reference/cli.md` carry it verbatim; `cli.md` gains a "Several
+  workspaces" section, the collection's `--json` rows, exit code `2`'s new
+  cases, and the collection forms of the export and the server.
+- What 5.4a needs to find a collection, served or exported, is the same: no
+  `data/manifest.json`, `data/collection-manifest.json` instead, and each
+  workspace's dataset at its entry's `dataset`, relative to it. The fetch
+  transport knows a missing file by its `404` status, which a static host
+  gives too; a host that answers a missing path with `200` and an HTML
+  page (a single-page fallback) would make the probe fail to parse
+  `manifest.json` instead, which 5.4a may want to name. So the probe is: read
+  `./data/manifest.json`; on `DatasetNotFoundError`, read
+  `./data/collection-manifest.json`; then a reader per workspace at
+  `./data/<dataset>`. Three rules for it:
+  - Fall back to the collection manifest only when `manifest.json` is not
+    found (`404`, `DatasetNotFoundError`). A parse error or a `5xx` there is
+    an error the viewer shows, never a reason to try the collection.
+  - A `503` from the collection manifest means a workspace is being
+    swapped: retry after `Retry-After`, never report "no dataset".
+  - Pin each workspace's reader to its entry's `generatedAt`, so a scan of
+    one workspace mid-load is caught as a replaced dataset.
+  Until then, both forms show the viewer's "No dataset found".
+- Tests: `test/cli/args.test.ts` (several paths for the four commands, the
+  five refusals, and `workspacesOf`: one path as given, unresolved; several
+  in the order given; a link to a given one refused as a `UsageError`
+  naming both; a workspace inside another refused as one; the first
+  missing path named); `test/atlas.test.ts`,
+  "built CLI collections", over the platform and product fixtures and the
+  built CLI: `scan` of two paths given out of order (text, progress
+  headers, `--json` keys, outputs in order, the two crossings), duplicates
+  for `scan`, `serve` through a link, `export`, and the default command
+  (exit `2`, nothing on stdout), the refusals for `report`, `lens`, and
+  `check`, `serve --json` (roots, the manifest's datasets, a dataset file
+  byte for byte) and its text lines, the default command's one line, whose
+  manifest equals the served one, and `export --json` (the written
+  collection manifest equals the printed one, each dataset byte for byte,
+  no `data/manifest.json`, a second export replacing the first, and a
+  directory holding the workspaces refused, and `workspaces` in its
+  `--json`), and two overlapping paths exiting `2`;
+  `test/lib/export.test.ts` (`exportCollection`: each dataset under its id
+  and the collection manifest, given out of order; a held lock on the
+  second workspace refused, the first's released, and the previous viewer
+  intact; an unfinished apply in one workspace refused with every lock
+  released; a target that is or is inside the second workspace's state
+  directory refused; and a copy that fails at the second workspace, which
+  leaves the previous viewer intact and no staging directory beside it).
+
+**5.4 The viewer.** Waits for Phase 4. 5.4a, the data seam: the data root
+per workspace (1.5 reduced it to one place, `DATA_ROOT` in
+`web/dataset.ts`), the probe for a collection, and a dataset reference per
+island. 5.4b, the drawing: frames side by side, one rim per frame, and the
+crossings' ink. The collection manifest keeps one crossing per kind and
+range, so the drawing merges crossings by `from` and `to`: one line per
+pair of packages.
 
 ## Changes to existing code
 
@@ -2743,10 +3555,18 @@ Every change to analysis code, with its reason, before it is made.
 | Change | Reason | Status |
 | --- | --- | --- |
 | Symbol ids carry no kind | `symbols.ts:133` forms `path#name`; an interface and a const of one name share an id, and five lookup maps keep the last one. | Confirmed. No change for now: a facet without a kind matches every symbol of that id. Revisit only if a codemod needs to tell them apart. |
-| Anchors matched by name only in concept recentering | `concept-recentering.ts:1383`; an anchor declared by path is invisible there. | Only if domains feed anchors (phase 3). |
-| The worker passes no `AnalysisConfig`, and the fingerprint does not cover it | `semantics-worker.ts:39`; per-workspace anchors would be ignored, and a changed config would leave stale caches. | Only if domains feed anchors (phase 3). |
+| Anchors matched by name only in concept recentering | `concept-recentering.ts:1383`; an anchor declared by path is invisible there. | Only if domains feed anchors: not needed for 0.1 (3.7); due with the first codemod that moves, rehomes, or folds. |
+| The worker passes no `AnalysisConfig`, and the fingerprint does not cover it | `semantics-worker.ts:39`; per-workspace anchors would be ignored, and a changed config would leave stale caches. | Only if domains feed anchors: not needed for 0.1 (3.7); due with the first codemod that moves, rehomes, or folds. |
 | `analyzeInternals` and `packageInternals` extracted from `runInternalAnalysis` | The materializer derives each package's internals from the local report it already holds, instead of analyzing the package again; `runInternalAnalysis` is unchanged in signature and output. | Done in 1.4. |
 | `PackageInternals` moves to `lib/internal-analysis-types.ts`, spelled out from the stage report types | The reader validates saved internals in the browser, which cannot import the analysis code that `packageInternals`' return type came from. No behavior change; `packageInternals` returns the same shape. | Done in 1.5. |
 | The `@foundry/workspaces` anchor is built in | `lib/config.ts:816-819`; it blocks `fold-package` for any package of that name in any scanned repository. | Done in 1.7: `anchors` is empty and `ANALYSIS_POLICY_VERSION` is 25, so cached reports made under the anchor are not reused. A Foundry scan loses its one anchor until workspaces can declare their own (3.7). |
 | `authorizeMutationPlan` takes the workspace's rules and returns one of `refused-by-rule`, `not-executable`, `readiness`, or `authorized`; the record (`AuthorizedMutationPlan`, schema 2) gains `execution`, `permittedBy`, `sourceFiles`, and `authorizationFingerprint.ruleFingerprint`, renames `planId` to `executionPlanId`, and its `auth:` hash covers the rules. `hash16` moves, unchanged, to `lib/short-hash.ts`. `OperatorReadinessContext` and `assessOperatorPlanReadiness` are unchanged. | The record had no consumer and named no mutator, and `apply.ts` runs saved plans only; nothing may write without a rule that permits it (`_codemods.md`, decision 1); and 3.5 must name the part, and the file, that moved since the plan was authorized. | Done in 3.2. |
 | `workspacePatterns` (`lib/boundary.ts`) reads `pnpm-workspace.yaml#packages`, drops `!` negations, normalizes a leading `./` and trailing slashes, and ignores patterns that resolve to the workspace root (`.`) or escape it (`../*`); `findRepoRoot` finds a workspace by the same declaration | Discovery follows the workspace declaration from 1.7, and the analyses build their program, ownership, and module graph from the same patterns, so both must read the same list. A root pattern would make the whole workspace one package, and an escaping one reaches outside it, so neither names a package. `findRepoRoot` checked `package.json#workspaces` only, so its four callers without an explicit root (`apply.ts`, `package-local.ts`, `workspace-surface.ts`, and `workspace-derive.ts`) resolved a pnpm-only workspace to the current directory. A workspace without `pnpm-workspace.yaml` is unaffected, apart from `docs/` now matching `docs`, which also makes `fold-plan.ts`'s `workspace-entry` impact fire for Foundry's `docs`; that impact's `file: "package.json"` is not pnpm-aware and is left as is, being analysis code. `**` stays unsupported in both. | Done in 1.7. |
+| `apply.ts`, the `internalize-export` mutator, which holds `verifyInternalizeExport`: raw-byte and mode snapshots, symlinks refused, atomic writes and restores with the mode, a byte order mark kept, one `try` from the first write through the last check, a guarded restore, the `analyzeAfter` seam, `editRoute`'s before and after text (`MutationResult.edits` in `types.ts`), and the dirty check through `workingTree`, refusing a write without Git. Verification's checks are unchanged. | A throw after the write left a half-applied tree, the restore was lossy and not atomic, and a write without Git had no dirty check (decisions 5 and 8, A2, A5). | Done in 3.5 (a). |
+| `lib/working-tree.ts` `workingTree` holds readiness's `gitDirty` logic, moved, and tells Git missing from no repository; `gitDirty` delegates to it, and `apply.ts`'s `dirtyPlannedFiles` is gone. The porcelain output is read with `-z`, unquoted and untrimmed, and a repository Git cannot read is told from no repository. | Two copies of one job (ground rule 5); A5 needs the reason Git is unavailable; the trim cut the first character from the first dirty path, and Git quoted a path with spaces or non-ASCII characters, so readiness and the mutator missed such a dirty planned file. | Done in 3.5 (a). |
+| `DEFAULT_MUTATION_CAPABILITIES` drops `rewrite-import`, `update-test-import`, and `preserve-compatibility-export`; `MUTATION_CAPABILITY_VERSION` is 2. | The registry claimed kinds no mutator performs (decision 6, A12). Every earlier authorization's capability part moves; readiness judges an import-rewriting plan `unsupported` under the default, as the bridge already refused it. | Done in 3.5 (a). |
+| `operator-readiness.ts` exports `spawnRunner` and `commandResult` (one command run as readiness records it: its exit code and failures, normalized exactly as the baseline is, `exit <code>` when a failed run shows none), which `baselineStep` now calls instead of its inline extraction; a run (`ReadinessCommandRun`) carries the signal that killed it, if one did. | Apply runs the command steps again after its write and compares them with the baseline (decision 4, A6); one function makes both runs judge failures alike. `extractFailures` stays private behind `commandResult`. | Done in 3.5 (b). |
+| `apply.ts` gains `beforeWrite` (required to write), `expectedHashes` (checked before and after it), and `afterChecks` options and `RestoreError`; writes and restores are flushed; the restore guard compares the written bytes by SHA-256 and reports what it restored and skipped. | The journal must be flushed before the first write (A1), each file checked against the rollback's hash just before it (A2), and the scripts run again inside the restoring `try` (A6). | Done in 3.5 (b). |
+| `semantics-fingerprint.ts` gains `workspaceInputsHash`, one hash over the five workspace input components, and `collectWorkspaceInputs` takes only what it reads (`exclude`, and units by `path`); the manifest's `generation` gains an optional `inputs: { hash, config }` (`dataset-manifest.ts`, `semantics-types.ts`, written by `generateSemantics`). No fingerprint, cache key, or report changes. | Apply takes "before" from the saved report only when the dataset is proven current (A9), and plan checks the same without running the configuration, so it needs the config component apart. | Done in 3.6. |
+| `apply.ts` gains a `before` option, the target's report before the write; `atlas apply` passes the saved one, and its `analyzeAfter` passes the staged scan's, so the mutator runs no `analyzeSurface` on that path. Validation and verification are unchanged. | 3.0's largest saving (item 4); the saved and the staged reports agree with a fresh analysis on every field validation and verification read, which a test checks. | Done in 3.6. |
+| `semantics-discover.ts` records the name each skipped unit's `package.json` gives, read tolerantly, as the manifest's optional `discovery.unitsSkipped[].name` (`semantics-types.ts`). Discovery only: no fingerprint, cache key, or report changes, and dataset schema 4 keeps its number. | A collection counts a workspace's skipped packages as its own, so a dependency on one never crosses to another workspace's package of that name. | Done in 5.2. |

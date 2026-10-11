@@ -9,6 +9,7 @@ import type {
   DatasetManifest,
   DeclaredDiscovery,
   SemanticsConceptIndex,
+  SemanticsGenerationInputs,
   SemanticsGenerationMode,
   SemanticsManifestPackage,
   SemanticsModuleRecord,
@@ -35,6 +36,8 @@ export interface DatasetManifestInput {
   /** Every file written so far; the manifest counts the reused ones. */
   files: readonly { reused: boolean }[];
   finishedAt: Date;
+  /** The workspace inputs the generation read. */
+  inputs: SemanticsGenerationInputs;
   mode: SemanticsGenerationMode;
   modules: readonly SemanticsModuleRecord[];
   packages: SemanticsManifestPackage[];
@@ -88,6 +91,7 @@ export function datasetManifest(input: DatasetManifestInput): DatasetManifest {
       concurrency: input.concurrency,
       derived: input.derived,
       finishedAt: finishedAt.toISOString(),
+      inputs: input.inputs,
       mode: input.mode,
       packageFailures: failures,
       packagesAnalyzed: input.packagesAnalyzed,

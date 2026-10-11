@@ -1,10 +1,10 @@
 import type { Rules, RuleViolation } from "../../lenses/rules-types";
 import type { Rule } from "../../rule-declaration";
 import type { RenderDensity } from "../context";
-import { LISTED_AT_DENSITY } from "../context";
 import { count } from "../format";
-import type { BlockView, ReportView, SectionView } from "../views";
+import type { ReportView, SectionView } from "../views";
 import { blockerDefinitions } from "./explanations";
+import { listSection } from "./ranked-section";
 
 /** A rule as a line names it: `rules[0] require internalize packages/core`. */
 function ruleName(rules: readonly Rule[], index: number): string {
@@ -22,26 +22,6 @@ function planText(violation: RuleViolation): string {
   return plan.blockers.length === 0
     ? `plan ${plan.status}`
     : `plan ${plan.status}: ${plan.blockers.join(", ")}`;
-}
-
-/** A list of the first items at the density, counting the rest; none when there is nothing to list. */
-function listSection(
-  items: string[],
-  density: RenderDensity,
-  title: string
-): SectionView | undefined {
-  const shown = items.slice(0, LISTED_AT_DENSITY[density]);
-  if (shown.length === 0) {
-    return;
-  }
-  const list: BlockView = {
-    items: shown,
-    kind: "list",
-    ...(items.length > shown.length && {
-      overflow: items.length - shown.length,
-    }),
-  };
-  return { blocks: [list], title };
 }
 
 /** One section per broken rule, its places by path. */

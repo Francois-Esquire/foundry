@@ -4,6 +4,7 @@
 
 /** The values the entry exports, sorted; nothing else is public. */
 export const VALUE_EXPORTS = [
+  "COLLECTION_SCHEMA_VERSION",
   "DATASET_SCHEMA_VERSION",
   "DatasetNotFoundError",
   "DatasetReplacedError",
@@ -45,6 +46,7 @@ await server.stop();
 const missing = await failure(serve(workspace, { port: 0, state: empty }));
 
 console.log(JSON.stringify({
+  collections: [typeof scan.collection, typeof serve.collection],
   exports: Object.keys(atlas).sort(),
   full: {
     internals: internals.topology.package.id,
@@ -68,6 +70,7 @@ console.log(JSON.stringify({
  */
 export const TYPES_SOURCE = `
 import {
+  COLLECTION_SCHEMA_VERSION,
   DATASET_SCHEMA_VERSION,
   DatasetNotFoundError,
   DatasetReplacedError,
@@ -78,6 +81,11 @@ import {
 import type {
   AtlasConfig,
   AtlasServer,
+  CollectionManifest,
+  CollectionProgressEvent,
+  CollectionScan,
+  CollectionScanOptions,
+  CollectionServer,
   DatasetManifest,
   HistoryManifest,
   PackageInternals,
@@ -120,6 +128,28 @@ const server: AtlasServer = await serve(".", serveOptions);
 const address: string = server.url.href;
 await server.stop();
 
+const workspaceKinds: string[] = [];
+const collectionOptions: CollectionScanOptions = {
+  history: true,
+  onProgress: (event: CollectionProgressEvent) => {
+    workspaceKinds.push(\`\${event.id} \${event.root} \${event.event.kind}\`);
+  },
+  state: "./state",
+};
+const collection: CollectionScan = await scan.collection(["../a", "../b"], collectionOptions);
+const collectionManifest: CollectionManifest = collection.manifest;
+const scans: Scan[] = collection.workspaces;
+type Crossing = CollectionManifest["crossings"][number];
+const crossing: Crossing | undefined = collectionManifest.crossings[0];
+const collectionServer: CollectionServer = await serve.collection(["../a", "../b"], serveOptions);
+const roots: string[] = collectionServer.roots;
+// @ts-expect-error A collection's server has roots, not one root.
+const oneRoot: string = collectionServer.root;
+await collectionServer.stop();
+// @ts-expect-error scan.collection takes paths, not one path.
+await scan.collection("../a");
+const collectionSchema: 1 = COLLECTION_SCHEMA_VERSION;
+
 type Entry = DatasetManifest["packages"][number];
 const status: Entry["status"] = "complete";
 // @ts-expect-error A package the scan tried is complete or failed.
@@ -142,7 +172,7 @@ const rule: Rule = { effect: "permit", operator: "internalize", subject: "packag
 const moved: Rule = { effect: "permit", operator: "move", subject: "packages/a" };
 
 export const used = [
-  address, caught, dataset, DEFAULT_PORT, domain, fresh, history, historySchema,
+  address, caught, collectionSchema, crossing, oneRoot, roots, scans, workspaceKinds, dataset, DEFAULT_PORT, domain, fresh, history, historySchema,
   internals, kinds, manifest, moved, report, rule, skipped, status, viewerRoot,
   workspaceReport,
 ];

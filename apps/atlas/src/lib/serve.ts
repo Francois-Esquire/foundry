@@ -3,7 +3,7 @@ import { join, resolve } from "node:path";
 import { isMissingPath } from "@foundry/lib/atomic-file";
 import { engines } from "../../package.json" with { type: "json" };
 import { startServer } from "../server/server";
-import { savedDataset } from "./dataset-files";
+import { savedCollection, savedDataset } from "./dataset-files";
 
 /** The port `serve` and the CLI use when none is given. */
 export const DEFAULT_PORT = 4173;
@@ -16,14 +16,28 @@ export interface ServeOptions {
   state?: string;
 }
 
-/** A running server: the viewer at `url`, the saved dataset under `url/data/`. */
-export interface AtlasServer {
-  /** The workspace root, resolved through symlinks. */
-  root: string;
+/** What every running server has: its address and the way to stop it. */
+interface RunningServer {
   /** Stops listening and closes open connections; resolves once the port is free. */
   stop(): Promise<void>;
   /** The viewer's address, such as `http://127.0.0.1:4173/`. */
   url: URL;
+}
+
+/** A running server: the viewer at `url`, the saved dataset under `url/data/`. */
+export interface AtlasServer extends RunningServer {
+  /** The workspace root, resolved through symlinks. */
+  root: string;
+}
+
+/**
+ * A running server for a collection: the viewer at `url`, the collection
+ * manifest at `url/data/collection-manifest.json`, and each workspace's
+ * dataset under `url/data/<workspace id>/`.
+ */
+export interface CollectionServer extends RunningServer {
+  /** Each workspace root, resolved through symlinks, in the collection's order. */
+  roots: string[];
 }
 
 /**
@@ -48,23 +62,50 @@ export async function serve(
   root: string,
   options: ServeOptions = {}
 ): Promise<AtlasServer> {
-  if (typeof globalThis.Bun === "undefined") {
-    throw new Error(`Atlas serve needs Bun (${engines.bun}).`);
-  }
-  const port = options.port ?? DEFAULT_PORT;
-  checkPort(port);
-  const viewer = await viewerRoot();
+  const { port, viewer } = await serving(options);
   const { workspace } = await savedDataset(root, options.state);
-  const server = startServer({
-    output: workspace.output,
-    port,
-    viewer,
-  });
+  const server = startServer({ output: workspace.output, port, viewer });
   return {
     root: workspace.root,
     stop: () => server.stop(true),
     url: server.url,
   };
+}
+
+/**
+ * Serves a collection's saved datasets and the viewer on 127.0.0.1: each
+ * workspace's dataset under its id, and the collection manifest, derived
+ * from the manifests saved at each request. Fails as `serve` does, naming
+ * the first workspace with no saved dataset, and as `resolveCollection`
+ * does. Takes no lock: a scan of one workspace meanwhile is seen by later
+ * requests, the collection manifest included.
+ */
+async function serveCollection(
+  roots: readonly string[],
+  options: ServeOptions = {}
+): Promise<CollectionServer> {
+  const { port, viewer } = await serving(options);
+  const collection = await savedCollection(roots, options.state);
+  const server = startServer({ collection, port, viewer });
+  return {
+    roots: collection.workspaces.map((workspace) => workspace.root),
+    stop: () => server.stop(true),
+    url: server.url,
+  };
+}
+
+serve.collection = serveCollection;
+
+/** The checks before anything is read: Bun, the port, and the viewer's files. */
+async function serving(
+  options: ServeOptions
+): Promise<{ port: number; viewer: string }> {
+  if (typeof globalThis.Bun === "undefined") {
+    throw new Error(`Atlas serve needs Bun (${engines.bun}).`);
+  }
+  const port = options.port ?? DEFAULT_PORT;
+  checkPort(port);
+  return { port, viewer: await viewerRoot() };
 }
 
 /** Throws unless `port` is an integer from 0 to 65535. */

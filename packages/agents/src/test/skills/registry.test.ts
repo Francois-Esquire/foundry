@@ -35,6 +35,22 @@ describe("createSkillRegistry", () => {
     ]);
   });
 
+  it("load_skill reads UTF-8 bytes as text and describes binary files", async () => {
+    const registry = createSkillRegistry([
+      skill("brand", {
+        files: {
+          "logo.png": new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0xff, 0xfe]),
+          "notes.md": new TextEncoder().encode("Use the logo."),
+        },
+      }),
+    ]);
+    const load = (file: string) =>
+      registry.tools.load_skill?.execute?.({ file, name: "brand" }, opts);
+
+    expect(await load("notes.md")).toContain("Use the logo.");
+    expect(await load("logo.png")).toContain("(binary, 6 bytes; not shown)");
+  });
+
   it("load_skill treats an empty file name as no file", async () => {
     const registry = createSkillRegistry([
       skill("audit", {

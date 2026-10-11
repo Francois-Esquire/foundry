@@ -19,6 +19,7 @@ import {
   createSandboxSession,
   type SandboxSessionSettings,
 } from "~/lib/sandbox/session";
+import type { SandboxHandle } from "~/lib/types";
 
 /** What the built-in harness was opened with: its session id and its tools. */
 const builtinSettings: {
@@ -56,7 +57,7 @@ function settings(): SandboxSessionSettings {
         close: async () => undefined,
         exec: async () => ({ exitCode: 0, stderr: "", stdout: "" }),
         id: "sandbox",
-      },
+      } as unknown as SandboxHandle,
     },
     provider: "provider",
     sessionId: "parent",

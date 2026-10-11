@@ -1,10 +1,13 @@
 import { execFileSync } from "node:child_process";
 import {
   appendFileSync,
+  chmodSync,
   cpSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -14,6 +17,8 @@ import { afterAll, describe, expect, it } from "vitest";
 import { analyzeSurface } from "../../src/lib/analyze";
 import {
   applyReductionPlan,
+  restoreWritten,
+  sha256,
   verifyInternalizeExport,
 } from "../../src/lib/apply";
 import type { AnalysisConfig } from "../../src/lib/config";
@@ -33,10 +38,18 @@ const fixtureRoot = join(import.meta.dirname, "fixtures", "deps");
 
 const tempRoots: string[] = [];
 
-function tempFixture(): string {
+/** A copy of the deps fixture; committed to a fresh repository unless `git` is false. */
+function tempFixture(
+  { git: inRepository = true }: { git?: boolean } = {},
+  prepare: (dir: string) => void = () => undefined
+): string {
   const dir = mkdtempSync(join(tmpdir(), "semantic-surface-op-"));
   tempRoots.push(dir);
   cpSync(fixtureRoot, dir, { recursive: true });
+  prepare(dir);
+  if (!inRepository) {
+    return dir;
+  }
   const git = (...args: string[]) =>
     execFileSync("git", args, { cwd: dir, stdio: "ignore" });
   git("init", "-q");
@@ -46,12 +59,19 @@ function tempFixture(): string {
     "user.email=test@example.com",
     "-c",
     "user.name=test",
+    "-c",
+    "commit.gpgsign=false",
     "commit",
     "-qm",
     "fixture"
   );
   return dir;
 }
+
+const INDEX = "packages/plans/src/index.ts";
+
+/** A write journals nothing in these tests; `atlas apply` passes the real journal. */
+const noJournal = () => Promise.resolve();
 
 function gitStatus(dir: string): string {
   return execFileSync("git", ["status", "--porcelain"], { cwd: dir })
@@ -252,6 +272,90 @@ describe("preview", () => {
     expect(gitStatus(root)).toBe("");
     expect(renderMutation(mutation)).toContain("Use --write to apply");
   });
+
+  it("says how each edited statement reads before and after, a declaration by its first line", async () => {
+    const root = tempFixture();
+    const report = await analyzeSurface({ root, target: "@deps/plans" });
+    const shared = await applyReductionPlan(
+      internalizePlan(report, "PlanBeta"),
+      {
+        root,
+      }
+    );
+    expect(shared.edits).toEqual([
+      {
+        after: 'export type { PlanBetaExtra } from "./bar";',
+        before: 'export type { PlanBeta, PlanBetaExtra } from "./bar";',
+        file: INDEX,
+      },
+    ]);
+    const direct = await applyReductionPlan(
+      internalizePlan(report, "PlanDirect"),
+      { root }
+    );
+    expect(direct.edits).toEqual([
+      {
+        after: "interface PlanDirect {",
+        before: "export interface PlanDirect {",
+        file: INDEX,
+      },
+    ]);
+    const alone = await applyReductionPlan(
+      internalizePlan(report, "PlanAlpha"),
+      { root }
+    );
+    expect(alone.edits).toEqual([
+      {
+        after: null,
+        before: 'export type { PlanAlpha } from "./foo";',
+        file: INDEX,
+      },
+    ]);
+    expect(gitStatus(root)).toBe("");
+  });
+
+  it("names a decorated declaration by its header, not its decorator", async () => {
+    const root = tempFixture({}, (dir) => {
+      appendFileSync(
+        join(dir, INDEX),
+        "\nfunction sealed(target: unknown): void {\n  Object.seal(target);\n}\n\n@sealed\nexport class Decorated {}\n"
+      );
+    });
+    const report = await analyzeSurface({ root, target: "@deps/plans" });
+    const mutation = await applyReductionPlan(
+      internalizePlan(report, "Decorated"),
+      { root }
+    );
+    expect(mutation.edits).toEqual([
+      {
+        after: "class Decorated {}",
+        before: "export class Decorated {}",
+        file: INDEX,
+      },
+    ]);
+  });
+
+  it("previews without Git, but refuses to write, saying why", async () => {
+    const root = tempFixture({ git: false });
+    const report = await analyzeSurface({ root, target: "@deps/plans" });
+    const plan = internalizePlan(report, "PlanAlpha");
+    expect((await applyReductionPlan(plan, { root })).status).toBe("preview");
+    const original = readFileSync(join(root, INDEX));
+    const mutation = await applyReductionPlan(plan, {
+      beforeWrite: noJournal,
+      root,
+      write: true,
+    });
+    expect(mutation.status).toBe("blocked");
+    expect(mutation.blockers).toEqual([
+      {
+        detail:
+          "The workspace is not in a Git repository, so Atlas cannot tell whether a planned file has uncommitted changes. Write only in a repository.",
+        reason: "no-git",
+      },
+    ]);
+    expect(readFileSync(join(root, INDEX)).equals(original)).toBe(true);
+  });
 });
 
 describe("apply internalize-export", () => {
@@ -259,7 +363,11 @@ describe("apply internalize-export", () => {
     const root = tempFixture();
     const report = await analyzeSurface({ root, target: "@deps/plans" });
     const plan = internalizePlan(report, "PlanBeta");
-    const mutation = await applyReductionPlan(plan, { root, write: true });
+    const mutation = await applyReductionPlan(plan, {
+      beforeWrite: noJournal,
+      root,
+      write: true,
+    });
     expect(mutation.status).toBe("applied");
     expect(mutation.verification?.status).toBe("pass");
     expect(mutation.observedDelta).toEqual({
@@ -286,7 +394,11 @@ describe("apply internalize-export", () => {
     const root = tempFixture();
     const report = await analyzeSurface({ root, target: "@deps/plans" });
     const plan = internalizePlan(report, "PlanDirect");
-    const mutation = await applyReductionPlan(plan, { root, write: true });
+    const mutation = await applyReductionPlan(plan, {
+      beforeWrite: noJournal,
+      root,
+      write: true,
+    });
     expect(mutation.status).toBe("applied");
     expect(mutation.verification?.status).toBe("pass");
     const index = readFileSync(
@@ -302,7 +414,11 @@ describe("apply internalize-export", () => {
     const report = await analyzeSurface({ root, target: "@deps/plans-multi" });
     const plan = internalizePlan(report, "PlanShared");
     expect(plan.publicRoutes.length).toBeGreaterThan(1);
-    const mutation = await applyReductionPlan(plan, { root, write: true });
+    const mutation = await applyReductionPlan(plan, {
+      beforeWrite: noJournal,
+      root,
+      write: true,
+    });
     expect(mutation.status).toBe("applied");
     expect(mutation.changedFiles.length).toBeGreaterThan(1);
     expect(mutation.verification?.status).toBe("pass");
@@ -313,7 +429,11 @@ describe("apply internalize-export", () => {
     const report = await analyzeSurface({ root, target: "@deps/plans-star" });
     const plan = internalizePlan(report, "PlanHidden");
     expect(plan.status).toBe("unsupported");
-    const mutation = await applyReductionPlan(plan, { root, write: true });
+    const mutation = await applyReductionPlan(plan, {
+      beforeWrite: noJournal,
+      root,
+      write: true,
+    });
     expect(mutation.status).toBe("unsupported");
     expect(gitStatus(root)).toBe("");
   });
@@ -324,12 +444,229 @@ describe("apply internalize-export", () => {
     const plan = internalizePlan(report, "PlanAlpha");
     const index = join(root, "packages/plans/src/index.ts");
     appendFileSync(index, "// local edit\n");
-    const mutation = await applyReductionPlan(plan, { root, write: true });
+    const mutation = await applyReductionPlan(plan, {
+      beforeWrite: noJournal,
+      root,
+      write: true,
+    });
     expect(mutation.status).toBe("blocked");
     expect(mutation.blockers?.map((blocker) => blocker.reason)).toContain(
       "dirty-working-tree"
     );
     expect(readFileSync(index, "utf8")).toContain("// local edit");
+  });
+
+  it("writes only the planned file, keeps its mode, and is not blocked by a dirty file it does not write", async () => {
+    const root = tempFixture();
+    chmodSync(join(root, INDEX), 0o640);
+    const report = await analyzeSurface({ root, target: "@deps/plans" });
+    const unrelated = join(root, "packages/beta/src/index.ts");
+    appendFileSync(unrelated, "// local edit\n");
+    const mutation = await applyReductionPlan(
+      internalizePlan(report, "PlanDirect"),
+      { beforeWrite: noJournal, root, write: true }
+    );
+    expect(mutation.status).toBe("applied");
+    expect(statSync(join(root, INDEX)).mode % 0o1_0000).toBe(0o640);
+    expect(
+      gitStatus(root)
+        .split("\n")
+        .map((line) => line.trim())
+        .sort()
+    ).toEqual([
+      "M packages/beta/src/index.ts",
+      "M packages/plans/src/index.ts",
+    ]);
+  });
+
+  it("keeps a byte order mark that ts-morph drops", async () => {
+    const root = tempFixture({}, (dir) => {
+      const index = join(dir, INDEX);
+      writeFileSync(
+        index,
+        Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), readFileSync(index)])
+      );
+    });
+    const report = await analyzeSurface({ root, target: "@deps/plans" });
+    const before = readFileSync(join(root, INDEX));
+    const mutation = await applyReductionPlan(
+      internalizePlan(report, "PlanDirect"),
+      { beforeWrite: noJournal, root, write: true }
+    );
+    expect(mutation.status).toBe("applied");
+    const after = readFileSync(join(root, INDEX));
+    expect([...after.subarray(0, 3)]).toEqual([0xef, 0xbb, 0xbf]);
+    expect(after.toString("utf8")).toBe(
+      before
+        .toString("utf8")
+        .replace("export interface PlanDirect {", "interface PlanDirect {")
+    );
+  });
+
+  it("restores the bytes and mode of every written file when verification throws", async () => {
+    const root = tempFixture();
+    chmodSync(join(root, INDEX), 0o600);
+    const report = await analyzeSurface({ root, target: "@deps/plans" });
+    const original = readFileSync(join(root, INDEX));
+    let written: Buffer | undefined;
+    await expect(
+      applyReductionPlan(internalizePlan(report, "PlanAlpha"), {
+        analyzeAfter: () => {
+          written = readFileSync(join(root, INDEX));
+          throw new Error("the analysis crashed");
+        },
+        beforeWrite: noJournal,
+        root,
+        write: true,
+      })
+    ).rejects.toThrow("the analysis crashed");
+    expect(written?.equals(original)).toBe(false);
+    expect(readFileSync(join(root, INDEX)).equals(original)).toBe(true);
+    expect(statSync(join(root, INDEX)).mode % 0o1_0000).toBe(0o600);
+    expect(gitStatus(root)).toBe("");
+  });
+
+  it("restores only a file that still holds what it wrote, and names one changed since", () => {
+    const root = tempFixture();
+    const file = (name: string, bytes: string) => {
+      writeFileSync(join(root, name), bytes);
+      return {
+        file: name,
+        original: { bytes: Buffer.from("original"), mode: 0o644 },
+        writtenHash: sha256(Buffer.from("written")),
+      };
+    };
+    const kept = file("kept.ts", "original");
+    const restored = file("restored.ts", "written");
+    const changed = file("changed.ts", "someone else");
+    const cause = new Error("verification threw");
+    let thrown: unknown;
+    try {
+      restoreWritten(root, [kept, changed, restored], cause);
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(Error);
+    expect((thrown as Error).message).toBe(
+      "Atlas did not restore every file it wrote: changed.ts changed after Atlas wrote it, so restoring it would overwrite that change. Restore changed.ts from Git."
+    );
+    expect((thrown as Error).cause).toBe(cause);
+    expect(readFileSync(join(root, "restored.ts"), "utf8")).toBe("original");
+    expect(readFileSync(join(root, "changed.ts"), "utf8")).toBe("someone else");
+  });
+
+  it("restores every other file when one restore fails, then throws once", () => {
+    const root = tempFixture();
+    const locked = join(root, "locked");
+    mkdirSync(locked);
+    const entry = (name: string) => {
+      writeFileSync(join(root, name), "written");
+      return {
+        file: name,
+        original: { bytes: Buffer.from("original"), mode: 0o644 },
+        writtenHash: sha256(Buffer.from("written")),
+      };
+    };
+    const first = entry("first.ts");
+    const stuck = entry("locked/stuck.ts");
+    const last = entry("last.ts");
+    // No temporary can be created beside the stuck file.
+    chmodSync(locked, 0o555);
+    try {
+      expect(() => restoreWritten(root, [first, stuck, last])).toThrow(
+        "Atlas did not restore every file it wrote: restoring locked/stuck.ts failed:"
+      );
+    } finally {
+      chmodSync(locked, 0o755);
+    }
+    expect(readFileSync(join(root, "first.ts"), "utf8")).toBe("original");
+    expect(readFileSync(join(root, "last.ts"), "utf8")).toBe("original");
+    expect(readFileSync(join(root, "locked/stuck.ts"), "utf8")).toBe("written");
+  });
+
+  it("refuses a planned file it could not write back byte for byte, such as one that is not UTF-8", async () => {
+    const root = tempFixture({}, (dir) => {
+      const index = join(dir, INDEX);
+      writeFileSync(
+        index,
+        Buffer.concat([
+          Buffer.from("// caf"),
+          Buffer.from([0xe9]),
+          Buffer.from("\n"),
+          readFileSync(index),
+        ])
+      );
+    });
+    const report = await analyzeSurface({ root, target: "@deps/plans" });
+    const before = readFileSync(join(root, INDEX));
+    for (const write of [false, true]) {
+      const mutation = await applyReductionPlan(
+        internalizePlan(report, "PlanDirect"),
+        { root, write }
+      );
+      expect(mutation.status).toBe("blocked");
+      expect(mutation.blockers).toEqual([
+        {
+          detail: `${INDEX} would not be written back byte for byte: it is not UTF-8, or it changed while Atlas read it.`,
+          reason: "apply-unsupported",
+        },
+      ]);
+    }
+    expect(readFileSync(join(root, INDEX)).equals(before)).toBe(true);
+  });
+
+  it("checks each file against the rollback's hash just before the first write, and writes nothing on a mismatch", async () => {
+    const root = tempFixture();
+    const report = await analyzeSurface({ root, target: "@deps/plans" });
+    const plan = internalizePlan(report, "PlanDirect");
+    const original = readFileSync(join(root, INDEX));
+    for (const expectedHashes of [
+      new Map([[INDEX, "0".repeat(64)]]),
+      new Map<string, string>(),
+    ]) {
+      let journaled = false;
+      const mutation = await applyReductionPlan(plan, {
+        beforeWrite: () => {
+          journaled = true;
+          return Promise.resolve();
+        },
+        expectedHashes,
+        root,
+        write: true,
+      });
+      expect(mutation.status).toBe("stale");
+      expect(mutation.blockers).toEqual([
+        {
+          detail: `${INDEX} is not the file readiness recorded for the rollback; it changed before the write. Nothing was written.`,
+          reason: "stale-plan",
+        },
+      ]);
+      expect(journaled).toBe(false);
+    }
+    await expect(
+      applyReductionPlan(plan, {
+        beforeWrite: () => Promise.reject(new Error("the journal failed")),
+        expectedHashes: new Map([[INDEX, sha256(original)]]),
+        root,
+        write: true,
+      })
+    ).rejects.toThrow("the journal failed");
+    expect(readFileSync(join(root, INDEX)).equals(original)).toBe(true);
+  });
+
+  it("writes only with a journal to restore from", async () => {
+    const root = tempFixture();
+    const report = await analyzeSurface({ root, target: "@deps/plans" });
+    const original = readFileSync(join(root, INDEX));
+    await expect(
+      applyReductionPlan(internalizePlan(report, "PlanDirect"), {
+        root,
+        write: true,
+      })
+    ).rejects.toThrow(
+      "applyReductionPlan writes only with a beforeWrite journal"
+    );
+    expect(readFileSync(join(root, INDEX)).equals(original)).toBe(true);
   });
 
   it("rolls back byte-for-byte when verification fails", async () => {
@@ -344,7 +681,11 @@ describe("apply internalize-export", () => {
       ...plan,
       predictedDelta: { ...plan.predictedDelta, unusedExternalExports: -2 },
     };
-    const mutation = await applyReductionPlan(lying, { root, write: true });
+    const mutation = await applyReductionPlan(lying, {
+      beforeWrite: noJournal,
+      root,
+      write: true,
+    });
     expect(mutation.status).toBe("rolled-back");
     expect(mutation.verification?.status).toBe("fail");
     expect(readFileSync(index, "utf8")).toBe(original);

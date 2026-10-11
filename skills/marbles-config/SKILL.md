@@ -17,8 +17,9 @@ a step asks a person something.
 
 ## The mental model in five lines
 
-1. **Definitions are presets.** `agent`, `workspace`, `sandbox`, `artifact`,
-   `skills` describe defaults. They do nothing on their own.
+1. **Definitions carry defaults.** `agent`, `workspace`, `sandbox`,
+   `artifact`, `skills` describe them. Nothing starts until used: an agent's
+   own `generate` is one turn; `agents.session(agent)` is a conversation.
 2. **Steps do the work.** `step(name).input(schema).output(schema).do(fn)`.
    `fn` gets one context object and returns the step's result.
 3. **Locking builds the tree.** Calling a step, `review({}, { target: "." })`,
@@ -110,7 +111,10 @@ Reading `--dry-run` output: `roll` labels steps by their path in the tree
 (`weekly.findings`, `ship.decision.review.branch`), not by definition name,
 so choose child keys that read well in a log. Agent turns are echoed as
 `[provider/model] in <dir> <prompt>` and `generate().text` is that echo, so a
-"finding" that reads like the prompt is expected. Sandbox commands are echoed
+"finding" that reads like the prompt is expected. A turn with `{ output }`
+is answered with the smallest value its schema accepts (required keys, empty
+arrays, the first enum member), so a branch on that value takes its default
+path. Sandbox commands are echoed
 as `[sandbox] argv` and return exit 0 with empty output, so a failure branch
 never runs under `--dry-run`; test it by forcing the value once. Reports and
 artifacts are recorded (a version id is returned) but not echoed. Nothing is

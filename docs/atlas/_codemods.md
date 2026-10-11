@@ -46,11 +46,12 @@ path.
 - **A capability registry.** `mutation-capabilities.ts` is data: which
   planned transformation kinds and syntax forms a mutator can execute
   today, atomically and reversibly. Of the thirteen
-  `PlannedTransformationKind`s in `operator-plan-types.ts`, six are
-  covered (`remove-export`, `rewrite-reexport`, `rewrite-import`,
-  `update-test-import`, `preserve-compatibility-export`, `verify-only`),
-  each for a short list of forms such as `named-import-relative`. The
-  comment says widening it is done by adding mutator support first.
+  `PlannedTransformationKind`s in `operator-plan-types.ts`, three are
+  covered (`remove-export`, `rewrite-reexport`, `verify-only`), each for a
+  short list of forms such as `named-reexport`: what `apply.ts` performs.
+  Until 3.5 it also claimed `rewrite-import`, `update-test-import`, and
+  `preserve-compatibility-export`, which no mutator performs. The comment
+  says widening it is done by adding mutator support first.
 - **An operator catalog.** `operator-catalog.ts` defines every
   architectural operator as data: subjects, required fields, verification
   kinds, and whether it decomposes into planned transformations. Only
@@ -246,6 +247,18 @@ binary.
   many places wants to apply many plans, which raises ordering, shared
   files, and one rollback across all of them.
 
+Where they stand after 3.5 (2026-10-10):
+
+- **Rule shape**: settled in 3.1 as `{ effect, operator, subject }`, with
+  `permit` and `require`; no `forbid`, so preservation stays plan-local.
+- **Where rules live**: `rules` in `.foundry/atlas/` (3.1). Package-level
+  rules are still open.
+- **Verification per kind**: `internalize-export` keeps its bespoke
+  structural checks and the TypeScript diff, and since 3.5 also runs the
+  readiness command steps again after the write, against the baseline taken
+  under the lock. The general delta check is still unproven.
+- **Batching**: one plan per apply in 0.1 (decision 4); unchanged.
+
 ## Decisions needed
 
 Added 2026-10-09, when the API work picked this up again. The open
@@ -275,7 +288,9 @@ words that depend on them, `check`, `plan`, and `apply`, are listed in
 4. **Batching.** Recommendation: one plan per `apply` in 0.1. `atlas check`
    lists every violation; applying them one at a time keeps rollback exact.
    Batching is its own design once two executable kinds exist.
-5. **Refresh the dataset after every write.** Decided by the maintainer.
+5. **Refresh the dataset after every write** (since 3.5, "the scan after a
+   write": `apply --write` stages a scan beside the dataset and swaps it in
+   once complete). Decided by the maintainer.
    A codemod changes the code, and the dataset describes the code, so a
    write is not finished until the dataset matches again. Recomputing it is
    expensive, so the refresh is an incremental scan through the existing
@@ -303,6 +318,11 @@ words that depend on them, `check`, `plan`, and `apply`, are listed in
    `test/helpers/reference-internals.ts` already does, and pass the
    project `apply` built through to derivation, which already accepts one.
 
+Configuration load sites (3.5, decision 3): the scan entry points and
+`atlas apply`, which authorizes under the configuration's rules as they
+are now. `atlas plan` and `atlas check` read the rules the last scan saved
+in the `rules` lens, so they run no configuration.
+
 Two codemod stacks exist, both reachable only from tests: the reduction
 operators (`operators.ts`, `plan.ts`, `validate.ts`, `apply.ts`) that
 execute, and the architectural operators (`architectural-operator.ts`
@@ -312,8 +332,33 @@ through `operator-readiness.ts`) that plan and authorize. They meet at
 The order of work this implies: rule shape and loading, then the readiness
 gate reading rules, then `atlas check` (read-only, useful on its own in CI),
 then `plan`, then `apply` for `internalize-export` with the refresh, then a
-second executable kind. Which second kind matters most is a question for the maintainer:
-`rewrite-import` and `move-module` are the likely candidates.
+second executable kind. All but the last are done; the second kind is
+deferred beyond 0.1 (3.8).
+
+### A second kind, deferred
+
+No catalog kind but `internalize` is single-package and creates and
+deletes nothing, so none can be applied as safely as `internalize-export`
+today. The candidate is `rewrite-import` and `update-test-import` under
+`internalize`: repoint a package's own importers of an entrypoint at the
+declaration before the export is removed, which unblocks plans carrying
+the `internal-entrypoint-import` blocker. What it needs:
+
+- `plan.ts` marks those sites unsupported; they would become ready plans
+  with a `rewrite-import` planned change, which changes plan
+  fingerprints and bumps `ANALYSIS_POLICY_VERSION`.
+- The two stacks disagree on scope. `internalImporters` in
+  `operator-plan.ts` rewrites only sites that import through the
+  package's name; the legacy `internallyImportedNames` in `plan.ts`
+  covers any import that resolves to the entrypoint, relative ones
+  included. One must change before both can authorize the same edit.
+- A mutator in `apply.ts` that repoints each `ImportDeclaration` at the
+  declaration's module, splitting it when other names remain, ordered
+  before route removal; the capability registry and the bridge in
+  `authorizeMutationPlan` widened to match.
+
+Both analysis changes go in the table in [`_phases.md`](./_phases.md)
+before they are made.
 
 ### Refresh measured (2026-10-10)
 
@@ -369,6 +414,8 @@ What this means for 3.6:
    when its fingerprint is current, and take "after" from the refresh scan,
    staged and published only once verification passes. About 28 s per
    `apply`; this conflicts with 3.5's "fresh analysis", so the maintainer
-   decides.
+   decides. Done in 3.6: "before" is the saved report when the dataset is
+   current, "after" the staged scan's, and a write fell from 82.4 s to
+   53–55 s on a Foundry clone.
 5. Run dependency-cruiser and `git log` once per scan (about 2 s, warm
    included).

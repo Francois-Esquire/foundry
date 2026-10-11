@@ -24,6 +24,7 @@ import { nodeObserver } from "@foundry/workspaces/node/watch";
 import { configuredMonitorUrl } from "~/lib/automation/configured";
 import { AutomationService } from "~/lib/automation/service";
 import type { Bindings } from "~/lib/bindings";
+import { commandRunner } from "~/lib/command";
 import type { AnyDefinition } from "~/lib/definition";
 import type { FeedAnswer } from "~/lib/feed/entry";
 import type { FeedPublisher } from "~/lib/feed/publish";
@@ -44,7 +45,8 @@ import { observeSteps } from "~/lib/observe";
 import type { DefinitionEntry, MonitorRecord } from "~/lib/registry";
 import { Registry } from "~/lib/registry";
 import type { ReadonlyRunScopes } from "~/lib/run-scope";
-import { PAUSE_KIND, RunScopes } from "~/lib/run-scope";
+import { PAUSE_KIND, RunScopes, workingDirectory } from "~/lib/run-scope";
+import { clearHost } from "~/lib/runtime";
 import { HarnessActivities } from "~/lib/sandbox/activities";
 import { JsonAgentGrantRepository } from "~/lib/sandbox/grants";
 import { HarnessInteractions } from "~/lib/sandbox/interactions";
@@ -75,6 +77,8 @@ import type { Schedule } from "~/lib/triggers";
  */
 
 export interface EngineOptions {
+  /** Read by `artifacts.latest` when `artifacts` has nothing: the real store under `--dry-run`. */
+  readonly artifactReads?: ArtifactSubstrate;
   /** Versioned outputs and the feed; one system may serve many workspaces. */
   readonly artifacts: ArtifactSubstrate;
   /**
@@ -171,6 +175,11 @@ interface Running {
 type Dispatched<O> = Awaited<
   ReturnType<typeof Orchestrator.prototype.run<unknown, O>>
 >;
+
+/** A run that ended without completing; the message says how and why. */
+export class RunEndedError extends Error {
+  override readonly name = "RunEndedError";
+}
 
 export class Engine {
   /** What agents inside sandboxes are doing, for a host that shows it. */
@@ -300,6 +309,7 @@ export class Engine {
     });
     this.artifacts = new ArtifactsManager({
       artifacts: options.artifacts,
+      ...(options.artifactReads ? { readThrough: options.artifactReads } : {}),
       workspaceId,
     });
     this.workspaces = new WorkspacesManager({
@@ -311,10 +321,19 @@ export class Engine {
     this.bindings = {
       agents: (args) => this.agents.scoped(args),
       artifacts: (args) => this.artifacts.scoped(args),
+      exec: ({ frame, scope, write }) =>
+        commandRunner({
+          cwd: () => workingDirectory(scope.cwd),
+          dry: options.dry ?? false,
+          print,
+          signal: () => frame.signal,
+          write,
+        }),
       host: { catalogue, store: this.store },
       log: createLog((_level, message) => print(message)),
       root,
       sandboxes: (args) => this.sandboxes.scoped(args),
+      turns: (args) => this.agents.turns(args),
       workspaces: (args) => this.workspaces.scoped(args),
     };
   }
@@ -600,12 +619,12 @@ export class Engine {
         await routed.settled();
         const settled = await dispatched.workflow.result();
         if (settled.status !== "complete") {
-          await router.close(dispatched.id);
-          throw new Error(
+          const message =
             settled.status === "failed"
               ? `run "${name}" failed: ${settled.error.message}`
-              : `run "${name}" was cancelled: ${settled.reason ?? "no reason"}`
-          );
+              : `run "${name}" was cancelled: ${settled.reason ?? router.cancelReason(dispatched.id) ?? "no reason"}`;
+          await router.close(dispatched.id);
+          throw new RunEndedError(message);
         }
         if (execution.status === "rejected") {
           throw execution.reason;
@@ -858,6 +877,7 @@ export class Engine {
   }
 
   async #dispose(): Promise<void> {
+    clearHost(this);
     try {
       await this.#starting?.catch(() => undefined);
       await this.stop({ cancel: true });

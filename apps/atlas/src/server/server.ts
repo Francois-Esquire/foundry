@@ -1,5 +1,7 @@
 /**
- * The static file server: the dataset under `/data/`, the viewer elsewhere.
+ * The static file server: the data under `/data/`, the viewer elsewhere.
+ * The data is one workspace's output, or a collection: its manifest,
+ * derived on each request, and each workspace's output under its id.
  *
  * It calls `globalThis.Bun` where it needs it, not `import … from "bun"`: the
  * bundler turns a top-level import from "bun" into a destructure of
@@ -10,6 +12,20 @@
 import { realpath, stat } from "node:fs/promises";
 import { isAbsolute, relative, resolve } from "node:path";
 import { isMissingPath } from "@foundry/lib/atomic-file";
+import { COLLECTION_MANIFEST } from "../lib/dataset-layout";
+
+/** What `/data/` serves for a collection: `lib/dataset-files.ts` `savedCollection`. */
+interface CollectionData {
+  /** Each workspace's output, by its id; `/data/<id>/…` serves it, and an id not here is not found. */
+  datasets: ReadonlyMap<string, string>;
+  /** The collection manifest, derived when asked; `/data/collection-manifest.json` serves it. A rejection names the workspace whose dataset could not be read. */
+  manifest(): Promise<unknown>;
+}
+
+/** One workspace's output, or a collection's data; never both. */
+type DataOptions =
+  | { collection?: never; output: string }
+  | { collection: CollectionData; output?: never };
 
 async function serveFile(
   directory: string,
@@ -35,12 +51,58 @@ async function serveFile(
   }
 }
 
-export function startServer(options: {
-  output: string;
-  port: number;
-  /** The viewer's built files; without them only `/data/` is served. */
-  viewer?: string;
-}) {
+/** Seconds a client waits before asking again for a manifest a workspace could not give. */
+const RETRY_AFTER_SECONDS = 1;
+
+/**
+ * The collection manifest, derived now. A workspace whose dataset cannot be
+ * read (deleted, caught mid-swap by a scan, or of another schema) makes it
+ * 503 with `Retry-After`, the message naming the workspace, rather than an
+ * error: a scan may be about to put it back.
+ */
+async function collectionManifestResponse(
+  collection: CollectionData
+): Promise<Response> {
+  let manifest: unknown;
+  try {
+    manifest = await collection.manifest();
+  } catch (error) {
+    return new Response(
+      error instanceof Error ? error.message : String(error),
+      {
+        headers: { "Retry-After": String(RETRY_AFTER_SECONDS) },
+        status: 503,
+      }
+    );
+  }
+  return new Response(JSON.stringify(manifest), {
+    headers: { "Content-Type": "application/json;charset=utf-8" },
+  });
+}
+
+/** A collection's data: its manifest, or a file of one workspace's dataset by the id that leads the path. */
+async function serveCollection(
+  collection: CollectionData,
+  pathname: string
+): Promise<Response> {
+  if (pathname === `/${COLLECTION_MANIFEST}`) {
+    return await collectionManifestResponse(collection);
+  }
+  const [, id = "", ...rest] = pathname.split("/");
+  const output = collection.datasets.get(id);
+  if (output === undefined) {
+    return new Response("Not found", { status: 404 });
+  }
+  return serveFile(output, `/${rest.join("/")}`);
+}
+
+export function startServer(
+  options: DataOptions & {
+    port: number;
+    /** The viewer's built files; without them only `/data/` is served. */
+    viewer?: string;
+  }
+) {
   return globalThis.Bun.serve({
     error(error) {
       process.stderr.write(`Atlas server: ${error.message}\n`);
@@ -66,7 +128,11 @@ export function startServer(options: {
       }
       let response: Response;
       if (pathname.startsWith("/data/")) {
-        response = await serveFile(options.output, pathname.slice(5));
+        const path = pathname.slice("/data".length);
+        response =
+          options.collection === undefined
+            ? await serveFile(options.output, path)
+            : await serveCollection(options.collection, path);
         response.headers.set("Cache-Control", "no-store");
       } else if (options.viewer) {
         response = await serveFile(

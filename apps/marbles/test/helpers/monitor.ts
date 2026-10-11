@@ -15,6 +15,7 @@ export function monitorContext(
     agents: unbound("agents"),
     artifacts: unbound("artifacts"),
     ask: unbound("ask"),
+    exec: unbound("exec"),
     input: {},
     log,
     report: unbound("report"),

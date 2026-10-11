@@ -53,6 +53,8 @@ type SemanticsSkipReason =
   | "gitignored";
 
 export interface SemanticsSkippedDirectory {
+  /** The name its `package.json` gives, when it has one that parses; absent otherwise. */
+  name?: string;
   path: string;
   reason: SemanticsSkipReason;
 }
@@ -129,6 +131,18 @@ export type SemanticsPhase =
 
 export type SemanticsGenerationMode = "full" | "incremental";
 
+/**
+ * The workspace inputs a dataset was generated from: `hash`, one combined
+ * hash of every input an analysis reads (the sources, Git's commits and
+ * tracked files, the UTC day, the exclusions and profile, the analysis
+ * version), and `config`, the exclusions-and-profile part alone, so a
+ * reader that runs no configuration can still recompute `hash`.
+ */
+export interface SemanticsGenerationInputs {
+  config: string;
+  hash: string;
+}
+
 interface SemanticsGenerationMetadata {
   artifactsGenerated: number;
   artifactsReused: number;
@@ -137,6 +151,8 @@ interface SemanticsGenerationMetadata {
   /** Whether workspace derivation ran, or every assembled report was reused. */
   derived: boolean;
   finishedAt: string;
+  /** The inputs it was generated from (3.6); absent in a dataset saved before. */
+  inputs?: SemanticsGenerationInputs;
   /** V12.5 provenance; volatile, never needed to read the dataset. */
   mode: SemanticsGenerationMode;
   packageFailures: number;

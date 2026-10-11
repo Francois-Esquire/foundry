@@ -1,3 +1,4 @@
+import type { RetryPolicy } from "@foundry/workflows/types";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 
 import type { Context, SetupContext } from "./types";
@@ -52,9 +53,21 @@ export interface Shared {
  * of it produces for a parent; the body's own return is validated through
  * `output` first, so it is not typed here.
  */
+/**
+ * How a step runs. `retry` is the package's policy: a failed attempt runs
+ * again from the top with nothing it recorded replayed. `timeout` bounds
+ * each attempt of the body, in milliseconds or as `"30s"`, `"10m"`; when it
+ * passes, the body's signal aborts and the attempt fails.
+ */
+export interface StepConfig {
+  readonly retry?: RetryPolicy;
+  readonly timeout?: number | string;
+}
+
 export interface StepRecord<I = never, O = unknown> extends Shared {
   /** Phantom: the node's output type. */
   readonly __output?: O;
+  readonly config?: StepConfig;
   readonly fn: StepFn<I, unknown>;
   readonly kind: "step";
   readonly output?: StandardSchemaV1;

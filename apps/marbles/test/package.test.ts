@@ -166,7 +166,7 @@ new Engine({ root, workspaceId: "host" });
 engine.define(packedWorkflow);
 engine.define(inventory);
 // The managers answer on the engine itself, before anything runs.
-const direct = (await engine.workspaces.current.files()).includes("host.ts");
+const direct = (await engine.workspaces.current.files()).some((file) => file.path === "host.ts");
 await engine.start();
 const greeted = await engine.run<{ greeting: string }>("packed-workflow", { name: "host" });
 const files = await engine.run<number>("host-inventory", {});
@@ -234,7 +234,7 @@ console.log(greeted.greeting, files > 0 && direct ? "sees files" : "sees nothing
       join(authoring, "inventory.ts"),
       `
 import { step } from "@foundry/marbles";
-step("inventory").do(async ({ workspaces }) => ({ paths: await workspaces.current.files() }));
+step("inventory").do(async ({ workspaces }) => ({ paths: (await workspaces.current.files()).map((file) => file.path) }));
 `
     );
     expect(run(cli, ["list", "--dry-run"], standalone)).toContain("inventory");

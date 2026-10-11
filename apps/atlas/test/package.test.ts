@@ -273,6 +273,7 @@ test(
         .map((entry: { id: string }) => entry.id)
     ).toEqual(["@s/a", "@s/b", "@s/c"]);
     expect(dataset.discovery.unitsSkipped).toContainEqual({
+      name: "@s/docs-only",
       path: "packages/docs-only",
       reason: "excluded",
     });
@@ -329,6 +330,7 @@ test(
       )
     );
     expect(result.exports).toEqual(VALUE_EXPORTS);
+    expect(result.collections).toEqual(["function", "function"]);
     expect(result.full).toMatchObject({
       internals: "@s/a",
       packages: ["@s/a:complete", "@s/b:complete", "@s/c:complete"],

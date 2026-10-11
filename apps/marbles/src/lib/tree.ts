@@ -2,20 +2,21 @@ import { isSuspendSignal } from "@foundry/workflows/executable";
 import type { RunExecutionContext } from "@foundry/workflows/orchestrator";
 import type { StepContext } from "@foundry/workflows/step";
 import { Step } from "@foundry/workflows/step";
+import { isBail } from "@foundry/workflows/types";
 
 import type { Bindings } from "./bindings";
 import { buildContext } from "./context";
 import type {
   AnyDefinition,
   LockedNode,
-  NamedDefinition,
   StepRecord,
   WorkflowRecord,
 } from "./definition";
 import { isLockedNode, rootLock } from "./definition";
 import type { Frame, RunScope, RunScopes } from "./run-scope";
 import { current, PAUSE_KIND, raceAbort } from "./run-scope";
-import { validate } from "./schema";
+import { parseEvery } from "./schedule";
+import { notJson, validate } from "./schema";
 
 /**
  * A locked tree becomes package Steps. Each node is a Step whose children
@@ -140,9 +141,16 @@ async function runBody(
       ? await validate(definition.input, merged, `${where} input`)
       : merged
   ) as Input;
-  const store = { cwd: scope.cwd, frame, scope };
+  const store = {
+    bindings,
+    cwd: scope.cwd,
+    frame,
+    scope,
+    write: (value: unknown) => ctx.write(value),
+  };
   let output: unknown;
   let attempt: Promise<unknown> | undefined;
+  const timer = startTimeout(definition, where, frame);
   try {
     attempt = current.run(store, () =>
       Promise.resolve(
@@ -159,6 +167,11 @@ async function runBody(
     await attempt?.catch(() => undefined);
     const { paused } = frame;
     if (!paused) {
+      // A failure, not a suspension that resumes into a replay: a retry
+      // enters next, if the step has one, and must not replay this attempt.
+      if (!isSuspendSignal(error)) {
+        frame.failed = true;
+      }
       throw error;
     }
     // A host parked this step: what it opened is aborted, and the step
@@ -172,10 +185,55 @@ async function runBody(
       reason: paused.reason,
       request: {},
     });
+  } finally {
+    clearTimeout(timer);
   }
-  return definition.output
-    ? await validate(definition.output, output, `${where} output`)
-    : output;
+  // A bail is a value the package handles; it never matches an output schema.
+  const result =
+    definition.output && !isBail(output)
+      ? await validate(definition.output, output, `${where} output`)
+      : output;
+  const problem = notJson(result);
+  if (problem) {
+    // Recorded and handed to the parent as JSON: say so rather than let a
+    // Date or a class instance change on the way.
+    throw new Error(
+      `${where} returned a value that is not JSON: ${problem}; return plain data (an ISO string for a date)`
+    );
+  }
+  return result;
+}
+
+/** A step's timeout as milliseconds. */
+export function timeoutMs(timeout: number | string): number {
+  if (typeof timeout === "number") {
+    if (!(Number.isSafeInteger(timeout) && timeout > 0)) {
+      throw new Error(
+        `a timeout must be a positive number of milliseconds, not ${timeout}`
+      );
+    }
+    return timeout;
+  }
+  return parseEvery(timeout);
+}
+
+/**
+ * Abort the attempt's signal when the step's timeout passes, so the body
+ * and everything it opened stop, and the attempt fails with the timeout.
+ */
+function startTimeout(
+  definition: StepRecord,
+  where: string,
+  frame: Frame
+): ReturnType<typeof setTimeout> | undefined {
+  const timeout = definition.config?.timeout;
+  if (timeout === undefined) {
+    return;
+  }
+  const { controller } = frame;
+  return setTimeout(() => {
+    controller.abort(new Error(`${where} timed out after ${String(timeout)}`));
+  }, timeoutMs(timeout));
 }
 
 /**
@@ -198,8 +256,11 @@ function materialize(
   const children = node.children.map(([childKey, child]) =>
     materialize(child, childKey, scope, bindings, path)
   );
+  const retry = node.definition.config?.retry;
   return Step.create<unknown, unknown>({
     children,
+    // Retry only: the timeout is Marbles', since it must abort the body.
+    ...(retry === undefined ? {} : { config: { retry } }),
     execute: (_input, ctx) =>
       runBody(node, key, ctx as StepContext, scope, bindings),
     // Explicit: an undefined input inherits the launcher's.
@@ -217,14 +278,15 @@ export type DefinitionFactory = (
 /**
  * Each run's scope is opened in `scopes`, which holds it only once its tree
  * is built: a launch rejected on its input or by its setup leaves nothing
- * in the run table.
+ * in the run table. `name` is the root's key, the definition's own name
+ * unless one is given for a nameless definition run directly.
  */
 export function factoryFor(
-  definition: NamedDefinition,
+  definition: AnyDefinition,
   bindings: () => Bindings,
-  scopes: RunScopes
+  scopes: RunScopes,
+  name: string = nameOf(definition)
 ): DefinitionFactory {
-  const { name } = definition;
   return async (rawInput, execution) => {
     const bound = bindings();
     const input = (
@@ -245,6 +307,13 @@ export function factoryFor(
         )
     );
   };
+}
+
+function nameOf(definition: AnyDefinition): string {
+  if (definition.name === undefined) {
+    throw new Error("a nameless definition needs a key to run as a root");
+  }
+  return definition.name;
 }
 
 async function rootNode(

@@ -9,6 +9,9 @@ description: The dataset a scan writes, file by file.
   lock             held while a scan runs
   output/          the dataset
   cache/           per-package results and the workspace fingerprint
+  plans/           authorization records that atlas plan saved
+  apply/journal.json  while an atlas apply is unfinished
+  output.next/     while an apply's scan is staged, briefly
 ```
 
 `<id>` is the workspace id: the first 12 hex digits of the SHA-256 of the
@@ -30,6 +33,35 @@ the one this Atlas writes. `cache/` holds per-package results and
 the workspace fingerprint that make the next scan incremental; delete the
 whole state directory to force a full rebuild.
 
+The inputs hash covers what the incremental cache covers, and shares its
+blind spots: declaration files (`.d.ts`), installed packages, and the
+lockfile are not hashed, and the workspace's own `tsconfig.json` is not
+read, since the scan builds its own compiler options. A change to one of
+them leaves the dataset current; scan again after one. After an apply's
+write rolls back, the cache holds the written sources' analysis, so the
+next scan analyzes the package and derives the workspace again, about 30 s
+on a workspace of 1,500 files: slower, never wrong, and the saved dataset,
+which the rollback never touched, stays current.
+
+`plans/` holds one record per authorized plan, named by a digest of the
+saved plan's id: the mutator, the saved plan's id and fingerprint, the rules
+that permit it, and the fingerprints a later apply checks again. A plan
+that is not authorized deletes its site's record, and an apply whose scan
+published deletes the record it applied.
+
+`apply/journal.json` exists only while an `atlas apply --write` is
+unfinished. It is flushed to disk before the first source write and holds
+`{ schemaVersion, site, planId, phase, startedAt, files }`, each file as
+`{ file, mode, original, originalHash, writtenHash }`, `original` being the
+file's bytes in base64 and the hashes SHA-256. `phase` is `writing` until
+every check after the write passed, then `verified`. While it is `writing`,
+the next `atlas apply` restores the files and deletes it, and `scan`,
+`plan`, and `check` refuse; once `verified`, `plan`, `apply`, and `check`
+refuse until a scan publishes, which then deletes it. `output.next/` is the
+scan after a write, staged and then swapped in; only an interrupted apply
+leaves it behind, and the next apply removes it. It is not
+part of the dataset, and a scan leaves it alone.
+
 Package names appear in file names with `/` replaced by `__`:
 `@acme/db` becomes `@acme__db.json`.
 
@@ -42,7 +74,7 @@ through `modules/index.json`, except those under `history/`, which
 
 | File | What it holds |
 | --- | --- |
-| `manifest.json` | Schema version, counts, coverage (`complete` or `partial`), discovery (the package patterns as the workspace declaration lists them, `declarationSource` for which file that is, `packagePatternsUnmatched` for patterns that matched no directory, `excludeUnmatched` for exclusions that matched no unit, `unitsDiscovered` for every directory a pattern matched, `packagesFound` for the units that are packages, `unitsAnalyzed`, and the units skipped and why), the paths of the workspace-level files, each lens's file and schema version (`lenses`), generation details (mode, phases, reuse, failures), and one entry per package: its status, its declared dependencies (`declaredDependencies`: each of `dependencies`, `devDependencies`, `peerDependencies`, and `optionalDependencies` its `package.json` has, every range as written), and the paths of its report, projection, module shard, and internals (`internals`, absent when the scan left internals out or the package failed) |
+| `manifest.json` | Schema version, counts, coverage (`complete` or `partial`), discovery (the package patterns as the workspace declaration lists them, `declarationSource` for which file that is, `packagePatternsUnmatched` for patterns that matched no directory, `excludeUnmatched` for exclusions that matched no unit, `unitsDiscovered` for every directory a pattern matched, `packagesFound` for the units that are packages, `unitsAnalyzed`, and `unitsSkipped`, each unit skipped with its `path`, why (`reason`), and the `name` its `package.json` gives, when it has one that parses, whatever the reason; absent in a dataset an earlier Atlas saved), the paths of the workspace-level files, each lens's file and schema version (`lenses`), generation details (mode, phases, reuse, failures, and `inputs`, `{ hash, config }`: one SHA-1 over every input the analyses read, the sources, Git's commits and tracked files, the UTC day, the exclusions and profile, and the analysis version, and the exclusions-and-profile part alone; absent in a dataset an earlier Atlas saved; `plan` and `apply` recompute `hash` to tell whether the dataset is current; see below), and one entry per package: its status, its declared dependencies (`declaredDependencies`: each of `dependencies`, `devDependencies`, `peerDependencies`, and `optionalDependencies` its `package.json` has, every range as written), and the paths of its report, projection, module shard, and internals (`internals`, absent when the scan left internals out or the package failed) |
 | `workspace.json` | The whole workspace report: architecture, boundaries, concepts, evolution (churn, hotspots, change coupling, and change radius from the Git log, when there is one), the graph, ingestion diagnostics, and the workspace intelligence |
 | `packages/<name>.json` | One package's full report |
 | `packages/<name>.projection.json` | That package's renderer-neutral projection |
@@ -66,6 +98,41 @@ reused. Lenses run on every scan, after internals and before the manifest is
 written, and their files are reused the same way when they come out
 identical; each lens has its own schema version, so a lens can change
 without the dataset's. History is published after the dataset, into `history/`.
+
+## A collection
+
+Several workspaces read together keep nothing of their own under the state
+root: each workspace's state directory is as above. Their collection
+manifest is derived from the workspaces' saved manifests whenever it is
+asked for. `atlas serve` with several paths serves it beside each
+workspace's dataset, and `atlas export` with several paths writes the same
+layout under the static viewer's `data/`:
+
+```text
+/data/
+  collection-manifest.json   the collection manifest
+  <id>/                      a workspace's dataset, unchanged, under its workspace id
+```
+
+The collection manifest's schema version is 1, recorded as `schemaVersion`
+and independent of the dataset's. While a workspace's dataset cannot be
+read (deleted, caught mid-swap by a scan, or saved with another schema
+version), `/data/collection-manifest.json` answers `503` with
+`Retry-After: 1` and a message naming the workspace.
+
+| Field | What it holds |
+| --- | --- |
+| `workspaces` | Each workspace, ordered by resolved root: `id`, `label` (its `package.json` name, else its directory's name; where two are equal, `parent/name`, and where those are too, the id's first six digits in parentheses), `dataset` (`<id>/`, where its dataset is, relative to the collection manifest), `generatedAt` (its dataset manifest's), and `packages` (every package its manifest lists, qualified as `<id>:<package>`, sorted) |
+| `crossings` | Each declared dependency of a package in one workspace on a package in another: `from` and `to` (qualified ids), `kind` (`dependencies`, `devDependencies`, `peerDependencies`, or `optionalDependencies`), and `range` as written. Sorted by `from`, `to`, `kind`, and `range` |
+| `ambiguous` | Each declared dependency whose name two or more other workspaces hold, which makes no crossing: `from`, `kind`, `name`, `range`, `candidates` (the qualified ids of the analyzed packages of that name), and `skippedIn` (the workspaces that hold the name only as a unit their scan skipped), when there are any |
+
+A dependency is matched by the name it resolves to, after an `npm:` alias.
+It makes no crossing when its range uses the `workspace:` protocol, when
+its own workspace holds the name (as a package, or as a skipped unit with
+that `name`), or when the one other workspace that holds it holds it only as
+a skipped unit. The range is recorded, not checked against the version
+found, and other protocols (`file:`, `link:`, `catalog:`, `jsr:`) are
+matched by the name the dependency is written under.
 
 ## The cache
 

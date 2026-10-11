@@ -11,6 +11,7 @@ import {
 } from "./errors";
 import type { BaseContext } from "./executable";
 import { ExecutionParticipants } from "./execution-participants";
+import { runEffectPromise } from "./helpers";
 import type { CreateJobOptions } from "./job-lifecycle";
 import { JobLifecycle } from "./job-lifecycle";
 import type { OrchestratorLogger } from "./logger";
@@ -433,7 +434,9 @@ export class Orchestrator {
     input: I,
     options?: RunOptions
   ): Promise<DispatchedWorkflow<I, O>> {
-    return Effect.runPromise(
+    // Unwrapped, so a factory's own error (a rejected input) reaches the
+    // caller as itself rather than as a FiberFailure.
+    return runEffectPromise(
       this.#run<I, O>(name, input, options).pipe(Scope.extend(this.#scope))
     );
   }
@@ -542,7 +545,7 @@ export class Orchestrator {
     });
     const construction = this.#runContext(runId, definition, links);
 
-    const prepared = await Effect.runPromise(
+    const prepared = await runEffectPromise(
       Effect.gen(this, function* () {
         const instance = yield* factoryToEffect(
           factory,
@@ -768,7 +771,7 @@ export class Orchestrator {
       ) {
         throw new Error(`Suspended Run ${row.id} has no suspension authority`);
       }
-      const workflow = await Effect.runPromise(
+      const workflow = await runEffectPromise(
         Effect.gen(this, function* () {
           const instance = yield* factoryToEffect(
             factory,

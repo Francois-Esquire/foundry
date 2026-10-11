@@ -4,10 +4,9 @@ import {
   constants,
   existsSync,
   readFileSync,
-  realpathSync,
   statSync,
 } from "node:fs";
-import { dirname, join, posix, relative, resolve, sep } from "node:path";
+import { dirname, join, posix, resolve } from "node:path";
 
 import { ts } from "ts-morph";
 
@@ -104,19 +103,27 @@ import { ruleCanName } from "./rule-declaration";
 import type { RuleRefusal } from "./rules";
 import { permits, ruleFingerprint } from "./rules";
 import { hash16 } from "./short-hash";
+import { workingTree } from "./working-tree";
 import type { WorkspaceCoverage } from "./workspace-types";
 
 const extractFailuresPattern = /\s+/g;
-const gitDirtyPattern = /^.* -> /;
 
 // V11.4 readiness assessment. Reads the plan, the repository, and the
 // mutator's capability registry; runs read-only baseline checks; answers
 // with one authorization. It never repairs the plan and never writes.
 
+/** One run of a command: its exit code, its output, and the signal that killed it, if one did, with Node's code for why (`ETIMEDOUT`, `ENOBUFS`). */
+export interface ReadinessCommandRun {
+  code?: string;
+  exitCode: number;
+  output: string;
+  signal?: NodeJS.Signals;
+}
+
 export type ReadinessCommandRunner = (
   command: ReadinessCommand,
   root: string
-) => { exitCode: number; output: string };
+) => ReadinessCommandRun;
 
 export interface OperatorReadinessContext {
   allowances?: VerificationBaselineAllowance[];
@@ -294,29 +301,13 @@ function deletedFiles(plan: OperatorExecutionPlan): string[] {
 // ---------------------------------------------------------------------------
 // Source state
 
-/** Root-relative dirty files (porcelain paths are repository-relative, so they are re-based); undefined without git. */
+/** Root-relative dirty files; undefined without git, or outside a repository. */
 function gitDirty(root: string, enabled: boolean): string[] | undefined {
   if (!enabled) {
     return undefined;
   }
-  try {
-    const run = (args: string[]) =>
-      execFileSync("git", args, {
-        cwd: root,
-        stdio: ["ignore", "pipe", "ignore"],
-      })
-        .toString()
-        .trim();
-    const top = realpathSync(run(["rev-parse", "--show-toplevel"]));
-    return run(["status", "--porcelain", "--untracked-files=all"])
-      .split("\n")
-      .filter((line) => line.length > 3)
-      .map((line) => line.slice(3).trim().replace(gitDirtyPattern, ""))
-      .map((file) => relative(root, join(top, file)).split(sep).join("/"))
-      .filter((file) => !file.startsWith("../"));
-  } catch {
-    return undefined;
-  }
+  const tree = workingTree(root);
+  return tree.kind === "repository" ? tree.dirty : undefined;
 }
 
 function sourceState(a: Assessment): ReadinessSourceState {
@@ -1961,21 +1952,32 @@ function extractFailures(
   );
 }
 
-function spawnRunner(
+/** A command runs ten minutes at most, unless a caller says otherwise. */
+const COMMAND_TIMEOUT_MS = 600_000;
+
+/**
+ * Runs a baseline command in the workspace with `CI=1`, as readiness does
+ * by default; apply runs it again after a write. A command past its
+ * timeout, or with more output than the buffer holds, is killed.
+ */
+export function spawnRunner(
   command: ReadinessCommand,
-  root: string
-): { exitCode: number; output: string } {
+  root: string,
+  { timeoutMs = COMMAND_TIMEOUT_MS }: { timeoutMs?: number } = {}
+): ReadinessCommandRun {
   try {
     const output = execFileSync(command.executable, command.args, {
       cwd: resolve(root, command.cwd),
       env: { ...process.env, CI: "1" },
       maxBuffer: 64 * 1024 * 1024,
       stdio: ["ignore", "pipe", "pipe"],
-      timeout: 600_000,
+      timeout: timeoutMs,
     }).toString();
     return { exitCode: 0, output };
   } catch (error) {
     const failed = error as {
+      code?: string;
+      signal?: NodeJS.Signals | null;
       status?: number | null;
       stdout?: Buffer | string;
       stderr?: Buffer | string;
@@ -1983,6 +1985,9 @@ function spawnRunner(
     return {
       exitCode: failed.status ?? 1,
       output: `${failed.stdout?.toString() ?? ""}\n${failed.stderr?.toString() ?? ""}`,
+      ...(failed.status === null &&
+        typeof failed.signal === "string" && { signal: failed.signal }),
+      ...(typeof failed.code === "string" && { code: failed.code }),
     };
   }
 }
@@ -2041,14 +2046,7 @@ function baselineStep(
       continue;
     } else {
       const ran = runner(step.command, a.context.planning.root);
-      const extracted = extractFailures(
-        ran.output,
-        step.kind,
-        step.command.cwd
-      );
-
-      const failures: string[] = baselineStepEntries(ran, extracted);
-      result = { exitCode: ran.exitCode, failures };
+      result = commandResult(ran, step);
     }
     if (result.exitCode === 0) {
       checks.push({
@@ -2090,6 +2088,26 @@ function baselineStep(
       `${step.kind} over ${step.scope.join(", ")} already fails (${result.failures.length} failure(s) without allowance); post-mutation failures could not be attributed`
     );
   }
+}
+
+/**
+ * One run of a command step as readiness records it: its exit code and the
+ * failures it shows, `exit <code>` when it failed and showed none. Apply
+ * compares a run after its write with the baseline in this form.
+ */
+export function commandResult(
+  ran: { exitCode: number; output: string },
+  step: Pick<ReadinessVerificationStep, "command" | "kind">
+): ReadinessCommandResult {
+  const extracted = extractFailures(
+    ran.output,
+    step.kind,
+    step.command?.cwd ?? "."
+  );
+  return {
+    exitCode: ran.exitCode,
+    failures: baselineStepEntries(ran, extracted),
+  };
 }
 
 function baselineStepEntries(

@@ -1,4 +1,9 @@
-export type { LoopAgent, TurnContext } from "../agents/loop-agent";
+export type {
+  LoopAgent,
+  TurnCallSettings,
+  TurnContext,
+  TurnSettings,
+} from "../agents/loop-agent";
 export type {
   AgentModel,
   ModelLimits,
@@ -31,7 +36,7 @@ export { createHarnessQuestionTool, isHarnessQuestionTool } from "./question";
 export type {
   CompactionSettings,
   SessionHarnessSettings,
-  SessionStreamOptions,
+  TurnOptions,
 } from "./session-harness";
 export { SessionHarness } from "./session-harness";
 export type {
@@ -62,6 +67,7 @@ export type {
   HarnessQuestionCallback,
   HarnessQuestionRequest,
   HarnessQuestionResult,
+  HarnessResponseFormat,
   HarnessSession,
   HarnessToolEvent,
   HarnessTurnDriver,

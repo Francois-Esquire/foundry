@@ -1,5 +1,14 @@
 import { randomUUID } from "node:crypto";
-import type { TextStreamPart, ToolSet } from "ai";
+import type {
+  InferGenerateOutput,
+  InferStreamOutput,
+  LanguageModelUsage,
+  Output,
+  StreamTextResult,
+  TextStreamPart,
+  ToolSet,
+} from "ai";
+import { isDeepEqualData } from "ai";
 
 import type { ModelRoute } from "../agents/model";
 import type {
@@ -58,13 +67,20 @@ export type StreamSource =
   | AsyncIterable<StreamPart>
   | Promise<AsyncIterable<StreamPart>>;
 
-export interface TransformOptions {
+export interface TransformOptions<OUTPUT extends Output.Output = never> {
   /** Adapter seam: called with the assembled message before the finish event.
    *  Return a replacement (e.g. a persisted record) to emit in its place. */
   commit?: (message: SessionMessage) => Promise<SessionMessage>;
   handlers?: StreamHandlers;
   /** The route that ran the turn — recorded on `metadata.model`. */
   model?: ModelRoute;
+  /** Parse the final step's text into a structured value. Parsed here, not
+   *  read off the SDK result, so a CLI harness's turn parses the same way. */
+  output?: OUTPUT;
+  /** The SDK result behind `source`, when there is one. */
+  result?: Promise<
+    StreamTextResult<ToolSet, Record<string, unknown>, OUTPUT> | undefined
+  >;
 }
 
 type AccumulatingPart = Extract<SessionPart, { type: "text" | "reasoning" }>;
@@ -80,11 +96,12 @@ type AccumulatingPart = Extract<SessionPart, { type: "text" | "reasoning" }>;
  * (e.g. session persistence) compose around it via the {@link
  * TransformOptions.commit} callback.
  */
-export function transformStream(
+export function transformStream<OUTPUT extends Output.Output = never>(
   source: StreamSource,
-  options: TransformOptions = {}
-): SessionStream {
+  options: TransformOptions<OUTPUT> = {}
+): SessionStream<OUTPUT> {
   const queue = createEventQueue<SessionEvent>();
+  const parser = createOutputParser(options.output);
 
   let resolveText!: (value: string) => void;
   let resolveUsage!: (value: SessionUsage) => void;
@@ -102,6 +119,18 @@ export function transformStream(
   const outcome = new Promise<SessionTurnOutcome>((resolve) => {
     resolveOutcome = resolve;
   });
+  let settleOutput!: (parsed: Parsed) => void;
+  const structured = new Promise<InferGenerateOutput<OUTPUT>>(
+    (resolve, reject) => {
+      settleOutput = (parsed) =>
+        "error" in parsed
+          ? reject(parsed.error)
+          : resolve(parsed.value as InferGenerateOutput<OUTPUT>);
+    }
+  );
+  // Rejects only when the turn asked for an `output`; a caller that never
+  // reads it must not see an unhandled rejection.
+  structured.catch(() => undefined);
 
   const { handlers } = options;
   const emit = (event: SessionEvent) => {
@@ -159,6 +188,7 @@ export function transformStream(
     // entering history closes it, so later deltas start a part after it.
     let open: AccumulatingPart | undefined;
     let usageAcc: SessionUsage = emptyUsage();
+    let finish: Extract<SdkStreamPart, { type: "finish" }> | undefined;
     let hasApprovalRequest = false;
 
     const append = (part: SessionPart) => {
@@ -187,12 +217,21 @@ export function transformStream(
     ): Promise<SessionMessage> => {
       const metadata = buildMetadata(options.model, usageAcc, startedAt);
       const assembled = assembleMessage(parts, status, metadata);
+      const parsed = await parser.complete(
+        status === "complete" &&
+          outputContext(assembled.id, options.model, finish),
+        error
+      );
+      if (options.output && "value" in parsed) {
+        metadata.output = parsed.value;
+      }
       const committed = options.commit
         ? await options.commit(assembled).catch(() => assembled)
         : assembled;
       resolveText(textBuf);
       resolveUsage(usageAcc);
       resolveMessage(committed);
+      settleOutput(parsed);
       // A segment with an unresolved approval request is still a complete
       // Session message — it just reports "awaiting-approval" so a caller
       // (e.g. a Studio execution adapter) knows not to treat the turn as done.
@@ -284,6 +323,7 @@ export function transformStream(
           if (part.text) {
             accumulate("text", part.text);
             textBuf += part.text;
+            parser.text(part.text);
             emit({ delta: part.text, type: "text-delta" });
           }
           break;
@@ -351,7 +391,11 @@ export function transformStream(
         }
         case "abort":
           throw new Error(part.reason ?? "Harness turn interrupted.");
+        case "start-step":
+          parser.step();
+          break;
         case "finish":
+          finish = part;
           usageAcc = normalizeUsage(part.totalUsage);
           break;
         default:
@@ -381,8 +425,93 @@ export function transformStream(
     [Symbol.asyncIterator]: () => queue.iterator(),
     message,
     outcome,
+    output: structured,
+    partialOutputStream: parser.partials as AsyncIterable<
+      InferStreamOutput<OUTPUT>
+    >,
+    result: options.result ?? Promise.resolve(undefined),
     text,
     usage,
+  };
+}
+
+type Parsed = { value: unknown } | { error: unknown };
+type OutputContext = Parameters<Output.Output["parseCompleteOutput"]>[1];
+
+interface OutputParser {
+  /** Parse the final step's text, or `false` for a turn that ended in
+   *  `error`. Without an `output` the value is `undefined`. */
+  complete(context: OutputContext | false, error?: Error): Promise<Parsed>;
+  readonly partials: AsyncIterable<unknown>;
+  /** A model step began: structured output is the final step's text. */
+  step(): void;
+  text(delta: string): void;
+}
+
+/**
+ * Structured output, parsed from the text the way the AI SDK does it: a
+ * partial per text delta (only when it changed), the complete value from the
+ * final step's text at the end. Partials parse in order, off the event path,
+ * so a slow parse never reorders events.
+ */
+function createOutputParser(output: Output.Output | undefined): OutputParser {
+  const partials = createEventQueue<unknown>();
+  let stepText = "";
+  let last: unknown;
+  let pending: Promise<void> = Promise.resolve();
+  return {
+    async complete(context, error) {
+      await pending;
+      partials.close();
+      if (!output) {
+        return { value: undefined };
+      }
+      if (!context) {
+        return { error: error ?? new Error("The turn ended with an error.") };
+      }
+      try {
+        return {
+          value: await output.parseCompleteOutput({ text: stepText }, context),
+        };
+      } catch (invalid) {
+        return { error: invalid };
+      }
+    },
+    partials: { [Symbol.asyncIterator]: () => partials.iterator() },
+    step() {
+      stepText = "";
+    },
+    text(delta) {
+      if (!output) {
+        return;
+      }
+      stepText += delta;
+      const text = stepText;
+      pending = pending.then(() => parsePartial(output, text));
+    },
+  };
+
+  async function parsePartial(spec: Output.Output, text: string) {
+    const result = await spec
+      .parsePartialOutput({ text })
+      .catch(() => undefined);
+    if (result && !isDeepEqualData(result.partial, last)) {
+      last = result.partial;
+      partials.push(result.partial);
+    }
+  }
+}
+
+/** What the AI SDK puts on the error a failed parse throws. */
+function outputContext(
+  id: string,
+  model: ModelRoute | undefined,
+  finish: Extract<SdkStreamPart, { type: "finish" }> | undefined
+): OutputContext {
+  return {
+    finishReason: finish?.finishReason ?? "other",
+    response: { id, modelId: model?.id ?? "unknown", timestamp: new Date() },
+    usage: finish?.totalUsage ?? emptyModelUsage(),
   };
 }
 
@@ -406,6 +535,20 @@ function assembleMessage(
 
 function emptyUsage(): SessionUsage {
   return { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+}
+
+function emptyModelUsage(): LanguageModelUsage {
+  return {
+    inputTokenDetails: {
+      cacheReadTokens: undefined,
+      cacheWriteTokens: undefined,
+      noCacheTokens: undefined,
+    },
+    inputTokens: undefined,
+    outputTokenDetails: { reasoningTokens: undefined, textTokens: undefined },
+    outputTokens: undefined,
+    totalTokens: undefined,
+  };
 }
 
 function buildMetadata(

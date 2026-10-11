@@ -209,3 +209,54 @@ export function inputFromFields(
   }
   return values;
 }
+
+/** What a value that is not JSON is, for a message. */
+function kindOf(value: unknown): string | undefined {
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "boolean" ||
+    value === undefined
+  ) {
+    return;
+  }
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? undefined : String(value);
+  }
+  if (typeof value !== "object") {
+    return `a ${typeof value}`;
+  }
+  const prototype: unknown = Object.getPrototypeOf(value);
+  if (
+    Array.isArray(value) ||
+    prototype === Object.prototype ||
+    prototype === null
+  ) {
+    return;
+  }
+  return `a ${(value as object).constructor?.name ?? "class instance"}`;
+}
+
+/**
+ * Where a value stops being JSON, as `path is a Date`, or undefined when
+ * it is JSON all the way down. A step's result is recorded and handed to
+ * its parent, so it must survive a round trip unchanged.
+ */
+export function notJson(value: unknown, path = ""): string | undefined {
+  const kind = kindOf(value);
+  if (kind !== undefined) {
+    return `${path || "the result"} is ${kind}`;
+  }
+  if (typeof value !== "object" || value === null) {
+    return;
+  }
+  for (const [key, item] of Object.entries(value)) {
+    const at = Array.isArray(value)
+      ? `${path}[${key}]`
+      : `${path}${path ? "." : ""}${key}`;
+    const found = notJson(item, at);
+    if (found) {
+      return found;
+    }
+  }
+}

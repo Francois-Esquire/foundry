@@ -831,3 +831,17 @@ describe("lib2 through the engine", () => {
     await engine.stop();
   });
 });
+
+describe("a result that is not JSON", () => {
+  it("fails the run with where it stops being JSON, instead of hanging", async () => {
+    step("listing").do(() => ({
+      files: [{ path: "a.md", updatedAt: new Date() }],
+    }));
+    const engine = await startEngine({ print: () => undefined, root });
+    const launched = await engine.launch("listing", {});
+    await expect(launched.result).rejects.toThrow(
+      "files[0].updatedAt is a Date"
+    );
+    await engine.stop();
+  }, 5000);
+});

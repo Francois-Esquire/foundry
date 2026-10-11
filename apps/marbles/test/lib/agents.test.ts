@@ -1,14 +1,16 @@
 import { createInMemoryAgentAuthorizer } from "@foundry/agents/authorization";
 import type { SessionEvent } from "@foundry/agents/session";
 import { InMemorySessionStore } from "@foundry/agents/session";
+import { NoObjectGeneratedError, Output } from "ai";
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import type { ManagerArgs } from "~/lib/bindings";
 import { CLAUDE_CODE, CODEX } from "~/lib/harnesses";
 import type { AgentsDeps } from "~/lib/managers/agents";
 import { AgentsManager } from "~/lib/managers/agents";
-import { mockModels } from "~/lib/models/echo";
+import { echoModels, mockModels } from "~/lib/models/echo";
 import { RunScope } from "~/lib/run-scope";
-import type { AgentDefinition } from "~/lib/types";
+import type { AgentDefinition, SandboxHandle } from "~/lib/types";
 import { testEngine } from "../helpers/engine";
 
 const NO_TURN_PATTERN = /no agent turn is running/;
@@ -70,7 +72,7 @@ describe("agents.session", () => {
             throw new Error("Dry session must not execute guest commands");
           },
           id: "dry-sandbox",
-        },
+        } as unknown as SandboxHandle,
       });
     expect((await session.generate("Inspect the fixture")).text).toContain(
       "Inspect the fixture"
@@ -297,5 +299,73 @@ describe("agents.session", () => {
     expect(seen[0]).toContain("focus on the tests\n\ncontinue the review");
     expect(seen[1]).not.toContain("focus on the tests\n\nand then?");
     expect(a.written.join("")).toContain("[resume] focus on the tests");
+  });
+});
+
+describe("structured output", () => {
+  const verdict = Output.object({
+    schema: z.object({
+      approved: z.boolean(),
+      notes: z.array(z.string()),
+      severity: z.enum(["low", "high"]),
+    }),
+  });
+
+  function structured(reply: (call: { schema?: unknown }) => string) {
+    return new AgentsManager({
+      ...deps(),
+      models: mockModels([CLAUDE_CODE, CODEX], reply),
+    }).scoped(args());
+  }
+
+  it("returns the parsed value of a turn's output", async () => {
+    const agents = structured(({ schema }) =>
+      schema ? '{"approved":true,"notes":["ok"],"severity":"low"}' : "plain"
+    );
+    const session = await agents.session(reviewer);
+    const reply = await session.generate("Review.", { output: verdict });
+    expect(reply.output).toEqual({
+      approved: true,
+      notes: ["ok"],
+      severity: "low",
+    });
+    expect(reply.usage.totalTokens).toBeGreaterThan(0);
+    expect(reply.result).toBeDefined();
+    expect((await session.generate("Again.")).text).toBe("plain");
+  });
+
+  it("starts every turn from the agent's settings", async () => {
+    const agents = structured(
+      () => '{"approved":false,"notes":[],"severity":"high"}'
+    );
+    const session = await agents.session({
+      ...reviewer,
+      settings: { output: verdict },
+    });
+    const { output } = await session.generate("Review.");
+    expect(output.severity).toBe("high");
+  });
+
+  it("rejects a turn whose output does not match, after committing it", async () => {
+    const agents = structured(() => "not json");
+    const session = await agents.session(reviewer);
+    await expect(
+      session.generate("Review.", { output: verdict })
+    ).rejects.toSatisfy(NoObjectGeneratedError.isInstance);
+    const stored = await session.harness.store.listMessages(session.ref.id);
+    expect(stored.at(-1)?.role).toBe("assistant");
+  });
+
+  it("answers a dry turn with the smallest value the schema accepts", async () => {
+    const printed: string[] = [];
+    const agents = new AgentsManager({
+      ...deps(),
+      dry: true,
+      models: echoModels([CLAUDE_CODE, CODEX], (line) => printed.push(line)),
+    }).scoped(args());
+    const session = await agents.session(reviewer);
+    const { output } = await session.generate("Review.", { output: verdict });
+    expect(output).toEqual({ approved: false, notes: [], severity: "low" });
+    expect(printed.at(-1)).toContain("→ { approved, notes, severity }");
   });
 });

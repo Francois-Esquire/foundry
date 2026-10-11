@@ -119,10 +119,10 @@ messages you are most likely to meet:
 - `Packages failed analysis: <id> (<error>)`, or the failing package's own
   error: the first failure stops the scan, nothing is published, and the
   previous dataset stays.
-- `Workspace … is being scanned or exported by process …`: another scan of
-  the same workspace is running, or an export is copying its dataset; one
-  at a time holds a state directory, and the second fails instead of
-  waiting. A lock left by a process that has
+- `Workspace … is being scanned, exported, or applied by process …`:
+  another scan of the same workspace is running, an export is copying its
+  dataset, or an apply is checking a change; one at a time holds a state
+  directory, and the second fails instead of waiting. A lock left by a process that has
   exited is taken over.
 - `The viewer's files are missing from <path>`: the default command or
   `serve` finds no built viewer. The default command checks before it

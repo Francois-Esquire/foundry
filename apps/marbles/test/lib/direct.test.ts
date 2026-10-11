@@ -39,9 +39,8 @@ describe("the managers on the engine", () => {
     engine = testEngine({ root });
 
     expect(engine.workspaces.current.root).toBe(root);
-    await expect(engine.workspaces.current.files()).resolves.toContain(
-      "notes.md"
-    );
+    const files = await engine.workspaces.current.files();
+    expect(files.map((file) => file.path)).toContain("notes.md");
     const loaded = await engine.workspaces.load({ path: root });
     expect(loaded.root).toBe(root);
   });
@@ -113,7 +112,7 @@ describe("the managers on the engine", () => {
     const two = await engine.artifacts.write(report, { "report.md": "two" });
 
     expect(two.artifactId).toBe(one.artifactId);
-    expect(two.contentId).not.toBe(one.contentId);
+    expect(two.id).not.toBe(one.id);
   });
 
   it("starts a sandbox the caller closes, over the containers it was handed", async () => {

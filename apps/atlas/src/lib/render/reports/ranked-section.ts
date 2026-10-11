@@ -21,3 +21,23 @@ export function rankedSection(
   };
   return { blocks: [list], title };
 }
+
+/** A titled list of the first items at the density, counting the rest; none when there is nothing to list. */
+export function listSection(
+  items: readonly string[],
+  density: RenderDensity,
+  title: string
+): SectionView | undefined {
+  const shown = items.slice(0, LISTED_AT_DENSITY[density]);
+  if (shown.length === 0) {
+    return;
+  }
+  const list: BlockView = {
+    items: shown,
+    kind: "list",
+    ...(items.length > shown.length && {
+      overflow: items.length - shown.length,
+    }),
+  };
+  return { blocks: [list], title };
+}

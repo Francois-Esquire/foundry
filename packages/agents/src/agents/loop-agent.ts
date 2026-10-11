@@ -2,6 +2,7 @@ import type {
   AgentCallParameters,
   AgentStreamParameters,
   GenerateTextResult,
+  Output,
   StreamTextResult,
   Telemetry,
   TelemetryOptions,
@@ -26,20 +27,59 @@ export type LoopAgentSettings = Omit<
   onFinish?: (result: unknown) => void;
 };
 
-/**
- * Settings one call may override. `ToolLoopAgent` spreads a call's parameters
- * over its own settings before preparing the call, so these reach the model
- * call even though `AgentCallParameters` does not declare them.
- */
 type CallSettings = Pick<
   ToolLoopAgentSettings<never, ToolSet>,
   "model" | "providerOptions" | "telemetry"
 >;
 
-export type LoopAgentCallParameters = AgentCallParameters<never, ToolSet> &
-  Pick<CallSettings, "providerOptions">;
-export type LoopAgentStreamParameters = AgentStreamParameters<never, ToolSet> &
-  Pick<CallSettings, "providerOptions">;
+/**
+ * Settings one turn may override. `ToolLoopAgent` spreads a call's parameters
+ * over its own settings before preparing the call, so these reach the model
+ * call even though `AgentCallParameters` does not declare them.
+ */
+export type TurnSettings = Pick<
+  ToolLoopAgentSettings<never, ToolSet>,
+  | "activeTools"
+  | "frequencyPenalty"
+  | "maxOutputTokens"
+  | "presencePenalty"
+  | "providerOptions"
+  | "reasoning"
+  | "seed"
+  | "stopSequences"
+  | "stopWhen"
+  | "temperature"
+  | "toolChoice"
+  | "topK"
+  | "topP"
+>;
+
+/** The keys of {@link TurnSettings}, for picking them off a wider object. */
+export const TURN_SETTINGS = [
+  "activeTools",
+  "frequencyPenalty",
+  "maxOutputTokens",
+  "presencePenalty",
+  "providerOptions",
+  "reasoning",
+  "seed",
+  "stopSequences",
+  "stopWhen",
+  "temperature",
+  "toolChoice",
+  "topK",
+  "topP",
+] as const satisfies readonly (keyof TurnSettings)[];
+
+/** A turn's settings plus structured output, which `output` parses the
+ *  turn's final text into. */
+export type TurnCallSettings<OUTPUT extends Output.Output = never> =
+  TurnSettings & { output?: OUTPUT };
+
+export type LoopAgentCallParameters<OUTPUT extends Output.Output = never> =
+  AgentCallParameters<never, ToolSet> & TurnCallSettings<OUTPUT>;
+export type LoopAgentStreamParameters<OUTPUT extends Output.Output = never> =
+  AgentStreamParameters<never, ToolSet> & TurnCallSettings<OUTPUT>;
 
 export interface TurnContext {
   sessionId: string;
@@ -97,8 +137,8 @@ function observedCall(
  * those (a client disconnecting from a UI response) settles through here too.
  * Each read of `stream` still tees a fresh branch, through the SDK's own getter.
  */
-function settleOnCancel(
-  result: StreamTextResult<ToolSet, Record<string, unknown>, never>,
+function settleOnCancel<OUTPUT extends Output.Output>(
+  result: StreamTextResult<ToolSet, Record<string, unknown>, OUTPUT>,
   observation: TurnObservation
 ): void {
   const prototype: object = Object.getPrototypeOf(result);
@@ -144,19 +184,31 @@ export class LoopAgent extends ToolLoopAgent<never, ToolSet> {
     this.#sessionId = context.sessionId;
   }
 
-  override async stream(
-    opts: LoopAgentStreamParameters
-  ): Promise<StreamTextResult<ToolSet, Record<string, unknown>, never>> {
+  // The SDK types a result by the constructor's `output`; a call's own
+  // `output` overrides it at runtime, so the result is retyped by the call's.
+  override async stream<OUTPUT extends Output.Output = never>(
+    opts: LoopAgentStreamParameters<OUTPUT>
+  ): Promise<StreamTextResult<ToolSet, Record<string, unknown>, OUTPUT>> {
     const observation = this.#open();
     try {
-      const result = await super.stream({
+      const result = (await super.stream({
         ...opts,
         ...(observation ? observedCall(observation, this.#model) : {}),
-        experimental_transform: smoothStream({
-          chunking: "line", // optional: defaults to 'word'
-          delayInMs: 20, // optional: defaults to 10ms
-        }),
-      });
+        // Line smoothing would hold a one-line JSON answer back until it
+        // ends, so a structured turn streams its partials unsmoothed.
+        ...(opts.output
+          ? {}
+          : {
+              experimental_transform: smoothStream({
+                chunking: "line", // optional: defaults to 'word'
+                delayInMs: 20, // optional: defaults to 10ms
+              }),
+            }),
+      })) as unknown as StreamTextResult<
+        ToolSet,
+        Record<string, unknown>,
+        OUTPUT
+      >;
       if (observation) {
         settleOnCancel(result, observation);
       }
@@ -167,15 +219,19 @@ export class LoopAgent extends ToolLoopAgent<never, ToolSet> {
     }
   }
 
-  override async generate(
-    opts: LoopAgentCallParameters
-  ): Promise<GenerateTextResult<ToolSet, Record<string, unknown>, never>> {
+  override async generate<OUTPUT extends Output.Output = never>(
+    opts: LoopAgentCallParameters<OUTPUT>
+  ): Promise<GenerateTextResult<ToolSet, Record<string, unknown>, OUTPUT>> {
     const observation = this.#open();
     try {
-      return await super.generate({
+      return (await super.generate({
         ...opts,
         ...(observation ? observedCall(observation, this.#model) : {}),
-      });
+      })) as unknown as GenerateTextResult<
+        ToolSet,
+        Record<string, unknown>,
+        OUTPUT
+      >;
     } catch (e) {
       observation?.emit(e);
       throw e;

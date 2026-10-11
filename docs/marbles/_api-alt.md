@@ -157,18 +157,47 @@ inline stays internal.
 
 | Word | Kind | Shape | Purpose |
 | --- | --- | --- | --- |
-| `agent` | definition | `agent({ name?, prompt, model?, provider?, skills? })` | Who does model work, with its default context. `skills` takes a skill set. Its id (grants and created triggers are kept under it) is `name`, else the top-level `const`, else a digest of prompt and route. |
+| `agent` | definition | `agent({ name?, prompt, model?, provider?, settings?, skills? })` | Who does model work, with its default context. `settings` holds the model settings and `output` every turn starts from. `skills` takes a skill set. Its id (grants and created triggers are kept under it) is `name`, else the top-level `const`, else a digest of prompt and route. |
 | `workspace` | definition | `workspace({ path })` | Another directory to work on. The config's own is implicit. |
 | `sandbox` | definition | `sandbox({ image, mount?, resources? })` or `sandbox({ files, image? })` | An isolated place to run commands; the files form is a scratch sandbox seeded under `/workspace`. |
 | `artifact` | definition | `artifact({ name, type })` | A versioned output. |
-| `skills` | definition | `skills.load().add(glob).pick(...names)` | A set of skills for a session. |
+| `skills` | definition | `skills.load()` or `skills.none()`, then `.add(glob \| skill).pick(...names)` | A set of skills for a session. `.add` takes a `defineSkill(…)` too. |
 | `step` | work | `step(name?).input(s).output(s).do(fn)` | One unit of work. |
 | `workflow` | work | `workflow(name?, tree)` or `workflow(name?).input(s).do(fn)` | Setup plus a tree of steps. |
 | `schedule` | trigger | `schedule(definition).at(slot)` or `.every(interval)` | Runs a step or workflow on a clock. |
-| `monitor` | trigger | `monitor(source).every?(interval).do(fn)` | Runs when files or an HTTP response change. |
+| `monitor` | trigger | `monitor(source).request?(init).every?(interval).do(fn)` | Runs when files or an HTTP response change. |
 
-Definitions are presets. They are optional: the context can also create the
-same thing on the spot (see [Context](#context)).
+A definition is an instance. Calling a word still builds and registers the
+definition under the same id rules, but what it returns is a usable
+instance of the thing it names. Its data fields stay on it, so everything
+that takes a definition keeps taking it, and a spread of one is the plain
+definition. Definitions stay optional: the context creates the same things
+on the spot (see [Context](#context)).
+
+| Word | The instance adds | The run-scoped way in |
+| --- | --- | --- |
+| `agent` | `generate(input, turn?)`, `stream(input, turn?)`. Nothing else. | `agents.session(def)` |
+| `step` | `run(input)`. Calling it still locks a node. | A lock in a tree |
+| `workflow` | `run(input)`. Calling it still locks a node. | A launch or a trigger |
+| `workspace` | The workspace handle: `root`, `files()`, `git`. | `workspaces.load(def)` |
+| `sandbox` | The sandbox handle: `exec`, `close`, and the container's facets (its filesystem as `filesystem`); started on first use. | `sandboxes.start(def)` |
+| `artifact` | `write(files)`; `latest()` with finding 5. | `artifacts.write(def, files)` |
+| `skills` | Unchanged: a set is already a value. | An agent's `skills` |
+
+`schedule` and `monitor` are triggers, not definitions; they return nothing
+to use.
+
+- **Where an instance runs.** Inside a step body, in the body's run: the call
+  is attributed to it, cancelled with the step, written to its stream, and
+  replayed from the ledger. Outside a body, on the host's engine when the
+  CLI or dashboard loaded the module, else on a default runtime built on
+  first use from the detected CLI harnesses, the current directory, and the
+  shared artifact store. `dispose()` closes the default runtime.
+- **An agent's call is one turn.** Each `generate` or `stream` opens a fresh
+  session and runs one turn. A conversation stays with `agents.session`.
+- **`run` runs in this process.** It does not go through the engine's
+  queue, so a body can await it. A nameless definition runs too. A step
+  that asks a person with no host to answer rejects.
 
 - **A declared artifact keeps its identity across runs.** Each run adds a
   version to the same artifact.
@@ -212,6 +241,7 @@ A monitor's `.do` gets the same object, with `files` or `response` in place of
 | `sandboxes` | Isolated places to run commands. |
 | `artifacts` | Versioned outputs. |
 | `ask` | Stop and ask a person: `ask.question(…)`, `ask.approval(…)`. |
+| `exec` | Run a command as an argument list: `exec(argv, { check?, cwd?, environment?, sandbox? })`. |
 | `report` | Tell people what happened: `report.milestone(…)`, `report.result(…)`, `report.artifact(…)`. |
 | `log` | Run logs. |
 | `stream` | The step's live output. |
@@ -242,8 +272,16 @@ What Marbles adds to each of these keys:
 - **Stored in the config's residency.** State lives in the config's folder under
   `~/.foundry`, not in memory.
 
-Top-level definitions are optional presets. The context creates the same
-things on the spot, as often as a run needs.
+**Pass-through.** Marbles fills in what it owns: the working directory,
+cancellation, the step's stream, dry-run echo, replay, and run identity.
+Everything else passes through to the package underneath. A default is an
+argument filled in, not an option removed: each wrapper takes the
+underlying options type minus the keys Marbles owns, and returns the
+underlying result plus Marbles' own fields.
+
+Top-level definitions are optional. The context creates the same things on
+the spot, as often as a run needs, and a definition's own methods (see
+[Top-level words](#top-level-words)) reach the same managers.
 
 **Naming rule.** Singular words are imports (`agent`, `workspace`, `sandbox`,
 `artifact`). Plural keys are the context (`agents`, `workspaces`, `sandboxes`,
@@ -256,13 +294,22 @@ const session = await agents.session(reviewer);                   // a definitio
 const scoped = await agents.session(reviewer, { cwd: checkout.root }); // with an override
 const again = await agents.session(reviewer, { session });         // continue a session
 const reply = await session.generate("Review the change.");
+
+const { output } = await session.generate("Verdict?", { output: Output.object({ schema }) }); // structured
+const once = await reviewer.generate("Review the change.");        // one turn, no session kept
 ```
+
+A turn's options are the AI SDK's call settings (`output`, `temperature`,
+`maxOutputTokens`, `stopWhen`, `toolChoice`, `providerOptions`, …) plus
+`signal` and stream handlers; Marbles owns `abortSignal` and `messages`. A
+reply is the committed message with `text`, `output`, `usage`, and the AI
+SDK `result` when the harness has one.
 
 ### workspaces
 
 ```ts
 const here = workspaces.current;                          // the config's own
-const files = await here.files();
+const files = await here.files();                         // file entries: path, kind, extension, …
 await here.git.withWorktree({ base: "main" }, async (checkout) => { … });
 
 const siteWs = await workspaces.load(site);               // a definition
@@ -274,6 +321,8 @@ const docs = await workspaces.load({ path: "../docs-site" }); // on the spot
 ```ts
 const env = await sandboxes.start(box);                                      // a definition
 const scratch = await sandboxes.start({ image: "docker.io/oven/bun:1-slim" }); // on the spot
+await env.exec("bun test --bail", { cwd: "/workspace/app" });               // shell string, package options
+await env.files.readFile("/workspace/out.json");                              // the container's facets
 const result = await env.exec(["bun", "test"]);
 ```
 
@@ -282,7 +331,15 @@ const result = await env.exec(["bun", "test"]);
 ```ts
 const version = await artifacts.write(weeklyReport, { "report.md": markdown }); // a definition: a new version. report.artifact does this and posts it
 const page = await artifacts.create({ name: "Prototype", type: "text/html", entries }); // on the spot
+const file = await artifacts.readFile(version.id, "report.md");                // read a version back
+const kept = await artifacts.latest(weeklyReport);                             // what the last run left, or undefined
+await artifacts.write(weeklyReport, { "notes.md": notes }, { replace: false }); // change some files
 ```
+
+A version is the package's content record as JSON (dates as ISO strings),
+since a step returns it and a run records it. A version written in a step
+carries `runId` and `sessionId` in its metadata. The ledger keeps the
+version id; a replay reads the version back.
 
 ### ask
 
@@ -362,8 +419,17 @@ step(name?)          // a builder
   .describe(text)    // optional: shown in the catalog and launch form
   .input(schema)     // optional
   .output(schema)    // optional
+  .config({ retry?, timeout? }) // optional: the package's retry policy, a per-attempt timeout
   .do(fn)            // returns the definition
+  // or .exec("npm i $pkg", options?): a step that is one command
 ```
+
+`.exec` splits its template into arguments at load and never runs a
+shell: `$name` fills one argument from the input (an array, one per
+element), the program is written out, and every placeholder is an input
+key. Its output is `{ exitCode, stdout, stderr }`; a non-zero exit fails
+it unless `{ check: false }`; `{ sandbox }` runs it there. A body has the
+same runner as `exec(argv, options?)` in its context.
 
 - **Name.** A string first argument makes the step launchable by that name.
   Without one the step is anonymous and used by reference. A repeated name is
@@ -377,6 +443,11 @@ step(name?)          // a builder
   lock time each child's output is checked against the parent's input key.
 - **One argument.** `do` receives a single object to destructure. The input is
   one of its keys: `({ input, agents, log, … })`.
+- **`.config` is how the step runs.** `retry` passes to the package; a
+  retried attempt starts fresh, with nothing it recorded replayed.
+  `timeout` is Marbles': it aborts the body's signal, which the package's
+  own timeout does not. `bail(error)` is exported and is never validated
+  against the output schema.
 - **`do`, not `run` or `then`.** `run` and `execute` read as "execute now".
   `then` makes the builder a thenable, so `await` or an `async` return would
   call it.
@@ -506,10 +577,15 @@ monitor("https://status.example.com/api").every("5m").do(({ response }) => …);
 - `.do(fn)` is the terminal call. `fn` gets the [context](#context), plus
   `files` for a glob or `response` (a standard `Response`) for HTTP. There is
   no `select` and no custom change type.
-- **HTTP fires when the body changes.** Each poll hashes the body (SHA-256 of
-  its stable JSON, or of the text when it is not JSON) and compares it with
-  the hash stored from the last poll. If the body carries noise like a
-  timestamp, the handler reads `response` and returns early.
+- **HTTP fires when the response changes.** Each poll hashes the body
+  (SHA-256 of its stable JSON, of the text for other textual types, or of
+  the bytes), with the status when it is not 2xx, and compares it with the
+  hash stored from the last poll. If the body carries noise like a
+  timestamp, the handler reads `response` and returns early. A `401` or
+  `403` fails the poll; any other status is a reading.
+- **`.request(init)`** sends headers, a method, or a body: a `RequestInit`
+  without `signal`, or a function returning one, called at every poll. HTTP
+  only. It never enters the key, the state, `list`, the feed, or a plist.
 - **Files fire when a matching file changes.** `files` has `added`,
   `modified`, and `removed`. Globs are polled; `.every` is optional and keeps
   today's default interval.
@@ -698,9 +774,6 @@ const drafter = agent({ prompt: "Draft the page.", model: "anthropic/claude-sonn
   report or ask, which would repeat on every setup.
 - **Sandbox API.** The `@foundry/sandbox` surface is due to change. The
   `sandboxes` key follows it.
-- **Shortcuts.** One-call helpers on top of the context: loading a workspace,
-  a sandbox handler that returns a sandbox already started, mounted, and scoped
-  to the run, or calling an agent directly with its presets.
 - **Agents inside a sandbox (phase 2).** Today an agent wraps a sandbox; no
   architecture invokes an agent in one. Phase 2 installs the image, the CLIs,
   and Foundry's own library into the sandbox and drives the providers from
@@ -769,6 +842,5 @@ Pending decisions from the first library, still open against this API.
   runs, and how milestone, result, and artifact entries render.
 - **Prebuilt sessions, possibly.** The context may also carry sessions that
   are already set up, ready to use without calling `agents.session(…)`.
-- **Package features not yet exposed.** `bail(error)` versus throw, `RetryPolicy`,
-  pause and skip, step hooks. The package has no default retry: until a
-  policy is exposed, a throw fails the step.
+- **Package features not yet exposed.** Pause and skip, step hooks, and
+  structured log fields (`_next-api.md`, E.4).

@@ -75,10 +75,43 @@ const expectedTextPattern6 = /^[0-9a-f]{64}$/;
 const OK_STATUS = "packages/store/src/status-factory.ts#okStatus";
 const CIRCLE = "packages/store/src/shape-impl.ts#Circle";
 
+const IMPORT_FORMS = [
+  "named-import",
+  "named-import-relative",
+  "type-import",
+  "type-import-relative",
+];
+
+/**
+ * The registry before 3.5 narrowed the default to what `editRoute`
+ * performs: the import rewrites and compatibility exports too. These tests
+ * judge the gate, so most plans here, which rewrite imports, run under it.
+ */
+const legacy: MutationCapabilityRegistry = {
+  capabilities: [
+    ...DEFAULT_MUTATION_CAPABILITIES.capabilities,
+    ...(["rewrite-import", "update-test-import"] as const).map(
+      (transformationKind) => ({
+        atomic: true,
+        reversible: true,
+        supportedForms: IMPORT_FORMS,
+        transformationKind,
+      })
+    ),
+    {
+      atomic: true,
+      reversible: true,
+      supportedForms: ["compat-at-route"],
+      transformationKind: "preserve-compatibility-export",
+    },
+  ],
+  version: 1,
+};
+
 /** Every kind executable and reversible: what a finished V12 would register. */
 const permissive: MutationCapabilityRegistry = {
   capabilities: [
-    ...DEFAULT_MUTATION_CAPABILITIES.capabilities,
+    ...legacy.capabilities,
     ...(
       [
         "move-symbol",
@@ -162,6 +195,7 @@ function assess(
   plan: OperatorExecutionPlan = p.plan
 ): OperatorPlanReadiness {
   return assessOperatorPlanReadiness(plan, {
+    capabilities: legacy,
     composition: p.composition,
     facts,
     git: false,
@@ -480,7 +514,7 @@ describe("realizability (§18–21, §59, §100–101)", () => {
       "named-reexport",
     ]);
     const narrow: MutationCapabilityRegistry = {
-      capabilities: DEFAULT_MUTATION_CAPABILITIES.capabilities.map((c) =>
+      capabilities: legacy.capabilities.map((c) =>
         c.transformationKind === "rewrite-import"
           ? { ...c, supportedForms: ["type-import"] }
           : c
@@ -494,6 +528,18 @@ describe("realizability (§18–21, §59, §100–101)", () => {
       form: "named-import",
       kind: "rewrite-import",
     });
+  });
+
+  it("judges an import rewrite unsupported under the default registry, which holds only what the mutator performs", () => {
+    const p = planned([internalize(HELPER, "@p/core")]);
+    const r = assess(p, { capabilities: DEFAULT_MUTATION_CAPABILITIES });
+    expect(r.authorization).toBe("unsupported");
+    expect(r.capabilityVersion).toBe(2);
+    expect(
+      r.realizability.mutationCapabilities
+        .filter((c) => !c.supported)
+        .map((c) => c.transformationKind)
+    ).toEqual(["rewrite-import"]);
   });
 
   it("carries a namespace import the planner could not rewrite as unsupported", () => {

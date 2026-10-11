@@ -12,6 +12,7 @@ export interface RawMessageMetadata {
   harnessEnvironment?: { harness: string; id: string } | null;
   model?: { id: string; provider?: string; harness?: string } | null;
   notification?: { taskId: string; kind: "status" | "completion" } | null;
+  output?: unknown;
   timing?: {
     startedAt: number;
     completedAt: number;
@@ -32,7 +33,7 @@ export interface RawUsage {
 
 /**
  * Project a store's raw metadata blob onto the canonical {@link MessageMetadata},
- * deep-picking exactly the known model / usage / timing fields and dropping the
+ * deep-picking exactly the known model / usage / timing / output fields and dropping the
  * rest. Store-agnostic: every persistent backend reads back the same canonical
  * shape, including the harness environment identity, so this normalization
  * lives here once rather than being re-implemented in each adapter. Returns
@@ -79,6 +80,9 @@ export function normalizeMessageMetadata(
   }
   if (raw.notification) {
     metadata.notification = raw.notification;
+  }
+  if (raw.output !== undefined) {
+    metadata.output = raw.output;
   }
   return metadata;
 }

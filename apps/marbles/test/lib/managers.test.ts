@@ -2,6 +2,7 @@ import { realpathSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { defineSkill } from "@foundry/agents/skills";
 import type { ArtifactId, ContentId } from "@foundry/artifacts";
 import { ArtifactManager, InMemoryArtifactStore } from "@foundry/artifacts";
 import { createContainers } from "@foundry/sandbox/container/containers";
@@ -13,7 +14,8 @@ import { directory } from "@foundry/workspaces/node";
 import { nodeObserver } from "@foundry/workspaces/node/watch";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { skills } from "~/authoring/resources";
-import type { ManagerArgs } from "~/lib/bindings";
+import { echoGit } from "~/create";
+import type { Bindings, ManagerArgs } from "~/lib/bindings";
 import { ArtifactsManager, artifactIdFor } from "~/lib/managers/artifacts";
 import {
   allowedMountRoots,
@@ -39,6 +41,9 @@ afterEach(async () => {
   await rm(tmp, { force: true, recursive: true });
 });
 
+/** These managers never reach the bindings a body's context carries. */
+const NO_BINDINGS = {} as Bindings;
+
 function args(cwd = tmp): ManagerArgs & { readonly written: unknown[] } {
   const scope = new RunScope(`run-${Math.random()}`, cwd);
   const frame = scope.frame(["root"]);
@@ -55,6 +60,31 @@ async function skill(dir: string, name: string, description = name) {
 }
 
 describe("skills", () => {
+  it("keeps binary skill files as bytes and takes skills defined in code", async () => {
+    const workspace = join(tmp, "ws-bytes");
+    const dir = join(workspace, "skills", "brand");
+    await skill(dir, "brand");
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0xff, 0xfe]);
+    await writeFile(join(dir, "logo.png"), png);
+    await writeFile(join(dir, "notes.md"), "Use the logo.");
+    const resolve = skillResolver({ global: join(tmp, "none"), workspace });
+
+    const [brand] = await resolve(skills.load());
+    expect(brand?.files?.["logo.png"]).toEqual(png);
+    expect(brand?.files?.["notes.md"]).toBe("Use the logo.");
+
+    const tone = defineSkill({
+      manifest:
+        "---\nname: tone\ndescription: Write plainly.\n---\nWrite plainly.",
+    });
+    const defined = await resolve(skills.none().add(tone));
+    expect(defined.map((entry) => entry.name)).toEqual(["tone"]);
+    expect(
+      (await resolve(skills.load().add(tone).pick("tone"))).map((e) => e.name)
+    ).toEqual(["tone"]);
+    await expect(resolve(skills.none())).resolves.toEqual([]);
+  });
+
   it("loads global and workspace skills, adds globs, and picks by name", async () => {
     const home = join(tmp, "home");
     const workspace = join(tmp, "ws");
@@ -114,11 +144,16 @@ describe("workspaces", () => {
       const a = args(repo);
       const workspaces = manager.scoped(a);
       expect(workspaces.current.root).toBe(repo);
-      await expect(workspaces.current.files()).resolves.toContain("README.md");
+      const files = await workspaces.current.files();
+      expect(files.map((file) => file.path)).toContain("README.md");
+      expect(files.find((file) => file.path === "README.md")).toMatchObject({
+        extension: "md",
+        type: "file",
+      });
       expect(repositoryRoot(join(repo, "nested", "deeper"))).toBe(repo);
 
       const seen: string[] = [];
-      await current.run({ cwd: repo, frame: a.frame, scope: a.scope }, () =>
+      await current.run({ ...a, bindings: NO_BINDINGS, cwd: repo }, () =>
         workspaces.current.git.withWorktree({ base: "main" }, (worktree) => {
           seen.push(current.getStore()?.cwd ?? "");
           return Promise.resolve(worktree.root);
@@ -137,7 +172,7 @@ describe("workspaces", () => {
     }
   });
 
-  it("cuts worktrees under the marbles-owned home when the caller names none", async () => {
+  it("cuts every worktree under the marbles-owned home when the caller names none", async () => {
     const repo = await seedRepository();
     const catalogue = new WorkspaceSystem().extend(
       directory({ observer: nodeObserver }),
@@ -154,7 +189,44 @@ describe("workspaces", () => {
         { base: "main" },
         (worktree) => Promise.resolve(worktree.root)
       );
-      expect(root.startsWith(realpathSync(worktreeHome))).toBe(true);
+      const home = realpathSync(worktreeHome);
+      expect(root.startsWith(home)).toBe(true);
+
+      // `worktree()` takes the same default, and so does a worktree's own call.
+      const cut = await workspaces.current.git.worktree({ base: "main" });
+      expect(cut.root.startsWith(home)).toBe(true);
+      const nested = await cut.withWorktree({ base: "main" }, (inner) =>
+        Promise.resolve(inner.root)
+      );
+      expect(nested.startsWith(home)).toBe(true);
+      const listed = await workspaces.current.git.worktrees();
+      const again = await listed[0]?.worktree({ base: "main" });
+      expect(again?.root.startsWith(home)).toBe(true);
+      await again?.remove();
+      await cut.remove();
+    } finally {
+      await catalogue.closeAll();
+      await rm(repo, { force: true, recursive: true });
+    }
+  });
+
+  it("answers hasBranch from the repository even when git is echoed", async () => {
+    const repo = await seedRepository();
+    const printed: string[] = [];
+    const gitOptions = { run: echoGit((line) => printed.push(line)) };
+    const catalogue = new WorkspaceSystem().extend(
+      directory({ observer: nodeObserver }),
+      git(gitOptions)
+    );
+    try {
+      const workspaces = new WorkspacesManager({
+        catalogue,
+        gitOptions,
+        root: repo,
+      }).scoped(args(repo));
+      expect(await workspaces.current.git.hasBranch("main")).toBe(true);
+      expect(await workspaces.current.git.hasBranch("design/x")).toBe(false);
+      expect(printed).toEqual([]);
     } finally {
       await catalogue.closeAll();
       await rm(repo, { force: true, recursive: true });
@@ -197,26 +269,100 @@ describe("artifacts", () => {
       .scoped(b)
       .write(report, { "report.md": "# two\n" });
     expect(second.artifactId).toBe(first.artifactId);
-    expect(second.contentId).not.toBe(first.contentId);
+    expect(second.id).not.toBe(first.id);
     const stored = await system.get(first.artifactId as ArtifactId);
-    expect(stored?.content?.id).toBe(second.contentId);
-    const file = await system.readFile(
-      second.contentId as ContentId,
-      "report.md"
-    );
+    expect(stored?.content?.id).toBe(second.id);
+    const file = await system.readFile(second.id as ContentId, "report.md");
     expect(new TextDecoder().decode(file?.blob)).toBe("# two\n");
 
     // A replay of the same body returns the recorded version, no new write.
     await a.scope.enter(a.frame);
     const replayed = await artifacts.write(report, { "report.md": "# x\n" });
-    expect(replayed).toEqual(first);
+    expect(replayed.id).toBe(first.id);
 
-    const fresh = await artifacts.create({
+    const prototype = {
       entries: { "index.html": "<p>hi</p>" },
       name: "Prototype",
       type: "text/html",
-    });
+    };
+    const fresh = await artifacts.create(prototype);
     expect(fresh.artifactId).not.toBe(first.artifactId);
+
+    // A replayed create returns the artifact it made, not a second one.
+    await a.scope.enter(a.frame);
+    await artifacts.write(report, { "report.md": "# x\n" });
+    expect((await artifacts.create(prototype)).id).toBe(fresh.id);
+  });
+
+  it("reads the latest version, from the real store under a dry run", async () => {
+    const real = new ArtifactManager({ store: new InMemoryArtifactStore() });
+    const memory = {
+      id: "artifact#1",
+      kind: "artifact",
+      name: "Memory",
+      type: "application/json",
+    } as const;
+    const live = new ArtifactsManager({ artifacts: real, workspaceId: "ws" });
+    await expect(live.latest(memory)).resolves.toBeUndefined();
+    await live.write(memory, { "ref.json": '{"id":"s-1"}' });
+    const kept = await live.latest(memory);
+    expect(JSON.parse((await kept?.text("ref.json")) ?? "{}")).toEqual({
+      id: "s-1",
+    });
+    await expect(kept?.text("missing.json")).resolves.toBeUndefined();
+
+    // A dry run writes to memory and reads what real runs left.
+    const dry = new ArtifactsManager({
+      artifacts: new ArtifactManager({ store: new InMemoryArtifactStore() }),
+      readThrough: real,
+      workspaceId: "ws",
+    });
+    expect((await dry.latest(memory))?.version.id).toBe(kept?.version.id);
+    await dry.write(memory, { "ref.json": '{"id":"s-2"}' });
+    expect(await (await dry.latest(memory))?.text("ref.json")).toBe(
+      '{"id":"s-2"}'
+    );
+    expect(await (await live.latest(memory))?.text("ref.json")).toBe(
+      '{"id":"s-1"}'
+    );
+  });
+
+  it("reads versions back, records who wrote them, and changes only some files", async () => {
+    const manager = new ArtifactsManager({
+      artifacts: new ArtifactManager({ store: new InMemoryArtifactStore() }),
+      workspaceId: "ws",
+    });
+    const site = {
+      id: "artifact#1",
+      kind: "artifact",
+      name: "Site",
+      type: "text/html",
+    } as const;
+    const a = args();
+    const artifacts = manager.scoped(a);
+    const first = await artifacts.write(site, {
+      "about.html": "<p>about</p>",
+      "index.html": "<p>home</p>",
+    });
+    expect(first.metadata).toMatchObject({
+      runId: a.scope.id,
+      sessionId: a.scope.session.id,
+    });
+    expect(first.digest).toEqual(expect.any(String));
+
+    const b = args();
+    const second = await manager
+      .scoped(b)
+      .write(site, { "index.html": "<p>new</p>" }, { replace: false });
+    const about = await artifacts.readFile(second.id, "about.html");
+    expect(new TextDecoder().decode(about?.blob)).toBe("<p>about</p>");
+    const root = await artifacts.readRoot(second.id);
+    expect(new TextDecoder().decode(root?.blob)).toBe("<p>new</p>");
+
+    expect((await artifacts.get(site))?.content?.id).toBe(second.id);
+    const versions = (await artifacts.listContents(site)).map((row) => row.id);
+    expect([...versions].sort()).toEqual([first.id, second.id].sort());
+    expect((await artifacts.getContent(first.id))?.id).toBe(first.id);
   });
 });
 
@@ -286,13 +432,43 @@ describe("sandboxes", () => {
     ]);
   });
 
+  it("passes the container's own constraints through, with /workspace as a default", () => {
+    const dirs = { cwd: tmp, root: tmp };
+    expect(
+      constraintsFor(
+        {
+          image: "img:1",
+          labels: { team: "design" },
+          ports: [3000],
+          resources: { pids: 64 },
+          target: "/src",
+        },
+        dirs
+      )
+    ).toMatchObject({
+      labels: { team: "design" },
+      mounts: [{ source: tmp, target: "/src" }],
+      ports: [3000],
+      resources: { pids: 64 },
+      workdir: "/src",
+    });
+    expect(
+      constraintsFor({ image: "img:1", workdir: "/workspace/app" }, dirs)
+    ).toMatchObject({
+      mounts: [{ target: "/workspace" }],
+      workdir: "/workspace/app",
+    });
+  });
+
   it("starts containers, runs commands, closes with the run, and reopens on replay", async () => {
     const root = join(tmp, "project");
     await mkdir(root, { recursive: true });
     const commands: string[][] = [];
+    const seen: { cwd?: string; env?: unknown; signal?: unknown }[] = [];
     const runtime = createFakeContainerRuntime({
-      exec: (command) => {
+      exec: (command, options) => {
         commands.push([...command]);
+        seen.push(options as (typeof seen)[number]);
         return { exitCode: 0, stderr: "", stdout: `ran ${command.join(" ")}` };
       },
     });
@@ -313,6 +489,15 @@ describe("sandboxes", () => {
     const result = await env.exec(["bun", "test"]);
     expect(result).toEqual({ exitCode: 0, stderr: "", stdout: "ran bun test" });
     expect(commands).toEqual([["bun", "test"]]);
+    // The step's stream shows the command and its output.
+    expect(a.written).toContain("$ bun test\nran bun test");
+    // The container is all there, with the package's exec options.
+    await env.commands.exec(["ls"], { cwd: "/tmp", environment: { A: "1" } });
+    // The runtime gets them as the container passes them on.
+    expect(seen.at(-1)).toMatchObject({ cwd: "/tmp", env: { A: "1" } });
+    expect(seen.at(-1)?.signal).toBeInstanceOf(AbortSignal);
+    expect(typeof env.files.readFile).toBe("function");
+    expect("row" in env).toBe(false);
 
     await a.scope.enter(a.frame);
     const again = await sandboxes.start({ image: "docker.io/oven/bun:1-slim" });
@@ -342,7 +527,7 @@ describe("sandboxes", () => {
     const a = args(root);
     const sandboxes = manager.scoped(a);
     const env = await current.run(
-      { cwd: worktree, frame: a.frame, scope: a.scope },
+      { ...a, bindings: NO_BINDINGS, cwd: worktree },
       () => sandboxes.start({ image: "img:1" })
     );
     const [row] = await containers.list();

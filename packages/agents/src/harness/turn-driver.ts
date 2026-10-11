@@ -1,5 +1,5 @@
 import type { ApprovalResolution } from "@foundry/lib/config/authorization";
-import type { ToolSet } from "ai";
+import type { Output, ToolSet } from "ai";
 import type { ModelRoute } from "../agents/model";
 import type { AgentAuthorizer } from "../authorization/authorization";
 import type { Capability, ToolSource } from "../authorization/capability";
@@ -10,7 +10,7 @@ import type {
 } from "../session/events";
 import type { SessionStore } from "../session/store";
 import type { SessionMessage } from "../session/types";
-import type { SessionStreamOptions } from "./session-harness";
+import type { TurnOptions } from "./session-harness";
 import type { StreamPart } from "./stream-transform";
 
 export interface HarnessPermissionProfile {
@@ -92,6 +92,12 @@ export interface HarnessCapabilities {
   steering: boolean;
 }
 
+/** A JSON response format: the schema a CLI's final answer must match. */
+export type HarnessResponseFormat = Extract<
+  Awaited<Output.Output["responseFormat"]>,
+  { type: "json" }
+>;
+
 /** A CLI owns its loop and history. run receives only the newly submitted input. */
 export interface HarnessTurnDriver {
   capabilities: HarnessCapabilities;
@@ -110,6 +116,8 @@ export interface HarnessTurnDriver {
     onActivity: (activity: HarnessActivity) => Promise<void>;
     onToolEvent: (event: HarnessToolEvent) => Promise<void>;
     onSessionId: (nativeSessionId: string) => Promise<void>;
+    /** The turn's structured output; the CLI answers with matching JSON. */
+    responseFormat?: HarnessResponseFormat;
   }): Promise<AsyncIterable<StreamPart>>;
   steer?: (input: string) => Promise<void>;
   stopActivity?: (id: string) => Promise<void>;
@@ -118,9 +126,9 @@ export interface HarnessTurnDriver {
 export interface HarnessSession {
   readonly capabilities: HarnessCapabilities;
   close?(): Promise<void>;
-  generate(
+  generate<OUTPUT extends Output.Output = never>(
     input: SessionInput,
-    options?: SessionStreamOptions
+    options?: TurnOptions<OUTPUT>
   ): Promise<SessionMessage>;
   interrupt(): Promise<void>;
   readonly route: ModelRoute;
@@ -128,7 +136,10 @@ export interface HarnessSession {
   steer(input: string): Promise<void>;
   stopActivity?(id: string): Promise<void>;
   readonly store: SessionStore;
-  stream(input: SessionInput, options?: SessionStreamOptions): SessionStream;
+  stream<OUTPUT extends Output.Output = never>(
+    input: SessionInput,
+    options?: TurnOptions<OUTPUT>
+  ): SessionStream<OUTPUT>;
 }
 
 export interface HarnessAuthoritySettings {

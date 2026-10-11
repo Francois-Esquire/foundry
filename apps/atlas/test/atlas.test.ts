@@ -6,6 +6,7 @@ import {
   expect,
   test,
 } from "bun:test";
+import { existsSync } from "node:fs";
 import {
   cp,
   mkdir,
@@ -21,6 +22,7 @@ import { join, resolve } from "node:path";
 import { spawn } from "bun";
 import { loadConfiguration } from "../src/lib/atlas-config";
 import type { CheckResult } from "../src/lib/check";
+import type { ApplyResult, PlanSiteResult } from "../src/lib/codemod-types";
 import type { PackageInternals } from "../src/lib/internal-analysis-types";
 import type { Domains } from "../src/lib/lenses/domains-types";
 import type { FileRoles } from "../src/lib/lenses/file-roles-types";
@@ -40,7 +42,7 @@ import { workspaceState } from "../src/lib/state";
 import { startServer } from "../src/server/server";
 import { loadAtlas } from "../src/web/load-atlas";
 import { loadInternals } from "../src/web/load-internals";
-import { CLI, spawnCli } from "./helpers/cli";
+import { CLI, spawnCli, spawnDetached } from "./helpers/cli";
 import { commitFixture } from "./helpers/commit-fixture";
 
 const directories: string[] = [];
@@ -199,6 +201,151 @@ test("serve(root) refuses an invalid port, and a workspace with no saved dataset
   await expect(serve(workspace.root, { port: 0, state })).rejects.toThrow(
     "Atlas reads dataset schema version 4; this dataset has version 3. Run atlas scan to save it again."
   );
+});
+
+/** A hand-written schema 4 manifest that holds what the collection manifest reads. */
+function collectionFixtureManifest(
+  generatedAt: string,
+  packages: {
+    declaredDependencies?: Record<string, Record<string, string>>;
+    id: string;
+  }[]
+): string {
+  return JSON.stringify({
+    discovery: { unitsSkipped: [] },
+    generatedAt,
+    packages: packages.map((entry) => ({
+      declaredDependencies: {},
+      modules: { count: 0 },
+      path: entry.id,
+      status: "complete",
+      ...entry,
+    })),
+    schemaVersion: 4,
+    workspace: { root: "fixture" },
+  });
+}
+
+test("serve.collection derives the collection manifest per request and serves each dataset under its id", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "atlas-test-"));
+  directories.push(directory);
+  const state = join(directory, "state");
+  const roots = ["platform", "product"].map((name) => join(directory, name));
+  const [platform, product] = await Promise.all(
+    roots.map(async (root) => {
+      await mkdir(root);
+      return workspaceState(root, state);
+    })
+  );
+  if (platform === undefined || product === undefined) {
+    throw new Error("The collection should hold two workspaces.");
+  }
+  const platformManifest = collectionFixtureManifest(
+    "2026-10-10T00:00:00.000Z",
+    [{ id: "@k/db" }]
+  );
+  const write = async (workspace: WorkspaceState, text: string) => {
+    await mkdir(workspace.output, { recursive: true });
+    await writeFile(join(workspace.output, "manifest.json"), text);
+  };
+  await write(platform, platformManifest);
+  // The second workspace has no dataset yet, and is named.
+  await expect(serve.collection(roots, { port: 0, state })).rejects.toThrow(
+    `No dataset found for ${product.root} in ${product.output}. Run atlas scan to save one.`
+  );
+  await write(
+    product,
+    collectionFixtureManifest("2026-10-10T00:00:01.000Z", [
+      {
+        declaredDependencies: { dependencies: { "@k/db": "^1.0.0" } },
+        id: "@p/app",
+      },
+    ])
+  );
+  // Given out of order, served in the collection's.
+  const server = await serve.collection([...roots].reverse(), {
+    port: 0,
+    state,
+  });
+  const data = (path: string) => fetch(new URL(`data/${path}`, server.url));
+  try {
+    expect(server.roots).toEqual([platform.root, product.root]);
+    expect((await fetch(server.url)).status).toBe(200);
+    const served = await data("collection-manifest.json");
+    expect(served.headers.get("Cache-Control")).toBe("no-store");
+    expect(served.headers.get("Content-Type")).toStartWith("application/json");
+    const manifest = await served.json();
+    expect(manifest.crossings).toEqual([
+      {
+        from: `${product.id}:@p/app`,
+        kind: "dependencies",
+        range: "^1.0.0",
+        to: `${platform.id}:@k/db`,
+      },
+    ]);
+    expect(
+      manifest.workspaces.map((entry: { dataset: string }) => entry.dataset)
+    ).toEqual([`${platform.id}/`, `${product.id}/`]);
+    expect(await (await data(`${platform.id}/manifest.json`)).text()).toBe(
+      platformManifest
+    );
+    for (const missing of [
+      "manifest.json",
+      `${"0".repeat(12)}/manifest.json`,
+      platform.id,
+      `${platform.id}/absent.json`,
+    ]) {
+      expect((await data(missing)).status).toBe(404);
+    }
+    // A later scan of one workspace is seen at the next request.
+    await write(
+      product,
+      collectionFixtureManifest("2026-10-11T00:00:00.000Z", [{ id: "@p/app" }])
+    );
+    const again = await (await data("collection-manifest.json")).json();
+    expect(again.crossings).toEqual([]);
+    expect(again.workspaces[1].generatedAt).toBe("2026-10-11T00:00:00.000Z");
+    // HEAD answers as GET does, without the body.
+    const head = await fetch(
+      new URL("data/collection-manifest.json", server.url),
+      {
+        method: "HEAD",
+      }
+    );
+    expect(head.status).toBe(200);
+    expect(head.headers.get("Content-Type")).toStartWith("application/json");
+    expect(await head.text()).toBe("");
+    // An encoded slash is decoded before the path is split, and no path
+    // leaves the dataset it names, through `..` or a link.
+    await symlink(
+      join(platform.directory, "workspace.json"),
+      join(platform.output, "record.json")
+    );
+    await writeFile(join(platform.directory, "workspace.json"), "{}");
+    for (const outside of [
+      `${platform.id}%2F..%2F${product.id}/manifest.json`,
+      `${platform.id}/..%2Fworkspace.json`,
+      `${platform.id}/..%2F..%2F${product.id}%2Foutput%2Fmanifest.json`,
+      `${platform.id}/record.json`,
+    ]) {
+      expect((await data(outside)).status).toBe(404);
+    }
+    // A workspace whose dataset is gone, as mid-swap, makes the manifest
+    // unavailable for now, naming it.
+    await rm(join(product.output, "manifest.json"));
+    const unavailable = await data("collection-manifest.json");
+    expect(unavailable.status).toBe(503);
+    expect(unavailable.headers.get("Retry-After")).toBe("1");
+    expect(await unavailable.text()).toBe(
+      `No dataset found for ${product.root} in ${product.output}. Run atlas scan to save one.`
+    );
+    await write(product, '{ "schemaVersion": 3 }');
+    expect(await (await data("collection-manifest.json")).text()).toBe(
+      `Workspace ${product.root}: Atlas reads dataset schema version 4; this dataset has version 3. Run atlas scan to save it again.`
+    );
+  } finally {
+    await server.stop();
+  }
 });
 
 test("built CLI scans an external workspace and the web loaders read its saved dataset through the reader, over the real server", async () => {
@@ -833,10 +980,10 @@ describe("built CLI commands", () => {
   });
 
   test("a usage error exits 2 with a pointer to the help", async () => {
-    expect(await runCli(["scan", "one", "two"], root)).toEqual({
+    expect(await runCli(["report", "@s/a", "one", "two"], root)).toEqual({
       code: 2,
       stderr:
-        "Atlas: atlas scan takes one workspace path. Reading several workspaces at once is not supported yet.\nRun atlas --help for usage.\n",
+        "Atlas: atlas report reads one workspace's dataset; give one path.\nRun atlas --help for usage.\n",
       stdout: "",
     });
     expect(await runCli(["serve", "--history"], root)).toEqual({
@@ -877,6 +1024,271 @@ describe("built CLI commands", () => {
       }
     );
   }, 60_000);
+});
+
+describe("built CLI collections", () => {
+  let directory: string;
+  let platform: WorkspaceState;
+  let product: WorkspaceState;
+  let state: string;
+  let roots: [string, string];
+
+  beforeAll(async () => {
+    directory = await realpath(
+      await mkdtemp(join(tmpdir(), "atlas-collection-cli-"))
+    );
+    state = join(directory, "state");
+    roots = ["platform", "product"].map((name) => join(directory, name)) as [
+      string,
+      string,
+    ];
+    for (const [index, name] of ["platform", "product"].entries()) {
+      await cp(
+        resolve(import.meta.dirname, "lib/fixtures/collection", name),
+        roots[index] as string,
+        { recursive: true }
+      );
+    }
+    platform = await workspaceState(roots[0], state);
+    product = await workspaceState(roots[1], state);
+  });
+
+  afterAll(async () => {
+    await rm(directory, { force: true, recursive: true });
+  });
+
+  test("scan reads two paths as a collection, in the collection's order, and prints its result", async () => {
+    // Given out of order: the collection scans by resolved root.
+    const text = await runCli(
+      ["scan", roots[1], roots[0], "--state", state],
+      directory
+    );
+    expect(text.code).toBe(0);
+    expect(text.stdout).toBe(
+      `Dataset saved to ${platform.output}\nDataset saved to ${product.output}\nCollection: 2 workspaces, 2 crossings\n`
+    );
+    const headers = text.stderr
+      .split("\n")
+      .filter((line) => line.startsWith("workspace: "));
+    expect(headers).toEqual([
+      `workspace: ${platform.root}`,
+      `workspace: ${product.root}`,
+    ]);
+    const json = await runCli(
+      ["scan", ...roots, "--state", state, "--json", "--quiet"],
+      directory
+    );
+    expect(json.code).toBe(0);
+    expect(json.stderr).toBe("");
+    const result = JSON.parse(json.stdout) as {
+      manifest: { crossings: { from: string; to: string }[] };
+      workspaces: { manifest: unknown; output: string }[];
+    };
+    expect(Object.keys(result)).toEqual(["manifest", "workspaces"]);
+    expect(result.workspaces.map((saved) => saved.output)).toEqual([
+      platform.output,
+      product.output,
+    ]);
+    expect(result.manifest.crossings.map(({ from, to }) => [from, to])).toEqual(
+      [
+        [`${product.id}:@p/app`, `${platform.id}:@k/db`],
+        [`${product.id}:@p/web`, `${platform.id}:@k/db`],
+      ]
+    );
+  }, 120_000);
+
+  test("paths that name one workspace twice exit 2 and name the duplicate", async () => {
+    await symlink(roots[0], join(directory, "link"));
+    for (const [args, duplicate] of [
+      [["scan", roots[0], `${roots[0]}/`], `${roots[0]}/`],
+      [["serve", roots[0], roots[1], "link"], "link"],
+      [["export", join(directory, "site"), roots[0], roots[0]], roots[0]],
+      [[roots[1], roots[1]], roots[1]],
+    ] as const) {
+      const result = await runCli([...args, "--state", state], directory);
+      expect(result.code).toBe(2);
+      expect(result.stderr).toStartWith(
+        `Atlas: ${duplicate} names the same workspace as `
+      );
+      expect(result.stderr).toContain("give each workspace once.");
+      expect(result.stdout).toBe("");
+    }
+    // A workspace inside another is a usage error too.
+    const nested = join(roots[1], "apps");
+    const overlapping = await runCli(
+      ["scan", nested, roots[1], "--state", state],
+      directory
+    );
+    expect(overlapping).toEqual({
+      code: 2,
+      stderr: `Atlas: Workspace ${product.root} holds workspace ${nested}; the workspaces of a collection cannot overlap.\nRun atlas --help for usage.\n`,
+      stdout: "",
+    });
+  });
+
+  test("the commands that read one workspace's dataset refuse a second path with exit 2", async () => {
+    for (const [args, command] of [
+      [["report", "@k/db"], "report"],
+      [["lens", "package-sizes"], "lens"],
+      [["check"], "check"],
+    ] as const) {
+      const result = await runCli([...args, ...roots], directory);
+      expect(result.code).toBe(2);
+      expect(result.stderr).toBe(
+        `Atlas: atlas ${command} reads one workspace's dataset; give one path.\nRun atlas --help for usage.\n`
+      );
+    }
+  });
+
+  test("serve --json prints the roots and url, and serves the collection manifest and each dataset", async () => {
+    await withFirstLine(
+      [
+        "serve",
+        ...roots,
+        "--state",
+        state,
+        "--port",
+        "0",
+        "--no-open",
+        "--json",
+      ],
+      directory,
+      async (line) => {
+        const served = JSON.parse(line) as { roots: string[]; url: string };
+        expect(Object.keys(served).sort()).toEqual(["roots", "url"]);
+        expect(served.roots).toEqual([platform.root, product.root]);
+        const data = (path: string) =>
+          fetch(new URL(`data/${path}`, served.url));
+        const manifest = (await (
+          await data("collection-manifest.json")
+        ).json()) as {
+          workspaces: { dataset: string }[];
+        };
+        expect(manifest.workspaces.map((entry) => entry.dataset)).toEqual([
+          `${platform.id}/`,
+          `${product.id}/`,
+        ]);
+        expect(await (await data(`${product.id}/manifest.json`)).text()).toBe(
+          await readFile(join(product.output, "manifest.json"), "utf8")
+        );
+      }
+    );
+    const text = spawnCli(
+      ["serve", ...roots, "--state", state, "--port", "0", "--no-open"],
+      directory
+    );
+    try {
+      const reader = text.stdout.getReader();
+      let printed = "";
+      while (printed.split("\n").length < 4) {
+        const { done, value } = await reader.read();
+        if (done) {
+          break;
+        }
+        printed += new TextDecoder().decode(value);
+      }
+      expect(printed).toMatch(
+        new RegExp(
+          `^Atlas: http://127\\.0\\.0\\.1:\\d+/\\nWorkspace: ${platform.root}\\nWorkspace: ${product.root}\\n$`
+        )
+      );
+    } finally {
+      text.kill("SIGTERM");
+      await text.exited;
+    }
+  });
+
+  test("the default command scans, serves, and prints one line with --json", async () => {
+    await withFirstLine(
+      [
+        ...roots,
+        "--state",
+        state,
+        "--port",
+        "0",
+        "--no-open",
+        "--json",
+        "--quiet",
+      ],
+      directory,
+      async (line) => {
+        const result = JSON.parse(line) as Record<string, unknown>;
+        expect(Object.keys(result).sort()).toEqual([
+          "manifest",
+          "roots",
+          "url",
+          "workspaces",
+        ]);
+        const response = await fetch(
+          new URL("data/collection-manifest.json", String(result.url))
+        );
+        expect(await response.json()).toEqual(result.manifest);
+      }
+    );
+  }, 120_000);
+
+  test("export writes the collection beside each dataset, prints its result, and refuses a place that holds a workspace", async () => {
+    const site = join(directory, "site");
+    const result = await runCli(
+      ["export", site, ...roots, "--state", state, "--json"],
+      directory
+    );
+    expect(result.code).toBe(0);
+    const written = JSON.parse(result.stdout) as {
+      directory: string;
+      manifest: unknown;
+      workspaces: { dataset: string; id: string; root: string }[];
+    };
+    expect(Object.keys(written)).toEqual([
+      "directory",
+      "manifest",
+      "workspaces",
+    ]);
+    expect(written.workspaces).toEqual([
+      {
+        dataset: join(site, "data", platform.id),
+        id: platform.id,
+        root: platform.root,
+      },
+      {
+        dataset: join(site, "data", product.id),
+        id: product.id,
+        root: product.root,
+      },
+    ]);
+    expect(written.directory).toBe(site);
+    expect(
+      JSON.parse(
+        await readFile(join(site, "data/collection-manifest.json"), "utf8")
+      )
+    ).toEqual(written.manifest);
+    for (const workspace of [platform, product]) {
+      expect(
+        await readFile(
+          join(site, "data", workspace.id, "manifest.json"),
+          "utf8"
+        )
+      ).toBe(await readFile(join(workspace.output, "manifest.json"), "utf8"));
+    }
+    expect(existsSync(join(site, "data/manifest.json"))).toBe(false);
+    expect(existsSync(join(site, "index.html"))).toBe(true);
+    // A second export replaces the first.
+    const again = await runCli(
+      ["export", site, ...roots, "--state", state],
+      directory
+    );
+    expect(again.code).toBe(0);
+    expect(again.stdout).toBe(`Static viewer saved to ${site}\n`);
+    // A directory that holds the workspaces is refused, naming the first.
+    const holding = await runCli(
+      ["export", directory, ...roots, "--state", state],
+      directory
+    );
+    expect(holding.code).toBe(1);
+    expect(holding.stderr).toBe(
+      `Atlas: ${directory} holds the workspace ${platform.root}. Choose another directory.\n`
+    );
+  });
 });
 
 describe("built CLI check", () => {
@@ -1025,6 +1437,377 @@ describe("built CLI check", () => {
       await writeFile(source, written);
     }
   }, 120_000);
+});
+
+describe("built CLI plan", () => {
+  const SITE = "tooling/c/src/index.ts#fence";
+  let directory: string;
+  let root: string;
+  let state: string;
+  const plan = (words: string[]) =>
+    runCli(["plan", ...words, "--state", state], root);
+
+  // A committed copy of the semantics fixture whose @s/c has a test script,
+  // which readiness runs, and a rule permitting internalize there.
+  beforeAll(async () => {
+    directory = await realpath(await mkdtemp(join(tmpdir(), "atlas-plan-")));
+    root = join(directory, "workspace");
+    await cp(resolve(import.meta.dirname, "lib/fixtures/semantics"), root, {
+      recursive: true,
+    });
+    const manifest = join(root, "tooling/c/package.json");
+    const parsed = JSON.parse(await readFile(manifest, "utf8"));
+    await writeFile(
+      manifest,
+      JSON.stringify({ ...parsed, scripts: { test: "true" } })
+    );
+    await mkdir(join(root, ".foundry/atlas"), { recursive: true });
+    await writeFile(
+      join(root, ".foundry/atlas/rules.ts"),
+      'export default { rules: [{ effect: "permit", operator: "internalize", subject: "tooling/c" }] };\n'
+    );
+    commitFixture(root);
+    state = join(directory, "state");
+    await scan(root, { state });
+  }, 60_000);
+
+  afterAll(async () => {
+    await rm(directory, { force: true, recursive: true });
+  });
+
+  test("exits 0 with an authorized plan, saves its record in the state directory, and writes nothing in the workspace", async () => {
+    const json = await plan([SITE, "--json"]);
+    expect(json.code, json.stderr).toBe(0);
+    expect(json.stdout.trimEnd().split("\n")).toHaveLength(1);
+    const result = JSON.parse(json.stdout) as PlanSiteResult;
+    expect(result.site).toBe(SITE);
+    expect(result.opportunity).toBe(`internalize-symbol:${SITE}`);
+    expect(result.verdict.kind).toBe("authorized");
+    const workspace = await workspaceState(root, state);
+    expect(result.record?.startsWith(join(workspace.directory, "plans/"))).toBe(
+      true
+    );
+    const record = JSON.parse(await readFile(result.record ?? "", "utf8"));
+    expect(
+      result.verdict.kind === "authorized" && result.verdict.record
+    ).toEqual(record);
+    expect(record.execution).toEqual({
+      mutator: "internalize-export",
+      planFingerprint: result.plan.fingerprint,
+      planId: `plan:internalize-symbol:${SITE}`,
+    });
+    const text = await plan([`plan:internalize-symbol:${SITE}`]);
+    expect(text.code, text.stderr).toBe(0);
+    expect(text.stdout).toContain("◇ Authorized");
+    expect(text.stdout).toContain(
+      `Run atlas apply internalize-symbol:${SITE} to preview; add --write to write.`
+    );
+    const status = spawn(["git", "status", "--porcelain"], {
+      cwd: root,
+      stdout: "pipe",
+    });
+    expect(await new Response(status.stdout).text()).toBe("");
+  }, 60_000);
+
+  test("exits 0 on a refusal, 1 for an opportunity the dataset does not hold, and 2 for another shape", async () => {
+    const refused = await plan(["apps/a/src/index.ts#Tile", "--json"]);
+    expect(refused.code, refused.stderr).toBe(0);
+    expect((JSON.parse(refused.stdout) as PlanSiteResult).verdict.kind).toBe(
+      "refused-by-rule"
+    );
+    const unknown = await plan(["packages/b/src/index.ts#nothing"]);
+    expect(unknown.code).toBe(1);
+    expect(unknown.stderr).toContain("@s/b records no opportunity");
+    expect(await plan(["fold-package:@s/c"])).toEqual({
+      code: 2,
+      stderr:
+        "Atlas: fold-package:@s/c names no internalize opportunity. Write internalize-symbol:<path#name>, its plan id, or <path#name>.\nRun atlas --help for usage.\n",
+      stdout: "",
+    });
+  }, 60_000);
+});
+
+describe("built CLI apply", () => {
+  const SITE = "tooling/c/src/index.ts#fence";
+  const FILE = "tooling/c/src/index.ts";
+  const RULES = ".foundry/atlas/rules.ts";
+  let directory: string;
+  let root: string;
+  let state: string;
+  const cli = (words: string[]) =>
+    runCli([...words, "--state", state, "--quiet"], root);
+  const status = async () => {
+    const child = spawn(["git", "status", "--porcelain"], {
+      cwd: root,
+      stdout: "pipe",
+    });
+    return (await new Response(child.stdout).text()).trim();
+  };
+  /** Runs `body` with a workspace file rewritten, then puts it back. */
+  const withFile = async (
+    file: string,
+    edit: (text: string) => string,
+    body: () => Promise<void>
+  ) => {
+    const path = join(root, file);
+    const original = await readFile(path, "utf8");
+    await writeFile(path, edit(original));
+    try {
+      await body();
+    } finally {
+      await writeFile(path, original);
+    }
+  };
+
+  // A committed copy of the semantics fixture whose @s/c has a test script
+  // and a rule requiring internalize there, which also permits it.
+  beforeAll(async () => {
+    directory = await realpath(await mkdtemp(join(tmpdir(), "atlas-apply-")));
+    root = join(directory, "workspace");
+    await cp(resolve(import.meta.dirname, "lib/fixtures/semantics"), root, {
+      recursive: true,
+    });
+    const manifest = join(root, "tooling/c/package.json");
+    const parsed = JSON.parse(await readFile(manifest, "utf8"));
+    await writeFile(
+      manifest,
+      JSON.stringify({ ...parsed, scripts: { test: "true" } })
+    );
+    await mkdir(join(root, ".foundry/atlas"), { recursive: true });
+    await writeFile(
+      join(root, RULES),
+      'export default { rules: [{ effect: "require", operator: "internalize", subject: "tooling/c" }] };\n'
+    );
+    commitFixture(root);
+    state = join(directory, "state");
+    await scan(root, { state });
+  }, 60_000);
+
+  afterAll(async () => {
+    await rm(directory, { force: true, recursive: true });
+  });
+
+  test("checks, plans, refuses what moved, previews, writes, verifies, and scans again", async () => {
+    expect((await cli(["check"])).code).toBe(3);
+
+    // A file edited since the scan makes the dataset stale: plan fails early.
+    // Scanned with the edit, a dirty file it writes refuses the write, and
+    // nothing is written.
+    await withFile(
+      FILE,
+      (text) => `${text}// local edit\n`,
+      async () => {
+        const stale = await cli(["plan", SITE]);
+        expect(stale.code).toBe(1);
+        expect(stale.stderr).toContain("The saved dataset is stale");
+        await scan(root, { state });
+        expect((await cli(["plan", SITE])).code).toBe(0);
+        const dirty = await cli(["apply", SITE, "--write", "--json"]);
+        expect(dirty.code).toBe(1);
+        expect((JSON.parse(dirty.stdout) as ApplyResult).refusal).toEqual({
+          files: [FILE],
+          kind: "dirty",
+        });
+        expect(await readFile(join(root, FILE), "utf8")).toContain(
+          "export function fence"
+        );
+      }
+    );
+
+    // Rules edited after the plan refuse it, naming the rule.
+    await scan(root, { state });
+    expect((await cli(["plan", SITE])).code).toBe(0);
+    await withFile(
+      RULES,
+      () =>
+        'export default { rules: [{ effect: "permit", operator: "internalize", subject: "packages" }, { effect: "require", operator: "internalize", subject: "tooling/c" }] };\n',
+      async () => {
+        const moved = await cli(["apply", SITE, "--write"]);
+        expect(moved.code).toBe(1);
+        expect(moved.stdout).toContain(
+          "What atlas plan authorized has moved: rule."
+        );
+      }
+    );
+
+    const workspace = await workspaceState(root, state);
+    const before = JSON.parse(
+      await readFile(join(workspace.output, "manifest.json"), "utf8")
+    ) as DatasetManifest;
+    const preview = await cli(["apply", `internalize-symbol:${SITE}`]);
+    expect(preview.code, preview.stderr).toBe(0);
+    expect(preview.stdout).toContain("Preview");
+    expect(preview.stdout).toContain(
+      "tooling/c/src/index.ts: export function fence(shape: Shape): number { → function fence(shape: Shape): number {"
+    );
+    expect(await status()).toBe("");
+
+    const written = await cli(["apply", SITE, "--write", "--json"]);
+    expect(written.code, written.stderr).toBe(0);
+    expect(written.stdout.trimEnd().split("\n")).toHaveLength(1);
+    const result = JSON.parse(written.stdout) as ApplyResult;
+    expect(result).toMatchObject({
+      mode: "write",
+      scan: { status: "published" },
+      site: SITE,
+      status: "applied",
+    });
+    expect(await readFile(join(root, FILE), "utf8")).not.toContain(
+      "export function fence"
+    );
+    expect(await status()).toBe(`M ${FILE}`);
+    const after = JSON.parse(
+      await readFile(join(workspace.output, "manifest.json"), "utf8")
+    ) as DatasetManifest;
+    expect(after.generatedAt > before.generatedAt).toBe(true);
+    expect(existsSync(join(workspace.directory, "apply/journal.json"))).toBe(
+      false
+    );
+
+    expect((await cli(["check"])).code).toBe(0);
+    const again = await cli(["apply", SITE]);
+    expect(again.code).toBe(1);
+    expect(again.stderr).toContain("No authorized plan is saved");
+  }, 180_000);
+});
+
+describe("built CLI apply, interrupted", () => {
+  const SITE = "tooling/c/src/index.ts#fence";
+  const FILE = "tooling/c/src/index.ts";
+  let directory: string;
+  let root: string;
+  let state: string;
+
+  // The test script passes at once before the write, and sleeps after it,
+  // so the interrupt lands while apply runs it again; with TRAP_INT set it
+  // traps SIGINT and exits 0, as a test runner that cleans up might.
+  beforeAll(async () => {
+    directory = await realpath(await mkdtemp(join(tmpdir(), "atlas-int-")));
+    root = join(directory, "workspace");
+    await cp(resolve(import.meta.dirname, "lib/fixtures/semantics"), root, {
+      recursive: true,
+    });
+    await writeFile(
+      join(root, "tooling/c/slow-test.sh"),
+      [
+        "grep -q 'export function fence' src/index.ts && exit 0",
+        'touch "$SLEEP_MARK"',
+        'if [ -n "$TRAP_INT" ]; then',
+        "  trap 'exit 0' INT",
+        "  sleep 10 &",
+        "  wait",
+        "  exit 0",
+        "fi",
+        "sleep 10",
+        "",
+      ].join("\n")
+    );
+    const manifest = join(root, "tooling/c/package.json");
+    const parsed = JSON.parse(await readFile(manifest, "utf8"));
+    await writeFile(
+      manifest,
+      JSON.stringify({ ...parsed, scripts: { test: "sh ./slow-test.sh" } })
+    );
+    await mkdir(join(root, ".foundry/atlas"), { recursive: true });
+    await writeFile(
+      join(root, ".foundry/atlas/rules.ts"),
+      'export default { rules: [{ effect: "permit", operator: "internalize", subject: "tooling/c" }] };\n'
+    );
+    commitFixture(root);
+    state = join(directory, "state");
+    await scan(root, { state });
+  }, 60_000);
+
+  afterAll(async () => {
+    await rm(directory, { force: true, recursive: true });
+  });
+
+  /**
+   * Runs `apply --write` in its own process group, and sends that group
+   * `signal` once the file is written and, unless `during` is `scan`, once
+   * the script runs again, after the scan after the write.
+   */
+  async function interrupted(
+    env: Record<string, string>,
+    signal: NodeJS.Signals,
+    during: "scan" | "script" = "script"
+  ) {
+    const mark = join(
+      directory,
+      `sleeping-${signal}-${during}-${Object.keys(env).length}`
+    );
+    expect(
+      (await runCli(["plan", SITE, "--state", state, "--quiet"], root)).code
+    ).toBe(0);
+    const original = await readFile(join(root, FILE));
+    const child = spawnDetached(
+      [CLI, "apply", SITE, "--write", "--state", state, "--quiet"],
+      root,
+      { ...process.env, ...env, SLEEP_MARK: mark }
+    );
+    const stderr: Buffer[] = [];
+    child.stderr?.on("data", (chunk: Buffer) => stderr.push(chunk));
+    const exited = new Promise<number | null>((done) =>
+      child.on("exit", (status) => done(status))
+    );
+    const deadline = Date.now() + 30_000;
+    while (
+      (await readFile(join(root, FILE), "utf8")).includes(
+        "export function fence"
+      )
+    ) {
+      if (Date.now() > deadline) {
+        throw new Error("apply never wrote the file");
+      }
+      await new Promise((done) => setTimeout(done, 50));
+    }
+    while (during === "script" && !existsSync(mark)) {
+      if (Date.now() > deadline) {
+        throw new Error("the script never ran after the write");
+      }
+      await new Promise((done) => setTimeout(done, 50));
+    }
+    process.kill(-(child.pid ?? 0), signal);
+    const code = await exited;
+    return {
+      code,
+      original,
+      restored: await readFile(join(root, FILE)),
+      stderr: Buffer.concat(stderr).toString("utf8"),
+    };
+  }
+
+  for (const [name, env, signal, exit] of [
+    ["Ctrl-C stops a script that dies", {}, "SIGINT", 130],
+    [
+      "Ctrl-C stops a script that traps SIGINT and exits 0",
+      { TRAP_INT: "1" },
+      "SIGINT",
+      130,
+    ],
+    ["SIGTERM stops a script", {}, "SIGTERM", 143],
+  ] as const) {
+    test(`restores byte for byte and exits ${exit} when ${name}`, async () => {
+      const run = await interrupted(env, signal);
+      expect(run.code, run.stderr).toBe(exit);
+      expect(run.stderr).toContain(
+        `Atlas: Interrupted by ${signal}; every file Atlas wrote is restored.`
+      );
+      expect(run.restored.equals(run.original)).toBe(true);
+      const workspace = await workspaceState(root, state);
+      expect(existsSync(join(workspace.directory, "apply/journal.json"))).toBe(
+        false
+      );
+    }, 90_000);
+  }
+
+  test("restores byte for byte and exits 130 when Ctrl-C stops the scan after the write", async () => {
+    const run = await interrupted({}, "SIGINT", "scan");
+    expect(run.code, run.stderr).toBe(130);
+    expect(run.restored.equals(run.original)).toBe(true);
+    const workspace = await workspaceState(root, state);
+    expect(existsSync(`${workspace.output}.next`)).toBe(false);
+  }, 90_000);
 });
 
 test("built CLI includes Git history when requested", async () => {

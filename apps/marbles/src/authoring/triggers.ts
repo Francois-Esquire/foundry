@@ -3,7 +3,11 @@ import { canonicalizeJson } from "@foundry/lib/json";
 import { catalog } from "~/authoring/catalog";
 import type { AnyDefinition, LockedNode } from "~/lib/definition";
 import { launchTarget } from "~/lib/launch";
-import type { MonitorHandler, MonitorSpec } from "~/lib/monitor";
+import type {
+  MonitorHandler,
+  MonitorRequest,
+  MonitorSpec,
+} from "~/lib/monitor";
 import { DEFAULT_EVERY } from "~/lib/monitor";
 import { parseAt } from "~/lib/schedule";
 import { jsonData } from "~/lib/state/json";
@@ -75,6 +79,12 @@ export interface MonitorBuilder {
   do(handler: MonitorHandler): void;
   /** Poll cadence; defaults to every minute. */
   every(interval: string): MonitorBuilder;
+  /**
+   * For an HTTP source: what each poll sends (headers, method, body), or a
+   * function called at every poll. Never part of the key, the state, or
+   * anything shown.
+   */
+  request(init: MonitorRequest): MonitorBuilder;
 }
 
 /**
@@ -89,17 +99,32 @@ export function monitor(source: string): MonitorBuilder {
   const spec: MonitorSpec = HTTP_SOURCE.test(source)
     ? { kind: "http", url: source }
     : { glob: source, kind: "files" };
-  const build = (every: string): MonitorBuilder => ({
+  const build = (every: string, request?: MonitorRequest): MonitorBuilder => ({
     do(handler) {
       const trigger = parseAt(every);
       const key = catalog.uniqueKey(
         `${slug(source)}-${sha256(source).slice(0, 6)}`
       );
-      catalog.monitor({ handler, key, label: source, source: spec, trigger });
+      catalog.monitor({
+        handler,
+        key,
+        label: source,
+        ...(request === undefined ? {} : { request }),
+        source: spec,
+        trigger,
+      });
     },
     every(interval) {
       parseAt(interval);
-      return build(interval);
+      return build(interval, request);
+    },
+    request(init) {
+      if (spec.kind !== "http") {
+        throw new Error(
+          `monitor("${source}").request(): only an http or https source sends a request`
+        );
+      }
+      return build(every, init);
     },
   });
   return build(DEFAULT_EVERY);

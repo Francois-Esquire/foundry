@@ -1,6 +1,8 @@
 import type { Log } from "~/lib/log";
 import type { StateStore } from "~/lib/state/store";
 
+import type { Exec } from "./command";
+import type { AgentTurns } from "./managers/agents";
 import type { Catalogue } from "./managers/workspaces";
 import type { Frame, RunScope } from "./run-scope";
 import type { Agents, Artifacts, Sandboxes, Workspaces } from "./types";
@@ -30,11 +32,15 @@ export interface HostBindings {
 export interface Bindings {
   readonly agents: (args: ManagerArgs) => Agents;
   readonly artifacts: (args: ManagerArgs) => Artifacts;
+  /** Commands a step body runs; real ones on the host when omitted. */
+  readonly exec?: (args: ManagerArgs) => Exec;
   readonly host?: HostBindings;
   /** Host output for `log(...)`. */
   readonly log: Log;
   /** The workspace root. */
   readonly root: string;
   readonly sandboxes: (args: ManagerArgs) => Sandboxes;
+  /** An agent definition's own turns: in a step with `args`, else outside one. */
+  readonly turns?: (args?: ManagerArgs) => AgentTurns;
   readonly workspaces: (args: ManagerArgs) => Workspaces;
 }

@@ -195,11 +195,41 @@ operation), `internalize-export` (its mutator)
 
 **Mutator**:
 The code that edits the workspace to apply a plan: `internalize-export`, for
-`internalize`. Nothing else in Atlas edits a workspace's sources. The code
+`internalize`, which `atlas apply --write` runs, journaled, verified, and
+restored on any failure. Nothing else in Atlas edits a workspace's sources. The code
 still calls it an operator (`StructuralOperator` and `OperatorId` in
 `operators.ts`, `MutationResult.operator`, and the catalog's
 `legacyOperatorId`).
 _Avoid_: operator, codemod, apply
+
+**Preview**:
+What apply shows without `--write`: each statement the mutator would edit,
+before and after, and the files it would change, once the plan is
+authorized again. Atlas writes no source file.
+_Avoid_: dry run, diff
+
+**Pending write**:
+An apply's write the saved dataset does not describe yet, as the apply
+journal, `apply/journal.json` in the state directory, records it: `writing`
+until every check after the write passed, which the next apply restores;
+`verified` until the scan after the write publishes. Plan, apply, and check
+refuse while one is pending; a scan refuses one still `writing`.
+_Avoid_: marker, lock (that is the state directory's), dirty (Git's word)
+
+**Scan after a write**:
+The scan `apply --write` runs right after it writes: staged beside the
+dataset, internals included and history carried over. The write's
+structural checks read the staged package report; if they pass, the staged
+dataset is swapped in, and if anything fails, it is discarded with the
+write. Until it publishes, the write is pending.
+_Avoid_: refresh, rescan
+
+**Current**:
+Said of a saved dataset whose recorded inputs hash equals the workspace's
+now: no source edit, no commit, and no tracked file added or removed since
+the scan, on the same UTC day, under the same exclusions, profile, and
+analysis version. Plan and apply need a current dataset.
+_Avoid_: fresh, up to date
 
 **Violation**:
 A place where a `require` rule's outcome does not hold: for `internalize`, an
@@ -209,6 +239,17 @@ package shows why it cannot simply be internalized. The `rules` lens saves
 the violations at every scan, and `atlas check` prints them and exits `3`
 when there is one.
 _Avoid_: finding, error, failure
+
+**Authorization**:
+Whether a mutator may apply one plan, checked cheapest first: a rule must
+permit the operator at the plan's place, or the plan is refused by rule; a
+mutator must execute exactly that plan, or it is not executable; and
+readiness must authorize its execution plan, after running the baseline
+commands. Only an authorized plan gets an authorization record, ids and
+fingerprints only, which `atlas plan` saves in the state directory and
+apply checks again before it writes.
+_Avoid_: approval, permission (a rule's `permit`), readiness alone (the last
+of the three checks)
 
 ### What a scan saves
 
@@ -350,6 +391,49 @@ reuse work, kept in `<state directory>/cache`.
 The state directory's `workspace.json`: which workspace it belongs to and
 when a scan last saved its dataset.
 _Avoid_: workspace report
+
+### Several workspaces
+
+**Collection**:
+One or more workspaces read together, named by their paths each time; none
+holds another. A collection keeps no state of its own: each workspace keeps
+its own. The CLI forms one only from two or more distinct paths.
+_Avoid_: project set, multi-workspace, merged atlas
+
+**Qualified id**:
+A package's id in a collection: its workspace's id, a colon, and its
+package name, `<workspace id>:<package>`. A package of one name in two
+workspaces is two packages with two qualified ids. Inside one workspace's
+dataset, ids stay bare.
+_Avoid_: global id, full name, scoped name (npm's scope is part of the
+package name)
+
+**Crossing**:
+A declared dependency of a package in one workspace of a collection on a
+package of another, matched by name. A name its own workspace holds, a
+`workspace:` range, or a name two or more other workspaces hold makes none.
+_Avoid_: cross edge, link, external dependency (a name no workspace of the
+collection holds)
+
+**Ambiguous dependency**:
+A declared dependency whose name two or more other workspaces of the
+collection hold; the collection manifest lists it with its candidates, the
+analyzed packages of that name, and makes no crossing of it.
+_Avoid_: conflict, duplicate
+
+**Label**:
+What people call a workspace in a collection: its `package.json` name, else
+its directory's name, told apart from an equal one by its parent directory,
+then by its id's first digits. Ids identify workspaces; labels only name
+them.
+_Avoid_: workspace name (that is the `package.json` name alone), title
+
+**Collection manifest**:
+The workspaces of a collection, where each one's dataset is, and the
+crossings between them, derived from their saved manifests, never kept as
+state; `atlas export` writes it beside the datasets it copies. It is not a
+lens: a lens reads one dataset and is saved in it.
+_Avoid_: collection dataset, manifest alone (that is a dataset's)
 
 ### What reads a dataset
 

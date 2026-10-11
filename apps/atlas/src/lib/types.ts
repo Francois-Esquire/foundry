@@ -553,9 +553,22 @@ export interface VerificationResult {
   status: "pass" | "fail";
 }
 
+/**
+ * One edit a mutator makes on a public route, as the statement reads before
+ * and after it; `after` is null when the statement is removed. A declaration
+ * shows its first line only.
+ */
+export interface MutationEdit {
+  after: string | null;
+  before: string;
+  file: string;
+}
+
 export interface MutationResult {
   blockers?: PlanBlocker[];
   changedFiles: string[];
+  /** Every edit, in route order; present once every route was edited. */
+  edits?: MutationEdit[];
   observedDelta?: StructuralDelta;
   operator: string;
   plan: ReductionPlan;

@@ -24,6 +24,11 @@ function streamOf(events: SessionEvent[]): SessionStream {
     },
     message: Promise.resolve({} as SessionMessage),
     outcome: Promise.resolve("complete"),
+    output: Promise.resolve(undefined as never),
+    partialOutputStream: (async function* () {
+      // No structured output.
+    })(),
+    result: Promise.resolve(undefined),
     text: Promise.resolve(""),
     usage: Promise.resolve(USAGE),
   };

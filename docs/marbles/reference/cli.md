@@ -54,9 +54,20 @@ added, or the first HTTP body counts as a change, so the handler runs and
 anything it returns is started. Use the keys that `list` prints; a schedule's
 key is derived from its target and input, a monitor's from its source.
 
+Input the definition rejects is reported in one line on stderr, with exit
+code 1: what failed, the fields the definition takes, an `--input` to start
+from, and the schedule keys that carry input for it:
+
+```text
+marbles: "greet" input: name: Invalid input: expected string, received undefined. greet takes name (text). Pass --input '{"name":"…"}', or roll a schedule key that carries it: greet-88bab6d8.
+```
+
+`--input` that is not JSON is a usage error naming the flag.
+
 `roll` has nobody to answer a question. A run that reaches `ask.approval` or
-`ask.question` under `roll` is cancelled at the ask, the CLI prints that the
-run needs an answer and was cancelled, and exits 1. Everything before the ask
+`ask.question` under `roll` is cancelled at the ask, the CLI prints
+`marbles: run "<name>" was cancelled: "<title>" is waiting for an answer`
+and exits 1. Everything before the ask
 ran. Launch such runs from the dashboard instead, or by a schedule or monitor
 while the dashboard is open.
 
@@ -68,7 +79,7 @@ and sends output to `~/Library/Logs/marbles/<key>.log`. Under `--dry-run` it
 changes nothing: `install` prints the plist path and contents and the
 `launchctl` commands, `uninstall` the `launchctl bootout` command and the
 plist it would remove. See
-the [launchd guide](/marbles/guides/launchd).
+the [launchd reference](/marbles/reference/launchd).
 
 ## Flags
 
