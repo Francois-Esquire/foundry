@@ -10,6 +10,16 @@
       ],
       "ignore": ["test/lib/fixtures/**"]
     },
+    "apps/foundry.sh": {
+      "ignore": ["src/components/ascii-*.{ts,tsx}"],
+      "ignoreDependencies": [
+        "@react-three/fiber",
+        "@react-three/postprocessing",
+        "@types/three",
+        "postprocessing",
+        "three"
+      ]
+    },
     "apps/marbles": {
       "ignoreDependencies": [
         "@ai-sdk/openai-compatible",
@@ -18,12 +28,9 @@
         "@fal-ai/client",
         "@foundry/core",
         "@noble/hashes",
-        "ai-sdk-provider-claude-code",
         "ai-sdk-provider-codex-cli",
-        "evlog",
         "ignore",
-        "simple-git",
-        "unique-names-generator"
+        "simple-git"
       ],
       "entry": ["examples/**/*.ts", "templates/**/*.ts"]
     },
