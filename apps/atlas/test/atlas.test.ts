@@ -40,7 +40,11 @@ import { serve } from "../src/lib/serve";
 import type { WorkspaceState } from "../src/lib/state";
 import { workspaceState } from "../src/lib/state";
 import { startServer } from "../src/server/server";
-import { loadAtlas, loadLateReadings } from "../src/web/load-atlas";
+import {
+  loadAtlas,
+  loadImports,
+  loadLateReadings,
+} from "../src/web/load-atlas";
 import { loadInternals } from "../src/web/load-internals";
 import { CLI, spawnCli, spawnDetached } from "./helpers/cli";
 import { commitFixture } from "./helpers/commit-fixture";
@@ -157,7 +161,7 @@ test("serve(root) serves the saved dataset and the viewer, frees its port on sto
   const { directory, workspace } = await fixture();
   const state = join(directory, "state");
   await mkdir(workspace.output, { recursive: true });
-  const manifest = '{ "schemaVersion": 4, "packages": [] }\n';
+  const manifest = '{ "schemaVersion": 5, "packages": [] }\n';
   await writeFile(join(workspace.output, "manifest.json"), manifest);
   const root = join(directory, "workspace");
   const server = await serve(root, { port: 0, state });
@@ -199,11 +203,11 @@ test("serve(root) refuses an invalid port, and a workspace with no saved dataset
     '{ "schemaVersion": 3 }\n'
   );
   await expect(serve(workspace.root, { port: 0, state })).rejects.toThrow(
-    "Atlas reads dataset schema version 4; this dataset has version 3. Run atlas scan to save it again."
+    "Atlas reads dataset schema version 5; this dataset has version 3. Run atlas scan to save it again."
   );
 });
 
-/** A hand-written schema 4 manifest that holds what the collection manifest reads. */
+/** A hand-written schema 5 manifest that holds what the collection manifest reads. */
 function collectionFixtureManifest(
   generatedAt: string,
   packages: {
@@ -221,7 +225,7 @@ function collectionFixtureManifest(
       status: "complete",
       ...entry,
     })),
-    schemaVersion: 4,
+    schemaVersion: 5,
     workspace: { root: "fixture" },
   });
 }
@@ -341,7 +345,7 @@ test("serve.collection derives the collection manifest per request and serves ea
     );
     await write(product, '{ "schemaVersion": 3 }');
     expect(await (await data("collection-manifest.json")).text()).toBe(
-      `Workspace ${product.root}: Atlas reads dataset schema version 4; this dataset has version 3. Run atlas scan to save it again.`
+      `Workspace ${product.root}: Atlas reads dataset schema version 5; this dataset has version 3. Run atlas scan to save it again.`
     );
   } finally {
     await server.stop();
@@ -391,7 +395,7 @@ test("built CLI scans an external workspace and the web loaders read its saved d
     ) as DatasetManifest;
   };
   const first = await runScan();
-  expect(first.schemaVersion).toBe(4);
+  expect(first.schemaVersion).toBe(5);
   expect(first.generation.packageFailures).toBe(0);
   expect(first.generation.packagesAnalyzed).toBeGreaterThan(0);
   const second = await runScan();
@@ -743,6 +747,20 @@ test("built CLI scans an external workspace and the web loaders read its saved d
     expect(performance.getEntriesByName("atlas:readings-loaded")).toHaveLength(
       1
     );
+    // No edge shard is read at load: each file's counts come from the module
+    // index, and the edges themselves from a trace.
+    expect(atlas.fileEdges).toEqual([]);
+    const edges = await loadImports(atlas);
+    const files = atlas.territories.flatMap((item) => item.files);
+    expect(edges.length).toBeGreaterThan(0);
+    expect(edges).toHaveLength(
+      files.reduce((sum, file) => sum + file.outgoing, 0)
+    );
+    for (const file of files) {
+      expect(edges.filter((edge) => edge.target === file.id)).toHaveLength(
+        file.incoming
+      );
+    }
     const grouped = groups.packages.find((entry) => entry.id === pkg.id);
     expect(territory.responsibilityGroups).toEqual(
       grouped && { groups: grouped.groups, independent: grouped.independent }
@@ -767,9 +785,7 @@ test("built CLI scans an external workspace and the web loaders read its saved d
     );
     await expect(
       loadInternals(pkg.id, fileRoles, "2000-01-01T00:00:00.000Z", signal)
-    ).rejects.toThrow(
-      "A later scan replaced the dataset. Reload Atlas to see it."
-    );
+    ).rejects.toThrow("A later scan replaced this dataset. Reload to see it.");
     await rm(join(workspace.output, "internals", filename));
     await expect(
       loadInternals(pkg.id, fileRoles, second.generatedAt, signal)
@@ -946,7 +962,7 @@ describe("built CLI commands", () => {
     expect(await lens(["places"])).toEqual({
       code: 2,
       stderr:
-        "Atlas: atlas lens takes domains, file-roles, frequent-change, nesting, package-sizes, placement, proximity, responsibility-groups, or rules.\nRun atlas --help for usage.\n",
+        "Atlas: atlas lens takes domains, file-roles, frequent-change, import-traffic, nesting, package-sizes, placement, proximity, responsibility-groups, or rules.\nRun atlas --help for usage.\n",
       stdout: "",
     });
   });
@@ -1858,7 +1874,7 @@ test("built CLI includes Git history when requested", async () => {
 test("source and built CLI serve generated files from an external workspace", async () => {
   const { workspace, directory } = await fixture();
   await mkdir(workspace.output, { recursive: true });
-  const manifest = '{ "schemaVersion": 4, "unchanged": true }\n';
+  const manifest = '{ "schemaVersion": 5, "unchanged": true }\n';
   await writeFile(join(workspace.output, "manifest.json"), manifest);
   for (const entry of [
     resolve(import.meta.dirname, "../src/cli/atlas.ts"),

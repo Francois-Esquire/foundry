@@ -760,7 +760,8 @@ this order, which is deliberate (2.2e comes before 2.2d):
 defines: every meaning it drew from its own counting is now `lib`'s, through
 a lens or the projection, except the per-module import counts, which equal
 `gravity.fanIn` and `fanOut` (pinned in `test/lib/semantics.test.ts`) and
-are kept so that the codex reads no module shard; and the `_review.md`
+are kept so that the codex reads no module shard (resolved in 4.4b: the
+module index carries them, and the recount is gone); and the `_review.md`
 finding that the viewer recomputes the analysis is resolved (the review
 itself is a dated snapshot, left as it was).
 - 2.2a `file-roles`: file roles unchanged (1,517 of 1,517 Foundry files
@@ -1625,7 +1626,9 @@ saved in the dataset, each with its own schema version; the viewer reads
 four of them (`package-sizes`, `file-roles`, `responsibility-groups`, and
 `frequent-change`) and computes nothing the analysis defines (2.2) apart
 from the per-module import counts, which are pinned to gravity, and
-`atlas lens <id>` prints any of them (2.7).
+`atlas lens <id>` prints any of them (2.7). Resolved in 4.4b: the module
+index carries each file's gravity fan-in and fan-out, and the viewer reads
+them there instead of recounting the edge shards.
 - 2.1: the lens layer, with `package-sizes`; 2.2: `file-roles`,
   `responsibility-groups`, and `frequent-change`, with neighborhoods and
   the pair re-aggregations retired.
@@ -3789,6 +3792,99 @@ current zoom needs.
     94 KB, and the edges would be read on Trace imports. Count-only
     `placement` and the `nesting` projection would follow, once it is
     settled how a lens publishes a projection.
+- **4.4b, done.** 2026-10-11. The coordinator's rulings on the `lib/`
+  asks: the pairs as a new lens, the counts in the module index, the edge
+  shards read on Trace imports only, a second manifest check after every
+  late read, and the projections deferred.
+  - `lib/`, self-contained:
+    - The new `import-traffic` lens (schema 1) lists every ordered package
+      pair the module edges cross, `{ from, to, consumerFiles,
+      supplierFiles }`, sorted by code unit, joined once at scan time by
+      `importPairs`. That is the join the codex did (`pairEndpoints`), which
+      retires. It is registered in `LENSES`, its stage, the lens views
+      (`atlas lens import-traffic`), and the docs.
+    - Each module index entry carries `fanIn` and `fanOut`, counted from
+      the edge shards written in the same step. Every indexed module has
+      them, a failed package's included, so an unknown count never reads
+      as 0. They equal the record's gravity wherever gravity was observed.
+      (The first cut copied gravity, which leaves a failed package's files
+      without counts; review caught it.) `DATASET_SCHEMA_VERSION` is 5, so a
+      schema 4 dataset is refused with the message to scan again, and the
+      reader's fallback for a manifest without `lenses` is gone. It is
+      logged under Changes to existing code.
+    - A collection names the workspace whose dataset cannot be read when
+      it starts ("Workspace <root>: …"), as reading its manifest later
+      does (`savedCollection`).
+  - The viewer reads each file's import counts from the index and each
+    pair's endpoint files from the lens; no edge shard is read at load.
+    Trace imports reads every edge shard the first time it is asked
+    (`loadImports`), with "Reading imports…" on the button (`aria-busy`)
+    and a status line until they arrive. A failed read says why beside a
+    Retry button, which reads again in one click, the trace still on. Both
+    late reads check the manifest again once done (`stillTheSameDataset`),
+    so a scan that published while they read is refused. A replaced dataset
+    reads "A later scan replaced this dataset. Reload to see it." for the
+    late readings, a trace, and an island's internals alike (`pinnedRead`
+    in `web/dataset.ts`; the internals said "Reload Atlas" before).
+  - Measured on fresh scans of this tree, `d237d24` (schema 4) against
+    this unit (schema 5), alternating, three runs each
+    (`/tmp/review-shots/4.4b/marks.txt`):
+
+    | | Read before data-loaded | Read after it |
+    | --- | --- | --- |
+    | Before | 22 requests, 2,037,258 bytes | 3 requests, 239,323 bytes |
+    | After | 9 requests, 809,003 bytes | 4 requests, 253,148 bytes |
+
+    The after-load read gains the second manifest check (13,752 bytes).
+    The module index grows by 34,099 bytes (378,223) for the counts. The
+    lens is 21,089 bytes, against 1,283,516 in the 14 edge shards.
+
+    | Timing | Before | After |
+    | --- | --- | --- |
+    | data-loaded, full speed | 64.4–84.9 ms | 72.9–78.7 ms |
+    | first frame, full speed | 2,635–2,658 ms | 2,642–2,665 ms |
+    | data-loaded, 10 Mbit/s, 40 ms | 3,049–3,067 ms | 2,018–2,019 ms |
+    | first frame, 10 Mbit/s | 5,751–5,780 ms | 4,739–4,760 ms |
+
+    Locally the bytes cost little. Throttled, the critical read is a
+    second shorter, and the first frame a second sooner.
+  - The first trace reads the manifest, the module index again for the
+    shard list (378,223 bytes), the 14 shards (1,283,516), and the
+    manifest for the check.
+  - Unchanged on screen: 0 differing pixels at overview, at island zoom,
+    on the entered workspaces island, close in, and with
+    `workspace-system.ts` traced. Place's text is identical before and
+    after, for the island and for the file ("7 import edges ending here
+    … imports 8 modules"), and with the trace on.
+  - Tests:
+    - `import-traffic-lens.test.ts`: the join, code-unit order, no
+      crossing, what the lens reads.
+    - `render-lens.test.ts`: the view.
+    - `semantics.test.ts`: the index's counts equal the edges in and out
+      for every module, and gravity wherever it was observed. A fixture
+      with `@s/b` failed, imported by `@s/a` and `@s/c`, carries edge
+      counts on files without gravity. The saved lens equals the join of
+      the scan's edges, and, checked independently of the join, the
+      fixture's literal pairs (`@s/a` and `@s/c` into `@s/b`'s barrel).
+    - `collection-scan.test.ts`: a schema 4 workspace in a collection is
+      named at startup.
+    - `codex/source.test.ts`: no shard, module or edge, is read at load;
+      a dataset without the lens is refused.
+    - `codex/resolve.test.ts`: counts from the index, 0 without gravity;
+      endpoints from the lens.
+    - `atlas-shell.test.ts`: the first trace reads once, says so, and
+      hands the edges to the scene; a failure says why, and one click on
+      Retry reads again. `web/dataset.test.ts`: a replaced dataset tells
+      the reader to reload.
+    - `atlas.test.ts`: over the real server, no edges at load, then
+      `loadImports` matching every file's counts.
+    - The registry, CLI and package tests for the new lens and schema 5.
+  - Follow-up, deferred (recorded here, not started): count-only
+    `placement` (29 KB without symbol places, against 194 KB on this scan)
+    and the `nesting` projection (31 KB against 80 KB). Both need a
+    lens-projection mechanism: how a lens publishes a second artifact, and
+    how `DatasetReader` exposes it. `placement` cannot change in place,
+    because the `domains` lens reads its consumer-module lists.
 
 ## Phase 5: many workspaces
 
@@ -4164,4 +4260,5 @@ Every change to analysis code, with its reason, before it is made.
 | `apply.ts` gains `beforeWrite` (required to write), `expectedHashes` (checked before and after it), and `afterChecks` options and `RestoreError`; writes and restores are flushed; the restore guard compares the written bytes by SHA-256 and reports what it restored and skipped. | The journal must be flushed before the first write (A1), each file checked against the rollback's hash just before it (A2), and the scripts run again inside the restoring `try` (A6). | Done in 3.5 (b). |
 | `semantics-fingerprint.ts` gains `workspaceInputsHash`, one hash over the five workspace input components, and `collectWorkspaceInputs` takes only what it reads (`exclude`, and units by `path`); the manifest's `generation` gains an optional `inputs: { hash, config }` (`dataset-manifest.ts`, `semantics-types.ts`, written by `generateSemantics`). No fingerprint, cache key, or report changes. | Apply takes "before" from the saved report only when the dataset is proven current (A9), and plan checks the same without running the configuration, so it needs the config component apart. | Done in 3.6. |
 | `apply.ts` gains a `before` option, the target's report before the write; `atlas apply` passes the saved one, and its `analyzeAfter` passes the staged scan's, so the mutator runs no `analyzeSurface` on that path. Validation and verification are unchanged. | 3.0's largest saving (item 4); the saved and the staged reports agree with a fresh analysis on every field validation and verification read, which a test checks. | Done in 3.6. |
+| `semantics.ts`'s materialization gives each module index entry `fanIn` and `fanOut` (`SemanticsModuleIndexEntry`, required), its import edges in and out counted from the edge shards it writes in the same step, so every indexed module has them, a failed package's included, and they equal the record's `gravity.fanIn` and `fanOut` wherever gravity was observed; `DATASET_SCHEMA_VERSION` is 5, and the reader's fallback for a schema 4 manifest without `lenses` goes with it. Dataset and materialization code only: no analysis, report, or record changes. The `materialization` stage's fingerprint moves with the dataset version, but nothing uses it as a cache key, so every package's cached results are still reused; a dataset saved at schema 4 is refused with the usual message to scan again. | The viewer recounted every file's imports from all 14 edge shards at load (1.2 MB on Foundry) to get numbers the edges already give (4.4b); the index is read at load anyway. | Done in 4.4b. |
 | `semantics-discover.ts` records the name each skipped unit's `package.json` gives, read tolerantly, as the manifest's optional `discovery.unitsSkipped[].name` (`semantics-types.ts`). Discovery only: no fingerprint, cache key, or report changes, and dataset schema 4 keeps its number. | A collection counts a workspace's skipped packages as its own, so a dependency on one never crosses to another workspace's package of that name. | Done in 5.2. |

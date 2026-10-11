@@ -48,7 +48,7 @@ function dataset(overrides: Record<string, unknown> = {}) {
         { id: "@s/b", report: "packages/@s__b.json", status: "complete" },
         { error: "boom", id: "@s/c", status: "failed" },
       ],
-      schemaVersion: 4,
+      schemaVersion: 5,
     },
     "modules/@s__a.json": { modules: [{ id: "a.ts" }], package: "@s/a" },
     "modules/edges/@s__a.json": { edges: [], package: "@s/a" },
@@ -88,7 +88,7 @@ describe("the manifest", () => {
       "manifest.json": { ...files["manifest.json"], schemaVersion: 3 },
     });
     await expect(saved.manifest()).rejects.toThrow(
-      "Atlas reads dataset schema version 4; this dataset has version 3. Run atlas scan to save it again."
+      "Atlas reads dataset schema version 5; this dataset has version 3. Run atlas scan to save it again."
     );
   });
 
@@ -199,14 +199,6 @@ describe("one lens", () => {
     });
   };
 
-  /** A schema 4 dataset saved before lenses existed: its manifest has no `lenses` key. */
-  const beforeLenses = () => {
-    const {
-      "manifest.json": { lenses: _lenses, ...manifest },
-    } = dataset();
-    return dataset({ "manifest.json": manifest });
-  };
-
   it("reads its output through the manifest and nothing else", async () => {
     const { dataset: saved, reads } = reader();
     await expect(saved.lens("package-sizes")).resolves.toEqual({
@@ -215,9 +207,8 @@ describe("one lens", () => {
     expect(reads).toEqual(["manifest.json", "lenses/package-sizes.json"]);
   });
 
-  it("is refused when the dataset was saved before lenses existed", async () => {
-    const { dataset: saved } = reader(beforeLenses());
-    await expect(saved.manifest()).resolves.toMatchObject({ lenses: {} });
+  it("is refused when the dataset was saved before the lens existed", async () => {
+    const { dataset: saved } = reader(withLens(undefined));
     await expect(saved.lens("package-sizes")).rejects.toThrow(
       "The dataset has no package-sizes lens. Run atlas scan again."
     );

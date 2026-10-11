@@ -4,6 +4,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { LateCodex } from "../../src/web/codex/vocabulary";
+import { REPLACED_MESSAGE } from "../../src/web/dataset";
 import { inkStyle } from "../../src/web/scene/ink-ladder";
 import { createAtlasScene } from "../../src/web/scene/scene";
 import { inspectionText } from "../../src/web/ui/atlas-place";
@@ -844,5 +845,85 @@ it("tells an island's proximity and path regions once the readings read after lo
       proximity: expect.objectContaining({ labelled: [territory.id] }),
     })
   );
+  vi.unstubAllGlobals();
+});
+
+it("reads every import edge the first time a trace asks, says so while it reads, and hands them to the scene", async () => {
+  const data = { ...(await loadAtlas()), fileEdges: [] };
+  const [territory] = data.territories;
+  assert(territory);
+  const edges = [{ source: "a.ts", target: "b.ts" }];
+  let arrive: (value: typeof edges) => void = () => undefined;
+  const imports = vi.fn(
+    () =>
+      new Promise<typeof edges>((done) => {
+        arrive = done;
+      })
+  );
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(() => new Promise(() => undefined))
+  );
+  await act(async () => {
+    root.render(createElement(Atlas, { data, imports }));
+  });
+  // Nothing is read until a trace asks.
+  expect(imports).not.toHaveBeenCalled();
+  await act(async () => button("Find a place").click());
+  const island = container.querySelector<HTMLButtonElement>(
+    `.atlas-index button[value="${territory.id}"]`
+  );
+  assert(island);
+  await act(async () => island.click());
+  await act(async () => button("Trace imports").click());
+  expect(imports).toHaveBeenCalledTimes(1);
+  expect(button("Reading imports…").getAttribute("aria-busy")).toBe("true");
+  expect(container.textContent).toContain("Reading imports…");
+  await act(async () => {
+    arrive(edges);
+    await Promise.resolve();
+  });
+  expect(button("Hide imports").getAttribute("aria-pressed")).toBe("true");
+  const scene = await vi.mocked(createAtlasScene).mock.results.at(-1)?.value;
+  expect(scene?.setData).toHaveBeenLastCalledWith(
+    expect.objectContaining({ fileEdges: edges })
+  );
+  // Read once: tracing again reads nothing more.
+  await act(async () => button("Hide imports").click());
+  await act(async () => button("Trace imports").click());
+  expect(imports).toHaveBeenCalledTimes(1);
+  vi.unstubAllGlobals();
+});
+
+it("says when the import edges could not be read, and reads them again on one click of Retry", async () => {
+  const data = { ...(await loadAtlas()), fileEdges: [] };
+  const [territory] = data.territories;
+  assert(territory);
+  const imports = vi
+    .fn<() => Promise<{ source: string; target: string }[]>>()
+    .mockRejectedValueOnce(new Error(REPLACED_MESSAGE))
+    .mockResolvedValue([]);
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(() => new Promise(() => undefined))
+  );
+  await act(async () => {
+    root.render(createElement(Atlas, { data, imports }));
+  });
+  await act(async () => button("Find a place").click());
+  const island = container.querySelector<HTMLButtonElement>(
+    `.atlas-index button[value="${territory.id}"]`
+  );
+  assert(island);
+  await act(async () => island.click());
+  await act(async () => button("Trace imports").click());
+  expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+    "Imports could not be read: A later scan replaced this dataset. Reload to see it."
+  );
+  // One click on Retry reads again, with the trace still on.
+  await act(async () => button("Retry").click());
+  expect(imports).toHaveBeenCalledTimes(2);
+  expect(container.textContent).not.toContain("Imports could not be read");
+  expect(button("Hide imports").getAttribute("aria-pressed")).toBe("true");
   vi.unstubAllGlobals();
 });

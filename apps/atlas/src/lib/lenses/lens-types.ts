@@ -9,6 +9,8 @@ import type { FileRoles } from "./file-roles-types";
 import { FILE_ROLES_SCHEMA_VERSION } from "./file-roles-types";
 import type { FrequentChange } from "./frequent-change-types";
 import { FREQUENT_CHANGE_SCHEMA_VERSION } from "./frequent-change-types";
+import type { ImportTraffic } from "./import-traffic-types";
+import { IMPORT_TRAFFIC_SCHEMA_VERSION } from "./import-traffic-types";
 import type { Nesting } from "./nesting-types";
 import { NESTING_SCHEMA_VERSION } from "./nesting-types";
 import type { PackageSizes } from "./package-sizes-types";
@@ -30,6 +32,7 @@ export interface LensOutputs {
   domains: Domains;
   "file-roles": FileRoles;
   "frequent-change": FrequentChange;
+  "import-traffic": ImportTraffic;
   nesting: Nesting;
   "package-sizes": PackageSizes;
   placement: Placements;
@@ -46,6 +49,7 @@ export const LENS_SCHEMA_VERSIONS: Record<LensId, number> = {
   domains: DOMAINS_SCHEMA_VERSION,
   "file-roles": FILE_ROLES_SCHEMA_VERSION,
   "frequent-change": FREQUENT_CHANGE_SCHEMA_VERSION,
+  "import-traffic": IMPORT_TRAFFIC_SCHEMA_VERSION,
   nesting: NESTING_SCHEMA_VERSION,
   "package-sizes": PACKAGE_SIZES_SCHEMA_VERSION,
   placement: PLACEMENT_SCHEMA_VERSION,

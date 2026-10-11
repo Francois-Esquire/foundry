@@ -9,10 +9,13 @@ import { useAtlasState } from "./use-atlas-state";
 export default function Atlas({
   data,
   developer = false,
+  imports,
   late,
   mapOnly = false,
 }: {
   data: AtlasData;
+  /** Reads every import edge, for Trace imports (`loadImports`); without it, the atlas's own edges are traced. */
+  imports?: () => Promise<AtlasData["fileEdges"]>;
   /** The readings read after load (`loadLateReadings`), merged when they arrive. */
   late?: Promise<LateCodex>;
   /** A developer session; see `AtlasState.developer`. */
@@ -20,7 +23,7 @@ export default function Atlas({
   mapOnly?: boolean;
 }) {
   const [initial] = useState(() => createAtlasState(data, developer));
-  const { state, ...actions } = useAtlasState(initial, late);
+  const { state, ...actions } = useAtlasState(initial, late, imports);
   const shell = useRef<AtlasShellHandle>(null);
   const openSettings = useCallback(() => shell.current?.openSettings(), []);
   const map = (

@@ -51,8 +51,10 @@ into `responsibility-groups` (2.2b), and craters into `frequent-change`
 (2.2e); 2.2d retired the neighborhoods for responsibilities; and 2.2f made
 package-pair traffic read the dependency graph's counts, with each pair's
 endpoint files joined once in the codex. No viewer duplicate of `lib`
-remains, except the per-module import counts, which equal `gravity.fanIn`
-and `fanOut` (pinned; kept so the codex reads no module shard). Details, the settings split, and what is reusable are in
+remains: the per-module import counts, which equal `gravity.fanIn` and
+`fanOut`, were the last, and since 4.4b the viewer reads them from the
+module index, and each pair's endpoint files from the `import-traffic`
+lens. Details, the settings split, and what is reusable are in
 [`_review.md`](./_review.md#the-viewer), a dated snapshot.
 
 ## What the viewer is today

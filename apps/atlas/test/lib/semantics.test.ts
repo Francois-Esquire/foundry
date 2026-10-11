@@ -19,6 +19,7 @@ import { ANALYSIS_CONFIG } from "../../src/lib/config";
 import { datasetReader } from "../../src/lib/dataset";
 import { fileTransport } from "../../src/lib/dataset-files";
 import { encodePackageFile } from "../../src/lib/dataset-layout";
+import { importPairs } from "../../src/lib/lenses/import-traffic";
 import { analyzePackageLocal } from "../../src/lib/package-local";
 import type {
   SemanticsDeriver,
@@ -450,6 +451,10 @@ describe("generation", () => {
         file: "lenses/frequent-change.json",
         schemaVersion: 1,
       },
+      "import-traffic": {
+        file: "lenses/import-traffic.json",
+        schemaVersion: 1,
+      },
       nesting: { file: "lenses/nesting.json", schemaVersion: 1 },
       "package-sizes": {
         file: "lenses/package-sizes.json",
@@ -684,14 +689,33 @@ describe("generation", () => {
     expect(shape?.dependencies.incoming).toEqual([]);
   });
 
-  it("gives the viewer each module's import counts as its saved gravity fan-in and fan-out", async () => {
+  it("saves each module's import edges in and out in the module index, equal to gravity where observed, and gives the viewer them as its import counts", async () => {
     const reader = datasetReader(fileTransport(dataset));
+    const index = await reader.moduleIndex();
     const codex = resolveCodex(await readCodexSource(reader));
     const records = (await reader.moduleShards()).flatMap((s) => s.modules);
+    expect(index.modules).toHaveLength(records.length);
     expect(codex.modules).toHaveLength(records.length);
-    for (const record of records) {
-      const counted = codex.modules.find((m) => m.id === record.id);
+    const edges = (await reader.moduleEdgeShards()).flatMap((s) => s.edges);
+    // The counts are the import edges in and out, as the edge shards hold
+    // them, for every indexed module; the viewer takes them as they are.
+    for (const entry of index.modules) {
+      expect([entry.fanIn, entry.fanOut]).toEqual([
+        edges.filter((edge) => edge.target === entry.id).length,
+        edges.filter((edge) => edge.source === entry.id).length,
+      ]);
+      const counted = codex.modules.find((m) => m.id === entry.id);
       expect([counted?.dependents, counted?.dependencies]).toEqual([
+        entry.fanIn,
+        entry.fanOut,
+      ]);
+    }
+    // And they equal gravity wherever gravity was observed.
+    const observed = records.filter((record) => record.gravity !== undefined);
+    expect(observed.length).toBeGreaterThan(0);
+    for (const record of observed) {
+      const entry = index.modules.find((m) => m.id === record.id);
+      expect([entry?.fanIn, entry?.fanOut]).toEqual([
         record.gravity?.fanIn,
         record.gravity?.fanOut,
       ]);
@@ -699,9 +723,33 @@ describe("generation", () => {
   });
 
   it("gives each package pair as many module edges as import edges between its endpoint files", async () => {
-    const codex = resolveCodex(
-      await readCodexSource(datasetReader(fileTransport(dataset)))
-    );
+    const reader = datasetReader(fileTransport(dataset));
+    const codex = resolveCodex(await readCodexSource(reader));
+    const edges = (await reader.moduleEdgeShards()).flatMap((s) => s.edges);
+    // The scan saves the pairs the edges cross, joined once.
+    const index = await reader.moduleIndex();
+    const traffic = await reader.lens("import-traffic");
+    expect(traffic).toEqual({
+      pairs: importPairs(
+        edges,
+        new Map(index.modules.map((m) => [m.id, m.package]))
+      ),
+    });
+    // Independently of the join: the fixture's two importers of b's barrel.
+    expect(traffic.pairs).toEqual([
+      {
+        consumerFiles: ["apps/a/src/index.test.ts", "apps/a/src/index.ts"],
+        from: "@s/a",
+        supplierFiles: ["packages/b/src/index.ts"],
+        to: "@s/b",
+      },
+      {
+        consumerFiles: ["tooling/c/src/index.ts"],
+        from: "@s/c",
+        supplierFiles: ["packages/b/src/index.ts"],
+        to: "@s/b",
+      },
+    ]);
     expect(codex.dependencies.length).toBeGreaterThan(0);
     for (const dependency of codex.dependencies) {
       expect(dependency.consumerFiles.length).toBeGreaterThan(0);
@@ -709,7 +757,7 @@ describe("generation", () => {
       const consumers = new Set(dependency.consumerFiles);
       const suppliers = new Set(dependency.supplierFiles);
       expect(
-        codex.imports.filter(
+        edges.filter(
           (edge) => consumers.has(edge.source) && suppliers.has(edge.target)
         )
       ).toHaveLength(dependency.strength);
@@ -962,6 +1010,37 @@ describe("failure handling", () => {
     ) as WorkspaceOverviewProjection;
     expect(overview.coverage.packagesAnalyzed).toBe(2);
     expect(overview.coverage.packagesKnown).toBe(3);
+    rmSync(root, { force: true, recursive: true });
+  });
+
+  it("counts a failed package's files' imports from the edges, though its gravity is unknown", async () => {
+    const root = copyFixture();
+    const analyzeLocal: SemanticsLocalAnalyzer = (unit, context) =>
+      unit.id === "@s/b"
+        ? Promise.reject(new Error("boom"))
+        : inProcessLocal(unit, context);
+    const result = await generateSemantics({
+      analyzeLocal,
+      derive: inProcessDerive,
+      now,
+      root,
+    });
+    const reader = datasetReader(fileTransport(result.output));
+    const index = await reader.moduleIndex();
+    const records = (await reader.moduleShards()).flatMap((s) => s.modules);
+    const edges = (await reader.moduleEdgeShards()).flatMap((s) => s.edges);
+    const failed = index.modules.filter((m) => m.package === "@s/b");
+    expect(failed.length).toBeGreaterThan(0);
+    // Imported from the other packages, with no gravity of its own to copy.
+    const imported = failed.filter((m) => m.fanIn > 0);
+    expect(imported.length).toBeGreaterThan(0);
+    for (const entry of failed) {
+      expect(records.find((r) => r.id === entry.id)?.gravity).toBeUndefined();
+      expect([entry.fanIn, entry.fanOut]).toEqual([
+        edges.filter((edge) => edge.target === entry.id).length,
+        edges.filter((edge) => edge.source === entry.id).length,
+      ]);
+    }
     rmSync(root, { force: true, recursive: true });
   });
 

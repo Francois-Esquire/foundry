@@ -39,6 +39,7 @@ interface LensOutputs {
   domains: Domains;
   "file-roles": FileRoles;
   "frequent-change": FrequentChange;
+  "import-traffic": ImportTraffic;
   nesting: Nesting;
   "package-sizes": PackageSizes;
   placement: Placements;

@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { pairEndpoints } from "../../src/web/codex/resolve";
+import { importPairs } from "../../src/lib/lenses/import-traffic";
 import type { AtlasData, AtlasRoute, Territory } from "../../src/web/types";
 
 /** The capture, saved before routes carried their endpoint files, before the layer scale, and before islands knew their folders. */
@@ -26,19 +26,29 @@ function capturedFolder(territory: Omit<Territory, "folder">): string {
 
 /**
  * Original renderer input, captured before migration. Each test gets its own
- * copy. Its routes gain their endpoint files through the codex's own join, as
+ * copy. Its routes gain their endpoint files through the import-traffic lens's join, as
  * `loadAtlas` gives them now.
  */
 export async function loadAtlas(): Promise<AtlasData> {
   const captured = JSON.parse(
     readFileSync(resolve(import.meta.dirname, "../fixtures/atlas.json"), "utf8")
   ) as CapturedAtlas;
-  const endpoints = pairEndpoints(
-    captured.fileEdges,
-    new Map(
-      captured.territories.flatMap((p) => p.files.map((f) => [f.id, p.id]))
-    )
+  // Joined as the import-traffic lens joins them at scan time.
+  const pairs = new Map(
+    importPairs(
+      captured.fileEdges,
+      new Map(
+        captured.territories.flatMap((p) => p.files.map((f) => [f.id, p.id]))
+      )
+    ).map((pair) => [`${pair.from}→${pair.to}`, pair])
   );
+  const endpoints = (from: string, to: string) => {
+    const pair = pairs.get(`${from}→${to}`);
+    return {
+      consumerFiles: pair?.consumerFiles ?? [],
+      supplierFiles: pair?.supplierFiles ?? [],
+    };
+  };
   return {
     ...captured,
     // Nor nesting, domains, or the cell trees the layout of its day did not make.

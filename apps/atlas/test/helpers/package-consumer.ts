@@ -154,7 +154,7 @@ type Entry = DatasetManifest["packages"][number];
 const status: Entry["status"] = "complete";
 // @ts-expect-error A package the scan tried is complete or failed.
 const skipped: Entry["status"] = "skipped";
-const dataset: 4 = DATASET_SCHEMA_VERSION;
+const dataset: 5 = DATASET_SCHEMA_VERSION;
 const historySchema: 1 = HISTORY_SCHEMA_VERSION;
 const caught = (error: unknown): boolean =>
   error instanceof DatasetNotFoundError || error instanceof DatasetReplacedError;

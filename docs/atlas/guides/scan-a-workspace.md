@@ -130,7 +130,7 @@ messages you are most likely to meet:
   build it; or use `scan` alone.
 - `No dataset found for <root> in <output>`: `serve`, `report`,
   `lens`, or `export` on a workspace that has never been scanned with this `--state`. Run `atlas scan` first.
-- `Atlas reads dataset schema version 4; this dataset has version <n>`:
+- `Atlas reads dataset schema version 5; this dataset has version <n>`:
   `serve`, `report`, `lens`, or `export` on a dataset saved by another
   Atlas version. Scan again.
 - `The dataset has no <id> lens. Run atlas scan again.`: `lens` on a

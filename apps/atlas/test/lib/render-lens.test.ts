@@ -327,6 +327,44 @@ describe("renderLens", () => {
       ].join("\n")
     );
   });
+  it("prints the import-traffic lens: counts, then package pairs by the files importing", () => {
+    const text = renderLens(
+      "import-traffic",
+      {
+        pairs: [
+          {
+            consumerFiles: ["ui/a.ts"],
+            from: "@s/ui",
+            supplierFiles: ["core/x.ts", "core/y.ts"],
+            to: "@s/core",
+          },
+          {
+            consumerFiles: ["app/m.ts", "app/n.ts"],
+            from: "@s/app",
+            supplierFiles: ["core/x.ts"],
+            to: "@s/core",
+          },
+        ],
+      },
+      { format: "text" }
+    );
+    expect(text).toBe(
+      [
+        "Import traffic",
+        "══════════════",
+        "Package pairs                         2",
+        "Files importing from another package  3",
+        "Files another package imports         2",
+        "",
+        "Pairs by importing files",
+        "  @s/app → @s/core  2",
+        "    2 files importing · 1 file imported",
+        "  @s/ui → @s/core   1",
+        "    1 file importing · 2 files imported",
+      ].join("\n")
+    );
+  });
+
   it("prints the nesting lens: the tree's size, folders with the most files, then seams", () => {
     const text = renderLens(
       "nesting",

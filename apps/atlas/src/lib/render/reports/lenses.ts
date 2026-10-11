@@ -4,6 +4,7 @@ import type { ReportView } from "../views";
 import { buildDomainsView } from "./domains";
 import { buildFileRolesView } from "./file-roles";
 import { buildFrequentChangeView } from "./frequent-change";
+import { buildImportTrafficView } from "./import-traffic";
 import { buildNestingView } from "./nesting";
 import { buildPackageSizesView } from "./package-sizes";
 import { buildPlacementView } from "./placement";
@@ -18,6 +19,7 @@ export const LENS_VIEWS: {
   domains: buildDomainsView,
   "file-roles": buildFileRolesView,
   "frequent-change": buildFrequentChangeView,
+  "import-traffic": buildImportTrafficView,
   nesting: buildNestingView,
   "package-sizes": buildPackageSizesView,
   placement: buildPlacementView,

@@ -41,13 +41,13 @@ imports from the renderer, so the folder moves as a unit. Tests are in
 | Placement `label`, `toward`, `home`, `away`, `share` | `placement` lens `places`: the label and target as saved; consumer modules counted at home and per other package; `share`, the most any one package holds (its own package counted as one of the packages) over all of them, unindexed consumers left out; `labelled`, the lens's `packages` |
 | Module `id`, `package`, `path`, `fileKind` | module index; a missing kind becomes `unknown`                            |
 | Module `directory`                         | path up to its last `/`                                                   |
-| Module `dependents`, `dependencies`        | edge shards, within and across packages; equal to the module record's `gravity.fanIn`, `fanOut` (pinned by `test/lib/semantics.test.ts`) |
+| Module `dependents`, `dependencies`        | module index `fanIn`, `fanOut`, the record's gravity copied at scan time (pinned by `test/lib/semantics.test.ts`); 0 where gravity was not observed |
 | Module `internalFanIn`, `highFanIn`        | `file-roles` lens `fanIn`, `highFanIn`, by module id; 0 and false for a package without internals |
 | Package `responsibilityGroups`             | `responsibility-groups` lens `groups` and `independent`; `undefined` for a package without internals |
 | Package `highFanInCutoff`, `fileRoles`     | `file-roles` lens `highFanInCutoff` and `modules`; 0 and `undefined` for a package without internals |
-| Import                                     | edge shards                                                               |
+| Import (`AtlasData.fileEdges`)             | edge shards, all of them, read only on Trace imports (`loadImports`); empty at load |
 | Dependency `strength`, `sharedConcepts`    | graph dependency edge `dependency.moduleEdges`, `concepts.total`          |
-| Dependency `consumerFiles`, `supplierFiles` | edge shards: the sources and targets of the edges from one package into the other, sorted; joined once by `pairEndpoints` |
+| Dependency `consumerFiles`, `supplierFiles` | `import-traffic` lens `pairs`, joined from the edge shards at scan time; none for a pair it does not list |
 | Declared dependency                        | manifest `packages[].declaredDependencies`, current packages only         |
 | Retired package `lastSeen`                 | `history/entities.json` checkpoints, latest complete snapshot             |
 
@@ -142,10 +142,10 @@ Against the design doc's open decisions:
 
 ## Analysis library
 
-The codex reads dataset schema 4 through the library's reader, which checks the
+The codex reads dataset schema 5 through the library's reader, which checks the
 schema version.
 `CodexSource` picks its fields from the library's own types (the manifest,
-module index, edge shards, graph projection, lenses, history entities, and
+module index, graph projection, lenses, history entities, and
 `SemanticsDeclaredDependencies`, with `SemanticsDeclaredDependencyKind` for the
 declared dependency kinds), so a renamed or removed field, or a new file kind,
 stops the codex compiling instead of reaching the map.

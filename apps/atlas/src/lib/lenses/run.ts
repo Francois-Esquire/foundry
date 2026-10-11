@@ -6,6 +6,7 @@ import type { DatasetManifest } from "../semantics-types";
 import { domainsLens } from "./domains";
 import { fileRolesLens } from "./file-roles";
 import { frequentChangeLens } from "./frequent-change";
+import { importTrafficLens } from "./import-traffic";
 import type { Lens, LensId, LensReader, LensSettings } from "./lens-types";
 import { nestingLens } from "./nesting";
 import { packageSizesLens } from "./package-sizes";
@@ -25,6 +26,7 @@ export type AnyLens = Lens<LensId, unknown, keyof LensSettings>;
 export const LENSES: readonly AnyLens[] = [
   fileRolesLens,
   frequentChangeLens,
+  importTrafficLens,
   nestingLens,
   packageSizesLens,
   placementLens,

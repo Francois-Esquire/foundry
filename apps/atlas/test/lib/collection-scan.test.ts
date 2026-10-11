@@ -1,4 +1,11 @@
-import { cpSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import {
+  cpSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, expect, it } from "vitest";
@@ -117,3 +124,15 @@ it(
   },
   SCAN_TIMEOUT_MS
 );
+
+it("names the workspace whose dataset another Atlas saved, when the collection starts", async () => {
+  const older = join(directory, "older-state");
+  cpSync(state, older, { recursive: true });
+  const { output } = await workspaceState(product, older);
+  const manifest = join(output, "manifest.json");
+  const saved = JSON.parse(readFileSync(manifest, "utf8")) as object;
+  writeFileSync(manifest, JSON.stringify({ ...saved, schemaVersion: 4 }));
+  await expect(savedCollection([platform, product], older)).rejects.toThrow(
+    `Workspace ${product}: Atlas reads dataset schema version 5; this dataset has version 4. Run atlas scan to save it again.`
+  );
+});

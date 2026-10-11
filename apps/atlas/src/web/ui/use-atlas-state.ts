@@ -39,7 +39,11 @@ function canonicalSelection(data: AtlasData, value: AtlasSelection | null) {
   };
 }
 
-export function useAtlasState(initial: AtlasState, late?: Promise<LateCodex>) {
+export function useAtlasState(
+  initial: AtlasState,
+  late?: Promise<LateCodex>,
+  imports?: () => Promise<AtlasData["fileEdges"]>
+) {
   const sourceData = initial.data;
   const [layoutSettings, setLayoutSettings] = useState(initial.layoutSettings);
   const geometry = useMemo(
@@ -52,10 +56,12 @@ export function useAtlasState(initial: AtlasState, late?: Promise<LateCodex>) {
   // The late readings join after the relayout, so their arrival keeps the
   // islands and the scene is not rebuilt.
   const readings = useLateReadings(late);
-  const data = useMemo(
-    () => (readings ? { ...geometry, ...readings } : geometry),
-    [geometry, readings]
-  );
+  const traced = useImports(imports);
+  const { edges } = traced;
+  const data = useMemo(() => {
+    const read = readings ? { ...geometry, ...readings } : geometry;
+    return edges ? { ...read, fileEdges: edges } : read;
+  }, [geometry, readings, edges]);
   const scene = useRef<AtlasMapHandle | null>(null);
   const [chosen, setSelection] = useState<AtlasSelection | null>(
     initial.selection
@@ -235,9 +241,14 @@ export function useAtlasState(initial: AtlasState, late?: Promise<LateCodex>) {
     },
     [select, selection, setMapLayer, territory]
   );
+  const { read: readImports } = traced;
   const toggleTrace = useCallback(() => {
+    if (!showConnections) {
+      // The first trace reads every import edge; the trace draws once they arrive.
+      readImports();
+    }
     setTracedSelection(showConnections ? null : selection);
-  }, [selection, setTracedSelection, showConnections]);
+  }, [readImports, selection, setTracedSelection, showConnections]);
   const selectDistrict = useCallback(
     (id: string) => {
       if (!territory) {
@@ -349,6 +360,8 @@ export function useAtlasState(initial: AtlasState, late?: Promise<LateCodex>) {
     geometry,
     hover,
     hoveredWreck,
+    importsFailure: traced.failure,
+    importsReading: traced.reading,
     layoutSettings,
     legendHeight,
     mapLayer,
@@ -377,6 +390,8 @@ export function useAtlasState(initial: AtlasState, late?: Promise<LateCodex>) {
     mapLayer: changeMapLayer,
     overlay: setResponsibilityOverlay,
     reset: resetSettings,
+    /** Reads the import edges again after a failed read, for the trace still on. */
+    retryImports: readImports,
     scene,
     select,
     settings: changeSettings,
@@ -387,6 +402,43 @@ export function useAtlasState(initial: AtlasState, late?: Promise<LateCodex>) {
     viewTerritory: setViewTerritory,
     wreck: handleWreck,
   };
+}
+
+/**
+ * Every import edge, read the first time a trace asks (`read`), all of the
+ * edge shards at once; with no reader (an atlas given its edges), nothing
+ * to read. A failed read can be asked again.
+ */
+function useImports(
+  imports: (() => Promise<AtlasData["fileEdges"]>) | undefined
+) {
+  const [edges, setEdges] = useState<AtlasData["fileEdges"] | null>(null);
+  const [reading, setReading] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
+  const asked = useRef(false);
+  const read = useCallback(() => {
+    if (!imports || asked.current) {
+      return;
+    }
+    asked.current = true;
+    setReading(true);
+    setFailure(null);
+    // A read that ends after the atlas is gone sets state React ignores.
+    imports().then(
+      (value) => {
+        setEdges(value);
+        setReading(false);
+      },
+      (cause: unknown) => {
+        asked.current = false;
+        setReading(false);
+        setFailure(
+          cause instanceof Error ? cause.message : "Imports could not be read."
+        );
+      }
+    );
+  }, [imports]);
+  return { edges, failure, read, reading };
 }
 
 /** The late readings once they arrive; a refusal is the caller's to show (`App`). */

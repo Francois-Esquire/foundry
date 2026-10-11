@@ -646,6 +646,7 @@ describe("the registry", () => {
       "domains",
       "file-roles",
       "frequent-change",
+      "import-traffic",
       "nesting",
       "package-sizes",
       "placement",
@@ -677,6 +678,10 @@ describe("the registry", () => {
       "file-roles": { file: "lenses/file-roles.json", schemaVersion: 1 },
       "frequent-change": {
         file: "lenses/frequent-change.json",
+        schemaVersion: 1,
+      },
+      "import-traffic": {
+        file: "lenses/import-traffic.json",
         schemaVersion: 1,
       },
       nesting: { file: "lenses/nesting.json", schemaVersion: 1 },
@@ -760,6 +765,7 @@ describe("writeLenses", () => {
     const files: Record<string, unknown> = {
       "internals/@s__a.json": internals,
       "modules/index.json": {
+        edgeShards: [],
         modules: [
           { fileKind: "source", id: "packages/a/src/a.ts", package: "@s/a" },
         ],
@@ -828,7 +834,7 @@ describe("writeLenses", () => {
           status: "complete",
         },
       ],
-      schemaVersion: 4,
+      schemaVersion: 5,
     } as unknown as DatasetManifest;
   }
 
@@ -925,6 +931,7 @@ describe("writeLenses", () => {
           ],
         },
       ],
+      ["lenses/import-traffic.json", { pairs: [] }],
       [
         "lenses/nesting.json",
         {

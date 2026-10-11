@@ -55,7 +55,7 @@ function surveyFetch(
             }
           : {},
         packages: [entry],
-        schemaVersion: 4,
+        schemaVersion: 5,
       };
       manifestReads += 1;
     } else if (url.includes("internals/")) {
@@ -190,9 +190,7 @@ it.each([
         "survey",
         new AbortController().signal
       )
-    ).rejects.toThrow(
-      "A later scan replaced the dataset. Reload Atlas to see it."
-    );
+    ).rejects.toThrow("A later scan replaced this dataset. Reload to see it.");
   }
 );
 

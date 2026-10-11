@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  pairEndpoints,
-  resolveCodex,
-  resolveLateCodex,
-} from "../../../src/web/codex/resolve";
+import { resolveCodex, resolveLateCodex } from "../../../src/web/codex/resolve";
 import type {
   CodexSource,
   LateCodexSource,
@@ -94,24 +90,34 @@ const source: CodexSource = {
       { commit: "failed", status: "failed", timestamp: "2026-04-01" },
     ],
   },
-  imports: [
-    { source: "packages/core/src/b.test.ts", target: "packages/core/src/a.ts" },
-    { source: "packages/ui/index.ts", target: "packages/core/src/a.ts" },
+  importTraffic: [
+    {
+      consumerFiles: ["packages/ui/index.ts"],
+      from: "@foundry/ui",
+      supplierFiles: ["packages/core/src/a.ts"],
+      to: "@foundry/core",
+    },
   ],
   modules: [
     {
+      fanIn: 2,
+      fanOut: 0,
       fileKind: "source",
       id: "packages/core/src/a.ts",
       package: "@foundry/core",
       path: "packages/core/src/a.ts",
     },
     {
+      fanIn: 0,
+      fanOut: 1,
       fileKind: "test",
       id: "packages/core/src/b.test.ts",
       package: "@foundry/core",
       path: "packages/core/src/b.test.ts",
     },
     {
+      fanIn: 0,
+      fanOut: 1,
       id: "packages/ui/index.ts",
       package: "@foundry/ui",
       path: "packages/ui/index.ts",
@@ -291,7 +297,7 @@ describe("resolveCodex", () => {
     expect(proximity.close).toEqual([]);
   });
 
-  it("counts module dependents and dependencies across package lines", () => {
+  it("takes each module's import counts from the module index", () => {
     const [a, test, index] = codex.modules;
     expect(a).toMatchObject({ dependencies: 0, dependents: 2 });
     expect(test).toMatchObject({ dependencies: 1, dependents: 0 });
@@ -316,8 +322,7 @@ describe("resolveCodex", () => {
     });
   });
 
-  it("keeps imports and measured dependencies", () => {
-    expect(codex.imports).toEqual(source.imports);
+  it("keeps measured dependencies, with each pair's endpoint files from the import-traffic lens", () => {
     expect(codex.dependencies).toEqual([
       {
         consumerFiles: ["packages/ui/index.ts"],
@@ -330,35 +335,12 @@ describe("resolveCodex", () => {
     ]);
   });
 
-  it("joins each package pair to the files at both ends of its imports, once, sorted", () => {
-    const endpoints = pairEndpoints(
-      [
-        { source: "ui/b.ts", target: "core/x.ts" },
-        { source: "ui/a.ts", target: "core/y.ts" },
-        { source: "ui/a.ts", target: "core/x.ts" },
-        { source: "ui/a.ts", target: "ui/b.ts" },
-        { source: "ui/a.ts", target: "elsewhere.ts" },
-        { source: "core/x.ts", target: "ui/a.ts" },
-      ],
-      new Map([
-        ["ui/a.ts", "ui"],
-        ["ui/b.ts", "ui"],
-        ["core/x.ts", "core"],
-        ["core/y.ts", "core"],
-      ])
-    );
-    expect(endpoints("ui", "core")).toEqual({
-      consumerFiles: ["ui/a.ts", "ui/b.ts"],
-      supplierFiles: ["core/x.ts", "core/y.ts"],
-    });
-    expect(endpoints("core", "ui")).toEqual({
-      consumerFiles: ["core/x.ts"],
-      supplierFiles: ["ui/a.ts"],
-    });
-    expect(endpoints("ui", "ui")).toEqual({
-      consumerFiles: [],
-      supplierFiles: [],
-    });
+  it("gives a pair the lens never saw no endpoint files", () => {
+    const [dependency] = resolveCodex({
+      ...source,
+      importTraffic: [],
+    }).dependencies;
+    expect(dependency).toMatchObject({ consumerFiles: [], supplierFiles: [] });
   });
 
   it("keeps declared dependencies between current packages only", () => {

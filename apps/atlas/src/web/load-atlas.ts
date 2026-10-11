@@ -2,7 +2,7 @@ import { footprint } from "./codex/bindings";
 import { placementKey, resolveCodex, resolveLateCodex } from "./codex/resolve";
 import { readCodexSource, readLateCodexSource } from "./codex/source";
 import type { LateCodex } from "./codex/vocabulary";
-import { viewerDataset } from "./dataset";
+import { pinnedRead, viewerDataset } from "./dataset";
 import {
   districtsOfGroups,
   type FolderCell,
@@ -25,21 +25,62 @@ const unreadReadings: LateCodex = {
 };
 
 /**
+ * Fails when a later scan has replaced the atlas's dataset: the manifest,
+ * read again after a late read, must still be the one the layout read. A
+ * pinned reader checks the manifest before it reads; this catches a scan
+ * that published while the files were being read.
+ */
+async function stillTheSameDataset(
+  atlas: Pick<AtlasData, "generatedAt">,
+  signal?: AbortSignal
+): Promise<void> {
+  await viewerDataset({ pin: atlas.generatedAt, signal }).manifest();
+}
+
+/**
  * The readings nothing at overview draws, read after the layout so that the
  * first one does not wait for them: the `nesting` and `proximity` lenses.
- * Pinned to the atlas's dataset, so a later scan is refused rather than
- * mixed in. The atlas takes them as they are (`AtlasData` fields of the
- * same names).
+ * Pinned to the atlas's dataset, and checked against it again once read,
+ * so a later scan is refused rather than mixed in. The atlas takes them as
+ * they are (`AtlasData` fields of the same names).
  */
 export async function loadLateReadings(
   atlas: Pick<AtlasData, "generatedAt">,
   signal?: AbortSignal
 ): Promise<LateCodex> {
-  const late = resolveLateCodex(
-    await readLateCodexSource(viewerDataset({ pin: atlas.generatedAt, signal }))
-  );
+  const late = await pinnedRead(async () => {
+    const read = resolveLateCodex(
+      await readLateCodexSource(
+        viewerDataset({ pin: atlas.generatedAt, signal })
+      )
+    );
+    await stillTheSameDataset(atlas, signal);
+    return read;
+  });
   markLoad("atlas:readings-loaded");
   return late;
+}
+
+/**
+ * Every import edge, for Trace imports: all of the edge shards at once,
+ * since the files that import a file can sit in any package's shard. Read
+ * only when a trace asks, pinned and checked as `loadLateReadings` is.
+ */
+export async function loadImports(
+  atlas: Pick<AtlasData, "generatedAt">,
+  signal?: AbortSignal
+): Promise<AtlasData["fileEdges"]> {
+  const shards = await pinnedRead(async () => {
+    const read = await viewerDataset({
+      pin: atlas.generatedAt,
+      signal,
+    }).moduleEdgeShards();
+    await stillTheSameDataset(atlas, signal);
+    return read;
+  });
+  return shards.flatMap((shard) =>
+    shard.edges.map(({ source, target }) => ({ source, target }))
+  );
 }
 
 export async function loadAtlas(signal?: AbortSignal): Promise<AtlasData> {
@@ -111,7 +152,8 @@ export async function loadAtlas(signal?: AbortSignal): Promise<AtlasData> {
     coverage: codex.workspace.coverage,
     declaredDependencies,
     domains: codex.domains,
-    fileEdges: codex.imports.map(({ source, target }) => ({ source, target })),
+    // Read on Trace imports (`loadImports`); no edge shard is read at load.
+    fileEdges: [],
     folderCells,
     generatedAt: codex.workspace.surveyedAt,
     nesting: unreadReadings.nesting,

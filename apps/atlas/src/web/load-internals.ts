@@ -1,6 +1,5 @@
-import { DatasetReplacedError } from "../lib/dataset";
 import type { FrequentChange } from "../lib/lenses/frequent-change-types";
-import { viewerDataset } from "./dataset";
+import { pinnedRead, viewerDataset } from "./dataset";
 import type { FrequentChangeEvidence } from "./internals";
 import { bindInternals } from "./internals";
 import type { Territory } from "./types";
@@ -47,7 +46,7 @@ async function readEvidence(
   signal: AbortSignal,
   recordedChange: boolean
 ) {
-  try {
+  return await pinnedRead(async () => {
     const reader = viewerDataset({ pin, signal });
     const [internals, index, frequentChange] = await Promise.all([
       reader.internals(packageId),
@@ -59,15 +58,7 @@ async function readEvidence(
     ]);
     await viewerDataset({ pin, signal }).manifest();
     return { frequentChange, index, internals };
-  } catch (error) {
-    if (error instanceof DatasetReplacedError) {
-      throw new Error(
-        "A later scan replaced the dataset. Reload Atlas to see it.",
-        { cause: error }
-      );
-    }
-    throw error;
-  }
+  });
 }
 
 /** The island's entry in the `frequent-change` lens, or why it has none. */

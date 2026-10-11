@@ -53,12 +53,7 @@ interface CodexModule {
   path: string;
 }
 
-interface CodexImport {
-  source: string;
-  target: string;
-}
-
-interface CodexDependency {
+export interface CodexDependency {
   /** Files of `from` that import a file of `to`, sorted. */
   consumerFiles: readonly string[];
   from: string;
@@ -149,7 +144,6 @@ export interface Codex {
   declaredDependencies: CodexDeclaredDependency[];
   dependencies: CodexDependency[];
   domains: CodexDomains;
-  imports: CodexImport[];
   modules: CodexModule[];
   /** Sorted by id. */
   packages: CodexPackage[];

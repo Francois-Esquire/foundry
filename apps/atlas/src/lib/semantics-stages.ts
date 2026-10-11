@@ -78,6 +78,9 @@ export const SEMANTIC_STAGE_VERSIONS: Record<
   "lens:frequent-change": {
     schemaVersion: LENS_SCHEMA_VERSIONS["frequent-change"],
   },
+  "lens:import-traffic": {
+    schemaVersion: LENS_SCHEMA_VERSIONS["import-traffic"],
+  },
   "lens:nesting": { schemaVersion: LENS_SCHEMA_VERSIONS.nesting },
   "lens:package-sizes": {
     schemaVersion: LENS_SCHEMA_VERSIONS["package-sizes"],
@@ -141,6 +144,7 @@ const SEMANTIC_STAGE_DEPENDENCIES: Record<
   "lens:domains": ["materialization", "lens:placement"],
   "lens:file-roles": ["materialization"],
   "lens:frequent-change": ["materialization"],
+  "lens:import-traffic": ["materialization"],
   "lens:nesting": ["materialization"],
   "lens:package-sizes": ["materialization"],
   "lens:placement": ["materialization"],

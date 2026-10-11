@@ -1,6 +1,7 @@
 import type { DatasetReader } from "../../lib/dataset";
 import type { Domains } from "../../lib/lenses/domains-types";
 import type { FileRolesPackage } from "../../lib/lenses/file-roles-types";
+import type { ImportTraffic } from "../../lib/lenses/import-traffic-types";
 import type { Nesting } from "../../lib/lenses/nesting-types";
 import type { PackageSize } from "../../lib/lenses/package-sizes-types";
 import type {
@@ -17,7 +18,6 @@ import type {
   DatasetManifest,
   SemanticsDeclaredDependencies,
   SemanticsManifestPackage,
-  SemanticsModuleEdge,
   SemanticsModuleIndexEntry,
 } from "../../lib/semantics-types";
 import type { WorkspaceDependencyEdgeProjection } from "../../lib/workspace-projection-types";
@@ -48,10 +48,12 @@ export interface CodexSource {
       "commit" | "timestamp" | "status"
     >[];
   };
-  imports: Pick<SemanticsModuleEdge, "source" | "target">[];
+  /** The `import-traffic` lens: each package pair's endpoint files, for harbors, roads and Trading partners. */
+  importTraffic: ImportTraffic["pairs"];
+  /** The module index; `fanIn` and `fanOut` are each file's import counts, so no edge shard is read at load. */
   modules: Pick<
     SemanticsModuleIndexEntry,
-    "id" | "package" | "path" | "fileKind"
+    "id" | "package" | "path" | "fileKind" | "fanIn" | "fanOut"
   >[];
   /** Each package's workspace-relative folder, from the manifest. */
   packagePaths: Pick<SemanticsManifestPackage, "id" | "path">[];
@@ -114,7 +116,7 @@ export async function readCodexSource(
     groups,
     placement,
     domains,
-    edgeShards,
+    importTraffic,
     history,
   ] = await Promise.all([
     reader.manifest(),
@@ -125,7 +127,7 @@ export async function readCodexSource(
     reader.lens("responsibility-groups"),
     reader.lens("placement"),
     reader.lens("domains"),
-    reader.moduleEdgeShards(),
+    reader.lens("import-traffic"),
     reader.history(),
   ]);
   return {
@@ -143,7 +145,7 @@ export async function readCodexSource(
       packages: history.entities.packages,
       snapshots: history.manifest.snapshots,
     },
-    imports: edgeShards.flatMap((s) => s.edges),
+    importTraffic: importTraffic.pairs,
     modules: index.modules,
     packagePaths: manifest.packages.map(({ id, path }) => ({ id, path })),
     packages: sizes.packages,

@@ -283,7 +283,7 @@ it("refuses missing positionals and invalid values", () => {
     "atlas lens needs a lens: atlas lens <id> [path...]"
   );
   expect(usageError(["lens", "domain"]).message).toBe(
-    "atlas lens takes domains, file-roles, frequent-change, nesting, package-sizes, placement, proximity, responsibility-groups, or rules."
+    "atlas lens takes domains, file-roles, frequent-change, import-traffic, nesting, package-sizes, placement, proximity, responsibility-groups, or rules."
   );
   for (const port of ["65536", "-1", "1.5", "", "x"]) {
     expect(usageError(["serve", `--port=${port}`]).message).toBe(

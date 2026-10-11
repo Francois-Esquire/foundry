@@ -206,11 +206,14 @@ export function AtlasShell({
           onEvidence={toggleEvidence}
           onFrame={actions.frame}
           onRetry={belonging.retry}
+          onRetryTrace={actions.retryImports}
           onSelect={select}
           onTrace={actions.trace}
           regions={belonging.regions}
           selection={selection}
           tracing={showConnections}
+          tracingFailure={state.importsFailure}
+          tracingReads={state.importsReading}
           trades={trades}
         />
       ),

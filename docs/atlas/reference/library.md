@@ -52,7 +52,7 @@ imported.
 | `serve.collection(roots, options?)` | function | Serves a collection's saved datasets, its collection manifest, and the viewer, and returns a `CollectionServer` |
 | `DatasetNotFoundError` | class | No dataset is saved where one was expected |
 | `DatasetReplacedError` | class | A later scan saved over the dataset an accessor reads |
-| `DATASET_SCHEMA_VERSION` | constant | The dataset's schema version, `4` |
+| `DATASET_SCHEMA_VERSION` | constant | The dataset's schema version, `5` |
 | `HISTORY_SCHEMA_VERSION` | constant | History's schema version, `1` |
 | `COLLECTION_SCHEMA_VERSION` | constant | The collection manifest's schema version, `1` |
 
@@ -186,7 +186,7 @@ CLI prints the same message after `Atlas: `.
 | --- | --- |
 | No dataset is saved for the workspace: `serve`, or an accessor once the dataset is gone | `DatasetNotFoundError`. From `serve`: `No dataset found for <root> in <output>. Run atlas scan to save one.` |
 | A later scan saved over the dataset an accessor reads | `DatasetReplacedError`: `A later scan replaced this dataset. Scan again to read the new one.` |
-| The dataset was saved with another schema version | `Atlas reads dataset schema version 4; this dataset has version <n>. Run atlas scan to save it again.` |
+| The dataset was saved with another schema version | `Atlas reads dataset schema version 5; this dataset has version <n>. Run atlas scan to save it again.` |
 | An accessor names a package the dataset does not hold | `The dataset has no package named <name>. Its packages: <id>, <id>.` (or `It has no packages.`) |
 | `packageReport` or `internals` names a package that failed analysis | `Atlas could not analyze <id>, so it has no package report.`, `… so it has no internals.` |
 | `internals` on a dataset saved without them, such as by `scan.workspace` | `The dataset was saved without internals for <id>. Run atlas scan to include them.` |

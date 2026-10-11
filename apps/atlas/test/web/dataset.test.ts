@@ -1,12 +1,16 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { viewerDataset } from "../../src/web/dataset";
+import {
+  pinnedRead,
+  REPLACED_MESSAGE,
+  viewerDataset,
+} from "../../src/web/dataset";
 import { memoryTransport, stubFetch } from "../helpers/dataset-transport";
 
 const manifest = {
   files: { workspace: "workspace.json" },
   generatedAt: "2026-10-10T00:00:00.000Z",
   packages: [{ id: "@s/a", report: "packages/@s__a.json", status: "complete" }],
-  schemaVersion: 4,
+  schemaVersion: 5,
 };
 
 afterEach(() => {
@@ -62,4 +66,19 @@ it("names the file the server served that is not JSON", async () => {
   await expect(viewerDataset().manifest()).rejects.toThrow(
     "Could not parse manifest.json."
   );
+});
+
+it("tells a reader to reload when a read after load finds a later scan's dataset, and lets other failures through", async () => {
+  stubFetch(memoryTransport({ "manifest.json": manifest }));
+  const pinned = viewerDataset({ pin: "2026-01-01T00:00:00.000Z" });
+  await expect(pinnedRead(() => pinned.manifest())).rejects.toThrow(
+    REPLACED_MESSAGE
+  );
+  expect(REPLACED_MESSAGE).toBe(
+    "A later scan replaced this dataset. Reload to see it."
+  );
+  await expect(
+    pinnedRead(() => Promise.reject(new Error("offline")))
+  ).rejects.toThrow("offline");
+  await expect(pinnedRead(() => Promise.resolve(3))).resolves.toBe(3);
 });

@@ -1296,6 +1296,14 @@ export async function generateSemantics(
       for (const shard of edgeShards) {
         writer.write(moduleEdgeShardFile(shard.package), shard);
       }
+      // Each file's import edges in and out, from the edges just written:
+      // every indexed module has them, observed gravity or not.
+      const fanIn = new Map<string, number>();
+      const fanOut = new Map<string, number>();
+      for (const edge of edgeShards.flatMap((shard) => shard.edges)) {
+        fanIn.set(edge.target, (fanIn.get(edge.target) ?? 0) + 1);
+        fanOut.set(edge.source, (fanOut.get(edge.source) ?? 0) + 1);
+      }
       const entries: SemanticsModuleIndexEntry[] = [];
       for (const id of shardPackages) {
         const shard: SemanticsModuleShard = {
@@ -1305,6 +1313,8 @@ export async function generateSemantics(
         writer.write(moduleShardFile(id), shard);
         for (const module of shard.modules) {
           entries.push({
+            fanIn: fanIn.get(module.id) ?? 0,
+            fanOut: fanOut.get(module.id) ?? 0,
             id: module.id,
             package: id,
             path: module.path,

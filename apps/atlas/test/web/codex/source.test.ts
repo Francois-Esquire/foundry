@@ -7,6 +7,8 @@ import {
 import { memoryTransport, recordReads } from "../../helpers/dataset-transport";
 
 const entry = {
+  fanIn: 1,
+  fanOut: 1,
   fileKind: "source",
   id: "packages/core/src/a.ts",
   package: "@foundry/core",
@@ -44,10 +46,18 @@ const placed = {
   unindexed: 0,
 };
 
+const traffic = {
+  consumerFiles: ["packages/ui/a.ts"],
+  from: "@foundry/ui",
+  supplierFiles: [entry.id],
+  to: "@foundry/core",
+};
+
 function scanned(): Record<string, unknown> {
   return {
     "lenses/domains.json": { domains: [], placements: [] },
     "lenses/file-roles.json": { missing: [], packages: [roles] },
+    "lenses/import-traffic.json": { pairs: [traffic] },
     "lenses/nesting.json": {
       folders: [],
       missing: [],
@@ -78,6 +88,10 @@ function scanned(): Record<string, unknown> {
       lenses: {
         domains: { file: "lenses/domains.json", schemaVersion: 1 },
         "file-roles": { file: "lenses/file-roles.json", schemaVersion: 1 },
+        "import-traffic": {
+          file: "lenses/import-traffic.json",
+          schemaVersion: 1,
+        },
         nesting: { file: "lenses/nesting.json", schemaVersion: 1 },
         "package-sizes": {
           file: "lenses/package-sizes.json",
@@ -97,7 +111,7 @@ function scanned(): Record<string, unknown> {
           path: "packages/core",
         },
       ],
-      schemaVersion: 4,
+      schemaVersion: 5,
     },
     "modules/core-edges.json": {
       edges: [{ source: entry.id, target: entry.id }],
@@ -167,25 +181,39 @@ describe("readLateCodexSource", () => {
 });
 
 describe("readCodexSource", () => {
-  it("reads no module shard at load, only the index, the edge shards, the graph, and the lenses", async () => {
+  it("reads no shard at load, module or edge, only the index, the graph, and the lenses", async () => {
     const { read: transport, reads } = recordReads(memoryTransport(scanned()));
     await readCodexSource(datasetReader(transport));
     expect(reads).not.toContain("modules/core.json");
+    expect(reads).not.toContain("modules/core-edges.json");
     expect([...new Set(reads)].sort()).toEqual([
       "history/manifest.json",
       "lenses/domains.json",
       "lenses/file-roles.json",
+      "lenses/import-traffic.json",
       "lenses/package-sizes.json",
       "lenses/placement.json",
       "lenses/responsibility-groups.json",
       "manifest.json",
-      "modules/core-edges.json",
       "modules/index.json",
       "projections/graph.json",
     ]);
   });
 
-  it("picks the dataset's time, packages and their folders, modules, imports, placements, and declared dependencies", async () => {
+  it("asks for a new scan when the dataset was saved before the import-traffic lens", async () => {
+    const files = scanned();
+    const manifest = files["manifest.json"] as {
+      lenses: Record<string, unknown>;
+    };
+    const { "import-traffic": _missing, ...lenses } = manifest.lenses;
+    await expect(
+      read({ ...files, "manifest.json": { ...manifest, lenses } })
+    ).rejects.toThrow(
+      "The dataset has no import-traffic lens. Run atlas scan again."
+    );
+  });
+
+  it("picks the dataset's time, packages and their folders, modules with their import counts, the import traffic, placements, and declared dependencies", async () => {
     const source = await read(scanned());
     expect(source.dataset).toMatchObject({
       coverage: "complete",
@@ -206,7 +234,8 @@ describe("readCodexSource", () => {
     expect(source.fileRoles).toEqual([roles]);
     expect(source.responsibilityGroups).toEqual([groups]);
     expect(source.modules).toEqual([entry]);
-    expect(source.imports).toEqual([{ source: entry.id, target: entry.id }]);
+    expect(source.importTraffic).toEqual([traffic]);
+    expect(source).not.toHaveProperty("imports");
     expect(source.dependencies).toEqual([
       expect.objectContaining({ kind: "dependency" }),
     ]);
@@ -219,13 +248,15 @@ describe("readCodexSource", () => {
     expect(source.history).toBeUndefined();
   });
 
-  it("asks for a new scan when the dataset was saved before lenses existed", async () => {
+  it("asks for a new scan when the dataset was saved before the package-sizes lens", async () => {
     const files = scanned();
-    const { lenses: _lenses, ...manifest } = files["manifest.json"] as Record<
-      string,
-      unknown
-    >;
-    await expect(read({ ...files, "manifest.json": manifest })).rejects.toThrow(
+    const manifest = files["manifest.json"] as {
+      lenses: Record<string, unknown>;
+    };
+    const { "package-sizes": _missing, ...lenses } = manifest.lenses;
+    await expect(
+      read({ ...files, "manifest.json": { ...manifest, lenses } })
+    ).rejects.toThrow(
       "The dataset has no package-sizes lens. Run atlas scan again."
     );
   });

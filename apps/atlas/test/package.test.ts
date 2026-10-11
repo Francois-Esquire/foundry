@@ -265,7 +265,7 @@ test(
     const dataset = JSON.parse(
       readFileSync(join(output, "manifest.json"), "utf8")
     );
-    expect(dataset.schemaVersion).toBe(4);
+    expect(dataset.schemaVersion).toBe(5);
     expect(dataset.coverage).toBe("complete");
     expect(
       dataset.packages
@@ -335,7 +335,7 @@ test(
       internals: "@s/a",
       packages: ["@s/a:complete", "@s/b:complete", "@s/c:complete"],
       report: "@s/a",
-      schemaVersion: 4,
+      schemaVersion: 5,
       workspacePackages: 3,
     });
     // A workspace-level scan saves over the full one, so the full scan's

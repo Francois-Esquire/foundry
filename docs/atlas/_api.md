@@ -21,7 +21,7 @@ How `src/lib` implements it is free to change.
   `serve`, and `export` read two or more paths as a collection since 5.3;
   the others read one workspace. See `reference/cli.md`.
 - **The dataset is a contract.** `output/` is versioned
-  (`DATASET_SCHEMA_VERSION = 4` in the manifest, exported), documented file
+  (`DATASET_SCHEMA_VERSION = 5` in the manifest, exported), documented file
   by file in `reference/output.md`, published atomically, and read by the
   viewer unchanged. The docs site builds its static viewer with
   `atlas export` (`docs/scripts/build-example.ts`).

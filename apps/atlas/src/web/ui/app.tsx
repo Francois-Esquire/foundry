@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { LateCodex } from "../codex/vocabulary";
-import { loadAtlas, loadLateReadings } from "../load-atlas";
+import { loadAtlas, loadImports, loadLateReadings } from "../load-atlas";
 import { afterFirstFrame } from "../timings";
 import type { AtlasData } from "../types";
 import Atlas from "./atlas-view";
@@ -22,6 +22,8 @@ export function App() {
   const [session] = useState(() => readSession());
   const [data, setData] = useState<AtlasData>();
   const [late, setLate] = useState<Promise<LateCodex>>();
+  const [imports, setImports] =
+    useState<() => Promise<AtlasData["fileEdges"]>>();
   const [error, setError] = useState<string>();
   useEffect(() => {
     const controller = new AbortController();
@@ -43,6 +45,8 @@ export function App() {
         setLate(
           Promise.all([read, afterFirstFrame()]).then(([readings]) => readings)
         );
+        // The edge shards wait for a trace.
+        setImports(() => () => loadImports(atlas, controller.signal));
         setData(atlas);
       } catch (cause) {
         fail(cause);
@@ -57,6 +61,7 @@ export function App() {
       <Atlas
         data={data}
         developer={session.developer}
+        imports={imports}
         late={late}
         mapOnly={session.mapOnly}
       />

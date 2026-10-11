@@ -73,8 +73,9 @@ export async function savedCollection(
 ): Promise<SavedCollection> {
   const workspaces = await resolveCollection(roots, state);
   for (const workspace of workspaces) {
-    // In order, so the message names the first workspace without a dataset.
-    await checkedDataset(workspace);
+    // In order, so the message names the first workspace without a dataset,
+    // or the first whose dataset cannot be read, by its root.
+    await savedManifest(workspace);
   }
   return {
     datasets: new Map(workspaces.map(({ id, output }) => [id, output])),

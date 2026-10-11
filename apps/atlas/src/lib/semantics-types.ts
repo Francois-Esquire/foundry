@@ -12,7 +12,7 @@ import type { WorkspaceConceptCoverage } from "./workspace-concepts-types";
  * workspace, and projection schemas the dataset embeds keep their own
  * versions.
  */
-export const DATASET_SCHEMA_VERSION = 4;
+export const DATASET_SCHEMA_VERSION = 5;
 
 /**
  * The resolved configuration a scan runs under: what the workspace's
@@ -306,6 +306,15 @@ export interface SemanticsModuleShard {
 }
 
 export interface SemanticsModuleIndexEntry {
+  /**
+   * The module's import edges in and out, within and across packages,
+   * counted from the edge shards as they are written, so that a reader of
+   * the index has every module's counts without reading a shard. Equal to
+   * the record's `gravity.fanIn` and `fanOut` wherever gravity was
+   * observed. Since schema version 5.
+   */
+  fanIn: number;
+  fanOut: number;
   fileKind?: FileKind;
   id: string;
   package: string;

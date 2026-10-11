@@ -185,6 +185,7 @@ nothing, and renders as `report` does. Every scan saves every lens; see
 | `domains` | The declared domains: the places each one's facets name, the facets that name none, and a domain label for each placed place in a domain |
 | `file-roles` | Each package's files by role, and its high fan-in files |
 | `frequent-change` | The files at or above the hotspots' commit gate |
+| `import-traffic` | Each package pair the imports cross, with the files at each end |
 | `nesting` | The folder tree, path regions, and the seams between them |
 | `package-sizes` | Each package's dependency layer and files by kind |
 | `placement` | Where each place is used against where it lives: fits, spread, or departs |

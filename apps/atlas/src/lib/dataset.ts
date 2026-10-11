@@ -174,9 +174,7 @@ async function checkedManifest(
   if (pin !== undefined && generatedAt !== pin) {
     throw new DatasetReplacedError();
   }
-  // Schema 4 was saved without lenses before 2.1; such a dataset has none.
-  const saved = manifest as DatasetManifest;
-  return { ...saved, lenses: saved.lenses ?? {} };
+  return manifest as DatasetManifest;
 }
 
 async function readHistory(

@@ -28,6 +28,10 @@ export interface AtlasState {
   geometry: AtlasData;
   hover: AtlasSelection | null;
   hoveredWreck: FormerPackage | null;
+  /** Why the import edges a trace asked for could not be read; null when they could, or have not been asked for. */
+  importsFailure: string | null;
+  /** Whether the import edges a trace asked for are being read. */
+  importsReading: boolean;
   layoutSettings: LandmassSettings;
   /** The legend's height in CSS pixels, which the latitude scale stops short of. */
   legendHeight: number;
@@ -58,6 +62,8 @@ export function createAtlasState(
     geometry: data,
     hover: null,
     hoveredWreck: null,
+    importsFailure: null,
+    importsReading: false,
     layoutSettings: { ...defaultLandmassSettings },
     legendHeight: 0,
     mapLayer: "belonging",

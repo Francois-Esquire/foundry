@@ -2,54 +2,11 @@ import { SEMANTICS_DECLARED_DEPENDENCY_KINDS } from "../../lib/semantics-types";
 import type { CodexSource, LateCodexSource } from "./source";
 import type {
   Codex,
+  CodexDependency,
   CodexPlacement,
   CodexRetiredPackage,
   LateCodex,
 } from "./vocabulary";
-
-/** The files at each end of a package pair's imports. */
-export interface PairEndpoints {
-  consumerFiles: readonly string[];
-  supplierFiles: readonly string[];
-}
-
-/**
- * Each ordered package pair's endpoint files, from the import edges that
- * cross from one package into another: one pass over the edges, keyed by
- * `from` and `to`. The pair's count is the dependency graph's, not a
- * recount.
- */
-export function pairEndpoints(
-  imports: readonly { source: string; target: string }[],
-  packageOf: ReadonlyMap<string, string>
-): (from: string, to: string) => PairEndpoints {
-  const pairs = new Map<
-    string,
-    { sources: Set<string>; targets: Set<string> }
-  >();
-  for (const edge of imports) {
-    const from = packageOf.get(edge.source);
-    const to = packageOf.get(edge.target);
-    if (from === undefined || to === undefined || from === to) {
-      continue;
-    }
-    const key = JSON.stringify([from, to]);
-    let pair = pairs.get(key);
-    if (pair === undefined) {
-      pair = { sources: new Set(), targets: new Set() };
-      pairs.set(key, pair);
-    }
-    pair.sources.add(edge.source);
-    pair.targets.add(edge.target);
-  }
-  return (from, to) => {
-    const pair = pairs.get(JSON.stringify([from, to]));
-    return {
-      consumerFiles: [...(pair?.sources ?? [])].sort(),
-      supplierFiles: [...(pair?.targets ?? [])].sort(),
-    };
-  };
-}
 
 /** The late readings as the map reads them: nesting as saved, proximity with the packages it covered. */
 export function resolveLateCodex(source: LateCodexSource): LateCodex {
@@ -63,13 +20,26 @@ export function resolveLateCodex(source: LateCodexSource): LateCodex {
   };
 }
 
+/** A pair's endpoint files, from the `import-traffic` lens; none for a pair its edges never cross. */
+function pairsOf(
+  pairs: CodexSource["importTraffic"]
+): (
+  from: string,
+  to: string
+) => Pick<CodexDependency, "consumerFiles" | "supplierFiles"> {
+  const byPair = new Map(
+    pairs.map((pair) => [JSON.stringify([pair.from, pair.to]), pair])
+  );
+  return (from, to) => {
+    const pair = byPair.get(JSON.stringify([from, to]));
+    return {
+      consumerFiles: pair?.consumerFiles ?? [],
+      supplierFiles: pair?.supplierFiles ?? [],
+    };
+  };
+}
+
 export function resolveCodex(source: CodexSource): Codex {
-  const dependents = new Map<string, number>();
-  const dependencies = new Map<string, number>();
-  for (const edge of source.imports) {
-    dependents.set(edge.target, (dependents.get(edge.target) ?? 0) + 1);
-    dependencies.set(edge.source, (dependencies.get(edge.source) ?? 0) + 1);
-  }
   const measured = new Map(
     source.fileRoles.flatMap((pkg) => pkg.modules.map((m) => [m.module, m]))
   );
@@ -77,10 +47,7 @@ export function resolveCodex(source: CodexSource): Codex {
   const groups = new Map(
     source.responsibilityGroups.map((pkg) => [pkg.id, pkg])
   );
-  const endpoints = pairEndpoints(
-    source.imports,
-    new Map(source.modules.map((m) => [m.id, m.package]))
-  );
+  const endpoints = pairsOf(source.importTraffic);
   const current = new Set(source.packages.map((p) => p.id));
   const paths = new Map(source.packagePaths.map((p) => [p.id, p.path]));
   return {
@@ -108,13 +75,9 @@ export function resolveCodex(source: CodexSource): Codex {
         ])
       ),
     },
-    imports: source.imports.map((edge) => ({
-      source: edge.source,
-      target: edge.target,
-    })),
     modules: source.modules.map((m) => ({
-      dependencies: dependencies.get(m.id) ?? 0,
-      dependents: dependents.get(m.id) ?? 0,
+      dependencies: m.fanOut,
+      dependents: m.fanIn,
       directory: m.path.slice(0, m.path.lastIndexOf("/")),
       fileKind: m.fileKind ?? "unknown",
       highFanIn: measured.get(m.id)?.highFanIn ?? false,

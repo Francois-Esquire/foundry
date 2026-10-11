@@ -51,6 +51,8 @@ export function AtlasPlace({
   onRetry,
   trades,
   tracing,
+  tracingFailure,
+  tracingReads,
   evidenceOpen,
   evidence,
   onSelect,
@@ -59,6 +61,7 @@ export function AtlasPlace({
   onBrowse,
   onEvidence,
   onTrace,
+  onRetryTrace,
 }: {
   data: AtlasData;
   /** The domain drawn across the islands, told above the selection. */
@@ -74,6 +77,10 @@ export function AtlasPlace({
   onRetry: () => void;
   trades: TradeRoute[];
   tracing: boolean;
+  /** Why the import edges could not be read for the trace. */
+  tracingFailure?: string | null;
+  /** Whether the import edges are being read for the trace. */
+  tracingReads?: boolean;
   evidenceOpen: boolean;
   evidence: EvidenceActions;
   onSelect: (value: AtlasSelection | null) => void;
@@ -82,6 +89,8 @@ export function AtlasPlace({
   onBrowse: () => void;
   onEvidence: () => void;
   onTrace: () => void;
+  /** Reads the import edges again after a failed read. */
+  onRetryTrace?: () => void;
 }) {
   const territory = selection?.territory;
   const region = regions.find((item) => item.id === selection?.regionId);
@@ -231,10 +240,26 @@ export function AtlasPlace({
         >
           Evidence & alternatives
         </button>
-        <button aria-pressed={tracing} onClick={onTrace} type="button">
-          {tracing ? "Hide imports" : "Trace imports"}
+        <button
+          aria-busy={tracingReads || undefined}
+          aria-pressed={tracing}
+          onClick={onTrace}
+          type="button"
+        >
+          {traceLabel(tracing, tracingReads)}
         </button>
       </div>
+      {tracing && tracingReads && <p role="status">Reading imports…</p>}
+      {tracing && tracingFailure && (
+        <div className="atlas-place-note">
+          <p role="alert">Imports could not be read: {tracingFailure}</p>
+          {onRetryTrace && (
+            <button onClick={onRetryTrace} type="button">
+              Retry
+            </button>
+          )}
+        </div>
+      )}
       {(selection.file !== undefined || evidenceOpen) && (
         <section
           aria-label="Architectural evidence"
@@ -303,6 +328,14 @@ function PlaceNote({
     );
   }
   return null;
+}
+
+/** The trace button's words: "Trace imports", or, while tracing, "Hide imports" once the edges are read. */
+function traceLabel(tracing: boolean, reading: boolean | undefined): string {
+  if (!tracing) {
+    return "Trace imports";
+  }
+  return reading ? "Reading imports…" : "Hide imports";
 }
 
 function placeTitle(
