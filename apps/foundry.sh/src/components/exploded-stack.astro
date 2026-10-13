@@ -1,0 +1,135 @@
+---
+interface Plate {
+  centerY: number;
+  depth: number;
+  halfWidth: number;
+}
+
+const libraries = [
+  "workflows",
+  "agents",
+  "models",
+  "workspaces",
+  "artifacts",
+  "sandbox",
+];
+
+const centerX = 200;
+const firstCenterY = 104;
+const spacing = 92;
+const labelX = 430;
+const tool = { centerY: firstCenterY, depth: 16, halfWidth: 168 };
+const parts = libraries.map((name, index) => ({
+  name,
+  plate: {
+    centerY: firstCenterY + (index + 1) * spacing,
+    depth: 12,
+    halfWidth: 120,
+  },
+}));
+const lastPlate = parts.at(-1)?.plate ?? tool;
+const height =
+  lastPlate.centerY + lastPlate.halfWidth / 2 + lastPlate.depth + 40;
+
+const point = (x: number, y: number): string => `${x},${y}`;
+
+const faces = ({ centerY: y, depth, halfWidth }: Plate) => {
+  const left = centerX - halfWidth;
+  const right = centerX + halfWidth;
+  const rise = halfWidth / 2;
+  return {
+    left: [
+      point(left, y),
+      point(centerX, y + rise),
+      point(centerX, y + rise + depth),
+      point(left, y + depth),
+    ].join(" "),
+    right: [
+      point(centerX, y + rise),
+      point(right, y),
+      point(right, y + depth),
+      point(centerX, y + rise + depth),
+    ].join(" "),
+    top: [
+      point(left, y),
+      point(centerX, y - rise),
+      point(right, y),
+      point(centerX, y + rise),
+    ].join(" "),
+  };
+};
+
+const inset = ({ centerY: y, halfWidth }: Plate): string => {
+  const width = halfWidth * 0.55;
+  const rise = width / 2;
+  return [
+    point(centerX - width, y),
+    point(centerX, y - rise),
+    point(centerX + width, y),
+    point(centerX, y + rise),
+  ].join(" ");
+};
+
+const leader = ({ centerY: y, depth, halfWidth }: Plate) => ({
+  x1: centerX + halfWidth + 6,
+  x2: labelX - 12,
+  y: y + depth / 2,
+});
+
+const marbles = [
+  { x: -44, y: 4 },
+  { x: 0, y: -18 },
+  { x: 42, y: 6 },
+];
+
+const description = `Marbles pulled apart into six of the Foundry libraries it imports: ${libraries.map((name) => `@foundry/${name}`).join(", ")}.`;
+const toolFaces = faces(tool);
+const toolLeader = leader(tool);
+---
+
+<svg class="exploded-stack" viewBox={`0 0 600 ${height}`} role="img" aria-label={description}>
+  <line class="stack-axis" x1={centerX} x2={centerX} y1="8" y2={height - 8} />
+  {
+    parts.toReversed().map(({ plate }) => {
+      const plateFaces = faces(plate);
+      return (
+        <g class="stack-plate">
+          <polygon class="plate-left" points={plateFaces.left} />
+          <polygon class="plate-right" points={plateFaces.right} />
+          <polygon class="plate-top" points={plateFaces.top} />
+          <polygon class="plate-inset" points={inset(plate)} />
+        </g>
+      );
+    })
+  }
+  <g class="stack-plate">
+    <polygon class="plate-left" points={toolFaces.left} />
+    <polygon class="plate-right" points={toolFaces.right} />
+    <polygon class="plate-top" points={toolFaces.top} />
+    {
+      marbles.map((marble) => (
+        <g>
+          <circle class="marble" cx={centerX + marble.x} cy={tool.centerY + marble.y} r="14" />
+          <circle class="marble-shine" cx={centerX + marble.x - 4} cy={tool.centerY + marble.y - 4} r="3.5" />
+        </g>
+      ))
+    }
+  </g>
+  <g class="stack-labels">
+    <line class="stack-leader" x1={toolLeader.x1} x2={toolLeader.x2} y1={toolLeader.y} y2={toolLeader.y} />
+    <circle class="stack-anchor" cx={toolLeader.x1} cy={toolLeader.y} r="2.5" />
+    <text class="stack-tool-name" x={labelX} y={toolLeader.y + 8}>Marbles</text>
+    {
+      parts.map(({ name, plate }) => {
+        const line = leader(plate);
+        return (
+          <g>
+            <line class="stack-leader" x1={line.x1} x2={line.x2} y1={line.y} y2={line.y} />
+            <circle class="stack-anchor" cx={line.x1} cy={line.y} r="2.5" />
+            <text class="stack-part-name" x={labelX} y={line.y + 4.5}>@foundry/{name}</text>
+          </g>
+        );
+      })
+    }
+  </g>
+</svg>

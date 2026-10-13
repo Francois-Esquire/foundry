@@ -1,79 +1,78 @@
 ---
 import Arrow from "../components/arrow.astro";
-import marblesExample from "../examples/marbles-assess.ts.txt?raw";
+import ExplodedStack from "../components/exploded-stack.astro";
+import { linesHtml, notes } from "../examples/marbles-walkthrough";
 import SiteLayout from "../layouts/site-layout.astro";
 import { site } from "../site";
 
-const escapeHtml = (text: string): string =>
-  text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
-
-const marblesExampleHtml = marblesExample
-  .trimEnd()
-  .split("\n")
-  .map((line) => {
-    const escaped = escapeHtml(line);
-    return line.trimStart().startsWith("//")
-      ? `<span class="comment">${escaped}</span>`
-      : escaped;
-  })
-  .join("\n");
-
 const libraries = [
-  { description: "Bring AI into the work.", name: "Agents", path: "agents" },
   {
-    description: "Give a process staying power.",
-    name: "Workflows",
+    description: "Steps, workflows, runs, and queues.",
     path: "workflows",
+    usedBy: "Marbles",
   },
   {
-    description: "Choose the right intelligence.",
-    name: "Models",
+    description: "Agent sessions, tools, and authorization.",
+    path: "agents",
+    usedBy: "Marbles",
+  },
+  {
+    description: "One registry for providers, CLI harnesses, and local models.",
     path: "models",
+    usedBy: "Marbles",
   },
   {
-    description: "Keep your work grounded.",
-    name: "Workspaces",
+    description: "A durable catalog over your files.",
     path: "workspaces",
+    usedBy: "Marbles",
   },
   {
-    description: "Keep what you create.",
-    name: "Artifacts",
+    description: "Versioned outputs with a stable identity.",
     path: "artifacts",
+    usedBy: "Marbles, Works",
   },
-  { description: "Give ideas room to run.", name: "Sandbox", path: "sandbox" },
+  {
+    description: "A portable filesystem and command runner.",
+    path: "sandbox",
+    usedBy: "Marbles, Works",
+  },
 ];
 ---
 
 <SiteLayout title="Foundry — Tools that come apart. On purpose.">
   <section class="hero wrap" aria-labelledby="hero-title">
-    <h1 id="hero-title">Tools that come apart. On&nbsp;purpose.</h1>
-    <p class="hero-description">Foundry builds local, open-source tools for working with agents, creating things, and understanding code.</p>
-    <a class="button" href="#tools">Explore the tools <Arrow /></a>
+    <div class="hero-copy">
+      <p class="section-label hero-label">Local · Open source · MIT</p>
+      <h1 id="hero-title">Tools that come apart.<br /> On&nbsp;purpose.</h1>
+      <p class="hero-description">Foundry builds local, open-source tools for working with agents, creating things, and understanding code.</p>
+      <a class="button" href="#tools">Explore the tools <Arrow /></a>
+    </div>
+    <figure class="hero-figure"><ExplodedStack /></figure>
   </section>
 
   <section class="tools-section" id="tools" aria-labelledby="tools-title">
     <div class="wrap">
-      <h2 class="section-label" id="tools-title">Tools</h2>
+      <h2 class="visually-hidden" id="tools-title">Tools</h2>
       <div class="product-sections">
         <article class="product-section" id="marbles" aria-labelledby="marbles-name marbles-title">
-          <p class="product-name" id="marbles-name">Marbles</p>
-          <div class="product-content">
-            <div class="product-copy">
+          <div class="product-head">
+            <div>
+              <p class="product-name" id="marbles-name">Marbles</p>
               <h3 id="marbles-title">Agentic infrastructure, unpacked.</h3>
-              <p>Write workflows in TypeScript, give agents a workspace, and decide what happens next.</p>
-              <a class="text-link" href={`${site.docs}marbles/`}>Make a workflow <Arrow /></a>
-              <dl class="workflow-explanation">
-                <div><dt>One workflow leaves a note.</dt><dd>New reports are appended to <code>incidents.md</code>.</dd></div>
-                <div><dt>A monitor picks it up.</dt><dd>Marbles polls the file and starts <code>assess</code> when it changes.</dd></div>
-                <div><dt>An agent makes the judgment.</dt><dd>Codex reads the entry and answers in JSON. Your code validates the answer.</dd></div>
-                <div><dt>Your code makes the decision.</dt><dd>An ordinary <code>if</code> finishes the run or writes an investigation brief.</dd></div>
-              </dl>
             </div>
+            <div class="product-head-copy">
+              <p>Write workflows in TypeScript, give agents a workspace, and decide what happens next. This is a whole workflow file.</p>
+              <a class="text-link" href={`${site.docs}marbles/`}>Make a workflow <Arrow /></a>
+            </div>
+          </div>
+          <div class="code-walkthrough">
             <figure class="code-example">
-              <figcaption><code>.foundry/marbles/assess.ts</code></figcaption>
-              <pre><code set:html={marblesExampleHtml} /></pre>
-              <p class="example-note">The monitor keeps polling after a run finishes. Codex answers in text, so the step validates the JSON before trusting it.</p>
+              <figcaption><code class="file-name">.foundry/marbles/assess.ts</code></figcaption>
+              <pre><code set:html={linesHtml} /></pre>
             </figure>
+            <ol class="code-notes" role="list">
+              {notes.map((note, index) => <li><span class="code-mark" aria-hidden="true">{index + 1}</span><div><p class="code-note-title">{note.title}</p><p class="code-note-body" set:html={note.body} /></div></li>)}
+            </ol>
           </div>
         </article>
         <article class="product-section" id="atlas" aria-labelledby="atlas-name atlas-title">
@@ -109,9 +108,20 @@ const libraries = [
           </div>
         </article>
       </div>
-      <div class="library-heading"><h3>And the parts to build your own.</h3><p>The shared libraries beneath the tools. Ready to explore in the source.</p></div>
-      <div class="library-list">
-        {libraries.map((library) => <a href={`${site.repository}/tree/main/packages/${library.path}`}><div><h4>{library.name}</h4><p>{library.description}</p></div><Arrow /></a>)}
+      <div class="parts-section">
+        <div class="product-head">
+          <div>
+            <p class="product-name">Parts</p>
+            <h3 id="parts-title">And the parts to build your own.</h3>
+          </div>
+          <p class="product-head-copy">Marbles and Works are assembled from these libraries. Every one lives in the same repository, and you can read it.</p>
+        </div>
+        <table class="parts-list" aria-labelledby="parts-title">
+          <thead><tr><th scope="col">Package</th><th scope="col">What it is</th><th scope="col">Used by</th></tr></thead>
+          <tbody>
+            {libraries.map((library) => <tr><th scope="row"><a class="part-link" href={`${site.repository}/tree/main/packages/${library.path}`}>@foundry/{library.path}</a></th><td>{library.description}</td><td>{library.usedBy}</td></tr>)}
+          </tbody>
+        </table>
       </div>
     </div>
   </section>

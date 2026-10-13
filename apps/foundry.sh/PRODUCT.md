@@ -22,9 +22,11 @@ and make them their own. Running tools on your own machine and working with
 your own files are central to the message. Developer tools are today's starting
 point. Local execution does not imply that every integration works offline.
 
-The current iteration focuses on copy and information architecture: monochrome,
-the existing Bricolage Grotesque display font, a small wordmark, and a simple
-text-led first fold. The hero headline is "Tools that come apart. On purpose."
+The visual idea is an exploded assembly drawing: the page shows its tools pulled
+apart into real parts. The hero pairs the headline with a line drawing of
+Marbles exploded into six of the shared libraries it imports, each labeled with its real
+package name. The drawing must stay true to the package graph; update it if
+Marbles' dependencies change. Parts are not numbered. The hero headline is "Tools that come apart. On purpose."
 The sentence "Foundry builds local, open-source tools for working with agents,
 creating things, and understanding code." is supporting copy under the headline,
 set in body type. It is not the headline.
@@ -40,7 +42,10 @@ headline. Section headings are labels.
 
 Products have separate sections in the order Marbles, Atlas, Works:
 - Marbles: "Agentic infrastructure, unpacked." The example is a real authoring
-  module (src/examples/marbles-assess.ts.txt, rendered as a code block): a
+  module (src/examples/marbles-assess.ts.txt, rendered as a dark code panel
+  with line numbers and four numbered notes pinned to the lines they explain;
+  src/examples/marbles-walkthrough.ts fails the build if a note's line is
+  missing): a
   polling monitor on incidents.md starts an `assess` step; a Codex agent answers
   in text; the step parses and validates `{ isIncident, reason }` with zod; an
   ordinary TypeScript if finishes the run or writes an investigation brief as
@@ -55,7 +60,9 @@ Products have separate sections in the order Marbles, Atlas, Works:
   customizable modules. The document editor and citation checker are an example
   of what someone could build, not a claim that these editors have shipped.
 
-Below the products: the shared libraries, then an About Foundry section headed
+Below the products: a parts list of the shared libraries, a table with each
+package name, a plain description, and which tools use it (Atlas uses none of
+them, so the intro names Marbles and Works), then an About Foundry section headed
 "Nothing leaves your machine unless you say so." with the README's facts (runs on
 your machine, state on disk, MIT licensed, built from libraries readable in the
 same repository; do not say the private libraries are reusable), then a
@@ -64,9 +71,11 @@ closing "Pick a tool. Take it apart." that points to the docs. Earlier slogans
 for crafting", "We're starting with code") are retired. Avoid "your way" and
 other lines that could describe any product.
 
-A future marble-system illustration, a topographical Atlas illustration, and a
-whole-site ASCII treatment still require discussion before implementation. The
-printer metaphor is rejected.
+The Atlas illustration is still an invented node graph. It should become a real
+render of Atlas on this repository; the built viewer in docs/public/atlas did not
+finish drawing in headless Chrome, so the image has to be captured some other
+way. A whole-site ASCII treatment still needs discussion. The printer metaphor
+is rejected.
 
 ## Capabilities and constraints
 
@@ -86,6 +95,6 @@ release status before adding installation or availability claims.
 
 ## Open decisions
 
-The visual composition (illustrations, motion, color) remains open now that
-copy is settled. The page presents today's tools and the direction clearly
+Color beyond the warm paper and ink palette, motion, and a Works visual remain
+open. The page presents today's tools and the direction clearly
 without promising future capabilities.
