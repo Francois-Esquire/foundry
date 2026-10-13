@@ -3,10 +3,14 @@ title: Durability
 description: How Marbles records work, owns agent execution, retries failures, and resumes parked runs.
 ---
 
-Durability means keeping enough state to remember completed work and
-continue from a supported waiting point. Marbles wraps commands and agent
-execution in steps, and connects those steps into a run. The run owns their
-results, sessions, cancellation, and recorded operations.
+You now have a workflow of steps, agent sessions bound to those steps, and
+results or artifacts produced by them. What happens if a step fails, or
+the workflow waits for a person?
+
+**Durability** means keeping enough state to remember completed work and
+continue from a supported waiting point. It applies to the execution you
+have already described: the run, its step results, and the operations
+bound to each step.
 
 These facilities come from the [Workflows runtime](https://github.com/Francois-Esquire/foundry/blob/main/packages/workflows/README.md)
 and Marbles' integration with [Agents](https://github.com/Francois-Esquire/foundry/blob/main/packages/agents/README.md)
@@ -36,23 +40,38 @@ does not checkpoint every instruction or every completed child to disk.
 
 ## Agent execution belongs to a step
 
-An agent supplies judgment inside the workflow. The surrounding step gives
-that execution a place in the run, a result, an optional retry policy and
-deadline, and cancellation tied to the work that owns it.
+Consider a workflow that reviews code, asks for approval, then saves a
+report. While approval waits, the completed review step keeps its findings.
+The unfinished approval step is the work that must continue.
 
-[Agents](https://github.com/Francois-Esquire/foundry/blob/main/packages/agents/README.md)
-supplies the session and harness contracts;
-[Models](https://github.com/Francois-Esquire/foundry/blob/main/packages/models/README.md)
-resolves the provider and model. Marbles connects both to the
-[Workflows](https://github.com/Francois-Esquire/foundry/blob/main/packages/workflows/README.md)
-run. Once a review step finishes, continuing the same workflow consumes its
-recorded findings instead of asking the model to review again.
+The [session bindings](/marbles/foundation/agents-and-sessions#how-the-session-joins-the-workflow)
+connect the agent to this run. The session keeps the conversation; the
+workflow records that the review step completed. Keeping one does not
+replace keeping the other. The [Software Factory](/marbles/use-cases/software-factory)
+uses these boundaries for implementation, verification, approval, and reporting.
 
-This is why the [Software Factory](/marbles/use-cases/software-factory)
-separates implementation, verification, approval, and reporting. Waiting
-for a decision keeps the candidate commit and completed verification
-results. The model's conversation is one part of that state; it is not the
-workflow's record of which stages completed.
+## Replay is different from retry
+
+Continuing a waiting step is replay; repeating a failed attempt is retry.
+After a question is answered or a pause is resumed, the unfinished step
+body starts again from the top. This is **replay**. Its recorded operations
+reconnect it to the work already done:
+
+| Operation in the replayed body | What happens |
+| --- | --- |
+| `agents.session(...)` | Reopens the recorded session at that call position, with its transcript. |
+| `session.generate(...)` or `session.stream(...)` | Sends a turn to that session again if execution reaches the call. Session continuity does not cache each explicit turn. |
+| `agentInstance.generate(...)` or `.stream(...)` | Reuses a recorded completed one-shot reply when available; an unfinished turn can execute again. |
+| `ask.*` | Reads the recorded answer, or parks at an unanswered question. |
+| Managed artifact write | Returns its recorded version instead of creating another version at that position. |
+| Command, raw filesystem write, or `fetch` | Can execute again. The run does not make arbitrary external effects happen exactly once. |
+
+Keep step keys and managed call order stable while a run is parked. Put
+non-repeatable work in a preceding child step, and put an approval at the
+start of its own step. The [approval chapter](/marbles/use-cases/software-factory/approve)
+shows this arrangement. Return JSON data and durable references such as
+commit SHAs and artifact version IDs across step boundaries, rather than
+temporary paths or live handles.
 
 ## Retry a failed attempt
 
@@ -89,28 +108,6 @@ version. Finished child steps in the same run keep their results. Without
 without retry even when a policy exists. Use `shouldRetry` to select which
 errors warrant another attempt. See the [builder options](/marbles/reference/api#the-builder).
 
-## Replay is different from retry
-
-After an answer or a pause is resumed, the unfinished step body starts
-again from the top. This is **replay**. Its recorded operations reconnect it
-to the work already done:
-
-| Operation in the replayed body | What happens |
-| --- | --- |
-| `agents.session(...)` | Reopens the recorded session at that call position, with its transcript. |
-| `session.generate(...)` or `session.stream(...)` | Sends a turn to that session again if execution reaches the call. Session continuity does not cache each explicit turn. |
-| `agentInstance.generate(...)` or `.stream(...)` | Reuses a recorded completed one-shot reply when available; an unfinished turn can execute again. |
-| `ask.*` | Reads the recorded answer, or parks at an unanswered question. |
-| Managed artifact write | Returns its recorded version instead of creating another version at that position. |
-| Command, raw filesystem write, or `fetch` | Can execute again. The run does not make arbitrary external effects happen exactly once. |
-
-Keep step keys and managed call order stable while a run is parked. Put
-non-repeatable work in a preceding child step, and put an approval at the
-start of its own step. The [approval chapter](/marbles/use-cases/software-factory/approve)
-shows this arrangement. Return JSON data and durable references such as
-commit SHAs and artifact version IDs across step boundaries, rather than
-temporary paths or live handles.
-
 ## Recovery after a restart
 
 An answering dashboard can adopt a saved parked run when its definition is
@@ -139,3 +136,6 @@ distributed locking, recreate a lost sandbox guest, or validate a model's
 judgment. [Execution and state](/marbles/foundation/execution-and-state)
 explains the process lifecycle; [remote execution](/marbles/reference/remote)
 applies the same guarantees to another host.
+
+Next: [Schedules and monitors](/marbles/foundation/triggers) starts new
+runs automatically, using the same work and durability rules.

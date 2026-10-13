@@ -1,32 +1,32 @@
 ---
-title: Execution and state
-description: How the CLI binds a runtime, owns a run, and persists local state.
+title: Local execution and state
+description: Connect the automation lifecycle to CLI processes and the stores they keep on disk.
 ---
 
-Read [Durability](/marbles/foundation/durability) for the guarantees around
-finished results, replay, retry, and recovery. This page follows how the
-CLI hosts the [Workflows runtime](https://github.com/Francois-Esquire/foundry/blob/main/packages/workflows/README.md)
-and connects the [Foundry primitives](/marbles/foundation/primitives) to a run.
+You now have work, resources, durability policies, and triggers. The CLI is
+the **host** that brings them together on your machine. A host process can
+execute one run and exit, or stay alive to launch many runs and answer
+questions.
 
-Each command starts a fresh process. For execution commands, importing modules from `.foundry/marbles`
-registers definitions. Then the CLI binds the runtime step bodies receive:
-providers, workspaces, sandboxes, artifacts, sessions, and logging. Finally it
-dispatches work.
+A process and a run have different lifetimes. Starting the CLI loads your
+modules and runtime; launching an automation creates a run within that
+runtime. Keeping a dashboard open does not turn all its launches into one run.
 
-“Register, then bind” means describing work before choosing its runtime.
-It lets one module support inspection, real execution, and dry substitutions.
-Calling a word does not execute a step body. Ordinary code at module scope
-still runs during import, even for inspection commands.
+## From a module to a result
 
-```mermaid
-flowchart LR
-    C[Discover and import modules] --> D[Register definitions]
-    D --> B[Bind runtime]
-    B --> H[Load history, adopt parked runs]
-    H --> R[Dispatch work]
-    R --> P[Persist outcomes]
-    P --> E[Exit]
-```
+| Stage | What the CLI does | What your module does |
+| --- | --- | --- |
+| Discover | Finds and imports automation modules. | Declares named work, resources, and triggers. |
+| Bind | Prepares workspaces, providers, stores, and resource managers. | Supplies definitions that describe what it needs. |
+| Launch | Starts a run with validated input. | Builds a workflow tree, or supplies a single step. |
+| Execute | Runs the steps in dependency order. | Uses the execution context and returns results. |
+| Retain | Saves run outcomes and updates the relevant stores. | Writes reports or artifacts that future work needs. |
+
+This is the declaration-and-execution distinction from the earlier pages,
+now applied to a real process. Top-level module code executes during import,
+including for inspection commands. Step bodies execute when launched.
+
+## Choose the process lifetime
 
 | Mode | Lifetime |
 | --- | --- |
@@ -34,53 +34,56 @@ flowchart LR
 | `marbles` | Keep the dashboard active for schedules, monitors, launches, and answers. |
 | `marbles run` with piped input or output | Keep schedules and monitors running with plain output. Cannot answer a question. |
 
-```mermaid
-sequenceDiagram
-    participant L as Terminal
-    participant Q as Fresh Marbles process
-    participant D as Disk state
-    L->>Q: marbles roll <key>
-    D->>Q: Load history and prior observations
-    Q->>Q: Execute automation
-    Q->>D: Save outcome and continuity
-    Q-->>L: Exit
-```
+Keep Marbles running to execute triggers on their cadence. `roll` executes
+one target immediately; it does not keep a clock running. Both modes use the
+same workspace state. Restart an open dashboard to load edited modules.
+See the [CLI reference](/marbles/reference/cli) for commands and controls.
 
-Keep Marbles running to execute schedules and monitors on their cadence.
-`roll` runs one tick immediately and exits; it does not keep a clock running.
-Both modes share the same workspace state.
+## Different stores remember different things
 
-State belongs to the workspace root. A session continued by
-reference reuses its conversation after the previous process exits. A file
-monitor compares today's digests with the last handled observation. A
-declared artifact gains a version per run.
+| State | What it answers |
+| --- | --- |
+| Run snapshot | Which steps finished, what they returned, and whether this run is waiting. |
+| Agent session | Which messages belong to this conversation. |
+| Artifact content | Which files and evidence a particular output version contains. |
+| Trigger state | When a schedule finished or which observation a monitor last handled. |
+
+[Workflows](https://github.com/Francois-Esquire/foundry/blob/main/packages/workflows/README.md),
+[Agents](https://github.com/Francois-Esquire/foundry/blob/main/packages/agents/README.md),
+and [Artifacts](https://github.com/Francois-Esquire/foundry/blob/main/packages/artifacts/README.md)
+supply the underlying contracts. Marbles connects their records and provides
+local persistent stores by default. A transcript alone cannot tell the
+workflow which steps finished; a run snapshot alone does not contain every
+artifact's file bytes.
+
+Run and session state belongs to the canonical workspace path, under
+`~/.foundry/marbles/<workspace-id>/` by default. Artifact content lives
+separately under `~/.foundry/artifacts/`. Preserve both when moving or backing
+up an automation. The [state reference](/marbles/reference/state) documents
+the files and their ownership rules.
 
 ## What a restart keeps
 
-A run parked on a question or a pause is written to disk as it parks, with
-the sessions and sandboxes each step opened, the input each step was locked
-with, and the run's own session. A quit, a crash, or a kill does not lose it.
-The next dashboard that starts with the same state root and still registers
-the step adopts the run, keeps its question open, and on the answer replays
-the step body against the recorded sessions.
+A new process reads the saved state. An answering dashboard can adopt a
+parked run when its definition remains available and its previous ownership
+has ended. A run interrupted while actively executing is not adopted.
+The [durability guide](/marbles/foundation/durability#recovery-after-a-restart)
+explains the recovery boundary and why a fresh launch can repeat earlier work.
 
-A run that was mid-body when the process stopped is not resumed. The last
-saved snapshot keeps the results it contains, but newer progress may not
-have reached disk. Nothing picks the run up; `status` shows saved running
-records as orphaned. This is the boundary today: parked work can be
-adopted, running work cannot.
-
-See [state](/marbles/reference/state) for the layout and the adoption rules,
-and [safety and limits](/marbles/reference/safety) for dry-run boundaries.
+Under `--dry-run`, Marbles keeps its state in memory and substitutes managed
+operations. Ordinary TypeScript and monitor I/O still execute. See
+[safety and limits](/marbles/reference/safety) for the precise boundary.
 
 ## Replay and retry
 
-Replay continues an unfinished step after a waiting point. Retry starts a
-fresh attempt after failure under the step's configured policy. Neither is
-a new scheduled run. The [durability guide](/marbles/foundation/durability#replay-is-different-from-retry)
-lists which operations reuse recorded work and which can execute again.
+Replay, retry, and a new launch are different ways work can execute again.
+Use the [durability guide](/marbles/foundation/durability#replay-is-different-from-retry)
+to choose step boundaries and retry policies; restarting a process is not a
+substitute for either.
 
-The [state reference](/marbles/reference/state) separates run snapshots,
-session transcripts, trigger observations, and artifact storage. An
-[embedding host](/marbles/reference/engine) chooses its stores explicitly;
-the CLI provides their local persistent defaults.
+An [embedding host](/marbles/reference/engine) provides its own package
+instances and persistent stores. A [remote host](/marbles/reference/remote)
+uses the same process model with its own tools and credentials.
+
+Next: [Foundry primitives](/marbles/foundation/primitives) connects the
+concepts you have used to the libraries underneath Marbles.

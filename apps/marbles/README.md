@@ -66,10 +66,9 @@ ordinary TypeScript and monitor I/O still execute.
 ## Documentation
 
 - [Using Marbles](https://francois-esquire.github.io/foundry/marbles/get-started/using-marbles/): explore capabilities.
+- [Foundation](https://francois-esquire.github.io/foundry/marbles/foundation/api/): the model, definitions, workflows, contexts, and resources, followed by durability and local execution.
 - [Durability](https://francois-esquire.github.io/foundry/marbles/foundation/durability/): finished results, replay, opt-in retries, and recovery of parked runs.
-- [Foundry primitives](https://francois-esquire.github.io/foundry/marbles/foundation/primitives/): the libraries behind Marbles.
-- [API foundations](https://francois-esquire.github.io/foundry/marbles/foundation/api/): definitions, instances, contexts, and composition.
-- [Artifacts and results](https://francois-esquire.github.io/foundry/marbles/foundation/artifacts-and-results/): preserve outputs across runs.
+- [Foundry primitives](https://francois-esquire.github.io/foundry/marbles/foundation/primitives/): the libraries behind those concepts.
 - [Software Factory](https://francois-esquire.github.io/foundry/marbles/use-cases/software-factory/): implement, test, review, and record a decision.
 - [CLI](https://francois-esquire.github.io/foundry/marbles/reference/cli/) and [API](https://francois-esquire.github.io/foundry/marbles/reference/api/) references.
 - [Agent sessions](https://francois-esquire.github.io/foundry/marbles/reference/agent-sessions/): sandbox coding, permissions, child agents, and managed triggers.

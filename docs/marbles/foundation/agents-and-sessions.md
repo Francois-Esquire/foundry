@@ -1,19 +1,84 @@
 ---
 title: Agents and sessions
-description: Declare who does model work, open a session in a step, and continue the conversation in a later run.
+description: Add model work to a step, understand its bindings, and keep a conversation when needed.
 ---
 
-An agent defines who does model work; a session keeps its conversation.
-[Agents](https://github.com/Francois-Esquire/foundry/blob/main/packages/agents/README.md)
-provides those contracts, and [Models](https://github.com/Francois-Esquire/foundry/blob/main/packages/models/README.md)
-resolves the provider and model. Marbles attaches their execution to a step
-in the [Workflows runtime](https://github.com/Francois-Esquire/foundry/blob/main/packages/workflows/README.md),
-giving agent work the run's results, cancellation, and configured retries.
+You have chosen where work runs. An **agent** supplies instructions for model
+work in that environment. A **session** is a conversation with that agent;
+a **turn** is one request and reply within the conversation.
 
-Install and authenticate Claude Code or Codex before running model turns.
-Marbles detects `claude` and `codex` on `PATH` and prefers Claude Code when
-both are present; `--harness` narrows the choice. Authentication belongs to
-those CLIs.
+The workflow still decides when the step runs and what happens to its result.
+The agent supplies judgment inside that step, just as a command supplies a
+calculation or test result.
+
+## Open a session in a step
+
+This complete module asks for one review. It requires an installed and
+authenticated Claude Code or Codex CLI; see [agent setup](/marbles/get-started/installation#add-optional-capabilities-when-needed).
+
+```ts
+import { agent, step } from "@foundry/marbles";
+
+const reviewer = agent({
+  name: "readme-reviewer",
+  prompt: "Review README.md for clarity. Report findings without editing files.",
+});
+
+step("review-readme").do(async ({ agents }) => {
+  const session = await agents.session(reviewer);
+  const reply = await session.generate("Which instructions need clarification?");
+  return reply.text;
+});
+```
+
+`agent(...)` declares instructions. `agents.session(...)` opens the
+conversation. `session.generate(...)` performs a turn, and the step returns
+its text as the result. Run it with `marbles roll review-readme`.
+
+[Agents](https://github.com/Francois-Esquire/foundry/blob/main/packages/agents/README.md)
+provides the session and harness contracts.
+[Models](https://github.com/Francois-Esquire/foundry/blob/main/packages/models/README.md)
+resolves the provider and model that perform the turn.
+
+## How the session joins the workflow
+
+The [execution context](/marbles/foundation/contexts) binds this session to
+its step. Its turns inherit the step's working directory, write to its output
+stream, and stop when the step is cancelled or paused. Inside a Git worktree
+callback, a newly opened session uses that checkout. Pass `{ cwd }` only
+when the host session should use another directory.
+
+That binding is the connection between agent execution and the surrounding
+workflow. The session handles conversation; the step handles its input,
+result, progress, and execution policy. Return the findings so another step
+can use them instead of asking the model to infer which stage comes next.
+
+A prompt asking the agent not to edit is an instruction, not a filesystem
+permission. See [safety and limits](/marbles/reference/safety) for host and
+sandbox authority.
+
+## How sessions behave
+
+A fresh `agents.session(reviewer)` opens a fresh conversation during normal
+execution. Use the same returned session for follow-up turns. A session
+runs one turn at a time, so await one reply before sending the next request.
+
+For a single turn, an agent instance also has `generate` and `stream`
+methods. Inside a step, `await reviewer.generate("Review README.md.")` opens
+its own fresh session and uses the same run bindings. Use an explicit session
+when you want several turns to share a conversation.
+
+`provider` chooses who performs the turn, and `model` selects a model that
+provider serves. The standalone CLI detects `claude` and `codex` on `PATH`,
+prefers Claude Code when both are present, and accepts `--harness` to narrow
+the choice. Authentication belongs to those CLIs.
+
+## Continue the conversation across runs
+
+A session object is useful inside one body. Its small, serializable
+`session.ref` identifies the conversation for another step or a later run.
+This separate module accepts an optional reference and returns the one it used.
+Install `zod@4.4.3` in the automation project for its input schema.
 
 ```ts
 import { agent, step } from "@foundry/marbles";
@@ -44,65 +109,15 @@ marbles roll review-project --input '{"request":"Compare this revision with your
 marbles sessions
 ```
 
-The first run opens a fresh session and returns its reference beside the
-reply. The second passes that reference back and continues the same
-conversation from disk. `sessions` lists it with its message count. The model
-may still miss changes or misinterpret history.
+Copy the returned session reference into the second command, including its
+provider. Use `codex` if that is what the first run returned. A reference
+belongs to the provider that opened it; continuing it with a different
+provider starts a new session and logs a warning. `marbles sessions` lists
+saved conversations with their message counts.
 
-## How sessions behave
-
-- **Fresh by default.** Every `agents.session(def)` starts a new session.
-  Continue one by reference, `{ session }`, never by an id you invented.
-  Within a step the object works; across steps and runs the small
-  `session.ref` handle does, as above. A ref belongs to the provider that
-  opened it; continuing it with an agent on another provider starts a new
-  session and logs a warning.
-- **Replay returns the same session.** Resuming a question or pause,
-  including a parked run adopted after restart, replays its unfinished
-  step body from the top. The n-th `agents.session`
-  call in the body returns the session it opened the first time, with its
-  transcript, so keep those calls in a fixed order. An explicit
-  `session.generate` or `session.stream` reached again sends another turn;
-  retaining a session does not cache every turn in that session.
-- **Wired by default.** The session runs in the step's working directory,
-  which is the workspace root or, inside a worktree callback, the
-  worktree. That is how `implement` in the [Software Factory](/marbles/use-cases/software-factory/implement)
-  works on its own branch without naming a directory. Its turns write to
-  the step's stream and stop when the step is cancelled or paused. Pass
-  `{ cwd }` only to leave that default.
-- **Compaction depends on the session kind.** Native Claude Code and Codex
-  sessions manage their own compaction and reject an explicit `compaction`
-  option. Network-model sessions supplied by an embedding host can use
-  `{ compaction: true }` or custom settings. See [session options](/marbles/reference/agent-sessions).
-
-## Agents
-
-`agent` declares who does the work: a prompt, optionally a `provider`
-(`codex` or `claude-code`) and a `model` the provider serves. Declaring one
-starts nothing; opening a session does. The prompt is an instruction, not a
-permission; see [safety and limits](/marbles/reference/safety).
-
-An agent is also usable on its own. `designer.generate(prompt)` and
-`designer.stream(prompt)` run one turn on a fresh session, in the calling
-step when there is one, or on a default runtime in a plain script:
-
-```ts
-const designer = agent({ prompt: "Design within the brand." });
-const { text } = await designer.generate("Name this palette.");
-```
-
-Use `agents.session(designer)` when the conversation should continue.
-
-Inside a step, a one-shot `designer.generate` or `designer.stream` records
-its completed reply for reuse on replay. An unfinished turn can run again.
-A retry after failure starts fresh managed operations, so even a completed
-turn can repeat on retry. Keep agent work in its own step before a human
-approval, as described in [Durability](/marbles/foundation/durability#replay-is-different-from-retry).
-
-`settings` holds what every turn starts from: the AI SDK's model settings
-(`temperature`, `maxOutputTokens`, `stopWhen`, `providerOptions`, …) and an
-`output`. A turn's own options override them. Claude Code and Codex run
-their own loop, so they honour `output` and ignore the model settings.
+Continuing a conversation does not resume the earlier workflow run. This is
+a new run using retained messages. The [Persistent Reviewer](/marbles/use-cases/persistent-reviewer)
+saves the reference itself when a schedule needs to supply it next time.
 
 ## Structured output
 
@@ -147,35 +162,25 @@ step("triage")
 From the dashboard, `s` on a running step hands the agent a prompt mid-turn
 and `p` parks the step; neither needs authored code.
 
-## Prebuilt reviewers
-
-`@foundry/marbles/prebuilt` has read-only steps with the sessions already
-wired. `reviewInWorktree()` reviews any revision in a temporary checkout:
-
-```ts
-import { reviewInWorktree } from "@foundry/marbles/prebuilt";
-
-reviewInWorktree();
-```
-
-```sh
-marbles roll review-in-worktree --input '{"repository":".","base":"main"}'
-```
-
-To keep a review conversation across scheduled runs, see the
-[persistent reviewer](/marbles/use-cases/persistent-reviewer). The
-[configuration reference](/marbles/reference/project#prebuilt-steps)
-lists every prebuilt step, and the [API reference](/marbles/reference/api#context)
-lists every session option.
-
 ## Skills and sandbox sessions
 
-`skills.load()` collects skills from `~/.foundry/skills` and the project's
-`skills/` folder. `.add(glob)` adds skill directories and `.pick(...names)`
-narrows the set. Pass the result as an agent's `skills`; use `skills.none()`
-for an initially empty set. `defineSkill` creates a skill in code.
+Skills supply reusable instructions and files to an agent. `skills.load()`
+collects them from `~/.foundry/skills` and the project's `skills/` folder;
+`.add(glob)` adds directories and `.pick(...names)` narrows the set. Pass
+that set as the agent's `skills`.
 
-Host sessions work in a local directory. `agents.session(def, { sandbox })`
-opens a session inside a declared or started sandbox. Sandbox permission
-profiles, model questions, child agents, and agent-created triggers have
-additional lifecycle rules; see [Agent sessions](/marbles/reference/agent-sessions).
+Host sessions work in a local directory. `agents.session(def, { sandbox: box })`
+opens the conversation in the sandbox introduced on the previous page;
+its mounts determine the working directory, so do not also supply `cwd`.
+
+The [session reference](/marbles/reference/agent-sessions) covers permission
+profiles, compaction, child agents, and additional session settings. The
+[prebuilt steps](/marbles/reference/project#prebuilt-steps) provide reviewers
+with those sessions already wired.
+
+A conversation records messages; a completed step records the result used
+by its workflow. [Durability](/marbles/foundation/durability) later explains
+how replay and retry affect both, including when a turn can execute again.
+
+Next: [Artifacts and results](/marbles/foundation/artifacts-and-results)
+explains how to pass findings to another step or keep them as a versioned report.

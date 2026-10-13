@@ -3,7 +3,8 @@ title: Artifacts and results
 description: Distinguish step results, readable reports, and versioned outputs that survive a run.
 ---
 
-A step returns data to its parent. A report makes an outcome visible to a
+A command or agent turn has produced a result. A step returns that data
+to its parent. A report makes an outcome visible to a
 person. An artifact keeps an output under a stable name with versions that
 later runs can read. Choose the form according to who needs the result.
 
@@ -66,15 +67,18 @@ owns the conversation behind that reference; the artifact tells the next
 run which conversation to continue. In the [Software Factory](/marbles/use-cases/software-factory/approve),
 the artifact instead keeps the reviewed commit, findings, and human decision.
 
-## Versions and replay
-
-A managed artifact write inside a step records the version it produced.
-When that step replays after a question or pause, the same call position
-returns that version. A retry after failure is a fresh attempt and can
-write another version. A new run also performs new writes. See
-[Durability](/marbles/foundation/durability#replay-is-different-from-retry).
+## Keep the result and its provenance
 
 Inside a run, artifact metadata includes the owning run and session IDs.
 Keep those references when tracing how an output was produced. Artifact
 storage preserves the evidence you write; it does not verify its accuracy
 or copy every file in a worktree automatically.
+
+A returned value belongs to a particular run. An artifact has an identity
+that later runs can find, with a specific version for the output they need.
+A session reference identifies a conversation. These records serve different
+purposes even when they all came from the same step.
+
+Next: [Durability](/marbles/foundation/durability) brings those records
+together to explain what happens when work waits, replays, retries, or is
+interrupted.

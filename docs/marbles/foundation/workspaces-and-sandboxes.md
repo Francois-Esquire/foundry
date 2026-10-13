@@ -8,18 +8,17 @@ environment that can mount a workspace or start from a set of files. Their
 definitions describe location and configuration; their instances expose
 operations.
 
-[Workspaces](https://github.com/Francois-Esquire/foundry/blob/main/packages/workspaces/README.md)
-supplies project identity, file access, and Git capabilities.
-[Sandbox](https://github.com/Francois-Esquire/foundry/blob/main/packages/sandbox/README.md)
-supplies isolated file and command interfaces. Both use
-[Core's storage contracts](https://github.com/Francois-Esquire/foundry/blob/main/packages/core/src/storage.ts);
-Marbles adds the owning step's working directory, cancellation, and cleanup.
+The [execution context](/marbles/foundation/contexts) supplies a default
+working directory. Choose another workspace or a temporary checkout when
+the task needs a different set of files; add a sandbox when commands need
+an isolated environment.
 
 ## The current workspace
 
 With the default `.foundry/marbles/` authoring folder, the workspace is your
 project root above `.foundry`. `workspaces.current` exposes that project:
 `root`, `files()`, `read(id)`, and Git operations when it is a repository.
+These capabilities come from [Workspaces](https://github.com/Francois-Esquire/foundry/blob/main/packages/workspaces/README.md).
 
 Selecting a custom source changes this resolution. See the
 [project reference](/marbles/reference/project#the-workspace) for directory
@@ -54,9 +53,8 @@ in the temporary checkout is not a durable result.
 
 Return the commit SHA when another step must use that exact code. For
 reports or generated files, save an [artifact](/marbles/foundation/artifacts-and-results)
-before cleanup. [Durability](/marbles/foundation/durability) preserves
-recorded results; it does not preserve every temporary directory or keep a
-sandbox guest alive across a host failure.
+before cleanup. Later steps need a result they can use after the temporary
+environment has been removed.
 
 Commands and agent sessions opened inside the callback inherit the
 checkout's working directory. The default sandbox mount does too. Raw
@@ -65,7 +63,9 @@ filesystem calls should use `checkout.root` explicitly;
 
 ## Sandboxes
 
-The CLI uses the optional MicroSandbox adapter. A real sandbox needs
+[Sandbox](https://github.com/Francois-Esquire/foundry/blob/main/packages/sandbox/README.md)
+supplies the file and command interfaces. The CLI uses its optional
+MicroSandbox adapter. A real sandbox needs
 `microsandbox@0.6.18` resolvable from the Marbles installation and its native
 runtime binaries. Follow the runtime's setup for your host; adding a
 package to the automation project alone does not necessarily make it
@@ -98,13 +98,13 @@ require `executable: true`.
 Sandbox `exec` returns the exit code even on failure. The step context's
 `exec(argv, { sandbox })` checks it and fails the step unless `check: false`.
 
-## Agents inside a sandbox
+## Choose the environment for the task
 
-`agents.session(agent, { sandbox: box })` runs the coding harness inside
-the sandbox. Session permission profiles and credentials are separate from
-host-session options; do not combine a sandbox with `cwd`.
+Start with the local project while learning Marbles. Use a Git worktree
+when a task should inspect or change another revision in its own checkout.
+Use a sandbox when the execution environment needs isolation and you have
+configured its runtime, mounts, and network policy.
 
-The [agent session reference](/marbles/reference/agent-sessions) covers
-permissions, questions, child agents, and session continuity. Start with
-host execution while learning Marbles, then add isolation where your task
-needs it.
+Next: [Agents and sessions](/marbles/foundation/agents-and-sessions) adds
+model work to these environments and explains how the session inherits
+its step's location and lifecycle.

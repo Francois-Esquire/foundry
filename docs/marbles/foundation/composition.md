@@ -10,10 +10,19 @@ name and launch input. A parent receives its children's results, so children
 run before the parent.
 
 Marbles builds this tree on [Workflows](https://github.com/Francois-Esquire/foundry/blob/main/packages/workflows/README.md).
-Each step is a boundary for results, attempts, and cancellation. An agent
-turn inside a step receives the same execution lifecycle as a local
-command. [Durability](/marbles/foundation/durability) explains how finished
-results are retained when the run continues.
+The same definition can occupy a position in more than one tree. Its
+position determines which results it receives in this workflow.
+
+## Inputs and results
+
+A step accepts input and returns a result. `.input(schema)` validates the
+input and supplies its TypeScript type; `.output(schema)` validates the
+result. Return plain JSON data so Marbles can record it and hand it to
+another step.
+
+A parent declares the child results it consumes in its input schema. In
+the example below, `count` returns a number and `summarize` receives that
+number as `input.count`.
 
 ## Hand a result to the next step
 
@@ -79,32 +88,25 @@ workflow("project-counts", combine.parallel({
 `marbles roll project-counts` returns both counts. Calling `combine(...)` or
 `combine.series(...)` runs children in key order; `.parallel(...)` runs them
 together. Data flows from children to their parent, never between siblings.
-If one parallel child fails, siblings are cancelled and awaited. A parked
-child lets its siblings finish while the parent waits.
+If one parallel child fails, siblings are cancelled and awaited.
 
 ## Choose a boundary
 
 Make an operation a child step when its result, failure, or progress should
 be independently visible. Keep ordinary calculations inside a body. A
-finished child also protects its completed work from repetition when its
-parent replays or retries within that run. A workflow can be a launch root,
-but cannot be nested as a child in another tree; reuse its steps instead.
+workflow can be a launch root, but cannot be nested as a child in another
+tree; reuse its steps instead.
 
 `.run(input)` executes a definition directly, including from inside a
 body. Its nested execution does not appear as an independent dashboard run.
 Lock a child into the tree when you want that visibility.
 
-## Failure and recovery
+There are no race, branching, or loop combinators. You can choose a tree in
+ordinary TypeScript during setup. Keep the actual commands, file access,
+and agent turns inside steps. The [builder reference](/marbles/reference/api#the-builder)
+lists the exact composition forms.
 
-A thrown error fails a step. `.config({ retry, timeout })` can retry an
-attempt or bound its duration. Retrying executes the body again from the
-top with fresh owned operations; it is different from resuming a parked
-attempt against its recorded operations.
-
-Retries and timeouts have no default policy: configure the steps that need
-them. A parent's policy applies to its own attempt, not to its children.
-
-There are no race, branching, or loop combinators. You can branch in
-ordinary TypeScript, but keep recorded operation order stable on replay.
-See [replay and retry](/marbles/foundation/durability#replay-is-different-from-retry) and the
-[builder reference](/marbles/reference/api#the-builder).
+Step boundaries also determine what can be retried or kept while waiting.
+[Durability](/marbles/foundation/durability) explains those rules after the
+resource chapters. Next: [Contexts and bindings](/marbles/foundation/contexts)
+explains what setup and step callbacks receive when this tree executes.

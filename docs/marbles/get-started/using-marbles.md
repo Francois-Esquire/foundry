@@ -167,6 +167,6 @@ same pattern for a URL. [Schedules and monitors](/marbles/foundation/triggers).
 | [Release Watcher](/marbles/use-cases/release-watcher) | HTTP monitoring and a report. |
 | [Design Sync](/marbles/use-cases/design-sync) | External data, workflow gates, and proposed code changes. |
 
-Continue with [Foundation](/marbles/foundation/durability) to understand the model
+Continue with [Foundation](/marbles/foundation/api) to understand the model
 behind these capabilities. See [safety and limits](/marbles/reference/safety)
 when running agent work or unfamiliar modules.

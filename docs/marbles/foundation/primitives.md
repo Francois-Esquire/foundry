@@ -3,10 +3,10 @@ title: Foundry primitives
 description: The libraries Marbles combines into one local automation runtime.
 ---
 
-Marbles brings Foundry's libraries together behind one CLI and TypeScript
-authoring API. A workflow can open a coding session, work in a Git checkout,
-run a command in a sandbox, and publish a versioned result because those
-capabilities share contracts and a run that owns their lifetime.
+The preceding pages follow an automation from its definition through a
+run and the state it keeps. This final map connects those familiar concepts
+to the Foundry libraries that implement them. Marbles brings the libraries
+together behind one CLI and TypeScript authoring API.
 
 The standalone package bundles these libraries. Keep importing
 `@foundry/marbles` in automation modules; the package links below explain
@@ -22,7 +22,7 @@ run's replay, cancellation, output, and cleanup.
 
 | Library | Primitive | Where you use it in Marbles |
 | --- | --- | --- |
-| [Workflows](https://github.com/Francois-Esquire/foundry/blob/main/packages/workflows/README.md) (`@foundry/workflows`) | Steps, execution snapshots, retries, suspensions, queues, and orchestration. | `step`, `workflow`, `.config`, and the run behind each launch. Start with [Durability](/marbles/foundation/durability). |
+| [Workflows](https://github.com/Francois-Esquire/foundry/blob/main/packages/workflows/README.md) (`@foundry/workflows`) | Steps, execution snapshots, retries, suspensions, queues, and orchestration. | `step`, `workflow`, `.config`, and the run behind each launch. See the [run guarantees](/marbles/foundation/durability). |
 | [Agents](https://github.com/Francois-Esquire/foundry/blob/main/packages/agents/README.md) (`@foundry/agents`) | Agent harnesses, sessions, messages, skills, and tool authorization. | `agent`, `agents.session`, and `skills`. See [Agents and sessions](/marbles/foundation/agents-and-sessions). |
 | [Models](https://github.com/Francois-Esquire/foundry/blob/main/packages/models/README.md) (`@foundry/models`) | Provider and model resolution, capabilities, and catalogs. | An agent's `provider` and `model`, CLI harness selection, or an embedding host's `ModelManager`. |
 | [Workspaces](https://github.com/Francois-Esquire/foundry/blob/main/packages/workspaces/README.md) (`@foundry/workspaces`) | Source identity, file inventories, reads and writes, observation, and Git capabilities. | `workspace`, `workspaces.current`, and temporary Git worktrees. |
@@ -59,3 +59,15 @@ For an embedded Marbles host, the [engine reference](/marbles/reference/engine)
 shows how to provide the package instances and persistent stores. Use its
 bundled `@foundry/marbles/lib` exports for those instances so they match
 the engine's copy of the classes.
+
+## Package entry points
+
+| Import | Intended use |
+| --- | --- |
+| `@foundry/marbles` | Author automations: builders, resource factories, triggers, helpers, and their types. |
+| `@foundry/marbles/prebuilt` | Register a ready-made step with your chosen options. |
+| `@foundry/marbles/lib` | Embed an engine in another application with explicit dependencies. |
+
+With this foundation, [Software Factory](/marbles/use-cases/software-factory)
+puts the pieces together in a complete local workflow. Use the
+[API reference](/marbles/reference/api) when you need exact options and types.

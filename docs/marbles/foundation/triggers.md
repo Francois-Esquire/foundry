@@ -3,8 +3,10 @@ title: Schedules and monitors
 description: Run work on a clock or react when a file or HTTP source changes.
 ---
 
-A schedule decides when work runs. A monitor polls a source and runs its
-handler when something changes. Both need a running Marbles loop to keep
+The earlier pages describe what one run does and what it retains. A
+trigger decides when new work begins. A schedule runs work on a clock;
+a monitor polls a source and runs its handler when something changes.
+Both need a running Marbles loop to keep
 executing. `roll` runs one target or poll immediately and exits.
 
 The CLI owns the polling and clock loops. A launched step or workflow runs
@@ -130,3 +132,6 @@ intervals above. See [managed automation](/marbles/reference/agent-sessions#chil
 The [trigger reference](/marbles/reference/api#triggers) covers exact forms
 and keys; [state](/marbles/reference/state#scheduling-and-overlap) covers
 locks and persisted observations.
+
+Next: [Local execution and state](/marbles/foundation/execution-and-state)
+connects these launches to the CLI process and its persistent stores.

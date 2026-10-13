@@ -45,10 +45,11 @@ artifacts, human decisions, and triggers.
 
 ## Understand how it works
 
-[Foundation](/marbles/foundation/durability) starts with durability and the
-[Foundry primitives](/marbles/foundation/primitives) behind Marbles. It then
-explains what a definition creates, which context a callback receives, and
-how workflows, sessions, and versioned outputs fit together.
+[Foundation](/marbles/foundation/api) starts with the Marbles model:
+definitions describe work, workflows connect it, and runs execute it.
+Contexts then connect that work to environments, agents, and outputs.
+Durability and triggers build on those ideas, followed by local state and
+the Foundry libraries underneath.
 
 ## Build something useful
 

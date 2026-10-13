@@ -1,99 +1,96 @@
 ---
 title: Definitions and instances
-description: What factories return, when operations start, and how a definition becomes a run.
+description: Separate declaring work, placing it in a workflow, and executing a run.
 ---
 
-Calling an authoring factory creates a definition. Some returned objects
-also expose operations you can invoke later. Creating the object and
-invoking those operations are separate events.
+The [Marbles model](/marbles/foundation/api) separates the description of
+work from a run of that work. The authoring API follows the same distinction:
+create a definition first, then decide how it will be used.
 
-The returned objects adapt the [Foundry primitives](/marbles/foundation/primitives)
-to Marbles' authoring API. For example,
-[Agents](https://github.com/Francois-Esquire/foundry/blob/main/packages/agents/README.md)
-supplies the session machinery, while Marbles binds a turn to its owning
-step when the operation runs.
-
-## Declare first, execute on use
+## Declare a step
 
 ```ts
-import { agent, step } from "@foundry/marbles";
+import { step } from "@foundry/marbles";
 
-const reviewer = agent({ prompt: "Review without editing." });
-
-step("review-readme").do(async () => {
-  const reply = await reviewer.generate("Review README.md for clarity.");
-  return reply.text;
+const count = step("count-files").do(async ({ workspaces }) => {
+  const files = await workspaces.current.files();
+  return files.length;
 });
 ```
 
-Loading this module registers the step and declares the agent. It does not
-send a model request. `marbles roll review-readme` enters the callback;
-`reviewer.generate(...)` then starts a turn attached to that step.
+`step("count-files")` creates a builder. `.do(...)` supplies the callback and
+returns a `StepDefinition`, held here by `count`. Loading the module
+registers that name in the catalog. The callback has not executed yet.
 
-That turn uses a fresh session. For multiple turns in one conversation,
-open a session through the [execution context](/marbles/foundation/contexts#step-execution).
+Other builder methods describe the work before `.do(...)`: `.input(schema)`
+defines the values it accepts, `.output(schema)` describes its result, and
+`.describe(text)` explains its purpose. The next page uses these contracts
+to connect steps.
 
-## What each factory returns
+## Place it in a workflow or launch it
 
-| Factory | Returned type | Operations |
-| --- | --- | --- |
-| `agent(...)` | `Agent` | `generate`, `stream`; each call uses a fresh session. |
-| `workspace(...)` | `WorkspaceInstance` | `root`, file operations, and `git`; loads on use. |
-| `sandbox(...)` | `SandboxInstance` | `exec`, container facets, and `close`; starts on use. |
-| `artifact(...)` | `ArtifactInstance` | `write`, `latest`; writes create content versions. |
-| `skills.load()` / `skills.none()` | `SkillSet` | Immutable `.add()` and `.pick()` operations, resolved when a session opens. |
-| `step(...).do(...)` | `StepDefinition` | Call to make a node; `.series`/`.parallel` connect children; `.run` executes directly. |
-| `workflow(...).do(...)` | `WorkflowDefinition` | Call to make a launch node; `.run` executes the workflow directly. |
-
-The definition types, such as `AgentDefinition` and `SandboxDefinition`,
-describe the declared data. Instance types add usable methods. You can pass
-an instance anywhere its definition is accepted: `agents.session(reviewer)`
-or `sandboxes.start(box)`.
-
-## A definition, a node, and a run
-
-For a step named `count`:
+The same definition can be used in several ways:
 
 | Expression | What happens |
 | --- | --- |
-| `step("count").do(fn)` | Defines the work and registers it with the module catalog. |
-| `count({})` | Creates a node with no children, ready to place in a workflow. |
-| `count({}, input)` | Creates a node carrying literal input. |
-| `await count.run(input)` | Executes now and returns its result. |
-| `marbles roll count` | Launches the registered definition through the CLI. |
+| `count({})` | Creates a node ready to place in a workflow. No work executes. |
+| `count({}, input)` | Creates a node carrying literal input, when the step declares an input schema. |
+| `await count.run()` | Executes the definition directly and returns its result. |
+| `marbles roll count-files` | Launches the registered definition through the CLI. |
 
-Creating a node is called **locking** a definition. It fixes the children
-and literal input for that position in a tree. It is unrelated to the
-process lock that prevents overlapping schedule ticks.
+A **node** is one placement of a definition in a workflow tree. Its first
+argument describes the child steps whose results it needs; the second
+supplies literal input. Creating a node is called **locking** a definition:
+it fixes those children and inputs for that position.
 
-Prefer workflow children when each operation should appear as its own step
-in the dashboard. `.run()` inside a body is recorded with that body, but its
-nested run is not independently visible or controllable in the dashboard.
-Stable tree positions also identify completed results and recorded calls
-during [durable replay](/marbles/foundation/durability#replay-is-different-from-retry).
+A **run** begins when Marbles executes the definition or tree. Calling
+`count({})` while describing a workflow does not start a run. This is what
+lets you compose work before launching it.
 
-## Names and identity
+Use explicit, unique names for launchable steps and workflows. Shared
+helper definitions can live in imported modules; see the
+[catalog rules](/marbles/reference/project#names-and-the-catalog) for name
+inference and discovery.
 
-Use explicit step and workflow names in shared examples. Named definitions
-are launchable, and names must be unique within the catalog. Without a name,
-Marbles can infer a top-level `const` name when TypeScript is available in
-the project; otherwise the definition stays internal.
+## Resource instances describe something you can use
 
-Give long-lived agents an explicit `name` when grants and agent-created
-triggers should retain their identity as prompts change. An unnamed
-agent's inferred name or definition digest determines its identity.
+Resource factories return objects too. Some combine a declaration with
+methods that use it. For example:
 
-An artifact declaration identifies the same output across runs in a
-workspace; writes add versions. Keep declarations stable as you evolve a
-module. See [identity and state](/marbles/reference/state).
+```ts
+import { step, workspace } from "@foundry/marbles";
 
-## Inside and outside a step
+const project = workspace({ path: "." });
 
-Inside a step, instance operations use the active run: its working
-directory, output stream, cancellation, and recorded operations. Outside a
-step, direct operations use the host runtime or a default runtime in a plain
-script. That script must call `dispose()` when finished to release resources.
+step("read-project").do(async () => {
+  const files = await project.files();
+  return { files: files.length };
+});
+```
 
-Keep module top level to declarations in CLI automations. `list` imports
-modules too, so a top-level `await reviewer.generate(...)` would perform
-work merely by listing them.
+`project` is a `WorkspaceInstance`. Its definition identifies a directory;
+its `files()` method loads and reads that directory when called. The
+underlying file operations come from
+[Workspaces](https://github.com/Francois-Esquire/foundry/blob/main/packages/workspaces/README.md).
+
+The same distinction applies to other resources: an agent declaration
+supplies instructions, and its methods perform model work; a sandbox
+declaration supplies an environment, and its first operation starts it.
+Their dedicated pages introduce the returned objects as you use them.
+The [API reference](/marbles/reference/api#using-a-definition) lists the
+complete methods and types.
+
+## Keep module scope to declarations
+
+Marbles imports automation modules even for `list`. A factory call or step
+builder describes what is available; an operation such as `project.files()`
+or an agent turn performs work. Put operations in step callbacks so they
+happen when you launch the automation.
+
+Inside a step, resource methods use its execution context. That is how
+Marbles supplies their working directory and owns their activity. The
+[Contexts](/marbles/foundation/contexts) page explains that connection after
+we have a workflow to run.
+
+Next: [Steps and workflows](/marbles/foundation/composition) connects these
+nodes so one step can consume another's result.

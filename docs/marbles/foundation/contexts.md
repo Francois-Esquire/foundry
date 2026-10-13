@@ -1,48 +1,44 @@
 ---
-title: Contexts
-description: What is available during declaration, workflow setup, step execution, and monitoring.
+title: Execution contexts
+description: Understand what each callback receives and how resources become part of a run.
+sidebar:
+  label: Contexts and bindings
 ---
 
-A context is the object Marbles passes into a callback. The available
-properties reflect what that callback is responsible for. Workflow setup
-builds a tree; a step executes work; a monitor handles an observation.
+The workflow tree describes which work depends on which results. A
+**context** gives a callback the values and operations it needs at the
+moment Marbles calls it. Workflow setup describes the tree; step execution
+does the work inside it. Their callbacks therefore receive different things.
 
 ## Definition time
 
-At module scope you import factories such as `step`, `agent`, and `workspace`.
-There is no callback argument or public `DefinitionContext` object. This is
-the declaration environment: create definitions, give them defaults, and
-connect triggers.
-
-The objects returned here may be usable instances. For example,
-`workspace(...)` returns a `WorkspaceInstance`, and `agent(...)` returns an
-`Agent`. See [Definitions and instances](/marbles/foundation/definitions-and-instances).
+At module scope, you import factories such as `step` and `workspace` and
+create [definitions and instances](/marbles/foundation/definitions-and-instances).
+There is no callback argument or public `DefinitionContext` object here.
+This is ordinary module evaluation, where you declare work and resources.
 
 ## Workflow setup
 
-`workflow(...).do(setup)` receives the setup context:
+In the [composition example](/marbles/foundation/composition),
+`workflow(...).do(setup)` uses launch input to return a tree of locked steps.
+Its setup context contains:
 
 | Property | Meaning |
 | --- | --- |
 | `input` | The workflow's validated launch input. |
 | `log` | A logger. |
-| `run.id` | The run identifier. |
+| `run.id` | The identifier of this run. |
 
-The callback returns a tree of locked steps. It has no `agents`, `exec`,
-`ask`, or resource managers. Its underlying type is `SetupContext<I>`;
-authoring callbacks infer it without a type annotation.
-
-Setup can execute again when a parked run is recovered. Keep operational
-work in steps, and pass the values they need as input.
-
-The setup describes the run's structure for
-[Workflows](https://github.com/Francois-Esquire/foundry/blob/main/packages/workflows/README.md).
-Step execution is where Marbles attaches the other libraries to that run.
+There are no `agents`, `exec`, `ask`, or resource managers in this callback.
+Setup chooses the structure of the work. Its underlying type is
+`SetupContext<I>`; TypeScript infers it from the authoring callback.
+Keep operational work in the steps that setup connects.
 
 ## Step execution
 
-`step(...).do(body)` receives `Context<I>`. `I` comes from `.input(schema)`.
-Destructure only what your step uses:
+`step(...).do(body)` receives `Context<I>`. Its `input` combines literal
+input with the completed child results declared by the step's input schema.
+The rest of the context connects the body to its run:
 
 ```ts
 import { step } from "@foundry/marbles";
@@ -53,56 +49,57 @@ step("inspect-runtime").do(({ workspaces, run, log }) => {
 });
 ```
 
-| Group | Properties | Purpose |
+| Group | Properties | What the step can do |
 | --- | --- | --- |
-| Data | `input` | Validated input, including results supplied by child steps. |
-| Resources | `agents`, `workspaces`, `sandboxes`, `artifacts` | Open sessions, use directories, start sandboxes, and read or write outputs. |
+| Data | `input` | Read validated input and child results. |
+| Resources | `workspaces`, `agents`, `sandboxes`, `artifacts` | Work with directories, conversations, environments, and outputs. |
 | Commands | `exec` | Run an argument list with streamed output and cancellation. |
-| People and results | `ask`, `report` | Ask for a decision or input; publish progress and results. |
-| Execution | `log`, `stream`, `signal`, `run` | Log, stream custom output, observe cancellation, and identify the run. |
+| People and results | `ask`, `report` | Wait for a person's answer or publish an outcome. |
+| Execution | `log`, `stream`, `signal`, `run` | Write output, observe cancellation, and identify the run. |
 
-Resource managers return different objects: `agents.session` returns a
-`Session`, `workspaces.load` a `LoadedWorkspace`, `sandboxes.start` a
-`SandboxHandle`, and an artifact write an `ArtifactVersion`. These are the
-objects you use inside the callback, not additional callback contexts.
+Destructure only what the step uses. The next pages introduce each resource
+in detail; this context is the common place from which you use them.
 
-Marbles connects owned operations to the step. For custom work such as
-`fetch`, pass `signal` yourself. An ordinary filesystem write or external
-request is still ordinary TypeScript and can repeat on replay.
+## Binding resources to a run
 
-This ownership is part of [durability](/marbles/foundation/durability).
-A session opened through the context participates in the run's recorded
-operations; a client constructed independently has only the guarantees
-that client supplies. See [Foundry primitives](/marbles/foundation/primitives)
-for the package behind each resource manager.
+A resource definition says what you want to use. **Binding** connects an
+operation on that resource to this execution: its workspace, output stream,
+cancellation signal, and lifetime.
 
-## Monitor handlers
+For example, `agents.session(reviewer)` returns a `Session` attached to the
+current step. Its turns use that step's working directory, write to its
+stream, and stop when the step is cancelled or paused. The same connection
+applies when you call an agent instance's methods from inside the step.
 
-`monitor(...).do(handler)` receives `MonitorContext`, which extends the
-step context with:
+The returned session is an object the body uses, not a new callback context.
+Likewise, `workspaces.load` returns a `LoadedWorkspace`, `sandboxes.start`
+a `SandboxHandle`, and an artifact write an `ArtifactVersion`.
 
-| Property | Available for |
-| --- | --- |
-| `change` | Every handler; discriminate with `change.kind`. |
-| `files` | File sources; added, modified, and removed files. |
-| `response` | HTTP sources; the response body and status. |
+Marbles adds these bindings around the
+[Workflows runtime](https://github.com/Francois-Esquire/foundry/blob/main/packages/workflows/README.md)
+and the resource libraries. Ordinary TypeScript still needs its own wiring:
+pass the context's `signal` to a raw `fetch` if it should stop with the step.
+A separately constructed client does not automatically gain Marbles' bindings.
 
-Its `input` is empty; it has no launch-input schema. Prefer narrowing
-`change.kind` before using file or HTTP-specific data. A handler can do
-work directly or return one locked target to launch.
+## Waiting for a person
 
-## Defaults and lifetime
+`ask.approval(...)` waits for a decision, and `ask.question(...)` waits for
+input. The dashboard presents these requests and returns the person's answer
+to the callback. A waiting step is **parked** until it can continue.
 
-The project root establishes the workspace. Definitions supply resource
-defaults; a step's active scope supplies cancellation and output. An
-operation's options can select another supported directory or session.
+Use the dashboard for work that asks questions. `roll` and headless `run`
+cannot answer and cancel at a workflow ask. How a parked body continues,
+including after a restart, is explained later in
+[Durability](/marbles/foundation/durability).
 
-Inside `git.withWorktree(...)`, commands and newly opened sessions inherit
-the temporary checkout. `workspaces.current.root` still identifies the
-project; use the callback's `checkout.root` for raw filesystem operations.
+## Other callback contexts
 
-Recorded operations such as opening sessions and writing artifact versions
-use their call position during replay. Keep their order stable. The
-[execution lifecycle](/marbles/foundation/execution-and-state) explains
-recovery; the [API reference](/marbles/reference/api#context) lists exact
-methods and options.
+A monitor handler receives `MonitorContext`: the step context plus `change`
+and file- or HTTP-specific data. Its input is empty because it handles an
+observation rather than schema-defined launch input.
+[Schedules and monitors](/marbles/foundation/triggers) introduces those
+callbacks when you are ready to start runs automatically.
+
+The [API reference](/marbles/reference/api#context) lists the exact methods
+and options. Next: [Workspaces and sandboxes](/marbles/foundation/workspaces-and-sandboxes)
+explains where these bound operations take place.
