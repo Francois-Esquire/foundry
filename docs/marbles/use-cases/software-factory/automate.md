@@ -68,6 +68,12 @@ fails that run; it does not publish a success report. Use run history and
 logs to diagnose it. Schedules do not install a service or keep running
 after the Marbles process stops.
 
+Each tick starts a new [Workflows](https://github.com/Francois-Esquire/foundry/blob/main/packages/workflows/README.md)
+run. A successful check writes a new [artifact version](/marbles/foundation/artifacts-and-results).
+The next scheduled tick is separate from retrying a failed step. Use
+[durability policies](/marbles/foundation/durability#retry-a-failed-attempt)
+for failure handling within a run, and the schedule for when new checks begin.
+
 ## Extend the trigger
 
 A file or HTTP monitor can also launch a workflow by returning its locked

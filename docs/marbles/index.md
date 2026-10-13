@@ -10,6 +10,12 @@ to inspect a project, run commands, connect steps into workflows, and repeat
 work on a schedule or when files change. Add a coding agent where the task
 needs judgment.
 
+Each launch runs through [Workflows](https://github.com/Francois-Esquire/foundry/blob/main/packages/workflows/README.md),
+which gives the work recorded results, configurable retries, and waiting
+points. Marbles connects agent sessions and resources to that run. This
+[durability](/marbles/foundation/durability) is part of the execution model
+from your first step, with local state supplied by the CLI.
+
 Your automations live in your project, under `.foundry/marbles/`. This is a
 complete automation:
 
@@ -39,9 +45,10 @@ artifacts, human decisions, and triggers.
 
 ## Understand how it works
 
-[Foundation](/marbles/foundation/api) explains the API and its lifecycle:
-what a definition creates, what an instance can do, and which context a
-callback receives. Start there when you want to compose your own automation.
+[Foundation](/marbles/foundation/durability) starts with durability and the
+[Foundry primitives](/marbles/foundation/primitives) behind Marbles. It then
+explains what a definition creates, which context a callback receives, and
+how workflows, sessions, and versioned outputs fit together.
 
 ## Build something useful
 

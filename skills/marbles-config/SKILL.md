@@ -139,18 +139,30 @@ why they exist lets you design around them instead of hitting them.
   parks the run; `roll` and headless `run` cancel it at the ask instead.
   Design flows with approvals to be launched from the dashboard, or by a
   schedule or monitor while the dashboard is open.
-- **Bodies replay.** After an `ask`, a pause, or a restart, a step body runs
-  again from the top. Calls to `agents.session`, `sandboxes.start`, and `ask.*`
+- **Bodies replay.** Resuming an `ask` or pause, including an adopted parked
+  run after restart, replays the unfinished body from the top. Calls to
+  `agents.session`, `sandboxes.start`, and `ask.*`
   are numbered by order and return the recorded thing on replay, so keep them
-  in a fixed order (no conditionals around them) and put effects that must
-  not repeat inside an agent turn, behind the last ask, or in a step of their
-  own. Ask first: `approve` in the reference config does nothing before its
-  approval.
+  in a fixed order and put effects that must not repeat after the final ask
+  or in a preceding child step. An explicit `session.generate` can send
+  another turn on replay; a one-shot `agent.generate` reuses its recorded
+  completed reply when available. Ask first: `approve` in the reference
+  module does nothing before its approval.
 - **Workflow setup is not durable.** A workflow's `.do` runs on every setup,
   including resume. It prepares and returns the tree; anything it must keep
   goes into a step as input.
-- **Steps are the only thing that is durable.** A finished step returns its
-  recorded result instead of running again.
+- **Finished results are reused within a run.** A new launch starts fresh
+  work. Sessions, artifacts, and trigger observations have their own
+  persistent stores. The CLI saves run snapshots at suspension, resumption,
+  and settlement, and adopts only parked runs after restart; progress
+  newer than the last saved snapshot may be lost.
+- **Retries are built in and opt in.** Configure the step with
+  `.config({ retry: { maxAttempts: 3 } })` when its effects can safely repeat.
+  The limit includes the first attempt. Retries run fresh managed operations;
+  completed children in the same run keep their results. A parent's policy
+  does not configure its children; `bail(error)` does not retry.
+  See [Durability](https://francois-esquire.github.io/foundry/marbles/foundation/durability/)
+  and [Foundry primitives](https://francois-esquire.github.io/foundry/marbles/foundation/primitives/).
 - **Sessions are fresh by default.** Pass `{ session }` to continue one. To
   continue across runs, return `session.ref` from the step and feed it back
   next time (see patterns).

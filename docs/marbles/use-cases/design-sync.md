@@ -8,6 +8,13 @@ the tokens the code reads. This module checks the library every hour, reads
 its color styles when the file has changed, and has an agent propose the new
 palette as a pull request.
 
+[Workflows](https://github.com/Francois-Esquire/foundry/blob/main/packages/workflows/README.md)
+connects the deterministic checks to the agent step;
+[Workspaces](https://github.com/Francois-Esquire/foundry/blob/main/packages/workspaces/README.md)
+provides its Git checkout, and [Agents](https://github.com/Francois-Esquire/foundry/blob/main/packages/agents/README.md)
+provides the coding session. The step boundaries record which stages
+completed, while Git keeps the proposed code and palette snapshot.
+
 ## Before you start
 
 Install the [Marbles CLI](/marbles/get-started/installation), an authenticated
@@ -213,6 +220,13 @@ decides whether it differs, and `propose` acts only on a different palette.
 
 This integration requires live Figma and GitHub access to validate end to end.
 Loading the module or echoing the agent does not verify the external services.
+
+The branch check avoids proposing an existing palette again, but does not
+prove that a previous attempt finished pushing or opening its pull request.
+Inspect that branch and remote state after a partial failure before rerunning
+or enabling retries. [Durability](/marbles/foundation/durability) keeps the
+workflow's recorded progress; it cannot make an external commit, push, and
+pull-request creation one atomic operation.
 
 ## Variations
 

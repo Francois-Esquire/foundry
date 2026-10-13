@@ -4,6 +4,14 @@ Marbles is a standalone CLI for automations you write in TypeScript. Run
 local commands, connect steps into workflows, react to changes, and add
 coding agents where a task needs judgment.
 
+Built on [Workflows](../../packages/workflows/README.md), Marbles gives
+agent execution and commands a run with recorded results, configurable
+retries, and durable waiting points. [Agents](../../packages/agents/README.md)
+keeps conversations, [Workspaces](../../packages/workspaces/README.md)
+provides project files and Git checkouts, and
+[Artifacts](../../packages/artifacts/README.md) keeps versioned outputs.
+The CLI bundles these [Foundry primitives](https://francois-esquire.github.io/foundry/marbles/foundation/primitives/).
+
 ## Install
 
 Requires Bun 1.3.14 or newer. The package is not yet on npm; install a
@@ -58,7 +66,10 @@ ordinary TypeScript and monitor I/O still execute.
 ## Documentation
 
 - [Using Marbles](https://francois-esquire.github.io/foundry/marbles/get-started/using-marbles/): explore capabilities.
-- [Foundation](https://francois-esquire.github.io/foundry/marbles/foundation/api/): definitions, instances, contexts, and composition.
+- [Durability](https://francois-esquire.github.io/foundry/marbles/foundation/durability/): finished results, replay, opt-in retries, and recovery of parked runs.
+- [Foundry primitives](https://francois-esquire.github.io/foundry/marbles/foundation/primitives/): the libraries behind Marbles.
+- [API foundations](https://francois-esquire.github.io/foundry/marbles/foundation/api/): definitions, instances, contexts, and composition.
+- [Artifacts and results](https://francois-esquire.github.io/foundry/marbles/foundation/artifacts-and-results/): preserve outputs across runs.
 - [Software Factory](https://francois-esquire.github.io/foundry/marbles/use-cases/software-factory/): implement, test, review, and record a decision.
 - [CLI](https://francois-esquire.github.io/foundry/marbles/reference/cli/) and [API](https://francois-esquire.github.io/foundry/marbles/reference/api/) references.
 - [Agent sessions](https://francois-esquire.github.io/foundry/marbles/reference/agent-sessions/): sandbox coding, permissions, child agents, and managed triggers.

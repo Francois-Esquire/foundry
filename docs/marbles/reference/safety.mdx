@@ -39,7 +39,9 @@ A working directory sets context, not a security boundary, and a sandbox
 mounts the step's workspace read/write. A prompt asking an agent not to edit
 is an agent instruction, not an enforceable permission. Authentication and
 available host tools belong to the installed Claude Code or Codex CLI.
-Sandbox sessions can enforce their configured tool approval profile; see
+Sandbox sessions use the [Agents authorization contracts](https://github.com/Francois-Esquire/foundry/blob/main/packages/agents/README.md)
+and [Sandbox tools and constraints](https://github.com/Francois-Esquire/foundry/blob/main/packages/sandbox/README.md).
+They can enforce their configured tool approval profile; see
 [Agent sessions](/marbles/reference/agent-sessions). Review their
 configuration before granting an automation access to your work.
 
@@ -53,7 +55,13 @@ State is saved to disk. Run history, schedule outcomes, monitor observations,
 agent sessions, and declared artifacts survive separate invocations. A run
 parked on a question or a pause survives a quit, a crash, or a kill, and is
 adopted by the next dashboard that can answer it. A run that was mid-body when
-its process stopped is not resumed; its finished steps keep their results, and
-`status` marks it orphaned. Cancellation stops what Marbles opened and cannot
+its process stopped is not resumed. Its last saved snapshot remains, but
+newer progress may not have reached disk; `status` marks saved running
+records orphaned. Cancellation stops what Marbles opened and cannot
 undo side effects already made. Model judgments and conversation history do
 not guarantee correctness.
+
+[Durability](/marbles/foundation/durability) records and coordinates work.
+It does not grant permission for an external effect or make that effect
+happen exactly once. Retrying a step can issue another model request,
+command, or write; configure retries where repeating the work is safe.

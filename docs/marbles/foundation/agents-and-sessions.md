@@ -3,6 +3,13 @@ title: Agents and sessions
 description: Declare who does model work, open a session in a step, and continue the conversation in a later run.
 ---
 
+An agent defines who does model work; a session keeps its conversation.
+[Agents](https://github.com/Francois-Esquire/foundry/blob/main/packages/agents/README.md)
+provides those contracts, and [Models](https://github.com/Francois-Esquire/foundry/blob/main/packages/models/README.md)
+resolves the provider and model. Marbles attaches their execution to a step
+in the [Workflows runtime](https://github.com/Francois-Esquire/foundry/blob/main/packages/workflows/README.md),
+giving agent work the run's results, cancellation, and configured retries.
+
 Install and authenticate Claude Code or Codex before running model turns.
 Marbles detects `claude` and `codex` on `PATH` and prefers Claude Code when
 both are present; `--harness` narrows the choice. Authentication belongs to
@@ -50,13 +57,16 @@ may still miss changes or misinterpret history.
   `session.ref` handle does, as above. A ref belongs to the provider that
   opened it; continuing it with an agent on another provider starts a new
   session and logs a warning.
-- **Replay returns the same session.** After a question, a pause, or a
-  restart, a step body runs again from the top. The n-th `agents.session`
+- **Replay returns the same session.** Resuming a question or pause,
+  including a parked run adopted after restart, replays its unfinished
+  step body from the top. The n-th `agents.session`
   call in the body returns the session it opened the first time, with its
-  transcript, so keep those calls in a fixed order.
+  transcript, so keep those calls in a fixed order. An explicit
+  `session.generate` or `session.stream` reached again sends another turn;
+  retaining a session does not cache every turn in that session.
 - **Wired by default.** The session runs in the step's working directory,
   which is the workspace root or, inside a worktree callback, the
-  worktree. That is how `implement` in [Composition](/marbles/foundation/composition)
+  worktree. That is how `implement` in the [Software Factory](/marbles/use-cases/software-factory/implement)
   works on its own branch without naming a directory. Its turns write to
   the step's stream and stop when the step is cancelled or paused. Pass
   `{ cwd }` only to leave that default.
@@ -82,6 +92,12 @@ const { text } = await designer.generate("Name this palette.");
 ```
 
 Use `agents.session(designer)` when the conversation should continue.
+
+Inside a step, a one-shot `designer.generate` or `designer.stream` records
+its completed reply for reuse on replay. An unfinished turn can run again.
+A retry after failure starts fresh managed operations, so even a completed
+turn can repeat on retry. Keep agent work in its own step before a human
+approval, as described in [Durability](/marbles/foundation/durability#replay-is-different-from-retry).
 
 `settings` holds what every turn starts from: the AI SDK's model settings
 (`temperature`, `maxOutputTokens`, `stopWhen`, `providerOptions`, …) and an

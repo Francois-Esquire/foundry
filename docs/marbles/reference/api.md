@@ -7,6 +7,11 @@ Use this page to look up authoring options. [Foundation](/marbles/foundation/api
 explains the relationships between definitions, instances, and contexts.
 [Agent sessions](/marbles/reference/agent-sessions) covers advanced session options.
 
+[Durability](/marbles/foundation/durability) defines the execution guarantees;
+[Foundry primitives](/marbles/foundation/primitives) maps these operations
+to the libraries beneath them. Package APIs can expose capabilities beyond
+the Marbles authoring surface described here.
+
 Code blocks on this page illustrate API forms and may refer to definitions
 from earlier blocks. For complete runnable modules, use the
 [quickstart](/marbles/get-started/quickstart) or [composition examples](/marbles/foundation/composition).
@@ -165,12 +170,14 @@ step(name?)          // a builder
 - **`.config({ retry, timeout })`.** `timeout` bounds each attempt of the
   body (`"30s"`, `"10m"`, or milliseconds): when it passes the body's
   `signal` aborts, with everything Marbles opened for it, and the attempt
-  fails. `retry` is the workflows package's policy, `{ maxAttempts,
+  fails. `retry` is the [Workflows](https://github.com/Francois-Esquire/foundry/blob/main/packages/workflows/README.md) policy, `{ maxAttempts,
   backoff?, maxElapsed?, shouldRetry? }`, with `backoff` one of `fixed`,
   `exponential`, `linear`, or `jittered`. A retried attempt runs the body
   again from the top, fresh: agent turns, sandboxes, artifact writes, and
   `run` calls it made are not replayed. Children that finished are not run
-  again. Without `retry`, a throw fails the step.
+  again. `maxAttempts` includes the first attempt. Neither retries nor a
+  timeout are enabled by default, and a parent's policy does not become
+  its children's policy. Without `retry`, a throw fails the step.
 - **`.exec(template, options?)`** ends a step whose work is one command.
   The template is split into arguments when the module loads, honouring
   quotes, and never read by a shell. `$name` fills one argument from the
@@ -304,7 +311,7 @@ await fetch(url, { signal });
   turn whose `output` gets no matching value rejects with
   `NoObjectGeneratedError` after the reply is committed. See
   [structured output](/marbles/foundation/agents-and-sessions#structured-output).
-- **Workspaces.** A handle is the `@foundry/workspaces` workspace, loaded
+- **Workspaces.** A handle is the [Workspaces](https://github.com/Francois-Esquire/foundry/blob/main/packages/workspaces/README.md) workspace, loaded
   at its first call: `files()` returns file entries (`id`, `path`,
   `extension`, `kind`, size, and modification time), `entries()` adds
   directories, `read(file.id)` returns the content, and `save` and
@@ -318,7 +325,7 @@ await fetch(url, { signal });
   Naming a `branch` that exists fails before anything is cut; check first
   with `hasBranch(name)`, which reads the repository even under
   `--dry-run`.
-- **Sandboxes.** A handle is the `@foundry/sandbox` container. In a step
+- **Sandboxes.** A handle is the [Sandbox](https://github.com/Francois-Esquire/foundry/blob/main/packages/sandbox/README.md) container. In a step
   every command and process carries the step's signal, and `exec` writes
   `$ <command>` and its output to the step's stream. `exec` takes an argv
   array, run directly, or a string, run by the guest's shell, and the
@@ -331,7 +338,7 @@ await fetch(url, { signal });
   of at most nine; without it the answer is free text. Both are identified
   by position in the body; `key` is optional, for updating one entry across
   steps.
-- **Artifacts.** A version is the `@foundry/artifacts` content record as
+- **Artifacts.** A version is the [Artifacts](https://github.com/Francois-Esquire/foundry/blob/main/packages/artifacts/README.md) content record as
   JSON: `id`, `artifactId`, `digest`, `state`, `tag`, `metadata`, `tree`,
   and ISO timestamps. A version written in a step records the run and its
   session in `metadata` (`runId`, `sessionId`). `write` replaces the files
@@ -432,15 +439,24 @@ Context is layered: workspace (its root and its state folder under
 step (stream, log, signal) → call (`{ cwd }`, `{ session }`). Inner layers
 override outer ones.
 
-- **Steps are durable once finished.** A finished step returns its recorded
-  result instead of running again.
-- **A suspended step is not finished.** After an `ask`, a pause, or a
-  restart, the body replays from the top. `agents.session`, `sandboxes.start`,
+- **Finished results are reused within a run.** When the same run continues,
+  a finished step returns its recorded result instead of running again.
+  A new launch starts fresh work.
+- **A suspended step is not finished.** Resuming an `ask` or a pause,
+  including a parked run adopted after restart, replays the body from the
+  top. `agents.session`, `sandboxes.start`,
   and `ask.*` are numbered by call order and return the recorded thing on
   replay: the same session with its transcript, the recorded answer. Keep
-  their order fixed; keep effects that must not repeat behind them, inside
-  an agent turn, or in a step of their own. Branching on `input` is safe;
+  their order fixed; keep effects that must not repeat after the final ask
+  or in a preceding child step. An explicit `session.generate` can send a
+  new turn during replay; a one-shot `agent.generate` reuses a recorded
+  completed reply when available. Branching on `input` is safe;
   branching on live values around these calls is not.
+- **Restart recovery has a boundary.** The CLI persists run snapshots at
+  suspension, resumption, and settlement. It adopts parked runs when the
+  [state conditions](/marbles/reference/state#what-survives-a-restart) hold;
+  it does not resume queued or running work interrupted mid-body. Newer
+  progress than the last saved snapshot may not be on disk.
 - **Workflow setup is not durable.** It runs on every setup and rebuilds the
   tree. Pass what it must keep into a step as input: a run records the
   input each step was locked with when it started, and a recovered run

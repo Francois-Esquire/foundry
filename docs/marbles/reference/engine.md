@@ -10,7 +10,7 @@ holds the `Engine` that runs them. A program builds one from explicit
 instances, then drives and inspects it without the CLI, the dashboard, or the
 authoring words.
 
-The engine is handed an instance from each Foundry package, each already
+The engine is handed an instance from each [Foundry primitive](/marbles/foundation/primitives), each already
 configured for the machine it runs on. It builds everything that
 connects them: the managers a step body sees, the feed, agent approvals and
 activity, the triggers agents create, and the run queue.
@@ -113,20 +113,39 @@ schedule history, monitor observations, and the triggers agents create, with
 the locks that keep two ticks apart. It defaults to a `JsonStateStore` over
 `state`, or an `InMemoryStateStore` without one; both are exported.
 
+## Persistence and durability
+
+[Workflows](https://github.com/Francois-Esquire/foundry/blob/main/packages/workflows/README.md)
+provides the orchestrator and step execution. Marbles adds run-owned
+sessions, resources, and the saved ledger used when a parked run replays.
+The [durability contract](/marbles/foundation/durability) still applies when
+you embed the engine; the library's broader recovery APIs do not change
+Marbles' adoption rules.
+
+The example above deliberately keeps everything in memory. Supplying
+`state` enables run persistence and the default persistent trigger store;
+provide a persistent session store and artifact store with durable bytes
+separately. Persisting run records alone cannot retain agent transcripts
+or report files. Set `askable: true` only when the host can present and
+answer questions. Define the same named work before `start()` so parked
+runs can be adopted.
+
+## Package instances
+
 The package bundles its Foundry packages, so take the classes the
 instances are built from out of `@foundry/marbles/lib` as well. An instance
 built from another copy of the same class is a different type. Besides
 `Engine`, its types, and three constants (`CLI_HARNESS_IDS`, `CLI_HARNESSES`,
 `TERMINAL_RUN_STATUSES`), the entry exports only those:
 
-| Instance | Exports |
-| --- | --- |
-| `models` | `ModelManager`, `claudeCodeProvider`, `codexProvider` |
-| `sessions` | `InMemorySessionStore`, `JsonSessionStore` |
-| `workspaces` | `WorkspaceSystem`, `directory`, `git`, `nodeObserver` |
-| `containers` | `createContainers`, `createMemoryContainerStore` |
-| `artifacts` | `ArtifactManager`, `InMemoryArtifactStore`, `JsonArtifactStore`, `blobFiles` |
-| `store` | `JsonStateStore`, `InMemoryStateStore` |
+| Instance | Exports | Underlying library |
+| --- | --- | --- |
+| `models` | `ModelManager`, `claudeCodeProvider`, `codexProvider` | [Models](https://github.com/Francois-Esquire/foundry/blob/main/packages/models/README.md) |
+| `sessions` | `InMemorySessionStore`, `JsonSessionStore` | [Agents](https://github.com/Francois-Esquire/foundry/blob/main/packages/agents/README.md); JSON adapter in Marbles. |
+| `workspaces` | `WorkspaceSystem`, `directory`, `git`, `nodeObserver` | [Workspaces](https://github.com/Francois-Esquire/foundry/blob/main/packages/workspaces/README.md) |
+| `containers` | `createContainers`, `createMemoryContainerStore` | [Sandbox](https://github.com/Francois-Esquire/foundry/blob/main/packages/sandbox/README.md) |
+| `artifacts` | `ArtifactManager`, `InMemoryArtifactStore`, `JsonArtifactStore`, `blobFiles` | [Artifacts](https://github.com/Francois-Esquire/foundry/blob/main/packages/artifacts/README.md) |
+| `store` | `JsonStateStore`, `InMemoryStateStore` | Marbles' trigger state and local locks. |
 
 Two things a host cannot do through this entry yet: the MicroSandbox runtime
 `createContainers` needs is not exported, and nothing fires the triggers the

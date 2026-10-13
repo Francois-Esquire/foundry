@@ -9,6 +9,13 @@ This walkthrough turns a task into a committed branch, tests and reviews
 that exact commit, and records a human decision with a report. Each chapter
 adds a working stage to the same project.
 
+[Workflows](https://github.com/Francois-Esquire/foundry/blob/main/packages/workflows/README.md)
+owns the execution tree; [Agents](https://github.com/Francois-Esquire/foundry/blob/main/packages/agents/README.md)
+keeps the implementer's and reviewer's conversations;
+[Workspaces](https://github.com/Francois-Esquire/foundry/blob/main/packages/workspaces/README.md)
+provides the checkouts; [Artifacts](https://github.com/Francois-Esquire/foundry/blob/main/packages/artifacts/README.md)
+keeps the final report. Marbles connects them into one run.
+
 ```text
 task → implement → test and review → human decision → report
          branch       commit SHA       approval       artifact
@@ -16,6 +23,11 @@ task → implement → test and review → human decision → report
 
 The final result is a reviewed candidate and a recorded decision. Publishing
 or merging it remains a separate action; the approval step does not merge.
+
+These stage boundaries also provide [durability](/marbles/foundation/durability):
+while approval waits, the run keeps the completed implementation and
+verification results. The examples leave retries unconfigured. Enable them
+only for steps whose commands and external effects can safely repeat.
 
 ## Before you start
 

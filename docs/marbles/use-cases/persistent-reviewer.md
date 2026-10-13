@@ -7,7 +7,13 @@ A reviewer becomes more useful when it can revisit unresolved findings. The
 [agents and sessions](/marbles/foundation/agents-and-sessions) page continues a
 conversation by passing the session reference from one `roll` to the next by
 hand. A scheduled run has nobody to pass it, so the step keeps the reference
-itself, in an artifact each run reads back with `latest()`:
+itself, in an artifact each run reads back with `latest()`.
+
+[Agents](https://github.com/Francois-Esquire/foundry/blob/main/packages/agents/README.md)
+keeps the messages, [Artifacts](https://github.com/Francois-Esquire/foundry/blob/main/packages/artifacts/README.md)
+keeps the reference, and [Workflows](https://github.com/Francois-Esquire/foundry/blob/main/packages/workflows/README.md)
+owns each review run. Conversation continuity across runs and recovery of
+one parked run are distinct parts of [durability](/marbles/foundation/durability).
 
 ## Before you start
 
@@ -61,11 +67,12 @@ workspace determines where that conversation lives on disk. Under
 `--dry-run`, `latest()` reads what real runs kept and the write stays in
 memory, so a dry run never moves the reference.
 
-Reading the reference before `agents.session` keeps the body replay-safe:
-a replay reads a reference to the same session, and the session call
-returns it. The write is recorded, so a replay does not add a second
-version. Compaction, if enabled on the session, may replace older exchanges
-with summaries.
+On replay, the recorded `agents.session` call reopens the same session.
+The explicit `session.generate` can send another turn if the body reaches
+it again; a retained transcript does not cache that turn. A completed
+artifact write returns its recorded version on replay. Retry after failure
+starts fresh managed operations and may write a new version. Compaction,
+if enabled on the session, may replace older exchanges with summaries.
 
 For a prebuilt reviewer that keeps one conversation under a name of your
 choosing, register it:

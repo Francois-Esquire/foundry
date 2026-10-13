@@ -1,7 +1,12 @@
 ---
 title: Execution and state
-description: Run ownership, replay, retries, persistence, and recovery after a restart.
+description: How the CLI binds a runtime, owns a run, and persists local state.
 ---
+
+Read [Durability](/marbles/foundation/durability) for the guarantees around
+finished results, replay, retry, and recovery. This page follows how the
+CLI hosts the [Workflows runtime](https://github.com/Francois-Esquire/foundry/blob/main/packages/workflows/README.md)
+and connects the [Foundry primitives](/marbles/foundation/primitives) to a run.
 
 Each command starts a fresh process. For execution commands, importing modules from `.foundry/marbles`
 registers definitions. Then the CLI binds the runtime step bodies receive:
@@ -59,27 +64,23 @@ The next dashboard that starts with the same state root and still registers
 the step adopts the run, keeps its question open, and on the answer replays
 the step body against the recorded sessions.
 
-A run that was mid-body when the process stopped is not resumed. Finished
-steps keep their recorded results, but nothing picks the run up; `status`
-shows it as orphaned. This is the boundary today: parked work survives,
-running work does not.
+A run that was mid-body when the process stopped is not resumed. The last
+saved snapshot keeps the results it contains, but newer progress may not
+have reached disk. Nothing picks the run up; `status` shows saved running
+records as orphaned. This is the boundary today: parked work can be
+adopted, running work cannot.
 
 See [state](/marbles/reference/state) for the layout and the adoption rules,
 and [safety and limits](/marbles/reference/safety) for dry-run boundaries.
 
 ## Replay and retry
 
-A finished step keeps its recorded result. A step parked at `ask` or a pause
-replays its body from the top when resumed. Managed operations use their call
-position to find recorded sessions, answers, and artifact writes. Keep their
-order stable; raw filesystem writes and network requests can happen again.
+Replay continues an unfinished step after a waiting point. Retry starts a
+fresh attempt after failure under the step's configured policy. Neither is
+a new scheduled run. The [durability guide](/marbles/foundation/durability#replay-is-different-from-retry)
+lists which operations reuse recorded work and which can execute again.
 
-A retry is a fresh attempt after failure. `.config({ retry, timeout })`
-controls the retry policy and attempt deadline. Agent turns, sandbox
-operations, and other work may execute again on retry. Finished child steps
-keep their results. Make external writes idempotent when retrying them.
-
-Cancellation stops owned operations and signals custom work; it does not
-undo changes already made. A sandbox's recorded identity also does not
-promise that its guest still exists. Native sandbox sessions currently resume
-only while the same guest remains alive.
+The [state reference](/marbles/reference/state) separates run snapshots,
+session transcripts, trigger observations, and artifact storage. An
+[embedding host](/marbles/reference/engine) chooses its stores explicitly;
+the CLI provides their local persistent defaults.

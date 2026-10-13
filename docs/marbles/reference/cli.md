@@ -6,6 +6,11 @@ description: Commands, flags, and dashboard keys for running and inspecting Marb
 These commands use the standalone `marbles` executable. See
 [Installation](/marbles/get-started/installation) to set it up in your environment.
 
+A launch uses the bundled [Workflows runtime](https://github.com/Francois-Esquire/foundry/blob/main/packages/workflows/README.md)
+and local persistent stores. `roll` creates a new run; it does not resume a
+previous failed run. The dashboard can adopt parked work under the
+[durability rules](/marbles/foundation/durability#recovery-after-a-restart).
+
 ## Commands
 
 | Command | Action |

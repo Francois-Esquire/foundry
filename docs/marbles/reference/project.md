@@ -8,6 +8,12 @@ directory. There is no required entrypoint or configuration object. Calling
 `step`, `workflow`, `schedule`, or `monitor` registers definitions and triggers
 as modules load. Exports are optional and useful for sharing definitions.
 
+Discovery is owned by the CLI; file operations inside a step use
+[Workspaces](https://github.com/Francois-Esquire/foundry/blob/main/packages/workspaces/README.md).
+The resolved project path also scopes local state and declared artifact
+identity. Keep it stable when you want [durable continuity](/marbles/foundation/durability)
+across invocations.
+
 ## Discovery and ignored files
 
 Discovery walks subdirectories and imports JavaScript and TypeScript modules

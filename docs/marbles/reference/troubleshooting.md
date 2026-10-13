@@ -71,6 +71,24 @@ host `compaction` settings. See [Agent sessions](/marbles/reference/agent-sessio
 workflow from the dashboard. Work before the ask has already run; restarting
 the command can repeat it.
 
+## A failed step did not retry
+
+Retries are provided by [Workflows](https://github.com/Francois-Esquire/foundry/blob/main/packages/workflows/README.md),
+but there is no default retry policy. Add `.config({ retry: { maxAttempts: 3 } })`
+to the step that should retry, after making its effects safe to repeat.
+The limit includes the first attempt; `bail(error)` does not retry. A
+parent's policy does not configure its children, and the next schedule
+tick is a new run. See [retry policies](/marbles/foundation/durability#retry-a-failed-attempt).
+
+## An agent turn repeated after answering a question
+
+A resumed body replays from the top. `agents.session` reopens its recorded
+conversation, but an explicit `session.generate` sends another turn if
+reached again. Put completed agent work in a preceding child step and ask
+in its own step, as in [Software Factory approval](/marbles/use-cases/software-factory/approve).
+The [replay table](/marbles/foundation/durability#replay-is-different-from-retry)
+also explains one-shot agent calls and artifact writes.
+
 ## A run did not resume
 
 Only parked runs are adopted after restart. Keep the workspace path, state

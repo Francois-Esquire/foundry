@@ -7,6 +7,13 @@ A schedule decides when work runs. A monitor polls a source and runs its
 handler when something changes. Both need a running Marbles loop to keep
 executing. `roll` runs one target or poll immediately and exits.
 
+The CLI owns the polling and clock loops. A launched step or workflow runs
+through [Workflows](https://github.com/Francois-Esquire/foundry/blob/main/packages/workflows/README.md),
+with its own results and configured retry policies. Trigger continuity and
+run [durability](/marbles/foundation/durability) are related: a later poll
+or schedule tick creates a new run, while a retry is another attempt within
+the current run.
+
 ## Schedules
 
 This complete module logs a heartbeat every 30 seconds:
@@ -59,6 +66,10 @@ and removed paths with their checksums, relative to the workspace root.
 File monitors poll; they do not subscribe to filesystem events. Their
 default cadence is one minute. The stored observation advances only after
 the handler resolves. A throwing handler sees the same change next time.
+
+The scan uses [Workspaces](https://github.com/Francois-Esquire/foundry/blob/main/packages/workspaces/README.md)
+for the project's file inventory. Digests identify changes; preserving
+the observation does not keep a copy of every file's previous bytes.
 
 ## HTTP monitors
 

@@ -5,6 +5,13 @@ description: Disk layout, recovery of parked runs, locks, and the limits of cont
 
 ## Persisted state
 
+For the guarantees these records support, start with
+[Durability](/marbles/foundation/durability). Run snapshots use
+[Workflows](https://github.com/Francois-Esquire/foundry/blob/main/packages/workflows/README.md),
+session transcripts use [Agents](https://github.com/Francois-Esquire/foundry/blob/main/packages/agents/README.md),
+and reports and versioned outputs use [Artifacts](https://github.com/Francois-Esquire/foundry/blob/main/packages/artifacts/README.md).
+Marbles chooses their local stores and connects their identities.
+
 The default state root is `~/.foundry/marbles`. Each workspace, the project root above `.foundry/marbles`, gets a directory named by the first twelve hex digits
 of the SHA-256 of its canonical path. Listing the state root is the registry
 of every workspace this machine has run.
@@ -102,14 +109,18 @@ stays open on the feed, and the answer replays the body against the recorded
 sessions and artifacts.
 
 A run that was queued or running when its process died is skipped with a
-warning. Nothing picks a run up mid-body; the recorded result of a finished
-step is kept, but the run itself is not resumed. `status` marks such a run
-as orphaned.
+warning. Nothing picks a run up mid-body. Results already in a saved
+snapshot remain on disk, but newer progress may not have been persisted;
+finishing a child alone does not checkpoint the whole run. `status` marks
+such a saved run as orphaned. A new launch does not reuse its step results.
 
 An invalid run file is skipped with a warning and costs only that run. If the
 files disagree with each other, the engine warns and starts empty.
 
 ## Scheduling and overlap
+
+Local file coordination uses the [Lib file-lock helper](https://github.com/Francois-Esquire/foundry/blob/main/packages/lib/src/file-lock.ts).
+Its PID ownership applies to one host, not a distributed worker pool.
 
 The foreground loop measures an interval schedule's next tick from the
 previous tick's completion, seeded from the recorded `lastFinish` so a restart

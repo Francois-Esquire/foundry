@@ -53,10 +53,21 @@ session and commands inherit the temporary checkout's directory. The
 result names an immutable commit as well as a branch, so later stages can
 verify the same code even if the branch moves.
 
+The checkout is a [Workspaces](https://github.com/Francois-Esquire/foundry/blob/main/packages/workspaces/README.md)
+resource; the conversation is an [Agents](https://github.com/Francois-Esquire/foundry/blob/main/packages/agents/README.md)
+session. The surrounding step records their result in the workflow.
+Passing the commit SHA gives verification a durable code reference even
+after the temporary checkout is removed.
+
 The helper removes the worktree when its callback ends, including on
 failure. Commits remain on the branch. Uncommitted work is not preserved by
 this example, which is why the agent is instructed to commit and the step
 checks its result.
+
+The step has no retry policy: blindly retrying it can encounter the branch
+already created by the failed attempt. If you add retries, first define
+how to inspect or reuse that branch and any existing commit. See
+[work that can repeat safely](/marbles/foundation/durability#design-work-that-can-repeat-safely).
 
 ## Make it launchable as a workflow
 

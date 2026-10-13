@@ -55,6 +55,13 @@ replays that body with the recorded answer. The finished implementation and
 verification steps keep their results. The report is a separate step, so
 its artifact write follows the decision.
 
+This is a [durable waiting point](/marbles/foundation/durability#recovery-after-a-restart).
+[Workflows](https://github.com/Francois-Esquire/foundry/blob/main/packages/workflows/README.md)
+keeps the completed stages and suspension; Marbles saves their run state.
+[Artifacts](https://github.com/Francois-Esquire/foundry/blob/main/packages/artifacts/README.md)
+stores the decision report as a versioned output, linking the human
+decision to the exact commit and evidence.
+
 ## Complete the workflow
 
 Replace `.foundry/marbles/factory.ts` with:

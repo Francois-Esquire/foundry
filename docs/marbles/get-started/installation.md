@@ -13,6 +13,11 @@ Marbles is packaged as `@foundry/marbles`, with a `marbles` executable and
 TypeScript declarations. It bundles its Foundry libraries so it can run
 independently of the Foundry repository.
 
+Those [Foundry primitives](/marbles/foundation/primitives) supply workflow
+execution, agent sessions, workspaces, sandboxes, and artifacts. Their
+package documentation is linked throughout these guides; you do not need
+to install them separately to use the Marbles authoring API.
+
 The package is not yet available from npm. For now, install a packaged
 `.tgz` supplied by a maintainer. Replace the example path with your archive:
 

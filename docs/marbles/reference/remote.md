@@ -41,10 +41,21 @@ capture logs, provision credentials, and update the project and package.
 Marbles does not provision those facilities. Reloading edited modules
 requires a process restart.
 
+Process supervision and [workflow durability](/marbles/foundation/durability)
+serve different purposes. Restarting the CLI brings its loops back, but it
+does not resume an interrupted running step. A scheduler that launches
+`roll` again creates a new run. Account for earlier external effects before
+relaunching.
+
 State is scoped to the canonical workspace path. Changing that path changes
 the workspace ID, even with the same `--state` directory. Artifacts live in
 a separate store. Preserve both stores when continuity matters, and stop
-active processes before moving state.
+active processes before moving state. The run snapshots from
+[Workflows](https://github.com/Francois-Esquire/foundry/blob/main/packages/workflows/README.md),
+[Agents](https://github.com/Francois-Esquire/foundry/blob/main/packages/agents/README.md) transcripts,
+and [Artifacts](https://github.com/Francois-Esquire/foundry/blob/main/packages/artifacts/README.md) content
+are distinct records; keeping only one store does not preserve the whole
+automation's context.
 
 Process locks contain local PIDs. They coordinate processes on one host;
 they are not distributed locks. Do not share one writable state store

@@ -71,15 +71,24 @@ results and review findings before producing a report.
 [Software Factory](/marbles/use-cases/software-factory) applies the same
 model to implementation, verification, and approval.
 
+The [Workflows runtime](https://github.com/Francois-Esquire/foundry/blob/main/packages/workflows/README.md)
+records step results and supplies retry policies and suspensions. Marbles
+uses it to wrap agent execution and ordinary commands in the same run.
+[Durability](/marbles/foundation/durability) explains what is automatic,
+how to opt into retries, and what survives a restart.
+
 ## Work with projects and sandboxes
 
 `workspaces.current` reads your project. `workspace({ path: "../other-project" })`
 declares another directory. Git worktree callbacks give a task its own
 checkout; commands and agent sessions opened inside inherit that location.
+These operations come from [Workspaces](https://github.com/Francois-Esquire/foundry/blob/main/packages/workspaces/README.md).
 
 `sandbox(...)` declares an isolated execution environment, which starts on
 use. Choose its mounts, network access, and resources explicitly. The sandbox
 runtime is optional. [Workspaces and sandboxes](/marbles/foundation/workspaces-and-sandboxes).
+The [Sandbox library](https://github.com/Francois-Esquire/foundry/blob/main/packages/sandbox/README.md)
+supplies the underlying file, command, and container interfaces.
 
 ## Add an agent and keep its conversation
 
@@ -101,6 +110,11 @@ Run `marbles roll explain`. Use a session for multiple turns; keep its
 `session.ref` to continue it in a later run. Skills add reusable instructions
 and files. [Agents and sessions](/marbles/foundation/agents-and-sessions).
 
+[Agents](https://github.com/Francois-Esquire/foundry/blob/main/packages/agents/README.md)
+keeps the conversation; [Models](https://github.com/Francois-Esquire/foundry/blob/main/packages/models/README.md)
+resolves the provider and model. Marbles gives their execution the owning
+step's stream, cancellation, and retry policy.
+
 For a ready-made starting point, `marbles init developer` creates a review
 module. `init` without a choice creates a project summary. These are optional
 starters; [project setup](/marbles/reference/project#prebuilt-steps) lists them.
@@ -115,6 +129,12 @@ Use the dashboard for work that asks questions. A one-shot `roll` or an
 unattended loop cancels at an ask. [Contexts](/marbles/foundation/contexts)
 explains these operations; [human approval](/marbles/use-cases/software-factory/approve)
 puts them together.
+
+Versioned outputs use [Artifacts](https://github.com/Francois-Esquire/foundry/blob/main/packages/artifacts/README.md).
+Read [Artifacts and results](/marbles/foundation/artifacts-and-results)
+to choose between a returned value, a feed message, and files a later run
+can read. An approval is a durable waiting point, so completed work can be
+kept while the dashboard waits for a person.
 
 ## Schedule work and react to changes
 
@@ -147,6 +167,6 @@ same pattern for a URL. [Schedules and monitors](/marbles/foundation/triggers).
 | [Release Watcher](/marbles/use-cases/release-watcher) | HTTP monitoring and a report. |
 | [Design Sync](/marbles/use-cases/design-sync) | External data, workflow gates, and proposed code changes. |
 
-Continue with [Foundation](/marbles/foundation/api) to understand the model
+Continue with [Foundation](/marbles/foundation/durability) to understand the model
 behind these capabilities. See [safety and limits](/marbles/reference/safety)
 when running agent work or unfamiliar modules.

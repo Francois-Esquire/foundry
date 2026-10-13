@@ -72,6 +72,13 @@ export const factory = workflow("factory")
 The child result becomes `verify`'s `input.change`. Neither stage has to
 guess which branch or commit the other used.
 
+[Workflows](https://github.com/Francois-Esquire/foundry/blob/main/packages/workflows/README.md)
+retains the completed implementation result while verification runs. An
+explicit retry policy on `verify` would repeat its install, tests, and
+agent review without rerunning a finished `implement` child in the same
+run. A new `roll factory` is a new run and performs implementation again.
+This distinction is central to [durability](/marbles/foundation/durability).
+
 ## Verify the result
 
 Run `factory` with a new small task, or check the previous candidate by

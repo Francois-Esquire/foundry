@@ -6,6 +6,11 @@ description: Detect instruction changes before asking for judgment.
 This module observes instruction files. The monitor performs change
 detection; an agent investigates what the change means in context.
 
+[Workspaces](https://github.com/Francois-Esquire/foundry/blob/main/packages/workspaces/README.md)
+supplies the file inventory, and [Agents](https://github.com/Francois-Esquire/foundry/blob/main/packages/agents/README.md)
+supplies the investigation session. Marbles keeps the observation and
+executes the handler as run-owned work.
+
 ## Before you start
 
 You need the [installed CLI](/marbles/get-started/installation), an authenticated Claude Code or Codex CLI and a project with matching instruction files.
@@ -47,6 +52,11 @@ observation advances only after the handler resolves. The session runs in the
 workspace root, so the agent can read `git log` itself; there is no
 dedicated Git-history monitor, and the directory scanner does not look inside
 `.git`.
+
+A failed handler can therefore investigate the same change on a later
+poll. That redelivery is distinct from a step retry and can repeat agent
+work or reports. The [durability guide](/marbles/foundation/durability)
+explains these boundaries; keep any added external writes safe to repeat.
 
 To keep a conversation across polls, keep the session reference the way the
 [persistent reviewer](/marbles/use-cases/persistent-reviewer) does.

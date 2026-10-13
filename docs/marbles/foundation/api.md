@@ -7,6 +7,12 @@ A Marbles automation is an ordinary TypeScript module. Its top-level code
 declares work and resources. Marbles loads those declarations into a
 catalog, then runs work when you launch it or a trigger fires.
 
+The factories combine [Foundry primitives](/marbles/foundation/primitives).
+[Workflows](https://github.com/Francois-Esquire/foundry/blob/main/packages/workflows/README.md)
+provides step execution; Marbles connects the resource libraries to the
+run. [Durability](/marbles/foundation/durability) describes the resulting
+guarantees before the method-level details below.
+
 ## Work, resources, and triggers
 
 | Part | API | Role |

@@ -9,6 +9,12 @@ A step owns one piece of work. A workflow gives a connected tree of steps a
 name and launch input. A parent receives its children's results, so children
 run before the parent.
 
+Marbles builds this tree on [Workflows](https://github.com/Francois-Esquire/foundry/blob/main/packages/workflows/README.md).
+Each step is a boundary for results, attempts, and cancellation. An agent
+turn inside a step receives the same execution lifecycle as a local
+command. [Durability](/marbles/foundation/durability) explains how finished
+results are retained when the run continues.
+
 ## Hand a result to the next step
 
 Install `zod@4.4.3` in your project. Save this complete module as
@@ -80,8 +86,9 @@ child lets its siblings finish while the parent waits.
 
 Make an operation a child step when its result, failure, or progress should
 be independently visible. Keep ordinary calculations inside a body. A
-workflow can be a launch root, but cannot be nested as a child in another
-tree; reuse its steps instead.
+finished child also protects its completed work from repetition when its
+parent replays or retries within that run. A workflow can be a launch root,
+but cannot be nested as a child in another tree; reuse its steps instead.
 
 `.run(input)` executes a definition directly, including from inside a
 body. Its nested execution does not appear as an independent dashboard run.
@@ -94,7 +101,10 @@ attempt or bound its duration. Retrying executes the body again from the
 top with fresh owned operations; it is different from resuming a parked
 attempt against its recorded operations.
 
+Retries and timeouts have no default policy: configure the steps that need
+them. A parent's policy applies to its own attempt, not to its children.
+
 There are no race, branching, or loop combinators. You can branch in
 ordinary TypeScript, but keep recorded operation order stable on replay.
-See [execution and state](/marbles/foundation/execution-and-state) and the
+See [replay and retry](/marbles/foundation/durability#replay-is-different-from-retry) and the
 [builder reference](/marbles/reference/api#the-builder).

@@ -7,6 +7,12 @@ Calling an authoring factory creates a definition. Some returned objects
 also expose operations you can invoke later. Creating the object and
 invoking those operations are separate events.
 
+The returned objects adapt the [Foundry primitives](/marbles/foundation/primitives)
+to Marbles' authoring API. For example,
+[Agents](https://github.com/Francois-Esquire/foundry/blob/main/packages/agents/README.md)
+supplies the session machinery, while Marbles binds a turn to its owning
+step when the operation runs.
+
 ## Declare first, execute on use
 
 ```ts
@@ -63,6 +69,8 @@ process lock that prevents overlapping schedule ticks.
 Prefer workflow children when each operation should appear as its own step
 in the dashboard. `.run()` inside a body is recorded with that body, but its
 nested run is not independently visible or controllable in the dashboard.
+Stable tree positions also identify completed results and recorded calls
+during [durable replay](/marbles/foundation/durability#replay-is-different-from-retry).
 
 ## Names and identity
 

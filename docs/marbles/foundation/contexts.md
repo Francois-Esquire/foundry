@@ -35,6 +35,10 @@ authoring callbacks infer it without a type annotation.
 Setup can execute again when a parked run is recovered. Keep operational
 work in steps, and pass the values they need as input.
 
+The setup describes the run's structure for
+[Workflows](https://github.com/Francois-Esquire/foundry/blob/main/packages/workflows/README.md).
+Step execution is where Marbles attaches the other libraries to that run.
+
 ## Step execution
 
 `step(...).do(body)` receives `Context<I>`. `I` comes from `.input(schema)`.
@@ -65,6 +69,12 @@ objects you use inside the callback, not additional callback contexts.
 Marbles connects owned operations to the step. For custom work such as
 `fetch`, pass `signal` yourself. An ordinary filesystem write or external
 request is still ordinary TypeScript and can repeat on replay.
+
+This ownership is part of [durability](/marbles/foundation/durability).
+A session opened through the context participates in the run's recorded
+operations; a client constructed independently has only the guarantees
+that client supplies. See [Foundry primitives](/marbles/foundation/primitives)
+for the package behind each resource manager.
 
 ## Monitor handlers
 

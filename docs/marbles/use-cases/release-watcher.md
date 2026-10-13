@@ -7,6 +7,10 @@ This example observes Bun's latest release metadata. An HTTP monitor fires
 whenever the body changes; the handler compares the release tag with the one
 from the previous poll, so unrelated fields do not trigger another assessment.
 
+The polling loop decides whether to act. [Agents](https://github.com/Francois-Esquire/foundry/blob/main/packages/agents/README.md)
+provides the assessment session, and [Artifacts](https://github.com/Francois-Esquire/foundry/blob/main/packages/artifacts/README.md)
+backs the readable feed result. Marbles keeps them attached to the handler's run.
+
 ## Before you start
 
 You need the [installed CLI](/marbles/get-started/installation), an authenticated Claude Code or Codex CLI and network access to GitHub.
@@ -47,3 +51,9 @@ still sends the request; only the agent turn is echoed.
 
 The report lands on the run and in the dashboard's Feed tab, so an
 assessment is readable without opening logs.
+
+If the handler fails before its observation is acknowledged, a later poll
+can assess the release again. Preserve the release tag as an idempotency
+key if you add an external notification. Saved monitor state provides
+continuity, not exactly-once external delivery; see
+[Durability](/marbles/foundation/durability#design-work-that-can-repeat-safely).

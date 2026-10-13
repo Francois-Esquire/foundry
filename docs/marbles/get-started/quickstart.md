@@ -34,6 +34,10 @@ step("inventory").do(async ({ workspaces, log }) => {
 it. `workspaces.current` refers to your project root, and `log` writes to
 the run's output. The returned object is the result.
 
+The file inventory comes from [Workspaces](https://github.com/Francois-Esquire/foundry/blob/main/packages/workspaces/README.md).
+Marbles attaches it to a step so you can inspect its result as a run, just
+as you would later inspect a command or an agent's work.
+
 ## Run it
 
 Stay in the project root:
@@ -82,6 +86,12 @@ for keyboard help and `q` to open the quit dialog.
 Run history lives under `~/.foundry/marbles/<workspace-id>/`. Your automation
 source stays in the project. [State reference](/marbles/reference/state)
 explains the layout and how to choose a different location.
+
+This saved result is your first encounter with
+[durability](/marbles/foundation/durability): Marbles retains the outcome
+after the command exits. Each `roll` above is a new run. When a larger
+workflow pauses and continues within one run, it reuses the finished
+steps' results.
 
 ## Choose the next capability
 

@@ -8,6 +8,13 @@ environment that can mount a workspace or start from a set of files. Their
 definitions describe location and configuration; their instances expose
 operations.
 
+[Workspaces](https://github.com/Francois-Esquire/foundry/blob/main/packages/workspaces/README.md)
+supplies project identity, file access, and Git capabilities.
+[Sandbox](https://github.com/Francois-Esquire/foundry/blob/main/packages/sandbox/README.md)
+supplies isolated file and command interfaces. Both use
+[Core's storage contracts](https://github.com/Francois-Esquire/foundry/blob/main/packages/core/src/storage.ts);
+Marbles adds the owning step's working directory, cancellation, and cleanup.
+
 ## The current workspace
 
 With the default `.foundry/marbles/` authoring folder, the workspace is your
@@ -44,6 +51,12 @@ step("inspect-commit").do(({ workspaces, exec }) =>
 checkout is removed when the callback ends. Supplying a new `branch` keeps
 that branch after cleanup; committed changes survive, but uncommitted work
 in the temporary checkout is not a durable result.
+
+Return the commit SHA when another step must use that exact code. For
+reports or generated files, save an [artifact](/marbles/foundation/artifacts-and-results)
+before cleanup. [Durability](/marbles/foundation/durability) preserves
+recorded results; it does not preserve every temporary directory or keep a
+sandbox guest alive across a host failure.
 
 Commands and agent sessions opened inside the callback inherit the
 checkout's working directory. The default sandbox mount does too. Raw
