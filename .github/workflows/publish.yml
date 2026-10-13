@@ -20,7 +20,7 @@ env:
 jobs:
   build:
     name: Build and test packages
-    timeout-minutes: 20
+    timeout-minutes: 25
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.release.outputs.tag }}
@@ -51,7 +51,7 @@ jobs:
         run: |
           bun run validate
           bun run build
-          bun run test --concurrency=2 --continue=always
+          bun run test --concurrency=1 --continue=always
       - name: Pack and test public packages
         run: bun run release:pack
       - uses: actions/upload-artifact@v7

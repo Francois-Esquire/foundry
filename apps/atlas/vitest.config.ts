@@ -9,7 +9,7 @@ export default defineConfig({
       "test/lib/**/*.test.ts",
       "test/web/**/*.test.ts",
     ],
-    maxWorkers: 4,
+    maxWorkers: process.env.CI ? 2 : 4,
     testTimeout: 30_000,
   },
 });

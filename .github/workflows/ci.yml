@@ -44,7 +44,7 @@ jobs:
   build-test:
     name: Package build and test
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7
         with:
@@ -58,9 +58,9 @@ jobs:
       - name: Build packages
         run: bun run build
       - name: Test packages
-        # Each package starts its own test workers. Bound concurrent suites and
-        # finish independent suites so one failure does not hide the others.
-        run: bun run test --concurrency=2 --continue=always
+        # Atlas tests launch TypeScript analysis workers of their own. Keep
+        # package suites separate so they do not starve stream and TUI tests.
+        run: bun run test --concurrency=1 --continue=always
       - name: Check public packages
         run: bun run release:check
       - name: Generate release documentation

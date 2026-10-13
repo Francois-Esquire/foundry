@@ -13,6 +13,7 @@ export default defineConfig({
           exclude: ["src/test/**/*.integration.test.ts"],
           globals: true,
           include: ["src/test/**/*.test.ts"],
+          maxWorkers: process.env.CI ? 2 : undefined,
           name: "unit",
         },
       },
