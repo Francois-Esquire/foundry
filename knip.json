@@ -29,6 +29,8 @@
         "@foundry/core",
         "@noble/hashes",
         "ai-sdk-provider-codex-cli",
+        "ai-sdk-provider-claude-code",
+        "evlog",
         "ignore",
         "simple-git"
       ],

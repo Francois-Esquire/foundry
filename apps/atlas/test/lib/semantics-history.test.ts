@@ -1,6 +1,5 @@
 import { execFileSync } from "node:child_process";
 import {
-  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -46,6 +45,7 @@ import type {
 import { HISTORY_SCHEMA_VERSION } from "../../src/lib/semantics-history-types";
 import { stageClosure } from "../../src/lib/semantics-stages";
 import { deriveWorkspaceSurface } from "../../src/lib/workspace-derive";
+import { copyFixture } from "../helpers/copy-fixture";
 import { hashTree } from "./helpers/planning-fixture";
 
 const expectedTextPattern = /Unsupported history range/;
@@ -125,7 +125,7 @@ function buildRepository(): { dir: string; commits: string[] } {
   const dir = realpathSync(
     mkdtempSync(join(tmpdir(), "semantics-history-fixture-"))
   );
-  cpSync(fixture, dir, { recursive: true });
+  copyFixture(fixture, dir);
   write(dir, ".gitignore", ".foundry/\n");
   git(dir, ["init", "-q", "-b", "main"]);
   const commits: string[] = [];
@@ -995,7 +995,7 @@ describe("history generation", () => {
     const undeclared = realpathSync(
       mkdtempSync(join(tmpdir(), "semantics-history-undeclared-"))
     );
-    cpSync(fixture, undeclared, { recursive: true });
+    copyFixture(fixture, undeclared);
     write(undeclared, "package.json", '{ "name": "semantics-root" }\n');
     write(undeclared, ".gitignore", ".foundry/\n");
     git(undeclared, ["init", "-q", "-b", "main"]);

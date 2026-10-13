@@ -1,7 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { EventEmitter } from "node:events";
 import {
-  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -35,6 +34,7 @@ import { scan } from "../../src/lib/scan";
 import type { WorkspaceState } from "../../src/lib/state";
 import { lockState, workspaceState } from "../../src/lib/state";
 import { commitFixture } from "../helpers/commit-fixture";
+import { copyFixture } from "../helpers/copy-fixture";
 
 const FIXTURE = resolve(import.meta.dirname, "fixtures/deps");
 const READY = "packages/plans/src/foo.ts#PlanAlpha";
@@ -188,7 +188,7 @@ async function scannedCopy(
 ) {
   const directory = realpathSync(mkdtempSync(join(tmpdir(), prefix)));
   const root = join(directory, "workspace");
-  cpSync(FIXTURE, root, { recursive: true });
+  copyFixture(FIXTURE, root);
   for (const name of readdirSync(join(root, "packages"))) {
     const file = join(root, "packages", name, "package.json");
     const manifest = JSON.parse(readFileSync(file, "utf8"));
