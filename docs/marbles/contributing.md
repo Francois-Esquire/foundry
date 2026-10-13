@@ -92,6 +92,9 @@ Each Marbles section has one job:
   runnable stages; smaller use cases stay on one page.
 - **Reference** holds exact commands, options, state rules, troubleshooting,
   and the advanced remote and embedding boundaries.
+- **Roadmap** describes current priorities and planned capabilities in a
+  Now, Next, and Later sequence. Keep proposed APIs separate from supported
+  reference material; the private `_roadmap.md` preserves delivery history.
 
 A section heading does not need a duplicate child landing page. Software
 Factory's first page explains its specific workflow and prerequisites.

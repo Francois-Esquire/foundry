@@ -1,7 +1,8 @@
-# Marbles roadmap
+# Marbles delivery history
 
-Maintainer note, excluded from the Blume site. The agreed pieces of work,
-in order. Items 1 to 3 and 5 have landed; 4 stays open; 6 comes last.
+Historical maintainer note, excluded from the Blume site. The sequence below
+records the earlier plan and its status at the time. The public
+[Roadmap](/marbles/roadmap) now owns current priorities and future direction.
 
 The launchd integration recorded below was removed on 2026-10-13. Its
 historical design notes remain in place; workspace environment loading

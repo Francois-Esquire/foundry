@@ -64,3 +64,9 @@ the Foundry libraries underneath.
 The [reference](/marbles/reference/cli) covers commands, API details, project
 setup, and troubleshooting. Marbles primarily runs on your own machine;
 [remote execution](/marbles/reference/remote) describes the current boundary.
+
+## See what's next
+
+The [roadmap](/marbles/roadmap) follows the next additions: browser resources
+with reusable profiles, MCP access to your definitions, a hosted web
+application for people and agents, and deeper remote and event support.
