@@ -61,11 +61,11 @@ and `bytes(path)` helpers, or `undefined` before the first write. A known
 version ID identifies a specific result; `latest()` intentionally follows
 the current version as new runs write.
 
-The [Persistent Reviewer](/marbles/use-cases/persistent-reviewer) stores a
-small session reference in an artifact. [Agents](https://github.com/Francois-Esquire/foundry/blob/main/packages/agents/README.md)
-owns the conversation behind that reference; the artifact tells the next
-run which conversation to continue. In the [Software Factory](/marbles/use-cases/software-factory/approve),
-the artifact instead keeps the reviewed commit, findings, and human decision.
+The [Software Factory work log](/marbles/use-cases/software-factory/work-log)
+keeps the issue, plan, commits, findings, and human decisions in one artifact.
+It also saves the [reviewer's session reference](/marbles/use-cases/software-factory/verify#keep-review-history).
+[Agents](https://github.com/Francois-Esquire/foundry/blob/main/packages/agents/README.md)
+owns that conversation; the artifact tells the next run which one to continue.
 
 ## Keep the result and its provenance
 

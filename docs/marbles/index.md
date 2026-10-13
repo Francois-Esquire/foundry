@@ -55,10 +55,7 @@ the Foundry libraries underneath.
 
 | Use case | Outcome |
 | --- | --- |
-| [Software Factory](/marbles/use-cases/software-factory) | Implement a task on a branch, test and review its commit, then ask for a decision. |
-| [Repository Caretaker](/marbles/use-cases/repository-caretaker) | Investigate changes to repository instructions. |
-| [Persistent Reviewer](/marbles/use-cases/persistent-reviewer) | Revisit findings in a conversation that continues across runs. |
-| [Release Watcher](/marbles/use-cases/release-watcher) | Assess a release's relevance to your project. |
+| [Software Factory](/marbles/use-cases/software-factory) | Take an issue through implementation, review, delivery, and on-call follow-up. |
 | [Design Sync](/marbles/use-cases/design-sync) | Propose code changes from a Figma color palette. |
 
 The [reference](/marbles/reference/cli) covers commands, API details, project

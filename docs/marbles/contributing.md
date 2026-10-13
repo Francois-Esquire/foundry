@@ -133,11 +133,16 @@ capabilities.
 
 Every complete code sample on a public page must load and typecheck.
 Clearly label API syntax excerpts and incremental replacements. For the
-Software Factory, assemble the named files in chapter order and check each
-version of the launch module. To check a sample, extract it into a scratch module
-with `zod` and `typescript` resolvable beside it, then run it with
-`bun run marbles -- --source <path> --dry-run list` and, where a step is named,
-`--dry-run roll <name>`.
+Software Factory, the canonical TypeScript files live in
+`use-cases/software-factory/_example/`. Blume includes those files as code
+blocks, so validation checks the same source readers see. Assemble the named
+files in chapter order and check each version of the launch module.
+
+Use a scratch project with `zod` and `typescript` resolvable beside the sample,
+then run `bun run marbles -- --source <path> --dry-run list`. Dry execution
+substitutes command output; examples that parse GitHub JSON or require real
+commit IDs need a local Git fixture and mocked provider and GitHub responses
+for behavior checks. Do not publish test pull requests to validate a guide.
 
 CI publishes the built site to GitHub Pages after a successful documentation
 build on `main`. Pull requests only validate and build. The site lives at

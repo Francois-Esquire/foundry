@@ -24,6 +24,18 @@ export default defineConfig({
     ],
   },
   redirects: [
+    {
+      from: "/marbles/use-cases/persistent-reviewer",
+      to: "/marbles/use-cases/software-factory/verify#keep-review-history",
+    },
+    {
+      from: "/marbles/use-cases/repository-caretaker",
+      to: "/marbles/use-cases/software-factory/maintenance#watch-repository-instructions",
+    },
+    {
+      from: "/marbles/use-cases/release-watcher",
+      to: "/marbles/use-cases/software-factory/maintenance#watch-upstream-releases",
+    },
     { from: "/marbles/start-here", to: "/marbles/get-started/quickstart" },
     {
       from: "/marbles/concepts/automation-as-code",
@@ -61,15 +73,15 @@ export default defineConfig({
     },
     {
       from: "/marbles/recipes/repository-caretaker",
-      to: "/marbles/use-cases/repository-caretaker",
+      to: "/marbles/use-cases/software-factory/maintenance#watch-repository-instructions",
     },
     {
       from: "/marbles/recipes/persistent-reviewer",
-      to: "/marbles/use-cases/persistent-reviewer",
+      to: "/marbles/use-cases/software-factory/verify#keep-review-history",
     },
     {
       from: "/marbles/recipes/release-watcher",
-      to: "/marbles/use-cases/release-watcher",
+      to: "/marbles/use-cases/software-factory/maintenance#watch-upstream-releases",
     },
     {
       from: "/marbles/recipes/design-sync",

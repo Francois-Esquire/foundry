@@ -3,12 +3,6 @@ import { defineMeta } from "blume";
 export default defineMeta({
   collapsed: false,
   display: "flat",
-  pages: [
-    "software-factory",
-    "repository-caretaker",
-    "persistent-reviewer",
-    "release-watcher",
-    "design-sync",
-  ],
+  pages: ["software-factory", "design-sync"],
   title: "Use Cases",
 });

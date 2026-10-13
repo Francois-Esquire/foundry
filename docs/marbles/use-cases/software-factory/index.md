@@ -1,59 +1,59 @@
 ---
 title: Software Factory
-description: Build a local implementation, verification, and approval workflow in working stages.
+description: Take an issue through implementation, review, delivery, and ongoing care.
 sidebar:
-  label: The workflow
+  label: The cycle
 ---
 
-This walkthrough turns a task into a committed branch, tests and reviews
-that exact commit, and records a human decision with a report. Each chapter
-adds a working stage to the same project.
-
-[Workflows](https://github.com/Francois-Esquire/foundry/blob/main/packages/workflows/README.md)
-owns the execution tree; [Agents](https://github.com/Francois-Esquire/foundry/blob/main/packages/agents/README.md)
-keeps the implementer's and reviewer's conversations;
-[Workspaces](https://github.com/Francois-Esquire/foundry/blob/main/packages/workspaces/README.md)
-provides the checkouts; [Artifacts](https://github.com/Francois-Esquire/foundry/blob/main/packages/artifacts/README.md)
-keeps the final report. Marbles connects them into one run.
+The factory starts with an issue. Its work log follows the issue across runs,
+so each stage knows what was requested, what changed, and what still needs work.
 
 ```text
-task → implement → test and review → human decision → report
-         branch       commit SHA       approval       artifact
+issue → plan → implement → test and review → approve → pull request → merge and close
+                  ↑              │
+                  └── revisions ─┘
+
+on-call incidents and maintenance signals → issue intake
 ```
 
-The final result is a reviewed candidate and a recorded decision. Publishing
-or merging it remains a separate action; the approval step does not merge.
-
-These stage boundaries also provide [durability](/marbles/foundation/durability):
-while approval waits, the run keeps the completed implementation and
-verification results. The examples leave retries unconfigured. Enable them
-only for steps whose commands and external effects can safely repeat.
+One issue can take several runs. Tests can fail, a reviewer can request a
+change, or a person can decline publication. Those outcomes stay in the log.
+A completed run does not mean the issue is finished.
 
 ## Before you start
 
 - Complete [the quickstart](/marbles/get-started/quickstart).
-- Use a local Git repository where you intend an agent to make changes.
-  Start with a clean working tree and at least one commit.
-- Install and authenticate Claude Code or Codex. Run it directly once to
-  confirm access; Marbles detects it on `PATH`.
-- Install `zod@4.4.3` in this project.
-- For verification, use a project with a committed `bun.lock` and a working
-  `bun test` command. Adapt the two verification commands for another stack.
+- Use a clean local Git clone with an `origin` on GitHub. The sample publishes
+  branches to that repository, so use one where you have permission to push.
+- Install and authenticate `gh`, plus Claude Code or Codex. Confirm that
+  `gh repo view` identifies this checkout and Git can fetch and push `origin`.
+- Install `zod@4.4.3` in the automation project.
+- Use a project with a committed `bun.lock` and a working `bun test` command.
+  Change the verifier's commands for another stack.
 
-This walkthrough uses local commands and Git worktrees. A sandbox runtime
-is not required. The commands and agent tools run with your local authority;
-see [safety and limits](/marbles/reference/safety).
+The first example uses GitHub Issues. Each helper lives under
+`.foundry/marbles/_factory/`; the launch modules beside that folder import it.
+Follow the chapters in order and replace `factory.ts` where instructed.
 
-## Build in order
+## Build the cycle
 
-| Chapter | Working result |
+| Chapter | Result |
 | --- | --- |
-| [Implement a task](/marbles/use-cases/software-factory/implement) | A branch and the commit produced by an agent in a temporary worktree. |
-| [Test and review](/marbles/use-cases/software-factory/verify) | Tests and review findings for that commit. |
-| [Add human approval](/marbles/use-cases/software-factory/approve) | A dashboard decision and a versioned report containing the evidence. |
-| [Automate subsequent runs](/marbles/use-cases/software-factory/automate) | A scheduled check of an existing revision, reusing the verifier. |
+| [Take an issue](/marbles/use-cases/software-factory/intake) | A concrete request with acceptance criteria. |
+| [Keep a work log](/marbles/use-cases/software-factory/work-log) | An issue snapshot and a versioned artifact that later stages update. |
+| [Plan the work](/marbles/use-cases/software-factory/plan) | An approach grounded in the repository, or questions that stop the work. |
+| [Implement the issue](/marbles/use-cases/software-factory/implement) | A committed branch and an explanation of the changes. |
+| [Test and review](/marbles/use-cases/software-factory/verify) | Evidence for each criterion, with the original implementation in view. |
+| [Revise the candidate](/marbles/use-cases/software-factory/revise) | Another attempt on the same branch, with a three-attempt limit. |
+| [Approve and deliver](/marbles/use-cases/software-factory/approve) | A decision on an exact commit, a pull request, and observed completion. |
+| [Run an on-call shift](/marbles/use-cases/software-factory/on-call) | Incident investigation, ownership, acknowledgement, and handoff. |
+| [Watch maintenance signals](/marbles/use-cases/software-factory/maintenance) | Repository and release changes that may warrant a new issue. |
+| [Schedule updates and reports](/marbles/use-cases/software-factory/automate) | Fresh remote refs, issue status, on-call attention, and a recurring report. |
 
-Helper modules live in `.foundry/marbles/_factory/`. The leading underscore
-keeps them out of automatic discovery; importing them from `factory.ts`
-registers their named steps. Each chapter tells you which file to add or
-replace. Keep one version of each file.
+Run one writer per issue at a time. The sample uses local artifacts and Git
+branches; it does not coordinate independent machines. Start manually,
+then enable the schedules after the cycle works in your repository.
+
+`marbles --dry-run list` checks that the definitions load. A dry run of the
+workflow cannot exercise this cycle because it substitutes command output,
+including the issue JSON and Git commit IDs that these steps require.

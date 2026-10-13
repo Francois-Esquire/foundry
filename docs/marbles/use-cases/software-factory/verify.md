@@ -1,96 +1,42 @@
 ---
 title: Test and review
-description: Run tests and collect review findings against the exact candidate commit.
+description: Check a candidate against the original issue, plan, implementation, and previous findings.
 ---
 
-Continue from [Implement a task](/marbles/use-cases/software-factory/implement).
-This chapter opens a detached checkout of the candidate's `revision`,
-installs its dependencies, runs its tests, and asks a reviewer to inspect it.
-Tests and review operate on the same commit.
-
-## Add the verifier
+Review starts with context. The reviewer reads the original issue,
+acceptance criteria, plan, implementation explanation, previous attempts,
+and test output. It then examines the exact candidate commit.
 
 Create `.foundry/marbles/_factory/verify.ts`:
 
-```ts
-import { agent, step } from "@foundry/marbles";
-import { z } from "zod";
-import { changeSchema } from "./implement";
+<include>./_example/_factory/verify.ts</include>
 
-export const verifiedSchema = changeSchema.extend({
-  tests: z.literal("passed"),
-  findings: z.string(),
-});
+Replace `factory.ts` with:
 
-const reviewer = agent({
-  name: "factory-reviewer",
-  prompt: "Review the supplied commit range. Report correctness risks and missing tests. Do not edit, commit, push, or merge.",
-});
+<include>./_example/_verified.ts</include>
 
-export const verify = step("factory-verify")
-  .input(z.object({ change: changeSchema }))
-  .output(verifiedSchema)
-  .do(({ input: { change }, workspaces, agents, exec }) =>
-    workspaces.current.git.withWorktree({ base: change.revision }, async () => {
-      await exec(["bun", "install", "--frozen-lockfile"]);
-      await exec(["bun", "test"]);
-      const session = await agents.session(reviewer);
-      const reply = await session.generate(`Review ${change.base}..${change.revision}.`);
-      const head = (await exec(["git", "rev-parse", "HEAD"])).stdout.trim();
-      const dirty = (await exec(["git", "status", "--porcelain"])).stdout.trim();
-      if (head !== change.revision || dirty) {
-        throw new Error("Verification changed the checkout; discard this evidence and rerun.");
-      }
-      return { ...change, tests: "passed" as const, findings: reply.text };
-    })
-  );
-```
+## Read the result
 
-`exec` fails the step on a nonzero exit. A failed install or test therefore
-stops the workflow before review or approval. Change these commands for
-your project's real verification; a successful command is only evidence
-for the checks it actually runs.
+The verifier records install and test output even when a command fails.
+It returns `verified` only when those commands pass, the review supplies
+positive evidence for every criterion, and there are no review blockers.
+Otherwise it returns `needs-changes`. That run completed its assessment;
+it did not approve the code.
 
-The final check rejects evidence if the checkout was modified or moved to
-another commit. Prompts guide an agent; they do not enforce read-only access.
+A model's assessment is evidence for the human decision. Adapt the commands
+to the project's actual checks. A successful `bun test` cannot prove a
+browser interaction that the suite never exercises.
 
-## Connect implementation to verification
+## Keep review history
 
-Replace `.foundry/marbles/factory.ts` with:
+This is the persistent reviewer inside the factory. The work log stores
+one review session reference per issue, so later attempts can revisit
+unresolved findings. Each turn also receives the written history, including
+the initial implementation. The transcript is not the only record.
 
-```ts
-import { workflow } from "@foundry/marbles";
-import { z } from "zod";
-import { implement } from "./_factory/implement";
-import { verify } from "./_factory/verify";
+Changing the checkout during verification rejects the evidence. Prompts
+ask the agent to leave files alone; they do not enforce read-only access.
+Use the [session controls](/marbles/reference/agent-sessions) appropriate
+to your environment.
 
-export const factory = workflow("factory")
-  .input(z.object({ task: z.string() }))
-  .do(({ input }) => verify({ change: implement({}, input) }));
-```
-
-The child result becomes `verify`'s `input.change`. Neither stage has to
-guess which branch or commit the other used.
-
-[Workflows](https://github.com/Francois-Esquire/foundry/blob/main/packages/workflows/README.md)
-retains the completed implementation result while verification runs. An
-explicit retry policy on `verify` would repeat its install, tests, and
-agent review without rerunning a finished `implement` child in the same
-run. A new `roll factory` is a new run and performs implementation again.
-This distinction is central to [durability](/marbles/foundation/durability).
-
-## Verify the result
-
-Run `factory` with a new small task, or check the previous candidate by
-running `factory-verify` directly with the three values from its result:
-
-```sh
-marbles roll factory-verify --input '{"change":{"branch":"marbles/your-run","base":"BASE_SHA","revision":"CANDIDATE_SHA"}}'
-```
-
-Replace the placeholders before running. A successful result includes the
-candidate SHA, `tests: "passed"`, and findings. A failing test appears as a
-failed run with command output; it never produces that success result.
-
-Review findings remain evidence for a person to assess. Continue with
-[Add human approval](/marbles/use-cases/software-factory/approve).
+Next: [Revise the candidate](/marbles/use-cases/software-factory/revise).

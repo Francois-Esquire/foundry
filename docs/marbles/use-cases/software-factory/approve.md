@@ -1,100 +1,64 @@
 ---
-title: Add human approval
-description: Ask for a decision on a verified commit and save the evidence as a report.
+title: Approve and deliver
+description: Approve the exact reviewed commit, publish its pull request, and track completion.
 ---
 
-Continue from [Test and review](/marbles/use-cases/software-factory/verify).
-This stage pauses for a decision in the dashboard and writes a report
-containing the exact commit, test result, review findings, and decision.
+Publication is a separate workflow. It loads the issue's record and asks a
+person to approve the verified commit. Approval permits pushing that commit
+and opening or updating its pull request.
 
-## Add the decision and report steps
+## Record the decision
 
 Create `.foundry/marbles/_factory/approve.ts`:
 
-```ts
-import { artifact, step } from "@foundry/marbles";
-import { z } from "zod";
-import { verifiedSchema } from "./verify";
+<include>./_example/_factory/approve.ts</include>
 
-const decisionSchema = verifiedSchema.extend({
-  approved: z.boolean(),
-  note: z.string(),
-});
-const decisions = artifact({ name: "Factory decisions", type: "text/markdown" });
+The ask happens before the decision write. If the run parks, Marbles can
+replay that step with the recorded answer. Earlier implementation and
+verification results stay in the issue's artifact.
 
-export const approve = step("factory-approve")
-  .input(z.object({ checked: verifiedSchema }))
-  .output(decisionSchema)
-  .do(async ({ input: { checked }, ask }) => {
-    const decision = await ask.approval({
-      title: "Accept this candidate?",
-      body: `Commit: ${checked.revision}\nTests: ${checked.tests}\n\n${checked.findings}`,
-    });
-    return { ...checked, approved: decision.approved, note: decision.note ?? "" };
-  });
+## Publish the candidate
 
-export const publishDecision = step("factory-report")
-  .input(z.object({ decision: decisionSchema }))
-  .do(async ({ input: { decision }, report }) => {
-    const markdown = [
-      `# ${decision.approved ? "Accepted" : "Rejected"} candidate`,
-      `Branch: ${decision.branch}`,
-      `Base: ${decision.base}`,
-      `Commit: ${decision.revision}`,
-      `Tests: ${decision.tests}`,
-      decision.findings,
-      decision.note,
-    ].join("\n\n");
-    const version = await report.artifact(decisions, { "decision.md": markdown });
-    return { approved: decision.approved, revision: decision.revision, report: version.id };
-  });
+Create `.foundry/marbles/_factory/publish.ts`:
+
+<include>./_example/_factory/publish.ts</include>
+
+The step checks the local branch, pushes the approved SHA, and reuses an
+existing open PR for that branch. It records the returned URL and checks
+that the remote head matches. A partial failure can leave a push or PR
+completed before the log write. Inspect it before continuing.
+If the record still says `approved` and its commit is unchanged, rerun
+`factory-deliver` to finish publication using the recorded decision.
+
+The PR body links the issue and carries the work log. Review it before
+publishing if the log contains information that should stay local.
+[GitHub's PR command](https://cli.github.com/manual/gh_pr_create) documents
+issue-closing references and explicit base and head branches.
+
+## Observe merge and closure
+
+Create `.foundry/marbles/_factory/status.ts`:
+
+<include>./_example/_factory/status.ts</include>
+
+Then create `.foundry/marbles/delivery.ts`:
+
+<include>./_example/delivery.ts</include>
+
+Open `marbles`, start the dashboard, and launch `factory-deliver` with
+`{"issue":42}`. Read the evidence and answer the publication question.
+Use the dashboard because `roll` cannot answer it.
+
+Repository review, CI, branch protection, and merge still happen through
+your normal GitHub process. Afterward, run:
+
+```sh
+marbles roll factory-status --input '{"issue":42}'
 ```
 
-The ask is the first operation in its step. When the person answers, Marbles
-replays that body with the recorded answer. The finished implementation and
-verification steps keep their results. The report is a separate step, so
-its artifact write follows the decision.
+The status step reads [the PR's state and head](https://cli.github.com/manual/gh_pr_view)
+and the issue's state. It marks the record closed only after observing a
+merge of the reviewed head and a closed issue. A moved head requires fresh
+verification. A rejected candidate or closed, unmerged PR is not delivery.
 
-This is a [durable waiting point](/marbles/foundation/durability#recovery-after-a-restart).
-[Workflows](https://github.com/Francois-Esquire/foundry/blob/main/packages/workflows/README.md)
-keeps the completed stages and suspension; Marbles saves their run state.
-[Artifacts](https://github.com/Francois-Esquire/foundry/blob/main/packages/artifacts/README.md)
-stores the decision report as a versioned output, linking the human
-decision to the exact commit and evidence.
-
-## Complete the workflow
-
-Replace `.foundry/marbles/factory.ts` with:
-
-```ts
-import { workflow } from "@foundry/marbles";
-import { z } from "zod";
-import { approve, publishDecision } from "./_factory/approve";
-import { implement } from "./_factory/implement";
-import { verify } from "./_factory/verify";
-
-export const factory = workflow("factory")
-  .input(z.object({ task: z.string() }))
-  .do(({ input }) =>
-    publishDecision({
-      decision: approve({ checked: verify({ change: implement({}, input) }) }),
-    })
-  );
-```
-
-## Launch and answer
-
-Run `marbles`, press Enter, select `factory` in the Marbles panel, and launch
-it with a task. After successful tests and review, the run waits at
-**Accept this candidate?**. Open the question in the Feed and answer it.
-
-The completed run returns the decision, commit, and report version ID.
-The Feed contains the report. Both acceptance and rejection are recorded;
-neither merges or pushes the branch. If you later merge it, verify you are
-merging the recorded SHA rather than an updated branch tip.
-
-Use the dashboard for this version. `roll factory` has nobody to answer and
-cancels at the question, after doing the preceding work. A parked dashboard
-run can be adopted after restart when its source and state remain available.
-
-Continue with [Automate subsequent runs](/marbles/use-cases/software-factory/automate).
+Next: [Run an on-call shift](/marbles/use-cases/software-factory/on-call).

@@ -347,7 +347,7 @@ await fetch(url, { signal });
   `undefined` before the first write. A declared artifact belongs to the
   workspace, so this is what the last run here kept. Under `--dry-run` it
   reads what real runs kept while its own writes stay in memory. See the
-  [persistent reviewer](https://francois-esquire.github.io/foundry/marbles/use-cases/persistent-reviewer).
+  [persistent reviewer](https://francois-esquire.github.io/foundry/marbles/use-cases/software-factory/verify#keep-review-history).
 - **Report.** Entries are fire-and-forget and land on the run and the feed.
   `media` paths resolve from the workspace root and are copied into the
   entry; refer to them in the body as `media/<file name>`. `report.artifact`

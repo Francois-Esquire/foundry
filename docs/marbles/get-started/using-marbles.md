@@ -161,10 +161,7 @@ same pattern for a URL. [Schedules and monitors](/marbles/foundation/triggers).
 
 | Build | Combine |
 | --- | --- |
-| [Software Factory](/marbles/use-cases/software-factory) | Worktrees, agents, commands, workflows, decisions, and reports. |
-| [Repository Caretaker](/marbles/use-cases/repository-caretaker) | File monitoring and an agent's investigation. |
-| [Persistent Reviewer](/marbles/use-cases/persistent-reviewer) | Scheduling, sessions, and an artifact that keeps a reference. |
-| [Release Watcher](/marbles/use-cases/release-watcher) | HTTP monitoring and a report. |
+| [Software Factory](/marbles/use-cases/software-factory) | Issues, work logs, implementation, review, delivery, and on-call reports. |
 | [Design Sync](/marbles/use-cases/design-sync) | External data, workflow gates, and proposed code changes. |
 
 Continue with [Foundation](/marbles/foundation/api) to understand the model
