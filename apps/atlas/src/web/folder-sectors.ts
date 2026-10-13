@@ -1,11 +1,11 @@
 import { byCodeUnit } from "@foundry/lib/ordering";
 import type { ResponsibilityGroup } from "../lib/lenses/responsibility-groups-types";
-import { contourSigma } from "./geography";
+import { contourSigma, unit } from "./geography";
 import type { AtlasFile } from "./types";
 
 /**
  * Files inside an island, placed by the folder tree alone. Each file gets a
- * site of a sunflower lattice filling a disc. The package's folder tree
+ * site of a sunflower lattice filling a lobed footprint. The package's folder tree
  * divides the sites: every folder takes a convex cell sized by its files,
  * sibling folders side by side in name order, a folder's own files before
  * its subfolders. A small gutter parts the cells at each split, widest at
@@ -147,12 +147,19 @@ function blockSize(block: Block) {
   return "files" in block ? block.files.length : block.size;
 }
 
-/** `count` sites filling a disc, `spacing` apart. */
-function sunflower(count: number, spacing: number): Site[] {
+/** `count` sites filling a seeded, irregular footprint at the given spacing. */
+function sunflower(count: number, spacing: number, seed: string): Site[] {
   const step = spacing / spacingPerRadiusStep;
+  const phase = unit(seed) * Math.PI * 2;
   return Array.from({ length: count }, (_, i) => {
-    const radius = step * Math.sqrt(i + 0.5);
     const angle = i * goldenAngle;
+    // Broad, seeded lobes give the coast headlands and bays while retaining
+    // the folder partition's sites and keeping the interior densely filled.
+    const envelope =
+      1 +
+      0.22 * Math.sin(3 * angle + phase) +
+      0.12 * Math.cos(5 * angle - phase);
+    const radius = step * Math.sqrt(i + 0.5) * envelope;
     return { x: radius * Math.cos(angle), y: radius * Math.sin(angle) };
   });
 }
@@ -352,7 +359,7 @@ export function settleFiles(
     widestSpacing,
     spacingPerSigma * contourSigma(radius, Math.max(1, files.length))
   );
-  const sites = sunflower(files.length, spacing);
+  const sites = sunflower(files.length, spacing, root);
   // The island's box, wide enough for every gutter's push outward.
   const margin = topGutter * spacing;
   const xs = sites.map((site) => site.x);

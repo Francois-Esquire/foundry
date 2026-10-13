@@ -366,3 +366,14 @@ it("draws each cut across the whole region its split divided, so a drawn cut lie
     visit(tree);
   }
 });
+
+it("keeps headlands and bays on a densely populated island instead of a disc", () => {
+  const files = Array.from({ length: 500 }, (_, i) =>
+    file(`pkg/src/file-${i}.ts`)
+  );
+  settleFiles(files, 120, "pkg");
+  const coast = landContours(files, 120)[1]?.[0]?.[0] ?? [];
+  const radii = coast.map(([x, y]) => Math.hypot(x, y));
+  expect(coast.length).toBeGreaterThan(100);
+  expect(Math.max(...radii) / Math.min(...radii)).toBeGreaterThan(1.3);
+});

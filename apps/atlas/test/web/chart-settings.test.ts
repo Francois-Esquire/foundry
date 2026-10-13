@@ -40,8 +40,8 @@ it("splits the chart's settings into a reader's layers and a developer's control
   ]);
 });
 
-it("raises the wreck dive to at least Balanced while the chart defaults to Light", () => {
-  expect(defaultRenderSettings.quality).toBe("low");
+it("raises the wreck dive to at least Balanced while the chart defaults to Balanced", () => {
+  expect(defaultRenderSettings.quality).toBe("medium");
   const order = ["off", "low", "medium", "high"];
   for (const quality of ["off", "low", "medium", "high"] as const) {
     const dive = diveRenderSettings({ ...defaultRenderSettings, quality });

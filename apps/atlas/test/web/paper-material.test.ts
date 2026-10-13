@@ -7,12 +7,12 @@ import {
 } from "../../src/web/scene/paper-material";
 
 describe("atlas paper", () => {
-  it("is unlit paper whose relief is one term, without bump or displacement", () => {
+  it("uses lit matte paper without bump or displacement", () => {
     const map = new Texture();
     const materials = createPaperMaterials(map);
     expect(materials.paper.map).toBe(map);
-    // Unlit: no light shades the paper; the relief term in its colour does.
-    expect(materials.paper.isMeshBasicNodeMaterial).toBe(true);
+    // Directional light reveals slopes; vertex occlusion deepens valleys.
+    expect(materials.paper.isMeshStandardNodeMaterial).toBe(true);
     expect(materials.paper.colorNode).toBeDefined();
     expect(paperThickness).toBe(0.4);
     let disposed = false;

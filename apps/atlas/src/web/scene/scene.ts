@@ -300,6 +300,12 @@ export async function createAtlasScene(
   });
   const applyRendering = () => {
     pipeline.configure(settings.rendering);
+    const { rendering } = settings;
+    materials.setOcclusion(
+      rendering.quality !== "off" && rendering.ambientOcclusion
+        ? rendering.aoIntensity
+        : 0
+    );
   };
   applyRendering();
   let reportedRegionTerritory: string | null = null;

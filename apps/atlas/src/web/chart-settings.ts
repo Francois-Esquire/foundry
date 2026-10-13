@@ -48,12 +48,7 @@ export const defaultRenderSettings = {
   exposure: 1,
   giIntensity: 1,
   globalIllumination: false,
-  /**
-   * Light: the chart's relief is the paper's own capped term, so a reader's
-   * chart runs no screen-space occlusion. The wreck dive raises it to
-   * Balanced (`diveRenderSettings`).
-   */
-  quality: "low" as RenderQuality,
+  quality: "medium" as RenderQuality,
   saturation: 1,
   stage: "final" as RenderStage,
   toneMapping: "none" as ToneMappingId,
@@ -68,7 +63,7 @@ const qualityOrder: readonly RenderQuality[] = ["off", "low", "medium", "high"];
  * The wreck dive's settings: the chart's, with the quality raised to at least
  * Balanced. The dive's perspective camera runs screen-space occlusion at every
  * enabled tier, and below Balanced it does so at half resolution without
- * denoising, which shows as noise; the chart's Light default is the chart's.
+ * denoising, which shows as noise.
  * Off is raised to Balanced too, so the dive always draws through its pipeline.
  */
 export function diveRenderSettings(settings: RenderSettings): RenderSettings {

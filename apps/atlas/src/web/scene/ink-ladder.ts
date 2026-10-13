@@ -43,6 +43,17 @@ export const grounds = {
 } as const;
 type Ground = "land" | "labelHalo" | "openWater" | "sea";
 
+/** The original island pigment washes, underneath the shared warm paper. */
+export const packagePigments = [
+  "#efcf88",
+  "#b4d5a5",
+  "#edb59d",
+  "#a3d6bc",
+  "#ead6a5",
+  "#cab6df",
+  "#d6dda0",
+] as const;
+
 /** Named zooms, in CSS pixels per map unit: the overview, an entered island, a file close up. */
 export const zooms = { close: 10, island: 2.2, overview: 1 } as const;
 
@@ -215,11 +226,6 @@ export const inkAlpha = {
   landContourMinor: 0.21,
   /** A paper veil under a proposed position. */
   paperVeil: 0.72,
-  /**
-   * Relief is one hillshade term, multiplying the paper's linear colour by
-   * 1 minus at most this much, so the steepest shade clears the relief floor.
-   */
-  reliefCap: 0.22,
   ripple: [0.16, 0.11, 0.07] as const,
   /** Ripples surface as the camera comes in. */
   rippleReveal: (pixels: number) =>
@@ -229,6 +235,8 @@ export const inkAlpha = {
   seaContourMinor: 0.12,
   streamBank: 0.12,
   streamGlint: 0.75,
+  /** Valley darkening on lit paper; slope lighting and screen occlusion are separate. */
+  valleyShade: 0.24,
 } as const;
 
 /** Colours of the scene's lit materials and lights, which are not inks on the map. */
@@ -452,8 +460,8 @@ export const ladderMarks: readonly LadderMark[] = [
     rung: "coast",
   },
   {
-    // The paper's linear colour times 1 − cap is black over it at the cap.
-    alpha: () => inkAlpha.reliefCap,
+    // Vertex valley shading alone, before lighting and screen occlusion.
+    alpha: () => inkAlpha.valleyShade,
     ground: "land",
     id: "relief",
     ink: "#000000",

@@ -72,14 +72,13 @@ a darker dash-dot line on the sea (`#5e0d42`, 8.3:1); in a collection,
 crossings, a deep violet (`#580490`, 6.34:1 on the ocean blue at the chart's
 edge, `#b4c4c5`, the darkest water there is, since a crossing runs beyond the
 rims); file marks (6.4–7.9:1); labels
-(5.0–5.3:1); the coast (1.9–2.9:1); relief (at most 1.35:1, the steepest
-shade 1.26:1); and sea lines (at most 1.15:1). Once an island is entered the
+(5.0–5.3:1); the coast (1.9–2.9:1); terrain ink (lighting and occlusion separately restore the relief); and sea lines (at most 1.15:1). Once an island is entered the
 selected island's ring steps down to the file rung at one pixel. The same
 module holds the one table of hue, dash, and weight that says what each line,
 fill, and text means, and the map key reads it. Hover is a mid amber, solid,
-apart from both the coast rule and the selection. Islands carry no package
-hue: the land is paper, pigment marks responsibilities only, and a package is
-told apart by its coast and its name. Muted paper edges distinguish the
+apart from both the coast rule and the selection. Islands regain their original seeded pigment washes under warm paper.
+District marks retain their responsibility pigments; package washes provide
+visual identity and do not encode an architectural score. Muted paper edges distinguish the
 raised land from the sea sheet.
 
 Ocean pigment follows distance to the nearest land across all
@@ -274,14 +273,13 @@ per map unit. Land ink is warm brown; sea ink is muted teal. Contours are solid,
 with slightly stronger major lines; boundaries and dependencies retain dashes.
 Three-pixel crowding suppression and four-pixel label clearance protect reading.
 
-The island paper is unlit: its colour is its own, and relief is one term in it.
-Slopes turned from a north-west light, and each vertex's concavity, multiply
-the paper's linear colour by 1 minus at most 0.22, the ladder's relief cap, so
-the steepest shade just clears the relief rung and is never darker than a file
-mark. The cap is a ceiling, not a typical value: only the steepest summit
-flanks reach it, and readers rarely see relief at the rung's floor. There are no hachures. The sea and the coast walls still take the
+The island paper uses the earlier lit matte material again. North-west
+lighting reveals slopes, while per-vertex concavity deepens valleys by up to
+24% when ambient occlusion is enabled. Land, sea and coast walls take the
 scene's ambient fill (1.23) and warm directional light (3.16), balanced so
-level ground renders at its own colour. Nothing on the chart casts a shadow, so
+level ground renders at its own colour. Terrain lighting is independent of
+the ink ladder: its former 0.22 cap flattened the relief visually.
+Nothing on the chart casts a shadow, so
 the scene keeps no shadow map. The sea is the painted sea sheet under the shared paper surface,
 thinned over wrecks as the camera comes in; it does not move.
 The full-screen sheet has no outer border or CSS shadow. Paper drawers and the
@@ -296,12 +294,12 @@ shadow resources, controls and renderer.
 
 The sheet and controls use square edges; search swatches are small circles.
 Files appear as small marks, with a ring around the selected file. Density
-contours form coastlines, shallows and hills; since files fill their island
-evenly (4.3a), a coast is round, with no holes or satellites.
+contours form coastlines, shallows and hills. Seeded broad lobes restore
+headlands and bays instead of circular disc coastlines.
 
 Package radius follows file population's square root. Files are placed by
 the folder tree below the package's folder alone (`folder-sectors.ts`):
-every file takes a site of a sunflower lattice filling a disc, spaced 1.5
+every file takes a site of a sunflower lattice filling an irregular footprint, spaced 1.5
 times the contour spread and at most 8 units, so that one district's
 neighbouring files join in its footprint. The folder tree divides the sites
 by halving them across their wider extent: each folder takes a convex cell
@@ -667,7 +665,7 @@ shares. The map key explains all three.
   workspaces they join ("2 lines between 2 workspaces"), and its map key a
   paragraph on crossings; a single workspace's has neither.
   Beneath it a collapsed Map key lists each optional layer by its table row and
-  its meaning, marked off when its setting is off, and says that relief is a cap
+  its meaning, marked off when its setting is off, and describes terrain relief
   most slopes stay well under, never a quality score.
 - A latitude scale runs down the right margin, above the legend: a rule, a tick
   on each dependency layer's row, where every island of the layer sits, and
@@ -816,7 +814,7 @@ trade resolution and filtering for speed. Off draws directly; shader failure als
 falls back to direct draw and is disclosed in the panel. There are no map
 filters.
 
-Land is unlit paper whose relief is the one capped term above; concavity comes
+Land is lit matte paper with valley shading; concavity comes
 from fixed-radius samples of the current terrain field. There are no
 full-sheet fold bands or screen grain.
 Fine fibers and faint broad stock variation are stationary world-coordinate
@@ -841,8 +839,8 @@ Sliders are uniforms and change nothing in the graph; quality, toggles, tone
 mapping, and stage view rebuild it. Stage modules load on first use.
 When the device reports GPU frame times, a sustained frame over budget steps
 the tier down one level, never to Off, and the panel says so; choosing a
-quality again clears the cap. A reader's chart runs Light, the default: the
-paper's relief term and full-resolution ink, without screen-space occlusion;
+quality again clears the cap. A reader's chart runs Balanced by default, with
+lit terrain, full-resolution ink and screen-space occlusion;
 the wreck dive never runs below Balanced, since its perspective view keeps
 screen-space occlusion at every enabled tier;
 Balanced, Full, and the occlusion stage preview retain that pass. Perspective

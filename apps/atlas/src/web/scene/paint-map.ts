@@ -1,12 +1,13 @@
 import type { Continent } from "../continent";
 import { continentCoasts } from "../continent";
+import { unit } from "../geography";
 import { timeStage } from "../timings";
 import type { AtlasData, Territory } from "../types";
 import type { InkView, MapLabel } from "./exploration";
 import { inkLayers } from "./ink/layers";
 import { type InkOptions, inkState } from "./ink/state";
 import { trace } from "./ink/trace";
-import { grounds } from "./ink-ladder";
+import { grounds, packagePigments } from "./ink-ladder";
 import { paintOcean } from "./ocean";
 
 /** The sea sheet: the ocean's depth steps under every coast and continent. */
@@ -134,9 +135,14 @@ function paintLand(
     ctx.filter = "none";
   }
   trace(ctx, p.coast);
-  // Islands carry no package hue: pigment means responsibility only, and a
-  // package is told apart by its coast and outline (4.0).
+  ctx.fillStyle =
+    packagePigments[
+      Math.floor(unit(`${p.id}:pigment`) * packagePigments.length)
+    ] ?? packagePigments[0];
+  ctx.fill("evenodd");
+  // The original pigment wash into warm stock; lighting supplies the relief.
   ctx.fillStyle = grounds.land;
+  ctx.globalAlpha = 0.48;
   ctx.fill("evenodd");
   ctx.restore();
 }

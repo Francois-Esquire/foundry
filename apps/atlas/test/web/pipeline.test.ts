@@ -98,7 +98,7 @@ describe("render pipeline", () => {
       backend: "webgl",
       globalIlluminationAvailable: true,
       postProcessing: true,
-      quality: "low",
+      quality: "medium",
     });
     // No backend is initialized here, so the graph throws; the chart must
     // still draw and the status must say so.
