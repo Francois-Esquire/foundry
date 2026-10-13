@@ -616,7 +616,7 @@ describe("applyRecord, previewing", () => {
     }
   });
 
-  it("refuses a dirty file it writes, and not one it only reads or never touches", async () => {
+  it("refuses a dirty file it writes", async () => {
     await withScannedFile(
       INDEX,
       (text) => `${text}// local edit\n`,
@@ -628,19 +628,23 @@ describe("applyRecord, previewing", () => {
         });
       }
     );
-    await withScannedFile(
+  });
+
+  it("previews with dirty files it only reads or never touches", async () => {
+    await withFile(
       "packages/plans/src/foo.ts",
       (text) => `${text}// local edit\n`,
       () =>
-        withScannedFile(
+        withFile(
           "packages/beta/src/index.ts",
           (text) => `${text}// local edit\n`,
           async () => {
+            await rescan();
             await plan(READY);
             expect((await apply(READY)).status).toBe("preview");
           }
         )
-    );
+    ).finally(rescan);
   });
 
   it("waits for a scan after a verified write, and refuses while another process holds the lock", async () => {
@@ -671,6 +675,8 @@ describe("applyRecord, writing", () => {
   const INDEX = "packages/plans/src/index.ts";
   const directories: string[] = [];
   const WRITE_TIMEOUT = 120_000;
+  // Two cold history scans and an apply run exceed the ordinary write budget on CI.
+  const HISTORY_WRITE_TIMEOUT = 240_000;
 
   afterAll(() => {
     for (const directory of directories) {
@@ -799,7 +805,7 @@ describe("applyRecord, writing", () => {
         `No authorized plan is saved for ${copy.site.opportunity}.`
       );
     },
-    WRITE_TIMEOUT
+    HISTORY_WRITE_TIMEOUT
   );
 
   it(
