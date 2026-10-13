@@ -1,12 +1,14 @@
 import { defineMeta } from "blume";
 
 export default defineMeta({
+  collapsed: false,
+  display: "flat",
   pages: [
-    "index",
+    "software-factory",
     "repository-caretaker",
     "persistent-reviewer",
     "release-watcher",
     "design-sync",
   ],
-  title: "Recipes",
+  title: "Use Cases",
 });

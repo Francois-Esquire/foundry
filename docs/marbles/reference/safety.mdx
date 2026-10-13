@@ -3,8 +3,10 @@ title: Safety and Limits
 description: What dry execution substitutes and what your code can still do.
 ---
 
-Marbles executes local TypeScript with the authority of its host process. It is
-not a security sandbox or permission-management system. Environment variables,
+Marbles executes local TypeScript with the authority of its host process. The CLI itself does not
+isolate arbitrary module code. Sandbox sessions offer separate execution
+constraints and tool permission profiles; those do not restrict top-level
+TypeScript or unrelated host operations. Environment variables,
 tokens, filesystem access, and network access remain available according to that
 process's environment and permissions.
 
@@ -12,7 +14,7 @@ process's environment and permissions.
 
 `--dry-run` changes only what Marbles owns. Agent turns are echoed instead of sent,
 and `generate().text` is the echoed prompt. Git commands issued through
-`workspaces` are printed and not run. Sandbox commands are printed and return
+`workspaces` are printed and not run. Context `exec` and sandbox commands are printed and return
 exit 0 with empty output, so a failure branch never runs under `--dry-run`.
 Nothing is written under the state root or the artifact store: runs,
 schedule history, monitor observations, sessions, grants, and feed entries
@@ -36,7 +38,9 @@ Use `--dry-run` to inspect managed execution, not to contain arbitrary code.
 A working directory sets context, not a security boundary, and a sandbox
 mounts the step's workspace read/write. A prompt asking an agent not to edit
 is an agent instruction, not an enforceable permission. Authentication and
-available tools belong to the installed Claude Code or Codex CLI. Review their
+available host tools belong to the installed Claude Code or Codex CLI.
+Sandbox sessions can enforce their configured tool approval profile; see
+[Agent sessions](/marbles/reference/agent-sessions). Review their
 configuration before granting an automation access to your work.
 
 Schedule locks skip overlapping ticks for the same

@@ -41,15 +41,35 @@ The [contributor guide](https://github.com/Francois-Esquire/foundry/blob/main/CO
 covers repository checks, changelog generation, and publishing. The packaged
 changelog currently contains repository-wide release history.
 
+## Build a distributable package
+
+From the Foundry repository root, build the package and write its archive
+outside the checkout:
+
+```sh
+bun install --frozen-lockfile
+bun run build --filter=@foundry/marbles
+cd apps/marbles
+bun pm pack --ignore-scripts --filename /tmp/foundry-marbles-0.1.0.tgz
+```
+
+Distribute that archive for [standalone installation](/marbles/get-started/installation).
+`--ignore-scripts` avoids a second build after the explicit build above.
+The archive includes declarations, the CLI, and bundled Foundry libraries;
+third-party runtime dependencies install from its manifest. This creates a
+local archive and does not publish a release.
+
 ## Skills
 
 Project skills for coding agents live in the top-level `skills/` directory, one
 folder per skill with a `SKILL.md`, laid out for the
 [skills CLI](https://github.com/vercel-labs/skills)
-(`npx skills add Francois-Esquire/foundry --skill marbles-module`). A skill is
+(`npx skills add Francois-Esquire/foundry --skill marbles-config`). A skill is
 self-contained: an installed copy cannot read this repository, so
-`skills/marbles-config/references/api.md` restates the authoring API from
-`_api-alt.md`. A change to the API doc changes the skill in the same commit.
+`skills/marbles-config/references/api.md` restates the public authoring API from
+`reference/api.md`. Public docs and current source own the supported contract;
+underscore-prefixed proposals are historical design material. Update the
+companion API reference in the same commit when that contract changes.
 The repository's own `.agents/skills` and `skills-lock.json` are skills
 installed *from* elsewhere and are managed by the CLI, not by hand.
 
@@ -64,22 +84,28 @@ against the built site.
 
 Each Marbles section has one job:
 
-- **Start Here** gets one automation running by the shortest path.
-- **Concepts** explain one idea per page, with short examples drawn from the
-  guides and recipes rather than toy code.
-- **Guides** build one real-world automation end to end, station by station,
-  and finish with the complete file.
-- **Recipes** are one complete module for one job, ready to save and run.
-- **Reference** holds exhaustive detail: every flag, key format, lock rule,
-  and file layout. Narrative pages link to it instead of restating it.
+- **Get Started** installs the standalone CLI, gets one small TypeScript
+  automation running, then introduces capabilities in Using Marbles.
+- **Foundation** explains the API, definitions, instances, callback contexts,
+  composition, resource lifetimes, and execution.
+- **Use Cases** builds useful automations. Software Factory is a sequence of
+  runnable stages; smaller use cases stay on one page.
+- **Reference** holds exact commands, options, state rules, troubleshooting,
+  and the advanced remote and embedding boundaries.
 
-Caveats about authority and dry runs live in Safety and Limits; other pages
-link there rather than repeating them. Parked pages that are not ready to
-publish live under `_creative/` and other `_`-prefixed paths.
+A section heading does not need a duplicate child landing page. Software
+Factory's first page explains its specific workflow and prerequisites.
+Tutorials state the outcome, required setup, files to create, how to verify
+success, and the next extension. Shared setup has one canonical home.
+
+Safety and dry-run boundaries live in `reference/safety.mdx`. Old public
+routes redirect through `blume.config.ts`; update internal links to the new
+routes. Keep contributor setup outside the product quickstart. Parked
+proposals live under underscore-prefixed paths and stay unpublished.
 
 Most pages use Markdown. Pages with Mermaid diagrams, callouts, or pattern cards
 use MDX because Blume renders those components through its MDX pipeline. Internal
-links use site routes such as `/marbles/start-here`.
+links use site routes such as `/marbles/get-started/quickstart`.
 
 ```sh
 bun run docs:dev
@@ -88,19 +114,24 @@ bun run docs:typecheck
 bun run docs:build
 ```
 
+If the development server is running, build in isolation with
+`bun run --cwd=docs docs:build --isolated`. This keeps the preview's generated
+runtime intact and writes output under `docs/.blume-verify/dist/`.
+
 The static site is generated in `docs/dist/`. Blume's generated runtime lives
 in `docs/.blume/`. Both are ignored by Git. Maintainer notes prefixed with `_`,
 such as `_api-alt.md`, `_rebuild-gaps.md`, and `_findings.md`, stay outside
 the rendered site. When a guide or recipe has to work around the library,
 the page says what it does instead, and `_findings.md` records the limit
 with a proposal.
-Where a public page and the code disagree, the code wins and the page changes;
-where `_api-alt.md` and the code disagree, the difference is recorded under
-its open items.
+Where a public page and the code disagree, check the implementation and
+tests, then correct the page. Historical proposals do not establish current
+capabilities.
 
-Every complete code sample on a public page loads. An excerpt that does not
-load alone names the guide or recipe it is cut from, and that page's complete
-file loads. To check a sample, extract it into a scratch module
+Every complete code sample on a public page must load and typecheck.
+Clearly label API syntax excerpts and incremental replacements. For the
+Software Factory, assemble the named files in chapter order and check each
+version of the launch module. To check a sample, extract it into a scratch module
 with `zod` and `typescript` resolvable beside it, then run it with
 `bun run marbles -- --source <path> --dry-run list` and, where a step is named,
 `--dry-run roll <name>`.

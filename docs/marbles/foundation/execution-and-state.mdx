@@ -1,9 +1,9 @@
 ---
 title: Execution and state
-description: Fresh processes share continuity without a resident daemon, and a parked run outlives the process that parked it.
+description: Run ownership, replay, retries, persistence, and recovery after a restart.
 ---
 
-Each command starts a fresh process. First, importing modules from `.foundry/marbles`
+Each command starts a fresh process. For execution commands, importing modules from `.foundry/marbles`
 registers definitions. Then the CLI binds the runtime step bodies receive:
 providers, workspaces, sandboxes, artifacts, sessions, and logging. Finally it
 dispatches work.
@@ -65,4 +65,21 @@ shows it as orphaned. This is the boundary today: parked work survives,
 running work does not.
 
 See [state](/marbles/reference/state) for the layout and the adoption rules,
-and [safety and limits](/marbles/safety-and-limits) for dry-run boundaries.
+and [safety and limits](/marbles/reference/safety) for dry-run boundaries.
+
+## Replay and retry
+
+A finished step keeps its recorded result. A step parked at `ask` or a pause
+replays its body from the top when resumed. Managed operations use their call
+position to find recorded sessions, answers, and artifact writes. Keep their
+order stable; raw filesystem writes and network requests can happen again.
+
+A retry is a fresh attempt after failure. `.config({ retry, timeout })`
+controls the retry policy and attempt deadline. Agent turns, sandbox
+operations, and other work may execute again on retry. Finished child steps
+keep their results. Make external writes idempotent when retrying them.
+
+Cancellation stops owned operations and signals custom work; it does not
+undo changes already made. A sandbox's recorded identity also does not
+promise that its guest still exists. Native sandbox sessions currently resume
+only while the same guest remains alive.

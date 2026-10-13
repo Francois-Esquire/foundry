@@ -56,20 +56,21 @@ may still miss changes or misinterpret history.
   transcript, so keep those calls in a fixed order.
 - **Wired by default.** The session runs in the step's working directory,
   which is the workspace root or, inside a worktree callback, the
-  worktree. That is how `implement` in [Composition](/marbles/concepts/composition)
+  worktree. That is how `implement` in [Composition](/marbles/foundation/composition)
   works on its own branch without naming a directory. Its turns write to
   the step's stream and stop when the step is cancelled or paused. Pass
   `{ cwd }` only to leave that default.
-- **Compaction is off.** `{ compaction: true }` lets older history be
-  replaced by a summary made with the turn model; partial settings adjust
-  it.
+- **Compaction depends on the session kind.** Native Claude Code and Codex
+  sessions manage their own compaction and reject an explicit `compaction`
+  option. Network-model sessions supplied by an embedding host can use
+  `{ compaction: true }` or custom settings. See [session options](/marbles/reference/agent-sessions).
 
 ## Agents
 
 `agent` declares who does the work: a prompt, optionally a `provider`
 (`codex` or `claude-code`) and a `model` the provider serves. Declaring one
 starts nothing; opening a session does. The prompt is an instruction, not a
-permission; see [safety and limits](/marbles/safety-and-limits).
+permission; see [safety and limits](/marbles/reference/safety).
 
 An agent is also usable on its own. `designer.generate(prompt)` and
 `designer.stream(prompt)` run one turn on a fresh session, in the calling
@@ -146,7 +147,19 @@ marbles roll review-in-worktree --input '{"repository":".","base":"main"}'
 ```
 
 To keep a review conversation across scheduled runs, see the
-[persistent reviewer](/marbles/recipes/persistent-reviewer). The
-[configuration reference](/marbles/reference/configuration#prebuilt-steps)
+[persistent reviewer](/marbles/use-cases/persistent-reviewer). The
+[configuration reference](/marbles/reference/project#prebuilt-steps)
 lists every prebuilt step, and the [API reference](/marbles/reference/api#context)
 lists every session option.
+
+## Skills and sandbox sessions
+
+`skills.load()` collects skills from `~/.foundry/skills` and the project's
+`skills/` folder. `.add(glob)` adds skill directories and `.pick(...names)`
+narrows the set. Pass the result as an agent's `skills`; use `skills.none()`
+for an initially empty set. `defineSkill` creates a skill in code.
+
+Host sessions work in a local directory. `agents.session(def, { sandbox })`
+opens a session inside a declared or started sandbox. Sandbox permission
+profiles, model questions, child agents, and agent-created triggers have
+additional lifecycle rules; see [Agent sessions](/marbles/reference/agent-sessions).

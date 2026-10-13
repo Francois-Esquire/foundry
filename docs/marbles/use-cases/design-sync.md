@@ -8,11 +8,23 @@ the tokens the code reads. This module checks the library every hour, reads
 its color styles when the file has changed, and has an agent propose the new
 palette as a pull request.
 
-You need a Figma personal access token with the `file_metadata:read`,
-`file_content:read`, and `library_content:read` scopes, the key of the library
-file (`figma.com/design/<file key>/…`), an authenticated `gh`, and `zod`.
+## Before you start
 
-Three requests to the Figma REST API do the reading:
+Install the [Marbles CLI](/marbles/get-started/installation), an authenticated
+Claude Code or Codex CLI, and `zod@4.4.3` in your project. Use a Git repository
+with a `main` branch and an existing color-token system. This example can
+commit, push, and open a pull request when run for real.
+
+You also need a Figma personal access token with the `file_metadata:read`,
+`file_content:read`, and `library_content:read` scopes, the key of the library
+file (`figma.com/design/<file key>/…`), an authenticated `gh`, and permission to push branches to the repository.
+
+## Write the automation
+
+Save the complete module below as `.foundry/marbles/design-sync.ts`.
+The [Figma file API](https://developers.figma.com/docs/rest-api/file-endpoints/)
+and [published style API](https://developers.figma.com/docs/rest-api/component-endpoints/)
+supply the data:
 
 | Step | Request | What it reads |
 | --- | --- | --- |
@@ -89,7 +101,9 @@ const extract = step("extract")
     const { meta } = await figma<FileStyles>(`/files/${file}/styles`, signal);
     const fills = meta.styles.filter((style) => style.style_type === "FILL");
     const ids = encodeURIComponent(fills.map((style) => style.node_id).join(","));
-    const { nodes } = await figma<FileNodes>(`/files/${file}/nodes?ids=${ids}`, signal);
+    const { nodes } = fills.length
+      ? await figma<FileNodes>(`/files/${file}/nodes?ids=${ids}`, signal)
+      : { nodes: {} as FileNodes["nodes"] };
 
     const colors = fills.flatMap((style) => {
       const paint = nodes[style.node_id]?.document.fills?.[0];
@@ -151,16 +165,25 @@ const designSync = workflow("design-sync")
 schedule(designSync({}, { file: "your-file-key" })).every("1h");
 ```
 
+## Run and verify
+
+Set the file key in the schedule before starting the dashboard. Replace
+`YOUR_FILE_KEY` in the one-shot command as well. For persistent setup,
+declare the token through [Varlock](/marbles/reference/project#environment).
+
 ```sh
 export FIGMA_TOKEN=figd_…
 marbles list
-marbles roll <the schedule key list printed> --dry-run
+marbles roll design-sync --input '{"file":"YOUR_FILE_KEY"}' --dry-run
 marbles
 ```
 
 Under `--dry-run` the Figma requests are real; the worktree's Git commands
 and the agent turn are echoed, so you can see the palette and the prompt
-without a branch or a pull request. Drop it to propose for real.
+without a branch or a pull request. The raw snapshot file write still happens
+in a temporary directory. Drop `--dry-run` to propose for real, then inspect
+the returned branch and its pull request. Verify the actual token changes
+and the palette snapshot before merging.
 
 ## How the pieces fit
 
@@ -188,13 +211,17 @@ decides whether it differs, and `propose` acts only on a different palette.
   agent decides where this repository keeps its tokens (CSS custom
   properties, a Tailwind theme, a tokens file) and how to update them.
 
+This integration requires live Figma and GitHub access to validate end to end.
+Loading the module or echoing the agent does not verify the external services.
+
 ## Variations
 
 - **Variables instead of styles.** Libraries that define color as variables
   read `GET /v1/files/:key/variables/local` instead of the two style
   requests. It returns `meta.variables`, each with a `resolvedType` such as
   `COLOR` and `valuesByMode` keyed by mode, such as light and dark. The
-  endpoint is available to Enterprise organizations.
+  [Variables API](https://developers.figma.com/docs/rest-api/variables-endpoints/)
+  has separate access and scope requirements.
 - **Figma's MCP server.** Give the agent Figma's MCP server in Claude Code
   or Codex and let it read the variables with `get_variable_defs`, given a
   link to the frame that holds the tokens. Keep
@@ -211,9 +238,10 @@ decides whether it differs, and `propose` acts only on a different palette.
 
 ## Limits
 
-Figma rate-limits requests by endpoint and plan and answers `429` with
-`Retry-After`; an hourly check stays well inside it, and a failed tick is
-tried again on the next one while Marbles is running. Declare `FIGMA_TOKEN`
+Figma rate-limits requests by endpoint and plan. Handle `429` responses
+according to its [rate-limit guidance](https://developers.figma.com/docs/rest-api/rate-limits/);
+an hourly cadence is not a quota guarantee. This example throws on a failed
+request and tries again on a later scheduled tick while Marbles is running. Declare `FIGMA_TOKEN`
 in the workspace's `.env.schema` (it can read the token from the Keychain).
 Marbles resolves it when the process starts, before importing the modules;
-see [environment loading](/marbles/reference/configuration#environment).
+see [environment loading](/marbles/reference/project#environment).

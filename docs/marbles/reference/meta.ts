@@ -1,6 +1,18 @@
 import { defineMeta } from "blume";
 
 export default defineMeta({
-  pages: ["api", "cli", "configuration", "state"],
+  collapsed: false,
+  display: "flat",
+  pages: [
+    "cli",
+    "api",
+    "agent-sessions",
+    "project",
+    "state",
+    "safety",
+    "troubleshooting",
+    "remote",
+    "engine",
+  ],
   title: "Reference",
 });

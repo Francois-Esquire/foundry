@@ -1,14 +1,15 @@
 ---
 name: marbles-config
-description: Write, extend, or fix a marbles.config.ts for @foundry/marbles — local automations made of steps, workflows, agents, schedules, and monitors. Use this whenever the user mentions Marbles, marbles.config.ts, @foundry/marbles, or wants something to run on a clock, react to files or an HTTP endpoint changing, hand work to a coding agent (Codex, Claude Code), pause for a human approval, or publish a report or artifact — even if they never say "config". Also use it to review or debug an existing marbles.config.ts.
+description: Write, extend, or fix TypeScript automation modules for @foundry/marbles — local automations made of steps, workflows, agents, schedules, and monitors. Use this whenever the user mentions Marbles, marbles.config.ts, @foundry/marbles, or wants something to run on a clock, react to files or an HTTP endpoint changing, hand work to a coding agent (Codex, Claude Code), pause for a human approval, or publish a report or artifact — even if they never say "config". Also use it to review or debug an existing marbles.config.ts.
 ---
 
-# Marbles config
+# Marbles automation modules
 
-A `marbles.config.ts` is a small TypeScript module that *registers* behaviors
-by calling nine words from `@foundry/marbles`. Nothing is exported. The `marbles`
-CLI imports the file, reads what was registered, and runs it: a dashboard with
-triggers, or one named thing with `marbles roll <name>`.
+Marbles loads TypeScript automation modules from `.foundry/marbles/` in
+an ordinary project. Modules register steps, workflows, and triggers through
+`@foundry/marbles`; exports are optional and useful for sharing definitions.
+The standalone CLI runs one target with `marbles roll <name>` or keeps the
+dashboard and triggers active with `marbles`.
 
 Read `references/api.md` before writing a config for the first time in a
 session. It is the whole surface in one page. Read
@@ -35,20 +36,16 @@ a step asks a person something.
 Work top-down through the file in this order. Each section depends on the
 one before it, so writing them in order keeps types flowing forward.
 
-1. **Find or create the file.** The CLI looks for `./marbles.config.ts` in the
-   directory it runs from; `--config <path>` overrides. The directory that
-   *contains the config* is the workspace, whatever the shell's cwd was:
-   every agent session and sandbox runs there, relative paths and
-   `workspaces.current` resolve from it, and its state lives under
-   `~/.foundry/marbles`. So put the config at the root of the project the
-   automation should work on. A config elsewhere reaches a project only
-   through `workspace({ path })` plus `workspaces.load(def)` and
-   `agents.session(agent, { cwd: root })`. Check `package.json` for a schema
-   library. `zod` is the one the docs use; it must resolve from the config's
-   directory, because the CLI supplies `@foundry/marbles` itself (a Bun loader
-   plugin) but not the schema library. `@foundry/marbles` is not on npm yet;
-   inside the Foundry monorepo run it with `bun run marbles`, elsewhere with the
-   built CLI (`apps/marbles/dist/cli.js`).
+1. **Find or create an automation module.** Use `.foundry/marbles/` under the
+   project root. `--source` selects a folder or single module; `--config` is
+   a compatibility alias. The default folder uses the project above
+   `.foundry` as its workspace. A custom folder uses itself; a standalone
+   module uses its containing directory. Leading-underscore files and
+   directories are excluded from discovery but remain importable. Keep
+   helpers and tests there. The CLI supplies its own authoring package;
+   libraries such as `zod` must resolve from the importing project. Use
+   explicit names for launchable steps. For installation, use the standalone
+   package archive; source builds belong in contributor setup.
 2. **Ask what the user wants to happen, in one sentence each.** "Every Friday
    at four, review the packages folder and post a report." Each sentence
    becomes one trigger pointing at one named step or workflow. If the user is
@@ -62,7 +59,7 @@ one before it, so writing them in order keeps types flowing forward.
 4. **Write the steps, named.** Give every step the user will launch, schedule,
    or monitor into an explicit name: `step("review")`. Nameless steps take
    their `const` name only when the project's own `typescript` resolves from
-   the config's directory, and inference is a convenience, not a contract.
+   the workspace root, and inference is a convenience, not a contract.
    Put `.input()` and `.output()` before `.do()` so the body is typed. Keep a
    step to one job; a step that opens an agent and returns its reply is three
    lines.
@@ -86,22 +83,19 @@ one before it, so writing them in order keeps types flowing forward.
    happens for real. Read the bodies before running `roll` on a config you
    did not write.
    `roll` has nobody to answer an `ask`: when a run reaches one it prints
-   `needs an answer; run marbles to answer questions from the dashboard`, then
-   `run "x" was cancelled` with a stack trace and exit 1. That is the
+   the cancellation reason and exits 1. That is the
    expected end of a dry run with an approval in it, not a bug in the
    config. Everything up to the ask ran; to go past it, open the dashboard
-   (`marbles`) and launch from there.
+   (`marbles`), press Enter, and launch from there.
 
 ```sh
-# inside the Foundry monorepo
-bun run marbles -- --config ./marbles.config.ts --dry-run list
-bun run marbles -- --config ./marbles.config.ts --dry-run roll <name-or-key>
-# elsewhere, with the built CLI
-bun /path/to/foundry/apps/marbles/dist/cli.js --config ./marbles.config.ts --dry-run list
+marbles --dry-run list
+marbles --dry-run roll <name-or-key>
 ```
 
-Once `@foundry/marbles` is installed from a registry the same commands are
-plain `marbles …`; today they are not.
+Restart a running dashboard after editing modules. Load first; execute only
+when the user has authorized the effects, including external I/O that a dry
+run still performs.
 
 Use the keys `list` prints. A schedule's key is derived from its target and
 input (`review-1becafa2`), a monitor's from its source (`docs-md-64d1e2`).
@@ -127,7 +121,7 @@ started, all echoed.
 
 ## Rules that bite
 
-Each of these is enforced when the config loads or when a step replays. Knowing
+Each of these is enforced when the modules load or when a step replays. Knowing
 why they exist lets you design around them instead of hitting them.
 
 - **Children first, input second.** `review({ branch: implement({}, { task }) })`

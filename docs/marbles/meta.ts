@@ -2,16 +2,15 @@ import { defineMeta } from "blume";
 
 export default defineMeta({
   collapsed: false,
+  display: "flat",
   pages: [
     "index",
-    "start-here",
-    "concepts",
-    "guides",
-    "recipes",
+    "get-started",
+    "foundation",
+    "use-cases",
     "reference",
-    "safety-and-limits",
-    "first-release",
     "contributing",
+    "first-release",
   ],
   title: "Marbles",
 });

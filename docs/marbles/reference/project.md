@@ -1,5 +1,5 @@
 ---
-title: Authoring
+title: Project structure and environment
 description: Folder discovery, ignored files, workspace roots, setup, names, and module resolution.
 ---
 
@@ -126,13 +126,10 @@ share one registry. Any other library the module imports, such as `zod`, must
 resolve relative to the importing file in the usual way. Install it in that
 project.
 
-`@foundry/marbles` is not on npm yet. Inside the Foundry repository run the
-CLI with `bun run marbles -- --source <path> …`; elsewhere run the built
-`apps/marbles/dist/cli.js` with Bun. For editor types, point the project's
-TypeScript at the built package or the repository. Importing `@foundry/marbles`
-outside the CLI registers definitions and runs nothing. A program that wants
-to run them builds an `Engine` from `@foundry/marbles/lib` and defines them on
-it.
+For CLI installation and editor types, see [Installation](/marbles/get-started/installation).
+A plain script importing the package can use instance methods and `.run()`;
+call `dispose()` when finished. A custom host can construct an `Engine` and
+register definitions explicitly; see [Embedding the engine](/marbles/reference/engine).
 
 ## Prebuilt steps
 

@@ -3,18 +3,8 @@ title: CLI reference
 description: Commands, flags, and dashboard keys for running and inspecting Marbles.
 ---
 
-`@foundry/marbles` is not published to npm yet. Inside the Foundry repository
-the command is `bun run marbles -- …`; elsewhere run the built CLI directly.
-
-```sh
-# inside the Foundry repository
-bun run marbles -- list
-
-# elsewhere, with the built CLI
-bun /path/to/foundry/apps/marbles/dist/cli.js list
-```
-
-The pages below write `marbles …` for the command. Substitute either form.
+These commands use the standalone `marbles` executable. See
+[Installation](/marbles/get-started/installation) to set it up in your environment.
 
 ## Commands
 
@@ -79,7 +69,7 @@ while the dashboard is open.
 | `--artifacts <dir>` | `artifacts/` beside the state root | Shared artifact store holding declared artifacts and feed entries from every workspace. |
 | `--input <json>` | A schedule's input, or none | Input for `roll`. Overrides a schedule's recorded input. |
 | `--harness <id>` | Every detected harness | Keep only `claude-code` or `codex`. Repeatable. Any other id is a usage error. Every harness left is available to agents that name a `provider`; the first, Claude Code before Codex, is the default for agents that do not. |
-| `--dry-run` | Off | Echo agent turns, git mutations, and sandbox commands instead of running them, and write no state. See [safety and limits](/marbles/safety-and-limits). |
+| `--dry-run` | Off | Echo agent turns, git mutations, and sandbox commands instead of running them, and write no state. See [safety and limits](/marbles/reference/safety). |
 
 The older spelling `--dry` is still read as `--dry-run`. A later occurrence of a value flag wins. Under `--dry-run` every allowed harness
 is echoed, installed or not, so a module loads on a machine with neither CLI.

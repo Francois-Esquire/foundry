@@ -7,6 +7,13 @@ This example observes Bun's latest release metadata. An HTTP monitor fires
 whenever the body changes; the handler compares the release tag with the one
 from the previous poll, so unrelated fields do not trigger another assessment.
 
+## Before you start
+
+You need the [installed CLI](/marbles/get-started/installation), an authenticated Claude Code or Codex CLI and network access to GitHub.
+Save the module below as `.foundry/marbles/release-watcher.ts` in your project.
+
+## Write the automation
+
 ```ts
 import { agent, monitor } from "@foundry/marbles";
 
@@ -28,6 +35,8 @@ monitor("https://api.github.com/repos/oven-sh/bun/releases/latest")
     report.result({ title: `Bun ${current}`, body: reply.text });
   });
 ```
+
+## Run and verify
 
 Run `marbles list` for the monitor's key, then `marbles roll <key>` for one
 observation or `marbles` to keep it polling. The first poll has no baseline, so

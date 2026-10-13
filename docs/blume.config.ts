@@ -16,13 +16,66 @@ export default defineConfig({
     site: "https://francois-esquire.github.io",
   },
   description: "Documentation for Foundry's local developer tools.",
-  github: { owner: "Francois-Esquire", repo: "foundry" },
+  github: { dir: "docs", owner: "Francois-Esquire", repo: "foundry" },
   navigation: {
     tabs: [
       { label: "Marbles", path: "/marbles" },
       { label: "Atlas", path: "/atlas" },
     ],
   },
+  redirects: [
+    { from: "/marbles/start-here", to: "/marbles/get-started/quickstart" },
+    {
+      from: "/marbles/concepts/automation-as-code",
+      to: "/marbles/foundation/definitions-and-instances",
+    },
+    {
+      from: "/marbles/concepts/composition",
+      to: "/marbles/foundation/composition",
+    },
+    {
+      from: "/marbles/concepts/agents-and-sessions",
+      to: "/marbles/foundation/agents-and-sessions",
+    },
+    {
+      from: "/marbles/concepts/schedules-and-monitors",
+      to: "/marbles/foundation/triggers",
+    },
+    {
+      from: "/marbles/concepts/execution-and-state",
+      to: "/marbles/foundation/execution-and-state",
+    },
+    { from: "/marbles/concepts", to: "/marbles/foundation/api" },
+    {
+      from: "/marbles/guides/software-factory",
+      to: "/marbles/use-cases/software-factory",
+    },
+    {
+      from: "/marbles/reference/configuration",
+      to: "/marbles/reference/project",
+    },
+    { from: "/marbles/safety-and-limits", to: "/marbles/reference/safety" },
+    {
+      from: "/marbles/recipes",
+      to: "/marbles/get-started/using-marbles#choose-a-use-case",
+    },
+    {
+      from: "/marbles/recipes/repository-caretaker",
+      to: "/marbles/use-cases/repository-caretaker",
+    },
+    {
+      from: "/marbles/recipes/persistent-reviewer",
+      to: "/marbles/use-cases/persistent-reviewer",
+    },
+    {
+      from: "/marbles/recipes/release-watcher",
+      to: "/marbles/use-cases/release-watcher",
+    },
+    {
+      from: "/marbles/recipes/design-sync",
+      to: "/marbles/use-cases/design-sync",
+    },
+  ],
   theme: {
     accent: "gray", // a named preset or any CSS color
     fonts: {

@@ -18,7 +18,7 @@ of every workspace this machine has run.
   monitors/<key>.json     the last observation: file digests, or the HTTP body and
                           its hash; plus a pending launch until it has started
   automations/<id>.json   a trigger an agent created: target, cadence, source, owner
-  locks/<key>             pid of the tick running a schedule or monitor
+  locks/schedule:<key>    pid of the tick running a schedule or monitor
   locks/run-<runId>       pid of the process that owns a recovered run
   locks/edit-<id>         pid of the process changing an agent-created trigger
   locks/<name>.break      transient: the process taking over a dead holder's lock
@@ -116,7 +116,7 @@ previous tick's completion, seeded from the recorded `lastFinish` so a restart
 keeps the cadence. Missed interval ticks do not queue. Calendar slots are
 evaluated in machine-local time.
 
-A tick takes `locks/<key>` before it runs. If another process holds it,
+A tick takes `locks/schedule:<key>` before it runs. If another process holds it,
 `roll <key>` prints `skipped: held by <holder>` and exits successfully.
 `roll <definition-name>` takes no lock. Two schedules with different keys
 have different locks even when they target the same workflow.
@@ -160,4 +160,4 @@ Under `--dry-run` nothing under the state root or the artifact store is written.
 Sessions and the feed live in memory, monitor observations live in the
 process, worktrees are cut under the system temporary directory, and parked
 runs are cancelled when the process quits. Step bodies still execute; see
-[safety and limits](/marbles/safety-and-limits).
+[safety and limits](/marbles/reference/safety).

@@ -1,12 +1,17 @@
 ---
 title: API reference
-description: The nine authoring words, the builder, locking, the context, triggers, and what replays.
+description: Authoring factories, builders, resource operations, context properties, and triggers.
 ---
 
-Everything an authoring module can say. Where this page and the running
-library disagree, the library's error message is the truth for today.
+Use this page to look up authoring options. [Foundation](/marbles/foundation/api)
+explains the relationships between definitions, instances, and contexts.
+[Agent sessions](/marbles/reference/agent-sessions) covers advanced session options.
 
-## The nine words
+Code blocks on this page illustrate API forms and may refer to definitions
+from earlier blocks. For complete runnable modules, use the
+[quickstart](/marbles/get-started/quickstart) or [composition examples](/marbles/foundation/composition).
+
+## Authoring factories
 
 ```ts
 import {
@@ -26,8 +31,8 @@ import {
 | `schedule` | trigger | `schedule(target).at(slot)` or `.every(interval)` | Runs a step or workflow on a clock. |
 | `monitor` | trigger | `monitor(source).request?(init).every?(interval).do(fn)` | Runs when files or an HTTP response change. |
 
-Calling a word registers it. Nothing is exported. Singular words are
-imports; the plural keys `agents`, `workspaces`, `sandboxes`, and `artifacts`
+Steps, workflows, and triggers register as modules load. Exports are optional
+and useful for sharing definitions. Singular resource factories are imports; the plural keys `agents`, `workspaces`, `sandboxes`, and `artifacts`
 are the context a step body receives.
 
 ## Definitions
@@ -64,8 +69,9 @@ const reviewing = skills.load().add("./skills/review/*").pick("caveman");
   `mount` is `"."`, the default, meaning the step's working directory: the
   workspace root, or the worktree inside a worktree callback. Or a
   declared workspace, `mount: site`. Nothing else is mountable; another host
-  path fails at run time with `escapes the trusted host roots`. `~/.foundry`,
-  `~/.claude`, and `~/.codex` mount read-only when they exist. The `files`
+  path fails at run time with `escapes the trusted host roots`. Host authentication and state directories are not mounted automatically.
+  Workspace mounts are non-executable unless `executable: true`; network
+  access defaults to disabled. The `files`
   form mounts nothing and copies its files under `/workspace` after boot.
   `target` moves the mount from `/workspace`, and `workdir` the working
   directory from the mount. The rest is the container's own constraints:
@@ -144,10 +150,11 @@ step(name?)          // a builder
   name fails at load. Without a name the step takes the name of the top-level
   `const` it is assigned to when the project's `typescript` resolves from the
   workspace root; otherwise it is internal. See
-  [names and the catalog](/marbles/reference/configuration#names-and-the-catalog).
+  [names and the catalog](/marbles/reference/project#names-and-the-catalog).
 - Schemas come before `.do()` so the body is typed from them. `.input()`
-  gives the TypeScript type, validation at launch, the dashboard's launch
-  form, and a contract the catalog can read. No input schema means no launch
+  gives the TypeScript type, validation at launch, a contract the catalog can read, and (with Standard JSON Schema support)
+  structured fields in the dashboard launch form. Other input schemas use
+  a JSON field. No input schema means no launch
   input. `.output()` validates the body's return.
 - A parent declares its children's results in `.input()` like any other
   input. Each child's output is checked against the parent's key at lock.
@@ -228,6 +235,10 @@ a question parks the parent with it while the others finish.
 
 ## Context
 
+Workflow setup receives only `{ input, log, run: { id } }`. Step bodies
+receive the full context below. Monitor handlers extend it with change
+data. See [Contexts](/marbles/foundation/contexts) for when each is used.
+
 The one object every step body receives:
 
 ```ts
@@ -238,7 +249,7 @@ step().do(async ({ input, agents, workspaces, sandboxes, artifacts, ask, exec, r
 | --- | --- |
 | `input` | Typed input, validated against `.input(schema)`. |
 | `exec` | `exec(argv, { check?, cwd?, environment?, sandbox? })` → `{ exitCode, stdout, stderr }`. A command as an argument list, in the step's working directory, on its stream, stopped with it, printed under `--dry-run`. |
-| `agents` | `session(def, { cwd?, session?, compaction? })` → `{ generate(prompt, turn?) → { text, output, usage, … }, stream(prompt, turn?), ref, harness }`. |
+| `agents` | `session(def, options?)` (host or sandbox options; see [Agent sessions](/marbles/reference/agent-sessions)) → `{ generate(prompt, turn?) → { text, output, usage, … }, stream(prompt, turn?), ref, harness }`. |
 | `workspaces` | `current` (the workspace root) and `load(def \| { path })` → the `@foundry/workspaces` workspace: `root`, `files()`, `entries()`, `read(id)`, `save`, `createFile`, `refresh()`, `summary()`, `git`. |
 | `sandboxes` | `start(def \| spec)` → the `@foundry/sandbox` container: `exec(command, { cwd?, environment?, user? })` → `{ exitCode, stdout, stderr }`, `commands`, `files`, `processes`, `shell`, `ports`, `services`, `volumes`, `close()`, `id`; `open(id)`. |
 | `artifacts` | `write(def, files, { replace?, metadata? })` adds a version; `create({ name, type, entries, metadata?, freeze? })` makes one on the spot; `get(def \| id)`, `listContents(def \| id)`, `getContent(versionId)`, `readFile(versionId, path)`, `readRoot(versionId)` read them back. |
@@ -282,8 +293,9 @@ await fetch(url, { signal });
   for Claude Code and Codex); `stream` returns the harness's stream, with
   `output` and `partialOutputStream` beside `text` and `message`. `ref` is a
   small serializable handle (`id`, and the `model` and `provider` it opened
-  with) for continuing the session later. `compaction: true` summarizes
-  older history with the turn model.
+  with) for continuing the session later. Network-model sessions can use `compaction: true` to summarize older
+  history. Native CLI sessions manage compaction themselves and reject
+  explicit host compaction settings.
 - **Turn options.** The second argument to `generate` and `stream` takes
   `output` (an AI SDK `Output`), the AI SDK's model settings (`temperature`,
   `maxOutputTokens`, `topP`, `topK`, `seed`, `stopSequences`, `stopWhen`,
@@ -291,7 +303,7 @@ await fetch(url, { signal });
   and handlers such as `onText`. They override the agent's `settings`. A
   turn whose `output` gets no matching value rejects with
   `NoObjectGeneratedError` after the reply is committed. See
-  [structured output](/marbles/concepts/agents-and-sessions#structured-output).
+  [structured output](/marbles/foundation/agents-and-sessions#structured-output).
 - **Workspaces.** A handle is the `@foundry/workspaces` workspace, loaded
   at its first call: `files()` returns file entries (`id`, `path`,
   `extension`, `kind`, size, and modification time), `entries()` adds
@@ -331,7 +343,7 @@ await fetch(url, { signal });
   `undefined` before the first write. A declared artifact belongs to the
   workspace, so this is what the last run here kept. Under `--dry-run` it
   reads what real runs kept while its own writes stay in memory. See the
-  [persistent reviewer](/marbles/recipes/persistent-reviewer).
+  [persistent reviewer](/marbles/use-cases/persistent-reviewer).
 - **Report.** Entries are fire-and-forget and land on the run and the feed.
   `media` paths resolve from the workspace root and are copied into the
   entry; refer to them in the body as `media/<file name>`. `report.artifact`
@@ -344,8 +356,9 @@ await fetch(url, { signal });
   run's own session; agents opened in the run are children of it.
   `run.stream` is the whole run's output. Everyday code never reads `run`.
 
-A monitor's handler gets the same object with `files` or `response` in place
-of `input`, plus `change`. `files` is `{ added, modified, removed }`, each a
+A monitor's handler extends the step context with `files` or `response`,
+plus `change`; its `input` is empty. Narrow `change.kind` before accessing
+source-specific data. `files` is `{ added, modified, removed }`, each a
 `{ path, checksum }[]` with `path` relative to the workspace root; read
 one with `node:fs` from `resolve(workspaces.current.root, path)`. `response`
 is a standard `Response` over the polled body, with the original's
@@ -359,13 +372,19 @@ that is not text is `{ bytes, contentType }`.
 schedule(weekly).at({ weekday: "fri", hour: 16, minute: 0 });   // machine-local time
 schedule(review({}, { target: "packages" })).every("6h");        // "30s" | "10m" | "6h" | "1d"
 
-monitor("docs/**/*.md").do(({ files, log }) => log(files.modified));
+monitor("docs/**/*.md").do(({ change, log }) => {
+  if (change.kind === "files") log(change.modified);
+});
 monitor("https://status.example.com/api").every("5m").do(async ({ response, report }) => {
+  if (!response) return;
   const { status } = await response.json();
   report.milestone({ title: `Status: ${status}` });
 });
 monitor("https://tracker.example.com/latest").every("10m")
-  .do(async ({ response }) => ship({}, { task: (await response.json()).title }));
+  .do(async ({ response }) => {
+    if (!response) return;
+    return ship({}, { task: (await response.json()).title });
+  });
 ```
 
 - **`schedule(target)`** takes a named step or workflow, bare or as a
@@ -447,7 +466,7 @@ override outer ones.
 
 ## Exports
 
-The package exports the nine words, the AI SDK's `Output`, `bail`,
+The package exports the authoring factories, the AI SDK's `Output`, `bail`,
 `defineSkill`, `dispose`, and the types behind them: `Agent`, `Runnable`, `WorkspaceInstance`,
 `SandboxInstance`, `ArtifactInstance`, `Context`,
 `StepDefinition`, `WorkflowDefinition`, `LockedNode`, the definition types
@@ -459,7 +478,7 @@ The package exports the nine words, the AI SDK's `Output`, `bail`,
 trigger types (`Schedule`, `ScheduleBuilder`, `MonitorBuilder`,
 `CalendarSlot`, `Weekday`, `Trigger`, `MonitorContext`, `MonitorHandler`,
 `Change`, `FileChange`, `HttpChange`). `@foundry/marbles/prebuilt` exports the
-[prebuilt step factories](/marbles/reference/configuration#prebuilt-steps).
+[prebuilt step factories](/marbles/reference/project#prebuilt-steps).
 
 ## Not available yet
 
@@ -467,9 +486,9 @@ Do not write modules that depend on these.
 
 - Race, branch, and loops between steps. Only series and parallel.
 - A built-in model provider. No `provider` means the first installed CLI.
-- Agents running inside a sandbox. An agent may drive a sandbox, not live in
-  it.
 - Recovery of a step that was mid-body when the process stopped. A step
   parked on an `ask` or a pause does survive a quit, a crash, or a kill.
 - Scheduling a tree with children without wrapping it in `workflow`.
-- `@foundry/marbles` on npm.
+- Remote deployment commands, a remote dashboard, or distributed workers.
+
+See [Installation](/marbles/get-started/installation) for package availability.

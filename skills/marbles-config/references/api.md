@@ -1,22 +1,14 @@
-# The `@foundry/marbles` authoring API
+# Marbles authoring API
 
-Everything a `marbles.config.ts` can say, condensed from the maintainer's API
-document. Where this page and the running library disagree, the library's
-error message is the truth for today and this page is the intent.
+Use this page to look up authoring options. [Foundation](https://francois-esquire.github.io/foundry/marbles/foundation/api)
+explains the relationships between definitions, instances, and contexts.
+[Agent sessions](https://francois-esquire.github.io/foundry/marbles/reference/agent-sessions) covers advanced session options.
 
-## Contents
+Code blocks on this page illustrate API forms and may refer to definitions
+from earlier blocks. For complete runnable modules, use the
+[quickstart](https://francois-esquire.github.io/foundry/marbles/get-started/quickstart) or [composition examples](https://francois-esquire.github.io/foundry/marbles/foundation/composition).
 
-1. [Top-level words](#top-level-words)
-2. [Definitions](#definitions)
-3. [The builder](#the-builder)
-4. [Locking and trees](#locking-and-trees)
-5. [Context](#context)
-6. [Triggers](#triggers)
-7. [Composition and durability](#composition-and-durability)
-8. [CLI](#cli)
-9. [Not available yet](#not-available-yet)
-
-## Top-level words
+## Authoring factories
 
 ```ts
 import {
@@ -26,76 +18,169 @@ import {
 
 | Word | Kind | Shape | Purpose |
 | --- | --- | --- | --- |
-| `agent` | definition | `agent({ name?, prompt, model?, provider?, settings?, skills? })` | Who does model work, with defaults. `settings`: AI SDK model settings and `output` every turn starts from. |
-| `workspace` | definition | `workspace({ path })` | Another directory to work on. The config's own is implicit. |
-| `sandbox` | definition | `sandbox({ image, mount?, resources? })` or `sandbox({ files, image? })` | An isolated place to run commands. |
+| `agent` | definition | `agent({ name?, prompt, model?, provider?, settings?, skills? })` | Who does model work, with defaults. |
+| `workspace` | definition | `workspace({ path })` | Another directory to work on. The current workspace is implicit. |
+| `sandbox` | definition | `sandbox({ image, mount?, target?, … })` or `sandbox({ files, image?, … })` | An isolated place to run commands. |
 | `artifact` | definition | `artifact({ name, type })` | A versioned output; each run adds a version. |
-| `skills` | definition | `skills.load()` or `skills.none()`, then `.add(glob \| defineSkill(…)).pick(...names)` | A skill set an agent takes. |
-| `step` | work | `step(name?).describe(text).input(s).output(s).config({ retry?, timeout? }).do(fn)`, or `.exec("cmd $key", { check?, sandbox? })` for a step that is one command | One unit of work. `.exec` splits the template at load (no shell; `$key` fills one argument from input, arrays one per element) and returns `{ exitCode, stdout, stderr }`. A retried attempt starts fresh; `timeout` aborts the body's signal; return `bail(error)` to fail without retry. |
+| `skills` | definition | `skills.load().add(glob).pick(...names)` | A skill set an agent takes. |
+| `step` | work | `step(name?).describe(text).input(s).output(s).config(c).do(fn)` | One unit of work. |
 | `workflow` | work | `workflow(name?, tree)`, `workflow(name?, () => tree)`, `workflow(name?).input(s).do(fn)` | A named tree of steps. |
 | `schedule` | trigger | `schedule(target).at(slot)` or `.every(interval)` | Runs a step or workflow on a clock. |
 | `monitor` | trigger | `monitor(source).request?(init).every?(interval).do(fn)` | Runs when files or an HTTP response change. |
 
-Calling a word registers it. Nothing is exported. Singular words are imports;
-plural keys (`agents`, `workspaces`, `sandboxes`, `artifacts`) are the context.
+Steps, workflows, and triggers register as modules load. Exports are optional
+and useful for sharing definitions. Singular resource factories are imports; the plural keys `agents`, `workspaces`, `sandboxes`, and `artifacts`
+are the context a step body receives.
 
 ## Definitions
 
 Definitions are optional; the context can create the same things on the
-spot. An `agent` also has `generate` and `stream` (one turn on a fresh
-session), and a `step` or `workflow` has `run(input)`; inside a body these
-join the step's run and replay, elsewhere they use the host's engine or a
-default runtime (`dispose()` closes it).
+spot. A definition is also something you can use: `agent` returns an agent
+with `generate` and `stream`, and `step` and `workflow` return definitions
+with `run`. See [using a definition](#using-a-definition).
 
 ```ts
 const reviewer = agent({ prompt: "Review without editing.", provider: "codex" });
 const drafter = agent({ prompt: "Draft the page.", provider: "claude-code" });
-const site = workspace({ path: "../marketing-site" });          // relative to the config
+const site = workspace({ path: "../marketing-site" });          // relative to the workspace root
 const box = sandbox({ image: "docker.io/oven/bun:1-slim", mount: "." });
 const scratch = sandbox({ files: { "main.py": "print(1)" } });  // seeded under /workspace
 const weeklyReport = artifact({ name: "Weekly report", type: "text/markdown" });
 const reviewing = skills.load().add("./skills/review/*").pick("caveman");
 ```
 
-- `agent.prompt` is required and should state limits ("read only").
+- **`agent`.** `prompt` is required and should state limits ("read only").
   `provider` is `"codex"` or `"claude-code"`; omitted means the first
-  installed CLI. `model` is optional: omit it for the provider's default, or
-  set an id the provider serves. It does not pick the provider, and an
-  unknown id is passed through with a warning. The agent's id (what its tool
-  grants and created triggers are kept under) is `name`, else the top-level
-  `const` it is assigned to, else a digest of prompt, provider, and model.
-  Two different agents with one id fail at load; name one.
-- `sandbox` with `image` mounts a workspace read/write at `/workspace`.
-  `mount` is `"."` (the default): the step's working directory, which is the
-  config's directory or, inside a worktree callback, the worktree. Or a
-  declared workspace: `mount: site`. Any other host path is refused at run
-  time with `escapes the trusted host roots`. `~/.foundry`, `~/.claude`,
-  `~/.codex` mount read-only when they exist. The `files` form mounts nothing
-  and copies the files under `/workspace` after boot.
-- `skills.load()` is the global and workspace skills; `skills.none()` is
-  empty. `.add(glob)` appends a folder, `.add(defineSkill({ manifest }))` a
-  skill defined in code; `.pick(...names)` narrows. Each call returns a new
-  set.
+  installed CLI, Claude Code before Codex. `model` is optional: omit it for
+  the provider's default, or set an id the provider serves. It does not pick
+  the provider; an id the provider does not know is passed through with a
+  warning, and `--dry-run` rejects it. `skills` takes a skill set. Tool
+  grants and the triggers the agent creates are kept under its id: `name`
+  when given, else the top-level `const` it is assigned to, else `agent-`
+  and a digest of its prompt, provider, and model. Two different agents with
+  one id fail at load with `already declared … with a different prompt or
+  route`; the same agent declared twice is fine.
+- **`workspace`.** A directory preset. It has no state or dashboard entry of
+  its own. A sandbox may mount it.
+- **`sandbox`.** The image form mounts a workspace read/write at `/workspace`.
+  `mount` is `"."`, the default, meaning the step's working directory: the
+  workspace root, or the worktree inside a worktree callback. Or a
+  declared workspace, `mount: site`. Nothing else is mountable; another host
+  path fails at run time with `escapes the trusted host roots`. Host authentication and state directories are not mounted automatically.
+  Workspace mounts are non-executable unless `executable: true`; network
+  access defaults to disabled. The `files`
+  form mounts nothing and copies its files under `/workspace` after boot.
+  `target` moves the mount from `/workspace`, and `workdir` the working
+  directory from the mount. The rest is the container's own constraints:
+  `network`, `ports`, `labels`, `publicEnvironment`, `detached`, and
+  `resources` (`cpus`, `memoryBytes`, `pids`). Running a sandbox needs the
+  optional `microsandbox` peer; `--dry-run` echoes commands without it.
+- **`artifact`.** A declared artifact keeps its identity across runs; each
+  `report.artifact` or `artifacts.write` adds a version to it.
+- **`skills`.** `skills.load()` is the global set under `~/.foundry/skills`
+  plus the workspace's `skills/` folder; `skills.none()` starts empty.
+  `.add(glob)` appends every folder matching the glob that holds a
+  `SKILL.md`, and `.add(skill)` appends a skill defined in code with
+  `defineSkill({ manifest, files? })`, exported from `@foundry/marbles`.
+  `.pick(...names)` narrows. Each call returns a new set. A skill's files
+  are read as bytes: text stays text, and an agent loading a binary file
+  is told its size rather than shown mangled bytes.
+
+## Using a definition
+
+```ts
+const designer = agent({ prompt: "Design within the brand." });
+const reply = await designer.generate("Sketch three logo ideas.");   // one turn
+const live = designer.stream("Sketch one more.");                      // the same, streamed
+
+const count = step().input(z.object({ path: z.string() })).do(({ input }) => …);
+const lines = await count.run({ path: "README.md" });                  // run it now
+```
+
+| Word | What it adds | Inside a run, the same as |
+| --- | --- | --- |
+| `agent` | `generate(input, turn?)`, `stream(input, turn?)` | `agents.session(def)`, one turn |
+| `step`, `workflow` | `run(input?)` | Locking it as a child, run on its own |
+| `workspace` | `root`, `files()`, `git` | `workspaces.load(def)` |
+| `sandbox` | `exec`, `close`, and the container's `commands`, `filesystem`, `processes`, `shell`, `ports`, `services`, `volumes`; started by the first call | `sandboxes.start(def)` |
+| `artifact` | `write(files, options?)`, `latest()` | `artifacts.write(def, files)`, `artifacts.latest(def)` |
+
+- **Inside a step body** a call joins the step's run: it stops with the
+  step, writes to its stream, and a replay after a question or a pause
+  returns what the call returned the first time instead of running it
+  again. Keep these calls in a fixed order, as with `agents.session`.
+- **Anywhere else** (module top level, a plain `bun` script) it runs on the
+  engine `marbles` built for the module, or, with none, on a default one:
+  the installed CLI harnesses, the current directory as the workspace, and
+  the shared artifact store under `~/.foundry/artifacts`. Call `dispose()`
+  from `@foundry/marbles` when a script is done with it; a Codex turn keeps
+  a child process open until then.
+- **An agent's call is one turn on a fresh session.** For a conversation,
+  open a session with `agents.session(designer)`. The data fields are plain
+  properties and the methods are not, so `{ ...designer }` is a plain
+  definition that `agents.session` takes.
+- **A sandbox starts at its first call.** In a step it is that step's
+  sandbox, closed with the run and reopened on replay; elsewhere it runs
+  until `close()` or `dispose()`. Its filesystem is `box.filesystem`, since
+  a files sandbox's `files` is the seed it was declared with. `agents.session(def, { sandbox: box })`
+  takes the declared sandbox and starts it the same way.
+- **`run` runs in this process**, not through the engine's queue, so a body
+  can await it; a nameless definition runs too. The nested run is not shown
+  on the dashboard and cannot be paused on its own. A step that asks a
+  person with nobody to answer rejects with `asked a person; run it with
+  marbles to answer`.
 
 ## The builder
 
 ```ts
 step(name?)          // a builder
-  .describe(text)    // optional: shown in the catalog and launch form
+  .describe(text)    // optional: shown in the catalog and the launch form
   .input(schema)     // optional: any Standard Schema library (zod, valibot, arktype)
   .output(schema)    // optional
+  .config({ retry?, timeout? }) // optional: how the step runs
   .do(fn)            // returns the definition
+  // or, for a step that is one command:
+  .exec("npm i $pkg", { check?, cwd?, environment?, sandbox? })
 ```
 
 - A string first argument makes the step launchable by that name. A repeated
-  name fails at load. Without a name the step is internal unless the
-  project's `typescript` resolves from the config's directory, in which case
-  a step assigned to a top-level `const` takes that name.
-- Schemas come before `.do()` so the body is typed from them. No input
-  schema means an empty launch form.
+  name fails at load. Without a name the step takes the name of the top-level
+  `const` it is assigned to when the project's `typescript` resolves from the
+  workspace root; otherwise it is internal. See
+  [names and the catalog](https://francois-esquire.github.io/foundry/marbles/reference/project#names-and-the-catalog).
+- Schemas come before `.do()` so the body is typed from them. `.input()`
+  gives the TypeScript type, validation at launch, a contract the catalog can read, and (with Standard JSON Schema support)
+  structured fields in the dashboard launch form. Other input schemas use
+  a JSON field. No input schema means no launch
+  input. `.output()` validates the body's return.
 - A parent declares its children's results in `.input()` like any other
   input. Each child's output is checked against the parent's key at lock.
-- `do` receives one object; destructure it.
+- `do` receives one object; destructure it. It may return a value or a
+  promise. Results must be plain JSON: a step whose result holds a `Date`,
+  a `Map`, or a class instance fails with where it stops being JSON
+  (`files[0].updatedAt is a Date`). Return an ISO string for a date.
+- **`.config({ retry, timeout })`.** `timeout` bounds each attempt of the
+  body (`"30s"`, `"10m"`, or milliseconds): when it passes the body's
+  `signal` aborts, with everything Marbles opened for it, and the attempt
+  fails. `retry` is the workflows package's policy, `{ maxAttempts,
+  backoff?, maxElapsed?, shouldRetry? }`, with `backoff` one of `fixed`,
+  `exponential`, `linear`, or `jittered`. A retried attempt runs the body
+  again from the top, fresh: agent turns, sandboxes, artifact writes, and
+  `run` calls it made are not replayed. Children that finished are not run
+  again. Without `retry`, a throw fails the step.
+- **`.exec(template, options?)`** ends a step whose work is one command.
+  The template is split into arguments when the module loads, honouring
+  quotes, and never read by a shell. `$name` fills one argument from the
+  input, never split again, so `{"pkg":"zod; rm -rf ~"}` is one odd
+  package name; an array fills one argument per element. The program, the
+  first word, must be written out, and each placeholder must be an input
+  key, or the module fails to load. `.exec(({ input }) => argv)` computes
+  the list instead. The step's output is `{ exitCode, stdout, stderr }`; a
+  non-zero exit fails it unless `{ check: false }`. It runs like a body's
+  `exec`.
+- **`bail(error)`**, exported from `@foundry/marbles`, is a failure as a
+  value: return it from `do` to fail the step without a retry. It is not
+  checked against the output schema.
 
 `workflow` uses the same builder plus two short forms:
 
@@ -107,8 +192,9 @@ workflow("ship").input(z.object({ task: z.string() })).do(({ input: { task } }) 
 );
 ```
 
-A workflow's `.do` is setup: it receives `{ input, log, run: { id } }` only,
-and returns the tree.
+A workflow's `.do` is setup: it receives `{ input, log, run: { id } }` only
+and returns the tree. It is not durable; see
+[composition and durability](#composition-and-durability).
 
 ## Locking and trees
 
@@ -123,35 +209,50 @@ publish.parallel({ a: x({}), b: y({}) });             // children together
 ```
 
 - **Children first.** An object of locked nodes keyed by name. A leaf passes
-  `{}`.
-- **Input second, optional.** Literal values for the step's input.
-- The children's results and the literal input merge into the body's `input`.
-  A key in both is an error at load.
+  `{}`. The keys name the children in the dashboard, in logs, on resume, and
+  in the parent's input.
+- **Input second, optional.** Literal values for the step's input. The
+  literal takes the schema's input type, so defaulted fields are optional.
+- The children's results and the literal input merge into the body's
+  `input`. A key in both is an error at load, as is a child key the parent's
+  schema does not declare.
 - The parent runs last, after its children. Siblings are independent; data
-  flows only child to parent.
+  flows only from a child to its parent. A step that needs another's result
+  takes it as a child.
 - One definition can be locked many times; each lock is its own node.
-- `.parallel` is the only combinator besides the default series. No race,
-  branch, or loop yet.
+- `.parallel` is the only combinator besides the default series. There is no
+  race, branch, or loop yet. A workflow is a definition too: `weekly({})`
+  locks it. A workflow lock is only ever the root of a run, launched,
+  scheduled, or returned by a monitor. As a child in another tree it throws
+  `a workflow can only be the root of a run`.
+
+In a parallel group the first failure fails the run; the siblings are
+aborted and awaited before the failure is reported. A sibling that parks on
+a question parks the parent with it while the others finish.
 
 ## Context
+
+Workflow setup receives only `{ input, log, run: { id } }`. Step bodies
+receive the full context below. Monitor handlers extend it with change
+data. See [Contexts](https://francois-esquire.github.io/foundry/marbles/foundation/contexts) for when each is used.
 
 The one object every step body receives:
 
 ```ts
-step().do(async ({ input, agents, workspaces, sandboxes, artifacts, ask, report, log, stream, signal, run }) => …);
+step().do(async ({ input, agents, workspaces, sandboxes, artifacts, ask, exec, report, log, stream, signal, run }) => …);
 ```
 
 | Key | What it is |
 | --- | --- |
 | `input` | Typed input, validated against `.input(schema)`. |
-| `agents` | `session(def, { cwd?, session?, compaction? })` → `{ generate(prompt, turn?) → { text, output, usage, result? }, stream(prompt, turn?), ref, harness }`. `turn`: `{ output?, temperature?, maxOutputTokens?, stopWhen?, providerOptions?, …, signal?, onText? }`. |
-| `workspaces` | `current` (the config's directory) and `load(def | { path })` → the `@foundry/workspaces` workspace: `root`, `files()` (entries: `id`, `path`, `extension`, `kind`), `entries()`, `read(id)`, `save`, `createFile`, `refresh()`, `summary()`, `git`. |
-| `exec` | `exec(argv, { check?, cwd?, environment?, sandbox? })` → `{ exitCode, stdout, stderr }`: a command as argv in the step's directory, on its stream, echoed under `--dry-run`; non-zero throws unless `check: false`. |
-| `sandboxes` | `start(def | spec)` → the `@foundry/sandbox` container: `exec(argv | "shell string", { cwd?, environment?, user? })` → `{ exitCode, stdout, stderr }` (written to the step stream), `files`, `processes`, `shell`, `ports`, `services`, `volumes`, `close()`, `id`; `open(id)`. A declared sandbox's own filesystem is `box.filesystem`. |
-| `artifacts` | `write(def, files, { replace?, metadata? })` adds a version; `create({ name, type, entries, metadata?, freeze? })` makes one on the spot; `latest(def)` → `{ version, text(path), bytes(path) }` or undefined (memory between runs; dry runs read real versions), `get(def \| id)`, `listContents(def \| id)`, `getContent(versionId)`, `readFile(versionId, path)`, `readRoot(versionId)` read them back. |
-| `ask` | `approval({ title, body? })` → `{ approved, note? }`; `question({ title, body?, choices? })` → `string`. |
-| `report` | `milestone({ title, body? })`, `result({ title, body, media? })`, `artifact(def, files, entry?)` → version. |
-| `log` | `log(...values)`, `log.warn(...)`, `.info`, `.debug`, `.error`. |
+| `exec` | `exec(argv, { check?, cwd?, environment?, sandbox? })` → `{ exitCode, stdout, stderr }`. A command as an argument list, in the step's working directory, on its stream, stopped with it, printed under `--dry-run`. |
+| `agents` | `session(def, options?)` (host or sandbox options; see [Agent sessions](https://francois-esquire.github.io/foundry/marbles/reference/agent-sessions)) → `{ generate(prompt, turn?) → { text, output, usage, … }, stream(prompt, turn?), ref, harness }`. |
+| `workspaces` | `current` (the workspace root) and `load(def \| { path })` → the `@foundry/workspaces` workspace: `root`, `files()`, `entries()`, `read(id)`, `save`, `createFile`, `refresh()`, `summary()`, `git`. |
+| `sandboxes` | `start(def \| spec)` → the `@foundry/sandbox` container: `exec(command, { cwd?, environment?, user? })` → `{ exitCode, stdout, stderr }`, `commands`, `files`, `processes`, `shell`, `ports`, `services`, `volumes`, `close()`, `id`; `open(id)`. |
+| `artifacts` | `write(def, files, { replace?, metadata? })` adds a version; `create({ name, type, entries, metadata?, freeze? })` makes one on the spot; `get(def \| id)`, `listContents(def \| id)`, `getContent(versionId)`, `readFile(versionId, path)`, `readRoot(versionId)` read them back. |
+| `ask` | `approval({ title, body?, key? })` → `{ approved, note? }`; `question({ title, body?, choices?, key? })` → `string`. |
+| `report` | `milestone({ title, body?, media?, key? })`, `result(entry)`, `artifact(def, files, entry?)` → version. |
+| `log` | `log(...values)` at info; `log.debug`, `.info`, `.warn`, `.error` pick a level. |
 | `stream` | `write(value)`, `pipe(source)`. The step's live output. |
 | `signal` | Fires when this step is cancelled or paused, or its run is. |
 | `run` | `{ id, path, session, signal, stream, abort(reason) }`. Advanced only. |
@@ -162,18 +263,6 @@ const scoped = await agents.session(reviewer, { cwd: worktree.root });  // overr
 const again = await agents.session(reviewer, { session });              // continue one
 const reply = await session.generate("Review the change.");
 reply.text;
-
-// A definition is usable on its own: one turn on a fresh session, or a run.
-const once = await reviewer.generate("Review the change.");  // same as a one-turn agents.session
-const total = await count.run({ path: "README.md" });         // a step or workflow, run now
-await box.exec(["bun", "test"]);                              // a declared sandbox starts at its first exec
-(await site.files()).map((file) => file.path); await weeklyReport.write({ "report.md": markdown }); // file entries, artifact version
-
-// Structured output: `Output` is re-exported from the AI SDK. A reply that
-// does not match the schema rejects with NoObjectGeneratedError.
-const verdict = Output.object({ schema: z.object({ approve: z.boolean(), reasons: z.array(z.string()) }) });
-const { output } = await session.generate("Should this merge?", { output: verdict });
-output.approve;
 
 const here = workspaces.current;
 await here.git.withWorktree({ base: "main", branch: "task/x" }, async (worktree) => {
@@ -195,24 +284,84 @@ stream.write("Tag ready\n");
 await fetch(url, { signal });
 ```
 
-- `approval` is a hard block: the run shows as blocked until someone decides.
-  `question` is input: the step waits, siblings keep going. Both need a
-  process that can show them: the dashboard parks the run; `roll` and
-  headless `run` cancel it at the ask. `choices` gives a
-  pick list; without it the answer is free text. Both are identified by
-  position in the body; `key` is optional, for updating one entry across
+- **Agents.** A session's turns write to the step's stream and stop with the
+  step. `generate` returns the message with `text` (every text part of the
+  final turn), `output`, `usage`, and `result` (the AI SDK's result, absent
+  for Claude Code and Codex); `stream` returns the harness's stream, with
+  `output` and `partialOutputStream` beside `text` and `message`. `ref` is a
+  small serializable handle (`id`, and the `model` and `provider` it opened
+  with) for continuing the session later. Network-model sessions can use `compaction: true` to summarize older
+  history. Native CLI sessions manage compaction themselves and reject
+  explicit host compaction settings.
+- **Turn options.** The second argument to `generate` and `stream` takes
+  `output` (an AI SDK `Output`), the AI SDK's model settings (`temperature`,
+  `maxOutputTokens`, `topP`, `topK`, `seed`, `stopSequences`, `stopWhen`,
+  `toolChoice`, `activeTools`, `reasoning`, `providerOptions`, …), `signal`,
+  and handlers such as `onText`. They override the agent's `settings`. A
+  turn whose `output` gets no matching value rejects with
+  `NoObjectGeneratedError` after the reply is committed. See
+  [structured output](https://francois-esquire.github.io/foundry/marbles/foundation/agents-and-sessions#structured-output).
+- **Workspaces.** A handle is the `@foundry/workspaces` workspace, loaded
+  at its first call: `files()` returns file entries (`id`, `path`,
+  `extension`, `kind`, size, and modification time), `entries()` adds
+  directories, `read(file.id)` returns the content, and `save` and
+  `createFile` write through the workspace's confinement checks. A handle
+  from `load` also has its registry `id` and `source`. Renaming or removing
+  a workspace is the host's, not a step's. `current.git` throws when the
+  workspace root is not a repository. `withWorktree({ base, branch?, home? }, body)` cuts a checkout
+  under the workspace's state, runs `body` with the working directory
+  narrowed to it, and removes it on return; a `branch` outlives the worktree.
+  `worktree(options)` cuts one you remove yourself, under the same home.
+  Naming a `branch` that exists fails before anything is cut; check first
+  with `hasBranch(name)`, which reads the repository even under
+  `--dry-run`.
+- **Sandboxes.** A handle is the `@foundry/sandbox` container. In a step
+  every command and process carries the step's signal, and `exec` writes
+  `$ <command>` and its output to the step's stream. `exec` takes an argv
+  array, run directly, or a string, run by the guest's shell, and the
+  package's options (`cwd`, `environment`, `user`). Listing, removing, and
+  restarting containers are the host's.
+- **Ask.** `approval` is a hard block: the run shows as blocked until someone
+  decides. `question` is input: the step waits, siblings keep going. Both
+  need a process that can show them; the dashboard parks the run, while
+  `roll` and headless `run` cancel it at the ask. `choices` gives a pick list
+  of at most nine; without it the answer is free text. Both are identified
+  by position in the body; `key` is optional, for updating one entry across
   steps.
-- Reports are fire-and-forget entries on the run.
-- Everything Marbles owns is already cancelled with the step and already
-  writes to the step's stream. `signal` and `stream` are for the author's own
-  work.
+- **Artifacts.** A version is the `@foundry/artifacts` content record as
+  JSON: `id`, `artifactId`, `digest`, `state`, `tag`, `metadata`, `tree`,
+  and ISO timestamps. A version written in a step records the run and its
+  session in `metadata` (`runId`, `sessionId`). `write` replaces the files
+  unless `{ replace: false }`; a file is text, bytes, or the package's file
+  input (`{ bytes, mime }`, a stored `blobId`). Reads take the artifact's
+  declaration or its package id, and a version's `id`.
+- **Memory between runs.** `artifacts.latest(def)` (or `def.latest()`) is
+  the artifact's current version with `text(path)` and `bytes(path)`, or
+  `undefined` before the first write. A declared artifact belongs to the
+  workspace, so this is what the last run here kept. Under `--dry-run` it
+  reads what real runs kept while its own writes stay in memory. See the
+  [persistent reviewer](https://francois-esquire.github.io/foundry/marbles/use-cases/persistent-reviewer).
+- **Report.** Entries are fire-and-forget and land on the run and the feed.
+  `media` paths resolve from the workspace root and are copied into the
+  entry; refer to them in the body as `media/<file name>`. `report.artifact`
+  writes a version, posts a result entry titled after the artifact unless
+  `entry.title` says otherwise, and returns the version.
+- **Signal and stream.** Everything Marbles owns is already cancelled with the
+  step and already writes to the step's stream. `signal` and `stream` are for
+  the author's own work: a raw `fetch`, a child process, a line of output.
+- **Run.** `run.abort(reason)` fails the whole run. `run.session` is the
+  run's own session; agents opened in the run are children of it.
+  `run.stream` is the whole run's output. Everyday code never reads `run`.
 
-A monitor's handler gets the same object (`workspaces`, `agents`, `report`,
-`log`, …) with `files` or `response` in place of `input`. `files` is
-`{ added, modified, removed }`, each a `{ path, checksum }[]` with `path`
-relative to the config's directory; read one with `node:fs` from
-`resolve(workspaces.current.root, path)`. `response` is a standard
-`Response` over the polled body.
+A monitor's handler extends the step context with `files` or `response`,
+plus `change`; its `input` is empty. Narrow `change.kind` before accessing
+source-specific data. `files` is `{ added, modified, removed }`, each a
+`{ path, checksum }[]` with `path` relative to the workspace root; read
+one with `node:fs` from `resolve(workspaces.current.root, path)`. `response`
+is a standard `Response` over the polled body, with the original's
+`status`, `statusText`, `url`, and `redirected`. `change` carries the diff:
+the file lists, or `{ status, previous, current }` for HTTP, where a body
+that is not text is `{ bytes, contentType }`.
 
 ## Triggers
 
@@ -220,41 +369,62 @@ relative to the config's directory; read one with `node:fs` from
 schedule(weekly).at({ weekday: "fri", hour: 16, minute: 0 });   // machine-local time
 schedule(review({}, { target: "packages" })).every("6h");        // "30s" | "10m" | "6h" | "1d"
 
-monitor("docs/**/*.md").do(({ files, log }) => log(files.modified));
+monitor("docs/**/*.md").do(({ change, log }) => {
+  if (change.kind === "files") log(change.modified);
+});
 monitor("https://status.example.com/api").every("5m").do(async ({ response, report }) => {
+  if (!response) return;
   const { status } = await response.json();
   report.milestone({ title: `Status: ${status}` });
 });
 monitor("https://tracker.example.com/latest").every("10m")
-  .do(async ({ response }) => ship({}, { task: (await response.json()).title }));
+  .do(async ({ response }) => {
+    if (!response) return;
+    return ship({}, { task: (await response.json()).title });
+  });
 ```
 
-- `schedule(target)`: a named step or workflow, bare or a childless lock. A
-  lock carries its input. `.at(slot)` or `.every(interval)` is the terminal
-  call. `weekday` is `"sun"…"sat"` or an array; omit it for every day.
-- `monitor(source)`: one string. `http://` or `https://` polls and fires when
-  the response changes (body hashed, with a non-2xx status). Anything else
-  is a glob over the config's directory, polled; `.every` defaults to one
-  minute. `.do(fn)` is terminal. `.request(init | () => init)` sends headers
-  or a body to an HTTP source, read at every poll (put tokens there, not in
-  the URL); a `401`/`403` fails the poll.
-- A handler that returns a locked node (`ship({}, { task })`, `nightly({})`)
-  starts it, attributed to the monitor. One node per tick: several new files
-  in one poll either batch into one input or wait for the author to pick.
-  A returned bare definition is ignored; return `undefined` to do nothing.
-  Started is delivered: the monitor holds the launch until a tick has
-  started it (a start that fails for now is retried next tick; a target no
-  longer registered is dropped after one), and a started run that then
-  fails or is cancelled is not started again, any more than a schedule's
-  run would be.
-- The first poll has no baseline: every matching file is `added`, or the
-  first body counts as a change, so the handler runs once on first start.
-- Keys: a schedule is `slug(target)[-sha8(input)]`, a monitor
-  `slug(source)-sha6(source)`. `marbles list` prints them.
+- **`schedule(target)`** takes a named step or workflow, bare or as a
+  childless lock. A lock carries its input, so there is no input field. A
+  lock with children throws `wrap it in a named workflow first`; a
+  nameless target throws `has no name`. `.at(slot)` or `.every(interval)` is
+  the terminal call. `weekday` is `"sun"` through `"sat"` or an array; omit
+  it for every day. `minute` defaults to zero. An interval is a positive
+  integer with `s`, `m`, `h`, or `d`; `"0s"` is refused.
+- **`monitor(source)`** takes one string. `http://` or `https://` is polled
+  and fires when the response changes: each poll hashes the body, as stable
+  JSON when it parses, as text for another textual type, as bytes
+  otherwise, together with the status when it is not 2xx, and compares it
+  with the last hash. A body that carries noise such as a timestamp fires
+  every poll; read `response` and return early when nothing of interest
+  changed. Anything else is a glob over the workspace root, polled; `files`
+  lists what was added, modified, or removed since the last poll. `.every`
+  defaults to one minute. `.do(fn)` is terminal.
+- **`.request(init)`** is for an HTTP source only (a glob throws at load):
+  a `RequestInit` without `signal`, or a function returning one, sync or
+  async, called at every poll. It is never part of the key, the stored
+  state, `list`, or the feed. A `401` or `403` fails the
+  poll and logs the status and the URL, never what was sent; any other
+  status is a reading, so a move to `404` or `500` is a change. A network
+  error fails the poll and keeps the last state.
+- **A handler that returns a locked node starts it**, attributed to the
+  monitor: `ship({}, { task })` or `nightly({})`. The same rule applies as
+  for schedules: a named definition or a childless lock of one. A bare
+  definition is ignored; return `undefined` to do nothing. One node per tick.
+  The launch is held as pending until a tick has started it, so a crash in
+  between hands it out again; a target no longer registered is dropped after
+  one failed tick; a started run that fails or is cancelled is not started
+  again.
+- **The first poll has no baseline.** Every matching file is `added`, or the
+  first body counts as a change, so the handler runs once on first start. A
+  glob that matches nothing fires nothing.
+- **Keys.** A schedule is keyed `slug(target)[-sha8(input)]`, a monitor
+  `slug(source)-sha6(source)`; an exact duplicate gets `-2`. `list` prints
+  the keys. They name the state files and `roll <key>`.
 
 ## Composition and durability
 
-Context is layered: config (its directory and its state folder under
+Context is layered: workspace (its root and its state folder under
 `~/.foundry`) → definition (prompt, provider, model) → workflow (the run) →
 step (stream, log, signal) → call (`{ cwd }`, `{ session }`). Inner layers
 override outer ones.
@@ -264,49 +434,58 @@ override outer ones.
 - **A suspended step is not finished.** After an `ask`, a pause, or a
   restart, the body replays from the top. `agents.session`, `sandboxes.start`,
   and `ask.*` are numbered by call order and return the recorded thing on
-  replay. Keep their order fixed; keep effects behind them.
+  replay: the same session with its transcript, the recorded answer. Keep
+  their order fixed; keep effects that must not repeat behind them, inside
+  an agent turn, or in a step of their own. Branching on `input` is safe;
+  branching on live values around these calls is not.
 - **Workflow setup is not durable.** It runs on every setup and rebuilds the
   tree. Pass what it must keep into a step as input: a run records the
   input each step was locked with when it started, and a recovered run
   keeps those, whatever setup would compute now.
-- **Sessions are fresh by default.** Continue one by reference (`{ session }`),
-  never by an invented id. Across runs, return `session.ref` and pass it back.
-- **A run owns one session, one stream, one cancellation.** Everything opened
-  through the context is attached to them.
+- **Sessions are fresh by default.** Continue one by reference,
+  `{ session }`, never by an invented id. Across runs, return `session.ref`
+  and pass it back. A ref belongs to the provider that opened it; continuing
+  it with an agent on another provider starts a new session and logs a
+  warning.
+- **A run owns one session, one stream, one cancellation.** Everything
+  opened through the context is attached to them. Cancelling a step aborts
+  its agent turns, sandbox commands, and worktree callbacks. The working
+  directory flows: a session or sandbox opened inside a worktree callback
+  runs in the worktree.
 - **Hosts can steer and pause.** The dashboard's `s` hands a prompt to the
-  agent mid-turn, `p` parks the step and everything under it (the bodies
-  replay on resume), `k` cancels. A step parks once its attempt has stopped:
-  agent turns, sandbox commands, and worktrees stop at the signal, so a body
-  that waits on something else should honour `signal` or it delays the
-  pause, and likewise a failure or a cancel, until it returns. None of it
-  is authored code.
+  agent mid-turn: the turn stops, the prompt becomes the next message, and
+  the author's `await generate()` resolves with the steered reply. `p` parks
+  the step and everything under it; resume replays the bodies. `k` cancels.
+  A step parks, fails, or cancels only once its attempt has stopped: owned
+  calls reject at the signal, so a body that waits on something else should
+  honour `signal` or it delays the report until it returns. None of this is
+  authored code.
 
-## CLI
+## Exports
 
-```sh
-marbles [--config ./marbles.config.ts] [--dry-run] [--state ~/.foundry/marbles]
-marbles list                       # named steps, workflows, schedule keys, monitor keys
-marbles roll <name-or-key> [--input '{"target":"src"}']
-marbles status                     # every workspace under --state
-marbles sessions                   # this workspace's agent sessions
-```
-
-- No subcommand opens the dashboard and starts the triggers.
-- `--dry-run` echoes every agent turn, git mutation, and sandbox command, and
-  keeps no state. Agent turns return the echoed prompt as `text`; sandbox
-  commands return exit 0 with empty output. Custom code in step bodies still
-  runs.
-- The CLI supplies `@foundry/marbles` to the config module itself; a schema
-  library such as `zod` must resolve from the config's directory.
+The package exports the authoring factories, the AI SDK's `Output`, `bail`,
+`defineSkill`, `dispose`, and the types behind them: `Agent`, `Runnable`, `WorkspaceInstance`,
+`SandboxInstance`, `ArtifactInstance`, `Context`,
+`StepDefinition`, `WorkflowDefinition`, `LockedNode`, the definition types
+(`AgentDefinition`, `AgentSettings`, `WorkspaceDefinition`, `SandboxDefinition`,
+`SandboxSpec`, `ArtifactDefinition`, `SkillSet`), the context types
+(`Agents`, `Session`, `SessionRef`, `SessionReply`, `TurnOptions`, `Workspaces`,
+`WorkspaceHandle`, `LoadedWorkspace`, `Sandboxes`, `SandboxHandle`, `Artifacts`, `ArtifactVersion`,
+`Ask`, `Approval`, `Report`, `Stream`, `Run`, `Log`, `LogLevel`), and the
+trigger types (`Schedule`, `ScheduleBuilder`, `MonitorBuilder`,
+`CalendarSlot`, `Weekday`, `Trigger`, `MonitorContext`, `MonitorHandler`,
+`Change`, `FileChange`, `HttpChange`). `@foundry/marbles/prebuilt` exports the
+[prebuilt step factories](https://francois-esquire.github.io/foundry/marbles/reference/project#prebuilt-steps).
 
 ## Not available yet
 
-Do not write configs that depend on these.
+Do not write modules that depend on these.
 
 - Race, branch, and loops between steps. Only series and parallel.
 - A built-in model provider. No `provider` means the first installed CLI.
-- Agents running inside a sandbox. An agent may drive a sandbox, not live in it.
 - Recovery of a step that was mid-body when the process stopped. A step
   parked on an `ask` or a pause does survive a quit, a crash, or a kill.
 - Scheduling a tree with children without wrapping it in `workflow`.
-- `@foundry/marbles` on npm.
+- Remote deployment commands, a remote dashboard, or distributed workers.
+
+See [Installation](https://francois-esquire.github.io/foundry/marbles/get-started/installation) for package availability.

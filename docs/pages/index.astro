@@ -21,6 +21,7 @@ atlas ./my-workspace`;
 
 const setupSample = `git clone ${repo}.git
 cd foundry && bun install
+bun run build --filter=@foundry/marbles
 bun run marbles -- --help
 bun run --filter @foundry/atlas build && bun run atlas -- --help`;
 
@@ -34,9 +35,12 @@ const marblesWords = [
 ];
 
 const marblesLinks = [
-  { href: "/marbles/concepts", label: "Concepts" },
-  { href: "/marbles/guides/software-factory", label: "Software Factory" },
-  { href: "/marbles/recipes", label: "Recipes" },
+  { href: "/marbles/foundation/api", label: "Foundation" },
+  { href: "/marbles/use-cases/software-factory", label: "Software Factory" },
+  {
+    href: "/marbles/get-started/using-marbles#choose-a-use-case",
+    label: "Use Cases",
+  },
   { href: "/marbles/reference/api", label: "API reference" },
 ];
 
@@ -83,7 +87,7 @@ const textLink =
       you can explore in the browser.
     </p>
     <div class="mt-8 flex flex-wrap gap-3">
-      <a class={primary} href={withBase("/marbles/start-here")}>Start with Marbles</a>
+      <a class={primary} href={withBase("/marbles/get-started/quickstart")}>Start with Marbles</a>
       <a class={secondary} href={withBase("/atlas/start-here")}>Start with Atlas</a>
       <a class={secondary} href={repo} rel="noreferrer" target="_blank">GitHub</a>
     </div>
@@ -170,11 +174,12 @@ const textLink =
   <section class="border-border border-t">
     <div class="mx-auto max-w-5xl px-6 py-16 md:py-20">
       <h2 class="font-semibold text-2xl text-foreground tracking-tight md:text-3xl">
-        Run it from the repository.
+        Work on the tools themselves.
       </h2>
       <p class="mt-4 max-w-2xl text-muted-foreground leading-relaxed">
-        Neither tool is published to npm yet. Both run from a checkout of
-        Foundry with Bun 1.3.14 or newer.
+        For Marbles usage, start with the standalone
+        <a class={textLink} href={withBase("/marbles/get-started/installation")}>installation guide</a>.
+        To contribute to Foundry, use Bun 1.3.14 or newer and build from source:
       </p>
       <div class="mt-6 max-w-3xl">
         <CodeBlock code={setupSample} lang="sh" />
@@ -191,7 +196,7 @@ const textLink =
       <div class="flex flex-wrap gap-x-5 gap-y-2">
         <a class={textLink} href={repo} rel="noreferrer" target="_blank">Source</a>
         <a class={textLink} href={`${repo}/blob/main/CONTRIBUTING.md`} rel="noreferrer" target="_blank">Contributing</a>
-        <a class={textLink} href={withBase("/marbles/safety-and-limits")}>Safety and limits</a>
+        <a class={textLink} href={withBase("/marbles/reference/safety")}>Safety and limits</a>
       </div>
     </div>
   </footer>

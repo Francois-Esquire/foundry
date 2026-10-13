@@ -21,7 +21,9 @@ run. Each names what is passed and why that thing, not another.
 ## A branch name
 
 Pass a branch, not a directory. A worktree lives only inside the callback that
-made it; a branch survives the step, the run, and the process. `run.id` is
+made it; a branch survives the step, the run, and the process. For verification and
+approval, also capture its commit SHA and pass that through every stage, so
+a moving branch cannot change what is being approved. `run.id` is
 `rn-<uuid>`; shorten it if branch names matter.
 
 ```ts
@@ -92,8 +94,8 @@ should not accumulate versions.
 
 ## Ask first
 
-A body replays from the top after its `ask` resolves. Anything before the ask
-runs twice. So a step that asks does nothing else first, and the work that
+A body replays from the top after its `ask` resolves. Ordinary code before the ask executes again; recorded managed operations
+can return their earlier results. So a step that asks does nothing else first, and the work that
 depends on the answer happens after it or in a step of its own.
 
 ```ts
@@ -207,14 +209,18 @@ childless lock of one.
 ```ts
 monitor("https://tracker.example.com/issues/latest")
   .every("10m")
-  .do(async ({ response }) => ship({}, { task: (await response.json()).title }));
+  .do(async ({ response }) => {
+    if (!response) return;
+    return ship({}, { task: (await response.json()).title });
+  });
 
 const nightly = workflow("nightly", test({}));     // a workflow locks with {} too
 monitor("https://status.example.com/api").every("5m").do(() => nightly({}));
 
-monitor("content/**/*.md").do(({ files }) =>
-  files.added.length > 0 ? index({}, { paths: files.added.map((f) => f.path) }) : undefined
-);
+monitor("content/**/*.md").do(({ change }) => {
+  if (change.kind !== "files" || change.added.length === 0) return;
+  return index({}, { paths: change.added.map((file) => file.path) });
+});
 ```
 
 Return `undefined` to do nothing this tick. HTTP monitors fire on any change
